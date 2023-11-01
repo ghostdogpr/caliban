@@ -1,16 +1,16 @@
 package caliban
 
+import akka.stream.scaladsl.{ Flow, Sink, Source }
+import akka.stream.{ Materializer, OverflowStrategy }
+import akka.util.ByteString
 import caliban.PlayAdapter.convertHttpStreamingEndpoint
 import caliban.interop.tapir.TapirAdapter._
 import caliban.interop.tapir.{ HttpInterpreter, HttpUploadInterpreter, StreamConstructor, WebSocketInterpreter }
-import org.apache.pekko.stream.scaladsl.{ Flow, Sink, Source }
-import org.apache.pekko.stream.{ Materializer, OverflowStrategy }
-import org.apache.pekko.util.ByteString
 import play.api.routing.Router.Routes
-import sttp.capabilities.WebSockets
-import sttp.capabilities.pekko.PekkoStreams
-import sttp.capabilities.pekko.PekkoStreams.Pipe
-import sttp.model.StatusCode
+import sttp.capabilities.{ akka, WebSockets }
+import sttp.capabilities.akka.AkkaStreams
+import sttp.capabilities.akka.AkkaStreams.Pipe
+import sttp.model.{ MediaType, StatusCode }
 import sttp.tapir.Codec.JsonCodec
 import sttp.tapir.PublicEndpoint
 import sttp.tapir.model.ServerRequest
@@ -30,7 +30,7 @@ class PlayAdapter private (private val options: Option[PlayServerOptions]) {
   )(implicit runtime: Runtime[R], materializer: Materializer): Routes =
     playInterpreter.toRoutes(
       interpreter
-        .serverEndpoints[R, PekkoStreams](PekkoStreams)
+        .serverEndpoints[R, AkkaStreams](AkkaStreams)
         .map(convertHttpStreamingEndpoint[R, (GraphQLRequest, ServerRequest)])
     )
 
@@ -40,7 +40,7 @@ class PlayAdapter private (private val options: Option[PlayServerOptions]) {
     requestCodec: JsonCodec[GraphQLRequest],
     mapCodec: JsonCodec[Map[String, Seq[String]]]
   ): Routes =
-    playInterpreter.toRoutes(convertHttpStreamingEndpoint(interpreter.serverEndpoint[R, PekkoStreams](PekkoStreams)))
+    playInterpreter.toRoutes(convertHttpStreamingEndpoint(interpreter.serverEndpoint[R, AkkaStreams](AkkaStreams)))
 
   def makeWebSocketService[R, E](
     interpreter: WebSocketInterpreter[R, E]
@@ -66,7 +66,7 @@ class PlayAdapter private (private val options: Option[PlayServerOptions]) {
   private implicit def streamConstructor(implicit
     runtime: Runtime[Any],
     mat: Materializer
-  ): StreamConstructor[PekkoStreams.BinaryStream] =
+  ): StreamConstructor[AkkaStreams.BinaryStream] =
     new StreamConstructor[Source[ByteString, Any]] {
       override def apply(stream: ZStream[Any, Throwable, Byte]): Source[ByteString, Any] =
         Unsafe.unsafe(implicit u =>
@@ -111,18 +111,18 @@ object PlayAdapter extends PlayAdapter(None) {
       Unit,
       Input,
       TapirResponse,
-      CalibanResponse[PekkoStreams.BinaryStream],
-      PekkoStreams,
+      CalibanResponse[AkkaStreams.BinaryStream],
+      AkkaStreams,
       RIO[R, *]
     ]
-  )(implicit runtime: Runtime[R], mat: Materializer): ServerEndpoint[PekkoStreams, Future] =
+  )(implicit runtime: Runtime[R], mat: Materializer): ServerEndpoint[AkkaStreams, Future] =
     ServerEndpoint[
       Unit,
       Unit,
       Input,
       TapirResponse,
-      CalibanResponse[PekkoStreams.BinaryStream],
-      PekkoStreams,
+      CalibanResponse[akka.AkkaStreams.BinaryStream],
+      AkkaStreams,
       Future
     ](
       endpoint.endpoint,
@@ -151,14 +151,14 @@ object PlayAdapter extends PlayAdapter(None) {
   )(implicit
     runtime: Runtime[R],
     materializer: Materializer
-  ): ServerEndpoint[PekkoStreams with WebSockets, Future] =
+  ): ServerEndpoint[AkkaStreams with WebSockets, Future] =
     ServerEndpoint[
       Unit,
       Unit,
       (ServerRequest, String),
       StatusCode,
       (String, AkkaPipe),
-      PekkoStreams with WebSockets,
+      AkkaStreams with WebSockets,
       Future
     ](
       endpoint.endpoint
