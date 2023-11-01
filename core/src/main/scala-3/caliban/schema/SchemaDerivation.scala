@@ -4,7 +4,7 @@ import caliban.Value.EnumValue
 import caliban.introspection.adt.*
 import caliban.parsing.adt.Directive
 import caliban.schema.Annotations.*
-import caliban.schema.Step.{ FunctionStep, ObjectStep }
+import caliban.schema.Step.{ FunctionStep, MetadataFunctionStep, ObjectStep }
 import caliban.schema.Types.*
 import caliban.schema.macros.Macros
 import magnolia1.{ Macro as MagnoliaMacro, TypeInfo }
@@ -171,26 +171,21 @@ trait CommonSchemaDerivation {
       else if (isInput) mkInputObject[R](annotations, fields, info)(isInput, isSubscription)
       else mkObject[R](annotations, fields, info)(isInput, isSubscription)
 
-    override private[schema] lazy val resolveFieldLazily: Boolean = (!isValueType) && fields.isEmpty
-
     def resolve(value: A): Step[R] =
       if (fields.isEmpty) PureStep(EnumValue(name))
       else if (isValueType) resolveValueType(value)
-      else resolveObject(value)
+      else MetadataFunctionStep[R](f => resolveObject(value, f.fieldNames))
 
     private def resolveValueType(value: A): Step[R] = {
       val head = fields.head
       head._3.resolve(value.asInstanceOf[Product].productElement(head._4))
     }
 
-    private def resolveObject(value: A): Step[R] = {
+    private def resolveObject(value: A, queriedFields: Set[String]): Step[R] = {
       val fieldsBuilder = Map.newBuilder[String, Step[R]]
-      fields.foreach { case (name, _, schema, index) =>
-        lazy val step = schema.resolve(value.asInstanceOf[Product].productElement(index))
-        fieldsBuilder += name -> {
-          if (schema.resolveFieldLazily) FunctionStep(_ => step)
-          else step
-        }
+      fields.foreach { (name, _, schema, index) =>
+        if (queriedFields.contains(name))
+          fieldsBuilder += name -> schema.resolve(value.asInstanceOf[Product].productElement(index))
       }
       ObjectStep(name, fieldsBuilder.result())
     }
