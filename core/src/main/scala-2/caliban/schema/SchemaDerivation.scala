@@ -107,10 +107,9 @@ trait CommonSchemaDerivation[R] {
 
     private def resolveObject(value: T, queriedFields: Set[String]): Step[R] = {
       val fieldsBuilder = Map.newBuilder[String, Step[R]]
-      fields.foreach {
-        case (name, schema, dereference) if queriedFields.contains(name) =>
+      fields.foreach { case (name, schema, dereference) =>
+        if (queriedFields.contains(name))
           fieldsBuilder += name -> schema.resolve(dereference(value))
-        case _                                                           => ()
       }
       ObjectStep(getName(ctx), fieldsBuilder.result())
     }

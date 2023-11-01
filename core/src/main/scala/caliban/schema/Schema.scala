@@ -179,9 +179,9 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
 
       override def resolve(value: A): Step[R1] = MetadataFunctionStep[R1] { field =>
         val fieldsBuilder = Map.newBuilder[String, Step[R1]]
-        fieldsForResolve.foreach {
-          case (f, plan) if field.fieldNames.contains(f.name) => fieldsBuilder += f.name -> plan(value)
-          case _                                              => ()
+        fieldsForResolve.foreach { case (f, plan) =>
+          if (field.fieldNames.contains(f.name))
+            fieldsBuilder += f.name -> plan(value)
         }
         ObjectStep(name, fieldsBuilder.result())
       }
