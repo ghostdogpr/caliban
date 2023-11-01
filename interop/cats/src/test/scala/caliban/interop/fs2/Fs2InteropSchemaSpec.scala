@@ -1,24 +1,23 @@
 package caliban.interop.fs2
 
 import caliban.Value.IntValue
+import caliban.execution.Field
 import caliban.interop.fs2.implicits._
+import caliban.introspection.adt.{ __Type, __TypeKind }
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition.{ FieldDefinition, ObjectTypeDefinition }
 import caliban.parsing.adt.Type._
 import caliban.schema.Schema.auto._
-import caliban.schema.Step.{ ObjectStep, StreamStep }
+import caliban.schema.Step.{ MetadataFunctionStep, ObjectStep, StreamStep }
 import caliban.schema.{ PureStep, Schema, Step }
 import cats.effect.std.Dispatcher
 import cats.effect.unsafe.implicits._
 import cats.effect.{ IO, LiftIO, Resource }
 import fs2.Stream
 import zio.interop.catz._
-import zio.stream.ZStream
 import zio.test.Assertion._
 import zio.test._
 import zio.{ Chunk, Exit, Task, Unsafe, ZIO }
-
-import scala.collection.immutable.Seq
 
 object Fs2InteropSchemaSpec extends ZIOSpecDefault {
   override def spec = suite("Fs2InteropSchemaSpec")(
@@ -67,11 +66,23 @@ object Fs2InteropSchemaSpec extends ZIOSpecDefault {
         }
       },
       test("should resolve to a correct stream step") {
+        val field = new Field(
+          "foo",
+          __Type(__TypeKind.OBJECT),
+          None,
+          fields = List(new Field("bar", __Type(__TypeKind.LIST), None))
+        )
+
+        def resolveMetadataStep(step: Step[Any]): Step[Any] = step match {
+          case MetadataFunctionStep(f) => f(field)
+          case _                       => step
+        }
+
         testeeZIO.flatMap { testee =>
           check(Gen.listOf(Gen.int)) { expectedValues =>
             val foo = Foo(Stream.emits(expectedValues).covary[F])
 
-            assert(testee.resolve(foo)) {
+            assert(resolveMetadataStep(testee.resolve(foo))) {
               streamResolvesToCorrectValues(expectedValues)
             }
           }
