@@ -105,18 +105,16 @@ trait Schema[-R, T] { self =>
       val newName = if (isInput) inputName.getOrElse(Schema.customizeInputTypeName(name)) else name
       val newTpe  = tpe.copy(name = Some(newName))
 
-      if (tpe.kind != __TypeKind.INTERFACE) newTpe
-      else {
-        val pt = tpe.possibleTypes.map(_.map { t =>
-          val newInterfaces = t
-            .interfaces()
-            .map(_.map { tt =>
-              if (tt.name == tpe.name) tt.copy(name = Some(newName))
-              else tt
-            })
-          t.copy(interfaces = () => newInterfaces)
-        })
-        newTpe.copy(possibleTypes = pt)
+      tpe.kind match {
+        case __TypeKind.INTERFACE =>
+          val pt = tpe.possibleTypes.map(_.map { t0 =>
+            val newInterfaces = t0
+              .interfaces()
+              .map(_.map(t1 => if (t1.name == tpe.name && t1.name.isDefined) t1.copy(name = Some(newName)) else t1))
+            t0.copy(interfaces = () => newInterfaces)
+          })
+          newTpe.copy(possibleTypes = pt)
+        case _                    => newTpe
       }
     }
 
