@@ -105,7 +105,7 @@ trait Schema[-R, T] { self =>
       self.toType_(isInput, isSubscription).copy(name = Some(newName))
     }
 
-    private val renameTypename: Boolean = self.toType_().kind match {
+    private lazy val renameTypename: Boolean = self.toType_().kind match {
       case __TypeKind.UNION | __TypeKind.ENUM | __TypeKind.INTERFACE => false
       case _                                                         => true
     }

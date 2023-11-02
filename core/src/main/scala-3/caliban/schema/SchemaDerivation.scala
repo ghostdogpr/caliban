@@ -123,7 +123,7 @@ trait CommonSchemaDerivation {
         makeUnion(
           Some(getName(annotations, info)),
           getDescription(annotations),
-          subTypes.map((_, t, _) => fixEmptyUnionObject(t)),
+          subTypes.flatMap((_, t, _) => unpackLeafTypes(t)).map(fixEmptyUnionObject),
           Some(info.full),
           Some(getDirectives(annotations))
         )
@@ -190,6 +190,12 @@ trait CommonSchemaDerivation {
       ObjectStep(name, fieldsBuilder.result())
     }
   }
+
+  private def unpackLeafTypes(t: __Type): List[__Type] =
+    t.possibleTypes match {
+      case None | Some(Nil) => List(t)
+      case Some(tpes)       => tpes.flatMap(unpackLeafTypes)
+    }
 
   // see https://github.com/graphql/graphql-spec/issues/568
   private def fixEmptyUnionObject(t: __Type): __Type =
