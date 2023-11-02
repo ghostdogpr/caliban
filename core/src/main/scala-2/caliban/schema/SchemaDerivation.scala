@@ -129,8 +129,8 @@ trait CommonSchemaDerivation[R] {
         case _                                                         => false
       }
       val isInterface = ctx.annotations.exists {
-        case GQLInterface() => true
-        case _              => false
+        case _: GQLInterface => true
+        case _               => false
       }
       val isUnion     = ctx.annotations.exists {
         case GQLUnion() => true
@@ -162,16 +162,17 @@ trait CommonSchemaDerivation[R] {
           Some(getDirectives(ctx.annotations))
         )
       else {
+        val excl         = ctx.annotations.collectFirst { case i: GQLInterface => i.excludedFields.toSet }.getOrElse(Set.empty)
         val impl         = subtypes.map(_._1.copy(interfaces = () => Some(List(toType(isInput, isSubscription)))))
         val commonFields = () =>
           impl
             .flatMap(_.allFields)
             .groupBy(_.name)
-            .filter { case (_, list) => list.lengthCompare(impl.size) == 0 }
-            .collect { case (_, list) =>
-              Types
-                .unify(list)
-                .flatMap(t => list.headOption.map(_.copy(`type` = () => t)))
+            .collect {
+              case (name, list) if list.lengthCompare(impl.size) == 0 && !excl.contains(name) =>
+                Types
+                  .unify(list)
+                  .flatMap(t => list.headOption.map(_.copy(`type` = () => t)))
             }
             .flatten
             .toList

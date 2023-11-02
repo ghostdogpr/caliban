@@ -108,8 +108,8 @@ trait CommonSchemaDerivation {
     }
 
     private lazy val isInterface = annotations.exists {
-      case GQLInterface() => true
-      case _              => false
+      case _: GQLInterface => true
+      case _               => false
     }
 
     private lazy val isUnion = annotations.exists {
@@ -267,12 +267,13 @@ trait CommonSchemaDerivation {
     info: TypeInfo,
     impl: List[__Type]
   ) = {
+    val excl         = annotations.collectFirst { case i: GQLInterface => i.excludedFields.toSet }.getOrElse(Set.empty)
     val commonFields = () =>
       impl
         .flatMap(_.allFields)
         .groupBy(_.name)
         .collect {
-          case (_, list) if list.lengthCompare(impl.size) == 0 =>
+          case (name, list) if list.lengthCompare(impl.size) == 0 && !excl.contains(name) =>
             Types
               .unify(list)
               .flatMap(t => list.headOption.map(_.copy(`type` = () => t)))
