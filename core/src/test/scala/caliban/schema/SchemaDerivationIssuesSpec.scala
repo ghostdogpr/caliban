@@ -48,9 +48,9 @@ object SchemaDerivationIssuesSpec extends ZIOSpecDefault {
             |}
             |
             |interface MyInterface {
-            |  second: String!
             |  "a"
             |  first: String!
+            |  second: String!
             |}
             |
             |type Bar implements MyInterface {
@@ -127,7 +127,7 @@ private object i1951 {
   case class Queries(param: MyInterface)
 
   val schema = {
-    val queries = Queries(param = MyInterface.Foo("foo", "bar"))
+    val queries = Queries(param = MyInterface.Foo("a", "b"))
     graphQL(RootResolver(queries))
   }.render
 }

@@ -213,8 +213,8 @@ object Types {
       }
 
   def extractCommonDescription(l: List[__Field]): Option[String] =
-    l.distinctBy(_.description) match {
-      case head :: Nil => head.description
+    l.map(_.description).distinct match {
+      case desc :: Nil => desc
       case _           => None
     }
 

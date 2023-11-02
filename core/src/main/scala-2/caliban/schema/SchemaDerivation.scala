@@ -177,6 +177,7 @@ trait CommonSchemaDerivation[R] {
             }
             .flatten
             .toList
+            .sortBy(_.name)
 
         makeInterface(
           Some(getName(ctx)),

@@ -281,6 +281,7 @@ trait CommonSchemaDerivation {
         }
         .flatten
         .toList
+        .sortBy(_.name)
 
     makeInterface(
       Some(getName(annotations, info)),
