@@ -128,7 +128,9 @@ trait CommonSchemaDerivation {
           Some(getDirectives(annotations))
         )
       else {
-        val impl = subTypes.map(_._2.copy(interfaces = () => Some(List(toType(isInput, isSubscription)))))
+        val impl = subTypes
+          .flatMap(v => unpackUnion(v._2))
+          .map(_.copy(interfaces = () => Some(List(toType(isInput, isSubscription)))))
         mkInterface(annotations, info, impl)
       }
 
@@ -195,6 +197,12 @@ trait CommonSchemaDerivation {
     t.possibleTypes match {
       case None | Some(Nil) => List(t)
       case Some(tpes)       => tpes.flatMap(unpackLeafTypes)
+    }
+
+  private def unpackUnion(t: __Type): List[__Type] =
+    t.kind match {
+      case __TypeKind.UNION => t.possibleTypes.fold(List(t))(_.flatMap(unpackUnion))
+      case _                => List(t)
     }
 
   // see https://github.com/graphql/graphql-spec/issues/568
