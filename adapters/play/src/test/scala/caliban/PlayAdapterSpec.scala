@@ -1,17 +1,25 @@
 package caliban
 
 import caliban.interop.tapir.TestData.sampleCharacters
-import caliban.interop.tapir.{FakeAuthorizationInterceptor, HttpInterpreter, HttpUploadInterpreter, TapirAdapterSpec, TestApi, TestService, WebSocketInterpreter}
+import caliban.interop.tapir.{
+  FakeAuthorizationInterceptor,
+  HttpInterpreter,
+  HttpUploadInterpreter,
+  TapirAdapterSpec,
+  TestApi,
+  TestService,
+  WebSocketInterpreter
+}
 import caliban.uploads.Uploads
 import org.apache.pekko.actor.ActorSystem
 import org.apache.pekko.stream.Materializer
 import play.api.Mode
 import play.api.routing._
 import play.api.routing.sird._
-import play.core.server.{PekkoHttpServer, ServerConfig}
+import play.core.server.{ PekkoHttpServer, ServerConfig }
 import sttp.client3.UriContext
 import zio._
-import zio.test.{Live, ZIOSpecDefault}
+import zio.test.{ Live, ZIOSpecDefault }
 
 import scala.language.postfixOps
 
