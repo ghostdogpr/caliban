@@ -488,9 +488,9 @@ lazy val examples = project
     run / connectInput := true
   )
   .settings(
-    skip                                                 := (scalaVersion.value == scala3),
-    ideSkipProject                                       := (scalaVersion.value == scala3),
-    crossScalaVersions -= scala3,
+    skip                                                 := (scalaVersion.value != scala213),
+    ideSkipProject                                       := (scalaVersion.value != scala213),
+    crossScalaVersions                                   := Seq(scala213),
     libraryDependencySchemes += "org.scala-lang.modules" %% "scala-java8-compat" % "always",
     libraryDependencies ++= Seq(
       "org.typelevel"                         %% "cats-mtl"               % catsMtlVersion,
