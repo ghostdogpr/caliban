@@ -104,11 +104,7 @@ object AuthExampleApp extends ZIOAppDefault {
         ExampleService.make(sampleCharacters),
         ExampleApi.layer,
         Auth.http,
-        ZLayer.succeed(
-          Server.Config.default
-            .port(8088)
-            .webSocketConfig(ZHttpAdapter.defaultWebSocketConfig)
-        ),
+        ZLayer.succeed(Server.Config.default.port(8088)),
         Server.live
       )
       .exitCode
