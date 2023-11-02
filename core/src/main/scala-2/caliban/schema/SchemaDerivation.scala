@@ -95,26 +95,21 @@ trait CommonSchemaDerivation[R] {
         )
     }
 
-    override private[schema] lazy val resolveFieldLazily: Boolean = !(ctx.isObject || _isValueType)
-
     override def resolve(value: T): Step[R] =
       if (ctx.isObject) PureStep(EnumValue(getName(ctx)))
       else if (_isValueType) resolveValueType(value)
-      else resolveObject(value)
+      else MetadataFunctionStep[R](f => resolveObject(value, f.fieldNames))
 
     private def resolveValueType(value: T): Step[R] = {
       val head = ctx.parameters.head
       head.typeclass.resolve(head.dereference(value))
     }
 
-    private def resolveObject(value: T): Step[R] = {
+    private def resolveObject(value: T, queriedFields: Set[String]): Step[R] = {
       val fieldsBuilder = Map.newBuilder[String, Step[R]]
       fields.foreach { case (name, schema, dereference) =>
-        fieldsBuilder += name -> {
-          lazy val step = schema.resolve(dereference(value))
-          if (schema.resolveFieldLazily) FunctionStep(_ => step)
-          else step
-        }
+        if (queriedFields.contains(name))
+          fieldsBuilder += name -> schema.resolve(dereference(value))
       }
       ObjectStep(getName(ctx), fieldsBuilder.result())
     }

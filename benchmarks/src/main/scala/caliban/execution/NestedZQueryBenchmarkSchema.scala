@@ -12,6 +12,7 @@ object NestedZQueryBenchmarkSchema {
 
   type Query[A] = ZQuery[Any, Throwable, A]
 
+  implicit val nestedObjSchema: Schema[Any, NestedObject]          = Schema.gen
   implicit val simpleEntitySchema: Schema[Any, SimpleEntity]       = Schema.gen
   implicit val multipleEntitySchema: Schema[Any, MultifieldEntity] = Schema.gen
 
@@ -53,8 +54,29 @@ object NestedZQueryBenchmarkSchema {
     nested1: Query[Int],
     nested2: Query[Int],
     nested3: Query[Int],
-    nested4: Query[Int]
+    nested4: Query[Int],
+    nestedObject: Query[NestedObject]
   )
+
+  case class NestedObject(
+    id: Int,
+    nested0: Query[Int],
+    nested1: Query[Int],
+    nested2: Query[Int],
+    nested3: Query[Int],
+    nested4: Query[Int],
+    nested5: Query[Int],
+    nested6: Query[Int],
+    nested7: Query[Int],
+    nested8: Query[Int],
+    nested9: Query[Int],
+    nested10: Query[Int],
+    nested11: Query[Int],
+    nested12: Query[Int],
+    nested13: Query[Int],
+    nested14: Query[Int]
+  )
+
   case class DeepRoot(entities: Query[List[DeepEntity]])
   case class DeepEntity(next: Query[Option[DeepEntity]], nested: Query[Int])
   case class DeepWithArgsRoot(entities: Query[List[DeepWithArgsEntity]])
@@ -84,6 +106,7 @@ object NestedZQueryBenchmarkSchema {
       nested2
       nested3
       nested4
+      nestedObject { id }
     }
   }""".stripMargin
 
@@ -140,18 +163,18 @@ object NestedZQueryBenchmarkSchema {
   }
 
   private def generateMulti(n: Int) = {
-    val entities = (1 to n)
-      .map(i =>
-        MultifieldEntity(
-          i,
-          ZQuery.succeed(i),
-          ZQuery.succeed(i),
-          ZQuery.succeed(i),
-          ZQuery.succeed(i),
-          ZQuery.succeed(i)
-        )
+    val entities = (1 to n).map { i =>
+      val qi = ZQuery.succeed(i)
+      MultifieldEntity(
+        i,
+        qi,
+        qi,
+        qi,
+        qi,
+        qi,
+        ZQuery.succeed(NestedObject(i, qi, qi, qi, qi, qi, qi, qi, qi, qi, qi, qi, qi, qi, qi, qi))
       )
-      .toList
+    }.toList
     MultifieldRoot(ZQuery.succeed(entities))
   }
 

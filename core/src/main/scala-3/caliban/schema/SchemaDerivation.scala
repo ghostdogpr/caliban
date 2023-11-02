@@ -4,7 +4,7 @@ import caliban.Value.EnumValue
 import caliban.introspection.adt.*
 import caliban.parsing.adt.Directive
 import caliban.schema.Annotations.*
-import caliban.schema.Step.{ FunctionStep, ObjectStep }
+import caliban.schema.Step.{ FunctionStep, MetadataFunctionStep, ObjectStep }
 import caliban.schema.Types.*
 import caliban.schema.macros.Macros
 import magnolia1.{ Macro as MagnoliaMacro, TypeInfo }
@@ -123,12 +123,14 @@ trait CommonSchemaDerivation {
         makeUnion(
           Some(getName(annotations, info)),
           getDescription(annotations),
-          subTypes.map((_, t, _) => fixEmptyUnionObject(t)),
+          subTypes.flatMap((_, t, _) => unpackLeafTypes(t)).map(fixEmptyUnionObject),
           Some(info.full),
           Some(getDirectives(annotations))
         )
       else {
-        val impl = subTypes.map(_._2.copy(interfaces = () => Some(List(toType(isInput, isSubscription)))))
+        val impl = subTypes
+          .flatMap(v => unpackUnion(v._2))
+          .map(_.copy(interfaces = () => Some(List(toType(isInput, isSubscription)))))
         mkInterface(annotations, info, impl)
       }
 
@@ -171,30 +173,37 @@ trait CommonSchemaDerivation {
       else if (isInput) mkInputObject[R](annotations, fields, info)(isInput, isSubscription)
       else mkObject[R](annotations, fields, info)(isInput, isSubscription)
 
-    override private[schema] lazy val resolveFieldLazily: Boolean = (!isValueType) && fields.isEmpty
-
     def resolve(value: A): Step[R] =
       if (fields.isEmpty) PureStep(EnumValue(name))
       else if (isValueType) resolveValueType(value)
-      else resolveObject(value)
+      else MetadataFunctionStep[R](f => resolveObject(value, f.fieldNames))
 
     private def resolveValueType(value: A): Step[R] = {
       val head = fields.head
       head._3.resolve(value.asInstanceOf[Product].productElement(head._4))
     }
 
-    private def resolveObject(value: A): Step[R] = {
+    private def resolveObject(value: A, queriedFields: Set[String]): Step[R] = {
       val fieldsBuilder = Map.newBuilder[String, Step[R]]
-      fields.foreach { case (name, _, schema, index) =>
-        lazy val step = schema.resolve(value.asInstanceOf[Product].productElement(index))
-        fieldsBuilder += name -> {
-          if (schema.resolveFieldLazily) FunctionStep(_ => step)
-          else step
-        }
+      fields.foreach { (name, _, schema, index) =>
+        if (queriedFields.contains(name))
+          fieldsBuilder += name -> schema.resolve(value.asInstanceOf[Product].productElement(index))
       }
       ObjectStep(name, fieldsBuilder.result())
     }
   }
+
+  private def unpackLeafTypes(t: __Type): List[__Type] =
+    t.possibleTypes match {
+      case None | Some(Nil) => List(t)
+      case Some(tpes)       => tpes.flatMap(unpackLeafTypes)
+    }
+
+  private def unpackUnion(t: __Type): List[__Type] =
+    t.kind match {
+      case __TypeKind.UNION => t.possibleTypes.fold(List(t))(_.flatMap(unpackUnion))
+      case _                => List(t)
+    }
 
   // see https://github.com/graphql/graphql-spec/issues/568
   private def fixEmptyUnionObject(t: __Type): __Type =
