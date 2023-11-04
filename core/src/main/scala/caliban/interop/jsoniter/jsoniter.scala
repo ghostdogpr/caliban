@@ -239,8 +239,8 @@ private[caliban] object ErrorJsoniter {
 
   private case class ErrorDTO(
     message: String,
-    path: List[Either[String, Int]],
-    locations: List[LocationInfo],
+    path: Option[List[Either[String, Int]]],
+    locations: Option[List[LocationInfo]],
     extensions: Option[ResponseValue.ObjectValue]
   )
 
@@ -283,8 +283,8 @@ private[caliban] object ErrorJsoniter {
       val err = dtoCodec.decodeValue(in, null)
       CalibanError.ExecutionError(
         msg = err.message,
-        path = err.path,
-        locationInfo = err.locations.headOption,
+        path = err.path.getOrElse(Nil),
+        locationInfo = err.locations.flatMap(_.headOption),
         innerThrowable = None,
         extensions = err.extensions
       )
@@ -299,7 +299,7 @@ private[caliban] object ErrorJsoniter {
 private[caliban] object GraphQLResponseJsoniter {
   import com.github.plokhotnyuk.jsoniter_scala.macros._
 
-  private case class GraphQLResponseDTO(data: ResponseValue, errors: List[CalibanError])
+  private case class GraphQLResponseDTO(data: ResponseValue, errors: Option[List[CalibanError]])
 
   implicit val graphQLResponseCodec: JsonValueCodec[GraphQLResponse[CalibanError]] =
     new JsonValueCodec[GraphQLResponse[CalibanError]] {
@@ -312,7 +312,7 @@ private[caliban] object GraphQLResponseJsoniter {
         val resp = dtoCodec.decodeValue(in, null)
         GraphQLResponse[CalibanError](
           data = resp.data,
-          errors = resp.errors,
+          errors = resp.errors.getOrElse(Nil),
           extensions = None
         )
       }
