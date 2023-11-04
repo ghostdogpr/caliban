@@ -55,12 +55,15 @@ private[caliban] object ValueJsoniter {
       l.foreach(v => encodeInputValue(v, out, depthM1))
       out.writeArrayEnd()
     case InputValue.ObjectValue(o)          =>
-      val depthM1 = depth - 1
+      val depthM1   = depth - 1
       if (depthM1 < 0) out.encodeError("depth limit exceeded")
       out.writeObjectStart()
-      o.foreach { case (k, v) =>
+      var remaining = o
+      while (!remaining.isEmpty) {
+        val (k, v) = remaining.head
         out.writeKey(k)
         encodeInputValue(v, out, depthM1)
+        remaining = remaining.tail
       }
       out.writeObjectEnd()
     case InputValue.VariableValue(v)        => out.writeVal(v)
@@ -84,12 +87,15 @@ private[caliban] object ValueJsoniter {
       l.foreach(v => encodeResponseValue(v, out, depthM1))
       out.writeArrayEnd()
     case ResponseValue.ObjectValue(o)       =>
-      val depthM1 = depth - 1
+      val depthM1   = depth - 1
       if (depthM1 < 0) out.encodeError("depth limit exceeded")
       out.writeObjectStart()
-      o.foreach { case (k, v) =>
+      var remaining = o
+      while (!remaining.isEmpty) {
+        val (k, v) = remaining.head
         out.writeKey(k)
         encodeResponseValue(v, out, depthM1)
+        remaining = remaining.tail
       }
       out.writeObjectEnd()
     case s: ResponseValue.StreamValue       => out.writeVal(s.toString)
@@ -233,8 +239,8 @@ private[caliban] object ErrorJsoniter {
 
   private case class ErrorDTO(
     message: String,
-    path: Option[List[Either[String, Int]]],
-    locations: Option[List[LocationInfo]],
+    path: List[Either[String, Int]],
+    locations: List[LocationInfo],
     extensions: Option[ResponseValue.ObjectValue]
   )
 
@@ -242,14 +248,17 @@ private[caliban] object ErrorJsoniter {
     override def decodeValue(in: JsonReader, default: Either[String, Int]): Either[String, Int] = {
       val b = in.nextToken()
       in.rollbackToken()
-      (b: @switch) match {
-        case '"'                                                             => Left(in.readString(null))
-        case '-' | '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' => Right(in.readInt())
-        case _                                                               => in.decodeError("expected int or string")
+      b match {
+        case '"'                                     => Left(in.readString(null))
+        case x if (x >= '0' && x <= '9') || x == '-' => Right(in.readInt())
+        case _                                       => in.decodeError("expected int or string")
       }
     }
     override def encodeValue(x: Either[String, Int], out: JsonWriter): Unit                     =
-      x.fold(out.writeVal, out.writeVal)
+      x match {
+        case Left(s)  => out.writeVal(s)
+        case Right(i) => out.writeVal(i)
+      }
     override def nullValue: Either[String, Int]                                                 =
       null.asInstanceOf[Either[String, Int]]
   }
@@ -274,8 +283,8 @@ private[caliban] object ErrorJsoniter {
       val err = dtoCodec.decodeValue(in, null)
       CalibanError.ExecutionError(
         msg = err.message,
-        path = err.path.getOrElse(Nil),
-        locationInfo = err.locations.flatMap(_.headOption),
+        path = err.path,
+        locationInfo = err.locations.headOption,
         innerThrowable = None,
         extensions = err.extensions
       )
@@ -290,7 +299,7 @@ private[caliban] object ErrorJsoniter {
 private[caliban] object GraphQLResponseJsoniter {
   import com.github.plokhotnyuk.jsoniter_scala.macros._
 
-  private case class GraphQLResponseDTO(data: ResponseValue, errors: Option[List[CalibanError]])
+  private case class GraphQLResponseDTO(data: ResponseValue, errors: List[CalibanError])
 
   implicit val graphQLResponseCodec: JsonValueCodec[GraphQLResponse[CalibanError]] =
     new JsonValueCodec[GraphQLResponse[CalibanError]] {
@@ -303,7 +312,7 @@ private[caliban] object GraphQLResponseJsoniter {
         val resp = dtoCodec.decodeValue(in, null)
         GraphQLResponse[CalibanError](
           data = resp.data,
-          errors = resp.errors.getOrElse(Nil),
+          errors = resp.errors,
           extensions = None
         )
       }
