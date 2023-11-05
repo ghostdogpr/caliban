@@ -2,10 +2,10 @@ package caliban.execution
 
 import caliban.Macros.gqldoc
 import caliban.ResponseValue.StreamValue
-import caliban.TestUtils.{Character, characters}
-import caliban.{CalibanError, GraphQLResponse, ResponseValue, Value}
+import caliban.TestUtils.{ characters, Character }
+import caliban.{ CalibanError, GraphQLResponse, ResponseValue, Value }
 import zio.test.Assertion.hasSameElements
-import zio.test.{TestAspect, TestClock, ZIOSpecDefault, assert, assertTrue}
+import zio.test.{ assert, assertTrue, TestAspect, TestClock, ZIOSpecDefault }
 import zio._
 
 trait CharacterService {
