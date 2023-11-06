@@ -87,7 +87,7 @@ object SchemaSpec extends ZIOSpecDefault {
         )
       },
       test("interface only take fields that return the same type") {
-        assertTrue(introspect[MyInterface].fields(__DeprecatedArgs()).toList.flatten.map(_.name) == List("c2", "c1"))
+        assertTrue(introspect[MyInterface].fields(__DeprecatedArgs()).toList.flatten.map(_.name) == List("c1", "c2"))
       },
       test("enum-like sealed traits annotated with GQLUnion") {
         assert(introspect[EnumLikeUnion])(

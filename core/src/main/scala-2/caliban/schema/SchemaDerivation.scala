@@ -171,10 +171,13 @@ trait CommonSchemaDerivation[R] {
             .collect { case (_, list) =>
               Types
                 .unify(list)
-                .flatMap(t => list.headOption.map(_.copy(`type` = () => t)))
+                .flatMap(t =>
+                  list.headOption.map(_.copy(description = Types.extractCommonDescription(list), `type` = () => t))
+                )
             }
             .flatten
             .toList
+            .sortBy(_.name)
 
         makeInterface(
           Some(getName(ctx)),
