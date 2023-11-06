@@ -101,8 +101,21 @@ trait Schema[-R, T] { self =>
     override def optional: Boolean                                         = self.optional
     override def arguments: List[__InputValue]                             = self.arguments
     override def toType(isInput: Boolean, isSubscription: Boolean): __Type = {
+      val tpe     = self.toType_(isInput, isSubscription)
       val newName = if (isInput) inputName.getOrElse(Schema.customizeInputTypeName(name)) else name
-      self.toType_(isInput, isSubscription).copy(name = Some(newName))
+      val newTpe  = tpe.copy(name = Some(newName))
+
+      tpe.kind match {
+        case __TypeKind.INTERFACE =>
+          val pt = tpe.possibleTypes.map(_.map { t0 =>
+            val newInterfaces = t0
+              .interfaces()
+              .map(_.map(t1 => if (t1.name == tpe.name && t1.name.isDefined) t1.copy(name = Some(newName)) else t1))
+            t0.copy(interfaces = () => newInterfaces)
+          })
+          newTpe.copy(possibleTypes = pt)
+        case _                    => newTpe
+      }
     }
 
     private lazy val renameTypename: Boolean = self.toType_().kind match {
