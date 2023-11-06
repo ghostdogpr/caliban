@@ -5,8 +5,8 @@ import caliban.ResponseValue.StreamValue
 import caliban.TestUtils.{ characters, Character }
 import caliban.{ CalibanError, GraphQLResponse, ResponseValue, Value }
 import zio.test.Assertion.hasSameElements
-import zio.test.{ assert, assertTrue, TestAspect, ZIOSpecDefault }
-import zio.{ Chunk, UIO, ZIO, ZLayer }
+import zio.test.{ assert, assertTrue, TestAspect, TestClock, ZIOSpecDefault }
+import zio._
 
 trait CharacterService {
   def characterBy(pred: Character => Boolean): UIO[List[Character]]
@@ -188,7 +188,32 @@ object DeferredExecutionSpec extends ZIOSpecDefault {
           """{"hasNext":false}"""
         )
       )
-    }
+    },
+    test("deferred fields backed by a datasource") {
+      import TestDatasourceDeferredSchema._
+      val query = gqldoc("""
+        {
+          foo {
+            bar { ... @defer { value } }
+          }
+        }""")
+
+      for {
+        resp <- interpreter.flatMap(_.execute(query))
+        rest <- runIncrementalResponses(resp)
+        head  = rest.head.toString
+        mid   = rest.tail.init.toList.map(_.toString)
+        last  = rest.last.toString
+      } yield assertTrue(
+        head == """{"foo":{"bar":[{},{},{}]}}""",
+        mid.sorted == List(
+          """{"incremental":[{"data":{"value":"value"},"path":["foo","bar",0]}],"hasNext":true}""",
+          """{"incremental":[{"data":{"value":"value"},"path":["foo","bar",1]}],"hasNext":true}""",
+          """{"incremental":[{"data":{"value":"value"},"path":["foo","bar",2]}],"hasNext":true}"""
+        ),
+        last == """{"hasNext":false}"""
+      )
+    } @@ TestAspect.nonFlaky(50)
   ).provide(CharacterService.test)
 
   def runIncrementalResponses(response: GraphQLResponse[CalibanError]) =
