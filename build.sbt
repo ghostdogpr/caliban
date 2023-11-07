@@ -20,7 +20,7 @@ val magnoliaScala2Version     = "1.1.6"
 val magnoliaScala3Version     = "1.3.4"
 val pekkoVersion              = "1.0.1"
 val playVersion               = "2.8.20"
-val playJsonVersion           = "2.10.3"
+val playJsonVersion           = "3.0.1"
 val scalafmtVersion           = "3.7.14"
 val sttpVersion               = "3.9.0"
 val tapirVersion              = "1.8.2"
@@ -150,7 +150,7 @@ lazy val core = project
         "io.circe"                              %% "circe-parser"          % circeVersion    % Test,
         "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-core"   % jsoniterVersion % Optional,
         "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros" % jsoniterVersion % Provided,
-        "com.typesafe.play"                     %% "play-json"             % playJsonVersion % Optional
+        "org.playframework"                     %% "play-json"             % playJsonVersion % Optional
       )
   )
   .dependsOn(macros)
