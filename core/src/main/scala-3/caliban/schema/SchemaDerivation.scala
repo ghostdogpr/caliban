@@ -99,12 +99,12 @@ trait CommonSchemaDerivation {
 
     private lazy val members = _members.toVector // Vector's .apply is O(1) vs List's O(N)
 
-    private lazy val subTypes = members.map { case (label, subTypeAnnotations, schema) =>
+    private lazy val subTypes = members.map { (label, subTypeAnnotations, schema) =>
       (label, schema.toType_(), subTypeAnnotations)
-    }.sortBy { case (label, _, _) => label }.toList
+    }.sortBy(_._1).toList
 
     private lazy val isEnum = subTypes.forall { (_, t, _) =>
-      t.allFields.isEmpty && t.allInputFields.isEmpty
+      unpackLeafTypes(t).foldLeft(true)((acc, t) => acc && t.allFields.isEmpty && t.allInputFields.isEmpty)
     }
 
     private lazy val isInterface = annotations.exists {
@@ -259,7 +259,7 @@ trait CommonSchemaDerivation {
       getDescription(annotations),
       subTypes.collect { case (name, __Type(_, _, description, _, _, _, _, _, _, _, _, _), annotations) =>
         __EnumValue(
-          name,
+          getName(annotations, name),
           description,
           getDeprecatedReason(annotations).isDefined,
           getDeprecatedReason(annotations),
