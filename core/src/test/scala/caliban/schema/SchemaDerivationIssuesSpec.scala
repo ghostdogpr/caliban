@@ -1,6 +1,6 @@
 package caliban.schema
 
-import caliban.schema.Annotations.{ GQLDescription, GQLInterface, GQLUnion }
+import caliban.schema.Annotations.{ GQLDescription, GQLInterface, GQLName, GQLUnion }
 import zio.Chunk
 import zio.test.ZIOSpecDefault
 import zio.test._
@@ -101,6 +101,45 @@ object SchemaDerivationIssuesSpec extends ZIOSpecDefault {
             |  param: MyInterface!
             |}""".stripMargin
       )
+    },
+    test("i1989") {
+      import i1989._
+
+      assertTrue(
+        schema ==
+          """schema {
+            |  query: Queries
+            |}
+            |
+            |union Level1 = Level3
+            |
+            |type Level3 {
+            |  value: Boolean!
+            |}
+            |
+            |type Queries {
+            |  level: Level1!
+            |}""".stripMargin
+      )
+    },
+    test("i1990") {
+      import i1990._
+
+      assertTrue(
+        schema ==
+          """schema {
+            |  query: Queries
+            |}
+            |
+            |enum PrefixOperator {
+            |  PrefixOperatorGreaterThan
+            |  PrefixOperatorLessThan
+            |}
+            |
+            |type Queries {
+            |  op: PrefixOperator!
+            |}""".stripMargin
+      )
     }
   )
 }
@@ -198,5 +237,61 @@ private object i1977 {
   val schema = {
     val queries = Queries(param = Variable("temp"))
     graphQL(RootResolver(queries))
+  }.render
+}
+
+private object i1989 {
+  sealed trait Level1
+  object Level1 {
+    implicit val schema: Schema[Any, Level1] = Schema.gen
+
+    sealed trait Level2 extends Level1
+    object Level2 {
+      implicit val schema: Schema[Any, Level2] = Schema.gen
+
+      case class Level3(value: Boolean) extends Level2
+      object Level3 {
+        implicit val schema: Schema[Any, Level3] = Schema.gen
+      }
+    }
+  }
+
+  case class Queries(level: Level1)
+  object Queries {
+    implicit val schema: Schema[Any, Queries] = Schema.gen
+  }
+
+  val schema = {
+    val queries = Queries(level = Level1.Level2.Level3(false))
+    caliban.graphQL(RootResolver(queries))
+  }.render
+}
+
+object i1990 {
+  @GQLName("PrefixOperator")
+  sealed trait Operator
+  object Operator {
+    @GQLName("PrefixOperatorGreaterThan")
+    case object GreaterThan extends Operator {
+      implicit val schema: Schema[Any, GreaterThan.type] = Schema.gen
+    }
+
+    @GQLName("PrefixOperatorLessThan")
+    case object LessThan extends Operator {
+      implicit val schema: Schema[Any, LessThan.type] = Schema.gen
+    }
+
+    implicit val schema: Schema[Any, Operator] = Schema.gen
+  }
+
+  case class Queries(op: Operator)
+
+  object Queries {
+    implicit val schema: Schema[Any, Queries] = Schema.gen
+  }
+
+  val schema = {
+    val queries = Queries(op = Operator.LessThan)
+    caliban.graphQL(RootResolver(queries))
   }.render
 }
