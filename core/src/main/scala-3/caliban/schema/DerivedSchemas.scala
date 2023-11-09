@@ -46,7 +46,7 @@ final private class ObjectSchema[R, A](
 ) extends Schema[R, A] {
   private val name = getName(anns, info)
 
-  private lazy val fields = _fields.map { case (label, schema, index) =>
+  private lazy val fields = _fields.map { (label, schema, index) =>
     val fieldAnnotations = paramAnnotations.getOrElse(label, Nil)
     (getName(fieldAnnotations, label), fieldAnnotations, schema, index)
   }
@@ -55,19 +55,13 @@ final private class ObjectSchema[R, A](
     if (isInput) mkInputObject[R](anns, fields, info)(isInput, isSubscription)
     else mkObject[R](anns, fields, info)(isInput, isSubscription)
 
-  private lazy val nFields = fields.size
-
   def resolve(value: A): Step[R] = MetadataFunctionStep[R] { f =>
     val fb = Map.newBuilder[String, Step[R]]
-
-    val include: String => Boolean =
-      if (f.fieldNames.size == nFields) _ => true
-      else f.fieldNames.contains
 
     var remaining = fields
     while (!remaining.isEmpty) {
       val (name, _, schema, i) = remaining.head
-      if (include(name)) fb += name -> schema.resolve(value.asInstanceOf[Product].productElement(i))
+      if (f.fieldNames.contains(name)) fb += name -> schema.resolve(value.asInstanceOf[Product].productElement(i))
       remaining = remaining.tail
     }
 
@@ -253,7 +247,7 @@ private object DerivationUtils {
   )(isInput: Boolean, isSubscription: Boolean): __Type = makeObject(
     Some(getName(annotations, info)),
     getDescription(annotations),
-    fields.map { case (name, fieldAnnotations, schema, _) =>
+    fields.map { (name, fieldAnnotations, schema, _) =>
       val deprecatedReason = getDeprecatedReason(fieldAnnotations)
       Types.makeField(
         name,
