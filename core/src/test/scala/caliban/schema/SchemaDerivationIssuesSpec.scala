@@ -168,7 +168,8 @@ object SchemaDerivationIssuesSpec extends ZIOSpecDefault {
             |  p: Parent!
             |}""".stripMargin
       )
-    },test("i1993") {
+    },
+    test("i1993") {
       import i1993._
 
       assertTrue(
