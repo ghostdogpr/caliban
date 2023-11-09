@@ -51,8 +51,8 @@ trait CommonSchemaDerivation {
               (
                 constValue[name].toString,
                 MagnoliaMacro.anns[t], {
-                  if (Macros.isEnumField[P, t])
-                    if (!Macros.implicitExists[Schema[R, t]]) derived[R, t]
+                  inline if (Macros.isEnumField[P, t])
+                    inline if (!Macros.implicitExists[Schema[R, t]]) derived[R, t]
                     else summonInline[Schema[R, t]]
                   else summonInline[Schema[R, t]]
                 }.asInstanceOf[Schema[R, Any]]

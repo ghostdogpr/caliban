@@ -26,8 +26,8 @@ trait CommonArgBuilderDerivation {
               (
                 constValue[name].toString,
                 MagnoliaMacro.anns[t], {
-                  if (Macros.isEnumField[P, t])
-                    if (!Macros.implicitExists[ArgBuilder[t]]) derived[t]
+                  inline if (Macros.isEnumField[P, t])
+                    inline if (!Macros.implicitExists[ArgBuilder[t]]) derived[t]
                     else summonInline[ArgBuilder[t]]
                   else summonInline[ArgBuilder[t]]
                 }.asInstanceOf[ArgBuilder[Any]]
