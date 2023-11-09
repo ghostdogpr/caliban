@@ -140,6 +140,53 @@ object SchemaDerivationIssuesSpec extends ZIOSpecDefault {
             |  op: PrefixOperator!
             |}""".stripMargin
       )
+    },
+    test("i992") {
+      import i1992._
+
+      assertTrue(
+        schema ==
+          """schema {
+            |  query: Queries
+            |}
+            |
+            |union Parent = Child1 | Child2 | Child3
+            |
+            |type Child1 {
+            |  bool: Boolean!
+            |}
+            |
+            |type Child2 {
+            |  i: Int!
+            |}
+            |
+            |type Child3 {
+            |  str: String!
+            |}
+            |
+            |type Queries {
+            |  p: Parent!
+            |}""".stripMargin
+      )
+    },test("i1993") {
+      import i1993._
+
+      assertTrue(
+        schema ==
+          """schema {
+            |  query: Queries
+            |}
+            |
+            |enum Enum1 {
+            |  Item111
+            |  Item112
+            |  Item121
+            |}
+            |
+            |type Queries {
+            |  e: Enum1!
+            |}""".stripMargin
+      )
     }
   )
 }
@@ -292,6 +339,87 @@ object i1990 {
 
   val schema = {
     val queries = Queries(op = Operator.LessThan)
+    caliban.graphQL(RootResolver(queries))
+  }.render
+}
+
+object i1992 {
+  sealed trait Parent
+  object Parent {
+    implicit val schema: Schema[Any, Parent] = Schema.gen
+
+    sealed trait OtherParent extends Parent
+    object OtherParent {
+      implicit val schema: Schema[Any, OtherParent] = Schema.gen
+    }
+
+    case class Child2(i: Int) extends Parent with OtherParent
+    object Child2 {
+      implicit val schema: Schema[Any, Child2] = Schema.gen
+    }
+
+    case class Child1(bool: Boolean) extends Parent with OtherParent
+    object Child1 {
+      implicit val schema: Schema[Any, Child1] = Schema.gen
+    }
+
+    case class Child3(str: String) extends Parent
+    object Child3 {
+      implicit val schema: Schema[Any, Child3] = Schema.gen
+    }
+  }
+
+  case class Queries(p: Parent)
+
+  object Queries {
+    implicit val schema: Schema[Any, Queries] = Schema.gen
+  }
+
+  val schema = {
+    val queries = Queries(Parent.Child2(1))
+    caliban.graphQL(RootResolver(queries))
+  }.render
+}
+
+object i1993 {
+  sealed trait Enum1
+
+  object Enum1 {
+    implicit val schema: Schema[Any, Enum1] = Schema.gen
+
+    sealed trait Enum11 extends Enum1
+
+    object Enum11 {
+      implicit val schema: Schema[Any, Enum11] = Schema.gen
+
+      case object Item111 extends Enum11 {
+        implicit val schema: Schema[Any, Item111.type] = Schema.gen
+      }
+
+      case object Item112 extends Enum11 {
+        implicit val schema: Schema[Any, Item112.type] = Schema.gen
+      }
+    }
+
+    sealed trait Enum12 extends Enum1
+
+    object Enum12 {
+      implicit val schema: Schema[Any, Enum12] = Schema.gen
+
+      case object Item121 extends Enum12 {
+        implicit val schema: Schema[Any, Item121.type] = Schema.gen
+      }
+    }
+  }
+
+  case class Queries(e: Enum1)
+
+  object Queries {
+    implicit val schema: Schema[Any, Queries] = Schema.gen
+  }
+
+  val schema = {
+    val queries = Queries(Enum1.Enum12.Item121)
     caliban.graphQL(RootResolver(queries))
   }.render
 }
