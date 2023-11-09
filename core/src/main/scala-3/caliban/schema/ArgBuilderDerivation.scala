@@ -18,17 +18,22 @@ trait CommonArgBuilderDerivation {
     inline erasedValue[(Label, A)] match {
       case (_: EmptyTuple, _)                 => values.reverse
       case (_: (name *: names), _: (t *: ts)) =>
-        recurseSum[P, names, ts](
-          (
-            constValue[name].toString,
-            MagnoliaMacro.anns[t], {
-              if (Macros.isEnumField[P, t])
-                if (!Macros.implicitExists[ArgBuilder[t]]) derived[t]
-                else summonInline[ArgBuilder[t]]
-              else summonInline[ArgBuilder[t]]
-            }.asInstanceOf[ArgBuilder[Any]]
-          ) :: values
-        )
+        recurseSum[P, names, ts] {
+          inline summonInline[Mirror.Of[t]] match {
+            case m: Mirror.SumOf[t] =>
+              recurseSum[t, m.MirroredElemLabels, m.MirroredElemTypes](values)
+            case _                  =>
+              (
+                constValue[name].toString,
+                MagnoliaMacro.anns[t], {
+                  if (Macros.isEnumField[P, t])
+                    if (!Macros.implicitExists[ArgBuilder[t]]) derived[t]
+                    else summonInline[ArgBuilder[t]]
+                  else summonInline[ArgBuilder[t]]
+                }.asInstanceOf[ArgBuilder[Any]]
+              ) :: values
+          }
+        }
     }
 
   inline def recurseProduct[P, Label, A <: Tuple](
@@ -66,7 +71,7 @@ trait CommonArgBuilderDerivation {
   ) = new ArgBuilder[A] {
     private lazy val subTypes   = _subTypes
     private lazy val traitLabel = _traitLabel
-    private val emptyInput      = InputValue.ObjectValue(Map())
+    private val emptyInput      = InputValue.ObjectValue(Map.empty)
 
     def build(input: InputValue): Either[ExecutionError, A] =
       input.match {
