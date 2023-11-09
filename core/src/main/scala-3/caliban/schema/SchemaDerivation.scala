@@ -1,13 +1,9 @@
 package caliban.schema
 
-import caliban.Value.EnumValue
 import caliban.introspection.adt.*
-import caliban.parsing.adt.Directive
 import caliban.schema.Annotations.*
-import caliban.schema.Step.{ FunctionStep, MetadataFunctionStep, ObjectStep }
-import caliban.schema.Types.*
 import caliban.schema.macros.Macros
-import magnolia1.{ Macro as MagnoliaMacro, TypeInfo }
+import magnolia1.Macro as MagnoliaMacro
 
 import scala.compiletime.*
 import scala.deriving.Mirror
@@ -24,18 +20,7 @@ object PrintDerived {
 }
 
 trait CommonSchemaDerivation {
-
-  /**
-   * Default naming logic for input types.
-   * This is needed to avoid a name clash between a type used as an input and the same type used as an output.
-   * GraphQL needs 2 different types, and they can't have the same name.
-   * By default, the "Input" suffix is added after the type name, given that it is not already present.
-   */
-  def customizeInputTypeName(name: String): String =
-    name match {
-      case s"${prefix}Input" => name
-      case _                 => s"${name}Input"
-    }
+  export DerivationUtils.customizeInputTypeName
 
   inline def recurseSum[R, P, Label, A <: Tuple](
     inline values: List[(String, List[Any], Schema[R, Any])] = Nil
@@ -79,269 +64,41 @@ trait CommonSchemaDerivation {
         }(index + 1)
     }
 
+  inline def valueTypeSchema[R, Label, A <: Tuple]: Schema[R, Any] =
+    inline erasedValue[(Label, A)] match {
+      case (_: EmptyTuple, _) => error("GQLValueType case classes must have at least one field")
+      case (_, _: (t *: _))   => summonInline[Schema[R, t]].asInstanceOf[Schema[R, Any]]
+    }
+
   inline def derived[R, A]: Schema[R, A] =
     inline summonInline[Mirror.Of[A]] match {
       case m: Mirror.SumOf[A] =>
-        makeSumSchema[R, A](
+        new SumSchema[R, A](
           recurseSum[R, A, m.MirroredElemLabels, m.MirroredElemTypes](),
           MagnoliaMacro.typeInfo[A],
           MagnoliaMacro.anns[A]
         )(m.ordinal)
 
       case m: Mirror.ProductOf[A] =>
-        makeProductSchema[R, A](
-          recurseProduct[R, A, m.MirroredElemLabels, m.MirroredElemTypes]()(),
-          MagnoliaMacro.typeInfo[A],
-          MagnoliaMacro.anns[A],
-          MagnoliaMacro.paramAnns[A].toMap
-        )
+        inline if (!Macros.hasParams[A])
+          new EnumValueSchema[R, A](
+            MagnoliaMacro.typeInfo[A],
+            MagnoliaMacro.anns[A]
+          )
+        else inline if (Macros.hasAnnotation[A, GQLValueType])
+          new ValueTypeSchema[R, A](
+            valueTypeSchema[R, m.MirroredElemLabels, m.MirroredElemTypes],
+            MagnoliaMacro.typeInfo[A],
+            MagnoliaMacro.anns[A]
+          )
+        else
+          new ObjectSchema[R, A](
+            recurseProduct[R, A, m.MirroredElemLabels, m.MirroredElemTypes]()(),
+            MagnoliaMacro.typeInfo[A],
+            MagnoliaMacro.anns[A],
+            MagnoliaMacro.paramAnns[A].toMap
+          )
     }
-
-  private def makeSumSchema[R, A](
-    _members: => List[(String, List[Any], Schema[R, Any])],
-    info: TypeInfo,
-    annotations: List[Any]
-  )(ordinal: A => Int): Schema[R, A] = new Schema[R, A] {
-
-    private lazy val members = _members.toVector // Vector's .apply is O(1) vs List's O(N)
-
-    private lazy val subTypes = members.map { (label, subTypeAnnotations, schema) =>
-      (label, schema.toType_(), subTypeAnnotations)
-    }.sortBy(_._1).toList
-
-    private lazy val isEnum = subTypes.forall { (_, t, _) =>
-      t.allFields.isEmpty && t.allInputFields.isEmpty
-    }
-
-    private lazy val isInterface = annotations.exists {
-      case GQLInterface() => true
-      case _              => false
-    }
-
-    private lazy val isUnion = annotations.exists {
-      case GQLUnion() => true
-      case _          => false
-    }
-
-    def toType(isInput: Boolean, isSubscription: Boolean): __Type =
-      if (!isInterface && !isUnion && subTypes.nonEmpty && isEnum) mkEnum(annotations, info, subTypes)
-      else if (!isInterface)
-        makeUnion(
-          Some(getName(annotations, info)),
-          getDescription(annotations),
-          subTypes.map(_._2).distinctBy(_.name).map(fixEmptyUnionObject),
-          Some(info.full),
-          Some(getDirectives(annotations))
-        )
-      else {
-        val impl = subTypes.map(_._2.copy(interfaces = () => Some(List(toType(isInput, isSubscription)))))
-        mkInterface(annotations, info, impl)
-      }
-
-    def resolve(value: A): Step[R] = {
-      val (label, _, schema) = members(ordinal(value))
-      if (isEnum) PureStep(EnumValue(label)) else schema.resolve(value)
-    }
-  }
-
-  private def makeProductSchema[R, A](
-    _fields: => List[(String, Schema[R, Any], Int)],
-    info: TypeInfo,
-    annotations: List[Any],
-    paramAnnotations: Map[String, List[Any]]
-  ): Schema[R, A] = new Schema[R, A] {
-
-    private lazy val fields = _fields.map { case (label, schema, index) =>
-      val fieldAnnotations = paramAnnotations.getOrElse(label, Nil)
-      (getName(fieldAnnotations, label), fieldAnnotations, schema, index)
-    }
-
-    private val isValueType: Boolean =
-      annotations.exists {
-        case GQLValueType(_) => true
-        case _               => false
-      }
-
-    private def isScalarValueType: Boolean =
-      annotations.exists {
-        case GQLValueType(true) => true
-        case _                  => false
-      }
-
-    private val name = getName(annotations, info)
-
-    def toType(isInput: Boolean, isSubscription: Boolean): __Type =
-      if (isValueType && fields.nonEmpty)
-        if (isScalarValueType) makeScalar(name, getDescription(annotations))
-        else fields.head._3.toType_(isInput, isSubscription)
-      else if (isInput) mkInputObject[R](annotations, fields, info)(isInput, isSubscription)
-      else mkObject[R](annotations, fields, info)(isInput, isSubscription)
-
-    def resolve(value: A): Step[R] =
-      if (fields.isEmpty) PureStep(EnumValue(name))
-      else if (isValueType) resolveValueType(value)
-      else MetadataFunctionStep[R](f => resolveObject(value, f.fieldNames))
-
-    private def resolveValueType(value: A): Step[R] = {
-      val head = fields.head
-      head._3.resolve(value.asInstanceOf[Product].productElement(head._4))
-    }
-
-    private def resolveObject(value: A, queriedFields: Set[String]): Step[R] = {
-      val fieldsBuilder = Map.newBuilder[String, Step[R]]
-      fields.foreach { (name, _, schema, index) =>
-        if (queriedFields.contains(name))
-          fieldsBuilder += name -> schema.resolve(value.asInstanceOf[Product].productElement(index))
-      }
-      ObjectStep(name, fieldsBuilder.result())
-    }
-  }
-
-  // see https://github.com/graphql/graphql-spec/issues/568
-  private def fixEmptyUnionObject(t: __Type): __Type =
-    t.fields(__DeprecatedArgs(Some(true))) match {
-      case Some(Nil) =>
-        t.copy(
-          fields = (_: __DeprecatedArgs) =>
-            Some(
-              List(
-                __Field(
-                  "_",
-                  Some(
-                    "Fake field because GraphQL does not support empty objects. Do not query, use __typename instead."
-                  ),
-                  _ => Nil,
-                  () => makeScalar("Boolean")
-                )
-              )
-            )
-        )
-      case _         => t
-    }
-
-  private def getName(annotations: Seq[Any], info: TypeInfo): String =
-    annotations.collectFirst { case GQLName(name) => name }.getOrElse {
-      info.typeParams match {
-        case Nil  => info.short
-        case args => info.short + args.map(getName(Nil, _)).mkString
-      }
-    }
-
-  private def getName(annotations: Seq[Any], label: String): String =
-    annotations.collectFirst { case GQLName(name) => name }.getOrElse(label)
-
-  private def getInputName(annotations: Seq[Any]): Option[String] =
-    annotations.collectFirst { case GQLInputName(suffix) => suffix }
-
-  private def getDescription(annotations: Seq[Any]): Option[String] =
-    annotations.collectFirst { case GQLDescription(desc) => desc }
-
-  private def getDirectives(annotations: Seq[Any]): List[Directive] =
-    annotations.collect { case GQLDirective(dir) => dir }.toList
-
-  private def getDefaultValue(annotations: Seq[Any]): Option[String] =
-    annotations.collectFirst { case GQLDefault(v) => v }
-
-  private def getDeprecatedReason(annotations: Seq[Any]): Option[String] =
-    annotations.collectFirst { case GQLDeprecated(reason) => reason }
-
-  private def mkEnum(annotations: List[Any], info: TypeInfo, subTypes: List[(String, __Type, List[Any])]) =
-    makeEnum(
-      Some(getName(annotations, info)),
-      getDescription(annotations),
-      subTypes.collect { case (name, __Type(_, _, description, _, _, _, _, _, _, _, _, _), annotations) =>
-        __EnumValue(
-          getName(annotations, name),
-          description,
-          getDeprecatedReason(annotations).isDefined,
-          getDeprecatedReason(annotations),
-          Some(annotations.collect { case GQLDirective(dir) => dir }.toList).filter(_.nonEmpty)
-        )
-      },
-      Some(info.full),
-      Some(getDirectives(annotations))
-    )
-
-  private def mkInterface(
-    annotations: List[Any],
-    info: TypeInfo,
-    impl: List[__Type]
-  ) = {
-    val commonFields = () =>
-      impl
-        .flatMap(_.allFields)
-        .groupBy(_.name)
-        .collect {
-          case (_, list) if list.lengthCompare(impl.size) == 0 =>
-            Types
-              .unify(list)
-              .flatMap(t =>
-                list.headOption.map(_.copy(description = Types.extractCommonDescription(list), `type` = () => t))
-              )
-        }
-        .flatten
-        .toList
-        .sortBy(_.name)
-
-    makeInterface(
-      Some(getName(annotations, info)),
-      getDescription(annotations),
-      commonFields,
-      impl,
-      Some(info.full),
-      Some(getDirectives(annotations))
-    )
-  }
-
-  private def mkInputObject[R](
-    annotations: List[Any],
-    fields: List[(String, List[Any], Schema[R, Any], Int)],
-    info: TypeInfo
-  )(isInput: Boolean, isSubscription: Boolean) = makeInputObject(
-    Some(getInputName(annotations).getOrElse(customizeInputTypeName(getName(annotations, info)))),
-    getDescription(annotations),
-    fields.map { (name, fieldAnnotations, schema, _) =>
-      __InputValue(
-        name,
-        getDescription(fieldAnnotations),
-        () =>
-          if (schema.optional) schema.toType_(isInput, isSubscription)
-          else schema.toType_(isInput, isSubscription).nonNull,
-        getDefaultValue(fieldAnnotations),
-        getDeprecatedReason(fieldAnnotations).isDefined,
-        getDeprecatedReason(fieldAnnotations),
-        Some(getDirectives(fieldAnnotations)).filter(_.nonEmpty)
-      )
-    },
-    Some(info.full),
-    Some(getDirectives(annotations))
-  )
-
-  private def mkObject[R](
-    annotations: List[Any],
-    fields: List[(String, List[Any], Schema[R, Any], Int)],
-    info: TypeInfo
-  )(isInput: Boolean, isSubscription: Boolean) = makeObject(
-    Some(getName(annotations, info)),
-    getDescription(annotations),
-    fields.map { case (name, fieldAnnotations, schema, _) =>
-      val deprecatedReason = getDeprecatedReason(fieldAnnotations)
-      Types.makeField(
-        name,
-        getDescription(fieldAnnotations),
-        schema.arguments,
-        () =>
-          if (schema.optional) schema.toType_(isInput, isSubscription)
-          else schema.toType_(isInput, isSubscription).nonNull,
-        deprecatedReason.isDefined,
-        deprecatedReason,
-        Option(getDirectives(fieldAnnotations)).filter(_.nonEmpty)
-      )
-    },
-    getDirectives(annotations),
-    Some(info.full)
-  )
-
 }
 
 trait SchemaDerivation[R] extends CommonSchemaDerivation {
