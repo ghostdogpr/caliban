@@ -44,16 +44,22 @@ trait CommonSchemaDerivation {
       case (_: EmptyTuple, _)                 => values.reverse
       case (_: (name *: names), _: (t *: ts)) =>
         recurseSum[R, P, names, ts] {
-          (
-            constValue[name].toString,
-            MagnoliaMacro.anns[t], {
-              if (Macros.isEnumField[P, t])
-                if (!Macros.implicitExists[Schema[R, t]]) derived[R, t]
-                else summonInline[Schema[R, t]]
-              else summonInline[Schema[R, t]]
-            }.asInstanceOf[Schema[R, Any]]
-          ) :: values
+          inline summonInline[Mirror.Of[t]] match {
+            case m: Mirror.SumOf[t] =>
+              recurseSum[R, t, m.MirroredElemLabels, m.MirroredElemTypes](values)
+            case _                  =>
+              (
+                constValue[name].toString,
+                MagnoliaMacro.anns[t], {
+                  inline if (Macros.isEnumField[P, t])
+                    inline if (!Macros.implicitExists[Schema[R, t]]) derived[R, t]
+                    else summonInline[Schema[R, t]]
+                  else summonInline[Schema[R, t]]
+                }.asInstanceOf[Schema[R, Any]]
+              ) :: values
+          }
         }
+
     }
 
   inline def recurseProduct[R, P, Label, A <: Tuple](
@@ -104,7 +110,7 @@ trait CommonSchemaDerivation {
     }.sortBy(_._1).toList
 
     private lazy val isEnum = subTypes.forall { (_, t, _) =>
-      unpackLeafTypes(t).foldLeft(true)((acc, t) => acc && t.allFields.isEmpty && t.allInputFields.isEmpty)
+      t.allFields.isEmpty && t.allInputFields.isEmpty
     }
 
     private lazy val isInterface = annotations.exists {
@@ -123,14 +129,12 @@ trait CommonSchemaDerivation {
         makeUnion(
           Some(getName(annotations, info)),
           getDescription(annotations),
-          subTypes.flatMap((_, t, _) => unpackLeafTypes(t)).map(fixEmptyUnionObject),
+          subTypes.map(_._2).distinctBy(_.name).map(fixEmptyUnionObject),
           Some(info.full),
           Some(getDirectives(annotations))
         )
       else {
-        val impl = subTypes
-          .flatMap(v => unpackUnion(v._2))
-          .map(_.copy(interfaces = () => Some(List(toType(isInput, isSubscription)))))
+        val impl = subTypes.map(_._2.copy(interfaces = () => Some(List(toType(isInput, isSubscription)))))
         mkInterface(annotations, info, impl)
       }
 
@@ -192,18 +196,6 @@ trait CommonSchemaDerivation {
       ObjectStep(name, fieldsBuilder.result())
     }
   }
-
-  private def unpackLeafTypes(t: __Type): List[__Type] =
-    t.possibleTypes match {
-      case None | Some(Nil) => List(t)
-      case Some(tpes)       => tpes.flatMap(unpackLeafTypes)
-    }
-
-  private def unpackUnion(t: __Type): List[__Type] =
-    t.kind match {
-      case __TypeKind.UNION => t.possibleTypes.fold(List(t))(_.flatMap(unpackUnion))
-      case _                => List(t)
-    }
 
   // see https://github.com/graphql/graphql-spec/issues/568
   private def fixEmptyUnionObject(t: __Type): __Type =
