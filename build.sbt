@@ -88,6 +88,7 @@ lazy val root = project
     pekkoHttp,
     play,
     zioHttp,
+    zioHttpSlim,
     catsInterop,
     monixInterop,
     tapirInterop,
@@ -347,6 +348,21 @@ lazy val zioHttp = project
     )
   )
   .dependsOn(core, tapirInterop % "compile->compile;test->test")
+
+lazy val zioHttpSlim = project
+  .in(file("adapters/zio-http-slim"))
+  .settings(name := "caliban-zio-http-slim")
+  .settings(commonSettings)
+  .settings(enableMimaSettingsJVM)
+  .settings(
+    testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
+    libraryDependencies ++= Seq(
+      "dev.zio"                               %% "zio-http"             % zioHttpVersion,
+      "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-core"  % jsoniterVersion,
+      "com.softwaremill.sttp.tapir"           %% "tapir-jsoniter-scala" % tapirVersion % Test
+    )
+  )
+  .dependsOn(core, tapirInterop % "test->test")
 
 lazy val akkaHttp = project
   .in(file("adapters/akka-http"))
@@ -654,7 +670,9 @@ lazy val enableMimaSettingsJVM =
   Def.settings(
     mimaFailOnProblem     := enforceMimaCompatibility,
     mimaPreviousArtifacts := previousStableVersion.value.map(organization.value %% moduleName.value % _).toSet,
-    mimaBinaryIssueFilters ++= Seq()
+    mimaBinaryIssueFilters ++= Seq(
+      ProblemFilters.exclude[MissingClassProblem]("caliban.interop.tapir.TapirAdapter$DeferMultipart$")
+    )
   )
 
 lazy val enableMimaSettingsJS =
