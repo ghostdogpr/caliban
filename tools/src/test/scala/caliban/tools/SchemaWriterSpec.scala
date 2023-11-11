@@ -2,7 +2,6 @@ package caliban.tools
 
 import caliban.parsing.Parser
 import zio.Task
-import zio.test.Assertion.equalTo
 import zio.test._
 
 object SchemaWriterSpec extends ZIOSpecDefault {
@@ -687,6 +686,7 @@ object SchemaWriterSpec extends ZIOSpecDefault {
         |union AllErrors = Bar | Foo | FooBar
         |
         |interface Error {
+        |  "description"
         |  message: String!
         |}
         |
@@ -721,6 +721,7 @@ object SchemaWriterSpec extends ZIOSpecDefault {
         |  sealed trait AllErrors extends scala.Product with scala.Serializable derives caliban.schema.Schema.SemiAuto
         |  @GQLInterface
         |  sealed trait Error extends scala.Product with scala.Serializable derives caliban.schema.Schema.SemiAuto {
+        |    @GQLDescription("description")
         |    def message: String
         |  }
         |

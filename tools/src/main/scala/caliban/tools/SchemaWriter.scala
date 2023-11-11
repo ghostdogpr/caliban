@@ -78,7 +78,7 @@ object SchemaWriter {
         case nonEmpty => s" extends ${nonEmpty.mkString(" with ")}"
       }
       s"""${writeDescription(typedef.description)}final case class ${typedef.name}(${typedef.fields
-        .map(field => writeField(field, inheritedFromInterface(typedef, field).getOrElse(typedef)))
+        .map(field => writeField(field, inheritedFromInterface(typedef, field).getOrElse(typedef), isMethod = false))
         .mkString(", ")})$extendRendered$derivesSchema"""
     }
 
@@ -113,15 +113,17 @@ object SchemaWriter {
     def writeInterface(interface: InterfaceTypeDefinition): String =
       s"""@GQLInterface
         ${writeDescription(interface.description)}sealed trait ${interface.name} extends scala.Product with scala.Serializable $derivesSchema {
-         ${interface.fields.map(field => "def " + writeField(field, interface)).mkString("\n")}
+         ${interface.fields.map(field => writeField(field, interface, isMethod = true)).mkString("\n")}
         }
        """
 
-    def writeField(field: FieldDefinition, of: TypeDefinition): String =
+    def writeField(field: FieldDefinition, of: TypeDefinition, isMethod: Boolean): String =
       if (field.args.nonEmpty) {
-        s"${writeDescription(field.description)}${safeName(field.name)} : ${argsName(field, of)} => ${writeMaybeEffectType(of, field)}"
+        s"${writeDescription(field.description)}${if (isMethod) "def " else ""}${safeName(field.name)} : ${argsName(field, of)} => ${writeMaybeEffectType(field)}"
       } else {
-        s"""${writeDescription(field.description)}${safeName(field.name)} : ${writeMaybeEffectType(of, field)}"""
+        s"""${writeDescription(field.description)}${if (isMethod) "def " else ""}${safeName(
+          field.name
+        )} : ${writeMaybeEffectType(field)}"""
       }
 
     def writeInputValue(value: InputValueDefinition): String =
@@ -154,7 +156,7 @@ object SchemaWriter {
              |""".stripMargin
       }
 
-    def writeMaybeEffectType(owner: TypeDefinition, field: FieldDefinition): String =
+    def writeMaybeEffectType(field: FieldDefinition): String =
       if (field.directives.exists(d => d.name == "lazy"))
         writeEffectType(field.ofType)
       else writeType(field.ofType)
