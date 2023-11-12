@@ -23,13 +23,13 @@ object QuickAdapterSpec extends ZIOSpecDefault {
 
   private val apiLayer = envLayer >>> ZLayer.fromZIO {
     for {
-      interpreter <- TestApi.api.interpreter.map(new QuickAdapter(_))
-      _           <-
+      adapter <- TestApi.api.interpreter.map(QuickAdapter(_))
+      _       <-
         Server
-          .serve(Http.collectHandler { case _ -> Root / "api" / "graphql" => interpreter.handler @@ auth })
+          .serve(Http.collectHandler { case _ -> Root / "api" / "graphql" => adapter.handler @@ auth })
           .forkScoped
-      _           <- Live.live(Clock.sleep(3 seconds))
-      service     <- ZIO.service[TestService]
+      _       <- Live.live(Clock.sleep(3 seconds))
+      service <- ZIO.service[TestService]
     } yield service
   }
 

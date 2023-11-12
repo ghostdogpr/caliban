@@ -5,7 +5,7 @@ import zio.http._
 object GraphiQLAdapter {
 
   def handler(apiPath: Path, uiPath: Path): RequestHandler[Any, Nothing] =
-    Handler.fromBody(Body.fromString(html(apiPath, uiPath)))
+    Handler.fromBody(Body.fromString(html(apiPath.toString, uiPath.toString)))
 
   /**
    * Creates an HTML string which can be used to serve the GraphiQL UI from CDN.
@@ -15,7 +15,7 @@ object GraphiQLAdapter {
    *
    * @see [[https://github.com/graphql/graphiql/tree/main/examples/graphiql-cdn]]
    */
-  def html(apiPath: Path, uiPath: Path): String =
+  def html(apiPath: String, uiPath: String): String =
     s"""
        |<!--
        | *  Copyright (c) 2021 GraphQL Contributors

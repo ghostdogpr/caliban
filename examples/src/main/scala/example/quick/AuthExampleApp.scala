@@ -61,12 +61,12 @@ object AuthExampleApp extends ZIOAppDefault {
     (for {
       exampleApi   <- ZIO.service[GraphQL[Any]]
       interpreter  <- (exampleApi |+| Authed.api).interpreter
-      apiRoute      = QuickAdapter(interpreter).handler.toHttp @@ Auth.middleware
+      apiRoute      = QuickAdapter(interpreter).handler @@ Auth.middleware
       graphiqlRoute = GraphiQLAdapter.handler(Root / "api" / "graphql", Root / "graphiql")
       port         <- Server.install(
-                        Http.collectHttp[Request] {
+                        Http.collectHandler[Request] {
                           case _ -> Root / "api" / "graphql" => apiRoute
-                          case _ -> Root / "graphiql"        => graphiqlRoute.toHttp
+                          case _ -> Root / "graphiql"        => graphiqlRoute
                         }
                       )
       _            <- ZIO.logInfo(s"Server started on port $port")

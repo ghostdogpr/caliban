@@ -28,7 +28,9 @@ object Configurator {
   private[caliban] def configuration: UIO[ExecutionConfiguration] =
     configRef.get
 
-  private[caliban] def setWith[R, E, A](cfg: ExecutionConfiguration)(f: ZIO[R, E, A]): ZIO[R, E, A] =
+  private[caliban] def setWith[R, E, A](cfg: ExecutionConfiguration)(f: ZIO[R, E, A])(implicit
+    trace: Trace
+  ): ZIO[R, E, A] =
     configRef.locally(cfg)(f)
 
   /**
