@@ -671,9 +671,7 @@ lazy val enableMimaSettingsJVM =
   Def.settings(
     mimaFailOnProblem     := enforceMimaCompatibility,
     mimaPreviousArtifacts := previousStableVersion.value.map(organization.value %% moduleName.value % _).toSet,
-    mimaBinaryIssueFilters ++= Seq(
-      ProblemFilters.exclude[MissingClassProblem]("caliban.interop.tapir.TapirAdapter$DeferMultipart$")
-    )
+    mimaBinaryIssueFilters ++= Seq()
   )
 
 lazy val enableMimaSettingsJS =

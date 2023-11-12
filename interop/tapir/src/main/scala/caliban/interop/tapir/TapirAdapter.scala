@@ -159,6 +159,23 @@ object TapirAdapter {
   private val deferMultipartMediaType: MediaType =
     MediaType.MultipartMixed.copy(otherParameters = HttpUtils.DeferMultipart.DeferHeaderParams)
 
+  @deprecated("Kept for binary compatibility purposes. To be removed in 2.5.0", "2.4.3")
+  private object DeferMultipart {
+    private val Newline        = "\r\n"
+    private val ContentType    = "Content-Type: application/json; charset=utf-8"
+    private val SubHeader      = s"$Newline$ContentType$Newline$Newline"
+    private val Boundary       = "---"
+    private val BoundaryHeader = "-"
+    private val DeferSpec      = "20220824"
+
+    val InnerBoundary = s"$Newline$Boundary$SubHeader"
+    val EndBoundary   = s"$Newline-----$Newline"
+
+    private val DeferHeaderParams: Map[String, String] = Map("boundary" -> BoundaryHeader, "deferSpec" -> DeferSpec)
+
+    val mediaType: MediaType = MediaType.MultipartMixed.copy(otherParameters = DeferHeaderParams)
+  }
+
   private object GraphqlResponseJson extends CodecFormat {
     override val mediaType: MediaType = MediaType("application", "graphql-response+json")
   }

@@ -4,7 +4,7 @@ Once you have an interpreter able to execute GraphQL queries, you usually want t
 Caliban comes with a few "ready-to-use" components (called "adapters") to expose your API with the most popular HTTP libraries.
 
 ::: tip `QuickAdapter`
-Starting with v1.5.0, Caliban provides the opinionated [QuickAdapter](adapters.md#high-performance-quickadapter)
+Starting with v2.4.3, Caliban provides the opinionated [QuickAdapter](adapters.md#high-performance-quickadapter)
 that favours ease-of-use and performance at the expense of customizability.
 
 If you don't mind using `zio-http` as the server implementation, make sure to check it out!
@@ -130,7 +130,7 @@ libraryDependencies += "com.github.ghostdogpr" %% "caliban-quick" % "1.5.0"
 
 And then you can use it as follows:
 
-```scala mdoc:silent
+```scala
 import caliban._
 import zio.http._
 
@@ -138,19 +138,22 @@ val gql: GraphQL[Any] = ???
 
 for {
   interpreter <- gql.interpreter
-  app         = QuickAdapter(interpreter).app(
-                    api = Root / "api" / "graphql",
-                    graphiql = Some(Root / "graphiql")
-                  )
-  _           <- Server.serve(app).provideLayer(Server.defaultWithPort(8080))
+  _           <- QuickAdapter(interpreter).runServer(
+                   port = 8080,
+                   api = Root / "api" / "graphql",
+                   graphiql = Some(Root / "graphiql")
+                 )
 } yield ()
 ```
-And that's it - you have a fully functional GraphQL server running on port 8080!
+
+And that's it - now you have a fully functional GraphQL server running on port 8080!
 
 ### Customization
 
 The `QuickAdapter` exposes the following methods that allow you to customize the server or apply middleware to the routes:
 
 - `configure` which takes a `Configurator[R]` [similar to the tapir-based adapters](adapters.md#built-in-tapir-adapters)
-- `handler` which returns a `Handler[R, Response, Request, Response]` which allows to apply middleware to the routes.
+- `handler` which returns a `RequestHandler[R, Response]` which allows to apply middleware to the API routes.
 Note that this handler is only for the api routes. To construct the graphiql handler use `caliban.GraphiqlAdapter.handler`.
+
+For more info on customization and middleware, check out the [adapter examples](https://github.com/ghostdogpr/caliban/tree/series/2.x/examples/src/main/scala/example/quick)!
