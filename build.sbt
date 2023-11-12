@@ -88,7 +88,7 @@ lazy val root = project
     pekkoHttp,
     play,
     zioHttp,
-    zioHttpSlim,
+    quickAdapter,
     catsInterop,
     monixInterop,
     tapirInterop,
@@ -349,9 +349,9 @@ lazy val zioHttp = project
   )
   .dependsOn(core, tapirInterop % "compile->compile;test->test")
 
-lazy val zioHttpSlim = project
-  .in(file("adapters/zio-http-slim"))
-  .settings(name := "caliban-zio-http-slim")
+lazy val quickAdapter = project
+  .in(file("adapters/quick"))
+  .settings(name := "caliban-quick")
   .settings(commonSettings)
   .settings(enableMimaSettingsJVM)
   .settings(
@@ -527,6 +527,7 @@ lazy val examples = project
     pekkoHttp,
     http4s,
     catsInterop,
+    quickAdapter,
     play,
     /*monixInterop,*/
     tapirInterop,

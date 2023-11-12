@@ -3,9 +3,16 @@
 Once you have an interpreter able to execute GraphQL queries, you usually want to expose it using an HTTP API.
 Caliban comes with a few "ready-to-use" components (called "adapters") to expose your API with the most popular HTTP libraries.
 
+::: tip `QuickAdapter`
+Starting with v1.5.0, Caliban provides the opinionated [QuickAdapter](adapters.md#high-performance-quickadapter)
+that favours ease-of-use and performance at the expense of customizability.
+
+If you don't mind using `zio-http` as the server implementation, make sure to check it out!
+:::
+
+## Built-in tapir adapters
 Under the hood, adapters use the [tapir](https://tapir.softwaremill.com/en/latest/) library, so you can easily create a custom adapter with anything that tapir supports.
 
-## Built-in adapters
 The following adapters are provided:
 - `Http4sAdapter` exposes a route for http4s.
 - `ZHttpAdapter` exposes a route for zio-http. This one doesn't support uploads yet.
@@ -107,3 +114,43 @@ This adapter, available in the `caliban-tapir` dependency which has the same 3 m
 
 The main differences between these and the methods from the built-in adapters is that they return one or several tapir `ServerEndpoint`,
 which you can then pass to a tapir interpreter. The returned `ServerEndpoint` use `RIO[R, *]` as an effect type, but you can easily transform it to another effect type. A helper `convertHttpEndpointToFuture` allows converting the effect type to a scala `Future` (this is used in the Akka, Pekko, and Play interpreters).
+
+
+## High-performance `QuickAdapter`
+
+The `QuickAdapter` requires minimal setup and uses [zio-http](https://github.com/zio/zio-http) 
+and [jsoniter-scala](https://github.com/plokhotnyuk/jsoniter-scala) without tapir in order to provide the best possible performance.
+
+### Quickstart
+In order to use it, just add the following to your `build.sbt` file (no other dependencies required!):
+
+```scala
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-quick" % "1.5.0"
+```
+
+And then you can use it as follows:
+
+```scala mdoc:silent
+import caliban._
+import zio.http._
+
+val gql: GraphQL[Any] = ???
+
+for {
+  interpreter <- gql.interpreter
+  app         = QuickAdapter(interpreter).app(
+                    api = Root / "api" / "graphql",
+                    graphiql = Some(Root / "graphiql")
+                  )
+  _           <- Server.serve(app).provideLayer(Server.defaultWithPort(8080))
+} yield ()
+```
+And that's it - you have a fully functional GraphQL server running on port 8080!
+
+### Customization
+
+The `QuickAdapter` exposes the following methods that allow you to customize the server or apply middleware to the routes:
+
+- `configure` which takes a `Configurator[R]` [similar to the tapir-based adapters](adapters.md#built-in-tapir-adapters)
+- `handler` which returns a `Handler[R, Response, Request, Response]` which allows to apply middleware to the routes.
+Note that this handler is only for the api routes. To construct the graphiql handler use `caliban.GraphiqlAdapter.handler`.

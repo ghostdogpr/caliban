@@ -21,6 +21,7 @@ To use `caliban`, add the following dependency to your `build.sbt` file:
 The following modules are optional:
 
 ```scala
+"com.github.ghostdogpr" %% "caliban-quick"      % "2.4.2" // quick adapter
 "com.github.ghostdogpr" %% "caliban-http4s"     % "2.4.2" // routes for http4s
 "com.github.ghostdogpr" %% "caliban-akka-http"  % "2.4.2" // routes for akka-http
 "com.github.ghostdogpr" %% "caliban-play"       % "2.4.2" // routes for play
@@ -32,7 +33,7 @@ The following modules are optional:
 "com.github.ghostdogpr" %% "caliban-tracing"    % "2.4.2" // interop with zio-telemetry
 ```
 
-Support for JSON encoding / decoding of the inputs and responses is enabled by adding **one** of the following dependencies to your `build.sbt` file:
+Support for JSON encoding / decoding of the inputs and responses for tapir-based adapters is enabled by adding **one** of the following dependencies to your `build.sbt` file:
 
 ```scala
 "com.softwaremill.sttp.tapir" %% "tapir-json-circe"     % "1.2.11" // Circe

@@ -10,7 +10,7 @@ import zio.test.{ Live, ZIOSpecDefault }
 
 import scala.language.postfixOps
 
-object ZHttpAdapterSlimSpec extends ZIOSpecDefault {
+object QuickAdapterSpec extends ZIOSpecDefault {
   import sttp.tapir.json.jsoniter._
 
   private val envLayer = TestService.make(sampleCharacters) ++ Uploads.empty
@@ -23,7 +23,7 @@ object ZHttpAdapterSlimSpec extends ZIOSpecDefault {
 
   private val apiLayer = envLayer >>> ZLayer.fromZIO {
     for {
-      interpreter <- TestApi.api.interpreter.map(new ZHttpAdapterSlim(_))
+      interpreter <- TestApi.api.interpreter.map(new QuickAdapter(_))
       _           <-
         Server
           .serve(Http.collectHandler { case _ -> Root / "api" / "graphql" => interpreter.handler @@ auth })
@@ -33,9 +33,9 @@ object ZHttpAdapterSlimSpec extends ZIOSpecDefault {
     } yield service
   }
 
-  override def spec = suite("ZIO Http Slim") {
+  override def spec = suite("ZIO Http Quick") {
     val suite = TapirAdapterSpec.makeSuite(
-      "ZHttpAdapterSlimSpec",
+      "QuickAdapterSpec",
       uri"http://localhost:8090/api/graphql",
       wsUri = None
     )

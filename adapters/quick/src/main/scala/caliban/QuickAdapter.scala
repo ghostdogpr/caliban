@@ -1,5 +1,6 @@
 package caliban
 
+import caliban.Configurator.ExecutionConfiguration
 import caliban.HttpUtils._
 import caliban.ResponseValue.StreamValue
 import caliban.interop.jsoniter.ValueJsoniter
@@ -9,25 +10,39 @@ import zio._
 import zio.http._
 import zio.stream.ZStream
 
-import java.nio.charset.StandardCharsets
+import java.nio.charset.StandardCharsets.UTF_8
 import scala.util.control.NonFatal
 
-final class ZHttpAdapterSlim[-R, E](interpreter: GraphQLInterpreter[R, E]) {
-  import ZHttpAdapterSlim._
+final class QuickAdapter[-R, E](interpreter: GraphQLInterpreter[R, E]) {
+  import QuickAdapter._
   import caliban.interop.jsoniter.ValueJsoniter._
 
-  def configure[R1](configurator: ZHttpAdapterSlim.Configurator[R1]): ZHttpAdapterSlim[R & R1, E] =
-    new ZHttpAdapterSlim[R & R1, E](
-      interpreter.wrapExecutionWith[R & R1, E](exec => ZIO.scoped[R1 & R](configurator *> exec))
-    )
+  def app(apiPath: Path, graphiqlPath: Option[Path]): App[R] = {
+    val apiApp = Http.collectHandler[Request] { case _ -> path if path == apiPath => handler }
+    graphiqlPath match {
+      case None         => apiApp
+      case Some(uiPath) =>
+        val uiHandler = GraphiQLAdapter.handler(apiPath, uiPath)
+        apiApp ++ Http.collectHandler[Request] { case _ -> path if path == uiPath => uiHandler }
+    }
+  }
 
-  lazy val handler: Handler[R, Response, Request, Response] =
+  lazy val handler: RequestHandler[R, Response] =
     Handler.fromFunctionZIO[Request] { req =>
       transformRequest(req)
         .flatMap(executeRequest(req.method, _))
         .map(transformResponse(req, _))
-        .map(_.withServerTime)
     }
+
+  def configure(config: ExecutionConfiguration): QuickAdapter[R, E] =
+    new QuickAdapter[R, E](
+      interpreter.wrapExecutionWith[R, E](Configurator.setWith(config)(_))
+    )
+
+  def configure[R1](configurator: QuickAdapter.Configurator[R1]): QuickAdapter[R & R1, E] =
+    new QuickAdapter[R & R1, E](
+      interpreter.wrapExecutionWith[R & R1, E](exec => ZIO.scoped[R1 & R](configurator *> exec))
+    )
 
   private def badRequest(msg: String) = Response(Status.BadRequest, body = Body.fromString(msg))
 
@@ -81,12 +96,8 @@ final class ZHttpAdapterSlim[-R, E](interpreter: GraphQLInterpreter[R, E]) {
   }
 
   private def executeRequest(method: Method, req: GraphQLRequest): ZIO[R, Response, GraphQLResponse[E]] = {
-    val exec = interpreter.executeRequest(req)
-    method match {
-      case Method.GET  => HttpRequestMethod.setWith(HttpRequestMethod.GET)(exec)
-      case Method.POST => HttpRequestMethod.setWith(HttpRequestMethod.POST)(exec)
-      case _           => ZIO.fail(Response.status(Status.NotFound))
-    }
+    val calibanMethod = if (method == Method.GET) HttpRequestMethod.GET else HttpRequestMethod.POST
+    HttpRequestMethod.setWith(calibanMethod)(interpreter.executeRequest(req))
   }
 
   private def responseHeaders(headers: Headers, cacheDirective: Option[String]): Headers =
@@ -153,20 +164,40 @@ final class ZHttpAdapterSlim[-R, E](interpreter: GraphQLInterpreter[R, E]) {
     stream
       .via(pipeline)
       .map(writeToArray(_))
-      .intersperse(
-        InnerBoundary.getBytes(StandardCharsets.UTF_8),
-        InnerBoundary.getBytes(StandardCharsets.UTF_8),
-        EndBoundary.getBytes(StandardCharsets.UTF_8)
-      )
+      .intersperse(InnerBoundary.getBytes(UTF_8), InnerBoundary.getBytes(UTF_8), EndBoundary.getBytes(UTF_8))
       .mapConcatChunk(Chunk.fromArray)
   }
 }
 
-object ZHttpAdapterSlim {
+object QuickAdapter {
   type Configurator[-R] = URIO[R & Scope, Unit]
 
-  def apply[R, E](interpreter: GraphQLInterpreter[R, E]): ZHttpAdapterSlim[R, E] =
-    new ZHttpAdapterSlim(interpreter)
+  def apply[R, E](interpreter: GraphQLInterpreter[R, E]): QuickAdapter[R, E] =
+    new QuickAdapter(interpreter)
+
+  def app[R](api: Path, graphiql: Option[Path] = None)(implicit
+    tag: Tag[R]
+  ): URIO[QuickAdapter[R, CalibanError], App[R]] =
+    ZIO.serviceWith(_.app(api, graphiql))
+
+  def handler[R](implicit tag: Tag[R]): URIO[QuickAdapter[R, CalibanError], RequestHandler[R, Response]] =
+    ZIO.serviceWith(_.handler)
+
+  def default[R](implicit
+    tag: Tag[R]
+  ): ZLayer[GraphQL[R], CalibanError.ValidationError, QuickAdapter[R, CalibanError]] = ZLayer.fromZIO(
+    ZIO.serviceWithZIO(_.interpreter.map(new QuickAdapter(_)))
+  )
+
+  def live[R](implicit
+    tag: Tag[R]
+  ): ZLayer[GraphQL[R] & ExecutionConfiguration, CalibanError.ValidationError, QuickAdapter[R, CalibanError]] =
+    ZLayer.fromZIO(
+      for {
+        config      <- ZIO.service[ExecutionConfiguration]
+        interpreter <- ZIO.serviceWithZIO[GraphQL[R]](_.interpreter)
+      } yield QuickAdapter(interpreter).configure(config)
+    )
 
   private val ContentTypeJson =
     Headers(Header.ContentType(MediaType.application.json))
