@@ -87,7 +87,7 @@ object SchemaSpec extends ZIOSpecDefault {
         )
       },
       test("interface only take fields that return the same type") {
-        assertTrue(introspect[MyInterface].fields(__DeprecatedArgs()).toList.flatten.map(_.name) == List("c2", "c1"))
+        assertTrue(introspect[MyInterface].fields(__DeprecatedArgs()).toList.flatten.map(_.name) == List("c1", "c2"))
       },
       test("excluding fields from interfaces") {
         assertTrue(
@@ -322,6 +322,56 @@ object SchemaSpec extends ZIOSpecDefault {
               |  myEnum: Foo!
               |}""".stripMargin
         )
+      },
+      test("nested interfaces") {
+        case class Query(top: NestedInterface, mid1: NestedInterface.Mid1, mid2: NestedInterface.Mid2)
+
+        val v      = NestedInterface.FooB("b", "c", "d")
+        val schema = graphQL(RootResolver(Query(v, v, v))).render
+
+        assertTrue(
+          schema == """schema {
+                      |  query: Query
+                      |}
+                      |
+                      |interface Mid1 {
+                      |  b: String!
+                      |  c: String!
+                      |}
+                      |
+                      |interface Mid2 {
+                      |  b: String!
+                      |  d: String!
+                      |}
+                      |
+                      |interface NestedInterface {
+                      |  b: String!
+                      |}
+                      |
+                      |type FooA implements NestedInterface & Mid1 {
+                      |  a: String!
+                      |  b: String!
+                      |  c: String!
+                      |}
+                      |
+                      |type FooB implements NestedInterface & Mid1 & Mid2 {
+                      |  b: String!
+                      |  c: String!
+                      |  d: String!
+                      |}
+                      |
+                      |type FooC implements NestedInterface & Mid2 {
+                      |  b: String!
+                      |  d: String!
+                      |  e: String!
+                      |}
+                      |
+                      |type Query {
+                      |  top: NestedInterface!
+                      |  mid1: Mid1!
+                      |  mid2: Mid2!
+                      |}""".stripMargin
+        )
       }
     )
 
@@ -376,4 +426,20 @@ object SchemaSpec extends ZIOSpecDefault {
 
   def introspect[Q](implicit schema: Schema[Any, Q]): __Type             = schema.toType_()
   def introspectSubscription[Q](implicit schema: Schema[Any, Q]): __Type = schema.toType_(isSubscription = true)
+
+  @GQLInterface
+  sealed trait NestedInterface
+
+  object NestedInterface {
+
+    @GQLInterface
+    sealed trait Mid1 extends NestedInterface
+
+    @GQLInterface
+    sealed trait Mid2 extends NestedInterface
+
+    case class FooA(a: String, b: String, c: String) extends Mid1
+    case class FooB(b: String, c: String, d: String) extends Mid1 with Mid2
+    case class FooC(b: String, d: String, e: String) extends Mid2
+  }
 }
