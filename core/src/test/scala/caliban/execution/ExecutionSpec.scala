@@ -1285,6 +1285,39 @@ object ExecutionSpec extends ZIOSpecDefault {
           invalid.data.toString == "null",
           invalid.errors.nonEmpty
         )
+      },
+      test("defects set the first nullable parent value to null") {
+        case class Bar(value: UIO[String])
+        case class Foo1(bar: Option[Bar], value: String)
+        case class Query1(foo: Foo1)
+
+        case class Foo2(bar: Bar, value: String)
+        case class Query2(foo: Option[Foo2])
+
+        val api1: GraphQL[Any] = graphQL(RootResolver(Query1(Foo1(Some(Bar(ZIO.die(new Throwable("boom")))), "foo"))))
+        val api2: GraphQL[Any] = graphQL(RootResolver(Query2(Some(Foo2(Bar(ZIO.die(new Throwable("boom"))), "foo")))))
+
+        val query = gqldoc("""{ foo { value bar { value } } }""")
+        for {
+          interpreter1 <- api1.interpreter
+          result1      <- interpreter1.execute(query)
+          data1         = result1.data.toString
+          errors1       = result1.errors.map(_.toResponseValue.toString)
+          interpreter2 <- api2.interpreter
+          result2      <- interpreter2.execute(query)
+          data2         = result2.data.toString
+          errors2       = result2.errors.map(_.toResponseValue.toString)
+        } yield assertTrue(
+          data1 == """{"foo":{"value":"foo","bar":null}}""",
+          errors1 == List(
+            """{"message":"Effect failure","locations":[{"line":1,"column":21}],"path":["foo","bar","value"]}"""
+          ),
+          data2 == """{"foo":null}""",
+          errors2 == List(
+            """{"message":"Effect failure","locations":[{"line":1,"column":21}],"path":["foo","bar","value"]}"""
+          )
+        )
+
       }
     )
 }
