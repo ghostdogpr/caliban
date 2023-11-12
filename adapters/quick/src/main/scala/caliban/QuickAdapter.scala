@@ -20,7 +20,7 @@ final class QuickAdapter[-R, E](interpreter: GraphQLInterpreter[R, E]) {
   def runServer(port: Int, apiPath: Path, graphiqlPath: Option[Path] = None): RIO[R, Nothing] =
     runServer(Server.Config.default.port(port), apiPath, graphiqlPath)
 
-  def runServer(config: Server.Config, apiPath: Path, graphiqlPath: Option[Path] = None): RIO[R, Nothing] =
+  def runServer(config: Server.Config, apiPath: Path, graphiqlPath: Option[Path]): RIO[R, Nothing] =
     Server.serve[R](app(apiPath, graphiqlPath)).provideSomeLayer[R](Server.defaultWith(_ => config))
 
   lazy val handler: RequestHandler[R, Response] =
@@ -190,7 +190,7 @@ object QuickAdapter {
   ): RIO[GraphQL[R] & R, Nothing] =
     runServer(Server.Config.default.port(port), api, graphiql)
 
-  def runServer[R](config: Server.Config, api: Path, graphiql: Option[Path] = None)(implicit
+  def runServer[R](config: Server.Config, api: Path, graphiql: Option[Path])(implicit
     tag: Tag[R]
   ): RIO[GraphQL[R] & R, Nothing] =
     ZIO
