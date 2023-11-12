@@ -7,13 +7,13 @@ import zio.http._
 final class QuickAdapter[-R, E] private (requestHandler: QuickRequestHandler[R, E]) {
 
   /**
-   * Converts this adapter to a [[Handler]] which can be used to create zio-http [[App]]s
+   * Converts this adapter to a [[zio.http.RequestHandler]] which can be used to create zio-http [[zio.http.App]]s
    */
   val handler: RequestHandler[R, Response] =
     Handler.fromFunctionZIO[Request](requestHandler.handleRequest)
 
   /**
-   * Converts this adapter to an [[App]] serving the GraphQL API at the specified path.
+   * Converts this adapter to an [[zio.http.App]] serving the GraphQL API at the specified path.
    *
    * @param apiPath The path where the GraphQL API will be served.
    * @param graphiqlPath The path where the GraphiQL UI will be served. If None, GraphiQL will not be served.

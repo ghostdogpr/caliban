@@ -2,6 +2,7 @@ package caliban
 
 import caliban.interop.tapir.TestData.sampleCharacters
 import caliban.interop.tapir.{ TapirAdapterSpec, TestApi, TestService }
+import caliban.quick._
 import caliban.uploads.Uploads
 import sttp.client3.UriContext
 import zio._
@@ -23,10 +24,10 @@ object QuickAdapterSpec extends ZIOSpecDefault {
 
   private val apiLayer = envLayer >>> ZLayer.fromZIO {
     for {
-      adapter <- TestApi.api.interpreter.map(QuickAdapter(_))
+      handler <- TestApi.api.handler.map(_ @@ auth)
       _       <-
         Server
-          .serve(Http.collectHandler { case _ -> Root / "api" / "graphql" => adapter.handler @@ auth })
+          .serve(Http.collectHandler { case _ -> Root / "api" / "graphql" => handler })
           .forkScoped
       _       <- Live.live(Clock.sleep(3 seconds))
       service <- ZIO.service[TestService]

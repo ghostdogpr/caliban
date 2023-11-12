@@ -1,6 +1,7 @@
 package example.quick
 
 import caliban._
+import caliban.quick._
 import caliban.schema.GenericSchema
 import example.ExampleData._
 import example.{ ExampleApi, ExampleService }
@@ -59,18 +60,17 @@ object AuthExampleApp extends ZIOAppDefault {
 
   override def run: URIO[Any, ExitCode] =
     (for {
-      exampleApi   <- ZIO.service[GraphQL[Any]]
-      interpreter  <- (exampleApi |+| Authed.api).interpreter
-      apiRoute      = QuickAdapter(interpreter).handler @@ Auth.middleware
-      graphiqlRoute = GraphiQLAdapter.handler(Root / "api" / "graphql", Root / "graphiql")
-      port         <- Server.install(
-                        Http.collectHandler[Request] {
-                          case _ -> Root / "api" / "graphql" => apiRoute
-                          case _ -> Root / "graphiql"        => graphiqlRoute
-                        }
-                      )
-      _            <- ZIO.logInfo(s"Server started on port $port")
-      _            <- ZIO.never
+      exampleApi     <- ZIO.service[GraphQL[Any]]
+      apiHandler     <- (exampleApi |+| Authed.api).handler.map(_ @@ Auth.middleware)
+      graphiqlHandler = GraphiQLAdapter.handler(Root / "api" / "graphql", Root / "graphiql")
+      port           <- Server.install(
+                          Http.collectHandler[Request] {
+                            case _ -> Root / "api" / "graphql" => apiHandler
+                            case _ -> Root / "graphiql"        => graphiqlHandler
+                          }
+                        )
+      _              <- ZIO.logInfo(s"Server started on port $port")
+      _              <- ZIO.never
     } yield ())
       .provide(
         ExampleService.make(sampleCharacters),

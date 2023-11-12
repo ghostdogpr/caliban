@@ -130,9 +130,9 @@ libraryDependencies += "com.github.ghostdogpr" %% "caliban-quick" % "1.5.0"
 
 And then you can use it as follows:
 
-```scala
-import caliban.quick._
-import zio.http._
+```scala mdoc:compile-only
+import caliban._
+import caliban.quick._ // Adds syntax to `GraphQL`
 
 val gql: GraphQL[Any] = ???
 

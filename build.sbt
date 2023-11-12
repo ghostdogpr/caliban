@@ -618,7 +618,7 @@ lazy val docs = project
       "org.typelevel"                 %% "cats-mtl"         % catsMtlVersion
     )
   )
-  .dependsOn(core, catsInterop, tapirInterop, http4s, tools)
+  .dependsOn(core, catsInterop, tapirInterop, http4s, tools, quickAdapter)
 
 lazy val commonSettings = Def.settings(
   scalacOptions ++= Seq(
