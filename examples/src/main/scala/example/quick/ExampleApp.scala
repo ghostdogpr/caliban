@@ -4,7 +4,7 @@ import caliban._
 import example.ExampleData._
 import example.{ ExampleApi, ExampleService }
 import zio._
-import zio.http._
+import caliban.quick._
 
 object ExampleApp extends ZIOAppDefault {
 
@@ -15,12 +15,14 @@ object ExampleApp extends ZIOAppDefault {
       Console.readLine.unit
 
   private val serve =
-    QuickAdapter
-      .runServer[Any](
-        port = 8090,
-        api = Root / "api" / "graphql",
-        graphiql = Some(Root / "graphiql")
-      )
+    ZIO
+      .serviceWithZIO[GraphQL[Any]] {
+        _.runServer(
+          port = 8090,
+          api = "/api/graphql",
+          graphiql = Some("/graphiql")
+        )
+      }
       .provide(
         ExampleService.make(sampleCharacters),
         ExampleApi.layer

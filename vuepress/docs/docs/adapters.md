@@ -131,19 +131,16 @@ libraryDependencies += "com.github.ghostdogpr" %% "caliban-quick" % "1.5.0"
 And then you can use it as follows:
 
 ```scala
-import caliban._
+import caliban.quick._
 import zio.http._
 
 val gql: GraphQL[Any] = ???
 
-for {
-  interpreter <- gql.interpreter
-  _           <- QuickAdapter(interpreter).runServer(
-                   port = 8080,
-                   api = Root / "api" / "graphql",
-                   graphiql = Some(Root / "graphiql")
-                 )
-} yield ()
+gql.runServer(
+  port = 8080,
+  api = "/api/graphql",
+  graphiql = Some("/graphiql")
+)
 ```
 
 And that's it - now you have a fully functional GraphQL server running on port 8080!

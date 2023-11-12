@@ -17,11 +17,14 @@ final class QuickAdapter[-R, E](interpreter: GraphQLInterpreter[R, E]) {
   import QuickAdapter._
   import caliban.interop.jsoniter.ValueJsoniter._
 
-  def runServer(port: Int, apiPath: Path, graphiqlPath: Option[Path] = None): RIO[R, Nothing] =
-    runServer(Server.Config.default.port(port), apiPath, graphiqlPath)
-
-  def runServer(config: Server.Config, apiPath: Path, graphiqlPath: Option[Path]): RIO[R, Nothing] =
-    Server.serve[R](app(apiPath, graphiqlPath)).provideSomeLayer[R](Server.defaultWith(_ => config))
+  /**
+   * Runs the server using the default zio-http server configuration on the specified port.
+   * This is meant as a convenience method for getting started quickly
+   */
+  def runServer(port: Int, apiPath: String, graphiqlPath: Option[String] = None): RIO[R, Nothing] =
+    Server
+      .serve[R](app(Path.decode(apiPath), graphiqlPath.map(Path.decode)))
+      .provideSomeLayer[R](Server.defaultWithPort(port))
 
   lazy val handler: RequestHandler[R, Response] =
     Handler.fromFunctionZIO[Request] { req =>
@@ -29,16 +32,6 @@ final class QuickAdapter[-R, E](interpreter: GraphQLInterpreter[R, E]) {
         .flatMap(executeRequest(req.method, _))
         .map(transformResponse(req, _))
     }
-
-  private def app(apiPath: Path, graphiqlPath: Option[Path]): App[R] = {
-    val apiApp = Http.collectHandler[Request] { case _ -> path if path == apiPath => handler }
-    graphiqlPath match {
-      case None         => apiApp
-      case Some(uiPath) =>
-        val uiHandler = GraphiQLAdapter.handler(apiPath, uiPath)
-        apiApp ++ Http.collectHandler[Request] { case _ -> path if path == uiPath => uiHandler }
-    }
-  }
 
   def configure(config: ExecutionConfiguration): QuickAdapter[R, E] =
     new QuickAdapter[R, E](
@@ -49,6 +42,16 @@ final class QuickAdapter[-R, E](interpreter: GraphQLInterpreter[R, E]) {
     new QuickAdapter[R & R1, E](
       interpreter.wrapExecutionWith[R & R1, E](exec => ZIO.scoped[R1 & R](configurator *> exec))
     )
+
+  private def app(apiPath: Path, graphiqlPath: Option[Path]): App[R] = {
+    val apiApp = Http.collectHandler[Request] { case _ -> path if path == apiPath => handler }
+    graphiqlPath match {
+      case None         => apiApp
+      case Some(uiPath) =>
+        val uiHandler = GraphiQLAdapter.handler(apiPath, uiPath)
+        apiApp ++ Http.collectHandler[Request] { case _ -> path if path == uiPath => uiHandler }
+    }
+  }
 
   private def badRequest(msg: String) = Response(Status.BadRequest, body = Body.fromString(msg))
 
@@ -180,22 +183,6 @@ object QuickAdapter {
 
   def apply[R, E](interpreter: GraphQLInterpreter[R, E]): QuickAdapter[R, E] =
     new QuickAdapter(interpreter)
-
-  /**
-   * Runs the server using the default zio-http server configuration on the specified port.
-   * This is meant as a convenience method for getting started quickly
-   */
-  def runServer[R](port: Int, api: Path, graphiql: Option[Path] = None)(implicit
-    tag: Tag[R]
-  ): RIO[GraphQL[R] & R, Nothing] =
-    runServer(Server.Config.default.port(port), api, graphiql)
-
-  def runServer[R](config: Server.Config, api: Path, graphiql: Option[Path])(implicit
-    tag: Tag[R]
-  ): RIO[GraphQL[R] & R, Nothing] =
-    ZIO
-      .serviceWithZIO[QuickAdapter[R, CalibanError]](_.runServer(config, api, graphiql))
-      .provideSomeLayer[GraphQL[R] & R](default)
 
   def handler[R](implicit tag: Tag[R]): URIO[QuickAdapter[R, CalibanError], RequestHandler[R, Response]] =
     ZIO.serviceWith(_.handler)
