@@ -61,13 +61,12 @@ final private class QuickRequestHandler[-R, E](interpreter: GraphQLInterpreter[R
     def isApplicationGql =
       httpReq.headers.get("content-type").fold(false)(_.startsWith("application/graphql"))
 
-    val resp = httpReq.method match {
-      case Method.GET  => ZIO.fromEither(fromQueryParams)
-      case Method.POST =>
-        val postReq =
-          if (queryParams.get("query").isDefined)
-            ZIO.fromEither(fromQueryParams)
-          else if (isApplicationGql)
+    val resp = {
+      if (httpReq.method == Method.GET || queryParams.get("query").isDefined)
+        ZIO.fromEither(fromQueryParams)
+      else {
+        val req =
+          if (isApplicationGql)
             httpReq.body.asString.mapBoth(_ => BodyDecodeErrorResponse, b => GraphQLRequest(Some(b)))
           else
             httpReq.body.asArray
@@ -76,9 +75,9 @@ final private class QuickRequestHandler[-R, E](interpreter: GraphQLInterpreter[R
 
         httpReq.headers
           .get(GraphQLRequest.`apollo-federation-include-trace`)
-          .collect { case GraphQLRequest.ftv1 => postReq.map(_.withFederatedTracing) }
-          .getOrElse(postReq)
-      case _           => ZIO.fail(Response.status(Status.NotFound))
+          .collect { case GraphQLRequest.ftv1 => req.map(_.withFederatedTracing) }
+          .getOrElse(req)
+      }
     }
 
     resp.tap(r => if (r.isEmpty) ZIO.fail(badRequest("No GraphQL query to execute")) else ZIO.unit)
