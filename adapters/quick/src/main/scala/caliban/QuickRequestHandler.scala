@@ -29,12 +29,11 @@ final private class QuickRequestHandler[-R, E](interpreter: GraphQLInterpreter[R
       interpreter.wrapExecutionWith[R & R1, E](exec => ZIO.scoped[R1 & R](configurator *> exec))
     )
 
-  def handleRequest(request: Request)(implicit trace: Trace): ZIO[R, Response, Response] =
+  def handleRequest(request: Request)(implicit trace: Trace): URIO[R, Response] =
     transformRequest(request)
       .flatMap(executeRequest(request.method, _))
       .map(transformResponse(request, _))
-
-  private def badRequest(msg: String) = Response(Status.BadRequest, body = Body.fromString(msg))
+      .merge
 
   private def transformRequest(httpReq: Request)(implicit trace: Trace): IO[Response, GraphQLRequest] = {
     val queryParams = httpReq.url.queryParams
@@ -96,13 +95,14 @@ final private class QuickRequestHandler[-R, E](interpreter: GraphQLInterpreter[R
     cacheDirective.fold(headers)(headers.addHeader(Header.CacheControl.name, _))
 
   private def transformResponse(httpReq: Request, resp: GraphQLResponse[E])(implicit trace: Trace): Response = {
-
     def acceptsGqlJson: Boolean =
       httpReq.header(Header.Accept).fold(false) { h =>
         h.mimeTypes.exists(mt =>
           mt.mediaType.subType == "graphql-response+json" && mt.mediaType.mainType == "application"
         )
       }
+
+    val cacheDirective = HttpUtils.computeCacheDirective(resp.extensions)
 
     (resp match {
       case resp @ GraphQLResponse(StreamValue(stream), _, _, _) =>
@@ -112,29 +112,19 @@ final private class QuickRequestHandler[-R, E](interpreter: GraphQLInterpreter[R
           body = Body.fromStream(encodeMultipartMixedResponse(resp, stream))
         )
       case resp if acceptsGqlJson                               =>
-        val cacheDirective = HttpUtils.computeCacheDirective(resp.extensions)
         Response(
           status = resp.errors.collectFirst { case _: CalibanError.ParsingError | _: CalibanError.ValidationError =>
             Status.BadRequest
           }.getOrElse(Status.Ok),
           headers = responseHeaders(ContentTypeGql, cacheDirective),
-          body = encodeSingleResponse(
-            resp,
-            keepDataOnErrors = false,
-            excludeExtensions = cacheDirective.map(_ => Set(Caching.DirectiveName))
-          )
+          body = encodeSingleResponse(resp, keepDataOnErrors = false, hasCacheDirective = cacheDirective.isDefined)
         )
       case resp                                                 =>
-        val cacheDirective = HttpUtils.computeCacheDirective(resp.extensions)
         Response(
           status = resp.errors.collectFirst { case HttpRequestMethod.MutationOverGetError => Status.BadRequest }
             .getOrElse(Status.Ok),
           headers = responseHeaders(ContentTypeJson, cacheDirective),
-          body = encodeSingleResponse(
-            resp,
-            keepDataOnErrors = true,
-            excludeExtensions = cacheDirective.map(_ => Set(Caching.DirectiveName))
-          )
+          body = encodeSingleResponse(resp, keepDataOnErrors = true, hasCacheDirective = cacheDirective.isDefined)
         )
     }).withServerTime
   }
@@ -142,9 +132,11 @@ final private class QuickRequestHandler[-R, E](interpreter: GraphQLInterpreter[R
   private def encodeSingleResponse(
     resp: GraphQLResponse[E],
     keepDataOnErrors: Boolean,
-    excludeExtensions: Option[Set[String]]
-  ): Body =
+    hasCacheDirective: Boolean
+  ): Body = {
+    val excludeExtensions = if (hasCacheDirective) Some(Set(Caching.DirectiveName)) else None
     Body.fromChunk(Chunk.fromArray(writeToArray(resp.toResponseValue(keepDataOnErrors, excludeExtensions))))
+  }
 
   private def encodeMultipartMixedResponse(
     resp: GraphQLResponse[E],
@@ -163,6 +155,8 @@ final private class QuickRequestHandler[-R, E](interpreter: GraphQLInterpreter[R
 }
 
 object QuickRequestHandler {
+  private def badRequest(msg: String) =
+    Response(Status.BadRequest, body = Body.fromString(msg))
 
   private val ContentTypeJson =
     Headers(Header.ContentType(MediaType.application.json))
@@ -174,7 +168,7 @@ object QuickRequestHandler {
     Headers(Header.ContentType(MediaType.multipart.mixed.copy(parameters = DeferMultipart.DeferHeaderParams)))
 
   private val BodyDecodeErrorResponse =
-    Response(Status.BadRequest, body = Body.fromString("Failed to decode json body"))
+    badRequest("Failed to decode json body")
 
   private implicit val inputObjectCodec: JsonValueCodec[InputValue.ObjectValue] =
     new JsonValueCodec[InputValue.ObjectValue] {

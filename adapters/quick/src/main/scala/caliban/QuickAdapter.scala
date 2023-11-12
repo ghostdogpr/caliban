@@ -9,7 +9,7 @@ final class QuickAdapter[-R, E] private (requestHandler: QuickRequestHandler[R, 
   /**
    * Converts this adapter to a [[zio.http.RequestHandler]] which can be used to create zio-http [[zio.http.App]]s
    */
-  val handler: RequestHandler[R, Response] =
+  val handler: RequestHandler[R, Nothing] =
     Handler.fromFunctionZIO[Request](requestHandler.handleRequest)
 
   /**
@@ -19,12 +19,16 @@ final class QuickAdapter[-R, E] private (requestHandler: QuickRequestHandler[R, 
    * @param graphiqlPath The path where the GraphiQL UI will be served. If None, GraphiQL will not be served.
    */
   def toApp(apiPath: Path, graphiqlPath: Option[Path] = None): App[R] = {
-    val apiApp = Http.collectHandler[Request] { case _ -> path if path == apiPath => handler }
+    val apiApp = Http.collectHandler[Request] {
+      case (Method.GET | Method.POST) -> path if path == apiPath => handler
+    }
     graphiqlPath match {
       case None         => apiApp
       case Some(uiPath) =>
         val uiHandler = GraphiQLAdapter.handler(apiPath, uiPath)
-        apiApp ++ Http.collectHandler[Request] { case _ -> path if path == uiPath => uiHandler }
+        apiApp ++ Http.collectHandler[Request] {
+          case Method.GET -> path if path == uiPath => uiHandler
+        }
     }
   }
 
