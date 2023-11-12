@@ -1294,8 +1294,9 @@ object ExecutionSpec extends ZIOSpecDefault {
         case class Foo2(bar: Bar, value: String)
         case class Query2(foo: Option[Foo2])
 
-        val api1: GraphQL[Any] = graphQL(RootResolver(Query1(Foo1(Some(Bar(ZIO.die(new Throwable("boom")))), "foo"))))
-        val api2: GraphQL[Any] = graphQL(RootResolver(Query2(Some(Foo2(Bar(ZIO.die(new Throwable("boom"))), "foo")))))
+        val boom               = ZIO.die(ExecutionError("boom"))
+        val api1: GraphQL[Any] = graphQL(RootResolver(Query1(Foo1(Some(Bar(boom)), "foo"))))
+        val api2: GraphQL[Any] = graphQL(RootResolver(Query2(Some(Foo2(Bar(boom), "foo")))))
 
         val query = gqldoc("""{ foo { value bar { value } } }""")
         for {
@@ -1310,11 +1311,11 @@ object ExecutionSpec extends ZIOSpecDefault {
         } yield assertTrue(
           data1 == """{"foo":{"value":"foo","bar":null}}""",
           errors1 == List(
-            """{"message":"Effect failure","locations":[{"line":1,"column":21}],"path":["foo","bar","value"]}"""
+            """{"message":"boom","locations":[{"line":1,"column":21}],"path":["foo","bar","value"]}"""
           ),
           data2 == """{"foo":null}""",
           errors2 == List(
-            """{"message":"Effect failure","locations":[{"line":1,"column":21}],"path":["foo","bar","value"]}"""
+            """{"message":"boom","locations":[{"line":1,"column":21}],"path":["foo","bar","value"]}"""
           )
         )
 
