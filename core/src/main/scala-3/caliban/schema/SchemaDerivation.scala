@@ -44,7 +44,12 @@ trait CommonSchemaDerivation {
             case m: Mirror.SumOf[t] =>
               recurseSum[R, t, m.MirroredElemLabels, m.MirroredElemTypes](types)._1
             case _                  =>
-              (constValue[name].toString, schema.toType_(), MagnoliaMacro.anns[t]) :: types
+              (
+                constValue[name].toString,
+                schema.toType_(),
+                // Workaround until we figure out why the macro uses the parent's annotations when the leaf is a Scala 3 enum
+                inline if (!MagnoliaMacro.isEnum[t]) MagnoliaMacro.anns[t] else Nil
+              ) :: types
           },
           schemas = schema :: schemas
         )
@@ -88,7 +93,8 @@ trait CommonSchemaDerivation {
           case _: EmptyTuple                              =>
             new EnumValueSchema[R, A](
               MagnoliaMacro.typeInfo[A],
-              MagnoliaMacro.anns[A]
+              // Workaround until we figure out why the macro uses the parent's annotations when the leaf is a Scala 3 enum
+              inline if (!MagnoliaMacro.isEnum[A]) MagnoliaMacro.anns[A] else Nil
             )
           case _ if Macros.hasAnnotation[A, GQLValueType] =>
             new ValueTypeSchema[R, A](

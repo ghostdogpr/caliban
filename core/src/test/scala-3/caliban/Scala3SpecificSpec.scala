@@ -1,6 +1,6 @@
 package caliban
 
-import caliban.schema.Annotations.GQLInterface
+import caliban.schema.Annotations.{ GQLInterface, GQLName }
 import caliban.schema.Schema.auto.*
 import zio.*
 import zio.test.*
@@ -8,6 +8,7 @@ import zio.test.Assertion.*
 
 object Scala3SpecificSpec extends ZIOSpecDefault {
 
+  @GQLName("FooEnum")
   enum MyEnum {
     case A, B, C
   }
@@ -29,6 +30,24 @@ object Scala3SpecificSpec extends ZIOSpecDefault {
 
   override def spec =
     suite("Scala3SpecificSpec")(
+      test("Scala 3 enum schema derivation") {
+        case class Queries(item: MyEnum)
+        val api      = graphQL(RootResolver(Queries(MyEnum.A)))
+        val rendered = api.render
+        assertTrue(rendered == """schema {
+                                 |  query: Queries
+                                 |}
+                                 |
+                                 |enum FooEnum {
+                                 |  A
+                                 |  B
+                                 |  C
+                                 |}
+                                 |
+                                 |type Queries {
+                                 |  item: FooEnum!
+                                 |}""".stripMargin)
+      },
       test("Scala 3 enum") {
         case class Queries(item: MyEnum)
         val api         = graphQL(RootResolver(Queries(MyEnum.A)))
