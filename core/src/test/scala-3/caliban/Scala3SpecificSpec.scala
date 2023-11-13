@@ -1,15 +1,19 @@
 package caliban
 
 import caliban.schema.Annotations.GQLInterface
-import caliban.schema.Schema.auto._
-import zio._
-import zio.test._
-import zio.test.Assertion._
+import caliban.schema.Schema.auto.*
+import zio.*
+import zio.test.*
+import zio.test.Assertion.*
 
 object Scala3SpecificSpec extends ZIOSpecDefault {
 
   enum MyEnum {
     case A, B, C
+  }
+
+  enum EnumWithVal(val foo: String) {
+    case A extends EnumWithVal("a")
   }
 
   enum MyADT {
@@ -28,6 +32,18 @@ object Scala3SpecificSpec extends ZIOSpecDefault {
       test("Scala 3 enum") {
         case class Queries(item: MyEnum)
         val api         = graphQL(RootResolver(Queries(MyEnum.A)))
+        val interpreter = api.interpreter
+        val query       =
+          """query {
+            |  item
+            |}""".stripMargin
+        interpreter.flatMap(_.execute(query)).map { response =>
+          assertTrue(response.data.toString == """{"item":"A"}""")
+        }
+      },
+      test("Scala 3 enum with val") {
+        case class Query(item: EnumWithVal)
+        val api         = graphQL(RootResolver(Query(EnumWithVal.A)))
         val interpreter = api.interpreter
         val query       =
           """query {

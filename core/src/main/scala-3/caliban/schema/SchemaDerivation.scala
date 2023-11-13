@@ -84,24 +84,27 @@ trait CommonSchemaDerivation {
         )(m.ordinal)
 
       case m: Mirror.ProductOf[A] =>
-        inline if (!Macros.hasParams[A])
-          new EnumValueSchema[R, A](
-            MagnoliaMacro.typeInfo[A],
-            MagnoliaMacro.anns[A]
-          )
-        else inline if (Macros.hasAnnotation[A, GQLValueType])
-          new ValueTypeSchema[R, A](
-            valueTypeSchema[R, m.MirroredElemLabels, m.MirroredElemTypes],
-            MagnoliaMacro.typeInfo[A],
-            MagnoliaMacro.anns[A]
-          )
-        else
-          new ObjectSchema[R, A](
-            recurseProduct[R, A, m.MirroredElemLabels, m.MirroredElemTypes]()(),
-            MagnoliaMacro.typeInfo[A],
-            MagnoliaMacro.anns[A],
-            MagnoliaMacro.paramAnns[A].toMap
-          )
+        inline erasedValue[m.MirroredElemLabels] match {
+          case _: EmptyTuple                              =>
+            new EnumValueSchema[R, A](
+              MagnoliaMacro.typeInfo[A],
+              MagnoliaMacro.anns[A]
+            )
+          case _ if Macros.hasAnnotation[A, GQLValueType] =>
+            new ValueTypeSchema[R, A](
+              valueTypeSchema[R, m.MirroredElemLabels, m.MirroredElemTypes],
+              MagnoliaMacro.typeInfo[A],
+              MagnoliaMacro.anns[A]
+            )
+          case _                                          =>
+            new ObjectSchema[R, A](
+              recurseProduct[R, A, m.MirroredElemLabels, m.MirroredElemTypes]()(),
+              MagnoliaMacro.typeInfo[A],
+              MagnoliaMacro.anns[A],
+              MagnoliaMacro.paramAnns[A].toMap
+            )
+        }
+
     }
 }
 
