@@ -19,8 +19,8 @@ object ExampleApp extends ZIOAppDefault {
       .serviceWithZIO[GraphQL[Any]] {
         _.runServer(
           port = 8090,
-          api = "/api/graphql",
-          graphiql = Some("/graphiql")
+          apiPath = "/api/graphql",
+          graphiqlPath = Some("/graphiql")
         )
       }
       .provide(

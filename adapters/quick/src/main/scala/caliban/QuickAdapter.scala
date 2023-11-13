@@ -25,7 +25,7 @@ final class QuickAdapter[-R, E] private (requestHandler: QuickRequestHandler[R, 
     graphiqlPath match {
       case None         => apiApp
       case Some(uiPath) =>
-        val uiHandler = GraphiQLAdapter.handler(apiPath, uiPath)
+        val uiHandler = GraphiQLHandler.handler(apiPath.toString(), uiPath.toString)
         apiApp ++ Http.collectHandler[Request] {
           case Method.GET -> path if path == uiPath => uiHandler
         }
@@ -35,6 +35,10 @@ final class QuickAdapter[-R, E] private (requestHandler: QuickRequestHandler[R, 
   /**
    * Runs the server using the default zio-http server configuration on the specified port.
    * This is meant as a convenience method for getting started quickly
+   *
+   * @param port The port to serve the API on
+   * @param apiPath The route to serve the API on, e.g., `/api/graphql`
+   * @param graphiqlPath Optionally define a route to serve the GraphiQL UI on, e.g., `/graphiql`
    */
   def runServer(port: Int, apiPath: String, graphiqlPath: Option[String] = None)(implicit
     trace: Trace

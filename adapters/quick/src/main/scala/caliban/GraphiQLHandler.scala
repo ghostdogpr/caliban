@@ -2,10 +2,10 @@ package caliban
 
 import zio.http._
 
-object GraphiQLAdapter {
+object GraphiQLHandler {
 
-  def handler(apiPath: Path, uiPath: Path): RequestHandler[Any, Nothing] =
-    Handler.fromBody(Body.fromString(html(apiPath.toString, uiPath.toString)))
+  def handler(apiPath: String, graphiqlPath: String): RequestHandler[Any, Nothing] =
+    Handler.fromBody(Body.fromString(html(apiPath, graphiqlPath)))
 
   /**
    * Creates an HTML string which can be used to serve the GraphiQL UI from CDN.

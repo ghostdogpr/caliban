@@ -62,7 +62,7 @@ object AuthExampleApp extends ZIOAppDefault {
     (for {
       exampleApi     <- ZIO.service[GraphQL[Any]]
       apiHandler     <- (exampleApi |+| Authed.api).handler.map(_ @@ Auth.middleware)
-      graphiqlHandler = GraphiQLAdapter.handler(Root / "api" / "graphql", Root / "graphiql")
+      graphiqlHandler = GraphiQLHandler.handler(apiPath = "/api/graphql", graphiqlPath = "/graphiql")
       port           <- Server.install(
                           Http.collectHandler[Request] {
                             case _ -> Root / "api" / "graphql" => apiHandler
