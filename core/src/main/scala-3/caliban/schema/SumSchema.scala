@@ -7,18 +7,16 @@ import caliban.schema.Types.makeUnion
 import magnolia1.TypeInfo
 
 final private class SumSchema[R, A](
-  _members: => List[(String, List[Any], Schema[R, Any])],
+  _members: => (List[(String, __Type, List[Any])], List[Schema[R, Any]]),
   info: TypeInfo,
   annotations: List[Any]
 )(ordinal: A => Int)
     extends Schema[R, A] {
-  private lazy val members = _members
 
-  private lazy val subTypes = members.map { (label, subTypeAnnotations, schema) =>
-    (label, schema.toType_(), subTypeAnnotations)
-  }.sortBy(_._1)
-
-  private lazy val schemas = members.map(_._3).toVector // Vector's .apply is O(1) vs List's O(N)
+  private lazy val (subTypes, schemas) = {
+    val (m, s) = _members
+    (m.sortBy(_._1), s.toVector)
+  }
 
   private lazy val isEnum = subTypes.forall((_, t, _) => t.allFields.isEmpty && t.allInputFields.isEmpty)
   private val isInterface = annotations.contains(GQLInterface())

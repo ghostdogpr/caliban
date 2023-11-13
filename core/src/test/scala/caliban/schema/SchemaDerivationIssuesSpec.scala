@@ -5,6 +5,7 @@ import zio.Chunk
 import zio.test.ZIOSpecDefault
 import zio.test._
 import caliban.{ graphQL, RootResolver }
+import caliban.Macros._
 
 object SchemaDerivationIssuesSpec extends ZIOSpecDefault {
   def spec = suite("SchemaDerivationIssuesSpec")(
@@ -169,25 +170,47 @@ object SchemaDerivationIssuesSpec extends ZIOSpecDefault {
             |}""".stripMargin
       )
     },
-    test("i1993") {
-      import i1993._
+    suite("i1993")(
+      test("rendering") {
+        import i1993._
 
-      assertTrue(
-        schema ==
-          """schema {
-            |  query: Queries
-            |}
-            |
-            |enum Enum1 {
-            |  Item111
-            |  Item112
-            |  Item121
-            |}
-            |
-            |type Queries {
-            |  e: Enum1!
-            |}""".stripMargin
-      )
+        val rendered = schema.render
+        assertTrue(
+          rendered ==
+            """schema {
+              |  query: Queries
+              |}
+              |
+              |enum Enum1 {
+              |  Item111
+              |  Item112
+              |  Item121
+              |}
+              |
+              |type Queries {
+              |  e1: Enum1!
+              |  e2: Enum1!
+              |  e3: Enum1!
+              |}""".stripMargin
+        )
+      },
+      test("execution") {
+        import i1993._
+
+        for {
+          i   <- schema.interpreter
+          res <- i.execute(gqldoc("{ e1 e2 e3 }"))
+          data = res.data.toString
+        } yield assertTrue(data == """{"e1":"Item111","e2":"Item112","e3":"Item121"}""")
+      }
+    ),
+    test("nested interfaces execute correctly") {
+      import NestedInterfaceIssue._
+      for {
+        i   <- schema.interpreter
+        res <- i.execute(gqldoc("{ e1 { b } e2 { b } e3 { b } }"))
+        data = res.data.toString
+      } yield assertTrue(data == """{"e1":{"b":"b"},"e2":{"b":"b"},"e3":{"b":"b"}}""")
     }
   )
 }
@@ -413,14 +436,57 @@ object i1993 {
     }
   }
 
-  case class Queries(e: Enum1)
+  case class Queries(e1: Enum1, e2: Enum1, e3: Enum1)
 
   object Queries {
     implicit val schema: Schema[Any, Queries] = Schema.gen
   }
 
   val schema = {
-    val queries = Queries(Enum1.Enum12.Item121)
+    val queries = Queries(
+      Enum1.Enum11.Item111,
+      Enum1.Enum11.Item112,
+      Enum1.Enum12.Item121
+    )
     caliban.graphQL(RootResolver(queries))
-  }.render
+  }
+}
+
+object NestedInterfaceIssue {
+  import Schema.auto._
+
+  @GQLInterface
+  sealed trait NestedInterface
+
+  object NestedInterface {
+
+    @GQLInterface
+    sealed trait Mid1 extends NestedInterface
+
+    @GQLInterface
+    sealed trait Mid2 extends NestedInterface
+
+    case class FooA(b: String)            extends Mid1
+    case class FooB(a: String, b: String) extends Mid1 with Mid2
+    case class FooC(c: String, b: String) extends Mid2
+  }
+
+  case class Query(e1: NestedInterface, e2: NestedInterface.Mid1, e3: NestedInterface.Mid2)
+
+  implicit lazy val fooA: Schema[Any, NestedInterface.FooA] = Schema.gen
+  implicit lazy val fooB: Schema[Any, NestedInterface.FooB] = Schema.gen
+  implicit lazy val fooC: Schema[Any, NestedInterface.FooC] = Schema.gen
+  implicit lazy val mid1: Schema[Any, NestedInterface.Mid1] = Schema.gen
+  implicit lazy val mid2: Schema[Any, NestedInterface.Mid2] = Schema.gen
+  implicit lazy val nested: Schema[Any, NestedInterface]    = Schema.gen
+  implicit lazy val querySchema: Schema[Any, Query]         = Schema.gen
+
+  val schema = {
+    val queries = Query(
+      NestedInterface.FooA("b"),
+      NestedInterface.FooB("a", "b"),
+      NestedInterface.FooC("c", "b")
+    )
+    caliban.graphQL(RootResolver(queries))
+  }
 }
