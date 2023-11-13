@@ -30,7 +30,7 @@ trait CommonSchemaDerivation {
     List[Schema[R, Any]]
   ) =
     inline erasedValue[(Label, A)] match {
-      case (_: EmptyTuple, _)                 => (types.reverse, schemas.reverse)
+      case (_: EmptyTuple, _)                 => (types, schemas.reverse)
       case (_: (name *: names), _: (t *: ts)) =>
         val schema = {
           inline if (Macros.isEnumField[P, t])
