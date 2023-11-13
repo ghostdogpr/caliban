@@ -130,7 +130,7 @@ libraryDependencies += "com.github.ghostdogpr" %% "caliban-quick" % "1.4.3"
 ```
 
 By adding `import caliban.quick._`, we expose a few convenient extension methods on our `GraphQL` api. 
-e.g., we can serve our GraphQL api with minimal setup via a single command: 
+For example, we can serve our GraphQL api with minimal setup via a single command:
 
 ```scala mdoc:compile-only
 import caliban._

@@ -4,17 +4,17 @@ import zio.http._
 
 object GraphiQLHandler {
 
-  def handler(apiPath: String, graphiqlPath: String): RequestHandler[Any, Nothing] =
-    Handler.fromBody(Body.fromString(html(apiPath, graphiqlPath)))
-
   /**
-   * Creates an HTML string which can be used to serve the GraphiQL UI from CDN.
+   * Creates a handler which serves the GraphiQL UI from CDN.
    *
    * @param apiPath The path at which the API can be introspected.
-   * @param uiPath The path at which the GraphiQL UI will be served.
+   * @param graphiqlPath The path at which the GraphiQL UI will be served.
    *
    * @see [[https://github.com/graphql/graphiql/tree/main/examples/graphiql-cdn]]
    */
+  def handler(apiPath: String, graphiqlPath: String): RequestHandler[Any, Nothing] =
+    Handler.fromBody(Body.fromString(html(apiPath, graphiqlPath)))
+
   def html(apiPath: String, uiPath: String): String =
     s"""
        |<!--

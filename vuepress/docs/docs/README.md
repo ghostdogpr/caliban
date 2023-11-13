@@ -12,7 +12,7 @@ The design principles of Caliban are the following:
 
 ## A simple example
 
-First, add the following dependencies to your `build.sbt` file:
+First, add the following dependency to your `build.sbt` file:
 
 ```scala
 "com.github.ghostdogpr" %% "caliban" % "2.4.3"
