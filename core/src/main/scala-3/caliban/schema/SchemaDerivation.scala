@@ -23,27 +23,31 @@ trait CommonSchemaDerivation {
   export DerivationUtils.customizeInputTypeName
 
   inline def recurseSum[R, P, Label, A <: Tuple](
-    inline values: List[(String, List[Any], Schema[R, Any])] = Nil
-  ): List[(String, List[Any], Schema[R, Any])] =
+    inline types: List[(String, __Type, List[Any])] = Nil,
+    inline schemas: List[Schema[R, Any]] = Nil
+  ): (
+    List[(String, __Type, List[Any])],
+    List[Schema[R, Any]]
+  ) =
     inline erasedValue[(Label, A)] match {
-      case (_: EmptyTuple, _)                 => values.reverse
+      case (_: EmptyTuple, _)                 => (types, schemas.reverse)
       case (_: (name *: names), _: (t *: ts)) =>
-        recurseSum[R, P, names, ts] {
-          inline summonInline[Mirror.Of[t]] match {
+        val schema = {
+          inline if (Macros.isEnumField[P, t])
+            inline if (!Macros.implicitExists[Schema[R, t]]) derived[R, t]
+            else summonInline[Schema[R, t]]
+          else summonInline[Schema[R, t]]
+        }.asInstanceOf[Schema[R, Any]]
+
+        recurseSum[R, P, names, ts](
+          types = inline summonInline[Mirror.Of[t]] match {
             case m: Mirror.SumOf[t] =>
-              recurseSum[R, t, m.MirroredElemLabels, m.MirroredElemTypes](values)
+              recurseSum[R, t, m.MirroredElemLabels, m.MirroredElemTypes](types)._1
             case _                  =>
-              (
-                constValue[name].toString,
-                MagnoliaMacro.anns[t], {
-                  inline if (Macros.isEnumField[P, t])
-                    inline if (!Macros.implicitExists[Schema[R, t]]) derived[R, t]
-                    else summonInline[Schema[R, t]]
-                  else summonInline[Schema[R, t]]
-                }.asInstanceOf[Schema[R, Any]]
-              ) :: values
-          }
-        }
+              (constValue[name].toString, schema.toType_(), MagnoliaMacro.anns[t]) :: types
+          },
+          schemas = schema :: schemas
+        )
 
     }
 
@@ -80,24 +84,27 @@ trait CommonSchemaDerivation {
         )(m.ordinal)
 
       case m: Mirror.ProductOf[A] =>
-        inline if (!Macros.hasParams[A])
-          new EnumValueSchema[R, A](
-            MagnoliaMacro.typeInfo[A],
-            MagnoliaMacro.anns[A]
-          )
-        else inline if (Macros.hasAnnotation[A, GQLValueType])
-          new ValueTypeSchema[R, A](
-            valueTypeSchema[R, m.MirroredElemLabels, m.MirroredElemTypes],
-            MagnoliaMacro.typeInfo[A],
-            MagnoliaMacro.anns[A]
-          )
-        else
-          new ObjectSchema[R, A](
-            recurseProduct[R, A, m.MirroredElemLabels, m.MirroredElemTypes]()(),
-            MagnoliaMacro.typeInfo[A],
-            MagnoliaMacro.anns[A],
-            MagnoliaMacro.paramAnns[A].toMap
-          )
+        inline erasedValue[m.MirroredElemLabels] match {
+          case _: EmptyTuple                              =>
+            new EnumValueSchema[R, A](
+              MagnoliaMacro.typeInfo[A],
+              MagnoliaMacro.anns[A]
+            )
+          case _ if Macros.hasAnnotation[A, GQLValueType] =>
+            new ValueTypeSchema[R, A](
+              valueTypeSchema[R, m.MirroredElemLabels, m.MirroredElemTypes],
+              MagnoliaMacro.typeInfo[A],
+              MagnoliaMacro.anns[A]
+            )
+          case _                                          =>
+            new ObjectSchema[R, A](
+              recurseProduct[R, A, m.MirroredElemLabels, m.MirroredElemTypes]()(),
+              MagnoliaMacro.typeInfo[A],
+              MagnoliaMacro.anns[A],
+              MagnoliaMacro.paramAnns[A].toMap
+            )
+        }
+
     }
 }
 
