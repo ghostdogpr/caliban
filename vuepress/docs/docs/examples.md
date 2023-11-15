@@ -1,6 +1,5 @@
 # Examples
 The [examples](https://github.com/ghostdogpr/caliban/tree/series/2.x/examples/) project in Github contains various examples:
-- [GraphQL API exposed with the high-performance HTTP adapter](https://github.com/ghostdogpr/caliban/tree/series/2.x/examples/src/main/scala/example/quick)
 - [GraphQL API exposed with http4s](https://github.com/ghostdogpr/caliban/tree/series/2.x/examples/src/main/scala/example/http4s)
 - [GraphQL API exposed with Akka HTTP](https://github.com/ghostdogpr/caliban/tree/series/2.x/examples/src/main/scala/example/akkahttp)
 - [GraphQL API exposed with play](https://github.com/ghostdogpr/caliban/tree/series/2.x/examples/src/main/scala/example/play)
