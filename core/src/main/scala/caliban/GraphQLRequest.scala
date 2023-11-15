@@ -47,6 +47,6 @@ object GraphQLRequest {
   implicit def playJsonWrites[F[_]: IsPlayJsonWrites]: F[GraphQLRequest] =
     caliban.interop.play.json.GraphQLRequestPlayJson.graphQLRequestWrites.asInstanceOf[F[GraphQLRequest]]
 
-  private[caliban] val ftv1                              = "ftv1"
-  private[caliban] val `apollo-federation-include-trace` = "apollo-federation-include-trace"
+  private[caliban] final val ftv1                              = "ftv1"
+  private[caliban] final val `apollo-federation-include-trace` = "apollo-federation-include-trace"
 }
