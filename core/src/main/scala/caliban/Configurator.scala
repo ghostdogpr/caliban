@@ -28,6 +28,11 @@ object Configurator {
   private[caliban] def configuration: UIO[ExecutionConfiguration] =
     configRef.get
 
+  private[caliban] def setWith[R, E, A](cfg: ExecutionConfiguration)(f: ZIO[R, E, A])(implicit
+    trace: Trace
+  ): ZIO[R, E, A] =
+    configRef.locally(cfg)(f)
+
   /**
    * Skip validation of the query.
    * @param skip if true, the query will not be validated (in that case, the `validations` field is ignored).

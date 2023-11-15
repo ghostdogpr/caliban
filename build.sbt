@@ -88,6 +88,7 @@ lazy val root = project
     pekkoHttp,
     play,
     zioHttp,
+    quickAdapter,
     catsInterop,
     monixInterop,
     tapirInterop,
@@ -348,6 +349,21 @@ lazy val zioHttp = project
   )
   .dependsOn(core, tapirInterop % "compile->compile;test->test")
 
+lazy val quickAdapter = project
+  .in(file("adapters/quick"))
+  .settings(name := "caliban-quick")
+  .settings(commonSettings)
+  .settings(enableMimaSettingsJVM)
+  .settings(
+    testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
+    libraryDependencies ++= Seq(
+      "dev.zio"                               %% "zio-http"             % zioHttpVersion,
+      "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-core"  % jsoniterVersion,
+      "com.softwaremill.sttp.tapir"           %% "tapir-jsoniter-scala" % tapirVersion % Test
+    )
+  )
+  .dependsOn(core, tapirInterop % "test->test")
+
 lazy val akkaHttp = project
   .in(file("adapters/akka-http"))
   .settings(name := "caliban-akka-http")
@@ -511,6 +527,7 @@ lazy val examples = project
     pekkoHttp,
     http4s,
     catsInterop,
+    quickAdapter,
     play,
     /*monixInterop,*/
     tapirInterop,
@@ -601,7 +618,7 @@ lazy val docs = project
       "org.typelevel"                 %% "cats-mtl"         % catsMtlVersion
     )
   )
-  .dependsOn(core, catsInterop, tapirInterop, http4s, tools)
+  .dependsOn(core, catsInterop, tapirInterop, http4s, tools, quickAdapter)
 
 lazy val commonSettings = Def.settings(
   scalacOptions ++= Seq(
