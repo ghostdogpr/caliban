@@ -39,12 +39,13 @@ final private class QuickRequestHandler[-R, E](interpreter: GraphQLInterpreter[R
     val queryParams = httpReq.url.queryParams
 
     def extractFields(key: String): Either[Response, Option[Map[String, InputValue]]] =
-      try Right(
-        queryParams
-          .get(key)
-          .flatMap(_.headOption)
-          .map(readFromString[InputValue.ObjectValue](_).fields)
-      )
+      try
+        Right(
+          queryParams
+            .get(key)
+            .flatMap(_.headOption)
+            .map(readFromString[InputValue.ObjectValue](_).fields)
+        )
       catch { case NonFatal(_) => Left(badRequest(s"Invalid $key query param")) }
 
     def fromQueryParams: Either[Response, GraphQLRequest] =
@@ -61,7 +62,7 @@ final private class QuickRequestHandler[-R, E](interpreter: GraphQLInterpreter[R
     def isApplicationGql =
       httpReq.headers.get("content-type").fold(false)(_.startsWith("application/graphql"))
 
-    val resp = {
+    val resp =
       if (httpReq.method == Method.GET || queryParams.get("query").isDefined)
         ZIO.fromEither(fromQueryParams)
       else {
@@ -78,7 +79,6 @@ final private class QuickRequestHandler[-R, E](interpreter: GraphQLInterpreter[R
           .collect { case GraphQLRequest.ftv1 => req.map(_.withFederatedTracing) }
           .getOrElse(req)
       }
-    }
 
     resp.tap(r => if (r.isEmpty) ZIO.fail(badRequest("No GraphQL query to execute")) else ZIO.unit)
   }

@@ -381,7 +381,7 @@ object SchemaSpec extends ZIOSpecDefault {
 
   @GQLInterface
   sealed trait MyInterface
-  object MyInterface   {
+  object MyInterface {
     case class A(c1: Int, c2: Int => Int, d1: Int, d2: Int => Int, d3: Int => Int)      extends MyInterface
     case class B(c1: Int, c2: Int => Int, d1: Boolean, d2: Int, d3: Option[Int] => Int) extends MyInterface
   }
@@ -396,7 +396,7 @@ object SchemaSpec extends ZIOSpecDefault {
   @GQLUnion
   sealed trait RedirectingUnion
 
-  object RedirectingUnion  {
+  object RedirectingUnion {
     case class B(common: Int)
 
     case class A(common: Int) extends RedirectingUnion

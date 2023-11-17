@@ -23,7 +23,7 @@ object ExecutionSpec extends ZIOSpecDefault {
     def id: String
     def name: String
   }
-  object Base {
+  object Base       {
     @GQLName("BaseOne")
     case class One(
       id: String,
@@ -884,7 +884,7 @@ object ExecutionSpec extends ZIOSpecDefault {
           def id: String
           def name: String
         }
-        object Character {
+        object Character       {
           case class Human(
             id: String,
             name: String,
