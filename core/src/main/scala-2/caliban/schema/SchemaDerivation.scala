@@ -173,8 +173,8 @@ trait CommonSchemaDerivation[R] {
                 Types
                   .unify(list)
                   .flatMap(t =>
-                  list.headOption.map(_.copy(description = Types.extractCommonDescription(list), `type` = () => t))
-                )
+                    list.headOption.map(_.copy(description = Types.extractCommonDescription(list), `type` = () => t))
+                  )
             }
             .flatten
             .toList
