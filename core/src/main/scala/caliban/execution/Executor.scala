@@ -107,12 +107,15 @@ object Executor {
             )
           )
         case ListStep(steps)                =>
-          reduceList(
-            steps.zipWithIndex.map { case (step, i) =>
-              reduceStep(step, currentField, arguments, Right(i) :: path)
-            },
-            Types.listOf(currentField.fieldType).fold(false)(_.isNullable)
-          )
+          var i         = 0
+          val lb        = List.newBuilder[ReducedStep[R]]
+          var remaining = steps
+          while (!remaining.isEmpty) {
+            lb += reduceStep(remaining.head, currentField, arguments, Right(i) :: path)
+            i += 1
+            remaining = remaining.tail
+          }
+          reduceList(lb.result(), Types.listOf(currentField.fieldType).fold(false)(_.isNullable))
         case StreamStep(stream)             =>
           if (request.operationType == OperationType.Subscription) {
             ReducedStep.StreamStep(
