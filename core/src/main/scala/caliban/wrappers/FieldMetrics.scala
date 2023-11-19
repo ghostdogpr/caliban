@@ -74,18 +74,20 @@ object FieldMetrics {
       ): GraphQLRequest => ZIO[R1, Nothing, GraphQLResponse[CalibanError]] =
         (request: GraphQLRequest) =>
           process(request) <*
-            (for {
-              _          <- failures.get.flatMap(metrics.recordFailures)
-              timings    <- timings.get
-              nodeOffsets = resolveNodeOffsets(timings)
-              _          <- metrics.recordSuccesses(nodeOffsets, timings)
-            } yield ()).forkDaemon
+            ZIO
+              .blocking(for {
+                _          <- failures.get.flatMap(metrics.recordFailures)
+                timings    <- timings.get
+                nodeOffsets = resolveNodeOffsets(timings)
+                _          <- metrics.recordSuccesses(nodeOffsets, timings)
+              } yield ())
+              .forkDaemon
     }
 
   private def resolveNodeOffsets(timings: List[Timing]): Map[Vector[Either[String, Int]], Long] = {
     val map       = new java.util.HashMap[Vector[Either[String, Int]], Long]()
     var remaining = timings
-    while (remaining != Nil) {
+    while (!remaining.isEmpty) {
       val t        = remaining.head
       val iter     = t.path.inits
       val duration = t.duration
@@ -125,7 +127,7 @@ object FieldMetrics {
         def makeTiming(duration: Long) =
           Timing(
             name = info.name,
-            path = info.path.view.reverse.toVector,
+            path = info.path.reverse.toVector,
             fullName = fieldName,
             duration = duration
           )
