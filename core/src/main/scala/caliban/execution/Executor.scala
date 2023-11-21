@@ -15,7 +15,7 @@ import zio.query.{ Cache, ZQuery }
 import zio.stream.ZStream
 
 import scala.annotation.tailrec
-import scala.collection.mutable
+import scala.collection.immutable.HashMap
 import scala.jdk.CollectionConverters._
 
 object Executor {
@@ -171,7 +171,8 @@ object Executor {
         step match {
           case PureStep(value)                               => ZQuery.succeed(value)
           case ReducedStep.ObjectStep(steps)                 =>
-            var resolved: mutable.HashMap[String, ResponseValue] = null
+            var useMapBuilder = false
+            val mapBuilder    = HashMap.newBuilder[String, ResponseValue]
 
             val queries =
               if (wrapPureValues) steps.map((objectFieldQuery _).tupled)
@@ -182,10 +183,10 @@ object Executor {
                 while (!remaining.isEmpty) {
                   remaining.head match {
                     case (name, PureStep(value), _) =>
-                      if (null == resolved) { resolved = new mutable.HashMap[String, ResponseValue]() }
-                      resolved.update(name, value)
+                      useMapBuilder = true
+                      mapBuilder += name -> value
                     case (name, step, info)         =>
-                      queries.addOne(objectFieldQuery(name, step, info))
+                      queries += objectFieldQuery(name, step, info)
                   }
                   remaining = remaining.tail
                 }
@@ -194,9 +195,10 @@ object Executor {
               }
 
             collectAll(queries).map { results =>
-              if (null == resolved) ObjectValue(results)
+              if (useMapBuilder) ObjectValue(results)
               else {
-                results.foreach(kv => resolved.update(kv._1, kv._2))
+                results.foreach(mapBuilder += _)
+                val resolved = mapBuilder.result()
                 ObjectValue(steps.map { case (name, _, _) => name -> resolved(name) })
               }
             }
