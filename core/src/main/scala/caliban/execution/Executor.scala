@@ -303,7 +303,7 @@ object Executor {
     } yield response
   }
 
-  private[caliban] def fail(error: CalibanError)(implicit trace: Trace): UIO[GraphQLResponse[CalibanError]] =
+  private[caliban] def fail(error: CalibanError): UIO[GraphQLResponse[CalibanError]] =
     ZIO.succeed(GraphQLResponse(NullValue, List(error)))
 
   private[caliban] def mergeFields(field: Field, typeName: String): List[Field] = {
