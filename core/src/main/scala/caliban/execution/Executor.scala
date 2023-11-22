@@ -15,6 +15,7 @@ import zio.query.{ Cache, ZQuery }
 import zio.stream.ZStream
 
 import scala.annotation.tailrec
+import scala.collection.mutable
 import scala.jdk.CollectionConverters._
 
 object Executor {
@@ -157,20 +158,46 @@ object Executor {
               val q = if (isPure && !wrapper.wrapPureValues) query else wrapper.wrap(query, fieldInfo)
               loop(q, tail)
           }
-        if (isPure && !wrapPureValues) query
-        else loop(query, wrappers)
+        loop(query, wrappers)
+      }
+
+      def objectFieldQuery(name: String, step: ReducedStep[R], info: FieldInfo) = {
+        val q = wrap(loop(step), step.isPure)(fieldWrappers, info)
+        if (info.details.fieldType.isNullable) q.catchAll(handleError).map((name, _))
+        else q.map((name, _))
       }
 
       def loop(step: ReducedStep[R]): ZQuery[R, ExecutionError, ResponseValue] =
         step match {
           case PureStep(value)                               => ZQuery.succeed(value)
           case ReducedStep.ObjectStep(steps)                 =>
-            val queries = steps.map { case (name, step, info) =>
-              val q = wrap(loop(step), step.isPure)(fieldWrappers, info)
-              (if (info.details.fieldType.isNullable) q.catchAll(handleError) else q)
-                .map(name -> _)
-            }
-            collectAll(queries).map(ObjectValue.apply)
+            var resolved: mutable.HashMap[String, ResponseValue] = null
+
+            val queries =
+              if (wrapPureValues) steps.map((objectFieldQuery _).tupled)
+              else {
+                val queries = List.newBuilder[ZQuery[R, ExecutionError, (String, ResponseValue)]]
+
+                var remaining = steps
+                while (!remaining.isEmpty) {
+                  remaining.head match {
+                    case (name, PureStep(value), _) =>
+                      if (null == resolved) resolved = new mutable.HashMap[String, ResponseValue]()
+                      resolved.update(name, value)
+                    case (name, step, info)         =>
+                      queries += objectFieldQuery(name, step, info)
+                  }
+                  remaining = remaining.tail
+                }
+                queries.result()
+              }
+
+            if (null == resolved) collectAll(queries).map(ObjectValue.apply)
+            else
+              collectAll(queries).map { results =>
+                results.foreach(kv => resolved.update(kv._1, kv._2))
+                ObjectValue(steps.map { case (name, _, _) => name -> resolved(name) })
+              }
           case ReducedStep.QueryStep(step)                   =>
             step.flatMap(loop)
           case ReducedStep.ListStep(steps, areItemsNullable) =>
