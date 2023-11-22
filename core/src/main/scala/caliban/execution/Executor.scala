@@ -12,7 +12,6 @@ import caliban.schema.{ ReducedStep, Step, Types }
 import caliban.wrappers.Wrapper.FieldWrapper
 import zio._
 import zio.query.{ Cache, UQuery, URQuery, ZQuery }
-import zio.stacktracer.TracingImplicits.disableAutoTrace
 import zio.stream.ZStream
 
 import scala.annotation.tailrec
