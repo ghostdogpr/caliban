@@ -309,11 +309,11 @@ object Executor {
     field.fields match {
       // Shortcut if all the fields have the same condition, which means we don't need to dedup
       // as that's been handled in Field.apply
-      case fields @ head :: tail if tail.forall(_._condition == head._condition) =>
-        if (head._condition.forall(_.contains(typeName))) fields
+      case head :: tail if tail.forall(_._condition == head._condition) =>
+        if (head._condition.forall(_.contains(typeName))) field.fields
         else Nil
-      case Nil                                                                   => Nil
-      case fields                                                                =>
+      case Nil                                                          => Nil
+      case fields                                                       =>
         val map = new java.util.LinkedHashMap[String, Field]()
         fields.foreach { field =>
           if (field._condition.forall(_.contains(typeName))) {
