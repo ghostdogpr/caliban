@@ -305,29 +305,45 @@ object Executor {
   private[caliban] def fail(error: CalibanError): UIO[GraphQLResponse[CalibanError]] =
     ZIO.succeed(GraphQLResponse(NullValue, List(error)))
 
-  private[caliban] def mergeFields(field: Field, typeName: String): List[Field] =
-    field.fields match {
-      // Shortcut if all the fields have the same condition, which means we don't need to dedup
-      // as that's been handled in Field.apply
-      case head :: tail if tail.forall(_._condition == head._condition) =>
-        if (head._condition.forall(_.contains(typeName))) field.fields
-        else Nil
-      case Nil                                                          => Nil
-      case fields                                                       =>
-        val map = new java.util.LinkedHashMap[String, Field]()
-        fields.foreach { field =>
-          if (field._condition.forall(_.contains(typeName))) {
-            map.compute(
-              field.aliasedName,
-              (_, f) =>
-                if (f == null) field
-                else f.copy(fields = f.fields ::: field.fields)
-            )
-          }
-        }
-
-        map.values().asScala.toList
+  private[caliban] def mergeFields(field: Field, typeName: String): List[Field] = {
+    def haveSameCondition(head: Field, tail: List[Field]): Boolean = {
+      val condition = head._condition
+      var remaining = tail
+      while (!remaining.isEmpty) {
+        if (remaining.head._condition != condition) return false
+        remaining = remaining.tail
+      }
+      true
     }
+
+    def matchesTypename(f: Field): Boolean =
+      f._condition.isEmpty || f._condition.get.contains(typeName)
+
+    def mergeFields(fields: List[Field]) = {
+      val map       = new java.util.LinkedHashMap[String, Field]((fields.size / 0.75d).toInt + 1)
+      var remaining = fields
+      while (!remaining.isEmpty) {
+        val h = remaining.head
+        if (matchesTypename(h)) {
+          map.compute(
+            h.aliasedName,
+            (_, f) =>
+              if (f eq null) h
+              else f.copy(fields = f.fields ::: h.fields)
+          )
+        }
+        remaining = remaining.tail
+      }
+      map.values().asScala.toList
+    }
+
+    field.fields match {
+      // Shortcut if all the fields have the same condition, which means we don't need to merge as that's been handled in Field.apply
+      case h :: t if haveSameCondition(h, t) => if (matchesTypename(h)) field.fields else Nil
+      case Nil                               => Nil
+      case fields                            => mergeFields(fields)
+    }
+  }
 
   private def fieldInfo(field: Field, path: List[Either[String, Int]], fieldDirectives: List[Directive]): FieldInfo =
     FieldInfo(field.aliasedName, field, path, fieldDirectives, field.parentType)
