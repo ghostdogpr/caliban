@@ -37,16 +37,16 @@ object Executor {
     val wrapPureValues = fieldWrappers.exists(_.wrapPureValues)
     type ExecutionQuery[+A] = ZQuery[R, ExecutionError, A]
 
-    val execution                                                          = request.operationType match {
+    val execution                                                                            = request.operationType match {
       case OperationType.Query        => queryExecution
       case OperationType.Mutation     => QueryExecution.Sequential
       case OperationType.Subscription => QueryExecution.Sequential
     }
-    def collectAll[E, A](as: List[ZQuery[R, E, A]]): ZQuery[R, E, List[A]] =
+    def collectAll[In, E, A](in: List[In])(as: In => ZQuery[R, E, A]): ZQuery[R, E, List[A]] =
       execution match {
-        case QueryExecution.Sequential => ZQuery.collectAll(as)
-        case QueryExecution.Parallel   => ZQuery.collectAllPar(as)
-        case QueryExecution.Batched    => ZQuery.collectAllBatched(as)
+        case QueryExecution.Sequential => ZQuery.foreach(in)(as)
+        case QueryExecution.Parallel   => ZQuery.foreachPar(in)(as)
+        case QueryExecution.Batched    => ZQuery.foreachBatched(in)(as)
       }
 
     def reduceStep(
@@ -172,40 +172,40 @@ object Executor {
       }
 
       def makeObjectQuery(steps: List[(String, ReducedStep[R], FieldInfo)]) = {
-        var resolved: mutable.HashMap[String, ResponseValue] = null
+        def newMap() = new mutable.HashMap[String, ResponseValue]((steps.size / 0.75d).toInt + 1, 0.75d)
 
-        val queries =
-          if (wrapPureValues) steps.map((objectFieldQuery _).tupled)
+        var pures: mutable.HashMap[String, ResponseValue] = null
+        val _steps                                        =
+          if (wrapPureValues) steps
           else {
-            val queries   = List.newBuilder[ExecutionQuery[(String, ResponseValue)]]
+            val queries   = List.newBuilder[(String, ReducedStep[R], FieldInfo)]
             var remaining = steps
-
             while (!remaining.isEmpty) {
               remaining.head match {
                 case (name, PureStep(value), _) =>
-                  if (null == resolved) resolved = new mutable.HashMap[String, ResponseValue]()
-                  resolved.update(name, value)
-                case (name, step, info)         =>
-                  queries += objectFieldQuery(name, step, info)
+                  if (pures eq null) pures = newMap()
+                  pures.update(name, value)
+                case step                       => queries += step
               }
               remaining = remaining.tail
             }
             queries.result()
           }
 
-        if (null == resolved) collectAll(queries).map(ObjectValue.apply)
-        else
-          collectAll(queries).map { results =>
+        val resolved = pures // Avoids placing of var into Function1 which will convert it to ObjectRef by the Scala compiler
+        collectAll(_steps)((objectFieldQuery _).tupled).map { results =>
+          if (resolved eq null) ObjectValue(results)
+          else {
             results.foreach(kv => resolved.update(kv._1, kv._2))
             ObjectValue(steps.map { case (name, _, _) => name -> resolved(name) })
           }
+        }
+
       }
 
       def makeListQuery(steps: List[ReducedStep[R]], areItemsNullable: Boolean) =
-        collectAll(
-          if (areItemsNullable) steps.map(loop(_).catchAll(handleError))
-          else steps.map(loop)
-        ).map(ListValue.apply)
+        collectAll(steps)(if (areItemsNullable) loop(_).catchAll(handleError) else loop)
+          .map(ListValue.apply)
 
       def loop(step: ReducedStep[R]): ExecutionQuery[ResponseValue] =
         step match {
