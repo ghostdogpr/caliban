@@ -305,29 +305,29 @@ object Executor {
   private[caliban] def fail(error: CalibanError): UIO[GraphQLResponse[CalibanError]] =
     ZIO.succeed(GraphQLResponse(NullValue, List(error)))
 
-  private[caliban] def mergeFields(field: Field, typeName: String): List[Field] = {
-    val map      = new java.util.LinkedHashMap[String, Field]()
-    var modified = false
+  private[caliban] def mergeFields(field: Field, typeName: String): List[Field] =
+    field.fields match {
+      // Shortcut if all the fields have the same condition, which means we don't need to dedup
+      // as that's been handled in Field.apply
+      case fields @ head :: tail if tail.forall(_._condition == head._condition) =>
+        if (head._condition.forall(_.contains(typeName))) fields
+        else Nil
+      case Nil                                                                   => Nil
+      case fields                                                                =>
+        val map = new java.util.LinkedHashMap[String, Field]()
+        fields.foreach { field =>
+          if (field._condition.forall(_.contains(typeName))) {
+            map.compute(
+              field.aliasedName,
+              (_, f) =>
+                if (f == null) field
+                else f.copy(fields = f.fields ::: field.fields)
+            )
+          }
+        }
 
-    field.fields.foreach { field =>
-      if (field._condition.forall(_.contains(typeName))) {
-        map.compute(
-          field.aliasedName,
-          (_, f) =>
-            if (f == null) field
-            else {
-              modified = true
-              f.copy(fields = f.fields ::: field.fields)
-            }
-        )
-      } else {
-        modified = true
-      }
+        map.values().asScala.toList
     }
-
-    // Avoid conversions if no modification took place
-    if (modified) map.values().asScala.toList else field.fields
-  }
 
   private def fieldInfo(field: Field, path: List[Either[String, Int]], fieldDirectives: List[Directive]): FieldInfo =
     FieldInfo(field.aliasedName, field, path, fieldDirectives, field.parentType)
