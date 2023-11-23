@@ -192,7 +192,8 @@ object Executor {
             queries.result()
           }
 
-        val resolved = pures // Avoids placing of var into Function1 which will convert it to ObjectRef by the Scala compiler
+        val resolved =
+          pures // Avoids placing of var into Function1 which will convert it to ObjectRef by the Scala compiler
         collectAll(_steps)((objectFieldQuery _).tupled).map { results =>
           if (resolved eq null) ObjectValue(results)
           else {
