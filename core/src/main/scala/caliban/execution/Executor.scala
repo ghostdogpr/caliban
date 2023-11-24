@@ -172,10 +172,10 @@ object Executor {
       }
 
       def makeObjectQuery(steps: List[(String, ReducedStep[R], FieldInfo)]) = {
-        def newMap() = new mutable.HashMap[String, ResponseValue]((steps.size / 0.75d).toInt + 1, 0.75d)
+        def newMap() = new java.util.HashMap[String, ResponseValue](Math.ceil(steps.size / 0.75d).toInt)
 
-        var pures: mutable.HashMap[String, ResponseValue] = null
-        val _steps                                        =
+        var pures: java.util.HashMap[String, ResponseValue] = null
+        val _steps                                          =
           if (wrapPureValues) steps
           else {
             val queries   = List.newBuilder[(String, ReducedStep[R], FieldInfo)]
@@ -184,7 +184,7 @@ object Executor {
               remaining.head match {
                 case (name, PureStep(value), _) =>
                   if (pures eq null) pures = newMap()
-                  pures.update(name, value)
+                  pures.putIfAbsent(name, value)
                 case step                       => queries += step
               }
               remaining = remaining.tail
@@ -192,13 +192,13 @@ object Executor {
             queries.result()
           }
 
-        val resolved =
-          pures // Avoids placing of var into Function1 which will convert it to ObjectRef by the Scala compiler
+        // Avoids placing of var into Function1 which will convert it to ObjectRef by the Scala compiler
+        val resolved = pures
         collectAll(_steps)((objectFieldQuery _).tupled).map { results =>
           if (resolved eq null) ObjectValue(results)
           else {
-            results.foreach(kv => resolved.update(kv._1, kv._2))
-            ObjectValue(steps.map { case (name, _, _) => name -> resolved(name) })
+            results.foreach(kv => resolved.put(kv._1, kv._2))
+            ObjectValue(steps.map { case (name, _, _) => name -> resolved.get(name) })
           }
         }
 
