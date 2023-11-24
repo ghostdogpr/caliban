@@ -320,7 +320,7 @@ object Executor {
       f._condition.isEmpty || f._condition.get.contains(typeName)
 
     def mergeFields(fields: List[Field]) = {
-      val map       = new java.util.LinkedHashMap[String, Field]((fields.size / 0.75d).toInt + 1)
+      val map       = new java.util.LinkedHashMap[String, Field](calculateMapCapacity(fields.size))
       var remaining = fields
       while (!remaining.isEmpty) {
         val h = remaining.head
@@ -386,4 +386,17 @@ object Executor {
       (l.result(), r.result())
     }
   }
+
+  /**
+   * The behaviour of mutable Maps (both Java and Scala) is to resize once the number of entries exceeds
+   * the capacity * loadFactor (default of 0.75d) threshold in order to prevent hash collisions.
+   *
+   * This method is a helper method to estimate the initial map size depending on the number of elements the Map is
+   * expected to hold
+   *
+   * NOTE: This method is the same as java.util.HashMap.calculateHashMapCapacity on JDK19+
+   */
+  private def calculateMapCapacity(nMappings: Int): Int =
+    Math.ceil(nMappings / 0.75d).toInt
+
 }
