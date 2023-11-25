@@ -16,7 +16,7 @@ final private class ObjectFieldResolver[R, A](
     map
   }
 
-  def resolve(value: A): MetadataFunctionStep[R] = MetadataFunctionStep(resolveForField(value, _))
+  def resolve(value: A): Step[R] = MetadataFunctionStep(resolveForField(value, _))
 
   private def resolveForField(
     value: A,
