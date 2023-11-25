@@ -172,7 +172,7 @@ object Executor {
       }
 
       def makeObjectQuery(steps: List[(String, ReducedStep[R], FieldInfo)]) = {
-        def newMap() = new java.util.HashMap[String, ResponseValue](Math.ceil(steps.size / 0.75d).toInt)
+        def newMap() = new java.util.HashMap[String, ResponseValue](calculateMapCapacity(steps.size))
 
         var pures: java.util.HashMap[String, ResponseValue] = null
         val _steps                                          =
