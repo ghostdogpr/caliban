@@ -4,7 +4,7 @@ import caliban.Value._
 import caliban.introspection.adt._
 import caliban.parsing.adt.Directive
 import caliban.schema.Annotations._
-import caliban.schema.Step.{PureStep => _}
+import caliban.schema.Step.{ PureStep => _ }
 import caliban.schema.Types._
 import magnolia1._
 
