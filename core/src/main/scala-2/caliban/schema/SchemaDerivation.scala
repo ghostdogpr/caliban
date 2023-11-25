@@ -4,7 +4,7 @@ import caliban.Value._
 import caliban.introspection.adt._
 import caliban.parsing.adt.Directive
 import caliban.schema.Annotations._
-import caliban.schema.Step.{ PureStep => _, _ }
+import caliban.schema.Step.{PureStep => _}
 import caliban.schema.Types._
 import magnolia1._
 
@@ -36,14 +36,18 @@ trait CommonSchemaDerivation[R] {
     }
 
   def join[T](ctx: ReadOnlyCaseClass[Typeclass, T]): Typeclass[T] = new Typeclass[T] {
-    private lazy val fields = ctx.parameters.map { p =>
-      (getName(p), p.typeclass, p.dereference _)
-    }
+    private lazy val objectResolver =
+      new ObjectFieldResolver[R, T](
+        getName(ctx),
+        ctx.parameters.map { p =>
+          getName(p) -> { (v: T) => p.typeclass.resolve(p.dereference(v)) }
+        }
+      )
 
     private lazy val _isValueType = (ctx.isValueClass || isValueType(ctx)) && ctx.parameters.nonEmpty
 
     override def toType(isInput: Boolean, isSubscription: Boolean): __Type = {
-      val _ = fields // Initializes lazy val
+      val _ = objectResolver // Initializes lazy val
       if (_isValueType) {
         if (isScalarValueType(ctx)) makeScalar(getName(ctx), getDescription(ctx))
         else ctx.parameters.head.typeclass.toType_(isInput, isSubscription)
@@ -98,21 +102,13 @@ trait CommonSchemaDerivation[R] {
     override def resolve(value: T): Step[R] =
       if (ctx.isObject) PureStep(EnumValue(getName(ctx)))
       else if (_isValueType) resolveValueType(value)
-      else MetadataFunctionStep[R](f => resolveObject(value, f.fieldNames))
+      else objectResolver.resolve(value)
 
     private def resolveValueType(value: T): Step[R] = {
       val head = ctx.parameters.head
       head.typeclass.resolve(head.dereference(value))
     }
 
-    private def resolveObject(value: T, queriedFields: Set[String]): Step[R] = {
-      val fieldsBuilder = Map.newBuilder[String, Step[R]]
-      fields.foreach { case (name, schema, dereference) =>
-        if (queriedFields.contains(name))
-          fieldsBuilder += name -> schema.resolve(dereference(value))
-      }
-      ObjectStep(getName(ctx), fieldsBuilder.result())
-    }
   }
 
   def split[T](ctx: SealedTrait[Typeclass, T]): Typeclass[T] = new Typeclass[T] {
