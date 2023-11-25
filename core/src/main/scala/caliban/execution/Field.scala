@@ -45,6 +45,8 @@ case class Field(
 
   private[caliban] val aliasedName: String = alias.getOrElse(name)
 
+  private[caliban] lazy val distinctFieldNames: List[String] = fields.map(_.name).distinct
+
   def combine(other: Field): Field =
     self.copy(
       fields = self.fields ::: other.fields,

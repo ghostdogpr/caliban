@@ -23,11 +23,12 @@ final private class ObjectFieldResolver[R, A](
     field: Field
   ): Step[R] = {
     val fieldsBuilder = HashMap.newBuilder[String, Step[R]]
-    var remaining     = field.fields
+    var remaining     = field.distinctFieldNames
     while (!remaining.isEmpty) {
-      val name    = remaining.head.name
+      val name    = remaining.head
       val resolve = fieldsMap.get(name)
-      if (!(resolve eq null)) fieldsBuilder += name -> resolve(value)
+      if (resolve eq null) ()
+      else fieldsBuilder += name -> resolve(value)
       remaining = remaining.tail
     }
     ObjectStep(objectName, fieldsBuilder.result())
