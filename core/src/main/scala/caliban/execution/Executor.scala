@@ -306,27 +306,43 @@ object Executor {
     ZIO.succeed(GraphQLResponse(NullValue, List(error)))
 
   private[caliban] def mergeFields(field: Field, typeName: String): List[Field] = {
-    val map      = new java.util.LinkedHashMap[String, Field]()
-    var modified = false
-
-    field.fields.foreach { field =>
-      if (field._condition.forall(_.contains(typeName))) {
-        map.compute(
-          field.aliasedName,
-          (_, f) =>
-            if (f == null) field
-            else {
-              modified = true
-              f.copy(fields = f.fields ::: field.fields)
-            }
-        )
-      } else {
-        modified = true
+    def haveSameCondition(head: Field, tail: List[Field]): Boolean = {
+      val condition = head._condition
+      var remaining = tail
+      while (!remaining.isEmpty) {
+        if (remaining.head._condition != condition) return false
+        remaining = remaining.tail
       }
+      true
     }
 
-    // Avoid conversions if no modification took place
-    if (modified) map.values().asScala.toList else field.fields
+    def matchesTypename(f: Field): Boolean =
+      f._condition.isEmpty || f._condition.get.contains(typeName)
+
+    def mergeFields(fields: List[Field]) = {
+      val map       = new java.util.LinkedHashMap[String, Field](calculateMapCapacity(fields.size))
+      var remaining = fields
+      while (!remaining.isEmpty) {
+        val h = remaining.head
+        if (matchesTypename(h)) {
+          map.compute(
+            h.aliasedName,
+            (_, f) =>
+              if (f eq null) h
+              else f.copy(fields = f.fields ::: h.fields)
+          )
+        }
+        remaining = remaining.tail
+      }
+      map.values().asScala.toList
+    }
+
+    field.fields match {
+      // Shortcut if all the fields have the same condition, which means we don't need to merge as that's been handled in Field.apply
+      case h :: t if haveSameCondition(h, t) => if (matchesTypename(h)) field.fields else Nil
+      case Nil                               => Nil
+      case fields                            => mergeFields(fields)
+    }
   }
 
   private def fieldInfo(field: Field, path: List[Either[String, Int]], fieldDirectives: List[Directive]): FieldInfo =
@@ -370,4 +386,17 @@ object Executor {
       (l.result(), r.result())
     }
   }
+
+  /**
+   * The behaviour of mutable Maps (both Java and Scala) is to resize once the number of entries exceeds
+   * the capacity * loadFactor (default of 0.75d) threshold in order to prevent hash collisions.
+   *
+   * This method is a helper method to estimate the initial map size depending on the number of elements the Map is
+   * expected to hold
+   *
+   * NOTE: This method is the same as java.util.HashMap.calculateHashMapCapacity on JDK19+
+   */
+  private def calculateMapCapacity(nMappings: Int): Int =
+    Math.ceil(nMappings / 0.75d).toInt
+
 }
