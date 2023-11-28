@@ -115,6 +115,8 @@ trait CommonSchemaDerivation {
 }
 
 trait SchemaDerivation[R] extends CommonSchemaDerivation {
+  inline def apply[A]: Schema[R, A] = summonInline[Schema[R, A]]
+
   inline def gen[R, A]: Schema[R, A] = derived[R, A]
 
   inline def genDebug[R, A]: Schema[R, A] = PrintDerived(derived[R, A])

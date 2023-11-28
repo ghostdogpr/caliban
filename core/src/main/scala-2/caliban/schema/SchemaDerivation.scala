@@ -249,6 +249,7 @@ trait CommonSchemaDerivation[R] {
 }
 
 trait SchemaDerivation[R] extends CommonSchemaDerivation[R] {
+  def apply[A](implicit ev: Schema[R, A]): Schema[R, A] = ev
 
   /**
    * Returns an instance of `Schema` for the given type T.
