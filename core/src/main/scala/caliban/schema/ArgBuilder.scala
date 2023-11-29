@@ -79,6 +79,8 @@ trait ArgBuilder[T] { self =>
 }
 
 object ArgBuilder extends ArgBuilderInstances {
+  def apply[T](implicit ev: ArgBuilder[T]): ArgBuilder[T] = ev
+
   object auto extends AutoArgBuilderDerivation
 }
 
