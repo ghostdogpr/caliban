@@ -11,8 +11,8 @@ val akkaVersion               = "2.6.20"
 val catsEffect3Version        = "3.5.2"
 val catsMtlVersion            = "1.3.0"
 val circeVersion              = "0.14.6"
-val fs2Version                = "3.9.2"
-val http4sVersion             = "0.23.23"
+val fs2Version                = "3.9.3"
+val http4sVersion             = "0.23.24"
 val javaTimeVersion           = "2.5.0"
 val jsoniterVersion           = "2.24.4"
 val laminextVersion           = "0.16.2"
@@ -20,11 +20,11 @@ val magnoliaScala2Version     = "1.1.6"
 val magnoliaScala3Version     = "1.3.4"
 val pekkoVersion              = "1.0.1"
 val playVersion               = "3.0.0"
-val playJsonVersion           = "3.0.0"
-val scalafmtVersion           = "3.7.14"
-val sttpVersion               = "3.9.0"
-val tapirVersion              = "1.8.5"
-val zioVersion                = "2.0.18"
+val playJsonVersion           = "3.0.1"
+val scalafmtVersion           = "3.7.17"
+val sttpVersion               = "3.9.1"
+val tapirVersion              = "1.9.3"
+val zioVersion                = "2.0.19"
 val zioInteropCats2Version    = "22.0.0.0"
 val zioInteropCats3Version    = "23.0.0.8"
 val zioInteropReactiveVersion = "2.0.2"
@@ -88,6 +88,7 @@ lazy val root = project
     pekkoHttp,
     play,
     zioHttp,
+    quickAdapter,
     catsInterop,
     monixInterop,
     tapirInterop,
@@ -204,7 +205,7 @@ lazy val tracing = project
       "dev.zio"         %% "zio-opentelemetry"         % zioOpenTelemetryVersion,
       "dev.zio"         %% "zio-test"                  % zioVersion % Test,
       "dev.zio"         %% "zio-test-sbt"              % zioVersion % Test,
-      "io.opentelemetry" % "opentelemetry-sdk-testing" % "1.31.0"   % Test
+      "io.opentelemetry" % "opentelemetry-sdk-testing" % "1.32.0"   % Test
     )
   )
   .dependsOn(core, tools)
@@ -347,6 +348,21 @@ lazy val zioHttp = project
     )
   )
   .dependsOn(core, tapirInterop % "compile->compile;test->test")
+
+lazy val quickAdapter = project
+  .in(file("adapters/quick"))
+  .settings(name := "caliban-quick")
+  .settings(commonSettings)
+  .settings(enableMimaSettingsJVM)
+  .settings(
+    testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
+    libraryDependencies ++= Seq(
+      "dev.zio"                               %% "zio-http"             % zioHttpVersion,
+      "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-core"  % jsoniterVersion,
+      "com.softwaremill.sttp.tapir"           %% "tapir-jsoniter-scala" % tapirVersion % Test
+    )
+  )
+  .dependsOn(core, tapirInterop % "test->test")
 
 lazy val akkaHttp = project
   .in(file("adapters/akka-http"))
@@ -513,6 +529,7 @@ lazy val examples = project
     pekkoHttp,
     http4s,
     catsInterop,
+    quickAdapter,
     play,
     /*monixInterop,*/
     tapirInterop,
@@ -603,7 +620,7 @@ lazy val docs = project
       "org.typelevel"                 %% "cats-mtl"         % catsMtlVersion
     )
   )
-  .dependsOn(core, catsInterop, tapirInterop, http4s, tools)
+  .dependsOn(core, catsInterop, tapirInterop, http4s, tools, quickAdapter)
 
 lazy val commonSettings = Def.settings(
   scalacOptions ++= Seq(

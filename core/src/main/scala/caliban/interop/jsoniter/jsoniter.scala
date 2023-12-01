@@ -5,7 +5,6 @@ import caliban._
 import caliban.parsing.adt.LocationInfo
 import com.github.plokhotnyuk.jsoniter_scala.core._
 
-import scala.annotation.switch
 import scala.collection.immutable.TreeMap
 
 /**
@@ -52,13 +51,15 @@ private[caliban] object ValueJsoniter {
       val depthM1 = depth - 1
       if (depthM1 < 0) out.encodeError("depth limit exceeded")
       out.writeArrayStart()
-      l.foreach(v => encodeInputValue(v, out, depthM1))
+      l.foreach(encodeInputValue(_, out, depthM1))
       out.writeArrayEnd()
     case InputValue.ObjectValue(o)          =>
-      val depthM1 = depth - 1
+      val depthM1  = depth - 1
       if (depthM1 < 0) out.encodeError("depth limit exceeded")
       out.writeObjectStart()
-      o.foreach { case (k, v) =>
+      val iterator = o.iterator
+      while (iterator.hasNext) {
+        val (k, v) = iterator.next()
         out.writeKey(k)
         encodeInputValue(v, out, depthM1)
       }
@@ -81,15 +82,18 @@ private[caliban] object ValueJsoniter {
       val depthM1 = depth - 1
       if (depthM1 < 0) out.encodeError("depth limit exceeded")
       out.writeArrayStart()
-      l.foreach(v => encodeResponseValue(v, out, depthM1))
+      l.foreach(encodeResponseValue(_, out, depthM1))
       out.writeArrayEnd()
     case ResponseValue.ObjectValue(o)       =>
-      val depthM1 = depth - 1
+      val depthM1   = depth - 1
       if (depthM1 < 0) out.encodeError("depth limit exceeded")
       out.writeObjectStart()
-      o.foreach { case (k, v) =>
+      var remaining = o
+      while (!remaining.isEmpty) {
+        val (k, v) = remaining.head
         out.writeKey(k)
         encodeResponseValue(v, out, depthM1)
+        remaining = remaining.tail
       }
       out.writeObjectEnd()
     case s: ResponseValue.StreamValue       => out.writeVal(s.toString)
@@ -242,14 +246,17 @@ private[caliban] object ErrorJsoniter {
     override def decodeValue(in: JsonReader, default: Either[String, Int]): Either[String, Int] = {
       val b = in.nextToken()
       in.rollbackToken()
-      (b: @switch) match {
-        case '"'                                                             => Left(in.readString(null))
-        case '-' | '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' => Right(in.readInt())
-        case _                                                               => in.decodeError("expected int or string")
+      b match {
+        case '"'                                     => Left(in.readString(null))
+        case x if (x >= '0' && x <= '9') || x == '-' => Right(in.readInt())
+        case _                                       => in.decodeError("expected int or string")
       }
     }
     override def encodeValue(x: Either[String, Int], out: JsonWriter): Unit                     =
-      x.fold(out.writeVal, out.writeVal)
+      x match {
+        case Left(s)  => out.writeVal(s)
+        case Right(i) => out.writeVal(i)
+      }
     override def nullValue: Either[String, Int]                                                 =
       null.asInstanceOf[Either[String, Int]]
   }

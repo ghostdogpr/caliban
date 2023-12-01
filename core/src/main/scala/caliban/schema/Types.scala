@@ -212,6 +212,12 @@ object Types {
         case _                        => None
       }
 
+  def extractCommonDescription(l: List[__Field]): Option[String] =
+    l.map(_.description).distinct match {
+      case desc :: Nil => desc
+      case _           => None
+    }
+
   @tailrec
   def same(t1: __Type, t2: __Type): Boolean =
     if (t1.kind == t2.kind && t1.ofType.nonEmpty)
