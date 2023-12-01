@@ -36,7 +36,7 @@ object Auth {
   }
 
   val middleware =
-    HttpAppMiddleware.customAuthZIO { req =>
+    Middleware.customAuthZIO { req =>
       val user = req.headers.get(Header.Authorization).map(_.renderedValue)
       ZIO.serviceWithZIO[Auth](_.setUser(user)).as(true)
     }
@@ -64,10 +64,10 @@ object AuthExampleApp extends ZIOAppDefault {
       apiHandler     <- (exampleApi |+| Authed.api).handler.map(_ @@ Auth.middleware)
       graphiqlHandler = GraphiQLHandler.handler(apiPath = "/api/graphql", graphiqlPath = "/graphiql")
       port           <- Server.install(
-                          Http.collectHandler[Request] {
-                            case _ -> Root / "api" / "graphql" => apiHandler
-                            case _ -> Root / "graphiql"        => graphiqlHandler
-                          }
+                          Routes(
+                            Method.POST / "api" / "graphql" -> apiHandler,
+                            Method.GET / "graphiql"         -> graphiqlHandler
+                          ).toHttpApp
                         )
       _              <- ZIO.logInfo(s"Server started on port $port")
       _              <- ZIO.never

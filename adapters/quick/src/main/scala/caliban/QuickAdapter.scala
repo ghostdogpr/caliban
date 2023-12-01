@@ -18,18 +18,17 @@ final class QuickAdapter[-R, E] private (requestHandler: QuickRequestHandler[R, 
    * @param apiPath The path where the GraphQL API will be served.
    * @param graphiqlPath The path where the GraphiQL UI will be served. If None, GraphiQL will not be served.
    */
-  def toApp(apiPath: Path, graphiqlPath: Option[Path] = None): App[R] = {
-    val apiApp = Http.collectHandler[Request] {
-      case (Method.GET | Method.POST) -> path if path == apiPath => handler
+  def toApp(apiPath: Path, graphiqlPath: Option[Path] = None): HttpApp[R] = {
+    val apiRoutes     = List(
+      RoutePattern(Method.POST, apiPath) -> handler,
+      RoutePattern(Method.GET, apiPath)  -> handler
+    )
+    val graphiqlRoute = graphiqlPath.fold(List.empty[Route[R, Nothing]]) { uiPath =>
+      val uiHandler = GraphiQLHandler.handler(apiPath.toString(), uiPath.toString)
+      List(RoutePattern(Method.GET, uiPath) -> uiHandler)
     }
-    graphiqlPath match {
-      case None         => apiApp
-      case Some(uiPath) =>
-        val uiHandler = GraphiQLHandler.handler(apiPath.toString(), uiPath.toString)
-        apiApp ++ Http.collectHandler[Request] {
-          case Method.GET -> path if path == uiPath => uiHandler
-        }
-    }
+
+    Routes.fromIterable(apiRoutes ::: graphiqlRoute).toHttpApp
   }
 
   /**

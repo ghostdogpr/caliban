@@ -39,12 +39,7 @@ final private class QuickRequestHandler[-R, E](interpreter: GraphQLInterpreter[R
     val queryParams = httpReq.url.queryParams
 
     def extractFields(key: String): Either[Response, Option[Map[String, InputValue]]] =
-      try Right(
-        queryParams
-          .get(key)
-          .flatMap(_.headOption)
-          .map(readFromString[InputValue.ObjectValue](_).fields)
-      )
+      try Right(queryParams.get(key).map(readFromString[InputValue.ObjectValue](_).fields))
       catch { case NonFatal(_) => Left(badRequest(s"Invalid $key query param")) }
 
     def fromQueryParams: Either[Response, GraphQLRequest] =
@@ -52,8 +47,8 @@ final private class QuickRequestHandler[-R, E](interpreter: GraphQLInterpreter[R
         vars <- extractFields("variables")
         exts <- extractFields("extensions")
       } yield GraphQLRequest(
-        query = queryParams.get("query").flatMap(_.headOption),
-        operationName = queryParams.get("operationName").flatMap(_.headOption),
+        query = queryParams.get("query"),
+        operationName = queryParams.get("operationName"),
         variables = vars,
         extensions = exts
       )
@@ -103,7 +98,7 @@ final private class QuickRequestHandler[-R, E](interpreter: GraphQLInterpreter[R
 
     val cacheDirective = HttpUtils.computeCacheDirective(resp.extensions)
 
-    (resp match {
+    resp match {
       case resp @ GraphQLResponse(StreamValue(stream), _, _, _) =>
         Response(
           Status.Ok,
@@ -125,7 +120,7 @@ final private class QuickRequestHandler[-R, E](interpreter: GraphQLInterpreter[R
           headers = responseHeaders(ContentTypeJson, cacheDirective),
           body = encodeSingleResponse(resp, keepDataOnErrors = true, hasCacheDirective = cacheDirective.isDefined)
         )
-    }).withServerTime
+    }
   }
 
   private def encodeSingleResponse(

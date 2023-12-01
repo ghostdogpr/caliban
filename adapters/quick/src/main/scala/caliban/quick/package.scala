@@ -1,8 +1,8 @@
 package caliban
 
 import caliban.Configurator.ExecutionConfiguration
+import zio.http.{ HttpApp, Path, RequestHandler, Response }
 import zio.{ RIO, Trace, ZIO }
-import zio.http.{ RequestHandler, Response }
 
 package object quick {
 
@@ -20,6 +20,17 @@ package object quick {
       trace: Trace
     ): RIO[R, Nothing] =
       gql.interpreter.flatMap(QuickAdapter(_).runServer(port, apiPath, graphiqlPath))
+
+    /**
+     * Creates zio-http [[zio.http.HttpApp]] from the GraphQL API
+     *
+     * @param apiPath The route to serve the API on, e.g., `/api/graphql`
+     * @param graphiqlPath Optionally define a route to serve the GraphiQL UI on, e.g., `/graphiql`
+     */
+    def toApp(apiPath: String, graphiqlPath: Option[String] = None)(implicit
+      trace: Trace
+    ): RIO[R, HttpApp[R]] =
+      gql.interpreter.map(QuickAdapter(_).toApp(Path.decode(apiPath), graphiqlPath.map(Path.decode)))
 
     /**
      * Creates a zio-http handler for the GraphQL API
