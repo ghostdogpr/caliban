@@ -15,7 +15,6 @@ import zio.query.{ Cache, UQuery, URQuery, ZQuery }
 import zio.stream.ZStream
 
 import scala.annotation.tailrec
-import scala.collection.mutable
 import scala.jdk.CollectionConverters._
 
 object Executor {
@@ -37,16 +36,18 @@ object Executor {
     val wrapPureValues = fieldWrappers.exists(_.wrapPureValues)
     type ExecutionQuery[+A] = ZQuery[R, ExecutionError, A]
 
-    val execution                                                                            = request.operationType match {
+    val execution = request.operationType match {
       case OperationType.Query        => queryExecution
       case OperationType.Mutation     => QueryExecution.Sequential
       case OperationType.Subscription => QueryExecution.Sequential
     }
+
     def collectAll[In, E, A](in: List[In])(as: In => ZQuery[R, E, A]): ZQuery[R, E, List[A]] =
-      execution match {
-        case QueryExecution.Sequential => ZQuery.foreach(in)(as)
-        case QueryExecution.Parallel   => ZQuery.foreachPar(in)(as)
-        case QueryExecution.Batched    => ZQuery.foreachBatched(in)(as)
+      (in, execution) match {
+        case (head :: Nil, _)               => as(head).map(List(_))
+        case (_, QueryExecution.Sequential) => ZQuery.foreach(in)(as)
+        case (_, QueryExecution.Parallel)   => ZQuery.foreachPar(in)(as)
+        case (_, QueryExecution.Batched)    => ZQuery.foreachBatched(in)(as)
       }
 
     def reduceStep(
