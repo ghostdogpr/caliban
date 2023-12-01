@@ -22,7 +22,7 @@ package object quick {
       gql.interpreter.flatMap(QuickAdapter(_).runServer(port, apiPath, graphiqlPath))
 
     /**
-     * Creates zio-http [[zio.http.HttpApp]] from the GraphQL API
+     * Creates zio-http `HttpApp` from the GraphQL API
      *
      * @param apiPath The route to serve the API on, e.g., `/api/graphql`
      * @param graphiqlPath Optionally define a route to serve the GraphiQL UI on, e.g., `/graphiql`

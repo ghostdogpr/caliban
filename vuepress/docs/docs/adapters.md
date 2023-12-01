@@ -160,11 +160,11 @@ for {
     handler2 <- api.interpreter.map(QuickAdapter(_).handler)
     // Creates a handler which serves the GraphiQL API from CDN
     graphiql = GraphiQLHandler.handler(apiPath = "/api/graphql", graphiqlPath = "/graphiql")
-    app = Http.collectHandler[Request] {
-            case _          -> Root / "api" / "graphql" => handler
-            case Method.GET -> Root / "graphiql"        => graphiql
+    app = Routes(
+            Method.ANY / "api" / "graphql" -> handler,
+            Method.GET / "graphiql"        -> graphiql
             // Add more routes, apply middleware, etc.
-          }
+          ).toHttpApp
     _ <- Server.serve(app).provide(Server.defaultWithPort(8080))
 } yield ()
 ```
