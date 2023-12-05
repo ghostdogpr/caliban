@@ -1,4 +1,3 @@
-import com.typesafe.tools.mima.core._
 import org.scalajs.linker.interface.ModuleSplitStyle
 import sbtcrossproject.CrossPlugin.autoImport.{ crossProject, CrossType }
 
@@ -14,11 +13,11 @@ val circeVersion              = "0.14.6"
 val fs2Version                = "3.9.3"
 val http4sVersion             = "0.23.24"
 val javaTimeVersion           = "2.5.0"
-val jsoniterVersion           = "2.24.4"
+val jsoniterVersion           = "2.25.0"
 val laminextVersion           = "0.16.2"
 val magnoliaScala2Version     = "1.1.6"
 val magnoliaScala3Version     = "1.3.4"
-val pekkoVersion              = "1.0.1"
+val pekkoHttpVersion          = "1.0.0"
 val playVersion               = "3.0.0"
 val playJsonVersion           = "3.0.1"
 val scalafmtVersion           = "3.7.17"
@@ -34,6 +33,8 @@ val zioJsonVersion            = "0.6.2"
 val zioHttpVersion            = "3.0.0-RC4"
 val zioOpenTelemetryVersion   = "3.0.0-RC15"
 val zioPreludeVersion         = "1.0.0-RC21"
+
+Global / onChangedBuildSource := ReloadOnSourceChanges
 
 inThisBuild(
   List(
@@ -395,10 +396,9 @@ lazy val pekkoHttp = project
       if (scalaVersion.value == scala3) Seq()
       else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.2").cross(CrossVersion.full)))
     } ++ Seq(
-      "org.apache.pekko"            %% "pekko-http"                  % "1.0.0",
-      "org.apache.pekko"            %% "pekko-serialization-jackson" % pekkoVersion,
-      "com.softwaremill.sttp.tapir" %% "tapir-pekko-http-server"     % tapirVersion,
-      "com.softwaremill.sttp.tapir" %% "tapir-json-circe"            % tapirVersion % Test
+      "org.apache.pekko"            %% "pekko-http"              % pekkoHttpVersion,
+      "com.softwaremill.sttp.tapir" %% "tapir-pekko-http-server" % tapirVersion,
+      "com.softwaremill.sttp.tapir" %% "tapir-json-circe"        % tapirVersion % Test
     )
   )
   .dependsOn(core, tapirInterop % "compile->compile;test->test")
