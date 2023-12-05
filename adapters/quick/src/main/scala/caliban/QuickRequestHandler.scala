@@ -53,24 +53,28 @@ final private class QuickRequestHandler[-R, E](interpreter: GraphQLInterpreter[R
         extensions = exts
       )
 
-    def isApplicationGql =
-      httpReq.headers.get("content-type").fold(false)(_.startsWith("application/graphql"))
+    def isGqlJson =
+      httpReq.header(Header.ContentType).exists { h =>
+        h.mediaType.subType.equalsIgnoreCase("graphql") &&
+        h.mediaType.mainType.equalsIgnoreCase("application")
+      }
+
+    def decodeApplicationGql() =
+      httpReq.body.asString.mapBoth(_ => BodyDecodeErrorResponse, b => GraphQLRequest(Some(b)))
+
+    def decodeJson() =
+      httpReq.body.asArray
+        .flatMap(arr => ZIO.attempt(readFromArray[GraphQLRequest](arr)))
+        .orElseFail(BodyDecodeErrorResponse)
 
     val resp = {
       if (httpReq.method == Method.GET || queryParams.get("query").isDefined)
         ZIO.fromEither(fromQueryParams)
       else {
-        val req =
-          if (isApplicationGql)
-            httpReq.body.asString.mapBoth(_ => BodyDecodeErrorResponse, b => GraphQLRequest(Some(b)))
-          else
-            httpReq.body.asArray
-              .flatMap(arr => ZIO.attempt(readFromArray[GraphQLRequest](arr)))
-              .orElseFail(BodyDecodeErrorResponse)
-
+        val req = if (isGqlJson) decodeApplicationGql() else decodeJson()
         httpReq.headers
           .get(GraphQLRequest.`apollo-federation-include-trace`)
-          .collect { case GraphQLRequest.ftv1 => req.map(_.withFederatedTracing) }
+          .collect { case s if s.equalsIgnoreCase(GraphQLRequest.ftv1) => req.map(_.withFederatedTracing) }
           .getOrElse(req)
       }
     }
@@ -90,10 +94,11 @@ final private class QuickRequestHandler[-R, E](interpreter: GraphQLInterpreter[R
 
   private def transformResponse(httpReq: Request, resp: GraphQLResponse[E])(implicit trace: Trace): Response = {
     def acceptsGqlJson: Boolean =
-      httpReq.header(Header.Accept).fold(false) { h =>
-        h.mimeTypes.exists(mt =>
-          mt.mediaType.subType == "graphql-response+json" && mt.mediaType.mainType == "application"
-        )
+      httpReq.header(Header.Accept).exists { h =>
+        h.mimeTypes.exists { mt =>
+          mt.mediaType.subType.equalsIgnoreCase("graphql-response+json") &&
+          mt.mediaType.mainType.equalsIgnoreCase("application")
+        }
       }
 
     val cacheDirective = HttpUtils.computeCacheDirective(resp.extensions)
