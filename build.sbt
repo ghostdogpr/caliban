@@ -1,3 +1,4 @@
+import com.typesafe.tools.mima.core.{ IncompatibleMethTypeProblem, IncompatibleResultTypeProblem, ProblemFilters }
 import org.scalajs.linker.interface.ModuleSplitStyle
 import sbtcrossproject.CrossPlugin.autoImport.{ crossProject, CrossType }
 
@@ -671,7 +672,10 @@ lazy val enableMimaSettingsJVM =
   Def.settings(
     mimaFailOnProblem     := enforceMimaCompatibility,
     mimaPreviousArtifacts := previousStableVersion.value.map(organization.value %% moduleName.value % _).toSet,
-    mimaBinaryIssueFilters ++= Seq()
+    mimaBinaryIssueFilters ++= Seq(
+      ProblemFilters.exclude[IncompatibleMethTypeProblem]("caliban.schema.Step#ObjectStep*"),
+      ProblemFilters.exclude[IncompatibleResultTypeProblem]("caliban.schema.Step#ObjectStep*")
+    )
   )
 
 lazy val enableMimaSettingsJS =
