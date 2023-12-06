@@ -74,7 +74,7 @@ object Executor {
             fragment match {
               // The defer spec provides some latitude on how we handle responses. Since it is more performant to return
               // pure fields rather than spin up the defer machinery we return pure fields immediately to the caller.
-              case Some(IsDeferred(label)) if isDeferredEnabled && !field.isPure => Left(label, entry)
+              case Some(IsDeferred(label)) if isDeferredEnabled && !field.isPure => Left((label, entry))
               case _                                                             => Right(entry)
             }
         }
