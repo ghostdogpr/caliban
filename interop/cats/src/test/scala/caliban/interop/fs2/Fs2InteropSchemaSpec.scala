@@ -120,7 +120,7 @@ object Fs2InteropSchemaSpec extends ZIOSpecDefault {
     isSubtype[ObjectStep[Any]](
       hasField(
         "fields",
-        _.fields,
+        _.fields.toMap,
         hasKey(
           "bar",
           isSubtype[StreamStep[Any]](
