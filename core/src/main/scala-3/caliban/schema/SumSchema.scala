@@ -19,7 +19,7 @@ final private class SumSchema[R, A](
   }
 
   private lazy val isEnum = subTypes.forall((_, t, _) => t.allFields.isEmpty && t.allInputFields.isEmpty)
-  private val isInterface = annotations.contains(GQLInterface())
+  private val isInterface = annotations.exists(_.isInstanceOf[GQLInterface])
   private val isUnion     = annotations.contains(GQLUnion())
 
   def toType(isInput: Boolean, isSubscription: Boolean): __Type =

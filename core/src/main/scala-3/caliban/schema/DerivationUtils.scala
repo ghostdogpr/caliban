@@ -88,12 +88,13 @@ private object DerivationUtils {
     info: TypeInfo,
     impl: List[__Type]
   ): __Type = {
+    val excl         = annotations.collectFirst { case i: GQLInterface => i.excludedFields.toSet }.getOrElse(Set.empty)
     val commonFields = () =>
       impl
         .flatMap(_.allFields)
         .groupBy(_.name)
         .collect {
-          case (_, list) if list.lengthCompare(impl.size) == 0 =>
+          case (name, list) if list.lengthCompare(impl.size) == 0 && !excl.contains(name) =>
             Types
               .unify(list)
               .flatMap(t =>

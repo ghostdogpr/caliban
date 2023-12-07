@@ -89,6 +89,11 @@ object SchemaSpec extends ZIOSpecDefault {
       test("interface only take fields that return the same type") {
         assertTrue(introspect[MyInterface].fields(__DeprecatedArgs()).toList.flatten.map(_.name) == List("c1", "c2"))
       },
+      test("excluding fields from interfaces") {
+        assertTrue(
+          introspect[InterfaceWithExclusions].fields(__DeprecatedArgs()).toList.flatten.map(_.name) == List("c1")
+        )
+      },
       test("enum-like sealed traits annotated with GQLUnion") {
         assert(introspect[EnumLikeUnion])(
           hasField[__Type, __TypeKind]("kind", _.kind, equalTo(__TypeKind.UNION))
@@ -381,14 +386,21 @@ object SchemaSpec extends ZIOSpecDefault {
 
   @GQLInterface
   sealed trait MyInterface
-  object MyInterface   {
+  object MyInterface             {
     case class A(c1: Int, c2: Int => Int, d1: Int, d2: Int => Int, d3: Int => Int)      extends MyInterface
     case class B(c1: Int, c2: Int => Int, d1: Boolean, d2: Int, d3: Option[Int] => Int) extends MyInterface
   }
 
+  @GQLInterface(excludedFields = "c2", "c3")
+  sealed trait InterfaceWithExclusions
+  object InterfaceWithExclusions {
+    case class A(c1: Int, c2: String, c3: Int, c5: Int) extends InterfaceWithExclusions
+    case class B(c1: Int, c2: String, c3: Int, c4: Int) extends InterfaceWithExclusions
+  }
+
   @GQLUnion
   sealed trait EnumLikeUnion
-  object EnumLikeUnion {
+  object EnumLikeUnion           {
     case object A extends EnumLikeUnion
     case object B extends EnumLikeUnion
   }
