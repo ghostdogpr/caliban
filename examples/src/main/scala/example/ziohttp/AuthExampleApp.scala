@@ -40,7 +40,7 @@ object Auth {
   object WebSockets {
     def live[R <: Auth](
       interpreter: GraphQLInterpreter[R, CalibanError]
-    ): HttpApp[R] = {
+    ): RequestHandler[R, Nothing] = {
       val webSocketHooks = WebSocketHooks.init[R, CalibanError](payload =>
         ZIO
           .fromOption(payload match {
@@ -92,8 +92,8 @@ object AuthExampleApp extends ZIOAppDefault {
                        .install(
                          Routes(
                            Method.ANY / "api" / "graphql" ->
-                             ZHttpAdapter.makeHttpService(HttpInterpreter(interpreter)).toHandler @@ Auth.middleware,
-                           Method.ANY / "ws" / "graphql"  -> Auth.WebSockets.live(interpreter).toHandler,
+                             ZHttpAdapter.makeHttpService(HttpInterpreter(interpreter)) @@ Auth.middleware,
+                           Method.ANY / "ws" / "graphql"  -> Auth.WebSockets.live(interpreter),
                            Method.ANY / "graphiql"        -> graphiql
                          ).toHttpApp
                        )

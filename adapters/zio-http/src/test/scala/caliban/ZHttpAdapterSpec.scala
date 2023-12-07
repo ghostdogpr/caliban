@@ -33,10 +33,9 @@ object ZHttpAdapterSpec extends ZIOSpecDefault {
                 ZHttpAdapter
                   .makeHttpService(
                     HttpInterpreter(interpreter).intercept(FakeAuthorizationInterceptor.bearer[TestService & Uploads])
-                  )
-                  .toHandler,
+                  ),
               Method.ANY / "ws" / "graphql"  ->
-                ZHttpAdapter.makeWebSocketService(WebSocketInterpreter(interpreter)).toHandler
+                ZHttpAdapter.makeWebSocketService(WebSocketInterpreter(interpreter))
             ).toHttpApp
           )
           .forkScoped

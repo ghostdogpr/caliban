@@ -19,9 +19,9 @@ object ExampleApp extends ZIOAppDefault {
         Server
           .serve(
             Routes(
-              Method.ANY / "api" / "graphql" -> ZHttpAdapter.makeHttpService(HttpInterpreter(interpreter)).toHandler,
+              Method.ANY / "api" / "graphql" -> ZHttpAdapter.makeHttpService(HttpInterpreter(interpreter)),
               Method.ANY / "ws" / "graphql"  ->
-                ZHttpAdapter.makeWebSocketService(WebSocketInterpreter(interpreter)).toHandler,
+                ZHttpAdapter.makeWebSocketService(WebSocketInterpreter(interpreter)),
               Method.ANY / "graphiql"        -> graphiql
             ).toHttpApp
           )

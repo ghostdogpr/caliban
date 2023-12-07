@@ -17,7 +17,7 @@ object FederatedApp extends ZIOAppDefault {
       Server
         .serve(
           Routes(
-            Method.ANY / "api" / "graphql" -> ZHttpAdapter.makeHttpService(HttpInterpreter(interpreter)).toHandler
+            Method.ANY / "api" / "graphql" -> ZHttpAdapter.makeHttpService(HttpInterpreter(interpreter))
           ).toHttpApp
         )
         .provideSome[CharacterService](Server.live, config)
@@ -30,7 +30,7 @@ object FederatedApp extends ZIOAppDefault {
       Server
         .serve(
           Routes(
-            Method.ANY / "api" / "graphql" -> ZHttpAdapter.makeHttpService(HttpInterpreter(interpreter)).toHandler
+            Method.ANY / "api" / "graphql" -> ZHttpAdapter.makeHttpService(HttpInterpreter(interpreter))
           ).toHttpApp
         )
         .provideSome[EpisodeService](Server.live, config)
