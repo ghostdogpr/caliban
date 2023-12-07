@@ -30,7 +30,7 @@ package object quick {
     def toApp(apiPath: String, graphiqlPath: Option[String] = None)(implicit
       trace: Trace
     ): RIO[R, HttpApp[R]] =
-      gql.interpreter.map(QuickAdapter(_).toApp(Path.decode(apiPath), graphiqlPath.map(Path.decode)))
+      gql.interpreter.map(QuickAdapter(_).toApp(apiPath, graphiqlPath))
 
     /**
      * Creates a zio-http handler for the GraphQL API
