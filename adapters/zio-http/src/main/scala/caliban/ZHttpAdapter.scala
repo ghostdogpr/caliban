@@ -17,15 +17,17 @@ object ZHttpAdapter {
 
   def makeHttpService[R, E](interpreter: HttpInterpreter[R, E])(implicit
     serverOptions: ZioHttpServerOptions[R] = ZioHttpServerOptions.default[R]
-  ): HttpApp[R] =
+  ): RequestHandler[R, Nothing] =
     ZioHttpInterpreter(serverOptions)
       .toHttp(interpreter.serverEndpoints[R, ZioStreams](ZioStreams))
+      .toHandler
 
   def makeWebSocketService[R, E](interpreter: WebSocketInterpreter[R, E])(implicit
     serverOptions: ZioHttpServerOptions[R] = ZioHttpServerOptions.default[R]
-  ): HttpApp[R] =
+  ): RequestHandler[R, Nothing] =
     ZioHttpInterpreter(patchWsServerOptions(serverOptions))
       .toHttp(interpreter.serverEndpoint[R])
+      .toHandler
 
   private def patchWsServerOptions[R](serverOptions: ZioHttpServerOptions[R]) =
     serverOptions.withCustomWebSocketConfig { req =>
