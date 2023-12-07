@@ -7,6 +7,7 @@ val calibanVersion = "2.4.3"
 
 libraryDependencies ++= Seq(
   "com.github.ghostdogpr"         %% "caliban"                       % calibanVersion,
+  "com.github.ghostdogpr"         %% "caliban-quick"                 % calibanVersion,
   "com.github.ghostdogpr"         %% "caliban-http4s"                % calibanVersion,
   "com.github.ghostdogpr"         %% "caliban-play"                  % calibanVersion,
   "com.github.ghostdogpr"         %% "caliban-akka-http"             % calibanVersion,
@@ -21,9 +22,9 @@ libraryDependencies ++= Seq(
   "org.http4s"                    %% "http4s-dsl"                    % "0.23.23",
   "com.softwaremill.sttp.client3" %% "zio"                           % "3.9.0",
   "io.circe"                      %% "circe-generic"                 % "0.14.6",
-  "org.playframework"             %% "play-akka-http-server"         % "2.8.14",
+  "org.playframework"             %% "play-pekko-http-server"        % "3.0.0",
   "com.typesafe.akka"             %% "akka-actor-typed"              % "2.6.18",
-  "com.softwaremill.sttp.tapir"   %% "tapir-jsoniter-scala"          % "1.8.2"
+  "com.softwaremill.sttp.tapir"   %% "tapir-jsoniter-scala"          % "1.9.4"
 )
 ```
 

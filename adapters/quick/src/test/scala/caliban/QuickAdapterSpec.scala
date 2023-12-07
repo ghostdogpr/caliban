@@ -2,7 +2,6 @@ package caliban
 
 import caliban.interop.tapir.TestData.sampleCharacters
 import caliban.interop.tapir.{ TapirAdapterSpec, TestApi, TestService }
-import caliban.quick._
 import caliban.uploads.Uploads
 import sttp.client3.UriContext
 import zio._
@@ -12,11 +11,12 @@ import zio.test.{ Live, ZIOSpecDefault }
 import scala.language.postfixOps
 
 object QuickAdapterSpec extends ZIOSpecDefault {
+  import caliban.quick._
   import sttp.tapir.json.jsoniter._
 
   private val envLayer = TestService.make(sampleCharacters) ++ Uploads.empty
 
-  private val auth = HttpAppMiddleware.intercept { case (req, resp) =>
+  private val auth = Middleware.intercept { case (req, resp) =>
     if (req.headers.get("X-Invalid").nonEmpty)
       Response(Status.Unauthorized, body = Body.fromString("You are unauthorized!"))
     else resp
@@ -24,11 +24,8 @@ object QuickAdapterSpec extends ZIOSpecDefault {
 
   private val apiLayer = envLayer >>> ZLayer.fromZIO {
     for {
-      handler <- TestApi.api.handler.map(_ @@ auth)
-      _       <-
-        Server
-          .serve(Http.collectHandler { case _ -> Root / "api" / "graphql" => handler })
-          .forkScoped
+      app     <- TestApi.api.toApp("/api/graphql").map(_ @@ auth)
+      _       <- Server.serve(app).forkScoped
       _       <- Live.live(Clock.sleep(3 seconds))
       service <- ZIO.service[TestService]
     } yield service

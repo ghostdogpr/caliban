@@ -50,8 +50,8 @@ object NestedZQueryBenchmarkSchema {
   case class MultifieldRoot(entities: Query[List[MultifieldEntity]])
   case class MultifieldEntity(
     id: Int,
-    nested0: Query[Int],
-    nested1: Query[Int],
+    nested0: Int,
+    nested1: Int,
     nested2: Query[Int],
     nested3: Query[Int],
     nested4: Query[Int],
@@ -167,8 +167,8 @@ object NestedZQueryBenchmarkSchema {
       val qi = ZQuery.succeed(i)
       MultifieldEntity(
         i,
-        qi,
-        qi,
+        i + 1,
+        i + 2,
         qi,
         qi,
         qi,

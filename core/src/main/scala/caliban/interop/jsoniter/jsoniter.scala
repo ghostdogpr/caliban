@@ -5,7 +5,6 @@ import caliban._
 import caliban.parsing.adt.LocationInfo
 import com.github.plokhotnyuk.jsoniter_scala.core._
 
-import scala.annotation.switch
 import scala.collection.immutable.TreeMap
 
 /**
@@ -52,18 +51,17 @@ private[caliban] object ValueJsoniter {
       val depthM1 = depth - 1
       if (depthM1 < 0) out.encodeError("depth limit exceeded")
       out.writeArrayStart()
-      l.foreach(v => encodeInputValue(v, out, depthM1))
+      l.foreach(encodeInputValue(_, out, depthM1))
       out.writeArrayEnd()
     case InputValue.ObjectValue(o)          =>
-      val depthM1   = depth - 1
+      val depthM1  = depth - 1
       if (depthM1 < 0) out.encodeError("depth limit exceeded")
       out.writeObjectStart()
-      var remaining = o
-      while (!remaining.isEmpty) {
-        val (k, v) = remaining.head
+      val iterator = o.iterator
+      while (iterator.hasNext) {
+        val (k, v) = iterator.next()
         out.writeKey(k)
         encodeInputValue(v, out, depthM1)
-        remaining = remaining.tail
       }
       out.writeObjectEnd()
     case InputValue.VariableValue(v)        => out.writeVal(v)
@@ -84,7 +82,7 @@ private[caliban] object ValueJsoniter {
       val depthM1 = depth - 1
       if (depthM1 < 0) out.encodeError("depth limit exceeded")
       out.writeArrayStart()
-      l.foreach(v => encodeResponseValue(v, out, depthM1))
+      l.foreach(encodeResponseValue(_, out, depthM1))
       out.writeArrayEnd()
     case ResponseValue.ObjectValue(o)       =>
       val depthM1   = depth - 1
