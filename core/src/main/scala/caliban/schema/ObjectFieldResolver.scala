@@ -3,7 +3,7 @@ package caliban.schema
 import caliban.execution.Field
 import caliban.schema.Step.{ MetadataFunctionStep, ObjectStep }
 
-import scala.collection.immutable.HashMap
+import scala.collection.mutable
 
 final private class ObjectFieldResolver[R, A](
   objectName: String,
@@ -22,15 +22,15 @@ final private class ObjectFieldResolver[R, A](
     value: A,
     field: Field
   ): Step[R] = {
-    val fieldsBuilder = HashMap.newBuilder[String, Step[R]]
-    var remaining     = field.distinctFieldNames
+    val fieldsBuilder = new mutable.HashMap[String, Step[R]]()
+
+    var remaining = field.distinctFieldNames
     while (!remaining.isEmpty) {
       val name    = remaining.head
       val resolve = fieldsMap.get(name)
-      if (resolve eq null) ()
-      else fieldsBuilder += name -> resolve(value)
+      if (resolve ne null) fieldsBuilder.update(name, resolve(value))
       remaining = remaining.tail
     }
-    ObjectStep(objectName, fieldsBuilder.result())
+    ObjectStep(objectName, fieldsBuilder)
   }
 }

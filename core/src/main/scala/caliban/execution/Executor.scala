@@ -33,7 +33,9 @@ object Executor {
     queryExecution: QueryExecution = QueryExecution.Parallel,
     featureSet: Set[Feature] = Set.empty
   )(implicit trace: Trace): URIO[R, GraphQLResponse[CalibanError]] = {
-    val wrapPureValues = fieldWrappers.exists(_.wrapPureValues)
+    val wrapPureValues    = fieldWrappers.exists(_.wrapPureValues)
+    val isDeferredEnabled = featureSet(Feature.Defer)
+
     type ExecutionQuery[+A] = ZQuery[R, ExecutionError, A]
 
     val execution = request.operationType match {
@@ -57,32 +59,32 @@ object Executor {
       path: List[Either[String, Int]]
     ): ReducedStep[R] = {
 
-      def reduceObjectStep(objectName: String, fields: Map[String, Step[R]]) = {
+      def reduceObjectStep(objectName: String, fields: collection.Map[String, Step[R]]): ReducedStep[R] = {
         val filteredFields    = mergeFields(currentField, objectName)
         val (deferred, eager) = filteredFields.partitionMap {
           case f @ Field("__typename", _, _, _, _, _, _, directives, _, _, _)   =>
             Right((f.aliasedName, PureStep(StringValue(objectName)), fieldInfo(f, path, directives)))
           case f @ Field(name, _, _, _, _, _, args, directives, _, _, fragment) =>
-            val aliasedName = f.aliasedName
-            val field       = fields
-              .get(name)
-              .fold(NullStep: ReducedStep[R])(reduceStep(_, f, args, Left(aliasedName) :: path))
+            val field = fields.get(name) match {
+              case Some(step) => reduceStep(step, f, args, Left(f.aliasedName) :: path)
+              case _          => NullStep
+            }
+            val entry = (f.aliasedName, field, fieldInfo(f, path, directives))
 
-            val info = fieldInfo(f, path, directives)
-
-            fragment.collectFirst {
+            fragment match {
               // The defer spec provides some latitude on how we handle responses. Since it is more performant to return
               // pure fields rather than spin up the defer machinery we return pure fields immediately to the caller.
-              case IsDeferred(label) if featureSet(Feature.Defer) && !field.isPure =>
-                (label, (aliasedName, field, info))
-            }.toLeft((aliasedName, field, info))
+              case Some(IsDeferred(label)) if isDeferredEnabled && !field.isPure => Left((label, entry))
+              case _                                                             => Right(entry)
+            }
         }
 
+        val eagerReduced = reduceObject(eager, wrapPureValues)
         deferred match {
-          case Nil => reduceObject(eager, wrapPureValues)
+          case Nil => eagerReduced
           case d   =>
             DeferStep(
-              reduceObject(eager, wrapPureValues),
+              eagerReduced,
               d.groupBy(_._1).toList.map { case (label, labelAndFields) =>
                 val (_, fields) = labelAndFields.unzip
                 reduceObject(fields, wrapPureValues) -> label
