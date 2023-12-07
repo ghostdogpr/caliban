@@ -18,13 +18,13 @@ final class QuickAdapter[-R, E] private (requestHandler: QuickRequestHandler[R, 
    * @param apiPath The path where the GraphQL API will be served.
    * @param graphiqlPath The path where the GraphiQL UI will be served. If None, GraphiQL will not be served.
    */
-  def toApp(apiPath: Path, graphiqlPath: Option[Path] = None): HttpApp[R] = {
+  def toApp(apiPath: String, graphiqlPath: Option[String] = None): HttpApp[R] = {
     val apiRoutes     = List(
       RoutePattern(Method.POST, apiPath) -> handler,
       RoutePattern(Method.GET, apiPath)  -> handler
     )
     val graphiqlRoute = graphiqlPath.fold(List.empty[Route[R, Nothing]]) { uiPath =>
-      val uiHandler = GraphiQLHandler.handler(apiPath.toString(), uiPath.toString)
+      val uiHandler = GraphiQLHandler.handler(apiPath, uiPath)
       List(RoutePattern(Method.GET, uiPath) -> uiHandler)
     }
 
@@ -43,7 +43,7 @@ final class QuickAdapter[-R, E] private (requestHandler: QuickRequestHandler[R, 
     trace: Trace
   ): RIO[R, Nothing] =
     Server
-      .serve[R](toApp(Path.decode(apiPath), graphiqlPath.map(Path.decode)))
+      .serve[R](toApp(apiPath, graphiqlPath))
       .provideSomeLayer[R](Server.defaultWithPort(port))
 
   def configure(config: ExecutionConfiguration)(implicit trace: Trace): QuickAdapter[R, E] =

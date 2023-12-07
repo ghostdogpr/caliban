@@ -679,7 +679,8 @@ lazy val enableMimaSettingsJVM =
       ProblemFilters.exclude[IncompatibleResultTypeProblem]("caliban.schema.Step#ObjectStep*"),
       ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.schema.Annotations*"),
       ProblemFilters.exclude[MissingTypesProblem]("caliban.schema.Annotations*"),
-      ProblemFilters.exclude[IncompatibleResultTypeProblem]("caliban.schema.Annotations*")
+      ProblemFilters.exclude[IncompatibleResultTypeProblem]("caliban.schema.Annotations*"),
+      ProblemFilters.exclude[IncompatibleMethTypeProblem]("caliban.QuickAdapter.toApp")
     )
   )
 
