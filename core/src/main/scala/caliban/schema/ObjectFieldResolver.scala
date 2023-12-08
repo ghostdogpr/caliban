@@ -2,6 +2,7 @@ package caliban.schema
 
 import caliban.schema.Step.ObjectStep
 
+import scala.collection.compat._
 import scala.collection.mutable
 
 final private class ObjectFieldResolver[R, A] private (
