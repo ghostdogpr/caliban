@@ -37,7 +37,7 @@ trait CommonSchemaDerivation[R] {
 
   def join[T](ctx: ReadOnlyCaseClass[Typeclass, T]): Typeclass[T] = new Typeclass[T] {
     private lazy val objectResolver =
-      new ObjectFieldResolver[R, T](
+      ObjectFieldResolver[R, T](
         getName(ctx),
         ctx.parameters.map { p =>
           getName(p) -> { (v: T) => p.typeclass.resolve(p.dereference(v)) }
