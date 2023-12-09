@@ -20,7 +20,7 @@ final private class ObjectSchema[R, A](
     def fs = fields.map { (name, _, schema, i) =>
       name -> { (v: A) => schema.resolve(v.asInstanceOf[Product].productElement(i)) }
     }
-    new ObjectFieldResolver(getName(anns, info), fs)
+    ObjectFieldResolver(getName(anns, info), fs)
   }
 
   def toType(isInput: Boolean, isSubscription: Boolean): __Type = {

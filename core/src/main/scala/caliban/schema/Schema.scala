@@ -176,7 +176,8 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
     directives: List[Directive] = List.empty
   ): Schema[R1, A] =
     new Schema[R1, A] {
-      override def toType(isInput: Boolean, isSubscription: Boolean): __Type =
+      override def toType(isInput: Boolean, isSubscription: Boolean): __Type = {
+        val _ = resolver
         if (isInput) {
           makeInputObject(
             Some(customizeInputTypeName(name)),
@@ -187,9 +188,10 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
             directives = Some(directives)
           )
         } else makeObject(Some(name), description, fields(isInput, isSubscription).map(_._1), directives)
+      }
 
       private lazy val resolver =
-        new ObjectFieldResolver[R1, A](name, fields(false, false).map(f => (f._1.name, f._2)))
+        ObjectFieldResolver[R1, A](name, fields(false, false).map(f => (f._1.name, f._2)))
 
       override def resolve(value: A): Step[R1] = resolver.resolve(value)
     }

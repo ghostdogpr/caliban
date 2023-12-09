@@ -59,16 +59,13 @@ object Executor {
       path: List[Either[String, Int]]
     ): ReducedStep[R] = {
 
-      def reduceObjectStep(objectName: String, fields: collection.Map[String, Step[R]]): ReducedStep[R] = {
+      def reduceObjectStep(objectName: String, getFieldStep: String => Step[R]): ReducedStep[R] = {
         val filteredFields    = mergeFields(currentField, objectName)
         val (deferred, eager) = filteredFields.partitionMap {
           case f @ Field("__typename", _, _, _, _, _, _, directives, _, _, _)   =>
             Right((f.aliasedName, PureStep(StringValue(objectName)), fieldInfo(f, path, directives)))
           case f @ Field(name, _, _, _, _, _, args, directives, _, _, fragment) =>
-            val field = fields.get(name) match {
-              case Some(step) => reduceStep(step, f, args, Left(f.aliasedName) :: path)
-              case _          => NullStep
-            }
+            val field = reduceStep(getFieldStep(name), f, args, Left(f.aliasedName) :: path)
             val entry = (f.aliasedName, field, fieldInfo(f, path, directives))
 
             fragment match {

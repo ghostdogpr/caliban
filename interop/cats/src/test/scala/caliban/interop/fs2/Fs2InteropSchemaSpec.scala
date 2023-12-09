@@ -7,12 +7,11 @@ import caliban.introspection.adt.{ __Type, __TypeKind }
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition.{ FieldDefinition, ObjectTypeDefinition }
 import caliban.parsing.adt.Type._
-import caliban.schema.Schema.auto._
 import caliban.schema.Step.{ MetadataFunctionStep, ObjectStep, StreamStep }
 import caliban.schema.{ PureStep, Schema, Step }
 import cats.effect.std.Dispatcher
 import cats.effect.unsafe.implicits._
-import cats.effect.{ IO, LiftIO, Resource }
+import cats.effect.{ IO, LiftIO }
 import fs2.Stream
 import zio.interop.catz._
 import zio.test.Assertion._
@@ -120,19 +119,16 @@ object Fs2InteropSchemaSpec extends ZIOSpecDefault {
     isSubtype[ObjectStep[Any]](
       hasField(
         "fields",
-        _.fields.toMap,
-        hasKey(
-          "bar",
-          isSubtype[StreamStep[Any]](
-            hasField(
-              "inner",
-              step =>
-                Unsafe.unsafe { implicit unsafe =>
-                  runtime.unsafe.run(step.inner.runCollect)
-                },
-              isSubtype[Exit.Success[Chunk[Step[Any]]]](
-                equalTo(Exit.Success(expectedChunk))
-              )
+        _.fields("bar"),
+        isSubtype[StreamStep[Any]](
+          hasField(
+            "inner",
+            step =>
+              Unsafe.unsafe { implicit unsafe =>
+                runtime.unsafe.run(step.inner.runCollect)
+              },
+            isSubtype[Exit.Success[Chunk[Step[Any]]]](
+              equalTo(Exit.Success(expectedChunk))
             )
           )
         )

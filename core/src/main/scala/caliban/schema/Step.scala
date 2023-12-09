@@ -10,12 +10,17 @@ import zio.stream.ZStream
 sealed trait Step[-R]
 
 object Step {
-  case class ListStep[-R](steps: List[Step[R]])                                    extends Step[R]
-  case class FunctionStep[-R](step: Map[String, InputValue] => Step[R])            extends Step[R]
-  case class MetadataFunctionStep[-R](step: Field => Step[R])                      extends Step[R]
-  case class ObjectStep[-R](name: String, fields: collection.Map[String, Step[R]]) extends Step[R]
-  case class QueryStep[-R](query: ZQuery[R, Throwable, Step[R]])                   extends Step[R]
-  case class StreamStep[-R](inner: ZStream[R, Throwable, Step[R]])                 extends Step[R]
+  case class ListStep[-R](steps: List[Step[R]])                         extends Step[R]
+  case class FunctionStep[-R](step: Map[String, InputValue] => Step[R]) extends Step[R]
+  case class MetadataFunctionStep[-R](step: Field => Step[R])           extends Step[R]
+  case class QueryStep[-R](query: ZQuery[R, Throwable, Step[R]])        extends Step[R]
+  case class StreamStep[-R](inner: ZStream[R, Throwable, Step[R]])      extends Step[R]
+
+  case class ObjectStep[-R](name: String, fields: String => Step[R]) extends Step[R]
+  object ObjectStep {
+    def apply[R](name: String, fields: Map[String, Step[R]]): ObjectStep[R] =
+      new ObjectStep[R](name, fields.getOrElse(_, NullStep))
+  }
 
   // PureStep is both a Step and a ReducedStep so it is defined outside this object
   // This is to avoid boxing/unboxing pure values during step reduction
@@ -34,13 +39,20 @@ object Step {
     case (FunctionStep(l), FunctionStep(r))                  => FunctionStep(args => mergeRootSteps(l(args), r(args)))
     case (FunctionStep(l), r)                                => FunctionStep(args => mergeRootSteps(l(args), r))
     case (l, FunctionStep(r))                                => FunctionStep(args => mergeRootSteps(l, r(args)))
-    // fields2 override fields1 in case of conflict
-    case (ObjectStep(name, fields1), ObjectStep(_, fields2)) => ObjectStep(name, fields1 ++ fields2)
+    case (ObjectStep(name, fields1), ObjectStep(_, fields2)) => ObjectStep(name, mergeObjectSteps(fields1, fields2))
     // if only step1 is an object, keep it
     case (ObjectStep(_, _), _)                               => step1
     // otherwise keep step2
     case _                                                   => step2
   }
+
+  // fields2 override fields1 in case of conflict
+  private def mergeObjectSteps[R](fields1: String => Step[R], fields2: String => Step[R]): String => Step[R] =
+    (s: String) =>
+      fields2(s) match {
+        case NullStep => fields1(s)
+        case step     => step
+      }
 }
 
 sealed trait ReducedStep[-R] { self =>
