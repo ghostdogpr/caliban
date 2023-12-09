@@ -1,6 +1,6 @@
 package caliban.schema
 
-import caliban.schema.Step.ObjectStep
+import caliban.schema.Step.{ NullStep, ObjectStep }
 
 import scala.collection.compat._
 import scala.collection.mutable
@@ -12,8 +12,8 @@ final private class ObjectFieldResolver[R, A] private (
   def resolve(value: A): Step[R] = ObjectStep(
     name,
     fields.get(_) match {
-      case Some(f) => Some(f(value))
-      case None    => None
+      case Some(f) => f(value)
+      case None    => NullStep
     }
   )
 }
