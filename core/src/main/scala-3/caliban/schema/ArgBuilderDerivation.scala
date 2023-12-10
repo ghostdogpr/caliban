@@ -67,11 +67,10 @@ trait CommonArgBuilderDerivation {
 
   private def makeSumArgBuilder[A](
     _subTypes: => List[(String, List[Any], ArgBuilder[Any])],
-    _traitLabel: => String
+    traitLabel: String
   ) = new ArgBuilder[A] {
-    private lazy val subTypes   = _subTypes
-    private lazy val traitLabel = _traitLabel
-    private val emptyInput      = InputValue.ObjectValue(Map.empty)
+    private lazy val subTypes = _subTypes
+    private val emptyInput    = InputValue.ObjectValue(Map.empty)
 
     def build(input: InputValue): Either[ExecutionError, A] =
       input.match {
@@ -94,10 +93,9 @@ trait CommonArgBuilderDerivation {
 
   private def makeProductArgBuilder[A](
     _fields: => List[(String, ArgBuilder[Any])],
-    _annotations: => Map[String, List[Any]]
+    annotations: Map[String, List[Any]]
   )(fromProduct: Product => A) = new ArgBuilder[A] {
-    private lazy val fields      = _fields
-    private lazy val annotations = _annotations
+    private lazy val fields = _fields
 
     def build(input: InputValue): Either[ExecutionError, A] =
       fields.view.map { (label, builder) =>

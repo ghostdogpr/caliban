@@ -15,6 +15,7 @@ import zio.query.{ Cache, UQuery, URQuery, ZQuery }
 import zio.stream.ZStream
 
 import scala.annotation.tailrec
+import scala.collection.mutable.ListBuffer
 import scala.jdk.CollectionConverters._
 
 object Executor {
@@ -44,13 +45,18 @@ object Executor {
       case OperationType.Subscription => QueryExecution.Sequential
     }
 
-    def collectAll[In, E, A](in: List[In])(as: In => ZQuery[R, E, A]): ZQuery[R, E, List[A]] =
-      (in, execution) match {
-        case (head :: Nil, _)               => as(head).map(List(_))
-        case (_, QueryExecution.Sequential) => ZQuery.foreach(in)(as)
-        case (_, QueryExecution.Parallel)   => ZQuery.foreachPar(in)(as)
-        case (_, QueryExecution.Batched)    => ZQuery.foreachBatched(in)(as)
-      }
+    def collectAll[In, E, A, Coll[+V] <: Iterable[V]](
+      in: Coll[In]
+    )(
+      as: In => ZQuery[R, E, A]
+    )(implicit bf: BuildFrom[Coll[In], A, Coll[A]]): ZQuery[R, E, Coll[A]] =
+      if (in.sizeCompare(1) == 0) as(in.head).map(bf.newBuilder(in).addOne(_).result())
+      else
+        execution match {
+          case QueryExecution.Sequential => ZQuery.foreach(in)(as)
+          case QueryExecution.Parallel   => ZQuery.foreachPar(in)(as)
+          case QueryExecution.Batched    => ZQuery.foreachBatched(in)(as)
+        }
 
     def reduceStep(
       step: Step[R],
@@ -95,7 +101,7 @@ object Executor {
         var i         = 0
         val lb        = List.newBuilder[ReducedStep[R]]
         var remaining = steps
-        while (!remaining.isEmpty) {
+        while (remaining ne Nil) {
           lb += reduceStep(remaining.head, currentField, arguments, Right(i) :: path)
           i += 1
           remaining = remaining.tail
@@ -172,36 +178,34 @@ object Executor {
       }
 
       def makeObjectQuery(steps: List[(String, ReducedStep[R], FieldInfo)]) = {
-        def newMap() = new java.util.HashMap[String, ResponseValue](calculateMapCapacity(steps.size))
+        def collectAllQueries() =
+          collectAll(steps)((objectFieldQuery _).tupled).map(ObjectValue.apply)
 
-        var pures: java.util.HashMap[String, ResponseValue] = null
-        val _steps                                          =
-          if (wrapPureValues) steps
-          else {
-            val queries   = List.newBuilder[(String, ReducedStep[R], FieldInfo)]
-            var remaining = steps
-            while (!remaining.isEmpty) {
-              remaining.head match {
-                case (name, PureStep(value), _) =>
-                  if (pures eq null) pures = newMap()
-                  pures.putIfAbsent(name, value)
-                case step                       => queries += step
-              }
-              remaining = remaining.tail
+        def collectMixed() = {
+          val resolved  = ListBuffer.empty[(String, ResponseValue)]
+          val queries   = Vector.newBuilder[(String, ReducedStep[R], FieldInfo)]
+          var remaining = steps
+          while (remaining ne Nil) {
+            remaining.head match {
+              case (name, PureStep(value), _) => resolved += ((name, value))
+              case step                       =>
+                resolved += null
+                queries += step
             }
-            queries.result()
+            remaining = remaining.tail
           }
 
-        // Avoids placing of var into Function1 which will convert it to ObjectRef by the Scala compiler
-        val resolved = pures
-        collectAll(_steps)((objectFieldQuery _).tupled).map { results =>
-          if (resolved eq null) ObjectValue(results)
-          else {
-            results.foreach(kv => resolved.put(kv._1, kv._2))
-            ObjectValue(steps.map { case (name, _, _) => name -> resolved.get(name) })
+          collectAll(queries.result())((objectFieldQuery _).tupled).map { results =>
+            var i = -1
+            ObjectValue(resolved.mapInPlace {
+              case null => i += 1; results(i)
+              case t    => t
+            }.result())
           }
         }
 
+        if (wrapPureValues || !steps.exists(_._2.isPure)) collectAllQueries()
+        else collectMixed()
       }
 
       def makeListQuery(steps: List[ReducedStep[R]], areItemsNullable: Boolean) =
@@ -310,7 +314,7 @@ object Executor {
     def haveSameCondition(head: Field, tail: List[Field]): Boolean = {
       val condition = head._condition
       var remaining = tail
-      while (!remaining.isEmpty) {
+      while (remaining ne Nil) {
         if (remaining.head._condition != condition) return false
         remaining = remaining.tail
       }
@@ -323,7 +327,7 @@ object Executor {
     def mergeFields(fields: List[Field]) = {
       val map       = new java.util.LinkedHashMap[String, Field](calculateMapCapacity(fields.size))
       var remaining = fields
-      while (!remaining.isEmpty) {
+      while (remaining ne Nil) {
         val h = remaining.head
         if (matchesTypename(h)) {
           map.compute(
