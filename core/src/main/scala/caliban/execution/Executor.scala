@@ -15,6 +15,7 @@ import zio.query.{ Cache, UQuery, URQuery, ZQuery }
 import zio.stream.ZStream
 
 import scala.annotation.tailrec
+import scala.collection.compat.{ BuildFrom => _, _ }
 import scala.collection.mutable.ListBuffer
 import scala.jdk.CollectionConverters._
 
@@ -45,12 +46,12 @@ object Executor {
       case OperationType.Subscription => QueryExecution.Sequential
     }
 
-    def collectAll[In, E, A, Coll[+V] <: Iterable[V]](
-      in: Coll[In]
+    def collectAll[E, A, B, Coll[+V] <: Iterable[V]](
+      in: Coll[A]
     )(
-      as: In => ZQuery[R, E, A]
-    )(implicit bf: BuildFrom[Coll[In], A, Coll[A]]): ZQuery[R, E, Coll[A]] =
-      if (in.sizeCompare(1) == 0) as(in.head).map(bf.newBuilder(in).addOne(_).result())
+      as: A => ZQuery[R, E, B]
+    )(implicit bf: BuildFrom[Coll[A], B, Coll[B]]): ZQuery[R, E, Coll[B]] =
+      if (in.sizeCompare(1) == 0) as(in.head).map(bf.newBuilder(in).+=(_).result())
       else
         execution match {
           case QueryExecution.Sequential => ZQuery.foreach(in)(as)
@@ -390,6 +391,11 @@ object Executor {
       }
       (l.result(), r.result())
     }
+  }
+
+  private implicit class EnrichedListBufferOps[A](val lb: ListBuffer[A]) extends AnyVal {
+    // This method doesn't exist in Scala 2.12 so we just use `.map` for it instead
+    def mapInPlace[B](f: A => B): ListBuffer[B] = lb.map(f)
   }
 
   /**
