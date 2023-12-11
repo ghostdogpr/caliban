@@ -4,6 +4,8 @@ import caliban.introspection.adt.__Type
 import caliban.schema.DerivationUtils.*
 import magnolia1.TypeInfo
 
+import scala.annotation.threadUnsafe
+
 final private class ObjectSchema[R, A](
   _fields: => List[(String, Schema[R, Any], Int)],
   info: TypeInfo,
@@ -11,11 +13,13 @@ final private class ObjectSchema[R, A](
   paramAnnotations: Map[String, List[Any]]
 ) extends Schema[R, A] {
 
+  @threadUnsafe
   private lazy val fields = _fields.map { (label, schema, index) =>
     val fieldAnnotations = paramAnnotations.getOrElse(label, Nil)
     (getName(fieldAnnotations, label), fieldAnnotations, schema, index)
   }
 
+  @threadUnsafe
   private lazy val resolver = {
     def fs = fields.map { (name, _, schema, i) =>
       name -> { (v: A) => schema.resolve(v.asInstanceOf[Product].productElement(i)) }
