@@ -126,7 +126,7 @@ and [jsoniter-scala](https://github.com/plokhotnyuk/jsoniter-scala) without tapi
 In order to use it, just add the following to your `build.sbt` file (no other dependencies required!):
 
 ```scala
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-quick" % "1.4.3"
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-quick" % "2.4.3"
 ```
 
 By adding `import caliban.quick._`, we expose a few convenient extension methods on our `GraphQL` api.
