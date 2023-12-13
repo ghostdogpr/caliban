@@ -274,7 +274,7 @@ object Executor {
             ZStream.succeed(resp) ++ makeDeferStream(more, cache)
         })
 
-      ZStream.mergeAll(1)(defers.map(run): _*)
+      ZStream.mergeAllUnbounded()(defers.map(run): _*)
     }
 
     def runIncrementalQuery(
