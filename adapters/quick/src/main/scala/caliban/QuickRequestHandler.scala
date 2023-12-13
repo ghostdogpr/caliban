@@ -14,6 +14,7 @@ import zio.stacktracer.TracingImplicits.disableAutoTrace
 import zio.stream.ZStream
 
 import java.nio.charset.StandardCharsets.UTF_8
+import scala.util.Try
 import scala.util.control.NonFatal
 
 final private class QuickRequestHandler[-R, E](interpreter: GraphQLInterpreter[R, E]) {
@@ -103,7 +104,10 @@ final private class QuickRequestHandler[-R, E](interpreter: GraphQLInterpreter[R
         .orElseFail(Response.badRequest)
 
     def parsePath(path: String): List[Either[String, Int]] =
-      path.split('.').map(c => c.toIntOption.toRight(c)).toList
+      path.split('.').toList.map { segment =>
+        try Right(segment.toInt)
+        catch { case _: NumberFormatException => Left(segment) }
+      }
 
     for {
       partsMap   <- request.body.asMultipartForm.mapBoth(_ => Response.internalServerError, _.map)
@@ -236,4 +240,9 @@ object QuickRequestHandler {
     }
 
   private implicit val stringListCodec: JsonValueCodec[Map[String, List[String]]] = JsonCodecMaker.make
+
+  // Patch for Scala 2.12
+  private implicit class StringOpsPatch[+A](val string: String) extends AnyVal {
+    def toIntOption: Option[Int] = Try(string.toInt).toOption
+  }
 }

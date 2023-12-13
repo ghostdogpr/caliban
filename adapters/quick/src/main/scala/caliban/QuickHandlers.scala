@@ -8,7 +8,7 @@ final case class QuickHandlers[-R](
 ) {
 
   /**
-   * Applies a [[HandlerAspect]] (i.e., middleware) to both the api and upload handlers
+   * Applies a ZIO HTTP `HandlerAspect` to both the api and upload handlers
    */
   def @@[R1 <: R](aspect: HandlerAspect[R1, Unit]): QuickHandlers[R1] =
     QuickHandlers(
