@@ -67,20 +67,26 @@ object Executor {
     ): ReducedStep[R] = {
 
       def reduceObjectStep(objectName: String, getFieldStep: String => Step[R]): ReducedStep[R] = {
-        val filteredFields    = mergeFields(currentField, objectName)
-        val (deferred, eager) = filteredFields.partitionMap {
-          case f @ Field("__typename", _, _, _, _, _, _, directives, _, _, _)   =>
-            Right((f.aliasedName, PureStep(StringValue(objectName)), fieldInfo(f, path, directives)))
-          case f @ Field(name, _, _, _, _, _, args, directives, _, _, fragment) =>
-            val field = reduceStep(getFieldStep(name), f, args, Left(f.aliasedName) :: path)
-            val entry = (f.aliasedName, field, fieldInfo(f, path, directives))
+        def reduceField(f: Field): (String, ReducedStep[R], FieldInfo) = {
+          val field =
+            if (f.name == "__typename") PureStep(StringValue(objectName))
+            else reduceStep(getFieldStep(f.name), f, f.arguments, Left(f.aliasedName) :: path)
+          (f.aliasedName, field, fieldInfo(f, path, f.directives))
+        }
 
-            fragment match {
-              // The defer spec provides some latitude on how we handle responses. Since it is more performant to return
-              // pure fields rather than spin up the defer machinery we return pure fields immediately to the caller.
-              case Some(IsDeferred(label)) if isDeferredEnabled && !field.isPure => Left((label, entry))
-              case _                                                             => Right(entry)
+        val filteredFields    = mergeFields(currentField, objectName)
+        val (deferred, eager) = {
+          if (isDeferredEnabled) {
+            filteredFields.partitionMap { f =>
+              val entry = reduceField(f)
+              f.fragment match {
+                // The defer spec provides some latitude on how we handle responses. Since it is more performant to return
+                // pure fields rather than spin up the defer machinery we return pure fields immediately to the caller.
+                case Some(IsDeferred(label)) if !entry._2.isPure => Left((label, entry))
+                case _                                           => Right(entry)
+              }
             }
+          } else (Nil, filteredFields.map(reduceField))
         }
 
         val eagerReduced = reduceObject(eager, wrapPureValues)
@@ -303,7 +309,7 @@ object Executor {
 
     for {
       cache    <- Cache.empty
-      reduced   = reduceStep(plan, request.field, Map(), Nil)
+      reduced   = reduceStep(plan, request.field, Map.empty, Nil)
       response <- runQuery(reduced, cache)
     } yield response
   }

@@ -22,6 +22,8 @@ case class __Type(
   @GQLExcluded directives: Option[List[Directive]] = None,
   @GQLExcluded origin: Option[String] = None
 ) { self =>
+  final override lazy val hashCode: Int = super.hashCode()
+
   def |+|(that: __Type): __Type = __Type(
     kind,
     (name ++ that.name).reduceOption((_, b) => b),
