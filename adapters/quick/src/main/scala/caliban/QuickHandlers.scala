@@ -7,6 +7,9 @@ final case class QuickHandlers[-R](
   upload: RequestHandler[R, Nothing]
 ) {
 
+  /**
+   * Applies a [[HandlerAspect]] (i.e., middleware) to both the api and upload handlers
+   */
   def @@[R1 <: R](aspect: HandlerAspect[R1, Unit]): QuickHandlers[R1] =
     QuickHandlers(
       api = (api @@ aspect).merge,
