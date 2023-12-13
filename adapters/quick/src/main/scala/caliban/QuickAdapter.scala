@@ -7,28 +7,41 @@ import zio.http._
 final class QuickAdapter[-R, E] private (requestHandler: QuickRequestHandler[R, E]) {
 
   /**
-   * Converts this adapter to a [[zio.http.RequestHandler]] which can be used to create zio-http `HttpApp`
+   * Converts this adapter to a [[QuickHandlers]] which contains [[zio.http.RequestHandler]]s for manually constructing zio-http routes
    */
-  val handler: RequestHandler[R, Nothing] =
-    Handler.fromFunctionZIO[Request](requestHandler.handleRequest)
+  val handlers: QuickHandlers[R] = QuickHandlers(
+    api = Handler.fromFunctionZIO[Request](requestHandler.handleHttpRequest),
+    upload = Handler.fromFunctionZIO[Request](requestHandler.handleUploadRequest)
+  )
+
+  @deprecated("Use `handlers` instead", "2.5.0")
+  lazy val handler: RequestHandler[R, Nothing] =
+    Handler.fromFunctionZIO[Request](requestHandler.handleHttpRequest)
 
   /**
    * Converts this adapter to an `HttpApp` serving the GraphQL API at the specified path.
    *
    * @param apiPath The path where the GraphQL API will be served.
    * @param graphiqlPath The path where the GraphiQL UI will be served. If None, GraphiQL will not be served.
+   * @param uploadPath The path where files can be uploaded. If None, uploads will be disabled.
    */
-  def toApp(apiPath: String, graphiqlPath: Option[String] = None): HttpApp[R] = {
+  def toApp(
+    apiPath: String,
+    graphiqlPath: Option[String] = None,
+    uploadPath: Option[String] = None
+  ): HttpApp[R] = {
     val apiRoutes     = List(
-      RoutePattern(Method.POST, apiPath) -> handler,
-      RoutePattern(Method.GET, apiPath)  -> handler
+      RoutePattern(Method.POST, apiPath) -> handlers.api,
+      RoutePattern(Method.GET, apiPath)  -> handlers.api
     )
-    val graphiqlRoute = graphiqlPath.fold(List.empty[Route[R, Nothing]]) { uiPath =>
-      val uiHandler = GraphiQLHandler.handler(apiPath, uiPath)
-      List(RoutePattern(Method.GET, uiPath) -> uiHandler)
+    val graphiqlRoute = graphiqlPath.toList.map { uiPath =>
+      RoutePattern(Method.GET, uiPath) -> GraphiQLHandler.handler(apiPath, uiPath)
+    }
+    val uploadRoute   = uploadPath.toList.map { uPath =>
+      RoutePattern(Method.POST, uPath) -> handlers.upload
     }
 
-    Routes.fromIterable(apiRoutes ::: graphiqlRoute).toHttpApp
+    Routes.fromIterable(apiRoutes ::: graphiqlRoute ::: uploadRoute).toHttpApp
   }
 
   /**
@@ -39,11 +52,14 @@ final class QuickAdapter[-R, E] private (requestHandler: QuickRequestHandler[R, 
    * @param apiPath The route to serve the API on, e.g., `/api/graphql`
    * @param graphiqlPath Optionally define a route to serve the GraphiQL UI on, e.g., `/graphiql`
    */
-  def runServer(port: Int, apiPath: String, graphiqlPath: Option[String] = None)(implicit
-    trace: Trace
-  ): RIO[R, Nothing] =
+  def runServer(
+    port: Int,
+    apiPath: String,
+    graphiqlPath: Option[String] = None,
+    uploadPath: Option[String] = None
+  )(implicit trace: Trace): RIO[R, Nothing] =
     Server
-      .serve[R](toApp(apiPath, graphiqlPath))
+      .serve[R](toApp(apiPath, graphiqlPath = graphiqlPath, uploadPath = uploadPath))
       .provideSomeLayer[R](Server.defaultWithPort(port))
 
   def configure(config: ExecutionConfiguration)(implicit trace: Trace): QuickAdapter[R, E] =
@@ -60,8 +76,8 @@ object QuickAdapter {
   def apply[R, E](interpreter: GraphQLInterpreter[R, E]): QuickAdapter[R, E] =
     new QuickAdapter(new QuickRequestHandler(interpreter))
 
-  def handler[R](implicit tag: Tag[R], trace: Trace): URIO[QuickAdapter[R, CalibanError], RequestHandler[R, Response]] =
-    ZIO.serviceWith(_.handler)
+  def handlers[R](implicit tag: Tag[R], trace: Trace): URIO[QuickAdapter[R, CalibanError], QuickHandlers[R]] =
+    ZIO.serviceWith(_.handlers)
 
   def default[R](implicit
     tag: Tag[R],

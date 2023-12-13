@@ -61,11 +61,11 @@ object AuthExampleApp extends ZIOAppDefault {
   override def run: URIO[Any, ExitCode] =
     (for {
       exampleApi     <- ZIO.service[GraphQL[Any]]
-      apiHandler     <- (exampleApi |+| Authed.api).handler.map(_ @@ Auth.middleware)
+      handlers       <- (exampleApi |+| Authed.api).handlers.map(_ @@ Auth.middleware)
       graphiqlHandler = GraphiQLHandler.handler(apiPath = "/api/graphql", graphiqlPath = "/graphiql")
       port           <- Server.install(
                           Routes(
-                            Method.POST / "api" / "graphql" -> apiHandler,
+                            Method.POST / "api" / "graphql" -> handlers.api,
                             Method.GET / "graphiql"         -> graphiqlHandler
                           ).toHttpApp
                         )
