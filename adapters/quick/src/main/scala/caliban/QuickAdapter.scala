@@ -51,6 +51,7 @@ final class QuickAdapter[-R, E] private (requestHandler: QuickRequestHandler[R, 
    * @param port The port to serve the API on
    * @param apiPath The route to serve the API on, e.g., `/api/graphql`
    * @param graphiqlPath Optionally define a route to serve the GraphiQL UI on, e.g., `/graphiql`
+   * @param uploadPath The route where files can be uploaded, e.g., /upload/graphql. If None, uploads will be disabled.
    */
   def runServer(
     port: Int,
