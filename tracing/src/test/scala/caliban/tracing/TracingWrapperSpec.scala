@@ -17,7 +17,7 @@ object TracingWrapperSpec extends ZIOSpecDefault {
     override val identifier: String                                                                               = "NamesDatasource"
     override def run(requests: Chunk[GetName])(implicit trace: zio.Trace): ZIO[Any, Nothing, CompletedRequestMap] =
       ZIO.succeed(requests.foldLeft(CompletedRequestMap.empty) { case (map, req) =>
-        map.insert(req)(Exit.succeed(req.name))
+        map.insert(req, Exit.succeed(req.name))
       })
   }
 
