@@ -37,26 +37,29 @@ object Executor {
   )(implicit trace: Trace): URIO[R, GraphQLResponse[CalibanError]] = {
     val wrapPureValues    = fieldWrappers.exists(_.wrapPureValues)
     val isDeferredEnabled = featureSet(Feature.Defer)
+    val isMutation        = request.operationType == OperationType.Mutation
 
     type ExecutionQuery[+A] = ZQuery[R, ExecutionError, A]
 
-    val execution = request.operationType match {
-      case OperationType.Query        => queryExecution
-      case OperationType.Mutation     => QueryExecution.Sequential
-      case OperationType.Subscription => QueryExecution.Sequential
+    val executionMode = queryExecution match {
+      case QueryExecution.Sequential => 0
+      case QueryExecution.Parallel   => 1
+      case QueryExecution.Batched    => 2
     }
 
     def collectAll[E, A, B, Coll[+V] <: Iterable[V]](
-      in: Coll[A]
+      in: Coll[A],
+      isTopLevelField: Boolean
     )(
       as: A => ZQuery[R, E, B]
     )(implicit bf: BuildFrom[Coll[A], B, Coll[B]]): ZQuery[R, E, Coll[B]] =
       if (in.sizeCompare(1) == 0) as(in.head).map(bf.newBuilder(in).+=(_).result())
+      else if (isTopLevelField && isMutation) ZQuery.foreach(in)(as)
       else
-        execution match {
-          case QueryExecution.Sequential => ZQuery.foreach(in)(as)
-          case QueryExecution.Parallel   => ZQuery.foreachPar(in)(as)
-          case QueryExecution.Batched    => ZQuery.foreachBatched(in)(as)
+        executionMode match {
+          case 0 => ZQuery.foreach(in)(as)
+          case 1 => ZQuery.foreachPar(in)(as)
+          case 2 => ZQuery.foreachBatched(in)(as)
         }
 
     def reduceStep(
@@ -178,9 +181,12 @@ object Executor {
         else q.map((name, _))
       }
 
-      def makeObjectQuery(steps: List[(String, ReducedStep[R], FieldInfo)]) = {
+      def makeObjectQuery(
+        steps: List[(String, ReducedStep[R], FieldInfo)],
+        isTopLevelField: Boolean
+      ): ExecutionQuery[ResponseValue] = {
         def collectAllQueries() =
-          collectAll(steps)((objectFieldQuery _).tupled).map(ObjectValue.apply)
+          collectAll(steps, isTopLevelField)((objectFieldQuery _).tupled).map(ObjectValue.apply)
 
         def collectMixed() = {
           val resolved  = ListBuffer.empty[(String, ResponseValue)]
@@ -196,7 +202,7 @@ object Executor {
             remaining = remaining.tail
           }
 
-          collectAll(queries.result())((objectFieldQuery _).tupled).map { results =>
+          collectAll(queries.result(), isTopLevelField)((objectFieldQuery _).tupled).map { results =>
             var i = -1
             ObjectValue(resolved.mapInPlace {
               case null => i += 1; results(i)
@@ -209,15 +215,15 @@ object Executor {
         else collectMixed()
       }
 
-      def makeListQuery(steps: List[ReducedStep[R]], areItemsNullable: Boolean) =
-        collectAll(steps)(if (areItemsNullable) loop(_).catchAll(handleError) else loop)
+      def makeListQuery(steps: List[ReducedStep[R]], areItemsNullable: Boolean): ExecutionQuery[ResponseValue] =
+        collectAll(steps, isTopLevelField = false)(if (areItemsNullable) loop(_).catchAll(handleError) else loop(_))
           .map(ListValue.apply)
 
-      def loop(step: ReducedStep[R]): ExecutionQuery[ResponseValue] =
+      def loop(step: ReducedStep[R], isTopLevelField: Boolean = false): ExecutionQuery[ResponseValue] =
         step match {
           case PureStep(value)                               => ZQuery.succeed(value)
-          case ReducedStep.QueryStep(step)                   => step.flatMap(loop)
-          case ReducedStep.ObjectStep(steps)                 => makeObjectQuery(steps)
+          case ReducedStep.QueryStep(step)                   => step.flatMap(loop(_))
+          case ReducedStep.ObjectStep(steps)                 => makeObjectQuery(steps, isTopLevelField)
           case ReducedStep.ListStep(steps, areItemsNullable) => makeListQuery(steps, areItemsNullable)
           case ReducedStep.StreamStep(stream)                =>
             ZQuery
@@ -235,7 +241,7 @@ object Executor {
             }
             ZQuery.fromZIO(deferred.update(deferredSteps ::: _)) *> loop(obj)
         }
-      loop(step).catchAll(handleError)
+      loop(step, isTopLevelField = true).catchAll(handleError)
     }
 
     def runQuery(step: ReducedStep[R], cache: Cache) =

@@ -1,20 +1,21 @@
 package caliban.execution
 
-import java.util.UUID
 import caliban.CalibanError.ExecutionError
 import caliban.Macros.gqldoc
 import caliban.TestUtils._
 import caliban.Value.{ BooleanValue, IntValue, NullValue, StringValue }
+import caliban._
 import caliban.introspection.adt.__Type
 import caliban.parsing.adt.LocationInfo
 import caliban.schema.Annotations.{ GQLInterface, GQLName, GQLValueType }
-import caliban.schema._
-import caliban.schema.Schema.auto._
 import caliban.schema.ArgBuilder.auto._
-import caliban._
-import zio.{ FiberRef, IO, Task, UIO, ZIO, ZLayer }
+import caliban.schema.Schema.auto._
+import caliban.schema._
+import zio._
 import zio.stream.ZStream
 import zio.test._
+
+import java.util.UUID
 
 object ExecutionSpec extends ZIOSpecDefault {
 
@@ -1319,6 +1320,53 @@ object ExecutionSpec extends ZIOSpecDefault {
           )
         )
 
+      },
+      test("top-level fields are executed sequentially for mutations") {
+        case class Foo(field1: UIO[Unit], field2: UIO[Unit])
+        case class Mutations(
+          mutation1: CharacterArgs => UIO[Foo],
+          mutation2: CharacterArgs => UIO[Foo]
+        )
+
+        val ref                                       = Unsafe.unsafe(implicit u => Ref.unsafe.make(List.empty[String]))
+        def add(name: String, d: Duration = 1.second) = ref.update(name :: _).delay(d)
+        def foo(prefix: String)                       = ZIO.succeed(Foo(add(s"$prefix-f1", 1500.millis), add(s"$prefix-f2", 2.seconds)))
+
+        val interpreter = graphQL(
+          RootResolver(
+            resolverIO.queryResolver,
+            Mutations(
+              _ => add("m1") *> foo("m1"),
+              _ => add("m2") *> foo("m2")
+            )
+          )
+        ).interpreter
+
+        def adjustAndGet(d: Duration = 1.second) = TestClock.adjust(d) *> ref.get
+
+        for {
+          i  <- interpreter
+          _  <- i.execute(gqldoc("""mutation {
+                mutation1(name: "foo") { field1 field2 }
+                mutation2(name: "bar") { field1 field2 }
+              }"""))
+                  .fork
+          r1 <- ref.get
+          r2 <- adjustAndGet()
+          r3 <- adjustAndGet()
+          r4 <- adjustAndGet()
+          r5 <- adjustAndGet()
+          r6 <- adjustAndGet()
+          r7 <- adjustAndGet()
+        } yield assertTrue(
+          r1 == Nil,
+          r2 == List("m1"),
+          r3 == List("m1"),
+          r4 == List("m1-f2", "m1-f1", "m1"),
+          r5 == List("m2", "m1-f2", "m1-f1", "m1"),
+          r6 == List("m2", "m1-f2", "m1-f1", "m1"),
+          r7 == List("m2-f2", "m2-f1", "m2", "m1-f2", "m1-f1", "m1")
+        )
       }
     )
 }
