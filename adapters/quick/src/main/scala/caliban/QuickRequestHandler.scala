@@ -240,9 +240,4 @@ object QuickRequestHandler {
     }
 
   private implicit val stringListCodec: JsonValueCodec[Map[String, List[String]]] = JsonCodecMaker.make
-
-  // Patch for Scala 2.12
-  private implicit class StringOpsPatch[+A](val string: String) extends AnyVal {
-    def toIntOption: Option[Int] = Try(string.toInt).toOption
-  }
 }
