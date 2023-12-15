@@ -1,8 +1,7 @@
 package caliban.schema
 
 import caliban.*
-import caliban.RootResolver
-import caliban.schema.Annotations.GQLInterface
+import caliban.schema.Annotations.{ GQLField, GQLInterface }
 import zio.test.{ assertTrue, ZIOSpecDefault }
 
 import java.time.Instant
@@ -173,6 +172,45 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
                 |  f(i: Instant!, s1: String!): Bar!
                 |}""".stripMargin
           )
+        }
+      ),
+      suite("methods as fields")(
+        test("derivation of methods as fields") {
+          final case class Foo(value: String) derives Schema.SemiAuto {
+            def value1: String           = value + 1
+            @GQLField def value2: String = value + 2
+          }
+          final case class Bar(foo: Foo) derives Schema.SemiAuto
+
+          val gql = graphQL(RootResolver(Bar(Foo("foo"))))
+
+          assertTrue(gql.render == """schema {
+                                     |  query: Bar
+                                     |}
+
+                                     |type Bar {
+                                     |  foo: Foo!
+                                     |}
+
+                                     |type Foo {
+                                     |  value: String!
+                                     |  value2: String!
+                                     |}""".stripMargin)
+        },
+        test("execution of methods as fields") {
+          final case class Foo(value: String) derives Schema.SemiAuto {
+            @GQLField def value2: String = value + 2
+          }
+          final case class Bar(foo: Foo) derives Schema.SemiAuto
+
+          val gql = graphQL(RootResolver(Bar(Foo("foo"))))
+
+          gql.interpreter.flatMap { i =>
+            i.execute("{foo {value value2}}").debug.map { v =>
+              val s = v.data.toString
+              assertTrue(s == """{"foo":{"value":"foo","value2":"foo2"}}""")
+            }
+          }
         }
       )
     )

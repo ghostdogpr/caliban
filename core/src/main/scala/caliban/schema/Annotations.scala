@@ -65,4 +65,7 @@ object Annotations {
    * Annotation to specify the default value of an input field
    */
   case class GQLDefault(value: String) extends StaticAnnotation
+
+  // FIXME: Add in a version-specific trait
+  case class GQLField() extends StaticAnnotation
 }
