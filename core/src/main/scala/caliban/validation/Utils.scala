@@ -5,6 +5,8 @@ import caliban.introspection.adt.__TypeKind._
 import caliban.parsing.adt.Type.NamedType
 import zio.Chunk
 
+import scala.collection.compat._
+
 object Utils {
   def isObjectType(t: __Type): Boolean =
     t.kind match {
@@ -56,22 +58,25 @@ object Utils {
   def getType(t: NamedType, context: Context): Option[__Type] =
     context.rootType.types.get(t.name)
 
-  def cross[A](a: Iterable[A]): Chunk[(A, A)] =
-    Chunk.fromIterable(for (xs <- a; ys <- a) yield (xs, ys))
-
-  def cross[A](a: Iterable[A], b: Iterable[A]): Chunk[(A, A)] =
-    Chunk.fromIterable(for (xs <- a; ys <- b) yield (xs, ys))
-
-  object syntax {
-    implicit class OptionSyntax[+A](val self: Option[A]) extends AnyVal {
-      def zip[B](that: Option[B]): Option[(A, B)] =
-        self.flatMap(a => that.map(b => (a, b)))
+  /**
+   * For an iterable, produce a Chunk containing tuples of all possible unique combinations, optionally including the identity
+   */
+  def cross[A](a: Iterable[A], includeIdentity: Boolean): Chunk[(A, A)] = {
+    val ca       = Chunk.fromIterable(a)
+    val size     = ca.size
+    val cb       = Chunk.newBuilder[(A, A)]
+    var i1, i2   = 0
+    val modifier = if (includeIdentity) 0 else 1
+    while (i1 < size - modifier) {
+      i2 = i1 + modifier
+      val l = ca(i1)
+      while (i2 < size) {
+        cb += ((l, ca(i2)))
+        i2 += 1
+      }
+      i1 += 1
     }
-
-    implicit class Tuple2Syntax[+A, +B](val self: (Option[A], Option[B])) extends AnyVal {
-      def mapN[C](f: (A, B) => C): Option[C] =
-        self._1.flatMap(a => self._2.map(b => f(a, b)))
-    }
-
+    cb.result()
   }
+
 }

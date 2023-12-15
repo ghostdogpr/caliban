@@ -22,6 +22,8 @@ case class __Type(
   @GQLExcluded directives: Option[List[Directive]] = None,
   @GQLExcluded origin: Option[String] = None
 ) { self =>
+  final override lazy val hashCode: Int = super.hashCode()
+
   def |+|(that: __Type): __Type = __Type(
     kind,
     (name ++ that.name).reduceOption((_, b) => b),
@@ -130,8 +132,18 @@ case class __Type(
   lazy val allEnumValues: List[__EnumValue] =
     enumValues(__DeprecatedArgs(Some(true))).getOrElse(Nil)
 
-  private[caliban] lazy val allFieldsMap: Map[String, __Field] =
-    allFields.map(f => f.name -> f).toMap
+  private[caliban] lazy val allFieldsMap: collection.Map[String, __Field] = {
+    val map = collection.mutable.HashMap.empty[String, __Field]
+    allFields.foreach(f => map.update(f.name, f))
+    map
+  }
 
   lazy val innerType: __Type = Types.innerType(this)
+
+  private[caliban] lazy val possibleTypeNames: Set[String] =
+    kind match {
+      case __TypeKind.OBJECT                       => name.fold(Set.empty[String])(Set(_))
+      case __TypeKind.INTERFACE | __TypeKind.UNION => possibleTypes.fold(Set.empty[String])(_.flatMap(_.name).toSet)
+      case _                                       => Set.empty
+    }
 }
