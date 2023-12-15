@@ -41,12 +41,6 @@ object Executor {
 
     type ExecutionQuery[+A] = ZQuery[R, ExecutionError, A]
 
-    val executionMode = queryExecution match {
-      case QueryExecution.Sequential => 0
-      case QueryExecution.Parallel   => 1
-      case QueryExecution.Batched    => 2
-    }
-
     def collectAll[E, A, B, Coll[+V] <: Iterable[V]](
       in: Coll[A],
       isTopLevelField: Boolean
@@ -56,10 +50,10 @@ object Executor {
       if (in.sizeCompare(1) == 0) as(in.head).map(bf.newBuilder(in).+=(_).result())
       else if (isTopLevelField && isMutation) ZQuery.foreach(in)(as)
       else
-        executionMode match {
-          case 0 => ZQuery.foreach(in)(as)
-          case 1 => ZQuery.foreachPar(in)(as)
-          case 2 => ZQuery.foreachBatched(in)(as)
+        queryExecution match {
+          case QueryExecution.Batched    => ZQuery.foreachBatched(in)(as)
+          case QueryExecution.Parallel   => ZQuery.foreachPar(in)(as)
+          case QueryExecution.Sequential => ZQuery.foreach(in)(as)
         }
 
     def reduceStep(
