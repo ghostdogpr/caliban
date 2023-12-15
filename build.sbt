@@ -359,9 +359,10 @@ lazy val quickAdapter = project
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
-      "dev.zio"                               %% "zio-http"             % zioHttpVersion,
-      "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-core"  % jsoniterVersion,
-      "com.softwaremill.sttp.tapir"           %% "tapir-jsoniter-scala" % tapirVersion % Test
+      "dev.zio"                               %% "zio-http"              % zioHttpVersion,
+      "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-core"   % jsoniterVersion,
+      "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros" % jsoniterVersion % Provided,
+      "com.softwaremill.sttp.tapir"           %% "tapir-jsoniter-scala"  % tapirVersion    % Test
     )
   )
   .dependsOn(core, tapirInterop % "test->test")
@@ -680,7 +681,9 @@ lazy val enableMimaSettingsJVM =
       ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.schema.Annotations*"),
       ProblemFilters.exclude[MissingTypesProblem]("caliban.schema.Annotations*"),
       ProblemFilters.exclude[IncompatibleResultTypeProblem]("caliban.schema.Annotations*"),
-      ProblemFilters.exclude[IncompatibleMethTypeProblem]("caliban.QuickAdapter.toApp")
+      ProblemFilters.exclude[IncompatibleMethTypeProblem]("caliban.Quick*"),
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.Quick*"),
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.quick.package*")
     )
   )
 
