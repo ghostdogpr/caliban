@@ -4,14 +4,17 @@ import caliban.Configurator.ExecutionConfiguration
 import caliban.HttpUtils.DeferMultipart
 import caliban.ResponseValue.StreamValue
 import caliban.interop.jsoniter.ValueJsoniter
+import caliban.uploads.{ FileMeta, GraphQLUploadRequest, Uploads }
 import caliban.wrappers.Caching
 import com.github.plokhotnyuk.jsoniter_scala.core._
+import com.github.plokhotnyuk.jsoniter_scala.macros.JsonCodecMaker
 import zio._
 import zio.http._
 import zio.stacktracer.TracingImplicits.disableAutoTrace
 import zio.stream.ZStream
 
 import java.nio.charset.StandardCharsets.UTF_8
+import scala.util.Try
 import scala.util.control.NonFatal
 
 final private class QuickRequestHandler[-R, E](interpreter: GraphQLInterpreter[R, E]) {
@@ -29,13 +32,20 @@ final private class QuickRequestHandler[-R, E](interpreter: GraphQLInterpreter[R
       interpreter.wrapExecutionWith[R & R1, E](exec => ZIO.scoped[R1 & R](configurator *> exec))
     )
 
-  def handleRequest(request: Request)(implicit trace: Trace): URIO[R, Response] =
-    transformRequest(request)
+  def handleHttpRequest(request: Request)(implicit trace: Trace): URIO[R, Response] =
+    transformHttpRequest(request)
       .flatMap(executeRequest(request.method, _))
       .map(transformResponse(request, _))
       .merge
 
-  private def transformRequest(httpReq: Request)(implicit trace: Trace): IO[Response, GraphQLRequest] = {
+  def handleUploadRequest(request: Request)(implicit trace: Trace): URIO[R, Response] =
+    transformUploadRequest(request).flatMap { case (req, fileHandle) =>
+      executeRequest(request.method, req)
+        .map(transformResponse(request, _))
+        .provideSomeLayer[R](fileHandle)
+    }.merge
+
+  private def transformHttpRequest(httpReq: Request)(implicit trace: Trace): IO[Response, GraphQLRequest] = {
     val queryParams = httpReq.url.queryParams
 
     def extractFields(key: String): Either[Response, Option[Map[String, InputValue]]] =
@@ -72,14 +82,56 @@ final private class QuickRequestHandler[-R, E](interpreter: GraphQLInterpreter[R
         ZIO.fromEither(fromQueryParams)
       else {
         val req = if (isGqlJson) decodeApplicationGql() else decodeJson()
-        httpReq.headers
-          .get(GraphQLRequest.`apollo-federation-include-trace`)
-          .collect { case s if s.equalsIgnoreCase(GraphQLRequest.ftv1) => req.map(_.withFederatedTracing) }
-          .getOrElse(req)
+        if (isFtv1Request(httpReq)) req.map(_.withFederatedTracing)
+        else req
       }
     }
 
     resp.tap(r => if (r.isEmpty) ZIO.fail(badRequest("No GraphQL query to execute")) else ZIO.unit)
+  }
+
+  private def transformUploadRequest(
+    request: Request
+  )(implicit trace: Trace): IO[Response, (GraphQLRequest, ULayer[Uploads])] = {
+    def extractField[A](
+      partsMap: Map[String, FormField],
+      key: String
+    )(implicit jsonValueCodec: JsonValueCodec[A]): IO[Response, A] =
+      ZIO
+        .fromOption(partsMap.get(key))
+        .flatMap(_.asChunk)
+        .flatMap(v => ZIO.attempt(readFromArray[A](v.toArray)))
+        .orElseFail(Response.badRequest)
+
+    def parsePath(path: String): List[Either[String, Int]] =
+      path.split('.').toList.map { segment =>
+        try Right(segment.toInt)
+        catch { case _: NumberFormatException => Left(segment) }
+      }
+
+    for {
+      partsMap   <- request.body.asMultipartForm.mapBoth(_ => Response.internalServerError, _.map)
+      gqlReq     <- extractField[GraphQLRequest](partsMap, "operations")
+      rawMap     <- extractField[Map[String, List[String]]](partsMap, "map")
+      filePaths   = rawMap.map { case (key, value) => (key, value.map(parsePath)) }.toList
+                      .flatMap(kv => kv._2.map(kv._1 -> _))
+      handler     = Uploads.handler(handle =>
+                      (for {
+                        uuid <- Random.nextUUID
+                        fp   <- ZIO.fromOption(partsMap.get(handle))
+                        body <- fp.asChunk
+                      } yield FileMeta(
+                        uuid.toString,
+                        body.toArray,
+                        Some(fp.contentType.fullType),
+                        fp.filename.getOrElse(""),
+                        body.length
+                      )).option
+                    )
+      uploadQuery = GraphQLUploadRequest(gqlReq, filePaths, handler)
+      query       = if (isFtv1Request(request)) uploadQuery.remap.withFederatedTracing else uploadQuery.remap
+    } yield query -> ZLayer(uploadQuery.fileHandle)
+
   }
 
   private def executeRequest(method: Method, req: GraphQLRequest)(implicit
@@ -151,6 +203,11 @@ final private class QuickRequestHandler[-R, E](interpreter: GraphQLInterpreter[R
       .mapConcatChunk(Chunk.fromArray)
   }
 
+  private def isFtv1Request(req: Request) =
+    req.headers
+      .get(GraphQLRequest.`apollo-federation-include-trace`)
+      .exists(_.equalsIgnoreCase(GraphQLRequest.ftv1))
+
 }
 
 object QuickRequestHandler {
@@ -181,4 +238,6 @@ object QuickRequestHandler {
       override def nullValue: InputValue.ObjectValue                                                    =
         null.asInstanceOf[InputValue.ObjectValue]
     }
+
+  private implicit val stringListCodec: JsonValueCodec[Map[String, List[String]]] = JsonCodecMaker.make
 }

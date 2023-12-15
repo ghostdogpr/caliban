@@ -24,7 +24,7 @@ object QuickAdapterSpec extends ZIOSpecDefault {
 
   private val apiLayer = envLayer >>> ZLayer.fromZIO {
     for {
-      app     <- TestApi.api.toApp("/api/graphql").map(_ @@ auth)
+      app     <- TestApi.api.toApp("/api/graphql", uploadPath = Some("/upload/graphql")).map(_ @@ auth)
       _       <- Server.serve(app).forkScoped
       _       <- Live.live(Clock.sleep(3 seconds))
       service <- ZIO.service[TestService]
@@ -35,7 +35,8 @@ object QuickAdapterSpec extends ZIOSpecDefault {
     val suite = TapirAdapterSpec.makeSuite(
       "QuickAdapterSpec",
       uri"http://localhost:8090/api/graphql",
-      wsUri = None
+      wsUri = None,
+      uploadUri = Some(uri"http://localhost:8090/upload/graphql")
     )
     suite.provideShared(
       apiLayer,
