@@ -17,39 +17,38 @@ final private class ObjectSchema[R, A](
     extends Schema[R, A] {
 
   @threadUnsafe
-  private lazy val constructorFields = _constructorFields.map { (label, schema, index) =>
-    val fieldAnnotations = paramAnnotations.getOrElse(label, Nil)
-    (getName(fieldAnnotations, label), fieldAnnotations, schema, index)
-  }
+  private lazy val fields = {
+    val fromConstructor = _constructorFields.view.map { (label, schema, index) =>
+      val fieldAnns = paramAnnotations.getOrElse(label, Nil)
+      ((getName(fieldAnns, label), fieldAnns, schema), Left(index))
+    }
+    val fromMethods     = _methodFields.view.map { (methodName, fieldAnns, schema) =>
+      ((getName(fieldAnns, methodName), fieldAnns, schema.asInstanceOf[Schema[R, Any]]), Right(methodName))
+    }
 
-  @threadUnsafe
-  private lazy val methodFields = _methodFields.map { (label, anns, schema) =>
-    (label, getName(anns, label), anns, schema.asInstanceOf[Schema[R, Any]])
+    (fromConstructor ++ fromMethods).toList
   }
 
   @threadUnsafe
   private lazy val resolver = {
-    val clazz           = ct.runtimeClass
-    def fromConstructor = constructorFields.map { (name, _, schema, i) =>
-      name -> { (v: A) => schema.resolve(v.asInstanceOf[Product].productElement(i)) }
+    val clazz = ct.runtimeClass
+    val fs    = fields.map { case ((name, _, schema), idx) =>
+      name ->
+        idx.fold(
+          i => (v: A) => schema.resolve(v.asInstanceOf[Product].productElement(i)),
+          methodName => {
+            val method = clazz.getMethod(methodName)
+            (v: A) => schema.resolve(method.invoke(v))
+          }
+        )
     }
-    def fromMethods     = methodFields.map { (methodName, fieldName, _, schema) =>
-      fieldName -> {
-        val method = clazz.getMethod(methodName)
-        (v: A) => schema.resolve(method.invoke(v))
-      }
-    }
-    ObjectFieldResolver(getName(anns, info), fromMethods ::: fromConstructor)
+    ObjectFieldResolver(getName(anns, info), fs)
   }
 
   def toType(isInput: Boolean, isSubscription: Boolean): __Type = {
-    val _              = resolver // Init the lazy val
-    val combinedFields =
-      constructorFields.map(t => (t._1, t._2, t._3)) :::
-        methodFields.map(t => (t._2, t._3, t._4))
-
-    if (isInput) mkInputObject[R](anns, combinedFields, info)(isInput, isSubscription)
-    else mkObject[R](anns, combinedFields, info)(isInput, isSubscription)
+    val _ = resolver // Init the lazy val
+    if (isInput) mkInputObject[R](anns, fields.map(_._1), info)(isInput, isSubscription)
+    else mkObject[R](anns, fields.map(_._1), info)(isInput, isSubscription)
   }
 
   def resolve(value: A): Step[R] = resolver.resolve(value)
