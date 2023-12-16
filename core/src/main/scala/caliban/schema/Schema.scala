@@ -220,7 +220,7 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
     override def resolve(value: A): Step[Any] = {
       val asString = repr(value)
       if (validEnumValues.contains(asString)) PureStep(EnumValue(asString))
-      else QueryStep(ZQuery.fail(ExecutionError(s"Invalid enum value '$asString'")))
+      else Step.fail(s"Invalid enum value '$asString'")
     }
   }
 
@@ -475,7 +475,7 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
               Right(_)
             )
           )
-            .fold(error => QueryStep(ZQuery.fail(error)), value => ev2.resolve(f(value)))
+            .fold(error => Step.fail(error), value => ev2.resolve(f(value)))
 
         }
       private def handleInput[T](onWrapped: => T)(onUnwrapped: => T): T =

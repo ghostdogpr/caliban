@@ -1,15 +1,12 @@
 package caliban.interop.circe
 
-import caliban.Value.{ BooleanValue, EnumValue, FloatValue, IntValue, NullValue, StringValue }
+import caliban.Value._
+import caliban._
 import caliban.introspection.adt.__Type
 import caliban.parsing.adt.LocationInfo
-import caliban.schema.Step.QueryStep
 import caliban.schema.Types.makeScalar
-import caliban.schema.{ ArgBuilder, PureStep, Schema, Step }
-import caliban._
+import caliban.schema.{ ArgBuilder, Schema, Step }
 import io.circe._
-import zio.ZIO
-import zio.query.ZQuery
 
 /**
  * This class is an implementation of the pattern described in https://blog.7mind.io/no-more-orphans.html
@@ -32,8 +29,7 @@ private[caliban] object IsCirceDecoder {
 object json {
   implicit val jsonSchema: Schema[Any, Json]    = new Schema[Any, Json] {
     override def toType(isInput: Boolean, isSubscription: Boolean): __Type = makeScalar("Json")
-    override def resolve(value: Json): Step[Any]                           =
-      QueryStep(ZQuery.fromZIO(ZIO.fromEither(Decoder[ResponseValue].decodeJson(value))).map(PureStep.apply))
+    override def resolve(value: Json): Step[Any]                           = Step.fromEither(Decoder[ResponseValue].decodeJson(value))
   }
   implicit val jsonArgBuilder: ArgBuilder[Json] = (input: InputValue) => Right(Encoder[InputValue].apply(input))
 
