@@ -4,7 +4,7 @@ import caliban.parsing.adt.Directive
 
 import scala.annotation.StaticAnnotation
 
-object Annotations {
+object Annotations extends AnnotationsVersionSpecific {
 
   /**
    * Annotation used to indicate a type or a field is deprecated.
@@ -65,7 +65,4 @@ object Annotations {
    * Annotation to specify the default value of an input field
    */
   case class GQLDefault(value: String) extends StaticAnnotation
-
-  // FIXME: Add in a version-specific trait
-  case class GQLField() extends StaticAnnotation
 }

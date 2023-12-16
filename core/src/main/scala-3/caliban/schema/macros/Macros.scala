@@ -13,7 +13,7 @@ object Macros {
   inline def implicitExists[T]: Boolean     = ${ implicitExistsImpl[T] }
   inline def hasAnnotation[T, Ann]: Boolean = ${ hasAnnotationImpl[T, Ann] }
 
-  inline def fieldsFromMethods[R, T]: List[(String, Schema[R, ?])] = ${ fieldsFromMethodsImpl[R, T] }
+  inline def fieldsFromMethods[R, T]: List[(String, List[Any], Schema[R, ?])] = ${ fieldsFromMethodsImpl[R, T] }
 
   /**
    * Tests whether type argument [[FieldT]] in [[Parent]] is annotated with [[GQLExcluded]]
@@ -49,11 +49,12 @@ object Macros {
 
   private def fieldsFromMethodsImpl[R: Type, T: Type](using
     q: Quotes
-  ): Expr[List[(String, Schema[R, ?])]] = {
+  ): Expr[List[(String, List[Any], Schema[R, ?])]] = {
     import q.reflect.*
     val targetSym  = TypeTree.of[T].symbol
     val targetType = TypeRepr.of[T]
-    val annSymbol  = TypeRepr.of[GQLField].typeSymbol
+    val annType    = TypeRepr.of[GQLField]
+    val annSym     = annType.typeSymbol
 
     def summonSchema(methodSym: Symbol) = {
       val fieldType = targetType.memberType(methodSym)
@@ -64,7 +65,9 @@ object Macros {
 
       tpe.asType match {
         case '[f] =>
-          Expr.summon[Schema[R, f]].getOrElse(report.errorAndAbort(s"Cannot find an instance of Schema for $tpe"))
+          Expr
+            .summon[Schema[R, f]]
+            .getOrElse(report.errorAndAbort(schemaNotFound(tpe.show)))
       }
     }
 
@@ -72,17 +75,38 @@ object Macros {
       if (methodSym.signature.paramSigs.size > 0)
         report.errorAndAbort(s"Method '${methodSym.name}' annotated with @GQLField must be parameterless")
 
+    def extractAnnotations(methodSym: Symbol) = Expr.ofList {
+      methodSym.annotations.filter { ann =>
+        val tpe = ann.tpe
+        tpe.typeSymbol.maybeOwner.fullName.startsWith("caliban.")
+        && tpe != annType
+      }.map(_.asExpr.asInstanceOf[Expr[Any]])
+    }
+
     Expr.ofList {
-      targetSym.declaredMethods.filter(_.getAnnotation(annSymbol).isDefined).map { method =>
-        checkMethodNoArgs(method)
-        '{
-          (
-            ${ Expr(method.name) },
-            ${ summonSchema(method) }
-          )
+      targetSym.declaredMethods
+        .filter(_.getAnnotation(annSym).isDefined)
+        .map { method =>
+          checkMethodNoArgs(method)
+          '{
+            (
+              ${ Expr(method.name) },
+              ${ extractAnnotations(method) },
+              ${ summonSchema(method) }
+            )
+          }
         }
-      }
     }
   }
+
+  // Copied from Schema so that we have the same compiler error message
+  private inline def schemaNotFound(tpe: String) =
+    s"""Cannot find a Schema for type $tpe.
+
+Caliban provides instances of Schema for the most common Scala types, and can derive it for your case classes and sealed traits.
+Derivation requires that you have a Schema for any other type nested inside $tpe.
+If you use a custom type as an argument, you also need to provide an implicit ArgBuilder for that type.
+See https://ghostdogpr.github.io/caliban/docs/schema.html for more information.
+"""
 
 }

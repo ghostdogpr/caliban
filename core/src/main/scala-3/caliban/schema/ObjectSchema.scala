@@ -9,7 +9,7 @@ import scala.reflect.ClassTag
 
 final private class ObjectSchema[R, A](
   _constructorFields: => List[(String, Schema[R, Any], Int)],
-  _methodFields: => List[(String, Schema[R, ?])],
+  _methodFields: => List[(String, List[Any], Schema[R, ?])],
   info: TypeInfo,
   anns: List[Any],
   paramAnnotations: Map[String, List[Any]]
@@ -23,9 +23,8 @@ final private class ObjectSchema[R, A](
   }
 
   @threadUnsafe
-  private lazy val methodFields = _methodFields.map { (label, schema) =>
-    val fieldAnnotations = paramAnnotations.getOrElse(label, Nil)
-    (getName(fieldAnnotations, label), fieldAnnotations, schema.asInstanceOf[Schema[R, Any]])
+  private lazy val methodFields = _methodFields.map { (label, anns, schema) =>
+    (label, getName(anns, label), anns, schema.asInstanceOf[Schema[R, Any]])
   }
 
   @threadUnsafe
@@ -34,9 +33,9 @@ final private class ObjectSchema[R, A](
     def fromConstructor = constructorFields.map { (name, _, schema, i) =>
       name -> { (v: A) => schema.resolve(v.asInstanceOf[Product].productElement(i)) }
     }
-    def fromMethods     = methodFields.map { (name, _, schema) =>
-      name -> {
-        val method = clazz.getMethod(name)
+    def fromMethods     = methodFields.map { (methodName, fieldName, _, schema) =>
+      fieldName -> {
+        val method = clazz.getMethod(methodName)
         (v: A) => schema.resolve(method.invoke(v))
       }
     }
@@ -45,7 +44,10 @@ final private class ObjectSchema[R, A](
 
   def toType(isInput: Boolean, isSubscription: Boolean): __Type = {
     val _              = resolver // Init the lazy val
-    val combinedFields = constructorFields.map(t => (t._1, t._2, t._3)) ::: methodFields
+    val combinedFields =
+      constructorFields.map(t => (t._1, t._2, t._3)) :::
+        methodFields.map(t => (t._2, t._3, t._4))
+
     if (isInput) mkInputObject[R](anns, combinedFields, info)(isInput, isSubscription)
     else mkObject[R](anns, combinedFields, info)(isInput, isSubscription)
   }
