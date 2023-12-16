@@ -22,12 +22,34 @@ object Step {
       new ObjectStep[R](name, fields.getOrElse(_, NullStep))
   }
 
+  object FailureStep {
+    def apply(error: Throwable): Step[Any] = QueryStep(ZQuery.fail(error))
+  }
+
   // PureStep is both a Step and a ReducedStep so it is defined outside this object
   // This is to avoid boxing/unboxing pure values during step reduction
   type PureStep = caliban.schema.PureStep
   val PureStep: caliban.schema.PureStep.type = caliban.schema.PureStep
 
   val NullStep: PureStep = PureStep(NullValue)
+
+  /**
+   * Create a Step that fails with the provided error
+   */
+  def fail(error: Throwable): Step[Any] = FailureStep(error)
+
+  /**
+   * Create a Step that fails with the provided error message
+   */
+  def fail(errorMessage: String): Step[Any] = FailureStep(ExecutionError(errorMessage))
+
+  /**
+   * Create a Step that either succeeds with the provided ResponseValue or fails with the provided error
+   */
+  def fromEither(either: Either[Throwable, ResponseValue]): Step[Any] = either match {
+    case Right(value) => PureStep(value)
+    case Left(error)  => FailureStep(error)
+  }
 
   /**
    * Merge 2 root steps. Root steps are supposed to be objects so we ignore other cases.
