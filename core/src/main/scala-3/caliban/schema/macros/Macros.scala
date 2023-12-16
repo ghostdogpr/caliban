@@ -51,25 +51,29 @@ object Macros {
     q: Quotes
   ): Expr[List[(String, Schema[R, ?])]] = {
     import q.reflect.*
-
-    def summonSchema(fieldType: TypeRef) =
-      (fieldType.asType match {
-        case '[f] => Expr.summon[Schema[R, f]]
-      }).getOrElse {
-        report.errorAndAbort(s"Cannot find an instance of Schema for $fieldType")
-      }
-
-    val targetType = TypeRepr.of[T]
     val targetSym  = TypeTree.of[T].symbol
+    val targetType = TypeRepr.of[T]
     val annSymbol  = TypeRepr.of[GQLField].typeSymbol
+
+    def summonSchema(methodSym: Symbol) = {
+      val fieldType = targetType.memberType(methodSym)
+      val tpe       = (fieldType match {
+        case MethodType(_, _, returnType) => returnType
+        case _                            => fieldType
+      }).widen
+
+      tpe.asType match {
+        case '[f] =>
+          Expr.summon[Schema[R, f]].getOrElse(report.errorAndAbort(s"Cannot find an instance of Schema for $tpe"))
+      }
+    }
 
     Expr.ofList {
       targetSym.methodMembers.filter(_.getAnnotation(annSymbol).isDefined).map { method =>
-        val methodTypeRef = targetType.memberType(method).typeSymbol.typeRef
         '{
           (
             ${ Expr(method.name) },
-            ${ summonSchema(methodTypeRef) }
+            ${ summonSchema(method) }
           )
         }
       }

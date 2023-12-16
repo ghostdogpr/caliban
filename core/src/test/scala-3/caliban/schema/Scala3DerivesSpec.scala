@@ -3,6 +3,7 @@ package caliban.schema
 import caliban.*
 import caliban.schema.Annotations.{ GQLField, GQLInterface }
 import zio.test.{ assertTrue, ZIOSpecDefault }
+import zio.{ Task, ZIO }
 
 import java.time.Instant
 
@@ -177,8 +178,8 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
       suite("methods as fields")(
         test("derivation of methods as fields") {
           final case class Foo(value: String) derives Schema.SemiAuto {
-            def value1: String           = value + 1
-            @GQLField def value2: String = value + 2
+            def value1: String                   = value + 1
+            @GQLField def value2: Option[String] = Some(value + 2)
           }
           final case class Bar(foo: Foo) derives Schema.SemiAuto
 
@@ -199,14 +200,14 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
         },
         test("execution of methods as fields") {
           final case class Foo(value: String) derives Schema.SemiAuto {
-            @GQLField def value2: String = value + 2
+            @GQLField def value2: Task[String] = ZIO.succeed(value + 2)
           }
           final case class Bar(foo: Foo) derives Schema.SemiAuto
 
           val gql = graphQL(RootResolver(Bar(Foo("foo"))))
 
           gql.interpreter.flatMap { i =>
-            i.execute("{foo {value value2}}").debug.map { v =>
+            i.execute("{foo {value value2}}").map { v =>
               val s = v.data.toString
               assertTrue(s == """{"foo":{"value":"foo","value2":"foo2"}}""")
             }
