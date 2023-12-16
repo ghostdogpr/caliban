@@ -109,7 +109,7 @@ trait CommonSchemaDerivation {
               Macros.fieldsFromMethods[R, A],
               MagnoliaMacro.typeInfo[A],
               MagnoliaMacro.anns[A],
-              MagnoliaMacro.paramAnns[A].toMap // FIXME: Get annotations from methods
+              MagnoliaMacro.paramAnns[A].toMap
             )(using summonInline[ClassTag[A]])
         }
 
