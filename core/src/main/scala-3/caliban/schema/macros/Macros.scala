@@ -56,7 +56,7 @@ object Macros {
     val annType    = TypeRepr.of[GQLField]
     val annSym     = annType.typeSymbol
 
-    def summonSchema(methodSym: Symbol) = {
+    def summonSchema(methodSym: Symbol): Expr[Schema[R, ?]] = {
       val fieldType = targetType.memberType(methodSym)
       val tpe       = (fieldType match {
         case MethodType(_, _, returnType) => returnType
@@ -75,13 +75,18 @@ object Macros {
       if (methodSym.signature.paramSigs.size > 0)
         report.errorAndAbort(s"Method '${methodSym.name}' annotated with @GQLField must be parameterless")
 
-    def extractAnnotations(methodSym: Symbol) = Expr.ofList {
-      methodSym.annotations.filter { ann =>
-        val tpe = ann.tpe
-        tpe.typeSymbol.maybeOwner.fullName.startsWith("caliban.")
-        && tpe != annType
-      }.map(_.asExpr.asInstanceOf[Expr[Any]])
+    // Unfortunately we can't reuse Magnolias filtering so we copy the implementation
+    def filterAnnotation(ann: Term): Boolean = {
+      val tpe = ann.tpe
+
+      tpe != annType && // No need to include the GQLField annotation
+      (tpe.typeSymbol.maybeOwner.isNoSymbol ||
+        (tpe.typeSymbol.owner.fullName != "scala.annotation.internal" &&
+          tpe.typeSymbol.owner.fullName != "jdk.internal"))
     }
+
+    def extractAnnotations(methodSym: Symbol): List[Expr[Any]] =
+      methodSym.annotations.filter(filterAnnotation).map(_.asExpr.asInstanceOf[Expr[Any]])
 
     Expr.ofList {
       targetSym.declaredMethods
@@ -91,7 +96,7 @@ object Macros {
           '{
             (
               ${ Expr(method.name) },
-              ${ extractAnnotations(method) },
+              ${ Expr.ofList(extractAnnotations(method)) },
               ${ summonSchema(method) }
             )
           }
