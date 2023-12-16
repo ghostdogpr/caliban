@@ -68,8 +68,13 @@ object Macros {
       }
     }
 
+    def checkMethodNoArgs(methodSym: Symbol): Unit =
+      if (methodSym.signature.paramSigs.size > 0)
+        report.errorAndAbort(s"Method '${methodSym.name}' annotated with @GQLField must be parameterless")
+
     Expr.ofList {
-      targetSym.methodMembers.filter(_.getAnnotation(annSymbol).isDefined).map { method =>
+      targetSym.declaredMethods.filter(_.getAnnotation(annSymbol).isDefined).map { method =>
+        checkMethodNoArgs(method)
         '{
           (
             ${ Expr(method.name) },
