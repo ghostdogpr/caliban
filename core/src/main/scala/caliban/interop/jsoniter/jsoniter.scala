@@ -237,28 +237,28 @@ private[caliban] object ErrorJsoniter {
 
   private case class ErrorDTO(
     message: String,
-    path: Option[List[Either[String, Int]]],
+    path: Option[List[PathValue]],
     locations: Option[List[LocationInfo]],
     extensions: Option[ResponseValue.ObjectValue]
   )
 
-  private implicit val eitherCodec: JsonValueCodec[Either[String, Int]] = new JsonValueCodec[Either[String, Int]] {
-    override def decodeValue(in: JsonReader, default: Either[String, Int]): Either[String, Int] = {
+  private implicit val pathCodec: JsonValueCodec[PathValue] = new JsonValueCodec[PathValue] {
+    override def decodeValue(in: JsonReader, default: PathValue): PathValue = {
       val b = in.nextToken()
       in.rollbackToken()
       b match {
-        case '"'                                     => Left(in.readString(null))
-        case x if (x >= '0' && x <= '9') || x == '-' => Right(in.readInt())
+        case '"'                                     => PathValue.Key(in.readString(null))
+        case x if (x >= '0' && x <= '9') || x == '-' => PathValue.Index(in.readInt())
         case _                                       => in.decodeError("expected int or string")
       }
     }
-    override def encodeValue(x: Either[String, Int], out: JsonWriter): Unit                     =
+    override def encodeValue(x: PathValue, out: JsonWriter): Unit           =
       x match {
-        case Left(s)  => out.writeVal(s)
-        case Right(i) => out.writeVal(i)
+        case StringValue(s)        => out.writeVal(s)
+        case IntValue.IntNumber(i) => out.writeVal(i)
       }
-    override def nullValue: Either[String, Int]                                                 =
-      null.asInstanceOf[Either[String, Int]]
+    override def nullValue: PathValue                                       =
+      null.asInstanceOf[PathValue]
   }
 
   private implicit val objectValueCodec: JsonValueCodec[ResponseValue.ObjectValue] =

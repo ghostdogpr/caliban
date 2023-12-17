@@ -7,7 +7,7 @@ import caliban.execution.FieldInfo
 import caliban.parsing.adt.Directive
 import caliban.schema.Annotations.GQLDirective
 import caliban.wrappers.Wrapper.{ EffectfulWrapper, FieldWrapper, OverallWrapper }
-import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, ResponseValue }
+import caliban._
 import zio._
 import zio.query.ZQuery
 
@@ -67,7 +67,7 @@ object ApolloCaching {
 
   case class CacheHint(
     fieldName: String = "",
-    path: List[Either[String, Int]] = Nil,
+    path: List[PathValue] = Nil,
     maxAge: Duration,
     scope: CacheScope
   ) {
@@ -75,7 +75,7 @@ object ApolloCaching {
     def toResponseValue: ResponseValue =
       ObjectValue(
         List(
-          "path"   -> ListValue((Left(fieldName) :: path).reverse.map(_.fold(StringValue.apply, IntValue(_)))),
+          "path"   -> ListValue((PathValue.Key(fieldName) :: path).reverse),
           "maxAge" -> IntValue(maxAge.toMillis / 1000),
           "scope"  -> StringValue(scope match {
             case CacheScope.Private => "PRIVATE"

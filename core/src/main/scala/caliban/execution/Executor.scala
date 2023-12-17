@@ -61,14 +61,14 @@ object Executor {
       step: Step[R],
       currentField: Field,
       arguments: Map[String, InputValue],
-      path: List[Either[String, Int]]
+      path: List[PathValue]
     ): ReducedStep[R] = {
 
       def reduceObjectStep(objectName: String, getFieldStep: String => Step[R]): ReducedStep[R] = {
         def reduceField(f: Field): (String, ReducedStep[R], FieldInfo) = {
           val field =
             if (f.name == "__typename") PureStep(StringValue(objectName))
-            else reduceStep(getFieldStep(f.name), f, f.arguments, Left(f.aliasedName) :: path)
+            else reduceStep(getFieldStep(f.name), f, f.arguments, PathValue.Key(f.aliasedName) :: path)
           (f.aliasedName, field, fieldInfo(f, path, f.directives))
         }
 
@@ -107,7 +107,7 @@ object Executor {
         val lb        = List.newBuilder[ReducedStep[R]]
         var remaining = steps
         while (remaining ne Nil) {
-          lb += reduceStep(remaining.head, currentField, arguments, Right(i) :: path)
+          lb += reduceStep(remaining.head, currentField, arguments, PathValue.Index(i) :: path)
           i += 1
           remaining = remaining.tail
         }
@@ -298,7 +298,7 @@ object Executor {
     def runIncrementalQuery(
       step: ReducedStep[R],
       cache: Cache,
-      path: List[Either[String, Int]],
+      path: List[PathValue],
       label: Option[String]
     ) =
       for {
@@ -311,10 +311,7 @@ object Executor {
       } yield (Incremental.Defer(
         result,
         errors = resultErrors.reverse,
-        path = ListValue(path.map {
-          case Left(s)  => StringValue(s)
-          case Right(i) => IntValue(i)
-        }.reverse),
+        path = ListValue(path.reverse),
         label = label
       )
         -> defers)
@@ -369,7 +366,7 @@ object Executor {
     }
   }
 
-  private def fieldInfo(field: Field, path: List[Either[String, Int]], fieldDirectives: List[Directive]): FieldInfo =
+  private def fieldInfo(field: Field, path: List[PathValue], fieldDirectives: List[Directive]): FieldInfo =
     FieldInfo(field.aliasedName, field, path, fieldDirectives, field.parentType)
 
   private def reduceList[R](list: List[ReducedStep[R]], areItemsNullable: Boolean): ReducedStep[R] =
@@ -388,7 +385,7 @@ object Executor {
     else ReducedStep.ObjectStep(items)
 
   private def effectfulExecutionError(
-    path: List[Either[String, Int]],
+    path: List[PathValue],
     locationInfo: Option[LocationInfo],
     cause: Cause[Throwable]
   ): Cause[ExecutionError] =

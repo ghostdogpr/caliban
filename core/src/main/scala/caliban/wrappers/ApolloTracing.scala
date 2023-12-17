@@ -9,7 +9,7 @@ import caliban.execution.{ ExecutionRequest, FieldInfo }
 import caliban.parsing.adt.Document
 import caliban.rendering.DocumentRenderer
 import caliban.wrappers.Wrapper.{ EffectfulWrapper, FieldWrapper, OverallWrapper, ParsingWrapper, ValidationWrapper }
-import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, ResponseValue }
+import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, PathValue, ResponseValue }
 import zio._
 import zio.query.ZQuery
 
@@ -69,7 +69,7 @@ object ApolloTracing {
   }
 
   case class Resolver(
-    path: List[Either[String, Int]] = Nil,
+    path: List[PathValue] = Nil,
     parentType: String = "",
     fieldName: String = "",
     returnType: String = "",
@@ -79,10 +79,7 @@ object ApolloTracing {
     def toResponseValue: ResponseValue =
       ObjectValue(
         List(
-          "path"        -> ListValue((Left(fieldName) :: path).reverse.map {
-            case Left(s)  => StringValue(s)
-            case Right(i) => IntValue(i)
-          }),
+          "path"        -> ListValue((PathValue.Key(fieldName) :: path).reverse),
           "parentType"  -> StringValue(parentType),
           "fieldName"   -> StringValue(fieldName),
           "returnType"  -> StringValue(returnType),

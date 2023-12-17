@@ -161,8 +161,8 @@ object json {
             .value
             .toList
             .map {
-              case JsString(s)  => Left(s)
-              case JsNumber(bd) => Right(bd.toInt)
+              case JsString(s)  => PathValue.Key(s)
+              case JsNumber(bd) => PathValue.Index(bd.toInt)
               case _            => throw new Exception("invalid json")
             },
           locationInfo = e.locations.flatMap(_.headOption),

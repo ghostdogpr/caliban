@@ -1,17 +1,16 @@
 package caliban.federation.tracing
 
-import caliban.CalibanError
 import caliban.CalibanError.ExecutionError
-import caliban.execution.FieldInfo
 import caliban.ResponseValue.ObjectValue
-import caliban.Value.StringValue
+import caliban.Value.{ IntValue, StringValue }
+import caliban._
+import caliban.execution.FieldInfo
 import caliban.wrappers.Wrapper.{ EffectfulWrapper, FieldWrapper, OverallWrapper }
-import caliban.{ GraphQLRequest, GraphQLResponse, ResponseValue }
 import com.google.protobuf.timestamp.Timestamp
 import mdg.engine.proto.reports.Trace
 import mdg.engine.proto.reports.Trace.{ Error, Location, Node }
-import zio.query.ZQuery
 import zio._
+import zio.query.ZQuery
 
 import java.util.Base64
 import java.util.concurrent.TimeUnit
@@ -101,7 +100,7 @@ object ApolloFederatedTracing {
                                                        ref.update(state =>
                                                          state.copy(
                                                            root = state.root.insert(
-                                                             (Left(fieldInfo.name) :: fieldInfo.path).toVector,
+                                                             (PathValue.Key(fieldInfo.name) :: fieldInfo.path).toVector,
                                                              Node(
                                                                id = id,
                                                                startTime = startTime - state.startTime,
@@ -126,19 +125,22 @@ object ApolloFederatedTracing {
           )
     }
 
-  private type VPath = Vector[Either[String, Int]]
+  private type VPath = Vector[PathValue]
   private final case class Tracing(root: NodeTrie, startTime: Long = 0)
-  private final case class NodeTrie(node: Option[Node], children: Map[Either[String, Int], NodeTrie]) {
+  private final case class NodeTrie(node: Option[Node], children: Map[PathValue, NodeTrie]) {
     def insert(path: VPath, node: Node): NodeTrie = NodeTrie.loopInsert(this, path, node, path.length - 1)
     def reduce(initial: Node = Node()): Node      =
       node.getOrElse(initial).copy(child = children.values.map(_.reduce(Node())).toList)
   }
 
   private object NodeTrie {
-    val empty: NodeTrie = NodeTrie(None, Map.empty[Either[String, Int], NodeTrie])
+    val empty: NodeTrie = NodeTrie(None, Map.empty[PathValue, NodeTrie])
 
-    private def newEmptyNode(id: Either[String, Int]) =
-      Node(id = id.fold(Node.Id.ResponseName.apply, Node.Id.Index.apply))
+    private def newEmptyNode(id: PathValue) =
+      Node(id = id match {
+        case StringValue(s)            => Node.Id.ResponseName(s)
+        case IntValue.IntNumber(value) => Node.Id.Index(value)
+      })
 
     private def loopInsert(trie: NodeTrie, path: VPath, value: Node, step: Int): NodeTrie =
       if (step == -1) {

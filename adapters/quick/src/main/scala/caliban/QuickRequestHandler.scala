@@ -14,7 +14,6 @@ import zio.stacktracer.TracingImplicits.disableAutoTrace
 import zio.stream.ZStream
 
 import java.nio.charset.StandardCharsets.UTF_8
-import scala.util.Try
 import scala.util.control.NonFatal
 
 final private class QuickRequestHandler[-R, E](interpreter: GraphQLInterpreter[R, E]) {
@@ -103,11 +102,7 @@ final private class QuickRequestHandler[-R, E](interpreter: GraphQLInterpreter[R
         .flatMap(v => ZIO.attempt(readFromArray[A](v.toArray)))
         .orElseFail(Response.badRequest)
 
-    def parsePath(path: String): List[Either[String, Int]] =
-      path.split('.').toList.map { segment =>
-        try Right(segment.toInt)
-        catch { case _: NumberFormatException => Left(segment) }
-      }
+    def parsePath(path: String): List[PathValue] = path.split('.').toList.map(PathValue.parse)
 
     for {
       partsMap   <- request.body.asMultipartForm.mapBoth(_ => Response.internalServerError, _.map)

@@ -3,7 +3,7 @@ package caliban.schema
 import caliban.CalibanError.ExecutionError
 import caliban.Value.NullValue
 import caliban.execution.{ Field, FieldInfo }
-import caliban.{ InputValue, ResponseValue }
+import caliban.{ InputValue, PathValue, ResponseValue }
 import zio.query.ZQuery
 import zio.stream.ZStream
 
@@ -93,7 +93,7 @@ object ReducedStep {
   case class DeferStep[-R](
     obj: ReducedStep[R],
     deferred: List[(ReducedStep[R], Option[String])],
-    path: List[Either[String, Int]]
+    path: List[PathValue]
   ) extends ReducedStep[R]
 
   // PureStep is both a Step and a ReducedStep so it is defined outside this object
