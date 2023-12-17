@@ -1,9 +1,9 @@
 package caliban.schema
 
 import caliban.*
-import caliban.RootResolver
-import caliban.schema.Annotations.GQLInterface
+import caliban.schema.Annotations.{ GQLField, GQLInterface, GQLName }
 import zio.test.{ assertTrue, ZIOSpecDefault }
+import zio.{ RIO, Task, ZIO }
 
 import java.time.Instant
 
@@ -174,7 +174,78 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
                 |}""".stripMargin
           )
         }
-      )
+      ),
+      suite("methods as fields") {
+        val expectedSchema =
+          """schema {
+            |  query: Bar
+            |}
+
+            |type Bar {
+            |  foo: Foo!
+            |}
+
+            |type Foo {
+            |  value: String!
+            |  value2: String
+            |}""".stripMargin
+        List(
+          test("SemiAuto derivation of methods as fields") {
+            final case class Foo(value: String) derives Schema.SemiAuto {
+              def value1: String                   = value + 1
+              @GQLField def value2: Option[String] = Some(value + 2)
+            }
+            final case class Bar(foo: Foo) derives Schema.SemiAuto
+            val rendered = graphQL(RootResolver(Bar(Foo("foo")))).render
+
+            assertTrue(rendered == expectedSchema)
+          },
+          test("custom schema derivation") {
+            trait MyService
+            object MySchema extends SchemaDerivation[MyService]
+            final case class Foo(value: String) derives MySchema.SemiAuto {
+              @GQLField def value2: RIO[MyService, Option[String]] = ZIO.some(value + 2)
+            }
+            final case class Bar(foo: Foo) derives MySchema.SemiAuto
+            val rendered = graphQL(RootResolver(Bar(Foo("foo")))).render
+
+            assertTrue(rendered == expectedSchema)
+          },
+          test("method annotations") {
+            final case class Foo(value: String) derives Schema.SemiAuto {
+              @GQLField
+              @GQLName("value2")
+              def foo: Option[String] = Some(value + 2)
+            }
+            final case class Bar(foo: Foo) derives Schema.SemiAuto
+            val rendered = graphQL(RootResolver(Bar(Foo("foo")))).render
+
+            assertTrue(rendered == expectedSchema)
+          },
+          test("Auto derivation of methods as fields") {
+            final case class Foo(value: String) {
+              @GQLField def value2: Option[String] = Some(value + 2)
+            }
+            final case class Bar(foo: Foo) derives Schema.Auto
+            val rendered = graphQL(RootResolver(Bar(Foo("foo")))).render
+            assertTrue(rendered == expectedSchema)
+          },
+          test("execution of methods as fields") {
+            final case class Foo(value: String) derives Schema.SemiAuto {
+              @GQLField def value2: Task[String] = ZIO.succeed(value + 2)
+            }
+            final case class Bar(foo: Foo) derives Schema.SemiAuto
+            val gql = graphQL(RootResolver(Bar(Foo("foo"))))
+
+            gql.interpreter.flatMap { i =>
+              i.execute("{foo {value value2}}").map { v =>
+                val s = v.data.toString
+                assertTrue(s == """{"foo":{"value":"foo","value2":"foo2"}}""")
+              }
+            }
+          }
+        )
+      }
     )
   }
 }

@@ -7,6 +7,7 @@ import magnolia1.Macro as MagnoliaMacro
 
 import scala.compiletime.*
 import scala.deriving.Mirror
+import scala.reflect.ClassTag
 import scala.util.NotGiven
 
 object PrintDerived {
@@ -105,10 +106,11 @@ trait CommonSchemaDerivation {
           case _                                          =>
             new ObjectSchema[R, A](
               recurseProduct[R, A, m.MirroredElemLabels, m.MirroredElemTypes]()(),
+              Macros.fieldsFromMethods[R, A],
               MagnoliaMacro.typeInfo[A],
               MagnoliaMacro.anns[A],
               MagnoliaMacro.paramAnns[A].toMap
-            )
+            )(using summonInline[ClassTag[A]])
         }
 
     }

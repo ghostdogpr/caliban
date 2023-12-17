@@ -117,12 +117,12 @@ private object DerivationUtils {
 
   def mkInputObject[R](
     annotations: List[Any],
-    fields: List[(String, List[Any], Schema[R, Any], Int)],
+    fields: List[(String, List[Any], Schema[R, Any])],
     info: TypeInfo
   )(isInput: Boolean, isSubscription: Boolean): __Type = makeInputObject(
     Some(getInputName(annotations).getOrElse(customizeInputTypeName(getName(annotations, info)))),
     getDescription(annotations),
-    fields.map { (name, fieldAnnotations, schema, _) =>
+    fields.map { (name, fieldAnnotations, schema) =>
       __InputValue(
         name,
         getDescription(fieldAnnotations),
@@ -141,12 +141,12 @@ private object DerivationUtils {
 
   def mkObject[R](
     annotations: List[Any],
-    fields: List[(String, List[Any], Schema[R, Any], Int)],
+    fields: List[(String, List[Any], Schema[R, Any])],
     info: TypeInfo
   )(isInput: Boolean, isSubscription: Boolean): __Type = makeObject(
     Some(getName(annotations, info)),
     getDescription(annotations),
-    fields.map { (name, fieldAnnotations, schema, _) =>
+    fields.map { (name, fieldAnnotations, schema) =>
       val deprecatedReason = getDeprecatedReason(fieldAnnotations)
       Types.makeField(
         name,

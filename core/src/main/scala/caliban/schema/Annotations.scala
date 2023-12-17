@@ -4,7 +4,7 @@ import caliban.parsing.adt.Directive
 
 import scala.annotation.StaticAnnotation
 
-object Annotations {
+object Annotations extends AnnotationsVersionSpecific {
 
   /**
    * Annotation used to indicate a type or a field is deprecated.
