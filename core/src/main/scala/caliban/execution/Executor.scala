@@ -239,12 +239,11 @@ object Executor {
           case ReducedStep.ListStep(steps, areItemsNullable) => makeListQuery(steps, areItemsNullable)
           case ReducedStep.StreamStep(stream)                =>
             ZQuery
-              .environment[R]
-              .map(env =>
+              .environmentWith[R](env =>
                 ResponseValue.StreamValue(
-                  stream
-                    .mapZIO(loop(_).catchAll(_ => ZQuery.succeed(NullValue)).run)
-                    .provideEnvironment(env)
+                  stream.mapChunksZIO { chunk =>
+                    collectAll(chunk, isTopLevelField)(loop(_).catchAll(_ => ZQuery.succeed(NullValue))).run
+                  }.provideEnvironment(env)
                 )
               )
           case ReducedStep.DeferStep(obj, nextSteps, path)   =>
