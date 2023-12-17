@@ -141,7 +141,8 @@ val api: GraphQL[Any] = ???
 api.runServer(
   port = 8080,
   apiPath = "/api/graphql",
-  graphiqlPath = Some("/graphiql")
+  graphiqlPath = Some("/graphiql"),
+  uploadPath = Some("/upload/graphql"), // Optional, for enabling GraphQL uploads
 )
 ```
 
@@ -155,14 +156,15 @@ import zio.http._
 val api: GraphQL[Any] = ???
 
 for {
-    handler  <- api.handler
+    handlers  <- api.handlers
     // Alternatively, without imported syntax:
-    handler2 <- api.interpreter.map(QuickAdapter(_).handler)
+    handlers2 <- api.interpreter.map(QuickAdapter(_).handlers)
     // Creates a handler which serves the GraphiQL API from CDN
     graphiql = GraphiQLHandler.handler(apiPath = "/api/graphql", graphiqlPath = "/graphiql")
     app = Routes(
-            Method.ANY / "api" / "graphql" -> handler,
-            Method.GET / "graphiql"        -> graphiql
+            Method.ANY / "api" / "graphql" -> handlers.api,
+            Method.GET / "graphiql"        -> graphiql,
+            Method.POST / "upload" / "graphql" -> handlers.upload
             // Add more routes, apply middleware, etc.
           ).toHttpApp
     _ <- Server.serve(app).provide(Server.defaultWithPort(8080))
@@ -174,7 +176,7 @@ for {
 The `QuickAdapter` exposes the following methods that allow you to customize the server or apply middleware to the routes:
 
 - `configure` which takes a `Configurator[R]` [similar to the tapir-based adapters](adapters.md#built-in-tapir-adapters)
-- `handler` which returns a `RequestHandler[R, Response]` which allows to apply middleware to the API routes.
+- `handlers` which returns a `QuickHandlers[R]` which contains individual handlers to manually construct routes.
   Note that this handler is only for the api routes. To construct the graphiql handler use `caliban.GraphiQLHandler.handler`.
 
 For more info on customization and middleware, check out the [adapter examples](https://github.com/ghostdogpr/caliban/tree/series/2.x/examples/src/main/scala/example/quick)!
