@@ -2,7 +2,7 @@ package caliban
 
 import caliban.Configurator.ExecutionConfiguration
 import zio.http._
-import zio.{ RIO, Trace, ZIO }
+import zio.{ RIO, Trace, ZIO, ZIOAppDefault }
 
 package object quick {
 
@@ -68,6 +68,22 @@ package object quick {
       trace: Trace
     ): ZIO[R, CalibanError.ValidationError, RequestHandler[R, Response]] =
       gql.interpreter.map(QuickAdapter(_).configure(config).handler)
+  }
+
+  implicit class GraphqlAnyServerOps[R](val gql: GraphQL[Any]) extends AnyVal {
+
+    /**
+     * Convenience method for impurely running the server.
+     *
+     * Useful for scripts / demos / showing off Caliban to your colleagues etc.
+     */
+    def unsafeRunServer(
+      port: Int = 8080,
+      apiPath: String = "/graphql",
+      graphiqlPath: Option[String] = Some("/graphiql"),
+      uploadPath: Option[String] = None
+    )(implicit trace: Trace): Unit =
+      ZIOAppDefault(gql.runServer(port, apiPath, graphiqlPath, uploadPath)).main(Array.empty)
   }
 
 }
