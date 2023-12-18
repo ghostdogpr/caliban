@@ -70,7 +70,7 @@ package object quick {
       gql.interpreter.map(QuickAdapter(_).configure(config).handler)
   }
 
-  implicit class GraphqlAnyServerOps[R](val gql: GraphQL[Any]) extends AnyVal {
+  implicit class GraphqlAnyServerOps(val gql: GraphQL[Any]) extends AnyVal {
 
     /**
      * Convenience method for impurely running the server.
