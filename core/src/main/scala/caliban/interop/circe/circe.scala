@@ -120,10 +120,10 @@ object json {
       } yield LocationInfo(column, line)
     )
 
-    private implicit val pathEitherDecoder: Decoder[Either[String, Int]] = Decoder.instance { cursor =>
+    private implicit val pathEitherDecoder: Decoder[PathValue] = Decoder.instance { cursor =>
       (cursor.as[String].toOption, cursor.as[Int].toOption) match {
-        case (Some(s), _) => Right(Left(s))
-        case (_, Some(n)) => Right(Right(n))
+        case (Some(s), _) => Right(PathValue.Key(s))
+        case (_, Some(n)) => Right(PathValue.Index(n))
         case _            => Left(DecodingFailure("failed to decode as string or int", cursor.history))
       }
     }
@@ -133,7 +133,7 @@ object json {
     implicit val errorValueDecoder: Decoder[CalibanError] = Decoder.instance(cursor =>
       for {
         message    <- cursor.downField("message").as[String]
-        path       <- cursor.downField("path").as[Option[List[Either[String, Int]]]]
+        path       <- cursor.downField("path").as[Option[List[PathValue]]]
         locations  <- cursor.downField("locations").downArray.as[Option[LocationInfo]]
         extensions <- cursor.downField("extensions").as[Option[ResponseValue.ObjectValue]]
       } yield CalibanError.ExecutionError(

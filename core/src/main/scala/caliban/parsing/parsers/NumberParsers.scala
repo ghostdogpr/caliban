@@ -10,7 +10,7 @@ private[caliban] trait NumberParsers extends StringParsers {
   def integerPart(implicit ev: P[Any]): P[Unit]  = P(
     (negativeSign.? ~~ "0") | (negativeSign.? ~~ nonZeroDigit ~~ digit.repX)
   )
-  def intValue(implicit ev: P[Any]): P[IntValue] = integerPart.!.map(IntValue(_))
+  def intValue(implicit ev: P[Any]): P[IntValue] = integerPart.!.map(IntValue.fromStringUnsafe)
 
   def sign(implicit ev: P[Any]): P[Unit]              = P("-" | "+")
   def exponentIndicator(implicit ev: P[Any]): P[Unit] = P(CharIn("eE"))

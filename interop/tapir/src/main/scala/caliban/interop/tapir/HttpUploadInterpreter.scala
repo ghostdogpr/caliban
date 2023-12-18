@@ -1,5 +1,6 @@
 package caliban.interop.tapir
 
+import caliban.Value.{ IntValue, StringValue }
 import caliban._
 import caliban.interop.tapir.TapirAdapter._
 import caliban.uploads.{ FileMeta, GraphQLUploadRequest, Uploads }
@@ -23,8 +24,7 @@ sealed trait HttpUploadInterpreter[-R, E] { self =>
     serverRequest: ServerRequest
   )(implicit streamConstructor: StreamConstructor[BS]): ZIO[R, TapirResponse, CalibanResponse[BS]]
 
-  private def parsePath(path: String): List[Either[String, Int]] =
-    path.split('.').map(c => Try(c.toInt).toEither.left.map(_ => c)).toList
+  private def parsePath(path: String): List[PathValue] = path.split('.').map(PathValue.parse).toList
 
   def serverEndpoint[R1 <: R, S](streams: Streams[S])(implicit
     streamConstructor: StreamConstructor[streams.BinaryStream],

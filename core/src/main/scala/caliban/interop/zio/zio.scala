@@ -1,7 +1,7 @@
 package caliban.interop.zio
 
+import caliban.Value._
 import caliban._
-import caliban.Value.{ BooleanValue, EnumValue, FloatValue, IntValue, NullValue, StringValue }
 import caliban.parsing.adt.LocationInfo
 import zio.Chunk
 import zio.json.{ JsonDecoder, JsonEncoder }
@@ -377,11 +377,12 @@ private[caliban] object ErrorZioJson {
     message: String,
     extensions: Option[ResponseValue.ObjectValue],
     locations: Option[List[LocationInfo]],
-    path: Option[List[Either[String, Int]]]
+    path: Option[List[PathValue]]
   )
   private object ErrorDTO {
     implicit val locationInfoDecoder: JsonDecoder[LocationInfo]                     = DeriveJsonDecoder.gen[LocationInfo]
-    implicit val pathDecoder: JsonDecoder[Either[String, Int]]                      = JsonDecoder[String].orElseEither(JsonDecoder[Int])
+    implicit val pathDecoder: JsonDecoder[PathValue]                                =
+      JsonDecoder[String].map(PathValue.Key(_)) orElse JsonDecoder[Int].map(PathValue.Index(_))
     implicit val responseObjectValueDecoder: JsonDecoder[ResponseValue.ObjectValue] = ValueZIOJson.Obj.responseDecoder
     implicit val decoder: JsonDecoder[ErrorDTO]                                     = DeriveJsonDecoder.gen[ErrorDTO]
   }

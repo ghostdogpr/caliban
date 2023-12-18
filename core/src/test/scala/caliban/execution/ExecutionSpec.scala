@@ -468,7 +468,7 @@ object ExecutionSpec extends ZIOSpecDefault {
             response.errors == List(
               ExecutionError(
                 "Effect failure",
-                List(Left("a"), Left("b"), Left("c")),
+                List(StringValue("a"), StringValue("b"), StringValue("c")),
                 Some(LocationInfo(21, 5)),
                 Some(e)
               )
@@ -784,7 +784,7 @@ object ExecutionSpec extends ZIOSpecDefault {
             assertTrue(result.data.toString == """{"user1":{"name":"user","friends":["friend"]},"user2":null}""") &&
               assertTrue(
                 result.errors.collectFirst { case e: ExecutionError => e }.map(_.path).get ==
-                  List(Left("user2"), Left("friends"))
+                  List(StringValue("user2"), StringValue("friends"))
               )
           )
       },
