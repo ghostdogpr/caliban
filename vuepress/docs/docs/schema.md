@@ -244,7 +244,7 @@ given Schema[MyEnv, Origin] = EnvSchema.Auto.derived
 
 ### Deriving fields from case class methods (Scala 3 only)
 
-In certain cases, your type might contain fields of which their value depends on other fields. For example, you might have a `Person` type with a `fullName` field that is derived from the `firstName` and `lastName` fields. In this case, you can use the `@GQLField` annotation to indicate that the field should be derived from the method with the same name.
+In certain cases, your type might contain fields whose value depends on other fields. For example, you might have a `Person` type with a `fullName` field that is derived from the `firstName` and `lastName` fields. In this case, you can use the `@GQLField` annotation to indicate that the field should be derived from the method with the same name.
 
 ```scala
 import caliban.schema.Schema
@@ -272,7 +272,7 @@ The methods annotated with `@GQLField` can return any type for which a `Schema` 
 In addition, you can use any other annotation that is supported for case class arguments, such as `@GQLName`, `@GQLDescription` and `@GQLDeprecated`.
 
 ::: warning Caveats
-Derivation of fields via the `@GQLField` annotation be convenient in certain cases, but has the following limitations:
+Derivation of fields via the `@GQLField` annotation can be convenient in certain cases, but has the following limitations:
 - The method cannot take arguments. If you need to derive a field that requires arguments, you can return a function instead.
 - The method must be public (i.e. not `private` or `protected`).
 - It currently only works with methods (i.e., `def`). If you need to cache the output of the method, you can create a private lazy val and return it from the method.

@@ -162,8 +162,8 @@ for {
     // Creates a handler which serves the GraphiQL API from CDN
     graphiql = GraphiQLHandler.handler(apiPath = "/api/graphql", graphiqlPath = "/graphiql")
     app = Routes(
-            Method.ANY / "api" / "graphql" -> handlers.api,
-            Method.GET / "graphiql"        -> graphiql,
+            Method.ANY / "api" / "graphql"     -> handlers.api,
+            Method.GET / "graphiql"            -> graphiql,
             Method.POST / "upload" / "graphql" -> handlers.upload
             // Add more routes, apply middleware, etc.
           ).toHttpApp
