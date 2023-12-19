@@ -7,7 +7,7 @@ import caliban.wrappers.Wrapper.OverallWrapper
 import zio._
 import zio.metrics.MetricKeyType.Histogram
 import zio.metrics.{ Metric, MetricKey, MetricLabel }
-import zio.query.ZQuery
+import zio.query.{ UQuery, ZQuery }
 
 import scala.jdk.CollectionConverters._
 
@@ -60,8 +60,10 @@ object FieldMetrics {
       for {
         timings  <- Ref.make(List.empty[Timing])
         failures <- Ref.make(List.empty[String])
+        clock    <- ZIO.clock
         metrics   = new Metrics(totalLabel, durationLabel, buckets, extraLabels)
-      } yield overallWrapper(timings, failures, metrics) |+| fieldWrapper(timings, failures)
+      } yield overallWrapper(timings, failures, metrics) |+|
+        fieldWrapper(ZQuery.fromZIO(clock.nanoTime), timings, failures)
     )
 
   private def overallWrapper(
@@ -114,7 +116,11 @@ object FieldMetrics {
     map.asScala.toMap
   }
 
-  private def fieldWrapper(timings: Ref[List[Timing]], failures: Ref[List[String]]): Wrapper.FieldWrapper[Any] =
+  private def fieldWrapper(
+    nanoTime: UQuery[Long],
+    timings: Ref[List[Timing]],
+    failures: Ref[List[String]]
+  ): Wrapper.FieldWrapper[Any] =
     new Wrapper.FieldWrapper[Any] {
       def wrap[R](
         query: ZQuery[R, CalibanError.ExecutionError, ResponseValue],
@@ -138,10 +144,10 @@ object FieldMetrics {
           ZQuery.fromZIO(failures.update(fieldName :: _) *> ZIO.fail(e))
 
         for {
-          summarized        <- query.summarized(Clock.nanoTime)((s, e) => e - s).catchAll(recordFailure)
-          (duration, result) = summarized
-          timing             = makeTiming(duration)
-          _                 <- ZQuery.fromZIO(timings.update(timing :: _))
+          start  <- nanoTime
+          result <- query.catchAll(recordFailure)
+          end    <- nanoTime
+          _      <- ZQuery.fromZIO(timings.update(makeTiming(end - start) :: _))
         } yield result
       }
     }
