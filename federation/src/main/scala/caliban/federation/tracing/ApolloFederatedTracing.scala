@@ -31,7 +31,9 @@ object ApolloFederatedTracing {
       for {
         tracing <- Ref.make(Tracing(NodeTrie.empty))
         enabled <- Ref.make(false)
-      } yield apolloTracingOverall(tracing, enabled) |+| apolloTracingField(tracing, enabled, !excludePureFields)
+        clock   <- ZIO.clock
+      } yield apolloTracingOverall(clock, tracing, enabled) |+|
+        apolloTracingField(clock, tracing, enabled, !excludePureFields)
     )
 
   private def toTimestamp(epochMilli: Long): Timestamp =
@@ -40,7 +42,7 @@ object ApolloFederatedTracing {
       (epochMilli % 1000).toInt * 1000000
     )
 
-  private def apolloTracingOverall(ref: Ref[Tracing], enabled: Ref[Boolean]): OverallWrapper[Any] =
+  private def apolloTracingOverall(clock: Clock, ref: Ref[Tracing], enabled: Ref[Boolean]): OverallWrapper[Any] =
     new OverallWrapper[Any] {
       def wrap[R1](
         process: GraphQLRequest => ZIO[R1, Nothing, GraphQLResponse[CalibanError]]
@@ -54,11 +56,11 @@ object ApolloFederatedTracing {
             )
           )(
             for {
-              startNano             <- Clock.nanoTime
+              startNano             <- clock.nanoTime
               _                     <- ref.update(_.copy(startTime = startNano))
-              response              <- process(request).summarized(Clock.currentTime(TimeUnit.MILLISECONDS))((_, _))
+              response              <- process(request).summarized(clock.currentTime(TimeUnit.MILLISECONDS))((_, _))
               ((start, end), result) = response
-              endNano               <- Clock.nanoTime
+              endNano               <- clock.nanoTime
               tracing               <- ref.get
             } yield {
               val root = Trace(
@@ -82,7 +84,12 @@ object ApolloFederatedTracing {
           )
     }
 
-  private def apolloTracingField(ref: Ref[Tracing], enabled: Ref[Boolean], wrapPureValues: Boolean): FieldWrapper[Any] =
+  private def apolloTracingField(
+    clock: Clock,
+    ref: Ref[Tracing],
+    enabled: Ref[Boolean],
+    wrapPureValues: Boolean
+  ): FieldWrapper[Any] =
     new FieldWrapper[Any](wrapPureValues) {
       def wrap[R1](
         query: ZQuery[R1, CalibanError.ExecutionError, ResponseValue],
@@ -93,7 +100,7 @@ object ApolloFederatedTracing {
           .flatMap(
             if (_)
               for {
-                response                          <- query.either.summarized(Clock.nanoTime)((_, _))
+                response                          <- query.either.summarized(clock.nanoTime)((_, _))
                 ((startTime, endTime), summarized) = response
                 id                                 = Node.Id.ResponseName(fieldInfo.name)
                 result                            <- ZQuery.fromZIO(
