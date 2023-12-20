@@ -104,9 +104,9 @@ private[caliban] trait StringParsers {
       case _                           => l1
     }
     // remove start lines that are only whitespaces
-    val l3           = l2.dropWhile("[ \t]*".r.replaceAllIn(_, "").isEmpty)
+    val l3           = l2.dropWhile("[ \t]*".r.replaceAllIn(_, "").isEmpty): @noinline
     // remove end lines that are only whitespaces
-    val l4           = l3.reverse.dropWhile("[ \t]*".r.replaceAllIn(_, "").isEmpty).reverse
+    val l4           = (l3.reverse.dropWhile("[ \t]*".r.replaceAllIn(_, "").isEmpty): @noinline).reverse
     l4.mkString("\n")
   }
 }

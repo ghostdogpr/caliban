@@ -654,6 +654,7 @@ lazy val commonSettings = Def.settings(
     case Some((2, 13)) =>
       Seq(
         "-Xlint:-byname-implicit",
+        "-Ybackend-parallelism:4",
         "-opt:l:method",
         "-opt:l:inline",
         "-opt-inline-from:scala.**",
