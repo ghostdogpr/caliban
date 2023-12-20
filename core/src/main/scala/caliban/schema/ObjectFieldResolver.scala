@@ -9,13 +9,12 @@ final private class ObjectFieldResolver[R, A] private (
   name: String,
   fields: mutable.HashMap[String, A => Step[R]]
 ) {
-  def resolve(value: A): Step[R] = ObjectStep(
-    name,
-    fields.get(_) match {
-      case Some(f) => f(value)
-      case None    => NullStep
-    }
-  )
+  private val nullStepFunction: A => Step[R] = _ => NullStep
+
+  private def getFieldStep(value: A): String => Step[R] =
+    fields.getOrElse(_, nullStepFunction)(value)
+
+  def resolve(value: A): Step[R] = ObjectStep(name, getFieldStep(value))
 }
 
 private object ObjectFieldResolver {
