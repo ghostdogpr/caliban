@@ -78,16 +78,13 @@ object Step {
 }
 
 sealed trait ReducedStep[-R] { self =>
-  def isPure: Boolean =
-    self match {
-      case _: PureStep => true
-      case _           => false
-    }
+  def isPure: Boolean = false
 }
 
 object ReducedStep {
   case class ListStep[-R](steps: List[ReducedStep[R]], areItemsNullable: Boolean) extends ReducedStep[R]
-  case class ObjectStep[-R](fields: List[(String, ReducedStep[R], FieldInfo)])    extends ReducedStep[R]
+  case class ObjectStep[-R](fields: List[(String, ReducedStep[R], FieldInfo)], hasPureFields: Boolean)
+      extends ReducedStep[R]
   case class QueryStep[-R](query: ZQuery[R, ExecutionError, ReducedStep[R]])      extends ReducedStep[R]
   case class StreamStep[-R](inner: ZStream[R, ExecutionError, ReducedStep[R]])    extends ReducedStep[R]
   case class DeferStep[-R](
@@ -108,4 +105,6 @@ object ReducedStep {
  *
  * @param value the response value to return for that step
  */
-case class PureStep(value: ResponseValue) extends Step[Any] with ReducedStep[Any]
+case class PureStep(value: ResponseValue) extends Step[Any] with ReducedStep[Any] {
+  final override def isPure: Boolean = true
+}
