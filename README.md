@@ -15,7 +15,7 @@ Caliban is a purely functional library for building GraphQL servers and clients 
  
 The design principles behind the library are the following:
 - minimal amount of boilerplate: no need to manually define a schema for every type in your API.
-- pure interface: errors and effects are returned explicitly (no exceptions thrown), all returned types are referentially transparent (no `Future`).
+- high performance: while every public interface is pure and immutable, library internals have been optimized for speed.
 - clean separation between schema definition and implementation: schema is defined and validated at compile time using Scala standard types, resolver (`RootResolver`) is a simple value provided at runtime.
 
 ### Consult the [Documentation](https://ghostdogpr.github.io/caliban/docs/) to learn how to use Caliban.
