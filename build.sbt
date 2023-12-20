@@ -1,4 +1,3 @@
-import com.typesafe.tools.mima.core.*
 import org.scalajs.linker.interface.ModuleSplitStyle
 import sbtcrossproject.CrossPlugin.autoImport.{ crossProject, CrossType }
 
@@ -16,23 +15,23 @@ val http4sVersion             = "0.23.24"
 val javaTimeVersion           = "2.5.0"
 val jsoniterVersion           = "2.25.0"
 val laminextVersion           = "0.16.2"
-val magnoliaScala2Version     = "1.1.6"
+val magnoliaScala2Version     = "1.1.8"
 val magnoliaScala3Version     = "1.3.4"
 val pekkoHttpVersion          = "1.0.0"
-val playVersion               = "3.0.0"
+val playVersion               = "3.0.1"
 val playJsonVersion           = "3.0.1"
 val scalafmtVersion           = "3.7.17"
 val sttpVersion               = "3.9.1"
-val tapirVersion              = "1.9.4"
-val zioVersion                = "2.0.19"
+val tapirVersion              = "1.9.5"
+val zioVersion                = "2.0.20"
 val zioInteropCats2Version    = "22.0.0.0"
-val zioInteropCats3Version    = "23.0.0.8"
+val zioInteropCats3Version    = "23.1.0.0"
 val zioInteropReactiveVersion = "2.0.2"
 val zioConfigVersion          = "3.0.7"
 val zqueryVersion             = "0.6.0"
 val zioJsonVersion            = "0.6.2"
 val zioHttpVersion            = "3.0.0-RC4"
-val zioOpenTelemetryVersion   = "3.0.0-RC15"
+val zioOpenTelemetryVersion   = "3.0.0-RC19"
 val zioPreludeVersion         = "1.0.0-RC21"
 
 Global / onChangedBuildSource := ReloadOnSourceChanges
@@ -646,17 +645,19 @@ lazy val commonSettings = Def.settings(
         "-Ywarn-unused:-nowarn",
         "-Ywarn-nullary-override",
         "-Ywarn-nullary-unit",
-        "-opt-inline-from:<source>",
         "-opt-warnings",
-        "-opt:l:inline",
         "-opt:l:method",
+        "-opt:l:inline",
+        "-opt-inline-from:scala.**",
         "-explaintypes"
       )
     case Some((2, 13)) =>
       Seq(
         "-Xlint:-byname-implicit",
-        "-explaintypes",
-        "-opt:l:method"
+        "-opt:l:method",
+        "-opt:l:inline",
+        "-opt-inline-from:scala.**",
+        "-explaintypes"
       )
 
     case Some((3, _)) =>
