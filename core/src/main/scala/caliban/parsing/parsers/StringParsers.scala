@@ -103,10 +103,11 @@ private[caliban] trait StringParsers {
       case (Some(value), head :: tail) => head :: tail.map(_.drop(value))
       case _                           => l1
     }
+    // NOTE: @noinline annotation required as Scala 2.12 inlines `.dropWhile` which results in compilation error since these methods are used within fastparse's macros
     // remove start lines that are only whitespaces
-    val l3           = l2.dropWhile("[ \t]*".r.replaceAllIn(_, "").isEmpty)
+    val l3           = l2.dropWhile("[ \t]*".r.replaceAllIn(_, "").isEmpty): @noinline
     // remove end lines that are only whitespaces
-    val l4           = l3.reverse.dropWhile("[ \t]*".r.replaceAllIn(_, "").isEmpty).reverse
+    val l4           = (l3.reverse.dropWhile("[ \t]*".r.replaceAllIn(_, "").isEmpty): @noinline).reverse
     l4.mkString("\n")
   }
 }
