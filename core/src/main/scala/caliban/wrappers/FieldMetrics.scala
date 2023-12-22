@@ -130,7 +130,8 @@ object FieldMetrics {
 
         def fieldName: String = {
           val parent = info.parent.flatMap(_.name).getOrElse("Unknown")
-          new StringBuilder().append(parent).append('.').append(info.name).result()
+          val name   = info.name
+          new StringBuilder(name.length + parent.length + 1).append(parent).append('.').append(name).result()
         }
 
         def makeTiming(duration: Long) =
