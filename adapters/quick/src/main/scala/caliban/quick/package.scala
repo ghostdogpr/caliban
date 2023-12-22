@@ -92,15 +92,13 @@ package object quick {
       apiPath: String = "/graphql",
       graphiqlPath: Option[String] = Some("/graphiql"),
       uploadPath: Option[String] = None
-    )(implicit trace: Trace, ev: R =:= Any): Unit = {
-      implicit val tag: Tag[R] = ev.substituteContra(Tag[Any])
-      val bootstrap            = ev.substituteContra(ZLayer.empty)
+    )(implicit trace: Trace, ev: Any =:= R): Unit = {
       val run: RIO[R, Nothing] =
         QuickAdapter(interpreter)
           .configure(executionConfig)
           .runServer(port, apiPath, graphiqlPath, uploadPath)
 
-      ZIOApp(run, bootstrap).main(Array.empty)
+      ZIOApp.fromZIO(run.asInstanceOf[RIO[Any, Nothing]]).main(Array.empty)
     }
 
     def provideLayer(layer: ZLayer[Any, Any, R]): UnsafeApi[Any] =
