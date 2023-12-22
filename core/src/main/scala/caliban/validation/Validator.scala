@@ -21,7 +21,8 @@ import caliban.validation.Utils.isObjectType
 import caliban.{ Configurator, InputValue }
 import zio.prelude._
 import zio.prelude.fx.ZPure
-import zio.{ IO, ZIO }
+import zio.stacktracer.TracingImplicits.disableAutoTrace
+import zio.{ IO, Trace, ZIO }
 
 import scala.annotation.tailrec
 import scala.collection.mutable
@@ -47,13 +48,13 @@ object Validator {
   /**
    * Verifies that the given document is valid for this type. Fails with a [[caliban.CalibanError.ValidationError]] otherwise.
    */
-  def validate(document: Document, rootType: RootType): IO[ValidationError, Unit] =
+  def validate(document: Document, rootType: RootType)(implicit trace: Trace): IO[ValidationError, Unit] =
     Configurator.configuration.map(_.validations).flatMap(check(document, rootType, Map.empty, _).unit.toZIO)
 
   /**
    * Verifies that the given schema is valid. Fails with a [[caliban.CalibanError.ValidationError]] otherwise.
    */
-  def validateSchema[R](schema: RootSchemaBuilder[R]): IO[ValidationError, RootSchema[R]] = {
+  def validateSchema[R](schema: RootSchemaBuilder[R])(implicit trace: Trace): IO[ValidationError, RootSchema[R]] = {
     val schemaValidation = validateSchemaEither(schema)
     ZIO.fromEither(schemaValidation)
   }

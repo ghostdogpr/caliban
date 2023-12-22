@@ -5,6 +5,7 @@ import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
 import caliban.parsing.adt.Type.{ ListType, NamedType }
 import caliban.parsing.adt.{ Directive, Type }
+import caliban.rendering.DocumentRenderer
 import caliban.schema.Annotations.GQLExcluded
 import caliban.schema.Types
 
@@ -23,6 +24,8 @@ case class __Type(
   @GQLExcluded origin: Option[String] = None
 ) { self =>
   final override lazy val hashCode: Int = super.hashCode()
+
+  private[caliban] lazy val typeNameRepr: String = DocumentRenderer.renderTypeName(this)
 
   def |+|(that: __Type): __Type = __Type(
     kind,
