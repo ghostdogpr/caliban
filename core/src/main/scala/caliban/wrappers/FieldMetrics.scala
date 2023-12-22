@@ -1,6 +1,5 @@
 package caliban.wrappers
 
-import caliban.InternalUtils.syntax._
 import caliban.Value.StringValue
 import caliban._
 import caliban.execution.FieldInfo
@@ -60,8 +59,8 @@ object FieldMetrics {
   ): Wrapper.EffectfulWrapper[Any] =
     Wrapper.EffectfulWrapper(
       for {
-        timings  <- InternalUtils.newAtomicRef(List.empty[Timing])
-        failures <- InternalUtils.newAtomicRef(List.empty[String])
+        timings  <- ZIO.succeed(new AtomicReference(List.empty[Timing]))
+        failures <- ZIO.succeed(new AtomicReference(List.empty[String]))
         clock    <- ZIO.clock
         metrics   = new Metrics(totalLabel, durationLabel, buckets, extraLabels)
       } yield overallWrapper(timings, failures, metrics) |+|
@@ -147,13 +146,13 @@ object FieldMetrics {
           query.foldQuery(
             e =>
               ZQuery.fail {
-                failures.update(fieldName :: _)
+                val _ = failures.updateAndGet(fieldName :: _)
                 e
               },
             result =>
               ZQuery.succeed {
                 val t = makeTiming(nanoTime - st)
-                timings.update(t :: _)
+                val _ = timings.updateAndGet(t :: _)
                 result
               }
           )

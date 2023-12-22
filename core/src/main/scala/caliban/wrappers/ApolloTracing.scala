@@ -1,6 +1,5 @@
 package caliban.wrappers
 
-import caliban.InternalUtils.syntax._
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ IntValue, StringValue }
 import caliban._
@@ -35,7 +34,7 @@ object ApolloTracing {
       ZIO
         .whenZIO(isEnabledRef.get)(
           for {
-            ref   <- InternalUtils.newAtomicRef(Tracing())
+            ref   <- ZIO.succeed(new AtomicReference(Tracing()))
             clock <- ZIO.clock
           } yield apolloTracingOverall(clock, ref) |+|
             apolloTracingParsing(clock, ref) |+|
@@ -136,7 +135,7 @@ object ApolloTracing {
           for {
             nanoTime    <- clock.nanoTime
             currentTime <- clock.currentTime(TimeUnit.MILLISECONDS)
-            _           <- ZIO.succeed(ref.update(_.copy(startTime = currentTime, startTimeMonotonic = nanoTime)))
+            _           <- ZIO.succeed(ref.updateAndGet(_.copy(startTime = currentTime, startTimeMonotonic = nanoTime)))
             result      <- process(request).timed.flatMap { case (duration, result) =>
                              for {
                                endTime <- clock.currentTime(TimeUnit.MILLISECONDS)
@@ -164,7 +163,7 @@ object ApolloTracing {
             resultWithDuration <- process(query).timed
             (duration, result)  = resultWithDuration
             _                  <- ZIO.succeed(
-                                    ref.update(state =>
+                                    ref.updateAndGet(state =>
                                       state.copy(
                                         parsing = state.parsing
                                           .copy(startOffset = start - state.startTimeMonotonic, durationNanos = duration.toNanos)
@@ -186,7 +185,7 @@ object ApolloTracing {
             (duration, result)  = resultWithDuration
             _                  <-
               ZIO.succeed(
-                ref.update(state =>
+                ref.updateAndGet(state =>
                   state.copy(
                     validation = state.validation
                       .copy(startOffset = start - state.startTimeMonotonic, durationNanos = duration.toNanos)
@@ -210,7 +209,7 @@ object ApolloTracing {
           val start = nanoTime
           query.map { result =>
             val end = nanoTime
-            ref.update(state =>
+            val _   = ref.updateAndGet(state =>
               state.copy(
                 execution = state.execution.copy(
                   resolvers = Resolver(

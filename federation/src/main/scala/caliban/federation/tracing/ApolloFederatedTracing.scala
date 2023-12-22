@@ -1,7 +1,6 @@
 package caliban.federation.tracing
 
 import caliban.CalibanError.ExecutionError
-import caliban.InternalUtils.syntax._
 import caliban.ResponseValue.ObjectValue
 import caliban.Value.{ IntValue, StringValue }
 import caliban._
@@ -31,8 +30,8 @@ object ApolloFederatedTracing {
   def wrapper(excludePureFields: Boolean = false): EffectfulWrapper[Any] =
     EffectfulWrapper(
       for {
-        tracing <- InternalUtils.newAtomicRef(Tracing(NodeTrie.empty))
-        enabled <- InternalUtils.newAtomicRef(false)
+        tracing <- ZIO.succeed(new AtomicReference(Tracing(NodeTrie.empty)))
+        enabled <- ZIO.succeed(new AtomicReference(false))
         clock   <- ZIO.clock
       } yield apolloTracingOverall(clock, tracing, enabled) |+|
         Unsafe.unsafe(implicit u => apolloTracingField(clock.unsafe.nanoTime(), tracing, enabled, !excludePureFields))
@@ -65,7 +64,7 @@ object ApolloFederatedTracing {
           )(
             for {
               startNano             <- clock.nanoTime
-              _                     <- ZIO.succeed(ref.update(_.copy(startTime = startNano)))
+              _                     <- ZIO.succeed(ref.updateAndGet(_.copy(startTime = startNano)))
               response              <- process(request).summarized(clock.currentTime(TimeUnit.MILLISECONDS))((_, _))
               ((start, end), result) = response
               endNano               <- clock.nanoTime
@@ -110,7 +109,7 @@ object ApolloFederatedTracing {
               ZQuery.fromEither {
                 val endTime = nanoTime
                 val path    = (PathValue.Key(fieldInfo.name) :: fieldInfo.path).toVector
-                ref.update(state =>
+                val _       = ref.updateAndGet(state =>
                   state.copy(
                     root = state.root.insert(
                       path,
