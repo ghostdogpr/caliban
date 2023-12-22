@@ -1,8 +1,8 @@
 package caliban
 
 import caliban.Configurator.ExecutionConfiguration
+import zio._
 import zio.http._
-import zio.{ RIO, Trace, ZIO, ZIOAppDefault }
 
 package object quick {
 
@@ -68,22 +68,51 @@ package object quick {
       trace: Trace
     ): ZIO[R, CalibanError.ValidationError, RequestHandler[R, Response]] =
       gql.interpreter.map(QuickAdapter(_).configure(config).handler)
+
+    /**
+     * Unsafe API which allows running the server impurely
+     */
+    def unsafe: UnsafeApi[R] = gql.interpreterEither.fold(throw _, new UnsafeApi(_))
   }
 
-  implicit class GraphqlAnyServerOps(val gql: GraphQL[Any]) extends AnyVal {
+  final class UnsafeApi[R](
+    interpreter: GraphQLInterpreter[R, Any],
+    executionConfig: ExecutionConfiguration = ExecutionConfiguration()
+  ) {
 
     /**
      * Convenience method for impurely running the server.
      *
      * Useful for scripts / demos / showing off Caliban to your colleagues etc.
+     *
+     * Note that in order to call this method, you need to provide all dependencies required by the GraphQL environment. You can do that by passing a `ZLayer` to [[provideLayer]].
      */
-    def unsafeRunServer(
+    def runServer(
       port: Int = 8080,
       apiPath: String = "/graphql",
       graphiqlPath: Option[String] = Some("/graphiql"),
       uploadPath: Option[String] = None
-    )(implicit trace: Trace): Unit =
-      ZIOAppDefault(gql.runServer(port, apiPath, graphiqlPath, uploadPath)).main(Array.empty)
-  }
+    )(implicit trace: Trace, ev: R =:= Any): Unit = {
+      implicit val tag: Tag[R] = ev.substituteContra(Tag[Any])
+      val bootstrap            = ev.substituteContra(ZLayer.empty)
+      val run: RIO[R, Nothing] =
+        QuickAdapter(interpreter)
+          .configure(executionConfig)
+          .runServer(port, apiPath, graphiqlPath, uploadPath)
 
+      ZIOApp(run, bootstrap).main(Array.empty)
+    }
+
+    def provideLayer(layer: ZLayer[Any, Any, R]): UnsafeApi[Any] =
+      new UnsafeApi(interpreter.provideLayer(layer))
+
+    def provideSomeLayer[R0](layer: ZLayer[R0, Any, R])(implicit tag: Tag[R]): UnsafeApi[R0] =
+      new UnsafeApi(interpreter.provideSomeLayer(layer))
+
+    def configure(cfg: ExecutionConfiguration): UnsafeApi[R] =
+      new UnsafeApi(interpreter, cfg)
+
+    def configureWith(cfg: ExecutionConfiguration => ExecutionConfiguration): UnsafeApi[R] =
+      new UnsafeApi(interpreter, cfg(executionConfig))
+  }
 }
