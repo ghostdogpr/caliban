@@ -23,7 +23,7 @@ jobs:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++2.12.18 rootJVM212/Test/compile rootJVM212/test
+      - run: sbt ++2.12.18 rootJVM212/compile rootJVM212/test
       - save_cache:
           key: sbtcache
           paths:
@@ -68,7 +68,7 @@ jobs:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++2.13.12 rootJVM213/Test/compile rootJVM213/test examples/compile benchmarks/compile
+      - run: sbt ++2.13.12 rootJVM213/compile rootJVM213/test examples/compile benchmarks/compile
       - save_cache:
           key: sbtcache
           paths:
@@ -83,7 +83,7 @@ jobs:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++2.13.12 rootJVM213/Test/compile rootJVM213/test examples/compile benchmarks/compile
+      - run: sbt ++2.13.12 rootJVM213/compile rootJVM213/test examples/compile benchmarks/compile
       - save_cache:
           key: sbtcache
           paths:
@@ -98,7 +98,7 @@ jobs:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++3.3.1 rootJVM3/Test/compile rootJVM3/test benchmarks/compile
+      - run: sbt ++3.3.1 rootJVM3/compile rootJVM3/test benchmarks/compile
       - save_cache:
           key: sbtcache
           paths:
@@ -113,7 +113,7 @@ jobs:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt ++3.3.1 rootJVM3/Test/compile rootJVM3/test benchmarks/compile
+      - run: sbt ++3.3.1 rootJVM3/compile rootJVM3/test benchmarks/compile
       - save_cache:
           key: sbtcache
           paths:
