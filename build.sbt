@@ -38,7 +38,7 @@ Global / onChangedBuildSource := ReloadOnSourceChanges
 
 inThisBuild(
   List(
-    scalaVersion             := scala213, // Change to control IntelliJ's highlighting
+    scalaVersion             := scala213,
     crossScalaVersions       := allScala,
     organization             := "com.github.ghostdogpr",
     homepage                 := Some(url("https://github.com/ghostdogpr/caliban")),
@@ -60,7 +60,7 @@ inThisBuild(
       )
     ),
     versionScheme            := Some("pvp"),
-    ConsoleHelper.welcomeMessage,
+    ConsoleHelper.welcomeMessage(scala212, scala213, scala3),
     // See https://github.com/playframework/playframework/issues/11461#issuecomment-1276028512
     // Can be removed when the entire Scala ecosystem has migrated to Scala 2.12.17+, sbt 1.8.x, and moved away from scala-xml v1 in general.
     libraryDependencySchemes ++= Seq(
@@ -114,7 +114,6 @@ lazy val rootJVM212 = project
     publish / skip     := true,
     ideSkipProject     := true
   )
-  .settings(crossScalaVersions := Nil)
   .aggregate({
     val excluded: Set[ProjectReference] = Set(clientJS, clientNative, clientLaminext, play)
     allProjects.filterNot(excluded.contains)
@@ -127,7 +126,6 @@ lazy val rootJVM213 = project
     publish / skip     := true,
     ideSkipProject     := true
   )
-  .settings(crossScalaVersions := Nil)
   .aggregate({
     val excluded: Set[ProjectReference] = Set(clientJS, clientNative, clientLaminext, codegenSbt)
     allProjects.filterNot(excluded.contains)

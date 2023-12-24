@@ -1,4 +1,4 @@
-import sbt.Keys._
+import sbt.Keys.*
 
 object ConsoleHelper {
   def prompt: String               = s"${Console.CYAN}>${Console.RESET} "
@@ -7,8 +7,13 @@ object ConsoleHelper {
   def item(text: String): String =
     s"${Console.RED}> ${Console.CYAN}$text${Console.RESET}"
 
-  def welcomeMessage =
-    onLoadMessage :=
+  def addCurrent(version: String, current: String) =
+    if (version == current)
+      s"${Console.YELLOW}(current)${Console.RESET}"
+    else ""
+
+  def welcomeMessage(scala212Version: String, scala213Version: String, scala3Version: String) =
+    onLoadMessage := {
       raw"""|${header(s"""   ____      _ _ _                 """)}
             |${header(s"""  / ___|__ _| (_) |__   __ _ _ __  """)}
             |${header(s""" | |   / _` | | | '_ \\ / _` | '_ \\ """)}
@@ -17,12 +22,18 @@ object ConsoleHelper {
             |
             |Useful sbt tasks:
             |${item("~compile")} - Compile all modules with file-watch enabled
-            |${item("test")} - Run the unit test suite
+            |${item("+test")} - Run the unit test suite for all modules and Scala versions
+            |${item(s"++$scala3Version; rootJVM3/test")} - Run tests for all JVM modules in Scala 3
             |${item("fmt")} - Run scalafmt on the entire project
             |${item("scripted")} - Run the scripted test suite
-            |${item("examples/runMain example.http4s.ExampleApp")} - Start the example server (http4s based)
-            |${item("examples/runMain example.akkahttp.ExampleApp")} - Start the example server (akka-http based)
+            |${item("examples/runMain example.quick.ExampleApp")} - Start the example server
             |${item("benchmarks/jmh:run")} - Run the benchmarks
-            |${item("+publishLocal")} - Publish caliban locally""".stripMargin
+            |${item("+publishLocal")} - Publish caliban locally
+            |
+            |Changing scala versions:
+            |${item(s"++$scala212Version")}
+            |${item(s"++$scala213Version")}
+            |${item(s"++$scala3Version")}""".stripMargin
+    }
 
 }
