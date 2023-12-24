@@ -9,6 +9,7 @@ object ConsoleHelper {
 
   def welcomeMessage(scala212Version: String, scala213Version: String, scala3Version: String) =
     onLoadMessage := {
+      val scalaVersions = s"++$scala212Version; ++$scala213Version; ++$scala3Version"
       raw"""|${header(s"""   ____      _ _ _                 """)}
             |${header(s"""  / ___|__ _| (_) |__   __ _ _ __  """)}
             |${header(s""" | |   / _` | | | '_ \\ / _` | '_ \\ """)}
@@ -24,11 +25,6 @@ object ConsoleHelper {
             |${item("examples/runMain example.quick.ExampleApp")} - Start the example server
             |${item("benchmarks/jmh:run")} - Run the benchmarks
             |${item("+publishLocal")} - Publish caliban locally
-            |
-            |Changing scala versions:
-            |${item(s"++$scala212Version")}
-            |${item(s"++$scala213Version")}
-            |${item(s"++$scala3Version")}""".stripMargin
+            |${item(scalaVersions)} - Changing scala versions""".stripMargin
     }
-
 }
