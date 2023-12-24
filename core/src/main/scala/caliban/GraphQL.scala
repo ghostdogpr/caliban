@@ -13,6 +13,7 @@ import caliban.schema._
 import caliban.validation.Validator
 import caliban.wrappers.Wrapper
 import caliban.wrappers.Wrapper._
+import zio.stacktracer.TracingImplicits.disableAutoTrace
 import zio.{ IO, Trace, URIO, ZIO }
 
 /**
@@ -87,7 +88,9 @@ trait GraphQL[-R] { self =>
             _             <- Validator.validate(document, typeToValidate)
           } yield ()
 
-        private def checkHttpMethod(cfg: ExecutionConfiguration)(req: ExecutionRequest): IO[ValidationError, Unit] =
+        private def checkHttpMethod(cfg: ExecutionConfiguration)(req: ExecutionRequest)(implicit
+          trace: Trace
+        ): IO[ValidationError, Unit] =
           ZIO
             .when(req.operationType == OperationType.Mutation && !cfg.allowMutationsOverGetRequests) {
               HttpRequestMethod.get.flatMap {

@@ -12,8 +12,9 @@ import caliban.schema.Types._
 import caliban.uploads.Upload
 import caliban.{ InputValue, ResponseValue }
 import zio.query.ZQuery
+import zio.stacktracer.TracingImplicits.disableAutoTrace
 import zio.stream.ZStream
-import zio.{ Chunk, URIO, ZIO }
+import zio.{ Chunk, Trace, URIO, ZIO }
 
 import java.time._
 import java.time.format.DateTimeFormatter
@@ -80,6 +81,9 @@ trait Schema[-R, T] { self =>
    * Defined the arguments of the given type. Should be empty except for `Function`.
    */
   def arguments: List[__InputValue] = Nil
+
+  // Disables traces for caliban-provided effectful schemas
+  private[caliban] implicit def trace: Trace = Trace.empty
 
   /**
    * Builds a new `Schema` of `A` from an existing `Schema` of `T` and a function from `A` to `T`.
@@ -488,7 +492,7 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
     }
 
   implicit def futureSchema[R0, A](implicit ev: Schema[R0, A]): Schema[R0, Future[A]]                                 =
-    effectSchema[R0, R0, R0, Throwable, A].contramap[Future[A]](future => ZIO.fromFuture(_ => future))
+    effectSchema[R0, R0, R0, Throwable, A].contramap[Future[A]](future => ZIO.fromFuture(_ => future)(Trace.empty))
   implicit def infallibleEffectSchema[R0, R1 >: R0, R2 >: R0, A](implicit ev: Schema[R2, A]): Schema[R0, URIO[R1, A]] =
     new Schema[R0, URIO[R1, A]] {
       override def optional: Boolean                                         = ev.optional

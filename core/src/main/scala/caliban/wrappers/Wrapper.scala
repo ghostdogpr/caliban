@@ -7,7 +7,8 @@ import caliban.introspection.adt.__Introspection
 import caliban.parsing.adt.Document
 import caliban.wrappers.Wrapper.CombinedWrapper
 import zio.query.ZQuery
-import zio.{ UIO, ZIO }
+import zio.{ Trace, UIO, ZIO }
+import zio.stacktracer.TracingImplicits.disableAutoTrace
 
 import scala.annotation.tailrec
 import scala.collection.mutable.ListBuffer
@@ -36,6 +37,9 @@ sealed trait Wrapper[-R] extends GraphQLAspect[Nothing, R] { self =>
 
   def apply[R1 <: R](that: GraphQL[R1]): GraphQL[R1] =
     that.withWrapper(self)
+
+  // Disables tracing only for wrappers in the caliban package
+  final private[caliban] def trace: Trace = Trace.empty
 }
 
 object Wrapper {
@@ -147,7 +151,7 @@ object Wrapper {
     loop(process, wrappers)(info)
   }
 
-  private[caliban] def decompose[R](wrappers: List[Wrapper[R]]): UIO[
+  private[caliban] def decompose[R](wrappers: List[Wrapper[R]])(implicit trace: Trace): UIO[
     (
       List[OverallWrapper[R]],
       List[ParsingWrapper[R]],

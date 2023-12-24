@@ -14,6 +14,7 @@ import zio.query.ZQuery
 
 import java.util.Base64
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Implements the federated tracing specification detailed here:
@@ -29,11 +30,11 @@ object ApolloFederatedTracing {
   def wrapper(excludePureFields: Boolean = false): EffectfulWrapper[Any] =
     EffectfulWrapper(
       for {
-        tracing <- Ref.make(Tracing(NodeTrie.empty))
-        enabled <- Ref.make(false)
+        tracing <- ZIO.succeed(new AtomicReference(Tracing(NodeTrie.empty)))
+        enabled <- ZIO.succeed(new AtomicReference(false))
         clock   <- ZIO.clock
       } yield apolloTracingOverall(clock, tracing, enabled) |+|
-        apolloTracingField(clock, tracing, enabled, !excludePureFields)
+        Unsafe.unsafe(implicit u => apolloTracingField(clock.unsafe.nanoTime(), tracing, enabled, !excludePureFields))
     )
 
   private def toTimestamp(epochMilli: Long): Timestamp =
@@ -42,26 +43,32 @@ object ApolloFederatedTracing {
       (epochMilli % 1000).toInt * 1000000
     )
 
-  private def apolloTracingOverall(clock: Clock, ref: Ref[Tracing], enabled: Ref[Boolean]): OverallWrapper[Any] =
+  private def apolloTracingOverall(
+    clock: Clock,
+    ref: AtomicReference[Tracing],
+    enabled: AtomicReference[Boolean]
+  ): OverallWrapper[Any] =
     new OverallWrapper[Any] {
       def wrap[R1](
         process: GraphQLRequest => ZIO[R1, Nothing, GraphQLResponse[CalibanError]]
       ): GraphQLRequest => ZIO[R1, Nothing, GraphQLResponse[CalibanError]] =
         (request: GraphQLRequest) =>
           ZIO.ifZIO(
-            enabled.updateAndGet(_ =>
-              request.extensions.exists(
-                _.get(GraphQLRequest.`apollo-federation-include-trace`).contains(StringValue(GraphQLRequest.ftv1))
+            ZIO.succeed(
+              enabled.updateAndGet(_ =>
+                request.extensions.exists(
+                  _.get(GraphQLRequest.`apollo-federation-include-trace`).contains(StringValue(GraphQLRequest.ftv1))
+                )
               )
             )
           )(
             for {
               startNano             <- clock.nanoTime
-              _                     <- ref.update(_.copy(startTime = startNano))
+              _                     <- ZIO.succeed(ref.updateAndGet(_.copy(startTime = startNano)))
               response              <- process(request).summarized(clock.currentTime(TimeUnit.MILLISECONDS))((_, _))
               ((start, end), result) = response
               endNano               <- clock.nanoTime
-              tracing               <- ref.get
+              tracing               <- ZIO.succeed(ref.get)
             } yield {
               val root = Trace(
                 startTime = Some(toTimestamp(start)),
@@ -85,9 +92,9 @@ object ApolloFederatedTracing {
     }
 
   private def apolloTracingField(
-    clock: Clock,
-    ref: Ref[Tracing],
-    enabled: Ref[Boolean],
+    nanoTime: => Long,
+    ref: AtomicReference[Tracing],
+    enabled: AtomicReference[Boolean],
     wrapPureValues: Boolean
   ): FieldWrapper[Any] =
     new FieldWrapper[Any](wrapPureValues) {
@@ -95,41 +102,40 @@ object ApolloFederatedTracing {
         query: ZQuery[R1, CalibanError.ExecutionError, ResponseValue],
         fieldInfo: FieldInfo
       ): ZQuery[R1, CalibanError.ExecutionError, ResponseValue] =
-        ZQuery
-          .fromZIO(enabled.get)
-          .flatMap(
-            if (_)
-              for {
-                response                          <- query.either.summarized(clock.nanoTime)((_, _))
-                ((startTime, endTime), summarized) = response
-                id                                 = Node.Id.ResponseName(fieldInfo.name)
-                result                            <- ZQuery.fromZIO(
-                                                       ref.update(state =>
-                                                         state.copy(
-                                                           root = state.root.insert(
-                                                             (PathValue.Key(fieldInfo.name) :: fieldInfo.path).toVector,
-                                                             Node(
-                                                               id = id,
-                                                               startTime = startTime - state.startTime,
-                                                               endTime = endTime - state.startTime,
-                                                               `type` = fieldInfo.details.fieldType.toType().toString,
-                                                               parentType = fieldInfo.details.parentType.map(_.toType().toString) getOrElse "",
-                                                               originalFieldName = fieldInfo.details.alias
-                                                                 .map(_ => fieldInfo.details.name) getOrElse "",
-                                                               error = summarized.left.toOption.collectFirst { case e: ExecutionError =>
-                                                                 Error(
-                                                                   e.getMessage(),
-                                                                   location = e.locationInfo.map(l => Location(l.line, l.column)).toSeq
-                                                                 )
-                                                               }.toSeq
-                                                             )
-                                                           )
-                                                         )
-                                                       ) *> ZIO.fromEither(summarized)
-                                                     )
-              } yield result
-            else query
-          )
+        if (enabled.get())
+          ZQuery.suspend {
+            val startTime = nanoTime
+            query.either.flatMap { result =>
+              ZQuery.fromEither {
+                val endTime = nanoTime
+                val path    = (PathValue.Key(fieldInfo.name) :: fieldInfo.path).toVector
+                val _       = ref.updateAndGet(state =>
+                  state.copy(
+                    root = state.root.insert(
+                      path,
+                      Node(
+                        id = Node.Id.ResponseName(fieldInfo.name),
+                        startTime = startTime - state.startTime,
+                        endTime = endTime - state.startTime,
+                        `type` = fieldInfo.details.fieldType.toType().toString,
+                        parentType = fieldInfo.details.parentType.map(_.toType().toString) getOrElse "",
+                        originalFieldName = fieldInfo.details.alias.map(_ => fieldInfo.details.name) getOrElse "",
+                        error = result.left.toOption.collectFirst { case e: ExecutionError =>
+                          Error(
+                            e.getMessage(),
+                            location = e.locationInfo.map(l => Location(l.line, l.column)).toSeq
+                          )
+                        }.toSeq
+                      )
+                    )
+                  )
+                )
+                result
+              }
+            }
+          }
+        else query
+
     }
 
   private type VPath = Vector[PathValue]

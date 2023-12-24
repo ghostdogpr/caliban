@@ -12,6 +12,7 @@ import caliban.schema.{ ReducedStep, Step, Types }
 import caliban.wrappers.Wrapper.FieldWrapper
 import zio._
 import zio.query._
+import zio.stacktracer.TracingImplicits.disableAutoTrace
 import zio.stream.ZStream
 
 import scala.annotation.tailrec
@@ -210,9 +211,10 @@ object Executor {
           var remainingNames                         = names
           while (remainingResponses ne Nil) {
             val name = remainingNames.head
-            val resp = remainingResponses.head match {
-              case null => i -= 1; fromQueries(i)
-              case resp => resp
+            var resp = remainingResponses.head
+            if (resp eq null) {
+              i -= 1
+              resp = fromQueries(i)
             }
             results = (name, resp) :: results
             remainingResponses = remainingResponses.tail
@@ -338,7 +340,7 @@ object Executor {
     } yield response
   }
 
-  private[caliban] def fail(error: CalibanError): UIO[GraphQLResponse[CalibanError]] =
+  private[caliban] def fail(error: CalibanError)(implicit trace: Trace): UIO[GraphQLResponse[CalibanError]] =
     ZIO.succeed(GraphQLResponse(NullValue, List(error)))
 
   private[caliban] def mergeFields(field: Field, typeName: String): List[Field] = {

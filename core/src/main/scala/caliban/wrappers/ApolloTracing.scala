@@ -5,14 +5,14 @@ import caliban.Value.{ IntValue, StringValue }
 import caliban._
 import caliban.execution.{ ExecutionRequest, FieldInfo }
 import caliban.parsing.adt.Document
-import caliban.rendering.DocumentRenderer
 import caliban.wrappers.Wrapper._
 import zio._
-import zio.query.{ UQuery, ZQuery }
+import zio.query.ZQuery
 
 import java.time.format.DateTimeFormatter
 import java.time.{ Instant, ZoneId }
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 
 object ApolloTracing {
 
@@ -34,12 +34,12 @@ object ApolloTracing {
       ZIO
         .whenZIO(isEnabledRef.get)(
           for {
-            ref   <- Ref.make(Tracing())
+            ref   <- ZIO.succeed(new AtomicReference(Tracing()))
             clock <- ZIO.clock
           } yield apolloTracingOverall(clock, ref) |+|
             apolloTracingParsing(clock, ref) |+|
             apolloTracingValidation(clock, ref) |+|
-            apolloTracingField(ZQuery.fromZIO(clock.nanoTime), ref, !excludePureFields)
+            Unsafe.unsafe(implicit u => apolloTracingField(clock.unsafe.nanoTime(), ref, !excludePureFields))
         )
         .someOrElse(Wrapper.empty)
     )
@@ -58,14 +58,14 @@ object ApolloTracing {
     .ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'")
     .withZone(ZoneId.of("UTC"))
 
-  case class Parsing(startOffset: Long = 0, duration: Duration = Duration.Zero) {
+  case class Parsing(startOffset: Long = 0, durationNanos: Long = 0L) {
     def toResponseValue: ResponseValue =
-      ObjectValue(List("startOffset" -> IntValue(startOffset), "duration" -> IntValue(duration.toNanos)))
+      ObjectValue(List("startOffset" -> IntValue(startOffset), "duration" -> IntValue(durationNanos)))
   }
 
-  case class Validation(startOffset: Long = 0, duration: Duration = Duration.Zero) {
+  case class Validation(startOffset: Long = 0, durationNanos: Long = 0L) {
     def toResponseValue: ResponseValue =
-      ObjectValue(List("startOffset" -> IntValue(startOffset), "duration" -> IntValue(duration.toNanos)))
+      ObjectValue(List("startOffset" -> IntValue(startOffset), "duration" -> IntValue(durationNanos)))
   }
 
   case class Resolver(
@@ -74,7 +74,7 @@ object ApolloTracing {
     fieldName: String = "",
     returnType: String = "",
     startOffset: Long = 0,
-    duration: Duration = Duration.Zero
+    durationNanos: Long = 0
   ) {
     def toResponseValue: ResponseValue =
       ObjectValue(
@@ -84,18 +84,22 @@ object ApolloTracing {
           "fieldName"   -> StringValue(fieldName),
           "returnType"  -> StringValue(returnType),
           "startOffset" -> IntValue(startOffset),
-          "duration"    -> IntValue(duration.toNanos)
+          "duration"    -> IntValue(durationNanos)
         )
       )
   }
 
+  object Resolver {
+    implicit val ordering: Ordering[Resolver] = { (x: Resolver, y: Resolver) =>
+      val ord1 = Ordering.Long.compare(x.startOffset, y.startOffset)
+      if (ord1 != 0) ord1
+      else Ordering.Long.compare(x.durationNanos, y.durationNanos)
+    }
+  }
+
   case class Execution(resolvers: List[Resolver] = Nil) {
     def toResponseValue: ResponseValue =
-      ObjectValue(
-        List(
-          "resolvers" -> ListValue(resolvers.sortBy(r => (r.startOffset, r.duration.toNanos)).map(_.toResponseValue))
-        )
-      )
+      ObjectValue(List("resolvers" -> ListValue(resolvers.sorted.map(_.toResponseValue))))
   }
 
   case class Tracing(
@@ -103,7 +107,7 @@ object ApolloTracing {
     startTime: Long = 0,
     endTime: Long = 0,
     startTimeMonotonic: Long = 0,
-    duration: Duration = Duration.Zero,
+    durationNanos: Long = 0L,
     parsing: Parsing = Parsing(),
     validation: Validation = Validation(),
     execution: Execution = Execution()
@@ -114,7 +118,7 @@ object ApolloTracing {
           "version"    -> IntValue(version),
           "startTime"  -> StringValue(dateFormatter.format(Instant.ofEpochMilli(startTime))),
           "endTime"    -> StringValue(dateFormatter.format(Instant.ofEpochMilli(endTime))),
-          "duration"   -> IntValue(duration.toNanos),
+          "duration"   -> IntValue(durationNanos),
           "parsing"    -> parsing.toResponseValue,
           "validation" -> validation.toResponseValue,
           "execution"  -> execution.toResponseValue
@@ -122,7 +126,7 @@ object ApolloTracing {
       )
   }
 
-  private def apolloTracingOverall(clock: Clock, ref: Ref[Tracing]): OverallWrapper[Any] =
+  private def apolloTracingOverall(clock: Clock, ref: AtomicReference[Tracing]): OverallWrapper[Any] =
     new OverallWrapper[Any] {
       def wrap[R1](
         process: GraphQLRequest => ZIO[R1, Nothing, GraphQLResponse[CalibanError]]
@@ -131,12 +135,11 @@ object ApolloTracing {
           for {
             nanoTime    <- clock.nanoTime
             currentTime <- clock.currentTime(TimeUnit.MILLISECONDS)
-            _           <- ref.update(_.copy(startTime = currentTime, startTimeMonotonic = nanoTime))
+            _           <- ZIO.succeed(ref.updateAndGet(_.copy(startTime = currentTime, startTimeMonotonic = nanoTime)))
             result      <- process(request).timed.flatMap { case (duration, result) =>
                              for {
                                endTime <- clock.currentTime(TimeUnit.MILLISECONDS)
-                               _       <- ref.update(_.copy(duration = duration, endTime = endTime))
-                               tracing <- ref.get
+                               tracing <- ZIO.succeed(ref.get.copy(durationNanos = duration.toNanos, endTime = endTime))
                              } yield result.copy(
                                extensions = Some(
                                  ObjectValue(
@@ -149,7 +152,7 @@ object ApolloTracing {
           } yield result
     }
 
-  private def apolloTracingParsing(clock: Clock, ref: Ref[Tracing]): ParsingWrapper[Any] =
+  private def apolloTracingParsing(clock: Clock, ref: AtomicReference[Tracing]): ParsingWrapper[Any] =
     new ParsingWrapper[Any] {
       def wrap[R1](
         process: String => ZIO[R1, CalibanError.ParsingError, Document]
@@ -159,15 +162,18 @@ object ApolloTracing {
             start              <- clock.nanoTime
             resultWithDuration <- process(query).timed
             (duration, result)  = resultWithDuration
-            _                  <- ref.update(state =>
-                                    state.copy(
-                                      parsing = state.parsing.copy(startOffset = start - state.startTimeMonotonic, duration = duration)
+            _                  <- ZIO.succeed(
+                                    ref.updateAndGet(state =>
+                                      state.copy(
+                                        parsing = state.parsing
+                                          .copy(startOffset = start - state.startTimeMonotonic, durationNanos = duration.toNanos)
+                                      )
                                     )
                                   )
           } yield result
     }
 
-  private def apolloTracingValidation(clock: Clock, ref: Ref[Tracing]): ValidationWrapper[Any] =
+  private def apolloTracingValidation(clock: Clock, ref: AtomicReference[Tracing]): ValidationWrapper[Any] =
     new ValidationWrapper[Any] {
       def wrap[R1](
         process: Document => ZIO[R1, CalibanError.ValidationError, ExecutionRequest]
@@ -177,18 +183,21 @@ object ApolloTracing {
             start              <- clock.nanoTime
             resultWithDuration <- process(doc).timed
             (duration, result)  = resultWithDuration
-            _                  <- ref.update(state =>
-                                    state.copy(
-                                      validation =
-                                        state.validation.copy(startOffset = start - state.startTimeMonotonic, duration = duration)
-                                    )
-                                  )
+            _                  <-
+              ZIO.succeed(
+                ref.updateAndGet(state =>
+                  state.copy(
+                    validation = state.validation
+                      .copy(startOffset = start - state.startTimeMonotonic, durationNanos = duration.toNanos)
+                  )
+                )
+              )
           } yield result
     }
 
   private def apolloTracingField(
-    nanoTime: UQuery[Long],
-    ref: Ref[Tracing],
+    nanoTime: => Long,
+    ref: AtomicReference[Tracing],
     wrapPureValues: Boolean
   ): FieldWrapper[Any] =
     new FieldWrapper[Any](wrapPureValues) {
@@ -196,27 +205,27 @@ object ApolloTracing {
         query: ZQuery[R1, CalibanError.ExecutionError, ResponseValue],
         fieldInfo: FieldInfo
       ): ZQuery[R1, CalibanError.ExecutionError, ResponseValue] =
-        for {
-          start  <- nanoTime
-          result <- query
-          end    <- nanoTime
-          _      <- ZQuery.fromZIO(
-                      ref.update(state =>
-                        state.copy(
-                          execution = state.execution.copy(
-                            resolvers = Resolver(
-                              path = fieldInfo.path,
-                              parentType = fieldInfo.details.parentType.fold("")(DocumentRenderer.renderTypeName),
-                              fieldName = fieldInfo.name,
-                              returnType = DocumentRenderer.renderTypeName(fieldInfo.details.fieldType),
-                              startOffset = start - state.startTimeMonotonic,
-                              duration = Duration.fromNanos(end - start)
-                            ) :: state.execution.resolvers
-                          )
-                        )
-                      )
-                    )
-        } yield result
+        ZQuery.suspend {
+          val start = nanoTime
+          query.map { result =>
+            val end = nanoTime
+            val _   = ref.updateAndGet(state =>
+              state.copy(
+                execution = state.execution.copy(
+                  resolvers = Resolver(
+                    path = fieldInfo.path,
+                    parentType = fieldInfo.details.parentType.fold("")(_.typeNameRepr),
+                    fieldName = fieldInfo.name,
+                    returnType = fieldInfo.details.fieldType.typeNameRepr,
+                    startOffset = start - state.startTimeMonotonic,
+                    durationNanos = end - start
+                  ) :: state.execution.resolvers
+                )
+              )
+            )
+            result
+          }
+        }
     }
 
 }
