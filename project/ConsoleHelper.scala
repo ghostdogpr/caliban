@@ -7,11 +7,6 @@ object ConsoleHelper {
   def item(text: String): String =
     s"${Console.RED}> ${Console.CYAN}$text${Console.RESET}"
 
-  def addCurrent(version: String, current: String) =
-    if (version == current)
-      s"${Console.YELLOW}(current)${Console.RESET}"
-    else ""
-
   def welcomeMessage(scala212Version: String, scala213Version: String, scala3Version: String) =
     onLoadMessage := {
       raw"""|${header(s"""   ____      _ _ _                 """)}
