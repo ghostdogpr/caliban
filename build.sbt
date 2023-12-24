@@ -76,12 +76,8 @@ addCommandAlias(
   "all scalafmtSbtCheck scalafmtCheck test:scalafmtCheck"
 )
 
-lazy val root = project
-  .in(file("."))
-  .enablePlugins(ScalaJSPlugin)
-  .settings(publish / skip := true)
-  .settings(crossScalaVersions := Nil)
-  .aggregate(
+lazy val allProjects: Seq[ProjectReference] =
+  List(
     macros,
     core,
     http4s,
@@ -103,6 +99,51 @@ lazy val root = project
     reporting,
     tracing
   )
+
+lazy val root = project
+  .in(file("."))
+  .enablePlugins(ScalaJSPlugin)
+  .settings(publish / skip := true)
+  .settings(crossScalaVersions := Nil)
+  .aggregate(allProjects *)
+
+lazy val rootJVM212 = project
+  .in(file("target/rootJVM212"))
+  .settings(
+    crossScalaVersions := Nil,
+    publish / skip     := true,
+    ideSkipProject     := true
+  )
+  .settings(crossScalaVersions := Nil)
+  .aggregate({
+    val excluded: Set[ProjectReference] = Set(clientJS, clientNative, clientLaminext, play)
+    allProjects.filterNot(excluded.contains)
+  } *)
+
+lazy val rootJVM213 = project
+  .in(file("target/rootJVM213"))
+  .settings(
+    crossScalaVersions := Nil,
+    publish / skip     := true,
+    ideSkipProject     := true
+  )
+  .settings(crossScalaVersions := Nil)
+  .aggregate({
+    val excluded: Set[ProjectReference] = Set(clientJS, clientNative, clientLaminext, codegenSbt)
+    allProjects.filterNot(excluded.contains)
+  } *)
+
+lazy val rootJVM3 = project
+  .in(file("target/rootJVM3"))
+  .settings(
+    crossScalaVersions := Nil,
+    publish / skip     := true,
+    ideSkipProject     := true
+  )
+  .aggregate({
+    val excluded: Set[ProjectReference] = Set(clientJS, clientNative, clientLaminext, codegenSbt, akkaHttp)
+    allProjects.filterNot(excluded.contains)
+  } *)
 
 lazy val macros = project
   .in(file("macros"))
