@@ -84,7 +84,7 @@ object Authed extends GenericSchema[Auth] {
 object AuthExampleApp extends ZIOAppDefault {
   private val graphiql = Handler.fromResource("graphiql.html").sandbox
 
-  override def run: URIO[Any, ExitCode] =
+  def run =
     (for {
       exampleApi  <- ZIO.service[GraphQL[Any]]
       interpreter <- (exampleApi |+| Authed.api).interpreter
@@ -107,5 +107,4 @@ object AuthExampleApp extends ZIOAppDefault {
         ZLayer.succeed(Server.Config.default.port(8088)),
         Server.live
       )
-      .exitCode
 }

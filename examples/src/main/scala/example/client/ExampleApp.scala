@@ -21,7 +21,7 @@ object ExampleApp extends ZIOAppDefault {
 
   case class Character(name: String, nicknames: List[String], origin: Origin, role: Option[Role])
 
-  override def run = {
+  def run = {
     val character = {
       import example.client.Client.Character._
       (name ~
@@ -62,8 +62,6 @@ object ExampleApp extends ZIOAppDefault {
     val call1 = sendRequest(mutation.toRequest(uri))
     val call2 = sendRequest(query.toRequest(uri, useVariables = true))
 
-    (call1 *> call2)
-      .provideLayer(HttpClientZioBackend.layer())
-      .exitCode
+    (call1 *> call2).provideLayer(HttpClientZioBackend.layer())
   }
 }
