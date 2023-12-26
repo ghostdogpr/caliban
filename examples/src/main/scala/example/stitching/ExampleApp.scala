@@ -107,7 +107,7 @@ object ExampleApp extends ZIOAppDefault {
 
   private val graphiql = Handler.fromResource("graphiql.html").sandbox
 
-  override def run =
+  def run =
     (for {
       api         <- StitchingExample.api
       interpreter <- api.interpreter
@@ -129,5 +129,4 @@ object ExampleApp extends ZIOAppDefault {
         Configuration.fromEnvironment,
         Server.default
       )
-      .exitCode
 }

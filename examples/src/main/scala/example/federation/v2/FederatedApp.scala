@@ -13,8 +13,7 @@ object FederatedApp extends ZIOAppDefault {
   val episodeServer =
     FederatedApi.Episodes.api.runServer(8089, "/api/graphql")
 
-  override def run =
+  def run =
     (characterServer race episodeServer)
       .provide(EpisodeService.make(sampleEpisodes), CharacterService.make(sampleCharacters))
-      .exitCode
 }

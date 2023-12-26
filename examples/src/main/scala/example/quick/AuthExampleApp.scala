@@ -58,7 +58,7 @@ object Authed extends GenericSchema[Auth] {
 
 object AuthExampleApp extends ZIOAppDefault {
 
-  override def run: URIO[Any, ExitCode] =
+  def run =
     (for {
       exampleApi     <- ZIO.service[GraphQL[Any]]
       handlers       <- (exampleApi |+| Authed.api).handlers.map(_ @@ Auth.middleware)
@@ -78,5 +78,4 @@ object AuthExampleApp extends ZIOAppDefault {
         Auth.http,
         Server.defaultWithPort(8090)
       )
-      .exitCode
 }
