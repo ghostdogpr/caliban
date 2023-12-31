@@ -210,13 +210,13 @@ object QuickRequestHandler {
     Response(Status.BadRequest, body = Body.fromString(msg))
 
   private val ContentTypeJson =
-    Headers(Header.ContentType(MediaType.application.json))
+    Headers(Header.ContentType(MediaType.application.json).untyped)
 
   private val ContentTypeGql =
-    Headers(Header.ContentType(MediaType("application", "graphql-response+json")))
+    Headers(Header.ContentType(MediaType("application", "graphql-response+json")).untyped)
 
   private val ContentTypeMultipart =
-    Headers(Header.ContentType(MediaType.multipart.mixed.copy(parameters = DeferMultipart.DeferHeaderParams)))
+    Headers(Header.ContentType(MediaType.multipart.mixed.copy(parameters = DeferMultipart.DeferHeaderParams)).untyped)
 
   private val BodyDecodeErrorResponse =
     badRequest("Failed to decode json body")
