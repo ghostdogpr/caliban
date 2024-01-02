@@ -4,7 +4,7 @@ import scala.annotation.tailrec
 
 sealed trait Type extends Serializable { self =>
   val nonNull: Boolean
-  def nullable: Boolean = !nonNull
+  lazy val nullable: Boolean = !nonNull
 
   override def toString: String = self match {
     case Type.NamedType(name, nonNull)  => if (nonNull) s"$name!" else name
