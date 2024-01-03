@@ -9,6 +9,7 @@ import caliban.wrappers.Caching
 import com.github.plokhotnyuk.jsoniter_scala.core._
 import com.github.plokhotnyuk.jsoniter_scala.macros.JsonCodecMaker
 import zio._
+import zio.http.Header.ContentType
 import zio.http._
 import zio.stacktracer.TracingImplicits.disableAutoTrace
 import zio.stream.ZStream
@@ -63,9 +64,13 @@ final private class QuickRequestHandler[-R, E](interpreter: GraphQLInterpreter[R
       )
 
     def isGqlJson =
-      httpReq.header(Header.ContentType).exists { h =>
-        h.mediaType.subType.equalsIgnoreCase("graphql") &&
-        h.mediaType.mainType.equalsIgnoreCase("application")
+      httpReq.headers.get(ContentType.name).exists { h =>
+        h.length >= 19 && { // Length of "application/graphql"
+          MediaType.forContentType(h).exists { mt =>
+            mt.subType.equalsIgnoreCase("graphql") &&
+            mt.mainType.equalsIgnoreCase("application")
+          }
+        }
       }
 
     def decodeApplicationGql() =
@@ -210,13 +215,13 @@ object QuickRequestHandler {
     Response(Status.BadRequest, body = Body.fromString(msg))
 
   private val ContentTypeJson =
-    Headers(Header.ContentType(MediaType.application.json))
+    Headers(Header.ContentType(MediaType.application.json).untyped)
 
   private val ContentTypeGql =
-    Headers(Header.ContentType(MediaType("application", "graphql-response+json")))
+    Headers(Header.ContentType(MediaType("application", "graphql-response+json")).untyped)
 
   private val ContentTypeMultipart =
-    Headers(Header.ContentType(MediaType.multipart.mixed.copy(parameters = DeferMultipart.DeferHeaderParams)))
+    Headers(Header.ContentType(MediaType.multipart.mixed.copy(parameters = DeferMultipart.DeferHeaderParams)).untyped)
 
   private val BodyDecodeErrorResponse =
     badRequest("Failed to decode json body")
