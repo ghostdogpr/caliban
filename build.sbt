@@ -191,7 +191,8 @@ lazy val core = project
         "io.circe"                              %% "circe-parser"          % circeVersion    % Test,
         "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-core"   % jsoniterVersion % Optional,
         "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros" % jsoniterVersion % Provided,
-        "org.playframework"                     %% "play-json"             % playJsonVersion % Optional
+        "org.playframework"                     %% "play-json"             % playJsonVersion % Optional,
+        "org.apache.commons"                     % "commons-lang3"         % "3.14.0"        % Test
       )
   )
   .dependsOn(macros)

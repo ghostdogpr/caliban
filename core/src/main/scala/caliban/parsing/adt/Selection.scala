@@ -3,8 +3,8 @@ package caliban.parsing.adt
 import caliban.InputValue
 import caliban.parsing.adt.Type.NamedType
 
-sealed trait Selection {
-  final override lazy val hashCode: Int = super.hashCode()
+sealed trait Selection extends Serializable {
+  @transient final override lazy val hashCode: Int = super.hashCode()
 }
 
 object Selection {

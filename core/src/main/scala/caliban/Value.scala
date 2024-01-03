@@ -12,10 +12,10 @@ import zio.stream.Stream
 import scala.util.control.NonFatal
 import scala.util.hashing.MurmurHash3
 
-sealed trait InputValue { self =>
+sealed trait InputValue extends Serializable { self =>
   def toInputString: String = ValueRenderer.inputValueRenderer.renderCompact(self)
 }
-object InputValue       {
+object InputValue {
   case class ListValue(values: List[InputValue])          extends InputValue {
     override def toString: String      = values.mkString("[", ",", "]")
     override def toInputString: String = ValueRenderer.inputListValueRenderer.render(this)
@@ -46,7 +46,7 @@ object InputValue       {
     caliban.interop.play.json.ValuePlayJson.inputValueReads.asInstanceOf[F[InputValue]]
 }
 
-sealed trait ResponseValue { self =>
+sealed trait ResponseValue extends Serializable { self =>
 
   /**
    * Performs a deep merge of two response values. This currently means that the list values will be concatenated, and
@@ -74,8 +74,8 @@ object ResponseValue {
     override def toString: String =
       ValueRenderer.responseObjectValueRenderer.renderCompact(this)
 
-    override lazy val hashCode: Int          = MurmurHash3.unorderedHash(fields)
-    override def equals(other: Any): Boolean =
+    @transient override lazy val hashCode: Int = MurmurHash3.unorderedHash(fields)
+    override def equals(other: Any): Boolean   =
       other match {
         case o: ObjectValue => o.hashCode == hashCode
         case _              => false

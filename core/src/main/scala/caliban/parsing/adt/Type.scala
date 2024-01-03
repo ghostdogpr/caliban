@@ -2,7 +2,7 @@ package caliban.parsing.adt
 
 import scala.annotation.tailrec
 
-sealed trait Type { self =>
+sealed trait Type extends Serializable { self =>
   val nonNull: Boolean
   lazy val nullable: Boolean = !nonNull
 
