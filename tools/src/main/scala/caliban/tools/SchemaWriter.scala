@@ -9,6 +9,8 @@ import scala.collection.compat._
 
 object SchemaWriter {
 
+  private val LazyDirective = "lazy"
+
   def write(
     schema: Document,
     packageName: Option[String] = None,
@@ -38,6 +40,12 @@ object SchemaWriter {
         case (o, _) => o
       } { case (_, i) => i }
 
+    lazy val typeNameToDefinitionMap: Map[String, TypeDefinition] =
+      schema.typeDefinitions.map(obj => obj.name -> obj).toMap
+    lazy val typeNameToNestedFields                               = typeNameToDefinitionMap.map { case (name, t) =>
+      name -> findNestedFieldTypes(t, typeNameToDefinitionMap).flatMap(typeNameToDefinitionMap.get)
+    }
+
     def inheritedFromInterface(obj: ObjectTypeDefinition, field: FieldDefinition): Option[InterfaceTypeDefinition] =
       interfacesExtendedForObject.get(obj) flatMap { interfaces =>
         interfaces.find(_.fields.exists(_.name == field.name))
@@ -51,14 +59,31 @@ object SchemaWriter {
       s"${safeName(field.name)} :$argsTypeName ${writeEffectType(field.ofType)}"
     }
 
-    def writeRootQueryOrMutationDef(op: ObjectTypeDefinition): String = {
-      val typeParamOrEmpty = if (isEffectTypeAbstract) s"[$effect[_]]" else ""
+    def isAbstractEffectful(typedef: ObjectTypeDefinition): Boolean =
+      isEffectTypeAbstract && isEffectful(typedef)
+
+    def isEffectful(typedef: ObjectTypeDefinition): Boolean = isLocalEffectful(typedef) || isNestedEffectful(typedef)
+
+    def isLocalEffectful(typedef: ObjectTypeDefinition): Boolean =
+      hasFieldWithDirective(typedef, LazyDirective)
+
+    def isNestedEffectful(typedef: ObjectTypeDefinition): Boolean =
+      typeNameToNestedFields
+        .getOrElse(typedef.name, List.empty)
+        .exists(t => hasFieldWithDirective(t, LazyDirective))
+
+    def generic(op: ObjectTypeDefinition, isRootDefinition: Boolean = false): String =
+      if ((isRootDefinition && isEffectTypeAbstract) || isAbstractEffectful(op))
+        s"[${effect}[_]]"
+      else
+        s""
+
+    def writeRootQueryOrMutationDef(op: ObjectTypeDefinition): String =
       s"""
-         |${writeDescription(op.description)}final case class ${op.name}$typeParamOrEmpty(
+         |${writeDescription(op.description)}final case class ${op.name}${generic(op, isRootDefinition = true)}(
          |${op.fields.map(c => writeRootField(c, op)).mkString(",\n")}
          |)$derivesSchema""".stripMargin
 
-    }
     def writeSubscriptionField(field: FieldDefinition, od: ObjectTypeDefinition): String =
       "%s:%s ZStream[Any, Nothing, %s]".format(
         safeName(field.name),
@@ -77,7 +102,7 @@ object SchemaWriter {
         case Nil      => ""
         case nonEmpty => s" extends ${nonEmpty.mkString(" with ")}"
       }
-      s"""${writeDescription(typedef.description)}final case class ${typedef.name}(${typedef.fields
+      s"""${writeDescription(typedef.description)}final case class ${typedef.name}${generic(typedef)}(${typedef.fields
         .map(field => writeField(field, inheritedFromInterface(typedef, field).getOrElse(typedef), isMethod = false))
         .mkString(", ")})$extendRendered$derivesSchema"""
     }
@@ -117,14 +142,32 @@ object SchemaWriter {
         }
        """
 
-    def writeField(field: FieldDefinition, of: TypeDefinition, isMethod: Boolean): String =
+    def writeField(field: FieldDefinition, of: TypeDefinition, isMethod: Boolean): String = {
+      def containsNestedDirective(
+        directive: String
+      ): Boolean =
+        typeNameToDefinitionMap.get(Type.innerType(field.ofType)).fold(false) { t =>
+          hasFieldWithDirective(t, directive)
+        } || typeNameToNestedFields
+          .getOrElse(Type.innerType(field.ofType), List.empty)
+          .exists(t => hasFieldWithDirective(t, directive))
+
+      val fieldIsEffectWrapped               = field.directives.exists(_.name == LazyDirective)
+      val fieldTypeIsEffectTypeParameterized = isEffectTypeAbstract && containsNestedDirective(LazyDirective)
+      val fieldType                          = (fieldIsEffectWrapped, fieldTypeIsEffectTypeParameterized) match {
+        case (true, true)   => s"$effect[${writeParameterizedType(field.ofType)}]"
+        case (true, false)  => s"$effect[${writeType(field.ofType)}]"
+        case (false, true)  => writeParameterizedType(field.ofType)
+        case (false, false) => writeType(field.ofType)
+      }
       if (field.args.nonEmpty) {
-        s"${writeDescription(field.description)}${if (isMethod) "def " else ""}${safeName(field.name)} : ${argsName(field, of)} => ${writeMaybeEffectType(field)}"
+        s"${writeDescription(field.description)}${if (isMethod) "def " else ""}${safeName(field.name)} : ${argsName(field, of)} => $fieldType"
       } else {
         s"""${writeDescription(field.description)}${if (isMethod) "def " else ""}${safeName(
           field.name
-        )} : ${writeMaybeEffectType(field)}"""
+        )} : $fieldType"""
       }
+    }
 
     def writeInputValue(value: InputValueDefinition): String =
       s"""${writeDescription(value.description)}${safeName(value.name)} : ${writeType(value.ofType)}"""
@@ -156,11 +199,6 @@ object SchemaWriter {
              |""".stripMargin
       }
 
-    def writeMaybeEffectType(field: FieldDefinition): String =
-      if (field.directives.exists(d => d.name == "lazy"))
-        writeEffectType(field.ofType)
-      else writeType(field.ofType)
-
     def writeEffectType(t: Type) =
       s"$effect[${writeType(t)}]"
 
@@ -174,6 +212,25 @@ object SchemaWriter {
         case NamedType(name, false)  => s"scala.Option[${write(name)}]"
         case ListType(ofType, true)  => s"List[${writeType(ofType)}]"
         case ListType(ofType, false) => s"scala.Option[List[${writeType(ofType)}]]"
+      }
+    }
+
+    def writeParameterizedType(t: Type): String = {
+      def write(name: String): String = {
+        val result = scalarMappings
+          .flatMap(_.get(name))
+          .getOrElse(name)
+
+        s"$result[$effect]"
+      }
+
+      t match {
+        case Type.NamedType(name, true)   => write(name)
+        case Type.NamedType(name, false)  => s"scala.Option[${write(name)}]"
+        case Type.ListType(ofType, true)  =>
+          s"List[${writeParameterizedType(ofType)}]"
+        case Type.ListType(ofType, false) =>
+          s"scala.Option[List[${writeParameterizedType(ofType)}]]"
       }
     }
 
@@ -274,4 +331,70 @@ object SchemaWriter {
       $typesAndOperations
       """
   }
+
+  /* Get types for all subfields of an object
+    object A {
+      field b: B
+      field c: String
+    }
+
+    object B {
+      field d: Int
+    }
+
+    result: Set(B, String, Int)
+   */
+  private def findNestedFieldTypes(
+    definition: TypeDefinition,
+    typeNameToDefinitionMap: Map[String, TypeDefinition]
+  ): Set[String] = {
+    def findSubFieldTypes(
+      obj: TypeDefinition,
+      typeNameToNestedFields: Map[String, Set[String]]
+    ): (Set[String], Map[String, Set[String]]) =
+      typeNameToNestedFields
+        .get(obj.name)
+        .fold {
+          val fieldTypes: Set[String] = obj match {
+            case objectTypeDefinition: ObjectTypeDefinition                      =>
+              objectTypeDefinition.fields.map(f => Type.innerType(f.ofType)).toSet
+            case interfaceTypeDefinition: TypeDefinition.InterfaceTypeDefinition =>
+              interfaceTypeDefinition.fields.map(f => Type.innerType(f.ofType)).toSet
+            case inputObjectTypeDefinition: InputObjectTypeDefinition            =>
+              inputObjectTypeDefinition.fields.map(f => Type.innerType(f.ofType)).toSet
+            case unionTypeDefinition: TypeDefinition.UnionTypeDefinition         =>
+              unionTypeDefinition.memberTypes.toSet
+            case _                                                               => Set.empty
+          }
+          val (subTypes, f)           = fieldTypes.foldLeft((Set.empty[String], typeNameToNestedFields)) {
+            case ((subTypeSet, reference), t) =>
+              typeNameToDefinitionMap.get(t) match {
+                case Some(o) =>
+                  val (s, f) = findSubFieldTypes(o, reference.updated(obj.name, fieldTypes))
+                  (subTypeSet ++ s, f)
+                case None    => (subTypeSet, reference)
+              }
+          }
+
+          val allTypes = fieldTypes ++ subTypes
+          (allTypes, f.updated(obj.name, allTypes))
+
+        } { s =>
+          (s, typeNameToNestedFields)
+        }
+
+    val (s, _) = findSubFieldTypes(definition, Map.empty)
+    s
+  }
+
+  private def hasFieldWithDirective(definition: TypeDefinition, directive: String): Boolean =
+    definition match {
+      case ot: ObjectTypeDefinition       =>
+        ot.fields.exists(_.directives.exists(_.name == directive))
+      case it: InterfaceTypeDefinition    =>
+        it.fields.exists(_.directives.exists(_.name == directive))
+      case iot: InputObjectTypeDefinition =>
+        iot.fields.exists(_.directives.exists(_.name == directive))
+      case _: TypeDefinition              => false
+    }
 }
