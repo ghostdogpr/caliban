@@ -2,6 +2,7 @@ package caliban.interop.cats
 
 import cats.Applicative
 import cats.data.{ EitherT, Kleisli, OptionT }
+import cats.effect.{ IO, IOLocal }
 
 /**
  * Injects a given environment of type `R` into the effect `F`.
@@ -63,6 +64,8 @@ object InjectEnv {
    * @tparam R the type of ZIO environment
    * @tparam R1 the zoomed typed inside of the `R`
    * @return
+   *
+   * @see See [[ioLens]] for the [[cats.effect.IO]] variant of this method.
    */
   def kleisliLens[F[_]: Applicative, R, R1](lens: R => R1, mod: (R, R1) => R): InjectEnv[Kleisli[F, R1, *], R] =
     new InjectEnv[Kleisli[F, R1, *], R] {
@@ -71,6 +74,29 @@ object InjectEnv {
 
       def modify(env: R): Kleisli[F, R1, R] =
         Kleisli.ask[F, R1].map(local => mod(env, local))
+    }
+
+  /**
+   * Injects a zoomed value (via lens) from the given environment into the underlying effect.
+   *
+   * Constructs a new environment using [[zio.RIO]] env and local context from [[cats.effect.IOLocal]].
+   *
+   * Useful when [[zio.RIO]] and effect `IO` are using different contextual environments.
+   *
+   * @param lens zooms `R1` inside of the `R`
+   * @param mod the modification function that returns a new environment
+   * @param ioLocal an instance of [[cats.effect.IOLocal]] which will be used to propagate the environment
+   * @tparam R the type of ZIO environment
+   * @tparam R1 the zoomed typed inside of the `R`
+   * @return
+   */
+  def ioLens[R, R1](lens: R => R1, mod: (R, R1) => R)(implicit ioLocal: IOLocal[R1]): InjectEnv[IO, R] =
+    new InjectEnv[IO, R] {
+      def inject[A](fa: IO[A], env: R): IO[A] =
+        ioLocal.set(lens(env)) *> fa
+
+      def modify(env: R): IO[R] =
+        ioLocal.get.map(mod(env, _))
     }
 
   /**
@@ -89,8 +115,26 @@ object InjectEnv {
         Kleisli.ask[F, R]
     }
 
+  /**
+   * Injects a given environment into the underlying effect via a [[cats.effect.IOLocal]].
+   * Prioritizes the IOLocal context over ZIO environment.
+   *
+   * @param ioLocal an instance of [[cats.effect.IOLocal]] which will be used to propagate the environment
+   * @tparam R the type of ZIO environment
+   */
+  def io[R](implicit ioLocal: IOLocal[R]): InjectEnv[IO, R] = new InjectEnv[IO, R] {
+    def inject[A](fa: IO[A], env: R): IO[A] =
+      ioLocal.set(env) *> fa
+
+    def modify(env: R): IO[R] =
+      ioLocal.get
+  }
+
   implicit def injectEnvForKleisli[F[_]: Applicative, R]: InjectEnv[Kleisli[F, R, *], R] =
     InjectEnv.kleisli[F, R]
+
+  implicit def injectEnvForIO[R](implicit local: IOLocal[R]): InjectEnv[IO, R] =
+    InjectEnv.io[R]
 
   implicit def injectEnvForOptionT[F[_]: Applicative, R](implicit
     injector: InjectEnv[F, R]

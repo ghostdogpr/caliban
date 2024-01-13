@@ -11,9 +11,9 @@ val catsEffect3Version        = "3.5.2"
 val catsMtlVersion            = "1.3.0"
 val circeVersion              = "0.14.6"
 val fs2Version                = "3.9.3"
-val http4sVersion             = "0.23.24"
+val http4sVersion             = "0.23.25"
 val javaTimeVersion           = "2.5.0"
-val jsoniterVersion           = "2.25.0"
+val jsoniterVersion           = "2.27.2"
 val laminextVersion           = "0.16.2"
 val magnoliaScala2Version     = "1.1.8"
 val magnoliaScala3Version     = "1.3.4"
@@ -23,7 +23,7 @@ val playJsonVersion           = "3.0.1"
 val scalafmtVersion           = "3.7.17"
 val sttpVersion               = "3.9.1"
 val tapirVersion              = "1.9.6"
-val zioVersion                = "2.0.20"
+val zioVersion                = "2.0.21"
 val zioInteropCats2Version    = "22.0.0.0"
 val zioInteropCats3Version    = "23.1.0.0"
 val zioInteropReactiveVersion = "2.0.2"
@@ -31,7 +31,7 @@ val zioConfigVersion          = "3.0.7"
 val zqueryVersion             = "0.6.0"
 val zioJsonVersion            = "0.6.2"
 val zioHttpVersion            = "3.0.0-RC4"
-val zioOpenTelemetryVersion   = "3.0.0-RC19"
+val zioOpenTelemetryVersion   = "3.0.0-RC20"
 val zioPreludeVersion         = "1.0.0-RC21"
 
 Global / onChangedBuildSource := ReloadOnSourceChanges
@@ -246,7 +246,7 @@ lazy val tracing = project
       "dev.zio"         %% "zio-opentelemetry"         % zioOpenTelemetryVersion,
       "dev.zio"         %% "zio-test"                  % zioVersion % Test,
       "dev.zio"         %% "zio-test-sbt"              % zioVersion % Test,
-      "io.opentelemetry" % "opentelemetry-sdk-testing" % "1.33.0"   % Test
+      "io.opentelemetry" % "opentelemetry-sdk-testing" % "1.34.1"   % Test
     )
   )
   .dependsOn(core, tools)
