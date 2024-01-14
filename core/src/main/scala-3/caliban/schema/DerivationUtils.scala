@@ -148,12 +148,17 @@ private object DerivationUtils {
     getDescription(annotations),
     fields.map { (name, fieldAnnotations, schema) =>
       val deprecatedReason = getDeprecatedReason(fieldAnnotations)
+      val isOptional       = {
+        val hasNullableAnn = fieldAnnotations.contains(GQLNullable())
+        val hasNonNullAnn  = fieldAnnotations.contains(GQLNonNullable())
+        !hasNonNullAnn && (hasNullableAnn || schema.optional)
+      }
       Types.makeField(
         name,
         getDescription(fieldAnnotations),
         schema.arguments,
         () =>
-          if (schema.optional) schema.toType_(isInput, isSubscription)
+          if (isOptional) schema.toType_(isInput, isSubscription)
           else schema.toType_(isInput, isSubscription).nonNull,
         deprecatedReason.isDefined,
         deprecatedReason,

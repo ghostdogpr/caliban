@@ -80,19 +80,24 @@ trait CommonSchemaDerivation[R] {
           getDescription(ctx),
           ctx.parameters
             .filterNot(_.annotations.exists(_ == GQLExcluded()))
-            .map(p =>
+            .map { p =>
+              val isOptional = {
+                val hasNullableAnn = p.annotations.contains(GQLNullable())
+                val hasNonNullAnn  = p.annotations.contains(GQLNonNullable())
+                !hasNonNullAnn && (hasNullableAnn || p.typeclass.optional)
+              }
               Types.makeField(
                 getName(p),
                 getDescription(p),
                 p.typeclass.arguments,
                 () =>
-                  if (p.typeclass.optional) p.typeclass.toType_(isInput, isSubscription)
+                  if (isOptional) p.typeclass.toType_(isInput, isSubscription)
                   else p.typeclass.toType_(isInput, isSubscription).nonNull,
                 p.annotations.collectFirst { case GQLDeprecated(_) => () }.isDefined,
                 p.annotations.collectFirst { case GQLDeprecated(reason) => reason },
                 Option(p.annotations.collect { case GQLDirective(dir) => dir }.toList).filter(_.nonEmpty)
               )
-            )
+            }
             .toList,
           getDirectives(ctx),
           Some(ctx.typeName.full)
