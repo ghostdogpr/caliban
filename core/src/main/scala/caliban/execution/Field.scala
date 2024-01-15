@@ -47,7 +47,10 @@ case class Field(
 
   def combine(other: Field): Field =
     self.copy(
-      fields = self.fields ::: other.fields,
+      fields =
+        if (self.fields.isEmpty) other.fields
+        else if (other.fields.isEmpty) self.fields
+        else (self.fields ++ other.fields).distinctBy(f => (f.aliasedName, f._condition)),
       targets = (self.targets, other.targets) match {
         case (Some(t1), Some(t2)) => if (t1 == t2) self.targets else Some(t1 ++ t2)
         case (Some(_), None)      => self.targets
