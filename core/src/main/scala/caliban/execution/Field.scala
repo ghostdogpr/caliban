@@ -10,6 +10,7 @@ import caliban.parsing.adt.{ Directive, LocationInfo, Selection, VariableDefinit
 import caliban.schema.{ RootType, Types }
 import caliban.{ InputValue, Value }
 
+import scala.collection.compat._
 import scala.collection.mutable
 import scala.jdk.CollectionConverters._
 
