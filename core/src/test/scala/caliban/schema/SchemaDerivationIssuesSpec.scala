@@ -265,7 +265,8 @@ object SchemaDerivationIssuesSpec extends ZIOSpecDefault {
         i       <- schema.interpreter
         data1   <- i.execute(queryFragments).map(_.data.toString)
         data2   <- i.execute(queryInlined).map(_.data.toString)
-        expected = """{"widget":{"__typename":"WidgetA","name":"a","children":{"total":1,"nodes":[{"name":"a"}]}}}"""
+        expected =
+          """{"widget":{"__typename":"WidgetB","name":"a","children":{"total":1,"nodes":[{"name":"a","foo":"FOO"}]}}}"""
       } yield assertTrue(data1 == expected, data2 == expected)
     }
   )
@@ -610,7 +611,7 @@ object i2076 {
 
   val schema = {
     val queries = Queries(
-      Some(Widget.A("a", _ => ZIO.succeed(Widget.A.Connection(1, Chunk(Widget.A.Child("a", "FOO"))))))
+      Some(Widget.B("a", _ => ZIO.succeed(Widget.B.Connection(1, Chunk(Widget.B.Child("a", "FOO"))))))
     )
     graphQL(RootResolver(queries))
   }

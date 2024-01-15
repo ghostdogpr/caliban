@@ -10,7 +10,6 @@ import caliban.parsing.adt.{ Directive, LocationInfo, Selection, VariableDefinit
 import caliban.schema.{ RootType, Types }
 import caliban.{ InputValue, Value }
 
-import scala.collection.compat._
 import scala.collection.mutable
 import scala.jdk.CollectionConverters._
 
@@ -46,12 +45,27 @@ case class Field(
 
   private[caliban] val aliasedName: String = alias.getOrElse(name)
 
+  private[caliban] lazy val allFieldsUniqueNameAndCondition: Boolean = {
+    def inner: Boolean = {
+      val set           = new mutable.HashSet[String]
+      val headCondition = fields.head._condition
+      val _             = set.add(fields.head.aliasedName)
+
+      var remaining = fields.tail
+      while (remaining ne Nil) {
+        val f      = remaining.head
+        val result = set.add(f.aliasedName) && f._condition == headCondition
+        if (!result) return false
+        remaining = remaining.tail
+      }
+      true
+    }
+    if (fields.isEmpty) true else inner
+  }
+
   def combine(other: Field): Field =
     self.copy(
-      fields =
-        if (self.fields.isEmpty) other.fields
-        else if (other.fields.isEmpty) self.fields
-        else (self.fields ++ other.fields).distinctBy(f => (f.aliasedName, f._condition)),
+      fields = self.fields ::: other.fields,
       targets = (self.targets, other.targets) match {
         case (Some(t1), Some(t2)) => if (t1 == t2) self.targets else Some(t1 ++ t2)
         case (Some(_), None)      => self.targets
