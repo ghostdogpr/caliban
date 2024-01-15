@@ -1,11 +1,10 @@
 package caliban.schema
 
-import caliban.schema.Annotations.{ GQLDescription, GQLInterface, GQLName, GQLUnion }
-import zio.Chunk
-import zio.test.ZIOSpecDefault
-import zio.test._
-import caliban.{ graphQL, RootResolver }
 import caliban.Macros._
+import caliban.schema.Annotations.{ GQLDescription, GQLInterface, GQLName, GQLUnion }
+import caliban.{ graphQL, RootResolver }
+import zio.test.{ ZIOSpecDefault, _ }
+import zio.{ Chunk, ZIO }
 
 object SchemaDerivationIssuesSpec extends ZIOSpecDefault {
   def spec = suite("SchemaDerivationIssuesSpec")(
@@ -211,6 +210,64 @@ object SchemaDerivationIssuesSpec extends ZIOSpecDefault {
         res <- i.execute(gqldoc("{ e1 { b } e2 { b } e3 { b } }"))
         data = res.data.toString
       } yield assertTrue(data == """{"e1":{"b":"b"},"e2":{"b":"b"},"e3":{"b":"b"}}""")
+    },
+    test("i2076") {
+      import i2076._
+      val queryFragments =
+        gqldoc("""
+            query {
+              widget {
+                __typename
+                ...Widgets
+              }
+            }
+
+            fragment Widgets on Widget {
+              ... on WidgetA {
+                name
+                children {
+                  total
+                  nodes { name }
+                }
+              }
+              ... on WidgetB {
+                name
+                children {
+                  total
+                  nodes { name foo }
+                }
+              }
+            }
+            """)
+
+      val queryInlined = gqldoc("""
+          query {
+            widget {
+              __typename
+              ... on WidgetA {
+                name
+                children {
+                  total
+                  nodes { name }
+                }
+              }
+              ... on WidgetB {
+                name
+                children {
+                  total
+                  nodes { name foo }
+                }
+              }
+            }
+          }
+          """)
+      for {
+        i       <- schema.interpreter
+        data1   <- i.execute(queryFragments).map(_.data.toString)
+        data2   <- i.execute(queryInlined).map(_.data.toString)
+        expected =
+          """{"widget":{"__typename":"WidgetB","name":"a","children":{"total":1,"nodes":[{"name":"a","foo":"FOO"}]}}}"""
+      } yield assertTrue(data1 == expected, data2 == expected)
     }
   )
 }
@@ -488,5 +545,74 @@ object NestedInterfaceIssue {
       NestedInterface.FooC("c", "b")
     )
     caliban.graphQL(RootResolver(queries))
+  }
+}
+
+object i2076 {
+  sealed trait Widget
+  object Widget  {
+    implicit val schema: Schema[Any, Widget] = Schema.gen
+
+    case class Args(limit: Option[Int])
+    object Args {
+      implicit val schema: Schema[Any, Args]    = Schema.gen
+      implicit val argBuilder: ArgBuilder[Args] = ArgBuilder.gen
+    }
+
+    @GQLName("WidgetA")
+    case class A(
+      name: String,
+      children: Args => ZIO[Any, Throwable, A.Connection]
+    ) extends Widget
+    object A    {
+      implicit val schema: Schema[Any, A] = Schema.gen
+
+      @GQLName("WidgetAConnection")
+      case class Connection(total: Int, nodes: Chunk[Child])
+      object Connection {
+        implicit val schema: Schema[Any, Connection] = Schema.gen
+      }
+
+      @GQLName("WidgetAChild")
+      case class Child(name: String, foo: String)
+      object Child      {
+        implicit val schema: Schema[Any, Child] = Schema.gen
+      }
+    }
+
+    @GQLName("WidgetB")
+    case class B(
+      name: String,
+      children: Args => ZIO[Any, Throwable, B.Connection]
+    ) extends Widget
+    object B    {
+      implicit val schema: Schema[Any, B] = Schema.gen
+
+      @GQLName("WidgetBConnection")
+      case class Connection(total: Int, nodes: Chunk[Child])
+      object Connection {
+        implicit val schema: Schema[Any, Connection] = Schema.gen
+      }
+
+      @GQLName("WidgetBChild")
+      case class Child(name: String, foo: String)
+      object Child      {
+        implicit val schema: Schema[Any, Child] = Schema.gen
+      }
+    }
+  }
+
+  case class Queries(
+    widget: Option[Widget]
+  )
+  object Queries {
+    implicit val schema: Schema[Any, Queries] = Schema.gen
+  }
+
+  val schema = {
+    val queries = Queries(
+      Some(Widget.B("a", _ => ZIO.succeed(Widget.B.Connection(1, Chunk(Widget.B.Child("a", "FOO"))))))
+    )
+    graphQL(RootResolver(queries))
   }
 }

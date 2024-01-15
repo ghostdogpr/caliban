@@ -45,6 +45,24 @@ case class Field(
 
   private[caliban] val aliasedName: String = alias.getOrElse(name)
 
+  private[caliban] lazy val allFieldsUniqueNameAndCondition: Boolean = {
+    def inner: Boolean = {
+      val set           = new mutable.HashSet[String]
+      val headCondition = fields.head._condition
+      val _             = set.add(fields.head.aliasedName)
+
+      var remaining = fields.tail
+      while (remaining ne Nil) {
+        val f      = remaining.head
+        val result = set.add(f.aliasedName) && f._condition == headCondition
+        if (!result) return false
+        remaining = remaining.tail
+      }
+      true
+    }
+    if (fields.isEmpty) true else inner
+  }
+
   def combine(other: Field): Field =
     self.copy(
       fields = self.fields ::: other.fields,

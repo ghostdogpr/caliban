@@ -349,16 +349,6 @@ object Executor {
     ZIO.succeed(GraphQLResponse(NullValue, List(error)))
 
   private[caliban] def mergeFields(field: Field, typeName: String): List[Field] = {
-    def haveSameCondition(head: Field, tail: List[Field]): Boolean = {
-      val condition = head._condition
-      var remaining = tail
-      while (remaining ne Nil) {
-        if (remaining.head._condition != condition) return false
-        remaining = remaining.tail
-      }
-      true
-    }
-
     def matchesTypename(f: Field): Boolean =
       f._condition.isEmpty || f._condition.get.contains(typeName)
 
@@ -380,12 +370,11 @@ object Executor {
       map.values().asScala.toList
     }
 
-    field.fields match {
-      // Shortcut if all the fields have the same condition, which means we don't need to merge as that's been handled in Field.apply
-      case h :: t if haveSameCondition(h, t) => if (matchesTypename(h)) field.fields else Nil
-      case Nil                               => Nil
-      case fields                            => mergeFields(fields)
-    }
+    val fields = field.fields
+    if (field.allFieldsUniqueNameAndCondition) {
+      if (fields.isEmpty || !matchesTypename(fields.head)) Nil
+      else fields
+    } else mergeFields(fields)
   }
 
   private def fieldInfo(field: Field, path: List[PathValue], fieldDirectives: List[Directive]): FieldInfo =
