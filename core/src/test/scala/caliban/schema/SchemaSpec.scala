@@ -1,20 +1,20 @@
 package caliban.schema
 
-import java.util.UUID
 import caliban.Value.StringValue
 import caliban._
 import caliban.introspection.adt.{ __DeprecatedArgs, __Type, __TypeKind }
 import caliban.parsing.adt.Directive
-import caliban.schema.Annotations.{ GQLDirective, GQLExcluded, GQLInterface, GQLUnion, GQLValueType }
-import caliban.schema.Schema.auto._
+import caliban.schema.Annotations._
 import caliban.schema.ArgBuilder.auto._
+import caliban.schema.Schema.auto._
 import play.api.libs.json.JsValue
+import zio._
 import zio.query.ZQuery
 import zio.stream.ZStream
 import zio.test.Assertion._
 import zio.test._
-import zio._
 
+import java.util.UUID
 import scala.concurrent.Future
 
 object SchemaSpec extends ZIOSpecDefault {
@@ -26,9 +26,19 @@ object SchemaSpec extends ZIOSpecDefault {
           isSome(hasField[__Type, __TypeKind]("kind", _.kind, equalTo(__TypeKind.SCALAR)))
         )
       },
+      test("effectful field as non-nullable") {
+        assert(introspect[EffectfulFieldSchema].fields(__DeprecatedArgs()).toList.flatten.apply(1)._type)(
+          hasField[__Type, __TypeKind]("kind", _.kind, equalTo(__TypeKind.NON_NULL))
+        )
+      },
       test("infallible effectful field") {
         assert(introspect[InfallibleFieldSchema].fields(__DeprecatedArgs()).toList.flatten.headOption.map(_._type))(
           isSome(hasField[__Type, __TypeKind]("kind", _.kind, equalTo(__TypeKind.NON_NULL)))
+        )
+      },
+      test("infallible effectful field as nullable") {
+        assert(introspect[InfallibleFieldSchema].fields(__DeprecatedArgs()).toList.flatten.apply(1)._type)(
+          hasField[__Type, __TypeKind]("kind", _.kind, equalTo(__TypeKind.SCALAR))
         )
       },
       test("tricky case with R") {
@@ -375,8 +385,8 @@ object SchemaSpec extends ZIOSpecDefault {
       }
     )
 
-  case class EffectfulFieldSchema(q: Task[Int])
-  case class InfallibleFieldSchema(q: UIO[Int])
+  case class EffectfulFieldSchema(q: Task[Int], @GQLNonNullable qAnnotated: Task[Int])
+  case class InfallibleFieldSchema(q: UIO[Int], @GQLNullable qAnnotated: UIO[Int])
   case class FutureFieldSchema(q: Future[Int])
   case class IDSchema(id: UUID)
   trait Env

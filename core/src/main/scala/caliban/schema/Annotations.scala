@@ -65,4 +65,15 @@ object Annotations extends AnnotationsVersionSpecific {
    * Annotation to specify the default value of an input field
    */
   case class GQLDefault(value: String) extends StaticAnnotation
+
+  /**
+   * Annotation that can be applied to force a field to be derived as nullable
+   */
+  case class GQLNullable() extends StaticAnnotation
+
+  /**
+   * Annotation that can be applied to force a field to be derived as non-nullable
+   */
+  case class GQLNonNullable() extends StaticAnnotation
+
 }
