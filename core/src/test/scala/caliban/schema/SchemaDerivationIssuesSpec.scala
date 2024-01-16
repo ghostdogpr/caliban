@@ -227,7 +227,7 @@ object SchemaDerivationIssuesSpec extends ZIOSpecDefault {
                 name
                 children {
                   total
-                  nodes { name }
+                  nodes { name bar }
                 }
               }
               ... on WidgetB {
@@ -248,7 +248,7 @@ object SchemaDerivationIssuesSpec extends ZIOSpecDefault {
                 name
                 children {
                   total
-                  nodes { name }
+                  nodes { name bar }
                 }
               }
               ... on WidgetB {
@@ -574,7 +574,7 @@ object i2076 {
       }
 
       @GQLName("WidgetAChild")
-      case class Child(name: String, foo: String)
+      case class Child(name: String, foo: String, bar: String)
       object Child      {
         implicit val schema: Schema[Any, Child] = Schema.gen
       }
