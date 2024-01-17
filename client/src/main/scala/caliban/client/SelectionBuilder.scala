@@ -67,9 +67,18 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
    * Parse the given response payload into the expected return type,
    * with an potential list of partial errors and an optional extensions object
    */
-  def decode(payload: String): Either[CalibanClientError, (A, List[GraphQLResponseError], Option[__ObjectValue])] =
+  def decode(
+    payload: String,
+    maxBufSize: Int,
+    maxCharBufSize: Int
+  ): Either[CalibanClientError, (A, List[GraphQLResponseError], Option[__ObjectValue])] =
     for {
-      parsed      <- try Right(readFromString[GraphQLResponse](payload))
+      parsed      <- try Right(
+                       readFromString[GraphQLResponse](
+                         payload,
+                         ReaderConfig.withMaxBufSize(maxBufSize).withMaxCharBufSize(maxCharBufSize)
+                       )
+                     )
                      catch {
                        case NonFatal(ex) => Left(DecodingError("Json deserialization error", Some(ex)))
                      }
@@ -112,15 +121,21 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
    * @param useVariables if true, all arguments will be passed as variables (default: false)
    * @param queryName if specified, use the given query name
    * @param dropNullInputValues if true, drop all null values from input object arguments (default: false)
+   * @param maxBufSize maximum allowed size for responses when parsing JSON
+   * @param maxCharBufSize maximum allowed size for strings when parsing JSON
    * @return an STTP request
    */
   def toRequest[A1 >: A, Origin1 <: Origin](
     uri: Uri,
     useVariables: Boolean = false,
     queryName: Option[String] = None,
-    dropNullInputValues: Boolean = false
+    dropNullInputValues: Boolean = false,
+    maxBufSize: Int = ReaderConfig.maxBufSize,
+    maxCharBufSize: Int = ReaderConfig.maxCharBufSize
   )(implicit ev: IsOperation[Origin1]): Request[Either[CalibanClientError, A1], Any] =
-    toRequestWith[A1, Origin1](uri, useVariables, queryName, dropNullInputValues)((res, _, _) => res)(ev)
+    toRequestWith[A1, Origin1](uri, useVariables, queryName, dropNullInputValues, maxBufSize, maxCharBufSize)(
+      (res, _, _) => res
+    )(ev)
 
   /**
    * Transforms a root selection into an STTP request ready to be run.
@@ -129,13 +144,17 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
    * @param useVariables if true, all arguments will be passed as variables (default: false)
    * @param queryName if specified, use the given query name
    * @param dropNullInputValues if true, drop all null values from input object arguments (default: false)
+   * @param maxBufSize maximum allowed size for responses when parsing JSON
+   * @param maxCharBufSize maximum allowed size for strings when parsing JSON
    * @return an STTP request
    */
   def toRequestWith[B, Origin1 <: Origin](
     uri: Uri,
     useVariables: Boolean = false,
     queryName: Option[String] = None,
-    dropNullInputValues: Boolean = false
+    dropNullInputValues: Boolean = false,
+    maxBufSize: Int = ReaderConfig.maxBufSize,
+    maxCharBufSize: Int = ReaderConfig.maxCharBufSize
   )(
     mapResponse: (A, List[GraphQLResponseError], Option[__ObjectValue]) => B
   )(implicit ev: IsOperation[Origin1]): Request[Either[CalibanClientError, B], Any] =
@@ -145,7 +164,9 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
       .mapResponse(
         _.left
           .map(CommunicationError(_))
-          .flatMap(decode(_).map { case (result, errors, extensions) => mapResponse(result, errors, extensions) })
+          .flatMap(decode(_, maxBufSize, maxCharBufSize).map { case (result, errors, extensions) =>
+            mapResponse(result, errors, extensions)
+          })
       )
 
   /**
