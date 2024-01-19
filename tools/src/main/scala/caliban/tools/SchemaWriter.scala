@@ -2,14 +2,14 @@ package caliban.tools
 
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
+import caliban.parsing.adt.Directives.{ LazyDirective, TypesafeDirective }
 import caliban.parsing.adt.Type.{ ListType, NamedType }
-import caliban.parsing.adt.{ Document, Type }
+import caliban.parsing.adt.{ Directive, Directives, Document, Type }
 
+import scala.annotation.tailrec
 import scala.collection.compat._
 
 object SchemaWriter {
-
-  private val LazyDirective = "lazy"
 
   def write(
     schema: Document,
@@ -142,8 +142,9 @@ object SchemaWriter {
         }
        """
 
-    def writeField(field: FieldDefinition, of: TypeDefinition, isMethod: Boolean): String = {
+    def writeField(inputField: FieldDefinition, of: TypeDefinition, isMethod: Boolean): String = {
       def containsNestedDirective(
+        field: FieldDefinition,
         directive: String
       ): Boolean =
         typeNameToDefinitionMap.get(Type.innerType(field.ofType)).fold(false) { t =>
@@ -152,29 +153,60 @@ object SchemaWriter {
           .getOrElse(Type.innerType(field.ofType), List.empty)
           .exists(t => hasFieldWithDirective(t, directive))
 
+      val field = resolveTypesafeFieldDef(inputField).getOrElse(inputField)
+
       val fieldIsEffectWrapped               = field.directives.exists(_.name == LazyDirective)
-      val fieldTypeIsEffectTypeParameterized = isEffectTypeAbstract && containsNestedDirective(LazyDirective)
+      val fieldTypeIsEffectTypeParameterized = isEffectTypeAbstract && containsNestedDirective(field, LazyDirective)
       val fieldType                          = (fieldIsEffectWrapped, fieldTypeIsEffectTypeParameterized) match {
         case (true, true)   => s"$effect[${writeParameterizedType(field.ofType)}]"
         case (true, false)  => s"$effect[${writeType(field.ofType)}]"
         case (false, true)  => writeParameterizedType(field.ofType)
         case (false, false) => writeType(field.ofType)
       }
+
+      val GQLTypesafeDirective = writeGQLTypesafeDirective(field)
+
       if (field.args.nonEmpty) {
-        s"${writeDescription(field.description)}${if (isMethod) "def " else ""}${safeName(field.name)} : ${argsName(field, of)} => $fieldType"
+        s"""$GQLTypesafeDirective${writeDescription(field.description)}${if (isMethod) "def " else ""}${safeName(
+          field.name
+        )} : ${argsName(field, of)} => $fieldType"""
       } else {
-        s"""${writeDescription(field.description)}${if (isMethod) "def " else ""}${safeName(
+        s"""$GQLTypesafeDirective${writeDescription(field.description)}${if (isMethod) "def " else ""}${safeName(
           field.name
         )} : $fieldType"""
       }
     }
 
-    def writeInputValue(value: InputValueDefinition): String =
-      s"""${writeDescription(value.description)}${safeName(value.name)} : ${writeType(value.ofType)}"""
+    def writeGQLTypesafeDirective(field: FieldDefinition) =
+      if (field.directives.exists(_.name == TypesafeDirective)) {
+        val directive = field.directives.filter(_.name == TypesafeDirective).head
+        val fnName    = directive.arguments("name").toInputString.replace("\"", "")
+        writeTypeOfGQLDirective(fnName)
+      } else ""
+
+    def writeTypeOfGQLDirective(fnName: String): String =
+      s"""@GQLDirective(Directive("$TypesafeDirective", Map("name" -> StringValue("${safeName(fnName)}"))))\n"""
+
+    def writeInputValue(value: InputValueDefinition): String = {
+      val GQLTypesafeInputDirective = if (value.directives.exists(_.name == TypesafeDirective)) {
+        val directive = value.directives.filter(_.name == TypesafeDirective).head
+        val fnName    = directive.arguments("name").toInputString.replace("\"", "")
+        writeTypeOfGQLDirective(fnName)
+      } else ""
+
+      val inputDef = resolveTypesafeInputDef(value).getOrElse(value)
+
+      s"""$GQLTypesafeInputDirective${writeDescription(inputDef.description)}${safeName(inputDef.name)} : ${writeType(
+        inputDef.ofType
+      )}"""
+    }
 
     def writeArguments(field: FieldDefinition, of: TypeDefinition): String = {
       def fields(args: List[InputValueDefinition]): String =
-        s"${args.map(arg => s"${safeName(arg.name)} : ${writeType(arg.ofType)}").mkString(", ")}"
+        s"${args.map { arg =>
+          val resolvedArg = resolveTypesafeInputDef(arg).getOrElse(arg)
+          s"${safeName(resolvedArg.name)} : ${writeType(resolvedArg.ofType)}"
+        }.mkString(", ")}"
 
       if (field.args.nonEmpty) {
         s"final case class ${argsName(field, of)}(${fields(field.args)})$derivesSchemaAndArgBuilder"
@@ -182,6 +214,42 @@ object SchemaWriter {
         ""
       }
     }
+
+    def writeTypesafeClasses(fieldType: Type, directive: Directive) = {
+      @tailrec def writeTypesafeType(fieldType: Type): String = fieldType match {
+        case NamedType(name, _) => scalarMappings.flatMap(_.get(name)).getOrElse(name)
+        case ListType(ftype, _) => writeTypesafeType(ftype)
+      }
+
+      val fnName       = directive.arguments("name").toInputString.replace("\"", "")
+      val typesafeType = writeTypesafeType(fieldType)
+
+      s"""case class $fnName(value : $typesafeType) extends AnyVal
+         |object $fnName {
+         |    implicit val schema: Schema[Any, $fnName] = summon[Schema[Any, $typesafeType]].contramap(_.value)
+         |    implicit val argBuilder: ArgBuilder[$fnName] = summon[ArgBuilder[$typesafeType]].map($fnName(_))
+         |}""".stripMargin
+    }
+
+    def replaceNameOfInnertype(name: String, ftype: Type): Type =
+      ftype match {
+        case NamedType(_, nt)  => NamedType(name, nt)
+        case ListType(nt, opt) => ListType(replaceNameOfInnertype(name, nt), opt)
+      }
+
+    def resolveTypesafeFieldDef(field: FieldDefinition): Option[FieldDefinition] =
+      if (Directives.isTypesafe(field.directives)) {
+        Directives
+          .typesafeName(field.directives)
+          .map(typesafeName => field.copy(ofType = replaceNameOfInnertype(typesafeName, field.ofType)))
+      } else None
+
+    def resolveTypesafeInputDef(field: InputValueDefinition): Option[InputValueDefinition] =
+      if (Directives.isTypesafe(field.directives)) {
+        Directives
+          .typesafeName(field.directives)
+          .map(typesafeName => field.copy(ofType = replaceNameOfInnertype(typesafeName, field.ofType)))
+      } else None
 
     def argsName(field: FieldDefinition, od: TypeDefinition): String =
       s"${od.name.capitalize}${field.name.capitalize}Args"
@@ -252,6 +320,36 @@ object SchemaWriter {
         .mkString("\n")
     }
 
+    val typesafeClasses = {
+      case class FieldAndDirective(fieldName: String, fieldType: Type, directive: Directive)
+      val fromObjects                             =
+        schema.objectTypeDefinitions.flatMap {
+          _.fields.collect {
+            case f if f.directives.exists(_.name == TypesafeDirective)                => // FIELD DEFINITION
+              List(FieldAndDirective(f.name, f.ofType, f.directives.filter(_.name == TypesafeDirective).head))
+            case f if f.args.exists(_.directives.exists(_.name == TypesafeDirective)) => // ARGUMENT DEFINITION
+              f.args.collect {
+                case a if a.directives.exists(_.name == TypesafeDirective) =>
+                  FieldAndDirective(a.name, a.ofType, a.directives.filter(_.name == TypesafeDirective).head)
+              }
+          }
+        }.flatten
+      val fromInputTypes: List[FieldAndDirective] =
+        schema.inputObjectTypeDefinitions.flatMap {
+          _.fields.collect {
+            case f if f.directives.exists(_.name == TypesafeDirective) =>
+              FieldAndDirective(f.name, f.ofType, f.directives.filter(_.name == TypesafeDirective).head)
+          }
+        }
+
+      val typesafeClasses = (fromObjects ++ fromInputTypes)
+        .distinctBy(_.directive.arguments("name").toInputString)
+        .sortBy(_.directive.arguments("name").toInputString)
+        .map(fieldAndDirective => writeTypesafeClasses(fieldAndDirective.fieldType, fieldAndDirective.directive))
+        .mkString("\n")
+      if (typesafeClasses.nonEmpty) typesafeClasses + "\n" else ""
+    }
+
     val unionTypes = schema.unionTypeDefinitions
       .map(union => (union, union.memberTypes.flatMap(schema.objectTypeDefinition)))
       .toMap
@@ -302,29 +400,39 @@ object SchemaWriter {
       inputs.length + interfacesStr.length > 0
     val hasOperations    = queries.length + mutations.length + subscriptions.length > 0
 
-    val typesAndOperations = s"""
+    val typesAndOperations =
+      s"""
       ${if (hasTypes)
-      "object Types {\n" +
-        argsTypes + "\n" +
-        objects + "\n" +
-        inputs + "\n" +
-        unions + "\n" +
-        interfacesStr + "\n" +
-        enums + "\n" +
-        "\n}\n"
-    else ""}
+        "object Types {\n" +
+          argsTypes + "\n" +
+          typesafeClasses +
+          objects + "\n" +
+          inputs + "\n" +
+          unions + "\n" +
+          interfacesStr + "\n" +
+          enums + "\n" +
+          "\n}\n"
+      else ""}
 
       ${if (hasOperations)
-      "object Operations {\n" +
-        queries + "\n\n" +
-        mutations + "\n\n" +
-        subscriptions + "\n" +
-        "\n}"
-    else ""}
+        "object Operations {\n" +
+          queries + "\n\n" +
+          mutations + "\n\n" +
+          subscriptions + "\n" +
+          "\n}"
+      else ""}
       """
 
-    s"""${packageName.fold("")(p => s"package $p\n\n")}${if (hasTypes && hasOperations) "import Types._\n" else ""}
-          ${if (typesAndOperations.contains("@GQL")) "import caliban.schema.Annotations._\n" else ""}
+    s"""${packageName.fold("")(p => s"package $p\n\n")}
+          ${if (hasTypes && hasOperations) "import Types._\n" else ""}
+          ${if (typesAndOperations.contains("@GQL") || typesafeClasses.nonEmpty)
+      "import caliban.schema.Annotations._\n"
+    else ""}
+          ${if (typesafeClasses.nonEmpty)
+      """|import caliban.Value._
+         |import caliban.parsing.adt.Directive
+         |import caliban.schema.{ArgBuilder, Schema}""".stripMargin
+    else ""}
           ${if (hasSubscriptions) "import zio.stream.ZStream\n" else ""}
           $additionalImportsString
 
@@ -333,16 +441,16 @@ object SchemaWriter {
   }
 
   /* Get types for all subfields of an object
-    object A {
-      field b: B
-      field c: String
-    }
+      object A {
+        field b: B
+        field c: String
+      }
 
-    object B {
-      field d: Int
-    }
+      object B {
+        field d: Int
+      }
 
-    result: Set(B, String, Int)
+      result: Set(B, String, Int)
    */
   private def findNestedFieldTypes(
     definition: TypeDefinition,
