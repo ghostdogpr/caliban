@@ -17,19 +17,19 @@ import zio.stream.ZStream
 import java.nio.charset.StandardCharsets.UTF_8
 import scala.util.control.NonFatal
 
-final private class QuickRequestHandler[-R, E](interpreter: GraphQLInterpreter[R, E]) {
+final private class QuickRequestHandler[-R](interpreter: GraphQLInterpreter[R, Any]) {
   import QuickRequestHandler._
 
-  def configure(config: ExecutionConfiguration)(implicit trace: Trace): QuickRequestHandler[R, E] =
-    new QuickRequestHandler[R, E](
-      interpreter.wrapExecutionWith[R, E](Configurator.setWith(config)(_))
+  def configure(config: ExecutionConfiguration)(implicit trace: Trace): QuickRequestHandler[R] =
+    new QuickRequestHandler[R](
+      interpreter.wrapExecutionWith[R, Any](Configurator.setWith(config)(_))
     )
 
   def configure[R1](configurator: QuickAdapter.Configurator[R1])(implicit
     trace: Trace
-  ): QuickRequestHandler[R & R1, E] =
-    new QuickRequestHandler[R & R1, E](
-      interpreter.wrapExecutionWith[R & R1, E](exec => ZIO.scoped[R1 & R](configurator *> exec))
+  ): QuickRequestHandler[R & R1] =
+    new QuickRequestHandler[R & R1](
+      interpreter.wrapExecutionWith[R & R1, Any](exec => ZIO.scoped[R1 & R](configurator *> exec))
     )
 
   def handleHttpRequest(request: Request)(implicit trace: Trace): URIO[R, Response] =
@@ -46,52 +46,55 @@ final private class QuickRequestHandler[-R, E](interpreter: GraphQLInterpreter[R
     }.merge
 
   private def transformHttpRequest(httpReq: Request)(implicit trace: Trace): IO[Response, GraphQLRequest] = {
-    val queryParams = httpReq.url.queryParams
 
-    def extractFields(key: String): Either[Response, Option[Map[String, InputValue]]] =
-      try Right(queryParams.get(key).map(readFromString[InputValue.ObjectValue](_).fields))
-      catch { case NonFatal(_) => Left(badRequest(s"Invalid $key query param")) }
+    def decodeQueryParams(queryParams: QueryParams): Either[Response, GraphQLRequest] = {
+      def extractField(key: String) =
+        try Right(queryParams.get(key).map(readFromString[InputValue.ObjectValue](_).fields))
+        catch { case NonFatal(_) => Left(badRequest(s"Invalid $key query param")) }
 
-    def fromQueryParams: Either[Response, GraphQLRequest] =
       for {
-        vars <- extractFields("variables")
-        exts <- extractFields("extensions")
+        vars <- extractField("variables")
+        exts <- extractField("extensions")
       } yield GraphQLRequest(
         query = queryParams.get("query"),
         operationName = queryParams.get("operationName"),
         variables = vars,
         extensions = exts
       )
-
-    def isGqlJson =
-      httpReq.headers.get(ContentType.name).exists { h =>
-        h.length >= 19 && { // Length of "application/graphql"
-          MediaType.forContentType(h).exists { mt =>
-            mt.subType.equalsIgnoreCase("graphql") &&
-            mt.mainType.equalsIgnoreCase("application")
-          }
-        }
-      }
-
-    def decodeApplicationGql() =
-      httpReq.body.asString.mapBoth(_ => BodyDecodeErrorResponse, b => GraphQLRequest(Some(b)))
-
-    def decodeJson() =
-      httpReq.body.asArray
-        .flatMap(arr => ZIO.attempt(readFromArray[GraphQLRequest](arr)))
-        .orElseFail(BodyDecodeErrorResponse)
-
-    val resp = {
-      if (httpReq.method == Method.GET || queryParams.get("query").isDefined)
-        ZIO.fromEither(fromQueryParams)
-      else {
-        val req = if (isGqlJson) decodeApplicationGql() else decodeJson()
-        if (isFtv1Request(httpReq)) req.map(_.withFederatedTracing)
-        else req
-      }
     }
 
-    resp.tap(r => if (r.isEmpty) ZIO.fail(badRequest("No GraphQL query to execute")) else ZIO.unit)
+    def decodeBody(body: Body) = {
+      def decodeApplicationGql() =
+        body.asString.mapBoth(_ => BodyDecodeErrorResponse, b => GraphQLRequest(Some(b)))
+
+      def decodeJson() =
+        body.asArray
+          .flatMap(arr => ZIO.attempt(readFromArray[GraphQLRequest](arr)))
+          .orElseFail(BodyDecodeErrorResponse)
+
+      val isApplicationGql =
+        httpReq.headers.get(ContentType.name).exists { h =>
+          h.length >= 19 && { // Length of "application/graphql"
+            MediaType.forContentType(h).exists { mt =>
+              mt.subType.equalsIgnoreCase("graphql") &&
+              mt.mainType.equalsIgnoreCase("application")
+            }
+          }
+        }
+
+      if (isApplicationGql) decodeApplicationGql() else decodeJson()
+    }
+
+    val queryParams = httpReq.url.queryParams
+
+    (if (httpReq.method == Method.GET || queryParams.get("query").isDefined) {
+       ZIO.fromEither(decodeQueryParams(queryParams))
+     } else {
+       val req = decodeBody(httpReq.body)
+       if (isFtv1Request(httpReq)) req.map(_.withFederatedTracing)
+       else req
+     }).tap(r => ZIO.fail(EmptyRequestErrorResponse).when(r.isEmpty))
+
   }
 
   private def transformUploadRequest(
@@ -136,7 +139,7 @@ final private class QuickRequestHandler[-R, E](interpreter: GraphQLInterpreter[R
 
   private def executeRequest(method: Method, req: GraphQLRequest)(implicit
     trace: Trace
-  ): ZIO[R, Response, GraphQLResponse[E]] = {
+  ): ZIO[R, Response, GraphQLResponse[Any]] = {
     val calibanMethod = if (method == Method.GET) HttpRequestMethod.GET else HttpRequestMethod.POST
     HttpRequestMethod.setWith(calibanMethod)(interpreter.executeRequest(req))
   }
@@ -144,13 +147,12 @@ final private class QuickRequestHandler[-R, E](interpreter: GraphQLInterpreter[R
   private def responseHeaders(headers: Headers, cacheDirective: Option[String]): Headers =
     cacheDirective.fold(headers)(headers.addHeader(Header.CacheControl.name, _))
 
-  private def transformResponse(httpReq: Request, resp: GraphQLResponse[E])(implicit trace: Trace): Response = {
-    def acceptsGqlJson: Boolean =
-      httpReq.header(Header.Accept).exists { h =>
-        h.mimeTypes.exists { mt =>
-          mt.mediaType.subType.equalsIgnoreCase("graphql-response+json") &&
-          mt.mediaType.mainType.equalsIgnoreCase("application")
-        }
+  private def transformResponse(httpReq: Request, resp: GraphQLResponse[Any])(implicit trace: Trace): Response = {
+
+    val acceptsGqlJson: Boolean =
+      httpReq.headers.get(Header.Accept.name).exists { h =>
+        // Better performance than having to parse the Accept header
+        h.length >= 33 && h.toLowerCase.contains("application/graphql-response+json")
       }
 
     val cacheDirective = HttpUtils.computeCacheDirective(resp.extensions)
@@ -181,7 +183,7 @@ final private class QuickRequestHandler[-R, E](interpreter: GraphQLInterpreter[R
   }
 
   private def encodeSingleResponse(
-    resp: GraphQLResponse[E],
+    resp: GraphQLResponse[Any],
     keepDataOnErrors: Boolean,
     hasCacheDirective: Boolean
   ): Body = {
@@ -190,7 +192,7 @@ final private class QuickRequestHandler[-R, E](interpreter: GraphQLInterpreter[R
   }
 
   private def encodeMultipartMixedResponse(
-    resp: GraphQLResponse[E],
+    resp: GraphQLResponse[Any],
     stream: ZStream[Any, Throwable, ResponseValue]
   )(implicit trace: Trace): ZStream[Any, Throwable, Byte] = {
     import HttpUtils.DeferMultipart._
@@ -226,15 +228,20 @@ object QuickRequestHandler {
   private val BodyDecodeErrorResponse =
     badRequest("Failed to decode json body")
 
+  private val EmptyRequestErrorResponse =
+    badRequest("No GraphQL query to execute")
+
   private implicit val inputObjectCodec: JsonValueCodec[InputValue.ObjectValue] =
     new JsonValueCodec[InputValue.ObjectValue] {
+      private val inputValueCodec = ValueJsoniter.inputValueCodec
+
       override def decodeValue(in: JsonReader, default: InputValue.ObjectValue): InputValue.ObjectValue =
-        ValueJsoniter.inputValueCodec.decodeValue(in, default) match {
+        inputValueCodec.decodeValue(in, default) match {
           case o: InputValue.ObjectValue => o
           case _                         => in.decodeError("expected json object")
         }
       override def encodeValue(x: InputValue.ObjectValue, out: JsonWriter): Unit                        =
-        ValueJsoniter.inputValueCodec.encodeValue(x, out)
+        inputValueCodec.encodeValue(x, out)
       override def nullValue: InputValue.ObjectValue                                                    =
         null.asInstanceOf[InputValue.ObjectValue]
     }

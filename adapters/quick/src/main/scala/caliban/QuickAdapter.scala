@@ -4,7 +4,7 @@ import caliban.Configurator.ExecutionConfiguration
 import zio._
 import zio.http._
 
-final class QuickAdapter[-R, E] private (requestHandler: QuickRequestHandler[R, E]) {
+final class QuickAdapter[-R] private (requestHandler: QuickRequestHandler[R]) {
 
   /**
    * Converts this adapter to a [[QuickHandlers]] which contains [[zio.http.RequestHandler]]s for manually constructing zio-http routes
@@ -63,10 +63,10 @@ final class QuickAdapter[-R, E] private (requestHandler: QuickRequestHandler[R, 
       .serve[R](toApp(apiPath, graphiqlPath = graphiqlPath, uploadPath = uploadPath))
       .provideSomeLayer[R](Server.defaultWithPort(port))
 
-  def configure(config: ExecutionConfiguration)(implicit trace: Trace): QuickAdapter[R, E] =
+  def configure(config: ExecutionConfiguration)(implicit trace: Trace): QuickAdapter[R] =
     new QuickAdapter(requestHandler.configure(config))
 
-  def configure[R1](configurator: QuickAdapter.Configurator[R1])(implicit trace: Trace): QuickAdapter[R & R1, E] =
+  def configure[R1](configurator: QuickAdapter.Configurator[R1])(implicit trace: Trace): QuickAdapter[R & R1] =
     new QuickAdapter(requestHandler.configure[R1](configurator))
 
 }
@@ -74,23 +74,23 @@ final class QuickAdapter[-R, E] private (requestHandler: QuickRequestHandler[R, 
 object QuickAdapter {
   type Configurator[-R] = URIO[R & Scope, Unit]
 
-  def apply[R, E](interpreter: GraphQLInterpreter[R, E]): QuickAdapter[R, E] =
+  def apply[R](interpreter: GraphQLInterpreter[R, Any]): QuickAdapter[R] =
     new QuickAdapter(new QuickRequestHandler(interpreter))
 
-  def handlers[R](implicit tag: Tag[R], trace: Trace): URIO[QuickAdapter[R, CalibanError], QuickHandlers[R]] =
+  def handlers[R](implicit tag: Tag[R], trace: Trace): URIO[QuickAdapter[R], QuickHandlers[R]] =
     ZIO.serviceWith(_.handlers)
 
   def default[R](implicit
     tag: Tag[R],
     trace: Trace
-  ): ZLayer[GraphQL[R], CalibanError.ValidationError, QuickAdapter[R, CalibanError]] = ZLayer.fromZIO(
+  ): ZLayer[GraphQL[R], CalibanError.ValidationError, QuickAdapter[R]] = ZLayer.fromZIO(
     ZIO.serviceWithZIO(_.interpreter.map(QuickAdapter(_)))
   )
 
   def live[R](implicit
     tag: Tag[R],
     trace: Trace
-  ): ZLayer[GraphQL[R] & ExecutionConfiguration, CalibanError.ValidationError, QuickAdapter[R, CalibanError]] =
+  ): ZLayer[GraphQL[R] & ExecutionConfiguration, CalibanError.ValidationError, QuickAdapter[R]] =
     ZLayer.fromZIO(
       for {
         config      <- ZIO.service[ExecutionConfiguration]
