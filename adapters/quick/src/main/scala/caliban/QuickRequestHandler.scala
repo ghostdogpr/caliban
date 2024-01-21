@@ -9,6 +9,7 @@ import caliban.wrappers.Caching
 import com.github.plokhotnyuk.jsoniter_scala.core._
 import com.github.plokhotnyuk.jsoniter_scala.macros.JsonCodecMaker
 import zio._
+import zio.http.Header.ContentType
 import zio.http._
 import zio.stacktracer.TracingImplicits.disableAutoTrace
 import zio.stream.ZStream
@@ -71,9 +72,15 @@ final private class QuickRequestHandler[-R](interpreter: GraphQLInterpreter[R, A
           .flatMap(arr => ZIO.attempt(readFromArray[GraphQLRequest](arr)))
           .orElseFail(BodyDecodeErrorResponse)
 
-      val isApplicationGql = body.mediaType.exists { mt =>
-        mt.subType.equalsIgnoreCase("graphql") && mt.mainType.equalsIgnoreCase("application")
-      }
+      val isApplicationGql =
+        httpReq.headers.get(ContentType.name).exists { h =>
+          h.length >= 19 && { // Length of "application/graphql"
+            MediaType.forContentType(h).exists { mt =>
+              mt.subType.equalsIgnoreCase("graphql") &&
+              mt.mainType.equalsIgnoreCase("application")
+            }
+          }
+        }
 
       if (isApplicationGql) decodeApplicationGql() else decodeJson()
     }
