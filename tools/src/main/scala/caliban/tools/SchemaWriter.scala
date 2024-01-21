@@ -343,7 +343,9 @@ object SchemaWriter {
         }
 
       val typesafeClasses = (fromObjects ++ fromInputTypes)
-        .distinctBy(_.directive.arguments("name").toInputString)
+        .groupBy(_.directive.arguments("name").toInputString)
+        .map(_._2.head)
+        .toList
         .sortBy(_.directive.arguments("name").toInputString)
         .map(fieldAndDirective => writeTypesafeClasses(fieldAndDirective.fieldType, fieldAndDirective.directive))
         .mkString("\n")
@@ -400,27 +402,26 @@ object SchemaWriter {
       inputs.length + interfacesStr.length > 0
     val hasOperations    = queries.length + mutations.length + subscriptions.length > 0
 
-    val typesAndOperations =
-      s"""
+    val typesAndOperations = s"""
       ${if (hasTypes)
-        "object Types {\n" +
-          argsTypes + "\n" +
-          typesafeClasses +
-          objects + "\n" +
-          inputs + "\n" +
-          unions + "\n" +
-          interfacesStr + "\n" +
-          enums + "\n" +
-          "\n}\n"
-      else ""}
+      "object Types {\n" +
+        argsTypes + "\n" +
+        typesafeClasses +
+        objects + "\n" +
+        inputs + "\n" +
+        unions + "\n" +
+        interfacesStr + "\n" +
+        enums + "\n" +
+        "\n}\n"
+    else ""}
 
       ${if (hasOperations)
-        "object Operations {\n" +
-          queries + "\n\n" +
-          mutations + "\n\n" +
-          subscriptions + "\n" +
-          "\n}"
-      else ""}
+      "object Operations {\n" +
+        queries + "\n\n" +
+        mutations + "\n\n" +
+        subscriptions + "\n" +
+        "\n}"
+    else ""}
       """
 
     s"""${packageName.fold("")(p => s"package $p\n\n")}
@@ -441,16 +442,16 @@ object SchemaWriter {
   }
 
   /* Get types for all subfields of an object
-      object A {
-        field b: B
-        field c: String
-      }
+    object A {
+      field b: B
+      field c: String
+    }
 
-      object B {
-        field d: Int
-      }
+    object B {
+      field d: Int
+    }
 
-      result: Set(B, String, Int)
+    result: Set(B, String, Int)
    */
   private def findNestedFieldTypes(
     definition: TypeDefinition,
