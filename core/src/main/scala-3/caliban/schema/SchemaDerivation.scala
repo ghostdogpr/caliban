@@ -64,7 +64,7 @@ trait CommonSchemaDerivation {
       case (_: EmptyTuple, _)                 => values.reverse
       case (_: (name *: names), _: (t *: ts)) =>
         recurseProduct[R, P, names, ts] {
-          inline if (Macros.isFieldExcluded[P, name]) values
+          inline if (Macros.isFieldExcluded[R, P, name]) values
           else
             (
               constValue[name].toString,
@@ -116,6 +116,10 @@ trait CommonSchemaDerivation {
     }
 }
 
+object SchemaDerivation {
+  trait Tagged[R, T] extends SchemaDerivation[R & T]
+}
+
 trait SchemaDerivation[R] extends CommonSchemaDerivation {
   inline def apply[A]: Schema[R, A] = summonInline[Schema[R, A]]
 
@@ -129,6 +133,15 @@ trait SchemaDerivation[R] extends CommonSchemaDerivation {
   object SemiAuto {
     inline def derived[A]: SemiAuto[A]                       = exported(Schema.derived[R, A])
     private def exported[A](impl: Schema[R, A]): SemiAuto[A] = new {
+      export impl.*
+    }
+  }
+
+  sealed trait SemiAutoAlt[A] extends Schema[R, A]
+  object SemiAutoAlt {
+    inline def derived[A]: SemiAutoAlt[A] = exported(Schema.derived[R, A])
+
+    private def exported[A](impl: Schema[R, A]): SemiAutoAlt[A] = new {
       export impl.*
     }
   }

@@ -12,4 +12,5 @@ trait AnnotationsVersionSpecific {
    */
   case class GQLField() extends StaticAnnotation
 
+  case class GQLTag[A]() extends StaticAnnotation
 }

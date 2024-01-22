@@ -8,7 +8,7 @@ import caliban.schema.Types.collectTypes
 import caliban.schema._
 import caliban.wrappers.Wrapper
 
-package object caliban {
+package object caliban extends CalibanVersionSpecific {
 
   /**
    * Builds a GraphQL API for the given resolver.
@@ -16,6 +16,7 @@ package object caliban {
    * It requires an instance of [[caliban.schema.Schema]] for each operation type.
    * This schema will be derived by Magnolia automatically.
    */
+
   def graphQL[R, Q, M, S: SubscriptionSchema](
     resolver: RootResolver[Q, M, S],
     directives: List[__Directive] = Nil,

@@ -1,31 +1,53 @@
 package caliban.schema.macros
 
-import caliban.schema.Annotations.{ GQLExcluded, GQLField }
+import caliban.schema.Annotations.{ GQLExcluded, GQLField, GQLTag }
 import caliban.schema.Schema
 
+import scala.compiletime.summonInline
 import scala.quoted.*
 
 export magnolia1.TypeInfo
 
 object Macros {
-  inline def isFieldExcluded[P, T]: Boolean = ${ isFieldExcludedImpl[P, T] }
-  inline def isEnumField[P, T]: Boolean     = ${ isEnumFieldImpl[P, T] }
-  inline def implicitExists[T]: Boolean     = ${ implicitExistsImpl[T] }
-  inline def hasAnnotation[T, Ann]: Boolean = ${ hasAnnotationImpl[T, Ann] }
+  inline def isFieldExcluded[R, P, T]: Boolean = ${ isFieldExcludedImpl[R, P, T] }
+  inline def isEnumField[P, T]: Boolean        = ${ isEnumFieldImpl[P, T] }
+  inline def implicitExists[T]: Boolean        = ${ implicitExistsImpl[T] }
+  inline def hasAnnotation[T, Ann]: Boolean    = ${ hasAnnotationImpl[T, Ann] }
 
   inline def fieldsFromMethods[R, T]: List[(String, List[Any], Schema[R, ?])] = ${ fieldsFromMethodsImpl[R, T] }
 
   /**
    * Tests whether type argument [[FieldT]] in [[Parent]] is annotated with [[GQLExcluded]]
    */
-  private def isFieldExcludedImpl[Parent: Type, FieldT: Type](using qctx: Quotes): Expr[Boolean] = {
+  private def isFieldExcludedImpl[R: Type, Parent: Type, FieldT: Type](using qctx: Quotes): Expr[Boolean] = {
     import qctx.reflect.*
     val fieldName = Type.valueOfConstant[FieldT]
     val annSymbol = TypeRepr.of[GQLExcluded].typeSymbol
-    Expr(TypeRepr.of[Parent].typeSymbol.primaryConstructor.paramSymss.flatten.exists { v =>
+    val paramSyms = TypeRepr
+      .of[Parent]
+      .typeSymbol
+      .primaryConstructor
+      .paramSymss
+      .flatten
+      .filter(v => fieldName.map(_ == v.name).getOrElse(false))
+
+    def hasExcludedAnn = paramSyms.exists { v =>
       fieldName.map(_ == v.name).getOrElse(false)
       && v.getAnnotation(annSymbol).isDefined
-    })
+    }
+
+    def noTagsOrTagFound = {
+      val tags = paramSyms.flatMap(_.annotations).filter(_.tpe <:< TypeRepr.of[GQLTag[?]])
+
+      tags.isEmpty || tags.exists { tag =>
+        val tagTpe = tag.tpe.typeArgs.head
+        tagTpe.asType match {
+          case '[f] => TypeRepr.of[R] <:< TypeRepr.of[f]
+        }
+      }
+    }
+
+    Expr(hasExcludedAnn || !noTagsOrTagFound)
   }
 
   private def hasAnnotationImpl[T: Type, Ann: Type](using qctx: Quotes): Expr[Boolean] = {
