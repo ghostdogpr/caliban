@@ -1,0 +1,3 @@
+package caliban
+
+trait CalibanVersionSpecific
