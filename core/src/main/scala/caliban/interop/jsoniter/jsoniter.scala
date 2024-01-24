@@ -36,6 +36,10 @@ private[caliban] object ValueJsoniter {
   private val emptyResponseList   = ResponseValue.ListValue(Nil)
   private val emptyResponseObject = ResponseValue.ObjectValue(Nil)
 
+  private def decrDepth(depth: Int, out: JsonWriter): Int =
+    if (depth == 0) out.encodeError("depth limit exceeded")
+    else depth - 1
+
   private def encodeInputValue(x: InputValue, out: JsonWriter, depth: Int): Unit = x match {
     case StringValue(value)                 => out.writeVal(value)
     case BooleanValue(value)                => out.writeVal(value)
@@ -47,24 +51,31 @@ private[caliban] object ValueJsoniter {
     case FloatValue.BigDecimalNumber(value) => out.writeVal(value)
     case NullValue                          => out.writeNull()
     case EnumValue(value)                   => out.writeVal(value)
-    case InputValue.ListValue(l)            =>
-      val depthM1 = depth - 1
-      if (depthM1 < 0) out.encodeError("depth limit exceeded")
-      out.writeArrayStart()
-      l.foreach(encodeInputValue(_, out, depthM1))
-      out.writeArrayEnd()
-    case InputValue.ObjectValue(o)          =>
-      val depthM1  = depth - 1
-      if (depthM1 < 0) out.encodeError("depth limit exceeded")
-      out.writeObjectStart()
-      val iterator = o.iterator
-      while (iterator.hasNext) {
-        val (k, v) = iterator.next()
-        out.writeKey(k)
-        encodeInputValue(v, out, depthM1)
-      }
-      out.writeObjectEnd()
+    case InputValue.ObjectValue(o)          => writeInputObject(o, out, decrDepth(depth, out))
+    case InputValue.ListValue(l)            => writeInputArray(l, out, decrDepth(depth, out))
     case InputValue.VariableValue(v)        => out.writeVal(v)
+  }
+
+  private def writeInputArray(l: List[InputValue], out: JsonWriter, depth: Int): Unit = {
+    out.writeArrayStart()
+    var remaining = l
+    while (remaining ne Nil) {
+      val head = remaining.head
+      remaining = remaining.tail
+      encodeInputValue(head, out, depth)
+    }
+    out.writeArrayEnd()
+  }
+
+  private def writeInputObject(m: Map[String, InputValue], out: JsonWriter, depth: Int): Unit = {
+    out.writeObjectStart()
+    val iter = m.iterator
+    while (iter.hasNext) {
+      val (k, v) = iter.next()
+      out.writeKey(k)
+      encodeInputValue(v, out, depth)
+    }
+    out.writeObjectEnd()
   }
 
   private def encodeResponseValue(x: ResponseValue, out: JsonWriter, depth: Int): Unit = x match {
@@ -78,25 +89,32 @@ private[caliban] object ValueJsoniter {
     case FloatValue.BigDecimalNumber(value) => out.writeVal(value)
     case NullValue                          => out.writeNull()
     case EnumValue(value)                   => out.writeVal(value)
-    case ResponseValue.ListValue(l)         =>
-      val depthM1 = depth - 1
-      if (depthM1 < 0) out.encodeError("depth limit exceeded")
-      out.writeArrayStart()
-      l.foreach(encodeResponseValue(_, out, depthM1))
-      out.writeArrayEnd()
-    case ResponseValue.ObjectValue(o)       =>
-      val depthM1   = depth - 1
-      if (depthM1 < 0) out.encodeError("depth limit exceeded")
-      out.writeObjectStart()
-      var remaining = o
-      while (!remaining.isEmpty) {
-        val (k, v) = remaining.head
-        out.writeKey(k)
-        encodeResponseValue(v, out, depthM1)
-        remaining = remaining.tail
-      }
-      out.writeObjectEnd()
+    case ResponseValue.ObjectValue(o)       => writeResponseObject(o, out, decrDepth(depth, out))
+    case ResponseValue.ListValue(l)         => writeResponseArray(l, out, decrDepth(depth, out))
     case s: ResponseValue.StreamValue       => out.writeVal(s.toString)
+  }
+
+  private def writeResponseArray(l: List[ResponseValue], out: JsonWriter, depth: Int): Unit = {
+    out.writeArrayStart()
+    var remaining = l
+    while (remaining ne Nil) {
+      val head = remaining.head
+      remaining = remaining.tail
+      encodeResponseValue(head, out, depth)
+    }
+    out.writeArrayEnd()
+  }
+
+  private def writeResponseObject(l: List[(String, ResponseValue)], out: JsonWriter, depth: Int): Unit = {
+    out.writeObjectStart()
+    var remaining = l
+    while (remaining ne Nil) {
+      val (k, v) = remaining.head
+      remaining = remaining.tail
+      out.writeKey(k)
+      encodeResponseValue(v, out, depth)
+    }
+    out.writeObjectEnd()
   }
 
   private def decodeInputValue(in: JsonReader, depth: Int): InputValue =
