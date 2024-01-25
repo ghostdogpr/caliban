@@ -6,21 +6,20 @@ case class Directive(name: String, arguments: Map[String, InputValue] = Map.empt
 
 object Directives {
 
-  val LazyDirective      = "lazy"
-  val TypesafeDirective  = "typesafe"
-  val DeprecatedDiretive = "deprecated"
+  val LazyDirective       = "lazy"
+  val NewtypeDirective    = "newtype"
+  val DeprecatedDirective = "deprecated"
 
   def isDeprecated(directives: List[Directive]): Boolean =
-    directives.exists(_.name == DeprecatedDiretive)
+    directives.exists(_.name == DeprecatedDirective)
 
   def deprecationReason(directives: List[Directive]): Option[String] =
-    findDirective(directives, DeprecatedDiretive, "reason")
+    findDirective(directives, DeprecatedDirective, "reason")
 
-  def isTypesafe(directives: List[Directive]): Boolean          =
-    directives.exists(_.name == TypesafeDirective)
-  def typesafeName(directives: List[Directive]): Option[String] =
-    Directives
-      .findDirective(directives, TypesafeDirective, "name")
+  def isNewType(directives: List[Directive]): Boolean          =
+    directives.exists(_.name == NewtypeDirective)
+  def newTypeName(directives: List[Directive]): Option[String] =
+    findDirective(directives, NewtypeDirective, "name")
 
   private def findDirective(directives: List[Directive], name: String, argument: String): Option[String] =
     directives.collectFirst {

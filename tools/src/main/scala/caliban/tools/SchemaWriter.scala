@@ -2,7 +2,7 @@ package caliban.tools
 
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
-import caliban.parsing.adt.Directives.{ LazyDirective, TypesafeDirective }
+import caliban.parsing.adt.Directives.{ LazyDirective, NewtypeDirective }
 import caliban.parsing.adt.Type.{ ListType, NamedType }
 import caliban.parsing.adt.{ Directive, Directives, Document, Type }
 
@@ -153,7 +153,7 @@ object SchemaWriter {
           .getOrElse(Type.innerType(field.ofType), List.empty)
           .exists(t => hasFieldWithDirective(t, directive))
 
-      val field = resolveTypesafeFieldDef(inputField).getOrElse(inputField)
+      val field = resolveNewTypeFieldDef(inputField).getOrElse(inputField)
 
       val fieldIsEffectWrapped               = field.directives.exists(_.name == LazyDirective)
       val fieldTypeIsEffectTypeParameterized = isEffectTypeAbstract && containsNestedDirective(field, LazyDirective)
@@ -164,39 +164,33 @@ object SchemaWriter {
         case (false, false) => writeType(field.ofType)
       }
 
-      val GQLTypesafeDirective = writeGQLTypesafeDirective(field)
+      val GQLNewTypeDirective = writeGQLNewTypeDirective(field.directives)
 
       if (field.args.nonEmpty) {
-        s"""$GQLTypesafeDirective${writeDescription(field.description)}${if (isMethod) "def " else ""}${safeName(
+        s"""$GQLNewTypeDirective${writeDescription(field.description)}${if (isMethod) "def " else ""}${safeName(
           field.name
         )} : ${argsName(field, of)} => $fieldType"""
       } else {
-        s"""$GQLTypesafeDirective${writeDescription(field.description)}${if (isMethod) "def " else ""}${safeName(
+        s"""$GQLNewTypeDirective${writeDescription(field.description)}${if (isMethod) "def " else ""}${safeName(
           field.name
         )} : $fieldType"""
       }
     }
 
-    def writeGQLTypesafeDirective(field: FieldDefinition) =
-      if (field.directives.exists(_.name == TypesafeDirective)) {
-        val directive = field.directives.filter(_.name == TypesafeDirective).head
-        val fnName    = directive.arguments("name").toInputString.replace("\"", "")
-        writeTypeOfGQLDirective(fnName)
-      } else ""
-
-    def writeTypeOfGQLDirective(fnName: String): String =
-      s"""@GQLDirective(Directive("$TypesafeDirective", Map("name" -> StringValue("${safeName(fnName)}"))))\n"""
+    def writeGQLNewTypeDirective(directives: List[Directive]) =
+      directives
+        .find(_.name == NewtypeDirective)
+        .fold("") { directive =>
+          val fnName = directive.arguments("name").toInputString.replace("\"", "")
+          s"""@GQLDirective(Directive("$NewtypeDirective", Map("name" -> StringValue("${safeName(fnName)}"))))\n"""
+        }
 
     def writeInputValue(value: InputValueDefinition): String = {
-      val GQLTypesafeInputDirective = if (value.directives.exists(_.name == TypesafeDirective)) {
-        val directive = value.directives.filter(_.name == TypesafeDirective).head
-        val fnName    = directive.arguments("name").toInputString.replace("\"", "")
-        writeTypeOfGQLDirective(fnName)
-      } else ""
+      val GQLNewTypeInputDirective = writeGQLNewTypeDirective(value.directives)
 
-      val inputDef = resolveTypesafeInputDef(value).getOrElse(value)
+      val inputDef = resolveNewTypeInputDef(value).getOrElse(value)
 
-      s"""$GQLTypesafeInputDirective${writeDescription(inputDef.description)}${safeName(inputDef.name)} : ${writeType(
+      s"""$GQLNewTypeInputDirective${writeDescription(inputDef.description)}${safeName(inputDef.name)} : ${writeType(
         inputDef.ofType
       )}"""
     }
@@ -204,7 +198,7 @@ object SchemaWriter {
     def writeArguments(field: FieldDefinition, of: TypeDefinition): String = {
       def fields(args: List[InputValueDefinition]): String =
         s"${args.map { arg =>
-          val resolvedArg = resolveTypesafeInputDef(arg).getOrElse(arg)
+          val resolvedArg = resolveNewTypeInputDef(arg).getOrElse(arg)
           s"${safeName(resolvedArg.name)} : ${writeType(resolvedArg.ofType)}"
         }.mkString(", ")}"
 
@@ -215,19 +209,19 @@ object SchemaWriter {
       }
     }
 
-    def writeTypesafeClasses(fieldType: Type, directive: Directive) = {
-      @tailrec def writeTypesafeType(fieldType: Type): String = fieldType match {
+    def writeNewTypeClasses(fieldType: Type, directive: Directive) = {
+      @tailrec def writeTypeOf(fieldType: Type): String = fieldType match {
         case NamedType(name, _) => scalarMappings.flatMap(_.get(name)).getOrElse(name)
-        case ListType(ftype, _) => writeTypesafeType(ftype)
+        case ListType(ftype, _) => writeTypeOf(ftype)
       }
 
-      val fnName       = directive.arguments("name").toInputString.replace("\"", "")
-      val typesafeType = writeTypesafeType(fieldType)
+      val fnName  = safeName(directive.arguments("name").toInputString.replace("\"", ""))
+      val newtype = safeName(writeTypeOf(fieldType))
 
-      s"""case class $fnName(value : $typesafeType) extends AnyVal
+      s"""case class $fnName(value : $newtype) extends AnyVal
          |object $fnName {
-         |    implicit val schema: Schema[Any, $fnName] = summon[Schema[Any, $typesafeType]].contramap(_.value)
-         |    implicit val argBuilder: ArgBuilder[$fnName] = summon[ArgBuilder[$typesafeType]].map($fnName(_))
+         |    implicit val schema: Schema[Any, $fnName] = summon[Schema[Any, $newtype]].contramap(_.value)
+         |    implicit val argBuilder: ArgBuilder[$fnName] = summon[ArgBuilder[$newtype]].map($fnName(_))
          |}""".stripMargin
     }
 
@@ -237,18 +231,18 @@ object SchemaWriter {
         case ListType(nt, opt) => ListType(replaceNameOfInnertype(name, nt), opt)
       }
 
-    def resolveTypesafeFieldDef(field: FieldDefinition): Option[FieldDefinition] =
-      if (Directives.isTypesafe(field.directives)) {
+    def resolveNewTypeFieldDef(field: FieldDefinition): Option[FieldDefinition] =
+      if (Directives.isNewType(field.directives)) {
         Directives
-          .typesafeName(field.directives)
-          .map(typesafeName => field.copy(ofType = replaceNameOfInnertype(typesafeName, field.ofType)))
+          .newTypeName(field.directives)
+          .map(name => field.copy(ofType = replaceNameOfInnertype(name, field.ofType)))
       } else None
 
-    def resolveTypesafeInputDef(field: InputValueDefinition): Option[InputValueDefinition] =
-      if (Directives.isTypesafe(field.directives)) {
+    def resolveNewTypeInputDef(field: InputValueDefinition): Option[InputValueDefinition] =
+      if (Directives.isNewType(field.directives)) {
         Directives
-          .typesafeName(field.directives)
-          .map(typesafeName => field.copy(ofType = replaceNameOfInnertype(typesafeName, field.ofType)))
+          .newTypeName(field.directives)
+          .map(name => field.copy(ofType = replaceNameOfInnertype(name, field.ofType)))
       } else None
 
     def argsName(field: FieldDefinition, od: TypeDefinition): String =
@@ -320,36 +314,36 @@ object SchemaWriter {
         .mkString("\n")
     }
 
-    val typesafeClasses = {
+    val newTypeClasses = {
       case class FieldAndDirective(fieldName: String, fieldType: Type, directive: Directive)
       val fromObjects                             =
         schema.objectTypeDefinitions.flatMap {
           _.fields.collect {
-            case f if f.directives.exists(_.name == TypesafeDirective)                => // FIELD DEFINITION
-              List(FieldAndDirective(f.name, f.ofType, f.directives.filter(_.name == TypesafeDirective).head))
-            case f if f.args.exists(_.directives.exists(_.name == TypesafeDirective)) => // ARGUMENT DEFINITION
+            case f if f.directives.exists(_.name == NewtypeDirective)                => // FIELD DEFINITION
+              List(FieldAndDirective(f.name, f.ofType, f.directives.filter(_.name == NewtypeDirective).head))
+            case f if f.args.exists(_.directives.exists(_.name == NewtypeDirective)) => // ARGUMENT DEFINITION
               f.args.collect {
-                case a if a.directives.exists(_.name == TypesafeDirective) =>
-                  FieldAndDirective(a.name, a.ofType, a.directives.filter(_.name == TypesafeDirective).head)
+                case a if a.directives.exists(_.name == NewtypeDirective) =>
+                  FieldAndDirective(a.name, a.ofType, a.directives.filter(_.name == NewtypeDirective).head)
               }
           }
         }.flatten
       val fromInputTypes: List[FieldAndDirective] =
         schema.inputObjectTypeDefinitions.flatMap {
           _.fields.collect {
-            case f if f.directives.exists(_.name == TypesafeDirective) =>
-              FieldAndDirective(f.name, f.ofType, f.directives.filter(_.name == TypesafeDirective).head)
+            case f if f.directives.exists(_.name == NewtypeDirective) =>
+              FieldAndDirective(f.name, f.ofType, f.directives.filter(_.name == NewtypeDirective).head)
           }
         }
 
-      val typesafeClasses = (fromObjects ++ fromInputTypes)
+      val newtypeClasses = (fromObjects ++ fromInputTypes)
         .groupBy(_.directive.arguments("name").toInputString)
         .map(_._2.head)
         .toList
         .sortBy(_.directive.arguments("name").toInputString)
-        .map(fieldAndDirective => writeTypesafeClasses(fieldAndDirective.fieldType, fieldAndDirective.directive))
+        .map(fieldAndDirective => writeNewTypeClasses(fieldAndDirective.fieldType, fieldAndDirective.directive))
         .mkString("\n")
-      if (typesafeClasses.nonEmpty) typesafeClasses + "\n" else ""
+      if (newtypeClasses.nonEmpty) newtypeClasses + "\n" else ""
     }
 
     val unionTypes = schema.unionTypeDefinitions
@@ -406,7 +400,7 @@ object SchemaWriter {
       ${if (hasTypes)
       "object Types {\n" +
         argsTypes + "\n" +
-        typesafeClasses +
+        newTypeClasses +
         objects + "\n" +
         inputs + "\n" +
         unions + "\n" +
@@ -426,10 +420,10 @@ object SchemaWriter {
 
     s"""${packageName.fold("")(p => s"package $p\n\n")}
           ${if (hasTypes && hasOperations) "import Types._\n" else ""}
-          ${if (typesAndOperations.contains("@GQL") || typesafeClasses.nonEmpty)
+          ${if (typesAndOperations.contains("@GQL") || newTypeClasses.nonEmpty)
       "import caliban.schema.Annotations._\n"
     else ""}
-          ${if (typesafeClasses.nonEmpty)
+          ${if (newTypeClasses.nonEmpty)
       """|import caliban.Value._
          |import caliban.parsing.adt.Directive
          |import caliban.schema.{ArgBuilder, Schema}""".stripMargin
