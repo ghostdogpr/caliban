@@ -9,7 +9,7 @@
 To use, add the following dependency to your `build.sbt` file:
 
 ```scala
-"com.github.ghostdogpr" %% "caliban-federation" % "2.3.1"
+"com.github.ghostdogpr" %% "caliban-federation" % "2.5.1"
 ```
 
 ## Federating
@@ -66,7 +66,7 @@ need to add an `EntityResolver`:
 
 ```scala
 EntityResolver[CharacterService, CharacterArgs, Character](args => 
-  ZQuery.fromEffect(characters.getCharacter(args.name))
+  ZQuery.fromZIO(characters.getCharacter(args.name))
 )  
 ```
 
@@ -76,7 +76,7 @@ fields and potentially optimize the resulting query. You can use the provided he
 ```scala
 EntityResolver.fromMetadata[CharacterArgs](field => args => {
   if (field.fields.forall(_.name == "name")) ZQuery.succeed(Character(args.name, Nil, None))
-  else ZQuery.fromEffect(characters.getCharacter(args.name))
+  else ZQuery.fromZIO(characters.getCharacter(args.name))
 })
 ```
 

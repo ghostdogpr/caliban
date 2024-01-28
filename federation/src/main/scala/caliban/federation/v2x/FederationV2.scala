@@ -47,4 +47,9 @@ object FederationV2 {
     `import` = v2_4.`import` :+ Import("@authenticated") :+ Import("@requiresScopes")
   )
 
+  private[v2x] val v2_6 = Link(
+    url = s"$federationV2Url/v2.6",
+    `import` = v2_5.`import` :+ Import("@policy")
+  )
+
 }

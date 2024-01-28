@@ -2,7 +2,6 @@ package caliban.tools
 
 import caliban.parsing.Parser
 import zio.Task
-import zio.test.Assertion.equalTo
 import zio.test._
 
 object SchemaWriterSpec extends ZIOSpecDefault {
@@ -677,6 +676,54 @@ object SchemaWriterSpec extends ZIOSpecDefault {
         |}""".stripMargin
     ),
     (
+      "recognize @lazy intention and generate side-effecting field with abstracted effect type",
+      gen(
+        """
+        |directive @lazy on FIELD_DEFINITION
+        |
+        |type Foo {
+        |  bar: String!
+        |  baz: String! @lazy
+        |}""",
+        effect = "F",
+        isEffectTypeAbstract = true
+      ),
+      """object Types {
+        |
+        |  final case class Foo[F[_]](bar: String, baz: F[String])
+        |
+        |}"""
+    ),
+    (
+      "generate nested @lazy fields with abstracted effect type",
+      gen(
+        """
+        |directive @lazy on FIELD_DEFINITION
+        |
+        |type Foo {
+        |  bar: Bar!
+        |}
+        |
+        |type Bar {
+        |  baz: Baz! @lazy
+        |}
+        |
+        |type Baz {
+        |  x: String!
+        |  y: String! @lazy
+        |}""",
+        effect = "F",
+        isEffectTypeAbstract = true
+      ),
+      """object Types {
+        |
+        |  final case class Foo[F[_]](bar: Bar[F])
+        |  final case class Bar[F[_]](baz: F[Baz[F]])
+        |  final case class Baz[F[_]](x: String, y: F[String])
+        |
+        |}"""
+    ),
+    (
       "type appears in type union and implements interface",
       gen(
         """
@@ -687,6 +734,7 @@ object SchemaWriterSpec extends ZIOSpecDefault {
         |union AllErrors = Bar | Foo | FooBar
         |
         |interface Error {
+        |  "description"
         |  message: String!
         |}
         |
@@ -721,6 +769,7 @@ object SchemaWriterSpec extends ZIOSpecDefault {
         |  sealed trait AllErrors extends scala.Product with scala.Serializable derives caliban.schema.Schema.SemiAuto
         |  @GQLInterface
         |  sealed trait Error extends scala.Product with scala.Serializable derives caliban.schema.Schema.SemiAuto {
+        |    @GQLDescription("description")
         |    def message: String
         |  }
         |

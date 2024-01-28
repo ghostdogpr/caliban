@@ -105,21 +105,23 @@ import caliban.ZHttpAdapter
 object ExampleApp extends ZIOAppDefault {
   import sttp.tapir.json.circe._
 
-  private val graphiql = Handler.fromStream(ZStream.fromResource("graphiql.html")).toHttp.withDefaultErrorResponse
+  private val graphiql = Handler.fromResource("graphiql.html").sandbox
 
-  override def run =
+  def run =
     (for {
       api         <- StitchingExample.api
       interpreter <- api.interpreter
       _           <-
         Server
           .serve(
-            Http
-              .collectHttp[Request] {
-                case _ -> Root / "api" / "graphql" => ZHttpAdapter.makeHttpService(HttpInterpreter(interpreter))
-                case _ -> Root / "ws" / "graphql"  => ZHttpAdapter.makeWebSocketService(WebSocketInterpreter(interpreter))
-                case _ -> Root / "graphiql"        => graphiql
-              }
+            Routes(
+              Method.ANY / "api" / "graphql" ->
+                ZHttpAdapter.makeHttpService(HttpInterpreter(interpreter)),
+              Method.ANY / "ws" / "graphql"  ->
+                ZHttpAdapter.makeWebSocketService(WebSocketInterpreter(interpreter)),
+              Method.ANY / "graphiql"        ->
+                graphiql
+            ).toHttpApp
           )
     } yield ())
       .provide(
@@ -127,5 +129,4 @@ object ExampleApp extends ZIOAppDefault {
         Configuration.fromEnvironment,
         Server.default
       )
-      .exitCode
 }

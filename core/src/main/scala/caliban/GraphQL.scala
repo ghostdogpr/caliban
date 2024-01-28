@@ -13,6 +13,7 @@ import caliban.schema._
 import caliban.validation.Validator
 import caliban.wrappers.Wrapper
 import caliban.wrappers.Wrapper._
+import zio.stacktracer.TracingImplicits.disableAutoTrace
 import zio.{ IO, Trace, URIO, ZIO }
 
 /**
@@ -58,12 +59,10 @@ trait GraphQL[-R] { self =>
    * adding some middleware around the query execution.
    * Fails with a [[caliban.CalibanError.ValidationError]] if the schema is invalid.
    */
-  final def interpreter(implicit trace: Trace): IO[ValidationError, GraphQLInterpreter[R, CalibanError]] = {
-    val i = cachedInterpreter
-    ZIO.fromEither(i)
-  }
+  final def interpreter(implicit trace: Trace): IO[ValidationError, GraphQLInterpreter[R, CalibanError]] =
+    ZIO.fromEither(interpreterEither)
 
-  private lazy val cachedInterpreter =
+  private[caliban] final lazy val interpreterEither =
     Validator.validateSchemaEither(schemaBuilder).map { schema =>
       new GraphQLInterpreter[R, CalibanError] {
         private val rootType =
@@ -87,7 +86,9 @@ trait GraphQL[-R] { self =>
             _             <- Validator.validate(document, typeToValidate)
           } yield ()
 
-        private def checkHttpMethod(cfg: ExecutionConfiguration)(req: ExecutionRequest): IO[ValidationError, Unit] =
+        private def checkHttpMethod(cfg: ExecutionConfiguration)(req: ExecutionRequest)(implicit
+          trace: Trace
+        ): IO[ValidationError, Unit] =
           ZIO
             .when(req.operationType == OperationType.Mutation && !cfg.allowMutationsOverGetRequests) {
               HttpRequestMethod.get.flatMap {

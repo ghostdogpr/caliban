@@ -1,7 +1,7 @@
 package caliban
 
 import caliban.ResponseValue.{ ListValue, ObjectValue }
-import caliban.Value.{ IntValue, StringValue }
+import caliban.Value.StringValue
 import caliban.interop.circe.{ IsCirceDecoder, IsCirceEncoder }
 import caliban.interop.jsoniter.IsJsoniterCodec
 import caliban.interop.play.{ IsPlayJsonReads, IsPlayJsonWrites }
@@ -68,7 +68,7 @@ object CalibanError {
    */
   case class ExecutionError(
     msg: String,
-    path: List[Either[String, Int]] = Nil,
+    path: List[PathValue] = Nil,
     locationInfo: Option[LocationInfo] = None,
     innerThrowable: Option[Throwable] = None,
     extensions: Option[ObjectValue] = None
@@ -80,15 +80,7 @@ object CalibanError {
         List(
           "message"    -> Some(StringValue(msg)),
           "locations"  -> locationInfo.map(li => ListValue(List(li.toResponseValue))),
-          "path"       -> Some(path).collect {
-            case p if p.nonEmpty =>
-              ListValue(
-                p.map {
-                  case Left(value)  => StringValue(value)
-                  case Right(value) => IntValue(value)
-                }
-              )
-          },
+          "path"       -> Some(path).collect { case p if p.nonEmpty => ListValue(p) },
           "extensions" -> extensions
         ).collect { case (name, Some(v)) => name -> v }
       )

@@ -2,8 +2,8 @@ package caliban.interop.play
 
 import caliban.CalibanError.ExecutionError
 import caliban.ResponseValue.{ ListValue, ObjectValue }
-import caliban.{ CalibanError, GraphQLResponse, Value }
-import caliban.Value.StringValue
+import caliban.{ CalibanError, GraphQLResponse, PathValue, Value }
+import caliban.Value.{ IntValue, StringValue }
 import caliban.parsing.adt.LocationInfo
 import play.api.libs.json._
 import zio.test.Assertion._
@@ -87,11 +87,11 @@ object GraphQLResponsePlaySpec extends ZIOSpecDefault {
           isRight(
             equalTo(
               GraphQLResponse(
-                data = ObjectValue(List("value" -> Value.IntValue("42"))),
+                data = ObjectValue(List("value" -> Value.IntValue(42))),
                 errors = List(
                   ExecutionError(
                     "boom",
-                    path = List(Left("step"), Right(0)),
+                    path = List(PathValue.Key("step"), PathValue.Index(0)),
                     locationInfo = Some(LocationInfo(1, 2)),
                     extensions = Some(
                       ObjectValue(

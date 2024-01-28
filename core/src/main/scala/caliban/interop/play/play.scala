@@ -1,16 +1,13 @@
 package caliban.interop.play
 
-import caliban.Value.{ BooleanValue, EnumValue, FloatValue, IntValue, NullValue, StringValue }
+import caliban.Value._
+import caliban._
 import caliban.introspection.adt.__Type
 import caliban.parsing.adt.LocationInfo
-import caliban.schema.Step.QueryStep
 import caliban.schema.Types.makeScalar
-import caliban.schema.{ ArgBuilder, PureStep, Schema, Step }
-import caliban._
-import play.api.libs.json.{ JsPath, JsValue, Json, JsonValidationError, Reads, Writes }
+import caliban.schema.{ ArgBuilder, Schema, Step }
 import play.api.libs.functional.syntax._
-import zio.ZIO
-import zio.query.ZQuery
+import play.api.libs.json._
 
 import scala.util.Try
 
@@ -42,8 +39,7 @@ object json {
         .map(parsingException)
 
     override def toType(isInput: Boolean, isSubscription: Boolean): __Type = makeScalar("Json")
-    override def resolve(value: JsValue): Step[Any]                        =
-      QueryStep(ZQuery.fromZIO(ZIO.fromEither(parse(value))).map(PureStep.apply))
+    override def resolve(value: JsValue): Step[Any]                        = Step.fromEither(parse(value))
   }
   implicit val jsonArgBuilder: ArgBuilder[JsValue] = (input: InputValue) => Right(Json.toJson(input))
 
@@ -165,8 +161,8 @@ object json {
             .value
             .toList
             .map {
-              case JsString(s)  => Left(s)
-              case JsNumber(bd) => Right(bd.toInt)
+              case JsString(s)  => PathValue.Key(s)
+              case JsNumber(bd) => PathValue.Index(bd.toInt)
               case _            => throw new Exception("invalid json")
             },
           locationInfo = e.locations.flatMap(_.headOption),
@@ -178,7 +174,6 @@ object json {
 
   private[caliban] object GraphQLResponsePlayJson {
     import play.api.libs.json._
-    import play.api.libs.json.Json.toJson
 
     val graphQLResponseWrites: Writes[GraphQLResponse[Any]] =
       Writes(r => ValuePlayJson.responseValueWrites.writes(r.toResponseValue))

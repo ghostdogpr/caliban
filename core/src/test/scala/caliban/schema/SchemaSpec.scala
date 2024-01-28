@@ -1,20 +1,20 @@
 package caliban.schema
 
-import java.util.UUID
 import caliban.Value.StringValue
 import caliban._
 import caliban.introspection.adt.{ __DeprecatedArgs, __Type, __TypeKind }
 import caliban.parsing.adt.Directive
-import caliban.schema.Annotations.{ GQLDirective, GQLExcluded, GQLInterface, GQLUnion, GQLValueType }
-import caliban.schema.Schema.auto._
+import caliban.schema.Annotations._
 import caliban.schema.ArgBuilder.auto._
+import caliban.schema.Schema.auto._
 import play.api.libs.json.JsValue
+import zio._
 import zio.query.ZQuery
 import zio.stream.ZStream
 import zio.test.Assertion._
 import zio.test._
-import zio._
 
+import java.util.UUID
 import scala.concurrent.Future
 
 object SchemaSpec extends ZIOSpecDefault {
@@ -26,9 +26,19 @@ object SchemaSpec extends ZIOSpecDefault {
           isSome(hasField[__Type, __TypeKind]("kind", _.kind, equalTo(__TypeKind.SCALAR)))
         )
       },
+      test("effectful field as non-nullable") {
+        assert(introspect[EffectfulFieldSchema].fields(__DeprecatedArgs()).toList.flatten.apply(1)._type)(
+          hasField[__Type, __TypeKind]("kind", _.kind, equalTo(__TypeKind.NON_NULL))
+        )
+      },
       test("infallible effectful field") {
         assert(introspect[InfallibleFieldSchema].fields(__DeprecatedArgs()).toList.flatten.headOption.map(_._type))(
           isSome(hasField[__Type, __TypeKind]("kind", _.kind, equalTo(__TypeKind.NON_NULL)))
+        )
+      },
+      test("infallible effectful field as nullable") {
+        assert(introspect[InfallibleFieldSchema].fields(__DeprecatedArgs()).toList.flatten.apply(1)._type)(
+          hasField[__Type, __TypeKind]("kind", _.kind, equalTo(__TypeKind.SCALAR))
         )
       },
       test("tricky case with R") {
@@ -87,7 +97,12 @@ object SchemaSpec extends ZIOSpecDefault {
         )
       },
       test("interface only take fields that return the same type") {
-        assertTrue(introspect[MyInterface].fields(__DeprecatedArgs()).toList.flatten.map(_.name) == List("c2", "c1"))
+        assertTrue(introspect[MyInterface].fields(__DeprecatedArgs()).toList.flatten.map(_.name) == List("c1", "c2"))
+      },
+      test("excluding fields from interfaces") {
+        assertTrue(
+          introspect[InterfaceWithExclusions].fields(__DeprecatedArgs()).toList.flatten.map(_.name) == List("c1")
+        )
       },
       test("enum-like sealed traits annotated with GQLUnion") {
         assert(introspect[EnumLikeUnion])(
@@ -293,11 +308,85 @@ object SchemaSpec extends ZIOSpecDefault {
                          |  mutBox(value: Int!): Box!
                          |}""".stripMargin
         assertTrue(caliban.renderSchemaWith[Env, EnvironmentSchema, Mutation, Unit]() == expected)
+      },
+      test("custom enum schema") {
+
+        case class Query(myEnum: EnumLikeUnion)
+
+        implicit val myEnumSchema: Schema[Any, EnumLikeUnion] =
+          enumSchema("Foo", Some("foo description"), List(enumValue("A")), repr = _.toString)
+
+        val gql = graphQL(RootResolver(Query(EnumLikeUnion.A)))
+        assertTrue(
+          gql.render ==
+            """schema {
+              |  query: Query
+              |}
+              |
+              |"foo description"
+              |enum Foo {
+              |  A
+              |}
+              |
+              |type Query {
+              |  myEnum: Foo!
+              |}""".stripMargin
+        )
+      },
+      test("nested interfaces") {
+        case class Query(top: NestedInterface, mid1: NestedInterface.Mid1, mid2: NestedInterface.Mid2)
+
+        val v      = NestedInterface.FooB("b", "c", "d")
+        val schema = graphQL(RootResolver(Query(v, v, v))).render
+
+        assertTrue(
+          schema == """schema {
+                      |  query: Query
+                      |}
+                      |
+                      |interface Mid1 {
+                      |  b: String!
+                      |  c: String!
+                      |}
+                      |
+                      |interface Mid2 {
+                      |  b: String!
+                      |  d: String!
+                      |}
+                      |
+                      |interface NestedInterface {
+                      |  b: String!
+                      |}
+                      |
+                      |type FooA implements NestedInterface & Mid1 {
+                      |  a: String!
+                      |  b: String!
+                      |  c: String!
+                      |}
+                      |
+                      |type FooB implements NestedInterface & Mid1 & Mid2 {
+                      |  b: String!
+                      |  c: String!
+                      |  d: String!
+                      |}
+                      |
+                      |type FooC implements NestedInterface & Mid2 {
+                      |  b: String!
+                      |  d: String!
+                      |  e: String!
+                      |}
+                      |
+                      |type Query {
+                      |  top: NestedInterface!
+                      |  mid1: Mid1!
+                      |  mid2: Mid2!
+                      |}""".stripMargin
+        )
       }
     )
 
-  case class EffectfulFieldSchema(q: Task[Int])
-  case class InfallibleFieldSchema(q: UIO[Int])
+  case class EffectfulFieldSchema(q: Task[Int], @GQLNonNullable qAnnotated: Task[Int])
+  case class InfallibleFieldSchema(q: UIO[Int], @GQLNullable qAnnotated: UIO[Int])
   case class FutureFieldSchema(q: Future[Int])
   case class IDSchema(id: UUID)
   trait Env
@@ -307,14 +396,21 @@ object SchemaSpec extends ZIOSpecDefault {
 
   @GQLInterface
   sealed trait MyInterface
-  object MyInterface   {
+  object MyInterface             {
     case class A(c1: Int, c2: Int => Int, d1: Int, d2: Int => Int, d3: Int => Int)      extends MyInterface
     case class B(c1: Int, c2: Int => Int, d1: Boolean, d2: Int, d3: Option[Int] => Int) extends MyInterface
   }
 
+  @GQLInterface(excludedFields = "c2", "c3")
+  sealed trait InterfaceWithExclusions
+  object InterfaceWithExclusions {
+    case class A(c1: Int, c2: String, c3: Int, c5: Int) extends InterfaceWithExclusions
+    case class B(c1: Int, c2: String, c3: Int, c4: Int) extends InterfaceWithExclusions
+  }
+
   @GQLUnion
   sealed trait EnumLikeUnion
-  object EnumLikeUnion {
+  object EnumLikeUnion           {
     case object A extends EnumLikeUnion
     case object B extends EnumLikeUnion
   }
@@ -340,4 +436,20 @@ object SchemaSpec extends ZIOSpecDefault {
 
   def introspect[Q](implicit schema: Schema[Any, Q]): __Type             = schema.toType_()
   def introspectSubscription[Q](implicit schema: Schema[Any, Q]): __Type = schema.toType_(isSubscription = true)
+
+  @GQLInterface
+  sealed trait NestedInterface
+
+  object NestedInterface {
+
+    @GQLInterface
+    sealed trait Mid1 extends NestedInterface
+
+    @GQLInterface
+    sealed trait Mid2 extends NestedInterface
+
+    case class FooA(a: String, b: String, c: String) extends Mid1
+    case class FooB(b: String, c: String, d: String) extends Mid1 with Mid2
+    case class FooC(b: String, d: String, e: String) extends Mid2
+  }
 }

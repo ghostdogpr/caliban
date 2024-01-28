@@ -1,6 +1,6 @@
 package caliban.schema
 
-import caliban.{ graphQL, RootResolver }
+import caliban.{ graphQL, CalibanError, RootResolver }
 import zio.ZIO
 import zio.test.*
 
@@ -73,10 +73,11 @@ object EnumFieldAutoDerivation extends ZIOSpecDefault {
       val gql      = graphQL(resolver)
 
       val q = """query { foo(value: BarB) { value } }"""
-      gql.interpreter.flatMap(_.execute(q)).catchAllDefect(ZIO.fail(_)).either.flatMap {
-        case Right(_)                                 => assertNever("Should have errored")
-        case Left(e) if e.getMessage.contains("boom") => assertCompletes
-        case _                                        => assertNever("wrong error")
+      gql.interpreter.flatMap(_.execute(q)).flatMap {
+        _.errors.headOption match {
+          case Some(e: CalibanError.ExecutionError) => assertTrue(e.innerThrowable == Some(TestError))
+          case _                                    => assertNever("Should have errored")
+        }
       }
     }
   )

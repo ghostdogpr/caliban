@@ -1,13 +1,15 @@
 package caliban.wrappers
 
+import caliban.Value.StringValue
+import caliban._
 import caliban.execution.FieldInfo
 import caliban.wrappers.Wrapper.OverallWrapper
-import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, ResponseValue }
 import zio._
 import zio.metrics.MetricKeyType.Histogram
 import zio.metrics.{ Metric, MetricKey, MetricLabel }
 import zio.query.ZQuery
 
+import java.util.concurrent.atomic.AtomicReference
 import scala.jdk.CollectionConverters._
 
 object FieldMetrics {
@@ -27,9 +29,9 @@ object FieldMetrics {
     def recordFailures(fieldNames: List[String]): UIO[Unit] =
       ZIO.foreachDiscard(fieldNames)(fn => failed.tagged("field", fn).increment)
 
-    def recordSuccesses(nodeOffsets: Map[Vector[Either[String, Int]], Long], timings: List[Timing]): UIO[Unit] =
+    def recordSuccesses(nodeOffsets: Map[Vector[PathValue], Long], timings: List[Timing]): UIO[Unit] =
       ZIO.foreachDiscard(timings) { timing =>
-        val d = timing.duration - nodeOffsets.getOrElse(timing.path :+ Left(timing.name), 0L)
+        val d = timing.duration - nodeOffsets.getOrElse(timing.path :+ StringValue(timing.name), 0L)
         succeeded.tagged(Set(MetricLabel("field", timing.fullName))).increment *>
           duration.tagged(Set(MetricLabel("field", timing.fullName))).update(d / 1e9)
       }
@@ -44,7 +46,7 @@ object FieldMetrics {
 
   private case class Timing(
     name: String,
-    path: Vector[Either[String, Int]],
+    path: Vector[PathValue],
     fullName: String,
     duration: Long
   )
@@ -57,15 +59,17 @@ object FieldMetrics {
   ): Wrapper.EffectfulWrapper[Any] =
     Wrapper.EffectfulWrapper(
       for {
-        timings  <- Ref.make(List.empty[Timing])
-        failures <- Ref.make(List.empty[String])
+        timings  <- ZIO.succeed(new AtomicReference(List.empty[Timing]))
+        failures <- ZIO.succeed(new AtomicReference(List.empty[String]))
+        clock    <- ZIO.clock
         metrics   = new Metrics(totalLabel, durationLabel, buckets, extraLabels)
-      } yield overallWrapper(timings, failures, metrics) |+| fieldWrapper(timings, failures)
+      } yield overallWrapper(timings, failures, metrics) |+|
+        Unsafe.unsafe(implicit us => fieldWrapper(clock.unsafe.nanoTime(), timings, failures))
     )
 
   private def overallWrapper(
-    timings: Ref[List[Timing]],
-    failures: Ref[List[String]],
+    timings: AtomicReference[List[Timing]],
+    failures: AtomicReference[List[String]],
     metrics: Metrics
   ): OverallWrapper[Any] =
     new OverallWrapper[Any] {
@@ -74,18 +78,21 @@ object FieldMetrics {
       ): GraphQLRequest => ZIO[R1, Nothing, GraphQLResponse[CalibanError]] =
         (request: GraphQLRequest) =>
           process(request) <*
-            (for {
-              _          <- failures.get.flatMap(metrics.recordFailures)
-              timings    <- timings.get
-              nodeOffsets = resolveNodeOffsets(timings)
-              _          <- metrics.recordSuccesses(nodeOffsets, timings)
-            } yield ()).forkDaemon
+            ZIO
+              .blocking(for {
+                _          <- ZIO.suspendSucceed(metrics.recordFailures(failures.get))
+                ts         <- ZIO.succeed(timings.get)
+                nodeOffsets = resolveNodeOffsets(ts)
+                _          <- metrics.recordSuccesses(nodeOffsets, ts)
+              } yield ())
+              .forkDaemon
     }
 
-  private def resolveNodeOffsets(timings: List[Timing]): Map[Vector[Either[String, Int]], Long] = {
-    val map       = new java.util.HashMap[Vector[Either[String, Int]], Long]()
+  private def resolveNodeOffsets(timings: List[Timing]): Map[Vector[PathValue], Long] = {
+
+    val map       = new java.util.HashMap[Vector[PathValue], Long]()
     var remaining = timings
-    while (remaining != Nil) {
+    while (!remaining.isEmpty) {
       val t        = remaining.head
       val iter     = t.path.inits
       val duration = t.duration
@@ -94,7 +101,7 @@ object FieldMetrics {
         val segment = iter.next()
         if (!iter.hasNext) {
           continue = false // Last element of `.inits` is an empty list
-        } else if (segment.last.isLeft) { // List indices are not fields so we don't care about recording their offset
+        } else if (segment.last.isKey) { // List indices are not fields so we don't care about recording their offset
           map.compute(
             segment,
             (_, v) =>
@@ -110,7 +117,11 @@ object FieldMetrics {
     map.asScala.toMap
   }
 
-  private def fieldWrapper(timings: Ref[List[Timing]], failures: Ref[List[String]]): Wrapper.FieldWrapper[Any] =
+  private def fieldWrapper(
+    nanoTime: => Long,
+    timings: AtomicReference[List[Timing]],
+    failures: AtomicReference[List[String]]
+  ): Wrapper.FieldWrapper[Any] =
     new Wrapper.FieldWrapper[Any] {
       def wrap[R](
         query: ZQuery[R, CalibanError.ExecutionError, ResponseValue],
@@ -119,26 +130,34 @@ object FieldMetrics {
 
         def fieldName: String = {
           val parent = info.parent.flatMap(_.name).getOrElse("Unknown")
-          new StringBuilder().append(parent).append('.').append(info.name).result()
+          val name   = info.name
+          new StringBuilder(name.length + parent.length + 1).append(parent).append('.').append(name).result()
         }
 
         def makeTiming(duration: Long) =
           Timing(
             name = info.name,
-            path = info.path.view.reverse.toVector,
+            path = info.path.reverse.toVector,
             fullName = fieldName,
             duration = duration
           )
 
-        def recordFailure(e: CalibanError.ExecutionError) =
-          ZQuery.fromZIO(failures.update(fieldName :: _) *> ZIO.fail(e))
-
-        for {
-          summarized        <- query.summarized(Clock.nanoTime)((s, e) => e - s).catchAll(recordFailure)
-          (duration, result) = summarized
-          timing             = makeTiming(duration)
-          _                 <- ZQuery.fromZIO(timings.update(timing :: _))
-        } yield result
+        ZQuery.suspend {
+          val st = nanoTime
+          query.foldQuery(
+            e =>
+              ZQuery.fail {
+                val _ = failures.updateAndGet(fieldName :: _)
+                e
+              },
+            result =>
+              ZQuery.succeed {
+                val t = makeTiming(nanoTime - st)
+                val _ = timings.updateAndGet(t :: _)
+                result
+              }
+          )
+        }
       }
     }
 

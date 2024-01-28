@@ -6,16 +6,18 @@ import caliban.InputValue.ObjectValue
 import caliban.Macros.gqldoc
 import caliban.TestUtils._
 import caliban.Value.{ BooleanValue, IntValue, NullValue, StringValue }
+import caliban._
 import caliban.introspection.adt.__Type
 import caliban.parsing.adt.LocationInfo
 import caliban.schema.Annotations.{ GQLInterface, GQLName, GQLOneOfInput, GQLValueType }
-import caliban.schema._
-import caliban.schema.Schema.auto._
 import caliban.schema.ArgBuilder.auto._
-import caliban._
-import zio.{ FiberRef, IO, Task, UIO, ZIO, ZLayer }
+import caliban.schema.Schema.auto._
+import caliban.schema._
+import zio._
 import zio.stream.ZStream
 import zio.test._
+
+import java.util.UUID
 
 object ExecutionSpec extends ZIOSpecDefault {
 
@@ -468,7 +470,7 @@ object ExecutionSpec extends ZIOSpecDefault {
             response.errors == List(
               ExecutionError(
                 "Effect failure",
-                List(Left("a"), Left("b"), Left("c")),
+                List(StringValue("a"), StringValue("b"), StringValue("c")),
                 Some(LocationInfo(21, 5)),
                 Some(e)
               )
@@ -784,7 +786,7 @@ object ExecutionSpec extends ZIOSpecDefault {
             assertTrue(result.data.toString == """{"user1":{"name":"user","friends":["friend"]},"user2":null}""") &&
               assertTrue(
                 result.errors.collectFirst { case e: ExecutionError => e }.map(_.path).get ==
-                  List(Left("user2"), Left("friends"))
+                  List(StringValue("user2"), StringValue("friends"))
               )
           )
       },
@@ -1263,6 +1265,144 @@ object ExecutionSpec extends ZIOSpecDefault {
             response.data.toString == """{"bases":[{"id":"1","name":"base 1","inner":[{"a":"a"}]},{"id":"2","name":"base 2","inner":[{"b":2}]}]}"""
           )
         }
+      },
+      test("custom enum schemas") {
+        trait MyEnum
+        object MyEnum {
+          case object A extends MyEnum
+          case object B extends MyEnum
+        }
+        implicit val enumSchema: Schema[Any, MyEnum] =
+          Schema.enumSchema("Foo", values = List(enumValue("A")), repr = _.toString)
+
+        case class Query(valid: MyEnum, invalid: MyEnum)
+
+        val api: GraphQL[Any] = graphQL(RootResolver(Query(MyEnum.A, MyEnum.B)))
+
+        for {
+          interpreter <- api.interpreter
+          valid       <- interpreter.execute(gqldoc("""{ valid }"""))
+          invalid     <- interpreter.execute(gqldoc("""{ invalid }"""))
+        } yield assertTrue(
+          valid.data.toString == """{"valid":"A"}""",
+          invalid.data.toString == "null",
+          invalid.errors.nonEmpty
+        )
+      },
+      test("defects set the first nullable parent value to null") {
+        case class Bar(value: UIO[String])
+        case class Foo1(bar: Option[Bar], value: String)
+        case class Query1(foo: Foo1)
+
+        case class Foo2(bar: Bar, value: String)
+        case class Query2(foo: Option[Foo2])
+
+        val boom               = ZIO.die(ExecutionError("boom"))
+        val api1: GraphQL[Any] = graphQL(RootResolver(Query1(Foo1(Some(Bar(boom)), "foo"))))
+        val api2: GraphQL[Any] = graphQL(RootResolver(Query2(Some(Foo2(Bar(boom), "foo")))))
+
+        val query = gqldoc("""{ foo { value bar { value } } }""")
+        for {
+          interpreter1 <- api1.interpreter
+          result1      <- interpreter1.execute(query)
+          data1         = result1.data.toString
+          errors1       = result1.errors.map(_.toResponseValue.toString)
+          interpreter2 <- api2.interpreter
+          result2      <- interpreter2.execute(query)
+          data2         = result2.data.toString
+          errors2       = result2.errors.map(_.toResponseValue.toString)
+        } yield assertTrue(
+          data1 == """{"foo":{"value":"foo","bar":null}}""",
+          errors1 == List(
+            """{"message":"boom","locations":[{"line":1,"column":21}],"path":["foo","bar","value"]}"""
+          ),
+          data2 == """{"foo":null}""",
+          errors2 == List(
+            """{"message":"boom","locations":[{"line":1,"column":21}],"path":["foo","bar","value"]}"""
+          )
+        )
+
+      },
+      test("exceptions from function set the first nullable parent value to null") {
+        case class Bar(value: () => String)
+        case class Foo1(bar: Option[Bar], value: String)
+        case class Query1(foo: Foo1)
+
+        case class Foo2(bar: Bar, value: String)
+        case class Query2(foo: Option[Foo2])
+
+        val boom               = () => throw ExecutionError("boom")
+        val api1: GraphQL[Any] = graphQL(RootResolver(Query1(Foo1(Some(Bar(boom)), "foo"))))
+        val api2: GraphQL[Any] = graphQL(RootResolver(Query2(Some(Foo2(Bar(boom), "foo")))))
+
+        val query = gqldoc("""{ foo { value bar { value } } }""")
+        for {
+          interpreter1 <- api1.interpreter
+          result1      <- interpreter1.execute(query)
+          data1         = result1.data.toString
+          errors1       = result1.errors.map(_.toResponseValue.toString)
+          interpreter2 <- api2.interpreter
+          result2      <- interpreter2.execute(query)
+          data2         = result2.data.toString
+          errors2       = result2.errors.map(_.toResponseValue.toString)
+        } yield assertTrue(
+          data1 == """{"foo":{"value":"foo","bar":null}}""",
+          errors1 == List(
+            """{"message":"boom","locations":[{"line":1,"column":21}],"path":["foo","bar","value"]}"""
+          ),
+          data2 == """{"foo":null}""",
+          errors2 == List(
+            """{"message":"boom","locations":[{"line":1,"column":21}],"path":["foo","bar","value"]}"""
+          )
+        )
+
+      },
+      test("top-level fields are executed sequentially for mutations") {
+        case class Foo(field1: UIO[Unit], field2: UIO[Unit])
+        case class Mutations(
+          mutation1: CharacterArgs => UIO[Foo],
+          mutation2: CharacterArgs => UIO[Foo]
+        )
+
+        val ref                                       = Unsafe.unsafe(implicit u => Ref.unsafe.make(List.empty[String]))
+        def add(name: String, d: Duration = 1.second) = ref.update(name :: _).delay(d)
+        def foo(prefix: String)                       = ZIO.succeed(Foo(add(s"$prefix-f1", 1500.millis), add(s"$prefix-f2", 2.seconds)))
+
+        val interpreter = graphQL(
+          RootResolver(
+            resolverIO.queryResolver,
+            Mutations(
+              _ => add("m1") *> foo("m1"),
+              _ => add("m2") *> foo("m2")
+            )
+          )
+        ).interpreter
+
+        def adjustAndGet(d: Duration = 1.second) = TestClock.adjust(d) *> ref.get
+
+        for {
+          i  <- interpreter
+          _  <- i.execute(gqldoc("""mutation {
+                mutation1(name: "foo") { field1 field2 }
+                mutation2(name: "bar") { field1 field2 }
+              }"""))
+                  .fork
+          r1 <- ref.get
+          r2 <- adjustAndGet()
+          r3 <- adjustAndGet()
+          r4 <- adjustAndGet()
+          r5 <- adjustAndGet()
+          r6 <- adjustAndGet()
+          r7 <- adjustAndGet()
+        } yield assertTrue(
+          r1 == Nil,
+          r2 == List("m1"),
+          r3 == List("m1"),
+          r4 == List("m1-f2", "m1-f1", "m1"),
+          r5 == List("m2", "m1-f2", "m1-f1", "m1"),
+          r6 == List("m2", "m1-f2", "m1-f1", "m1"),
+          r7 == List("m2-f2", "m2-f1", "m2", "m1-f2", "m1-f1", "m1")
+        )
       },
       test("oneOf inputs") {
 

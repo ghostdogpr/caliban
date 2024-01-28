@@ -8,7 +8,7 @@ import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition.{
 }
 import caliban.parsing.adt.Type.NamedType
 
-sealed trait Definition
+sealed trait Definition extends Serializable
 
 object Definition {
   sealed trait ExecutableDefinition extends Definition
@@ -48,7 +48,7 @@ object Definition {
       locations: Set[DirectiveLocation]
     ) extends TypeSystemDefinition
 
-    sealed trait DirectiveLocation
+    sealed trait DirectiveLocation extends Serializable
     object DirectiveLocation {
       sealed trait ExecutableDirectiveLocation extends DirectiveLocation
       object ExecutableDirectiveLocation {

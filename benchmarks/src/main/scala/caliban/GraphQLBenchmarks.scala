@@ -252,7 +252,7 @@ class GraphQLBenchmarks {
       )
     )
 
-    val gql: GraphQL[Any] = graphQL(resolver)
+    val gql: GraphQL[Any]  = graphQL(resolver)
     val document: Document = gql.toDocument
 
     val interpreter: GraphQLInterpreter[Any, CalibanError] = run(gql.interpreter)
@@ -443,6 +443,65 @@ class GraphQLBenchmarks {
     def run[A](io: IO[A]): A = io.unsafeRunSync()(cats.effect.unsafe.IORuntime.global)
   }
 
+  object Gql {
+    import gql._
+    import gql.dsl.all._
+    import gql.ast._
+    import cats.effect._
+    import cats.implicits._
+
+    implicit val origin: Enum[Origin] = enumType[Origin](
+      "Origin",
+      "EARTH" -> enumVal(Origin.EARTH),
+      "MARS"  -> enumVal(Origin.MARS),
+      "BELT"  -> enumVal(Origin.BELT)
+    )
+
+    implicit lazy val character: Type[IO, Character] = tpe[IO, Character](
+      "Character",
+      "name"      -> lift(_.name),
+      "nicknames" -> lift(_.nicknames),
+      "origin"    -> lift(_.origin),
+      "role"      -> lift(_.role)
+    )
+
+    implicit lazy val captain: Type[IO, Role.Captain]   = tpe[IO, Role.Captain](
+      "Captain",
+      "shipName" -> lift(_.shipName)
+    )
+    implicit lazy val pilot: Type[IO, Role.Pilot]       = tpe[IO, Role.Pilot](
+      "Pilot",
+      "shipName" -> lift(_.shipName)
+    )
+    implicit lazy val engineer: Type[IO, Role.Engineer] = tpe[IO, Role.Engineer](
+      "Engineer",
+      "shipName" -> lift(_.shipName)
+    )
+    implicit lazy val mechanic: Type[IO, Role.Mechanic] = tpe[IO, Role.Mechanic](
+      "Mechanic",
+      "shipName" -> lift(_.shipName)
+    )
+
+    implicit lazy val role: Union[IO, Role] = union[IO, Role]("Role").variant { case x: Role.Captain => x }.variant {
+      case x: Role.Pilot => x
+    }.variant { case x: Role.Engineer => x }.variant { case x: Role.Mechanic => x }
+
+    val originArg  = arg[Option[Origin]]("origin")
+    val nameArg    = arg[String]("name")
+    val makeSchema = Schema.query(
+      tpe[IO, Unit](
+        "Query",
+        "characters" -> build.from(
+          arged(originArg).evalMap(origin => IO.pure(Data.characters.filter(c => origin.forall(c.origin == _))))
+        ),
+        "character"  -> build.from(arged(nameArg).evalMap(name => IO.pure(Data.characters.find(c => c.name == name))))
+      )
+    )
+    val schema     = run(makeSchema)
+
+    def run[A](io: IO[A]): A = io.unsafeRunSync()(cats.effect.unsafe.IORuntime.global)
+  }
+
   @Benchmark
   def simpleCaliban(): Unit = {
     val io = Caliban.interpreter.execute(simpleQuery)
@@ -536,6 +595,42 @@ class GraphQLBenchmarks {
   @Benchmark
   def parserGrackle(): Unit = {
     Grackle.compiler.compile(fullIntrospectionQuery)
+    ()
+  }
+
+  @Benchmark
+  def simpleGql(): Unit = {
+    val io = gql.Compiler[IO].compile(Gql.schema, simpleQuery) match {
+      case Right(gql.Application.Query(run)) => run
+      case _                                 => IO.raiseError(new Exception("Failed to compile"))
+    }
+    Gql.run(io)
+    ()
+  }
+
+  @Benchmark
+  def introspectGql(): Unit = {
+    val io = gql.Compiler[IO].compile(Gql.schema, fullIntrospectionQuery) match {
+      case Right(gql.Application.Query(run)) => run
+      case _                                 => IO.raiseError(new Exception("Failed to compile"))
+    }
+    Gql.run(io)
+    ()
+  }
+
+  @Benchmark
+  def fragmentsGql(): Unit = {
+    val io = gql.Compiler[IO].compile(Gql.schema, fragmentsQuery) match {
+      case Right(gql.Application.Query(run)) => run
+      case _                                 => IO.raiseError(new Exception("Failed to compile"))
+    }
+    Gql.run(io)
+    ()
+  }
+
+  @Benchmark
+  def parserGql(): Unit = {
+    gql.parser.parseQuery(fullIntrospectionQuery)
     ()
   }
 }

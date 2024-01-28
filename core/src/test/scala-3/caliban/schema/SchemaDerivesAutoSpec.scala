@@ -38,7 +38,7 @@ object SchemaDerivesAutoSpec extends ZIOSpecDefault {
         case class Queries(field: ZQuery[Clock, Nothing, Field]) derives MySchema.Auto
 
         assert(
-          summon[Schema[Console & Clock, Queries]]
+          MySchema[Queries]
             .toType_()
             .fields(__DeprecatedArgs())
             .toList
@@ -84,7 +84,7 @@ object SchemaDerivesAutoSpec extends ZIOSpecDefault {
         }
         case class B(a: List[Option[consoleSchema.A]]) derives consoleSchema.Auto
 
-        assert(Types.collectTypes(summon[Schema[Console, B]].toType_()).map(_.name.getOrElse("")))(
+        assert(Types.collectTypes(consoleSchema[B].toType_()).map(_.name.getOrElse("")))(
           not(contains("SomeA")) && not(contains("OptionA")) && not(contains("None"))
         )
       },

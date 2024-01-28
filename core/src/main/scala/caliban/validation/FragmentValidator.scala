@@ -4,12 +4,12 @@ import caliban.CalibanError.ValidationError
 import caliban.introspection.adt._
 import caliban.parsing.adt.Selection
 import caliban.validation.Utils._
-import caliban.validation.Utils.syntax._
 import zio.Chunk
-import zio.prelude.EReader
+import zio.prelude._
 import zio.prelude.fx.ZPure
 
 import scala.collection.mutable
+import scala.util.hashing.MurmurHash3
 
 object FragmentValidator {
   def findConflictsWithinSelectionSet(
@@ -24,13 +24,13 @@ object FragmentValidator {
     val groupsCache  = mutable.Map.empty[Int, Chunk[Set[SelectedField]]]
 
     def sameResponseShapeByName(set: Iterable[Selection]): Chunk[String] = {
-      val keyHash = set.hashCode()
+      val keyHash = MurmurHash3.unorderedHash(set)
       shapeCache.get(keyHash) match {
         case Some(value) => value
         case None        =>
           val fields = FieldMap(context, parentType, set)
           val res    = Chunk.fromIterable(fields.flatMap { case (name, values) =>
-            cross(values).flatMap { case (f1, f2) =>
+            cross(values, includeIdentity = true).flatMap { case (f1, f2) =>
               if (doTypesConflict(f1.fieldDef._type, f2.fieldDef._type)) {
                 Chunk(
                   s"$name has conflicting types: ${f1.parentType.name.getOrElse("")}.${f1.fieldDef.name} and ${f2.parentType.name
@@ -46,7 +46,7 @@ object FragmentValidator {
     }
 
     def sameForCommonParentsByName(set: Iterable[Selection]): Chunk[String] = {
-      val keyHash = set.hashCode()
+      val keyHash = MurmurHash3.unorderedHash(set)
       parentsCache.get(keyHash) match {
         case Some(value) => value
         case None        =>
@@ -81,14 +81,14 @@ object FragmentValidator {
         false
 
     def requireSameNameAndArguments(fields: Set[SelectedField]) =
-      cross(fields).flatMap { case (f1, f2) =>
+      cross(fields, includeIdentity = false).flatMap { case (f1, f2) =>
         if (f1.fieldDef.name != f2.fieldDef.name) {
-          List(
+          Some(
             s"${f1.parentType.name.getOrElse("")}.${f1.fieldDef.name} and ${f2.parentType.name.getOrElse("")}.${f2.fieldDef.name} are different fields."
           )
         } else if (f1.selection.arguments != f2.selection.arguments)
-          List(s"${f1.fieldDef.name} and ${f2.fieldDef.name} have different arguments")
-        else List()
+          Some(s"${f1.fieldDef.name} and ${f2.fieldDef.name} have different arguments")
+        else None
       }
 
     def groupByCommonParents(fields: Set[SelectedField]): Chunk[Set[SelectedField]] = {
@@ -109,13 +109,7 @@ object FragmentValidator {
                   _,
                   _
                 ) if isConcrete(field.parentType) =>
-              concreteGroups.get(name) match {
-                case Some(v) => v += field
-                case None    =>
-                  val sb = Set.newBuilder ++= abstractGroup
-                  sb += field
-                  concreteGroups.update(name, sb)
-              }
+              concreteGroups.getOrElseUpdate(name, Set.newBuilder ++= abstractGroup) += field
             case _ => ()
           }
 

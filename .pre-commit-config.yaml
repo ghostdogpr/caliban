@@ -1,0 +1,12 @@
+repos:
+  - repo: local
+    hooks:
+      - id: scalafmt
+        name: scalafmt fix formatting
+        entry: scalafmt
+        args: [ --exclude=target, --mode=changed, --reportError ]
+        language: system
+        stages: [ commit, push ]
+        always_run: true
+        pass_filenames: false
+        minimum_pre_commit_version: '2.8.0'
