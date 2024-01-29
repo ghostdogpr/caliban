@@ -22,6 +22,7 @@ lazy val root = project
           .packageName("graphql")
           .effect("MyZQuery")
           .scalarMapping("ID" -> "String")
+          .addDerives(true)
       )
     )
   )
