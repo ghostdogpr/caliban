@@ -2,14 +2,14 @@ package caliban.tools
 
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
+import caliban.parsing.adt.Directives.{ LazyDirective, NewtypeDirective }
 import caliban.parsing.adt.Type.{ ListType, NamedType }
-import caliban.parsing.adt.{ Document, Type }
+import caliban.parsing.adt.{ Directive, Directives, Document, Type }
 
+import scala.annotation.tailrec
 import scala.collection.compat._
 
 object SchemaWriter {
-
-  private val LazyDirective = "lazy"
 
   def write(
     schema: Document,
@@ -142,8 +142,9 @@ object SchemaWriter {
         }
        """
 
-    def writeField(field: FieldDefinition, of: TypeDefinition, isMethod: Boolean): String = {
+    def writeField(inputField: FieldDefinition, of: TypeDefinition, isMethod: Boolean): String = {
       def containsNestedDirective(
+        field: FieldDefinition,
         directive: String
       ): Boolean =
         typeNameToDefinitionMap.get(Type.innerType(field.ofType)).fold(false) { t =>
@@ -152,29 +153,54 @@ object SchemaWriter {
           .getOrElse(Type.innerType(field.ofType), List.empty)
           .exists(t => hasFieldWithDirective(t, directive))
 
+      val field = resolveNewTypeFieldDef(inputField).getOrElse(inputField)
+
       val fieldIsEffectWrapped               = field.directives.exists(_.name == LazyDirective)
-      val fieldTypeIsEffectTypeParameterized = isEffectTypeAbstract && containsNestedDirective(LazyDirective)
+      val fieldTypeIsEffectTypeParameterized = isEffectTypeAbstract && containsNestedDirective(field, LazyDirective)
       val fieldType                          = (fieldIsEffectWrapped, fieldTypeIsEffectTypeParameterized) match {
         case (true, true)   => s"$effect[${writeParameterizedType(field.ofType)}]"
         case (true, false)  => s"$effect[${writeType(field.ofType)}]"
         case (false, true)  => writeParameterizedType(field.ofType)
         case (false, false) => writeType(field.ofType)
       }
+
+      val GQLNewTypeDirective = writeGQLNewTypeDirective(field.directives)
+
       if (field.args.nonEmpty) {
-        s"${writeDescription(field.description)}${if (isMethod) "def " else ""}${safeName(field.name)} : ${argsName(field, of)} => $fieldType"
+        s"""$GQLNewTypeDirective${writeDescription(field.description)}${if (isMethod) "def " else ""}${safeName(
+          field.name
+        )} : ${argsName(field, of)} => $fieldType"""
       } else {
-        s"""${writeDescription(field.description)}${if (isMethod) "def " else ""}${safeName(
+        s"""$GQLNewTypeDirective${writeDescription(field.description)}${if (isMethod) "def " else ""}${safeName(
           field.name
         )} : $fieldType"""
       }
     }
 
-    def writeInputValue(value: InputValueDefinition): String =
-      s"""${writeDescription(value.description)}${safeName(value.name)} : ${writeType(value.ofType)}"""
+    def writeGQLNewTypeDirective(directives: List[Directive]) =
+      directives
+        .find(_.name == NewtypeDirective)
+        .fold("") { directive =>
+          val fnName = directive.arguments("name").toInputString.replace("\"", "")
+          s"""@GQLDirective(Directive("$NewtypeDirective", Map("name" -> StringValue("${safeName(fnName)}"))))\n"""
+        }
+
+    def writeInputValue(value: InputValueDefinition): String = {
+      val GQLNewTypeInputDirective = writeGQLNewTypeDirective(value.directives)
+
+      val inputDef = resolveNewTypeInputDef(value).getOrElse(value)
+
+      s"""$GQLNewTypeInputDirective${writeDescription(inputDef.description)}${safeName(inputDef.name)} : ${writeType(
+        inputDef.ofType
+      )}"""
+    }
 
     def writeArguments(field: FieldDefinition, of: TypeDefinition): String = {
       def fields(args: List[InputValueDefinition]): String =
-        s"${args.map(arg => s"${safeName(arg.name)} : ${writeType(arg.ofType)}").mkString(", ")}"
+        s"${args.map { arg =>
+          val resolvedArg = resolveNewTypeInputDef(arg).getOrElse(arg)
+          s"${safeName(resolvedArg.name)} : ${writeType(resolvedArg.ofType)}"
+        }.mkString(", ")}"
 
       if (field.args.nonEmpty) {
         s"final case class ${argsName(field, of)}(${fields(field.args)})$derivesSchemaAndArgBuilder"
@@ -182,6 +208,42 @@ object SchemaWriter {
         ""
       }
     }
+
+    def writeNewTypeClasses(fieldType: Type, directive: Directive) = {
+      @tailrec def writeTypeOf(fieldType: Type): String = fieldType match {
+        case NamedType(name, _) => scalarMappings.flatMap(_.get(name)).getOrElse(name)
+        case ListType(ftype, _) => writeTypeOf(ftype)
+      }
+
+      val fnName  = safeName(directive.arguments("name").toInputString.replace("\"", ""))
+      val newtype = safeName(writeTypeOf(fieldType))
+
+      s"""case class $fnName(value : $newtype) extends AnyVal
+         |object $fnName {
+         |    implicit val schema: Schema[Any, $fnName] = implicitly[Schema[Any, $newtype]].contramap(_.value)
+         |    implicit val argBuilder: ArgBuilder[$fnName] = implicitly[ArgBuilder[$newtype]].map($fnName(_))
+         |}""".stripMargin
+    }
+
+    def replaceNameOfInnertype(name: String, ftype: Type): Type =
+      ftype match {
+        case NamedType(_, nt)  => NamedType(name, nt)
+        case ListType(nt, opt) => ListType(replaceNameOfInnertype(name, nt), opt)
+      }
+
+    def resolveNewTypeFieldDef(field: FieldDefinition): Option[FieldDefinition] =
+      if (Directives.isNewType(field.directives)) {
+        Directives
+          .newTypeName(field.directives)
+          .map(name => field.copy(ofType = replaceNameOfInnertype(name, field.ofType)))
+      } else None
+
+    def resolveNewTypeInputDef(field: InputValueDefinition): Option[InputValueDefinition] =
+      if (Directives.isNewType(field.directives)) {
+        Directives
+          .newTypeName(field.directives)
+          .map(name => field.copy(ofType = replaceNameOfInnertype(name, field.ofType)))
+      } else None
 
     def argsName(field: FieldDefinition, od: TypeDefinition): String =
       s"${od.name.capitalize}${field.name.capitalize}Args"
@@ -252,6 +314,38 @@ object SchemaWriter {
         .mkString("\n")
     }
 
+    val newTypeClasses = {
+      case class FieldAndDirective(fieldName: String, fieldType: Type, directive: Directive)
+      val fromObjects                             =
+        schema.objectTypeDefinitions.flatMap {
+          _.fields.collect {
+            case f if f.directives.exists(_.name == NewtypeDirective)                => // FIELD DEFINITION
+              List(FieldAndDirective(f.name, f.ofType, f.directives.filter(_.name == NewtypeDirective).head))
+            case f if f.args.exists(_.directives.exists(_.name == NewtypeDirective)) => // ARGUMENT DEFINITION
+              f.args.collect {
+                case a if a.directives.exists(_.name == NewtypeDirective) =>
+                  FieldAndDirective(a.name, a.ofType, a.directives.filter(_.name == NewtypeDirective).head)
+              }
+          }
+        }.flatten
+      val fromInputTypes: List[FieldAndDirective] =
+        schema.inputObjectTypeDefinitions.flatMap {
+          _.fields.collect {
+            case f if f.directives.exists(_.name == NewtypeDirective) =>
+              FieldAndDirective(f.name, f.ofType, f.directives.filter(_.name == NewtypeDirective).head)
+          }
+        }
+
+      val newtypeClasses = (fromObjects ++ fromInputTypes)
+        .groupBy(_.directive.arguments("name").toInputString)
+        .map(_._2.head)
+        .toList
+        .sortBy(_.directive.arguments("name").toInputString)
+        .map(fieldAndDirective => writeNewTypeClasses(fieldAndDirective.fieldType, fieldAndDirective.directive))
+        .mkString("\n")
+      if (newtypeClasses.nonEmpty) newtypeClasses + "\n" else ""
+    }
+
     val unionTypes = schema.unionTypeDefinitions
       .map(union => (union, union.memberTypes.flatMap(schema.objectTypeDefinition)))
       .toMap
@@ -306,6 +400,7 @@ object SchemaWriter {
       ${if (hasTypes)
       "object Types {\n" +
         argsTypes + "\n" +
+        newTypeClasses +
         objects + "\n" +
         inputs + "\n" +
         unions + "\n" +
@@ -323,8 +418,16 @@ object SchemaWriter {
     else ""}
       """
 
-    s"""${packageName.fold("")(p => s"package $p\n\n")}${if (hasTypes && hasOperations) "import Types._\n" else ""}
-          ${if (typesAndOperations.contains("@GQL")) "import caliban.schema.Annotations._\n" else ""}
+    s"""${packageName.fold("")(p => s"package $p\n\n")}
+          ${if (hasTypes && hasOperations) "import Types._\n" else ""}
+          ${if (typesAndOperations.contains("@GQL") || newTypeClasses.nonEmpty)
+      "import caliban.schema.Annotations._\n"
+    else ""}
+          ${if (newTypeClasses.nonEmpty)
+      """|import caliban.Value._
+         |import caliban.parsing.adt.Directive
+         |import caliban.schema.{ArgBuilder, Schema}""".stripMargin
+    else ""}
           ${if (hasSubscriptions) "import zio.stream.ZStream\n" else ""}
           $additionalImportsString
 
