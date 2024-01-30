@@ -10,6 +10,9 @@ import scala.annotation.nowarn
 
 @nowarn("msg=NoWhitespace") // False positive warning in Scala 2.x
 private[caliban] trait SelectionParsers extends ValueParsers {
+
+  @deprecated("Kept for bincompat only, scheduled to be removed")
+  def alias(implicit ev: P[Any]): P[String] = P(name ~ ":")
   def aliasOrName(implicit ev: P[Any]): P[String] = P(":" ~ name)
 
   def argument(implicit ev: P[Any]): P[(String, InputValue)]     = P(name ~ ":" ~ value)
@@ -26,6 +29,12 @@ private[caliban] trait SelectionParsers extends ValueParsers {
 
   def namedType(implicit ev: P[Any]): P[NamedType] = P(name.filter(_ != "null")).map(NamedType(_, nonNull = false))
   def listType(implicit ev: P[Any]): P[ListType]   = P("[" ~ type_ ~ "]").map(t => ListType(t, nonNull = false))
+
+  @deprecated("Kept for bincompat only, scheduled to be removed")
+  def nonNullType(implicit ev: P[Any]): P[Type] = P((namedType | listType) ~ "!").map {
+    case t: NamedType => t.copy(nonNull = true)
+    case t: ListType  => t.copy(nonNull = true)
+  }
 
   def type_(implicit ev: P[Any]): P[Type] = P((namedType | listType) ~ "!".!.?).map {
     case (t: NamedType, nn) => if (nn.isDefined) t.copy(nonNull = true) else t
