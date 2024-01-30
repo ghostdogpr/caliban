@@ -220,8 +220,8 @@ object SchemaWriter {
 
       s"""case class $fnName(value : $newtype) extends AnyVal
          |object $fnName {
-         |    implicit val schema: Schema[Any, $fnName] = summon[Schema[Any, $newtype]].contramap(_.value)
-         |    implicit val argBuilder: ArgBuilder[$fnName] = summon[ArgBuilder[$newtype]].map($fnName(_))
+         |    implicit val schema: Schema[Any, $fnName] = implicitly[Schema[Any, $newtype]].contramap(_.value)
+         |    implicit val argBuilder: ArgBuilder[$fnName] = implicitly[ArgBuilder[$newtype]].map($fnName(_))
          |}""".stripMargin
     }
 

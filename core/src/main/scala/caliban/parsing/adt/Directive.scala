@@ -6,9 +6,9 @@ case class Directive(name: String, arguments: Map[String, InputValue] = Map.empt
 
 object Directives {
 
-  val LazyDirective       = "lazy"
-  val NewtypeDirective    = "newtype"
-  val DeprecatedDirective = "deprecated"
+  final val LazyDirective       = "lazy"
+  final val NewtypeDirective    = "newtype"
+  final val DeprecatedDirective = "deprecated"
 
   def isDeprecated(directives: List[Directive]): Boolean =
     directives.exists(_.name == DeprecatedDirective)

@@ -844,68 +844,68 @@ object SchemaWriterSpec extends ZIOSpecDefault {
           |  final case class MutationUpdateFooArgs(foo: FooInput)
           |  case class ACustomIdOpt(value: String) extends AnyVal
           |  object ACustomIdOpt     {
-          |    implicit val schema: Schema[Any, ACustomIdOpt]    = summon[Schema[Any, String]].contramap(_.value)
-          |    implicit val argBuilder: ArgBuilder[ACustomIdOpt] = summon[ArgBuilder[String]].map(ACustomIdOpt(_))
+          |    implicit val schema: Schema[Any, ACustomIdOpt]    = implicitly[Schema[Any, String]].contramap(_.value)
+          |    implicit val argBuilder: ArgBuilder[ACustomIdOpt] = implicitly[ArgBuilder[String]].map(ACustomIdOpt(_))
           |  }
           |  case class AMaybeInnerIdOpt(value: String) extends AnyVal
           |  object AMaybeInnerIdOpt {
-          |    implicit val schema: Schema[Any, AMaybeInnerIdOpt]    = summon[Schema[Any, String]].contramap(_.value)
-          |    implicit val argBuilder: ArgBuilder[AMaybeInnerIdOpt] = summon[ArgBuilder[String]].map(AMaybeInnerIdOpt(_))
+          |    implicit val schema: Schema[Any, AMaybeInnerIdOpt]    = implicitly[Schema[Any, String]].contramap(_.value)
+          |    implicit val argBuilder: ArgBuilder[AMaybeInnerIdOpt] = implicitly[ArgBuilder[String]].map(AMaybeInnerIdOpt(_))
           |  }
           |  case class CustomFId(value: FID) extends AnyVal
           |  object CustomFId        {
-          |    implicit val schema: Schema[Any, CustomFId]    = summon[Schema[Any, FID]].contramap(_.value)
-          |    implicit val argBuilder: ArgBuilder[CustomFId] = summon[ArgBuilder[FID]].map(CustomFId(_))
+          |    implicit val schema: Schema[Any, CustomFId]    = implicitly[Schema[Any, FID]].contramap(_.value)
+          |    implicit val argBuilder: ArgBuilder[CustomFId] = implicitly[ArgBuilder[FID]].map(CustomFId(_))
           |  }
           |  case class CustomId(value: String) extends AnyVal
           |  object CustomId         {
-          |    implicit val schema: Schema[Any, CustomId]    = summon[Schema[Any, String]].contramap(_.value)
-          |    implicit val argBuilder: ArgBuilder[CustomId] = summon[ArgBuilder[String]].map(CustomId(_))
+          |    implicit val schema: Schema[Any, CustomId]    = implicitly[Schema[Any, String]].contramap(_.value)
+          |    implicit val argBuilder: ArgBuilder[CustomId] = implicitly[ArgBuilder[String]].map(CustomId(_))
           |  }
           |  case class CustomIdOpt(value: String) extends AnyVal
           |  object CustomIdOpt      {
-          |    implicit val schema: Schema[Any, CustomIdOpt]    = summon[Schema[Any, String]].contramap(_.value)
-          |    implicit val argBuilder: ArgBuilder[CustomIdOpt] = summon[ArgBuilder[String]].map(CustomIdOpt(_))
+          |    implicit val schema: Schema[Any, CustomIdOpt]    = implicitly[Schema[Any, String]].contramap(_.value)
+          |    implicit val argBuilder: ArgBuilder[CustomIdOpt] = implicitly[ArgBuilder[String]].map(CustomIdOpt(_))
           |  }
           |  case class CustomIntId(value: Int) extends AnyVal
           |  object CustomIntId      {
-          |    implicit val schema: Schema[Any, CustomIntId]    = summon[Schema[Any, Int]].contramap(_.value)
-          |    implicit val argBuilder: ArgBuilder[CustomIntId] = summon[ArgBuilder[Int]].map(CustomIntId(_))
+          |    implicit val schema: Schema[Any, CustomIntId]    = implicitly[Schema[Any, Int]].contramap(_.value)
+          |    implicit val argBuilder: ArgBuilder[CustomIntId] = implicitly[ArgBuilder[Int]].map(CustomIntId(_))
           |  }
           |  case class CustomStrId(value: String) extends AnyVal
           |  object CustomStrId      {
-          |    implicit val schema: Schema[Any, CustomStrId]    = summon[Schema[Any, String]].contramap(_.value)
-          |    implicit val argBuilder: ArgBuilder[CustomStrId] = summon[ArgBuilder[String]].map(CustomStrId(_))
+          |    implicit val schema: Schema[Any, CustomStrId]    = implicitly[Schema[Any, String]].contramap(_.value)
+          |    implicit val argBuilder: ArgBuilder[CustomStrId] = implicitly[ArgBuilder[String]].map(CustomStrId(_))
           |  }
           |  case class IInnerId(value: String) extends AnyVal
           |  object IInnerId         {
-          |    implicit val schema: Schema[Any, IInnerId]    = summon[Schema[Any, String]].contramap(_.value)
-          |    implicit val argBuilder: ArgBuilder[IInnerId] = summon[ArgBuilder[String]].map(IInnerId(_))
+          |    implicit val schema: Schema[Any, IInnerId]    = implicitly[Schema[Any, String]].contramap(_.value)
+          |    implicit val argBuilder: ArgBuilder[IInnerId] = implicitly[ArgBuilder[String]].map(IInnerId(_))
           |  }
           |  case class IMaybeInnerIdOpt(value: String) extends AnyVal
           |  object IMaybeInnerIdOpt {
-          |    implicit val schema: Schema[Any, IMaybeInnerIdOpt]    = summon[Schema[Any, String]].contramap(_.value)
-          |    implicit val argBuilder: ArgBuilder[IMaybeInnerIdOpt] = summon[ArgBuilder[String]].map(IMaybeInnerIdOpt(_))
+          |    implicit val schema: Schema[Any, IMaybeInnerIdOpt]    = implicitly[Schema[Any, String]].contramap(_.value)
+          |    implicit val argBuilder: ArgBuilder[IMaybeInnerIdOpt] = implicitly[ArgBuilder[String]].map(IMaybeInnerIdOpt(_))
           |  }
           |  case class InnerId(value: String) extends AnyVal
           |  object InnerId          {
-          |    implicit val schema: Schema[Any, InnerId]    = summon[Schema[Any, String]].contramap(_.value)
-          |    implicit val argBuilder: ArgBuilder[InnerId] = summon[ArgBuilder[String]].map(InnerId(_))
+          |    implicit val schema: Schema[Any, InnerId]    = implicitly[Schema[Any, String]].contramap(_.value)
+          |    implicit val argBuilder: ArgBuilder[InnerId] = implicitly[ArgBuilder[String]].map(InnerId(_))
           |  }
           |  case class InnerOptId(value: String) extends AnyVal
           |  object InnerOptId       {
-          |    implicit val schema: Schema[Any, InnerOptId]    = summon[Schema[Any, String]].contramap(_.value)
-          |    implicit val argBuilder: ArgBuilder[InnerOptId] = summon[ArgBuilder[String]].map(InnerOptId(_))
+          |    implicit val schema: Schema[Any, InnerOptId]    = implicitly[Schema[Any, String]].contramap(_.value)
+          |    implicit val argBuilder: ArgBuilder[InnerOptId] = implicitly[ArgBuilder[String]].map(InnerOptId(_))
           |  }
           |  case class MaybeInnerId(value: String) extends AnyVal
           |  object MaybeInnerId     {
-          |    implicit val schema: Schema[Any, MaybeInnerId]    = summon[Schema[Any, String]].contramap(_.value)
-          |    implicit val argBuilder: ArgBuilder[MaybeInnerId] = summon[ArgBuilder[String]].map(MaybeInnerId(_))
+          |    implicit val schema: Schema[Any, MaybeInnerId]    = implicitly[Schema[Any, String]].contramap(_.value)
+          |    implicit val argBuilder: ArgBuilder[MaybeInnerId] = implicitly[ArgBuilder[String]].map(MaybeInnerId(_))
           |  }
           |  case class MaybeInnerIdOpt(value: String) extends AnyVal
           |  object MaybeInnerIdOpt  {
-          |    implicit val schema: Schema[Any, MaybeInnerIdOpt]    = summon[Schema[Any, String]].contramap(_.value)
-          |    implicit val argBuilder: ArgBuilder[MaybeInnerIdOpt] = summon[ArgBuilder[String]].map(MaybeInnerIdOpt(_))
+          |    implicit val schema: Schema[Any, MaybeInnerIdOpt]    = implicitly[Schema[Any, String]].contramap(_.value)
+          |    implicit val argBuilder: ArgBuilder[MaybeInnerIdOpt] = implicitly[ArgBuilder[String]].map(MaybeInnerIdOpt(_))
           |  }
           |  final case class Foo(
           |    @GQLDirective(Directive("$NewtypeDirective", Map("name" -> StringValue("CustomId"))))
