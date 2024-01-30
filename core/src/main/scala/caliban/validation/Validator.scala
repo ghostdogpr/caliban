@@ -444,14 +444,20 @@ object Validator {
     }
   }
 
+  private def containsFragments(selectionSet: List[Selection]): Boolean =
+    selectionSet.exists {
+      case f: Selection.Field => containsFragments(f.selectionSet)
+      case _                  => true
+    }
+
   private def validateSelectionSet(
     context: Context,
     selectionSet: List[Selection],
     currentType: __Type
   ): EReader[Any, ValidationError, Unit] = {
     val v1 = validateFields(context, selectionSet, currentType)
-    val v2 = FragmentValidator.findConflictsWithinSelectionSet(context, context.rootType.queryType, selectionSet)
-    v1 *> v2
+    def v2 = FragmentValidator.findConflictsWithinSelectionSet(context, context.rootType.queryType, selectionSet)
+    if (context.fragments.nonEmpty || containsFragments(selectionSet)) v1 *> v2 else v1
   }
 
   private def validateFields(
