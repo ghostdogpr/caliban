@@ -446,8 +446,9 @@ object Validator {
 
   private def containsFragments(selectionSet: List[Selection]): Boolean =
     selectionSet.exists {
-      case f: Selection.Field => containsFragments(f.selectionSet)
-      case _                  => true
+      case f: Selection.Field          => containsFragments(f.selectionSet)
+      case _: Selection.InlineFragment => true
+      case _: Selection.FragmentSpread => true
     }
 
   private def validateSelectionSet(
