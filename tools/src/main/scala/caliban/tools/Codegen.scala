@@ -28,6 +28,7 @@ object Codegen {
                                   }
       preserveInputNames        = arguments.preserveInputNames.getOrElse(false)
       addDerives                = arguments.addDerives.getOrElse(false)
+      zioEnv                    = arguments.zioEnv
       genView                   = arguments.genView.getOrElse(false)
       scalarMappings            = arguments.scalarMappings
       splitFiles                = arguments.splitFiles.getOrElse(false)
@@ -44,7 +45,8 @@ object Codegen {
                                           scalarMappings,
                                           abstractEffectType,
                                           preserveInputNames,
-                                          addDerives
+                                          addDerives,
+                                          zioEnv
                                         )
                                       )
                                     case GenType.Client =>

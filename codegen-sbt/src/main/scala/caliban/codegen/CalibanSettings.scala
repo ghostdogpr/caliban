@@ -27,6 +27,7 @@ sealed trait CalibanSettings {
   final def supportIsRepeatable(value: Boolean): Self             = withSettings(_.supportIsRepeatable(value))
   final def preserveInputNames(value: Boolean): Self              = withSettings(_.preserveInputNames(value))
   final def addDerives(value: Boolean): Self                      = withSettings(_.addDerives(value))
+  final def zioEnv(value: String): Self                           = withSettings(_.zioEnv(value))
 }
 
 final case class CalibanFileSettings(file: File, settings: CalibanCommonSettings) extends CalibanSettings {

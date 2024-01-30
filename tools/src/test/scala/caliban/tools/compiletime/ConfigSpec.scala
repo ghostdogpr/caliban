@@ -42,7 +42,8 @@ object ConfigSpec extends ZIOSpecDefault {
               abstractEffectType = None,
               preserveInputNames = None,
               supportIsRepeatable = Some(true),
-              addDerives = None
+              addDerives = None,
+              zioEnv = None
             )
         )
       )

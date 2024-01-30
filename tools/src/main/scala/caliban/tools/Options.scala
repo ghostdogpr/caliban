@@ -21,7 +21,8 @@ final case class Options(
   extensibleEnums: Option[Boolean],
   preserveInputNames: Option[Boolean],
   supportIsRepeatable: Option[Boolean],
-  addDerives: Option[Boolean]
+  addDerives: Option[Boolean],
+  zioEnv: Option[String]
 )
 
 object Options {
@@ -41,7 +42,8 @@ object Options {
     extensibleEnums: Option[Boolean],
     preserveInputNames: Option[Boolean],
     supportIsRepeatable: Option[Boolean],
-    addDerives: Option[Boolean]
+    addDerives: Option[Boolean],
+    zioEnv: Option[String]
   )
 
   def fromArgs(args: List[String]): UIO[Option[Options]] =
@@ -87,7 +89,8 @@ object Options {
             rawOpts.extensibleEnums,
             rawOpts.preserveInputNames,
             rawOpts.supportIsRepeatable,
-            rawOpts.addDerives
+            rawOpts.addDerives,
+            rawOpts.zioEnv
           )
         }.option
       case _                             => ZIO.none

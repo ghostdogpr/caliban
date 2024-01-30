@@ -18,7 +18,8 @@ final case class CalibanCommonSettings(
   abstractEffectType: Option[Boolean],
   preserveInputNames: Option[Boolean],
   supportIsRepeatable: Option[Boolean],
-  addDerives: Option[Boolean]
+  addDerives: Option[Boolean],
+  zioEnv: Option[String]
 ) {
 
   private[caliban] def toOptions(schemaPath: String, toPath: String): Options =
@@ -39,7 +40,8 @@ final case class CalibanCommonSettings(
       extensibleEnums = extensibleEnums,
       preserveInputNames = preserveInputNames,
       supportIsRepeatable = supportIsRepeatable,
-      addDerives = addDerives
+      addDerives = addDerives,
+      zioEnv = zioEnv
     )
 
   private[caliban] def combine(r: => CalibanCommonSettings): CalibanCommonSettings =
@@ -59,7 +61,8 @@ final case class CalibanCommonSettings(
       abstractEffectType = r.abstractEffectType.orElse(this.abstractEffectType),
       preserveInputNames = r.preserveInputNames.orElse(this.preserveInputNames),
       supportIsRepeatable = r.supportIsRepeatable.orElse(this.supportIsRepeatable),
-      addDerives = r.addDerives.orElse(this.addDerives)
+      addDerives = r.addDerives.orElse(this.addDerives),
+      zioEnv = r.zioEnv.orElse(this.zioEnv)
     )
 
   def clientName(value: String): CalibanCommonSettings                         = this.copy(clientName = Some(value))
@@ -82,6 +85,7 @@ final case class CalibanCommonSettings(
   def supportIsRepeatable(supportIsRepeatable: Boolean): CalibanCommonSettings =
     this.copy(supportIsRepeatable = Some(supportIsRepeatable))
   def addDerives(addDerives: Boolean): CalibanCommonSettings                   = this.copy(addDerives = Some(addDerives))
+  def zioEnv(zioEnv: String): CalibanCommonSettings                            = this.copy(zioEnv = Some(zioEnv))
 }
 
 object CalibanCommonSettings {
@@ -102,6 +106,7 @@ object CalibanCommonSettings {
       abstractEffectType = None,
       preserveInputNames = None,
       supportIsRepeatable = None,
-      addDerives = None
+      addDerives = None,
+      zioEnv = None
     )
 }

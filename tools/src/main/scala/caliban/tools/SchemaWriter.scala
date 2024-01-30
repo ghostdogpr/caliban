@@ -19,13 +19,27 @@ object SchemaWriter {
     scalarMappings: Option[Map[String, String]],
     isEffectTypeAbstract: Boolean = false,
     preserveInputNames: Boolean = false,
-    addDerives: Boolean = false
+    addDerives: Boolean = false,
+    zioEnv: Option[String] = None
   ): String = {
-    val derivesSchema: String =
-      if (addDerives) " derives caliban.schema.Schema.SemiAuto" else ""
 
-    val derivesSchemaAndArgBuilder: String =
-      if (addDerives) " derives caliban.schema.Schema.SemiAuto, caliban.schema.ArgBuilder" else ""
+    val (derivesSchema, derivesSchemaAndArgBuilder, derivesEnvSchema, derivesOnQuery) = (addDerives, zioEnv) match {
+      case (false, _)                                        => ("", "", "", "")
+      case (true, Some(env)) if !env.equalsIgnoreCase("Any") =>
+        (
+          " derives caliban.schema.Schema.SemiAuto",
+          " derives caliban.schema.Schema.SemiAuto, caliban.schema.ArgBuilder",
+          s"object EnvSchema extends caliban.schema.GenericSchema[${safeName(env)}]\n\n",
+          " derives EnvSchema.SemiAuto"
+        )
+      case (true, _)                                         =>
+        (
+          " derives caliban.schema.Schema.SemiAuto",
+          " derives caliban.schema.Schema.SemiAuto, caliban.schema.ArgBuilder",
+          "",
+          " derives caliban.schema.Schema.SemiAuto"
+        )
+    }
 
     val interfaceImplementationsMap: Map[InterfaceTypeDefinition, List[ObjectTypeDefinition]] = (for {
       objectDef    <- schema.objectTypeDefinitions
@@ -82,7 +96,7 @@ object SchemaWriter {
       s"""
          |${writeDescription(op.description)}final case class ${op.name}${generic(op, isRootDefinition = true)}(
          |${op.fields.map(c => writeRootField(c, op)).mkString(",\n")}
-         |)$derivesSchema""".stripMargin
+         |)$derivesOnQuery""".stripMargin
 
     def writeSubscriptionField(field: FieldDefinition, od: ObjectTypeDefinition): String =
       "%s:%s ZStream[Any, Nothing, %s]".format(
@@ -411,6 +425,7 @@ object SchemaWriter {
 
       ${if (hasOperations)
       "object Operations {\n" +
+        derivesEnvSchema +
         queries + "\n\n" +
         mutations + "\n\n" +
         subscriptions + "\n" +
