@@ -18,46 +18,48 @@ import scala.annotation.nowarn
 @nowarn("msg=NoWhitespace") // False positive warning in Scala 2.x
 object Parsers extends SelectionParsers {
   def argumentDefinition(implicit ev: P[Any]): P[InputValueDefinition]        =
-    P(stringValue.? ~ name ~ ":" ~ type_ ~ defaultValue.? ~ directives.?).map {
+    (stringValue.? ~ name ~ ":" ~ type_ ~ defaultValue.? ~ directives.?).map {
       case (description, name, type_, defaultValue, directives) =>
         InputValueDefinition(description.map(_.value), name, type_, defaultValue, directives.getOrElse(Nil))
     }
   def argumentDefinitions(implicit ev: P[Any]): P[List[InputValueDefinition]] =
-    P("(" ~/ argumentDefinition.rep ~ ")").map(_.toList)
+    ("(" ~/ argumentDefinition.rep ~ ")").map(_.toList)
 
   def fieldDefinition(implicit ev: P[Any]): P[FieldDefinition] =
-    P(stringValue.? ~ name ~ argumentDefinitions.? ~ ":" ~ type_ ~ directives.?).map {
+    (stringValue.? ~ name ~ argumentDefinitions.? ~ ":" ~ type_ ~ directives.?).map {
       case (description, name, args, type_, directives) =>
         FieldDefinition(description.map(_.value), name, args.getOrElse(Nil), type_, directives.getOrElse(Nil))
     }
 
   def variableDefinitions(implicit ev: P[Any]): P[List[VariableDefinition]] =
-    P("(" ~/ variableDefinition.rep ~ ")").map(_.toList)
+    ("(" ~/ variableDefinition.rep ~ ")").map(_.toList)
 
   def variableDefinition(implicit ev: P[Any]): P[VariableDefinition] =
-    P(variableValue ~ ":" ~/ type_ ~ defaultValue.? ~ directives).map { case (v, t, default, dirs) =>
+    (variableValue ~ ":" ~/ type_ ~ defaultValue.? ~ directives).map { case (v, t, default, dirs) =>
       VariableDefinition(v.name, t, default, dirs)
     }
-  def defaultValue(implicit ev: P[Any]): P[InputValue]               = P("=" ~/ value)
+  def defaultValue(implicit ev: P[Any]): P[InputValue]               = "=" ~/ value
 
   def operationType(implicit ev: P[Any]): P[OperationType] =
-    P("query").map(_ => OperationType.Query) | P("mutation").map(_ => OperationType.Mutation) | P("subscription").map(
-      _ => OperationType.Subscription
-    )
+    StringIn("query", "mutation", "subscription").!.map {
+      case "query"        => OperationType.Query
+      case "mutation"     => OperationType.Mutation
+      case "subscription" => OperationType.Subscription
+    }
 
   def operationDefinition(implicit ev: P[Any]): P[OperationDefinition] =
-    P(operationType ~/ name.? ~ variableDefinitions.? ~ directives ~ selectionSet).map {
+    (operationType ~/ name.? ~ variableDefinitions.? ~ directives ~ selectionSet).map {
       case (operationType, name, variableDefinitions, directives, selection) =>
         OperationDefinition(operationType, name, variableDefinitions.getOrElse(Nil), directives, selection)
-    } | P(selectionSet).map(selection => OperationDefinition(OperationType.Query, None, Nil, Nil, selection))
+    } | selectionSet.map(selection => OperationDefinition(OperationType.Query, None, Nil, Nil, selection))
 
   def fragmentDefinition(implicit ev: P[Any]): P[FragmentDefinition] =
-    P("fragment" ~/ fragmentName ~ typeCondition ~ directives ~ selectionSet).map {
+    ("fragment" ~/ fragmentName ~ typeCondition ~ directives ~ selectionSet).map {
       case (name, typeCondition, dirs, sel) => FragmentDefinition(name, typeCondition, dirs, sel)
     }
 
   def objectTypeDefinition(implicit ev: P[Any]): P[ObjectTypeDefinition] =
-    P(stringValue.? ~ "type" ~/ name ~ implements.? ~ directives.? ~ "{" ~ fieldDefinition.rep ~ "}").map {
+    (stringValue.? ~ "type" ~/ name ~ implements.? ~ directives.? ~ "{" ~ fieldDefinition.rep ~ "}").map {
       case (description, name, implements, directives, fields) =>
         ObjectTypeDefinition(
           description.map(_.value),
@@ -69,12 +71,12 @@ object Parsers extends SelectionParsers {
     }
 
   def implements(implicit ev: P[Any]): P[List[NamedType]] =
-    P("implements" ~ ("&".? ~ namedType) ~ ("&" ~ namedType).rep).map { case (head, tail) =>
+    ("implements" ~ ("&".? ~ namedType) ~ ("&" ~ namedType).rep).map { case (head, tail) =>
       head :: tail.toList
     }
 
   def interfaceTypeDefinition(implicit ev: P[Any]): P[InterfaceTypeDefinition] =
-    P(stringValue.? ~ "interface" ~/ name ~ implements.? ~ directives.? ~ "{" ~ fieldDefinition.rep ~ "}").map {
+    (stringValue.? ~ "interface" ~/ name ~ implements.? ~ directives.? ~ "{" ~ fieldDefinition.rep ~ "}").map {
       case (description, name, implements, directives, fields) =>
         InterfaceTypeDefinition(
           description.map(_.value),
@@ -86,7 +88,7 @@ object Parsers extends SelectionParsers {
     }
 
   def inputObjectTypeDefinition(implicit ev: P[Any]): P[InputObjectTypeDefinition] =
-    P(stringValue.? ~ "input" ~/ name ~ directives.? ~ ("{" ~ argumentDefinition.rep ~ "}").?).map {
+    (stringValue.? ~ "input" ~/ name ~ directives.? ~ ("{" ~ argumentDefinition.rep ~ "}").?).map {
       case (description, name, directives, fields) =>
         InputObjectTypeDefinition(
           description.map(_.value),
@@ -97,14 +99,14 @@ object Parsers extends SelectionParsers {
     }
 
   def enumValueDefinition(implicit ev: P[Any]): P[EnumValueDefinition] =
-    P(stringValue.? ~ name ~ directives.?).map { case (description, enumValue, directives) =>
+    (stringValue.? ~ name ~ directives.?).map { case (description, enumValue, directives) =>
       EnumValueDefinition(description.map(_.value), enumValue, directives.getOrElse(Nil))
     }
 
   def enumName(implicit ev: P[Any]): P[String] = name.filter(s => s != "true" && s != "false" && s != "null")
 
   def enumTypeDefinition(implicit ev: P[Any]): P[EnumTypeDefinition] =
-    P(stringValue.? ~ "enum" ~/ enumName ~ directives.? ~ ("{" ~ enumValueDefinition.rep ~ "}").?).map {
+    (stringValue.? ~ "enum" ~/ enumName ~ directives.? ~ ("{" ~ enumValueDefinition.rep ~ "}").?).map {
       case (description, name, directives, enumValuesDefinition) =>
         EnumTypeDefinition(
           description.map(_.value),
@@ -115,22 +117,21 @@ object Parsers extends SelectionParsers {
     }
 
   def unionTypeDefinition(implicit ev: P[Any]): P[UnionTypeDefinition] =
-    P(stringValue.? ~ "union" ~/ name ~ directives.? ~ "=" ~ ("|".? ~ namedType) ~ ("|" ~ namedType).rep).map {
+    (stringValue.? ~ "union" ~/ name ~ directives.? ~ "=" ~ ("|".? ~ namedType) ~ ("|" ~ namedType).rep).map {
       case (description, name, directives, m, ms) =>
         UnionTypeDefinition(description.map(_.value), name, directives.getOrElse(Nil), (m :: ms.toList).map(_.name))
     }
 
   def scalarTypeDefinition(implicit ev: P[Any]): P[ScalarTypeDefinition] =
-    P(stringValue.? ~ "scalar" ~/ name ~ directives.?).map { case (description, name, directives) =>
+    (stringValue.? ~ "scalar" ~/ name ~ directives.?).map { case (description, name, directives) =>
       ScalarTypeDefinition(description.map(_.value), name, directives.getOrElse(Nil))
     }
 
-  def rootOperationTypeDefinition(implicit ev: P[Any]): P[(OperationType, NamedType)] = P(
+  def rootOperationTypeDefinition(implicit ev: P[Any]): P[(OperationType, NamedType)] =
     operationType ~ ":" ~ namedType
-  )
 
   def schemaDefinition(implicit ev: P[Any]): P[SchemaDefinition] =
-    P(stringValue.? ~ "schema" ~/ directives.? ~ "{" ~ rootOperationTypeDefinition.rep ~ "}").map {
+    (stringValue.? ~ "schema" ~/ directives.? ~ "{" ~ rootOperationTypeDefinition.rep ~ "}").map {
       case (description, directives, ops) =>
         val opsMap = ops.toMap
         SchemaDefinition(
@@ -143,7 +144,7 @@ object Parsers extends SelectionParsers {
     }
 
   def schemaExtensionWithOptionalDirectivesAndOperations(implicit ev: P[Any]): P[SchemaExtension] =
-    P(directives.? ~ "{" ~ rootOperationTypeDefinition.rep ~ "}").map { case (directives, ops) =>
+    (directives.? ~ "{" ~ rootOperationTypeDefinition.rep ~ "}").map { case (directives, ops) =>
       val opsMap = ops.toMap
       SchemaExtension(
         directives.getOrElse(Nil),
@@ -154,20 +155,20 @@ object Parsers extends SelectionParsers {
     }
 
   def schemaExtensionWithDirectives(implicit ev: P[Any]): P[SchemaExtension] =
-    P(directives).map(SchemaExtension(_, None, None, None))
+    directives.map(SchemaExtension(_, None, None, None))
 
   def schemaExtension(implicit ev: P[Any]): P[SchemaExtension] =
-    P("extend schema" ~/ (NoCut(schemaExtensionWithOptionalDirectivesAndOperations) | schemaExtensionWithDirectives))
+    "extend schema" ~/ (NoCut(schemaExtensionWithOptionalDirectivesAndOperations) | schemaExtensionWithDirectives)
 
   def scalarTypeExtension(implicit ev: P[Any]): P[ScalarTypeExtension] =
-    P("extend scalar" ~/ name ~ directives).map { case (name, directives) =>
+    ("extend scalar" ~/ name ~ directives).map { case (name, directives) =>
       ScalarTypeExtension(name, directives)
     }
 
   def objectTypeExtensionWithOptionalInterfacesOptionalDirectivesAndFields(implicit
     ev: P[Any]
   ): P[ObjectTypeExtension] =
-    P(name ~ implements.? ~ directives.? ~ "{" ~ fieldDefinition.rep ~ "}").map {
+    (name ~ implements.? ~ directives.? ~ "{" ~ fieldDefinition.rep ~ "}").map {
       case (name, implements, directives, fields) =>
         ObjectTypeExtension(
           name,
@@ -178,18 +179,17 @@ object Parsers extends SelectionParsers {
     }
 
   def objectTypeExtensionWithOptionalInterfacesAndDirectives(implicit ev: P[Any]): P[ObjectTypeExtension] =
-    P(name ~ implements.? ~ directives ~ !("{" ~ fieldDefinition.rep ~ "}")).map {
-      case (name, implements, directives) =>
-        ObjectTypeExtension(
-          name,
-          implements.getOrElse(Nil),
-          directives,
-          Nil
-        )
+    (name ~ implements.? ~ directives ~ !("{" ~ fieldDefinition.rep ~ "}")).map { case (name, implements, directives) =>
+      ObjectTypeExtension(
+        name,
+        implements.getOrElse(Nil),
+        directives,
+        Nil
+      )
     }
 
   def objectTypeExtensionWithInterfaces(implicit ev: P[Any]): P[ObjectTypeExtension] =
-    P(name ~ implements).map { case (name, implements) =>
+    (name ~ implements).map { case (name, implements) =>
       ObjectTypeExtension(
         name,
         implements,
@@ -199,82 +199,74 @@ object Parsers extends SelectionParsers {
     }
 
   def objectTypeExtension(implicit ev: P[Any]): P[ObjectTypeExtension] =
-    P(
-      "extend type" ~/ (
-        NoCut(objectTypeExtensionWithOptionalInterfacesOptionalDirectivesAndFields) |
-          NoCut(objectTypeExtensionWithOptionalInterfacesAndDirectives) |
-          objectTypeExtensionWithInterfaces
-      )
+    "extend type" ~/ (
+      NoCut(objectTypeExtensionWithOptionalInterfacesOptionalDirectivesAndFields) |
+        NoCut(objectTypeExtensionWithOptionalInterfacesAndDirectives) |
+        objectTypeExtensionWithInterfaces
     )
 
   def interfaceTypeExtensionWithOptionalDirectivesAndFields(implicit ev: P[Any]): P[InterfaceTypeExtension] =
-    P(name ~ directives.? ~ "{" ~ fieldDefinition.rep ~ "}").map { case (name, directives, fields) =>
+    (name ~ directives.? ~ "{" ~ fieldDefinition.rep ~ "}").map { case (name, directives, fields) =>
       InterfaceTypeExtension(name, directives.getOrElse(Nil), fields.toList)
     }
 
   def interfaceTypeExtensionWithDirectives(implicit ev: P[Any]): P[InterfaceTypeExtension] =
-    P(name ~ directives).map { case (name, directives) =>
+    (name ~ directives).map { case (name, directives) =>
       InterfaceTypeExtension(name, directives, Nil)
     }
 
   def interfaceTypeExtension(implicit ev: P[Any]): P[InterfaceTypeExtension] =
-    P(
-      "extend interface" ~/ (
-        NoCut(interfaceTypeExtensionWithOptionalDirectivesAndFields) |
-          interfaceTypeExtensionWithDirectives
-      )
+    "extend interface" ~/ (
+      NoCut(interfaceTypeExtensionWithOptionalDirectivesAndFields) |
+        interfaceTypeExtensionWithDirectives
     )
 
   def unionTypeExtensionWithOptionalDirectivesAndUnionMembers(implicit ev: P[Any]): P[UnionTypeExtension] =
-    P(name ~ directives.? ~ "=" ~ ("|".? ~ namedType) ~ ("|" ~ namedType).rep).map { case (name, directives, m, ms) =>
+    (name ~ directives.? ~ "=" ~ ("|".? ~ namedType) ~ ("|" ~ namedType).rep).map { case (name, directives, m, ms) =>
       UnionTypeExtension(name, directives.getOrElse(Nil), (m :: ms.toList).map(_.name))
     }
 
   def unionTypeExtensionWithDirectives(implicit ev: P[Any]): P[UnionTypeExtension] =
-    P(name ~ directives).map { case (name, directives) =>
+    (name ~ directives).map { case (name, directives) =>
       UnionTypeExtension(name, directives, Nil)
     }
 
   def unionTypeExtension(implicit ev: P[Any]): P[UnionTypeExtension] =
-    P(
-      "extend union" ~/
-        (NoCut(unionTypeExtensionWithOptionalDirectivesAndUnionMembers) | unionTypeExtensionWithDirectives)
-    )
+    "extend union" ~/
+      (NoCut(unionTypeExtensionWithOptionalDirectivesAndUnionMembers) | unionTypeExtensionWithDirectives)
 
   def enumTypeExtensionWithOptionalDirectivesAndValues(implicit ev: P[Any]): P[EnumTypeExtension] =
-    P(enumName ~ directives.? ~ "{" ~ enumValueDefinition.rep ~ "}").map {
+    (enumName ~ directives.? ~ "{" ~ enumValueDefinition.rep ~ "}").map {
       case (name, directives, enumValuesDefinition) =>
         EnumTypeExtension(name, directives.getOrElse(Nil), enumValuesDefinition.toList)
     }
 
   def enumTypeExtensionWithDirectives(implicit ev: P[Any]): P[EnumTypeExtension] =
-    P(enumName ~ directives).map { case (name, directives) =>
+    (enumName ~ directives).map { case (name, directives) =>
       EnumTypeExtension(name, directives, Nil)
     }
 
   def enumTypeExtension(implicit ev: P[Any]): P[EnumTypeExtension] =
-    P("extend enum" ~/ (NoCut(enumTypeExtensionWithOptionalDirectivesAndValues) | enumTypeExtensionWithDirectives))
+    ("extend enum" ~/ (NoCut(enumTypeExtensionWithOptionalDirectivesAndValues) | enumTypeExtensionWithDirectives))
 
   def inputObjectTypeExtensionWithOptionalDirectivesAndFields(implicit ev: P[Any]): P[InputObjectTypeExtension] =
-    P(name ~ directives.? ~ "{" ~ argumentDefinition.rep ~ "}").map { case (name, directives, fields) =>
+    (name ~ directives.? ~ "{" ~ argumentDefinition.rep ~ "}").map { case (name, directives, fields) =>
       InputObjectTypeExtension(name, directives.getOrElse(Nil), fields.toList)
     }
 
   def inputObjectTypeExtensionWithDirectives(implicit ev: P[Any]): P[InputObjectTypeExtension] =
-    P(name ~ directives).map { case (name, directives) =>
+    (name ~ directives).map { case (name, directives) =>
       InputObjectTypeExtension(name, directives, Nil)
     }
 
   def inputObjectTypeExtension(implicit ev: P[Any]): P[InputObjectTypeExtension] =
-    P(
-      "extend input" ~/ (
-        NoCut(inputObjectTypeExtensionWithOptionalDirectivesAndFields) |
-          inputObjectTypeExtensionWithDirectives
-      )
+    "extend input" ~/ (
+      NoCut(inputObjectTypeExtensionWithOptionalDirectivesAndFields) |
+        inputObjectTypeExtensionWithDirectives
     )
 
   def directiveLocation(implicit ev: P[Any]): P[DirectiveLocation] =
-    P(
+    (
       StringIn(
         "QUERY",
         "MUTATION",
@@ -318,7 +310,7 @@ object Parsers extends SelectionParsers {
     }
 
   def directiveDefinition(implicit ev: P[Any]): P[DirectiveDefinition] =
-    P(
+    (
       stringValue.? ~ "directive @" ~/ name ~ argumentDefinitions.? ~ "repeatable".!.? ~ "on" ~ ("|".? ~ directiveLocation) ~ ("|" ~ directiveLocation).rep
     ).map { case (description, name, args, repeatable, firstLoc, otherLoc) =>
       DirectiveDefinition(
@@ -342,7 +334,7 @@ object Parsers extends SelectionParsers {
     typeDefinition | schemaDefinition | directiveDefinition
 
   def executableDefinition(implicit ev: P[Any]): P[ExecutableDefinition] =
-    P(operationDefinition | fragmentDefinition)
+    operationDefinition | fragmentDefinition
 
   def typeExtension(implicit ev: P[Any]): P[TypeExtension] =
     objectTypeExtension |
@@ -355,8 +347,9 @@ object Parsers extends SelectionParsers {
   def typeSystemExtension(implicit ev: P[Any]): P[TypeSystemExtension] =
     schemaExtension | typeExtension
 
-  def definition(implicit ev: P[Any]): P[Definition] = executableDefinition | typeSystemDefinition | typeSystemExtension
+  def definition(implicit ev: P[Any]): P[Definition] =
+    executableDefinition | typeSystemDefinition | typeSystemExtension
 
   def document(implicit ev: P[Any]): P[ParsedDocument] =
-    P(Start ~ definition.rep ~ End).map(seq => ParsedDocument(seq.toList))
+    ((Start ~ executableDefinition.rep ~ End) | (Start ~ definition.rep ~ End)).map(seq => ParsedDocument(seq.toList))
 }

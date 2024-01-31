@@ -8,6 +8,7 @@ import zio.stacktracer.TracingImplicits.disableAutoTrace
 import zio.{ IO, Trace, ZIO }
 
 import scala.util.Try
+import scala.util.control.NonFatal
 
 object Parser {
   import caliban.parsing.parsers.Parsers._
@@ -15,15 +16,15 @@ object Parser {
   /**
    * Parses the given string into a [[caliban.parsing.adt.Document]] object or fails with a [[caliban.CalibanError.ParsingError]].
    */
-  def parseQuery(query: String)(implicit trace: Trace): IO[ParsingError, Document] = {
+  def parseQuery(query: String)(implicit trace: Trace): IO[ParsingError, Document] = ZIO.fromEither {
     val sm = SourceMapper(query)
-    ZIO
-      .attempt(parse(query, document(_)))
-      .mapError(ex => ParsingError(s"Internal parsing error", innerThrowable = Some(ex)))
-      .flatMap {
-        case Parsed.Success(value, _) => ZIO.succeed(Document(value.definitions, sm))
-        case f: Parsed.Failure        => ZIO.fail(ParsingError(f.msg, Some(sm.getLocation(f.index))))
-      }
+    try parse(query, document(_)) match {
+      case Parsed.Success(value, _) => Right(Document(value.definitions, sm))
+      case f: Parsed.Failure        => Left(ParsingError(f.msg, Some(sm.getLocation(f.index))))
+    } catch {
+      case NonFatal(ex) => Left(ParsingError(s"Internal parsing error", innerThrowable = Some(ex)))
+    }
+
   }
 
   def parseInputValue(rawValue: String): Either[ParsingError, InputValue] = {

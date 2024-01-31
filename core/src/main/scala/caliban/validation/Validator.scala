@@ -737,15 +737,21 @@ object Validator {
 
   private def validateFragments(
     fragments: List[FragmentDefinition]
-  ): EReader[Any, ValidationError, Map[String, FragmentDefinition]] =
-    fragments.foldLeftM(Map.empty[String, FragmentDefinition]) { case (fragmentMap, fragment) =>
+  ): EReader[Any, ValidationError, Map[String, FragmentDefinition]] = {
+    var fragmentMap = Map.empty[String, FragmentDefinition]
+    val iter        = fragments.iterator
+    while (iter.hasNext) {
+      val fragment = iter.next()
       if (fragmentMap.contains(fragment.name)) {
-        failValidation(
+        return failValidation(
           s"Fragment '${fragment.name}' is defined more than once.",
           "Fragment definitions are referenced in fragment spreads by name. To avoid ambiguity, each fragment’s name must be unique within a document."
         )
-      } else ZPure.succeed(fragmentMap.updated(fragment.name, fragment))
+      }
+      fragmentMap = fragmentMap.updated(fragment.name, fragment)
     }
+    ZPure.succeed(fragmentMap)
+  }
 
   lazy val validateSubscriptionOperation: QueryValidation = ZPure.serviceWithPure { context =>
     val error = {
