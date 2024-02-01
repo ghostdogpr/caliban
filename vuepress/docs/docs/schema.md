@@ -495,6 +495,9 @@ By default the suffix `Input` is appended to the type name of input types in the
 
 If you use scala3, you can enable `--addDerives` flag to automatically add `derives` clauses to the generated code. It will add type class instance derivation that create schema.
 
+In case you use derives and ZIO Environment other than Any, you need to pass type info or your schema generation will fail. Use the `--zioEnv` flag to
+pass in the type alias for your ZIO Environment.
+
 If you want to force a mapping between a GraphQL type and a Scala class (such as scalars), you can use the
 `--scalarMappings` option. Also you can add additional imports by providing `--imports` option.
 
