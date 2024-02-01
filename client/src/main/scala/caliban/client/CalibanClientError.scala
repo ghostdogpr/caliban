@@ -38,7 +38,7 @@ object CalibanClientError {
             s" at path ${p.map {
               case Left(value)  => s"/$value"
               case Right(value) => s"[$value]"
-            }.mkString("")}"
+            }.mkString("")}${e.extensions.fold("")(ext => s" Extensions: $ext")}"
           )}"
         )
         .mkString("\n")}"

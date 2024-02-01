@@ -4,6 +4,8 @@ import caliban.client.CalibanClientError.{ CommunicationError, DecodingError, Se
 import caliban.client.GraphQLResponseError.Location
 import zio.test._
 
+import caliban.client.__Value.__ObjectValue
+
 object CalibanClientErrorSpec extends ZIOSpecDefault {
   override def spec = {
     val msg = "SOME_MSG"
@@ -35,7 +37,9 @@ object CalibanClientErrorSpec extends ZIOSpecDefault {
               message = "Error1",
               locations = Option(List(Location(line = 1, column = 1))),
               path = Option(List(Left("somewhere"), Right(1))),
-              extensions = Option.empty
+              extensions = Option(
+                __ObjectValue(List("key1" -> __Value.__StringValue("value1"), "key2" -> __Value.__NumberValue(2)))
+              )
             ),
             GraphQLResponseError(
               message = "Error2",
@@ -46,7 +50,7 @@ object CalibanClientErrorSpec extends ZIOSpecDefault {
           )
           val error                 = ServerError(graphQLResponseErrors)
           assertTrue(
-            error.getMessage == "Server Error: Error1 at line 1 and column 1 at path /somewhere[1]\nError2 at line 1 and column 1 at path /somewhere"
+            error.getMessage == "Server Error: Error1 at line 1 and column 1 at path /somewhere[1] Extensions: {key1:\"value1\",key2:2}\nError2 at line 1 and column 1 at path /somewhere"
           )
         }
       )
