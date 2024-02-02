@@ -207,7 +207,18 @@ object Executor {
           collectAll(steps, isTopLevelField) { case (_, step, info) =>
             // Only way we could have ended with pure fields here is if we wrap pure values, so we check that first as it's cheaper
             objectFieldQuery(step, info, wrapPureValues && step.isPure)
-          }.map(ls => ObjectValue(ls.lazyZip(steps).map { case (resp, (name, _, _)) => (name, resp) }))
+          }.map { ls =>
+            val builder = List.newBuilder[(String, ResponseValue)]
+            var resps   = ls
+            var names   = steps
+            while (resps ne Nil) {
+              val (name, _, _) = names.head
+              builder += ((name, resps.head))
+              resps = resps.tail
+              names = names.tail
+            }
+            ObjectValue(builder.result())
+          }
 
         def combineResults(names: List[String], resolved: List[ResponseValue])(fromQueries: Vector[ResponseValue]) = {
           var results: List[(String, ResponseValue)] = Nil

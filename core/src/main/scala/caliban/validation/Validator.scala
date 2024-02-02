@@ -49,7 +49,9 @@ object Validator {
    * Verifies that the given document is valid for this type. Fails with a [[caliban.CalibanError.ValidationError]] otherwise.
    */
   def validate(document: Document, rootType: RootType)(implicit trace: Trace): IO[ValidationError, Unit] =
-    Configurator.configuration.map(_.validations).flatMap(check(document, rootType, Map.empty, _).unit.toZIO)
+    Configurator.configuration
+      .map(_.validations)
+      .flatMap(v => ZIO.fromEither(check(document, rootType, Map.empty, v).map(_ => ())))
 
   /**
    * Verifies that the given schema is valid. Fails with a [[caliban.CalibanError.ValidationError]] otherwise.
@@ -85,6 +87,9 @@ object Validator {
   def failValidation(msg: String, explanatoryText: String): EReader[Any, ValidationError, Nothing] =
     ZPure.fail(ValidationError(msg, explanatoryText))
 
+  private def failValidationEither(msg: String, explanatoryText: String): Either[ValidationError, Nothing] =
+    Left(ValidationError(msg, explanatoryText))
+
   /**
    * Prepare the request for execution.
    * Fails with a [[caliban.CalibanError.ValidationError]] otherwise.
@@ -97,9 +102,9 @@ object Validator {
     variables: Map[String, InputValue],
     skipValidation: Boolean,
     validations: List[QueryValidation]
-  ): IO[ValidationError, ExecutionRequest] = {
-    val fragments: EReader[Any, ValidationError, Map[String, FragmentDefinition]] = if (skipValidation) {
-      ZPure.succeed[Unit, Map[String, FragmentDefinition]](
+  ): IO[ValidationError, ExecutionRequest] = ZIO.fromEither {
+    val fragments: Either[ValidationError, Map[String, FragmentDefinition]] = if (skipValidation) {
+      Right(
         collectDefinitions(document)._2
           .foldLeft(List.empty[(String, FragmentDefinition)]) { case (l, f) => (f.name, f) :: l }
           .toMap
@@ -119,20 +124,15 @@ object Validator {
       }
 
       operation match {
-        case Left(error) => failValidation(error, "")
+        case Left(error) => Left(ValidationError(error, ""))
         case Right(op)   =>
           (op.operationType match {
-            case Query        => ZPure.succeed[Unit, Operation[R]](rootSchema.query)
+            case Query        =>
+              Right(rootSchema.query)
             case Mutation     =>
-              rootSchema.mutation match {
-                case Some(m) => ZPure.succeed[Unit, Operation[R]](m)
-                case None    => failValidation("Mutations are not supported on this schema", "")
-              }
+              rootSchema.mutation.toRight(ValidationError("Mutations are not supported on this schema", ""))
             case Subscription =>
-              rootSchema.subscription match {
-                case Some(m) => ZPure.succeed[Unit, Operation[R]](m)
-                case None    => failValidation("Subscriptions are not supported on this schema", "")
-              }
+              rootSchema.subscription.toRight(ValidationError("Subscriptions are not supported on this schema", ""))
           }).map(operation =>
             ExecutionRequest(
               F(
@@ -151,19 +151,19 @@ object Validator {
           )
       }
     }
-  }.toZIO
+  }(Trace.empty)
 
   private def check(
     document: Document,
     rootType: RootType,
     variables: Map[String, InputValue],
     validations: List[QueryValidation]
-  ): EReader[Any, ValidationError, Map[String, FragmentDefinition]] = {
+  ): Either[ValidationError, Map[String, FragmentDefinition]] = {
     val (operations, fragments, _, _) = collectDefinitions(document)
     validateFragments(fragments).flatMap { fragmentMap =>
       val selectionSets = collectSelectionSets(operations.flatMap(_.selectionSet) ++ fragments.flatMap(_.selectionSet))
       val context       = Context(document, rootType, operations, fragmentMap, selectionSets, variables)
-      validateAll(validations)(identity).provideService(context) as fragmentMap
+      ZPure.collectAll(validations).provideService(context).runEither.map(_ => fragmentMap)
     }
   }
 
@@ -194,23 +194,26 @@ object Validator {
       selectionSet: List[Selection]
     ): mutable.Builder[InputValue, List[InputValue]] = {
       // ugly mutable code but it's worth it for the speed ;)
-      def add(list: Iterable[InputValue]) = if (list.nonEmpty) builder ++= list
+      def add(args: Map[String, InputValue]): Unit = {
+        if (args.nonEmpty) builder ++= args.values
+        ()
+      }
 
       selectionSet.foreach {
         case FragmentSpread(name, directives)                    =>
-          directives.foreach(d => add(d.arguments.values))
+          directives.foreach(d => add(d.arguments))
           context.fragments
             .get(name)
             .foreach { f =>
-              f.directives.foreach(d => add(d.arguments.values))
+              f.directives.foreach(d => add(d.arguments))
               collectValues(builder, f.selectionSet)
             }
         case Field(_, _, arguments, directives, selectionSet, _) =>
-          add(arguments.values)
-          directives.foreach(d => add(d.arguments.values))
+          add(arguments)
+          directives.foreach(d => add(d.arguments))
           collectValues(builder, selectionSet)
         case InlineFragment(_, directives, selectionSet)         =>
-          directives.foreach(d => add(d.arguments.values))
+          directives.foreach(d => add(d.arguments))
           collectValues(builder, selectionSet)
       }
       builder
@@ -397,21 +400,24 @@ object Validator {
 
   lazy val validateFragmentSpreads: QueryValidation =
     ZPure.serviceWithPure { context =>
-      val spreads     = collectFragmentSpreads(context.selectionSets)
-      val spreadNames = spreads.map(_.name).toSet
-      validateAll(context.fragments.values)(f =>
-        if (!spreadNames.contains(f.name))
-          failValidation(
-            s"Fragment '${f.name}' is not used in any spread.",
-            "Defined fragments must be used within a document."
-          )
-        else if (detectCycles(context, f))
-          failValidation(
-            s"Fragment '${f.name}' forms a cycle.",
-            "The graph of fragment spreads must not form any cycles including spreading itself. Otherwise an operation could infinitely spread or infinitely execute on cycles in the underlying data."
-          )
-        else zunit
-      )
+      if (context.fragments.isEmpty) zunit
+      else {
+        val spreads     = collectFragmentSpreads(context.selectionSets)
+        val spreadNames = mutable.Set.from(spreads.map(_.name))
+        validateAll(context.fragments.values) { f =>
+          if (!spreadNames.contains(f.name))
+            failValidation(
+              s"Fragment '${f.name}' is not used in any spread.",
+              "Defined fragments must be used within a document."
+            )
+          else if (detectCycles(context, f))
+            failValidation(
+              s"Fragment '${f.name}' forms a cycle.",
+              "The graph of fragment spreads must not form any cycles including spreading itself. Otherwise an operation could infinitely spread or infinitely execute on cycles in the underlying data."
+            )
+          else zunit
+        }
+      }
     }
 
   private def detectCycles(context: Context, fragment: FragmentDefinition, visited: Set[String] = Set()): Boolean = {
@@ -457,8 +463,9 @@ object Validator {
     currentType: __Type
   ): EReader[Any, ValidationError, Unit] = {
     val v1 = validateFields(context, selectionSet, currentType)
-    def v2 = FragmentValidator.findConflictsWithinSelectionSet(context, context.rootType.queryType, selectionSet)
-    if (context.fragments.nonEmpty || containsFragments(selectionSet)) v1 *> v2 else v1
+    if (context.fragments.nonEmpty || containsFragments(selectionSet))
+      v1 *> FragmentValidator.findConflictsWithinSelectionSet(context, context.rootType.queryType, selectionSet)
+    else v1
   }
 
   private def validateFields(
@@ -737,20 +744,20 @@ object Validator {
 
   private def validateFragments(
     fragments: List[FragmentDefinition]
-  ): EReader[Any, ValidationError, Map[String, FragmentDefinition]] = {
+  ): Either[ValidationError, Map[String, FragmentDefinition]] = {
     var fragmentMap = Map.empty[String, FragmentDefinition]
     val iter        = fragments.iterator
     while (iter.hasNext) {
       val fragment = iter.next()
       if (fragmentMap.contains(fragment.name)) {
-        return failValidation(
+        return failValidationEither(
           s"Fragment '${fragment.name}' is defined more than once.",
           "Fragment definitions are referenced in fragment spreads by name. To avoid ambiguity, each fragment’s name must be unique within a document."
         )
       }
       fragmentMap = fragmentMap.updated(fragment.name, fragment)
     }
-    ZPure.succeed(fragmentMap)
+    Right(fragmentMap)
   }
 
   lazy val validateSubscriptionOperation: QueryValidation = ZPure.serviceWithPure { context =>
@@ -883,7 +890,7 @@ object Validator {
   }
 
   def validateObject(obj: __Type): EReader[Any, ValidationError, Unit] = {
-    val objectContext = s"Object '${obj.name.getOrElse("")}'"
+    lazy val objectContext = s"Object '${obj.name.getOrElse("")}'"
 
     def validateInterfaceFields(obj: __Type) = {
       def fieldNames(t: __Type) = t.allFieldsMap.keySet
