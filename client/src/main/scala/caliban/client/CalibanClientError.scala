@@ -5,7 +5,7 @@ package caliban.client
  */
 sealed trait CalibanClientError extends Throwable with Product with Serializable {
   override def getMessage: String = toString
-  def getFullMessage: String   = toString
+  def getFullMessage: String      = toString
 }
 
 object CalibanClientError {
