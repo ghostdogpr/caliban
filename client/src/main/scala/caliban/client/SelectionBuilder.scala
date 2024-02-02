@@ -75,10 +75,8 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
                          payload,
                          // allow parsing of large payloads
                          ReaderConfig
-                           .withMaxBufSize(max(max(payload.length, ReaderConfig.maxBufSize), ReaderConfig.preferredBufSize))
-                           .withMaxCharBufSize(
-                             max(max(payload.length, ReaderConfig.maxCharBufSize), ReaderConfig.preferredCharBufSize)
-                           )
+                           .withMaxBufSize(max(payload.length, ReaderConfig.maxBufSize))
+                           .withMaxCharBufSize(max(payload.length, ReaderConfig.maxCharBufSize))
                        )
                      )
                      catch {
