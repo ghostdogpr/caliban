@@ -5,6 +5,7 @@ lazy val root = project
   .enablePlugins(CalibanPlugin)
   .settings(
     libraryDependencies ++= Seq(
+      "com.github.ghostdogpr" %% "caliban"        % Version.pluginVersion,
       "com.github.ghostdogpr" %% "caliban-client" % Version.pluginVersion
     ),
     Compile / caliban / calibanSettings ++= Seq(
@@ -17,6 +18,12 @@ lazy val root = project
           .scalarMapping("Json" -> "String")
           .effect("scala.util.Try")
           .addDerives(false)
+      ),
+      calibanSetting(file("src/main/graphql/schema.graphql"))(
+        _.genType(Codegen.GenType.Schema)
+          .scalarMapping("Json" -> "String")
+          .effect("F")
+          .abstractEffectType(true)
       ),
       calibanSetting(file("src/main/graphql/genview/schema.graphql"))(
         _.clientName("Client").packageName("genview").genView(true)

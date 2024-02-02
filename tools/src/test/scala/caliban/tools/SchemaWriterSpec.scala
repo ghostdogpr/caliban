@@ -316,6 +316,51 @@ object SchemaWriterSpec extends ZIOSpecDefault {
         |}"""
     ),
     (
+      "GQLDeprecated with reason",
+      gen(s"""
+             type Captain {
+               "foo" shipName: String! @deprecated(reason: "bar")
+             }
+            """),
+      """import caliban.schema.Annotations._
+        |
+        |object Types {
+        |
+        |  final case class Captain(
+        |    @GQLDescription("foo")
+        |    @GQLDeprecated("bar")
+        |    shipName: String
+        |  )
+        |
+        |}"""
+    ),
+    (
+      "GQLDeprecated with multiline reason and escaped quotes",
+      gen(s"""
+              type ExampleType {
+                oldField: String @deprecated(reason: \"\"\"
+                  This field is deprecated for the following reasons:
+                  1. "Outdated data model": The field relies on an outdated data model.
+                  2. "Performance issues": Queries using this field have performance issues.
+                  Please use `newField` instead.
+                \"\"\")
+                newField: String
+              }
+
+            """),
+      """import caliban.schema.Annotations._
+        |
+        |object Types {
+        |
+        |  final case class ExampleType(
+        |    @GQLDeprecated(""" + "\"\"\"This field is deprecated for the following reasons:\n1. \\\"Outdated data model\\\": The field relies on an outdated data model.\n2. \\\"Performance issues\\\": Queries using this field have performance issues.\nPlease use `newField` instead." + "\"\"\")" + """
+        |    oldField: scala.Option[String],
+        |    newField: scala.Option[String]
+        |  )
+        |
+        |}"""
+    ),
+    (
       "schema",
       gen("""
              schema {
@@ -712,15 +757,29 @@ object SchemaWriterSpec extends ZIOSpecDefault {
         |type Baz {
         |  x: String!
         |  y: String! @lazy
+        |}
+        |
+        |type Query {
+        |  foo: Foo!
         |}""",
         effect = "F",
         isEffectTypeAbstract = true
       ),
-      """object Types {
+      """import Types._
+        |
+        |object Types {
         |
         |  final case class Foo[F[_]](bar: Bar[F])
         |  final case class Bar[F[_]](baz: F[Baz[F]])
         |  final case class Baz[F[_]](x: String, y: F[String])
+        |
+        |}
+        |
+        |object Operations {
+        |
+        |  final case class Query[F[_]](
+        |    foo: F[Foo[F]]
+        |  )
         |
         |}"""
     ),

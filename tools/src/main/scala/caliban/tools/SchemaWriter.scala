@@ -54,9 +54,24 @@ object SchemaWriter {
     def reservedType(typeDefinition: ObjectTypeDefinition): Boolean =
       typeDefinition.name == "Query" || typeDefinition.name == "Mutation" || typeDefinition.name == "Subscription"
 
+    def containsNestedDirective(
+      field: FieldDefinition,
+      directive: String
+    ): Boolean =
+      typeNameToDefinitionMap.get(Type.innerType(field.ofType)).fold(false) { t =>
+        hasFieldWithDirective(t, directive)
+      } || typeNameToNestedFields
+        .getOrElse(Type.innerType(field.ofType), List.empty)
+        .exists(t => hasFieldWithDirective(t, directive))
+
     def writeRootField(field: FieldDefinition, od: ObjectTypeDefinition): String = {
       val argsTypeName = if (field.args.nonEmpty) s" ${argsName(field, od)} =>" else ""
-      s"${safeName(field.name)} :$argsTypeName ${writeEffectType(field.ofType)}"
+      val fieldType    =
+        if (isEffectTypeAbstract && containsNestedDirective(field, LazyDirective))
+          writeParameterizedType(field.ofType)
+        else
+          writeType(field.ofType)
+      s"${safeName(field.name)} :$argsTypeName $effect[$fieldType]"
     }
 
     def isAbstractEffectful(typedef: ObjectTypeDefinition): Boolean =
@@ -80,7 +95,7 @@ object SchemaWriter {
 
     def writeRootQueryOrMutationDef(op: ObjectTypeDefinition): String =
       s"""
-         |${writeDescription(op.description)}final case class ${op.name}${generic(op, isRootDefinition = true)}(
+         |${writeTypeAnnotations(op)}final case class ${op.name}${generic(op, isRootDefinition = true)}(
          |${op.fields.map(c => writeRootField(c, op)).mkString(",\n")}
          |)$derivesSchema""".stripMargin
 
@@ -93,7 +108,7 @@ object SchemaWriter {
 
     def writeRootSubscriptionDef(op: ObjectTypeDefinition): String =
       s"""
-         |${writeDescription(op.description)}final case class ${op.name}(
+         |${writeTypeAnnotations(op)}final case class ${op.name}(
          |${op.fields.map(c => writeSubscriptionField(c, op)).mkString(",\n")}
          |)$derivesSchema""".stripMargin
 
@@ -102,7 +117,7 @@ object SchemaWriter {
         case Nil      => ""
         case nonEmpty => s" extends ${nonEmpty.mkString(" with ")}"
       }
-      s"""${writeDescription(typedef.description)}final case class ${typedef.name}${generic(typedef)}(${typedef.fields
+      s"""${writeTypeAnnotations(typedef)}final case class ${typedef.name}${generic(typedef)}(${typedef.fields
         .map(field => writeField(field, inheritedFromInterface(typedef, field).getOrElse(typedef), isMethod = false))
         .mkString(", ")})$extendRendered$derivesSchema"""
     }
@@ -110,18 +125,18 @@ object SchemaWriter {
     def writeInputObject(typedef: InputObjectTypeDefinition): String = {
       val name            = typedef.name
       val maybeAnnotation = if (preserveInputNames) s"""@GQLInputName("$name")\n""" else ""
-      s"""$maybeAnnotation${writeDescription(typedef.description)}final case class $name(${typedef.fields
+      s"""$maybeAnnotation${writeTypeAnnotations(typedef)}final case class $name(${typedef.fields
         .map(writeInputValue)
         .mkString(", ")})$derivesSchemaAndArgBuilder"""
     }
 
     def writeEnum(typedef: EnumTypeDefinition): String =
-      s"""${writeDescription(typedef.description)}sealed trait ${typedef.name} extends scala.Product with scala.Serializable$derivesSchemaAndArgBuilder
+      s"""${writeTypeAnnotations(typedef)}sealed trait ${typedef.name} extends scala.Product with scala.Serializable$derivesSchemaAndArgBuilder
 
           object ${typedef.name} {
             ${typedef.enumValuesDefinition
         .map(v =>
-          s"${writeDescription(v.description)}case object ${safeName(v.enumValue)} extends ${typedef.name}$derivesSchemaAndArgBuilder"
+          s"${writeEnumAnnotations(v)}case object ${safeName(v.enumValue)} extends ${typedef.name}$derivesSchemaAndArgBuilder"
         )
         .mkString("\n")}
           }
@@ -131,28 +146,18 @@ object SchemaWriter {
       unions.map(x => writeUnionSealedTrait(x)).mkString("\n")
 
     def writeUnionSealedTrait(union: UnionTypeDefinition): String =
-      s"""${writeDescription(
-        union.description
+      s"""${writeTypeAnnotations(
+        union
       )}sealed trait ${union.name} extends scala.Product with scala.Serializable$derivesSchema"""
 
     def writeInterface(interface: InterfaceTypeDefinition): String =
       s"""@GQLInterface
-        ${writeDescription(interface.description)}sealed trait ${interface.name} extends scala.Product with scala.Serializable $derivesSchema {
+        ${writeTypeAnnotations(interface)}sealed trait ${interface.name} extends scala.Product with scala.Serializable $derivesSchema {
          ${interface.fields.map(field => writeField(field, interface, isMethod = true)).mkString("\n")}
         }
        """
 
     def writeField(inputField: FieldDefinition, of: TypeDefinition, isMethod: Boolean): String = {
-      def containsNestedDirective(
-        field: FieldDefinition,
-        directive: String
-      ): Boolean =
-        typeNameToDefinitionMap.get(Type.innerType(field.ofType)).fold(false) { t =>
-          hasFieldWithDirective(t, directive)
-        } || typeNameToNestedFields
-          .getOrElse(Type.innerType(field.ofType), List.empty)
-          .exists(t => hasFieldWithDirective(t, directive))
-
       val field = resolveNewTypeFieldDef(inputField).getOrElse(inputField)
 
       val fieldIsEffectWrapped               = field.directives.exists(_.name == LazyDirective)
@@ -167,11 +172,11 @@ object SchemaWriter {
       val GQLNewTypeDirective = writeGQLNewTypeDirective(field.directives)
 
       if (field.args.nonEmpty) {
-        s"""$GQLNewTypeDirective${writeDescription(field.description)}${if (isMethod) "def " else ""}${safeName(
+        s"""$GQLNewTypeDirective${writeFieldAnnotations(field)}${if (isMethod) "def " else ""}${safeName(
           field.name
         )} : ${argsName(field, of)} => $fieldType"""
       } else {
-        s"""$GQLNewTypeDirective${writeDescription(field.description)}${if (isMethod) "def " else ""}${safeName(
+        s"""$GQLNewTypeDirective${writeFieldAnnotations(field)}${if (isMethod) "def " else ""}${safeName(
           field.name
         )} : $fieldType"""
       }
@@ -190,7 +195,7 @@ object SchemaWriter {
 
       val inputDef = resolveNewTypeInputDef(value).getOrElse(value)
 
-      s"""$GQLNewTypeInputDirective${writeDescription(inputDef.description)}${safeName(inputDef.name)} : ${writeType(
+      s"""$GQLNewTypeInputDirective${writeInputAnnotations(inputDef)}${safeName(inputDef.name)} : ${writeType(
         inputDef.ofType
       )}"""
     }
@@ -251,18 +256,41 @@ object SchemaWriter {
     def escapeDoubleQuotes(input: String): String =
       input.replace("\"", "\\\"")
 
-    def writeDescription(description: Option[String]): String =
-      description.fold("") {
-        case d if d.contains("\n") =>
-          s"""@GQLDescription(\"\"\"${escapeDoubleQuotes(d)}\"\"\")
-             |""".stripMargin
-        case d                     =>
-          s"""@GQLDescription("${escapeDoubleQuotes(d)}")
-             |""".stripMargin
+    def writeTypeAnnotations(definition: TypeDefinition): String =
+      writeDescriptionAndDeprecation(definition.description, definition.directives)
+
+    def writeFieldAnnotations(definition: FieldDefinition): String =
+      writeDescriptionAndDeprecation(definition.description, definition.directives)
+
+    def writeInputAnnotations(definition: InputValueDefinition): String =
+      writeDescriptionAndDeprecation(definition.description, definition.directives)
+
+    def writeEnumAnnotations(definition: EnumValueDefinition): String =
+      writeDescriptionAndDeprecation(definition.description, definition.directives)
+
+    def writeDescriptionAndDeprecation(description: Option[String], directives: List[Directive]): String =
+      s"${writeDescription(description)} ${writeDeprecation(directives)}"
+
+    def escapeAndWrap(value: String, annotation: String): String = {
+      val escapedValue = escapeDoubleQuotes(value)
+      if (escapedValue.contains("\n")) {
+        s"""@$annotation(\"\"\"$escapedValue\"\"\")
+           |""".stripMargin
+      } else {
+        s"""@$annotation("$escapedValue")
+           |""".stripMargin
+      }
+    }
+
+    def writeDeprecation(directives: List[Directive]): String =
+      Directives.deprecationReason(directives).fold("") { d =>
+        escapeAndWrap(d, "GQLDeprecated")
       }
 
-    def writeEffectType(t: Type) =
-      s"$effect[${writeType(t)}]"
+    def writeDescription(description: Option[String]): String =
+      description.fold("") { d =>
+        escapeAndWrap(d, "GQLDescription")
+      }
 
     def writeType(t: Type): String = {
       def write(name: String): String = scalarMappings
