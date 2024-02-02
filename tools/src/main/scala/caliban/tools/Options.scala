@@ -22,7 +22,7 @@ final case class Options(
   preserveInputNames: Option[Boolean],
   supportIsRepeatable: Option[Boolean],
   addDerives: Option[Boolean],
-  zioEnv: Option[String]
+  envForDerives: Option[String]
 )
 
 object Options {
@@ -43,7 +43,7 @@ object Options {
     preserveInputNames: Option[Boolean],
     supportIsRepeatable: Option[Boolean],
     addDerives: Option[Boolean],
-    zioEnv: Option[String]
+    envForDerives: Option[String]
   )
 
   def fromArgs(args: List[String]): UIO[Option[Options]] =
@@ -90,7 +90,7 @@ object Options {
             rawOpts.preserveInputNames,
             rawOpts.supportIsRepeatable,
             rawOpts.addDerives,
-            rawOpts.zioEnv
+            rawOpts.envForDerives
           )
         }.option
       case _                             => ZIO.none

@@ -26,7 +26,7 @@ lazy val root = project
                 .effect("MyZQuery")
                 .scalarMapping("ID" -> "String")
                 .addDerives(true)
-                .zioEnv("graphql.Env")
+                .envForDerives("graphql.Env")
             )
           )
         case _            =>

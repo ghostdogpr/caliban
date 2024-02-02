@@ -34,7 +34,7 @@ trait Config {
         preserveInputNames = None,
         supportIsRepeatable = Some(supportIsRepeatable),
         addDerives = None,
-        zioEnv = None
+        envForDerives = None
       )
 
     private[caliban] def asScalaCode: String = {

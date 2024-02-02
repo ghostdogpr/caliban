@@ -67,7 +67,7 @@ object CodegenSpec extends ZIOSpecDefault {
       preserveInputNames = None,
       supportIsRepeatable = None,
       addDerives = None,
-      zioEnv = None
+      envForDerives = None
     )
 
     getPackageAndObjectName(arguments)
