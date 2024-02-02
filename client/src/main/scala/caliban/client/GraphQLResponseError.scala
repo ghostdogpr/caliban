@@ -17,7 +17,17 @@ case class GraphQLResponseError(
   locations: Option[List[Location]],
   path: Option[List[Either[String, Int]]],
   extensions: Option[__Value]
-)
+) {
+  def print: String =
+    s"${message} ${locations.getOrElse(Nil).map(loc => s"at line ${loc.line} and column ${loc.column}").mkString(" ")}${path.fold("")(p =>
+      s" at path ${p.map {
+        case Left(value)  => s"/$value"
+        case Right(value) => s"[$value]"
+      }.mkString("")}"
+    )}"
+
+  def fullPrint: String = print + extensions.fold("")(ext => s" Extensions: $ext")
+}
 
 object GraphQLResponseError {
 
