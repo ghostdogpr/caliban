@@ -17,6 +17,7 @@ import zio.stream.ZStream
 
 import scala.annotation.tailrec
 import scala.collection.compat.{ BuildFrom => _, _ }
+import scala.collection.immutable.VectorBuilder
 import scala.collection.mutable.ListBuffer
 import scala.jdk.CollectionConverters._
 import scala.util.control.NonFatal
@@ -107,10 +108,10 @@ object Executor {
 
       def reduceListStep(steps: List[Step[R]]) = {
         var i         = 0
-        val lb        = List.newBuilder[ReducedStep[R]]
+        val lb        = ListBuffer.empty[ReducedStep[R]]
         var remaining = steps
         while (remaining ne Nil) {
-          lb += reduceStep(remaining.head, currentField, arguments, PathValue.Index(i) :: path)
+          lb addOne reduceStep(remaining.head, currentField, arguments, PathValue.Index(i) :: path)
           i += 1
           remaining = remaining.tail
         }
@@ -240,15 +241,16 @@ object Executor {
         }
 
         def collectMixed() = {
-          val queries   = Vector.newBuilder[(String, ReducedStep[R], FieldInfo)]
-          var names     = List.empty[String]
-          var resolved  = List.empty[ResponseValue]
-          var remaining = steps
-          while (remaining ne Nil) {
+          val queries                       = new VectorBuilder[(String, ReducedStep[R], FieldInfo)]
+          val nil                           = Nil
+          var names: List[String]           = nil
+          var resolved: List[ResponseValue] = nil
+          var remaining                     = steps
+          while (remaining ne nil) {
             val (name, step, _) = remaining.head
             val value           = step match {
               case PureStep(value) => value
-              case _               => queries += remaining.head; null
+              case _               => queries.addOne(remaining.head); null
             }
             resolved = value :: resolved
             names = name :: names
@@ -446,6 +448,11 @@ object Executor {
   private implicit class EnrichedListBufferOps[A](val lb: ListBuffer[A]) extends AnyVal {
     // This method doesn't exist in Scala 2.12 so we just use `.map` for it instead
     def mapInPlace[B](f: A => B): ListBuffer[B] = lb.map(f)
+    def addOne(value: A): ListBuffer[A]         = lb += value
+  }
+
+  private implicit class EnrichedVectorBuilderOps[A](private val lb: VectorBuilder[A]) extends AnyVal {
+    def addOne(value: A): VectorBuilder[A] = lb += value
   }
 
   /**

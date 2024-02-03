@@ -25,6 +25,7 @@ import zio.stacktracer.TracingImplicits.disableAutoTrace
 import zio.{ IO, Trace, ZIO }
 
 import scala.annotation.tailrec
+import scala.collection.compat._
 import scala.collection.mutable
 
 object Validator {
