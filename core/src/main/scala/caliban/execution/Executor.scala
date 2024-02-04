@@ -209,12 +209,12 @@ object Executor {
             // Only way we could have ended with pure fields here is if we wrap pure values, so we check that first as it's cheaper
             objectFieldQuery(step, info, wrapPureValues && step.isPure)
           }.map { ls =>
-            val builder = List.newBuilder[(String, ResponseValue)]
+            val builder = ListBuffer.empty[(String, ResponseValue)]
             var resps   = ls
             var names   = steps
             while (resps ne Nil) {
               val (name, _, _) = names.head
-              builder += ((name, resps.head))
+              builder addOne ((name, resps.head))
               resps = resps.tail
               names = names.tail
             }
