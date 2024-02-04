@@ -88,12 +88,11 @@ object Validator {
   def failValidation(msg: String, explanatoryText: String): EReader[Any, ValidationError, Nothing] =
     ZPure.fail(ValidationError(msg, explanatoryText))
 
-  private def failValidationEither(msg: String, explanatoryText: String): Either[ValidationError, Nothing] =
-    Left(ValidationError(msg, explanatoryText))
-
   /**
    * Prepare the request for execution.
    * Fails with a [[caliban.CalibanError.ValidationError]] otherwise.
+   *
+   * @see [[prepareEither]] for a variant that returns an Either instead
    */
   def prepare[R](
     document: Document,
@@ -103,7 +102,23 @@ object Validator {
     variables: Map[String, InputValue],
     skipValidation: Boolean,
     validations: List[QueryValidation]
-  ): IO[ValidationError, ExecutionRequest] = ZIO.fromEither {
+  ): IO[ValidationError, ExecutionRequest] = ZIO.fromEither(
+    prepareEither(document, rootType, rootSchema, operationName, variables, skipValidation, validations)
+  )(Trace.empty)
+
+  /**
+   * Prepare the request for execution.
+   * Fails with a [[caliban.CalibanError.ValidationError]] otherwise.
+   */
+  def prepareEither[R](
+    document: Document,
+    rootType: RootType,
+    rootSchema: RootSchema[R],
+    operationName: Option[String],
+    variables: Map[String, InputValue],
+    skipValidation: Boolean,
+    validations: List[QueryValidation]
+  ): Either[ValidationError, ExecutionRequest] = {
     val fragments: Either[ValidationError, Map[String, FragmentDefinition]] = if (skipValidation) {
       Right(
         collectDefinitions(document)._2
@@ -152,7 +167,7 @@ object Validator {
           )
       }
     }
-  }(Trace.empty)
+  }
 
   private def check(
     document: Document,
@@ -751,9 +766,11 @@ object Validator {
     while (iter.hasNext) {
       val fragment = iter.next()
       if (fragmentMap.contains(fragment.name)) {
-        return failValidationEither(
-          s"Fragment '${fragment.name}' is defined more than once.",
-          "Fragment definitions are referenced in fragment spreads by name. To avoid ambiguity, each fragment’s name must be unique within a document."
+        return Left(
+          ValidationError(
+            s"Fragment '${fragment.name}' is defined more than once.",
+            "Fragment definitions are referenced in fragment spreads by name. To avoid ambiguity, each fragment’s name must be unique within a document."
+          )
         )
       }
       fragmentMap = fragmentMap.updated(fragment.name, fragment)

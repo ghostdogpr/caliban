@@ -15,8 +15,18 @@ object Parser {
 
   /**
    * Parses the given string into a [[caliban.parsing.adt.Document]] object or fails with a [[caliban.CalibanError.ParsingError]].
+   *
+   * @see [[parseQueryEither]] for a version that returns an `Either` instead of an `IO`.
    */
   def parseQuery(query: String)(implicit trace: Trace): IO[ParsingError, Document] = ZIO.fromEither {
+    parseQueryEither(query)
+  }
+
+  /**
+   * Parses the given string into a [[caliban.parsing.adt.Document]] object or returns a [[caliban.CalibanError.ParsingError]]
+   * if the string is not a valid GraphQL document.
+   */
+  def parseQueryEither(query: String): Either[ParsingError, Document] = {
     val sm = SourceMapper(query)
     try parse(query, document(_)) match {
       case Parsed.Success(value, _) => Right(Document(value.definitions, sm))
@@ -24,7 +34,6 @@ object Parser {
     } catch {
       case NonFatal(ex) => Left(ParsingError(s"Internal parsing error", innerThrowable = Some(ex)))
     }
-
   }
 
   def parseInputValue(rawValue: String): Either[ParsingError, InputValue] = {
