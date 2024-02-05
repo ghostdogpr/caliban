@@ -51,16 +51,13 @@ object Validator {
    */
   def validate(document: Document, rootType: RootType)(implicit trace: Trace): IO[ValidationError, Unit] =
     Configurator.configuration
-      .map(_.validations)
-      .flatMap(v => ZIO.fromEither(check(document, rootType, Map.empty, v).map(_ => ())))
+      .flatMap(v => ZIO.fromEither(check(document, rootType, Map.empty, v.validations).map(_ => ())))
 
   /**
    * Verifies that the given schema is valid. Fails with a [[caliban.CalibanError.ValidationError]] otherwise.
    */
-  def validateSchema[R](schema: RootSchemaBuilder[R])(implicit trace: Trace): IO[ValidationError, RootSchema[R]] = {
-    val schemaValidation = validateSchemaEither(schema)
-    ZIO.fromEither(schemaValidation)
-  }
+  def validateSchema[R](schema: RootSchemaBuilder[R])(implicit trace: Trace): IO[ValidationError, RootSchema[R]] =
+    ZIO.fromEither(validateSchemaEither(schema))
 
   def validateSchemaEither[R](schema: RootSchemaBuilder[R]): Either[ValidationError, RootSchema[R]] = {
     val types = schema.types
@@ -131,40 +128,38 @@ object Validator {
       val operation = operationName match {
         case Some(name) =>
           document.definitions.collectFirst { case op: OperationDefinition if op.name.contains(name) => op }
-            .toRight(s"Unknown operation $name.")
+            .toRight(ValidationError(s"Unknown operation $name.", ""))
         case None       =>
           document.definitions.collect { case op: OperationDefinition => op } match {
             case head :: Nil => Right(head)
-            case _           => Left("Operation name is required.")
+            case _           => Left(ValidationError("Operation name is required.", ""))
           }
       }
 
-      operation match {
-        case Left(error) => Left(ValidationError(error, ""))
-        case Right(op)   =>
-          (op.operationType match {
-            case Query        =>
-              Right(rootSchema.query)
-            case Mutation     =>
-              rootSchema.mutation.toRight(ValidationError("Mutations are not supported on this schema", ""))
-            case Subscription =>
-              rootSchema.subscription.toRight(ValidationError("Subscriptions are not supported on this schema", ""))
-          }).map(operation =>
-            ExecutionRequest(
-              F(
-                op.selectionSet,
-                fragments,
-                variables,
-                op.variableDefinitions,
-                operation.opType,
-                document.sourceMapper,
-                op.directives,
-                rootType
-              ),
-              op.operationType,
-              operationName
-            )
+      operation.flatMap { op =>
+        (op.operationType match {
+          case Query        =>
+            Right(rootSchema.query)
+          case Mutation     =>
+            rootSchema.mutation.toRight(ValidationError("Mutations are not supported on this schema", ""))
+          case Subscription =>
+            rootSchema.subscription.toRight(ValidationError("Subscriptions are not supported on this schema", ""))
+        }).map(operation =>
+          ExecutionRequest(
+            F(
+              op.selectionSet,
+              fragments,
+              variables,
+              op.variableDefinitions,
+              operation.opType,
+              document.sourceMapper,
+              op.directives,
+              rootType
+            ),
+            op.operationType,
+            operationName
           )
+        )
       }
     }
   }
