@@ -151,6 +151,9 @@ object Wrapper {
     loop(process, wrappers)(info)
   }
 
+  private val emptyWrappers =
+    ZIO.succeed((Nil, Nil, Nil, Nil, Nil, Nil))(Trace.empty)
+
   private[caliban] def decompose[R](wrappers: List[Wrapper[R]])(implicit trace: Trace): UIO[
     (
       List[OverallWrapper[R]],
@@ -161,7 +164,7 @@ object Wrapper {
       List[IntrospectionWrapper[R]]
     )
   ] =
-    if (wrappers.isEmpty) ZIO.succeed((Nil, Nil, Nil, Nil, Nil, Nil))
+    if (wrappers.isEmpty) emptyWrappers
     else
       ZIO.suspendSucceed {
         val o = ListBuffer.empty[OverallWrapper[R]]

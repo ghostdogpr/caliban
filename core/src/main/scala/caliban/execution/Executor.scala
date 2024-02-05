@@ -204,13 +204,10 @@ object Executor {
         isTopLevelField: Boolean
       ) = {
 
-        def collectAllQueries() =
-          collectAll(steps, isTopLevelField) { case (_, step, info) =>
-            // Only way we could have ended with pure fields here is if we wrap pure values, so we check that first as it's cheaper
-            objectFieldQuery(step, info, wrapPureValues && step.isPure)
-          }.map { ls =>
+        def collectAllQueries() = {
+          def combineQueryResults(results: List[ResponseValue]) = {
             val builder = ListBuffer.empty[(String, ResponseValue)]
-            var resps   = ls
+            var resps   = results
             var names   = steps
             while (resps ne Nil) {
               val (name, _, _) = names.head
@@ -220,6 +217,11 @@ object Executor {
             }
             ObjectValue(builder.result())
           }
+          collectAll(steps, isTopLevelField) { case (_, step, info) =>
+            // Only way we could have ended with pure fields here is if we wrap pure values, so we check that first as it's cheaper
+            objectFieldQuery(step, info, wrapPureValues && step.isPure)
+          }.map(combineQueryResults)
+        }
 
         def combineResults(names: List[String], resolved: List[ResponseValue])(fromQueries: Vector[ResponseValue]) = {
           var results: List[(String, ResponseValue)] = Nil
