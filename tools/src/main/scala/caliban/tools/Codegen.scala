@@ -28,6 +28,7 @@ object Codegen {
                                   }
       preserveInputNames        = arguments.preserveInputNames.getOrElse(false)
       addDerives                = arguments.addDerives.getOrElse(false)
+      envForDerives             = arguments.envForDerives
       genView                   = arguments.genView.getOrElse(false)
       scalarMappings            = arguments.scalarMappings
       splitFiles                = arguments.splitFiles.getOrElse(false)
@@ -44,7 +45,8 @@ object Codegen {
                                           scalarMappings,
                                           abstractEffectType,
                                           preserveInputNames,
-                                          addDerives
+                                          addDerives,
+                                          envForDerives
                                         )
                                       )
                                     case GenType.Client =>
