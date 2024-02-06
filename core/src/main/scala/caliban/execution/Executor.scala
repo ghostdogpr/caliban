@@ -109,8 +109,9 @@ object Executor {
       def reduceListStep(steps: List[Step[R]]) = {
         var i         = 0
         val lb        = ListBuffer.empty[ReducedStep[R]]
+        val nil       = Nil
         var remaining = steps
-        while (remaining ne Nil) {
+        while (remaining ne nil) {
           lb addOne reduceStep(remaining.head, currentField, arguments, PathValue.Index(i) :: path)
           i += 1
           remaining = remaining.tail
@@ -207,9 +208,10 @@ object Executor {
         def collectAllQueries() = {
           def combineQueryResults(results: List[ResponseValue]) = {
             val builder = ListBuffer.empty[(String, ResponseValue)]
+            val nil     = Nil
             var resps   = results
             var names   = steps
-            while (resps ne Nil) {
+            while (resps ne nil) {
               val (name, _, _) = names.head
               builder addOne ((name, resps.head))
               resps = resps.tail
@@ -224,11 +226,12 @@ object Executor {
         }
 
         def combineResults(names: List[String], resolved: List[ResponseValue])(fromQueries: Vector[ResponseValue]) = {
-          var results: List[(String, ResponseValue)] = Nil
+          val nil                                    = Nil
+          var results: List[(String, ResponseValue)] = nil
           var i                                      = fromQueries.length
           var remainingResponses                     = resolved
           var remainingNames                         = names
-          while (remainingResponses ne Nil) {
+          while (remainingResponses ne nil) {
             val name = remainingNames.head
             var resp = remainingResponses.head
             if (resp eq null) {
@@ -369,8 +372,9 @@ object Executor {
 
     def mergeFields(fields: List[Field]) = {
       val map       = new java.util.LinkedHashMap[String, Field](calculateMapCapacity(fields.size))
+      val nil       = Nil
       var remaining = fields
-      while (remaining ne Nil) {
+      while (remaining ne nil) {
         val h = remaining.head
         if (matchesTypename(h)) {
           map.compute(
@@ -408,9 +412,10 @@ object Executor {
     wrapPureValues: Boolean
   ): ReducedStep[R] = {
     var hasPures   = false
+    val nil        = Nil
     var hasQueries = wrapPureValues
     var remaining  = items
-    while ((remaining ne Nil) && !(hasPures && hasQueries)) {
+    while ((remaining ne nil) && !(hasPures && hasQueries)) {
       if (remaining.head._2.isPure) hasPures = true
       else hasQueries = true
       remaining = remaining.tail
