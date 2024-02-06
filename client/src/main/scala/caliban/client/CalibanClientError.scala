@@ -36,7 +36,7 @@ object CalibanClientError {
      * @param includeExtensions whether to include the extensions in the error message
      * @return the error message
      */
-    override def render(includeExtensions: Boolean = false) =
+    override def render(includeExtensions: Boolean = false): String =
       s"Server Error: ${errors.map(_.render(includeExtensions)).mkString("\n")}"
 
   }
