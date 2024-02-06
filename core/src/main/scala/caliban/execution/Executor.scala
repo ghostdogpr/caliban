@@ -244,7 +244,7 @@ object Executor {
 
         def collectMixed() = {
           val queries                       = new VectorBuilder[(String, ReducedStep[R], FieldInfo)]
-          val nil                           = Nil
+          val nil                           = Nil // Bring into stack memory to avoid fetching from heap on each iteration
           var names: List[String]           = nil
           var resolved: List[ResponseValue] = nil
           var remaining                     = steps
