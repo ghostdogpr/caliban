@@ -33,7 +33,8 @@ trait Config {
         abstractEffectType = None,
         preserveInputNames = None,
         supportIsRepeatable = Some(supportIsRepeatable),
-        addDerives = None
+        addDerives = None,
+        envForDerives = None
       )
 
     private[caliban] def asScalaCode: String = {

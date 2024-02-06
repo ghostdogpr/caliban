@@ -17,6 +17,7 @@ import zio.stream.ZStream
 
 import scala.annotation.tailrec
 import scala.collection.compat.{ BuildFrom => _, _ }
+import scala.collection.immutable.VectorBuilder
 import scala.collection.mutable.ListBuffer
 import scala.jdk.CollectionConverters._
 import scala.util.control.NonFatal
@@ -107,10 +108,11 @@ object Executor {
 
       def reduceListStep(steps: List[Step[R]]) = {
         var i         = 0
-        val lb        = List.newBuilder[ReducedStep[R]]
+        val lb        = ListBuffer.empty[ReducedStep[R]]
+        val nil       = Nil
         var remaining = steps
-        while (remaining ne Nil) {
-          lb += reduceStep(remaining.head, currentField, arguments, PathValue.Index(i) :: path)
+        while (remaining ne nil) {
+          lb addOne reduceStep(remaining.head, currentField, arguments, PathValue.Index(i) :: path)
           i += 1
           remaining = remaining.tail
         }
@@ -203,18 +205,33 @@ object Executor {
         isTopLevelField: Boolean
       ) = {
 
-        def collectAllQueries() =
+        def collectAllQueries() = {
+          def combineQueryResults(results: List[ResponseValue]) = {
+            val builder = ListBuffer.empty[(String, ResponseValue)]
+            val nil     = Nil
+            var resps   = results
+            var names   = steps
+            while (resps ne nil) {
+              val (name, _, _) = names.head
+              builder addOne ((name, resps.head))
+              resps = resps.tail
+              names = names.tail
+            }
+            ObjectValue(builder.result())
+          }
           collectAll(steps, isTopLevelField) { case (_, step, info) =>
             // Only way we could have ended with pure fields here is if we wrap pure values, so we check that first as it's cheaper
             objectFieldQuery(step, info, wrapPureValues && step.isPure)
-          }.map(ls => ObjectValue(ls.lazyZip(steps).map { case (resp, (name, _, _)) => (name, resp) }))
+          }.map(combineQueryResults)
+        }
 
         def combineResults(names: List[String], resolved: List[ResponseValue])(fromQueries: Vector[ResponseValue]) = {
-          var results: List[(String, ResponseValue)] = Nil
+          val nil                                    = Nil
+          var results: List[(String, ResponseValue)] = nil
           var i                                      = fromQueries.length
           var remainingResponses                     = resolved
           var remainingNames                         = names
-          while (remainingResponses ne Nil) {
+          while (remainingResponses ne nil) {
             val name = remainingNames.head
             var resp = remainingResponses.head
             if (resp eq null) {
@@ -229,15 +246,16 @@ object Executor {
         }
 
         def collectMixed() = {
-          val queries   = Vector.newBuilder[(String, ReducedStep[R], FieldInfo)]
-          var names     = List.empty[String]
-          var resolved  = List.empty[ResponseValue]
-          var remaining = steps
-          while (remaining ne Nil) {
+          val queries                       = new VectorBuilder[(String, ReducedStep[R], FieldInfo)]
+          val nil                           = Nil // Bring into stack memory to avoid fetching from heap on each iteration
+          var names: List[String]           = nil
+          var resolved: List[ResponseValue] = nil
+          var remaining                     = steps
+          while (remaining ne nil) {
             val (name, step, _) = remaining.head
             val value           = step match {
               case PureStep(value) => value
-              case _               => queries += remaining.head; null
+              case _               => queries.addOne(remaining.head); null
             }
             resolved = value :: resolved
             names = name :: names
@@ -354,8 +372,9 @@ object Executor {
 
     def mergeFields(fields: List[Field]) = {
       val map       = new java.util.LinkedHashMap[String, Field](calculateMapCapacity(fields.size))
+      val nil       = Nil
       var remaining = fields
-      while (remaining ne Nil) {
+      while (remaining ne nil) {
         val h = remaining.head
         if (matchesTypename(h)) {
           map.compute(
@@ -393,9 +412,10 @@ object Executor {
     wrapPureValues: Boolean
   ): ReducedStep[R] = {
     var hasPures   = false
+    val nil        = Nil
     var hasQueries = wrapPureValues
     var remaining  = items
-    while ((remaining ne Nil) && !(hasPures && hasQueries)) {
+    while ((remaining ne nil) && !(hasPures && hasQueries)) {
       if (remaining.head._2.isPure) hasPures = true
       else hasQueries = true
       remaining = remaining.tail
@@ -435,6 +455,11 @@ object Executor {
   private implicit class EnrichedListBufferOps[A](val lb: ListBuffer[A]) extends AnyVal {
     // This method doesn't exist in Scala 2.12 so we just use `.map` for it instead
     def mapInPlace[B](f: A => B): ListBuffer[B] = lb.map(f)
+    def addOne(value: A): ListBuffer[A]         = lb += value
+  }
+
+  private implicit class EnrichedVectorBuilderOps[A](private val lb: VectorBuilder[A]) extends AnyVal {
+    def addOne(value: A): VectorBuilder[A] = lb += value
   }
 
   /**

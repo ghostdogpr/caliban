@@ -3,7 +3,6 @@ package caliban.interop.tapir.ws
 import caliban.ResponseValue.{ ObjectValue, StreamValue }
 import caliban.Value.StringValue
 import caliban._
-import caliban.execution.QueryExecution
 import caliban.interop.tapir.TapirAdapter.CalibanPipe
 import caliban.interop.tapir.WebSocketHooks
 import zio.stm.TMap
@@ -72,16 +71,16 @@ object Protocol {
         output        <- Queue.unbounded[Either[GraphQLWSClose, GraphQLWSOutput]]
         pipe          <- ZIO.succeed[CalibanPipe] { input =>
                            ZStream.scoped(
-                             input.mapZIO {
+                             input.runForeach {
                                case GraphQLWSInput(Ops.ConnectionInit, id, payload)  =>
                                  val before     = ZIO.whenCase((webSocketHooks.beforeInit, payload)) {
                                    case (Some(beforeInit), Some(payload)) =>
-                                     beforeInit(payload).catchAll(_ => output.offer(Left(GraphQLWSClose(4403, "Forbidden"))))
+                                     beforeInit(payload).orElse(output.offer(Left(GraphQLWSClose(4403, "Forbidden"))))
                                  }
                                  val ackPayload = webSocketHooks.onAck.fold[URIO[R, Option[ResponseValue]]](ZIO.none)(_.option)
                                  val response   =
                                    ack.set(true) *> ackPayload.flatMap(payload => output.offer(Right(connectionAck(payload))))
-                                 val ka         = ping(keepAliveTime).mapZIO(output.offer).runDrain.fork
+                                 val ka         = ping(keepAliveTime).runForeach(output.offer).fork
                                  val after      = ZIO.whenCase(webSocketHooks.afterInit) { case Some(afterInit) =>
                                    afterInit
                                      .catchAllCause(cause =>
@@ -146,9 +145,9 @@ object Protocol {
                                  subscriptions.untrack(id)
                                case GraphQLWSInput(unsupported, _, _)                =>
                                  output.offer(Left(GraphQLWSClose(4400, s"Unsupported operation: $unsupported")))
-                             }.runDrain.interruptible
-                               .catchAll(_ =>
-                                 generateId(None).flatMap(uuid => output.offer(Right(connectionError(Some(uuid.toString())))))
+                             }.interruptible
+                               .orElse(
+                                 generateId(None).flatMap(uuid => output.offer(Right(connectionError(Some(uuid.toString)))))
                                )
                                .ensuring(subscriptions.untrackAll)
                                .provideEnvironment(env)
@@ -224,7 +223,7 @@ object Protocol {
         pipe          <- ZIO.succeed[CalibanPipe] { input =>
                            ZStream
                              .acquireReleaseWith(
-                               input.collectZIO {
+                               input.runForeach {
                                  case GraphQLWSInput(Ops.ConnectionInit, id, payload) =>
                                    val before     = ZIO.whenCase((webSocketHooks.beforeInit, payload)) {
                                      case (Some(beforeInit), Some(payload)) =>
@@ -234,7 +233,7 @@ object Protocol {
 
                                    val response =
                                      ack.set(true) *> ackPayload.flatMap(payload => output.offer(Right(connectionAck(payload))))
-                                   val ka       = keepAlive(keepAliveTime).mapZIO(o => output.offer(Right(o))).runDrain.fork
+                                   val ka       = keepAlive(keepAliveTime).runForeach(o => output.offer(Right(o))).fork
                                    val after    = ZIO.whenCase(webSocketHooks.afterInit) { case Some(afterInit) =>
                                      afterInit
                                        .catchAllCause(cause =>
@@ -275,8 +274,10 @@ object Protocol {
                                    subscriptions.untrack(id)
                                  case GraphQLWSInput(Ops.ConnectionTerminate, _, _)   =>
                                    ZIO.interrupt
-                               }.runDrain.interruptible
-                                 .catchAll(_ => output.offer(Right(connectionError)))
+                                 case _                                               =>
+                                   ZIO.unit
+                               }.interruptible
+                                 .orElse(output.offer(Right(connectionError)))
                                  .ensuring(subscriptions.untrackAll)
                                  .provideEnvironment(env)
                                  .forkDaemon

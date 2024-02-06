@@ -151,6 +151,9 @@ object Wrapper {
     loop(process, wrappers)(info)
   }
 
+  private val emptyWrappers =
+    ZIO.succeed((Nil, Nil, Nil, Nil, Nil, Nil))(Trace.empty)
+
   private[caliban] def decompose[R](wrappers: List[Wrapper[R]])(implicit trace: Trace): UIO[
     (
       List[OverallWrapper[R]],
@@ -160,31 +163,34 @@ object Wrapper {
       List[FieldWrapper[R]],
       List[IntrospectionWrapper[R]]
     )
-  ] = ZIO.suspendSucceed {
-    val o = ListBuffer.empty[OverallWrapper[R]]
-    val p = ListBuffer.empty[ParsingWrapper[R]]
-    val v = ListBuffer.empty[ValidationWrapper[R]]
-    val e = ListBuffer.empty[ExecutionWrapper[R]]
-    val f = ListBuffer.empty[FieldWrapper[R]]
-    val i = ListBuffer.empty[IntrospectionWrapper[R]]
+  ] =
+    if (wrappers.isEmpty) emptyWrappers
+    else
+      ZIO.suspendSucceed {
+        val o = ListBuffer.empty[OverallWrapper[R]]
+        val p = ListBuffer.empty[ParsingWrapper[R]]
+        val v = ListBuffer.empty[ValidationWrapper[R]]
+        val e = ListBuffer.empty[ExecutionWrapper[R]]
+        val f = ListBuffer.empty[FieldWrapper[R]]
+        val i = ListBuffer.empty[IntrospectionWrapper[R]]
 
-    def loop(wrapper: Wrapper[R]): UIO[Unit] = wrapper match {
-      case wrapper: OverallWrapper[R]       => ZIO.succeed(o append wrapper)
-      case wrapper: ParsingWrapper[R]       => ZIO.succeed(p append wrapper)
-      case wrapper: ValidationWrapper[R]    => ZIO.succeed(v append wrapper)
-      case wrapper: ExecutionWrapper[R]     => ZIO.succeed(e append wrapper)
-      case wrapper: FieldWrapper[R]         => ZIO.succeed(f append wrapper)
-      case wrapper: IntrospectionWrapper[R] => ZIO.succeed(i append wrapper)
-      case CombinedWrapper(wrappers)        => ZIO.foreachDiscard(wrappers)(loop)
-      case EffectfulWrapper(wrapper)        => wrapper.flatMap(loop)
-      case Wrapper.Empty                    => ZIO.unit
-    }
+        def loop(wrapper: Wrapper[R]): UIO[Unit] = wrapper match {
+          case wrapper: OverallWrapper[R]       => ZIO.succeed(o append wrapper)
+          case wrapper: ParsingWrapper[R]       => ZIO.succeed(p append wrapper)
+          case wrapper: ValidationWrapper[R]    => ZIO.succeed(v append wrapper)
+          case wrapper: ExecutionWrapper[R]     => ZIO.succeed(e append wrapper)
+          case wrapper: FieldWrapper[R]         => ZIO.succeed(f append wrapper)
+          case wrapper: IntrospectionWrapper[R] => ZIO.succeed(i append wrapper)
+          case CombinedWrapper(wrappers)        => ZIO.foreachDiscard(wrappers)(loop)
+          case EffectfulWrapper(wrapper)        => wrapper.flatMap(loop)
+          case Wrapper.Empty                    => ZIO.unit
+        }
 
-    def finalize[W <: Wrapper[R]](buffer: ListBuffer[W]): List[W] = buffer.sortBy(_.priority).result()
+        def finalize[W <: Wrapper[R]](buffer: ListBuffer[W]): List[W] = buffer.sortBy(_.priority).result()
 
-    ZIO
-      .foreachDiscard(wrappers)(loop)
-      .as((finalize(o), finalize(p), finalize(v), finalize(e), finalize(f), finalize(i)))
-  }
+        ZIO
+          .foreachDiscard(wrappers)(loop)
+          .as((finalize(o), finalize(p), finalize(v), finalize(e), finalize(f), finalize(i)))
+      }
 
 }
