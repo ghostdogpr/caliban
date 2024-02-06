@@ -75,7 +75,7 @@ object Protocol {
                                case GraphQLWSInput(Ops.ConnectionInit, id, payload)  =>
                                  val before     = ZIO.whenCase((webSocketHooks.beforeInit, payload)) {
                                    case (Some(beforeInit), Some(payload)) =>
-                                     beforeInit(payload).catchAll(_ => output.offer(Left(GraphQLWSClose(4403, "Forbidden"))))
+                                     beforeInit(payload).orElse(output.offer(Left(GraphQLWSClose(4403, "Forbidden"))))
                                  }
                                  val ackPayload = webSocketHooks.onAck.fold[URIO[R, Option[ResponseValue]]](ZIO.none)(_.option)
                                  val response   =
@@ -146,7 +146,7 @@ object Protocol {
                                case GraphQLWSInput(unsupported, _, _)                =>
                                  output.offer(Left(GraphQLWSClose(4400, s"Unsupported operation: $unsupported")))
                              }.interruptible
-                               .catchAll(_ =>
+                               .orElse(
                                  generateId(None).flatMap(uuid => output.offer(Right(connectionError(Some(uuid.toString)))))
                                )
                                .ensuring(subscriptions.untrackAll)
@@ -277,7 +277,7 @@ object Protocol {
                                  case _                                               =>
                                    ZIO.unit
                                }.interruptible
-                                 .catchAll(_ => output.offer(Right(connectionError)))
+                                 .orElse(output.offer(Right(connectionError)))
                                  .ensuring(subscriptions.untrackAll)
                                  .provideEnvironment(env)
                                  .forkDaemon
