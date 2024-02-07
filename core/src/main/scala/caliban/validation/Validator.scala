@@ -270,16 +270,15 @@ object Validator {
                                 checkDirectivesUniqueness(op.directives, directiveDefinitions).as(op.operationType match {
                                   case OperationType.Query        => op.directives.map((_, __DirectiveLocation.QUERY))
                                   case OperationType.Mutation     => op.directives.map((_, __DirectiveLocation.MUTATION))
-                                  case OperationType.Subscription =>
-                                    op.directives.map((_, __DirectiveLocation.SUBSCRIPTION))
+                                  case OperationType.Subscription => op.directives.map((_, __DirectiveLocation.SUBSCRIPTION))
                                 })
                               )
-      fragmentDirectives   <- ZPure.foreach(context.fragments.values)(fragment =>
+      fragmentDirectives   <- ZPure.foreach(context.fragments.values.toList)(fragment =>
                                 checkDirectivesUniqueness(fragment.directives, directiveDefinitions)
                                   .as(fragment.directives.map((_, __DirectiveLocation.FRAGMENT_DEFINITION)))
                               )
       selectionDirectives  <- collectDirectives(context.selectionSets, directiveDefinitions)
-    } yield opDirectives.flatten ++ fragmentDirectives.flatten ++ selectionDirectives
+    } yield opDirectives.flatten ::: fragmentDirectives.flatten ::: selectionDirectives
 
   private def collectDirectives(
     selectionSet: List[Selection],
@@ -368,7 +367,7 @@ object Validator {
 
   lazy val validateVariables: QueryValidation =
     ZPure.serviceWithPure { context =>
-      ZPure.foreachDiscard(context.operations)(op =>
+      validateAll(context.operations)(op =>
         validateAll(op.variableDefinitions.groupBy(_.name)) { case (name, variables) =>
           ZPure.when(variables.length > 1)(
             failValidation(
@@ -1210,10 +1209,15 @@ object Validator {
     }
   }
 
-  // Pure's implementation doesn't check if the Iterable is empty, and this is causing some performance degradation
+  /**
+   * Wrapper around `ZPure.foreachDiscard` optimized for cases where the input is empty or has only one element.
+   */
   private def validateAll[R, A, B](
     in: Iterable[A]
   )(f: A => EReader[R, ValidationError, B]): EReader[R, ValidationError, Unit] =
-    if (in.isEmpty) zunit
-    else ZPure.foreachDiscard(in)(f)
+    in.sizeCompare(1) match {
+      case -1 => zunit
+      case 0  => f(in.head).unit
+      case _  => ZPure.foreachDiscard(in)(f)
+    }
 }
