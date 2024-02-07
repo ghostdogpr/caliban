@@ -42,3 +42,4 @@ Want to see your company here? [Submit a PR](https://github.com/ghostdogpr/calib
 * [Soundtrack Your Brand](https://www.soundtrackyourbrand.com)
 * [StepZen](https://www.stepzen.com)
 * [Undo](https://www.undo.app)
+* [Valamis Group](https://www.valamis.com)
