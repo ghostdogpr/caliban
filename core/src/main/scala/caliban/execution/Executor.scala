@@ -261,8 +261,11 @@ object Executor {
             names = name :: names
             remaining = remaining.tail
           }
+
+          val names0    = names
+          val resolved0 = resolved
           collectAll(queries.result(), isTopLevelField) { case (_, s, i) => objectFieldQuery(s, i) }
-            .map(combineResults(names, resolved))
+            .map(combineResults(names0, resolved0))
         }
 
         if (hasPureFields && !wrapPureValues) collectMixed() else collectAllQueries()
