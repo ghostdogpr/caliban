@@ -265,6 +265,28 @@ object SchemaComparisonSpec extends ZIOSpecDefault {
           compareChanges(repeatable, nonRepeatable, List(expected)) &&
           assertTrue(expected.breaking)
 
+        },
+        test("changes in base interfaces") {
+          val schema1: String =
+            """interface A { x: Int }
+              |interface B { x: Int }
+              |
+              |type C implements A { x: Int }
+              |""".stripMargin
+
+          val schema2: String =
+            """interface A { x: Int }
+              |interface B { x: Int }
+              |
+              |type C implements B { x: Int }
+              |""".stripMargin
+
+          val expected = List(
+            SchemaComparisonChange.ObjectImplementsAdded("C", "B"),
+            SchemaComparisonChange.ObjectImplementsDeleted("C", "A")
+          )
+
+          compareChanges(schema1, schema2, expected)
         }
       )
     )
