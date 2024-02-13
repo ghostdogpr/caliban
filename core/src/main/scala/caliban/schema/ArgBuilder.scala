@@ -12,7 +12,6 @@ import java.time.format.DateTimeFormatter
 import java.time.temporal.Temporal
 import java.util.UUID
 import scala.annotation.implicitNotFound
-import scala.collection.immutable.BitSet
 import scala.util.Try
 import scala.util.control.{ NoStackTrace, NonFatal }
 
@@ -93,45 +92,45 @@ trait ArgBuilderInstances extends ArgBuilderDerivation {
   implicit lazy val unit: ArgBuilder[Unit]             = _ => Right(())
   implicit lazy val int: ArgBuilder[Int]               = {
     case value: IntValue => Right(value.toInt)
-    case other           => Left(InvalidInputArgument("Int", other.toString))
+    case other           => Left(InvalidInputArgument("Int", other))
   }
   implicit lazy val long: ArgBuilder[Long]             = {
     case value: IntValue    => Right(value.toLong)
     case StringValue(value) =>
       Try(value.toLong).fold(_ => Left(InvalidInputArgument("Long", value)), Right(_))
-    case other              => Left(InvalidInputArgument("Long", other.toString))
+    case other              => Left(InvalidInputArgument("Long", other))
   }
   implicit lazy val bigInt: ArgBuilder[BigInt]         = {
     case value: IntValue => Right(value.toBigInt)
-    case other           => Left(InvalidInputArgument("BigInt", other.toString))
+    case other           => Left(InvalidInputArgument("BigInt", other))
   }
   implicit lazy val float: ArgBuilder[Float]           = {
     case value: IntValue   => Right(value.toLong.toFloat)
     case value: FloatValue => Right(value.toFloat)
-    case other             => Left(InvalidInputArgument("Float", other.toString))
+    case other             => Left(InvalidInputArgument("Float", other))
   }
   implicit lazy val double: ArgBuilder[Double]         = {
     case value: IntValue   => Right(value.toLong.toDouble)
     case value: FloatValue => Right(value.toDouble)
-    case other             => Left(InvalidInputArgument("Double", other.toString))
+    case other             => Left(InvalidInputArgument("Double", other))
   }
   implicit lazy val bigDecimal: ArgBuilder[BigDecimal] = {
     case value: IntValue   => Right(BigDecimal(value.toBigInt))
     case value: FloatValue => Right(value.toBigDecimal)
-    case other             => Left(InvalidInputArgument("BigDecimal", other.toString))
+    case other             => Left(InvalidInputArgument("BigDecimal", other))
   }
   implicit lazy val string: ArgBuilder[String]         = {
     case StringValue(value) => Right(value)
-    case other              => Left(InvalidInputArgument("String", other.toString))
+    case other              => Left(InvalidInputArgument("String", other))
   }
   implicit lazy val uuid: ArgBuilder[UUID]             = {
     case StringValue(value) =>
       Try(UUID.fromString(value)).fold(_ => Left(InvalidInputArgument("UUID", value)), Right(_))
-    case other              => Left(InvalidInputArgument("UUID", other.toString))
+    case other              => Left(InvalidInputArgument("UUID", other))
   }
   implicit lazy val boolean: ArgBuilder[Boolean]       = {
     case BooleanValue(value) => Right(value)
-    case other               => Left(InvalidInputArgument("Boolean", other.toString))
+    case other               => Left(InvalidInputArgument("Boolean", other))
   }
 
   private abstract class TemporalDecoder[A](name: String) extends ArgBuilder[A] {
@@ -147,7 +146,7 @@ trait ArgBuilderInstances extends ArgBuilderDerivation {
             else Left(InvalidInputArgument(name, s"$value ($message)"))
         }
       case _                  =>
-        Left(InvalidInputArgument(name, input.toString))
+        Left(InvalidInputArgument(name, input))
     }
   }
 
@@ -172,7 +171,7 @@ trait ArgBuilderInstances extends ArgBuilderDerivation {
 
   lazy val instantEpoch: ArgBuilder[Instant] = {
     case i: IntValue => Right(Instant.ofEpochMilli(i.toLong))
-    case value       => Left(InvalidInputArgument("Instant", value.toString))
+    case value       => Left(InvalidInputArgument("Instant", value))
   }
 
   implicit lazy val instant: ArgBuilder[Instant]               = TemporalDecoder("Instant")(Instant.parse)
@@ -209,16 +208,16 @@ trait ArgBuilderInstances extends ArgBuilderDerivation {
 
   implicit lazy val upload: ArgBuilder[Upload] = {
     case StringValue(v) => Right(Upload(v))
-    case other          => Left(InvalidInputArgument("Upload", other.toString))
+    case other          => Left(InvalidInputArgument("Upload", other))
   }
 }
 
 case object InvalidInputArgument extends NoStackTrace {
   override def getMessage: String = "invalid input argument"
 
-  private[caliban] def apply(expected: String, actual: String): ExecutionError =
+  private[caliban] def apply(argType: String, argValue: Any): ExecutionError =
     ExecutionError(
-      s"Can't build an instance of '$expected' from '$actual'",
+      s"Can't build an instance of '$argType' from '$argValue'",
       innerThrowable = Some(InvalidInputArgument)
     )
 }
