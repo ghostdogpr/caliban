@@ -217,5 +217,8 @@ case object InvalidInputArgument extends NoStackTrace {
   override def getMessage: String = "invalid input argument"
 
   private[caliban] def apply(expected: String, actual: String): ExecutionError =
-    ExecutionError(s"Can't an instance of '$expected' from '$actual''", innerThrowable = Some(InvalidInputArgument))
+    ExecutionError(
+      s"Can't build an instance of '$expected' from '$actual'",
+      innerThrowable = Some(InvalidInputArgument)
+    )
 }
