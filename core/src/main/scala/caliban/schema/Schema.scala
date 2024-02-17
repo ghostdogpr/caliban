@@ -36,7 +36,7 @@ If you use a custom type as an argument, you also need to provide an implicit Ar
 See https://ghostdogpr.github.io/caliban/docs/schema.html for more information.
 """
 )
-trait Schema[-R, T] { self =>
+abstract class Schema[-R, T] { self =>
 
   private lazy val asType: __Type             = toType(): @nowarn("msg=deprecated")
   private lazy val asInputType: __Type        = toType(isInput = true): @nowarn("msg=deprecated")

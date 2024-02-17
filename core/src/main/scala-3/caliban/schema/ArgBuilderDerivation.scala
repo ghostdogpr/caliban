@@ -119,7 +119,7 @@ trait CommonArgBuilderDerivation {
 trait ArgBuilderDerivation extends CommonArgBuilderDerivation {
   inline def gen[A]: ArgBuilder[A] = derived
 
-  sealed trait Auto[A] extends ArgBuilder[A] {
+  sealed abstract class Auto[A] extends ArgBuilder[A] {
     inline given genAuto[T](using NotGiven[ArgBuilder[T]]): ArgBuilder[T] = derived
   }
 
