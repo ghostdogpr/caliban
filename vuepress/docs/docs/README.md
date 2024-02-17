@@ -15,7 +15,7 @@ The design principles of Caliban are the following:
 First, add the following dependency to your `build.sbt` file:
 
 ```scala
-"com.github.ghostdogpr" %% "caliban" % "2.5.1"
+"com.github.ghostdogpr" %% "caliban" % "2.5.2"
 ```
 
 Creating a GraphQL API with Caliban is as simple as creating a case class. Indeed, the whole GraphQL schema will be derived from a case class structure (its fields and the other types it references), and the resolver is just an instance of that case class.
@@ -154,7 +154,7 @@ All the fields of the subscription root case class MUST return `ZStream` or `? =
 The easiest (and most performant!) way to expose your API over HTTP is to use the optional `caliban-quick` module:
 
 ```scala
-"com.github.ghostdogpr" %% "caliban-quick"  % "2.5.1"
+"com.github.ghostdogpr" %% "caliban-quick"  % "2.5.2"
 ```
 
 And then you can serve your GraphQL API over HTTP using a single command:
@@ -177,15 +177,15 @@ And that's it - now you have a fully functional GraphQL server running on port 8
 If you have any specific server requirements or need to interop with other libraries, Caliban offers a wide range of modules to help you do that.
 
 ```scala
-"com.github.ghostdogpr" %% "caliban-http4s"     % "2.5.1" // routes for http4s
-"com.github.ghostdogpr" %% "caliban-akka-http"  % "2.5.1" // routes for akka-http
-"com.github.ghostdogpr" %% "caliban-play"       % "2.5.1" // routes for play
-"com.github.ghostdogpr" %% "caliban-zio-http"   % "2.5.1" // routes for zio-http
-"com.github.ghostdogpr" %% "caliban-cats"       % "2.5.1" // interop with cats effect
-"com.github.ghostdogpr" %% "caliban-monix"      % "2.5.1" // interop with monix
-"com.github.ghostdogpr" %% "caliban-tapir"      % "2.5.1" // interop with tapir
-"com.github.ghostdogpr" %% "caliban-federation" % "2.5.1" // interop with apollo federation
-"com.github.ghostdogpr" %% "caliban-tracing"    % "2.5.1" // interop with zio-telemetry
+"com.github.ghostdogpr" %% "caliban-http4s"     % "2.5.2" // routes for http4s
+"com.github.ghostdogpr" %% "caliban-akka-http"  % "2.5.2" // routes for akka-http
+"com.github.ghostdogpr" %% "caliban-play"       % "2.5.2" // routes for play
+"com.github.ghostdogpr" %% "caliban-zio-http"   % "2.5.2" // routes for zio-http
+"com.github.ghostdogpr" %% "caliban-cats"       % "2.5.2" // interop with cats effect
+"com.github.ghostdogpr" %% "caliban-monix"      % "2.5.2" // interop with monix
+"com.github.ghostdogpr" %% "caliban-tapir"      % "2.5.2" // interop with tapir
+"com.github.ghostdogpr" %% "caliban-federation" % "2.5.2" // interop with apollo federation
+"com.github.ghostdogpr" %% "caliban-tracing"    % "2.5.2" // interop with zio-telemetry
 ```
 
 Support for JSON encoding / decoding of the inputs and responses for tapir-based adapters is enabled by adding **one** of the following dependencies to your `build.sbt` file:
