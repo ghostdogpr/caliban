@@ -1,5 +1,6 @@
 package caliban.schema
 
+import caliban.CalibanError.ValidationError
 import caliban.Value._
 import caliban.introspection.adt._
 import caliban.parsing.adt.Directive
@@ -51,7 +52,7 @@ trait CommonSchemaDerivation[R] {
       if (_isValueType) {
         if (isScalarValueType(ctx)) makeScalar(getName(ctx), getDescription(ctx))
         else ctx.parameters.head.typeclass.toType_(isInput, isSubscription)
-      } else if (isInput)
+      } else if (isInput) {
         makeInputObject(
           Some(ctx.annotations.collectFirst { case GQLInputName(suffix) => suffix }
             .getOrElse(customizeInputTypeName(getName(ctx)))),
@@ -67,14 +68,15 @@ trait CommonSchemaDerivation[R] {
                 p.annotations.collectFirst { case GQLDefault(v) => v },
                 p.annotations.collectFirst { case GQLDeprecated(_) => () }.isDefined,
                 p.annotations.collectFirst { case GQLDeprecated(reason) => reason },
-                Some(p.annotations.collect { case GQLDirective(dir) => dir }.toList).filter(_.nonEmpty)
+                Some(p.annotations.collect { case GQLDirective(dir) => dir }.toList).filter(_.nonEmpty),
+                Some(ctx.typeName.short)
               )
             )
             .toList,
           Some(ctx.typeName.full),
           Some(getDirectives(ctx))
         )
-      else
+      } else
         makeObject(
           Some(getName(ctx)),
           getDescription(ctx),
@@ -138,11 +140,13 @@ trait CommonSchemaDerivation[R] {
         case _          => false
       }
 
-      if (isEnum && subtypes.nonEmpty && !isInterface && !isUnion)
+      val isOneOfInput = ctx.annotations.contains(GQLOneOfInput())
+
+      if (isEnum && subtypes.nonEmpty && !isInterface && !isUnion && !isOneOfInput) {
         makeEnum(
           Some(getName(ctx)),
           getDescription(ctx),
-          subtypes.collect { case (__Type(_, Some(name), description, _, _, _, _, _, _, _, _, _), annotations) =>
+          subtypes.collect { case (__Type(_, Some(name), description, _, _, _, _, _, _, _, _, _, _), annotations) =>
             __EnumValue(
               name,
               description,
@@ -154,7 +158,19 @@ trait CommonSchemaDerivation[R] {
           Some(ctx.typeName.full),
           Some(getDirectives(ctx.annotations))
         )
-      else if (!isInterface)
+      } else if (isOneOfInput && isInput) {
+        makeInputObject(
+          Some(ctx.annotations.collectFirst { case GQLInputName(suffix) => suffix }
+            .getOrElse(customizeInputTypeName(getName(ctx)))),
+          getDescription(ctx),
+          ctx.subtypes.toList.flatMap { p =>
+            p.typeclass.toType_(isInput = true).allInputFields.map(_.nullable)
+          },
+          Some(ctx.typeName.full),
+          Some(List(Directive("oneOf"))),
+          isOneOf = true
+        )
+      } else if (!isInterface) {
         makeUnion(
           Some(getName(ctx)),
           getDescription(ctx),
@@ -162,7 +178,7 @@ trait CommonSchemaDerivation[R] {
           Some(ctx.typeName.full),
           Some(getDirectives(ctx.annotations))
         )
-      else {
+      } else {
         val excl         = ctx.annotations.collectFirst { case i: GQLInterface => i.excludedFields.toSet }.getOrElse(Set.empty)
         val impl         = subtypes.map(_._1.copy(interfaces = () => Some(List(toType(isInput, isSubscription)))))
         val commonFields = () =>

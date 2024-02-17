@@ -2,10 +2,12 @@ package caliban.validation
 
 import caliban._
 import caliban.CalibanError.ValidationError
+import caliban.InputValue.ObjectValue
 import caliban.Macros.gqldoc
 import caliban.TestUtils._
-import caliban.Value.{ BooleanValue, IntValue, StringValue }
-import caliban.schema.Annotations.GQLDefault
+import caliban.Value.{ BooleanValue, IntValue, NullValue, StringValue }
+import caliban.schema.Annotations.{ GQLDefault, GQLOneOfInput }
+import caliban.schema.{ ArgBuilder, Schema }
 import zio.{ IO, UIO, ZIO }
 import zio.test.Assertion._
 import zio.test._
@@ -383,6 +385,155 @@ object ValidationSpec extends ZIOSpecDefault {
         api.interpreter.flatMap(_.execute(query)).map { response =>
           assertTrue(response.errors.isEmpty)
         }
+      },
+      suite("OneOf input objects") {
+        import caliban.schema.Schema.auto._
+        import caliban.schema.ArgBuilder.auto._
+
+        @GQLOneOfInput
+        sealed trait Foo
+        object Foo {
+          case class FooString(fooString: String) extends Foo
+          case class FooInt(fooInt: IntObj)       extends Foo
+          case class Wrapper(fooInput: Foo)
+        }
+
+        case class IntObj(intValue: Int)
+        case class Bar(foo2: Foo => String)
+        case class Queries(foo: Foo.Wrapper => String, fooUnwrapped: Foo => String, bar: Bar)
+
+        implicit val intObjAb: ArgBuilder[IntObj]           = ArgBuilder.gen
+        implicit val fooStringAb: ArgBuilder[Foo.FooString] = ArgBuilder.gen
+        implicit val fooIntAb: ArgBuilder[Foo.FooInt]       = ArgBuilder.gen
+        implicit val fooAb: ArgBuilder[Foo]                 = ArgBuilder.gen
+        implicit val barSchema: Schema[Any, Bar]            = Schema.gen
+        implicit val schema: Schema[Any, Queries]           = Schema.gen
+
+        val api: GraphQL[Any] = graphQL(RootResolver(Queries(_.fooInput.toString, _.toString, Bar(_.toString))))
+
+        def argumentsQuery(arg1: ObjectValue, arg2: ObjectValue, arg3: ObjectValue) =
+          s"""
+             |{
+             |  foo(fooInput: ${arg1.toInputString})
+             |
+             |  fooUnwrapped(value: ${arg2.toInputString})
+             |
+             |  bar {
+             |    foo2(value: ${arg3.toInputString} )
+             |  }
+             |}
+             |""".stripMargin
+
+        val variablesQuery =
+          """
+            |query Foo($args1: FooInput!, $args2: FooInput!, $args3: FooInput!){
+            |  foo(fooInput: $args1)
+            |
+            |  fooUnwrapped(value: $args2)
+            |
+            |  bar {
+            |    foo2(value: $args3 )
+            |  }
+            |}
+            |""".stripMargin
+
+        val validInputs = List(
+          Map("fooString" -> StringValue("hello")),
+          Map("fooInt"    -> ObjectValue(Map("intValue" -> IntValue(42))))
+        ).map(ObjectValue(_))
+
+        val invalidInputs = List(
+          Map.empty[String, InputValue],
+          Map("fooString" -> NullValue),
+          Map("fooString" -> StringValue("foo"), "fooInt" -> NullValue),
+          Map("fooString" -> StringValue("foo"), "fooInt" -> ObjectValue(Map("intValue" -> IntValue(42))))
+        ).map(ObjectValue(_))
+
+        val validVariablesCases = validInputs.map(arg => Map("args1" -> arg, "args2" -> arg, "args3" -> arg))
+
+        List(
+          test("valid field arguments") {
+            val cases = validInputs.map(v => argumentsQuery(v, v, v))
+            ZIO.foldLeft(cases)(assertCompletes) { case (acc, query) =>
+              api.interpreter
+                .flatMap(_.execute(query))
+                .map(resp => acc && assertTrue(resp.errors.isEmpty))
+            }
+          },
+          test("valid variables") {
+            ZIO.foldLeft(validVariablesCases)(assertCompletes) { case (acc, variables) =>
+              api.interpreter
+                .flatMap(_.execute(variablesQuery, variables = variables))
+                .map(resp => acc && assertTrue(resp.errors.isEmpty))
+            }
+          },
+          test("invalid field arguments") {
+            val cases = for {
+              invalid <- invalidInputs
+              valid    = validInputs.head
+              _case   <- List(
+                           argumentsQuery(invalid, valid, valid),
+                           argumentsQuery(valid, invalid, valid),
+                           argumentsQuery(valid, valid, invalid)
+                         )
+            } yield _case
+
+            ZIO.foldLeft(cases)(assertCompletes) { case (acc, query) =>
+              api.interpreter
+                .flatMap(_.execute(query))
+                .map(resp =>
+                  acc && assertTrue(
+                    resp.errors.nonEmpty && resp.errors.forall {
+                      case ValidationError(msg, _, _, _) => msg.contains("is not a valid OneOf Input Object")
+                      case _                             => false
+                    }
+                  )
+                )
+            }
+          },
+          test("invalid variables") {
+            val cases = for {
+              argName <- validVariablesCases.head.keys
+              invalid <- invalidInputs
+            } yield validVariablesCases.head.updated(argName, invalid)
+
+            ZIO.foldLeft(cases)(assertCompletes) { case (acc, variables) =>
+              api.interpreter
+                .flatMap(_.execute(variablesQuery, variables = variables))
+                .map(resp =>
+                  acc && assertTrue(
+                    resp.errors.nonEmpty && resp.errors.forall {
+                      case ValidationError(msg, _, _, _) => msg.contains("is not a valid OneOf Input Object")
+                      case _                             => false
+                    }
+                  )
+                )
+            }
+          },
+          test("OneOf variables cannot be nullable") {
+            val variablesQuery =
+              """
+                |query Foo($args1: FooInput){
+                |  foo(fooInput: $args1)
+                |}
+                |""".stripMargin
+
+            api.interpreter
+              .flatMap(_.execute(variablesQuery, variables = Map("args1" -> validInputs.head)))
+              .map(resp =>
+                assertTrue(
+                  resp.errors.nonEmpty,
+                  resp.errors.forall {
+                    case ValidationError("Variable 'args1' cannot be nullable.", _, _, _) => true
+                    case _                                                                => false
+                  }
+                )
+              )
+          },
+          test("schema is valid") {
+            api.validateRootSchema.as(assertCompletes)
+          }
+        )
       }
     )
 }

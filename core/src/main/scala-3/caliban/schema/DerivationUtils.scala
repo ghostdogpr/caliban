@@ -70,13 +70,13 @@ private object DerivationUtils {
     makeEnum(
       Some(getName(annotations, info)),
       getDescription(annotations),
-      subTypes.collect { case (name, __Type(_, _, description, _, _, _, _, _, _, _, _, _), annotations) =>
+      subTypes.collect { case (name, __Type(_, _, description, _, _, _, _, _, _, _, _, _, _), annotations) =>
         __EnumValue(
           getName(annotations, name),
           description,
           getDeprecatedReason(annotations).isDefined,
           getDeprecatedReason(annotations),
-          Some(annotations.collect { case GQLDirective(dir) => dir }.toList).filter(_.nonEmpty)
+          Some(annotations.collect { case GQLDirective(dir) => dir }).filter(_.nonEmpty)
         )
       },
       Some(info.full),
@@ -132,12 +132,27 @@ private object DerivationUtils {
         getDefaultValue(fieldAnnotations),
         getDeprecatedReason(fieldAnnotations).isDefined,
         getDeprecatedReason(fieldAnnotations),
-        Some(getDirectives(fieldAnnotations)).filter(_.nonEmpty)
+        Some(getDirectives(fieldAnnotations)).filter(_.nonEmpty),
+        Some(info.short)
       )
     },
     Some(info.full),
     Some(getDirectives(annotations))
   )
+
+  def mkOneOfInput[R](
+    annotations: List[Any],
+    schemas: List[Schema[R, Any]],
+    info: TypeInfo
+  ): __Type =
+    makeInputObject(
+      Some(getInputName(annotations).getOrElse(customizeInputTypeName(getName(annotations, info)))),
+      getDescription(annotations),
+      schemas.flatMap(_.toType_(isInput = true).allInputFields.map(_.nullable)),
+      Some(info.full),
+      Some(List(Directive("oneOf"))),
+      isOneOf = true
+    )
 
   def mkObject[R](
     annotations: List[Any],

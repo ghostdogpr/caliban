@@ -85,6 +85,11 @@ object Validator {
   def failValidation(msg: String, explanatoryText: String): EReader[Any, ValidationError, Nothing] =
     ZPure.fail(ValidationError(msg, explanatoryText))
 
+  private def failValidationWhen(
+    cond: Boolean
+  )(msg: => String, explanatoryText: => String): EReader[Any, ValidationError, Unit] =
+    if (cond) failValidation(msg, explanatoryText) else ZPure.unit
+
   /**
    * Prepare the request for execution.
    * Fails with a [[caliban.CalibanError.ValidationError]] otherwise.
@@ -376,14 +381,24 @@ object Validator {
             )
           )
         } *> validateAll(op.variableDefinitions) { v =>
-          val t = Type.innerType(v.variableType)
-          ZPure.whenCase(context.rootType.types.get(t).map(_.kind)) {
+          val t = context.rootType.types.get(Type.innerType(v.variableType))
+          ZPure.whenCase(t.map(_.kind)) {
             case Some(__TypeKind.OBJECT) | Some(__TypeKind.UNION) | Some(__TypeKind.INTERFACE) =>
               failValidation(
                 s"Type of variable '${v.name}' is not a valid input type.",
                 "Variables can only be input types. Objects, unions, and interfaces cannot be used as inputs."
               )
-          }
+          } *>
+            ZPure.when(t.flatMap(_.isOneOf).getOrElse(false)) {
+              failValidationWhen(v.variableType.nullable)(
+                s"Variable '${v.name}' cannot be nullable.",
+                "Variables used for OneOf Input Object fields must be non-nullable."
+              ) *>
+                validateOneOfInputValue(
+                  context.variables.getOrElse(v.name, NullValue),
+                  s"Variable '${v.name}'"
+                )
+            }
         } *> {
           val variableUsages = collectVariablesUsed(context, op.selectionSet)
           validateAll(variableUsages)(v =>
@@ -548,8 +563,14 @@ object Validator {
     currentType: __Type,
     context: Context
   ): EReader[Any, ValidationError, Unit] =
-    validateAll(f.allArgs.filter(_._type.kind == __TypeKind.NON_NULL))(arg =>
-      (arg.defaultValue, field.arguments.get(arg.name)) match {
+    validateAll(f.allArgs.filter(_._type.kind == __TypeKind.NON_NULL)) { arg =>
+      val fieldArgs = field.arguments.get(arg.name)
+      ZPure.when(arg._type.innerType._isOneOfInput) {
+        validateOneOfInputValue(
+          fieldArgs.getOrElse(NullValue),
+          s"Argument '${arg.name}' on field '${field.name}'"
+        )
+      } *> ZPure.whenCase((arg.defaultValue, fieldArgs)) {
         case (None, None) | (None, Some(NullValue)) =>
           failValidation(
             s"Required argument '${arg.name}' is null or missing on field '${field.name}' of type '${currentType.name
@@ -564,7 +585,7 @@ object Validator {
           )
         case _                                      => zunit
       }
-    ) *> validateAll(field.arguments) { case (arg, argValue) =>
+    } *> validateAll(field.arguments) { case (arg, argValue) =>
       f.allArgs.find(_.name == arg) match {
         case Some(inputValue) =>
           validateInputValues(
@@ -632,6 +653,23 @@ object Validator {
       case _                                                                           => zunit
     }
   } *> ValueValidator.validateInputTypes(inputValue, argValue, context, errorContext)
+
+  private def validateOneOfInputValue(
+    inputValue: InputValue,
+    errorContext: => String
+  ): EReader[Any, ValidationError, Unit] =
+    ZPure
+      .whenCase(inputValue match {
+        case InputValue.ObjectValue(fields) if fields.size == 1 => fields.headOption.map(_._2)
+        case vv: InputValue.VariableValue                       => Some(vv)
+        case _                                                  => None
+      }) { case None | Some(NullValue) =>
+        failValidation(
+          s"$errorContext is not a valid OneOf Input Object",
+          "OneOf Input Object arguments must specify exactly one non-null key"
+        )
+      }
+      .unit
 
   private def checkVariableUsageAllowed(
     variableDefinition: VariableDefinition,
@@ -850,7 +888,7 @@ object Validator {
     }
 
   private[caliban] def validateInputObject(t: __Type): EReader[Any, ValidationError, Unit] = {
-    lazy val inputObjectContext = s"""InputObject '${t.name.getOrElse("")}'"""
+    lazy val inputObjectContext = s"""${if (t._isOneOfInput) "OneOf " else ""}InputObject '${t.name.getOrElse("")}'"""
 
     def noDuplicateInputValueName(
       inputValues: List[__InputValue],
@@ -862,9 +900,30 @@ object Validator {
       noDuplicateName[__InputValue](inputValues, _.name, messageBuilder, explanatory)
     }
 
+    def noDuplicatedOneOfOrigin(inputValues: List[__InputValue]): EReader[Any, ValidationError, Unit] = {
+      val resolveOrigin  = (i: __InputValue) => i.parentTypeName.getOrElse("<unexpected validation error>")
+      val messageBuilder = (i: __InputValue) =>
+        s"$inputObjectContext has multiple arguments from the same case class: ${resolveOrigin(i)}"
+      val explanatory    = "All case classes used as arguments to OneOf Input Objects must have exactly one field"
+      noDuplicateName[__InputValue](inputValues, resolveOrigin, messageBuilder, explanatory)
+    }
+
     def validateFields(fields: List[__InputValue]): EReader[Any, ValidationError, Unit] =
       validateAll(fields)(validateInputValue(_, inputObjectContext)) *>
         noDuplicateInputValueName(fields, inputObjectContext)
+
+    def validateOneOfFields(fields: List[__InputValue]): EReader[Any, ValidationError, Unit] =
+      noDuplicatedOneOfOrigin(fields) *>
+        ZPure.foreachDiscard(fields) { f =>
+          failValidationWhen(f.defaultValue.isDefined)(
+            s"$inputObjectContext argument has a default value",
+            "Fields of OneOf input objects cannot have default values"
+          ) *>
+            failValidationWhen(!f._type.isNullable)(
+              s"$inputObjectContext argument is not nullable",
+              "All of OneOf input fields must be declared as nullable in the schema according to the spec"
+            )
+        }
 
     t.allInputFields match {
       case Nil    =>
@@ -872,7 +931,7 @@ object Validator {
           s"$inputObjectContext does not have fields",
           "An Input Object type must define one or more input fields"
         )
-      case fields => validateFields(fields)
+      case fields => ZPure.when(t._isOneOfInput)(validateOneOfFields(fields)) *> validateFields(fields)
     }
   }
 

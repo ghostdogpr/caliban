@@ -21,7 +21,8 @@ case class __Type(
   ofType: Option[__Type] = None,
   specifiedBy: Option[String] = None,
   @GQLExcluded directives: Option[List[Directive]] = None,
-  @GQLExcluded origin: Option[String] = None
+  @GQLExcluded origin: Option[String] = None,
+  isOneOf: Option[Boolean] = None
 ) { self =>
   final override lazy val hashCode: Int = super.hashCode()
 
@@ -149,4 +150,6 @@ case class __Type(
       case __TypeKind.INTERFACE | __TypeKind.UNION => possibleTypes.fold(Set.empty[String])(_.flatMap(_.name).toSet)
       case _                                       => Set.empty
     }
+
+  private[caliban] def _isOneOfInput: Boolean = isOneOf.getOrElse(false)
 }

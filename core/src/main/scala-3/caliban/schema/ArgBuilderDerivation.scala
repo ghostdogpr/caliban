@@ -53,10 +53,16 @@ trait CommonArgBuilderDerivation {
   inline def derived[A]: ArgBuilder[A] =
     inline summonInline[Mirror.Of[A]] match {
       case m: Mirror.SumOf[A] =>
-        makeSumArgBuilder[A](
-          recurseSum[A, m.MirroredElemLabels, m.MirroredElemTypes](),
-          constValue[m.MirroredLabel]
-        )
+        inline if (Macros.hasOneOfInputAnnotation[A]) {
+          makeOneOfBuilder[A](
+            recurseSum[A, m.MirroredElemLabels, m.MirroredElemTypes](),
+            constValue[m.MirroredLabel]
+          )
+        } else
+          makeSumArgBuilder[A](
+            recurseSum[A, m.MirroredElemLabels, m.MirroredElemTypes](),
+            constValue[m.MirroredLabel]
+          )
 
       case m: Mirror.ProductOf[A] =>
         makeProductArgBuilder(
@@ -68,7 +74,7 @@ trait CommonArgBuilderDerivation {
   private def makeSumArgBuilder[A](
     _subTypes: => List[(String, List[Any], ArgBuilder[Any])],
     traitLabel: String
-  ) = new ArgBuilder[A] {
+  ): ArgBuilder[A] = new ArgBuilder[A] {
     private lazy val subTypes = _subTypes
     private val emptyInput    = InputValue.ObjectValue(Map.empty)
 
@@ -91,23 +97,49 @@ trait CommonArgBuilderDerivation {
       }
   }
 
+  private def makeOneOfBuilder[A](
+    _subTypes: => List[(String, List[Any], ArgBuilder[Any])],
+    _traitLabel: => String
+  ): ArgBuilder[A] = new ArgBuilder[A] {
+    private lazy val traitLabel = _traitLabel
+
+    private lazy val combined: ArgBuilder[A] =
+      _subTypes.map(_._3).asInstanceOf[List[ArgBuilder[A]]] match {
+        case head :: tail =>
+          tail.foldLeft(head)(_ orElse _).orElse((input: InputValue) => Left(inputError(input)))
+        case _            =>
+          (_: InputValue) => Left(ExecutionError("OneOf Input Objects must have at least one subtype"))
+      }
+
+    private def inputError(input: InputValue) =
+      ExecutionError(s"Invalid oneOf input $input for trait $traitLabel")
+
+    def build(input: InputValue): Either[ExecutionError, A] = input match {
+      case InputValue.ObjectValue(f) if f.size == 1 => combined.build(input)
+      case InputValue.ObjectValue(_)                => Left(ExecutionError("Exactly one key must be specified for oneOf inputs"))
+      case _                                        => Left(inputError(input))
+    }
+  }
+
   private def makeProductArgBuilder[A](
     _fields: => List[(String, ArgBuilder[Any])],
     annotations: Map[String, List[Any]]
   )(fromProduct: Product => A) = new ArgBuilder[A] {
-    private lazy val fields = _fields
+
+    private lazy val fields = _fields.map { (label, builder) =>
+      val labelList  = annotations.get(label)
+      val default    = labelList.flatMap(_.collectFirst { case GQLDefault(v) => v })
+      val finalLabel = labelList.flatMap(_.collectFirst { case GQLName(name) => name }).getOrElse(label)
+      (finalLabel, default, builder)
+    }
 
     def build(input: InputValue): Either[ExecutionError, A] =
-      fields.view.map { (label, builder) =>
+      fields.view.map { (label, default, builder) =>
         input match {
-          case InputValue.ObjectValue(fields) =>
-            val labelList  = annotations.get(label)
-            def default    = labelList.flatMap(_.collectFirst { case GQLDefault(v) => v })
-            val finalLabel = labelList.flatMap(_.collectFirst { case GQLName(name) => name }).getOrElse(label)
-            fields.get(finalLabel).fold(builder.buildMissing(default))(builder.build)
+          case InputValue.ObjectValue(fields) => fields.get(label).fold(builder.buildMissing(default))(builder.build)
           case value                          => builder.build(value)
         }
-      }.foldLeft[Either[ExecutionError, Tuple]](Right(EmptyTuple)) { case (acc, item) =>
+      }.foldLeft[Either[ExecutionError, Tuple]](Right(EmptyTuple)) { (acc, item) =>
         item match {
           case Right(value) => acc.map(_ :* value)
           case Left(e)      => Left(e)

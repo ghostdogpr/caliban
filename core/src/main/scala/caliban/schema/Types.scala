@@ -87,7 +87,8 @@ object Types {
     description: Option[String],
     fields: List[__InputValue],
     origin: Option[String] = None,
-    directives: Option[List[Directive]] = None
+    directives: Option[List[Directive]] = None,
+    isOneOf: Boolean = false
   ): __Type =
     __Type(
       __TypeKind.INPUT_OBJECT,
@@ -97,7 +98,8 @@ object Types {
         if (args.includeDeprecated.getOrElse(false)) Some(fields)
         else Some(fields.filter(!_.isDeprecated)),
       origin = origin,
-      directives = directives
+      directives = directives,
+      isOneOf = Some(isOneOf)
     )
 
   def makeUnion(
@@ -240,4 +242,5 @@ object Types {
       case __TypeKind.NON_NULL => t.ofType.map(name)
       case _                   => t.name
     }).getOrElse("")
+
 }

@@ -189,7 +189,8 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
             fields(isInput, isSubscription).map { case (f, _) =>
               __InputValue(f.name, f.description, f.`type`, None, directives = f.directives)
             },
-            directives = Some(directives)
+            directives = Some(directives),
+            isOneOf = directives.exists(_.name == "oneOf")
           )
         } else makeObject(Some(name), description, fields(isInput, isSubscription).map(_._1), directives)
       }
@@ -449,22 +450,23 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
     ev2: Schema[RB, B]
   ): Schema[RB, A => B] =
     new Schema[RB, A => B] {
-      private lazy val inputType                 = ev1.toType_(true)
-      private val unwrappedArgumentName          = "value"
-      override def arguments: List[__InputValue] = {
+      private lazy val inputType        = ev1.toType_(true)
+      private val unwrappedArgumentName = "value"
+
+      private def mkValueType = List(
+        __InputValue(
+          unwrappedArgumentName,
+          None,
+          () => if (ev1.optional) inputType else inputType.nonNull,
+          None
+        )
+      )
+
+      override lazy val arguments: List[__InputValue] = {
         val input = inputType.allInputFields
-        if (input.nonEmpty) input
-        else
-          handleInput(List.empty[__InputValue])(
-            List(
-              __InputValue(
-                unwrappedArgumentName,
-                None,
-                () => if (ev1.optional) inputType else inputType.nonNull,
-                None
-              )
-            )
-          )
+        if (inputType._isOneOfInput) mkValueType
+        else if (input.nonEmpty) input
+        else handleInput(List.empty[__InputValue])(mkValueType)
       }
 
       override def optional: Boolean                                         = ev2.optional
@@ -487,6 +489,7 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
           case __TypeKind.SCALAR | __TypeKind.ENUM | __TypeKind.LIST =>
             // argument was not wrapped in a case class
             onUnwrapped
+          case _ if inputType._isOneOfInput                          => onUnwrapped
           case _                                                     => onWrapped
         }
     }

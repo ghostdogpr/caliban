@@ -1,7 +1,7 @@
 package caliban.schema
 
 import caliban.introspection.adt.__Type
-import caliban.schema.Annotations.{ GQLInterface, GQLUnion }
+import caliban.schema.Annotations.{ GQLInterface, GQLOneOfInput, GQLUnion }
 import caliban.schema.DerivationUtils.*
 import caliban.schema.Types.makeUnion
 import magnolia1.TypeInfo
@@ -24,12 +24,14 @@ final private class SumSchema[R, A](
   @threadUnsafe
   private lazy val isEnum = subTypes.forall((_, t, _) => t.allFields.isEmpty && t.allInputFields.isEmpty)
 
-  private val isInterface = annotations.exists(_.isInstanceOf[GQLInterface])
-  private val isUnion     = annotations.contains(GQLUnion())
+  private val isInterface  = annotations.exists(_.isInstanceOf[GQLInterface])
+  private val isUnion      = annotations.contains(GQLUnion())
+  private val isOneOfInput = annotations.contains(GQLOneOfInput())
 
   def toType(isInput: Boolean, isSubscription: Boolean): __Type = {
     val _ = schemas
-    if (!isInterface && !isUnion && subTypes.nonEmpty && isEnum) mkEnum(annotations, info, subTypes)
+    if (!isInterface && !isUnion && subTypes.nonEmpty && isEnum && !isOneOfInput) mkEnum(annotations, info, subTypes)
+    else if (isOneOfInput && isInput) mkOneOfInput(annotations, schemas.toList, info)
     else if (!isInterface)
       makeUnion(
         Some(getName(annotations, info)),

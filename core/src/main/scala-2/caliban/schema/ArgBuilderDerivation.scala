@@ -3,8 +3,7 @@ package caliban.schema
 import caliban.CalibanError.ExecutionError
 import caliban.InputValue
 import caliban.Value._
-import caliban.schema.Annotations.GQLDefault
-import caliban.schema.Annotations.GQLName
+import caliban.schema.Annotations.{ GQLDefault, GQLName, GQLOneOfInput }
 import magnolia1._
 
 import scala.language.experimental.macros
@@ -37,7 +36,11 @@ trait CommonArgBuilderDerivation {
         }
       }
 
-  def split[T](ctx: SealedTrait[ArgBuilder, T]): ArgBuilder[T] = input =>
+  def split[T](ctx: SealedTrait[ArgBuilder, T]): ArgBuilder[T] =
+    if (ctx.annotations.contains(GQLOneOfInput())) makeOneOfBuilder(ctx)
+    else makeSumBuilder(ctx)
+
+  private def makeSumBuilder[T](ctx: SealedTrait[ArgBuilder, T]): ArgBuilder[T] = input =>
     (input match {
       case EnumValue(value)   => Some(value)
       case StringValue(value) => Some(value)
@@ -53,6 +56,27 @@ trait CommonArgBuilderDerivation {
         }
       case None        => Left(ExecutionError(s"Can't build a trait from input $input"))
     }
+
+  private def makeOneOfBuilder[A](ctx: SealedTrait[ArgBuilder, A]): ArgBuilder[A] =
+    new ArgBuilder[A] {
+
+      private def inputError(input: InputValue) =
+        ExecutionError(s"Invalid oneOf input $input for trait ${ctx.typeName.short}")
+
+      private val combined = ctx.subtypes.map(_.typeclass).toList.asInstanceOf[List[ArgBuilder[A]]] match {
+        case head :: tail =>
+          tail.foldLeft(head)(_ orElse _).orElse(input => Left(inputError(input)))
+        case _            =>
+          (_ => Left(ExecutionError("OneOf Input Objects must have at least one subtype"))): ArgBuilder[A]
+      }
+
+      def build(input: InputValue): Either[ExecutionError, A] = input match {
+        case InputValue.ObjectValue(f) if f.size == 1 => combined.build(input)
+        case InputValue.ObjectValue(_)                => Left(ExecutionError("Exactly one key must be specified for oneOf inputs"))
+        case _                                        => Left(inputError(input))
+      }
+    }
+
 }
 
 trait ArgBuilderDerivation extends CommonArgBuilderDerivation {
