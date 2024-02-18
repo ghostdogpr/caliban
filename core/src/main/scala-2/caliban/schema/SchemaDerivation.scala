@@ -164,7 +164,6 @@ trait CommonSchemaDerivation[R] {
           Some(getDirectives(ctx.annotations))
         )
       else if (!isInterface) {
-        val _ = emptyUnionObjectIdxs
         containsEmptyUnionObjects = emptyUnionObjectIdxs.exists(identity)
         makeUnion(
           Some(getName(ctx)),
