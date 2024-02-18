@@ -692,7 +692,7 @@ object ExecutionSpec extends ZIOSpecDefault {
           assertTrue(response.data.toString == """{"test":{"union":{"__typename":"UnionChild","field":"f"}}}""")
         }
       },
-      test("rename on a union child and parent") {
+      test("rename on a union child and parent (typename)") {
         sealed trait Union
         object Union {
           case class Child(field: String) extends Union

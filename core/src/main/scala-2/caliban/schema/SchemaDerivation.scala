@@ -1,10 +1,11 @@
 package caliban.schema
 
+import caliban.ResponseValue.ObjectValue
 import caliban.Value._
 import caliban.introspection.adt._
 import caliban.parsing.adt.Directive
 import caliban.schema.Annotations._
-import caliban.schema.Step.{ PureStep => _ }
+import caliban.schema.Step.{ MetadataFunctionStep, PureStep => _ }
 import caliban.schema.Types._
 import magnolia1._
 
@@ -117,14 +118,22 @@ trait CommonSchemaDerivation[R] {
   }
 
   def split[T](ctx: SealedTrait[Typeclass, T]): Typeclass[T] = new Typeclass[T] {
+
+    private lazy val subtypes =
+      ctx.subtypes
+        .map(s => s.typeclass.toType_() -> s.annotations)
+        .toList
+        .sortBy { case (tpe, _) =>
+          tpe.name.getOrElse("")
+        }
+
+    private lazy val emptyUnionObjectIdxs =
+      subtypes.map { case (t, _) => SchemaUtils.isEmptyUnionObject(t) }.toArray[Boolean]
+
+    private var containsEmptyUnionObjects = false
+
     override def toType(isInput: Boolean, isSubscription: Boolean): __Type = {
-      val subtypes    =
-        ctx.subtypes
-          .map(s => s.typeclass.toType_() -> s.annotations)
-          .toList
-          .sortBy { case (tpe, _) =>
-            tpe.name.getOrElse("")
-          }
+
       val isEnum      = subtypes.forall {
         case (t, _) if t.allFields.isEmpty && t.allInputFields.isEmpty => true
         case _                                                         => false
@@ -154,15 +163,17 @@ trait CommonSchemaDerivation[R] {
           Some(ctx.typeName.full),
           Some(getDirectives(ctx.annotations))
         )
-      else if (!isInterface)
+      else if (!isInterface) {
+        val _ = emptyUnionObjectIdxs
+        containsEmptyUnionObjects = emptyUnionObjectIdxs.exists(identity)
         makeUnion(
           Some(getName(ctx)),
           getDescription(ctx),
-          subtypes.map { case (t, _) => fixEmptyUnionObject(t) },
+          subtypes.map { case (t, _) => SchemaUtils.fixEmptyUnionObject(t) },
           Some(ctx.typeName.full),
           Some(getDirectives(ctx.annotations))
         )
-      else {
+      } else {
         val excl         = ctx.annotations.collectFirst { case i: GQLInterface => i.excludedFields.toSet }.getOrElse(Set.empty)
         val impl         = subtypes.map(_._1.copy(interfaces = () => Some(List(toType(isInput, isSubscription)))))
         val commonFields = () =>
@@ -192,30 +203,13 @@ trait CommonSchemaDerivation[R] {
       }
     }
 
-    // see https://github.com/graphql/graphql-spec/issues/568
-    private def fixEmptyUnionObject(t: __Type): __Type =
-      t.fields(__DeprecatedArgs(Some(true))) match {
-        case Some(Nil) =>
-          t.copy(
-            fields = (_: __DeprecatedArgs) =>
-              Some(
-                List(
-                  __Field(
-                    "_",
-                    Some(
-                      "Fake field because GraphQL does not support empty objects. Do not query, use __typename instead."
-                    ),
-                    _ => Nil,
-                    () => makeScalar("Boolean")
-                  )
-                )
-              )
-          )
-        case _         => t
-      }
-
     override def resolve(value: T): Step[R] =
-      ctx.split(value)(subType => subType.typeclass.resolve(subType.cast(value)))
+      ctx.split(value) { subType =>
+        val step = subType.typeclass.resolve(subType.cast(value))
+        if (containsEmptyUnionObjects && emptyUnionObjectIdxs(subType.index))
+          SchemaUtils.resolveEmptyUnionStep(step)
+        else step
+      }
   }
 
   private def getDirectives(annotations: Seq[Any]): List[Directive] =
