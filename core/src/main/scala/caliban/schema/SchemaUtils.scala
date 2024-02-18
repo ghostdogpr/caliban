@@ -3,7 +3,7 @@ package caliban.schema
 import caliban.ResponseValue.ObjectValue
 import caliban.Value.{ EnumValue, NullValue, StringValue }
 import caliban.introspection.adt.{ __DeprecatedArgs, __Field, __Type }
-import caliban.schema.Step.{ MetadataFunctionStep, PureStep }
+import caliban.schema.Step.MetadataFunctionStep
 
 private[schema] object SchemaUtils {
   private val fakeField =
@@ -30,7 +30,7 @@ private[schema] object SchemaUtils {
 
   def resolveEmptyUnionStep[R](step: Step[R]): Step[R] = step match {
     case s @ PureStep(EnumValue(v)) =>
-      MetadataFunctionStep { field =>
+      MetadataFunctionStep[R] { field =>
         field.fields.view
           .filter(_._condition.forall(_.contains(v)))
           .collectFirst {
