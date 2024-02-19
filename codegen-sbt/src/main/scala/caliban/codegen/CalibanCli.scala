@@ -89,7 +89,7 @@ object CalibanCli {
     args: List[String],
     genType: GenType
   ): Task[Unit] =
-    Options.fromArgs(args).flatMap {
+    OptionsParser.fromArgs(args).flatMap {
       case Some(arguments) =>
         for {
           _ <- printLine(s"Generating code for ${arguments.schemaPath}")

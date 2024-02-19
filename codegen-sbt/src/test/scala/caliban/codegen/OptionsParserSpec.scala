@@ -1,14 +1,15 @@
-package caliban.tools
+package caliban.codegen
 
+import caliban.tools.Options
 import caliban.tools.Options.Header
-import zio.test._
+import zio.test.*
 
-object OptionsSpec extends ZIOSpecDefault {
+object OptionsParserSpec extends ZIOSpecDefault {
   override def spec =
-    suite("OptionsSpec")(
+    suite("OptionsParserSpec")(
       test("full arguments") {
         val input = List("schema", "output", "--scalafmtPath", "fmtPath", "--headers", "header1:value1,header2:value2")
-        Options.fromArgs(input).map { result =>
+        OptionsParser.fromArgs(input).map { result =>
           assertTrue(
             result == Some(
               Options(
@@ -37,7 +38,7 @@ object OptionsSpec extends ZIOSpecDefault {
       },
       test("full arguments (--headers option first)") {
         val input = List("schema", "output", "--headers", "header1:value1,header2:value2", "--scalafmtPath", "fmtPath")
-        Options.fromArgs(input).map { result =>
+        OptionsParser.fromArgs(input).map { result =>
           assertTrue(
             result == Some(
               Options(
@@ -66,7 +67,7 @@ object OptionsSpec extends ZIOSpecDefault {
       },
       test("minimum arguments") {
         val input = List("schema", "output")
-        Options.fromArgs(input).map { result =>
+        OptionsParser.fromArgs(input).map { result =>
           assertTrue(
             result ==
               Some(
@@ -96,25 +97,25 @@ object OptionsSpec extends ZIOSpecDefault {
       },
       test("not enough arguments") {
         val input = List("schema")
-        Options.fromArgs(input).map { result =>
+        OptionsParser.fromArgs(input).map { result =>
           assertTrue(result == None)
         }
       },
       test("--scalafmtPath value missing") {
         val input = List("schema", "output", "--scalafmtPath", "--headers", "header1:value1,header2:value2")
-        Options.fromArgs(input).map { result =>
+        OptionsParser.fromArgs(input).map { result =>
           assertTrue(result == None)
         }
       },
       test("empty list") {
         val input = Nil
-        Options.fromArgs(input).map { result =>
+        OptionsParser.fromArgs(input).map { result =>
           assertTrue(result == None)
         }
       },
       test("provide package name") {
         val input = List("schema", "output", "--packageName", "com.github.ghostdogpr")
-        Options.fromArgs(input).map { result =>
+        OptionsParser.fromArgs(input).map { result =>
           assertTrue(
             result ==
               Some(
@@ -144,7 +145,7 @@ object OptionsSpec extends ZIOSpecDefault {
       },
       test("provide client name") {
         val input = List("schema", "output", "--clientName", "GraphqlClient.scala")
-        Options.fromArgs(input).map { result =>
+        OptionsParser.fromArgs(input).map { result =>
           assertTrue(
             result ==
               Some(
@@ -174,7 +175,7 @@ object OptionsSpec extends ZIOSpecDefault {
       },
       test("provide effect") {
         val input = List("schema", "output", "--effect", "cats.effect.IO")
-        Options.fromArgs(input).map { result =>
+        OptionsParser.fromArgs(input).map { result =>
           assertTrue(
             result ==
               Some(
@@ -204,7 +205,7 @@ object OptionsSpec extends ZIOSpecDefault {
       },
       test("provide genView") {
         val input = List("schema", "output", "--genView", "true")
-        Options.fromArgs(input).map { result =>
+        OptionsParser.fromArgs(input).map { result =>
           assertTrue(
             result ==
               Some(
@@ -234,7 +235,7 @@ object OptionsSpec extends ZIOSpecDefault {
       },
       test("provide extensibleEnums") {
         val input = List("schema", "output", "--extensibleEnums", "true")
-        Options.fromArgs(input).map { result =>
+        OptionsParser.fromArgs(input).map { result =>
           assertTrue(
             result ==
               Some(
@@ -264,7 +265,7 @@ object OptionsSpec extends ZIOSpecDefault {
       },
       test("provide scalarMappings") {
         val input = List("schema", "output", "--scalarMappings", "Long:scala.Long")
-        Options.fromArgs(input).map { result =>
+        OptionsParser.fromArgs(input).map { result =>
           assertTrue(
             result ==
               Some(
@@ -294,7 +295,7 @@ object OptionsSpec extends ZIOSpecDefault {
       },
       test("provide imports") {
         val input = List("schema", "output", "--imports", "a.b.Clazz,b.c._")
-        Options.fromArgs(input).map { result =>
+        OptionsParser.fromArgs(input).map { result =>
           assertTrue(
             result ==
               Some(
@@ -324,7 +325,7 @@ object OptionsSpec extends ZIOSpecDefault {
       },
       test("provide abstractEffectType") {
         val input = List("schema", "output", "--effect", "F", "--abstractEffectType", "true")
-        Options.fromArgs(input).map { result =>
+        OptionsParser.fromArgs(input).map { result =>
           assertTrue(
             result ==
               Some(
@@ -354,7 +355,7 @@ object OptionsSpec extends ZIOSpecDefault {
       },
       test("provide preserveInputNames") {
         val input = List("schema", "output", "--preserveInputNames", "true")
-        Options.fromArgs(input).map { result =>
+        OptionsParser.fromArgs(input).map { result =>
           assertTrue(
             result ==
               Some(
@@ -384,7 +385,7 @@ object OptionsSpec extends ZIOSpecDefault {
       },
       test("header with a colon in the value") {
         val input = List("schema", "output", "--scalafmtPath", "fmtPath", "--headers", "aaa:bbb:ccc")
-        Options.fromArgs(input).map { result =>
+        OptionsParser.fromArgs(input).map { result =>
           assertTrue(
             result ==
               Some(
