@@ -51,15 +51,15 @@ case class Field(
       val _             = set.add(fields.head.aliasedName)
 
       var remaining = fields.tail
-      while (remaining ne Nil) {
-        val f      = remaining.head
-        val result = set.add(f.aliasedName) && f._condition == headCondition
-        if (!result) return false
+      var result    = true
+      while ((remaining ne Nil) && result) {
+        val f = remaining.head
+        result = set.add(f.aliasedName) && f._condition == headCondition
         remaining = remaining.tail
       }
-      true
+      result
     }
-    if (fields.isEmpty) true else inner
+    fields.isEmpty || fields.tail.isEmpty || inner
   }
 
   def combine(other: Field): Field =

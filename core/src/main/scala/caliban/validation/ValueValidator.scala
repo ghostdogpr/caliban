@@ -121,7 +121,7 @@ object ValueValidator {
 
   def validateEnum(value: String, inputType: __Type, errorContext: => String): EReader[Any, ValidationError, Unit] = {
     val possible = inputType
-      .enumValues(__DeprecatedArgs(Some(true)))
+      .enumValues(__DeprecatedArgs.include)
       .getOrElse(List.empty)
       .map(_.name)
     val exists   = possible.contains(value)
