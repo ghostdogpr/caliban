@@ -201,7 +201,7 @@ object SchemaComparison {
 
   private def compareObjects(left: ObjectTypeDefinition, right: ObjectTypeDefinition): List[SchemaComparisonChange] = {
     val leftImplements    = left.implements.toSet
-    val rightImplements   = left.implements.toSet
+    val rightImplements   = right.implements.toSet
     val implementsAdded   =
       (rightImplements -- leftImplements).map(name => ObjectImplementsAdded(left.name, name.name)).toList
     val implementsDeleted =

@@ -6,12 +6,13 @@ import caliban.client.Operations.IsOperation
 import caliban.client.Selection.Directive
 import caliban.client.__Value.__ObjectValue
 import com.github.plokhotnyuk.jsoniter_scala.core._
+
 import sttp.client3._
 import sttp.client3.jsoniter._
 import sttp.model.Uri
-
 import scala.collection.immutable.{ Map => SMap }
 import scala.util.control.NonFatal
+import scala.math.max
 
 /**
  * Represents a selection from parent type `Origin` that returns a result of type `A`.
@@ -73,7 +74,9 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
                        readFromString[GraphQLResponse](
                          payload,
                          // allow parsing of large payloads
-                         ReaderConfig.withMaxBufSize(payload.length).withMaxCharBufSize(payload.length)
+                         ReaderConfig
+                           .withMaxBufSize(max(payload.length, ReaderConfig.maxBufSize))
+                           .withMaxCharBufSize(max(payload.length, ReaderConfig.maxCharBufSize))
                        )
                      )
                      catch {

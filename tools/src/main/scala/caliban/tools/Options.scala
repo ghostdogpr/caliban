@@ -17,7 +17,8 @@ final case class Options(
   extensibleEnums: Option[Boolean],
   preserveInputNames: Option[Boolean],
   supportIsRepeatable: Option[Boolean],
-  addDerives: Option[Boolean]
+  addDerives: Option[Boolean],
+  envForDerives: Option[String]
 )
 
 object Options {

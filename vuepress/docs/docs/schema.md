@@ -467,7 +467,7 @@ Caliban can automatically generate Scala code from a GraphQL schema.
 
 In order to use this feature, add the `caliban-codegen-sbt` sbt plugin to your `project/plugins.sbt` file:
 ```scala
-addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen-sbt" % "2.5.1")
+addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen-sbt" % "2.5.2")
 ```
 
 And enable it in your `build.sbt` file:
@@ -494,6 +494,9 @@ You can also indicate that the effect type is abstract via `--abstractEffectType
 By default the suffix `Input` is appended to the type name of input types in the derived schema.  Use the `--preserveInputNames` flag to disable this. 
 
 If you use scala3, you can enable `--addDerives` flag to automatically add `derives` clauses to the generated code. It will add type class instance derivation that create schema.
+
+In case you use derives and ZIO Environment other than Any, you need to pass type info or your schema generation will fail. Use the `--envForDerives` flag to
+pass in the type alias for your ZIO Environment.
 
 If you want to force a mapping between a GraphQL type and a Scala class (such as scalars), you can use the
 `--scalarMappings` option. Also you can add additional imports by providing `--imports` option.

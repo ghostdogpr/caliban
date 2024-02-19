@@ -4,17 +4,17 @@ import sbtcrossproject.CrossPlugin.autoImport.{ crossProject, CrossType }
 
 val scala212 = "2.12.18"
 val scala213 = "2.13.12"
-val scala3   = "3.3.1"
+val scala3   = "3.3.2"
 val allScala = Seq(scala212, scala213, scala3)
 
 val akkaVersion               = "2.6.20"
 val catsEffect3Version        = "3.5.3"
 val catsMtlVersion            = "1.3.0"
 val circeVersion              = "0.14.6"
-val fs2Version                = "3.9.3"
+val fs2Version                = "3.9.4"
 val http4sVersion             = "0.23.25"
 val javaTimeVersion           = "2.5.0"
-val jsoniterVersion           = "2.27.3"
+val jsoniterVersion           = "2.28.0"
 val laminextVersion           = "0.16.2"
 val magnoliaScala2Version     = "1.1.8"
 val magnoliaScala3Version     = "1.3.4"
@@ -23,7 +23,7 @@ val playVersion               = "3.0.1"
 val playJsonVersion           = "3.0.2"
 val scalafmtVersion           = "3.7.17"
 val sttpVersion               = "3.9.2"
-val tapirVersion              = "1.9.6"
+val tapirVersion              = "1.9.8"
 val zioVersion                = "2.0.21"
 val zioInteropCats2Version    = "22.0.0.0"
 val zioInteropCats3Version    = "23.1.0.0"
@@ -33,7 +33,7 @@ val zqueryVersion             = "0.6.0"
 val zioJsonVersion            = "0.6.2"
 val zioHttpVersion            = "3.0.0-RC4"
 val zioOpenTelemetryVersion   = "3.0.0-RC21"
-val zioPreludeVersion         = "1.0.0-RC22"
+val zioPreludeVersion         = "1.0.0-RC23"
 
 Global / onChangedBuildSource := ReloadOnSourceChanges
 

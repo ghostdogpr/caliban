@@ -38,9 +38,7 @@ package object quick {
       apiPath: String,
       graphiqlPath: Option[String] = None,
       uploadPath: Option[String] = None
-    )(implicit
-      trace: Trace
-    ): RIO[R, HttpApp[R]] =
+    )(implicit trace: Trace): IO[CalibanError.ValidationError, HttpApp[R]] =
       gql.interpreter.map(QuickAdapter(_).toApp(apiPath, graphiqlPath, uploadPath))
 
     /**
@@ -48,11 +46,11 @@ package object quick {
      *
      * @see [[handlersConfigured]] for a more powerful variant that allows configuring the GraphQL request execution
      */
-    def handlers(implicit trace: Trace): ZIO[R, CalibanError.ValidationError, QuickHandlers[R]] =
+    def handlers(implicit trace: Trace): IO[CalibanError.ValidationError, QuickHandlers[R]] =
       gql.interpreter.map(QuickAdapter(_).handlers)
 
     @deprecated("Use handlers instead", "2.5.0")
-    def handler(implicit trace: Trace): ZIO[R, CalibanError.ValidationError, RequestHandler[R, Nothing]] =
+    def handler(implicit trace: Trace): IO[CalibanError.ValidationError, RequestHandler[R, Nothing]] =
       gql.interpreter.map(QuickAdapter(_).handler)
 
     /**
@@ -60,13 +58,13 @@ package object quick {
      */
     def handlersConfigured(config: ExecutionConfiguration)(implicit
       trace: Trace
-    ): ZIO[R, CalibanError.ValidationError, QuickHandlers[R]] =
+    ): IO[CalibanError.ValidationError, QuickHandlers[R]] =
       gql.interpreter.map(QuickAdapter(_).configure(config).handlers)
 
     @deprecated("Use handlersConfigured instead", "2.5.0")
     def handlerConfigured(config: ExecutionConfiguration)(implicit
       trace: Trace
-    ): ZIO[R, CalibanError.ValidationError, RequestHandler[R, Response]] =
+    ): IO[CalibanError.ValidationError, RequestHandler[R, Response]] =
       gql.interpreter.map(QuickAdapter(_).configure(config).handler)
 
     /**

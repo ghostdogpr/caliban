@@ -10,20 +10,19 @@ import scala.annotation.nowarn
 @nowarn("msg=NoWhitespace") // False positive warning in Scala 2.x
 private[caliban] trait ValueParsers extends NumberParsers {
   def booleanValue(implicit ev: P[Any]): P[BooleanValue] =
-    P("true").map(_ => BooleanValue(true)) | P("false").map(_ => BooleanValue(false))
+    StringIn("true", "false").!.map(v => BooleanValue(v.toBoolean))
 
-  def nullValue(implicit ev: P[Any]): P[InputValue] = P("null").map(_ => NullValue)
-  def enumValue(implicit ev: P[Any]): P[InputValue] = P(name).map(EnumValue.apply)
-  def listValue(implicit ev: P[Any]): P[ListValue]  = P("[" ~/ value.rep ~ "]").map(values => ListValue(values.toList))
+  def nullValue(implicit ev: P[Any]): P[InputValue] = LiteralStr("null").map(_ => NullValue)
+  def enumValue(implicit ev: P[Any]): P[InputValue] = name.map(EnumValue.apply)
+  def listValue(implicit ev: P[Any]): P[ListValue]  = ("[" ~/ value.rep ~ "]").map(values => ListValue(values.toList))
 
-  def objectField(implicit ev: P[Any]): P[(String, InputValue)] = P(name ~ ":" ~/ value)
+  def objectField(implicit ev: P[Any]): P[(String, InputValue)] = name ~ ":" ~/ value
   def objectValue(implicit ev: P[Any]): P[ObjectValue]          =
-    P("{" ~ objectField.rep ~ "}").map(values => ObjectValue(values.toMap))
+    ("{" ~/ objectField.rep ~ "}").map(values => ObjectValue(values.toMap))
 
-  def variableValue(implicit ev: P[Any]): P[VariableValue] = P("$" ~/ name).map(VariableValue.apply)
+  def variableValue(implicit ev: P[Any]): P[VariableValue] = ("$" ~/ name).map(VariableValue.apply)
 
   def value(implicit ev: P[Any]): P[InputValue] =
-    P(
-      floatValue | intValue | booleanValue | stringValue | nullValue | enumValue | listValue | objectValue | variableValue
-    )
+    floatValue | intValue | booleanValue | stringValue | nullValue | enumValue | listValue | objectValue | variableValue
+
 }

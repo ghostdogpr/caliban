@@ -21,7 +21,8 @@ object OptionsParser {
     extensibleEnums: Option[Boolean],
     preserveInputNames: Option[Boolean],
     supportIsRepeatable: Option[Boolean],
-    addDerives: Option[Boolean]
+    addDerives: Option[Boolean],
+    envForDerives: Option[String]
   )
 
   private object DescriptorUtils {
@@ -72,7 +73,8 @@ object OptionsParser {
             rawOpts.extensibleEnums,
             rawOpts.preserveInputNames,
             rawOpts.supportIsRepeatable,
-            rawOpts.addDerives
+            rawOpts.addDerives,
+            rawOpts.envForDerives
           )
         }.option
       case _                             => ZIO.none
