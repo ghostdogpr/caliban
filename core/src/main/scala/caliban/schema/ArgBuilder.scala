@@ -27,7 +27,7 @@ Derivation requires that you have a Schema for any other type nested inside ${T}
 See https://ghostdogpr.github.io/caliban/docs/schema.html for more information.
 """
 )
-abstract class ArgBuilder[T] { self =>
+trait ArgBuilder[T] { self =>
 
   /**
    * Builds a value of type `T` from an input [[caliban.InputValue]].
