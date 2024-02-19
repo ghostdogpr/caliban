@@ -9,6 +9,7 @@ import caliban.parsing.adt._
 import caliban.schema.ReducedStep.DeferStep
 import caliban.schema.Step._
 import caliban.schema.{ ReducedStep, Step, Types }
+import caliban.transformers.Transformer
 import caliban.wrappers.Wrapper.FieldWrapper
 import zio._
 import zio.query._
@@ -36,12 +37,14 @@ object Executor {
     plan: Step[R],
     fieldWrappers: List[FieldWrapper[R]] = Nil,
     queryExecution: QueryExecution = QueryExecution.Parallel,
-    featureSet: Set[Feature] = Set.empty
+    featureSet: Set[Feature] = Set.empty,
+    transformer: Transformer[R] = Transformer.empty
   )(implicit trace: Trace): URIO[R, GraphQLResponse[CalibanError]] = {
-    val wrapPureValues    = fieldWrappers.exists(_.wrapPureValues)
-    val isDeferredEnabled = featureSet(Feature.Defer)
-    val isMutation        = request.operationType == OperationType.Mutation
-    val isSubscription    = request.operationType == OperationType.Subscription
+    val wrapPureValues     = fieldWrappers.exists(_.wrapPureValues)
+    val isDeferredEnabled  = featureSet(Feature.Defer)
+    val isMutation         = request.operationType == OperationType.Mutation
+    val isSubscription     = request.operationType == OperationType.Subscription
+    val isEmptyTransformer = transformer.isEmpty
 
     type ExecutionQuery[+A] = ZQuery[R, ExecutionError, A]
 
@@ -137,7 +140,11 @@ object Executor {
         try step
         catch { case NonFatal(e) => Step.fail(e) }
 
-      step match {
+      val step0 =
+        if (isEmptyTransformer) step
+        else transformer.transformStep.lift((step, currentField)).getOrElse(step)
+
+      step0 match {
         case s @ PureStep(EnumValue(v))     =>
           // special case of an hybrid union containing case objects, those should return an object instead of a string
           currentField.fields.view.filter(_._condition.forall(_.contains(v))).collectFirst {
