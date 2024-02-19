@@ -1,8 +1,7 @@
 package caliban.schema
 
 import caliban.CalibanError.ExecutionError
-import caliban.ResponseValue.ObjectValue
-import caliban.Value.{ EnumValue, NullValue, StringValue }
+import caliban.Value.NullValue
 import caliban.execution.{ Field, FieldInfo }
 import caliban.{ InputValue, PathValue, ResponseValue }
 import zio.query.ZQuery

@@ -1,11 +1,9 @@
 package caliban.schema
 
-import caliban.ResponseValue.ObjectValue
 import caliban.Value._
 import caliban.introspection.adt._
 import caliban.parsing.adt.Directive
 import caliban.schema.Annotations._
-import caliban.schema.Step.{ MetadataFunctionStep, PureStep => _ }
 import caliban.schema.Types._
 import magnolia1._
 
