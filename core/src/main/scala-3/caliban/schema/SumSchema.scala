@@ -35,7 +35,7 @@ final private class SumSchema[R, A](
 
     if (!isInterface && !isUnion && subTypes.nonEmpty && isEnum) mkEnum(annotations, info, subTypes)
     else if (!isInterface) {
-      containsEmptyUnionObjects = emptyUnionObjectIdxs.exists(identity)
+      containsEmptyUnionObjects = emptyUnionObjectIdxs.contains(true)
       makeUnion(
         Some(getName(annotations, info)),
         getDescription(annotations),
