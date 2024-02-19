@@ -1,4 +1,4 @@
-import com.typesafe.tools.mima.core.{ DirectMissingMethodProblem, ProblemFilters }
+import com.typesafe.tools.mima.core.{ DirectMissingMethodProblem, MissingClassProblem, ProblemFilters }
 import org.scalajs.linker.interface.ModuleSplitStyle
 import sbtcrossproject.CrossPlugin.autoImport.{ crossProject, CrossType }
 
@@ -171,29 +171,24 @@ lazy val core = project
   .settings(enableMimaSettingsJVM)
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
-    libraryDependencies ++= {
-      if (scalaVersion.value == scala212) {
-        Seq("org.scala-lang.modules" %% "scala-collection-compat" % "2.11.0")
-      } else {
-        Seq()
-      }
-    } ++
+    libraryDependencies ++=
       Seq(
-        "com.lihaoyi"                           %% "fastparse"             % "3.0.2",
-        "dev.zio"                               %% "zio"                   % zioVersion,
-        "dev.zio"                               %% "zio-streams"           % zioVersion,
-        "dev.zio"                               %% "zio-query"             % zqueryVersion,
-        "dev.zio"                               %% "zio-prelude"           % zioPreludeVersion,
-        "dev.zio"                               %% "zio-test"              % zioVersion      % Test,
-        "dev.zio"                               %% "zio-test-sbt"          % zioVersion      % Test,
-        "dev.zio"                               %% "zio-json"              % zioJsonVersion  % Optional,
-        "com.softwaremill.sttp.tapir"           %% "tapir-core"            % tapirVersion    % Optional,
-        "io.circe"                              %% "circe-core"            % circeVersion    % Optional,
-        "io.circe"                              %% "circe-parser"          % circeVersion    % Test,
-        "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-core"   % jsoniterVersion % Optional,
-        "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros" % jsoniterVersion % Provided,
-        "org.playframework"                     %% "play-json"             % playJsonVersion % Optional,
-        "org.apache.commons"                     % "commons-lang3"         % "3.14.0"        % Test
+        "com.lihaoyi"                           %% "fastparse"               % "3.0.2",
+        "org.scala-lang.modules"                %% "scala-collection-compat" % "2.11.0",
+        "dev.zio"                               %% "zio"                     % zioVersion,
+        "dev.zio"                               %% "zio-streams"             % zioVersion,
+        "dev.zio"                               %% "zio-query"               % zqueryVersion,
+        "dev.zio"                               %% "zio-prelude"             % zioPreludeVersion,
+        "dev.zio"                               %% "zio-test"                % zioVersion      % Test,
+        "dev.zio"                               %% "zio-test-sbt"            % zioVersion      % Test,
+        "dev.zio"                               %% "zio-json"                % zioJsonVersion  % Optional,
+        "com.softwaremill.sttp.tapir"           %% "tapir-core"              % tapirVersion    % Optional,
+        "io.circe"                              %% "circe-core"              % circeVersion    % Optional,
+        "io.circe"                              %% "circe-parser"            % circeVersion    % Test,
+        "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-core"     % jsoniterVersion % Optional,
+        "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros"   % jsoniterVersion % Provided,
+        "org.playframework"                     %% "play-json"               % playJsonVersion % Optional,
+        "org.apache.commons"                     % "commons-lang3"           % "3.14.0"        % Test
       )
   )
   .dependsOn(macros)
@@ -222,8 +217,6 @@ lazy val tools = project
       "org.scalameta"                  % "scalafmt-interfaces" % scalafmtVersion,
       "io.get-coursier"                % "interface"           % "1.0.19",
       "com.softwaremill.sttp.client3" %% "zio"                 % sttpVersion,
-      "dev.zio"                       %% "zio-config"          % zioConfigVersion,
-      "dev.zio"                       %% "zio-config-magnolia" % zioConfigVersion,
       "dev.zio"                       %% "zio-test"            % zioVersion     % Test,
       "dev.zio"                       %% "zio-test-sbt"        % zioVersion     % Test,
       "dev.zio"                       %% "zio-json"            % zioJsonVersion % Test
@@ -269,7 +262,9 @@ lazy val codegenSbt = project
     crossScalaVersions := Seq(scala212),
     testFrameworks     := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
-      "dev.zio" %% "zio-test-sbt" % zioVersion % Test
+      "dev.zio" %% "zio-config"          % zioConfigVersion,
+      "dev.zio" %% "zio-config-magnolia" % zioConfigVersion,
+      "dev.zio" %% "zio-test-sbt"        % zioVersion % Test
     )
   )
   .enablePlugins(SbtPlugin)
@@ -718,7 +713,10 @@ lazy val enableMimaSettingsJVM =
   Def.settings(
     mimaFailOnProblem     := enforceMimaCompatibility,
     mimaPreviousArtifacts := previousStableVersion.value.map(organization.value %% moduleName.value % _).toSet,
-    mimaBinaryIssueFilters ++= Seq()
+    mimaBinaryIssueFilters ++= Seq(
+      ProblemFilters.exclude[MissingClassProblem]("caliban.tools.*"),
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.tools.*")
+    )
   )
 
 lazy val enableMimaSettingsJS =

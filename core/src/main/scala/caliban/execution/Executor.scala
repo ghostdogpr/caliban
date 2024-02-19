@@ -136,9 +136,11 @@ object Executor {
       def reduceObjectStep(objectName: String, getFieldStep: String => Step[R]): ReducedStep[R] = {
         def reduceField(f: Field): (String, ReducedStep[R], FieldInfo) = {
           val aliasedName = f.aliasedName
-          val field       =
-            if (f.name == "__typename") PureStep(StringValue(objectName))
-            else reduceStep(getFieldStep(f.name), f, f.arguments, PathValue.Key(aliasedName) :: path)
+          val fname       = f.name
+          val field       = {
+            if (fname == "__typename") PureStep(StringValue(objectName))
+            else reduceStep(getFieldStep(fname), f, f.arguments, PathValue.Key(aliasedName) :: path)
+          }
           (aliasedName, field, fieldInfo(f, aliasedName, path, f.directives))
         }
 
@@ -229,43 +231,34 @@ object Executor {
           )
         )
 
+      def reduceStream(stream: ZStream[R, Throwable, Step[R]]) =
+        if (isSubscription) {
+          ReducedStep.StreamStep(
+            stream
+              .mapErrorCause(effectfulExecutionError(path, Some(currentField.locationInfo), _))
+              .map(reduceStep(_, currentField, arguments, path))
+          )
+        } else {
+          reduceStep(
+            QueryStep(ZQuery.fromZIO(stream.runCollect.map(chunk => ListStep(chunk.toList)))),
+            currentField,
+            arguments,
+            path
+          )
+        }
+
       def handleError(step: => Step[R]): Step[R] =
         try step
         catch { case NonFatal(e) => Step.fail(e) }
 
       step match {
-        case s @ PureStep(EnumValue(v))     =>
-          // special case of an hybrid union containing case objects, those should return an object instead of a string
-          currentField.fields.view.filter(_._condition.forall(_.contains(v))).collectFirst {
-            case f if f.name == "__typename" =>
-              ObjectValue(List(f.aliasedName -> StringValue(v)))
-            case f if f.name == "_"          =>
-              NullValue
-          } match {
-            case Some(v) => PureStep(v)
-            case None    => s
-          }
         case s: PureStep                    => s
         case QueryStep(inner)               => reduceQuery(inner)
         case ObjectStep(objectName, fields) => reduceObjectStep(objectName, fields)
         case FunctionStep(step)             => reduceStep(handleError(step(arguments)), currentField, Map.empty, path)
         case MetadataFunctionStep(step)     => reduceStep(handleError(step(currentField)), currentField, arguments, path)
         case ListStep(steps)                => reduceListStep(steps)
-        case StreamStep(stream)             =>
-          if (isSubscription) {
-            ReducedStep.StreamStep(
-              stream
-                .mapErrorCause(effectfulExecutionError(path, Some(currentField.locationInfo), _))
-                .map(reduceStep(_, currentField, arguments, path))
-            )
-          } else {
-            reduceStep(
-              QueryStep(ZQuery.fromZIO(stream.runCollect.map(chunk => ListStep(chunk.toList)))),
-              currentField,
-              arguments,
-              path
-            )
-          }
+        case StreamStep(stream)             => reduceStream(stream)
       }
     }
 

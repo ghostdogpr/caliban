@@ -102,7 +102,7 @@ case class __Type(
             description,
             name.getOrElse(""),
             directives.getOrElse(Nil),
-            enumValues(__DeprecatedArgs(Some(true))).getOrElse(Nil).map(_.toEnumValueDefinition)
+            enumValues(__DeprecatedArgs.include).getOrElse(Nil).map(_.toEnumValueDefinition)
           )
         )
       case __TypeKind.INPUT_OBJECT =>
@@ -127,13 +127,13 @@ case class __Type(
   lazy val nonNull: __Type = __Type(__TypeKind.NON_NULL, ofType = Some(self))
 
   lazy val allFields: List[__Field] =
-    fields(__DeprecatedArgs(Some(true))).getOrElse(Nil)
+    fields(__DeprecatedArgs.include).getOrElse(Nil)
 
   lazy val allInputFields: List[__InputValue] =
-    inputFields(__DeprecatedArgs(Some(true))).getOrElse(Nil)
+    inputFields(__DeprecatedArgs.include).getOrElse(Nil)
 
   lazy val allEnumValues: List[__EnumValue] =
-    enumValues(__DeprecatedArgs(Some(true))).getOrElse(Nil)
+    enumValues(__DeprecatedArgs.include).getOrElse(Nil)
 
   private[caliban] lazy val allFieldsMap: collection.Map[String, __Field] = {
     val map = collection.mutable.HashMap.empty[String, __Field]
