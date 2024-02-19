@@ -140,9 +140,7 @@ object Executor {
         try step
         catch { case NonFatal(e) => Step.fail(e) }
 
-      val step0 =
-        if (isEmptyTransformer) step
-        else transformer.transformStep.lift((step, currentField)).getOrElse(step)
+      val step0 = if (isEmptyTransformer) step else transformer.transformStep(step, currentField)
 
       step0 match {
         case s @ PureStep(EnumValue(v))     =>

@@ -16,7 +16,7 @@ object TransformerSpec extends ZIOSpecDefault {
   override def spec =
     suite("TransformerSpec")(
       test("rename type") {
-        val transformed: GraphQL[Any] = api.transform(Transformer.RenameType { case "InnerObject" => "Renamed" })
+        val transformed: GraphQL[Any] = api.transform(Transformer.RenameType("InnerObject" -> "Renamed"))
         val rendered                  = transformed.render
         for {
           interpreter <- transformed.interpreter
@@ -37,7 +37,7 @@ object TransformerSpec extends ZIOSpecDefault {
         )
       },
       test("rename field") {
-        val transformed: GraphQL[Any] = api.transform(Transformer.RenameField(("InnerObject", "b") -> "c"))
+        val transformed: GraphQL[Any] = api.transform(Transformer.RenameField("InnerObject" -> ("b" -> "c")))
         val rendered                  = transformed.render
         for {
           interpreter <- transformed.interpreter
@@ -59,8 +59,8 @@ object TransformerSpec extends ZIOSpecDefault {
         )
       },
       test("rename argument") {
-        val transformed: GraphQL[Any] = api.transform(Transformer.RenameArgument { case ("InnerObject", "b") =>
-          ({ case "arg" => "arg2" }, { case "arg2" => "arg" })
+        val transformed: GraphQL[Any] = api.transform(Transformer.RenameArgument {
+          "InnerObject" -> ("b" -> ("arg" -> "arg2"))
         })
         val rendered                  = transformed.render
         for {
@@ -86,7 +86,7 @@ object TransformerSpec extends ZIOSpecDefault {
         case class Query(a: String, b: Int)
         val api: GraphQL[Any] = graphQL(RootResolver(Query("a", 2)))
 
-        val transformed: GraphQL[Any] = api.transform(Transformer.FilterField { case ("Query", "b") => false })
+        val transformed: GraphQL[Any] = api.transform(Transformer.FilterField("Query" -> ("b" -> false)))
         val rendered                  = transformed.render
         for {
           interpreter <- transformed.interpreter
@@ -108,8 +108,7 @@ object TransformerSpec extends ZIOSpecDefault {
         case class Query(a: Args => String)
         val api: GraphQL[Any] = graphQL(RootResolver(Query(_.arg.getOrElse("missing"))))
 
-        val transformed: GraphQL[Any] =
-          api.transform(Transformer.FilterArgument { case ("Query", "a", "arg") => false })
+        val transformed: GraphQL[Any] = api.transform(Transformer.FilterArgument("Query" -> ("a" -> ("arg" -> false))))
         val rendered                  = transformed.render
         for {
           interpreter <- transformed.interpreter
@@ -128,8 +127,8 @@ object TransformerSpec extends ZIOSpecDefault {
       },
       test("combine transformers") {
         val transformed: GraphQL[Any] = api
-          .transform(Transformer.RenameType { case "InnerObject" => "Renamed" })
-          .transform(Transformer.RenameField(("Renamed", "b") -> "c"))
+          .transform(Transformer.RenameType("InnerObject" -> "Renamed"))
+          .transform(Transformer.RenameField("Renamed" -> ("b" -> "c")))
         val rendered                  = transformed.render
         for {
           interpreter <- transformed.interpreter
