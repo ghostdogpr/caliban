@@ -58,6 +58,9 @@ object Executor {
         case QueryExecution.Batched             => ZQuery.foreachBatched(in)(as)
         case QueryExecution.Parallel            => ZQuery.foreachPar(in)(as)
         case QueryExecution.Sequential          => ZQuery.foreach(in)(as)
+        case QueryExecution.Mixed               =>
+          if (isTopLevelField) ZQuery.foreachPar(in)(as)
+          else ZQuery.foreachBatched(in)(as)
       }
     }
 
