@@ -91,6 +91,10 @@ object TapirAdapter {
       oneOfVariantValueMatcher[CalibanBody.Stream[stream.BinaryStream]](
         streamTextBody(stream)(CodecFormat.Json(), Some(StandardCharsets.UTF_8)).toEndpointIO
           .map(Right(_)) { case Right(value) => value }
+      ) { case Right(_) => true },
+      oneOfVariantValueMatcher[CalibanBody.Stream[stream.BinaryStream]](
+        streamBinaryBody(stream)(CodecFormat.TextEventStream()).toEndpointIO
+          .map(Right(_)) { case Right(value) => value }
       ) { case Right(_) => true }
     )
 
@@ -116,7 +120,8 @@ object TapirAdapter {
         case _                                                           => false
       }
     )
-    val isSSE          = request.header(MediaType.TextEventStream.toString()).map(_ => true).getOrElse(false)
+    val isSSE          =
+      request.header(HeaderNames.Accept).map(v => v.contains(MediaType.TextEventStream.toString())).getOrElse(false)
     response match {
       case resp @ GraphQLResponse(StreamValue(stream), _, _, _) =>
         (
@@ -231,20 +236,19 @@ object TapirAdapter {
         fields.foldLeft(ZStream.empty: ZStream[Any, Throwable, ServerSentEvent]) { case (_, v) =>
           v match {
             case (fieldName, StreamValue(stream)) =>
-              stream
-                .map(r =>
-                  ServerSentEvent(
-                    Some(
-                      responseCodec.encode(
-                        GraphQLResponse(
-                          ObjectValue(List(fieldName -> r)),
-                          List.empty
-                        ).toResponseValue
-                      )
-                    ),
-                    Some("next")
-                  )
+              stream.map { r =>
+                ServerSentEvent(
+                  Some(
+                    responseCodec.encode(
+                      GraphQLResponse(
+                        ObjectValue(List(fieldName -> r)),
+                        resp.errors
+                      ).toResponseValue
+                    )
+                  ),
+                  Some("next")
                 )
+              }.orDie
             case _                                =>
               ZStream.succeed(ServerSentEvent(Some(responseCodec.encode(resp.toResponseValue)), Some("next")))
           }
