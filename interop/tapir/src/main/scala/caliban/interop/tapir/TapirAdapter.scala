@@ -1,16 +1,18 @@
 package caliban.interop.tapir
 
 import caliban._
-import caliban.ResponseValue.StreamValue
+import caliban.ResponseValue.{ ObjectValue, StreamValue }
 import caliban.wrappers.Caching
 import sttp.capabilities.{ Streams, WebSockets }
 import sttp.capabilities.zio.ZioStreams
 import sttp.capabilities.zio.ZioStreams.Pipe
 import sttp.model.{ headers => _, _ }
+import sttp.model.sse.ServerSentEvent
 import sttp.monad.MonadError
 import sttp.tapir.Codec.JsonCodec
 import sttp.tapir.model.ServerRequest
 import sttp.tapir.server.ServerEndpoint
+import sttp.tapir.ztapir.ZioServerSentEvents
 import sttp.tapir.{ headers, _ }
 import zio._
 import zio.stream.{ ZChannel, ZPipeline, ZStream }
@@ -114,6 +116,7 @@ object TapirAdapter {
         case _                                                           => false
       }
     )
+    val isSSE          = request.header(MediaType.TextEventStream.toString()).map(_ => true).getOrElse(false)
     response match {
       case resp @ GraphQLResponse(StreamValue(stream), _, _, _) =>
         (
@@ -143,16 +146,26 @@ object TapirAdapter {
           response.errors.collectFirst { case HttpRequestMethod.MutationOverGetError => StatusCode.BadRequest }
             .getOrElse(StatusCode.Ok)
         val cacheDirective = computeCacheDirective(response.extensions)
-        (
-          MediaType.ApplicationJson,
-          code,
-          cacheDirective,
-          encodeSingleResponse(
-            resp,
-            keepDataOnErrors = true,
-            excludeExtensions = cacheDirective.map(_ => Set(Caching.DirectiveName))
-          )
-        )
+        isSSE match {
+          case true  =>
+            (
+              MediaType.TextEventStream,
+              code,
+              cacheDirective,
+              encodeTextEventStreamResponse(resp)
+            )
+          case false =>
+            (
+              MediaType.ApplicationJson,
+              code,
+              cacheDirective,
+              encodeSingleResponse(
+                resp,
+                keepDataOnErrors = true,
+                excludeExtensions = cacheDirective.map(_ => Set(Caching.DirectiveName))
+              )
+            )
+        }
     }
   }
 
@@ -208,6 +221,38 @@ object TapirAdapter {
           .mapConcat(_.getBytes(StandardCharsets.UTF_8))
       )
     )
+  }
+
+  private def encodeTextEventStreamResponse[E, BS](
+    resp: GraphQLResponse[E]
+  )(implicit streamConstructor: StreamConstructor[BS], responseCodec: JsonCodec[ResponseValue]): CalibanBody[BS] = {
+    val response: ZStream[Any, Throwable, ServerSentEvent] = resp.data match {
+      case ObjectValue(fields) =>
+        fields.foldLeft(ZStream.empty: ZStream[Any, Throwable, ServerSentEvent]) { case (_, v) =>
+          v match {
+            case (fieldName, StreamValue(stream)) =>
+              stream
+                .map(r =>
+                  ServerSentEvent(
+                    Some(
+                      responseCodec.encode(
+                        GraphQLResponse(
+                          ObjectValue(List(fieldName -> r)),
+                          List.empty
+                        ).toResponseValue
+                      )
+                    ),
+                    Some("next")
+                  )
+                )
+            case _                                =>
+              ZStream.succeed(ServerSentEvent(Some(responseCodec.encode(resp.toResponseValue)), Some("next")))
+          }
+        }
+      case _                   =>
+        ZStream.succeed(ServerSentEvent(Some(responseCodec.encode(resp.toResponseValue)), Some("next")))
+    }
+    Right(streamConstructor(ZioServerSentEvents.serialiseSSEToBytes(response)))
   }
 
   private def encodeSingleResponse[E](
