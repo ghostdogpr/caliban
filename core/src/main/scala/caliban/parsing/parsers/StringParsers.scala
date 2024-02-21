@@ -55,16 +55,16 @@ private[caliban] trait StringParsers {
       } else ctx.freshSuccessUnit(index)
   }
 
-  def sourceCharacter(implicit ev: P[Any]): P[Unit]                      = P(CharIn("\u0009\u000A\u000D\u0020-\uFFFF"))
-  def sourceCharacterWithoutLineTerminator(implicit ev: P[Any]): P[Unit] = P(CharIn("\u0009\u0020-\uFFFF"))
-  def name(implicit ev: P[Any]): P[String]                               = P(CharIn("_A-Za-z") ~~ CharIn("_0-9A-Za-z").repX).!
-  def nameOnly(implicit ev: P[Any]): P[String]                           = P(Start ~ name ~ End)
+  def sourceCharacter(implicit ev: P[Any]): P[Unit]                      = CharIn("\u0009\u000A\u000D\u0020-\uFFFF")
+  def sourceCharacterWithoutLineTerminator(implicit ev: P[Any]): P[Unit] = CharIn("\u0009\u0020-\uFFFF")
+  def name(implicit ev: P[Any]): P[String]                               = (CharIn("_A-Za-z") ~~ CharIn("_0-9A-Za-z").repX).!
+  def nameOnly(implicit ev: P[Any]): P[String]                           = Start ~ name ~ End
 
-  def hexDigit(implicit ev: P[Any]): P[Unit]         = P(CharIn("0-9a-fA-F"))
+  def hexDigit(implicit ev: P[Any]): P[Unit]         = CharIn("0-9a-fA-F")
   def escapedUnicode(implicit ev: P[Any]): P[String] =
-    P(hexDigit ~~ hexDigit ~~ hexDigit ~~ hexDigit).!.map(Integer.parseInt(_, 16).toChar.toString)
+    (hexDigit ~~ hexDigit ~~ hexDigit ~~ hexDigit).!.map(Integer.parseInt(_, 16).toChar.toString)
 
-  def escapedCharacter(implicit ev: P[Any]): P[String] = P(CharIn("\"\\\\/bfnrt").!).map {
+  def escapedCharacter(implicit ev: P[Any]): P[String] = CharIn("\"\\\\/bfnrt").!.map {
     case "b"   => "\b"
     case "n"   => "\n"
     case "f"   => "\f"
@@ -74,16 +74,14 @@ private[caliban] trait StringParsers {
   }
 
   def stringCharacter(implicit ev: P[Any]): P[String] =
-    P(
-      sourceCharacterWithoutLineTerminator.!.filter(c =>
-        c != "\"" && c != "\\"
-      ) | "\\u" ~~ escapedUnicode | "\\" ~~ escapedCharacter
-    )
+    sourceCharacterWithoutLineTerminator.!.filter(c =>
+      c != "\"" && c != "\\"
+    ) | "\\u" ~~ escapedUnicode | "\\" ~~ escapedCharacter
 
-  def blockStringCharacter(implicit ev: P[Any]): P[String] = P("\\\"\"\"".!.map(_ => "\"\"\"") | sourceCharacter.!)
+  def blockStringCharacter(implicit ev: P[Any]): P[String] = "\\\"\"\"".!.map(_ => "\"\"\"") | sourceCharacter.!
 
   def stringValue(implicit ev: P[Any]): P[StringValue] =
-    P(
+    (
       ("\"\"\"" ~~ ((!"\"\"\"") ~~ blockStringCharacter).repX.map(s => blockStringValue(s.mkString)) ~~ "\"\"\"") |
         ("\"" ~~ stringCharacter.repX.map(_.mkString) ~~ "\"")
     ).map(v => StringValue(v))
@@ -103,10 +101,11 @@ private[caliban] trait StringParsers {
       case (Some(value), head :: tail) => head :: tail.map(_.drop(value))
       case _                           => l1
     }
+    // NOTE: @noinline annotation required as Scala 2.12 inlines `.dropWhile` which results in compilation error since these methods are used within fastparse's macros
     // remove start lines that are only whitespaces
-    val l3           = l2.dropWhile("[ \t]*".r.replaceAllIn(_, "").isEmpty)
+    val l3           = l2.dropWhile("[ \t]*".r.replaceAllIn(_, "").isEmpty): @noinline
     // remove end lines that are only whitespaces
-    val l4           = l3.reverse.dropWhile("[ \t]*".r.replaceAllIn(_, "").isEmpty).reverse
+    val l4           = (l3.reverse.dropWhile("[ \t]*".r.replaceAllIn(_, "").isEmpty): @noinline).reverse
     l4.mkString("\n")
   }
 }

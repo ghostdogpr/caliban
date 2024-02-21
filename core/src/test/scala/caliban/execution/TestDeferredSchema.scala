@@ -6,6 +6,7 @@ import caliban.{ graphQL, RootResolver }
 import caliban.schema.Annotations.GQLName
 import caliban.schema.{ GenericSchema, Schema }
 import caliban.wrappers.DeferSupport
+import zio.query.{ DataSource, Request, UQuery, ZQuery }
 import zio.{ UIO, URIO, ZIO }
 
 object TestDeferredSchema extends GenericSchema[CharacterService] {
@@ -74,6 +75,25 @@ object TestDeferredSchema extends GenericSchema[CharacterService] {
             .map(_.headOption.map(character2CharacterZIO))
       )
     )
+
+  val interpreter = (graphQL(resolver) @@ DeferSupport.defer).interpreter
+}
+
+object TestDatasourceDeferredSchema extends GenericSchema[Any] {
+  import auto._
+
+  case class Bar(value: UQuery[String])
+  case class Foo(bar: UIO[List[Bar]])
+  case class Query(foo: UIO[Foo])
+
+  case class Req(i: Int) extends Request[Nothing, String]
+  private val ds = DataSource.fromFunctionZIO("ValuesDS")((_: Req) => ZIO.succeed("value"))
+
+  private def makeBar(i: Int): Bar = Bar(ZQuery.fromRequest(Req(i))(ds))
+
+  private val resolver = RootResolver(Query(ZIO.succeed {
+    Foo(bar = ZIO.succeed(List(makeBar(1), makeBar(3), makeBar(3))))
+  }))
 
   val interpreter = (graphQL(resolver) @@ DeferSupport.defer).interpreter
 }

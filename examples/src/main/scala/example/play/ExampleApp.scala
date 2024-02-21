@@ -1,7 +1,7 @@
 package example.play
 
-import akka.actor.ActorSystem
-import akka.stream.Materializer
+import org.apache.pekko.actor.ActorSystem
+import org.apache.pekko.stream.Materializer
 import caliban.interop.tapir.{ HttpInterpreter, WebSocketInterpreter }
 import caliban.{ GraphQL, PlayAdapter }
 import example.ExampleData.sampleCharacters
@@ -9,7 +9,7 @@ import example.{ ExampleApi, ExampleService }
 import play.api.Mode
 import play.api.routing._
 import play.api.routing.sird._
-import play.core.server.{ AkkaHttpServer, ServerConfig }
+import play.core.server.{ PekkoHttpServer, ServerConfig }
 import zio.{ Runtime, Scope, ZIO, ZIOAppDefault }
 
 object ExampleApp extends ZIOAppDefault {
@@ -23,7 +23,7 @@ object ExampleApp extends ZIOAppDefault {
       interpreter <- ZIO.serviceWithZIO[GraphQL[Any]](_.interpreter)
       _           <- ZIO.acquireRelease(
                        ZIO.attempt(
-                         AkkaHttpServer.fromRouterWithComponents(
+                         PekkoHttpServer.fromRouterWithComponents(
                            ServerConfig(
                              mode = Mode.Dev,
                              port = Some(8088),

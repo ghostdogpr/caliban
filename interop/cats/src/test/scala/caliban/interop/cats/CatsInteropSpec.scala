@@ -4,53 +4,77 @@ import cats.Applicative
 import cats.data.{ Chain, Kleisli }
 import cats.effect.kernel.Async
 import cats.effect.std.Dispatcher
-import cats.effect.{ IO, Ref }
+import cats.effect.unsafe.implicits.global
+import cats.effect.{ IO, IOLocal, Ref }
 import cats.syntax.flatMap._
 import cats.syntax.functor._
-import cats.effect.unsafe.implicits.global
-import zio.{ Runtime, ZEnvironment, ZIO }
 import zio.test._
+import zio.{ Runtime, ZEnvironment, ZIO }
 
 object CatsInteropSpec extends ZIOSpecDefault {
 
   override def spec = suite("CatsInteropSpec")(
-    test("contextual interop: inject an environment") {
+    suite("contextual interop: inject an environment") {
       case class SecurityContext(isAdmin: Boolean)
       case class LogContext(traceId: String)
       case class RootContext(security: SecurityContext, log: LogContext)
 
-      type Effect[A] = Kleisli[IO, RootContext, A]
-
       val rootCtx = RootContext(SecurityContext(false), LogContext("external-trace-id"))
       val inner   = RootContext(SecurityContext(true), LogContext("internal-trace-id"))
 
-      def main(inner: RootContext)(implicit runtime: Runtime[RootContext]) =
-        Dispatcher.parallel[Effect].use { dispatcher =>
-          program[Effect, RootContext](CatsInterop.contextual(dispatcher), inner)
+      def main[F[_]: Async](inner: RootContext)(implicit
+        runtime: Runtime[RootContext],
+        inj: InjectEnv[F, RootContext],
+        local: Local[F, RootContext]
+      ) =
+        Dispatcher.parallel[F].use { dispatcher =>
+          program[F, RootContext](CatsInterop.contextual(dispatcher), inner)
         }
 
-      for {
-        contextual <-
-          ZIO.succeed(main(inner)(Runtime.default.withEnvironment(ZEnvironment(rootCtx))).run(rootCtx).unsafeRunSync())
-      } yield assertTrue(contextual == List(rootCtx, inner, rootCtx))
+      List(
+        test("Kleisli") {
+          type Effect[A] = Kleisli[IO, RootContext, A]
+          implicit val rtm: Runtime[RootContext] = Runtime.default.withEnvironment(ZEnvironment(rootCtx))
+          for {
+            contextual <- ZIO.succeed(main[Effect](inner).run(rootCtx).unsafeRunSync())
+          } yield assertTrue(contextual == List(rootCtx, inner, rootCtx))
+        },
+        test("IO") {
+          implicit val rtm: Runtime[RootContext]   = Runtime.default.withEnvironment(ZEnvironment(rootCtx))
+          implicit val local: IOLocal[RootContext] = IOLocal(rootCtx).unsafeRunSync()
+          for {
+            contextual <- ZIO.succeed(main[IO](inner).unsafeRunSync())
+          } yield assertTrue(contextual == List(rootCtx, inner, rootCtx))
+        }
+      )
+
     },
-    test("plain interop: do not inject an environment") {
+    suite("plain interop: do not inject an environment") {
       case class Context(traceId: String)
-
-      type Effect[A] = Kleisli[IO, Context, A]
-
       val rootCtx = Context("external-trace-id")
       val inner   = Context("internal-trace-id")
 
-      def main(inner: Context)(implicit runtime: Runtime[Context]) =
-        Dispatcher.parallel[Effect].use { dispatcher =>
-          program[Effect, Context](CatsInterop.default(dispatcher), inner)
+      def main[F[_]: Async](inner: Context)(implicit runtime: Runtime[Context], local: Local[F, Context]) =
+        Dispatcher.parallel[F].use { dispatcher =>
+          program[F, Context](CatsInterop.default(dispatcher), inner)
         }
 
-      for {
-        contextual <-
-          ZIO.succeed(main(inner)(Runtime.default.withEnvironment(ZEnvironment(rootCtx))).run(rootCtx).unsafeRunSync())
-      } yield assertTrue(contextual == List(rootCtx, rootCtx, rootCtx))
+      List(
+        test("Kleisli") {
+          type Effect[A] = Kleisli[IO, Context, A]
+          implicit val rtm: Runtime[Context] = Runtime.default.withEnvironment(ZEnvironment(rootCtx))
+          for {
+            contextual <- ZIO.succeed(main[Effect](inner).run(rootCtx).unsafeRunSync())
+          } yield assertTrue(contextual == List(rootCtx, rootCtx, rootCtx))
+        },
+        test("IO") {
+          implicit val rtm: Runtime[Context]     = Runtime.default.withEnvironment(ZEnvironment(rootCtx))
+          implicit val ioLocal: IOLocal[Context] = IOLocal(rootCtx).unsafeRunSync()
+          for {
+            contextual <- ZIO.succeed(main[IO](inner).unsafeRunSync())
+          } yield assertTrue(contextual == List(rootCtx, rootCtx, rootCtx))
+        }
+      )
     }
   )
 
@@ -81,6 +105,12 @@ object CatsInteropSpec extends ZIOSpecDefault {
       new Local[Kleisli[F, R, *], R] {
         def ask: Kleisli[F, R, R]                                  = Kleisli.ask
         def local[A](fa: Kleisli[F, R, A], r: R): Kleisli[F, R, A] = Kleisli.liftF(fa.run(r))
+      }
+
+    implicit def localForIO[R](implicit ioLocal: IOLocal[R]): Local[IO, R] =
+      new Local[IO, R] {
+        def ask: IO[R]                       = ioLocal.get
+        def local[A](fa: IO[A], r: R): IO[A] = ioLocal.getAndSet(r).flatMap(v => fa.guarantee(ioLocal.set(v)))
       }
   }
 

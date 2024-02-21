@@ -2,6 +2,7 @@
   "name": "federated-gateway",
   "version": "1.0.0",
   "description": "",
+  "type": "module",
   "main": "gateway.js",
   "scripts": {
     "start": "node gateway.js"
@@ -9,8 +10,8 @@
   "keywords": [],
   "license": "MIT",
   "dependencies": {
-    "apollo-server": "3.6.7",
-    "@apollo/gateway": "2.0.1",
-    "graphql": "16.3.0"
+    "@apollo/server": "4.9.5",
+    "@apollo/gateway": "2.6.2",
+    "graphql": "16.8.1"
   }
 }

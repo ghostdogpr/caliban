@@ -76,11 +76,10 @@ abstract class FederationSupport(
        * @param value a value of type `T`
        */
       override def resolve(value: _Entity): Step[R] =
-        QueryStep(
-          _entityMap
-            .get(value.__typename)
-            .fold[ZQuery[R, CalibanError, Step[R]]](ZQuery.succeed(Step.NullStep))(_.resolve(value.value))
-        )
+        _entityMap
+          .get(value.__typename)
+          .fold[Step[R]](Step.NullStep)(resolver => QueryStep(resolver.resolve(value.value)))
+
     }
 
     case class Query(

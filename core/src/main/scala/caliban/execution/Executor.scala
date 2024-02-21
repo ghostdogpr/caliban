@@ -11,11 +11,16 @@ import caliban.schema.Step._
 import caliban.schema.{ ReducedStep, Step, Types }
 import caliban.wrappers.Wrapper.FieldWrapper
 import zio._
-import zio.query.{ Cache, ZQuery }
+import zio.query._
+import zio.stacktracer.TracingImplicits.disableAutoTrace
 import zio.stream.ZStream
 
 import scala.annotation.tailrec
+import scala.collection.compat.{ BuildFrom => _, _ }
+import scala.collection.immutable.VectorBuilder
+import scala.collection.mutable.ListBuffer
 import scala.jdk.CollectionConverters._
+import scala.util.control.NonFatal
 
 object Executor {
 
@@ -33,157 +38,246 @@ object Executor {
     queryExecution: QueryExecution = QueryExecution.Parallel,
     featureSet: Set[Feature] = Set.empty
   )(implicit trace: Trace): URIO[R, GraphQLResponse[CalibanError]] = {
-    val wrapPureValues = fieldWrappers.exists(_.wrapPureValues)
+    val wrapPureValues    = fieldWrappers.exists(_.wrapPureValues)
+    val isDeferredEnabled = featureSet(Feature.Defer)
+    val isMutation        = request.operationType == OperationType.Mutation
+    val isSubscription    = request.operationType == OperationType.Subscription
 
-    val execution                                                          = request.operationType match {
-      case OperationType.Query        => queryExecution
-      case OperationType.Mutation     => QueryExecution.Sequential
-      case OperationType.Subscription => QueryExecution.Sequential
-    }
-    def collectAll[E, A](as: List[ZQuery[R, E, A]]): ZQuery[R, E, List[A]] =
-      execution match {
-        case QueryExecution.Sequential => ZQuery.collectAll(as)
-        case QueryExecution.Parallel   => ZQuery.collectAllPar(as)
-        case QueryExecution.Batched    => ZQuery.collectAllBatched(as)
+    type ExecutionQuery[+A] = ZQuery[R, ExecutionError, A]
+
+    def collectAll[E, A, B, Coll[+V] <: Iterable[V]](
+      in: Coll[A],
+      isTopLevelField: Boolean
+    )(
+      as: A => ZQuery[R, E, B]
+    )(implicit bf: BuildFrom[Coll[A], B, Coll[B]]): ZQuery[R, E, Coll[B]] = {
+      val sc = in.sizeCompare(1)
+      queryExecution match {
+        case _ if sc == 0                       => as(in.head).map(bf.newBuilder(in).+=(_).result())
+        case _ if isTopLevelField && isMutation => ZQuery.foreach(in)(as)
+        case QueryExecution.Batched             => ZQuery.foreachBatched(in)(as)
+        case QueryExecution.Parallel            => ZQuery.foreachPar(in)(as)
+        case QueryExecution.Sequential          => ZQuery.foreach(in)(as)
       }
+    }
 
     def reduceStep(
       step: Step[R],
       currentField: Field,
       arguments: Map[String, InputValue],
-      path: List[Either[String, Int]]
-    ): ReducedStep[R] =
-      step match {
-        case s @ PureStep(EnumValue(v))     =>
-          // special case of an hybrid union containing case objects, those should return an object instead of a string
-          val obj = currentField.fields.view.filter(_._condition.forall(_.contains(v))).collectFirst {
-            case f if f.name == "__typename" =>
-              ObjectValue(List(f.aliasedName -> StringValue(v)))
-            case f if f.name == "_"          =>
-              NullValue
+      path: List[PathValue]
+    ): ReducedStep[R] = {
+
+      def reduceObjectStep(objectName: String, getFieldStep: String => Step[R]): ReducedStep[R] = {
+        def reduceField(f: Field): (String, ReducedStep[R], FieldInfo) = {
+          val field = {
+            val fname = f.name
+            if (fname == "__typename") PureStep(StringValue(objectName))
+            else reduceStep(getFieldStep(fname), f, f.arguments, PathValue.Key(f.aliasedName) :: path)
           }
-          obj.fold(s)(PureStep(_))
-        case s: PureStep                    => s
-        case FunctionStep(step)             => reduceStep(step(arguments), currentField, Map.empty, path)
-        case MetadataFunctionStep(step)     => reduceStep(step(currentField), currentField, arguments, path)
-        case ObjectStep(objectName, fields) =>
-          val filteredFields    = mergeFields(currentField, objectName)
-          val (deferred, eager) = filteredFields.partitionMap {
-            case f @ Field("__typename", _, _, _, _, _, _, directives, _, _, _)   =>
-              Right((f.aliasedName, PureStep(StringValue(objectName)), fieldInfo(f, path, directives)))
-            case f @ Field(name, _, _, _, _, _, args, directives, _, _, fragment) =>
-              val aliasedName = f.aliasedName
-              val field       = fields
-                .get(name)
-                .fold(NullStep: ReducedStep[R])(reduceStep(_, f, args, Left(aliasedName) :: path))
+          (f.aliasedName, field, fieldInfo(f, path, f.directives))
+        }
 
-              val info = fieldInfo(f, path, directives)
-
-              fragment.collectFirst {
+        val filteredFields    = mergeFields(currentField, objectName)
+        val (deferred, eager) = {
+          if (isDeferredEnabled) {
+            filteredFields.partitionMap { f =>
+              val entry = reduceField(f)
+              f.fragment match {
                 // The defer spec provides some latitude on how we handle responses. Since it is more performant to return
                 // pure fields rather than spin up the defer machinery we return pure fields immediately to the caller.
-                case IsDeferred(label) if featureSet(Feature.Defer) && !field.isPure =>
-                  (label, (aliasedName, field, info))
-              }.toLeft((aliasedName, field, info))
-          }
+                case Some(IsDeferred(label)) if !entry._2.isPure => Left((label, entry))
+                case _                                           => Right(entry)
+              }
+            }
+          } else (Nil, filteredFields.map(reduceField))
+        }
 
-          deferred match {
-            case Nil => reduceObject(eager, wrapPureValues)
-            case d   =>
-              DeferStep(
-                reduceObject(eager, wrapPureValues),
-                d.groupBy(_._1).toList.map { case (label, labelAndFields) =>
-                  val (_, fields) = labelAndFields.unzip
-                  reduceObject(fields, wrapPureValues) -> label
-                },
-                path
-              )
-          }
-        case QueryStep(inner)               =>
-          ReducedStep.QueryStep(
-            inner.foldCauseQuery(
-              e => ZQuery.failCause(effectfulExecutionError(path, Some(currentField.locationInfo), e)),
-              a => ZQuery.succeed(reduceStep(a, currentField, arguments, path))
-            )
-          )
-        case ListStep(steps)                =>
-          reduceList(
-            steps.zipWithIndex.map { case (step, i) =>
-              reduceStep(step, currentField, arguments, Right(i) :: path)
-            },
-            Types.listOf(currentField.fieldType).fold(false)(_.isNullable)
-          )
-        case StreamStep(stream)             =>
-          if (request.operationType == OperationType.Subscription) {
-            ReducedStep.StreamStep(
-              stream
-                .mapErrorCause(effectfulExecutionError(path, Some(currentField.locationInfo), _))
-                .map(reduceStep(_, currentField, arguments, path))
-            )
-          } else {
-            reduceStep(
-              QueryStep(ZQuery.fromZIO(stream.runCollect.map(chunk => ListStep(chunk.toList)))),
-              currentField,
-              arguments,
+        val eagerReduced = reduceObject(eager, wrapPureValues)
+        deferred match {
+          case Nil => eagerReduced
+          case d   =>
+            DeferStep(
+              eagerReduced,
+              d.groupBy(_._1).toList.map { case (label, labelAndFields) =>
+                val (_, fields) = labelAndFields.unzip
+                reduceObject(fields, wrapPureValues) -> label
+              },
               path
             )
-          }
+        }
       }
+
+      def reduceListStep(steps: List[Step[R]]) = {
+        var i         = 0
+        val lb        = ListBuffer.empty[ReducedStep[R]]
+        val nil       = Nil
+        var remaining = steps
+        while (remaining ne nil) {
+          lb addOne reduceStep(remaining.head, currentField, arguments, PathValue.Index(i) :: path)
+          i += 1
+          remaining = remaining.tail
+        }
+        reduceList(
+          lb.result(),
+          Types.listOf(currentField.fieldType) match {
+            case Some(tpe) => tpe.isNullable
+            case None      => false
+          }
+        )
+      }
+
+      def reduceQuery(query: ZQuery[R, Throwable, Step[R]]) =
+        ReducedStep.QueryStep(
+          query.foldCauseQuery(
+            e => ZQuery.failCause(effectfulExecutionError(path, Some(currentField.locationInfo), e)),
+            a => ZQuery.succeed(reduceStep(a, currentField, arguments, path))
+          )
+        )
+
+      def reduceStream(stream: ZStream[R, Throwable, Step[R]]) =
+        if (isSubscription) {
+          ReducedStep.StreamStep(
+            stream
+              .mapErrorCause(effectfulExecutionError(path, Some(currentField.locationInfo), _))
+              .map(reduceStep(_, currentField, arguments, path))
+          )
+        } else {
+          reduceStep(
+            QueryStep(ZQuery.fromZIO(stream.runCollect.map(chunk => ListStep(chunk.toList)))),
+            currentField,
+            arguments,
+            path
+          )
+        }
+
+      def handleError(step: => Step[R]): Step[R] =
+        try step
+        catch { case NonFatal(e) => Step.fail(e) }
+
+      step match {
+        case s: PureStep                    => s
+        case QueryStep(inner)               => reduceQuery(inner)
+        case ObjectStep(objectName, fields) => reduceObjectStep(objectName, fields)
+        case FunctionStep(step)             => reduceStep(handleError(step(arguments)), currentField, Map.empty, path)
+        case MetadataFunctionStep(step)     => reduceStep(handleError(step(currentField)), currentField, arguments, path)
+        case ListStep(steps)                => reduceListStep(steps)
+        case StreamStep(stream)             => reduceStream(stream)
+      }
+    }
 
     def makeQuery(
       step: ReducedStep[R],
       errors: Ref[List[CalibanError]],
       deferred: Ref[List[Deferred[R]]]
-    ): ZQuery[R, Nothing, ResponseValue] = {
+    ): URQuery[R, ResponseValue] = {
 
-      def handleError(error: ExecutionError): ZQuery[Any, Nothing, ResponseValue] =
-        ZQuery.fromZIO(errors.update(error :: _)).as(NullValue)
+      def handleError(error: ExecutionError): UQuery[ResponseValue] =
+        ZQuery.fromZIO(errors.update(error :: _).as(NullValue))
 
-      def wrap(query: ZQuery[R, ExecutionError, ResponseValue], isPure: Boolean)(
-        wrappers: List[FieldWrapper[R]],
-        fieldInfo: FieldInfo
-      ): ZQuery[R, ExecutionError, ResponseValue] = {
+      def wrap(query: ExecutionQuery[ResponseValue], isPure: Boolean, fieldInfo: FieldInfo) = {
         @tailrec
-        def loop(
-          query: ZQuery[R, ExecutionError, ResponseValue],
-          wrappers: List[FieldWrapper[R]]
-        ): ZQuery[R, ExecutionError, ResponseValue] =
+        def loop(query: ExecutionQuery[ResponseValue], wrappers: List[FieldWrapper[R]]): ExecutionQuery[ResponseValue] =
           wrappers match {
             case Nil             => query
             case wrapper :: tail =>
               val q = if (isPure && !wrapper.wrapPureValues) query else wrapper.wrap(query, fieldInfo)
               loop(q, tail)
           }
-        if (isPure && !wrapPureValues) query
-        else loop(query, wrappers)
+        loop(query, fieldWrappers)
       }
 
-      def loop(step: ReducedStep[R]): ZQuery[R, ExecutionError, ResponseValue] =
+      def objectFieldQuery(step: ReducedStep[R], info: FieldInfo, isPure: Boolean = false) = {
+        val q = wrap(loop(step), isPure, info)
+        if (info.details.fieldType.isNullable) q.catchAll(handleError) else q
+      }
+
+      def makeObjectQuery(
+        steps: List[(String, ReducedStep[R], FieldInfo)],
+        hasPureFields: Boolean,
+        isTopLevelField: Boolean
+      ) = {
+
+        def collectAllQueries() = {
+          def combineQueryResults(results: List[ResponseValue]) = {
+            val builder = ListBuffer.empty[(String, ResponseValue)]
+            val nil     = Nil
+            var resps   = results
+            var names   = steps
+            while (resps ne nil) {
+              val (name, _, _) = names.head
+              builder addOne ((name, resps.head))
+              resps = resps.tail
+              names = names.tail
+            }
+            ObjectValue(builder.result())
+          }
+          collectAll(steps, isTopLevelField) { case (_, step, info) =>
+            // Only way we could have ended with pure fields here is if we wrap pure values, so we check that first as it's cheaper
+            objectFieldQuery(step, info, wrapPureValues && step.isPure)
+          }.map(combineQueryResults)
+        }
+
+        def combineResults(names: List[String], resolved: List[ResponseValue])(fromQueries: Vector[ResponseValue]) = {
+          val nil                                    = Nil
+          var results: List[(String, ResponseValue)] = nil
+          var i                                      = fromQueries.length
+          var remainingResponses                     = resolved
+          var remainingNames                         = names
+          while (remainingResponses ne nil) {
+            val name = remainingNames.head
+            var resp = remainingResponses.head
+            if (resp eq null) {
+              i -= 1
+              resp = fromQueries(i)
+            }
+            results = (name, resp) :: results
+            remainingResponses = remainingResponses.tail
+            remainingNames = remainingNames.tail
+          }
+          ObjectValue(results)
+        }
+
+        def collectMixed() = {
+          val queries                       = new VectorBuilder[(String, ReducedStep[R], FieldInfo)]
+          val nil                           = Nil // Bring into stack memory to avoid fetching from heap on each iteration
+          var names: List[String]           = nil
+          var resolved: List[ResponseValue] = nil
+          var remaining                     = steps
+          while (remaining ne nil) {
+            val (name, step, _) = remaining.head
+            val value           = step match {
+              case PureStep(value) => value
+              case _               => queries.addOne(remaining.head); null
+            }
+            resolved = value :: resolved
+            names = name :: names
+            remaining = remaining.tail
+          }
+          collectAll(queries.result(), isTopLevelField) { case (_, s, i) => objectFieldQuery(s, i) }
+            .map(combineResults(names, resolved))
+        }
+
+        if (hasPureFields && !wrapPureValues) collectMixed() else collectAllQueries()
+      }
+
+      def makeListQuery(steps: List[ReducedStep[R]], areItemsNullable: Boolean): ExecutionQuery[ResponseValue] =
+        collectAll(steps, isTopLevelField = false)(if (areItemsNullable) loop(_).catchAll(handleError) else loop(_))
+          .map(ListValue.apply)
+
+      def loop(step: ReducedStep[R], isTopLevelField: Boolean = false): ExecutionQuery[ResponseValue] =
         step match {
           case PureStep(value)                               => ZQuery.succeed(value)
-          case ReducedStep.ObjectStep(steps)                 =>
-            val queries = steps.map { case (name, step, info) =>
-              val q = wrap(loop(step), step.isPure)(fieldWrappers, info)
-              (if (info.details.fieldType.isNullable) q.catchAll(handleError) else q)
-                .map(name -> _)
-            }
-            collectAll(queries).map(ObjectValue.apply)
-          case ReducedStep.QueryStep(step)                   =>
-            step.flatMap(loop)
-          case ReducedStep.ListStep(steps, areItemsNullable) =>
-            val queries =
-              if (areItemsNullable) steps.map(loop(_).catchAll(handleError))
-              else steps.map(loop)
-
-            collectAll(queries).map(ListValue.apply)
+          case ReducedStep.QueryStep(step)                   => step.flatMap(loop(_))
+          case ReducedStep.ObjectStep(steps, hasPureFields)  => makeObjectQuery(steps, hasPureFields, isTopLevelField)
+          case ReducedStep.ListStep(steps, areItemsNullable) => makeListQuery(steps, areItemsNullable)
           case ReducedStep.StreamStep(stream)                =>
             ZQuery
-              .environment[R]
-              .map(env =>
+              .environmentWith[R](env =>
                 ResponseValue.StreamValue(
-                  stream
-                    .mapZIO(loop(_).catchAll(_ => ZQuery.succeed(NullValue)).run)
-                    .provideEnvironment(env)
+                  stream.mapChunksZIO { chunk =>
+                    collectAll(chunk, isTopLevelField)(loop(_).catchAll(_ => ZQuery.succeed(NullValue))).run
+                  }.provideEnvironment(env)
                 )
               )
           case ReducedStep.DeferStep(obj, nextSteps, path)   =>
@@ -192,7 +286,7 @@ object Executor {
             }
             ZQuery.fromZIO(deferred.update(deferredSteps ::: _)) *> loop(obj)
         }
-      loop(step).catchAll(handleError)
+      loop(step, isTopLevelField = true).catchAll(handleError)
     }
 
     def runQuery(step: ReducedStep[R], cache: Cache) =
@@ -237,7 +331,7 @@ object Executor {
     def runIncrementalQuery(
       step: ReducedStep[R],
       cache: Cache,
-      path: List[Either[String, Int]],
+      path: List[PathValue],
       label: Option[String]
     ) =
       for {
@@ -250,69 +344,85 @@ object Executor {
       } yield (Incremental.Defer(
         result,
         errors = resultErrors.reverse,
-        path = ListValue(path.map {
-          case Left(s)  => StringValue(s)
-          case Right(i) => IntValue(i)
-        }.reverse),
+        path = ListValue(path.reverse),
         label = label
       )
         -> defers)
 
     for {
       cache    <- Cache.empty
-      reduced   = reduceStep(plan, request.field, Map(), Nil)
+      reduced   = reduceStep(plan, request.field, Map.empty, Nil)
       response <- runQuery(reduced, cache)
     } yield response
   }
 
-  private[caliban] def fail(error: CalibanError): UIO[GraphQLResponse[CalibanError]] =
+  private[caliban] def fail(error: CalibanError)(implicit trace: Trace): UIO[GraphQLResponse[CalibanError]] =
     ZIO.succeed(GraphQLResponse(NullValue, List(error)))
 
   private[caliban] def mergeFields(field: Field, typeName: String): List[Field] = {
-    // ugly mutable code but it's worth it for the speed ;)
-    val map      = new java.util.LinkedHashMap[String, Field]()
-    var modified = false
+    def matchesTypename(f: Field): Boolean =
+      f._condition.isEmpty || f._condition.get.contains(typeName)
 
-    field.fields.foreach { field =>
-      if (field._condition.forall(_.contains(typeName))) {
-        map.compute(
-          field.aliasedName,
-          (_, f) =>
-            if (f == null) field
-            else {
-              modified = true
-              f.copy(fields = f.fields ::: field.fields)
-            }
-        )
-      } else {
-        modified = true
+    def mergeFields(fields: List[Field]) = {
+      val map       = new java.util.LinkedHashMap[String, Field](calculateMapCapacity(fields.size))
+      val nil       = Nil
+      var remaining = fields
+      while (remaining ne nil) {
+        val h = remaining.head
+        if (matchesTypename(h)) {
+          map.compute(
+            h.aliasedName,
+            (_, f) =>
+              if (f eq null) h
+              else f.copy(fields = f.fields ::: h.fields)
+          )
+        }
+        remaining = remaining.tail
       }
+      map.values().asScala.toList
     }
 
-    // Avoid conversions if no modification took place
-    if (modified) map.values().asScala.toList else field.fields
+    val fields = field.fields
+    if (field.allFieldsUniqueNameAndCondition) {
+      if (fields.isEmpty || !matchesTypename(fields.head)) Nil
+      else fields
+    } else mergeFields(fields)
   }
 
-  private def fieldInfo(field: Field, path: List[Either[String, Int]], fieldDirectives: List[Directive]): FieldInfo =
+  private def fieldInfo(field: Field, path: List[PathValue], fieldDirectives: List[Directive]): FieldInfo =
     FieldInfo(field.aliasedName, field, path, fieldDirectives, field.parentType)
 
+  // In 99.99% of the cases, if the head is pure, all the other elements will be pure as well but we catch that error just in case
+  // NOTE: Our entire test suite passes without catching the error
   private def reduceList[R](list: List[ReducedStep[R]], areItemsNullable: Boolean): ReducedStep[R] =
-    if (list.forall(_.isInstanceOf[PureStep]))
-      PureStep(ListValue(list.asInstanceOf[List[PureStep]].map(_.value)))
+    if (list.isEmpty || list.head.isPure)
+      try PureStep(ListValue(list.asInstanceOf[List[PureStep]].map(_.value)))
+      catch { case _: ClassCastException => ReducedStep.ListStep(list, areItemsNullable) }
     else ReducedStep.ListStep(list, areItemsNullable)
 
   private def reduceObject[R](
     items: List[(String, ReducedStep[R], FieldInfo)],
     wrapPureValues: Boolean
-  ): ReducedStep[R] =
-    if (!wrapPureValues && items.forall(_._2.isPure))
-      PureStep(ObjectValue(items.asInstanceOf[List[(String, PureStep, FieldInfo)]].map { case (k, v, _) =>
-        (k, v.value)
-      }))
-    else ReducedStep.ObjectStep(items)
+  ): ReducedStep[R] = {
+    var hasPures   = false
+    val nil        = Nil
+    var hasQueries = wrapPureValues
+    var remaining  = items
+    while ((remaining ne nil) && !(hasPures && hasQueries)) {
+      if (remaining.head._2.isPure) hasPures = true
+      else hasQueries = true
+      remaining = remaining.tail
+    }
+
+    if (hasQueries) ReducedStep.ObjectStep(items, hasPures)
+    else
+      PureStep(
+        ObjectValue(items.asInstanceOf[List[(String, PureStep, FieldInfo)]].map { case (k, v, _) => (k, v.value) })
+      )
+  }
 
   private def effectfulExecutionError(
-    path: List[Either[String, Int]],
+    path: List[PathValue],
     locationInfo: Option[LocationInfo],
     cause: Cause[Throwable]
   ): Cause[ExecutionError] =
@@ -334,4 +444,27 @@ object Executor {
       (l.result(), r.result())
     }
   }
+
+  private implicit class EnrichedListBufferOps[A](val lb: ListBuffer[A]) extends AnyVal {
+    // This method doesn't exist in Scala 2.12 so we just use `.map` for it instead
+    def mapInPlace[B](f: A => B): ListBuffer[B] = lb.map(f)
+    def addOne(value: A): ListBuffer[A]         = lb += value
+  }
+
+  private implicit class EnrichedVectorBuilderOps[A](private val lb: VectorBuilder[A]) extends AnyVal {
+    def addOne(value: A): VectorBuilder[A] = lb += value
+  }
+
+  /**
+   * The behaviour of mutable Maps (both Java and Scala) is to resize once the number of entries exceeds
+   * the capacity * loadFactor (default of 0.75d) threshold in order to prevent hash collisions.
+   *
+   * This method is a helper method to estimate the initial map size depending on the number of elements the Map is
+   * expected to hold
+   *
+   * NOTE: This method is the same as java.util.HashMap.calculateHashMapCapacity on JDK19+
+   */
+  private def calculateMapCapacity(nMappings: Int): Int =
+    Math.ceil(nMappings / 0.75d).toInt
+
 }

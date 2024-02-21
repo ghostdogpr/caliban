@@ -266,7 +266,7 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
                     clientsSettings
                       .flatTraverseT[File] { serverProject: Project =>
                         Def.taskDyn {
-                          ensureCompiled(serverProject).value
+                          val _ = ensureCompiled(serverProject).value
 
                           val serverMetadata = {
                             val serverTargetDir = (serverProject / target).value.getAbsolutePath

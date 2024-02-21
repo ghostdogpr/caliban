@@ -26,7 +26,12 @@ object Configurator {
     Unsafe.unsafe(implicit u => FiberRef.unsafe.make(ExecutionConfiguration()))
 
   private[caliban] def configuration: UIO[ExecutionConfiguration] =
-    configRef.get
+    configRef.get(Trace.empty)
+
+  private[caliban] def setWith[R, E, A](cfg: ExecutionConfiguration)(f: ZIO[R, E, A])(implicit
+    trace: Trace
+  ): ZIO[R, E, A] =
+    configRef.locally(cfg)(f)
 
   /**
    * Skip validation of the query.

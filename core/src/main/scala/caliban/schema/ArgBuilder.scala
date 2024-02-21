@@ -13,7 +13,7 @@ import java.time.temporal.Temporal
 import java.util.UUID
 import scala.annotation.implicitNotFound
 import scala.util.Try
-import scala.util.control.NonFatal
+import scala.util.control.{ NoStackTrace, NonFatal }
 
 /**
  * Typeclass that defines how to build an argument of type `T` from an input [[caliban.InputValue]].
@@ -43,7 +43,11 @@ trait ArgBuilder[T] { self =>
   def buildMissing(default: Option[String]): Either[ExecutionError, T] =
     default
       .map(
-        Parser.parseInputValue(_).flatMap(build).left.map(e => ExecutionError(e.getMessage()))
+        Parser
+          .parseInputValue(_)
+          .flatMap(build)
+          .left
+          .map(e => ExecutionError(e.getMessage(), innerThrowable = Some(InvalidInputArgument)))
       )
       .getOrElse(build(NullValue))
 
@@ -79,6 +83,8 @@ trait ArgBuilder[T] { self =>
 }
 
 object ArgBuilder extends ArgBuilderInstances {
+  def apply[T](implicit ev: ArgBuilder[T]): ArgBuilder[T] = ev
+
   object auto extends AutoArgBuilderDerivation
 }
 
@@ -86,46 +92,45 @@ trait ArgBuilderInstances extends ArgBuilderDerivation {
   implicit lazy val unit: ArgBuilder[Unit]             = _ => Right(())
   implicit lazy val int: ArgBuilder[Int]               = {
     case value: IntValue => Right(value.toInt)
-    case other           => Left(ExecutionError(s"Can't build an Int from input $other"))
+    case other           => Left(InvalidInputArgument("Int", other))
   }
   implicit lazy val long: ArgBuilder[Long]             = {
     case value: IntValue    => Right(value.toLong)
     case StringValue(value) =>
-      Try(value.toLong).fold(_ => Left(ExecutionError(s"Can't build a Long from input $value")), Right(_))
-    case other              => Left(ExecutionError(s"Can't build a Long from input $other"))
+      Try(value.toLong).fold(_ => Left(InvalidInputArgument("Long", value)), Right(_))
+    case other              => Left(InvalidInputArgument("Long", other))
   }
   implicit lazy val bigInt: ArgBuilder[BigInt]         = {
     case value: IntValue => Right(value.toBigInt)
-    case other           => Left(ExecutionError(s"Can't build a BigInt from input $other"))
+    case other           => Left(InvalidInputArgument("BigInt", other))
   }
   implicit lazy val float: ArgBuilder[Float]           = {
     case value: IntValue   => Right(value.toLong.toFloat)
     case value: FloatValue => Right(value.toFloat)
-    case other             => Left(ExecutionError(s"Can't build a Float from input $other"))
+    case other             => Left(InvalidInputArgument("Float", other))
   }
   implicit lazy val double: ArgBuilder[Double]         = {
     case value: IntValue   => Right(value.toLong.toDouble)
     case value: FloatValue => Right(value.toDouble)
-    case other             => Left(ExecutionError(s"Can't build a Double from input $other"))
+    case other             => Left(InvalidInputArgument("Double", other))
   }
   implicit lazy val bigDecimal: ArgBuilder[BigDecimal] = {
     case value: IntValue   => Right(BigDecimal(value.toBigInt))
     case value: FloatValue => Right(value.toBigDecimal)
-    case other             => Left(ExecutionError(s"Can't build a BigDecimal from input $other"))
+    case other             => Left(InvalidInputArgument("BigDecimal", other))
   }
   implicit lazy val string: ArgBuilder[String]         = {
     case StringValue(value) => Right(value)
-    case other              => Left(ExecutionError(s"Can't build a String from input $other"))
+    case other              => Left(InvalidInputArgument("String", other))
   }
   implicit lazy val uuid: ArgBuilder[UUID]             = {
     case StringValue(value) =>
-      Try(UUID.fromString(value))
-        .fold(ex => Left(ExecutionError(s"Can't parse $value into a UUID", innerThrowable = Some(ex))), Right(_))
-    case other              => Left(ExecutionError(s"Can't build a UUID from input $other"))
+      Try(UUID.fromString(value)).fold(_ => Left(InvalidInputArgument("UUID", value)), Right(_))
+    case other              => Left(InvalidInputArgument("UUID", other))
   }
   implicit lazy val boolean: ArgBuilder[Boolean]       = {
     case BooleanValue(value) => Right(value)
-    case other               => Left(ExecutionError(s"Can't build a Boolean from input $other"))
+    case other               => Left(InvalidInputArgument("Boolean", other))
   }
 
   private abstract class TemporalDecoder[A](name: String) extends ArgBuilder[A] {
@@ -137,11 +142,11 @@ trait ArgBuilderInstances extends ArgBuilderDerivation {
         catch {
           case NonFatal(e) =>
             val message = e.getMessage
-            if (message.eq(null)) Left(ExecutionError(s"Can't build a $name from $value", innerThrowable = Some(e)))
-            else Left(ExecutionError(s"Can't build a $name from $value ($message)", innerThrowable = Some(e)))
+            if (message.eq(null)) Left(InvalidInputArgument(name, value))
+            else Left(InvalidInputArgument(name, s"$value ($message)"))
         }
       case _                  =>
-        Left(ExecutionError(s"Can't build a $name from $input"))
+        Left(InvalidInputArgument(name, input))
     }
   }
 
@@ -166,7 +171,7 @@ trait ArgBuilderInstances extends ArgBuilderDerivation {
 
   lazy val instantEpoch: ArgBuilder[Instant] = {
     case i: IntValue => Right(Instant.ofEpochMilli(i.toLong))
-    case value       => Left(ExecutionError(s"Can't build an Instant from $value"))
+    case value       => Left(InvalidInputArgument("Instant", value))
   }
 
   implicit lazy val instant: ArgBuilder[Instant]               = TemporalDecoder("Instant")(Instant.parse)
@@ -203,6 +208,16 @@ trait ArgBuilderInstances extends ArgBuilderDerivation {
 
   implicit lazy val upload: ArgBuilder[Upload] = {
     case StringValue(v) => Right(Upload(v))
-    case other          => Left(ExecutionError(s"Can't build an Upload from $other"))
+    case other          => Left(InvalidInputArgument("Upload", other))
   }
+}
+
+case object InvalidInputArgument extends NoStackTrace {
+  override def getMessage: String = "invalid input argument"
+
+  private[caliban] def apply(argType: String, argValue: Any): ExecutionError =
+    ExecutionError(
+      s"Can't build an instance of '$argType' from '$argValue'",
+      innerThrowable = Some(InvalidInputArgument)
+    )
 }

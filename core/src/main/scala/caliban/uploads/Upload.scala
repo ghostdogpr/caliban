@@ -1,7 +1,7 @@
 package caliban.uploads
 
-import caliban.Value.{ NullValue, StringValue }
-import caliban.{ GraphQLRequest, InputValue }
+import caliban.Value.{ IntValue, NullValue, StringValue }
+import caliban.{ GraphQLRequest, InputValue, PathValue }
 import zio.stream.ZSink
 import zio.{ Chunk, RIO, UIO, URIO }
 
@@ -30,7 +30,7 @@ case class FileMeta(
  */
 case class GraphQLUploadRequest(
   request: GraphQLRequest,
-  fileMap: List[(String, List[Either[String, Int]])], // This needs to be used to remap the input values
+  fileMap: List[(String, List[PathValue])], // This needs to be used to remap the input values
   fileHandle: UIO[Uploads]
 ) {
 
@@ -43,8 +43,9 @@ case class GraphQLUploadRequest(
       variables = request.variables.map { vars =>
         fileMap.foldLeft(vars) { case (acc, (name, rest)) =>
           val value = rest match {
-            case Left("variables") :: Left(key) :: path => acc.get(key).map(loop(_, path, name)).map(key -> _)
-            case _                                      => None
+            case PathValue.Key("variables") :: PathValue.Key(key) :: path =>
+              acc.get(key).map(loop(_, path, name)).map(key -> _)
+            case _                                                        => None
           }
           value.fold(acc)(v => acc + v)
         }
@@ -55,22 +56,22 @@ case class GraphQLUploadRequest(
    * We need to continue stepping through the path until we find the point where we are supposed
    * to inject the string.
    */
-  private def loop(value: InputValue, path: List[Either[String, Int]], name: String): InputValue =
+  private def loop(value: InputValue, path: List[PathValue], name: String): InputValue =
     path.headOption match {
-      case Some(Left(key))  =>
+      case Some(StringValue(key))        =>
         value match {
           case InputValue.ObjectValue(fields) =>
             val v = fields.get(key).fold[InputValue](NullValue)(loop(_, path.drop(1), name))
             InputValue.ObjectValue(fields + (key -> v))
           case _                              => NullValue
         }
-      case Some(Right(idx)) =>
+      case Some(IntValue.IntNumber(idx)) =>
         value match {
           case InputValue.ListValue(values) =>
             InputValue.ListValue(replaceAt(values, idx)(loop(_, path.drop(1), name)))
           case _                            => NullValue
         }
-      case None             =>
+      case None                          =>
         // If we are out of values then we are at the end of the path, so we need to replace this current node
         // with a string node containing the file name
         StringValue(name)

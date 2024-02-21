@@ -1,6 +1,7 @@
-const {ApolloServer} = require('apollo-server');
-const {ApolloServerPluginInlineTrace} = require('apollo-server-core')
-const {ApolloGateway, IntrospectAndCompose} = require('@apollo/gateway');
+import { ApolloServer } from '@apollo/server';
+import { ApolloServerPluginInlineTrace } from '@apollo/server/plugin/inlineTrace'
+import { ApolloGateway, IntrospectAndCompose } from '@apollo/gateway';
+import {startStandaloneServer} from "@apollo/server/standalone";
 
 const gateway = new ApolloGateway({
   supergraphSdl: new IntrospectAndCompose({
@@ -21,7 +22,9 @@ const gateway = new ApolloGateway({
     ]
   });
 
-  server.listen().then(({url}) => {
-    console.log(`🚀 Server ready at ${url}`)
+  const { url } = await startStandaloneServer(server, {
+    listen: { port: 4000 }
   })
+
+  console.log(`🚀 Server ready at ${url}`)
 })();

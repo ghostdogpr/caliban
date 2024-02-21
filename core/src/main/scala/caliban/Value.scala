@@ -1,20 +1,21 @@
 package caliban
 
-import scala.util.Try
+import caliban.Value.StringValue
 import caliban.interop.circe._
-import caliban.interop.tapir.IsTapirSchema
 import caliban.interop.jsoniter.IsJsoniterCodec
 import caliban.interop.play.{ IsPlayJsonReads, IsPlayJsonWrites }
+import caliban.interop.tapir.IsTapirSchema
 import caliban.interop.zio.{ IsZIOJsonDecoder, IsZIOJsonEncoder }
 import caliban.rendering.ValueRenderer
 import zio.stream.Stream
 
+import scala.util.control.NonFatal
 import scala.util.hashing.MurmurHash3
 
-sealed trait InputValue { self =>
+sealed trait InputValue extends Serializable { self =>
   def toInputString: String = ValueRenderer.inputValueRenderer.renderCompact(self)
 }
-object InputValue       {
+object InputValue {
   case class ListValue(values: List[InputValue])          extends InputValue {
     override def toString: String      = values.mkString("[", ",", "]")
     override def toInputString: String = ValueRenderer.inputListValueRenderer.render(this)
@@ -45,7 +46,7 @@ object InputValue       {
     caliban.interop.play.json.ValuePlayJson.inputValueReads.asInstanceOf[F[InputValue]]
 }
 
-sealed trait ResponseValue { self =>
+sealed trait ResponseValue extends Serializable { self =>
 
   /**
    * Performs a deep merge of two response values. This currently means that the list values will be concatenated, and
@@ -73,8 +74,8 @@ object ResponseValue {
     override def toString: String =
       ValueRenderer.responseObjectValueRenderer.renderCompact(this)
 
-    override lazy val hashCode: Int          = MurmurHash3.unorderedHash(fields)
-    override def equals(other: Any): Boolean =
+    @transient override lazy val hashCode: Int = MurmurHash3.unorderedHash(fields)
+    override def equals(other: Any): Boolean   =
       other match {
         case o: ObjectValue => o.hashCode == hashCode
         case _              => false
@@ -104,26 +105,26 @@ object ResponseValue {
 
 sealed trait Value extends InputValue with ResponseValue
 object Value {
-  case object NullValue                   extends Value {
+  case object NullValue                   extends Value                {
     override def toString: String = "null"
   }
-  sealed trait IntValue                   extends Value {
+  sealed trait IntValue                   extends Value                {
     def toInt: Int
     def toLong: Long
     def toBigInt: BigInt
   }
-  sealed trait FloatValue                 extends Value {
+  sealed trait FloatValue                 extends Value                {
     def toFloat: Float
     def toDouble: Double
     def toBigDecimal: BigDecimal
   }
-  case class StringValue(value: String)   extends Value {
+  case class StringValue(value: String)   extends Value with PathValue {
     override def toString: String = s""""${value.replace("\"", "\\\"").replace("\n", "\\n")}""""
   }
-  case class BooleanValue(value: Boolean) extends Value {
+  case class BooleanValue(value: Boolean) extends Value                {
     override def toString: String = if (value) "true" else "false"
   }
-  case class EnumValue(value: String)     extends Value {
+  case class EnumValue(value: String)     extends Value                {
     override def toString: String      = s""""${value.replace("\"", "\\\"")}""""
     override def toInputString: String = ValueRenderer.enumInputValueRenderer.render(this)
   }
@@ -132,24 +133,35 @@ object Value {
     def apply(v: Int): IntValue    = IntNumber(v)
     def apply(v: Long): IntValue   = LongNumber(v)
     def apply(v: BigInt): IntValue = BigIntNumber(v)
-    def apply(s: String): IntValue =
-      Try(IntNumber(s.toInt)) orElse
-        Try(LongNumber(s.toLong)) getOrElse
-        BigIntNumber(BigInt(s))
 
-    final case class IntNumber(value: Int)       extends IntValue {
+    @deprecated("Use `fromStringUnsafe` instead", "2.5.0")
+    def apply(s: String): IntValue = fromStringUnsafe(s)
+
+    @throws[NumberFormatException]("if the string is not a valid representation of an integer")
+    def fromStringUnsafe(s: String): IntValue =
+      try {
+        val mod  = if (s.charAt(0) == '-') 1 else 0
+        val size = s.length - mod
+        if (size < 10) IntNumber(s.toInt)
+        else if (size < 19) LongNumber(s.toLong)
+        else BigIntNumber(BigInt(s))
+      } catch {
+        case NonFatal(_) => BigIntNumber(BigInt(s)) // Should never happen, but we leave it as a fallback
+      }
+
+    final case class IntNumber(value: Int)       extends IntValue with PathValue {
       override def toInt: Int       = value
       override def toLong: Long     = value.toLong
       override def toBigInt: BigInt = BigInt(value)
       override def toString: String = value.toString
     }
-    final case class LongNumber(value: Long)     extends IntValue {
+    final case class LongNumber(value: Long)     extends IntValue                {
       override def toInt: Int       = value.toInt
       override def toLong: Long     = value
       override def toBigInt: BigInt = BigInt(value)
       override def toString: String = value.toString
     }
-    final case class BigIntNumber(value: BigInt) extends IntValue {
+    final case class BigIntNumber(value: BigInt) extends IntValue                {
       override def toInt: Int       = value.toInt
       override def toLong: Long     = value.toLong
       override def toBigInt: BigInt = value
@@ -181,5 +193,51 @@ object Value {
       override def toBigDecimal: BigDecimal = value
       override def toString: String         = value.toString
     }
+  }
+}
+
+sealed trait PathValue extends Value {
+  def isKey: Boolean = this match {
+    case StringValue(_) => true
+    case _              => false
+  }
+}
+
+object PathValue {
+  def fromEither(either: Either[String, Int]): PathValue = either.fold(Key.apply, Index.apply)
+
+  object Key   {
+    def apply(value: String): PathValue           = Value.StringValue(value)
+    def unapply(value: PathValue): Option[String] = value match {
+      case Value.StringValue(s) => Some(s)
+      case _                    => None
+    }
+  }
+  object Index {
+    def apply(value: Int): PathValue           = Value.IntValue.IntNumber(value)
+    def unapply(value: PathValue): Option[Int] = value match {
+      case Value.IntValue.IntNumber(i) => Some(i)
+      case _                           => None
+    }
+  }
+
+  /**
+   * This function parses a string and returns a PathValue.
+   * If the string contains only digits, it returns a `PathValue.Index`.
+   * Otherwise, it returns a `PathValue.Key`.
+   *
+   * @param value the string to parse
+   * @return a PathValue which is either an `Index` if the string is numeric, or a `Key` otherwise
+   */
+  def parse(value: String): PathValue = {
+    var i    = 0
+    val size = value.length
+    while (i < size) {
+      val c = value.charAt(i)
+      if (c >= '0' && c <= '9') i += 1
+      else return PathValue.Key(value)
+    }
+    try PathValue.Index(value.toInt)
+    catch { case NonFatal(_) => PathValue.Key(value) } // Should never happen, just a fallback
   }
 }

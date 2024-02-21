@@ -1,43 +1,45 @@
-import com.typesafe.tools.mima.core._
+import com.typesafe.tools.mima.core.{ DirectMissingMethodProblem, MissingClassProblem, ProblemFilters }
 import org.scalajs.linker.interface.ModuleSplitStyle
 import sbtcrossproject.CrossPlugin.autoImport.{ crossProject, CrossType }
 
 val scala212 = "2.12.18"
 val scala213 = "2.13.12"
-val scala3   = "3.3.1"
+val scala3   = "3.3.2"
 val allScala = Seq(scala212, scala213, scala3)
 
 val akkaVersion               = "2.6.20"
-val catsEffect3Version        = "3.5.2"
+val catsEffect3Version        = "3.5.3"
 val catsMtlVersion            = "1.3.0"
 val circeVersion              = "0.14.6"
-val fs2Version                = "3.9.2"
-val http4sVersion             = "0.23.23"
+val fs2Version                = "3.9.4"
+val http4sVersion             = "0.23.25"
 val javaTimeVersion           = "2.5.0"
-val jsoniterVersion           = "2.24.1"
+val jsoniterVersion           = "2.28.0"
 val laminextVersion           = "0.16.2"
-val magnoliaScala2Version     = "1.1.6"
-val magnoliaScala3Version     = "1.3.3"
-val pekkoVersion              = "1.0.1"
-val playVersion               = "2.8.20"
-val playJsonVersion           = "2.10.1"
-val scalafmtVersion           = "3.7.14"
-val sttpVersion               = "3.9.0"
-val tapirVersion              = "1.8.1"
-val zioVersion                = "2.0.18"
+val magnoliaScala2Version     = "1.1.8"
+val magnoliaScala3Version     = "1.3.4"
+val pekkoHttpVersion          = "1.0.0"
+val playVersion               = "3.0.1"
+val playJsonVersion           = "3.0.2"
+val scalafmtVersion           = "3.7.17"
+val sttpVersion               = "3.9.2"
+val tapirVersion              = "1.9.8"
+val zioVersion                = "2.0.21"
 val zioInteropCats2Version    = "22.0.0.0"
-val zioInteropCats3Version    = "23.0.0.8"
+val zioInteropCats3Version    = "23.1.0.1"
 val zioInteropReactiveVersion = "2.0.2"
 val zioConfigVersion          = "3.0.7"
-val zqueryVersion             = "0.5.1"
+val zqueryVersion             = "0.6.0"
 val zioJsonVersion            = "0.6.2"
-val zioHttpVersion            = "3.0.0-RC2"
-val zioOpenTelemetryVersion   = "3.0.0-RC15"
-val zioPreludeVersion         = "1.0.0-RC21"
+val zioHttpVersion            = "3.0.0-RC4"
+val zioOpenTelemetryVersion   = "3.0.0-RC21"
+val zioPreludeVersion         = "1.0.0-RC23"
+
+Global / onChangedBuildSource := ReloadOnSourceChanges
 
 inThisBuild(
   List(
-    scalaVersion             := scala212, // Change to control IntelliJ's highlighting
+    scalaVersion             := scala213,
     crossScalaVersions       := allScala,
     organization             := "com.github.ghostdogpr",
     homepage                 := Some(url("https://github.com/ghostdogpr/caliban")),
@@ -59,7 +61,7 @@ inThisBuild(
       )
     ),
     versionScheme            := Some("pvp"),
-    ConsoleHelper.welcomeMessage,
+    ConsoleHelper.welcomeMessage(scala212, scala213, scala3),
     // See https://github.com/playframework/playframework/issues/11461#issuecomment-1276028512
     // Can be removed when the entire Scala ecosystem has migrated to Scala 2.12.17+, sbt 1.8.x, and moved away from scala-xml v1 in general.
     libraryDependencySchemes ++= Seq(
@@ -75,12 +77,8 @@ addCommandAlias(
   "all scalafmtSbtCheck scalafmtCheck test:scalafmtCheck"
 )
 
-lazy val root = project
-  .in(file("."))
-  .enablePlugins(ScalaJSPlugin)
-  .settings(publish / skip := true)
-  .settings(crossScalaVersions := Nil)
-  .aggregate(
+lazy val allProjects: Seq[ProjectReference] =
+  List(
     macros,
     core,
     http4s,
@@ -88,6 +86,7 @@ lazy val root = project
     pekkoHttp,
     play,
     zioHttp,
+    quickAdapter,
     catsInterop,
     monixInterop,
     tapirInterop,
@@ -101,6 +100,49 @@ lazy val root = project
     reporting,
     tracing
   )
+
+lazy val root = project
+  .in(file("."))
+  .enablePlugins(ScalaJSPlugin)
+  .settings(publish / skip := true)
+  .settings(crossScalaVersions := Nil)
+  .aggregate(allProjects *)
+
+lazy val rootJVM212 = project
+  .in(file("target/rootJVM212"))
+  .settings(
+    crossScalaVersions := Nil,
+    publish / skip     := true,
+    ideSkipProject     := true
+  )
+  .aggregate({
+    val excluded: Set[ProjectReference] = Set(clientJS, clientNative, clientLaminext, play)
+    allProjects.filterNot(excluded.contains)
+  } *)
+
+lazy val rootJVM213 = project
+  .in(file("target/rootJVM213"))
+  .settings(
+    crossScalaVersions := Nil,
+    publish / skip     := true,
+    ideSkipProject     := true
+  )
+  .aggregate({
+    val excluded: Set[ProjectReference] = Set(clientJS, clientNative, clientLaminext, codegenSbt)
+    allProjects.filterNot(excluded.contains)
+  } *)
+
+lazy val rootJVM3 = project
+  .in(file("target/rootJVM3"))
+  .settings(
+    crossScalaVersions := Nil,
+    publish / skip     := true,
+    ideSkipProject     := true
+  )
+  .aggregate({
+    val excluded: Set[ProjectReference] = Set(clientJS, clientNative, clientLaminext, codegenSbt, akkaHttp)
+    allProjects.filterNot(excluded.contains)
+  } *)
 
 lazy val macros = project
   .in(file("macros"))
@@ -129,28 +171,24 @@ lazy val core = project
   .settings(enableMimaSettingsJVM)
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
-    libraryDependencies ++= {
-      if (scalaVersion.value == scala212) {
-        Seq("org.scala-lang.modules" %% "scala-collection-compat" % "2.11.0")
-      } else {
-        Seq()
-      }
-    } ++
+    libraryDependencies ++=
       Seq(
-        "com.lihaoyi"                           %% "fastparse"             % "3.0.2",
-        "dev.zio"                               %% "zio"                   % zioVersion,
-        "dev.zio"                               %% "zio-streams"           % zioVersion,
-        "dev.zio"                               %% "zio-query"             % zqueryVersion,
-        "dev.zio"                               %% "zio-prelude"           % zioPreludeVersion,
-        "dev.zio"                               %% "zio-test"              % zioVersion      % Test,
-        "dev.zio"                               %% "zio-test-sbt"          % zioVersion      % Test,
-        "dev.zio"                               %% "zio-json"              % zioJsonVersion  % Optional,
-        "com.softwaremill.sttp.tapir"           %% "tapir-core"            % tapirVersion    % Optional,
-        "io.circe"                              %% "circe-core"            % circeVersion    % Optional,
-        "io.circe"                              %% "circe-parser"          % circeVersion    % Test,
-        "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-core"   % jsoniterVersion % Optional,
-        "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros" % jsoniterVersion % Provided,
-        "com.typesafe.play"                     %% "play-json"             % playJsonVersion % Optional
+        "com.lihaoyi"                           %% "fastparse"               % "3.0.2",
+        "org.scala-lang.modules"                %% "scala-collection-compat" % "2.11.0",
+        "dev.zio"                               %% "zio"                     % zioVersion,
+        "dev.zio"                               %% "zio-streams"             % zioVersion,
+        "dev.zio"                               %% "zio-query"               % zqueryVersion,
+        "dev.zio"                               %% "zio-prelude"             % zioPreludeVersion,
+        "dev.zio"                               %% "zio-test"                % zioVersion      % Test,
+        "dev.zio"                               %% "zio-test-sbt"            % zioVersion      % Test,
+        "dev.zio"                               %% "zio-json"                % zioJsonVersion  % Optional,
+        "com.softwaremill.sttp.tapir"           %% "tapir-core"              % tapirVersion    % Optional,
+        "io.circe"                              %% "circe-core"              % circeVersion    % Optional,
+        "io.circe"                              %% "circe-parser"            % circeVersion    % Test,
+        "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-core"     % jsoniterVersion % Optional,
+        "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros"   % jsoniterVersion % Provided,
+        "org.playframework"                     %% "play-json"               % playJsonVersion % Optional,
+        "org.apache.commons"                     % "commons-lang3"           % "3.14.0"        % Test
       )
   )
   .dependsOn(macros)
@@ -179,8 +217,6 @@ lazy val tools = project
       "org.scalameta"                  % "scalafmt-interfaces" % scalafmtVersion,
       "io.get-coursier"                % "interface"           % "1.0.19",
       "com.softwaremill.sttp.client3" %% "zio"                 % sttpVersion,
-      "dev.zio"                       %% "zio-config"          % zioConfigVersion,
-      "dev.zio"                       %% "zio-config-magnolia" % zioConfigVersion,
       "dev.zio"                       %% "zio-test"            % zioVersion     % Test,
       "dev.zio"                       %% "zio-test-sbt"        % zioVersion     % Test,
       "dev.zio"                       %% "zio-json"            % zioJsonVersion % Test
@@ -204,7 +240,7 @@ lazy val tracing = project
       "dev.zio"         %% "zio-opentelemetry"         % zioOpenTelemetryVersion,
       "dev.zio"         %% "zio-test"                  % zioVersion % Test,
       "dev.zio"         %% "zio-test-sbt"              % zioVersion % Test,
-      "io.opentelemetry" % "opentelemetry-sdk-testing" % "1.31.0"   % Test
+      "io.opentelemetry" % "opentelemetry-sdk-testing" % "1.34.1"   % Test
     )
   )
   .dependsOn(core, tools)
@@ -226,7 +262,9 @@ lazy val codegenSbt = project
     crossScalaVersions := Seq(scala212),
     testFrameworks     := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
-      "dev.zio" %% "zio-test-sbt" % zioVersion % Test
+      "dev.zio" %% "zio-config"          % zioConfigVersion,
+      "dev.zio" %% "zio-config-magnolia" % zioConfigVersion,
+      "dev.zio" %% "zio-test-sbt"        % zioVersion % Test
     )
   )
   .enablePlugins(SbtPlugin)
@@ -348,6 +386,22 @@ lazy val zioHttp = project
   )
   .dependsOn(core, tapirInterop % "compile->compile;test->test")
 
+lazy val quickAdapter = project
+  .in(file("adapters/quick"))
+  .settings(name := "caliban-quick")
+  .settings(commonSettings)
+  .settings(enableMimaSettingsJVM)
+  .settings(
+    testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
+    libraryDependencies ++= Seq(
+      "dev.zio"                               %% "zio-http"              % zioHttpVersion,
+      "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-core"   % jsoniterVersion,
+      "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros" % jsoniterVersion % Provided,
+      "com.softwaremill.sttp.tapir"           %% "tapir-jsoniter-scala"  % tapirVersion    % Test
+    )
+  )
+  .dependsOn(core, tapirInterop % "test->test")
+
 lazy val akkaHttp = project
   .in(file("adapters/akka-http"))
   .settings(name := "caliban-akka-http")
@@ -379,10 +433,9 @@ lazy val pekkoHttp = project
       if (scalaVersion.value == scala3) Seq()
       else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.2").cross(CrossVersion.full)))
     } ++ Seq(
-      "org.apache.pekko"            %% "pekko-http"                  % "1.0.0",
-      "org.apache.pekko"            %% "pekko-serialization-jackson" % pekkoVersion,
-      "com.softwaremill.sttp.tapir" %% "tapir-pekko-http-server"     % tapirVersion,
-      "com.softwaremill.sttp.tapir" %% "tapir-json-circe"            % tapirVersion % Test
+      "org.apache.pekko"            %% "pekko-http"              % pekkoHttpVersion,
+      "com.softwaremill.sttp.tapir" %% "tapir-pekko-http-server" % tapirVersion,
+      "com.softwaremill.sttp.tapir" %% "tapir-json-circe"        % tapirVersion % Test
     )
   )
   .dependsOn(core, tapirInterop % "compile->compile;test->test")
@@ -393,20 +446,22 @@ lazy val play = project
   .settings(commonSettings)
   .settings(enableMimaSettingsJVM)
   .settings(
-    skip           := (scalaVersion.value == scala3),
-    ideSkipProject := (scalaVersion.value == scala3),
-    crossScalaVersions -= scala3,
+    skip           := (scalaVersion.value == scala212),
+    ideSkipProject := (scalaVersion.value == scala212),
+    crossScalaVersions -= scala212,
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
+    libraryDependencies ++= {
+      if (scalaVersion.value == scala3) Seq()
+      else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.2").cross(CrossVersion.full)))
+    },
     libraryDependencies ++= Seq(
-      "com.typesafe.play"             %% "play"                  % playVersion,
-      "com.softwaremill.sttp.tapir"   %% "tapir-play-server"     % tapirVersion,
-      "com.softwaremill.sttp.tapir"   %% "tapir-json-circe"      % tapirVersion % Test,
-      "dev.zio"                       %% "zio-test"              % zioVersion   % Test,
-      "dev.zio"                       %% "zio-test-sbt"          % zioVersion   % Test,
-      "com.typesafe.play"             %% "play-akka-http-server" % playVersion  % Test,
-      "io.circe"                      %% "circe-generic"         % circeVersion % Test,
-      "com.softwaremill.sttp.client3" %% "circe"                 % sttpVersion  % Test,
-      compilerPlugin(("org.typelevel" %% "kind-projector"        % "0.13.2").cross(CrossVersion.full))
+      "org.playframework"           %% "play"                   % playVersion,
+      "com.softwaremill.sttp.tapir" %% "tapir-play-server"      % tapirVersion,
+      "com.softwaremill.sttp.tapir" %% "tapir-json-play"        % tapirVersion    % Test,
+      "dev.zio"                     %% "zio-test"               % zioVersion      % Test,
+      "dev.zio"                     %% "zio-test-sbt"           % zioVersion      % Test,
+      "org.playframework"           %% "play-pekko-http-server" % playVersion     % Test,
+      "org.playframework"           %% "play-json"              % playJsonVersion % Test
     )
   )
   .dependsOn(core, tapirInterop % "compile->compile;test->test")
@@ -486,24 +541,24 @@ lazy val examples = project
     run / connectInput := true
   )
   .settings(
-    skip                                                 := (scalaVersion.value == scala3),
-    ideSkipProject                                       := (scalaVersion.value == scala3),
-    crossScalaVersions -= scala3,
+    skip                                                 := (scalaVersion.value != scala213),
+    ideSkipProject                                       := (scalaVersion.value != scala213),
+    crossScalaVersions                                   := Seq(scala213),
     libraryDependencySchemes += "org.scala-lang.modules" %% "scala-java8-compat" % "always",
     libraryDependencies ++= Seq(
-      "org.typelevel"                         %% "cats-mtl"              % catsMtlVersion,
-      "org.http4s"                            %% "http4s-ember-server"   % http4sVersion,
-      "org.http4s"                            %% "http4s-dsl"            % http4sVersion,
-      "com.softwaremill.sttp.client3"         %% "zio"                   % sttpVersion,
-      "io.circe"                              %% "circe-generic"         % circeVersion,
-      "dev.zio"                               %% "zio-http"              % zioHttpVersion,
-      "com.typesafe.play"                     %% "play-akka-http-server" % playVersion,
-      "com.typesafe.akka"                     %% "akka-actor-typed"      % akkaVersion,
-      "com.softwaremill.sttp.tapir"           %% "tapir-jsoniter-scala"  % tapirVersion,
-      "com.softwaremill.sttp.tapir"           %% "tapir-json-circe"      % tapirVersion,
-      "com.softwaremill.sttp.tapir"           %% "tapir-json-play"       % tapirVersion,
-      "com.softwaremill.sttp.tapir"           %% "tapir-jsoniter-scala"  % tapirVersion,
-      "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros" % jsoniterVersion % Provided
+      "org.typelevel"                         %% "cats-mtl"               % catsMtlVersion,
+      "org.http4s"                            %% "http4s-ember-server"    % http4sVersion,
+      "org.http4s"                            %% "http4s-dsl"             % http4sVersion,
+      "com.softwaremill.sttp.client3"         %% "zio"                    % sttpVersion,
+      "io.circe"                              %% "circe-generic"          % circeVersion,
+      "dev.zio"                               %% "zio-http"               % zioHttpVersion,
+      "org.playframework"                     %% "play-pekko-http-server" % playVersion,
+      "com.typesafe.akka"                     %% "akka-actor-typed"       % akkaVersion,
+      "com.softwaremill.sttp.tapir"           %% "tapir-jsoniter-scala"   % tapirVersion,
+      "com.softwaremill.sttp.tapir"           %% "tapir-json-circe"       % tapirVersion,
+      "com.softwaremill.sttp.tapir"           %% "tapir-json-play"        % tapirVersion,
+      "com.softwaremill.sttp.tapir"           %% "tapir-jsoniter-scala"   % tapirVersion,
+      "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros"  % jsoniterVersion % Provided
     )
   )
   .dependsOn(
@@ -511,6 +566,7 @@ lazy val examples = project
     pekkoHttp,
     http4s,
     catsInterop,
+    quickAdapter,
     play,
     /*monixInterop,*/
     tapirInterop,
@@ -601,7 +657,7 @@ lazy val docs = project
       "org.typelevel"                 %% "cats-mtl"         % catsMtlVersion
     )
   )
-  .dependsOn(core, catsInterop, tapirInterop, http4s, tools)
+  .dependsOn(core, catsInterop, tapirInterop, http4s, tools, quickAdapter)
 
 lazy val commonSettings = Def.settings(
   scalacOptions ++= Seq(
@@ -625,17 +681,20 @@ lazy val commonSettings = Def.settings(
         "-Ywarn-unused:-nowarn",
         "-Ywarn-nullary-override",
         "-Ywarn-nullary-unit",
-        "-opt-inline-from:<source>",
         "-opt-warnings",
-        "-opt:l:inline",
         "-opt:l:method",
+        "-opt:l:inline",
+        "-opt-inline-from:scala.**",
         "-explaintypes"
       )
     case Some((2, 13)) =>
       Seq(
         "-Xlint:-byname-implicit",
-        "-explaintypes",
-        "-opt:l:method"
+        "-Ybackend-parallelism:4",
+        "-opt:l:method",
+        "-opt:l:inline",
+        "-opt-inline-from:scala.**",
+        "-explaintypes"
       )
 
     case Some((3, _)) =>
@@ -654,7 +713,10 @@ lazy val enableMimaSettingsJVM =
   Def.settings(
     mimaFailOnProblem     := enforceMimaCompatibility,
     mimaPreviousArtifacts := previousStableVersion.value.map(organization.value %% moduleName.value % _).toSet,
-    mimaBinaryIssueFilters ++= Seq()
+    mimaBinaryIssueFilters ++= Seq(
+      ProblemFilters.exclude[MissingClassProblem]("caliban.tools.*"),
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.tools.*")
+    )
   )
 
 lazy val enableMimaSettingsJS =

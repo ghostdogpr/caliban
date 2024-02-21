@@ -5,7 +5,6 @@ import caliban._
 import caliban.parsing.adt.LocationInfo
 import com.github.plokhotnyuk.jsoniter_scala.core._
 
-import scala.annotation.switch
 import scala.collection.immutable.TreeMap
 
 /**
@@ -37,6 +36,10 @@ private[caliban] object ValueJsoniter {
   private val emptyResponseList   = ResponseValue.ListValue(Nil)
   private val emptyResponseObject = ResponseValue.ObjectValue(Nil)
 
+  private def decrDepth(depth: Int, out: JsonWriter): Int =
+    if (depth == 0) out.encodeError("depth limit exceeded")
+    else depth - 1
+
   private def encodeInputValue(x: InputValue, out: JsonWriter, depth: Int): Unit = x match {
     case StringValue(value)                 => out.writeVal(value)
     case BooleanValue(value)                => out.writeVal(value)
@@ -48,22 +51,31 @@ private[caliban] object ValueJsoniter {
     case FloatValue.BigDecimalNumber(value) => out.writeVal(value)
     case NullValue                          => out.writeNull()
     case EnumValue(value)                   => out.writeVal(value)
-    case InputValue.ListValue(l)            =>
-      val depthM1 = depth - 1
-      if (depthM1 < 0) out.encodeError("depth limit exceeded")
-      out.writeArrayStart()
-      l.foreach(v => encodeInputValue(v, out, depthM1))
-      out.writeArrayEnd()
-    case InputValue.ObjectValue(o)          =>
-      val depthM1 = depth - 1
-      if (depthM1 < 0) out.encodeError("depth limit exceeded")
-      out.writeObjectStart()
-      o.foreach { case (k, v) =>
-        out.writeKey(k)
-        encodeInputValue(v, out, depthM1)
-      }
-      out.writeObjectEnd()
+    case InputValue.ObjectValue(o)          => writeInputObject(o, out, decrDepth(depth, out))
+    case InputValue.ListValue(l)            => writeInputArray(l, out, decrDepth(depth, out))
     case InputValue.VariableValue(v)        => out.writeVal(v)
+  }
+
+  private def writeInputArray(l: List[InputValue], out: JsonWriter, depth: Int): Unit = {
+    out.writeArrayStart()
+    var remaining = l
+    while (remaining ne Nil) {
+      val head = remaining.head
+      remaining = remaining.tail
+      encodeInputValue(head, out, depth)
+    }
+    out.writeArrayEnd()
+  }
+
+  private def writeInputObject(m: Map[String, InputValue], out: JsonWriter, depth: Int): Unit = {
+    out.writeObjectStart()
+    val iter = m.iterator
+    while (iter.hasNext) {
+      val (k, v) = iter.next()
+      out.writeKey(k)
+      encodeInputValue(v, out, depth)
+    }
+    out.writeObjectEnd()
   }
 
   private def encodeResponseValue(x: ResponseValue, out: JsonWriter, depth: Int): Unit = x match {
@@ -77,22 +89,32 @@ private[caliban] object ValueJsoniter {
     case FloatValue.BigDecimalNumber(value) => out.writeVal(value)
     case NullValue                          => out.writeNull()
     case EnumValue(value)                   => out.writeVal(value)
-    case ResponseValue.ListValue(l)         =>
-      val depthM1 = depth - 1
-      if (depthM1 < 0) out.encodeError("depth limit exceeded")
-      out.writeArrayStart()
-      l.foreach(v => encodeResponseValue(v, out, depthM1))
-      out.writeArrayEnd()
-    case ResponseValue.ObjectValue(o)       =>
-      val depthM1 = depth - 1
-      if (depthM1 < 0) out.encodeError("depth limit exceeded")
-      out.writeObjectStart()
-      o.foreach { case (k, v) =>
-        out.writeKey(k)
-        encodeResponseValue(v, out, depthM1)
-      }
-      out.writeObjectEnd()
+    case ResponseValue.ObjectValue(o)       => writeResponseObject(o, out, decrDepth(depth, out))
+    case ResponseValue.ListValue(l)         => writeResponseArray(l, out, decrDepth(depth, out))
     case s: ResponseValue.StreamValue       => out.writeVal(s.toString)
+  }
+
+  private def writeResponseArray(l: List[ResponseValue], out: JsonWriter, depth: Int): Unit = {
+    out.writeArrayStart()
+    var remaining = l
+    while (remaining ne Nil) {
+      val head = remaining.head
+      remaining = remaining.tail
+      encodeResponseValue(head, out, depth)
+    }
+    out.writeArrayEnd()
+  }
+
+  private def writeResponseObject(l: List[(String, ResponseValue)], out: JsonWriter, depth: Int): Unit = {
+    out.writeObjectStart()
+    var remaining = l
+    while (remaining ne Nil) {
+      val (k, v) = remaining.head
+      remaining = remaining.tail
+      out.writeKey(k)
+      encodeResponseValue(v, out, depth)
+    }
+    out.writeObjectEnd()
   }
 
   private def decodeInputValue(in: JsonReader, depth: Int): InputValue =
@@ -233,25 +255,28 @@ private[caliban] object ErrorJsoniter {
 
   private case class ErrorDTO(
     message: String,
-    path: Option[List[Either[String, Int]]],
+    path: Option[List[PathValue]],
     locations: Option[List[LocationInfo]],
     extensions: Option[ResponseValue.ObjectValue]
   )
 
-  private implicit val eitherCodec: JsonValueCodec[Either[String, Int]] = new JsonValueCodec[Either[String, Int]] {
-    override def decodeValue(in: JsonReader, default: Either[String, Int]): Either[String, Int] = {
+  private implicit val pathCodec: JsonValueCodec[PathValue] = new JsonValueCodec[PathValue] {
+    override def decodeValue(in: JsonReader, default: PathValue): PathValue = {
       val b = in.nextToken()
       in.rollbackToken()
-      (b: @switch) match {
-        case '"'                                                             => Left(in.readString(null))
-        case '-' | '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' => Right(in.readInt())
-        case _                                                               => in.decodeError("expected int or string")
+      b match {
+        case '"'                                     => PathValue.Key(in.readString(null))
+        case x if (x >= '0' && x <= '9') || x == '-' => PathValue.Index(in.readInt())
+        case _                                       => in.decodeError("expected int or string")
       }
     }
-    override def encodeValue(x: Either[String, Int], out: JsonWriter): Unit                     =
-      x.fold(out.writeVal, out.writeVal)
-    override def nullValue: Either[String, Int]                                                 =
-      null.asInstanceOf[Either[String, Int]]
+    override def encodeValue(x: PathValue, out: JsonWriter): Unit           =
+      x match {
+        case StringValue(s)        => out.writeVal(s)
+        case IntValue.IntNumber(i) => out.writeVal(i)
+      }
+    override def nullValue: PathValue                                       =
+      null.asInstanceOf[PathValue]
   }
 
   private implicit val objectValueCodec: JsonValueCodec[ResponseValue.ObjectValue] =
