@@ -4,7 +4,7 @@ import caliban.introspection.adt.__Type
 import caliban.schema.Step.QueryStep
 import caliban.schema.{ Schema, Step }
 import caliban._
-import cats.Monad
+import cats.{ ApplicativeError, ApplicativeThrow, Monad, MonadError }
 import cats.effect.Async
 import cats.effect.std.Dispatcher
 import zio.query.ZQuery
@@ -176,10 +176,14 @@ object CatsInterop {
   )(query: String)(implicit interop: ToEffect[F, Any]): F[Unit] =
     interop.toEffect(graphQL.check(query))
 
+  @deprecated("use interpreterF instead")
   def interpreterAsync[F[_], R](
     graphQL: GraphQL[R]
   )(implicit interop: ToEffect[F, Any]): F[GraphQLInterpreter[R, CalibanError]] =
     interop.toEffect(graphQL.interpreter)
+
+  def interpreterF[F[_]: ApplicativeThrow, R](graphQL: GraphQL[R]): F[GraphQLInterpreter[R, CalibanError]] =
+    ApplicativeThrow[F].fromEither(graphQL.interpreterEither)
 
   def schema[F[_], R, A](implicit interop: FromEffect[F, R], ev: Schema[R, A]): Schema[R, F[A]] =
     new Schema[R, F[A]] {
