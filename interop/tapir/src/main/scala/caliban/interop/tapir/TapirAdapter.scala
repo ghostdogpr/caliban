@@ -239,7 +239,8 @@ object TapirAdapter {
                   ),
                   Some("next")
                 )
-              }
+              } ++
+                ZStream.succeed(ServerSentEvent(None, Some("complete")))
             case _                                =>
               ZStream.succeed(ServerSentEvent(Some(responseCodec.encode(resp.toResponseValue)), Some("complete")))
           }
