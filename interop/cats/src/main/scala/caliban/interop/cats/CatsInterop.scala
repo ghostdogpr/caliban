@@ -4,7 +4,7 @@ import caliban.introspection.adt.__Type
 import caliban.schema.Step.QueryStep
 import caliban.schema.{ Schema, Step }
 import caliban._
-import cats.{ ApplicativeError, ApplicativeThrow, Monad, MonadError }
+import cats.{ ApplicativeThrow, Monad }
 import cats.effect.Async
 import cats.effect.std.Dispatcher
 import zio.query.ZQuery

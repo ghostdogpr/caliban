@@ -14,7 +14,7 @@ import caliban.validation.Validator
 import caliban.wrappers.Wrapper
 import caliban.wrappers.Wrapper._
 import zio.stacktracer.TracingImplicits.disableAutoTrace
-import zio.{ IO, Trace, URIO, Unsafe, ZIO }
+import zio.{ IO, Trace, URIO, ZIO }
 
 /**
  * A `GraphQL[-R]` represents a GraphQL API whose execution requires a ZIO environment of type `R`.
