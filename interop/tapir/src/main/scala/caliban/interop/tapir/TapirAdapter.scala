@@ -121,7 +121,7 @@ object TapirAdapter {
       }
     )
     val isSSE          =
-      request.header(HeaderNames.Accept).map(v => v.contains(MediaType.TextEventStream.toString())).getOrElse(false)
+      request.header(HeaderNames.Accept).exists(_.contains(GraphqlServerSentEvent.acceptMediaType))
     response match {
       case resp @ GraphQLResponse(StreamValue(stream), _, _, _) =>
         (
@@ -146,31 +146,29 @@ object TapirAdapter {
             excludeExtensions = cacheDirective.map(_ => Set(Caching.DirectiveName))
           )
         )
+      case resp if isSSE                                        =>
+        val code = response.errors.collectFirst { case HttpRequestMethod.MutationOverGetError => StatusCode.BadRequest }
+          .getOrElse(StatusCode.Ok)
+        (
+          MediaType.TextEventStream,
+          code,
+          None,
+          encodeTextEventStreamResponse(resp)
+        )
       case resp                                                 =>
-        val code           =
-          response.errors.collectFirst { case HttpRequestMethod.MutationOverGetError => StatusCode.BadRequest }
-            .getOrElse(StatusCode.Ok)
-        val cacheDirective = computeCacheDirective(response.extensions)
-        isSSE match {
-          case true  =>
-            (
-              MediaType.TextEventStream,
-              code,
-              cacheDirective,
-              encodeTextEventStreamResponse(resp)
-            )
-          case false =>
-            (
-              MediaType.ApplicationJson,
-              code,
-              cacheDirective,
-              encodeSingleResponse(
-                resp,
-                keepDataOnErrors = true,
-                excludeExtensions = cacheDirective.map(_ => Set(Caching.DirectiveName))
-              )
-            )
-        }
+        val code           = response.errors.collectFirst { case HttpRequestMethod.MutationOverGetError => StatusCode.BadRequest }
+          .getOrElse(StatusCode.Ok)
+        val cacheDirective = HttpUtils.computeCacheDirective(response.extensions)
+        (
+          MediaType.ApplicationJson,
+          code,
+          cacheDirective,
+          encodeSingleResponse(
+            resp,
+            keepDataOnErrors = true,
+            excludeExtensions = cacheDirective.map(_ => Set(Caching.DirectiveName))
+          )
+        )
     }
   }
 
@@ -196,6 +194,10 @@ object TapirAdapter {
 
   private object GraphqlResponseJson extends CodecFormat {
     override val mediaType: MediaType = MediaType("application", "graphql-response+json")
+  }
+
+  private object GraphqlServerSentEvent {
+    val acceptMediaType: String = MediaType.TextEventStream.toString()
   }
 
   private def encodeMultipartMixedResponse[E, BS](
@@ -237,13 +239,13 @@ object TapirAdapter {
                   ),
                   Some("next")
                 )
-              }.orDie
+              }
             case _                                =>
-              ZStream.succeed(ServerSentEvent(Some(responseCodec.encode(resp.toResponseValue)), Some("next")))
+              ZStream.succeed(ServerSentEvent(Some(responseCodec.encode(resp.toResponseValue)), Some("complete")))
           }
         }
       case _                   =>
-        ZStream.succeed(ServerSentEvent(Some(responseCodec.encode(resp.toResponseValue)), Some("next")))
+        ZStream.succeed(ServerSentEvent(Some(responseCodec.encode(resp.toResponseValue)), Some("complete")))
     }
     Right(streamConstructor(ZioServerSentEvents.serialiseSSEToBytes(response)))
   }
