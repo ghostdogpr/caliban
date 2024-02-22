@@ -222,7 +222,7 @@ object TapirAdapter {
   private def encodeTextEventStreamResponse[E, BS](
     resp: GraphQLResponse[E]
   )(implicit streamConstructor: StreamConstructor[BS], responseCodec: JsonCodec[ResponseValue]): CalibanBody[BS] = {
-    val response: ZStream[Any, Throwable, ServerSentEvent] = resp.data match {
+    val response: ZStream[Any, Throwable, ServerSentEvent] = (resp.data match {
       case ObjectValue(fields) =>
         fields.foldLeft(ZStream.empty: ZStream[Any, Throwable, ServerSentEvent]) { case (_, v) =>
           v match {
@@ -239,15 +239,14 @@ object TapirAdapter {
                   ),
                   Some("next")
                 )
-              } ++
-                ZStream.succeed(ServerSentEvent(None, Some("complete")))
+              }
             case _                                =>
-              ZStream.succeed(ServerSentEvent(Some(responseCodec.encode(resp.toResponseValue)), Some("complete")))
+              ZStream.succeed(ServerSentEvent(Some(responseCodec.encode(resp.toResponseValue)), Some("next")))
           }
         }
       case _                   =>
-        ZStream.succeed(ServerSentEvent(Some(responseCodec.encode(resp.toResponseValue)), Some("complete")))
-    }
+        ZStream.succeed(ServerSentEvent(Some(responseCodec.encode(resp.toResponseValue)), Some("next")))
+    }) ++ ZStream.succeed(ServerSentEvent(None, Some("complete")))
     Right(streamConstructor(ZioServerSentEvents.serialiseSSEToBytes(response)))
   }
 
