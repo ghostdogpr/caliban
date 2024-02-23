@@ -354,11 +354,7 @@ object Executor {
   )(implicit trace: Trace) {
     private type ExecutionQuery[+A] = ZQuery[R, ExecutionError, A]
 
-    private val queryExecution0 = queryExecution match {
-      case QueryExecution.Sequential => 0
-      case QueryExecution.Parallel   => 1
-      case QueryExecution.Batched    => 2
-    }
+    private val queryExecutionTag = queryExecution.tag
 
     private def collectAll[E, A, B, Coll[+V] <: Iterable[V]](
       in: Coll[A],
@@ -369,10 +365,12 @@ object Executor {
       if (in.sizeCompare(1) == 0) as(in.head).map(bf.newBuilder(in).+=(_).result())
       else if (isMutation && isTopLevelField) ZQuery.foreach(in)(as)
       else
-        (queryExecution0: @switch) match {
-          case 0 => ZQuery.foreach(in)(as)
-          case 1 => ZQuery.foreachPar(in)(as)
-          case 2 => ZQuery.foreachBatched(in)(as)
+        (queryExecutionTag: @switch) match {
+          case QueryExecution.Sequential.tag => ZQuery.foreach(in)(as)
+          case QueryExecution.Parallel.tag   => ZQuery.foreachPar(in)(as)
+          case QueryExecution.Batched.tag    => ZQuery.foreachBatched(in)(as)
+          case QueryExecution.Mixed.tag      =>
+            if (isTopLevelField) ZQuery.foreachPar(in)(as) else ZQuery.foreachBatched(in)(as)
         }
 
     def makeQuery(
