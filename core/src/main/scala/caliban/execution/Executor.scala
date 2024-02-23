@@ -82,7 +82,7 @@ object Executor {
         }
 
         val filteredFields    = mergeFields(currentField, objectName)
-        val (deferred, eager) = {
+        val (deferred, eager) =
           if (isDeferredEnabled) {
             filteredFields.partitionMap { f =>
               val entry = reduceField(f)
@@ -94,7 +94,6 @@ object Executor {
               }
             }
           } else (Nil, filteredFields.map(reduceField))
-        }
 
         val eagerReduced = reduceObject(eager, wrapPureValues)
         deferred match {

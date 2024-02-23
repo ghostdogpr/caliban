@@ -133,27 +133,29 @@ object SchemaWriter {
         case nonEmpty => s" extends ${nonEmpty.mkString(" with ")}"
       }
       s"""${writeTypeAnnotations(typedef)}final case class ${typedef.name}${generic(typedef)}(${typedef.fields
-        .map(field => writeField(field, inheritedFromInterface(typedef, field).getOrElse(typedef), isMethod = false))
-        .mkString(", ")})$extendRendered$derivesEnvSchema"""
+          .map(field => writeField(field, inheritedFromInterface(typedef, field).getOrElse(typedef), isMethod = false))
+          .mkString(", ")})$extendRendered$derivesEnvSchema"""
     }
 
     def writeInputObject(typedef: InputObjectTypeDefinition): String = {
       val name            = typedef.name
       val maybeAnnotation = if (preserveInputNames) s"""@GQLInputName("$name")\n""" else ""
       s"""$maybeAnnotation${writeTypeAnnotations(typedef)}final case class $name(${typedef.fields
-        .map(writeInputValue)
-        .mkString(", ")})$derivesSchemaAndArgBuilder"""
+          .map(writeInputValue)
+          .mkString(", ")})$derivesSchemaAndArgBuilder"""
     }
 
     def writeEnum(typedef: EnumTypeDefinition): String =
-      s"""${writeTypeAnnotations(typedef)}sealed trait ${typedef.name} extends scala.Product with scala.Serializable$derivesSchemaAndArgBuilder
+      s"""${writeTypeAnnotations(
+          typedef
+        )}sealed trait ${typedef.name} extends scala.Product with scala.Serializable$derivesSchemaAndArgBuilder
 
           object ${typedef.name} {
             ${typedef.enumValuesDefinition
-        .map(v =>
-          s"${writeEnumAnnotations(v)}case object ${safeName(v.enumValue)} extends ${typedef.name}$derivesSchemaAndArgBuilder"
-        )
-        .mkString("\n")}
+          .map(v =>
+            s"${writeEnumAnnotations(v)}case object ${safeName(v.enumValue)} extends ${typedef.name}$derivesSchemaAndArgBuilder"
+          )
+          .mkString("\n")}
           }
        """
 
@@ -162,12 +164,14 @@ object SchemaWriter {
 
     def writeUnionSealedTrait(union: UnionTypeDefinition): String =
       s"""${writeTypeAnnotations(
-        union
-      )}sealed trait ${union.name} extends scala.Product with scala.Serializable$derivesSchema"""
+          union
+        )}sealed trait ${union.name} extends scala.Product with scala.Serializable$derivesSchema"""
 
     def writeInterface(interface: InterfaceTypeDefinition): String =
       s"""@GQLInterface
-        ${writeTypeAnnotations(interface)}sealed trait ${interface.name} extends scala.Product with scala.Serializable $derivesEnvSchema {
+        ${writeTypeAnnotations(
+          interface
+        )}sealed trait ${interface.name} extends scala.Product with scala.Serializable $derivesEnvSchema {
          ${interface.fields.map(field => writeField(field, interface, isMethod = true)).mkString("\n")}
         }
        """
@@ -188,12 +192,12 @@ object SchemaWriter {
 
       if (field.args.nonEmpty) {
         s"""$GQLNewTypeDirective${writeFieldAnnotations(field)}${if (isMethod) "def " else ""}${safeName(
-          field.name
-        )} : ${argsName(field, of)} => $fieldType"""
+            field.name
+          )} : ${argsName(field, of)} => $fieldType"""
       } else {
         s"""$GQLNewTypeDirective${writeFieldAnnotations(field)}${if (isMethod) "def " else ""}${safeName(
-          field.name
-        )} : $fieldType"""
+            field.name
+          )} : $fieldType"""
       }
     }
 
@@ -211,16 +215,16 @@ object SchemaWriter {
       val inputDef = resolveNewTypeInputDef(value).getOrElse(value)
 
       s"""$GQLNewTypeInputDirective${writeInputAnnotations(inputDef)}${safeName(inputDef.name)} : ${writeType(
-        inputDef.ofType
-      )}"""
+          inputDef.ofType
+        )}"""
     }
 
     def writeArguments(field: FieldDefinition, of: TypeDefinition): String = {
       def fields(args: List[InputValueDefinition]): String =
         s"${args.map { arg =>
-          val resolvedArg = resolveNewTypeInputDef(arg).getOrElse(arg)
-          s"${safeName(resolvedArg.name)} : ${writeType(resolvedArg.ofType)}"
-        }.mkString(", ")}"
+            val resolvedArg = resolveNewTypeInputDef(arg).getOrElse(arg)
+            s"${safeName(resolvedArg.name)} : ${writeType(resolvedArg.ofType)}"
+          }.mkString(", ")}"
 
       if (field.args.nonEmpty) {
         s"final case class ${argsName(field, of)}(${fields(field.args)})$derivesSchemaAndArgBuilder"
@@ -441,37 +445,37 @@ object SchemaWriter {
 
     val typesAndOperations = s"""
       ${if (hasTypes)
-      "object Types {\n" +
-        argsTypes + "\n" +
-        newTypeClasses +
-        objects + "\n" +
-        inputs + "\n" +
-        unions + "\n" +
-        interfacesStr + "\n" +
-        enums + "\n" +
-        "\n}\n"
-    else ""}
+        "object Types {\n" +
+          argsTypes + "\n" +
+          newTypeClasses +
+          objects + "\n" +
+          inputs + "\n" +
+          unions + "\n" +
+          interfacesStr + "\n" +
+          enums + "\n" +
+          "\n}\n"
+      else ""}
 
       ${if (hasOperations)
-      "object Operations {\n" +
-        envSchemaDerivation +
-        queries + "\n\n" +
-        mutations + "\n\n" +
-        subscriptions + "\n" +
-        "\n}"
-    else ""}
+        "object Operations {\n" +
+          envSchemaDerivation +
+          queries + "\n\n" +
+          mutations + "\n\n" +
+          subscriptions + "\n" +
+          "\n}"
+      else ""}
       """
 
     s"""${packageName.fold("")(p => s"package $p\n\n")}
           ${if (hasTypes && hasOperations) "import Types._\n" else ""}
           ${if (typesAndOperations.contains("@GQL") || newTypeClasses.nonEmpty)
-      "import caliban.schema.Annotations._\n"
-    else ""}
+        "import caliban.schema.Annotations._\n"
+      else ""}
           ${if (newTypeClasses.nonEmpty)
-      """|import caliban.Value._
-         |import caliban.parsing.adt.Directive
-         |import caliban.schema.{ArgBuilder, Schema}""".stripMargin
-    else ""}
+        """|import caliban.Value._
+           |import caliban.parsing.adt.Directive
+           |import caliban.schema.{ArgBuilder, Schema}""".stripMargin
+      else ""}
           ${if (hasSubscriptions) "import zio.stream.ZStream\n" else ""}
           $additionalImportsString
 

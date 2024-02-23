@@ -70,15 +70,16 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
    */
   def decode(payload: String): Either[CalibanClientError, (A, List[GraphQLResponseError], Option[__ObjectValue])] =
     for {
-      parsed      <- try Right(
-                       readFromString[GraphQLResponse](
-                         payload,
-                         // allow parsing of large payloads
-                         ReaderConfig
-                           .withMaxBufSize(max(payload.length, ReaderConfig.maxBufSize))
-                           .withMaxCharBufSize(max(payload.length, ReaderConfig.maxCharBufSize))
+      parsed      <- try
+                       Right(
+                         readFromString[GraphQLResponse](
+                           payload,
+                           // allow parsing of large payloads
+                           ReaderConfig
+                             .withMaxBufSize(max(payload.length, ReaderConfig.maxBufSize))
+                             .withMaxCharBufSize(max(payload.length, ReaderConfig.maxCharBufSize))
+                         )
                        )
-                     )
                      catch {
                        case NonFatal(ex) => Left(DecodingError("Json deserialization error", Some(ex)))
                      }

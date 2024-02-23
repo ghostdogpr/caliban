@@ -8,7 +8,7 @@ object CodegenSpec extends ZIOSpecDefault {
   override def spec =
     suite("CodegenSpec")(
       test("Package name is empty or default if path doesn't follow correct format") {
-        assertTrue(packageAndObject("a/b/c", None, None) == None                       -> "Client") &&
+        assertTrue(packageAndObject("a/b/c", None, None) == None -> "Client") &&
         assertTrue(packageAndObject("a/b/c", Some("package"), None) == Some("package") -> "Client")
       },
       test("Package name is extracted correctly when set") {
@@ -30,21 +30,21 @@ object CodegenSpec extends ZIOSpecDefault {
         )
       },
       test("Package name is extracted correctly for play and app") {
-        assertTrue(packageAndObject("app/dirA/dirB/model.scala", None, None) == Some("dirA.dirB")  -> "model") &&
+        assertTrue(packageAndObject("app/dirA/dirB/model.scala", None, None) == Some("dirA.dirB") -> "model") &&
         assertTrue(packageAndObject("play/dirA/dirB/model.scala", None, None) == Some("dirA.dirB") -> "model") &&
         assertTrue(
           packageAndObject("play/src/main/scala/dirA/dirB/model.scala", None, None) == Some("dirA.dirB") -> "model"
         )
       },
       test("Object name is extracted correctly when package is missing") {
-        assertTrue(packageAndObject("a/b/c/src/main/scala/model.scala", None, None) == None              -> "model") &&
+        assertTrue(packageAndObject("a/b/c/src/main/scala/model.scala", None, None) == None -> "model") &&
         assertTrue(
           packageAndObject("a/b/c/src/main/scala/model.scala", Some("package"), None) == Some("package") -> "model"
         )
       },
       test("Object name is set to passed value") {
         assertTrue(packageAndObject("src/main/scala/client.scala", None, Some("model")) == None -> "model") &&
-        assertTrue(packageAndObject("", None, Some("model")) == None                            -> "model")
+        assertTrue(packageAndObject("", None, Some("model")) == None -> "model")
       }
     )
 

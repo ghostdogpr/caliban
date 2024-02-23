@@ -12,7 +12,7 @@ import scala.annotation.nowarn
 private[caliban] trait SelectionParsers extends ValueParsers {
 
   @deprecated("Kept for bincompat only, scheduled to be removed")
-  def alias(implicit ev: P[Any]): P[String] = name ~ ":"
+  def alias(implicit ev: P[Any]): P[String]       = name ~ ":"
   def aliasOrName(implicit ev: P[Any]): P[String] = ":" ~/ name
 
   def argument(implicit ev: P[Any]): P[(String, InputValue)]     = name ~ ":" ~ value
