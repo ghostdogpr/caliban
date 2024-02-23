@@ -8,6 +8,7 @@ import zio._
 import zio.metrics.MetricKeyType.Histogram
 import zio.metrics.{ Metric, MetricKey, MetricLabel }
 import zio.query.ZQuery
+import zio.stacktracer.TracingImplicits.disableAutoTrace
 
 import java.util.concurrent.atomic.AtomicReference
 import scala.jdk.CollectionConverters._
@@ -26,10 +27,12 @@ object FieldMetrics {
     extraLabels: Set[MetricLabel]
   ) {
 
-    def recordFailures(fieldNames: List[String]): UIO[Unit] =
+    def recordFailures(fieldNames: List[String])(implicit trace: Trace): UIO[Unit] =
       ZIO.foreachDiscard(fieldNames)(fn => failed.tagged("field", fn).increment)
 
-    def recordSuccesses(nodeOffsets: Map[Vector[PathValue], Long], timings: List[Timing]): UIO[Unit] =
+    def recordSuccesses(nodeOffsets: Map[Vector[PathValue], Long], timings: List[Timing])(implicit
+      trace: Trace
+    ): UIO[Unit] =
       ZIO.foreachDiscard(timings) { timing =>
         val d = timing.duration - nodeOffsets.getOrElse(timing.path :+ StringValue(timing.name), 0L)
         succeeded.tagged(Set(MetricLabel("field", timing.fullName))).increment *>
@@ -56,7 +59,8 @@ object FieldMetrics {
     durationLabel: String = "graphql_fields_duration_seconds",
     buckets: Histogram.Boundaries = defaultBuckets,
     extraLabels: Set[MetricLabel] = Set.empty
-  ): Wrapper.EffectfulWrapper[Any] =
+  ): Wrapper.EffectfulWrapper[Any] = {
+    implicit val trace: Trace = Trace.empty
     Wrapper.EffectfulWrapper(
       for {
         timings  <- ZIO.succeed(new AtomicReference(List.empty[Timing]))
@@ -66,6 +70,7 @@ object FieldMetrics {
       } yield overallWrapper(timings, failures, metrics) |+|
         Unsafe.unsafe(implicit us => fieldWrapper(clock.unsafe.nanoTime(), timings, failures))
     )
+  }
 
   private def overallWrapper(
     timings: AtomicReference[List[Timing]],

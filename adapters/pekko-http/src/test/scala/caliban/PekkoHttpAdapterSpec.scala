@@ -34,16 +34,20 @@ object PekkoHttpAdapterSpec extends ZIOSpecDefault {
       mat          = Materializer(system)
       interpreter <- TestApi.api.interpreter
       adapter      = PekkoHttpAdapter.default(ec)
-      route        = path("api" / "graphql") {
-                       adapter
-                         .makeHttpService(
-                           HttpInterpreter(interpreter).intercept(FakeAuthorizationInterceptor.bearer[TestService & Uploads])
-                         )(runtime, mat)
-                     } ~ path("upload" / "graphql") {
-                       adapter.makeHttpUploadService(HttpUploadInterpreter(interpreter))(runtime, mat, implicitly, implicitly)
-                     } ~ path("ws" / "graphql") {
-                       adapter.makeWebSocketService(WebSocketInterpreter(interpreter))(runtime, mat)
-                     }
+      route        = {
+        implicit val rt0: Runtime[TestService with Uploads] = runtime
+        implicit val mat0: Materializer                     = mat
+        path("api" / "graphql") {
+          adapter
+            .makeHttpService(
+              HttpInterpreter(interpreter).intercept(FakeAuthorizationInterceptor.bearer[TestService & Uploads])
+            )
+        } ~ path("upload" / "graphql") {
+          adapter.makeHttpUploadService(HttpUploadInterpreter(interpreter))
+        } ~ path("ws" / "graphql") {
+          adapter.makeWebSocketService(WebSocketInterpreter(interpreter))
+        }
+      }
       _           <- ZIO.fromFuture { _ =>
                        implicit val s: ActorSystem = system
                        Http().newServerAt("localhost", 8085).bind(route)

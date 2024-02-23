@@ -34,21 +34,25 @@ object PlayAdapterSpec extends ZIOSpecDefault {
       mat          = Materializer(system)
       runtime     <- ZIO.runtime[TestService with Uploads]
       interpreter <- TestApi.api.interpreter
-      router       = Router.from {
-                       case req @ (GET(p"/api/graphql") | POST(p"/api/graphql")) =>
-                         PlayAdapter
-                           .makeHttpService(
-                             HttpInterpreter(interpreter)
-                               .intercept(FakeAuthorizationInterceptor.bearer[TestService & Uploads])
-                           )(runtime, mat)
-                           .apply(req)
-                       case req @ POST(p"/upload/graphql")                       =>
-                         PlayAdapter
-                           .makeHttpUploadService(HttpUploadInterpreter(interpreter))(runtime, mat, implicitly, implicitly)
-                           .apply(req)
-                       case req @ GET(p"/ws/graphql")                            =>
-                         PlayAdapter.makeWebSocketService(WebSocketInterpreter(interpreter))(runtime, mat).apply(req)
-                     }
+      router       = {
+        implicit val rt0: Runtime[TestService with Uploads] = runtime
+        implicit val mat0: Materializer                     = mat
+        Router.from {
+          case req @ (GET(p"/api/graphql") | POST(p"/api/graphql")) =>
+            PlayAdapter
+              .makeHttpService(
+                HttpInterpreter(interpreter)
+                  .intercept(FakeAuthorizationInterceptor.bearer[TestService & Uploads])
+              )
+              .apply(req)
+          case req @ POST(p"/upload/graphql")                       =>
+            PlayAdapter
+              .makeHttpUploadService(HttpUploadInterpreter(interpreter))
+              .apply(req)
+          case req @ GET(p"/ws/graphql")                            =>
+            PlayAdapter.makeWebSocketService(WebSocketInterpreter(interpreter)).apply(req)
+        }
+      }
       _           <- ZIO
                        .attempt(
                          PekkoHttpServer.fromRouterWithComponents(

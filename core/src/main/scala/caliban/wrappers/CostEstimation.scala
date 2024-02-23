@@ -4,14 +4,14 @@ import caliban.CalibanError.ValidationError
 import caliban.InputValue.ListValue
 import caliban.ResponseValue.ObjectValue
 import caliban.Value.{ FloatValue, IntValue, StringValue }
+import caliban._
 import caliban.execution.{ ExecutionRequest, Field }
 import caliban.parsing.adt.{ Directive, Document }
 import caliban.schema.Annotations.GQLDirective
 import caliban.schema.Types
-import caliban.validation.Validator
 import caliban.wrappers.Wrapper.{ EffectfulWrapper, OverallWrapper, ValidationWrapper }
-import caliban.{ CalibanError, Configurator, GraphQLRequest, GraphQLResponse, ResponseValue }
-import zio.{ Ref, UIO, URIO, ZIO }
+import zio.stacktracer.TracingImplicits.disableAutoTrace
+import zio.{ Ref, Trace, UIO, URIO, ZIO }
 
 import scala.annotation.tailrec
 
@@ -118,7 +118,7 @@ object CostEstimation {
    * @see queryCost
    */
   def queryCostWith[R](f: Field => Double)(p: Double => URIO[R, Any]): Wrapper[R] =
-    queryCostZIOWrapperState[R](costWrapper(_)(f))((cost, r) => p(cost).as(r))
+    queryCostZIOWrapperState[R](costWrapper(_)(f))((cost, r) => p(cost).as(r)(Trace.empty))
 
   /**
    * A more powerful version of `queryCost` which allows the field cost computation to return an effect instead of a plain value
@@ -137,7 +137,7 @@ object CostEstimation {
    * @param p A function which receives the total estimated cost of executing the query and can
    */
   def queryCostZIOWith[R](f: Field => URIO[R, Double])(p: Double => URIO[R, Any]): Wrapper[R] =
-    queryCostZIOWrapperState(costWrapperZIO(_)(f))((cost, r) => p(cost) as r)
+    queryCostZIOWrapperState(costWrapperZIO(_)(f))((cost, r) => p(cost).as(r)(Trace.empty))
 
   /**
    * The most powerful version of `queryCost` that allows maximum freedom in how the wrapper is defined. The function accepts
@@ -155,11 +155,14 @@ object CostEstimation {
     costWrapper: Ref[Double] => Wrapper[R]
   )(
     p: (Double, GraphQLResponse[CalibanError]) => URIO[R, GraphQLResponse[CalibanError]]
-  ): Wrapper[R] = EffectfulWrapper(
-    Ref.make(0.0).map { cost =>
-      costWrapper(cost) |+| costOverall(resp => cost.get.flatMap(p(_, resp)))
-    }
-  )
+  ): Wrapper[R] = {
+    implicit val trace: Trace = Trace.empty
+    EffectfulWrapper(
+      Ref.make(0.0).map { cost =>
+        costWrapper(cost) |+| costOverall(resp => cost.get.flatMap(p(_, resp)))
+      }
+    )
+  }
 
   /**
    * Computes the estimated cost of executing the query using the provided function and compares it to
@@ -262,7 +265,7 @@ object CostEstimation {
           )
         )
       )
-    )
+    )(Trace.empty)
 
   private def costOverall[R](
     f: GraphQLResponse[CalibanError] => URIO[R, GraphQLResponse[CalibanError]]
@@ -292,7 +295,7 @@ object CostEstimation {
         go(head.fields ++ tail, f(head) :: result)
     }
 
-    ZIO.mergeAllPar(go(List(field), Nil))(0.0)(_ + _)
+    ZIO.mergeAll(go(List(field), Nil))(0.0)(_ + _)(Trace.empty)
   }
 
 }

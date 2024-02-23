@@ -1,8 +1,9 @@
 package caliban
 
 import caliban.wrappers.Caching
+import zio.stacktracer.TracingImplicits.disableAutoTrace
 import zio.stream.{ ZChannel, ZPipeline }
-import zio.{ Cause, Chunk }
+import zio.{ Cause, Chunk, Trace }
 
 private[caliban] object HttpUtils {
 
@@ -19,7 +20,9 @@ private[caliban] object HttpUtils {
 
     val DeferHeaderParams: Map[String, String] = Map("boundary" -> BoundaryHeader, "deferSpec" -> DeferSpec)
 
-    def createPipeline[E](resp: GraphQLResponse[E]): ZPipeline[Any, Throwable, ResponseValue, ResponseValue] =
+    def createPipeline[E](
+      resp: GraphQLResponse[E]
+    )(implicit trace: Trace): ZPipeline[Any, Throwable, ResponseValue, ResponseValue] =
       ZPipeline.fromChannel {
         lazy val reader: ZChannel[Any, Throwable, Chunk[ResponseValue], Any, Throwable, Chunk[ResponseValue], Any] =
           ZChannel.readWithCause(

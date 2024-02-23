@@ -9,8 +9,9 @@ import caliban.wrappers.Wrapper.{ EffectfulWrapper, FieldWrapper, OverallWrapper
 import com.google.protobuf.timestamp.Timestamp
 import mdg.engine.proto.reports.Trace
 import mdg.engine.proto.reports.Trace.{ Error, Location, Node }
-import zio._
+import zio.{ Trace => ZTrace, _ }
 import zio.query.ZQuery
+import zio.stacktracer.TracingImplicits.disableAutoTrace
 
 import java.util.Base64
 import java.util.concurrent.TimeUnit
@@ -27,7 +28,8 @@ object ApolloFederatedTracing {
    *                          Setting this to true can help improve performance at the cost of generating incomplete traces.
    *                          WARNING: Use this with caution as it could potentially cause issues if the tracing client expects all queried fields to be included in the traces
    */
-  def wrapper(excludePureFields: Boolean = false): EffectfulWrapper[Any] =
+  def wrapper(excludePureFields: Boolean = false): EffectfulWrapper[Any] = {
+    implicit val trace: ZTrace = ZTrace.empty
     EffectfulWrapper(
       for {
         tracing <- ZIO.succeed(new AtomicReference(Tracing(NodeTrie.empty)))
@@ -36,6 +38,7 @@ object ApolloFederatedTracing {
       } yield apolloTracingOverall(clock, tracing, enabled) |+|
         Unsafe.unsafe(implicit u => apolloTracingField(clock.unsafe.nanoTime(), tracing, enabled, !excludePureFields))
     )
+  }
 
   private def toTimestamp(epochMilli: Long): Timestamp =
     Timestamp.of(

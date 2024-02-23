@@ -11,7 +11,8 @@ import caliban.schema.Types
 import caliban.wrappers.Wrapper.{ EffectfulWrapper, FieldWrapper, OverallWrapper, ValidationWrapper }
 import zio.prelude._
 import zio.query.ZQuery
-import zio.{ durationInt, Duration, FiberRef, Ref, UIO, Unsafe, ZIO }
+import zio.stacktracer.TracingImplicits.disableAutoTrace
+import zio.{ durationInt, Duration, FiberRef, Ref, Trace, UIO, Unsafe, ZIO }
 
 import java.util.concurrent.{ ConcurrentHashMap, TimeUnit }
 
@@ -125,7 +126,7 @@ object Caching {
    * Overrides the cache hint for a particular field. This can be used to dynamically set the cache hint within
    * a resolver
    */
-  def setCacheHint(hint: CacheHint): UIO[Unit] = cacheOverride.update {
+  def setCacheHint(hint: CacheHint)(implicit trace: Trace): UIO[Unit] = cacheOverride.update {
     case Some(hint0) => Some(mostRestrictive(hint0, hint))
     case None        => Some(hint)
   }
@@ -133,7 +134,7 @@ object Caching {
   /**
    * Disables caching for the current query
    */
-  def disableCaching: UIO[Unit] = cacheOverride.set(Some(CacheHint(Some(0.seconds))))
+  def disableCaching(implicit trace: Trace): UIO[Unit] = cacheOverride.set(Some(CacheHint(Some(0.seconds))))
 
   case class CachePolicy(hint: CacheHint) {
     def merge(that: CachePolicy): CachePolicy =
@@ -232,7 +233,8 @@ object Caching {
     private val _typeCache = new ConcurrentHashMap[String, Option[CacheHint]]()
 
     def apply[R <: R1](gql: GraphQL[R]): GraphQL[R] = {
-      val wrapper = EffectfulWrapper(
+      implicit val trace: Trace = Trace.empty
+      val wrapper               = EffectfulWrapper(
         cacheOverride.set(None) *> Ref
           .make(CachePolicy(CacheHint.default))
           .map(state => staticWrapper(state).skipForIntrospection |+| fieldWrapper(state) |+| inner(state))

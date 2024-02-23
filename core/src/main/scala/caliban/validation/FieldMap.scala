@@ -3,7 +3,8 @@ package caliban.validation
 import caliban.introspection.adt._
 import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
 import caliban.parsing.adt._
-import Utils._
+import caliban.validation.Utils._
+import zio.stacktracer.TracingImplicits.disableAutoTrace
 
 object FieldMap {
   val empty: FieldMap = Map.empty

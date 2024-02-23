@@ -3,10 +3,11 @@ package caliban
 import caliban.Configurator.ExecutionConfiguration
 import zio._
 import zio.http._
+import zio.stacktracer.TracingImplicits.disableAutoTrace
 
 package object quick {
 
-  implicit class GraphqlServerOps[R](val gql: GraphQL[R]) extends AnyVal {
+  implicit class GraphqlServerOps[R](private val gql: GraphQL[R]) extends AnyVal {
 
     /**
      * Serves the GraphQL API on the specified port using the default zio-http configuration.
@@ -99,10 +100,10 @@ package object quick {
       ZIOApp.fromZIO(run.asInstanceOf[RIO[Any, Nothing]]).main(Array.empty)
     }
 
-    def provideLayer(layer: ZLayer[Any, Any, R]): UnsafeApi[Any] =
+    def provideLayer(layer: ZLayer[Any, Any, R])(implicit trace: Trace): UnsafeApi[Any] =
       new UnsafeApi(interpreter.provideLayer(layer))
 
-    def provideSomeLayer[R0](layer: ZLayer[R0, Any, R])(implicit tag: Tag[R]): UnsafeApi[R0] =
+    def provideSomeLayer[R0](layer: ZLayer[R0, Any, R])(implicit tag: Tag[R], trace: Trace): UnsafeApi[R0] =
       new UnsafeApi(interpreter.provideSomeLayer(layer))
 
     def configure(cfg: ExecutionConfiguration): UnsafeApi[R] =

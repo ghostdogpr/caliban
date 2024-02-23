@@ -2,6 +2,7 @@ package caliban
 
 import caliban.Value.NullValue
 import zio._
+import zio.stacktracer.TracingImplicits.disableAutoTrace
 
 /**
  * A `GraphQLInterpreter[-R, +E]` represents a GraphQL interpreter whose execution requires
@@ -48,14 +49,14 @@ trait GraphQLInterpreter[-R, +E] { self =>
    * @param f a function from the current error type `E` to another type `E2`
    * @return a new GraphQL interpreter with error type `E2`
    */
-  final def mapError[E2](f: E => E2): GraphQLInterpreter[R, E2] =
+  final def mapError[E2](f: E => E2)(implicit trace: Trace): GraphQLInterpreter[R, E2] =
     wrapExecutionWith(_.map(res => GraphQLResponse(res.data, res.errors.map(f), res.extensions)))
 
   /**
    * Provides the interpreter with its required environment, which eliminates
    * its dependency on `R`.
    */
-  final def provideEnvironment(r: => ZEnvironment[R]): GraphQLInterpreter[Any, E] =
+  final def provideEnvironment(r: => ZEnvironment[R])(implicit trace: Trace): GraphQLInterpreter[Any, E] =
     wrapExecutionWith(_.provideEnvironment(r))
 
   /**
@@ -63,7 +64,7 @@ trait GraphQLInterpreter[-R, +E] { self =>
    */
   final def provideLayer[E1 >: E, R0](
     layer: => ZLayer[R0, E1, R]
-  ): GraphQLInterpreter[R0, E1] =
+  )(implicit trace: Trace): GraphQLInterpreter[R0, E1] =
     wrapExecutionWith(_.provideLayer(layer).fold(e => GraphQLResponse(NullValue, List(e)), identity))
 
   /**
@@ -94,7 +95,7 @@ object GraphQLInterpreter {
   final class ProvideSomeLayer[R0, -R, +E](private val self: GraphQLInterpreter[R, E]) extends AnyVal {
     def apply[E1 >: E, R1](
       layer: => ZLayer[R0, E1, R1]
-    )(implicit ev1: R0 with R1 <:< R, tagged: Tag[R1]): GraphQLInterpreter[R0, E1] =
+    )(implicit ev1: R0 with R1 <:< R, tagged: Tag[R1], trace: Trace): GraphQLInterpreter[R0, E1] =
       self.asInstanceOf[GraphQLInterpreter[R0 with R1, E]].provideLayer(ZLayer.environment[R0] ++ layer)
   }
 }

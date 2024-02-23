@@ -96,7 +96,7 @@ object ExampleApi {
       timeout(3 seconds) @@           // wrapper that fails slow queries
       printSlowQueries(500 millis) @@ // wrapper that logs slow queries
       printErrors @@                  // wrapper that logs errors
-      apolloTracing() @@                // wrapper for https://github.com/apollographql/apollo-tracing
+      apolloTracing() @@              // wrapper for https://github.com/apollographql/apollo-tracing
       DeferSupport.defer              // wrapper that enables @defer directive support
   }
 

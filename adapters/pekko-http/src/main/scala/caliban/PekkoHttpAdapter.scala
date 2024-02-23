@@ -1,22 +1,23 @@
 package caliban
 
+import caliban.PekkoHttpAdapter._
+import caliban.interop.tapir.TapirAdapter._
+import caliban.interop.tapir.{ HttpInterpreter, HttpUploadInterpreter, StreamConstructor, WebSocketInterpreter }
 import org.apache.pekko.http.scaladsl.server.Route
 import org.apache.pekko.stream.scaladsl.{ Flow, Sink, Source }
 import org.apache.pekko.stream.{ Materializer, OverflowStrategy }
 import org.apache.pekko.util.ByteString
-import caliban.PekkoHttpAdapter._
-import caliban.interop.tapir.TapirAdapter._
-import caliban.interop.tapir.{ HttpInterpreter, HttpUploadInterpreter, StreamConstructor, WebSocketInterpreter }
 import sttp.capabilities.WebSockets
 import sttp.capabilities.pekko.PekkoStreams
 import sttp.capabilities.pekko.PekkoStreams.Pipe
-import sttp.model.{ MediaType, StatusCode }
+import sttp.model.StatusCode
 import sttp.tapir.Codec.JsonCodec
 import sttp.tapir.PublicEndpoint
 import sttp.tapir.model.ServerRequest
 import sttp.tapir.server.ServerEndpoint
 import sttp.tapir.server.pekkohttp.{ PekkoHttpServerInterpreter, PekkoHttpServerOptions }
 import zio._
+import zio.stacktracer.TracingImplicits.disableAutoTrace
 import zio.stream.ZStream
 
 import scala.concurrent.{ ExecutionContext, Future }
@@ -26,7 +27,7 @@ class PekkoHttpAdapter private (val options: PekkoHttpServerOptions)(implicit ec
 
   def makeHttpService[R, E](
     interpreter: HttpInterpreter[R, E]
-  )(implicit runtime: Runtime[R], materializer: Materializer): Route =
+  )(implicit runtime: Runtime[R], materializer: Materializer, trace: Trace): Route =
     pekkoInterpreter.toRoute(
       interpreter
         .serverEndpoints[R, PekkoStreams](PekkoStreams)
@@ -37,13 +38,14 @@ class PekkoHttpAdapter private (val options: PekkoHttpServerOptions)(implicit ec
     runtime: Runtime[R],
     materializer: Materializer,
     requestCodec: JsonCodec[GraphQLRequest],
-    mapCodec: JsonCodec[Map[String, Seq[String]]]
+    mapCodec: JsonCodec[Map[String, Seq[String]]],
+    trace: Trace
   ): Route =
     pekkoInterpreter.toRoute(convertHttpStreamingEndpoint(interpreter.serverEndpoint[R, PekkoStreams](PekkoStreams)))
 
   def makeWebSocketService[R, E](
     interpreter: WebSocketInterpreter[R, E]
-  )(implicit runtime: Runtime[R], materializer: Materializer): Route =
+  )(implicit runtime: Runtime[R], materializer: Materializer, trace: Trace): Route =
     pekkoInterpreter.toRoute(
       convertWebSocketEndpoint(
         interpreter
@@ -64,7 +66,8 @@ class PekkoHttpAdapter private (val options: PekkoHttpServerOptions)(implicit ec
 
   private implicit def streamConstructor(implicit
     runtime: Runtime[Any],
-    mat: Materializer
+    mat: Materializer,
+    trace: Trace
   ): StreamConstructor[PekkoStreams.BinaryStream] =
     new StreamConstructor[PekkoStreams.BinaryStream] {
       override def apply(stream: ZStream[Any, Throwable, Byte]): PekkoStreams.BinaryStream =
@@ -111,7 +114,7 @@ object PekkoHttpAdapter {
     endpoint: ServerEndpoint.Full[Unit, Unit, I, TapirResponse, CalibanResponse[
       PekkoStreams.BinaryStream
     ], PekkoStreams, RIO[R, *]]
-  )(implicit runtime: Runtime[R]): ServerEndpoint[PekkoStreams, Future] =
+  )(implicit runtime: Runtime[R], trace: Trace): ServerEndpoint[PekkoStreams, Future] =
     ServerEndpoint[
       Unit,
       Unit,
@@ -138,7 +141,8 @@ object PekkoHttpAdapter {
     ]
   )(implicit
     runtime: Runtime[R],
-    materializer: Materializer
+    materializer: Materializer,
+    trace: Trace
   ): ServerEndpoint[PekkoStreams with WebSockets, Future] =
     ServerEndpoint[
       Unit,

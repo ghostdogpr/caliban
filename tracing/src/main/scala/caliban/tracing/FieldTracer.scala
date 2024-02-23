@@ -1,11 +1,12 @@
 package caliban.tracing
 
-import caliban.{ CalibanError, ResponseValue }
 import caliban.execution.FieldInfo
 import caliban.wrappers.Wrapper.FieldWrapper
+import caliban.{ CalibanError, ResponseValue }
 import io.opentelemetry.api.trace.StatusCode
 import zio._
 import zio.query.ZQuery
+import zio.stacktracer.TracingImplicits.disableAutoTrace
 import zio.telemetry.opentelemetry.tracing.{ StatusMapper, Tracing }
 
 object FieldTracer {

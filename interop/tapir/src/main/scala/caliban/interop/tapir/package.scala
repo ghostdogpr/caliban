@@ -11,7 +11,8 @@ import sttp.tapir.internal._
 import sttp.tapir.server.ServerEndpoint
 import sttp.tapir.{ EndpointIO, EndpointInput, EndpointOutput, PublicEndpoint }
 import _root_.zio.query.{ URQuery, ZQuery }
-import _root_.zio.{ URIO, ZIO }
+import _root_.zio.{ Trace, URIO, ZIO }
+import _root_.zio.stacktracer.TracingImplicits.disableAutoTrace
 
 package object tapir {
 
@@ -19,14 +20,16 @@ package object tapir {
     def toGraphQL[R](logic: I => URIO[R, O])(implicit
       inputSchema: caliban.schema.Schema[R, I],
       outputSchema: caliban.schema.Schema[R, O],
-      argBuilder: ArgBuilder[I]
+      argBuilder: ArgBuilder[I],
+      trace: Trace
     ): GraphQL[R] =
       tapir.toGraphQL(e.serverLogic[URQuery[R, *]](input => ZQuery.fromZIO(logic(input).map(Right(_)))))
 
     def toGraphQLQuery[R](logic: I => URQuery[R, O])(implicit
       inputSchema: caliban.schema.Schema[R, I],
       outputSchema: caliban.schema.Schema[R, O],
-      argBuilder: ArgBuilder[I]
+      argBuilder: ArgBuilder[I],
+      trace: Trace
     ): GraphQL[R] =
       tapir.toGraphQL(e.serverLogic[URQuery[R, *]](input => logic(input).map(Right(_))))
   }
@@ -35,14 +38,16 @@ package object tapir {
     def toGraphQL[R](logic: I => ZIO[R, E, O])(implicit
       inputSchema: caliban.schema.Schema[R, I],
       outputSchema: caliban.schema.Schema[R, O],
-      argBuilder: ArgBuilder[I]
+      argBuilder: ArgBuilder[I],
+      trace: Trace
     ): GraphQL[R] =
       tapir.toGraphQL(e.serverLogic[URQuery[R, *]](input => ZQuery.fromZIO(logic(input).either)))
 
     def toGraphQLQuery[R](logic: I => ZQuery[R, E, O])(implicit
       inputSchema: caliban.schema.Schema[R, I],
       outputSchema: caliban.schema.Schema[R, O],
-      argBuilder: ArgBuilder[I]
+      argBuilder: ArgBuilder[I],
+      trace: Trace
     ): GraphQL[R] =
       tapir.toGraphQL(e.serverLogic[URQuery[R, *]](logic(_).either))
   }
@@ -53,7 +58,8 @@ package object tapir {
     def toGraphQL(implicit
       inputSchema: caliban.schema.Schema[R, I],
       outputSchema: caliban.schema.Schema[R, O],
-      argBuilder: ArgBuilder[I]
+      argBuilder: ArgBuilder[I],
+      trace: Trace
     ): GraphQL[R] =
       tapir.toGraphQL(e.endpoint.serverLogic(input => ZQuery.fromZIO(e.logic(monadError)(())(input))))
   }
@@ -62,7 +68,8 @@ package object tapir {
     def toGraphQL(implicit
       inputSchema: caliban.schema.Schema[R, I],
       outputSchema: caliban.schema.Schema[R, O],
-      argBuilder: ArgBuilder[I]
+      argBuilder: ArgBuilder[I],
+      trace: Trace
     ): GraphQL[R] =
       tapir.toGraphQL(
         e.endpoint.serverLogic(input => ZQuery.fromZIO(e.logic(monadError)(())(input).either.map(_.flatMap(identity))))
@@ -72,7 +79,8 @@ package object tapir {
   def toGraphQL[R, I, E, O, S](serverEndpoint: ServerEndpoint.Full[Unit, Unit, I, E, O, S, URQuery[R, *]])(implicit
     inputSchema: caliban.schema.Schema[R, I],
     outputSchema: caliban.schema.Schema[R, O],
-    argBuilder: ArgBuilder[I]
+    argBuilder: ArgBuilder[I],
+    trace: Trace
   ): GraphQL[R] = new GraphQL[R] {
 
     val argNames: Map[String, Option[(String, Option[String])]] = extractArgNames(serverEndpoint.endpoint.input)
@@ -185,7 +193,7 @@ package object tapir {
       })
     }.toMap
 
-  private def monadError[R, E]: MonadError[ZIO[R, E, *]] = new MonadError[ZIO[R, E, *]] {
+  private def monadError[R, E](implicit trace: Trace): MonadError[ZIO[R, E, *]] = new MonadError[ZIO[R, E, *]] {
     def unit[T](t: T): ZIO[R, E, T]                                                                        = ZIO.succeed(t)
     def map[T, T2](fa: ZIO[R, E, T])(f: T => T2): ZIO[R, E, T2]                                            = fa.map(f)
     def flatMap[T, T2](fa: ZIO[R, E, T])(f: T => ZIO[R, E, T2]): ZIO[R, E, T2]                             = fa.flatMap(f)
@@ -197,13 +205,15 @@ package object tapir {
     def ensure[T](f: ZIO[R, E, T], e: => ZIO[R, E, Unit]): ZIO[R, E, T]                                    = f.ensuring(e.ignore)
   }
 
-  private def queryMonadError[R, E]: MonadError[ZQuery[R, E, *]] = new MonadError[ZQuery[R, E, *]] {
-    def unit[T](t: T): ZQuery[R, E, T]                                                                              = ZQuery.succeed(t)
-    def map[T, T2](fa: ZQuery[R, E, T])(f: T => T2): ZQuery[R, E, T2]                                               = fa.map(f)
-    def flatMap[T, T2](fa: ZQuery[R, E, T])(f: T => ZQuery[R, E, T2]): ZQuery[R, E, T2]                             = fa.flatMap(f)
-    def error[T](t: Throwable): ZQuery[R, E, T]                                                                     = ZQuery.die(t)
-    def handleWrappedError[T](rt: ZQuery[R, E, T])(h: PartialFunction[Throwable, ZQuery[R, E, T]]): ZQuery[R, E, T] = rt
-    def ensure[T](f: ZQuery[R, E, T], e: => ZQuery[R, E, Unit]): ZQuery[R, E, T]                                    =
-      f.foldCauseQuery(cause => e.catchAll(_ => ZQuery.succeed(())) *> ZQuery.failCause(cause), res => e.as(res))
-  }
+  private def queryMonadError[R, E](implicit trace: Trace): MonadError[ZQuery[R, E, *]] =
+    new MonadError[ZQuery[R, E, *]] {
+      def unit[T](t: T): ZQuery[R, E, T]                                                                              = ZQuery.succeed(t)
+      def map[T, T2](fa: ZQuery[R, E, T])(f: T => T2): ZQuery[R, E, T2]                                               = fa.map(f)
+      def flatMap[T, T2](fa: ZQuery[R, E, T])(f: T => ZQuery[R, E, T2]): ZQuery[R, E, T2]                             = fa.flatMap(f)
+      def error[T](t: Throwable): ZQuery[R, E, T]                                                                     = ZQuery.die(t)
+      def handleWrappedError[T](rt: ZQuery[R, E, T])(h: PartialFunction[Throwable, ZQuery[R, E, T]]): ZQuery[R, E, T] =
+        rt
+      def ensure[T](f: ZQuery[R, E, T], e: => ZQuery[R, E, Unit]): ZQuery[R, E, T]                                    =
+        f.foldCauseQuery(cause => e.catchAll(_ => ZQuery.succeed(())) *> ZQuery.failCause(cause), res => e.as(res))
+    }
 }

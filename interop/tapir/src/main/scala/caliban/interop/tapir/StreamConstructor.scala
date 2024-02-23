@@ -1,6 +1,6 @@
 package caliban.interop.tapir
 
-import sttp.capabilities.Streams
+import zio.stacktracer.TracingImplicits.disableAutoTrace
 import zio.stream.ZStream
 
 trait StreamConstructor[BS] {

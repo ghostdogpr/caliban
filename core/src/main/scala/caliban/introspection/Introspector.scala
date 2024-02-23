@@ -8,8 +8,9 @@ import caliban.parsing.adt.Selection.Field
 import caliban.schema.Step.QueryStep
 import caliban.schema._
 import caliban.wrappers.Wrapper.IntrospectionWrapper
-import zio.ZIO
+import zio.{ Trace, ZIO }
 import zio.query.ZQuery
+import zio.stacktracer.TracingImplicits.disableAutoTrace
 
 import scala.annotation.tailrec
 
@@ -53,7 +54,7 @@ object Introspector extends IntrospectionDerivation {
   def introspect[R](
     rootType: RootType,
     introWrappers: List[IntrospectionWrapper[R]] = Nil
-  ): RootSchema[R] = {
+  )(implicit trace: Trace): RootSchema[R] = {
 
     @tailrec
     def wrap(

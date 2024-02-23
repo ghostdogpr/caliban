@@ -1,6 +1,7 @@
 package caliban
 
 import zio.http._
+import zio.stacktracer.TracingImplicits.disableAutoTrace
 
 object GraphiQLHandler {
 

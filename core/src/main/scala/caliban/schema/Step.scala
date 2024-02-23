@@ -4,7 +4,9 @@ import caliban.CalibanError.ExecutionError
 import caliban.Value.NullValue
 import caliban.execution.{ Field, FieldInfo }
 import caliban.{ InputValue, PathValue, ResponseValue }
+import zio.Trace
 import zio.query.ZQuery
+import zio.stacktracer.TracingImplicits.disableAutoTrace
 import zio.stream.ZStream
 
 sealed trait Step[-R]
@@ -23,7 +25,7 @@ object Step {
   }
 
   object FailureStep {
-    def apply(error: Throwable): Step[Any] = QueryStep(ZQuery.fail(error))
+    def apply(error: Throwable)(implicit trace: Trace): Step[Any] = QueryStep(ZQuery.fail(error))
   }
 
   // PureStep is both a Step and a ReducedStep so it is defined outside this object
@@ -36,17 +38,17 @@ object Step {
   /**
    * Create a Step that fails with the provided error
    */
-  def fail(error: Throwable): Step[Any] = FailureStep(error)
+  def fail(error: Throwable)(implicit trace: Trace): Step[Any] = FailureStep(error)
 
   /**
    * Create a Step that fails with the provided error message
    */
-  def fail(errorMessage: String): Step[Any] = FailureStep(ExecutionError(errorMessage))
+  def fail(errorMessage: String)(implicit trace: Trace): Step[Any] = FailureStep(ExecutionError(errorMessage))
 
   /**
    * Create a Step that either succeeds with the provided ResponseValue or fails with the provided error
    */
-  def fromEither(either: Either[Throwable, ResponseValue]): Step[Any] = either match {
+  def fromEither(either: Either[Throwable, ResponseValue])(implicit trace: Trace): Step[Any] = either match {
     case Right(value) => PureStep(value)
     case Left(error)  => FailureStep(error)
   }

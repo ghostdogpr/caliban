@@ -10,13 +10,14 @@ import caliban.interop.tapir.{ HttpInterpreter, HttpUploadInterpreter, StreamCon
 import sttp.capabilities.WebSockets
 import sttp.capabilities.akka.AkkaStreams
 import sttp.capabilities.akka.AkkaStreams.Pipe
-import sttp.model.{ MediaType, StatusCode }
+import sttp.model.StatusCode
 import sttp.tapir.Codec.JsonCodec
 import sttp.tapir.PublicEndpoint
 import sttp.tapir.model.ServerRequest
 import sttp.tapir.server.ServerEndpoint
 import sttp.tapir.server.akkahttp.{ AkkaHttpServerInterpreter, AkkaHttpServerOptions }
 import zio._
+import zio.stacktracer.TracingImplicits.disableAutoTrace
 import zio.stream.ZStream
 
 import scala.concurrent.{ ExecutionContext, Future }
@@ -26,7 +27,7 @@ class AkkaHttpAdapter private (private val options: AkkaHttpServerOptions)(impli
 
   def makeHttpService[R, E](
     interpreter: HttpInterpreter[R, E]
-  )(implicit runtime: Runtime[R], materializer: Materializer): Route =
+  )(implicit runtime: Runtime[R], materializer: Materializer, trace: Trace): Route =
     akkaInterpreter.toRoute(
       interpreter
         .serverEndpoints[R, AkkaStreams](AkkaStreams)
@@ -37,13 +38,14 @@ class AkkaHttpAdapter private (private val options: AkkaHttpServerOptions)(impli
     runtime: Runtime[R],
     materializer: Materializer,
     requestCodec: JsonCodec[GraphQLRequest],
-    mapCodec: JsonCodec[Map[String, Seq[String]]]
+    mapCodec: JsonCodec[Map[String, Seq[String]]],
+    trace: Trace
   ): Route =
     akkaInterpreter.toRoute(convertHttpStreamingEndpoint(interpreter.serverEndpoint[R, AkkaStreams](AkkaStreams)))
 
   def makeWebSocketService[R, E](
     interpreter: WebSocketInterpreter[R, E]
-  )(implicit runtime: Runtime[R], materializer: Materializer): Route =
+  )(implicit runtime: Runtime[R], materializer: Materializer, trace: Trace): Route =
     akkaInterpreter.toRoute(
       convertWebSocketEndpoint(
         interpreter
@@ -64,7 +66,8 @@ class AkkaHttpAdapter private (private val options: AkkaHttpServerOptions)(impli
 
   private implicit def streamConstructor(implicit
     runtime: Runtime[Any],
-    mat: Materializer
+    mat: Materializer,
+    trace: Trace
   ): StreamConstructor[AkkaStreams.BinaryStream] =
     new StreamConstructor[AkkaStreams.BinaryStream] {
       override def apply(stream: ZStream[Any, Throwable, Byte]): AkkaStreams.BinaryStream =
@@ -111,7 +114,7 @@ object AkkaHttpAdapter {
     endpoint: ServerEndpoint.Full[Unit, Unit, I, TapirResponse, CalibanResponse[
       AkkaStreams.BinaryStream
     ], AkkaStreams, RIO[R, *]]
-  )(implicit runtime: Runtime[R]): ServerEndpoint[AkkaStreams, Future] =
+  )(implicit runtime: Runtime[R], trace: Trace): ServerEndpoint[AkkaStreams, Future] =
     ServerEndpoint[
       Unit,
       Unit,
@@ -138,7 +141,8 @@ object AkkaHttpAdapter {
     ]
   )(implicit
     runtime: Runtime[R],
-    materializer: Materializer
+    materializer: Materializer,
+    trace: Trace
   ): ServerEndpoint[AkkaStreams with WebSockets, Future] =
     ServerEndpoint[
       Unit,

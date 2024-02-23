@@ -11,6 +11,7 @@ import caliban.{ GraphQLRequest, InputValue, Value }
 import zio._
 import zio.prelude.EReader
 import zio.prelude.fx.ZPure
+import zio.stacktracer.TracingImplicits.disableAutoTrace
 
 object VariablesCoercer {
   private val primitiveTypes: List[__Type] = List(

@@ -85,7 +85,8 @@ trait GraphQL[-R] { self =>
           )
 
         private val introWrappers                               = wrappers.collect { case w: IntrospectionWrapper[R] => w }
-        private lazy val introspectionRootSchema: RootSchema[R] = Introspector.introspect(rootType, introWrappers)
+        private lazy val introspectionRootSchema: RootSchema[R] =
+          Introspector.introspect(rootType, introWrappers)(Trace.empty)
 
         override def check(query: String)(implicit trace: Trace): IO[CalibanError, Unit] =
           for {
@@ -181,7 +182,9 @@ trait GraphQL[-R] { self =>
    * @param aspect A wrapper type that will be applied to this GraphQL
    * @return A new GraphQL API
    */
-  final def @@[LowerR <: UpperR, UpperR <: R](aspect: GraphQLAspect[LowerR, UpperR]): GraphQL[UpperR] =
+  final def @@[LowerR <: UpperR, UpperR <: R](aspect: GraphQLAspect[LowerR, UpperR])(implicit
+    trace: Trace
+  ): GraphQL[UpperR] =
     aspect(self)
 
   /**

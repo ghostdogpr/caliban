@@ -8,6 +8,7 @@ import caliban.interop.tapir.IsTapirSchema
 import caliban.interop.zio.{ IsZIOJsonDecoder, IsZIOJsonEncoder }
 import caliban.rendering.ValueRenderer
 import zio.stream.Stream
+import zio.stacktracer.TracingImplicits.disableAutoTrace
 
 import scala.util.control.NonFatal
 import scala.util.hashing.MurmurHash3

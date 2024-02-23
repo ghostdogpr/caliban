@@ -11,6 +11,7 @@ import sttp.tapir.model.{ ServerRequest, UnsupportedWebSocketFrameException }
 import sttp.tapir.server.ServerEndpoint
 import sttp.ws.WebSocketFrame
 import zio._
+import zio.stacktracer.TracingImplicits.disableAutoTrace
 
 sealed trait WebSocketInterpreter[-R, E] { self =>
   protected val endpoint: PublicEndpoint[(ServerRequest, String), TapirResponse, (String, CalibanPipe), ZioWebSockets]
@@ -18,17 +19,17 @@ sealed trait WebSocketInterpreter[-R, E] { self =>
   def makeProtocol(
     serverRequest: ServerRequest,
     protocol: String
-  ): URIO[R, Either[TapirResponse, (String, CalibanPipe)]]
+  )(implicit trace: Trace): URIO[R, Either[TapirResponse, (String, CalibanPipe)]]
 
-  def serverEndpoint[R1 <: R]: ServerEndpoint[ZioWebSockets, RIO[R1, *]] =
+  def serverEndpoint[R1 <: R](implicit trace: Trace): ServerEndpoint[ZioWebSockets, RIO[R1, *]] =
     endpoint.serverLogic[RIO[R1, *]] { case (serverRequest, protocol) =>
       makeProtocol(serverRequest, protocol)
     }
 
-  def intercept[R1](interceptor: Interceptor[R1, R]): WebSocketInterpreter[R1, E] =
+  def intercept[R1](interceptor: Interceptor[R1, R])(implicit trace: Trace): WebSocketInterpreter[R1, E] =
     WebSocketInterpreter.Intercepted(self, interceptor)
 
-  def configure[R1](configurator: Configurator[R1]): WebSocketInterpreter[R & R1, E] =
+  def configure[R1](configurator: Configurator[R1])(implicit trace: Trace): WebSocketInterpreter[R & R1, E] =
     intercept[R & R1](ZLayer.scopedEnvironment[R & R1 & ServerRequest](configurator *> ZIO.environment[R]))
 }
 
@@ -47,7 +48,7 @@ object WebSocketInterpreter {
     def makeProtocol(
       serverRequest: ServerRequest,
       protocol: String
-    ): URIO[R, Either[TapirResponse, (String, CalibanPipe)]] =
+    )(implicit trace: Trace): URIO[R, Either[TapirResponse, (String, CalibanPipe)]] =
       Protocol
         .fromName(protocol)
         .make(interpreter, keepAliveTime, webSocketHooks)
@@ -58,7 +59,7 @@ object WebSocketInterpreter {
     interpreter: WebSocketInterpreter[R, E],
     layer: ZLayer[R1 & ServerRequest, TapirResponse, R]
   ) extends WebSocketInterpreter[R1, E] {
-    override def intercept[R2](interceptor: Interceptor[R2, R1]): WebSocketInterpreter[R2, E] =
+    override def intercept[R2](interceptor: Interceptor[R2, R1])(implicit trace: Trace): WebSocketInterpreter[R2, E] =
       Intercepted[R2, R, E](interpreter, ZLayer.makeSome[R2 & ServerRequest, R](interceptor, layer))
 
     val endpoint: PublicEndpoint[(ServerRequest, String), TapirResponse, (String, CalibanPipe), ZioWebSockets] =
@@ -67,7 +68,7 @@ object WebSocketInterpreter {
     def makeProtocol(
       serverRequest: ServerRequest,
       protocol: String
-    ): URIO[R1, Either[TapirResponse, (String, CalibanPipe)]] =
+    )(implicit trace: Trace): URIO[R1, Either[TapirResponse, (String, CalibanPipe)]] =
       interpreter
         .makeProtocol(serverRequest, protocol)
         .provideSome[R1](ZLayer.succeed(serverRequest), layer)

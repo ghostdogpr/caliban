@@ -7,6 +7,7 @@ import caliban.rendering.DocumentRenderer
 import caliban.schema.Types.collectTypes
 import caliban.schema._
 import caliban.wrappers.Wrapper
+import zio.stacktracer.TracingImplicits.disableAutoTrace
 
 package object caliban {
 

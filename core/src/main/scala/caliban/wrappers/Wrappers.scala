@@ -5,12 +5,13 @@ import caliban.Value.NullValue
 import caliban.execution.{ ExecutionRequest, Field, FieldInfo }
 import caliban.parsing.adt.{ Directive, Document }
 import caliban.wrappers.Wrapper.{ FieldWrapper, OverallWrapper, ValidationWrapper }
-import caliban.{ CalibanError, Configurator, GraphQLRequest, GraphQLResponse, ResponseValue }
+import caliban._
 import zio.Console.{ printLine, printLineError }
 import zio._
 import zio.metrics.MetricKeyType.Histogram
 import zio.metrics.MetricLabel
 import zio.query.ZQuery
+import zio.stacktracer.TracingImplicits.disableAutoTrace
 
 import scala.annotation.tailrec
 
@@ -44,7 +45,10 @@ object Wrappers {
    * @param duration threshold above which queries are considered slow
    */
   def printSlowQueries(duration: Duration): OverallWrapper[Any] =
-    onSlowQueries(duration) { case (time, query) => printLine(s"Slow query took ${time.render}:\n$query").orDie }
+    onSlowQueries(duration) { case (time, query) =>
+      implicit val trace: Trace = Trace.empty
+      printLine(s"Slow query took ${time.render}:\n$query").orDie
+    }
 
   /**
    * Returns a wrapper that logs slow queries
@@ -52,6 +56,7 @@ object Wrappers {
    */
   def logSlowQueries(duration: Duration): OverallWrapper[Any] =
     onSlowQueries(duration) { case (time, query) =>
+      implicit val trace: Trace = Trace.empty
       ZIO.logAnnotate("query", query) {
         ZIO.logWarning(s"Slow query took ${time.render}")
       }
@@ -119,7 +124,7 @@ object Wrappers {
           }
     }
 
-  private def calculateDepth(field: Field): UIO[Int] = {
+  private def calculateDepth(field: Field)(implicit trace: Trace): UIO[Int] = {
     val self     = if (field.name.nonEmpty) 1 else 0
     val children = field.fields
     ZIO
@@ -167,10 +172,10 @@ object Wrappers {
   ): Wrapper.EffectfulWrapper[Any] =
     FieldMetrics.wrapper(totalLabel, durationLabel, buckets, extraLabels)
 
-  private def countFields(field: Field): UIO[Int] =
+  private def countFields(field: Field)(implicit trace: Trace): UIO[Int] =
     innerFields(field.fields)
 
-  private def innerFields(fields: List[Field]): UIO[Int] =
+  private def innerFields(fields: List[Field])(implicit trace: Trace): UIO[Int] =
     ZIO.foreach(fields)(countFields).map(_.sum + fields.length)
 
   /**

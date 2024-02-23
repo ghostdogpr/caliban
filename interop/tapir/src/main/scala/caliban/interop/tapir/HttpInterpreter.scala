@@ -5,9 +5,10 @@ import caliban.interop.tapir.TapirAdapter._
 import sttp.capabilities.Streams
 import sttp.model.{ headers => _, _ }
 import sttp.tapir.Codec.JsonCodec
-import sttp.tapir.model.ServerRequest
 import sttp.tapir._
+import sttp.tapir.model.ServerRequest
 import zio._
+import zio.stacktracer.TracingImplicits.disableAutoTrace
 
 sealed trait HttpInterpreter[-R, E] { self =>
   protected def endpoints[S](streams: Streams[S]): List[
@@ -17,7 +18,7 @@ sealed trait HttpInterpreter[-R, E] { self =>
   protected def executeRequest[BS](
     graphQLRequest: GraphQLRequest,
     serverRequest: ServerRequest
-  )(implicit streamConstructor: StreamConstructor[BS]): ZIO[R, TapirResponse, CalibanResponse[BS]]
+  )(implicit streamConstructor: StreamConstructor[BS], trace: Trace): ZIO[R, TapirResponse, CalibanResponse[BS]]
 
   def serverEndpoints[R1 <: R, S](stream: Streams[S])(implicit
     streamConstructor: StreamConstructor[stream.BinaryStream]
@@ -25,16 +26,17 @@ sealed trait HttpInterpreter[-R, E] { self =>
     def logic(
       request: (GraphQLRequest, ServerRequest)
     ): RIO[R1, Either[TapirResponse, CalibanResponse[stream.BinaryStream]]] = {
+      implicit val trace: Trace           = Trace.empty
       val (graphQLRequest, serverRequest) = request
       executeRequest(graphQLRequest, serverRequest).either
     }
     endpoints[S](stream).map(_.serverLogic(logic(_)))
   }
 
-  def intercept[R1](interceptor: Interceptor[R1, R]): HttpInterpreter[R1, E] =
+  def intercept[R1](interceptor: Interceptor[R1, R])(implicit trace: Trace): HttpInterpreter[R1, E] =
     HttpInterpreter.Intercepted(self, interceptor)
 
-  def configure[R1](configurator: Configurator[R1]): HttpInterpreter[R & R1, E] =
+  def configure[R1](configurator: Configurator[R1])(implicit trace: Trace): HttpInterpreter[R & R1, E] =
     intercept[R & R1](ZLayer.scopedEnvironment[R & R1 & ServerRequest](configurator *> ZIO.environment[R]))
 }
 
@@ -43,7 +45,7 @@ object HttpInterpreter {
     requestCodec: JsonCodec[GraphQLRequest],
     responseValueCodec: JsonCodec[ResponseValue]
   ) extends HttpInterpreter[R, E] {
-    def endpoints[S](
+    protected def endpoints[S](
       streams: Streams[S]
     ): List[PublicEndpoint[(GraphQLRequest, ServerRequest), TapirResponse, CalibanResponse[streams.BinaryStream], S]] =
       makeHttpEndpoints(streams)
@@ -51,11 +53,13 @@ object HttpInterpreter {
     def executeRequest[BS](
       graphQLRequest: GraphQLRequest,
       serverRequest: ServerRequest
-    )(implicit streamConstructor: StreamConstructor[BS]): ZIO[R, TapirResponse, CalibanResponse[BS]] =
+    )(implicit streamConstructor: StreamConstructor[BS], trace: Trace): ZIO[R, TapirResponse, CalibanResponse[BS]] =
       setRequestMethod(serverRequest)(interpreter.executeRequest(graphQLRequest))
         .map(buildHttpResponse[E, BS](serverRequest))
 
-    private def setRequestMethod(req: ServerRequest)(exec: URIO[R, GraphQLResponse[E]]): URIO[R, GraphQLResponse[E]] =
+    private def setRequestMethod(
+      req: ServerRequest
+    )(exec: URIO[R, GraphQLResponse[E]])(implicit trace: Trace): URIO[R, GraphQLResponse[E]] =
       req.method match {
         case Method.POST => HttpRequestMethod.setWith(HttpRequestMethod.POST)(exec)
         case Method.GET  => HttpRequestMethod.setWith(HttpRequestMethod.GET)(exec)
@@ -67,10 +71,10 @@ object HttpInterpreter {
     interpreter: HttpInterpreter[R, E],
     layer: ZLayer[R1 & ServerRequest, TapirResponse, R]
   ) extends HttpInterpreter[R1, E] {
-    override def intercept[R2](interceptor: Interceptor[R2, R1]): HttpInterpreter[R2, E] =
+    override def intercept[R2](interceptor: Interceptor[R2, R1])(implicit trace: Trace): HttpInterpreter[R2, E] =
       Intercepted[R2, R, E](interpreter, ZLayer.makeSome[R2 & ServerRequest, R](interceptor, layer))
 
-    def endpoints[S](
+    protected def endpoints[S](
       streams: Streams[S]
     ): List[PublicEndpoint[(GraphQLRequest, ServerRequest), TapirResponse, CalibanResponse[streams.BinaryStream], S]] =
       interpreter.endpoints(streams)
@@ -78,7 +82,7 @@ object HttpInterpreter {
     def executeRequest[BS](
       graphQLRequest: GraphQLRequest,
       serverRequest: ServerRequest
-    )(implicit streamConstructor: StreamConstructor[BS]): ZIO[R1, TapirResponse, CalibanResponse[BS]] =
+    )(implicit streamConstructor: StreamConstructor[BS], trace: Trace): ZIO[R1, TapirResponse, CalibanResponse[BS]] =
       interpreter.executeRequest(graphQLRequest, serverRequest).provideSome[R1](ZLayer.succeed(serverRequest), layer)
   }
 

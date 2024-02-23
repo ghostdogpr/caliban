@@ -1,6 +1,5 @@
 package caliban.interop.tapir
 
-import caliban.Value.{ IntValue, StringValue }
 import caliban._
 import caliban.interop.tapir.TapirAdapter._
 import caliban.uploads.{ FileMeta, GraphQLUploadRequest, Uploads }
@@ -10,9 +9,9 @@ import sttp.tapir.Codec.JsonCodec
 import sttp.tapir._
 import sttp.tapir.model.ServerRequest
 import zio._
+import zio.stacktracer.TracingImplicits.disableAutoTrace
 
 import java.nio.charset.StandardCharsets
-import scala.util.Try
 
 sealed trait HttpUploadInterpreter[-R, E] { self =>
   protected def endpoint[S](
@@ -22,7 +21,7 @@ sealed trait HttpUploadInterpreter[-R, E] { self =>
   protected def executeRequest[BS](
     graphQLRequest: GraphQLRequest,
     serverRequest: ServerRequest
-  )(implicit streamConstructor: StreamConstructor[BS]): ZIO[R, TapirResponse, CalibanResponse[BS]]
+  )(implicit streamConstructor: StreamConstructor[BS], trace: Trace): ZIO[R, TapirResponse, CalibanResponse[BS]]
 
   private def parsePath(path: String): List[PathValue] = path.split('.').map(PathValue.parse).toList
 
@@ -32,6 +31,7 @@ sealed trait HttpUploadInterpreter[-R, E] { self =>
     mapCodec: JsonCodec[Map[String, Seq[String]]]
   ): CalibanUploadsEndpoint[R1, streams.BinaryStream, S] = {
     def logic(request: UploadRequest): RIO[R1, Either[TapirResponse, CalibanResponse[streams.BinaryStream]]] = {
+      implicit val trace: Trace  = Trace.empty
       val (parts, serverRequest) = request
       val partsMap               = parts.map(part => part.name -> part).toMap
 
@@ -81,10 +81,10 @@ sealed trait HttpUploadInterpreter[-R, E] { self =>
     endpoint(streams).serverLogic(logic(_))
   }
 
-  def intercept[R1](interceptor: Interceptor[R1, R]): HttpUploadInterpreter[R1, E] =
+  def intercept[R1](interceptor: Interceptor[R1, R])(implicit trace: Trace): HttpUploadInterpreter[R1, E] =
     HttpUploadInterpreter.Intercepted(self, interceptor)
 
-  def configure[R1](configurator: Configurator[R1]): HttpUploadInterpreter[R & R1, E] =
+  def configure[R1](configurator: Configurator[R1])(implicit trace: Trace): HttpUploadInterpreter[R & R1, E] =
     intercept[R & R1](ZLayer.scopedEnvironment[R & R1 & ServerRequest](configurator *> ZIO.environment[R]))
 }
 
@@ -100,7 +100,7 @@ object HttpUploadInterpreter {
     def executeRequest[BS](
       graphQLRequest: GraphQLRequest,
       serverRequest: ServerRequest
-    )(implicit streamConstructor: StreamConstructor[BS]): ZIO[R, TapirResponse, CalibanResponse[BS]] =
+    )(implicit streamConstructor: StreamConstructor[BS], trace: Trace): ZIO[R, TapirResponse, CalibanResponse[BS]] =
       interpreter.executeRequest(graphQLRequest).map(buildHttpResponse[E, BS](serverRequest))
   }
 
@@ -108,7 +108,7 @@ object HttpUploadInterpreter {
     interpreter: HttpUploadInterpreter[R, E],
     layer: ZLayer[R1 & ServerRequest, TapirResponse, R]
   ) extends HttpUploadInterpreter[R1, E] {
-    override def intercept[R2](interceptor: Interceptor[R2, R1]): HttpUploadInterpreter[R2, E] =
+    override def intercept[R2](interceptor: Interceptor[R2, R1])(implicit trace: Trace): HttpUploadInterpreter[R2, E] =
       Intercepted[R2, R, E](interpreter, ZLayer.makeSome[R2 & ServerRequest, R](interceptor, layer))
 
     def endpoint[S](
@@ -119,7 +119,7 @@ object HttpUploadInterpreter {
     def executeRequest[BS](
       graphQLRequest: GraphQLRequest,
       serverRequest: ServerRequest
-    )(implicit streamConstructor: StreamConstructor[BS]): ZIO[R1, TapirResponse, CalibanResponse[BS]] =
+    )(implicit streamConstructor: StreamConstructor[BS], trace: Trace): ZIO[R1, TapirResponse, CalibanResponse[BS]] =
       interpreter.executeRequest(graphQLRequest, serverRequest).provideSome[R1](ZLayer.succeed(serverRequest), layer)
   }
 

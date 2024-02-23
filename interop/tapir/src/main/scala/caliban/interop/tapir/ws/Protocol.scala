@@ -7,7 +7,8 @@ import caliban.interop.tapir.TapirAdapter.CalibanPipe
 import caliban.interop.tapir.WebSocketHooks
 import zio.stm.TMap
 import zio.stream.{ UStream, ZStream }
-import zio.{ Duration, Promise, Queue, Random, Ref, Schedule, UIO, URIO, ZIO }
+import zio.{ Duration, Promise, Queue, Random, Ref, Schedule, Trace, UIO, URIO, ZIO }
+import zio.stacktracer.TracingImplicits.disableAutoTrace
 
 sealed trait Protocol {
   def name: String
@@ -63,7 +64,8 @@ object Protocol {
       interpreter: GraphQLInterpreter[R, E],
       keepAliveTime: Option[Duration],
       webSocketHooks: WebSocketHooks[R, E]
-    ): URIO[R, CalibanPipe] =
+    ): URIO[R, CalibanPipe] = {
+      implicit val trace: Trace = Trace.empty
       for {
         env           <- ZIO.environment[R]
         subscriptions <- SubscriptionManager.make
@@ -155,18 +157,19 @@ object Protocol {
                            ) *> ZStream.fromQueueWithShutdown(output)
                          }
       } yield pipe
+    }
 
     private def connectionError(id: Option[String]): GraphQLWSOutput           = GraphQLWSOutput(Ops.Error, id, None)
     private def connectionAck(payload: Option[ResponseValue]): GraphQLWSOutput =
       GraphQLWSOutput(Ops.ConnectionAck, None, payload)
 
-    private def generateId(id: Option[String]): ZIO[Any, Nothing, Option[String]] =
+    private def generateId(id: Option[String])(implicit trace: Trace): ZIO[Any, Nothing, Option[String]] =
       id match {
         case Some(_) => ZIO.succeed(id)
         case None    => Random.nextUUID.map(uuid => Some(uuid.toString))
       }
 
-    private def ping(keepAlive: Option[Duration]): UStream[Either[Nothing, GraphQLWSOutput]] =
+    private def ping(keepAlive: Option[Duration])(implicit trace: Trace): UStream[Either[Nothing, GraphQLWSOutput]] =
       keepAlive match {
         case None           => ZStream.empty
         case Some(duration) =>
@@ -214,7 +217,8 @@ object Protocol {
       interpreter: GraphQLInterpreter[R, E],
       keepAliveTime: Option[Duration],
       webSocketHooks: WebSocketHooks[R, E]
-    ): URIO[R, CalibanPipe] =
+    ): URIO[R, CalibanPipe] = {
+      implicit val trace: Trace = Trace.empty
       for {
         env           <- ZIO.environment[R]
         ack           <- Ref.make(false)
@@ -284,8 +288,9 @@ object Protocol {
                              )(_.interrupt) *> ZStream.fromQueueWithShutdown(output)
                          }
       } yield pipe
+    }
 
-    private def keepAlive(keepAlive: Option[Duration]): UStream[GraphQLWSOutput] =
+    private def keepAlive(keepAlive: Option[Duration])(implicit trace: Trace): UStream[GraphQLWSOutput] =
       keepAlive match {
         case None           => ZStream.empty
         case Some(duration) =>
@@ -309,10 +314,10 @@ object Protocol {
 
     def error[E](id: Option[String], e: E): GraphQLWSOutput
 
-    def toStreamComplete(id: String): UStream[GraphQLWSOutput] =
+    def toStreamComplete(id: String)(implicit trace: Trace): UStream[GraphQLWSOutput] =
       ZStream.succeed(complete(id))
 
-    def toStreamError[E](id: Option[String], e: E): UStream[GraphQLWSOutput] =
+    def toStreamError[E](id: Option[String], e: E)(implicit trace: Trace): UStream[GraphQLWSOutput] =
       ZStream.succeed(error(id, e))
 
     final def generateGraphQLResponse[R, E](
@@ -320,7 +325,7 @@ object Protocol {
       id: String,
       interpreter: GraphQLInterpreter[R, E],
       subscriptions: SubscriptionManager
-    ): ZStream[R, E, GraphQLWSOutput] = {
+    )(implicit trace: Trace): ZStream[R, E, GraphQLWSOutput] = {
       val resp =
         ZStream
           .fromZIO(interpreter.executeRequest(payload))
@@ -339,7 +344,9 @@ object Protocol {
     }
   }
 
-  private[ws] class SubscriptionManager private (private val tracked: TMap[String, Promise[Any, Unit]]) {
+  private[ws] class SubscriptionManager private (private val tracked: TMap[String, Promise[Any, Unit]])(implicit
+    trace: Trace
+  ) {
     def track(id: String): UStream[Promise[Any, Unit]] =
       ZStream.fromZIO(Promise.make[Any, Unit].tap(tracked.put(id, _).commit))
 
@@ -356,7 +363,7 @@ object Protocol {
   }
 
   private object SubscriptionManager {
-    val make = TMap.make[String, Promise[Any, Unit]]().map(new SubscriptionManager(_)).commit
+    def make(implicit trace: Trace) = TMap.make[String, Promise[Any, Unit]]().map(new SubscriptionManager(_)).commit
   }
 
 }

@@ -2,12 +2,14 @@ package caliban.uploads
 
 import caliban.Value.{ IntValue, NullValue, StringValue }
 import caliban.{ GraphQLRequest, InputValue, PathValue }
+import zio.stacktracer.TracingImplicits.disableAutoTrace
 import zio.stream.ZSink
-import zio.{ Chunk, RIO, UIO, URIO }
+import zio.{ Chunk, RIO, Trace, UIO, URIO }
 
 import scala.annotation.tailrec
 
-final case class Upload(name: String) {
+final case class Upload(name: String)(implicit val trace: Trace) {
+
   val allBytes: RIO[Uploads, Chunk[Byte]] =
     Uploads.stream(name).run(ZSink.foldLeftChunks(Chunk[Byte]())(_ ++ (_: Chunk[Byte])))
 

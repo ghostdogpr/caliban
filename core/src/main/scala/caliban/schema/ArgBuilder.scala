@@ -5,7 +5,8 @@ import caliban.InputValue
 import caliban.Value._
 import caliban.parsing.Parser
 import caliban.uploads.Upload
-import zio.Chunk
+import zio.{ Chunk, Trace }
+import zio.stacktracer.TracingImplicits.disableAutoTrace
 
 import java.time._
 import java.time.format.DateTimeFormatter
@@ -207,7 +208,7 @@ trait ArgBuilderInstances extends ArgBuilderDerivation {
   implicit def chunk[A](implicit ev: ArgBuilder[A]): ArgBuilder[Chunk[A]]   = list[A].map(Chunk.fromIterable)
 
   implicit lazy val upload: ArgBuilder[Upload] = {
-    case StringValue(v) => Right(Upload(v))
+    case StringValue(v) => Right(Upload(v)(Trace.empty))
     case other          => Left(InvalidInputArgument("Upload", other))
   }
 }
