@@ -17,7 +17,7 @@ sealed trait Protocol {
     interpreter: GraphQLInterpreter[R, E],
     keepAliveTime: Option[Duration],
     webSocketHooks: WebSocketHooks[R, E]
-  ): URIO[R, CalibanPipe]
+  )(implicit trace: Trace): URIO[R, CalibanPipe]
 
 }
 
@@ -64,8 +64,7 @@ object Protocol {
       interpreter: GraphQLInterpreter[R, E],
       keepAliveTime: Option[Duration],
       webSocketHooks: WebSocketHooks[R, E]
-    ): URIO[R, CalibanPipe] = {
-      implicit val trace: Trace = Trace.empty
+    )(implicit trace: Trace): URIO[R, CalibanPipe] =
       for {
         env           <- ZIO.environment[R]
         subscriptions <- SubscriptionManager.make
@@ -157,7 +156,6 @@ object Protocol {
                            ) *> ZStream.fromQueueWithShutdown(output)
                          }
       } yield pipe
-    }
 
     private def connectionError(id: Option[String]): GraphQLWSOutput           = GraphQLWSOutput(Ops.Error, id, None)
     private def connectionAck(payload: Option[ResponseValue]): GraphQLWSOutput =
@@ -217,8 +215,7 @@ object Protocol {
       interpreter: GraphQLInterpreter[R, E],
       keepAliveTime: Option[Duration],
       webSocketHooks: WebSocketHooks[R, E]
-    ): URIO[R, CalibanPipe] = {
-      implicit val trace: Trace = Trace.empty
+    )(implicit trace: Trace): URIO[R, CalibanPipe] =
       for {
         env           <- ZIO.environment[R]
         ack           <- Ref.make(false)
@@ -288,7 +285,6 @@ object Protocol {
                              )(_.interrupt) *> ZStream.fromQueueWithShutdown(output)
                          }
       } yield pipe
-    }
 
     private def keepAlive(keepAlive: Option[Duration])(implicit trace: Trace): UStream[GraphQLWSOutput] =
       keepAlive match {

@@ -21,9 +21,9 @@ sealed trait WebSocketInterpreter[-R, E] { self =>
     protocol: String
   )(implicit trace: Trace): URIO[R, Either[TapirResponse, (String, CalibanPipe)]]
 
-  def serverEndpoint[R1 <: R](implicit trace: Trace): ServerEndpoint[ZioWebSockets, RIO[R1, *]] =
+  def serverEndpoint[R1 <: R]: ServerEndpoint[ZioWebSockets, RIO[R1, *]] =
     endpoint.serverLogic[RIO[R1, *]] { case (serverRequest, protocol) =>
-      makeProtocol(serverRequest, protocol)
+      makeProtocol(serverRequest, protocol)(Trace.empty)
     }
 
   def intercept[R1](interceptor: Interceptor[R1, R])(implicit trace: Trace): WebSocketInterpreter[R1, E] =
