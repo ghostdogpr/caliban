@@ -94,7 +94,7 @@ object ContextualCatsInterop extends IOApp {
     }
 
     for {
-      interpreter <- api.interpreterAsync[F]
+      interpreter <- api.interpreterF[F]
       _           <- interpreter.checkAsync[F](query)
       _           <- Logger[F].info("Executing request")
       result      <- interpreter.executeAsync[F](query)(interop).local[LogContext](_.child("execute-request"))
