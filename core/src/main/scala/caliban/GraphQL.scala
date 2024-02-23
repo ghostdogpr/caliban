@@ -58,11 +58,20 @@ trait GraphQL[-R] { self =>
    * Creates an interpreter from your API. A GraphQLInterpreter is a wrapper around your API that allows
    * adding some middleware around the query execution.
    * Fails with a [[caliban.CalibanError.ValidationError]] if the schema is invalid.
+   *
+   * @see [[interpreterEither]] for a variant that returns an Either instead, making it easier to embed in non-ZIO applications
    */
   final def interpreter(implicit trace: Trace): IO[ValidationError, GraphQLInterpreter[R, CalibanError]] =
     ZIO.fromEither(interpreterEither)
 
-  private[caliban] final lazy val interpreterEither =
+  /**
+   * Creates an interpreter from your API. A GraphQLInterpreter is a wrapper around your API that allows
+   * adding some middleware around the query execution.
+   * Returns a `Left` containing the schema validation error if the schema is invalid.
+   *
+   * @see [[interpreter]] for a ZIO variant of this method that makes it easier to embed in ZIO applications
+   */
+  final lazy val interpreterEither: Either[ValidationError, GraphQLInterpreter[R, CalibanError]] =
     Validator.validateSchemaEither(schemaBuilder).map { schema =>
       new GraphQLInterpreter[R, CalibanError] {
         private val rootType =

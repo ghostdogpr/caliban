@@ -30,10 +30,16 @@ object MonixInterop {
   )(query: String)(implicit runtime: Runtime[Any]): MonixTask[Unit] =
     graphQL.check(query).toMonixTask
 
+  @deprecated("Use interpreterMonix instead")
   def interpreterAsync[R](
     graphQL: GraphQL[R]
   )(implicit runtime: Runtime[Any]): MonixTask[GraphQLInterpreter[R, CalibanError]] =
-    graphQL.interpreter.toMonixTask
+    interpreterMonix(graphQL)
+
+  def interpreterMonix[R](
+    graphQL: GraphQL[R]
+  ): MonixTask[GraphQLInterpreter[R, CalibanError]] =
+    MonixTask.fromEither(graphQL.interpreterEither)
 
   implicit final class ExtraZioEffectOps[-R, +A](private val effect: ZIO[R, Throwable, A]) extends AnyVal {
     def toMonixTask(implicit zioRuntime: Runtime[R]): MonixTask[A] =
