@@ -1,6 +1,7 @@
 package caliban.interop.tapir
 
 import caliban._
+import caliban.interop.tapir.DisableAutoTraceVersionSpecific._
 import caliban.interop.tapir.TapirAdapter._
 import caliban.uploads.{ FileMeta, GraphQLUploadRequest, Uploads }
 import sttp.capabilities.Streams
@@ -9,7 +10,6 @@ import sttp.tapir.Codec.JsonCodec
 import sttp.tapir._
 import sttp.tapir.model.ServerRequest
 import zio._
-import zio.stacktracer.TracingImplicits.disableAutoTrace
 
 import java.nio.charset.StandardCharsets
 

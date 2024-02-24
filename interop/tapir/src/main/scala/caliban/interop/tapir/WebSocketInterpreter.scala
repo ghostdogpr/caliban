@@ -1,6 +1,7 @@
 package caliban.interop.tapir
 
 import caliban._
+import caliban.interop.tapir.DisableAutoTraceVersionSpecific._
 import caliban.interop.tapir.TapirAdapter._
 import caliban.interop.tapir.ws.Protocol
 import sttp.capabilities.zio.ZioStreams
@@ -11,7 +12,6 @@ import sttp.tapir.model.{ ServerRequest, UnsupportedWebSocketFrameException }
 import sttp.tapir.server.ServerEndpoint
 import sttp.ws.WebSocketFrame
 import zio._
-import zio.stacktracer.TracingImplicits.disableAutoTrace
 
 sealed trait WebSocketInterpreter[-R, E] { self =>
   protected val endpoint: PublicEndpoint[(ServerRequest, String), TapirResponse, (String, CalibanPipe), ZioWebSockets]

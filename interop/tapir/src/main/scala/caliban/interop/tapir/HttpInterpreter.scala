@@ -1,6 +1,7 @@
 package caliban.interop.tapir
 
 import caliban._
+import caliban.interop.tapir.DisableAutoTraceVersionSpecific._
 import caliban.interop.tapir.TapirAdapter._
 import sttp.capabilities.Streams
 import sttp.model.{ headers => _, _ }
@@ -8,7 +9,6 @@ import sttp.tapir.Codec.JsonCodec
 import sttp.tapir._
 import sttp.tapir.model.ServerRequest
 import zio._
-import zio.stacktracer.TracingImplicits.disableAutoTrace
 
 sealed trait HttpInterpreter[-R, E] { self =>
   protected def endpoints[S](streams: Streams[S]): List[
