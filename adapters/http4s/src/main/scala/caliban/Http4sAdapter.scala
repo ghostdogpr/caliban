@@ -23,15 +23,16 @@ import zio.stream.ZStream
 import zio.stream.interop.fs2z._
 
 object Http4sAdapter {
+  private implicit val emptyTrace: Trace = Trace.empty
 
-  def makeHttpService[R, E](interpreter: HttpInterpreter[R, E])(implicit trace: Trace): HttpRoutes[RIO[R, *]] =
+  def makeHttpService[R, E](interpreter: HttpInterpreter[R, E]): HttpRoutes[RIO[R, *]] =
     ZHttp4sServerInterpreter()
       .from(interpreter.serverEndpoints[R, ZioStreams](ZioStreams))
       .toRoutes
 
   def makeHttpServiceF[F[_]: Async, R, E](
     interpreter: HttpInterpreter[R, E]
-  )(implicit interop: ToEffect[F, R], trace: Trace): HttpRoutes[F] = {
+  )(implicit interop: ToEffect[F, R]): HttpRoutes[F] = {
     val endpoints  = interpreter.serverEndpoints[R, Fs2Streams[F]](Fs2Streams[F])
     val endpointsF = endpoints.map(convertHttpEndpointToF[F, R])
     Http4sServerInterpreter().toRoutes(endpointsF)
@@ -39,16 +40,14 @@ object Http4sAdapter {
 
   def makeHttpUploadService[R, E](interpreter: HttpUploadInterpreter[R, E])(implicit
     requestCodec: JsonCodec[GraphQLRequest],
-    mapCodec: JsonCodec[Map[String, Seq[String]]],
-    trace: Trace
+    mapCodec: JsonCodec[Map[String, Seq[String]]]
   ): HttpRoutes[RIO[R, *]] =
     ZHttp4sServerInterpreter().from(interpreter.serverEndpoint[R, ZioStreams](ZioStreams)).toRoutes
 
   def makeHttpUploadServiceF[F[_]: Async, R, E](interpreter: HttpUploadInterpreter[R, E])(implicit
     interop: ToEffect[F, R],
     requestCodec: JsonCodec[GraphQLRequest],
-    mapCodec: JsonCodec[Map[String, Seq[String]]],
-    trace: Trace
+    mapCodec: JsonCodec[Map[String, Seq[String]]]
   ): HttpRoutes[F] = {
     val endpoint  = interpreter.serverEndpoint[R, Fs2Streams[F]](Fs2Streams[F])
     val endpointF = convertHttpEndpointToF[F, R](endpoint)
@@ -58,7 +57,7 @@ object Http4sAdapter {
   def makeWebSocketService[R, R1 <: R, E](
     builder: WebSocketBuilder2[RIO[R, *]],
     interpreter: WebSocketInterpreter[R1, E]
-  )(implicit trace: Trace): HttpRoutes[RIO[R1, *]] =
+  ): HttpRoutes[RIO[R1, *]] =
     ZHttp4sServerInterpreter[R1]()
       .fromWebSocket(interpreter.serverEndpoint[R1])
       .toRoutes[Any](builder.asInstanceOf[WebSocketBuilder2[RIO[R1, *]]])
@@ -66,8 +65,7 @@ object Http4sAdapter {
   def makeWebSocketServiceF[F[_]: Async, R, E](builder: WebSocketBuilder2[F], interpreter: WebSocketInterpreter[R, E])(
     implicit
     interop: CatsInterop[F, R],
-    runtime: Runtime[R],
-    trace: Trace
+    runtime: Runtime[R]
   ): HttpRoutes[F] = {
     val endpointF = convertWebSocketEndpointToF[F, R](interpreter.serverEndpoint[R])
     Http4sServerInterpreter().toWebSocketRoutes(endpointF)(builder)
@@ -81,9 +79,7 @@ object Http4sAdapter {
    * @tparam R the environment type to eliminate
    * @return a new route without the R requirement
    */
-  def provideLayerFromRequest[R](route: HttpRoutes[RIO[R, *]], f: Request[Task] => TaskLayer[R])(implicit
-    trace: Trace
-  ): HttpRoutes[Task] =
+  def provideLayerFromRequest[R](route: HttpRoutes[RIO[R, *]], f: Request[Task] => TaskLayer[R]): HttpRoutes[Task] =
     Kleisli { (req: Request[Task[*]]) =>
       val to: Task ~> RIO[R, *] = new (Task ~> RIO[R, *]) {
         def apply[A](fa: Task[A]): RIO[R, A] = fa
@@ -108,7 +104,7 @@ object Http4sAdapter {
   def provideSomeLayerFromRequest[R, R1](
     route: HttpRoutes[RIO[R with R1, *]],
     f: Request[RIO[R, *]] => RLayer[R, R1]
-  )(implicit tagged: Tag[R1], trace: Trace): HttpRoutes[RIO[R, *]] =
+  )(implicit tagged: Tag[R1]): HttpRoutes[RIO[R, *]] =
     Kleisli { (req: Request[RIO[R, *]]) =>
       val to: RIO[R, *] ~> RIO[R with R1, *] = new (RIO[R, *] ~> RIO[R with R1, *]) {
         def apply[A](fa: RIO[R, A]): RIO[R with R1, A] = fa
@@ -127,7 +123,7 @@ object Http4sAdapter {
    */
   def convertHttpEndpointToF[F[_], R](
     endpoint: ServerEndpoint[Fs2Streams[F], RIO[R, *]]
-  )(implicit interop: ToEffect[F, R], trace: Trace): ServerEndpoint[Fs2Streams[F], F] =
+  )(implicit interop: ToEffect[F, R]): ServerEndpoint[Fs2Streams[F], F] =
     ServerEndpoint[
       endpoint.SECURITY_INPUT,
       endpoint.PRINCIPAL,
@@ -150,8 +146,7 @@ object Http4sAdapter {
     endpoint: ServerEndpoint[ZioWebSockets, RIO[R, *]]
   )(implicit
     interop: CatsInterop[F, R],
-    runtime: Runtime[R],
-    trace: Trace
+    runtime: Runtime[R]
   ): ServerEndpoint[Fs2Streams[F] with WebSockets, F] = {
     type Fs2Pipe = fs2.Pipe[F, GraphQLWSInput, Either[GraphQLWSClose, GraphQLWSOutput]]
 
@@ -204,8 +199,7 @@ object Http4sAdapter {
   }
 
   private implicit def streamConstructor[F[_], R](implicit
-    toEffect: ToEffect[F, R],
-    trace: Trace
+    toEffect: ToEffect[F, R]
   ): StreamConstructor[Fs2Streams[F]#BinaryStream] =
     new StreamConstructor[Fs2Streams[F]#BinaryStream] {
       override def apply(stream: ZStream[Any, Throwable, Byte]): Fs2Streams[F]#BinaryStream =

@@ -23,11 +23,13 @@ import zio.stream.ZStream
 import scala.concurrent.{ ExecutionContext, Future }
 
 class PekkoHttpAdapter private (val options: PekkoHttpServerOptions)(implicit ec: ExecutionContext) {
+  import PekkoHttpAdapter.emptyTrace
+
   private val pekkoInterpreter = PekkoHttpServerInterpreter(options)(ec)
 
   def makeHttpService[R, E](
     interpreter: HttpInterpreter[R, E]
-  )(implicit runtime: Runtime[R], materializer: Materializer, trace: Trace): Route =
+  )(implicit runtime: Runtime[R], materializer: Materializer): Route =
     pekkoInterpreter.toRoute(
       interpreter
         .serverEndpoints[R, PekkoStreams](PekkoStreams)
@@ -38,14 +40,13 @@ class PekkoHttpAdapter private (val options: PekkoHttpServerOptions)(implicit ec
     runtime: Runtime[R],
     materializer: Materializer,
     requestCodec: JsonCodec[GraphQLRequest],
-    mapCodec: JsonCodec[Map[String, Seq[String]]],
-    trace: Trace
+    mapCodec: JsonCodec[Map[String, Seq[String]]]
   ): Route =
     pekkoInterpreter.toRoute(convertHttpStreamingEndpoint(interpreter.serverEndpoint[R, PekkoStreams](PekkoStreams)))
 
   def makeWebSocketService[R, E](
     interpreter: WebSocketInterpreter[R, E]
-  )(implicit runtime: Runtime[R], materializer: Materializer, trace: Trace): Route =
+  )(implicit runtime: Runtime[R], materializer: Materializer): Route =
     pekkoInterpreter.toRoute(
       convertWebSocketEndpoint(
         interpreter
@@ -66,8 +67,7 @@ class PekkoHttpAdapter private (val options: PekkoHttpServerOptions)(implicit ec
 
   private implicit def streamConstructor(implicit
     runtime: Runtime[Any],
-    mat: Materializer,
-    trace: Trace
+    mat: Materializer
   ): StreamConstructor[PekkoStreams.BinaryStream] =
     new StreamConstructor[PekkoStreams.BinaryStream] {
       override def apply(stream: ZStream[Any, Throwable, Byte]): PekkoStreams.BinaryStream =
@@ -101,6 +101,7 @@ class PekkoHttpAdapter private (val options: PekkoHttpServerOptions)(implicit ec
 }
 
 object PekkoHttpAdapter {
+  private implicit val emptyTrace: Trace = Trace.empty
 
   def default(implicit ec: ExecutionContext): PekkoHttpAdapter =
     apply(PekkoHttpServerOptions.default)
@@ -114,7 +115,7 @@ object PekkoHttpAdapter {
     endpoint: ServerEndpoint.Full[Unit, Unit, I, TapirResponse, CalibanResponse[
       PekkoStreams.BinaryStream
     ], PekkoStreams, RIO[R, *]]
-  )(implicit runtime: Runtime[R], trace: Trace): ServerEndpoint[PekkoStreams, Future] =
+  )(implicit runtime: Runtime[R]): ServerEndpoint[PekkoStreams, Future] =
     ServerEndpoint[
       Unit,
       Unit,
@@ -141,8 +142,7 @@ object PekkoHttpAdapter {
     ]
   )(implicit
     runtime: Runtime[R],
-    materializer: Materializer,
-    trace: Trace
+    materializer: Materializer
   ): ServerEndpoint[PekkoStreams with WebSockets, Future] =
     ServerEndpoint[
       Unit,

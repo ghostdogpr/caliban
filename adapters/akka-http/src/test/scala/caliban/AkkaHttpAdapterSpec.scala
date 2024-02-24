@@ -34,20 +34,16 @@ object AkkaHttpAdapterSpec extends ZIOSpecDefault {
       mat          = Materializer(system)
       interpreter <- TestApi.api.interpreter
       adapter      = AkkaHttpAdapter.default(ec)
-      route        = {
-        implicit val rt0: Runtime[TestService with Uploads] = runtime
-        implicit val mat0: Materializer                     = mat
-        path("api" / "graphql") {
-          adapter
-            .makeHttpService(
-              HttpInterpreter(interpreter).intercept(FakeAuthorizationInterceptor.bearer[TestService & Uploads])
-            )
-        } ~ path("upload" / "graphql") {
-          adapter.makeHttpUploadService(HttpUploadInterpreter(interpreter))
-        } ~ path("ws" / "graphql") {
-          adapter.makeWebSocketService(WebSocketInterpreter(interpreter))
-        }
-      }
+      route        = path("api" / "graphql") {
+                       adapter
+                         .makeHttpService(
+                           HttpInterpreter(interpreter).intercept(FakeAuthorizationInterceptor.bearer[TestService & Uploads])
+                         )(runtime, mat)
+                     } ~ path("upload" / "graphql") {
+                       adapter.makeHttpUploadService(HttpUploadInterpreter(interpreter))(runtime, mat, implicitly, implicitly)
+                     } ~ path("ws" / "graphql") {
+                       adapter.makeWebSocketService(WebSocketInterpreter(interpreter))(runtime, mat)
+                     }
       _           <- ZIO.fromFuture { _ =>
                        implicit val s: ActorSystem = system
                        Http().newServerAt("localhost", 8086).bind(route)

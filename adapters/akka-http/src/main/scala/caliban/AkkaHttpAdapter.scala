@@ -23,11 +23,13 @@ import zio.stream.ZStream
 import scala.concurrent.{ ExecutionContext, Future }
 
 class AkkaHttpAdapter private (private val options: AkkaHttpServerOptions)(implicit ec: ExecutionContext) {
+  import AkkaHttpAdapter.emptyTrace
+
   private val akkaInterpreter = AkkaHttpServerInterpreter(options)(ec)
 
   def makeHttpService[R, E](
     interpreter: HttpInterpreter[R, E]
-  )(implicit runtime: Runtime[R], materializer: Materializer, trace: Trace): Route =
+  )(implicit runtime: Runtime[R], materializer: Materializer): Route =
     akkaInterpreter.toRoute(
       interpreter
         .serverEndpoints[R, AkkaStreams](AkkaStreams)
@@ -38,14 +40,13 @@ class AkkaHttpAdapter private (private val options: AkkaHttpServerOptions)(impli
     runtime: Runtime[R],
     materializer: Materializer,
     requestCodec: JsonCodec[GraphQLRequest],
-    mapCodec: JsonCodec[Map[String, Seq[String]]],
-    trace: Trace
+    mapCodec: JsonCodec[Map[String, Seq[String]]]
   ): Route =
     akkaInterpreter.toRoute(convertHttpStreamingEndpoint(interpreter.serverEndpoint[R, AkkaStreams](AkkaStreams)))
 
   def makeWebSocketService[R, E](
     interpreter: WebSocketInterpreter[R, E]
-  )(implicit runtime: Runtime[R], materializer: Materializer, trace: Trace): Route =
+  )(implicit runtime: Runtime[R], materializer: Materializer): Route =
     akkaInterpreter.toRoute(
       convertWebSocketEndpoint(
         interpreter
@@ -66,8 +67,7 @@ class AkkaHttpAdapter private (private val options: AkkaHttpServerOptions)(impli
 
   private implicit def streamConstructor(implicit
     runtime: Runtime[Any],
-    mat: Materializer,
-    trace: Trace
+    mat: Materializer
   ): StreamConstructor[AkkaStreams.BinaryStream] =
     new StreamConstructor[AkkaStreams.BinaryStream] {
       override def apply(stream: ZStream[Any, Throwable, Byte]): AkkaStreams.BinaryStream =
@@ -101,6 +101,7 @@ class AkkaHttpAdapter private (private val options: AkkaHttpServerOptions)(impli
 }
 
 object AkkaHttpAdapter {
+  private implicit val emptyTrace: Trace = Trace.empty
 
   def default(implicit ec: ExecutionContext): AkkaHttpAdapter =
     apply(AkkaHttpServerOptions.default)
@@ -114,7 +115,7 @@ object AkkaHttpAdapter {
     endpoint: ServerEndpoint.Full[Unit, Unit, I, TapirResponse, CalibanResponse[
       AkkaStreams.BinaryStream
     ], AkkaStreams, RIO[R, *]]
-  )(implicit runtime: Runtime[R], trace: Trace): ServerEndpoint[AkkaStreams, Future] =
+  )(implicit runtime: Runtime[R]): ServerEndpoint[AkkaStreams, Future] =
     ServerEndpoint[
       Unit,
       Unit,
@@ -141,8 +142,7 @@ object AkkaHttpAdapter {
     ]
   )(implicit
     runtime: Runtime[R],
-    materializer: Materializer,
-    trace: Trace
+    materializer: Materializer
   ): ServerEndpoint[AkkaStreams with WebSockets, Future] =
     ServerEndpoint[
       Unit,

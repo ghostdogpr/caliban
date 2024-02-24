@@ -5,7 +5,6 @@ import caliban.interop.tapir.{ HttpInterpreter, WebSocketInterpreter }
 import sttp.capabilities.zio.ZioStreams
 import sttp.model.HeaderNames
 import sttp.tapir.server.ziohttp.{ ZioHttpInterpreter, ZioHttpServerOptions }
-import zio.Trace
 import zio.http._
 import zio.stacktracer.TracingImplicits.disableAutoTrace
 
@@ -18,16 +17,14 @@ object ZHttpAdapter {
   }
 
   def makeHttpService[R, E](interpreter: HttpInterpreter[R, E])(implicit
-    serverOptions: ZioHttpServerOptions[R] = ZioHttpServerOptions.default[R],
-    trace: Trace
+    serverOptions: ZioHttpServerOptions[R] = ZioHttpServerOptions.default[R]
   ): RequestHandler[R, Nothing] =
     ZioHttpInterpreter(serverOptions)
       .toHttp(interpreter.serverEndpoints[R, ZioStreams](ZioStreams))
       .toHandler
 
   def makeWebSocketService[R, E](interpreter: WebSocketInterpreter[R, E])(implicit
-    serverOptions: ZioHttpServerOptions[R] = ZioHttpServerOptions.default[R],
-    trace: Trace
+    serverOptions: ZioHttpServerOptions[R] = ZioHttpServerOptions.default[R]
   ): RequestHandler[R, Nothing] =
     ZioHttpInterpreter(patchWsServerOptions(serverOptions))
       .toHttp(interpreter.serverEndpoint[R])

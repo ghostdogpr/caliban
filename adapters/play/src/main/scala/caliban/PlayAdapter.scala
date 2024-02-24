@@ -23,12 +23,14 @@ import zio.stream.ZStream
 import scala.concurrent.Future
 
 class PlayAdapter private (private val options: Option[PlayServerOptions]) {
+  import PlayAdapter.emptyTrace
+
   private def playInterpreter(implicit mat: Materializer) =
     options.fold(PlayServerInterpreter())(PlayServerInterpreter(_))
 
   def makeHttpService[R, E](
     interpreter: HttpInterpreter[R, E]
-  )(implicit runtime: Runtime[R], materializer: Materializer, trace: Trace): Routes =
+  )(implicit runtime: Runtime[R], materializer: Materializer): Routes =
     playInterpreter.toRoutes(
       interpreter
         .serverEndpoints[R, PekkoStreams](PekkoStreams)
@@ -39,14 +41,13 @@ class PlayAdapter private (private val options: Option[PlayServerOptions]) {
     runtime: Runtime[R],
     materializer: Materializer,
     requestCodec: JsonCodec[GraphQLRequest],
-    mapCodec: JsonCodec[Map[String, Seq[String]]],
-    trace: Trace
+    mapCodec: JsonCodec[Map[String, Seq[String]]]
   ): Routes =
     playInterpreter.toRoutes(convertHttpStreamingEndpoint(interpreter.serverEndpoint[R, PekkoStreams](PekkoStreams)))
 
   def makeWebSocketService[R, E](
     interpreter: WebSocketInterpreter[R, E]
-  )(implicit runtime: Runtime[R], materializer: Materializer, trace: Trace): Routes = {
+  )(implicit runtime: Runtime[R], materializer: Materializer): Routes = {
     val endpoint = interpreter.serverEndpoint[R]
     playInterpreter.toRoutes(
       PlayAdapter.convertWebSocketEndpoint(
@@ -67,8 +68,7 @@ class PlayAdapter private (private val options: Option[PlayServerOptions]) {
 
   private implicit def streamConstructor(implicit
     runtime: Runtime[Any],
-    mat: Materializer,
-    trace: Trace
+    mat: Materializer
   ): StreamConstructor[PekkoStreams.BinaryStream] =
     new StreamConstructor[Source[ByteString, Any]] {
       override def apply(stream: ZStream[Any, Throwable, Byte]): Source[ByteString, Any] =
@@ -102,6 +102,7 @@ class PlayAdapter private (private val options: Option[PlayServerOptions]) {
 }
 
 object PlayAdapter extends PlayAdapter(None) {
+  private implicit val emptyTrace: Trace = Trace.empty
 
   def apply(options: PlayServerOptions) =
     new PlayAdapter(Some(options))
@@ -118,7 +119,7 @@ object PlayAdapter extends PlayAdapter(None) {
       PekkoStreams,
       RIO[R, *]
     ]
-  )(implicit runtime: Runtime[R], mat: Materializer, trace: Trace): ServerEndpoint[PekkoStreams, Future] =
+  )(implicit runtime: Runtime[R], mat: Materializer): ServerEndpoint[PekkoStreams, Future] =
     ServerEndpoint[
       Unit,
       Unit,
@@ -153,8 +154,7 @@ object PlayAdapter extends PlayAdapter(None) {
     ]
   )(implicit
     runtime: Runtime[R],
-    materializer: Materializer,
-    trace: Trace
+    materializer: Materializer
   ): ServerEndpoint[PekkoStreams with WebSockets, Future] =
     ServerEndpoint[
       Unit,
