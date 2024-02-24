@@ -26,13 +26,12 @@ object FieldMetrics {
     buckets: Histogram.Boundaries,
     extraLabels: Set[MetricLabel]
   ) {
+    private implicit val trace: Trace = Trace.empty
 
-    def recordFailures(fieldNames: List[String])(implicit trace: Trace): UIO[Unit] =
+    def recordFailures(fieldNames: List[String]): UIO[Unit] =
       ZIO.foreachDiscard(fieldNames)(fn => failed.tagged("field", fn).increment)
 
-    def recordSuccesses(nodeOffsets: Map[Vector[PathValue], Long], timings: List[Timing])(implicit
-      trace: Trace
-    ): UIO[Unit] =
+    def recordSuccesses(nodeOffsets: Map[Vector[PathValue], Long], timings: List[Timing]): UIO[Unit] =
       ZIO.foreachDiscard(timings) { timing =>
         val d = timing.duration - nodeOffsets.getOrElse(timing.path :+ StringValue(timing.name), 0L)
         succeeded.tagged(Set(MetricLabel("field", timing.fullName))).increment *>

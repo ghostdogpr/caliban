@@ -295,7 +295,7 @@ object CostEstimation {
         go(head.fields ++ tail, f(head) :: result)
     }
 
-    ZIO.mergeAll(go(List(field), Nil))(0.0)(_ + _)(Trace.empty)
+    ZIO.mergeAllPar(go(List(field), Nil))(0.0)(_ + _)(Trace.empty)
   }
 
 }

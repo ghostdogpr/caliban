@@ -340,9 +340,9 @@ object Protocol {
     }
   }
 
-  private[ws] class SubscriptionManager private (private val tracked: TMap[String, Promise[Any, Unit]])(implicit
-    trace: Trace
-  ) {
+  private[ws] class SubscriptionManager private (private val tracked: TMap[String, Promise[Any, Unit]]) {
+    private implicit val trace: Trace = Trace.empty
+
     def track(id: String): UStream[Promise[Any, Unit]] =
       ZStream.fromZIO(Promise.make[Any, Unit].tap(tracked.put(id, _).commit))
 
@@ -359,7 +359,7 @@ object Protocol {
   }
 
   private object SubscriptionManager {
-    def make(implicit trace: Trace) = TMap.make[String, Promise[Any, Unit]]().map(new SubscriptionManager(_)).commit
+    val make = TMap.make[String, Promise[Any, Unit]]().map(new SubscriptionManager(_)).commit(Trace.empty)
   }
 
 }

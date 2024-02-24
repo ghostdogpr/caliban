@@ -182,9 +182,7 @@ trait GraphQL[-R] { self =>
    * @param aspect A wrapper type that will be applied to this GraphQL
    * @return A new GraphQL API
    */
-  final def @@[LowerR <: UpperR, UpperR <: R](aspect: GraphQLAspect[LowerR, UpperR])(implicit
-    trace: Trace
-  ): GraphQL[UpperR] =
+  final def @@[LowerR <: UpperR, UpperR <: R](aspect: GraphQLAspect[LowerR, UpperR]): GraphQL[UpperR] =
     aspect(self)
 
   /**

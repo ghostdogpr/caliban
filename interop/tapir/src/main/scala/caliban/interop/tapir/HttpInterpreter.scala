@@ -23,10 +23,11 @@ sealed trait HttpInterpreter[-R, E] { self =>
   def serverEndpoints[R1 <: R, S](stream: Streams[S])(implicit
     streamConstructor: StreamConstructor[stream.BinaryStream]
   ): List[CalibanEndpoint[R1, stream.BinaryStream, S]] = {
+    implicit val trace: Trace = Trace.empty
+
     def logic(
       request: (GraphQLRequest, ServerRequest)
     ): RIO[R1, Either[TapirResponse, CalibanResponse[stream.BinaryStream]]] = {
-      implicit val trace: Trace           = Trace.empty
       val (graphQLRequest, serverRequest) = request
       executeRequest(graphQLRequest, serverRequest).either
     }
