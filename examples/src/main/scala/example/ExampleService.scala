@@ -23,7 +23,7 @@ object ExampleService {
       } yield new ExampleService {
 
         def getCharacters(origin: Option[Origin]): UIO[List[Character]] =
-          characters.get.map(_.filter(c => origin.forall(c.origin == _))) <* foo
+          characters.get.map(_.filter(c => origin.forall(c.origin == _)))
 
         def findCharacter(name: String): UIO[Option[Character]] = characters.get.map(_.find(c => c.name == name))
 
@@ -38,7 +38,6 @@ object ExampleService {
         def deletedEvents: ZStream[Any, Nothing, String] =
           ZStream.scoped(subscribers.subscribe).flatMap(ZStream.fromQueue(_))
 
-        private def foo = ZIO.stackTrace.debug
       }
     }
 }
