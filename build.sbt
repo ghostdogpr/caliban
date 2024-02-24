@@ -18,12 +18,12 @@ val jsoniterVersion           = "2.28.2"
 val laminextVersion           = "0.16.2"
 val magnoliaScala2Version     = "1.1.8"
 val magnoliaScala3Version     = "1.3.4"
-val pekkoHttpVersion          = "1.0.0"
+val pekkoHttpVersion          = "1.0.1"
 val playVersion               = "3.0.1"
 val playJsonVersion           = "3.0.2"
-val scalafmtVersion           = "3.7.17"
+val scalafmtVersion           = "3.8.0"
 val sttpVersion               = "3.9.3"
-val tapirVersion              = "1.9.8"
+val tapirVersion              = "1.9.10"
 val zioVersion                = "2.0.21"
 val zioInteropCats2Version    = "22.0.0.0"
 val zioInteropCats3Version    = "23.1.0.1"
@@ -240,7 +240,7 @@ lazy val tracing = project
       "dev.zio"         %% "zio-opentelemetry"         % zioOpenTelemetryVersion,
       "dev.zio"         %% "zio-test"                  % zioVersion % Test,
       "dev.zio"         %% "zio-test-sbt"              % zioVersion % Test,
-      "io.opentelemetry" % "opentelemetry-sdk-testing" % "1.34.1"   % Test
+      "io.opentelemetry" % "opentelemetry-sdk-testing" % "1.35.0"   % Test
     )
   )
   .dependsOn(core, tools)
