@@ -34,54 +34,64 @@ object VariablesCoercer {
     doc: Document,
     rootType: RootType,
     skipValidation: Boolean
-  )(implicit trace: Trace): IO[ValidationError, Map[String, InputValue]] = {
-    val variableDefinitions = doc.operationDefinitions.flatMap(_.variableDefinitions)
+  )(implicit trace: Trace): IO[ValidationError, Map[String, InputValue]] =
+    ZIO.fromEither(coerceVariablesEither(variables, doc, rootType, skipValidation))
 
+  def coerceVariablesEither(
+    variables: Map[String, InputValue],
+    doc: Document,
+    rootType: RootType,
+    skipValidation: Boolean
+  ): Either[ValidationError, Map[String, InputValue]] = {
     // Scala 2's compiler loves inferring `ZPure.succeed` as ZPure[Nothing, Nothing, Any, R, E, A] so we help it out
     type F[+A] = EReader[Any, ValidationError, A]
 
-    variableDefinitions
-      .foldLeft[F[List[(String, InputValue)]]](ZPure.succeed(Nil)) { case (coercedValues, definition) =>
-        val variableName = definition.name
-        ZPure.unless[Nothing, Unit, Any, ValidationError, Unit](skipValidation)(
-          ZPure
-            .fromEither(isInputType(definition.variableType, rootType))
-            .mapError(e =>
-              ValidationError(
-                s"Type of variable '$variableName' $e",
-                "Variables can only be input types. Objects, unions, and interfaces cannot be used as inputs."
-              )
-            )
-        ) *> {
-          variables
-            .get(definition.name)
-            .map[F[InputValue]](inputValue =>
-              rewriteValues(
-                inputValue,
-                definition.variableType,
-                rootType,
-                s"Variable '$variableName'"
-              ).catchSome { case _ if skipValidation => ZPure.succeed(inputValue) }
-            )
-            .orElse(definition.defaultValue.map[F[InputValue]](ZPure.succeed)) match {
-            case Some(v)                                                 =>
-              for {
-                values <- coercedValues
-                value  <- v
-              } yield (definition.name -> value) :: values
-            case _ if definition.variableType.nullable || skipValidation => coercedValues
-            case _                                                       =>
-              ZPure.fail(
+    val variableDefinitions = doc.operationDefinitions.flatMap(_.variableDefinitions)
+
+    if (variableDefinitions.isEmpty) Right(variables)
+    else
+      variableDefinitions
+        .foldLeft[F[List[(String, InputValue)]]](ZPure.succeed(Nil)) { case (coercedValues, definition) =>
+          val variableName = definition.name
+          ZPure.unless[Nothing, Unit, Any, ValidationError, Unit](skipValidation)(
+            ZPure
+              .fromEither(isInputType(definition.variableType, rootType))
+              .mapError(e =>
                 ValidationError(
-                  s"Variable '$variableName' is null but is specified to be non-null.",
-                  "The value of a variable must be compatible with its type."
+                  s"Type of variable '$variableName' $e",
+                  "Variables can only be input types. Objects, unions, and interfaces cannot be used as inputs."
                 )
               )
+          ) *> {
+            variables
+              .get(definition.name)
+              .map[F[InputValue]](inputValue =>
+                rewriteValues(
+                  inputValue,
+                  definition.variableType,
+                  rootType,
+                  s"Variable '$variableName'"
+                ).catchSome { case _ if skipValidation => ZPure.succeed(inputValue) }
+              )
+              .orElse(definition.defaultValue.map[F[InputValue]](ZPure.succeed)) match {
+              case Some(v)                                                 =>
+                for {
+                  values <- coercedValues
+                  value  <- v
+                } yield (definition.name -> value) :: values
+              case _ if definition.variableType.nullable || skipValidation => coercedValues
+              case _                                                       =>
+                ZPure.fail(
+                  ValidationError(
+                    s"Variable '$variableName' is null but is specified to be non-null.",
+                    "The value of a variable must be compatible with its type."
+                  )
+                )
+            }
           }
         }
-      }
-      .map(_.toMap)
-      .toZIO
+        .map(_.toMap)
+        .runEither
   }
 
   // https://spec.graphql.org/June2018/#IsInputType()
