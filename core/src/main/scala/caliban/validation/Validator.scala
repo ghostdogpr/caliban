@@ -27,6 +27,7 @@ import zio.{ IO, Trace, ZIO }
 import scala.annotation.tailrec
 import scala.collection.compat._
 import scala.collection.mutable
+import scala.collection.mutable.ListBuffer
 
 object Validator {
 
@@ -173,9 +174,10 @@ object Validator {
   ): Either[ValidationError, Map[String, FragmentDefinition]] = {
     val (operations, fragments, _, _) = collectDefinitions(document)
     validateFragments(fragments).flatMap { fragmentMap =>
-      val selectionSets = collectSelectionSets(operations.flatMap(_.selectionSet))
-      fragments.foreach(f => selectionSets addAll f.selectionSet)
-      val context       = Context(document, rootType, operations, fragmentMap, selectionSets.result(), variables)
+      val buf     = ListBuffer.empty[Selection]
+      operations.foreach(op => collectSelectionSets(buf)(op.selectionSet))
+      fragments.foreach(f => collectSelectionSets(buf)(f.selectionSet))
+      val context = Context(document, rootType, operations, fragmentMap, buf.result(), variables)
       ZPure.collectAll(validations).provideService[Context](context).runEither.map(_ => fragmentMap)
     }
   }
@@ -202,7 +204,7 @@ object Validator {
     }
 
   private def collectVariablesUsed(context: Context, selectionSet: List[Selection]): mutable.Set[String] = {
-    val allValues = mutable.ListBuffer.empty[InputValue]
+    val allValues = ListBuffer.empty[InputValue]
     val variables = mutable.Set.empty[String]
 
     def collectValues(selectionSet: List[Selection]): Unit = {
@@ -244,10 +246,11 @@ object Validator {
     variables
   }
 
-  private def collectSelectionSets(selectionSet: List[Selection]): mutable.ListBuffer[Selection] = {
-    val sets                                      = mutable.ListBuffer.empty[Selection]
+  private def collectSelectionSets(
+    buffer: ListBuffer[Selection] = ListBuffer.empty
+  )(selectionSet: List[Selection]): ListBuffer[Selection] = {
     def loop(selectionSet: List[Selection]): Unit = {
-      if (selectionSet.nonEmpty) sets addAll selectionSet
+      if (selectionSet.nonEmpty) buffer addAll selectionSet
       selectionSet.foreach {
         case f: Field          => loop(f.selectionSet)
         case f: InlineFragment => loop(f.selectionSet)
@@ -255,7 +258,7 @@ object Validator {
       }
     }
     loop(selectionSet)
-    sets
+    buffer
   }
 
   private def collectAllDirectives(
@@ -268,7 +271,7 @@ object Validator {
       _                   <- validateAll(fragmentDirectives)(checkDirectivesUniqueness(_, directiveDefinitions))
       selectionDirectives <- collectDirectives(context.selectionSets, directiveDefinitions)
     } yield {
-      val all = mutable.ListBuffer.empty[(Directive, __DirectiveLocation)]
+      val all = ListBuffer.empty[(Directive, __DirectiveLocation)]
       context.operations.foreach { op =>
         op.operationType match {
           case OperationType.Query        => op.directives.foreach(v => all addOne (v, __DirectiveLocation.QUERY))
@@ -286,7 +289,7 @@ object Validator {
     selectionSet: List[Selection],
     directiveDefinitions: Map[String, List[DirectiveDefinition]]
   ): EReader[Any, ValidationError, List[(Directive, __DirectiveLocation)]] = {
-    val builder = mutable.ListBuffer.empty[List[(Directive, __DirectiveLocation)]]
+    val builder = ListBuffer.empty[List[(Directive, __DirectiveLocation)]]
 
     def loop(selectionSet: List[Selection]): Unit =
       selectionSet.foreach {
@@ -438,8 +441,8 @@ object Validator {
     }
 
   private def detectCycles(context: Context, fragment: FragmentDefinition, visited: Set[String] = Set()): Boolean = {
-    val selectionSets     = collectSelectionSets(fragment.selectionSet)
-    val descendantSpreads = collectFragmentSpreads(selectionSets.result())
+    val selectionSets     = collectSelectionSets()(fragment.selectionSet).result()
+    val descendantSpreads = collectFragmentSpreads(selectionSets)
     descendantSpreads.exists(s =>
       visited.contains(s.name) ||
         context.fragments.get(s.name).fold(false)(f => detectCycles(context, f, visited + s.name))
