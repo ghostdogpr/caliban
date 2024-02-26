@@ -133,11 +133,9 @@ object TapirAdapter {
           )
         )
       case resp if accepts.serverSentEvents                     =>
-        val code = response.errors.collectFirst { case HttpRequestMethod.MutationOverGetError => StatusCode.BadRequest }
-          .getOrElse(StatusCode.Ok)
         (
           MediaType.TextEventStream,
-          code,
+          StatusCode.Ok,
           None,
           encodeTextEventStreamResponse(resp)
         )
