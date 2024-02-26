@@ -53,7 +53,7 @@ object TapirAdapterSpec {
     httpUri: Uri,
     uploadUri: Option[Uri] = None,
     wsUri: Option[Uri] = None,
-    sseSupport: Option[Boolean] = Some(true)
+    sseSupport: Boolean = true
   )(implicit
     requestCodec: JsonCodec[GraphQLRequest],
     responseCodec: JsonCodec[GraphQLResponse[CalibanError]],
@@ -269,8 +269,8 @@ object TapirAdapterSpec {
           }
         )
       ),
-      sseSupport.map(_ =>
-        suite("SSE")(
+      Some(
+        suite("server-sent events")(
           test("TextEventStream") {
             for {
               res   <- runSSERequest(
@@ -290,7 +290,7 @@ object TapirAdapterSpec {
               )
             )
           } @@ TestAspect.timeout(10.seconds)
-        )
+        ).when(sseSupport)
       ),
       runUpload.map(runUpload =>
         suite("uploads")(

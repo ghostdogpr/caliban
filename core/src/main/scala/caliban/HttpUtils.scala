@@ -42,6 +42,19 @@ private[caliban] object HttpUtils {
     extensions
       .flatMap(_.fields.collectFirst { case (Caching.DirectiveName, ResponseValue.ObjectValue(fields)) =>
         fields.collectFirst { case ("httpHeader", Value.StringValue(cacheHeader)) => cacheHeader }
-      })
-      .flatten
+      }.flatten)
+
+  final class AcceptsGqlEncodings(header0: Option[String]) {
+    private val length: Int = if (header0.isEmpty) 0 else header0.get.length
+    private lazy val header = header0.fold("")(_.toLowerCase)
+
+    /**
+     * NOTE: From  1st January 2025 this should be changed to `true` as the default
+     *
+     * @see [[https://graphql.github.io/graphql-over-http/draft/#sec-Legacy-watershed]]
+     */
+    def graphQLJson: Boolean = length >= 33 && header.contains("application/graphql-response+json")
+
+    def serverSentEvents: Boolean = length >= 17 && header.contains("text/event-stream")
+  }
 }
