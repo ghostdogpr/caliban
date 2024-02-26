@@ -113,15 +113,18 @@ object TapirAdapter {
      *
      * @see [[https://graphql.github.io/graphql-over-http/draft/#sec-Legacy-watershed]]
      */
-    def acceptsGqlJson = request.acceptsContentTypes.fold(
-      _ => false,
-      _.exists {
-        case ContentTypeRange("application", "graphql-response+json", _, _) => true
-        case _                                                              => false
-      }
-    )
-    val isSSE          =
-      request.header(HeaderNames.Accept).exists(_.contains(GraphqlServerSentEvent.acceptMediaType))
+    def accepts = request.acceptsContentTypes
+      .fold(
+        _ => None,
+        _.find {
+          case ContentTypeRange("application", "graphql-response+json", _, _) => true
+          case ContentTypeRange("text", "event-stream", _, _)                 => true
+          case _                                                              => false
+        }
+      )
+      .map(ct => MediaType(ct.mainType, ct.subType))
+      .getOrElse(MediaType.ApplicationJson)
+
     response match {
       case resp @ GraphQLResponse(StreamValue(stream), _, _, _) =>
         (
@@ -130,7 +133,7 @@ object TapirAdapter {
           None,
           encodeMultipartMixedResponse(resp, stream)
         )
-      case resp if acceptsGqlJson                               =>
+      case resp if accepts == GraphqlResponseJson.mediaType     =>
         val code           =
           response.errors.collectFirst { case _: CalibanError.ParsingError | _: CalibanError.ValidationError =>
             StatusCode.BadRequest
@@ -146,7 +149,7 @@ object TapirAdapter {
             excludeExtensions = cacheDirective.map(_ => Set(Caching.DirectiveName))
           )
         )
-      case resp if isSSE                                        =>
+      case resp if accepts == GraphqlServerSentEvent.mediaType  =>
         val code = response.errors.collectFirst { case HttpRequestMethod.MutationOverGetError => StatusCode.BadRequest }
           .getOrElse(StatusCode.Ok)
         (
@@ -197,7 +200,7 @@ object TapirAdapter {
   }
 
   private object GraphqlServerSentEvent {
-    val acceptMediaType: String = MediaType.TextEventStream.toString()
+    val mediaType: MediaType = MediaType.TextEventStream
   }
 
   private def encodeMultipartMixedResponse[E, BS](
