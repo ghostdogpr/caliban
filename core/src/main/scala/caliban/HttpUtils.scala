@@ -46,7 +46,7 @@ private[caliban] object HttpUtils {
 
   final class AcceptsGqlEncodings(header0: Option[String]) {
     private val isEmpty     = header0.isEmpty
-    private val length: Int = if (isEmpty) 0 else header0.get.length
+    private val length      = if (isEmpty) 0 else header0.get.length
     private lazy val header = if (isEmpty) "" else header0.get.toLowerCase
 
     /**
