@@ -14,7 +14,7 @@ import caliban.validation.Validator
 import caliban.wrappers.Wrapper
 import caliban.wrappers.Wrapper._
 import zio.stacktracer.TracingImplicits.disableAutoTrace
-import zio.{ IO, Trace, URIO, ZIO }
+import zio.{ Exit, IO, Trace, URIO, ZIO }
 
 /**
  * A `GraphQL[-R]` represents a GraphQL API whose execution requires a ZIO environment of type `R`.
@@ -106,27 +106,26 @@ trait GraphQL[-R] { self =>
                   coercedVars  <- coerceVariables(doc, request.variables.getOrElse(Map.empty))
                   executionReq <- wrap(validation(request.operationName, coercedVars))(validationWrappers, doc)
                   result       <- wrap(execution(schemaToExecute(doc), fieldWrappers))(executionWrappers, executionReq)
-                } yield result).catchAll(Executor.fail)
+                } yield result).catchAll(Executor.fail(_))
               )(overallWrappers, request)
           }
 
-        private def coerceVariables(doc: Document, variables: Map[String, InputValue])(implicit trace: Trace) =
+        private def coerceVariables(doc: Document, variables: Map[String, InputValue])(implicit
+          trace: Trace
+        ): IO[ValidationError, Map[String, InputValue]] =
           Configurator.configuration.flatMap { config =>
             if (doc.isIntrospection && !config.enableIntrospection)
               ZIO.fail(CalibanError.ValidationError("Introspection is disabled", ""))
             else
               VariablesCoercer
                 .coerceVariablesEither(variables, doc, typeToValidate(doc), config.skipValidation)
-                .fold(failFn, succeedFn)
+                .fold(ZIO.fail(_), ZIO.succeed(_))
           }
-
-        private val succeedFn = ZIO.succeed(_: Map[String, InputValue])(Trace.empty)
-        private val failFn    = ZIO.fail(_: ValidationError)(Trace.empty)
 
         private def validation(
           operationName: Option[String],
           coercedVars: Map[String, InputValue]
-        )(doc: Document)(implicit trace: Trace) =
+        )(doc: Document)(implicit trace: Trace): IO[ValidationError, ExecutionRequest] =
           Configurator.configuration.flatMap { config =>
             Validator
               .prepareEither(
@@ -138,7 +137,7 @@ trait GraphQL[-R] { self =>
                 config.skipValidation,
                 config.validations
               )
-              .fold(failFn, checkHttpMethod(config))
+              .fold(ZIO.fail(_), checkHttpMethod(config))
           }
 
         private def execution(

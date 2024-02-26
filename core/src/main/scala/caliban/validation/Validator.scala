@@ -249,14 +249,15 @@ object Validator {
   private def collectSelectionSets(
     buffer: ListBuffer[Selection] = ListBuffer.empty
   )(selectionSet: List[Selection]): ListBuffer[Selection] = {
-    def loop(selectionSet: List[Selection]): Unit = {
-      if (selectionSet.nonEmpty) buffer addAll selectionSet
-      selectionSet.foreach {
-        case f: Field          => loop(f.selectionSet)
-        case f: InlineFragment => loop(f.selectionSet)
-        case _: FragmentSpread => ()
+    def loop(selectionSet: List[Selection]): Unit =
+      if (selectionSet.nonEmpty) {
+        buffer addAll selectionSet
+        selectionSet.foreach {
+          case f: Field          => loop(f.selectionSet)
+          case f: InlineFragment => loop(f.selectionSet)
+          case _: FragmentSpread => ()
+        }
       }
-    }
     loop(selectionSet)
     buffer
   }
@@ -273,14 +274,15 @@ object Validator {
     } yield {
       val all = ListBuffer.empty[(Directive, __DirectiveLocation)]
       context.operations.foreach { op =>
-        op.operationType match {
-          case OperationType.Query        => op.directives.foreach(v => all addOne (v, __DirectiveLocation.QUERY))
-          case OperationType.Mutation     => op.directives.map(v => all addOne (v, __DirectiveLocation.MUTATION))
-          case OperationType.Subscription => op.directives.map(v => all addOne (v, __DirectiveLocation.SUBSCRIPTION))
+        val location = op.operationType match {
+          case OperationType.Query        => __DirectiveLocation.QUERY
+          case OperationType.Mutation     => __DirectiveLocation.MUTATION
+          case OperationType.Subscription => __DirectiveLocation.SUBSCRIPTION
         }
+        op.directives.foreach(v => all.addOne((v, location)))
       }
-      fragmentDirectives.foreach(_.foreach(v => all addOne (v, __DirectiveLocation.FRAGMENT_DEFINITION)))
-      all addAll selectionDirectives
+      fragmentDirectives.foreach(_.foreach(v => all.addOne((v, __DirectiveLocation.FRAGMENT_DEFINITION))))
+      all.addAll(selectionDirectives)
       all.result()
     }
   }
@@ -1275,4 +1277,10 @@ object Validator {
       case 0  => Some(f(in.head).unit)
       case _  => Some(ZPure.foreachDiscard(in)(f))
     }
+
+  private implicit class EnrichedListBufferOps[A](private val lb: ListBuffer[A]) extends AnyVal {
+    // This method doesn't exist in Scala 2.12 so we just use `.map` for it instead
+    def addOne(elem: A): ListBuffer[A]            = lb += elem
+    def addAll(elems: Iterable[A]): ListBuffer[A] = lb ++= elems
+  }
 }
