@@ -10,38 +10,39 @@ import zio.test.{ Live, ZIOSpecDefault }
 
 import scala.language.postfixOps
 
-// object QuickAdapterSpec extends ZIOSpecDefault {
-//   import caliban.quick._
-//   import sttp.tapir.json.jsoniter._
+object QuickAdapterSpec extends ZIOSpecDefault {
+  import caliban.quick._
+  import sttp.tapir.json.jsoniter._
 
-//   private val envLayer = TestService.make(sampleCharacters) ++ Uploads.empty
+  private val envLayer = TestService.make(sampleCharacters) ++ Uploads.empty
 
-//   private val auth = Middleware.intercept { case (req, resp) =>
-//     if (req.headers.get("X-Invalid").nonEmpty)
-//       Response(Status.Unauthorized, body = Body.fromString("You are unauthorized!"))
-//     else resp
-//   }
+  private val auth = Middleware.intercept { case (req, resp) =>
+    if (req.headers.get("X-Invalid").nonEmpty)
+      Response(Status.Unauthorized, body = Body.fromString("You are unauthorized!"))
+    else resp
+  }
 
-//   private val apiLayer = envLayer >>> ZLayer.fromZIO {
-//     for {
-//       app     <- TestApi.api.toApp("/api/graphql", uploadPath = Some("/upload/graphql")).map(_ @@ auth)
-//       _       <- Server.serve(app).forkScoped
-//       _       <- Live.live(Clock.sleep(3 seconds))
-//       service <- ZIO.service[TestService]
-//     } yield service
-//   }
+  private val apiLayer = envLayer >>> ZLayer.fromZIO {
+    for {
+      app     <- TestApi.api.toApp("/api/graphql", uploadPath = Some("/upload/graphql")).map(_ @@ auth)
+      _       <- Server.serve(app).forkScoped
+      _       <- Live.live(Clock.sleep(3 seconds))
+      service <- ZIO.service[TestService]
+    } yield service
+  }
 
-//   override def spec = suite("ZIO Http Quick") {
-//     val suite = TapirAdapterSpec.makeSuite(
-//       "QuickAdapterSpec",
-//       uri"http://localhost:8090/api/graphql",
-//       wsUri = None,
-//       uploadUri = Some(uri"http://localhost:8090/upload/graphql")
-//     )
-//     suite.provideShared(
-//       apiLayer,
-//       Scope.default,
-//       Server.defaultWith(_.port(8090).responseCompression())
-//     )
-//   }
-// }
+  override def spec = suite("ZIO Http Quick") {
+    val suite = TapirAdapterSpec.makeSuite(
+      "QuickAdapterSpec",
+      uri"http://localhost:8090/api/graphql",
+      wsUri = None,
+      uploadUri = Some(uri"http://localhost:8090/upload/graphql"),
+      sseSupport = None
+    )
+    suite.provideShared(
+      apiLayer,
+      Scope.default,
+      Server.defaultWith(_.port(8090).responseCompression())
+    )
+  }
+}

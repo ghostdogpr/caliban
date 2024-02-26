@@ -52,7 +52,8 @@ object TapirAdapterSpec {
     label: String,
     httpUri: Uri,
     uploadUri: Option[Uri] = None,
-    wsUri: Option[Uri] = None
+    wsUri: Option[Uri] = None,
+    sseSupport: Option[Boolean] = Some(true)
   )(implicit
     requestCodec: JsonCodec[GraphQLRequest],
     responseCodec: JsonCodec[GraphQLResponse[CalibanError]],
@@ -265,7 +266,11 @@ object TapirAdapterSpec {
             ZIO
               .serviceWithZIO[SttpBackend[Task, ZioStreams with WebSockets]](run(GraphQLRequest(None)).send(_))
               .map(r => assertTrue(r.code.code == 400))
-          },
+          }
+        )
+      ),
+      sseSupport.map(_ =>
+        suite("SSE")(
           test("TextEventStream") {
             for {
               res   <- runSSERequest(
