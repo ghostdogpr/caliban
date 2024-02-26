@@ -45,8 +45,9 @@ private[caliban] object HttpUtils {
       }.flatten)
 
   final class AcceptsGqlEncodings(header0: Option[String]) {
-    private val length: Int = if (header0.isEmpty) 0 else header0.get.length
-    private lazy val header = header0.fold("")(_.toLowerCase)
+    private val isEmpty     = header0.isEmpty
+    private val length: Int = if (isEmpty) 0 else header0.get.length
+    private lazy val header = if (isEmpty) "" else header0.get.toLowerCase
 
     /**
      * NOTE: From  1st January 2025 this should be changed to `true` as the default
