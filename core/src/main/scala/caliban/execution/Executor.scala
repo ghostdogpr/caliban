@@ -154,16 +154,16 @@ object Executor {
           )
         }
 
-      def handleError(step: => Step[R]): Step[R] =
-        try step
+      def wrapFn[A](step: A => Step[R], input: A): Step[R] =
+        try step(input)
         catch { case NonFatal(e) => Step.fail(e) }
 
       step match {
         case s: PureStep                    => s
         case QueryStep(inner)               => reduceQuery(inner)
         case ObjectStep(objectName, fields) => reduceObjectStep(objectName, fields)
-        case FunctionStep(step)             => reduceStep(handleError(step(arguments)), currentField, Map.empty, path)
-        case MetadataFunctionStep(step)     => reduceStep(handleError(step(currentField)), currentField, arguments, path)
+        case FunctionStep(step)             => reduceStep(wrapFn(step, arguments), currentField, Map.empty, path)
+        case MetadataFunctionStep(step)     => reduceStep(wrapFn(step, currentField), currentField, arguments, path)
         case ListStep(steps)                => reduceListStep(steps)
         case StreamStep(stream)             => reduceStream(stream)
       }
