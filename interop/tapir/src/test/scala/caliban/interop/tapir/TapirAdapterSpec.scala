@@ -8,7 +8,9 @@ import sttp.capabilities.{ Effect, WebSockets }
 import sttp.client3.asynchttpclient.zio.AsyncHttpClientZioBackend
 import sttp.client3.httpclient.zio.SttpClient
 import sttp.client3.{ BasicRequestBody, DeserializationException, HttpError, ResponseException, SttpBackend }
+import sttp.client3.impl.zio.ZioServerSentEvents
 import sttp.model._
+import sttp.model.sse.ServerSentEvent
 import sttp.tapir.Codec.JsonCodec
 import sttp.tapir.client.sttp.SttpClientInterpreter
 import sttp.tapir.client.sttp.ws.zio._
@@ -60,6 +62,7 @@ object TapirAdapterSpec {
     val httpClient   = new TapirClient(httpUri)
     val uploadClient = uploadUri.map(new TapirClient(_))
     val run          = (request: GraphQLRequest) => httpClient.runPost(request)
+    val runSSE       = (request: GraphQLRequest) => httpClient.runPostStreaming(request)
     val runGet       = (request: GraphQLRequest) => httpClient.runGet(request)
     val runUpload    = uploadClient.map(client => (request: List[Part[BasicRequestBody]]) => client.runUpload(request))
     val runWS        = wsUri.map(wsUri =>
@@ -68,6 +71,7 @@ object TapirAdapterSpec {
     )
 
     val acceptApplicationJson = Header.accept("application/json")
+    val acceptTextEventStream = Header.accept(MediaType.TextEventStream)
 
     def runHttpRequest(
       method: String,
@@ -81,9 +85,26 @@ object TapirAdapterSpec {
                   case _      => ZIO.fail(new RuntimeException(s"Unsupported test method $method"))
                 }
         res  <- ZIO.serviceWithZIO[SttpBackend[Task, ZioStreams with WebSockets]] {
-                  _run(GraphQLRequest(Some(query))).header(acceptHeader, replaceExisting = true).send(_)
+                  _run(GraphQLRequest(Some(query)))
+                    .header(acceptHeader, replaceExisting = true)
+                    .send(_)
                 }
       } yield res
+
+    def runSSERequest(
+      method: String,
+      acceptHeader: Header = acceptTextEventStream,
+      query: String = "{ characters { name }  }"
+    ) =
+      for {
+        res    <- ZIO
+                    .serviceWithZIO[SttpBackend[Task, ZioStreams with WebSockets]] {
+                      runSSE(GraphQLRequest(Some(query)))
+                        .header(acceptHeader, replaceExisting = true)
+                        .send(_)
+                    }
+        stream <- ZIO.fromEither(res.body).orElseFail(new Throwable("Failed to parse result"))
+      } yield stream
 
     def testHttpEndpoint(
       method: String,
@@ -244,7 +265,30 @@ object TapirAdapterSpec {
             ZIO
               .serviceWithZIO[SttpBackend[Task, ZioStreams with WebSockets]](run(GraphQLRequest(None)).send(_))
               .map(r => assertTrue(r.code.code == 400))
-          }
+          },
+          test("TextEventStream") {
+            for {
+              res          <- runSSERequest(
+                                Method.POST.method,
+                                acceptTextEventStream,
+                                "subscription { characterDeleted }"
+                              )
+              mutationRes  <- runHttpRequest(
+                                method = Method.POST.method,
+                                query = """mutation{ deleteCharacter(name: "Amos Burton") }"""
+                              )
+              mutationBody <- ZIO
+                                .fromEither(mutationRes.body)
+                                .orElseFail(new Throwable("Failed to parse result"))
+              event        <- res.runHead
+            } yield assertTrue(
+              mutationBody.is(_.left).data.toJson == """{"deleteCharacter":true}""",
+              event.isDefined && event.get == ServerSentEvent(
+                Some("""{"data":{"characterDeleted":"Amos Burton"}}"""),
+                Some("next")
+              )
+            )
+          } @@ TestAspect.timeout(10.seconds)
         )
       ),
       runUpload.map(runUpload =>
@@ -434,6 +478,20 @@ object TapirAdapterSpec {
         .post(httpUri)
         .body(request)
         .response(asStreamOrSingle)
+
+    def runPostStreaming(
+      request: GraphQLRequest
+    ): RequestT[Identity, Either[String, ZStream[Any, Throwable, ServerSentEvent]], ZioStreams] = {
+      val req = basicRequest
+        .post(httpUri)
+        .body(request)
+        .contentType(MediaType.TextEventStream)
+        .header(Header.accept(MediaType.TextEventStream))
+
+      req
+        .response(asStreamUnsafe(ZioStreams))
+        .mapResponseRight(ZioServerSentEvents.parse(_))
+    }
 
     def runGet(request: GraphQLRequest): Request[Either[ResponseException[String, String], Either[GraphQLResponse[
       CalibanError
