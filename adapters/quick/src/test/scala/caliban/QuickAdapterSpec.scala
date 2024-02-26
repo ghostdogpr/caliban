@@ -36,7 +36,8 @@ object QuickAdapterSpec extends ZIOSpecDefault {
       "QuickAdapterSpec",
       uri"http://localhost:8090/api/graphql",
       wsUri = None,
-      uploadUri = Some(uri"http://localhost:8090/upload/graphql")
+      uploadUri = Some(uri"http://localhost:8090/upload/graphql"),
+      sseSupport = None
     )
     suite.provideShared(
       apiLayer,
