@@ -35,7 +35,7 @@ val api = api1 |+| api2
 
 ### How to deal with authentication/authorization?
 
-This is typically handled with the help of ZIO environment. You can make your field require an `Auth` service by returning a `ZIO[Auth, E, A]`. Then, in your resolver, access the `Auth` service to check you have the appropriate permissions. You can inject the authentication information using a middleware in your HTTP server library. Check [here](https://github.com/ghostdogpr/caliban/blob/master/examples/src/main/scala/example/http4s/AuthExampleApp.scala) for a full example using http4s.
+This is typically handled with the help of ZIO environment. You can make your field require an `Auth` service by returning a `ZIO[Auth, E, A]`. Then, in your resolver, access the `Auth` service to check you have the appropriate permissions. You can inject the authentication information using a middleware in your HTTP server library. Check [here](https://github.com/search?q=repo%3Aghostdogpr%2Fcaliban+AuthExampleApp+language%3AScala&type=code&l=Scala) for a list of examples with different adapters.
 
 ### I have 2 case classes with the same name (different packages). How to avoid conflicts?
  
