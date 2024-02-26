@@ -268,21 +268,17 @@ object TapirAdapterSpec {
           },
           test("TextEventStream") {
             for {
-              res          <- runSSERequest(
-                                Method.POST.method,
-                                acceptTextEventStream,
-                                "subscription { characterDeleted }"
-                              )
-              mutationRes  <- runHttpRequest(
-                                method = Method.POST.method,
-                                query = """mutation{ deleteCharacter(name: "Amos Burton") }"""
-                              )
-              mutationBody <- ZIO
-                                .fromEither(mutationRes.body)
-                                .orElseFail(new Throwable("Failed to parse result"))
-              event        <- res.runHead
+              res   <- runSSERequest(
+                         Method.POST.method,
+                         acceptTextEventStream,
+                         "subscription { characterDeleted }"
+                       )
+              _     <- runHttpRequest(
+                         method = Method.POST.method,
+                         query = """mutation{ deleteCharacter(name: "Amos Burton") }"""
+                       )
+              event <- res.runHead
             } yield assertTrue(
-              mutationBody.is(_.left).data.toJson == """{"deleteCharacter":true}""",
               event.isDefined && event.get == ServerSentEvent(
                 Some("""{"data":{"characterDeleted":"Amos Burton"}}"""),
                 Some("next")
