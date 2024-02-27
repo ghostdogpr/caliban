@@ -1,8 +1,10 @@
 package caliban
 
+import caliban.ResponseValue.{ ObjectValue, StreamValue }
+import caliban.Value.NullValue
 import caliban.wrappers.Caching
-import zio.stream.{ ZChannel, ZPipeline }
-import zio.{ Cause, Chunk }
+import zio.stream.{ UStream, ZChannel, ZPipeline, ZStream }
+import zio.{ Cause, Chunk, Trace }
 
 private[caliban] object HttpUtils {
 
@@ -36,6 +38,26 @@ private[caliban] object HttpUtils {
 
         reader
       }
+  }
+
+  object ServerSentEvents {
+
+    def transformResponse[Sse](
+      resp: GraphQLResponse[Any],
+      toSse: ResponseValue => Sse,
+      done: Sse
+    )(implicit trace: Trace): UStream[Sse] =
+      (resp.data match {
+        case ObjectValue((fieldName, StreamValue(stream)) :: Nil) =>
+          // Report errors in an initial event sent immediately
+          val init =
+            if (resp.errors.isEmpty) ZStream.empty else ZStream.succeed(GraphQLResponse(NullValue, resp.errors))
+          init ++ stream.either.map {
+            case Right(r)  => GraphQLResponse(ObjectValue(List(fieldName -> r)), Nil)
+            case Left(err) => GraphQLResponse(ObjectValue(List(fieldName -> NullValue)), List(err))
+          }
+        case _                                                    => ZStream.succeed(resp)
+      }).map(v => toSse(v.toResponseValue)) ++ ZStream.succeed(done)
   }
 
   def computeCacheDirective(extensions: Option[ResponseValue.ObjectValue]): Option[String] =

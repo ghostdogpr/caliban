@@ -1,7 +1,7 @@
 package caliban
 
 import caliban.Configurator.ExecutionConfiguration
-import caliban.HttpUtils.DeferMultipart
+import caliban.HttpUtils.{ DeferMultipart, ServerSentEvents }
 import caliban.ResponseValue.{ ObjectValue, StreamValue }
 import caliban.Value.NullValue
 import caliban.interop.jsoniter.ValueJsoniter
@@ -13,7 +13,7 @@ import zio._
 import zio.http.Header.ContentType
 import zio.http._
 import zio.stacktracer.TracingImplicits.disableAutoTrace
-import zio.stream.ZStream
+import zio.stream.{ UStream, ZStream }
 
 import java.nio.charset.StandardCharsets.UTF_8
 import scala.util.control.NonFatal
@@ -202,19 +202,12 @@ final private class QuickRequestHandler[-R](interpreter: GraphQLInterpreter[R, A
       .mapConcatChunk(Chunk.fromArray)
   }
 
-  private def encodeTextEventStream(resp: GraphQLResponse[Any])(implicit trace: Trace) = {
-    val stream = (resp.data match {
-      case ObjectValue((fieldName, StreamValue(stream)) :: Nil) =>
-        stream.either.map {
-          case Right(r)  => GraphQLResponse(ObjectValue(List(fieldName -> r)), resp.errors)
-          case Left(err) => GraphQLResponse(ObjectValue(List(fieldName -> NullValue)), List(err))
-        }
-      case _                                                    =>
-        ZStream.succeed(resp)
-    }).map(resp => ServerSentEvent(writeToString(resp.toResponseValue), eventType = Some("next")))
-
-    stream ++ ZStream.succeed(CompleteSse)
-  }
+  private def encodeTextEventStream(resp: GraphQLResponse[Any])(implicit trace: Trace): UStream[ServerSentEvent] =
+    ServerSentEvents.transformResponse(
+      resp,
+      v => ServerSentEvent(writeToString(v), Some("next")),
+      CompleteSse
+    )
 
   private def isFtv1Request(req: Request) =
     req.headers
