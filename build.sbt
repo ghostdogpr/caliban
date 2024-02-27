@@ -2,7 +2,7 @@ import com.typesafe.tools.mima.core.{ DirectMissingMethodProblem, MissingClassPr
 import org.scalajs.linker.interface.ModuleSplitStyle
 import sbtcrossproject.CrossPlugin.autoImport.{ crossProject, CrossType }
 
-val scala212 = "2.12.18"
+val scala212 = "2.12.19"
 val scala213 = "2.13.13"
 val scala3   = "3.3.2"
 val allScala = Seq(scala212, scala213, scala3)
