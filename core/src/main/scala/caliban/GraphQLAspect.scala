@@ -2,6 +2,8 @@ package caliban
 
 import caliban.introspection.adt.{ __Directive, __Type }
 import caliban.parsing.adt.Directive
+import zio.Trace
+import zio.stacktracer.TracingImplicits.disableAutoTrace
 
 /**
  * A `GraphQLAspect` is wrapping type similar to a polymorphic function, which is capable

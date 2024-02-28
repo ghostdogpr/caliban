@@ -1,5 +1,6 @@
 package caliban.schema
 
+import zio.stacktracer.TracingImplicits.disableAutoTrace
 import zio.stream.ZStream
 
 /**

@@ -4,6 +4,7 @@ import caliban.introspection.adt._
 import caliban.introspection.adt.__TypeKind._
 import caliban.parsing.adt.Type.NamedType
 import zio.Chunk
+import zio.stacktracer.TracingImplicits.disableAutoTrace
 
 import scala.collection.compat._
 

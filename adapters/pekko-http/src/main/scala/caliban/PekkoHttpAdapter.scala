@@ -1,27 +1,30 @@
 package caliban
 
+import caliban.PekkoHttpAdapter._
+import caliban.interop.tapir.TapirAdapter._
+import caliban.interop.tapir.{ HttpInterpreter, HttpUploadInterpreter, StreamConstructor, WebSocketInterpreter }
 import org.apache.pekko.http.scaladsl.server.Route
 import org.apache.pekko.stream.scaladsl.{ Flow, Sink, Source }
 import org.apache.pekko.stream.{ Materializer, OverflowStrategy }
 import org.apache.pekko.util.ByteString
-import caliban.PekkoHttpAdapter._
-import caliban.interop.tapir.TapirAdapter._
-import caliban.interop.tapir.{ HttpInterpreter, HttpUploadInterpreter, StreamConstructor, WebSocketInterpreter }
 import sttp.capabilities.WebSockets
 import sttp.capabilities.pekko.PekkoStreams
 import sttp.capabilities.pekko.PekkoStreams.Pipe
-import sttp.model.{ MediaType, StatusCode }
+import sttp.model.StatusCode
 import sttp.tapir.Codec.JsonCodec
 import sttp.tapir.PublicEndpoint
 import sttp.tapir.model.ServerRequest
 import sttp.tapir.server.ServerEndpoint
 import sttp.tapir.server.pekkohttp.{ PekkoHttpServerInterpreter, PekkoHttpServerOptions }
 import zio._
+import zio.stacktracer.TracingImplicits.disableAutoTrace
 import zio.stream.ZStream
 
 import scala.concurrent.{ ExecutionContext, Future }
 
 class PekkoHttpAdapter private (val options: PekkoHttpServerOptions)(implicit ec: ExecutionContext) {
+  import PekkoHttpAdapter.emptyTrace
+
   private val pekkoInterpreter = PekkoHttpServerInterpreter(options)(ec)
 
   def makeHttpService[R, E](
@@ -98,6 +101,7 @@ class PekkoHttpAdapter private (val options: PekkoHttpServerOptions)(implicit ec
 }
 
 object PekkoHttpAdapter {
+  private implicit val emptyTrace: Trace = Trace.empty
 
   def default(implicit ec: ExecutionContext): PekkoHttpAdapter =
     apply(PekkoHttpServerOptions.default)

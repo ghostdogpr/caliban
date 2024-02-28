@@ -3,20 +3,24 @@ package caliban
 import caliban.Configurator.ExecutionConfiguration
 import zio._
 import zio.http._
+import zio.stacktracer.TracingImplicits.disableAutoTrace
 
 final class QuickAdapter[-R] private (requestHandler: QuickRequestHandler[R]) {
+
+  private val emptyTrace = Trace.empty
 
   /**
    * Converts this adapter to a [[QuickHandlers]] which contains [[zio.http.RequestHandler]]s for manually constructing zio-http routes
    */
-  val handlers: QuickHandlers[R] = QuickHandlers(
-    api = Handler.fromFunctionZIO[Request](requestHandler.handleHttpRequest),
-    upload = Handler.fromFunctionZIO[Request](requestHandler.handleUploadRequest)
-  )
+  val handlers: QuickHandlers[R] =
+    QuickHandlers(
+      api = Handler.fromFunctionZIO[Request](requestHandler.handleHttpRequest(_)(emptyTrace)),
+      upload = Handler.fromFunctionZIO[Request](requestHandler.handleUploadRequest(_)(emptyTrace))
+    )
 
   @deprecated("Use `handlers` instead", "2.5.0")
   lazy val handler: RequestHandler[R, Nothing] =
-    Handler.fromFunctionZIO[Request](requestHandler.handleHttpRequest)
+    Handler.fromFunctionZIO[Request](requestHandler.handleHttpRequest(_)(emptyTrace))
 
   /**
    * Converts this adapter to an `HttpApp` serving the GraphQL API at the specified path.
@@ -29,7 +33,7 @@ final class QuickAdapter[-R] private (requestHandler: QuickRequestHandler[R]) {
     apiPath: String,
     graphiqlPath: Option[String] = None,
     uploadPath: Option[String] = None
-  ): HttpApp[R] = {
+  )(implicit trace: Trace): HttpApp[R] = {
     val apiRoutes     = List(
       RoutePattern(Method.POST, apiPath) -> handlers.api,
       RoutePattern(Method.GET, apiPath)  -> handlers.api

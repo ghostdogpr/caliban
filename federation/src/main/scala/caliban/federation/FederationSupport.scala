@@ -5,7 +5,9 @@ import caliban.introspection.adt._
 import caliban.parsing.adt.Directive
 import caliban.schema.Step.QueryStep
 import caliban.schema._
+import zio.Trace
 import zio.query.ZQuery
+import zio.stacktracer.TracingImplicits.disableAutoTrace
 
 abstract class FederationSupport(
   supportedDirectives: List[__Directive],
@@ -96,7 +98,7 @@ abstract class FederationSupport(
       RootResolver(
         Query(
           _entities = args => args.representations.map(rep => _Entity(rep.__typename, rep.fields)),
-          _service = ZQuery.succeed(_Service(withSDL.render))
+          _service = ZQuery.succeed(_Service(withSDL.render))(Trace.empty)
         )
       ),
       supportedDirectives

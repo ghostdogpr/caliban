@@ -11,6 +11,7 @@ import caliban.wrappers.Wrapper.ExecutionWrapper
 import caliban.{ CalibanError, GraphQLResponse, InputValue, Value }
 import io.opentelemetry.api.trace.SpanKind
 import zio._
+import zio.stacktracer.TracingImplicits.disableAutoTrace
 import zio.telemetry.opentelemetry.tracing.Tracing
 
 object SchemaTracer {
@@ -68,7 +69,7 @@ object SchemaTracer {
         case x                   => x
       }
       (k, v1)
-    }.toMap
+    }
 
   private def maskField(f: Field): Field =
     f.copy(

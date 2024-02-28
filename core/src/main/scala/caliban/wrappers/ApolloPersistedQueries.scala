@@ -2,11 +2,12 @@ package caliban.wrappers
 
 import caliban.CalibanError.ValidationError
 import caliban.Value._
+import caliban._
 import caliban.execution.ExecutionRequest
 import caliban.parsing.adt.Document
 import caliban.wrappers.Wrapper._
-import caliban._
 import zio._
+import zio.stacktracer.TracingImplicits.disableAutoTrace
 
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.ConcurrentHashMap
@@ -15,27 +16,35 @@ import scala.collection.mutable
 object ApolloPersistedQueries {
 
   trait ApolloPersistence {
+    private[caliban] implicit val trace: Trace = Trace.empty
+
     def get(hash: String): UIO[Option[Document]]
     def add(hash: String, query: Document): UIO[Unit]
   }
 
   object ApolloPersistence {
 
-    def get(hash: String): ZIO[ApolloPersistence, Nothing, Option[Document]]      =
+    def get(hash: String)(implicit trace: Trace): ZIO[ApolloPersistence, Nothing, Option[Document]] =
       ZIO.serviceWithZIO[ApolloPersistence](_.get(hash))
-    def add(hash: String, query: Document): ZIO[ApolloPersistence, Nothing, Unit] =
+
+    def add(hash: String, query: Document)(implicit trace: Trace): ZIO[ApolloPersistence, Nothing, Unit] =
       ZIO.serviceWithZIO[ApolloPersistence](_.add(hash, query))
 
     val live: UIO[ApolloPersistence] =
-      ZIO.succeed(new ConcurrentHashMap[String, Document]()).map { docCache =>
-        new ApolloPersistence {
-          override def get(hash: String): UIO[Option[Document]]      = ZIO.succeed(Option(docCache.get(hash)))
-          override def add(hash: String, query: Document): UIO[Unit] = ZIO.succeed(docCache.put(hash, query)).unit
-        }
-      }
+      ZIO
+        .succeed(new ConcurrentHashMap[String, Document]())(Trace.empty)
+        .map { docCache =>
+          new ApolloPersistence {
+            override def get(hash: String): UIO[Option[Document]]      = ZIO.succeed(Option(docCache.get(hash)))
+            override def add(hash: String, query: Document): UIO[Unit] = ZIO.succeed(docCache.put(hash, query)).unit
+          }
+        }(Trace.empty)
   }
 
-  val live: Layer[Nothing, ApolloPersistence] = ZLayer(ApolloPersistence.live)
+  val live: Layer[Nothing, ApolloPersistence] = {
+    implicit val trace: Trace = Trace.empty
+    ZLayer(ApolloPersistence.live)
+  }
 
   private def parsingWrapper(
     docVar: Promise[Nothing, Option[(String, Option[Document])]]
@@ -104,10 +113,12 @@ object ApolloPersistedQueries {
    * Returns a wrapper that persists and retrieves queries based on a hash
    * following Apollo Persisted Queries spec: https://github.com/apollographql/apollo-link-persisted-queries.
    */
-  val apolloPersistedQueries: EffectfulWrapper[ApolloPersistence] =
+  val apolloPersistedQueries: EffectfulWrapper[ApolloPersistence] = {
+    implicit val trace: Trace = Trace.empty
     EffectfulWrapper(Promise.make[Nothing, Option[(String, Option[Document])]].map { docVar =>
       overallWrapper(docVar) |+| parsingWrapper(docVar) |+| validationWrapper(docVar)
     })
+  }
 
   private def readHash(request: GraphQLRequest): Option[String] =
     request.extensions

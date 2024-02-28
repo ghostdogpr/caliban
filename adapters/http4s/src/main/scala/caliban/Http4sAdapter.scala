@@ -18,10 +18,12 @@ import sttp.tapir.server.http4s.Http4sServerInterpreter
 import sttp.tapir.server.http4s.ztapir.ZHttp4sServerInterpreter
 import zio._
 import zio.interop.catz.concurrentInstance
-import zio.stream.interop.fs2z._
+import zio.stacktracer.TracingImplicits.disableAutoTrace
 import zio.stream.ZStream
+import zio.stream.interop.fs2z._
 
 object Http4sAdapter {
+  private implicit val emptyTrace: Trace = Trace.empty
 
   def makeHttpService[R, E](interpreter: HttpInterpreter[R, E]): HttpRoutes[RIO[R, *]] =
     ZHttp4sServerInterpreter()
@@ -142,7 +144,10 @@ object Http4sAdapter {
    */
   def convertWebSocketEndpointToF[F[_], R](
     endpoint: ServerEndpoint[ZioWebSockets, RIO[R, *]]
-  )(implicit interop: CatsInterop[F, R], runtime: Runtime[R]): ServerEndpoint[Fs2Streams[F] with WebSockets, F] = {
+  )(implicit
+    interop: CatsInterop[F, R],
+    runtime: Runtime[R]
+  ): ServerEndpoint[Fs2Streams[F] with WebSockets, F] = {
     type Fs2Pipe = fs2.Pipe[F, GraphQLWSInput, Either[GraphQLWSClose, GraphQLWSOutput]]
 
     val e = endpoint

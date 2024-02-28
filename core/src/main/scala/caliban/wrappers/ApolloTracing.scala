@@ -8,6 +8,7 @@ import caliban.parsing.adt.Document
 import caliban.wrappers.Wrapper._
 import zio._
 import zio.query.ZQuery
+import zio.stacktracer.TracingImplicits.disableAutoTrace
 
 import java.time.format.DateTimeFormatter
 import java.time.{ Instant, ZoneId }
@@ -29,7 +30,8 @@ object ApolloTracing {
    *      This can be used in combination with `HttpInterpreter.configure` from the `caliban-tapir` module or
    *      http middlewares to enable / disable tracing based on the request params (e.g., headers)
    */
-  def apolloTracing(excludePureFields: Boolean = false): EffectfulWrapper[Any] =
+  def apolloTracing(excludePureFields: Boolean = false): EffectfulWrapper[Any] = {
+    implicit val trace: Trace = Trace.empty
     EffectfulWrapper(
       ZIO
         .whenZIO(isEnabledRef.get)(
@@ -43,16 +45,18 @@ object ApolloTracing {
         )
         .someOrElse(Wrapper.empty)
     )
+  }
 
   /**
    * Disable or enable tracing for the current scope
    */
-  def enabled(value: Boolean): ZIO[Scope, Nothing, Unit] = isEnabledRef.locallyScoped(value)
+  def enabled(value: Boolean)(implicit trace: Trace): ZIO[Scope, Nothing, Unit] = isEnabledRef.locallyScoped(value)
 
   /**
    * Disable or enable tracing for the provided effect
    */
-  def enabledWith[R, E, A](value: Boolean)(zio: ZIO[R, E, A]): ZIO[R, E, A] = isEnabledRef.locally(value)(zio)
+  def enabledWith[R, E, A](value: Boolean)(zio: ZIO[R, E, A])(implicit trace: Trace): ZIO[R, E, A] =
+    isEnabledRef.locally(value)(zio)
 
   private val dateFormatter: DateTimeFormatter = DateTimeFormatter
     .ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'")

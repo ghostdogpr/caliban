@@ -37,6 +37,7 @@ object ExampleService {
 
         def deletedEvents: ZStream[Any, Nothing, String] =
           ZStream.scoped(subscribers.subscribe).flatMap(ZStream.fromQueue(_))
+
       }
     }
 }

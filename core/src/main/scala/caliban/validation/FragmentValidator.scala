@@ -7,6 +7,7 @@ import caliban.validation.Utils._
 import zio.Chunk
 import zio.prelude._
 import zio.prelude.fx.ZPure
+import zio.stacktracer.TracingImplicits.disableAutoTrace
 
 import scala.collection.mutable
 import scala.util.hashing.MurmurHash3

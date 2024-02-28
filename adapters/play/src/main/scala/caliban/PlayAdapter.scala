@@ -17,11 +17,14 @@ import sttp.tapir.model.ServerRequest
 import sttp.tapir.server.ServerEndpoint
 import sttp.tapir.server.play.{ PlayServerInterpreter, PlayServerOptions }
 import zio._
+import zio.stacktracer.TracingImplicits.disableAutoTrace
 import zio.stream.ZStream
 
 import scala.concurrent.Future
 
 class PlayAdapter private (private val options: Option[PlayServerOptions]) {
+  import PlayAdapter.emptyTrace
+
   private def playInterpreter(implicit mat: Materializer) =
     options.fold(PlayServerInterpreter())(PlayServerInterpreter(_))
 
@@ -99,6 +102,7 @@ class PlayAdapter private (private val options: Option[PlayServerOptions]) {
 }
 
 object PlayAdapter extends PlayAdapter(None) {
+  private implicit val emptyTrace: Trace = Trace.empty
 
   def apply(options: PlayServerOptions) =
     new PlayAdapter(Some(options))

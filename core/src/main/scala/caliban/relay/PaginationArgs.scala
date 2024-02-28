@@ -2,6 +2,7 @@ package caliban.relay
 
 import caliban.CalibanError
 import zio._
+import zio.stacktracer.TracingImplicits.disableAutoTrace
 
 object Pagination {
   import PaginationCount._
@@ -9,12 +10,12 @@ object Pagination {
 
   def apply[C: Cursor](
     args: PaginationArgs[C]
-  ): ZIO[Any, CalibanError, Pagination[C]] =
+  )(implicit trace: Trace): ZIO[Any, CalibanError, Pagination[C]] =
     apply(args.first, args.last, args.before, args.after)
 
   def apply[C: Cursor](
     args: ForwardPaginationArgs[C]
-  ): ZIO[Any, CalibanError, Pagination[C]] =
+  )(implicit trace: Trace): ZIO[Any, CalibanError, Pagination[C]] =
     (args.first match {
       case None    => ZIO.fail(s"first cannot be empty")
       case Some(a) => validatePositive("first", a).map(First(_))
@@ -29,7 +30,7 @@ object Pagination {
 
   def apply[C: Cursor](
     args: BackwardPaginationArgs[C]
-  ): ZIO[Any, CalibanError, Pagination[C]] =
+  )(implicit trace: Trace): ZIO[Any, CalibanError, Pagination[C]] =
     (args.last match {
       case None    => ZIO.fail(s"last cannot be empty")
       case Some(a) => validatePositive("last", a).map(Last(_))
@@ -47,7 +48,7 @@ object Pagination {
     last: Option[Int],
     before: Option[String],
     after: Option[String]
-  ): ZIO[Any, CalibanError, Pagination[C]] =
+  )(implicit trace: Trace): ZIO[Any, CalibanError, Pagination[C]] =
     validateFirstLast(first, last)
       .validate(
         validateCursors(before, after)
@@ -59,7 +60,7 @@ object Pagination {
   private def validateCursors[C: Cursor](
     before: Option[String],
     after: Option[String]
-  ): ZIO[Any, String, PaginationCursor[C]] =
+  )(implicit trace: Trace): ZIO[Any, String, PaginationCursor[C]] =
     (before, after) match {
       case (Some(_), Some(_)) =>
         ZIO.fail("before and after cannot both be set")
@@ -70,7 +71,7 @@ object Pagination {
       case (None, None)       => ZIO.succeed(NoCursor)
     }
 
-  private def validateFirstLast(first: Option[Int], last: Option[Int]) =
+  private def validateFirstLast(first: Option[Int], last: Option[Int])(implicit trace: Trace) =
     (first, last) match {
       case (None, None)       =>
         ZIO.fail("first and last cannot both be empty")
@@ -82,7 +83,7 @@ object Pagination {
         validatePositive("last", b).map(Last(_))
     }
 
-  private def validatePositive(which: String, i: Int) =
+  private def validatePositive(which: String, i: Int)(implicit trace: Trace) =
     ZIO.cond(i > -1, i, s"$which cannot be negative")
 }
 
@@ -112,7 +113,7 @@ abstract class PaginationArgs[C: Cursor] { self =>
   val before: Option[String]
   val after: Option[String]
 
-  def toPagination: ZIO[Any, CalibanError, Pagination[C]] = Pagination(
+  def toPagination(implicit trace: Trace): ZIO[Any, CalibanError, Pagination[C]] = Pagination(
     self
   )
 }
@@ -121,7 +122,7 @@ abstract class ForwardPaginationArgs[C: Cursor] { self =>
   val first: Option[Int]
   val after: Option[String]
 
-  def toPagination: ZIO[Any, CalibanError, Pagination[C]] = Pagination(
+  def toPagination(implicit trace: Trace): ZIO[Any, CalibanError, Pagination[C]] = Pagination(
     self
   )
 }
@@ -130,7 +131,7 @@ abstract class BackwardPaginationArgs[C: Cursor] { self =>
   val last: Option[Int]
   val before: Option[String]
 
-  def toPagination: ZIO[Any, CalibanError, Pagination[C]] = Pagination(
+  def toPagination(implicit trace: Trace): ZIO[Any, CalibanError, Pagination[C]] = Pagination(
     self
   )
 }

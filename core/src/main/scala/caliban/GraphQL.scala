@@ -85,7 +85,8 @@ trait GraphQL[-R] { self =>
           )
 
         private val introWrappers                               = wrappers.collect { case w: IntrospectionWrapper[R] => w }
-        private lazy val introspectionRootSchema: RootSchema[R] = Introspector.introspect(rootType, introWrappers)
+        private lazy val introspectionRootSchema: RootSchema[R] =
+          Introspector.introspect(rootType, introWrappers)(Trace.empty)
 
         override def check(query: String)(implicit trace: Trace): IO[CalibanError, Unit] =
           for {

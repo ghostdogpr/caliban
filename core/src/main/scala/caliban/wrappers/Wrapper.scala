@@ -39,7 +39,7 @@ sealed trait Wrapper[-R] extends GraphQLAspect[Nothing, R] { self =>
     that.withWrapper(self)
 
   // Disables tracing only for wrappers in the caliban package
-  final private[caliban] def trace: Trace = Trace.empty
+  private[caliban] implicit val trace: Trace = Trace.empty
 }
 
 object Wrapper {
@@ -151,8 +151,10 @@ object Wrapper {
     loop(process, wrappers)(info)
   }
 
-  private val emptyWrappers =
-    ZIO.succeed((Nil, Nil, Nil, Nil, Nil, Nil))(Trace.empty)
+  private val emptyWrappers = {
+    val w = (Nil, Nil, Nil, Nil, Nil, Nil)
+    ZIO.succeed(w)(Trace.empty)
+  }
 
   private[caliban] def decompose[R](wrappers: List[Wrapper[R]])(implicit trace: Trace): UIO[
     (

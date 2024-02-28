@@ -11,9 +11,11 @@ import sttp.tapir.internal._
 import sttp.tapir.server.ServerEndpoint
 import sttp.tapir.{ EndpointIO, EndpointInput, EndpointOutput, PublicEndpoint }
 import _root_.zio.query.{ URQuery, ZQuery }
-import _root_.zio.{ URIO, ZIO }
+import _root_.zio.{ Trace, URIO, ZIO }
+import _root_.zio.stacktracer.TracingImplicits.disableAutoTrace
 
 package object tapir {
+  private implicit val trace: Trace = Trace.empty
 
   implicit class GraphQLInfallibleEndpoint[I, O](e: PublicEndpoint[I, Nothing, O, Any]) {
     def toGraphQL[R](logic: I => URIO[R, O])(implicit
@@ -186,6 +188,8 @@ package object tapir {
     }.toMap
 
   private def monadError[R, E]: MonadError[ZIO[R, E, *]] = new MonadError[ZIO[R, E, *]] {
+    private implicit val trace: Trace = Trace.empty
+
     def unit[T](t: T): ZIO[R, E, T]                                                                        = ZIO.succeed(t)
     def map[T, T2](fa: ZIO[R, E, T])(f: T => T2): ZIO[R, E, T2]                                            = fa.map(f)
     def flatMap[T, T2](fa: ZIO[R, E, T])(f: T => ZIO[R, E, T2]): ZIO[R, E, T2]                             = fa.flatMap(f)
@@ -198,11 +202,14 @@ package object tapir {
   }
 
   private def queryMonadError[R, E]: MonadError[ZQuery[R, E, *]] = new MonadError[ZQuery[R, E, *]] {
+    private implicit val trace: Trace = Trace.empty
+
     def unit[T](t: T): ZQuery[R, E, T]                                                                              = ZQuery.succeed(t)
     def map[T, T2](fa: ZQuery[R, E, T])(f: T => T2): ZQuery[R, E, T2]                                               = fa.map(f)
     def flatMap[T, T2](fa: ZQuery[R, E, T])(f: T => ZQuery[R, E, T2]): ZQuery[R, E, T2]                             = fa.flatMap(f)
     def error[T](t: Throwable): ZQuery[R, E, T]                                                                     = ZQuery.die(t)
-    def handleWrappedError[T](rt: ZQuery[R, E, T])(h: PartialFunction[Throwable, ZQuery[R, E, T]]): ZQuery[R, E, T] = rt
+    def handleWrappedError[T](rt: ZQuery[R, E, T])(h: PartialFunction[Throwable, ZQuery[R, E, T]]): ZQuery[R, E, T] =
+      rt
     def ensure[T](f: ZQuery[R, E, T], e: => ZQuery[R, E, Unit]): ZQuery[R, E, T]                                    =
       f.foldCauseQuery(cause => e.catchAll(_ => ZQuery.succeed(())) *> ZQuery.failCause(cause), res => e.as(res))
   }

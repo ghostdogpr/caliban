@@ -1,7 +1,8 @@
 package caliban.interop.tapir
 
 import caliban.{ GraphQLWSOutput, InputValue, ResponseValue }
-import zio.ZIO
+import zio.{ Trace, ZIO }
+import zio.stacktracer.TracingImplicits.disableAutoTrace
 import zio.stream.ZStream
 
 trait StreamTransformer[-R, +E] {
@@ -18,6 +19,8 @@ trait WebSocketHooks[-R, +E] { self =>
 
   def ++[R2 <: R, E2 >: E](other: WebSocketHooks[R2, E2]): WebSocketHooks[R2, E2] =
     new WebSocketHooks[R2, E2] {
+      private implicit val trace: Trace = Trace.empty
+
       override def beforeInit: Option[InputValue => ZIO[R2, E2, Any]] = (self.beforeInit, other.beforeInit) match {
         case (None, Some(f))      => Some(f)
         case (Some(f), None)      => Some(f)

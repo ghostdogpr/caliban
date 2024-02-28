@@ -10,18 +10,21 @@ import caliban.interop.tapir.{ HttpInterpreter, HttpUploadInterpreter, StreamCon
 import sttp.capabilities.WebSockets
 import sttp.capabilities.akka.AkkaStreams
 import sttp.capabilities.akka.AkkaStreams.Pipe
-import sttp.model.{ MediaType, StatusCode }
+import sttp.model.StatusCode
 import sttp.tapir.Codec.JsonCodec
 import sttp.tapir.PublicEndpoint
 import sttp.tapir.model.ServerRequest
 import sttp.tapir.server.ServerEndpoint
 import sttp.tapir.server.akkahttp.{ AkkaHttpServerInterpreter, AkkaHttpServerOptions }
 import zio._
+import zio.stacktracer.TracingImplicits.disableAutoTrace
 import zio.stream.ZStream
 
 import scala.concurrent.{ ExecutionContext, Future }
 
 class AkkaHttpAdapter private (private val options: AkkaHttpServerOptions)(implicit ec: ExecutionContext) {
+  import AkkaHttpAdapter.emptyTrace
+
   private val akkaInterpreter = AkkaHttpServerInterpreter(options)(ec)
 
   def makeHttpService[R, E](
@@ -98,6 +101,7 @@ class AkkaHttpAdapter private (private val options: AkkaHttpServerOptions)(impli
 }
 
 object AkkaHttpAdapter {
+  private implicit val emptyTrace: Trace = Trace.empty
 
   def default(implicit ec: ExecutionContext): AkkaHttpAdapter =
     apply(AkkaHttpServerOptions.default)

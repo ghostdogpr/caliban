@@ -9,6 +9,7 @@ import caliban.parsing.Parser
 import caliban.{ InputValue, Value }
 import zio.prelude.EReader
 import zio.prelude.fx.ZPure
+import zio.stacktracer.TracingImplicits.disableAutoTrace
 
 object ValueValidator {
   def validateDefaultValue(field: __InputValue, errorContext: => String): EReader[Any, ValidationError, Unit] =

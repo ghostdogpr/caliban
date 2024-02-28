@@ -3,13 +3,14 @@ package caliban.wrappers
 import caliban.CalibanError.ExecutionError
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ EnumValue, IntValue, StringValue }
+import caliban._
 import caliban.execution.FieldInfo
 import caliban.parsing.adt.Directive
 import caliban.schema.Annotations.GQLDirective
 import caliban.wrappers.Wrapper.{ EffectfulWrapper, FieldWrapper, OverallWrapper }
-import caliban._
 import zio._
 import zio.query.ZQuery
+import zio.stacktracer.TracingImplicits.disableAutoTrace
 
 import java.util.concurrent.TimeUnit
 
@@ -46,10 +47,12 @@ object ApolloCaching {
 
   }
 
-  val apolloCaching: EffectfulWrapper[Any] =
+  val apolloCaching: EffectfulWrapper[Any] = {
+    implicit val trace: Trace = Trace.empty
     EffectfulWrapper(
       Ref.make(Caching()).map(ref => apolloCachingOverall(ref) |+| apolloCachingField(ref))
     )
+  }
 
   sealed trait CacheScope
 

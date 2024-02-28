@@ -1,11 +1,12 @@
 package caliban
 
-import caliban.parsing.adt.Definition.ExecutableDefinition.{ FragmentDefinition, OperationDefinition }
 import caliban.introspection.adt.{ __Field, __Type }
 import caliban.parsing.SourceMapper
-import caliban.parsing.adt.{ Document, Selection, VariableDefinition }
+import caliban.parsing.adt.Definition.ExecutableDefinition.{ FragmentDefinition, OperationDefinition }
 import caliban.parsing.adt.Selection.Field
+import caliban.parsing.adt.{ Document, Selection, VariableDefinition }
 import caliban.schema.{ RootType, Types }
+import zio.stacktracer.TracingImplicits.disableAutoTrace
 
 package object validation {
   case class SelectedField(

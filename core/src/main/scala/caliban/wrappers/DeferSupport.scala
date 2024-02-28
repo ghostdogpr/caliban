@@ -4,6 +4,8 @@ import caliban.execution.Feature
 import caliban.introspection.adt.{ __Directive, __DirectiveLocation, __InputValue }
 import caliban.schema.Types
 import caliban.{ GraphQL, GraphQLAspect }
+import zio.Trace
+import zio.stacktracer.TracingImplicits.disableAutoTrace
 
 object DeferSupport {
   private[caliban] val deferDirective = __Directive(

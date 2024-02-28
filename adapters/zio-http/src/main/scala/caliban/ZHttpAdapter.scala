@@ -6,6 +6,7 @@ import sttp.capabilities.zio.ZioStreams
 import sttp.model.HeaderNames
 import sttp.tapir.server.ziohttp.{ ZioHttpInterpreter, ZioHttpServerOptions }
 import zio.http._
+import zio.stacktracer.TracingImplicits.disableAutoTrace
 
 object ZHttpAdapter {
 

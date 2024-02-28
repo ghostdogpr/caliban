@@ -15,6 +15,7 @@ import sttp.tapir.server.ServerEndpoint
 import sttp.tapir.ztapir.ZioServerSentEvents
 import sttp.tapir.{ headers, _ }
 import zio._
+import zio.stacktracer.TracingImplicits.disableAutoTrace
 import zio.stream.ZStream
 
 import java.nio.charset.StandardCharsets
@@ -104,7 +105,8 @@ object TapirAdapter {
     response: GraphQLResponse[E]
   )(implicit
     streamConstructor: StreamConstructor[BS],
-    responseCodec: JsonCodec[ResponseValue]
+    responseCodec: JsonCodec[ResponseValue],
+    trace: Trace
   ): (MediaType, StatusCode, Option[String], CalibanBody[BS]) = {
 
     /**
@@ -206,7 +208,11 @@ object TapirAdapter {
   private def encodeMultipartMixedResponse[E, BS](
     resp: GraphQLResponse[E],
     stream: ZStream[Any, Throwable, ResponseValue]
-  )(implicit streamConstructor: StreamConstructor[BS], responseCodec: JsonCodec[ResponseValue]): CalibanBody[BS] = {
+  )(implicit
+    streamConstructor: StreamConstructor[BS],
+    responseCodec: JsonCodec[ResponseValue],
+    trace: Trace
+  ): CalibanBody[BS] = {
     import HttpUtils.DeferMultipart._
 
     val pipeline = HttpUtils.DeferMultipart.createPipeline(resp)
@@ -262,7 +268,8 @@ object TapirAdapter {
 
   def convertHttpEndpointToFuture[R](
     endpoint: ServerEndpoint[ZioStreams, RIO[R, *]]
-  )(implicit runtime: Runtime[R]): ServerEndpoint[ZioStreams, Future] =
+  )(implicit runtime: Runtime[R]): ServerEndpoint[ZioStreams, Future] = {
+    implicit val trace: Trace = Trace.empty
     ServerEndpoint[
       endpoint.SECURITY_INPUT,
       endpoint.PRINCIPAL,
@@ -279,8 +286,11 @@ object TapirAdapter {
         u =>
           req => Unsafe.unsafe(implicit un => runtime.unsafe.runToFuture(endpoint.logic(zioMonadError)(u)(req)).future)
     )
+  }
 
   def zioMonadError[R]: MonadError[RIO[R, *]] = new MonadError[RIO[R, *]] {
+    private implicit val trace: Trace = Trace.empty
+
     override def unit[T](t: T): RIO[R, T]                                                                            = ZIO.succeed(t)
     override def map[T, T2](fa: RIO[R, T])(f: T => T2): RIO[R, T2]                                                   = fa.map(f)
     override def flatMap[T, T2](fa: RIO[R, T])(f: T => RIO[R, T2]): RIO[R, T2]                                       = fa.flatMap(f)
