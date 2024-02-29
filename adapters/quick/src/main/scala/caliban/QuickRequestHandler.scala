@@ -1,8 +1,9 @@
 package caliban
 
 import caliban.Configurator.ExecutionConfiguration
-import caliban.HttpUtils.DeferMultipart
-import caliban.ResponseValue.StreamValue
+import caliban.HttpUtils.{ DeferMultipart, ServerSentEvents }
+import caliban.ResponseValue.{ ObjectValue, StreamValue }
+import caliban.Value.NullValue
 import caliban.interop.jsoniter.ValueJsoniter
 import caliban.uploads.{ FileMeta, GraphQLUploadRequest, Uploads }
 import caliban.wrappers.Caching
@@ -12,7 +13,7 @@ import zio._
 import zio.http.Header.ContentType
 import zio.http._
 import zio.stacktracer.TracingImplicits.disableAutoTrace
-import zio.stream.ZStream
+import zio.stream.{ UStream, ZStream }
 
 import java.nio.charset.StandardCharsets.UTF_8
 import scala.util.control.NonFatal
@@ -148,13 +149,7 @@ final private class QuickRequestHandler[-R](interpreter: GraphQLInterpreter[R, A
     cacheDirective.fold(headers)(headers.addHeader(Header.CacheControl.name, _))
 
   private def transformResponse(httpReq: Request, resp: GraphQLResponse[Any])(implicit trace: Trace): Response = {
-
-    val acceptsGqlJson: Boolean =
-      httpReq.headers.get(Header.Accept.name).exists { h =>
-        // Better performance than having to parse the Accept header
-        h.length >= 33 && h.toLowerCase.contains("application/graphql-response+json")
-      }
-
+    val accepts        = new HttpUtils.AcceptsGqlEncodings(httpReq.headers.get(Header.Accept.name))
     val cacheDirective = HttpUtils.computeCacheDirective(resp.extensions)
 
     resp match {
@@ -164,7 +159,9 @@ final private class QuickRequestHandler[-R](interpreter: GraphQLInterpreter[R, A
           headers = responseHeaders(ContentTypeMultipart, None),
           body = Body.fromStream(encodeMultipartMixedResponse(resp, stream))
         )
-      case resp if acceptsGqlJson                               =>
+      case resp if accepts.serverSentEvents                     =>
+        Response.fromServerSentEvents(encodeTextEventStream(resp))
+      case resp if accepts.graphQLJson                          =>
         Response(
           status = resp.errors.collectFirst { case _: CalibanError.ParsingError | _: CalibanError.ValidationError =>
             Status.BadRequest
@@ -205,11 +202,17 @@ final private class QuickRequestHandler[-R](interpreter: GraphQLInterpreter[R, A
       .mapConcatChunk(Chunk.fromArray)
   }
 
+  private def encodeTextEventStream(resp: GraphQLResponse[Any])(implicit trace: Trace): UStream[ServerSentEvent] =
+    ServerSentEvents.transformResponse(
+      resp,
+      v => ServerSentEvent(writeToString(v), Some("next")),
+      CompleteSse
+    )
+
   private def isFtv1Request(req: Request) =
     req.headers
       .get(GraphQLRequest.`apollo-federation-include-trace`)
       .exists(_.equalsIgnoreCase(GraphQLRequest.ftv1))
-
 }
 
 object QuickRequestHandler {
@@ -224,6 +227,8 @@ object QuickRequestHandler {
 
   private val ContentTypeMultipart =
     Headers(Header.ContentType(MediaType.multipart.mixed.copy(parameters = DeferMultipart.DeferHeaderParams)).untyped)
+
+  private val CompleteSse = ServerSentEvent("", Some("complete"))
 
   private val BodyDecodeErrorResponse =
     badRequest("Failed to decode json body")
