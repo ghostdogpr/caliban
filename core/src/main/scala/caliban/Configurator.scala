@@ -25,7 +25,7 @@ object Configurator {
   private val configRef: FiberRef[ExecutionConfiguration] =
     Unsafe.unsafe(implicit u => FiberRef.unsafe.make(ExecutionConfiguration()))
 
-  private[caliban] def configuration: UIO[ExecutionConfiguration] =
+  private[caliban] val configuration: UIO[ExecutionConfiguration] =
     configRef.get(Trace.empty)
 
   private[caliban] def setWith[R, E, A](cfg: ExecutionConfiguration)(f: ZIO[R, E, A])(implicit
