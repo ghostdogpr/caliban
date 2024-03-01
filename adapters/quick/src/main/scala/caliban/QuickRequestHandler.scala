@@ -2,8 +2,7 @@ package caliban
 
 import caliban.Configurator.ExecutionConfiguration
 import caliban.HttpUtils.{ DeferMultipart, ServerSentEvents }
-import caliban.ResponseValue.{ ObjectValue, StreamValue }
-import caliban.Value.NullValue
+import caliban.ResponseValue.StreamValue
 import caliban.interop.jsoniter.ValueJsoniter
 import caliban.uploads.{ FileMeta, GraphQLUploadRequest, Uploads }
 import caliban.wrappers.Caching
@@ -162,12 +161,14 @@ final private class QuickRequestHandler[-R](interpreter: GraphQLInterpreter[R, A
       case resp if accepts.serverSentEvents                     =>
         Response.fromServerSentEvents(encodeTextEventStream(resp))
       case resp if accepts.graphQLJson                          =>
+        val isBadRequest = resp.errors.collectFirst {
+          case _: CalibanError.ParsingError | _: CalibanError.ValidationError => true
+        }.getOrElse(false)
         Response(
-          status = resp.errors.collectFirst { case _: CalibanError.ParsingError | _: CalibanError.ValidationError =>
-            Status.BadRequest
-          }.getOrElse(Status.Ok),
+          status = if (isBadRequest) Status.BadRequest else Status.Ok,
           headers = responseHeaders(ContentTypeGql, cacheDirective),
-          body = encodeSingleResponse(resp, keepDataOnErrors = false, hasCacheDirective = cacheDirective.isDefined)
+          body =
+            encodeSingleResponse(resp, keepDataOnErrors = !isBadRequest, hasCacheDirective = cacheDirective.isDefined)
         )
       case resp                                                 =>
         Response(

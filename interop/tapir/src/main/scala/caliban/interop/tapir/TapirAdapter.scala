@@ -117,10 +117,10 @@ object TapirAdapter {
           encodeMultipartMixedResponse(resp, stream)
         )
       case resp if accepts.graphQLJson                          =>
-        val code           =
-          response.errors.collectFirst { case _: CalibanError.ParsingError | _: CalibanError.ValidationError =>
-            StatusCode.BadRequest
-          }.getOrElse(StatusCode.Ok)
+        val isBadRequest   = response.errors.collectFirst {
+          case _: CalibanError.ParsingError | _: CalibanError.ValidationError => true
+        }.getOrElse(false)
+        val code           = if (isBadRequest) StatusCode.BadRequest else StatusCode.Ok
         val cacheDirective = HttpUtils.computeCacheDirective(response.extensions)
         (
           GraphqlResponseJson.mediaType,
@@ -128,7 +128,7 @@ object TapirAdapter {
           HttpUtils.computeCacheDirective(response.extensions),
           encodeSingleResponse(
             resp,
-            keepDataOnErrors = false,
+            keepDataOnErrors = !isBadRequest,
             excludeExtensions = cacheDirective.map(_ => Set(Caching.DirectiveName))
           )
         )
