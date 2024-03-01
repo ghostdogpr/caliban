@@ -15,7 +15,7 @@ lazy val myproject = project
   // enable caliban codegen plugin
   .enablePlugins(CalibanPlugin)
   .settings(
-    scalaVersion := "3.3.2",
+    scalaVersion := "3.3.3",
     libraryDependencies ++= List(
       // the exact list of dependencies will vary with the libraries you want
       "com.github.ghostdogpr" %% "caliban" % "2.3.1",
