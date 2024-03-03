@@ -1,16 +1,18 @@
 package caliban.interop.tapir
 
-import caliban.ResponseValue.StreamValue
 import caliban._
+import caliban.ResponseValue.{ ObjectValue, StreamValue }
 import caliban.wrappers.Caching
 import sttp.capabilities.zio.ZioStreams
 import sttp.capabilities.zio.ZioStreams.Pipe
 import sttp.capabilities.{ Streams, WebSockets }
 import sttp.model.{ headers => _, _ }
+import sttp.model.sse.ServerSentEvent
 import sttp.monad.MonadError
 import sttp.tapir.Codec.JsonCodec
 import sttp.tapir.model.ServerRequest
 import sttp.tapir.server.ServerEndpoint
+import sttp.tapir.ztapir.ZioServerSentEvents
 import sttp.tapir.{ headers, _ }
 import zio._
 import zio.stream.ZStream
@@ -89,6 +91,10 @@ object TapirAdapter {
       oneOfVariantValueMatcher[CalibanBody.Stream[stream.BinaryStream]](
         streamTextBody(stream)(CodecFormat.Json(), Some(StandardCharsets.UTF_8)).toEndpointIO
           .map(Right(_)) { case Right(value) => value }
+      ) { case Right(_) => true },
+      oneOfVariantValueMatcher[CalibanBody.Stream[stream.BinaryStream]](
+        streamBinaryBody(stream)(CodecFormat.TextEventStream()).toEndpointIO
+          .map(Right(_)) { case Right(value) => value }
       ) { case Right(_) => true }
     )
 
@@ -100,20 +106,8 @@ object TapirAdapter {
     streamConstructor: StreamConstructor[BS],
     responseCodec: JsonCodec[ResponseValue]
   ): (MediaType, StatusCode, Option[String], CalibanBody[BS]) = {
+    val accepts = new HttpUtils.AcceptsGqlEncodings(request.header(HeaderNames.Accept))
 
-    /**
-     * NOTE: From  1st January 2025 this logic should be changed to use `application/graphql-response+json` as the
-     * default content-type when the client does not specify an accept header.
-     *
-     * @see [[https://graphql.github.io/graphql-over-http/draft/#sec-Legacy-watershed]]
-     */
-    def acceptsGqlJson = request.acceptsContentTypes.fold(
-      _ => false,
-      _.exists {
-        case ContentTypeRange("application", "graphql-response+json", _, _) => true
-        case _                                                              => false
-      }
-    )
     response match {
       case resp @ GraphQLResponse(StreamValue(stream), _, _, _) =>
         (
@@ -122,11 +116,11 @@ object TapirAdapter {
           None,
           encodeMultipartMixedResponse(resp, stream)
         )
-      case resp if acceptsGqlJson                               =>
-        val code           =
-          response.errors.collectFirst { case _: CalibanError.ParsingError | _: CalibanError.ValidationError =>
-            StatusCode.BadRequest
-          }.getOrElse(StatusCode.Ok)
+      case resp if accepts.graphQLJson                          =>
+        val isBadRequest   = response.errors.collectFirst {
+          case _: CalibanError.ParsingError | _: CalibanError.ValidationError => true
+        }.getOrElse(false)
+        val code           = if (isBadRequest) StatusCode.BadRequest else StatusCode.Ok
         val cacheDirective = HttpUtils.computeCacheDirective(response.extensions)
         (
           GraphqlResponseJson.mediaType,
@@ -134,14 +128,20 @@ object TapirAdapter {
           HttpUtils.computeCacheDirective(response.extensions),
           encodeSingleResponse(
             resp,
-            keepDataOnErrors = false,
+            keepDataOnErrors = !isBadRequest,
             excludeExtensions = cacheDirective.map(_ => Set(Caching.DirectiveName))
           )
         )
+      case resp if accepts.serverSentEvents                     =>
+        (
+          MediaType.TextEventStream,
+          StatusCode.Ok,
+          None,
+          encodeTextEventStreamResponse(resp)
+        )
       case resp                                                 =>
-        val code           =
-          response.errors.collectFirst { case HttpRequestMethod.MutationOverGetError => StatusCode.BadRequest }
-            .getOrElse(StatusCode.Ok)
+        val code           = response.errors.collectFirst { case HttpRequestMethod.MutationOverGetError => StatusCode.BadRequest }
+          .getOrElse(StatusCode.Ok)
         val cacheDirective = HttpUtils.computeCacheDirective(response.extensions)
         (
           MediaType.ApplicationJson,
@@ -180,6 +180,10 @@ object TapirAdapter {
     override val mediaType: MediaType = MediaType("application", "graphql-response+json")
   }
 
+  private object GraphqlServerSentEvent {
+    val mediaType: MediaType = MediaType.TextEventStream
+  }
+
   private def encodeMultipartMixedResponse[E, BS](
     resp: GraphQLResponse[E],
     stream: ZStream[Any, Throwable, ResponseValue]
@@ -197,6 +201,17 @@ object TapirAdapter {
           .mapConcat(_.getBytes(StandardCharsets.UTF_8))
       )
     )
+  }
+
+  private def encodeTextEventStreamResponse[E, BS](
+    resp: GraphQLResponse[E]
+  )(implicit streamConstructor: StreamConstructor[BS], responseCodec: JsonCodec[ResponseValue]): CalibanBody[BS] = {
+    val response = HttpUtils.ServerSentEvents.transformResponse(
+      resp,
+      v => ServerSentEvent(Some(responseCodec.encode(v)), Some("next")),
+      ServerSentEvent(None, Some("complete"))
+    )
+    Right(streamConstructor(ZioServerSentEvents.serialiseSSEToBytes(response)))
   }
 
   private def encodeSingleResponse[E](

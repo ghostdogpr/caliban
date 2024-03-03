@@ -2,9 +2,9 @@ import com.typesafe.tools.mima.core.{ DirectMissingMethodProblem, MissingClassPr
 import org.scalajs.linker.interface.ModuleSplitStyle
 import sbtcrossproject.CrossPlugin.autoImport.{ crossProject, CrossType }
 
-val scala212 = "2.12.18"
-val scala213 = "2.13.12"
-val scala3   = "3.3.2"
+val scala212 = "2.12.19"
+val scala213 = "2.13.13"
+val scala3   = "3.3.3"
 val allScala = Seq(scala212, scala213, scala3)
 
 val akkaVersion               = "2.6.20"
@@ -14,16 +14,16 @@ val circeVersion              = "0.14.6"
 val fs2Version                = "3.9.4"
 val http4sVersion             = "0.23.25"
 val javaTimeVersion           = "2.5.0"
-val jsoniterVersion           = "2.28.2"
+val jsoniterVersion           = "2.28.3"
 val laminextVersion           = "0.16.2"
 val magnoliaScala2Version     = "1.1.8"
 val magnoliaScala3Version     = "1.3.4"
-val pekkoHttpVersion          = "1.0.0"
-val playVersion               = "3.0.1"
+val pekkoHttpVersion          = "1.0.1"
+val playVersion               = "3.0.2"
 val playJsonVersion           = "3.0.2"
-val scalafmtVersion           = "3.7.17"
+val scalafmtVersion           = "3.8.0"
 val sttpVersion               = "3.9.3"
-val tapirVersion              = "1.9.8"
+val tapirVersion              = "1.9.10"
 val zioVersion                = "2.0.21"
 val zioInteropCats2Version    = "22.0.0.0"
 val zioInteropCats3Version    = "23.1.0.1"
@@ -240,7 +240,7 @@ lazy val tracing = project
       "dev.zio"         %% "zio-opentelemetry"         % zioOpenTelemetryVersion,
       "dev.zio"         %% "zio-test"                  % zioVersion % Test,
       "dev.zio"         %% "zio-test-sbt"              % zioVersion % Test,
-      "io.opentelemetry" % "opentelemetry-sdk-testing" % "1.34.1"   % Test
+      "io.opentelemetry" % "opentelemetry-sdk-testing" % "1.35.0"   % Test
     )
   )
   .dependsOn(core, tools)
@@ -294,7 +294,7 @@ lazy val catsInterop = project
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= {
       if (scalaVersion.value == scala3) Seq()
-      else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.2").cross(CrossVersion.full)))
+      else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.3").cross(CrossVersion.full)))
     } ++ Seq(
       "org.typelevel" %% "cats-effect"      % catsEffect3Version,
       "co.fs2"        %% "fs2-core"         % fs2Version,
@@ -328,7 +328,7 @@ lazy val tapirInterop = project
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= {
       if (scalaVersion.value == scala3) Seq()
-      else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.2").cross(CrossVersion.full)))
+      else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.3").cross(CrossVersion.full)))
     } ++
       Seq(
         "com.softwaremill.sttp.tapir"   %% "tapir-core"                    % tapirVersion,
@@ -351,7 +351,7 @@ lazy val http4s = project
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= {
       if (scalaVersion.value == scala3) Seq()
-      else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.2").cross(CrossVersion.full)))
+      else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.3").cross(CrossVersion.full)))
     } ++
       Seq(
         "dev.zio"                               %% "zio-interop-cats"        % zioInteropCats3Version,
@@ -417,7 +417,7 @@ lazy val akkaHttp = project
       "com.typesafe.akka"             %% "akka-serialization-jackson" % akkaVersion,
       "com.softwaremill.sttp.tapir"   %% "tapir-akka-http-server"     % tapirVersion,
       "com.softwaremill.sttp.tapir"   %% "tapir-json-circe"           % tapirVersion % Test,
-      compilerPlugin(("org.typelevel" %% "kind-projector"             % "0.13.2").cross(CrossVersion.full))
+      compilerPlugin(("org.typelevel" %% "kind-projector"             % "0.13.3").cross(CrossVersion.full))
     )
   )
   .dependsOn(core, tapirInterop % "compile->compile;test->test")
@@ -431,7 +431,7 @@ lazy val pekkoHttp = project
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= {
       if (scalaVersion.value == scala3) Seq()
-      else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.2").cross(CrossVersion.full)))
+      else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.3").cross(CrossVersion.full)))
     } ++ Seq(
       "org.apache.pekko"            %% "pekko-http"              % pekkoHttpVersion,
       "com.softwaremill.sttp.tapir" %% "tapir-pekko-http-server" % tapirVersion,
@@ -452,7 +452,7 @@ lazy val play = project
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= {
       if (scalaVersion.value == scala3) Seq()
-      else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.2").cross(CrossVersion.full)))
+      else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.3").cross(CrossVersion.full)))
     },
     libraryDependencies ++= Seq(
       "org.playframework"           %% "play"                   % playVersion,

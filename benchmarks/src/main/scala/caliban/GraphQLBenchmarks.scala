@@ -27,207 +27,9 @@ import scala.concurrent.{ Await, ExecutionContextExecutor, Future }
 @Measurement(iterations = 5, time = 3, timeUnit = TimeUnit.SECONDS)
 @Fork(1)
 class GraphQLBenchmarks {
+  import GraphQLBenchmarks._
+
   implicit val executionContext: ExecutionContextExecutor = scala.concurrent.ExecutionContext.global
-
-  val simpleQuery: String =
-    """{
-          characters{
-            name
-            origin
-          }
-       }""".stripMargin
-
-  val fullIntrospectionQuery = """
-              query IntrospectionQuery {
-                __schema {
-                  queryType { name }
-                  mutationType { name }
-                  subscriptionType { name }
-                  types {
-                    ...FullType
-                  }
-                  directives {
-                    name
-                    description
-                    locations
-                    args {
-                      ...InputValue
-                    }
-                  }
-                }
-              }
-
-              fragment FullType on __Type {
-                kind
-                name
-                description
-                fields(includeDeprecated: true) {
-                  name
-                  description
-                  args {
-                    ...InputValue
-                  }
-                  type {
-                    ...TypeRef
-                  }
-                  isDeprecated
-                  deprecationReason
-                }
-                inputFields {
-                  ...InputValue
-                }
-                interfaces {
-                  ...TypeRef
-                }
-                enumValues(includeDeprecated: true) {
-                  name
-                  description
-                  isDeprecated
-                  deprecationReason
-                }
-                possibleTypes {
-                  ...TypeRef
-                }
-              }
-
-              fragment InputValue on __InputValue {
-                name
-                description
-                type { ...TypeRef }
-                defaultValue
-              }
-
-              fragment TypeRef on __Type {
-                kind
-                name
-                ofType {
-                  kind
-                  name
-                  ofType {
-                    kind
-                    name
-                    ofType {
-                      kind
-                      name
-                      ofType {
-                        kind
-                        name
-                        ofType {
-                          kind
-                          name
-                          ofType {
-                            kind
-                            name
-                            ofType {
-                              kind
-                              name
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-                """
-
-  val fragmentsQuery = s"""
-              query IntrospectionQuery {
-                __schema {
-                  queryType {
-                    name
-                    ${"...on __Type { name }" * 100}
-                  }
-                  mutationType { name }
-                  subscriptionType { name }
-                  types {
-                    ...FullType
-                  }
-                  directives {
-                    name
-                    description
-                    locations
-                    args {
-                      ...InputValue
-                    }
-                  }
-                }
-              }
-
-              fragment FullType on __Type {
-                kind
-                name
-                description
-                fields(includeDeprecated: true) {
-                  name
-                  description
-                  args {
-                    ...InputValue
-                  }
-                  type {
-                    ...TypeRef
-                  }
-                  isDeprecated
-                  deprecationReason
-                }
-                inputFields {
-                  ...InputValue
-                }
-                interfaces {
-                  ...TypeRef
-                }
-                enumValues(includeDeprecated: true) {
-                  name
-                  description
-                  isDeprecated
-                  deprecationReason
-                }
-                possibleTypes {
-                  ...TypeRef
-                }
-              }
-
-              fragment InputValue on __InputValue {
-                name
-                description
-                type { ...TypeRef }
-                defaultValue
-              }
-
-              fragment TypeRef on __Type {
-                kind
-                name
-                ofType {
-                  kind
-                  name
-                  ofType {
-                    kind
-                    name
-                    ofType {
-                      kind
-                      name
-                      ofType {
-                        kind
-                        name
-                        ofType {
-                          kind
-                          name
-                          ofType {
-                            kind
-                            name
-                            ofType {
-                              kind
-                              name
-                              ${"...on __Type { kind name }" * 1000}
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-                """
 
   object Caliban {
     import caliban.schema.Schema
@@ -633,4 +435,207 @@ class GraphQLBenchmarks {
     gql.parser.parseQuery(fullIntrospectionQuery)
     ()
   }
+}
+
+object GraphQLBenchmarks {
+  val simpleQuery: String =
+    """{
+          characters{
+            name
+            origin
+          }
+       }""".stripMargin
+
+  val fullIntrospectionQuery = """
+              query IntrospectionQuery {
+                __schema {
+                  queryType { name }
+                  mutationType { name }
+                  subscriptionType { name }
+                  types {
+                    ...FullType
+                  }
+                  directives {
+                    name
+                    description
+                    locations
+                    args {
+                      ...InputValue
+                    }
+                  }
+                }
+              }
+
+              fragment FullType on __Type {
+                kind
+                name
+                description
+                fields(includeDeprecated: true) {
+                  name
+                  description
+                  args {
+                    ...InputValue
+                  }
+                  type {
+                    ...TypeRef
+                  }
+                  isDeprecated
+                  deprecationReason
+                }
+                inputFields {
+                  ...InputValue
+                }
+                interfaces {
+                  ...TypeRef
+                }
+                enumValues(includeDeprecated: true) {
+                  name
+                  description
+                  isDeprecated
+                  deprecationReason
+                }
+                possibleTypes {
+                  ...TypeRef
+                }
+              }
+
+              fragment InputValue on __InputValue {
+                name
+                description
+                type { ...TypeRef }
+                defaultValue
+              }
+
+              fragment TypeRef on __Type {
+                kind
+                name
+                ofType {
+                  kind
+                  name
+                  ofType {
+                    kind
+                    name
+                    ofType {
+                      kind
+                      name
+                      ofType {
+                        kind
+                        name
+                        ofType {
+                          kind
+                          name
+                          ofType {
+                            kind
+                            name
+                            ofType {
+                              kind
+                              name
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+                """
+
+  val fragmentsQuery = s"""
+              query IntrospectionQuery {
+                __schema {
+                  queryType {
+                    name
+                    ${"...on __Type { name }" * 100}
+                  }
+                  mutationType { name }
+                  subscriptionType { name }
+                  types {
+                    ...FullType
+                  }
+                  directives {
+                    name
+                    description
+                    locations
+                    args {
+                      ...InputValue
+                    }
+                  }
+                }
+              }
+
+              fragment FullType on __Type {
+                kind
+                name
+                description
+                fields(includeDeprecated: true) {
+                  name
+                  description
+                  args {
+                    ...InputValue
+                  }
+                  type {
+                    ...TypeRef
+                  }
+                  isDeprecated
+                  deprecationReason
+                }
+                inputFields {
+                  ...InputValue
+                }
+                interfaces {
+                  ...TypeRef
+                }
+                enumValues(includeDeprecated: true) {
+                  name
+                  description
+                  isDeprecated
+                  deprecationReason
+                }
+                possibleTypes {
+                  ...TypeRef
+                }
+              }
+
+              fragment InputValue on __InputValue {
+                name
+                description
+                type { ...TypeRef }
+                defaultValue
+              }
+
+              fragment TypeRef on __Type {
+                kind
+                name
+                ofType {
+                  kind
+                  name
+                  ofType {
+                    kind
+                    name
+                    ofType {
+                      kind
+                      name
+                      ofType {
+                        kind
+                        name
+                        ofType {
+                          kind
+                          name
+                          ofType {
+                            kind
+                            name
+                            ofType {
+                              kind
+                              name
+                              ${"...on __Type { kind name }" * 1000}
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+                """
+
 }
