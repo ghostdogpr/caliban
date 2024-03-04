@@ -2,7 +2,7 @@ package caliban.interop.tapir
 
 import caliban._
 import caliban.interop.tapir.TapirAdapter._
-import caliban.ws.{ Protocol, WebSocketHooks }
+import caliban.ws.Protocol
 import sttp.capabilities.zio.ZioStreams
 import sttp.model.{ headers => _ }
 import sttp.tapir.Codec.JsonCodec
@@ -36,7 +36,7 @@ object WebSocketInterpreter {
   private case class Base[R, E](
     interpreter: GraphQLInterpreter[R, E],
     keepAliveTime: Option[Duration],
-    webSocketHooks: WebSocketHooks[R, E]
+    webSocketHooks: ws.WebSocketHooks[R, E]
   )(implicit
     inputCodec: JsonCodec[GraphQLWSInput],
     outputCodec: JsonCodec[GraphQLWSOutput]
@@ -77,7 +77,7 @@ object WebSocketInterpreter {
   def apply[R, E](
     interpreter: GraphQLInterpreter[R, E],
     keepAliveTime: Option[Duration] = None,
-    webSocketHooks: WebSocketHooks[R, E] = WebSocketHooks.empty[R, E]
+    webSocketHooks: ws.WebSocketHooks[R, E] = ws.WebSocketHooks.empty[R, E]
   )(implicit
     inputCodec: JsonCodec[GraphQLWSInput],
     outputCodec: JsonCodec[GraphQLWSOutput]
