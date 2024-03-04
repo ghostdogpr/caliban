@@ -43,8 +43,8 @@ final class QuickAdapter[-R] private (requestHandler: QuickRequestHandler[R]) {
     val uploadRoute   = uploadPath.toList.map { uPath =>
       RoutePattern(Method.POST, uPath) -> handlers.upload
     }
-    val wsRoute       = webSocketPath.toList.map { uPath =>
-      RoutePattern(Method.ANY, uPath) -> handlers.webSocket
+    val wsRoute       = webSocketPath.toList.map { wsPath =>
+      RoutePattern(Method.ANY, wsPath) -> handlers.webSocket
     }
     Routes.fromIterable(apiRoutes ::: graphiqlRoute ::: uploadRoute ::: wsRoute).toHttpApp
   }
@@ -76,8 +76,8 @@ final class QuickAdapter[-R] private (requestHandler: QuickRequestHandler[R]) {
   def configure[R1](configurator: QuickAdapter.Configurator[R1])(implicit trace: Trace): QuickAdapter[R & R1] =
     new QuickAdapter(requestHandler.configure[R1](configurator))
 
-  def configureWebSockets[R1](config: quick.WebSocketConfig[R1]): QuickAdapter[R & R1] =
-    new QuickAdapter(requestHandler.configureWebSockets(config))
+  def configureWebSocket[R1](config: quick.WebSocketConfig[R1]): QuickAdapter[R & R1] =
+    new QuickAdapter(requestHandler.configureWebSocket(config))
 
 }
 

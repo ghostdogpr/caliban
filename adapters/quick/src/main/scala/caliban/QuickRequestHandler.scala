@@ -39,7 +39,7 @@ final private class QuickRequestHandler[R](
       wsConfig
     )
 
-  def configureWebSockets[R1](config: quick.WebSocketConfig[R1]): QuickRequestHandler[R & R1] =
+  def configureWebSocket[R1](config: quick.WebSocketConfig[R1]): QuickRequestHandler[R & R1] =
     new QuickRequestHandler[R & R1](interpreter, config)
 
   def handleHttpRequest(request: Request)(implicit trace: Trace): URIO[R, Response] =
@@ -55,14 +55,14 @@ final private class QuickRequestHandler[R](
         .provideSomeLayer[R](fileHandle)
     }.merge
 
-  def handleWebSocketRequest(request: Request)(implicit trace: Trace): URIO[R, Response] = {
-    val protocol  = request.headers.get(Header.SecWebSocketProtocol) match {
-      case Some(value) => Protocol.fromName(value.renderedValue)
-      case None        => Protocol.Legacy
+  def handleWebSocketRequest(request: Request)(implicit trace: Trace): URIO[R, Response] =
+    Response.fromSocketApp {
+      val protocol = request.headers.get(Header.SecWebSocketProtocol) match {
+        case Some(value) => Protocol.fromName(value.renderedValue)
+        case None        => Protocol.Legacy
+      }
+      makeSocketApp(protocol).withConfig(wsConfig.zHttpConfig.subProtocol(Some(protocol.name)))
     }
-    val socketApp = makeSocketApp(protocol)
-    Response.fromSocketApp(socketApp.withConfig(WebSocketConfig.default.subProtocol(Some(protocol.name))))
-  }
 
   private def transformHttpRequest(httpReq: Request)(implicit trace: Trace): IO[Response, GraphQLRequest] = {
 

@@ -20,10 +20,9 @@ sealed trait Protocol {
 
 object Protocol {
 
-  def fromName(name: String): Protocol = name match {
-    case GraphQLWS.name => GraphQLWS
-    case _              => Legacy
-  }
+  def fromName(name: String): Protocol =
+    if (name.equalsIgnoreCase(GraphQLWS.name)) GraphQLWS
+    else Legacy
 
   object GraphQLWS extends Protocol {
     object Ops {
@@ -296,7 +295,7 @@ object Protocol {
       GraphQLWSOutput(Ops.ConnectionAck, None, payload)
   }
 
-  private[ws] trait ResponseHandler {
+  private trait ResponseHandler {
     self =>
     def toResponse[E](id: String, fieldName: String, r: ResponseValue, errors: List[E]): GraphQLWSOutput =
       toResponse(id, GraphQLResponse(ObjectValue(List(fieldName -> r)), errors))
@@ -337,7 +336,7 @@ object Protocol {
     }
   }
 
-  private[ws] class SubscriptionManager private (private val tracked: TMap[String, Promise[Any, Unit]]) {
+  private class SubscriptionManager private (private val tracked: TMap[String, Promise[Any, Unit]]) {
     def track(id: String): UStream[Promise[Any, Unit]] =
       ZStream.fromZIO(Promise.make[Any, Unit].tap(tracked.put(id, _).commit))
 
