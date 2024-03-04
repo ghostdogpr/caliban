@@ -1,10 +1,8 @@
-package caliban.interop.tapir.ws
+package caliban.ws
 
 import caliban.ResponseValue.{ ObjectValue, StreamValue }
 import caliban.Value.StringValue
 import caliban._
-import caliban.interop.tapir.TapirAdapter.CalibanPipe
-import caliban.interop.tapir.WebSocketHooks
 import zio.stm.TMap
 import zio.stream.{ UStream, ZStream }
 import zio.{ Duration, Promise, Queue, Random, Ref, Schedule, UIO, URIO, ZIO }
@@ -39,9 +37,9 @@ object Protocol {
       final val ConnectionAck  = "connection_ack"
     }
 
-    val name = "graphql-transport-ws"
+    final val name = "graphql-transport-ws"
 
-    val handler = new ResponseHandler {
+    private val handler: ResponseHandler = new ResponseHandler {
       override def toResponse[E](id: String, r: GraphQLResponse[E]): GraphQLWSOutput =
         GraphQLWSOutput(Ops.Next, Some(id), Some(r.toResponseValue))
 
@@ -190,9 +188,9 @@ object Protocol {
       final val Data                = "data"
     }
 
-    val name = "graphql-ws"
+    final val name = "graphql-ws"
 
-    val handler: ResponseHandler = new ResponseHandler {
+    private val handler: ResponseHandler = new ResponseHandler {
       override def toResponse[E](id: String, r: GraphQLResponse[E]): GraphQLWSOutput =
         GraphQLWSOutput(Ops.Data, Some(id), Some(r.toResponseValue))
 

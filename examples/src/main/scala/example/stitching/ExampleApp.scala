@@ -13,6 +13,8 @@ import sttp.client3.SttpBackend
 import sttp.client3.httpclient.zio._
 import zio._
 
+import scala.annotation.nowarn
+
 object StitchingExample extends GenericSchema[Any] {
   val GITHUB_API = "https://api.github.com/graphql"
 
@@ -102,6 +104,7 @@ import zio.stream._
 import zio.http._
 import caliban.ZHttpAdapter
 
+@nowarn
 object ExampleApp extends ZIOAppDefault {
   import sttp.tapir.json.circe._
 

@@ -1,81 +1,15 @@
 package caliban.interop.tapir
 
-import caliban.{ GraphQLWSOutput, InputValue, ResponseValue }
+import caliban.{ InputValue, ResponseValue }
 import zio.ZIO
-import zio.stream.ZStream
 
-trait StreamTransformer[-R, +E] {
-  def transform[R1 <: R, E1 >: E](stream: ZStream[R1, E1, GraphQLWSOutput]): ZStream[R1, E1, GraphQLWSOutput]
-}
+@deprecated("Use caliban.ws.StreamTransformer instead", "2.6.0")
+trait StreamTransformer[-R, +E] extends caliban.ws.StreamTransformer[R, E]
 
-trait WebSocketHooks[-R, +E] { self =>
-  def beforeInit: Option[InputValue => ZIO[R, E, Any]]                       = None
-  def afterInit: Option[ZIO[R, E, Any]]                                      = None
-  def onMessage: Option[StreamTransformer[R, E]]                             = None
-  def onPong: Option[InputValue => ZIO[R, E, Any]]                           = None
-  def onPing: Option[Option[InputValue] => ZIO[R, E, Option[ResponseValue]]] = None
-  def onAck: Option[ZIO[R, E, ResponseValue]]                                = None
+@deprecated("Use caliban.ws.WebSocketHooks instead", "2.6.0")
+trait WebSocketHooks[-R, +E] extends caliban.ws.WebSocketHooks[R, E]
 
-  def ++[R2 <: R, E2 >: E](other: WebSocketHooks[R2, E2]): WebSocketHooks[R2, E2] =
-    new WebSocketHooks[R2, E2] {
-      override def beforeInit: Option[InputValue => ZIO[R2, E2, Any]] = (self.beforeInit, other.beforeInit) match {
-        case (None, Some(f))      => Some(f)
-        case (Some(f), None)      => Some(f)
-        case (Some(f1), Some(f2)) => Some((x: InputValue) => f1(x) *> f2(x))
-        case _                    => None
-      }
-
-      override def afterInit: Option[ZIO[R2, E2, Any]] = (self.afterInit, other.afterInit) match {
-        case (None, Some(f))      => Some(f)
-        case (Some(f), None)      => Some(f)
-        case (Some(f1), Some(f2)) => Some(f1 &> f2)
-        case _                    => None
-      }
-
-      override def onMessage: Option[StreamTransformer[R2, E2]] =
-        (self.onMessage, other.onMessage) match {
-          case (None, Some(f))      => Some(f)
-          case (Some(f), None)      => Some(f)
-          case (Some(f1), Some(f2)) =>
-            Some(new StreamTransformer[R2, E2] {
-              def transform[R1 <: R2, E1 >: E2](s: ZStream[R1, E1, GraphQLWSOutput]): ZStream[R1, E1, GraphQLWSOutput] =
-                f2.transform(f1.transform(s))
-            })
-          case _                    => None
-        }
-
-      override def onPong: Option[InputValue => ZIO[R2, E2, Any]] = (self.onPong, other.onPong) match {
-        case (None, Some(f))      => Some(f)
-        case (Some(f), None)      => Some(f)
-        case (Some(f1), Some(f2)) => Some((x: InputValue) => f1(x) &> f2(x))
-        case _                    => None
-      }
-
-      override def onPing: Option[Option[InputValue] => ZIO[R2, E2, Option[ResponseValue]]] =
-        (self.onPing, other.onPing) match {
-          case (None, Some(f))      => Some(f)
-          case (Some(f), None)      => Some(f)
-          case (Some(f1), Some(f2)) =>
-            Some { (x: Option[InputValue]) =>
-              f1(x).zipWithPar(f2(x)) {
-                case (a @ Some(_), None) => a
-                case (None, b @ Some(_)) => b
-                case (Some(a), Some(b))  => Some(a.deepMerge(b))
-                case _                   => None
-              }
-            }
-          case _                    => None
-        }
-
-      override def onAck: Option[ZIO[R2, E2, ResponseValue]] = (self.onAck, other.onAck) match {
-        case (None, Some(f))      => Some(f)
-        case (Some(f), None)      => Some(f)
-        case (Some(f1), Some(f2)) => Some((f1 zipWithPar f2)(_ deepMerge _))
-        case _                    => None
-      }
-    }
-}
-
+@deprecated("Use caliban.ws.WebSocketHooks instead", "2.6.0")
 object WebSocketHooks {
   def empty[R, E]: WebSocketHooks[R, E] = new WebSocketHooks[R, E] {}
 

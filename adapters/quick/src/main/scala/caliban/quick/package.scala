@@ -16,16 +16,26 @@ package object quick {
      * @param apiPath The route to serve the API on, e.g., `/api/graphql`
      * @param graphiqlPath Optionally define a route to serve the GraphiQL UI on, e.g., `/graphiql`
      * @param uploadPath Optionally define a route to serve file uploads on, e.g., `/api/upload`
+     * @param webSocketPath The path where websocket requests will be set. If None, websocket-based subscriptions will be disabled.
      */
     def runServer(
       port: Int,
       apiPath: String,
       graphiqlPath: Option[String] = None,
-      uploadPath: Option[String] = None
+      uploadPath: Option[String] = None,
+      webSocketPath: Option[String] = None
     )(implicit
       trace: Trace
     ): RIO[R, Nothing] =
-      gql.interpreter.flatMap(QuickAdapter(_).runServer(port, apiPath, graphiqlPath, uploadPath))
+      gql.interpreter.flatMap(
+        QuickAdapter(_).runServer(
+          port,
+          apiPath = apiPath,
+          graphiqlPath = graphiqlPath,
+          uploadPath = uploadPath,
+          webSocketPath = webSocketPath
+        )
+      )
 
     /**
      * Creates zio-http `HttpApp` from the GraphQL API
@@ -37,9 +47,17 @@ package object quick {
     def toApp(
       apiPath: String,
       graphiqlPath: Option[String] = None,
-      uploadPath: Option[String] = None
+      uploadPath: Option[String] = None,
+      webSocketPath: Option[String] = None
     )(implicit trace: Trace): IO[CalibanError.ValidationError, HttpApp[R]] =
-      gql.interpreter.map(QuickAdapter(_).toApp(apiPath, graphiqlPath, uploadPath))
+      gql.interpreter.map(
+        QuickAdapter(_).toApp(
+          apiPath = apiPath,
+          graphiqlPath = graphiqlPath,
+          uploadPath = uploadPath,
+          webSocketPath = webSocketPath
+        )
+      )
 
     /**
      * Creates a zio-http handler for the GraphQL API

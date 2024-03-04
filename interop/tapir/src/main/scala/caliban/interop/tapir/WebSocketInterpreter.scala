@@ -2,7 +2,7 @@ package caliban.interop.tapir
 
 import caliban._
 import caliban.interop.tapir.TapirAdapter._
-import caliban.interop.tapir.ws.Protocol
+import caliban.ws.{ Protocol, WebSocketHooks }
 import sttp.capabilities.zio.ZioStreams
 import sttp.model.{ headers => _ }
 import sttp.tapir.Codec.JsonCodec

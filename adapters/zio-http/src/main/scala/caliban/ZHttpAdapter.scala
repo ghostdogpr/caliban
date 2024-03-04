@@ -1,12 +1,16 @@
 package caliban
 
-import caliban.interop.tapir.ws.Protocol
 import caliban.interop.tapir.{ HttpInterpreter, WebSocketInterpreter }
+import caliban.ws.Protocol
 import sttp.capabilities.zio.ZioStreams
 import sttp.model.HeaderNames
 import sttp.tapir.server.ziohttp.{ ZioHttpInterpreter, ZioHttpServerOptions }
 import zio.http._
 
+@deprecated(
+  "The `caliban-zio-http` package is deprecated and scheduled to be removed in a future release. To use Caliban with zio-http, use the `caliban-quick` instead",
+  "2.6.0"
+)
 object ZHttpAdapter {
 
   @deprecated("Defining subprotocols in the server config is no longer required")

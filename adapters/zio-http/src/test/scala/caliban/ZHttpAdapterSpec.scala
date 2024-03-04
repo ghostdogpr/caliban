@@ -15,8 +15,10 @@ import zio._
 import zio.http._
 import zio.test.{ Live, ZIOSpecDefault }
 
+import scala.annotation.nowarn
 import scala.language.postfixOps
 
+@nowarn
 object ZHttpAdapterSpec extends ZIOSpecDefault {
   import sttp.tapir.json.zio._
 
