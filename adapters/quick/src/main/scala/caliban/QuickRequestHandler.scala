@@ -39,7 +39,7 @@ final private class QuickRequestHandler[R](
       wsConfig
     )
 
-  def configure[R1](config: quick.WebSocketConfig[R1]): QuickRequestHandler[R & R1] =
+  def configureWebSockets[R1](config: quick.WebSocketConfig[R1]): QuickRequestHandler[R & R1] =
     new QuickRequestHandler[R & R1](interpreter, config)
 
   def handleHttpRequest(request: Request)(implicit trace: Trace): URIO[R, Response] =
