@@ -125,15 +125,15 @@ trait SchemaDerivation[R] extends CommonSchemaDerivation {
 
   final lazy val auto = new AutoSchemaDerivation[Any] {}
 
-  sealed trait SemiAuto[A] extends Schema[R, A]
-  object SemiAuto {
-    inline def derived[A]: SemiAuto[A]                       = exported(Schema.derived[R, A])
-    private def exported[A](impl: Schema[R, A]): SemiAuto[A] = new {
-      export impl.*
-    }
+  final class SemiAuto[A](impl: Schema[R, A]) extends Schema[R, A] {
+    export impl.*
   }
 
-  sealed trait Auto[A] extends Schema[R, A] {
+  object SemiAuto {
+    inline def derived[A]: SemiAuto[A] = new SemiAuto[A](Schema.derived[R, A])
+  }
+
+  sealed abstract class Auto[A] extends Schema[R, A] {
     inline given genAuto[T](using NotGiven[Schema[R, T]]): Schema[R, T] = derived[R, T]
   }
 

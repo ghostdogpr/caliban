@@ -77,8 +77,8 @@ object Step {
       }
 }
 
-sealed trait ReducedStep[-R] { self =>
-  def isPure: Boolean = false
+sealed abstract class ReducedStep[-R] { self =>
+  final def isPure: Boolean = self.isInstanceOf[PureStep]
 }
 
 object ReducedStep {
@@ -105,6 +105,4 @@ object ReducedStep {
  *
  * @param value the response value to return for that step
  */
-case class PureStep(value: ResponseValue) extends Step[Any] with ReducedStep[Any] {
-  final override def isPure: Boolean = true
-}
+case class PureStep(value: ResponseValue) extends ReducedStep[Any] with Step[Any]
