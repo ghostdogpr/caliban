@@ -14,7 +14,7 @@ import zio.http.ChannelEvent.UserEvent.HandshakeComplete
 import zio.http.Header.ContentType
 import zio.http._
 import zio.stacktracer.TracingImplicits.disableAutoTrace
-import zio.stream.{ UStream, ZStream }
+import zio.stream.{ UStream, ZPipeline, ZStream }
 
 import java.nio.charset.StandardCharsets.UTF_8
 import scala.util.control.NonFatal
@@ -61,7 +61,9 @@ final private class QuickRequestHandler[R](
         case Some(value) => Protocol.fromName(value.renderedValue)
         case None        => Protocol.Legacy
       }
-      makeSocketApp(protocol).withConfig(wsConfig.zHttpConfig.subProtocol(Some(protocol.name)))
+      Handler
+        .webSocket(webSocketChannelListener(protocol))
+        .withConfig(wsConfig.zHttpConfig.subProtocol(Some(protocol.name)))
     }
 
   private def transformHttpRequest(httpReq: Request)(implicit trace: Trace): IO[Response, GraphQLRequest] = {
@@ -234,29 +236,27 @@ final private class QuickRequestHandler[R](
       .get(GraphQLRequest.`apollo-federation-include-trace`)
       .exists(_.equalsIgnoreCase(GraphQLRequest.ftv1))
 
-  private def makeSocketApp(protocol: Protocol)(implicit trace: Trace): WebSocketApp[R] =
-    Handler.webSocket[R] { ch =>
-      for {
-        queue <- Queue.unbounded[GraphQLWSInput]
-        pipe  <- protocol.make(interpreter, wsConfig.keepAliveTime, wsConfig.hooks)
-        in     = ZStream.fromQueueWithShutdown(queue)
-        out    = pipe(in).map {
+  private def webSocketChannelListener(protocol: Protocol)(ch: WebSocketChannel)(implicit trace: Trace): RIO[R, Unit] =
+    for {
+      queue <- Queue.unbounded[GraphQLWSInput]
+      pipe  <- protocol.make(interpreter, wsConfig.keepAliveTime, wsConfig.hooks).map(ZPipeline.fromFunction(_))
+      out    = ZStream
+                 .fromQueueWithShutdown(queue)
+                 .via(pipe)
+                 .interruptWhen(ch.awaitShutdown)
+                 .map {
                    case Right(output) => WebSocketFrame.Text(writeToString(output))
                    case Left(close)   => WebSocketFrame.Close(close.code, Some(close.reason))
                  }
-        _     <- ZIO.scoped(ch.receiveAll {
-                   case ChannelEvent.UserEventTriggered(HandshakeComplete) =>
-                     out
-                       .runForeach(frame => ch.send(ChannelEvent.Read(frame)))
-                       .race(ch.awaitShutdown)
-                       .forkScoped
-                   case ChannelEvent.Read(WebSocketFrame.Text(text))       =>
-                     ZIO.attempt(readFromString[GraphQLWSInput](text)).flatMap(queue.offer(_))
-                   case _                                                  =>
-                     ZIO.unit
-                 })
-      } yield ()
-    }
+      _     <- ZIO.scoped(ch.receiveAll {
+                 case ChannelEvent.UserEventTriggered(HandshakeComplete) =>
+                   out.runForeach(frame => ch.send(ChannelEvent.Read(frame))).forkScoped
+                 case ChannelEvent.Read(WebSocketFrame.Text(text))       =>
+                   ZIO.suspend(queue.offer(readFromString[GraphQLWSInput](text)))
+                 case _                                                  =>
+                   ZIO.unit
+               })
+    } yield ()
 }
 
 object QuickRequestHandler {

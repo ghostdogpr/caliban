@@ -1,10 +1,16 @@
 package caliban.interop.tapir
 
-import caliban.{ InputValue, ResponseValue }
+import caliban.{ GraphQLWSOutput, InputValue, ResponseValue }
 import zio.ZIO
+import zio.stream.{ ZPipeline, ZStream }
 
-@deprecated("Use caliban.ws.StreamTransformer instead", "2.6.0")
-trait StreamTransformer[-R, +E] extends caliban.ws.StreamTransformer[R, E]
+@deprecated(
+  "No longer used. WebSocketHooks.onMessage now uses a ZPipeline instead. To convert your existing logic into a ZPipeline, use `ZPipeline.fromFunction`",
+  "2.6.0"
+)
+trait StreamTransformer[-R, +E] {
+  def transform[R1 <: R, E1 >: E](stream: ZStream[R1, E1, GraphQLWSOutput]): ZStream[R1, E1, GraphQLWSOutput]
+}
 
 @deprecated("Use caliban.ws.WebSocketHooks instead", "2.6.0")
 trait WebSocketHooks[-R, +E] extends caliban.ws.WebSocketHooks[R, E]
@@ -39,9 +45,9 @@ object WebSocketHooks {
    * to inject session information into the `ZStream` handling the
    * subscription.
    */
-  def message[R, E](f: StreamTransformer[R, E]): WebSocketHooks[R, E] =
+  def message[R, E](f: ZPipeline[R, E, GraphQLWSOutput, GraphQLWSOutput]): WebSocketHooks[R, E] =
     new WebSocketHooks[R, E] {
-      override def onMessage: Option[StreamTransformer[R, E]] = Some(f)
+      override def onMessage: Option[ZPipeline[R, E, GraphQLWSOutput, GraphQLWSOutput]] = Some(f)
     }
 
   /**

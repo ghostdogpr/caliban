@@ -123,8 +123,7 @@ object Protocol {
                                      ZIO.ifZIO(subscriptions.isTracking(id))(
                                        output.offer(Left(GraphQLWSClose(4409, s"Subscriber for $id already exists"))).unit,
                                        webSocketHooks.onMessage
-                                         .map(_.transform(stream))
-                                         .getOrElse(stream)
+                                         .fold(stream)(stream.via(_))
                                          .map(Right(_))
                                          .runForeachChunk(output.offerAll)
                                          .catchAll(e => output.offer(Right(handler.error(Some(id), e))))
@@ -255,8 +254,7 @@ object Protocol {
                                        val stream =
                                          handler.generateGraphQLResponse(req, id.getOrElse(""), interpreter, subscriptions)
                                        webSocketHooks.onMessage
-                                         .map(_.transform(stream))
-                                         .getOrElse(stream)
+                                         .fold(stream)(stream.via(_))
                                          .runForeachChunk(o => output.offerAll(o.map(Right(_))))
                                          .catchAll(e => output.offer(Right(handler.error(id, e))))
                                          .fork

@@ -2,16 +2,12 @@ package caliban.ws
 
 import caliban.{ GraphQLWSOutput, InputValue, ResponseValue }
 import zio.ZIO
-import zio.stream.ZStream
-
-trait StreamTransformer[-R, +E] {
-  def transform[R1 <: R, E1 >: E](stream: ZStream[R1, E1, GraphQLWSOutput]): ZStream[R1, E1, GraphQLWSOutput]
-}
+import zio.stream.ZPipeline
 
 trait WebSocketHooks[-R, +E] { self =>
   def beforeInit: Option[InputValue => ZIO[R, E, Any]]                       = None
   def afterInit: Option[ZIO[R, E, Any]]                                      = None
-  def onMessage: Option[StreamTransformer[R, E]]                             = None
+  def onMessage: Option[ZPipeline[R, E, GraphQLWSOutput, GraphQLWSOutput]]   = None
   def onPong: Option[InputValue => ZIO[R, E, Any]]                           = None
   def onPing: Option[Option[InputValue] => ZIO[R, E, Option[ResponseValue]]] = None
   def onAck: Option[ZIO[R, E, ResponseValue]]                                = None
@@ -32,15 +28,11 @@ trait WebSocketHooks[-R, +E] { self =>
         case _                    => None
       }
 
-      override def onMessage: Option[StreamTransformer[R2, E2]] =
+      override def onMessage: Option[ZPipeline[R2, E2, GraphQLWSOutput, GraphQLWSOutput]] =
         (self.onMessage, other.onMessage) match {
           case (None, Some(f))      => Some(f)
           case (Some(f), None)      => Some(f)
-          case (Some(f1), Some(f2)) =>
-            Some(new StreamTransformer[R2, E2] {
-              def transform[R1 <: R2, E1 >: E2](s: ZStream[R1, E1, GraphQLWSOutput]): ZStream[R1, E1, GraphQLWSOutput] =
-                f2.transform(f1.transform(s))
-            })
+          case (Some(f1), Some(f2)) => Some(f1.andThen(f2))
           case _                    => None
         }
 
@@ -100,14 +92,14 @@ object WebSocketHooks {
     }
 
   /**
-   * Specifies a callback that will be run on the resulting `ZStream`
+   * Specifies a ZPipeline that will be applied to the resulting `ZStream`
    * for every active subscription. Useful to e.g modify the environment
    * to inject session information into the `ZStream` handling the
    * subscription.
    */
-  def message[R, E](f: StreamTransformer[R, E]): WebSocketHooks[R, E] =
+  def message[R, E](f: ZPipeline[R, E, GraphQLWSOutput, GraphQLWSOutput]): WebSocketHooks[R, E] =
     new WebSocketHooks[R, E] {
-      override def onMessage: Option[StreamTransformer[R, E]] = Some(f)
+      override def onMessage: Option[ZPipeline[R, E, GraphQLWSOutput, GraphQLWSOutput]] = Some(f)
     }
 
   /**
