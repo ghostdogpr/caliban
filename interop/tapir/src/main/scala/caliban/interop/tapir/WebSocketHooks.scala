@@ -5,7 +5,7 @@ import zio.ZIO
 import zio.stream.{ ZPipeline, ZStream }
 
 @deprecated(
-  "No longer used. WebSocketHooks.onMessage now uses a ZPipeline instead. To convert your existing logic into a ZPipeline, use `ZPipeline.fromFunction`",
+  "WebSocketHooks.onMessage now uses a ZPipeline instead. To convert your existing logic into a ZPipeline, use `ZPipeline.fromFunction`",
   "2.6.0"
 )
 trait StreamTransformer[-R, +E] {
@@ -41,6 +41,18 @@ object WebSocketHooks {
 
   /**
    * Specifies a callback that will be run on the resulting `ZStream`
+   * for every active subscription. Useful to e.g modify the environment
+   * to inject session information into the `ZStream` handling the
+   * subscription.
+   */
+  def message[R, E](f: StreamTransformer[R, E]): WebSocketHooks[R, E] =
+    new WebSocketHooks[R, E] {
+      override def onMessage: Option[ZPipeline[R, E, GraphQLWSOutput, GraphQLWSOutput]] =
+        Some(ZPipeline.fromFunction(f.transform))
+    }
+
+  /**
+   * Specifies a ZPipeline that will be applied on the resulting `ZStream`
    * for every active subscription. Useful to e.g modify the environment
    * to inject session information into the `ZStream` handling the
    * subscription.
