@@ -8,7 +8,7 @@ import sttp.tapir.server.ziohttp.{ ZioHttpInterpreter, ZioHttpServerOptions }
 import zio.http._
 
 @deprecated(
-  "The `caliban-zio-http` package is deprecated and scheduled to be removed in a future release. To use Caliban with zio-http, use the `caliban-quick` instead",
+  "The `caliban-zio-http` package is deprecated and scheduled to be removed in a future release. To use Caliban with zio-http, use the `caliban-quick` module instead",
   "2.6.0"
 )
 object ZHttpAdapter {
