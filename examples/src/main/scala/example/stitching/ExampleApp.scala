@@ -102,7 +102,7 @@ object ExampleApp extends ZIOAppDefault {
   def run =
     StitchingExample.api.flatMap {
       _.runServer(
-        port = 8090,
+        port = 8080,
         apiPath = "/api/graphql",
         graphiqlPath = Some("/graphiql"),
         webSocketPath = Some("/ws/graphql")
