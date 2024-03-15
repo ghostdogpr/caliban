@@ -43,7 +43,8 @@ object ConfigSpec extends ZIOSpecDefault {
               preserveInputNames = None,
               supportIsRepeatable = Some(true),
               addDerives = None,
-              envForDerives = None
+              envForDerives = None,
+              excludeDeprecated = None
             )
         )
       )
