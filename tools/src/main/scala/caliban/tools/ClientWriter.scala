@@ -109,7 +109,7 @@ object ClientWriter {
       ) =
         fieldInfo
 
-        s"""$description${deprecated}def $safeName$typeParam$args$innerSelection$implicits: SelectionBuilder[$typeName, $outputType] = _root_.caliban.client.SelectionBuilder.Field("$name", $builder$argBuilder)"""
+      s"""$description${deprecated}def $safeName$typeParam$args$innerSelection$implicits: SelectionBuilder[$typeName, $outputType] = _root_.caliban.client.SelectionBuilder.Field("$name", $builder$argBuilder)"""
     }
 
     def collectFieldInfo(
@@ -865,10 +865,10 @@ object ClientWriter {
       .map {
         case typedef if excludeDeprecated =>
           val valuesWithoutDeprecated =
-            typedef.enumValuesDefinition.filterNot(_.directives.find(_.name == "deprecated").isDefined)
+            typedef.enumValuesDefinition.filterNot(value => value.directives.find(_.name == "deprecated").isDefined)
 
           typedef.copy(enumValuesDefinition = valuesWithoutDeprecated)
-        case typedef => typedef
+        case typedef                      => typedef
       }
       .map { typedef =>
         val content     = writeEnum(typedef, extensibleEnums = extensibleEnums)
