@@ -218,6 +218,8 @@ object Executor {
         if (steps.isEmpty) PureStep(ListValue(Nil))
         else {
           reduceStep(steps.head, currentField, arguments, PathValue.Index(0) :: path) match {
+            // In 99.99% of the cases, if the head is pure, all the other elements will be pure as well but we catch that error just in case
+            // NOTE: Our entire test suite passes without catching the error
             case step: PureStep =>
               try reduceToPureStep(step, steps.tail)
               catch { case _: ClassCastException => reduceToListStep(step, steps.tail) }
