@@ -159,7 +159,7 @@ object Executor {
           } else (Nil, filteredFields.map(reduceField))
         }
 
-        val eagerReduced = reduceObject(eager, wrapPureValues)
+        val eagerReduced = reduceObject(eager)
         deferred match {
           case Nil => eagerReduced
           case d   =>
@@ -167,7 +167,7 @@ object Executor {
               eagerReduced,
               d.groupBy(_._1).toList.map { case (label, labelAndFields) =>
                 val (_, fields) = labelAndFields.unzip
-                reduceObject(fields, wrapPureValues) -> label
+                reduceObject(fields) -> label
               },
               path
             )
@@ -327,10 +327,7 @@ object Executor {
     ): FieldInfo =
       FieldInfo(aliasedName, field, path, fieldDirectives, field.parentType)
 
-    private def reduceObject(
-      items: List[(String, ReducedStep[R], FieldInfo)],
-      wrapPureValues: Boolean
-    ): ReducedStep[R] = {
+    private def reduceObject(items: List[(String, ReducedStep[R], FieldInfo)]): ReducedStep[R] = {
       var hasPures   = false
       var hasQueries = false
       val nil        = Nil
