@@ -78,20 +78,37 @@ object Step {
 }
 
 sealed abstract class ReducedStep[-R] { self =>
-  final def isPure: Boolean = self.isInstanceOf[PureStep]
+  def isPure: Boolean
 }
 
 object ReducedStep {
-  case class ListStep[-R](steps: List[ReducedStep[R]], areItemsNullable: Boolean) extends ReducedStep[R]
-  case class ObjectStep[-R](fields: List[(String, ReducedStep[R], FieldInfo)], hasPureFields: Boolean)
-      extends ReducedStep[R]
-  case class QueryStep[-R](query: ZQuery[R, ExecutionError, ReducedStep[R]])      extends ReducedStep[R]
-  case class StreamStep[-R](inner: ZStream[R, ExecutionError, ReducedStep[R]])    extends ReducedStep[R]
-  case class DeferStep[-R](
+  final case class ListStep[-R](
+    steps: List[ReducedStep[R]],
+    areItemsNullable: Boolean,
+    isPure: Boolean
+  ) extends ReducedStep[R]
+
+  final case class ObjectStep[-R](
+    fields: List[(String, ReducedStep[R], FieldInfo)],
+    hasPureFields: Boolean,
+    isPure: Boolean
+  ) extends ReducedStep[R]
+
+  final case class QueryStep[-R](query: ZQuery[R, ExecutionError, ReducedStep[R]]) extends ReducedStep[R] {
+    final val isPure = false
+  }
+
+  final case class StreamStep[-R](inner: ZStream[R, ExecutionError, ReducedStep[R]]) extends ReducedStep[R] {
+    final val isPure = false
+  }
+
+  final case class DeferStep[-R](
     obj: ReducedStep[R],
     deferred: List[(ReducedStep[R], Option[String])],
     path: List[PathValue]
-  ) extends ReducedStep[R]
+  ) extends ReducedStep[R] {
+    final val isPure = false
+  }
 
   // PureStep is both a Step and a ReducedStep so it is defined outside this object
   // This is to avoid boxing/unboxing pure values during step reduction
@@ -105,4 +122,6 @@ object ReducedStep {
  *
  * @param value the response value to return for that step
  */
-case class PureStep(value: ResponseValue) extends ReducedStep[Any] with Step[Any]
+final case class PureStep(value: ResponseValue) extends ReducedStep[Any] with Step[Any] {
+  final val isPure = true
+}
