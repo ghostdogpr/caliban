@@ -52,7 +52,8 @@ trait Config {
          |  splitFiles = $splitFiles,
          |  enableFmt = $enableFmt,
          |  extensibleEnums = $extensibleEnums,
-         |  supportIsRepeatable = $supportIsRepeatable
+         |  supportIsRepeatable = $supportIsRepeatable,
+         |  excludeDeprecated = $excludeDeprecated
          |)
       """.stripMargin.trim
     }
