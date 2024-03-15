@@ -175,7 +175,8 @@ object Executor {
       }
 
       def reduceListStep(steps: List[Step[R]]): ReducedStep[R] = {
-        def reduceMixed(head: ReducedStep[R], remaining0: List[Step[R]]): ReducedStep[R] = {
+
+        def reduceToListStep(head: ReducedStep[R], remaining0: List[Step[R]]): ReducedStep[R] = {
           var i         = 1
           val nil       = Nil
           val lb        = ListBuffer.empty[ReducedStep[R]]
@@ -199,7 +200,7 @@ object Executor {
           )
         }
 
-        def reducePures(head: PureStep, remaining0: List[Step[R]]): ReducedStep[R] = {
+        def reduceToPureStep(head: PureStep, remaining0: List[Step[R]]): ReducedStep[R] = {
           var i         = 1
           val nil       = Nil
           val lb        = ListBuffer.empty[ResponseValue]
@@ -216,13 +217,12 @@ object Executor {
 
         if (steps.isEmpty) PureStep(ListValue(Nil))
         else {
-          val step = reduceStep(steps.head, currentField, arguments, PathValue.Index(0) :: path)
-          if (step.isPure) {
-            // In 99.99% of the cases, if the head is pure, all the other elements will be pure as well but we catch that error just in case
-            // NOTE: Our entire test suite passes without catching the error
-            try reducePures(step.asInstanceOf[PureStep], steps.tail)
-            catch { case _: ClassCastException => reduceMixed(step, steps.tail) }
-          } else reduceMixed(step, steps.tail)
+          reduceStep(steps.head, currentField, arguments, PathValue.Index(0) :: path) match {
+            case step: PureStep =>
+              try reduceToPureStep(step, steps.tail)
+              catch { case _: ClassCastException => reduceToListStep(step, steps.tail) }
+            case step           => reduceToListStep(step, steps.tail)
+          }
         }
       }
 
@@ -335,8 +335,8 @@ object Executor {
       var remaining  = items
       while ((remaining ne nil) && !(hasPures && hasQueries)) {
         val isPure = remaining.head._2.isPure
-        if (!hasPures && isPure) hasPures = true
-        else if (!hasQueries && !isPure) hasQueries = true
+        if (isPure && !hasPures) hasPures = true
+        else if (!isPure && !hasQueries) hasQueries = true
         else ()
         remaining = remaining.tail
       }
