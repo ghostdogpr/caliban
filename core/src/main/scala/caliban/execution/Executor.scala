@@ -179,10 +179,12 @@ object Executor {
           var i         = 1
           val nil       = Nil
           val lb        = ListBuffer.empty[ReducedStep[R]]
+          var isPure    = wrapPureValues && head.isPure
           lb addOne head
           var remaining = remaining0
           while (remaining ne nil) {
             val step = reduceStep(remaining.head, currentField, arguments, PathValue.Index(i) :: path)
+            if (isPure && !step.isPure) isPure = false
             lb addOne step
             i += 1
             remaining = remaining.tail
@@ -192,7 +194,8 @@ object Executor {
             Types.listOf(currentField.fieldType) match {
               case Some(tpe) => tpe.isNullable
               case None      => false
-            }
+            },
+            isPure
           )
         }
 
@@ -327,8 +330,8 @@ object Executor {
       wrapPureValues: Boolean
     ): ReducedStep[R] = {
       var hasPures   = false
+      var hasQueries = false
       val nil        = Nil
-      var hasQueries = wrapPureValues
       var remaining  = items
       while ((remaining ne nil) && !(hasPures && hasQueries)) {
         val isPure = remaining.head._2.isPure
@@ -338,7 +341,7 @@ object Executor {
         remaining = remaining.tail
       }
 
-      if (hasQueries) ReducedStep.ObjectStep(items, hasPures)
+      if (hasQueries || wrapPureValues) ReducedStep.ObjectStep(items, hasPures, !hasQueries)
       else
         PureStep(
           ObjectValue(items.asInstanceOf[List[(String, PureStep, FieldInfo)]].map { case (k, v, _) => (k, v.value) })
@@ -475,11 +478,11 @@ object Executor {
 
       def loop(step: ReducedStep[R], isTopLevelField: Boolean = false): ExecutionQuery[ResponseValue] =
         step match {
-          case PureStep(value)                               => ZQuery.succeed(value)
-          case ReducedStep.QueryStep(step)                   => step.flatMap(loop(_))
-          case ReducedStep.ObjectStep(steps, hasPureFields)  => makeObjectQuery(steps, hasPureFields, isTopLevelField)
-          case ReducedStep.ListStep(steps, areItemsNullable) => makeListQuery(steps, areItemsNullable)
-          case ReducedStep.StreamStep(stream)                =>
+          case PureStep(value)                                  => ZQuery.succeed(value)
+          case ReducedStep.QueryStep(step)                      => step.flatMap(loop(_))
+          case ReducedStep.ObjectStep(steps, hasPureFields, _)  => makeObjectQuery(steps, hasPureFields, isTopLevelField)
+          case ReducedStep.ListStep(steps, areItemsNullable, _) => makeListQuery(steps, areItemsNullable)
+          case ReducedStep.StreamStep(stream)                   =>
             ZQuery
               .environmentWith[R](env =>
                 ResponseValue.StreamValue(
@@ -488,7 +491,7 @@ object Executor {
                   }.provideEnvironment(env)
                 )
               )
-          case ReducedStep.DeferStep(obj, nextSteps, path)   =>
+          case ReducedStep.DeferStep(obj, nextSteps, path)      =>
             val deferredSteps = nextSteps.map { case (step, label) =>
               Deferred(path, step, label)
             }
