@@ -98,6 +98,38 @@ object ApolloFederatedTracing {
     wrapPureValues: Boolean
   ): FieldWrapper[Any] =
     new FieldWrapper[Any](wrapPureValues) {
+
+      private def updateState(startTime: Long, fieldInfo: FieldInfo)(result: Either[ExecutionError, ResponseValue]) =
+        ZQuery.succeed {
+          val endTime = nanoTime
+          val path    = (PathValue.Key(fieldInfo.name) :: fieldInfo.path).toVector
+          val _       = ref.updateAndGet(state =>
+            state.copy(
+              root = state.root.insert(
+                path,
+                Node(
+                  id = Node.Id.ResponseName(fieldInfo.name),
+                  startTime = startTime - state.startTime,
+                  endTime = endTime - state.startTime,
+                  `type` = fieldInfo.details.fieldType.toType().toString,
+                  parentType = fieldInfo.details.parentType.map(_.toType().toString) getOrElse "",
+                  originalFieldName = fieldInfo.details.alias.map(_ => fieldInfo.details.name) getOrElse "",
+                  error = result.left.toOption.collectFirst { case e: ExecutionError =>
+                    Error(
+                      e.getMessage(),
+                      location = e.locationInfo.map(l => Location(l.line, l.column)).toSeq
+                    )
+                  }.toSeq
+                )
+              )
+            )
+          )
+          result match {
+            case Right(value) => value
+            case _            => null
+          }
+        }
+
       def wrap[R1](
         query: ZQuery[R1, CalibanError.ExecutionError, ResponseValue],
         fieldInfo: FieldInfo
@@ -105,34 +137,11 @@ object ApolloFederatedTracing {
         if (enabled.get())
           ZQuery.suspend {
             val startTime = nanoTime
-            query.either.flatMap { result =>
-              ZQuery.fromEither {
-                val endTime = nanoTime
-                val path    = (PathValue.Key(fieldInfo.name) :: fieldInfo.path).toVector
-                val _       = ref.updateAndGet(state =>
-                  state.copy(
-                    root = state.root.insert(
-                      path,
-                      Node(
-                        id = Node.Id.ResponseName(fieldInfo.name),
-                        startTime = startTime - state.startTime,
-                        endTime = endTime - state.startTime,
-                        `type` = fieldInfo.details.fieldType.toType().toString,
-                        parentType = fieldInfo.details.parentType.map(_.toType().toString) getOrElse "",
-                        originalFieldName = fieldInfo.details.alias.map(_ => fieldInfo.details.name) getOrElse "",
-                        error = result.left.toOption.collectFirst { case e: ExecutionError =>
-                          Error(
-                            e.getMessage(),
-                            location = e.locationInfo.map(l => Location(l.line, l.column)).toSeq
-                          )
-                        }.toSeq
-                      )
-                    )
-                  )
-                )
-                result
-              }
-            }
+            val update0   = updateState(startTime, fieldInfo) _
+            query.foldQuery(
+              error => update0(Left(error)) *> ZQuery.fail(error),
+              value => update0(Right(value))
+            )
           }
         else query
 
