@@ -247,7 +247,7 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
         )
       },
       test("enum derivation with description") {
-        sealed trait MyEnum extends scala.Product with scala.Serializable derives Schema.SemiAuto, ArgBuilder
+        sealed trait MyEnum derives Schema.SemiAuto, ArgBuilder
 
         object MyEnum {
           @GQLDescription("comment for ENUM1")
@@ -261,11 +261,7 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
         final case class Query(enum2String: QueryEnum2StringArgs => zio.UIO[String]) derives Schema.SemiAuto
 
         val interpreter = graphQL(
-          RootResolver(
-            Query(
-              enum2String = args => ZIO.succeed(args.select.toString)
-            )
-          )
+          RootResolver(Query(enum2String = args => ZIO.succeed(args.select.toString)))
         ).interpreterUnsafe
 
         for {
