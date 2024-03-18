@@ -39,7 +39,7 @@ sealed trait Wrapper[-R] extends GraphQLAspect[Nothing, R] { self =>
     that.withWrapper(self)
 
   // Disables tracing only for wrappers in the caliban package
-  final private[caliban] def trace: Trace = Trace.empty
+  final private[caliban] implicit def trace: Trace = Trace.empty
 }
 
 object Wrapper {
