@@ -30,6 +30,7 @@ object OptionsParserSpec extends ZIOSpecDefault {
                 None,
                 None,
                 None,
+                None,
                 None
               )
             )
@@ -59,6 +60,7 @@ object OptionsParserSpec extends ZIOSpecDefault {
                 None,
                 None,
                 None,
+                None,
                 None
               )
             )
@@ -74,6 +76,7 @@ object OptionsParserSpec extends ZIOSpecDefault {
                 Options(
                   "schema",
                   "output",
+                  None,
                   None,
                   None,
                   None,
@@ -137,6 +140,7 @@ object OptionsParserSpec extends ZIOSpecDefault {
                   None,
                   None,
                   None,
+                  None,
                   None
                 )
               )
@@ -156,6 +160,7 @@ object OptionsParserSpec extends ZIOSpecDefault {
                   None,
                   None,
                   Some("GraphqlClient.scala"),
+                  None,
                   None,
                   None,
                   None,
@@ -197,6 +202,7 @@ object OptionsParserSpec extends ZIOSpecDefault {
                   None,
                   None,
                   None,
+                  None,
                   None
                 )
               )
@@ -217,6 +223,7 @@ object OptionsParserSpec extends ZIOSpecDefault {
                   None,
                   None,
                   Some(true),
+                  None,
                   None,
                   None,
                   None,
@@ -257,6 +264,7 @@ object OptionsParserSpec extends ZIOSpecDefault {
                   None,
                   None,
                   None,
+                  None,
                   None
                 )
               )
@@ -279,6 +287,7 @@ object OptionsParserSpec extends ZIOSpecDefault {
                   None,
                   None,
                   Some(Map("Long" -> "scala.Long")),
+                  None,
                   None,
                   None,
                   None,
@@ -317,6 +326,7 @@ object OptionsParserSpec extends ZIOSpecDefault {
                   None,
                   None,
                   None,
+                  None,
                   None
                 )
               )
@@ -341,6 +351,7 @@ object OptionsParserSpec extends ZIOSpecDefault {
                   None,
                   None,
                   Some(true),
+                  None,
                   None,
                   None,
                   None,
@@ -377,6 +388,7 @@ object OptionsParserSpec extends ZIOSpecDefault {
                   Some(true),
                   None,
                   None,
+                  None,
                   None
                 )
               )
@@ -407,7 +419,39 @@ object OptionsParserSpec extends ZIOSpecDefault {
                   None,
                   None,
                   None,
+                  None,
                   None
+                )
+              )
+          )
+        }
+      },
+      test("provide excludeDeprecated") {
+        val input = List("schema", "output", "--excludeDeprecated", "true")
+        OptionsParser.fromArgs(input).map { result =>
+          assertTrue(
+            result ==
+              Some(
+                Options(
+                  "schema",
+                  "output",
+                  None,
+                  None,
+                  None,
+                  None,
+                  None,
+                  None,
+                  None,
+                  None,
+                  None,
+                  None,
+                  None,
+                  None,
+                  None,
+                  None,
+                  None,
+                  None,
+                  Some(true)
                 )
               )
           )

@@ -18,7 +18,8 @@ final case class Options(
   preserveInputNames: Option[Boolean],
   supportIsRepeatable: Option[Boolean],
   addDerives: Option[Boolean],
-  envForDerives: Option[String]
+  envForDerives: Option[String],
+  excludeDeprecated: Option[Boolean]
 )
 
 object Options {
