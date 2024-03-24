@@ -110,10 +110,10 @@ object ApolloFederatedTracing {
                 id = Node.Id.ResponseName(fieldInfo.name),
                 startTime = startTime - state.startTime,
                 endTime = endTime - state.startTime,
-                `type` = fieldInfo.details.fieldType.toType().toString,
-                parentType = fieldInfo.details.parentType.map(_.toType().toString) getOrElse "",
+                `type` = fieldInfo.details.fieldType.typeNameRepr,
+                parentType = fieldInfo.details.parentType.map(_.typeNameRepr) getOrElse "",
                 originalFieldName = fieldInfo.details.alias.map(_ => fieldInfo.details.name) getOrElse "",
-                error = error.collectFirst { case e: ExecutionError =>
+                error = error.map { e =>
                   Error(
                     e.getMessage(),
                     location = e.locationInfo.map(l => Location(l.line, l.column)).toSeq
