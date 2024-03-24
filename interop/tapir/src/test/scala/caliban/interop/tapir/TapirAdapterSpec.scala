@@ -7,8 +7,8 @@ import sttp.capabilities.zio.ZioStreams
 import sttp.capabilities.{ Effect, WebSockets }
 import sttp.client3.asynchttpclient.zio.AsyncHttpClientZioBackend
 import sttp.client3.httpclient.zio.SttpClient
-import sttp.client3.{ BasicRequestBody, DeserializationException, HttpError, ResponseException, SttpBackend }
 import sttp.client3.impl.zio.ZioServerSentEvents
+import sttp.client3.{ BasicRequestBody, DeserializationException, HttpError, ResponseException, SttpBackend }
 import sttp.model._
 import sttp.model.sse.ServerSentEvent
 import sttp.tapir.Codec.JsonCodec
@@ -340,7 +340,7 @@ object TapirAdapterSpec {
       runWS.map(runWS =>
         suite("test ws endpoint")(
           test("legacy ws") {
-            import caliban.interop.tapir.ws.Protocol.Legacy.Ops
+            import caliban.ws.Protocol.Legacy.Ops
             val io =
               for {
                 res         <- ZIO.serviceWithZIO[SttpBackend[Task, ZioStreams with WebSockets]](
@@ -395,7 +395,7 @@ object TapirAdapterSpec {
             }
           } @@ TestAspect.timeout(60.seconds),
           test("graphql-ws") {
-            import caliban.interop.tapir.ws.Protocol.GraphQLWS.Ops
+            import caliban.ws.Protocol.GraphQLWS.Ops
             val io =
               for {
                 res         <- ZIO.serviceWithZIO[SttpBackend[Task, ZioStreams with WebSockets]](

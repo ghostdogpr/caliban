@@ -1,12 +1,12 @@
 package example.stitching
 
 import caliban._
-import caliban.interop.tapir.{ HttpInterpreter, WebSocketInterpreter }
-import caliban.schema._
-import caliban.schema.Schema.auto._
+import caliban.quick._
 import caliban.schema.ArgBuilder.auto._
-import caliban.tools.{ Options, RemoteSchema, SchemaLoader }
+import caliban.schema.Schema.auto._
+import caliban.schema._
 import caliban.tools.stitching.{ HttpRequest, RemoteResolver, RemoteSchemaResolver, ResolveRequest }
+import caliban.tools.{ Options, RemoteSchema, SchemaLoader }
 import sttp.capabilities.WebSockets
 import sttp.capabilities.zio.ZioStreams
 import sttp.client3.SttpBackend
@@ -98,35 +98,17 @@ object Configuration {
   private def read(key: String): Task[String] = ZIO.attempt(sys.env(key))
 }
 
-import zio.stream._
-import zio.http._
-import caliban.ZHttpAdapter
-
 object ExampleApp extends ZIOAppDefault {
-  import sttp.tapir.json.circe._
-
-  private val graphiql = Handler.fromResource("graphiql.html").sandbox
-
   def run =
-    (for {
-      api         <- StitchingExample.api
-      interpreter <- api.interpreter
-      _           <-
-        Server
-          .serve(
-            Routes(
-              Method.ANY / "api" / "graphql" ->
-                ZHttpAdapter.makeHttpService(HttpInterpreter(interpreter)),
-              Method.ANY / "ws" / "graphql"  ->
-                ZHttpAdapter.makeWebSocketService(WebSocketInterpreter(interpreter)),
-              Method.ANY / "graphiql"        ->
-                graphiql
-            ).toHttpApp
-          )
-    } yield ())
-      .provide(
-        HttpClientZioBackend.layer(),
-        Configuration.fromEnvironment,
-        Server.default
+    StitchingExample.api.flatMap {
+      _.runServer(
+        port = 8080,
+        apiPath = "/api/graphql",
+        graphiqlPath = Some("/graphiql"),
+        webSocketPath = Some("/ws/graphql")
       )
+    }.provide(
+      HttpClientZioBackend.layer(),
+      Configuration.fromEnvironment
+    )
 }

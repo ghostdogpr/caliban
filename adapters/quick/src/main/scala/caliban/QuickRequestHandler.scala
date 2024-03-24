@@ -6,31 +6,41 @@ import caliban.ResponseValue.StreamValue
 import caliban.interop.jsoniter.ValueJsoniter
 import caliban.uploads.{ FileMeta, GraphQLUploadRequest, Uploads }
 import caliban.wrappers.Caching
+import caliban.ws.Protocol
 import com.github.plokhotnyuk.jsoniter_scala.core._
 import com.github.plokhotnyuk.jsoniter_scala.macros.JsonCodecMaker
 import zio._
+import zio.http.ChannelEvent.UserEvent.HandshakeComplete
 import zio.http.Header.ContentType
 import zio.http._
 import zio.stacktracer.TracingImplicits.disableAutoTrace
-import zio.stream.{ UStream, ZStream }
+import zio.stream.{ UStream, ZPipeline, ZStream }
 
 import java.nio.charset.StandardCharsets.UTF_8
 import scala.util.control.NonFatal
 
-final private class QuickRequestHandler[-R](interpreter: GraphQLInterpreter[R, Any]) {
+final private class QuickRequestHandler[R](
+  interpreter: GraphQLInterpreter[R, Any],
+  wsConfig: quick.WebSocketConfig[R]
+) {
   import QuickRequestHandler._
 
   def configure(config: ExecutionConfiguration)(implicit trace: Trace): QuickRequestHandler[R] =
     new QuickRequestHandler[R](
-      interpreter.wrapExecutionWith[R, Any](Configurator.setWith(config)(_))
+      interpreter.wrapExecutionWith[R, Any](Configurator.setWith(config)(_)),
+      wsConfig
     )
 
   def configure[R1](configurator: QuickAdapter.Configurator[R1])(implicit
     trace: Trace
   ): QuickRequestHandler[R & R1] =
     new QuickRequestHandler[R & R1](
-      interpreter.wrapExecutionWith[R & R1, Any](exec => ZIO.scoped[R1 & R](configurator *> exec))
+      interpreter.wrapExecutionWith[R & R1, Any](exec => ZIO.scoped[R1 & R](configurator *> exec)),
+      wsConfig
     )
+
+  def configureWebSocket[R1](config: quick.WebSocketConfig[R1]): QuickRequestHandler[R & R1] =
+    new QuickRequestHandler[R & R1](interpreter, config)
 
   def handleHttpRequest(request: Request)(implicit trace: Trace): URIO[R, Response] =
     transformHttpRequest(request)
@@ -44,6 +54,17 @@ final private class QuickRequestHandler[-R](interpreter: GraphQLInterpreter[R, A
         .map(transformResponse(request, _))
         .provideSomeLayer[R](fileHandle)
     }.merge
+
+  def handleWebSocketRequest(request: Request)(implicit trace: Trace): URIO[R, Response] =
+    Response.fromSocketApp {
+      val protocol = request.headers.get(Header.SecWebSocketProtocol) match {
+        case Some(value) => Protocol.fromName(value.renderedValue)
+        case None        => Protocol.Legacy
+      }
+      Handler
+        .webSocket(webSocketChannelListener(protocol))
+        .withConfig(wsConfig.zHttpConfig.subProtocol(Some(protocol.name)))
+    }
 
   private def transformHttpRequest(httpReq: Request)(implicit trace: Trace): IO[Response, GraphQLRequest] = {
 
@@ -214,6 +235,28 @@ final private class QuickRequestHandler[-R](interpreter: GraphQLInterpreter[R, A
     req.headers
       .get(GraphQLRequest.`apollo-federation-include-trace`)
       .exists(_.equalsIgnoreCase(GraphQLRequest.ftv1))
+
+  private def webSocketChannelListener(protocol: Protocol)(ch: WebSocketChannel)(implicit trace: Trace): RIO[R, Unit] =
+    for {
+      queue <- Queue.unbounded[GraphQLWSInput]
+      pipe  <- protocol.make(interpreter, wsConfig.keepAliveTime, wsConfig.hooks).map(ZPipeline.fromFunction(_))
+      out    = ZStream
+                 .fromQueueWithShutdown(queue)
+                 .via(pipe)
+                 .interruptWhen(ch.awaitShutdown)
+                 .map {
+                   case Right(output) => WebSocketFrame.Text(writeToString(output))
+                   case Left(close)   => WebSocketFrame.Close(close.code, Some(close.reason))
+                 }
+      _     <- ZIO.scoped(ch.receiveAll {
+                 case ChannelEvent.UserEventTriggered(HandshakeComplete) =>
+                   out.runForeach(frame => ch.send(ChannelEvent.Read(frame))).forkScoped
+                 case ChannelEvent.Read(WebSocketFrame.Text(text))       =>
+                   ZIO.suspend(queue.offer(readFromString[GraphQLWSInput](text)))
+                 case _                                                  =>
+                   ZIO.unit
+               })
+    } yield ()
 }
 
 object QuickRequestHandler {
