@@ -22,7 +22,7 @@ object InputValue {
   }
   case class ObjectValue(fields: Map[String, InputValue]) extends InputValue {
     override def toString: String =
-      fields.map { case (name, value) => s""""$name:${value.toString}"""" }.mkString("{", ",", "}")
+      fields.map { case (name, value) => s""""$name":${value.toString}""" }.mkString("{", ",", "}")
 
     override def toInputString: String = ValueRenderer.inputObjectValueRenderer.render(this)
   }
