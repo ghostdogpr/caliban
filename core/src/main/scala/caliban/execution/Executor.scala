@@ -245,7 +245,7 @@ object Executor {
           )
         } else {
           reduceStep(
-            QueryStep(ZQuery.fromZIO(stream.runCollect.map(chunk => ListStep(chunk.toList)))),
+            QueryStep(ZQuery.fromZIONow(stream.runCollect.map(chunk => ListStep(chunk.toList)))),
             currentField,
             arguments,
             path
@@ -382,7 +382,7 @@ object Executor {
     ): URQuery[R, ResponseValue] = {
 
       def handleError(error: ExecutionError): UQuery[ResponseValue] =
-        ZQuery.fromZIO(errors.update(error :: _).as(NullValue))
+        ZQuery.fromZIONow(errors.update(error :: _).as(NullValue))
 
       def wrap(query: ExecutionQuery[ResponseValue], isPure: Boolean, fieldInfo: FieldInfo) = {
         @tailrec
@@ -494,7 +494,7 @@ object Executor {
             val deferredSteps = nextSteps.map { case (step, label) =>
               Deferred(path, step, label)
             }
-            ZQuery.fromZIO(deferred.update(deferredSteps ::: _)) *> loop(obj)
+            ZQuery.fromZIONow(deferred.update(deferredSteps ::: _)) *> loop(obj)
         }
 
       loop(step, isTopLevelField = true).catchAll(handleError)
