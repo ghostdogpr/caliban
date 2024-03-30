@@ -137,15 +137,14 @@ object Executor {
         def reduceField(f: Field): (String, ReducedStep[R], FieldInfo) = {
           val aliasedName = f.aliasedName
           val fname       = f.name
-          val field       = {
+          val field       =
             if (fname == "__typename") PureStep(StringValue(objectName))
             else reduceStep(getFieldStep(fname), f, f.arguments, PathValue.Key(aliasedName) :: path)
-          }
           (aliasedName, field, fieldInfo(f, aliasedName, path, f.directives))
         }
 
         val filteredFields    = mergeFields(currentField, objectName)
-        val (deferred, eager) = {
+        val (deferred, eager) =
           if (isDeferredEnabled) {
             filteredFields.partitionMap { f =>
               val entry = reduceField(f)
@@ -157,7 +156,6 @@ object Executor {
               }
             }
           } else (Nil, filteredFields.map(reduceField))
-        }
 
         val eagerReduced = reduceObject(eager)
         deferred match {

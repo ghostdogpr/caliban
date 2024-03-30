@@ -575,7 +575,7 @@ object i2076 {
 
       @GQLName("WidgetAChild")
       case class Child(name: String, foo: String, bar: String)
-      object Child      {
+      object Child {
         implicit val schema: Schema[Any, Child] = Schema.gen
       }
     }
@@ -596,7 +596,7 @@ object i2076 {
 
       @GQLName("WidgetBChild")
       case class Child(name: String, foo: String)
-      object Child      {
+      object Child {
         implicit val schema: Schema[Any, Child] = Schema.gen
       }
     }
