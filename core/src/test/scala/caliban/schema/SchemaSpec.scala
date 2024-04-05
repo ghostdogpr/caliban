@@ -2,7 +2,7 @@ package caliban.schema
 
 import caliban.Value.StringValue
 import caliban._
-import caliban.introspection.adt.{ __DeprecatedArgs, __Type, __TypeKind }
+import caliban.introspection.adt.{ __DeprecatedArgs, __Field, __Type, __TypeKind }
 import caliban.parsing.adt.Directive
 import caliban.schema.Annotations._
 import caliban.schema.ArgBuilder.auto._
@@ -26,9 +26,31 @@ object SchemaSpec extends ZIOSpecDefault {
           isSome(hasField[__Type, __TypeKind]("kind", _.kind, equalTo(__TypeKind.SCALAR)))
         )
       },
+      test("effectful field as semanticNonNull") {
+        assert(introspect[EffectfulFieldSchema].fields(__DeprecatedArgs()).toList.flatten.headOption)(
+          isSome(
+            hasField[__Field, Option[List[Directive]]](
+              "directives",
+              _.directives,
+              isSome(contains((Directive("semanticNonNull"))))
+            )
+          )
+        )
+      },
       test("effectful field as non-nullable") {
         assert(introspect[EffectfulFieldSchema].fields(__DeprecatedArgs()).toList.flatten.apply(1)._type)(
           hasField[__Type, __TypeKind]("kind", _.kind, equalTo(__TypeKind.NON_NULL))
+        )
+      },
+      test("optional effectful field") {
+        assert(introspect[OptionalEffectfulFieldSchema].fields(__DeprecatedArgs()).toList.flatten.headOption)(
+          isSome(
+            hasField[__Field, Option[List[Directive]]](
+              "directives",
+              _.directives.map(_.filter(_.name == "semanticNonNull")).filter(_.nonEmpty),
+              isNone
+            )
+          )
         )
       },
       test("infallible effectful field") {
@@ -300,7 +322,7 @@ object SchemaSpec extends ZIOSpecDefault {
                          |}
                          |
                          |type EnvironmentSchema {
-                         |  test: Int
+                         |  test: Int @semanticNonNull
                          |  box: Box!
                          |}
                          |
@@ -386,6 +408,7 @@ object SchemaSpec extends ZIOSpecDefault {
     )
 
   case class EffectfulFieldSchema(q: Task[Int], @GQLNonNullable qAnnotated: Task[Int])
+  case class OptionalEffectfulFieldSchema(q: Task[Option[String]], @GQLNonNullable qAnnotated: Task[Option[String]])
   case class InfallibleFieldSchema(q: UIO[Int], @GQLNullable qAnnotated: UIO[Int])
   case class FutureFieldSchema(q: Future[Int])
   case class IDSchema(id: UUID)

@@ -94,7 +94,12 @@ trait CommonSchemaDerivation[R] {
                   else p.typeclass.toType_(isInput, isSubscription).nonNull,
                 p.annotations.collectFirst { case GQLDeprecated(_) => () }.isDefined,
                 p.annotations.collectFirst { case GQLDeprecated(reason) => reason },
-                Option(p.annotations.collect { case GQLDirective(dir) => dir }.toList).filter(_.nonEmpty)
+                Option(
+                  p.annotations.collect { case GQLDirective(dir) => dir }.toList ++ {
+                    if (isOptional && p.typeclass.semanticNonNull) Some(Directive("semanticNonNull"))
+                    else None
+                  }
+                ).filter(_.nonEmpty)
               )
             }
             .toList,

@@ -78,6 +78,11 @@ trait Schema[-R, T] { self =>
   def optional: Boolean = false
 
   /**
+   * Defines if the type is considered semantically nullable or not.
+   */
+  def semanticNonNull: Boolean = false
+
+  /**
    * Defined the arguments of the given type. Should be empty except for `Function`.
    */
   def arguments: List[__InputValue] = Nil
@@ -506,6 +511,7 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
   ): Schema[R0, ZIO[R1, E, A]] =
     new Schema[R0, ZIO[R1, E, A]] {
       override def optional: Boolean                                         = true
+      override def semanticNonNull: Boolean                                  = !ev.optional
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType_(isInput, isSubscription)
       override def resolve(value: ZIO[R1, E, A]): Step[R0]                   = QueryStep(ZQuery.fromZIONow(value.map(ev.resolve)))
     }
@@ -514,6 +520,7 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
   ): Schema[R0, ZIO[R1, E, A]] =
     new Schema[R0, ZIO[R1, E, A]] {
       override def optional: Boolean                                         = true
+      override def semanticNonNull: Boolean                                  = !ev.optional
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType_(isInput, isSubscription)
       override def resolve(value: ZIO[R1, E, A]): Step[R0]                   = QueryStep(
         ZQuery.fromZIONow(value.mapBoth(convertError, ev.resolve))
@@ -532,6 +539,7 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
   ): Schema[R0, ZQuery[R1, E, A]] =
     new Schema[R0, ZQuery[R1, E, A]] {
       override def optional: Boolean                                         = true
+      override def semanticNonNull: Boolean                                  = !ev.optional
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType_(isInput, isSubscription)
       override def resolve(value: ZQuery[R1, E, A]): Step[R0]                = QueryStep(value.map(ev.resolve))
     }
@@ -540,6 +548,7 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
   ): Schema[R0, ZQuery[R1, E, A]] =
     new Schema[R0, ZQuery[R1, E, A]] {
       override def optional: Boolean                                         = true
+      override def semanticNonNull: Boolean                                  = !ev.optional
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType_(isInput, isSubscription)
       override def resolve(value: ZQuery[R1, E, A]): Step[R0]                = QueryStep(value.mapBoth(convertError, ev.resolve))
     }
@@ -559,6 +568,7 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
   ): Schema[R0, ZStream[R1, E, A]] =
     new Schema[R0, ZStream[R1, E, A]] {
       override def optional: Boolean                                         = true
+      override def semanticNonNull: Boolean                                  = !ev.optional
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type = {
         val t = ev.toType_(isInput, isSubscription)
         if (isSubscription) t else (if (ev.optional) t else t.nonNull).list
@@ -570,6 +580,7 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
   ): Schema[R0, ZStream[R1, E, A]] =
     new Schema[R0, ZStream[R1, E, A]] {
       override def optional: Boolean                                         = true
+      override def semanticNonNull: Boolean                                  = !ev.optional
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type = {
         val t = ev.toType_(isInput, isSubscription)
         if (isSubscription) t else (if (ev.optional) t else t.nonNull).list
@@ -705,7 +716,12 @@ abstract class PartiallyAppliedFieldBase[V](name: String, description: Option[St
         else ev.toType_(ft.isInput, ft.isSubscription).nonNull,
       isDeprecated = Directives.isDeprecated(directives),
       deprecationReason = Directives.deprecationReason(directives),
-      directives = Some(directives.filter(_.name != "deprecated")).filter(_.nonEmpty)
+      directives = Some(
+        directives.filter(_.name != "deprecated") ++ {
+          if (ev.optional && ev.semanticNonNull) Some(Directive("semanticNonNull"))
+          else None
+        }
+      ).filter(_.nonEmpty)
     )
 }
 
@@ -737,7 +753,12 @@ case class PartiallyAppliedFieldWithArgs[V, A](name: String, description: Option
           else ev1.toType_(fa.isInput, fa.isSubscription).nonNull,
         isDeprecated = Directives.isDeprecated(directives),
         deprecationReason = Directives.deprecationReason(directives),
-        directives = Some(directives.filter(_.name != "deprecated")).filter(_.nonEmpty)
+        directives = Some(
+          directives.filter(_.name != "deprecated") ++ {
+            if (ev1.optional && ev1.semanticNonNull) Some(Directive("semanticNonNull"))
+            else None
+          }
+        ).filter(_.nonEmpty)
       ),
       (v: V) => ev1.resolve(fn(v))
     )

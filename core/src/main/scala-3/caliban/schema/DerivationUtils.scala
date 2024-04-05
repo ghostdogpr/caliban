@@ -140,7 +140,12 @@ private object DerivationUtils {
           else schema.toType_(isInput, isSubscription).nonNull,
         deprecatedReason.isDefined,
         deprecatedReason,
-        Option(getDirectives(fieldAnnotations)).filter(_.nonEmpty)
+        Option(
+          getDirectives(fieldAnnotations) ++ {
+            if (isOptional && schema.semanticNonNull) Some(Directive("semanticNonNull"))
+            else None
+          }
+        ).filter(_.nonEmpty)
       )
     },
     getDirectives(annotations),
