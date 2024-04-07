@@ -154,7 +154,7 @@ object ParserSpec extends ZIOSpecDefault {
                     arguments = Map(
                       "id"    -> StringValue("1000"),
                       "int"   -> IntValue(3),
-                      "float" -> FloatValue("3.14"),
+                      "float" -> FloatValue(3.14),
                       "bool"  -> BooleanValue(true),
                       "nope"  -> NullValue,
                       "enum"  -> EnumValue("YES"),

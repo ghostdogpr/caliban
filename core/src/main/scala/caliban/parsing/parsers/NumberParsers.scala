@@ -19,5 +19,5 @@ private[caliban] trait NumberParsers extends StringParsers {
   def floatValue(implicit ev: P[Any]): P[FloatValue]  =
     (
       integerPart ~~ (fractionalPart | exponentPart | (fractionalPart ~~ exponentPart))
-    ).!.map(FloatValue(_))
+    ).!.map(FloatValue.fromStringUnsafe)
 }
