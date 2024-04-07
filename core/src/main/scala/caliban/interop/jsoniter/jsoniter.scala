@@ -5,7 +5,6 @@ import caliban._
 import caliban.parsing.adt.LocationInfo
 import com.github.plokhotnyuk.jsoniter_scala.core._
 
-import scala.annotation.nowarn
 import scala.collection.immutable.TreeMap
 
 /**
