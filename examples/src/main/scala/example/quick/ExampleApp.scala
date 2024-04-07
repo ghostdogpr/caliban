@@ -1,10 +1,10 @@
 package example.quick
 
 import caliban._
+import caliban.quick._
 import example.ExampleData._
 import example.{ ExampleApi, ExampleService }
 import zio._
-import caliban.quick._
 
 object ExampleApp extends ZIOAppDefault {
 
@@ -20,7 +20,8 @@ object ExampleApp extends ZIOAppDefault {
         _.runServer(
           port = 8090,
           apiPath = "/api/graphql",
-          graphiqlPath = Some("/graphiql")
+          graphiqlPath = Some("/graphiql"),
+          webSocketPath = Some("/ws/graphql")
         )
       }
       .provide(

@@ -7,6 +7,9 @@ import caliban.interop.tapir.{ HttpInterpreter, WebSocketInterpreter }
 import zio._
 import zio.http._
 
+import scala.annotation.nowarn
+
+@nowarn
 object ExampleApp extends ZIOAppDefault {
   import sttp.tapir.json.circe._
 

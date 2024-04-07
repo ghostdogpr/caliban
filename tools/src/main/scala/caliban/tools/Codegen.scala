@@ -34,6 +34,7 @@ object Codegen {
       splitFiles                = arguments.splitFiles.getOrElse(false)
       enableFmt                 = arguments.enableFmt.getOrElse(true)
       extensibleEnums           = arguments.extensibleEnums.getOrElse(false)
+      excludeDeprecated         = arguments.excludeDeprecated.getOrElse(false)
       code                      = genType match {
                                     case GenType.Schema =>
                                       List(
@@ -58,7 +59,8 @@ object Codegen {
                                         arguments.imports,
                                         splitFiles,
                                         extensibleEnums,
-                                        scalarMappings
+                                        scalarMappings,
+                                        excludeDeprecated
                                       )
                                   }
       formatted                <- if (enableFmt) Formatter.format(code, arguments.fmtPath) else ZIO.succeed(code)

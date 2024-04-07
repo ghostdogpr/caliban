@@ -14,7 +14,7 @@ import caliban.validation.Validator
 import caliban.wrappers.Wrapper
 import caliban.wrappers.Wrapper._
 import zio.stacktracer.TracingImplicits.disableAutoTrace
-import zio.{ Exit, IO, Trace, URIO, ZIO }
+import zio.{ IO, Trace, URIO, ZIO }
 
 /**
  * A `GraphQL[-R]` represents a GraphQL API whose execution requires a ZIO environment of type `R`.
@@ -65,11 +65,20 @@ trait GraphQL[-R] { self =>
     ZIO.fromEither(interpreterEither)
 
   /**
+   * Impure variant of [[interpreterEither]] which throws schema validation errors. Useful for cases that the
+   * schema is known to be valid or when we're not planning on handling the error (e.g., during app startup)
+   */
+  @throws[CalibanError.ValidationError]("if the schema is invalid")
+  final def interpreterUnsafe: GraphQLInterpreter[R, CalibanError] =
+    interpreterEither.fold(throw _, identity)
+
+  /**
    * Creates an interpreter from your API. A GraphQLInterpreter is a wrapper around your API that allows
    * adding some middleware around the query execution.
    * Returns a `Left` containing the schema validation error if the schema is invalid.
    *
    * @see [[interpreter]] for a ZIO variant of this method that makes it easier to embed in ZIO applications
+   * @see [[interpreterUnsafe]] of an unsafe variant that will throw validation errors
    */
   final lazy val interpreterEither: Either[ValidationError, GraphQLInterpreter[R, CalibanError]] =
     Validator.validateSchemaEither(schemaBuilder).map { schema =>

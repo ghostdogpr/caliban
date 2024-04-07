@@ -22,7 +22,8 @@ object OptionsParser {
     preserveInputNames: Option[Boolean],
     supportIsRepeatable: Option[Boolean],
     addDerives: Option[Boolean],
-    envForDerives: Option[String]
+    envForDerives: Option[String],
+    excludeDeprecated: Option[Boolean]
   )
 
   private object DescriptorUtils {
@@ -74,7 +75,8 @@ object OptionsParser {
             rawOpts.preserveInputNames,
             rawOpts.supportIsRepeatable,
             rawOpts.addDerives,
-            rawOpts.envForDerives
+            rawOpts.envForDerives,
+            rawOpts.excludeDeprecated
           )
         }.option
       case _                             => ZIO.none

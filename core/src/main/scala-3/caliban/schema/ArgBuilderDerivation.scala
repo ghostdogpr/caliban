@@ -83,7 +83,7 @@ trait CommonArgBuilderDerivation {
                 label,
                 annotations,
                 builder: ArgBuilder[A @unchecked]
-              ) if label == value || annotations.exists { case GQLName(name) => name == value } =>
+              ) if label == value || annotations.contains(GQLName(value)) =>
             builder
         }
           .toRight(ExecutionError(s"Invalid value $value for trait $traitLabel"))

@@ -1,13 +1,12 @@
 package caliban.interop.tapir
 
+import caliban.ResponseValue.StreamValue
 import caliban._
-import caliban.ResponseValue.{ ObjectValue, StreamValue }
 import caliban.wrappers.Caching
 import sttp.capabilities.zio.ZioStreams
-import sttp.capabilities.zio.ZioStreams.Pipe
 import sttp.capabilities.{ Streams, WebSockets }
-import sttp.model.{ headers => _, _ }
 import sttp.model.sse.ServerSentEvent
+import sttp.model.{ headers => _, _ }
 import sttp.monad.MonadError
 import sttp.tapir.Codec.JsonCodec
 import sttp.tapir.model.ServerRequest
@@ -22,7 +21,7 @@ import scala.concurrent.Future
 
 object TapirAdapter {
 
-  type CalibanPipe   = Pipe[GraphQLWSInput, Either[GraphQLWSClose, GraphQLWSOutput]]
+  type CalibanPipe   = caliban.ws.CalibanPipe
   type UploadRequest = (Seq[Part[Array[Byte]]], ServerRequest)
   type ZioWebSockets = ZioStreams with WebSockets
 
@@ -159,29 +158,8 @@ object TapirAdapter {
   private val deferMultipartMediaType: MediaType =
     MediaType.MultipartMixed.copy(otherParameters = HttpUtils.DeferMultipart.DeferHeaderParams)
 
-  @deprecated("Kept for binary compatibility purposes. To be removed in 2.5.0", "2.4.3")
-  private object DeferMultipart {
-    private val Newline        = "\r\n"
-    private val ContentType    = "Content-Type: application/json; charset=utf-8"
-    private val SubHeader      = s"$Newline$ContentType$Newline$Newline"
-    private val Boundary       = "---"
-    private val BoundaryHeader = "-"
-    private val DeferSpec      = "20220824"
-
-    val InnerBoundary = s"$Newline$Boundary$SubHeader"
-    val EndBoundary   = s"$Newline-----$Newline"
-
-    private val DeferHeaderParams: Map[String, String] = Map("boundary" -> BoundaryHeader, "deferSpec" -> DeferSpec)
-
-    val mediaType: MediaType = MediaType.MultipartMixed.copy(otherParameters = DeferHeaderParams)
-  }
-
   private object GraphqlResponseJson extends CodecFormat {
     override val mediaType: MediaType = MediaType("application", "graphql-response+json")
-  }
-
-  private object GraphqlServerSentEvent {
-    val mediaType: MediaType = MediaType.TextEventStream
   }
 
   private def encodeMultipartMixedResponse[E, BS](
