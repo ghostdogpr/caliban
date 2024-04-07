@@ -11,7 +11,6 @@ import com.github.plokhotnyuk.jsoniter_scala.core._
 import com.github.plokhotnyuk.jsoniter_scala.macros.JsonCodecMaker
 import zio._
 import zio.http.ChannelEvent.UserEvent.HandshakeComplete
-import zio.http.Header.ContentType
 import zio.http._
 import zio.stacktracer.TracingImplicits.disableAutoTrace
 import zio.stream.{ UStream, ZPipeline, ZStream }
@@ -104,7 +103,7 @@ final private class QuickRequestHandler[R](
 
     val queryParams = httpReq.url.queryParams
 
-    (if (httpReq.method == Method.GET || queryParams.hasQueryParam("query")) {
+    (if ((httpReq.method eq Method.GET) || queryParams.hasQueryParam("query")) {
        ZIO.fromEither(decodeQueryParams(queryParams))
      } else {
        val req = decodeBody(httpReq.body)

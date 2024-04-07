@@ -23,7 +23,7 @@ val playVersion               = "3.0.2"
 val playJsonVersion           = "3.0.2"
 val scalafmtVersion           = "3.8.0"
 val sttpVersion               = "3.9.5"
-val tapirVersion              = "1.10.0"
+val tapirVersion              = "1.10.4"
 val zioVersion                = "2.0.21"
 val zioInteropCats2Version    = "22.0.0.0"
 val zioInteropCats3Version    = "23.1.0.1"
@@ -31,7 +31,7 @@ val zioInteropReactiveVersion = "2.0.2"
 val zioConfigVersion          = "3.0.7"
 val zqueryVersion             = "0.6.1"
 val zioJsonVersion            = "0.6.2"
-val zioHttpVersion            = "3.0.0-RC5"
+val zioHttpVersion            = "3.0.0-RC6"
 val zioOpenTelemetryVersion   = "3.0.0-RC21"
 val zioPreludeVersion         = "1.0.0-RC23"
 
@@ -378,7 +378,7 @@ lazy val zioHttp = project
     resolvers += "Sonatype OSS Snapshots" at "https://oss.sonatype.org/content/repositories/snapshots",
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
-      "dev.zio"                     %% "zio-http"              % "3.0.0-RC4",
+      "dev.zio"                     %% "zio-http"              % zioHttpVersion,
       "com.softwaremill.sttp.tapir" %% "tapir-zio-http-server" % tapirVersion,
       "dev.zio"                     %% "zio-json"              % zioJsonVersion % Test,
       "com.softwaremill.sttp.tapir" %% "tapir-json-zio"        % tapirVersion   % Test
