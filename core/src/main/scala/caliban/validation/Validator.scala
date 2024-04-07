@@ -931,9 +931,11 @@ object Validator {
         val interfaceFieldNames = supertype.map(fieldNames).toSet.flatten
         val isMissingFields     = objectFieldNames.union(interfaceFieldNames) != objectFieldNames
 
-        lazy val missingFields = interfaceFieldNames.diff(objectFieldNames).toList.sorted
         failWhen(interfaceFieldNames.nonEmpty && isMissingFields)(
-          s"$objectContext is missing field(s): ${missingFields.mkString(", ")}",
+          {
+            val missingFields = interfaceFieldNames.diff(objectFieldNames).toList.sorted
+            s"$objectContext is missing field(s): ${missingFields.mkString(", ")}"
+          },
           "An Object type must include a field of the same name for every field defined in an interface"
         )
       }
