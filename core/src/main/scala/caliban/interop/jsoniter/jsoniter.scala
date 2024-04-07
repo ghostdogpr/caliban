@@ -80,28 +80,44 @@ private[caliban] object ValueJsoniter {
     out.writeObjectEnd()
   }
 
-  /**
-   * Note on performance:
-   *
-   * Keep number of cases at 12 (+1 default) or less, and avoid using unapply methods in the pattern-matching.
-   * This number was manually determined based on trial-and-error and was found that adding more cases reduces performance
-   * noticeably.
-   */
-  private def encodeResponseValue(x: ResponseValue, out: JsonWriter, depth: Int): Unit = x match {
-    case v: StringValue                 => out.writeVal(v.value)
-    case v: BooleanValue                => out.writeVal(v.value)
-    case v: IntValue.IntNumber          => out.writeVal(v.value)
-    case NullValue                      => out.writeNull()
-    case v: EnumValue                   => out.writeVal(v.value)
-    case v: ResponseValue.ObjectValue   => writeResponseObject(v.fields, out, decrDepth(depth, out))
-    case v: ResponseValue.ListValue     => writeResponseArray(v.values, out, decrDepth(depth, out))
-    // Not very common, so we leave them last
-    case v: IntValue.LongNumber         => out.writeVal(v.value)
-    case v: IntValue.BigIntNumber       => out.writeVal(v.value)
-    case v: FloatValue.FloatNumber      => out.writeVal(v.value)
-    case v: FloatValue.DoubleNumber     => out.writeVal(v.value)
-    case v: FloatValue.BigDecimalNumber => out.writeVal(v.value)
-    case v                              => out.writeVal(v.toString)
+  private def encodeResponseValue(x: ResponseValue, out: JsonWriter, depth: Int): Unit = {
+
+    /**
+     * Note on performance:
+     *
+     * We keep the number of cases low (less than 12) for the most commonly used types and avoid using unapply methods in the pattern-matching.
+     * This way we can better utilize JVM inlining, while still preserving match safety via the compiler if we ever extend ResponseValue with more cases.
+     *
+     * If our value is not one of the common ones, we fallback to the full encoder.
+     */
+    def fullEncoder(): Unit = x match {
+      case v: StringValue                 => out.writeVal(v.value)
+      case v: BooleanValue                => out.writeVal(v.value)
+      case v: IntValue.IntNumber          => out.writeVal(v.value)
+      case v: IntValue.LongNumber         => out.writeVal(v.value)
+      case v: IntValue.BigIntNumber       => out.writeVal(v.value)
+      case v: FloatValue.FloatNumber      => out.writeVal(v.value)
+      case v: FloatValue.DoubleNumber     => out.writeVal(v.value)
+      case v: FloatValue.BigDecimalNumber => out.writeVal(v.value)
+      case NullValue                      => out.writeNull()
+      case v: EnumValue                   => out.writeVal(v.value)
+      case v: ResponseValue.ObjectValue   => writeResponseObject(v.fields, out, decrDepth(depth, out))
+      case v: ResponseValue.ListValue     => writeResponseArray(v.values, out, decrDepth(depth, out))
+      case v: ResponseValue.StreamValue   => out.writeVal(v.toString)
+    }
+
+    x match {
+      case v: StringValue               => out.writeVal(v.value)
+      case v: BooleanValue              => out.writeVal(v.value)
+      case v: IntValue.IntNumber        => out.writeVal(v.value)
+      case NullValue                    => out.writeNull()
+      case v: ResponseValue.ObjectValue => writeResponseObject(v.fields, out, decrDepth(depth, out))
+      case v: ResponseValue.ListValue   => writeResponseArray(v.values, out, decrDepth(depth, out))
+      case v: EnumValue                 => out.writeVal(v.value)
+      case v: IntValue.LongNumber       => out.writeVal(v.value)
+      case v: FloatValue.DoubleNumber   => out.writeVal(v.value)
+      case _                            => fullEncoder()
+    }
   }
 
   private def writeResponseArray(l: List[ResponseValue], out: JsonWriter, depth: Int): Unit = {
