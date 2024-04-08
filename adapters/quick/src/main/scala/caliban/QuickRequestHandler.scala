@@ -11,7 +11,6 @@ import com.github.plokhotnyuk.jsoniter_scala.core._
 import com.github.plokhotnyuk.jsoniter_scala.macros.JsonCodecMaker
 import zio._
 import zio.http.ChannelEvent.UserEvent.HandshakeComplete
-import zio.http.Header.ContentType
 import zio.http._
 import zio.stacktracer.TracingImplicits.disableAutoTrace
 import zio.stream.{ UStream, ZPipeline, ZStream }
@@ -70,15 +69,15 @@ final private class QuickRequestHandler[R](
 
     def decodeQueryParams(queryParams: QueryParams): Either[Response, GraphQLRequest] = {
       def extractField(key: String) =
-        try Right(queryParams.get(key).map(readFromString[InputValue.ObjectValue](_).fields))
+        try Right(queryParams.getAll(key).headOption.map(readFromString[InputValue.ObjectValue](_).fields))
         catch { case NonFatal(_) => Left(badRequest(s"Invalid $key query param")) }
 
       for {
         vars <- extractField("variables")
         exts <- extractField("extensions")
       } yield GraphQLRequest(
-        query = queryParams.get("query"),
-        operationName = queryParams.get("operationName"),
+        query = queryParams.getAll("query").headOption,
+        operationName = queryParams.getAll("operationName").headOption,
         variables = vars,
         extensions = exts
       )
@@ -94,13 +93,9 @@ final private class QuickRequestHandler[R](
           .orElseFail(BodyDecodeErrorResponse)
 
       val isApplicationGql =
-        httpReq.headers.get(ContentType.name).exists { h =>
-          h.length >= 19 && { // Length of "application/graphql"
-            MediaType.forContentType(h).exists { mt =>
-              mt.subType.equalsIgnoreCase("graphql") &&
-              mt.mainType.equalsIgnoreCase("application")
-            }
-          }
+        httpReq.body.mediaType.exists { mt =>
+          mt.subType.equalsIgnoreCase("graphql") &&
+          mt.mainType.equalsIgnoreCase("application")
         }
 
       if (isApplicationGql) decodeApplicationGql() else decodeJson()
@@ -108,7 +103,7 @@ final private class QuickRequestHandler[R](
 
     val queryParams = httpReq.url.queryParams
 
-    (if (httpReq.method == Method.GET || queryParams.get("query").isDefined) {
+    (if ((httpReq.method eq Method.GET) || queryParams.hasQueryParam("query")) {
        ZIO.fromEither(decodeQueryParams(queryParams))
      } else {
        val req = decodeBody(httpReq.body)
@@ -177,7 +172,7 @@ final private class QuickRequestHandler[R](
         Response(
           Status.Ok,
           headers = responseHeaders(ContentTypeMultipart, None),
-          body = Body.fromStream(encodeMultipartMixedResponse(resp, stream))
+          body = Body.fromStreamChunked(encodeMultipartMixedResponse(resp, stream))
         )
       case resp if accepts.serverSentEvents                     =>
         Response.fromServerSentEvents(encodeTextEventStream(resp))
@@ -207,7 +202,7 @@ final private class QuickRequestHandler[R](
     hasCacheDirective: Boolean
   ): Body = {
     val excludeExtensions = if (hasCacheDirective) Some(Set(Caching.DirectiveName)) else None
-    Body.fromChunk(Chunk.fromArray(writeToArray(resp.toResponseValue(keepDataOnErrors, excludeExtensions))))
+    Body.fromArray(writeToArray(resp.toResponseValue(keepDataOnErrors, excludeExtensions)))
   }
 
   private def encodeMultipartMixedResponse(
