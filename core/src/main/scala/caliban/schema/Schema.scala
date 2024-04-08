@@ -255,9 +255,10 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
   def field[V](
     name: String,
     description: Option[String] = None,
-    directives: List[Directive] = List.empty
+    directives: List[Directive] = List.empty,
+    enableSemanticNonNull: Boolean = false
   ): PartiallyAppliedField[V] =
-    PartiallyAppliedField[V](name, description, directives)
+    PartiallyAppliedField[V](name, description, directives, enableSemanticNonNull)
 
   /**
    * Manually defines a lazy field from a name, a description, some directives and a resolver.
@@ -265,9 +266,10 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
   def fieldLazy[V](
     name: String,
     description: Option[String] = None,
-    directives: List[Directive] = List.empty
+    directives: List[Directive] = List.empty,
+    enableSemanticNonNull: Boolean = false
   ): PartiallyAppliedFieldLazy[V] =
-    PartiallyAppliedFieldLazy[V](name, description, directives)
+    PartiallyAppliedFieldLazy[V](name, description, directives, enableSemanticNonNull)
 
   /**
    * Manually defines a field with arguments from a name, a description, some directives and a resolver.
@@ -275,9 +277,10 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
   def fieldWithArgs[V, A](
     name: String,
     description: Option[String] = None,
-    directives: List[Directive] = Nil
+    directives: List[Directive] = Nil,
+    enableSemanticNonNull: Boolean = false
   ): PartiallyAppliedFieldWithArgs[V, A] =
-    PartiallyAppliedFieldWithArgs[V, A](name, description, directives)
+    PartiallyAppliedFieldWithArgs[V, A](name, description, directives, enableSemanticNonNull)
 
   /**
    * Creates a new hand-rolled schema. For normal usage use the derived schemas, this is primarily for schemas
@@ -698,7 +701,12 @@ trait TemporalSchema {
 
 case class FieldAttributes(isInput: Boolean, isSubscription: Boolean)
 
-abstract class PartiallyAppliedFieldBase[V](name: String, description: Option[String], directives: List[Directive]) {
+abstract class PartiallyAppliedFieldBase[V](
+  name: String,
+  description: Option[String],
+  directives: List[Directive],
+  enableSemanticNonNull: Boolean
+) {
   def apply[R, V1](fn: V => V1)(implicit ev: Schema[R, V1], ft: FieldAttributes): (__Field, V => Step[R]) =
     either[R, V1](v => Left(fn(v)))(ev, ft)
 
@@ -718,30 +726,43 @@ abstract class PartiallyAppliedFieldBase[V](name: String, description: Option[St
       deprecationReason = Directives.deprecationReason(directives),
       directives = Some(
         directives.filter(_.name != "deprecated") ++ {
-          if (ev.optional && ev.semanticNonNull) Some(Directive("semanticNonNull"))
+          if (enableSemanticNonNull && ev.optional && ev.semanticNonNull) Some(Directive("semanticNonNull"))
           else None
         }
       ).filter(_.nonEmpty)
     )
 }
 
-case class PartiallyAppliedField[V](name: String, description: Option[String], directives: List[Directive])
-    extends PartiallyAppliedFieldBase[V](name, description, directives) {
+case class PartiallyAppliedField[V](
+  name: String,
+  description: Option[String],
+  directives: List[Directive],
+  enableSemanticNonNull: Boolean
+) extends PartiallyAppliedFieldBase[V](name, description, directives, enableSemanticNonNull) {
   def either[R, V1](
     fn: V => Either[V1, Step[R]]
   )(implicit ev: Schema[R, V1], ft: FieldAttributes): (__Field, V => Step[R]) =
     (makeField, (v: V) => fn(v).fold(ev.resolve, identity))
 }
 
-case class PartiallyAppliedFieldLazy[V](name: String, description: Option[String], directives: List[Directive])
-    extends PartiallyAppliedFieldBase[V](name, description, directives) {
+case class PartiallyAppliedFieldLazy[V](
+  name: String,
+  description: Option[String],
+  directives: List[Directive],
+  enableSemanticNonNull: Boolean
+) extends PartiallyAppliedFieldBase[V](name, description, directives, enableSemanticNonNull) {
   def either[R, V1](
     fn: V => Either[V1, Step[R]]
   )(implicit ev: Schema[R, V1], ft: FieldAttributes): (__Field, V => Step[R]) =
     (makeField, (v: V) => FunctionStep(_ => fn(v).fold(ev.resolve, identity)))
 }
 
-case class PartiallyAppliedFieldWithArgs[V, A](name: String, description: Option[String], directives: List[Directive]) {
+case class PartiallyAppliedFieldWithArgs[V, A](
+  name: String,
+  description: Option[String],
+  directives: List[Directive],
+  enableSemanticNonNull: Boolean
+) {
   def apply[R, V1](fn: V => (A => V1))(implicit ev1: Schema[R, A => V1], fa: FieldAttributes): (__Field, V => Step[R]) =
     (
       Types.makeField(
@@ -755,7 +776,7 @@ case class PartiallyAppliedFieldWithArgs[V, A](name: String, description: Option
         deprecationReason = Directives.deprecationReason(directives),
         directives = Some(
           directives.filter(_.name != "deprecated") ++ {
-            if (ev1.optional && ev1.semanticNonNull) Some(Directive("semanticNonNull"))
+            if (enableSemanticNonNull && ev1.optional && ev1.semanticNonNull) Some(Directive("semanticNonNull"))
             else None
           }
         ).filter(_.nonEmpty)

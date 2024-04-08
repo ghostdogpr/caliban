@@ -120,7 +120,8 @@ private object DerivationUtils {
   def mkObject[R](
     annotations: List[Any],
     fields: List[(String, List[Any], Schema[R, Any])],
-    info: TypeInfo
+    info: TypeInfo,
+    enableSemanticNonNull: Boolean
   )(isInput: Boolean, isSubscription: Boolean): __Type = makeObject(
     Some(getName(annotations, info)),
     getDescription(annotations),
@@ -142,7 +143,7 @@ private object DerivationUtils {
         deprecatedReason,
         Option(
           getDirectives(fieldAnnotations) ++ {
-            if (isOptional && schema.semanticNonNull) Some(Directive("semanticNonNull"))
+            if (enableSemanticNonNull && isOptional && schema.semanticNonNull) Some(Directive("semanticNonNull"))
             else None
           }
         ).filter(_.nonEmpty)

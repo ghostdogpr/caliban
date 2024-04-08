@@ -26,31 +26,9 @@ object SchemaSpec extends ZIOSpecDefault {
           isSome(hasField[__Type, __TypeKind]("kind", _.kind, equalTo(__TypeKind.SCALAR)))
         )
       },
-      test("effectful field as semanticNonNull") {
-        assert(introspect[EffectfulFieldSchema].fields(__DeprecatedArgs()).toList.flatten.headOption)(
-          isSome(
-            hasField[__Field, Option[List[Directive]]](
-              "directives",
-              _.directives,
-              isSome(contains((Directive("semanticNonNull"))))
-            )
-          )
-        )
-      },
       test("effectful field as non-nullable") {
         assert(introspect[EffectfulFieldSchema].fields(__DeprecatedArgs()).toList.flatten.apply(1)._type)(
           hasField[__Type, __TypeKind]("kind", _.kind, equalTo(__TypeKind.NON_NULL))
-        )
-      },
-      test("optional effectful field") {
-        assert(introspect[OptionalEffectfulFieldSchema].fields(__DeprecatedArgs()).toList.flatten.headOption)(
-          isSome(
-            hasField[__Field, Option[List[Directive]]](
-              "directives",
-              _.directives.map(_.filter(_.name == "semanticNonNull")).filter(_.nonEmpty),
-              isNone
-            )
-          )
         )
       },
       test("infallible effectful field") {
@@ -322,7 +300,7 @@ object SchemaSpec extends ZIOSpecDefault {
                          |}
                          |
                          |type EnvironmentSchema {
-                         |  test: Int @semanticNonNull
+                         |  test: Int
                          |  box: Box!
                          |}
                          |

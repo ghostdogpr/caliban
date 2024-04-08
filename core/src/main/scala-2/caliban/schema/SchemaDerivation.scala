@@ -12,6 +12,14 @@ import scala.language.experimental.macros
 trait CommonSchemaDerivation[R] {
 
   /**
+   * Enables the `SemanticNonNull` feature on derivation.
+   * It is currently disabled by default since it is not yet stable.
+   *
+   * Override this method and return `true` to enable the feature.
+   */
+  def enableSemanticNonNull: Boolean = false
+
+  /**
    * Default naming logic for input types.
    * This is needed to avoid a name clash between a type used as an input and the same type used as an output.
    * GraphQL needs 2 different types, and they can't have the same name.
@@ -96,7 +104,8 @@ trait CommonSchemaDerivation[R] {
                 p.annotations.collectFirst { case GQLDeprecated(reason) => reason },
                 Option(
                   p.annotations.collect { case GQLDirective(dir) => dir }.toList ++ {
-                    if (isOptional && p.typeclass.semanticNonNull) Some(Directive("semanticNonNull"))
+                    if (enableSemanticNonNull && isOptional && p.typeclass.semanticNonNull)
+                      Some(Directive("semanticNonNull"))
                     else None
                   }
                 ).filter(_.nonEmpty)

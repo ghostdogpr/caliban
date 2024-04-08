@@ -12,7 +12,8 @@ final private class ObjectSchema[R, A](
   _methodFields: => List[(String, List[Any], Schema[R, ?])],
   info: TypeInfo,
   anns: List[Any],
-  paramAnnotations: Map[String, List[Any]]
+  paramAnnotations: Map[String, List[Any]],
+  enableSemanticNonNull: Boolean
 )(using ct: ClassTag[A])
     extends Schema[R, A] {
 
@@ -48,7 +49,7 @@ final private class ObjectSchema[R, A](
   def toType(isInput: Boolean, isSubscription: Boolean): __Type = {
     val _ = resolver // Init the lazy val
     if (isInput) mkInputObject[R](anns, fields.map(_._1), info)(isInput, isSubscription)
-    else mkObject[R](anns, fields.map(_._1), info)(isInput, isSubscription)
+    else mkObject[R](anns, fields.map(_._1), info, enableSemanticNonNull)(isInput, isSubscription)
   }
 
   def resolve(value: A): Step[R] = resolver.resolve(value)

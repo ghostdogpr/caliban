@@ -23,6 +23,14 @@ object PrintDerived {
 trait CommonSchemaDerivation {
   export DerivationUtils.customizeInputTypeName
 
+  /**
+   * Enables the `SemanticNonNull` feature on derivation.
+   * It is currently disabled by default since it is not yet stable.
+   *
+   * Override this method and return `true` to enable the feature.
+   */
+  def enableSemanticNonNull: Boolean = false
+
   inline def recurseSum[R, P, Label, A <: Tuple](
     inline types: List[(String, __Type, List[Any])] = Nil,
     inline schemas: List[Schema[R, Any]] = Nil
@@ -95,7 +103,8 @@ trait CommonSchemaDerivation {
             new EnumValueSchema[R, A](
               MagnoliaMacro.typeInfo[A],
               // Workaround until we figure out why the macro uses the parent's annotations when the leaf is a Scala 3 enum
-              inline if (!MagnoliaMacro.isEnum[A]) MagnoliaMacro.anns[A] else Nil
+              inline if (!MagnoliaMacro.isEnum[A]) MagnoliaMacro.anns[A] else Nil,
+              enableSemanticNonNull
             )
           case _ if Macros.hasAnnotation[A, GQLValueType] =>
             new ValueTypeSchema[R, A](
@@ -109,7 +118,8 @@ trait CommonSchemaDerivation {
               Macros.fieldsFromMethods[R, A],
               MagnoliaMacro.typeInfo[A],
               MagnoliaMacro.anns[A],
-              MagnoliaMacro.paramAnns[A].toMap
+              MagnoliaMacro.paramAnns[A].toMap,
+              enableSemanticNonNull
             )(using summonInline[ClassTag[A]])
         }
 
