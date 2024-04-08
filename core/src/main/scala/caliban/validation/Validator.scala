@@ -376,13 +376,13 @@ object Validator {
             )
           } *> validateAll(op.variableDefinitions) { v =>
             val t = Type.innerType(v.variableType)
-            ZPure.whenCase(context.rootType.types.get(t).map(_.kind)) {
-              case Some(__TypeKind.OBJECT) | Some(__TypeKind.UNION) | Some(__TypeKind.INTERFACE) =>
-                failValidation(
-                  s"Type of variable '${v.name}' is not a valid input type.",
-                  "Variables can only be input types. Objects, unions, and interfaces cannot be used as inputs."
-                )
-            }
+            failWhen(context.rootType.types.get(t).map(_.kind).exists {
+              case __TypeKind.OBJECT | __TypeKind.UNION | __TypeKind.INTERFACE => true
+              case _                                                           => false
+            })(
+              s"Type of variable '${v.name}' is not a valid input type.",
+              "Variables can only be input types. Objects, unions, and interfaces cannot be used as inputs."
+            )
           } *> {
             validateAll(variableUsages)(v =>
               failWhen(!op.variableDefinitions.exists(_.name == v))(
@@ -1225,19 +1225,19 @@ object Validator {
    */
   private def validateAll[R, A, B](
     in: Iterable[A]
-  )(f: A => EReader[R, ValidationError, B]): EReader[R, ValidationError, Unit] =
+  )(f: A => EReader[R, ValidationError, Unit]): EReader[R, ValidationError, Unit] =
     in.sizeCompare(1) match {
       case -1 => zunit
-      case 0  => f(in.head).asInstanceOf[EReader[Any, ValidationError, Unit]]
+      case 0  => f(in.head)
       case _  => ZPure.foreachDiscard(in)(f)
     }
 
-  private def validateAllNonEmpty[A, B](
+  private def validateAllNonEmpty[A](
     in: Iterable[A]
-  )(f: A => EReader[Any, ValidationError, B]): OptionalValidation =
+  )(f: A => EReader[Any, ValidationError, Unit]): OptionalValidation =
     in.sizeCompare(1) match {
       case -1 => None
-      case 0  => Some(f(in.head).asInstanceOf[EReader[Any, ValidationError, Unit]])
+      case 0  => Some(f(in.head))
       case _  => Some(ZPure.foreachDiscard(in)(f))
     }
 
