@@ -1223,7 +1223,7 @@ object Validator {
   /**
    * Wrapper around `ZPure.foreachDiscard` optimized for cases where the input is empty or has only one element.
    */
-  private def validateAll[R, A, B](
+  private def validateAll[R, A](
     in: Iterable[A]
   )(f: A => EReader[R, ValidationError, Unit]): EReader[R, ValidationError, Unit] =
     in.sizeCompare(1) match {
