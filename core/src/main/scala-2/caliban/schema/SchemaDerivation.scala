@@ -69,7 +69,7 @@ trait CommonSchemaDerivation[R] {
                 getName(p),
                 getDescription(p),
                 () =>
-                  if (p.typeclass.optional) p.typeclass.toType_(isInput, isSubscription)
+                  if (p.typeclass.optional || p.typeclass.canFail) p.typeclass.toType_(isInput, isSubscription)
                   else p.typeclass.toType_(isInput, isSubscription).nonNull,
                 p.annotations.collectFirst { case GQLDefault(v) => v },
                 p.annotations.collectFirst { case GQLDeprecated(_) => () }.isDefined,
@@ -88,23 +88,24 @@ trait CommonSchemaDerivation[R] {
           ctx.parameters
             .filterNot(_.annotations.exists(_ == GQLExcluded()))
             .map { p =>
-              val isOptional = {
+              val (isNullable, isNullabilityForced) = {
                 val hasNullableAnn = p.annotations.contains(GQLNullable())
                 val hasNonNullAnn  = p.annotations.contains(GQLNonNullable())
-                !hasNonNullAnn && (hasNullableAnn || p.typeclass.optional)
+                (!hasNonNullAnn && (hasNullableAnn || p.typeclass.optional), hasNullableAnn || hasNonNullAnn)
               }
               Types.makeField(
                 getName(p),
                 getDescription(p),
                 p.typeclass.arguments,
                 () =>
-                  if (isOptional) p.typeclass.toType_(isInput, isSubscription)
+                  if (isNullable || (!isNullabilityForced && p.typeclass.canFail))
+                    p.typeclass.toType_(isInput, isSubscription)
                   else p.typeclass.toType_(isInput, isSubscription).nonNull,
                 p.annotations.collectFirst { case GQLDeprecated(_) => () }.isDefined,
                 p.annotations.collectFirst { case GQLDeprecated(reason) => reason },
                 Option(
                   p.annotations.collect { case GQLDirective(dir) => dir }.toList ++ {
-                    if (enableSemanticNonNull && isOptional && p.typeclass.semanticNonNull)
+                    if (enableSemanticNonNull && !isNullable && p.typeclass.canFail)
                       Some(Directive("semanticNonNull"))
                     else None
                   }

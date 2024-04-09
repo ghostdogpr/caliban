@@ -192,6 +192,7 @@ object CatsInterop {
 
       override def optional: Boolean =
         ev.optional
+      override def canFail: Boolean  = true
 
       override def resolve(value: F[A]): Step[R] =
         QueryStep(ZQuery.fromZIO(interop.fromEffect(value).map(ev.resolve)))

@@ -105,7 +105,7 @@ private object DerivationUtils {
         name,
         getDescription(fieldAnnotations),
         () =>
-          if (schema.optional) schema.toType_(isInput, isSubscription)
+          if (schema.optional || schema.canFail) schema.toType_(isInput, isSubscription)
           else schema.toType_(isInput, isSubscription).nonNull,
         getDefaultValue(fieldAnnotations),
         getDeprecatedReason(fieldAnnotations).isDefined,
@@ -126,24 +126,24 @@ private object DerivationUtils {
     Some(getName(annotations, info)),
     getDescription(annotations),
     fields.map { (name, fieldAnnotations, schema) =>
-      val deprecatedReason = getDeprecatedReason(fieldAnnotations)
-      val isOptional       = {
+      val deprecatedReason                  = getDeprecatedReason(fieldAnnotations)
+      val (isNullable, isNullabilityForced) = {
         val hasNullableAnn = fieldAnnotations.contains(GQLNullable())
         val hasNonNullAnn  = fieldAnnotations.contains(GQLNonNullable())
-        !hasNonNullAnn && (hasNullableAnn || schema.optional)
+        (!hasNonNullAnn && (hasNullableAnn || schema.optional), hasNullableAnn || hasNonNullAnn)
       }
       Types.makeField(
         name,
         getDescription(fieldAnnotations),
         schema.arguments,
         () =>
-          if (isOptional) schema.toType_(isInput, isSubscription)
+          if (isNullable || (!isNullabilityForced && schema.canFail)) schema.toType_(isInput, isSubscription)
           else schema.toType_(isInput, isSubscription).nonNull,
         deprecatedReason.isDefined,
         deprecatedReason,
         Option(
           getDirectives(fieldAnnotations) ++ {
-            if (enableSemanticNonNull && isOptional && schema.semanticNonNull) Some(Directive("semanticNonNull"))
+            if (enableSemanticNonNull && !isNullable && schema.canFail) Some(Directive("semanticNonNull"))
             else None
           }
         ).filter(_.nonEmpty)

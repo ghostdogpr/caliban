@@ -61,6 +61,7 @@ object MonixInterop {
     new Schema[R, MonixTask[A]] {
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType_(isInput, isSubscription)
       override def optional: Boolean                                         = ev.optional
+      override def canFail: Boolean                                          = true
       override def resolve(value: MonixTask[A]): Step[R]                     =
         QueryStep(ZQuery.fromZIO(value.to[Task].map(ev.resolve)))
     }

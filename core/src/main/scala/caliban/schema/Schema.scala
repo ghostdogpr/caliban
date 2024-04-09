@@ -78,9 +78,9 @@ trait Schema[-R, T] { self =>
   def optional: Boolean = false
 
   /**
-   * Defines if the type is considered semantically nullable or not.
+   * Defines if the type can fail during resolution.
    */
-  def semanticNonNull: Boolean = false
+  def canFail: Boolean = false
 
   /**
    * Defined the arguments of the given type. Should be empty except for `Function`.
@@ -96,6 +96,7 @@ trait Schema[-R, T] { self =>
    */
   def contramap[A](f: A => T): Schema[R, A] = new Schema[R, A] {
     override def optional: Boolean                                         = self.optional
+    override def canFail: Boolean                                          = self.canFail
     override def arguments: List[__InputValue]                             = self.arguments
     override def toType(isInput: Boolean, isSubscription: Boolean): __Type = self.toType_(isInput, isSubscription)
     override def resolve(value: A): Step[R]                                = self.resolve(f(value))
@@ -108,6 +109,7 @@ trait Schema[-R, T] { self =>
    */
   def rename(name: String, inputName: Option[String] = None): Schema[R, T] = new Schema[R, T] {
     override def optional: Boolean                                         = self.optional
+    override def canFail: Boolean                                          = self.canFail
     override def arguments: List[__InputValue]                             = self.arguments
     override def toType(isInput: Boolean, isSubscription: Boolean): __Type = {
       val tpe     = self.toType_(isInput, isSubscription)
@@ -362,7 +364,7 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
   implicit def listSchema[R0, A](implicit ev: Schema[R0, A]): Schema[R0, List[A]]                                      = new Schema[R0, List[A]] {
     override def toType(isInput: Boolean, isSubscription: Boolean): __Type = {
       val t = ev.toType_(isInput, isSubscription)
-      (if (ev.optional) t else t.nonNull).list
+      (if (ev.optional || ev.canFail) t else t.nonNull).list
     }
 
     override def resolve(value: List[A]): Step[R0] = ListStep(value.map(ev.resolve))
@@ -376,6 +378,7 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
   implicit def functionUnitSchema[R0, A](implicit ev: Schema[R0, A]): Schema[R0, () => A]                              =
     new Schema[R0, () => A] {
       override def optional: Boolean                                         = ev.optional
+      override def canFail: Boolean                                          = ev.canFail
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType_(isInput, isSubscription)
       override def resolve(value: () => A): Step[R0]                         = FunctionStep(_ => ev.resolve(value()))
     }
@@ -383,6 +386,7 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
     new Schema[R0, Field => A] {
       override def arguments: List[__InputValue]                             = ev.arguments
       override def optional: Boolean                                         = ev.optional
+      override def canFail: Boolean                                          = ev.canFail
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType_(isInput, isSubscription)
       override def resolve(value: Field => A): Step[R0]                      = MetadataFunctionStep(field => ev.resolve(value(field)))
     }
@@ -398,11 +402,13 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
 
     implicit val leftSchema: Schema[RA, A]  = new Schema[RA, A] {
       override def optional: Boolean                                         = true
+      override def canFail: Boolean                                          = evA.canFail
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type = evA.toType_(isInput, isSubscription)
       override def resolve(value: A): Step[RA]                               = evA.resolve(value)
     }
     implicit val rightSchema: Schema[RB, B] = new Schema[RB, B] {
       override def optional: Boolean                                         = true
+      override def canFail: Boolean                                          = evB.canFail
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type = evB.toType_(isInput, isSubscription)
       override def resolve(value: B): Step[RB]                               = evB.resolve(value)
     }
@@ -470,7 +476,7 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
               __InputValue(
                 unwrappedArgumentName,
                 None,
-                () => if (ev1.optional) inputType else inputType.nonNull,
+                () => if (ev1.optional || ev1.canFail) inputType else inputType.nonNull,
                 None
               )
             )
@@ -478,6 +484,7 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
       }
 
       override def optional: Boolean                                         = ev2.optional
+      override def canFail: Boolean                                          = ev2.canFail
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev2.toType_(isInput, isSubscription)
 
       override def resolve(f: A => B): Step[RB]                         =
@@ -506,6 +513,7 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
   implicit def infallibleEffectSchema[R0, R1 >: R0, R2 >: R0, A](implicit ev: Schema[R2, A]): Schema[R0, URIO[R1, A]] =
     new Schema[R0, URIO[R1, A]] {
       override def optional: Boolean                                         = ev.optional
+      override def canFail: Boolean                                          = ev.canFail
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType_(isInput, isSubscription)
       override def resolve(value: URIO[R1, A]): Step[R0]                     = QueryStep(ZQuery.fromZIONow(value.map(ev.resolve)))
     }
@@ -513,8 +521,8 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
     ev: Schema[R2, A]
   ): Schema[R0, ZIO[R1, E, A]] =
     new Schema[R0, ZIO[R1, E, A]] {
-      override def optional: Boolean                                         = true
-      override def semanticNonNull: Boolean                                  = !ev.optional
+      override def optional: Boolean                                         = ev.optional
+      override def canFail: Boolean                                          = true
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType_(isInput, isSubscription)
       override def resolve(value: ZIO[R1, E, A]): Step[R0]                   = QueryStep(ZQuery.fromZIONow(value.map(ev.resolve)))
     }
@@ -522,8 +530,8 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
     ev: Schema[R2, A]
   ): Schema[R0, ZIO[R1, E, A]] =
     new Schema[R0, ZIO[R1, E, A]] {
-      override def optional: Boolean                                         = true
-      override def semanticNonNull: Boolean                                  = !ev.optional
+      override def optional: Boolean                                         = ev.optional
+      override def canFail: Boolean                                          = true
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType_(isInput, isSubscription)
       override def resolve(value: ZIO[R1, E, A]): Step[R0]                   = QueryStep(
         ZQuery.fromZIONow(value.mapBoth(convertError, ev.resolve))
@@ -534,6 +542,7 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
   ): Schema[R0, ZQuery[R1, Nothing, A]] =
     new Schema[R0, ZQuery[R1, Nothing, A]] {
       override def optional: Boolean                                         = ev.optional
+      override def canFail: Boolean                                          = ev.canFail
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType_(isInput, isSubscription)
       override def resolve(value: ZQuery[R1, Nothing, A]): Step[R0]          = QueryStep(value.map(ev.resolve))
     }
@@ -541,8 +550,8 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
     ev: Schema[R2, A]
   ): Schema[R0, ZQuery[R1, E, A]] =
     new Schema[R0, ZQuery[R1, E, A]] {
-      override def optional: Boolean                                         = true
-      override def semanticNonNull: Boolean                                  = !ev.optional
+      override def optional: Boolean                                         = ev.optional
+      override def canFail: Boolean                                          = true
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType_(isInput, isSubscription)
       override def resolve(value: ZQuery[R1, E, A]): Step[R0]                = QueryStep(value.map(ev.resolve))
     }
@@ -550,8 +559,8 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
     ev: Schema[R2, A]
   ): Schema[R0, ZQuery[R1, E, A]] =
     new Schema[R0, ZQuery[R1, E, A]] {
-      override def optional: Boolean                                         = true
-      override def semanticNonNull: Boolean                                  = !ev.optional
+      override def optional: Boolean                                         = ev.optional
+      override def canFail: Boolean                                          = true
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType_(isInput, isSubscription)
       override def resolve(value: ZQuery[R1, E, A]): Step[R0]                = QueryStep(value.mapBoth(convertError, ev.resolve))
     }
@@ -560,9 +569,10 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
   ): Schema[R1, ZStream[R1, Nothing, A]] =
     new Schema[R1, ZStream[R1, Nothing, A]] {
       override def optional: Boolean                                         = false
+      override def canFail: Boolean                                          = ev.canFail
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type = {
         val t = ev.toType_(isInput, isSubscription)
-        if (isSubscription) t else (if (ev.optional) t else t.nonNull).list
+        if (isSubscription) t else (if (ev.optional || ev.canFail) t else t.nonNull).list
       }
       override def resolve(value: ZStream[R1, Nothing, A]): Step[R1]         = StreamStep(value.map(ev.resolve))
     }
@@ -570,11 +580,11 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
     ev: Schema[R2, A]
   ): Schema[R0, ZStream[R1, E, A]] =
     new Schema[R0, ZStream[R1, E, A]] {
-      override def optional: Boolean                                         = true
-      override def semanticNonNull: Boolean                                  = !ev.optional
+      override def optional: Boolean                                         = ev.optional
+      override def canFail: Boolean                                          = true
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type = {
         val t = ev.toType_(isInput, isSubscription)
-        if (isSubscription) t else (if (ev.optional) t else t.nonNull).list
+        if (isSubscription) t else (if (ev.optional || ev.canFail) t else t.nonNull).list
       }
       override def resolve(value: ZStream[R1, E, A]): Step[R0]               = StreamStep(value.map(ev.resolve))
     }
@@ -582,11 +592,11 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
     ev: Schema[R2, A]
   ): Schema[R0, ZStream[R1, E, A]] =
     new Schema[R0, ZStream[R1, E, A]] {
-      override def optional: Boolean                                         = true
-      override def semanticNonNull: Boolean                                  = !ev.optional
+      override def optional: Boolean                                         = ev.optional
+      override def canFail: Boolean                                          = true
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type = {
         val t = ev.toType_(isInput, isSubscription)
-        if (isSubscription) t else (if (ev.optional) t else t.nonNull).list
+        if (isSubscription) t else (if (ev.optional || ev.canFail) t else t.nonNull).list
       }
       override def resolve(value: ZStream[R1, E, A]): Step[R0]               = StreamStep(value.mapBoth(convertError, ev.resolve))
     }
@@ -720,13 +730,13 @@ abstract class PartiallyAppliedFieldBase[V](
       description,
       _ => Nil,
       () =>
-        if (ev.optional) ev.toType_(ft.isInput, ft.isSubscription)
+        if (ev.optional || ev.canFail) ev.toType_(ft.isInput, ft.isSubscription)
         else ev.toType_(ft.isInput, ft.isSubscription).nonNull,
       isDeprecated = Directives.isDeprecated(directives),
       deprecationReason = Directives.deprecationReason(directives),
       directives = Some(
         directives.filter(_.name != "deprecated") ++ {
-          if (enableSemanticNonNull && ev.optional && ev.semanticNonNull) Some(Directive("semanticNonNull"))
+          if (enableSemanticNonNull && !ev.optional && ev.canFail) Some(Directive("semanticNonNull"))
           else None
         }
       ).filter(_.nonEmpty)
@@ -770,13 +780,13 @@ case class PartiallyAppliedFieldWithArgs[V, A](
         description,
         ev1.arguments,
         () =>
-          if (ev1.optional) ev1.toType_(fa.isInput, fa.isSubscription)
+          if (ev1.optional || ev1.canFail) ev1.toType_(fa.isInput, fa.isSubscription)
           else ev1.toType_(fa.isInput, fa.isSubscription).nonNull,
         isDeprecated = Directives.isDeprecated(directives),
         deprecationReason = Directives.deprecationReason(directives),
         directives = Some(
           directives.filter(_.name != "deprecated") ++ {
-            if (enableSemanticNonNull && ev1.optional && ev1.semanticNonNull) Some(Directive("semanticNonNull"))
+            if (enableSemanticNonNull && !ev1.optional && ev1.canFail) Some(Directive("semanticNonNull"))
             else None
           }
         ).filter(_.nonEmpty)
