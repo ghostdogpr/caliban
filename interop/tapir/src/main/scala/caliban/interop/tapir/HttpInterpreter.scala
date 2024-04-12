@@ -19,20 +19,23 @@ sealed trait HttpInterpreter[-R, E] { self =>
     serverRequest: ServerRequest
   )(implicit streamConstructor: StreamConstructor[BS]): ZIO[R, TapirResponse, CalibanResponse[BS]]
 
-  def serverEndpoints[R1 <: R, S](stream: Streams[S])(implicit
-    streamConstructor: StreamConstructor[stream.BinaryStream]
-  ): List[CalibanEndpoint[R1, stream.BinaryStream, S]] = {
+  def serverEndpoints[R1 <: R, S](streams: Streams[S])(implicit
+    streamConstructor: StreamConstructor[streams.BinaryStream]
+  ): List[CalibanEndpoint[R1, streams.BinaryStream, S]] = {
     def logic(
       request: (GraphQLRequest, ServerRequest)
-    ): RIO[R1, Either[TapirResponse, CalibanResponse[stream.BinaryStream]]] = {
+    ): RIO[R1, Either[TapirResponse, CalibanResponse[streams.BinaryStream]]] = {
       val (graphQLRequest, serverRequest) = request
       executeRequest(graphQLRequest, serverRequest).either
     }
-    endpoints[S](stream).map(_.serverLogic(logic(_)))
+    endpoints[S](streams).map(_.serverLogic(logic(_)))
   }
 
   def intercept[R1](interceptor: Interceptor[R1, R]): HttpInterpreter[R1, E] =
     HttpInterpreter.Intercepted(self, interceptor)
+
+  def prependInput[BS, S](prependedInput: EndpointInput[Unit]): HttpInterpreter[R, E] =
+    HttpInterpreter.Prepended(self, prependedInput)
 
   def configure[R1](configurator: Configurator[R1]): HttpInterpreter[R & R1, E] =
     intercept[R & R1](ZLayer.scopedEnvironment[R & R1 & ServerRequest](configurator *> ZIO.environment[R]))
@@ -61,6 +64,22 @@ object HttpInterpreter {
         case Method.GET  => HttpRequestMethod.setWith(HttpRequestMethod.GET)(exec)
         case _           => exec
       }
+  }
+
+  private case class Prepended[R, E](
+    interpreter: HttpInterpreter[R, E],
+    prependedInput: EndpointInput[Unit]
+  ) extends HttpInterpreter[R, E] {
+    override def endpoints[S](
+      streams: Streams[S]
+    ): List[PublicEndpoint[(GraphQLRequest, ServerRequest), TapirResponse, CalibanResponse[streams.BinaryStream], S]] =
+      interpreter.endpoints(streams).map(_.prependIn(prependedInput))
+
+    def executeRequest[BS](
+      graphQLRequest: GraphQLRequest,
+      serverRequest: ServerRequest
+    )(implicit streamConstructor: StreamConstructor[BS]): ZIO[R, TapirResponse, CalibanResponse[BS]] =
+      interpreter.executeRequest(graphQLRequest, serverRequest)
   }
 
   private case class Intercepted[R1, R, E](
