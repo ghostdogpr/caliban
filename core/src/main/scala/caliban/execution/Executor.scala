@@ -30,13 +30,15 @@ object Executor {
    * @param plan an execution plan
    * @param fieldWrappers a list of field wrappers
    * @param queryExecution a strategy for executing queries in parallel or not
+   * @param makeCache the initial size to use for the ZQuery cache
    */
   def executeRequest[R](
     request: ExecutionRequest,
     plan: Step[R],
     fieldWrappers: List[FieldWrapper[R]] = Nil,
     queryExecution: QueryExecution = QueryExecution.Parallel,
-    featureSet: Set[Feature] = Set.empty
+    featureSet: Set[Feature] = Set.empty,
+    makeCache: UIO[Cache] = Cache.empty(Trace.empty)
   )(implicit trace: Trace): URIO[R, GraphQLResponse[CalibanError]] = {
     val wrapPureValues      = fieldWrappers.exists(_.wrapPureValues)
     val stepReducer         =
@@ -112,7 +114,7 @@ object Executor {
         -> defers)
 
     for {
-      cache    <- Cache.empty
+      cache    <- makeCache
       response <- runQuery(stepReducer.reduceStep(plan, request.field, Map.empty, Nil), cache)
     } yield response
   }

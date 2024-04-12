@@ -3,6 +3,7 @@ package caliban
 import caliban.execution.QueryExecution
 import caliban.validation.Validator.{ AllValidations, QueryValidation }
 import zio._
+import zio.query.{ Cache, DataSource }
 
 object Configurator {
 
@@ -13,13 +14,17 @@ object Configurator {
    * @param allowMutationsOverGetRequests if true, mutations are allowed for GET requests. Note that this is highly discouraged as it goes against the recommended practices. Default: false.
    * @param queryExecution the execution strategy to use (sequential, parallel, batched). Default: parallel.
    * @param validations the validations to run on the query during the validation phase. Default: all available validations.
+   * @param queryCache An effect used to create a [[Cache]] to use with [[DataSource]]-backed ZQueries.
+   *                   The effect will be run for each query execution to create a new cache, so ensure that any side-effects are properly captured in the provided effect.
+   *                   Default: The default empty cache implementation from zio-query
    */
   case class ExecutionConfiguration(
     skipValidation: Boolean = false,
     enableIntrospection: Boolean = true,
     allowMutationsOverGetRequests: Boolean = false,
     queryExecution: QueryExecution = QueryExecution.Parallel,
-    validations: List[QueryValidation] = AllValidations
+    validations: List[QueryValidation] = AllValidations,
+    queryCache: UIO[Cache] = Cache.empty(Trace.empty)
   )
 
   private val configRef: FiberRef[ExecutionConfiguration] =
@@ -66,4 +71,11 @@ object Configurator {
    */
   def setAllowMutationsOverGetRequests(allow: Boolean): URIO[Scope, Unit] =
     configRef.locallyScopedWith(_.copy(allowMutationsOverGetRequests = allow))
+
+  /**
+   * Sets an effect which will be used to create a new ZQuery [[Cache]].
+   * This allows customizing the initial cache parameters or providing a custom implementation
+   */
+  def setQueryCache(mkCache: UIO[Cache]): URIO[Scope, Unit] =
+    configRef.locallyScopedWith(_.copy(queryCache = mkCache))
 }
