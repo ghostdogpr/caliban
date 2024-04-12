@@ -4,8 +4,10 @@ import caliban.execution.QueryExecution
 import caliban.validation.Validator.{ AllValidations, QueryValidation }
 import zio._
 import zio.query.Cache
+import zio.stacktracer.TracingImplicits.disableAutoTrace
 
 object Configurator {
+  private implicit val trace: Trace = Trace.empty
 
   /**
    * Configuration for the execution of a GraphQL query.
@@ -24,14 +26,14 @@ object Configurator {
     allowMutationsOverGetRequests: Boolean = false,
     queryExecution: QueryExecution = QueryExecution.Parallel,
     validations: List[QueryValidation] = AllValidations,
-    queryCache: UIO[Cache] = Cache.empty(Trace.empty)
+    queryCache: UIO[Cache] = Cache.empty
   )
 
   private val configRef: FiberRef[ExecutionConfiguration] =
     Unsafe.unsafe(implicit u => FiberRef.unsafe.make(ExecutionConfiguration()))
 
   private[caliban] val configuration: UIO[ExecutionConfiguration] =
-    configRef.get(Trace.empty)
+    configRef.get
 
   private[caliban] def setWith[R, E, A](cfg: ExecutionConfiguration)(f: ZIO[R, E, A])(implicit
     trace: Trace
