@@ -3,7 +3,7 @@ package caliban
 import caliban.execution.QueryExecution
 import caliban.validation.Validator.{ AllValidations, QueryValidation }
 import zio._
-import zio.query.{ Cache, DataSource }
+import zio.query.Cache
 
 object Configurator {
 
@@ -14,7 +14,7 @@ object Configurator {
    * @param allowMutationsOverGetRequests if true, mutations are allowed for GET requests. Note that this is highly discouraged as it goes against the recommended practices. Default: false.
    * @param queryExecution the execution strategy to use (sequential, parallel, batched). Default: parallel.
    * @param validations the validations to run on the query during the validation phase. Default: all available validations.
-   * @param queryCache An effect used to create a [[Cache]] to use with [[DataSource]]-backed ZQueries.
+   * @param queryCache An effect used to create a [[zio.query.Cache]] to use with [[zio.query.DataSource]]-backed ZQueries.
    *                   The effect will be run for each query execution to create a new cache, so ensure that any side-effects are properly captured in the provided effect.
    *                   Default: The default empty cache implementation from zio-query
    */
@@ -73,7 +73,7 @@ object Configurator {
     configRef.locallyScopedWith(_.copy(allowMutationsOverGetRequests = allow))
 
   /**
-   * Sets an effect which will be used to create a new ZQuery [[Cache]] for each query execution.
+   * Sets an effect which will be used to create a new ZQuery [[zio.query.Cache]] for each query execution.
    * This allows customizing the initial cache parameters or providing a custom implementation.
    *
    * @see [[ExecutionConfiguration]] for more details
