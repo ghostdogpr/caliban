@@ -73,8 +73,10 @@ object Configurator {
     configRef.locallyScopedWith(_.copy(allowMutationsOverGetRequests = allow))
 
   /**
-   * Sets an effect which will be used to create a new ZQuery [[Cache]].
-   * This allows customizing the initial cache parameters or providing a custom implementation
+   * Sets an effect which will be used to create a new ZQuery [[Cache]] for each query execution.
+   * This allows customizing the initial cache parameters or providing a custom implementation.
+   *
+   * @see [[ExecutionConfiguration]] for more details
    */
   def setQueryCache(mkCache: UIO[Cache]): URIO[Scope, Unit] =
     configRef.locallyScopedWith(_.copy(queryCache = mkCache))
