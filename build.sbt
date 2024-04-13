@@ -29,7 +29,7 @@ val zioInteropCats2Version    = "22.0.0.0"
 val zioInteropCats3Version    = "23.1.0.1"
 val zioInteropReactiveVersion = "2.0.2"
 val zioConfigVersion          = "3.0.7"
-val zqueryVersion             = "0.6.1"
+val zqueryVersion             = "0.7.0"
 val zioJsonVersion            = "0.6.2"
 val zioHttpVersion            = "3.0.0-RC6"
 val zioOpenTelemetryVersion   = "3.0.0-RC21"
@@ -289,7 +289,6 @@ lazy val catsInterop = project
   .settings(name := "caliban-cats")
   .settings(commonSettings)
   .settings(enableMimaSettingsJVM)
-  .settings(apiMappingSettings)
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= {
@@ -660,6 +659,7 @@ lazy val docs = project
   .dependsOn(core, catsInterop, tapirInterop, http4s, tools, quickAdapter)
 
 lazy val commonSettings = Def.settings(
+  apiMappingSettings,
   scalacOptions ++= Seq(
     "-deprecation",
     "-encoding",
@@ -743,7 +743,8 @@ lazy val apiMappingSettings = Def.settings(
     def javadocIO(org: String, name: String) = depFile(org, name).map { case (id, f) => f -> javadocIOUrl(id) }
 
     Seq(
-      javadocIO("dev.zio", "zio")
+      javadocIO("dev.zio", "zio"),
+      javadocIO("dev.zio", "zio-query")
     ).flatten.toMap
   }
 )

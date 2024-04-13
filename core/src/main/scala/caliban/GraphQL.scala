@@ -159,7 +159,14 @@ trait GraphQL[-R] { self =>
             case OperationType.Subscription => schemaToExecute.subscription.getOrElse(schemaToExecute.query)
           }
           Configurator.configuration.flatMap { config =>
-            Executor.executeRequest(request, op.plan, fieldWrappers, config.queryExecution, features)
+            Executor.executeRequest(
+              request,
+              op.plan,
+              fieldWrappers,
+              config.queryExecution,
+              features,
+              config.queryCache
+            )
           }
         }
 
