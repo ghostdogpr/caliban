@@ -8,6 +8,7 @@ import sttp.tapir.Codec.JsonCodec
 import sttp.tapir.model.ServerRequest
 import sttp.tapir._
 import zio._
+import sttp.tapir.EndpointInput.FixedPath
 
 sealed trait HttpInterpreter[-R, E] { self =>
   protected def endpoints[S](streams: Streams[S]): List[
@@ -34,8 +35,8 @@ sealed trait HttpInterpreter[-R, E] { self =>
   def intercept[R1](interceptor: Interceptor[R1, R]): HttpInterpreter[R1, E] =
     HttpInterpreter.Intercepted(self, interceptor)
 
-  def prependInput[BS, S](prependedInput: EndpointInput[Unit]): HttpInterpreter[R, E] =
-    HttpInterpreter.Prepended(self, prependedInput)
+  def prependPath(path: List[String]): HttpInterpreter[R, E] =
+    HttpInterpreter.Prepended(self, path)
 
   def configure[R1](configurator: Configurator[R1]): HttpInterpreter[R & R1, E] =
     intercept[R & R1](ZLayer.scopedEnvironment[R & R1 & ServerRequest](configurator *> ZIO.environment[R]))
@@ -68,12 +69,23 @@ object HttpInterpreter {
 
   private case class Prepended[R, E](
     interpreter: HttpInterpreter[R, E],
-    prependedInput: EndpointInput[Unit]
+    path: List[String]
   ) extends HttpInterpreter[R, E] {
     override def endpoints[S](
       streams: Streams[S]
-    ): List[PublicEndpoint[(GraphQLRequest, ServerRequest), TapirResponse, CalibanResponse[streams.BinaryStream], S]] =
-      interpreter.endpoints(streams).map(_.prependIn(prependedInput))
+    ): List[
+      PublicEndpoint[(GraphQLRequest, ServerRequest), TapirResponse, CalibanResponse[streams.BinaryStream], S]
+    ] = {
+      val endpoints = interpreter.endpoints(streams)
+      if (path.nonEmpty) {
+        val p: List[EndpointInput[Unit]]   = path.map(stringToPath)
+        val fixedPath: EndpointInput[Unit] = p.tail.foldLeft(p.head)(_ / _)
+
+        endpoints.map(_.prependIn(fixedPath))
+      } else {
+        endpoints
+      }
+    }
 
     def executeRequest[BS](
       graphQLRequest: GraphQLRequest,

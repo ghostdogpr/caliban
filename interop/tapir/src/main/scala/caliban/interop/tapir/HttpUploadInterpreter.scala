@@ -84,8 +84,8 @@ sealed trait HttpUploadInterpreter[-R, E] { self =>
   def intercept[R1](interceptor: Interceptor[R1, R]): HttpUploadInterpreter[R1, E] =
     HttpUploadInterpreter.Intercepted(self, interceptor)
 
-  def prependInput[BS, S](prependedInput: EndpointInput[Unit]): HttpUploadInterpreter[R, E] =
-    HttpUploadInterpreter.Prepended(self, prependedInput)
+  def prependPath(path: List[String]): HttpUploadInterpreter[R, E] =
+    HttpUploadInterpreter.Prepended(self, path)
 
   def configure[R1](configurator: Configurator[R1]): HttpUploadInterpreter[R & R1, E] =
     intercept[R & R1](ZLayer.scopedEnvironment[R & R1 & ServerRequest](configurator *> ZIO.environment[R]))
@@ -128,12 +128,21 @@ object HttpUploadInterpreter {
 
   private case class Prepended[R, E](
     interpreter: HttpUploadInterpreter[R, E],
-    prependedInput: EndpointInput[Unit]
+    path: List[String]
   ) extends HttpUploadInterpreter[R, E] {
     override def endpoint[S](
       streams: Streams[S]
-    ): PublicEndpoint[UploadRequest, TapirResponse, CalibanResponse[streams.BinaryStream], S] =
-      interpreter.endpoint(streams).prependIn(prependedInput)
+    ): PublicEndpoint[UploadRequest, TapirResponse, CalibanResponse[streams.BinaryStream], S] = {
+      val endpoints = interpreter.endpoint(streams)
+      if (path.nonEmpty) {
+        val p: List[EndpointInput[Unit]]   = path.map(stringToPath)
+        val fixedPath: EndpointInput[Unit] = p.tail.foldLeft(p.head)(_ / _)
+
+        endpoints.prependIn(fixedPath)
+      } else {
+        endpoints
+      }
+    }
 
     def executeRequest[BS](
       graphQLRequest: GraphQLRequest,
