@@ -26,7 +26,7 @@ object Configurator {
     allowMutationsOverGetRequests: Boolean = false,
     queryExecution: QueryExecution = QueryExecution.Parallel,
     validations: List[QueryValidation] = AllValidations,
-    queryCache: UIO[Cache] = Cache.empty
+    queryCache: UIO[Cache] = Cache.empty(Trace.empty)
   )
 
   private val configRef: FiberRef[ExecutionConfiguration] =

@@ -30,7 +30,7 @@ object Executor {
    * @param plan an execution plan
    * @param fieldWrappers a list of field wrappers
    * @param queryExecution a strategy for executing queries in parallel or not
-   * @param makeCache the initial size to use for the ZQuery cache
+   * @param makeCache effect used to create a new cache for the query execution
    */
   def executeRequest[R](
     request: ExecutionRequest,
