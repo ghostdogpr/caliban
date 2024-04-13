@@ -8,7 +8,6 @@ import sttp.tapir.Codec.JsonCodec
 import sttp.tapir.model.ServerRequest
 import sttp.tapir._
 import zio._
-import sttp.tapir.EndpointInput.FixedPath
 
 sealed trait HttpInterpreter[-R, E] { self =>
   protected def endpoints[S](streams: Streams[S]): List[
