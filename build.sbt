@@ -173,7 +173,7 @@ lazy val core = project
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++=
       Seq(
-        "com.lihaoyi"                           %% "fastparse"               % "3.0.2",
+        "com.lihaoyi"                           %% "fastparse"               % "3.1.0",
         "org.scala-lang.modules"                %% "scala-collection-compat" % "2.11.0",
         "dev.zio"                               %% "zio"                     % zioVersion,
         "dev.zio"                               %% "zio-streams"             % zioVersion,
