@@ -9,5 +9,5 @@ Caliban comes with a module called `caliban-tools` that exposes some useful feat
 ## Dependency
 
 ```scala
-"com.github.ghostdogpr" %% "caliban-tools" % "2.5.3"
+"com.github.ghostdogpr" %% "caliban-tools" % "2.6.0"
 ```
