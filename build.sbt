@@ -707,16 +707,13 @@ lazy val commonSettings = Def.settings(
   })
 )
 
-lazy val enforceMimaCompatibility = false // Enable / disable failing CI on binary incompatibilities
+lazy val enforceMimaCompatibility = true // Enable / disable failing CI on binary incompatibilities
 
 lazy val enableMimaSettingsJVM =
   Def.settings(
     mimaFailOnProblem     := enforceMimaCompatibility,
     mimaPreviousArtifacts := previousStableVersion.value.map(organization.value %% moduleName.value % _).toSet,
-    mimaBinaryIssueFilters ++= Seq(
-      ProblemFilters.exclude[MissingClassProblem]("caliban.tools.*"),
-      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.tools.*")
-    )
+    mimaBinaryIssueFilters ++= Seq()
   )
 
 lazy val enableMimaSettingsJS =
