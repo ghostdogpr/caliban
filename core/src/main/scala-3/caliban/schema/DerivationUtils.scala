@@ -143,7 +143,7 @@ private object DerivationUtils {
         deprecatedReason,
         Option(
           getDirectives(fieldAnnotations) ++ {
-            if (enableSemanticNonNull && !isNullable && schema.canFail) Some(Directive("semanticNonNull"))
+            if (enableSemanticNonNull && !isNullable && schema.canFail) Some(SchemaUtils.SemanticNonNull)
             else None
           }
         ).filter(_.nonEmpty)

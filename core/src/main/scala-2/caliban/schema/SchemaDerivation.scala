@@ -106,7 +106,7 @@ trait CommonSchemaDerivation[R] {
                 Option(
                   p.annotations.collect { case GQLDirective(dir) => dir }.toList ++ {
                     if (enableSemanticNonNull && !isNullable && p.typeclass.canFail)
-                      Some(Directive("semanticNonNull"))
+                      Some(SchemaUtils.SemanticNonNull)
                     else None
                   }
                 ).filter(_.nonEmpty)

@@ -257,7 +257,7 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
   def field[V](
     name: String,
     description: Option[String] = None,
-    directives: List[Directive] = List.empty,
+    directives: List[Directive] = List.empty
   ): PartiallyAppliedField[V] =
     PartiallyAppliedField[V](name, description, directives)
 
@@ -267,7 +267,7 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
   def fieldLazy[V](
     name: String,
     description: Option[String] = None,
-    directives: List[Directive] = List.empty,
+    directives: List[Directive] = List.empty
   ): PartiallyAppliedFieldLazy[V] =
     PartiallyAppliedFieldLazy[V](name, description, directives)
 
@@ -277,7 +277,7 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
   def fieldWithArgs[V, A](
     name: String,
     description: Option[String] = None,
-    directives: List[Directive] = Nil,
+    directives: List[Directive] = Nil
   ): PartiallyAppliedFieldWithArgs[V, A] =
     PartiallyAppliedFieldWithArgs[V, A](name, description, directives)
 

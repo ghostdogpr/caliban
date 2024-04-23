@@ -21,7 +21,7 @@ object SemanticNonNullSchemaSpec extends ZIOSpecDefault {
             hasField[__Field, Option[List[Directive]]](
               "directives",
               _.directives,
-              isSome(contains((Directive("semanticNonNull"))))
+              isSome(contains(SchemaUtils.SemanticNonNull))
             )
           )
         )
@@ -31,7 +31,7 @@ object SemanticNonNullSchemaSpec extends ZIOSpecDefault {
           isSome(
             hasField[__Field, Option[List[Directive]]](
               "directives",
-              _.directives.map(_.filter(_.name == "semanticNonNull")).filter(_.nonEmpty),
+              _.directives.map(_.filter(_ == SchemaUtils.SemanticNonNull)).filter(_.nonEmpty),
               isNone
             )
           )
