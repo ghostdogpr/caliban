@@ -11,13 +11,20 @@ import scala.language.experimental.macros
 
 trait CommonSchemaDerivation[R] {
 
+  case class DerivationConfig(
+    /**
+     * Whether to enable the `SemanticNonNull` feature on derivation.
+     * It is currently disabled by default since it is not yet stable.
+     */
+    enableSemanticNonNull: Boolean = false
+  )
+
   /**
-   * Enables the `SemanticNonNull` feature on derivation.
-   * It is currently disabled by default since it is not yet stable.
+   * Returns a configuration object that can be used to customize the derivation behavior.
    *
-   * Override this method and return `true` to enable the feature.
+   * Override this method to customize the configuration.
    */
-  def enableSemanticNonNull: Boolean = false
+  def config: DerivationConfig = DerivationConfig()
 
   /**
    * Default naming logic for input types.
@@ -105,7 +112,7 @@ trait CommonSchemaDerivation[R] {
                 p.annotations.collectFirst { case GQLDeprecated(reason) => reason },
                 Option(
                   p.annotations.collect { case GQLDirective(dir) => dir }.toList ++ {
-                    if (enableSemanticNonNull && !isNullable && p.typeclass.canFail)
+                    if (config.enableSemanticNonNull && !isNullable && p.typeclass.canFail)
                       Some(SchemaUtils.SemanticNonNull)
                     else None
                   }

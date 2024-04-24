@@ -9,7 +9,7 @@ import zio.test.Assertion._
 import zio.test._
 
 object SemanticNonNullSchema extends SchemaDerivation[Any] {
-  override def enableSemanticNonNull: Boolean = true
+  override def config = DerivationConfig(enableSemanticNonNull = true)
 }
 
 object SemanticNonNullSchemaSpec extends ZIOSpecDefault {
