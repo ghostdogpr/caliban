@@ -60,7 +60,7 @@ abstract class FederationSupport(
     import genericSchema.auto._
 
     implicit val entitySchema: Schema[R, _Entity] = new Schema[R, _Entity] {
-      override def optional: Boolean                                         = true
+      override def nullable: Boolean                                         = true
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type =
         __Type(
           __TypeKind.UNION,

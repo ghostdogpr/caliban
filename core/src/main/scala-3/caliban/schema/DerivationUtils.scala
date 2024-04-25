@@ -105,7 +105,7 @@ private object DerivationUtils {
         name,
         getDescription(fieldAnnotations),
         () =>
-          if (schema.optional || schema.canFail) schema.toType_(isInput, isSubscription)
+          if (schema.optional) schema.toType_(isInput, isSubscription)
           else schema.toType_(isInput, isSubscription).nonNull,
         getDefaultValue(fieldAnnotations),
         getDeprecatedReason(fieldAnnotations).isDefined,
@@ -130,7 +130,7 @@ private object DerivationUtils {
       val (isNullable, isNullabilityForced) = {
         val hasNullableAnn = fieldAnnotations.contains(GQLNullable())
         val hasNonNullAnn  = fieldAnnotations.contains(GQLNonNullable())
-        (!hasNonNullAnn && (hasNullableAnn || schema.optional), hasNullableAnn || hasNonNullAnn)
+        (!hasNonNullAnn && (hasNullableAnn || schema.nullable), hasNullableAnn || hasNonNullAnn)
       }
       Types.makeField(
         name,

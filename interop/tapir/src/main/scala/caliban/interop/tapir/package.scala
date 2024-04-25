@@ -107,7 +107,7 @@ package object tapir {
             Types.makeField(
               extractPath(serverEndpoint.endpoint.info.name, serverEndpoint.endpoint.input),
               serverEndpoint.endpoint.info.description,
-              getArgs(inputSchema.toType_(isInput = true), inputSchema.optional || inputSchema.canFail),
+              getArgs(inputSchema.toType_(isInput = true), inputSchema.optional),
               () =>
                 if (serverEndpoint.endpoint.errorOutput == EndpointOutput.Void[E]())
                   outputSchema.toType_().nonNull
