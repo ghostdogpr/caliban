@@ -16,7 +16,7 @@ val http4sVersion             = "0.23.26"
 val javaTimeVersion           = "2.5.0"
 val jsoniterVersion           = "2.28.4"
 val laminextVersion           = "0.16.2"
-val magnoliaScala2Version     = "1.1.8"
+val magnoliaScala2Version     = "1.1.9"
 val magnoliaScala3Version     = "1.3.6"
 val pekkoHttpVersion          = "1.0.1"
 val playVersion               = "3.0.2"
@@ -33,7 +33,7 @@ val zqueryVersion             = "0.7.0"
 val zioJsonVersion            = "0.6.2"
 val zioHttpVersion            = "3.0.0-RC6"
 val zioOpenTelemetryVersion   = "3.0.0-RC21"
-val zioPreludeVersion         = "1.0.0-RC23"
+val zioPreludeVersion         = "1.0.0-RC24"
 
 Global / onChangedBuildSource := ReloadOnSourceChanges
 
