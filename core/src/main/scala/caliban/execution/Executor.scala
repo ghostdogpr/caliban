@@ -366,7 +366,7 @@ object Executor {
     )(
       as: A => ZQuery[R, E, B]
     )(implicit bf: BuildFrom[Coll[A], B, Coll[B]]): ZQuery[R, E, Coll[B]] =
-      if (in.sizeCompare(1) == 0) as(in.head).map(bf.newBuilder(in).+=(_).result())
+      if (in.sizeCompare(1) == 0) as(in.head).map(v => bf.fromSpecific(in)(v :: Nil))
       else if (isMutation && isTopLevelField) ZQuery.foreach(in)(as)
       else
         (queryExecutionTag: @switch) match {
@@ -429,16 +429,19 @@ object Executor {
           }.map(combineQueryResults)
         }
 
-        def combineResults(names: List[String], resolved: List[ResponseValue])(fromQueries: Vector[ResponseValue]) = {
+        def combineResults(names: List[String], resolved: List[ResponseValue])(fromQueries: List[ResponseValue]) = {
           val nil                                    = Nil
           var results: List[(String, ResponseValue)] = nil
-          var i                                      = fromQueries.length
+          var remainingQueries                       = fromQueries
           var remainingResponses                     = resolved
           var remainingNames                         = names
           while (remainingResponses ne nil) {
             val name = remainingNames.head
             val resp = remainingResponses.head match {
-              case null => i -= 1; fromQueries(i)
+              case null =>
+                val v = remainingQueries.head
+                remainingQueries = remainingQueries.tail
+                v
               case v    => v
             }
             results = (name, resp) :: results
@@ -449,24 +452,24 @@ object Executor {
         }
 
         def collectMixed() = {
-          val queries                       = new VectorBuilder[(String, ReducedStep[R], FieldInfo)]
-          val nil                           = Nil // Bring into stack memory to avoid fetching from heap on each iteration
-          var names: List[String]           = nil
-          var resolved: List[ResponseValue] = nil
-          var remaining                     = steps
+          val nil                                                = Nil // Bring into stack memory to avoid fetching from heap on each iteration
+          var queries: List[(String, ReducedStep[R], FieldInfo)] = nil
+          var names: List[String]                                = nil
+          var resolved: List[ResponseValue]                      = nil
+          var remaining                                          = steps
           while (remaining ne nil) {
-            val (name, step, _) = remaining.head
-            val value           = step match {
+            val t @ (name, step, _) = remaining.head
+            val value               = step match {
               case PureStep(value) => value
               case _               =>
-                queries.addOne(remaining.head)
+                queries = t :: queries
                 null
             }
             resolved = value :: resolved
             names = name :: names
             remaining = remaining.tail
           }
-          collectAll(queries.result(), isTopLevelField) { case (_, s, i) => objectFieldQuery(s, i) }
+          collectAll(queries, isTopLevelField) { case (_, s, i) => objectFieldQuery(s, i) }
             .map(combineResults(names, resolved))
         }
 
