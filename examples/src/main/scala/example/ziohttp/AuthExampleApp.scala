@@ -2,14 +2,17 @@ package example.ziohttp
 
 import caliban.Value.StringValue
 import caliban._
-import caliban.interop.tapir.{ HttpInterpreter, WebSocketHooks, WebSocketInterpreter }
+import caliban.interop.tapir.{ HttpInterpreter, WebSocketInterpreter }
 import caliban.schema.GenericSchema
+import caliban.ws.WebSocketHooks
 import example.ExampleData._
 import example.{ ExampleApi, ExampleService }
 import sttp.tapir.json.circe._
 import zio._
 import zio.http._
 import zio.stream._
+
+import scala.annotation.nowarn
 
 case object Unauthorized extends RuntimeException("Unauthorized")
 
@@ -20,6 +23,7 @@ trait Auth {
   def setUser(name: Option[String]): UIO[Unit]
 }
 
+@nowarn
 object Auth {
 
   val http: ULayer[Auth] = ZLayer.scoped {
@@ -81,6 +85,7 @@ object Authed extends GenericSchema[Auth] {
   val api = graphQL(RootResolver(Queries(), None, Subscriptions()))
 }
 
+@nowarn
 object AuthExampleApp extends ZIOAppDefault {
   private val graphiql = Handler.fromResource("graphiql.html").sandbox
 

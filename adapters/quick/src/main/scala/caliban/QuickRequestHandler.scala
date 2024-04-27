@@ -1,36 +1,45 @@
 package caliban
 
 import caliban.Configurator.ExecutionConfiguration
-import caliban.HttpUtils.DeferMultipart
+import caliban.HttpUtils.{ DeferMultipart, ServerSentEvents }
 import caliban.ResponseValue.StreamValue
 import caliban.interop.jsoniter.ValueJsoniter
 import caliban.uploads.{ FileMeta, GraphQLUploadRequest, Uploads }
 import caliban.wrappers.Caching
+import caliban.ws.Protocol
 import com.github.plokhotnyuk.jsoniter_scala.core._
 import com.github.plokhotnyuk.jsoniter_scala.macros.JsonCodecMaker
 import zio._
-import zio.http.Header.ContentType
+import zio.http.ChannelEvent.UserEvent.HandshakeComplete
 import zio.http._
 import zio.stacktracer.TracingImplicits.disableAutoTrace
-import zio.stream.ZStream
+import zio.stream.{ UStream, ZPipeline, ZStream }
 
 import java.nio.charset.StandardCharsets.UTF_8
 import scala.util.control.NonFatal
 
-final private class QuickRequestHandler[-R](interpreter: GraphQLInterpreter[R, Any]) {
+final private class QuickRequestHandler[R](
+  interpreter: GraphQLInterpreter[R, Any],
+  wsConfig: quick.WebSocketConfig[R]
+) {
   import QuickRequestHandler._
 
   def configure(config: ExecutionConfiguration)(implicit trace: Trace): QuickRequestHandler[R] =
     new QuickRequestHandler[R](
-      interpreter.wrapExecutionWith[R, Any](Configurator.setWith(config)(_))
+      interpreter.wrapExecutionWith[R, Any](Configurator.setWith(config)(_)),
+      wsConfig
     )
 
   def configure[R1](configurator: QuickAdapter.Configurator[R1])(implicit
     trace: Trace
   ): QuickRequestHandler[R & R1] =
     new QuickRequestHandler[R & R1](
-      interpreter.wrapExecutionWith[R & R1, Any](exec => ZIO.scoped[R1 & R](configurator *> exec))
+      interpreter.wrapExecutionWith[R & R1, Any](exec => ZIO.scoped[R1 & R](configurator *> exec)),
+      wsConfig
     )
+
+  def configureWebSocket[R1](config: quick.WebSocketConfig[R1]): QuickRequestHandler[R & R1] =
+    new QuickRequestHandler[R & R1](interpreter, config)
 
   def handleHttpRequest(request: Request)(implicit trace: Trace): URIO[R, Response] =
     transformHttpRequest(request)
@@ -45,19 +54,30 @@ final private class QuickRequestHandler[-R](interpreter: GraphQLInterpreter[R, A
         .provideSomeLayer[R](fileHandle)
     }.merge
 
+  def handleWebSocketRequest(request: Request)(implicit trace: Trace): URIO[R, Response] =
+    Response.fromSocketApp {
+      val protocol = request.headers.get(Header.SecWebSocketProtocol) match {
+        case Some(value) => Protocol.fromName(value.renderedValue)
+        case None        => Protocol.Legacy
+      }
+      Handler
+        .webSocket(webSocketChannelListener(protocol))
+        .withConfig(wsConfig.zHttpConfig.subProtocol(Some(protocol.name)))
+    }
+
   private def transformHttpRequest(httpReq: Request)(implicit trace: Trace): IO[Response, GraphQLRequest] = {
 
     def decodeQueryParams(queryParams: QueryParams): Either[Response, GraphQLRequest] = {
       def extractField(key: String) =
-        try Right(queryParams.get(key).map(readFromString[InputValue.ObjectValue](_).fields))
+        try Right(queryParams.getAll(key).headOption.map(readFromString[InputValue.ObjectValue](_).fields))
         catch { case NonFatal(_) => Left(badRequest(s"Invalid $key query param")) }
 
       for {
         vars <- extractField("variables")
         exts <- extractField("extensions")
       } yield GraphQLRequest(
-        query = queryParams.get("query"),
-        operationName = queryParams.get("operationName"),
+        query = queryParams.getAll("query").headOption,
+        operationName = queryParams.getAll("operationName").headOption,
         variables = vars,
         extensions = exts
       )
@@ -73,13 +93,9 @@ final private class QuickRequestHandler[-R](interpreter: GraphQLInterpreter[R, A
           .orElseFail(BodyDecodeErrorResponse)
 
       val isApplicationGql =
-        httpReq.headers.get(ContentType.name).exists { h =>
-          h.length >= 19 && { // Length of "application/graphql"
-            MediaType.forContentType(h).exists { mt =>
-              mt.subType.equalsIgnoreCase("graphql") &&
-              mt.mainType.equalsIgnoreCase("application")
-            }
-          }
+        httpReq.body.mediaType.exists { mt =>
+          mt.subType.equalsIgnoreCase("graphql") &&
+          mt.mainType.equalsIgnoreCase("application")
         }
 
       if (isApplicationGql) decodeApplicationGql() else decodeJson()
@@ -87,7 +103,7 @@ final private class QuickRequestHandler[-R](interpreter: GraphQLInterpreter[R, A
 
     val queryParams = httpReq.url.queryParams
 
-    (if (httpReq.method == Method.GET || queryParams.get("query").isDefined) {
+    (if ((httpReq.method eq Method.GET) || queryParams.hasQueryParam("query")) {
        ZIO.fromEither(decodeQueryParams(queryParams))
      } else {
        val req = decodeBody(httpReq.body)
@@ -148,13 +164,7 @@ final private class QuickRequestHandler[-R](interpreter: GraphQLInterpreter[R, A
     cacheDirective.fold(headers)(headers.addHeader(Header.CacheControl.name, _))
 
   private def transformResponse(httpReq: Request, resp: GraphQLResponse[Any])(implicit trace: Trace): Response = {
-
-    val acceptsGqlJson: Boolean =
-      httpReq.headers.get(Header.Accept.name).exists { h =>
-        // Better performance than having to parse the Accept header
-        h.length >= 33 && h.toLowerCase.contains("application/graphql-response+json")
-      }
-
+    val accepts        = new HttpUtils.AcceptsGqlEncodings(httpReq.headers.get(Header.Accept.name))
     val cacheDirective = HttpUtils.computeCacheDirective(resp.extensions)
 
     resp match {
@@ -162,15 +172,19 @@ final private class QuickRequestHandler[-R](interpreter: GraphQLInterpreter[R, A
         Response(
           Status.Ok,
           headers = responseHeaders(ContentTypeMultipart, None),
-          body = Body.fromStream(encodeMultipartMixedResponse(resp, stream))
+          body = Body.fromStreamChunked(encodeMultipartMixedResponse(resp, stream))
         )
-      case resp if acceptsGqlJson                               =>
+      case resp if accepts.serverSentEvents                     =>
+        Response.fromServerSentEvents(encodeTextEventStream(resp))
+      case resp if accepts.graphQLJson                          =>
+        val isBadRequest = resp.errors.collectFirst {
+          case _: CalibanError.ParsingError | _: CalibanError.ValidationError => true
+        }.getOrElse(false)
         Response(
-          status = resp.errors.collectFirst { case _: CalibanError.ParsingError | _: CalibanError.ValidationError =>
-            Status.BadRequest
-          }.getOrElse(Status.Ok),
+          status = if (isBadRequest) Status.BadRequest else Status.Ok,
           headers = responseHeaders(ContentTypeGql, cacheDirective),
-          body = encodeSingleResponse(resp, keepDataOnErrors = false, hasCacheDirective = cacheDirective.isDefined)
+          body =
+            encodeSingleResponse(resp, keepDataOnErrors = !isBadRequest, hasCacheDirective = cacheDirective.isDefined)
         )
       case resp                                                 =>
         Response(
@@ -188,7 +202,7 @@ final private class QuickRequestHandler[-R](interpreter: GraphQLInterpreter[R, A
     hasCacheDirective: Boolean
   ): Body = {
     val excludeExtensions = if (hasCacheDirective) Some(Set(Caching.DirectiveName)) else None
-    Body.fromChunk(Chunk.fromArray(writeToArray(resp.toResponseValue(keepDataOnErrors, excludeExtensions))))
+    Body.fromArray(writeToArray(resp.toResponseValue(keepDataOnErrors, excludeExtensions)))
   }
 
   private def encodeMultipartMixedResponse(
@@ -205,11 +219,39 @@ final private class QuickRequestHandler[-R](interpreter: GraphQLInterpreter[R, A
       .mapConcatChunk(Chunk.fromArray)
   }
 
+  private def encodeTextEventStream(resp: GraphQLResponse[Any])(implicit trace: Trace): UStream[ServerSentEvent] =
+    ServerSentEvents.transformResponse(
+      resp,
+      v => ServerSentEvent(writeToString(v), Some("next")),
+      CompleteSse
+    )
+
   private def isFtv1Request(req: Request) =
     req.headers
       .get(GraphQLRequest.`apollo-federation-include-trace`)
       .exists(_.equalsIgnoreCase(GraphQLRequest.ftv1))
 
+  private def webSocketChannelListener(protocol: Protocol)(ch: WebSocketChannel)(implicit trace: Trace): RIO[R, Unit] =
+    for {
+      queue <- Queue.unbounded[GraphQLWSInput]
+      pipe  <- protocol.make(interpreter, wsConfig.keepAliveTime, wsConfig.hooks).map(ZPipeline.fromFunction(_))
+      out    = ZStream
+                 .fromQueueWithShutdown(queue)
+                 .via(pipe)
+                 .interruptWhen(ch.awaitShutdown)
+                 .map {
+                   case Right(output) => WebSocketFrame.Text(writeToString(output))
+                   case Left(close)   => WebSocketFrame.Close(close.code, Some(close.reason))
+                 }
+      _     <- ZIO.scoped(ch.receiveAll {
+                 case ChannelEvent.UserEventTriggered(HandshakeComplete) =>
+                   out.runForeach(frame => ch.send(ChannelEvent.Read(frame))).forkScoped
+                 case ChannelEvent.Read(WebSocketFrame.Text(text))       =>
+                   ZIO.suspend(queue.offer(readFromString[GraphQLWSInput](text)))
+                 case _                                                  =>
+                   ZIO.unit
+               })
+    } yield ()
 }
 
 object QuickRequestHandler {
@@ -224,6 +266,8 @@ object QuickRequestHandler {
 
   private val ContentTypeMultipart =
     Headers(Header.ContentType(MediaType.multipart.mixed.copy(parameters = DeferMultipart.DeferHeaderParams)).untyped)
+
+  private val CompleteSse = ServerSentEvent("", Some("complete"))
 
   private val BodyDecodeErrorResponse =
     badRequest("Failed to decode json body")

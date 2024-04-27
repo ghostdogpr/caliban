@@ -18,28 +18,6 @@ private object DerivationUtils {
     if (name.endsWith("Input")) name
     else s"${name}Input"
 
-  // see https://github.com/graphql/graphql-spec/issues/568
-  def fixEmptyUnionObject(t: __Type): __Type =
-    t.fields(__DeprecatedArgs(Some(true))) match {
-      case Some(Nil) =>
-        t.copy(
-          fields = (_: __DeprecatedArgs) =>
-            Some(
-              List(
-                __Field(
-                  "_",
-                  Some(
-                    "Fake field because GraphQL does not support empty objects. Do not query, use __typename instead."
-                  ),
-                  _ => Nil,
-                  () => makeScalar("Boolean")
-                )
-              )
-            )
-        )
-      case _         => t
-    }
-
   def getName(annotations: Seq[Any], info: TypeInfo): String =
     annotations.collectFirst { case GQLName(name) => name }.getOrElse {
       info.typeParams match {

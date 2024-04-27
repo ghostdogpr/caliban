@@ -57,11 +57,11 @@ object OptimizedTest extends ZIOAppDefault {
   val UserDataSource: DataSource[Any, GetUser] = DataSource.Batched.make("UserDataSource") { requests =>
     requests.toList match {
       case head :: Nil =>
-        printLine("getUser").orDie.as(CompletedRequestMap.empty.insert(head, Exit.succeed(fakeUser(head.id))))
+        printLine("getUser").orDie.as(CompletedRequestMap.single(head, Exit.succeed(fakeUser(head.id))))
       case list        =>
-        printLine("getUsers").orDie.as(list.foldLeft(CompletedRequestMap.empty) { case (map, req) =>
-          map.insert(req, Exit.succeed(fakeUser(req.id)))
-        })
+        printLine("getUsers").orDie.as(
+          CompletedRequestMap.fromIterableWith(list)(identity, req => Exit.succeed(fakeUser(req.id)))
+        )
     }
   }
 

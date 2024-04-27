@@ -20,7 +20,8 @@ object ClientWriter {
     additionalImports: Option[List[String]] = None,
     splitFiles: Boolean = false,
     extensibleEnums: Boolean = false,
-    scalarMappings: Option[Map[String, String]] = None
+    scalarMappings: Option[Map[String, String]] = None,
+    excludeDeprecated: Boolean = false
   ): List[(String, String)] = {
     require(packageName.isDefined || !splitFiles, "splitFiles option requires a package name")
 
@@ -430,11 +431,16 @@ object ClientWriter {
       s"type $objectName"
     }
 
-    def writeObject(typedef: ObjectTypeDefinition, genView: Boolean): String = {
+    def writeObject(typedef: ObjectTypeDefinition, genView: Boolean, excludeDeprecated: Boolean): String = {
+      val allFields =
+        if (excludeDeprecated)
+          typedef.fields.filterNot(field => field.directives.find(_.name == "deprecated").isDefined)
+        else
+          typedef.fields
 
       val objectName: String = safeTypeName(typedef.name)
 
-      val optionalUnionTypeFields = typedef.fields.flatMap { field =>
+      val optionalUnionTypeFields = allFields.flatMap { field =>
         if (isOptionalUnionType(field))
           Some(
             collectFieldInfo(
@@ -448,7 +454,7 @@ object ClientWriter {
         else None
       }
 
-      val optionalInterfaceTypeFields = typedef.fields.flatMap { field =>
+      val optionalInterfaceTypeFields = allFields.flatMap { field =>
         if (isOptionalInterfaceType(field))
           Vector(
             collectFieldInfo(
@@ -469,15 +475,14 @@ object ClientWriter {
         else Vector.empty
       }
 
-      val fields = typedef.fields.map(
-        collectFieldInfo(_, objectName, optionalUnion = false, optionalInterface = false, commonInterface = false)
-      )
-      val view   = if (genView) "\n  " + writeView(typedef.name, fields.map(_.typeInfo)) else ""
+      val fields = allFields
+        .map(collectFieldInfo(_, objectName, optionalUnion = false, optionalInterface = false, commonInterface = false))
+      val view   = if (genView && fields.nonEmpty) "\n  " + writeView(typedef.name, fields.map(_.typeInfo)) else ""
 
-      val allFields = fields ++ optionalUnionTypeFields ++ optionalInterfaceTypeFields
+      val objectFields = fields ++ optionalUnionTypeFields ++ optionalInterfaceTypeFields
 
       s"""object $objectName {$view
-         |  ${allFields.distinct.map(writeFieldInfo).mkString("\n  ")}
+         |  ${objectFields.distinct.map(writeFieldInfo).mkString("\n  ")}
          |}
          |""".stripMargin
     }
@@ -690,22 +695,28 @@ object ClientWriter {
         .map(v => s"""case ${typedef.name}.${safeEnumValue(v.enumValue)} => __EnumValue("${v.enumValue}")""") ++
         (if (extensibleEnums) Some(s"case ${typedef.name}.__Unknown (value) => __EnumValue(value)") else None)
 
+      val enumObject =
+        if (typedef.enumValuesDefinition.nonEmpty)
+          s"""object $enumName {
+            ${enumCases.mkString("\n")}
+
+            implicit val decoder: ScalarDecoder[$enumName] = {
+              ${decoderCases.mkString("\n")}
+              case other => Left(DecodingError(s"Can't build ${typedef.name} from input $$other"))
+            }
+            implicit val encoder: ArgEncoder[${typedef.name}] = {
+              ${encoderCases.mkString("\n")}
+            }
+
+            val values: scala.collection.immutable.Vector[$enumName] = scala.collection.immutable.Vector(${typedef.enumValuesDefinition
+            .map(v => safeEnumValue(v.enumValue))
+            .mkString(", ")})
+          }"""
+        else
+          ""
+
       s"""sealed trait $enumName extends scala.Product with scala.Serializable { def value: String }
-        object $enumName {
-          ${enumCases.mkString("\n")}
-
-          implicit val decoder: ScalarDecoder[$enumName] = {
-            ${decoderCases.mkString("\n")}
-            case other => Left(DecodingError(s"Can't build ${typedef.name} from input $$other"))
-          }
-          implicit val encoder: ArgEncoder[${typedef.name}] = {
-            ${encoderCases.mkString("\n")}
-          }
-
-          val values: scala.collection.immutable.Vector[$enumName] = scala.collection.immutable.Vector(${typedef.enumValuesDefinition
-        .map(v => safeEnumValue(v.enumValue))
-        .mkString(", ")})
-        }
+          $enumObject
        """
     }
 
@@ -785,7 +796,7 @@ object ClientWriter {
         directives = typedef.directives,
         fields = typedef.fields
       )
-      val content     = writeObject(objDef, genView)
+      val content     = writeObject(objDef, genView, excludeDeprecated)
       val fullContent =
         if (splitFiles)
           s"""import caliban.client.FieldBuilder._
@@ -820,7 +831,7 @@ object ClientWriter {
           schemaDef.exists(_.subscription.getOrElse("Subscription") == obj.name)
       )
       .map { typedef =>
-        val content     = writeObject(typedef, genView)
+        val content     = writeObject(typedef, genView, excludeDeprecated)
         val fullContent =
           if (splitFiles)
             s"""import caliban.client.FieldBuilder._
@@ -851,6 +862,14 @@ object ClientWriter {
 
     val enums = schema.enumTypeDefinitions
       .filter(e => !scalarMappingsWithDefaults.contains(e.name))
+      .map {
+        case typedef if excludeDeprecated =>
+          val valuesWithoutDeprecated =
+            typedef.enumValuesDefinition.filterNot(value => value.directives.find(_.name == "deprecated").isDefined)
+
+          typedef.copy(enumValuesDefinition = valuesWithoutDeprecated)
+        case typedef                      => typedef
+      }
       .map { typedef =>
         val content     = writeEnum(typedef, extensibleEnums = extensibleEnums)
         val fullContent =

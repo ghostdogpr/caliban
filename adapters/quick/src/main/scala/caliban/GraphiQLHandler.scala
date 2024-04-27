@@ -13,7 +13,11 @@ object GraphiQLHandler {
    * @see [[https://github.com/graphql/graphiql/tree/main/examples/graphiql-cdn]]
    */
   def handler(apiPath: String, graphiqlPath: String): RequestHandler[Any, Nothing] =
-    Handler.fromBody(Body.fromString(html(apiPath, graphiqlPath)))
+    Response(
+      Status.Ok,
+      Headers(Header.ContentType(MediaType.text.html).untyped),
+      Body.fromString(html(apiPath, graphiqlPath))
+    ).toHandler
 
   def html(apiPath: String, uiPath: String): String =
     s"""

@@ -31,7 +31,7 @@ object ExampleAppF extends IOApp {
   override def run(args: List[String]): IO[ExitCode] =
     Dispatcher.parallel[IO].use { implicit dispatcher =>
       for {
-        interpreter <- ExampleApi.makeApi(exampleService).interpreterAsync[IO]
+        interpreter <- ExampleApi.makeApi(exampleService).interpreterF[IO]
         _           <- EmberServerBuilder
                          .default[IO]
                          .withHost(host"localhost")

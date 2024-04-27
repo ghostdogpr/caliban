@@ -9,7 +9,7 @@
 To use, add the following dependency to your `build.sbt` file:
 
 ```scala
-"com.github.ghostdogpr" %% "caliban-federation" % "2.5.1"
+"com.github.ghostdogpr" %% "caliban-federation" % "2.6.0"
 ```
 
 ## Federating

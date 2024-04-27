@@ -58,11 +58,29 @@ trait GraphQL[-R] { self =>
    * Creates an interpreter from your API. A GraphQLInterpreter is a wrapper around your API that allows
    * adding some middleware around the query execution.
    * Fails with a [[caliban.CalibanError.ValidationError]] if the schema is invalid.
+   *
+   * @see [[interpreterEither]] for a variant that returns an Either instead, making it easier to embed in non-ZIO applications
    */
   final def interpreter(implicit trace: Trace): IO[ValidationError, GraphQLInterpreter[R, CalibanError]] =
     ZIO.fromEither(interpreterEither)
 
-  private[caliban] final lazy val interpreterEither =
+  /**
+   * Impure variant of [[interpreterEither]] which throws schema validation errors. Useful for cases that the
+   * schema is known to be valid or when we're not planning on handling the error (e.g., during app startup)
+   */
+  @throws[CalibanError.ValidationError]("if the schema is invalid")
+  final def interpreterUnsafe: GraphQLInterpreter[R, CalibanError] =
+    interpreterEither.fold(throw _, identity)
+
+  /**
+   * Creates an interpreter from your API. A GraphQLInterpreter is a wrapper around your API that allows
+   * adding some middleware around the query execution.
+   * Returns a `Left` containing the schema validation error if the schema is invalid.
+   *
+   * @see [[interpreter]] for a ZIO variant of this method that makes it easier to embed in ZIO applications
+   * @see [[interpreterUnsafe]] of an unsafe variant that will throw validation errors
+   */
+  final lazy val interpreterEither: Either[ValidationError, GraphQLInterpreter[R, CalibanError]] =
     Validator.validateSchemaEither(schemaBuilder).map { schema =>
       new GraphQLInterpreter[R, CalibanError] {
         private val rootType =
@@ -86,18 +104,6 @@ trait GraphQL[-R] { self =>
             _             <- Validator.validate(document, typeToValidate)
           } yield ()
 
-        private def checkHttpMethod(cfg: ExecutionConfiguration)(req: ExecutionRequest)(implicit
-          trace: Trace
-        ): IO[ValidationError, Unit] =
-          ZIO
-            .when(req.operationType == OperationType.Mutation && !cfg.allowMutationsOverGetRequests) {
-              HttpRequestMethod.get.flatMap {
-                case HttpRequestMethod.GET => ZIO.fail(HttpRequestMethod.MutationOverGetError)
-                case _                     => ZIO.unit
-              }
-            }
-            .unit
-
         override def executeRequest(request: GraphQLRequest)(implicit
           trace: Trace
         ): URIO[R, GraphQLResponse[CalibanError]] =
@@ -105,49 +111,81 @@ trait GraphQL[-R] { self =>
             case (overallWrappers, parsingWrappers, validationWrappers, executionWrappers, fieldWrappers, _) =>
               wrap((request: GraphQLRequest) =>
                 (for {
-                  doc                                  <- wrap(Parser.parseQuery)(parsingWrappers, request.query.getOrElse(""))
-                  intro                                 = doc.isIntrospection
-                  config                               <- Configurator.configuration.map { config =>
-                                                            (config.skipValidation, config.enableIntrospection)
-                                                          }
-                  (skipValidation, enableIntrospection) = config
-                  _                                    <- ZIO.when(intro && !enableIntrospection) {
-                                                            ZIO.fail(CalibanError.ValidationError("Introspection is disabled", ""))
-                                                          }
-                  typeToValidate                        = if (intro) Introspector.introspectionRootType else rootType
-                  schemaToExecute                       = if (intro) introspectionRootSchema else schema
-                  unsafeVars                            = request.variables.getOrElse(Map.empty)
-                  coercedVars                          <- VariablesCoercer.coerceVariables(unsafeVars, doc, typeToValidate, skipValidation)
-                  validate                              = (doc: Document) =>
-                                                            for {
-                                                              config       <- Configurator.configuration
-                                                              executionReq <- Validator.prepare(
-                                                                                doc,
-                                                                                typeToValidate,
-                                                                                schemaToExecute,
-                                                                                request.operationName,
-                                                                                coercedVars,
-                                                                                config.skipValidation,
-                                                                                config.validations
-                                                                              )
-                                                              _            <- checkHttpMethod(config)(executionReq)
-                                                            } yield executionReq
-                  executionRequest                     <- wrap(validate)(validationWrappers, doc)
-                  op                                    = executionRequest.operationType match {
-                                                            case OperationType.Query        => schemaToExecute.query
-                                                            case OperationType.Mutation     => schemaToExecute.mutation.getOrElse(schemaToExecute.query)
-                                                            case OperationType.Subscription =>
-                                                              schemaToExecute.subscription.getOrElse(schemaToExecute.query)
-                                                          }
-                  execute                               = (req: ExecutionRequest) =>
-                                                            for {
-                                                              queryExecution <- Configurator.configuration.map(_.queryExecution)
-                                                              res            <- Executor.executeRequest(req, op.plan, fieldWrappers, queryExecution, features)
-                                                            } yield res
-                  result                               <- wrap(execute)(executionWrappers, executionRequest)
-                } yield result).catchAll(Executor.fail)
+                  doc          <- wrap(Parser.parseQuery)(parsingWrappers, request.query.getOrElse(""))
+                  coercedVars  <- coerceVariables(doc, request.variables.getOrElse(Map.empty))
+                  executionReq <- wrap(validation(request.operationName, coercedVars))(validationWrappers, doc)
+                  result       <- wrap(execution(schemaToExecute(doc), fieldWrappers))(executionWrappers, executionReq)
+                } yield result).catchAll(Executor.fail(_))
               )(overallWrappers, request)
           }
+
+        private def coerceVariables(doc: Document, variables: Map[String, InputValue])(implicit
+          trace: Trace
+        ): IO[ValidationError, Map[String, InputValue]] =
+          Configurator.configuration.flatMap { config =>
+            if (doc.isIntrospection && !config.enableIntrospection)
+              ZIO.fail(CalibanError.ValidationError("Introspection is disabled", ""))
+            else
+              VariablesCoercer
+                .coerceVariablesEither(variables, doc, typeToValidate(doc), config.skipValidation)
+                .fold(ZIO.fail(_), ZIO.succeed(_))
+          }
+
+        private def validation(
+          operationName: Option[String],
+          coercedVars: Map[String, InputValue]
+        )(doc: Document)(implicit trace: Trace): IO[ValidationError, ExecutionRequest] =
+          Configurator.configuration.flatMap { config =>
+            Validator
+              .prepareEither(
+                doc,
+                typeToValidate(doc),
+                schemaToExecute(doc),
+                operationName,
+                coercedVars,
+                config.skipValidation,
+                config.validations
+              )
+              .fold(ZIO.fail(_), checkHttpMethod(config))
+          }
+
+        private def execution(
+          schemaToExecute: RootSchema[R],
+          fieldWrappers: List[FieldWrapper[R]]
+        )(request: ExecutionRequest)(implicit trace: Trace) = {
+          val op = request.operationType match {
+            case OperationType.Query        => schemaToExecute.query
+            case OperationType.Mutation     => schemaToExecute.mutation.getOrElse(schemaToExecute.query)
+            case OperationType.Subscription => schemaToExecute.subscription.getOrElse(schemaToExecute.query)
+          }
+          Configurator.configuration.flatMap { config =>
+            Executor.executeRequest(
+              request,
+              op.plan,
+              fieldWrappers,
+              config.queryExecution,
+              features,
+              config.queryCache
+            )
+          }
+        }
+
+        private def typeToValidate(doc: Document) =
+          if (doc.isIntrospection) Introspector.introspectionRootType else rootType
+
+        private def schemaToExecute(doc: Document) =
+          if (doc.isIntrospection) introspectionRootSchema else schema
+
+        private def checkHttpMethod(cfg: ExecutionConfiguration)(req: ExecutionRequest)(implicit
+          trace: Trace
+        ): IO[ValidationError, ExecutionRequest] =
+          if ((req.operationType eq OperationType.Mutation) && !cfg.allowMutationsOverGetRequests)
+            HttpRequestMethod.get.flatMap {
+              case HttpRequestMethod.GET => ZIO.fail(HttpRequestMethod.MutationOverGetError)
+              case _                     => ZIO.succeed(req)
+            }
+          else ZIO.succeed(req)
+
       }
     }
 

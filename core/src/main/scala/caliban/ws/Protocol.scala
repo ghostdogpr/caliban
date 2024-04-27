@@ -1,10 +1,8 @@
-package caliban.interop.tapir.ws
+package caliban.ws
 
 import caliban.ResponseValue.{ ObjectValue, StreamValue }
 import caliban.Value.StringValue
 import caliban._
-import caliban.interop.tapir.TapirAdapter.CalibanPipe
-import caliban.interop.tapir.WebSocketHooks
 import zio.stm.TMap
 import zio.stream.{ UStream, ZStream }
 import zio.{ Duration, Promise, Queue, Random, Ref, Schedule, UIO, URIO, ZIO }
@@ -22,10 +20,9 @@ sealed trait Protocol {
 
 object Protocol {
 
-  def fromName(name: String): Protocol = name match {
-    case GraphQLWS.name => GraphQLWS
-    case _              => Legacy
-  }
+  def fromName(name: String): Protocol =
+    if (name.equalsIgnoreCase(GraphQLWS.name)) GraphQLWS
+    else Legacy
 
   object GraphQLWS extends Protocol {
     object Ops {
@@ -39,9 +36,9 @@ object Protocol {
       final val ConnectionAck  = "connection_ack"
     }
 
-    val name = "graphql-transport-ws"
+    final val name = "graphql-transport-ws"
 
-    val handler = new ResponseHandler {
+    private val handler: ResponseHandler = new ResponseHandler {
       override def toResponse[E](id: String, r: GraphQLResponse[E]): GraphQLWSOutput =
         GraphQLWSOutput(Ops.Next, Some(id), Some(r.toResponseValue))
 
@@ -126,8 +123,7 @@ object Protocol {
                                      ZIO.ifZIO(subscriptions.isTracking(id))(
                                        output.offer(Left(GraphQLWSClose(4409, s"Subscriber for $id already exists"))).unit,
                                        webSocketHooks.onMessage
-                                         .map(_.transform(stream))
-                                         .getOrElse(stream)
+                                         .fold(stream)(stream.via(_))
                                          .map(Right(_))
                                          .runForeachChunk(output.offerAll)
                                          .catchAll(e => output.offer(Right(handler.error(Some(id), e))))
@@ -190,9 +186,9 @@ object Protocol {
       final val Data                = "data"
     }
 
-    val name = "graphql-ws"
+    final val name = "graphql-ws"
 
-    val handler: ResponseHandler = new ResponseHandler {
+    private val handler: ResponseHandler = new ResponseHandler {
       override def toResponse[E](id: String, r: GraphQLResponse[E]): GraphQLWSOutput =
         GraphQLWSOutput(Ops.Data, Some(id), Some(r.toResponseValue))
 
@@ -258,8 +254,7 @@ object Protocol {
                                        val stream =
                                          handler.generateGraphQLResponse(req, id.getOrElse(""), interpreter, subscriptions)
                                        webSocketHooks.onMessage
-                                         .map(_.transform(stream))
-                                         .getOrElse(stream)
+                                         .fold(stream)(stream.via(_))
                                          .runForeachChunk(o => output.offerAll(o.map(Right(_))))
                                          .catchAll(e => output.offer(Right(handler.error(id, e))))
                                          .fork
@@ -298,7 +293,7 @@ object Protocol {
       GraphQLWSOutput(Ops.ConnectionAck, None, payload)
   }
 
-  private[ws] trait ResponseHandler {
+  private trait ResponseHandler {
     self =>
     def toResponse[E](id: String, fieldName: String, r: ResponseValue, errors: List[E]): GraphQLWSOutput =
       toResponse(id, GraphQLResponse(ObjectValue(List(fieldName -> r)), errors))
@@ -339,7 +334,7 @@ object Protocol {
     }
   }
 
-  private[ws] class SubscriptionManager private (private val tracked: TMap[String, Promise[Any, Unit]]) {
+  private class SubscriptionManager private (private val tracked: TMap[String, Promise[Any, Unit]]) {
     def track(id: String): UStream[Promise[Any, Unit]] =
       ZStream.fromZIO(Promise.make[Any, Unit].tap(tracked.put(id, _).commit))
 

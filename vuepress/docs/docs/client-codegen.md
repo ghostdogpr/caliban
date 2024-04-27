@@ -10,7 +10,7 @@ both need to configure in your project to be able to generate you Caliban client
 
 To use any of these two plugins, you'll first need to add following dependency to your `project/plugins.sbt` file:
 ```scala
-addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen-sbt" % "2.5.1")
+addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen-sbt" % "2.6.0")
 ```
 
 ## CalibanPlugin
@@ -83,13 +83,14 @@ The settings available on the `cs` (`CalibanSettings`) builder are:
 - `enableFmt`: Enable code formatting with scalafmt (default: `true`).
 - `extensibleEnums`: Generate a fallback case class for unknown enum values (default: `false`).
 - `headers` (only defined for `url` settings): Supply extra headers when fetching the schema from a URL.
+- `excludeDeprecated`: Exclude fields and enum values with deprecated directive (default: `false`).
 
 ### Manual generation
 
 If you prefer to generate the client explicitly rather than automatically, you can use `calibanGenClient` on the SBT CLI as follows:
 
 ```bash
-calibanGenClient schemaPath outputPath [--scalafmtPath path] [--headers name:value,name2:value2] [--genView true|false] [--scalarMappings gqlType:f.q.d.n.Type,gqlType2:f.q.d.n.Type2] [--imports a.b.c._,c.d.E] [--splitFiles true|false] [--enableFmt true|false]
+calibanGenClient schemaPath outputPath [--scalafmtPath path] [--headers name:value,name2:value2] [--genView true|false] [--scalarMappings gqlType:f.q.d.n.Type,gqlType2:f.q.d.n.Type2] [--imports a.b.c._,c.d.E] [--splitFiles true|false] [--enableFmt true|false] [--extensibleEnums true|false] [--excludeDeprecated true|false]
 
 # example
 calibanGenClient project/schema.graphql src/main/client/Client.scala --genView true  
@@ -172,6 +173,7 @@ This `ClientGenerationSettings` case class gives you the following configuration
  - `splitFiles`: Whether to split the generated code into multiple files (default: `false`).
  - `enableFmt`: Enable code formatting with scalafmt (default: `true`).
  - `extensibleEnums`: Generate a fallback case class for unknown enum values (default: `false`).
+ - `excludeDeprecated`: Exclude fields or enum values with deprecated directive (default: `false`).
 
 Let's take an example:
 ```scala

@@ -1,7 +1,7 @@
 package caliban.schema
 
 import caliban.*
-import caliban.schema.Annotations.{ GQLField, GQLInterface, GQLName }
+import caliban.schema.Annotations.{ GQLDescription, GQLField, GQLInterface, GQLName }
 import zio.test.{ assertTrue, ZIOSpecDefault }
 import zio.{ RIO, Task, ZIO }
 
@@ -244,6 +244,34 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
               }
             }
           }
+        )
+      },
+      test("enum derivation with description") {
+        sealed trait MyEnum derives Schema.SemiAuto, ArgBuilder
+
+        object MyEnum {
+          @GQLDescription("comment for ENUM1")
+          case object ENUM1 extends MyEnum derives Schema.SemiAuto, ArgBuilder
+
+          @GQLDescription("comment for ENUM2")
+          case object ENUM2 extends MyEnum derives Schema.SemiAuto, ArgBuilder
+        }
+
+        final case class QueryEnum2StringArgs(select: MyEnum) derives Schema.SemiAuto, ArgBuilder
+        final case class Query(enum2String: QueryEnum2StringArgs => zio.UIO[String]) derives Schema.SemiAuto
+
+        val interpreter = graphQL(
+          RootResolver(Query(enum2String = args => ZIO.succeed(args.select.toString)))
+        ).interpreterUnsafe
+
+        for {
+          res1 <- interpreter.execute("{ enum2String(select: ENUM1) }")
+          res2 <- interpreter.execute("{ enum2String(select: ENUM2) }")
+          data1 = res1.data.toString
+          data2 = res2.data.toString
+        } yield assertTrue(
+          data1 == """{"enum2String":"ENUM1"}""",
+          data2 == """{"enum2String":"ENUM2"}"""
         )
       }
     )

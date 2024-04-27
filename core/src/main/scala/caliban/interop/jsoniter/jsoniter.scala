@@ -40,20 +40,21 @@ private[caliban] object ValueJsoniter {
     if (depth == 0) out.encodeError("depth limit exceeded")
     else depth - 1
 
+  // NOTE: We don't encode input values as JSON objects, but we need to have this logic so that we can create the codec
   private def encodeInputValue(x: InputValue, out: JsonWriter, depth: Int): Unit = x match {
-    case StringValue(value)                 => out.writeVal(value)
-    case BooleanValue(value)                => out.writeVal(value)
-    case IntValue.IntNumber(value)          => out.writeVal(value)
-    case IntValue.LongNumber(value)         => out.writeVal(value)
-    case IntValue.BigIntNumber(value)       => out.writeVal(value)
-    case FloatValue.FloatNumber(value)      => out.writeVal(value)
-    case FloatValue.DoubleNumber(value)     => out.writeVal(value)
-    case FloatValue.BigDecimalNumber(value) => out.writeVal(value)
-    case NullValue                          => out.writeNull()
-    case EnumValue(value)                   => out.writeVal(value)
-    case InputValue.ObjectValue(o)          => writeInputObject(o, out, decrDepth(depth, out))
-    case InputValue.ListValue(l)            => writeInputArray(l, out, decrDepth(depth, out))
-    case InputValue.VariableValue(v)        => out.writeVal(v)
+    case v: StringValue                 => out.writeVal(v.value)
+    case v: BooleanValue                => out.writeVal(v.value)
+    case v: IntValue.IntNumber          => out.writeVal(v.value)
+    case NullValue                      => out.writeNull()
+    case v: EnumValue                   => out.writeVal(v.value)
+    case v: InputValue.ObjectValue      => writeInputObject(v.fields, out, decrDepth(depth, out))
+    case v: InputValue.ListValue        => writeInputArray(v.values, out, decrDepth(depth, out))
+    case v: IntValue.LongNumber         => out.writeVal(v.value)
+    case v: IntValue.BigIntNumber       => out.writeVal(v.value)
+    case v: FloatValue.FloatNumber      => out.writeVal(v.value)
+    case v: FloatValue.DoubleNumber     => out.writeVal(v.value)
+    case v: FloatValue.BigDecimalNumber => out.writeVal(v.value)
+    case v: InputValue.VariableValue    => out.writeVal(v.name)
   }
 
   private def writeInputArray(l: List[InputValue], out: JsonWriter, depth: Int): Unit = {
@@ -78,20 +79,31 @@ private[caliban] object ValueJsoniter {
     out.writeObjectEnd()
   }
 
+  /**
+   * Note on performance:
+   *
+   * We keep the number of cases low (less than 12) for the most commonly used types and avoid using unapply methods in the pattern-matching.
+   * To keep the number of cases below this value, we handle the `FloatValue` type separately.
+   */
   private def encodeResponseValue(x: ResponseValue, out: JsonWriter, depth: Int): Unit = x match {
-    case StringValue(value)                 => out.writeVal(value)
-    case BooleanValue(value)                => out.writeVal(value)
-    case IntValue.IntNumber(value)          => out.writeVal(value)
-    case IntValue.LongNumber(value)         => out.writeVal(value)
-    case IntValue.BigIntNumber(value)       => out.writeVal(value)
-    case FloatValue.FloatNumber(value)      => out.writeVal(value)
-    case FloatValue.DoubleNumber(value)     => out.writeVal(value)
-    case FloatValue.BigDecimalNumber(value) => out.writeVal(value)
-    case NullValue                          => out.writeNull()
-    case EnumValue(value)                   => out.writeVal(value)
-    case ResponseValue.ObjectValue(o)       => writeResponseObject(o, out, decrDepth(depth, out))
-    case ResponseValue.ListValue(l)         => writeResponseArray(l, out, decrDepth(depth, out))
-    case s: ResponseValue.StreamValue       => out.writeVal(s.toString)
+    case v: StringValue               => out.writeVal(v.value)
+    case v: BooleanValue              => out.writeVal(v.value)
+    case v: IntValue.IntNumber        => out.writeVal(v.value)
+    case v: IntValue.LongNumber       => out.writeVal(v.value)
+    case v: ResponseValue.ObjectValue => writeResponseObject(v.fields, out, decrDepth(depth, out))
+    case v: ResponseValue.ListValue   => writeResponseArray(v.values, out, decrDepth(depth, out))
+    case NullValue                    => out.writeNull()
+    case v: EnumValue                 => out.writeVal(v.value)
+    case v: FloatValue.DoubleNumber   => out.writeVal(v.value)
+    case v: IntValue.BigIntNumber     => out.writeVal(v.value)
+    case v: FloatValue                => encodeFloatValue(v, out)
+    case v: ResponseValue.StreamValue => out.writeVal(v.toString)
+  }
+
+  private def encodeFloatValue(x: FloatValue, out: JsonWriter): Unit = x match {
+    case v: FloatValue.FloatNumber      => out.writeVal(v.value)
+    case v: FloatValue.BigDecimalNumber => out.writeVal(v.value)
+    case v: FloatValue.DoubleNumber     => out.writeVal(v.value)
   }
 
   private def writeResponseArray(l: List[ResponseValue], out: JsonWriter, depth: Int): Unit = {

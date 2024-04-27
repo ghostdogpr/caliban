@@ -1,9 +1,10 @@
 package caliban.execution
 
+import caliban.Configurator.ExecutionConfiguration
 import caliban._
 import caliban.wrappers.{ ApolloTracing, Wrappers }
 import org.openjdk.jmh.annotations._
-import zio.{ Runtime, Task, Unsafe, ZLayer }
+import zio.{ Runtime, Task, Unsafe }
 
 import java.util.concurrent.TimeUnit
 
@@ -80,220 +81,260 @@ class NestedZQueryBenchmark {
       ).withWrapper(ApolloTracing.apolloTracing()).interpreter
     )
 
+  private val batched    = ExecutionConfiguration(queryExecution = QueryExecution.Batched)
+  private val parallel   = ExecutionConfiguration(queryExecution = QueryExecution.Parallel)
+  private val sequential = ExecutionConfiguration(queryExecution = QueryExecution.Sequential)
+
   @Benchmark
   def simpleParallelQuery100(): Any = {
     val io =
-      simple100.execute(simpleQuery).provide(ZLayer.scoped(Configurator.setQueryExecution(QueryExecution.Parallel)))
+      simple100
+        .wrapExecutionWith(Configurator.setWith(parallel)(_))
+        .execute(simpleQuery)
     run(io)
   }
 
   @Benchmark
   def simpleParallelQuery1000(): Any = {
     val io =
-      simple1000.execute(simpleQuery).provide(ZLayer.scoped(Configurator.setQueryExecution(QueryExecution.Parallel)))
+      simple1000
+        .wrapExecutionWith(Configurator.setWith(parallel)(_))
+        .execute(simpleQuery)
     run(io)
   }
 
   @Benchmark
   def simpleParallelQuery10000(): Any = {
     val io =
-      simple10000.execute(simpleQuery).provide(ZLayer.scoped(Configurator.setQueryExecution(QueryExecution.Parallel)))
+      simple10000
+        .wrapExecutionWith(Configurator.setWith(parallel)(_))
+        .execute(simpleQuery)
     run(io)
   }
 
   @Benchmark
   def simpleSequentialQuery100(): Any = {
     val io =
-      simple100.execute(simpleQuery).provide(ZLayer.scoped(Configurator.setQueryExecution(QueryExecution.Sequential)))
+      simple100
+        .wrapExecutionWith(Configurator.setWith(sequential)(_))
+        .execute(simpleQuery)
     run(io)
   }
 
   @Benchmark
   def simpleSequentialQuery1000(): Any = {
     val io =
-      simple1000.execute(simpleQuery).provide(ZLayer.scoped(Configurator.setQueryExecution(QueryExecution.Sequential)))
+      simple1000
+        .wrapExecutionWith(Configurator.setWith(sequential)(_))
+        .execute(simpleQuery)
     run(io)
   }
 
   @Benchmark
   def simpleSequentialQuery10000(): Any = {
     val io =
-      simple10000.execute(simpleQuery).provide(ZLayer.scoped(Configurator.setQueryExecution(QueryExecution.Sequential)))
+      simple10000
+        .wrapExecutionWith(Configurator.setWith(sequential)(_))
+        .execute(simpleQuery)
     run(io)
   }
 
   @Benchmark
   def simpleBatchedQuery100(): Any = {
     val io =
-      simple100.execute(simpleQuery).provide(ZLayer.scoped(Configurator.setQueryExecution(QueryExecution.Batched)))
+      simple100
+        .wrapExecutionWith(Configurator.setWith(batched)(_))
+        .execute(simpleQuery)
     run(io)
   }
 
   @Benchmark
   def simpleBatchedQuery1000(): Any = {
     val io =
-      simple1000.execute(simpleQuery).provide(ZLayer.scoped(Configurator.setQueryExecution(QueryExecution.Batched)))
+      simple1000
+        .wrapExecutionWith(Configurator.setWith(batched)(_))
+        .execute(simpleQuery)
     run(io)
   }
 
   @Benchmark
   def simpleBatchedQuery10000(): Any = {
     val io =
-      simple10000.execute(simpleQuery).provide(ZLayer.scoped(Configurator.setQueryExecution(QueryExecution.Batched)))
+      simple10000
+        .wrapExecutionWith(Configurator.setWith(batched)(_))
+        .execute(simpleQuery)
     run(io)
   }
 
   @Benchmark
   def multifieldParallelQuery100(): Any = {
     val io = multifield100
+      .wrapExecutionWith(Configurator.setWith(parallel)(_))
       .execute(multifieldQuery)
-      .provide(ZLayer.scoped(Configurator.setQueryExecution(QueryExecution.Parallel)))
     run(io)
   }
 
   @Benchmark
   def multifieldParallelQuery1000(): Any = {
     val io = multifield1000
+      .wrapExecutionWith(Configurator.setWith(parallel)(_))
       .execute(multifieldQuery)
-      .provide(ZLayer.scoped(Configurator.setQueryExecution(QueryExecution.Parallel)))
     run(io)
   }
 
   @Benchmark
   def multifieldParallelQuery10000(): Any = {
     val io = multifield10000
+      .wrapExecutionWith(Configurator.setWith(parallel)(_))
       .execute(multifieldQuery)
-      .provide(ZLayer.scoped(Configurator.setQueryExecution(QueryExecution.Parallel)))
     run(io)
   }
 
   @Benchmark
   def multifieldSequentialQuery100(): Any = {
     val io = multifield100
+      .wrapExecutionWith(Configurator.setWith(sequential)(_))
       .execute(multifieldQuery)
-      .provide(ZLayer.scoped(Configurator.setQueryExecution(QueryExecution.Sequential)))
     run(io)
   }
 
   @Benchmark
   def multifieldSequentialQuery1000(): Any = {
     val io = multifield1000
+      .wrapExecutionWith(Configurator.setWith(sequential)(_))
       .execute(multifieldQuery)
-      .provide(ZLayer.scoped(Configurator.setQueryExecution(QueryExecution.Sequential)))
     run(io)
   }
 
   @Benchmark
   def multifieldSequentialQuery10000(): Any = {
     val io = multifield10000
+      .wrapExecutionWith(Configurator.setWith(sequential)(_))
       .execute(multifieldQuery)
-      .provide(ZLayer.scoped(Configurator.setQueryExecution(QueryExecution.Sequential)))
     run(io)
   }
 
   @Benchmark
   def multifieldBatchedQuery100(): Any = {
     val io = multifield100
+      .wrapExecutionWith(Configurator.setWith(batched)(_))
       .execute(multifieldQuery)
-      .provide(ZLayer.scoped(Configurator.setQueryExecution(QueryExecution.Batched)))
     run(io)
   }
 
   @Benchmark
   def multifieldBatchedQuery1000(): Any = {
     val io = multifield1000
+      .wrapExecutionWith(Configurator.setWith(batched)(_))
       .execute(multifieldQuery)
-      .provide(ZLayer.scoped(Configurator.setQueryExecution(QueryExecution.Batched)))
     run(io)
   }
 
   @Benchmark
   def multifieldBatchedQuery10000(): Any = {
     val io = multifield10000
+      .wrapExecutionWith(Configurator.setWith(batched)(_))
       .execute(multifieldQuery)
-      .provide(ZLayer.scoped(Configurator.setQueryExecution(QueryExecution.Batched)))
     run(io)
   }
 
   @Benchmark
   def deepParallelQuery100(): Any = {
-    val io = deep100.execute(deepQuery).provide(ZLayer.scoped(Configurator.setQueryExecution(QueryExecution.Parallel)))
+    val io = deep100
+      .wrapExecutionWith(Configurator.setWith(parallel)(_))
+      .execute(deepQuery)
     run(io)
   }
 
   @Benchmark
   def deepParallelQuery1000(): Any = {
-    val io = deep1000.execute(deepQuery).provide(ZLayer.scoped(Configurator.setQueryExecution(QueryExecution.Parallel)))
+    val io = deep1000
+      .wrapExecutionWith(Configurator.setWith(parallel)(_))
+      .execute(deepQuery)
     run(io)
   }
 
   @Benchmark
   def deepParallelQuery10000(): Any = {
     val io =
-      deep10000.execute(deepQuery).provide(ZLayer.scoped(Configurator.setQueryExecution(QueryExecution.Parallel)))
+      deep10000
+        .wrapExecutionWith(Configurator.setWith(parallel)(_))
+        .execute(deepQuery)
     run(io)
   }
 
   @Benchmark
   def deepSequentialQuery100(): Any = {
     val io =
-      deep100.execute(deepQuery).provide(ZLayer.scoped(Configurator.setQueryExecution(QueryExecution.Sequential)))
+      deep100
+        .wrapExecutionWith(Configurator.setWith(sequential)(_))
+        .execute(deepQuery)
     run(io)
   }
 
   @Benchmark
   def deepSequentialQuery1000(): Any = {
     val io =
-      deep1000.execute(deepQuery).provide(ZLayer.scoped(Configurator.setQueryExecution(QueryExecution.Sequential)))
+      deep1000
+        .wrapExecutionWith(Configurator.setWith(sequential)(_))
+        .execute(deepQuery)
     run(io)
   }
 
   @Benchmark
   def deepSequentialQuery10000(): Any = {
     val io =
-      deep10000.execute(deepQuery).provide(ZLayer.scoped(Configurator.setQueryExecution(QueryExecution.Sequential)))
+      deep10000
+        .wrapExecutionWith(Configurator.setWith(sequential)(_))
+        .execute(deepQuery)
     run(io)
   }
 
   @Benchmark
   def deepBatchedQuery100(): Any = {
-    val io = deep100.execute(deepQuery).provide(ZLayer.scoped(Configurator.setQueryExecution(QueryExecution.Batched)))
+    val io = deep100
+      .wrapExecutionWith(Configurator.setWith(batched)(_))
+      .execute(deepQuery)
     run(io)
   }
 
   @Benchmark
   def deepBatchedQuery1000(): Any = {
-    val io = deep1000.execute(deepQuery).provide(ZLayer.scoped(Configurator.setQueryExecution(QueryExecution.Batched)))
+    val io = deep1000
+      .wrapExecutionWith(Configurator.setWith(batched)(_))
+      .execute(deepQuery)
     run(io)
   }
 
   @Benchmark
   def deepBatchedQuery10000(): Any = {
-    val io = deep10000.execute(deepQuery).provide(ZLayer.scoped(Configurator.setQueryExecution(QueryExecution.Batched)))
+    val io = deep10000
+      .wrapExecutionWith(Configurator.setWith(batched)(_))
+      .execute(deepQuery)
     run(io)
   }
 
   @Benchmark
   def noWrappersBenchmark(): Any = {
     val io = multifield1000
+      .wrapExecutionWith(Configurator.setWith(batched)(_))
       .execute(multifieldQuery)
-      .provide(ZLayer.scoped(Configurator.setQueryExecution(QueryExecution.Batched)))
     run(io)
   }
 
   @Benchmark
   def apolloTracingBenchmark(): Any = {
     val io = apolloInterpreter
+      .wrapExecutionWith(Configurator.setWith(batched)(_))
       .execute(multifieldQuery)
-      .provide(ZLayer.scoped(Configurator.setQueryExecution(QueryExecution.Batched)))
     run(io)
   }
 
   @Benchmark
   def metricsBenchmark(): Any = {
     val io = metricsInterpreter
+      .wrapExecutionWith(Configurator.setWith(batched)(_))
       .execute(multifieldQuery)
-      .provide(ZLayer.scoped(Configurator.setQueryExecution(QueryExecution.Batched)))
     run(io)
   }
 }
