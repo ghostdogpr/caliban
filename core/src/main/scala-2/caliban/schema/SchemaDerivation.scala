@@ -4,7 +4,6 @@ import caliban.Value._
 import caliban.introspection.adt._
 import caliban.parsing.adt.Directive
 import caliban.schema.Annotations._
-import caliban.schema.Step.{ PureStep => _, _ }
 import caliban.schema.Types._
 import magnolia1._
 
@@ -36,14 +35,18 @@ trait CommonSchemaDerivation[R] {
     }
 
   def join[T](ctx: ReadOnlyCaseClass[Typeclass, T]): Typeclass[T] = new Typeclass[T] {
-    private lazy val fields = ctx.parameters.map { p =>
-      (getName(p), p.typeclass, p.dereference _)
-    }
+    private lazy val objectResolver =
+      ObjectFieldResolver[R, T](
+        getName(ctx),
+        ctx.parameters.map { p =>
+          getName(p) -> { (v: T) => p.typeclass.resolve(p.dereference(v)) }
+        }
+      )
 
     private lazy val _isValueType = (ctx.isValueClass || isValueType(ctx)) && ctx.parameters.nonEmpty
 
     override def toType(isInput: Boolean, isSubscription: Boolean): __Type = {
-      val _ = fields // Initializes lazy val
+      val _ = objectResolver // Initializes lazy val
       if (_isValueType) {
         if (isScalarValueType(ctx)) makeScalar(getName(ctx), getDescription(ctx))
         else ctx.parameters.head.typeclass.toType_(isInput, isSubscription)
@@ -76,66 +79,66 @@ trait CommonSchemaDerivation[R] {
           getDescription(ctx),
           ctx.parameters
             .filterNot(_.annotations.exists(_ == GQLExcluded()))
-            .map(p =>
+            .map { p =>
+              val isOptional = {
+                val hasNullableAnn = p.annotations.contains(GQLNullable())
+                val hasNonNullAnn  = p.annotations.contains(GQLNonNullable())
+                !hasNonNullAnn && (hasNullableAnn || p.typeclass.optional)
+              }
               Types.makeField(
                 getName(p),
                 getDescription(p),
                 p.typeclass.arguments,
                 () =>
-                  if (p.typeclass.optional) p.typeclass.toType_(isInput, isSubscription)
+                  if (isOptional) p.typeclass.toType_(isInput, isSubscription)
                   else p.typeclass.toType_(isInput, isSubscription).nonNull,
                 p.annotations.collectFirst { case GQLDeprecated(_) => () }.isDefined,
                 p.annotations.collectFirst { case GQLDeprecated(reason) => reason },
                 Option(p.annotations.collect { case GQLDirective(dir) => dir }.toList).filter(_.nonEmpty)
               )
-            )
+            }
             .toList,
           getDirectives(ctx),
           Some(ctx.typeName.full)
         )
     }
 
-    override private[schema] lazy val resolveFieldLazily: Boolean = !(ctx.isObject || _isValueType)
-
     override def resolve(value: T): Step[R] =
       if (ctx.isObject) PureStep(EnumValue(getName(ctx)))
       else if (_isValueType) resolveValueType(value)
-      else resolveObject(value)
+      else objectResolver.resolve(value)
 
     private def resolveValueType(value: T): Step[R] = {
       val head = ctx.parameters.head
       head.typeclass.resolve(head.dereference(value))
     }
 
-    private def resolveObject(value: T): Step[R] = {
-      val fieldsBuilder = Map.newBuilder[String, Step[R]]
-      fields.foreach { case (name, schema, dereference) =>
-        fieldsBuilder += name -> {
-          lazy val step = schema.resolve(dereference(value))
-          if (schema.resolveFieldLazily) FunctionStep(_ => step)
-          else step
-        }
-      }
-      ObjectStep(getName(ctx), fieldsBuilder.result())
-    }
   }
 
   def split[T](ctx: SealedTrait[Typeclass, T]): Typeclass[T] = new Typeclass[T] {
+
+    private lazy val subtypes =
+      ctx.subtypes
+        .map(s => s.typeclass.toType_() -> s.annotations)
+        .toList
+        .sortBy { case (tpe, _) =>
+          tpe.name.getOrElse("")
+        }
+
+    private lazy val emptyUnionObjectIdxs =
+      subtypes.map { case (t, _) => SchemaUtils.isEmptyUnionObject(t) }.toArray[Boolean]
+
+    private var containsEmptyUnionObjects = false
+
     override def toType(isInput: Boolean, isSubscription: Boolean): __Type = {
-      val subtypes    =
-        ctx.subtypes
-          .map(s => s.typeclass.toType_() -> s.annotations)
-          .toList
-          .sortBy { case (tpe, _) =>
-            tpe.name.getOrElse("")
-          }
+
       val isEnum      = subtypes.forall {
         case (t, _) if t.allFields.isEmpty && t.allInputFields.isEmpty => true
         case _                                                         => false
       }
       val isInterface = ctx.annotations.exists {
-        case GQLInterface() => true
-        case _              => false
+        case _: GQLInterface => true
+        case _               => false
       }
       val isUnion     = ctx.annotations.exists {
         case GQLUnion() => true
@@ -158,28 +161,33 @@ trait CommonSchemaDerivation[R] {
           Some(ctx.typeName.full),
           Some(getDirectives(ctx.annotations))
         )
-      else if (!isInterface)
+      else if (!isInterface) {
+        containsEmptyUnionObjects = emptyUnionObjectIdxs.contains(true)
         makeUnion(
           Some(getName(ctx)),
           getDescription(ctx),
-          subtypes.map { case (t, _) => fixEmptyUnionObject(t) },
+          subtypes.map { case (t, _) => SchemaUtils.fixEmptyUnionObject(t) },
           Some(ctx.typeName.full),
           Some(getDirectives(ctx.annotations))
         )
-      else {
+      } else {
+        val excl         = ctx.annotations.collectFirst { case i: GQLInterface => i.excludedFields.toSet }.getOrElse(Set.empty)
         val impl         = subtypes.map(_._1.copy(interfaces = () => Some(List(toType(isInput, isSubscription)))))
         val commonFields = () =>
           impl
             .flatMap(_.allFields)
             .groupBy(_.name)
-            .filter { case (_, list) => list.lengthCompare(impl.size) == 0 }
-            .collect { case (_, list) =>
-              Types
-                .unify(list)
-                .flatMap(t => list.headOption.map(_.copy(`type` = () => t)))
+            .collect {
+              case (name, list) if list.lengthCompare(impl.size) == 0 && !excl.contains(name) =>
+                Types
+                  .unify(list)
+                  .flatMap(t =>
+                    list.headOption.map(_.copy(description = Types.extractCommonDescription(list), `type` = () => t))
+                  )
             }
             .flatten
             .toList
+            .sortBy(_.name)
 
         makeInterface(
           Some(getName(ctx)),
@@ -192,30 +200,13 @@ trait CommonSchemaDerivation[R] {
       }
     }
 
-    // see https://github.com/graphql/graphql-spec/issues/568
-    private def fixEmptyUnionObject(t: __Type): __Type =
-      t.fields(__DeprecatedArgs(Some(true))) match {
-        case Some(Nil) =>
-          t.copy(
-            fields = (_: __DeprecatedArgs) =>
-              Some(
-                List(
-                  __Field(
-                    "_",
-                    Some(
-                      "Fake field because GraphQL does not support empty objects. Do not query, use __typename instead."
-                    ),
-                    _ => Nil,
-                    () => makeScalar("Boolean")
-                  )
-                )
-              )
-          )
-        case _         => t
-      }
-
     override def resolve(value: T): Step[R] =
-      ctx.split(value)(subType => subType.typeclass.resolve(subType.cast(value)))
+      ctx.split(value) { subType =>
+        val step = subType.typeclass.resolve(subType.cast(value))
+        if (containsEmptyUnionObjects && emptyUnionObjectIdxs(subType.index))
+          SchemaUtils.resolveEmptyUnionStep(step)
+        else step
+      }
   }
 
   private def getDirectives(annotations: Seq[Any]): List[Directive] =
@@ -255,6 +246,7 @@ trait CommonSchemaDerivation[R] {
 }
 
 trait SchemaDerivation[R] extends CommonSchemaDerivation[R] {
+  def apply[A](implicit ev: Schema[R, A]): Schema[R, A] = ev
 
   /**
    * Returns an instance of `Schema` for the given type T.

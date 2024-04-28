@@ -6,53 +6,17 @@ For more details on Caliban Client, see the [dedicated section](client.md). The 
 
 The design principles of Caliban are the following:
 
-- **pure interface**: errors and effects are returned explicitly (no exceptions thrown), all returned types are referentially transparent (no usage of `Future`).
+- **high performance**: while every public interface is pure and immutable, library internals have been optimized for speed, providing by far the best performance of any Scala GraphQL library.
 - **minimal amount of boilerplate**: no need to manually define a schema for every type in your API. Let the compiler do the boring work.
 - **excellent interoperability**: out-of-the-box support for major HTTP server libraries ([http4s](https://http4s.org/), [Akka HTTP](https://doc.akka.io/docs/akka-http/current/index.html), [Pekko HTTP](https://github.com/apache/incubator-pekko-http), [Play](https://www.playframework.com/), [ZIO HTTP](https://github.com/dream11/zio-http)), effect types (Future, [ZIO](https://zio.dev/), [Cats Effect](https://typelevel.org/cats-effect/), [Monix](https://monix.io/)), Json libraries ([Circe](https://circe.github.io/circe/), [Jsoniter](https://github.com/plokhotnyuk/jsoniter-scala), [Play Json](https://github.com/playframework/play-json), [ZIO Json](https://github.com/zio/zio-json)), various integrations ([Apollo Tracing](https://github.com/apollographql/apollo-tracing), [Apollo Federation](https://www.apollographql.com/docs/federation/), [Tapir](https://tapir.softwaremill.com/en/latest/), etc.) and more.
 
-## Dependencies
-
-To use `caliban`, add the following dependency to your `build.sbt` file:
-
-```scala
-"com.github.ghostdogpr" %% "caliban" % "2.4.0"
-```
-
-The following modules are optional:
-
-```scala
-"com.github.ghostdogpr" %% "caliban-http4s"     % "2.4.0" // routes for http4s
-"com.github.ghostdogpr" %% "caliban-akka-http"  % "2.4.0" // routes for akka-http
-"com.github.ghostdogpr" %% "caliban-play"       % "2.4.0" // routes for play
-"com.github.ghostdogpr" %% "caliban-zio-http"   % "2.4.0" // routes for zio-http
-"com.github.ghostdogpr" %% "caliban-cats"       % "2.4.0" // interop with cats effect
-"com.github.ghostdogpr" %% "caliban-monix"      % "2.4.0" // interop with monix
-"com.github.ghostdogpr" %% "caliban-tapir"      % "2.4.0" // interop with tapir
-"com.github.ghostdogpr" %% "caliban-federation" % "2.4.0" // interop with apollo federation
-"com.github.ghostdogpr" %% "caliban-tracing"    % "2.4.0" // interop with zio-telemetry
-```
-
-Support for JSON encoding / decoding of the inputs and responses is enabled by adding **one** of the following dependencies to your `build.sbt` file:
-
-```scala
-"com.softwaremill.sttp.tapir" %% "tapir-json-circe"     % "1.2.11" // Circe
-"com.softwaremill.sttp.tapir" %% "tapir-jsoniter-scala" % "1.2.11" // Jsoniter
-"com.softwaremill.sttp.tapir" %% "tapir-json-play"      % "1.2.11" // Play JSON
-"com.softwaremill.sttp.tapir" %% "tapir-json-zio"       % "1.2.11" // ZIO JSON
-```
-
-And then later in your code (you only need one!):
-
-```scala
-import sttp.tapir.json.circe._
-import sttp.tapir.json.jsoniter._
-import sttp.tapir.json.play._
-import sttp.tapir.json.zio._
-```
-
-For more info on the adapters and the JSON implementations, see [here](adapters.md#json-handling).
-
 ## A simple example
+
+First, add the following dependency to your `build.sbt` file:
+
+```scala
+"com.github.ghostdogpr" %% "caliban" % "2.6.0"
+```
 
 Creating a GraphQL API with Caliban is as simple as creating a case class. Indeed, the whole GraphQL schema will be derived from a case class structure (its fields and the other types it references), and the resolver is just an instance of that case class.
 
@@ -185,3 +149,61 @@ val api = graphQL(RootResolver(queries, mutations, subscriptions))
 
 All the fields of the subscription root case class MUST return `ZStream` or `? => ZStream` objects. When a subscription request is received, an output stream of `ResponseValue` (a `StreamValue`) will be returned wrapped inside an `ObjectValue`.
 
+## Serving over HTTP
+
+The easiest (and most performant!) way to expose your API over HTTP is to use the optional `caliban-quick` module:
+
+```scala
+"com.github.ghostdogpr" %% "caliban-quick"  % "2.6.0"
+```
+
+And then you can serve your GraphQL API over HTTP using a single command:
+
+```scala mdoc:compile-only
+import caliban._
+import caliban.quick._ // Adds syntax to `GraphQL`
+
+api.runServer(
+  port = 8080,
+  apiPath = "/api/graphql",
+  graphiqlPath = Some("/graphiql")
+)
+```
+
+And that's it - now you have a fully functional GraphQL server running on port 8080!
+
+## Interop with 3rd-party libraries
+
+If you have any specific server requirements or need to interop with other libraries, Caliban offers a wide range of modules to help you do that.
+
+```scala
+"com.github.ghostdogpr" %% "caliban-http4s"     % "2.6.0" // routes for http4s
+"com.github.ghostdogpr" %% "caliban-akka-http"  % "2.6.0" // routes for akka-http
+"com.github.ghostdogpr" %% "caliban-play"       % "2.6.0" // routes for play
+"com.github.ghostdogpr" %% "caliban-zio-http"   % "2.6.0" // routes for zio-http
+"com.github.ghostdogpr" %% "caliban-cats"       % "2.6.0" // interop with cats effect
+"com.github.ghostdogpr" %% "caliban-monix"      % "2.6.0" // interop with monix
+"com.github.ghostdogpr" %% "caliban-tapir"      % "2.6.0" // interop with tapir
+"com.github.ghostdogpr" %% "caliban-federation" % "2.6.0" // interop with apollo federation
+"com.github.ghostdogpr" %% "caliban-tracing"    % "2.6.0" // interop with zio-telemetry
+```
+
+Support for JSON encoding / decoding of the inputs and responses for tapir-based adapters is enabled by adding **one** of the following dependencies to your `build.sbt` file:
+
+```scala
+"com.softwaremill.sttp.tapir" %% "tapir-json-circe"     % "1.2.11" // Circe
+"com.softwaremill.sttp.tapir" %% "tapir-jsoniter-scala" % "1.2.11" // Jsoniter
+"com.softwaremill.sttp.tapir" %% "tapir-json-play"      % "1.2.11" // Play JSON
+"com.softwaremill.sttp.tapir" %% "tapir-json-zio"       % "1.2.11" // ZIO JSON
+```
+
+And then later in your code (you only need one!):
+
+```scala
+import sttp.tapir.json.circe._
+import sttp.tapir.json.jsoniter._
+import sttp.tapir.json.play._
+import sttp.tapir.json.zio._
+```
+
+For more info on the adapters and the JSON implementations, see [here](adapters.md#json-handling).

@@ -2,14 +2,17 @@ package example.ziohttp
 
 import caliban.Value.StringValue
 import caliban._
-import caliban.interop.tapir.{ HttpInterpreter, WebSocketHooks, WebSocketInterpreter }
+import caliban.interop.tapir.{ HttpInterpreter, WebSocketInterpreter }
 import caliban.schema.GenericSchema
+import caliban.ws.WebSocketHooks
 import example.ExampleData._
 import example.{ ExampleApi, ExampleService }
 import sttp.tapir.json.circe._
 import zio._
 import zio.http._
 import zio.stream._
+
+import scala.annotation.nowarn
 
 case object Unauthorized extends RuntimeException("Unauthorized")
 
@@ -20,6 +23,7 @@ trait Auth {
   def setUser(name: Option[String]): UIO[Unit]
 }
 
+@nowarn
 object Auth {
 
   val http: ULayer[Auth] = ZLayer.scoped {
@@ -40,7 +44,7 @@ object Auth {
   object WebSockets {
     def live[R <: Auth](
       interpreter: GraphQLInterpreter[R, CalibanError]
-    ): App[R] = {
+    ): RequestHandler[R, Nothing] = {
       val webSocketHooks = WebSocketHooks.init[R, CalibanError](payload =>
         ZIO
           .fromOption(payload match {
@@ -61,7 +65,7 @@ object Auth {
   }
 
   val middleware =
-    HttpAppMiddleware.customAuthZIO { req =>
+    Middleware.customAuthZIO { req =>
       val user = req.headers.get(Header.Authorization).map(_.renderedValue)
       ZIO.serviceWithZIO[Auth](_.setUser(user)).as(true)
     }
@@ -81,22 +85,22 @@ object Authed extends GenericSchema[Auth] {
   val api = graphQL(RootResolver(Queries(), None, Subscriptions()))
 }
 
+@nowarn
 object AuthExampleApp extends ZIOAppDefault {
-  private val graphiql = Handler.fromStream(ZStream.fromResource("graphiql.html")).toHttp.withDefaultErrorResponse
+  private val graphiql = Handler.fromResource("graphiql.html").sandbox
 
-  override def run: URIO[Any, ExitCode] =
+  def run =
     (for {
       exampleApi  <- ZIO.service[GraphQL[Any]]
       interpreter <- (exampleApi |+| Authed.api).interpreter
       port        <- Server
                        .install(
-                         Http
-                           .collectHttp[Request] {
-                             case _ -> Root / "api" / "graphql" =>
-                               ZHttpAdapter.makeHttpService(HttpInterpreter(interpreter)) @@ Auth.middleware
-                             case _ -> Root / "ws" / "graphql"  => Auth.WebSockets.live(interpreter)
-                             case _ -> Root / "graphiql"        => graphiql
-                           }
+                         Routes(
+                           Method.ANY / "api" / "graphql" ->
+                             ZHttpAdapter.makeHttpService(HttpInterpreter(interpreter)) @@ Auth.middleware,
+                           Method.ANY / "ws" / "graphql"  -> Auth.WebSockets.live(interpreter),
+                           Method.ANY / "graphiql"        -> graphiql
+                         ).toHttpApp
                        )
       _           <- ZIO.logInfo(s"Server started on port $port")
       _           <- ZIO.never
@@ -105,12 +109,7 @@ object AuthExampleApp extends ZIOAppDefault {
         ExampleService.make(sampleCharacters),
         ExampleApi.layer,
         Auth.http,
-        ZLayer.succeed(
-          Server.Config.default
-            .port(8088)
-            .withWebSocketConfig(ZHttpAdapter.defaultWebSocketConfig)
-        ),
+        ZLayer.succeed(Server.Config.default.port(8088)),
         Server.live
       )
-      .exitCode
 }

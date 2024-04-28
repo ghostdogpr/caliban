@@ -1,3 +1,5 @@
+directive @lazy on FIELD_DEFINITION
+
 # Schema
 schema {
     query: Q
@@ -22,6 +24,9 @@ type Q {
     # test for scala.Option / Option conflicts
     defaultOptionForProductId(id: String!): Option
     availableOptionsForProductId(id: String!): [Option!]
+
+    # nested @lazy fields
+    cant: Canterbury!
 }
 
 # Input object
@@ -55,6 +60,15 @@ type Character {
     oldNicknames: [String!]! @deprecated
     # Deprecated field + comment newline
     oldName2: String! @deprecated(reason: "foo\nbar")
+    # Deprecated field + comment with double quotes and newlines
+    """a deprecated field"""
+    oldName3: String!
+      @deprecated(reason: """
+        This field is deprecated for the following reasons:
+        1. "Outdated data model": The field relies on an outdated data model.
+        2. "Performance issues": Queries using this field have performance issues.
+        Please use `name` instead.
+      """)
 }
 
 # Enum
@@ -93,4 +107,17 @@ type Product {
     configuredOption: Option
     availableOptions: [Option!]!
     specialOrderOption: [Option]
+}
+
+type Canterbury {
+  officer: Officer!
+}
+
+type Officer {
+  dossier: Dossier! @lazy
+}
+
+type Dossier {
+  homeWorld: String!
+  faction: String! @lazy
 }

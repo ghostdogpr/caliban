@@ -2,7 +2,7 @@ package caliban.interop.tapir
 
 import caliban._
 import caliban.interop.tapir.TapirAdapter._
-import caliban.interop.tapir.ws.Protocol
+import caliban.ws.Protocol
 import sttp.capabilities.zio.ZioStreams
 import sttp.model.{ headers => _ }
 import sttp.tapir.Codec.JsonCodec
@@ -28,6 +28,9 @@ sealed trait WebSocketInterpreter[-R, E] { self =>
   def intercept[R1](interceptor: Interceptor[R1, R]): WebSocketInterpreter[R1, E] =
     WebSocketInterpreter.Intercepted(self, interceptor)
 
+  def prependPath(path: List[String]): WebSocketInterpreter[R, E] =
+    WebSocketInterpreter.Prepended(self, path)
+
   def configure[R1](configurator: Configurator[R1]): WebSocketInterpreter[R & R1, E] =
     intercept[R & R1](ZLayer.scopedEnvironment[R & R1 & ServerRequest](configurator *> ZIO.environment[R]))
 }
@@ -36,7 +39,7 @@ object WebSocketInterpreter {
   private case class Base[R, E](
     interpreter: GraphQLInterpreter[R, E],
     keepAliveTime: Option[Duration],
-    webSocketHooks: WebSocketHooks[R, E]
+    webSocketHooks: ws.WebSocketHooks[R, E]
   )(implicit
     inputCodec: JsonCodec[GraphQLWSInput],
     outputCodec: JsonCodec[GraphQLWSOutput]
@@ -74,10 +77,32 @@ object WebSocketInterpreter {
         .catchAll(ZIO.left(_))
   }
 
+  private case class Prepended[R, E](
+    interpreter: WebSocketInterpreter[R, E],
+    path: List[String]
+  ) extends WebSocketInterpreter[R, E] {
+    val endpoint: PublicEndpoint[(ServerRequest, String), TapirResponse, (String, CalibanPipe), ZioWebSockets] = {
+      if (path.nonEmpty) {
+        val p: List[EndpointInput[Unit]]   = path.map(stringToPath)
+        val fixedPath: EndpointInput[Unit] = p.tail.foldLeft(p.head)(_ / _)
+
+        interpreter.endpoint.prependIn(fixedPath)
+      } else {
+        interpreter.endpoint
+      }
+    }
+
+    def makeProtocol(
+      serverRequest: ServerRequest,
+      protocol: String
+    ): URIO[R, Either[TapirResponse, (String, CalibanPipe)]] =
+      interpreter.makeProtocol(serverRequest, protocol)
+  }
+
   def apply[R, E](
     interpreter: GraphQLInterpreter[R, E],
     keepAliveTime: Option[Duration] = None,
-    webSocketHooks: WebSocketHooks[R, E] = WebSocketHooks.empty[R, E]
+    webSocketHooks: ws.WebSocketHooks[R, E] = ws.WebSocketHooks.empty[R, E]
   )(implicit
     inputCodec: JsonCodec[GraphQLWSInput],
     outputCodec: JsonCodec[GraphQLWSOutput]

@@ -1,8 +1,8 @@
 package example.optimizations
 
-import caliban.schema.Schema
-import caliban.schema.ArgBuilder.auto._
 import caliban._
+import caliban.schema.ArgBuilder.auto._
+import caliban.schema.Schema
 import example.optimizations.CommonData._
 import zio.Console.printLine
 import zio.query.DataSource.fromFunctionBatchedZIO
@@ -57,44 +57,48 @@ object OptimizedTest extends ZIOAppDefault {
   val UserDataSource: DataSource[Any, GetUser] = DataSource.Batched.make("UserDataSource") { requests =>
     requests.toList match {
       case head :: Nil =>
-        printLine("getUser").orDie.as(CompletedRequestMap.empty.insert(head)(Exit.succeed(fakeUser(head.id))))
+        printLine("getUser").orDie.as(CompletedRequestMap.single(head, Exit.succeed(fakeUser(head.id))))
       case list        =>
-        printLine("getUsers").orDie.as(list.foldLeft(CompletedRequestMap.empty) { case (map, req) =>
-          map.insert(req)(Exit.succeed(fakeUser(req.id)))
-        })
+        printLine("getUsers").orDie.as(
+          CompletedRequestMap.fromIterableWith(list)(identity, req => Exit.succeed(fakeUser(req.id)))
+        )
     }
   }
 
   case class GetEvent(id: Int) extends Request[Nothing, EventData]
   val EventDataSource: DataSource[Any, GetEvent] =
-    fromFunctionBatchedZIO("EventDataSource")(requests => printLine("getEvents").as(requests.map(r => fakeEvent(r.id))))
+    fromFunctionBatchedZIO("EventDataSource")(requests =>
+      printLine("getEvents").orDie.as(requests.map(r => fakeEvent(r.id)))
+    )
 
   case class GetViewerMetadataForEvents(id: Int) extends Request[Nothing, ViewerMetadata]
   val ViewerMetadataDataSource: DataSource[Any, GetViewerMetadataForEvents] =
     fromFunctionBatchedZIO("ViewerMetadataDataSource") { requests =>
-      printLine("getViewerMetadataForEvents").as(requests.map(_ => ViewerMetadata("")))
+      printLine("getViewerMetadataForEvents").orDie.as(requests.map(_ => ViewerMetadata("")))
     }
 
   case class GetVenue(id: Int) extends Request[Nothing, Venue]
   val VenueDataSource: DataSource[Any, GetVenue] =
-    fromFunctionBatchedZIO("VenueDataSource")(requests => printLine("getVenues").as(requests.map(_ => Venue("venue"))))
+    fromFunctionBatchedZIO("VenueDataSource")(requests =>
+      printLine("getVenues").orDie.as(requests.map(_ => Venue("venue")))
+    )
 
   case class GetTags(ids: List[Int]) extends Request[Nothing, List[Tag]]
   val TagsDataSource: DataSource[Any, GetTags] =
     fromFunctionBatchedZIO("TagsDataSource") { requests =>
-      printLine("getTags").as(requests.map(_.ids.map(id => Tag(id.toString))))
+      printLine("getTags").orDie.as(requests.map(_.ids.map(id => Tag(id.toString))))
     }
 
   case class GetViewerFriendIdsAttendingEvent(id: Int, first: Int) extends Request[Nothing, List[Int]]
   val ViewerFriendDataSource: DataSource[Any, GetViewerFriendIdsAttendingEvent] =
     fromFunctionBatchedZIO("ViewerFriendDataSource") { requests =>
-      printLine("getViewerFriendIdsAttendingEvent").as(requests.map(r => (1 to r.first).toList))
+      printLine("getViewerFriendIdsAttendingEvent").orDie.as(requests.map(r => (1 to r.first).toList))
     }
 
   case class GetUpcomingEventIdsForUser(id: Int, first: Int) extends Request[Nothing, List[Int]]
   val UpcomingEventDataSource: DataSource[Any, GetUpcomingEventIdsForUser] =
     fromFunctionBatchedZIO("UpcomingEventDataSource") { requests =>
-      printLine("getUpcomingEventIdsForUser").as(requests.map(r => (1 to r.first).toList))
+      printLine("getUpcomingEventIdsForUser").orDie.as(requests.map(r => (1 to r.first).toList))
     }
 
   def getUser(id: Int): ConsoleQuery[UserData]                                       = ZQuery.fromRequest(GetUser(id))(UserDataSource)

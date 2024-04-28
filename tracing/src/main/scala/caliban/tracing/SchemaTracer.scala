@@ -1,23 +1,19 @@
 package caliban.tracing
 
-import caliban.CalibanError
-import caliban.GraphQLResponse
-import caliban.InputValue
 import caliban.InputValue.ObjectValue
-import caliban.Value
 import caliban.Value.FloatValue.FloatNumber
 import caliban.Value.IntValue.IntNumber
 import caliban.Value.StringValue
-import caliban.execution.ExecutionRequest
-import caliban.execution.Field
+import caliban.execution.{ ExecutionRequest, Field }
 import caliban.parsing.adt.OperationType
 import caliban.wrappers.Wrapper.ExecutionWrapper
+import caliban.{ CalibanError, GraphQLResponse, InputValue, Value }
 import io.opentelemetry.api.trace.SpanKind
 import zio.telemetry.opentelemetry.tracing.Tracing
 import zio._
 
 object SchemaTracer {
-  val wrapper = new ExecutionWrapper[Tracing] {
+  val wrapper: ExecutionWrapper[Tracing] = new ExecutionWrapper[Tracing] {
     def wrap[R <: Tracing](
       f: ExecutionRequest => ZIO[R, Nothing, GraphQLResponse[CalibanError]]
     ): ExecutionRequest => ZIO[R, Nothing, GraphQLResponse[CalibanError]] =
@@ -28,7 +24,7 @@ object SchemaTracer {
         if (parentField == "__schema") f(request)
         else
           ZIO.serviceWithZIO[Tracing](tracer =>
-            tracer.span[R, Nothing, GraphQLResponse[CalibanError]](
+            tracer.span(
               spanName(request),
               SpanKind.INTERNAL
             ) {

@@ -12,7 +12,6 @@ import caliban.schema.{ RootType, Types }
 import caliban.{ GraphQLRequest, InputValue, Value }
 
 import scala.collection.mutable
-import scala.jdk.CollectionConverters._
 
 /**
  * Represents a field used during the execution of a query
@@ -47,6 +46,24 @@ case class Field(
   lazy val definition: Option[__Field] = parentType.flatMap(_.allFields.find(_.name == name))
 
   private[caliban] val aliasedName: String = alias.getOrElse(name)
+
+  private[caliban] lazy val allFieldsUniqueNameAndCondition: Boolean = {
+    def inner: Boolean = {
+      val set           = new mutable.HashSet[String]
+      val headCondition = fields.head._condition
+      val _             = set.add(fields.head.aliasedName)
+
+      var remaining = fields.tail
+      var result    = true
+      while ((remaining ne Nil) && result) {
+        val f = remaining.head
+        result = set.add(f.aliasedName) && f._condition == headCondition
+        remaining = remaining.tail
+      }
+      result
+    }
+    fields.isEmpty || fields.tail.isEmpty || inner
+  }
 
   def combine(other: Field): Field =
     self.copy(
@@ -146,10 +163,16 @@ object Field {
     directives: List[Directive],
     rootType: RootType
   ): Field = {
-    val memoizedFragments      = new mutable.HashMap[String, (List[Field], Option[String])]()
+    val memoizedFragments      = new mutable.HashMap[String, (List[(Field, Option[String])])]()
     val variableDefinitionsMap = variableDefinitions.map(v => v.name -> v).toMap
 
-    def loop(selectionSet: List[Selection], fieldType: __Type, fragment: Option[Fragment]): List[Field] = {
+    def loop(
+      selectionSet: List[Selection],
+      fieldType: __Type,
+      fragment: Option[Fragment],
+      targets: Option[Set[String]],
+      condition: Option[Set[String]]
+    ): List[(Field, Option[String])] = {
       val map = new java.util.LinkedHashMap[(String, Option[String]), Field]()
 
       def addField(f: Field, condition: Option[String]): Unit =
@@ -169,75 +192,81 @@ object Field {
             val t = selected.fold(Types.string)(_._type) // default only case where it's not found is __typename
 
             val fields =
-              if (selectionSet.nonEmpty) loop(selectionSet, t, None)
+              if (selectionSet.nonEmpty) loop(selectionSet, t, None, None, None)
               else Nil // Fragments apply on to the direct children of the fragment spread
 
             addField(
-              Field(
+              new Field(
                 name,
                 t,
                 Some(innerType),
                 alias,
-                fields,
-                None,
-                resolveVariables(arguments, variableDefinitionsMap, variableValues),
-                resolvedDirectives,
-                None,
-                () => sourceMapper.getLocation(index),
-                fragment
+                fields.map(_._1),
+                targets = targets,
+                arguments = resolveVariables(arguments, variableDefinitionsMap, variableValues),
+                directives = resolvedDirectives,
+                _condition = condition,
+                _locationInfo = () => sourceMapper.getLocation(index),
+                fragment = fragment
               ),
               None
             )
           }
         case FragmentSpread(name, directives)                           =>
-          val (fields, condition) = memoizedFragments.getOrElseUpdate(
+          val fields = memoizedFragments.getOrElseUpdate(
             name, {
               val resolvedDirectives = directives.map(resolveDirectiveVariables(variableValues, variableDefinitionsMap))
-
-              val _fields = if (checkDirectives(resolvedDirectives)) {
+              val _fields            = if (checkDirectives(resolvedDirectives)) {
                 fragments.get(name).map { f =>
-                  val t          = rootType.types.getOrElse(f.typeCondition.name, fieldType)
-                  val _targets   = Some(Set(f.typeCondition.name))
-                  val _condition = subtypeNames(f.typeCondition.name, rootType)
-
-                  loop(f.selectionSet, t, Some(Fragment(Some(name), resolvedDirectives))).map { field =>
-                    if (field._condition.isDefined) field
-                    else field.copy(targets = _targets, _condition = _condition)
-                  } -> Some(f.typeCondition.name)
+                  val typeCondName      = f.typeCondition.name
+                  val t                 = rootType.types.getOrElse(typeCondName, fieldType)
+                  val subtypeNames0     = subtypeNames(typeCondName, rootType)
+                  val isSubsetCondition = subtypeNames0.getOrElse(Set.empty)
+                  loop(
+                    f.selectionSet,
+                    t,
+                    fragment = Some(Fragment(Some(name), resolvedDirectives)),
+                    targets = Some(Set(typeCondName)),
+                    condition = subtypeNames0
+                  ).map {
+                    case t @ (_, Some(c)) if isSubsetCondition(c) => t
+                    case (f1, _)                                  => (f1, Some(typeCondName))
+                  }
                 }
               } else None
-              _fields.getOrElse(Nil -> None)
+              _fields.getOrElse(Nil)
             }
           )
-          fields.foreach(addField(_, condition))
+          fields.foreach((addField _).tupled)
         case InlineFragment(typeCondition, directives, selectionSet)    =>
           val resolvedDirectives = directives.map(resolveDirectiveVariables(variableValues, variableDefinitionsMap))
-
           if (checkDirectives(resolvedDirectives)) {
-            val t      = innerType.possibleTypes
-              .flatMap(_.find(_.name.exists(typeCondition.map(_.name).contains)))
-              .orElse(typeCondition.flatMap(typeName => rootType.types.get(typeName.name)))
+            val typeName          = typeCondition.map(_.name)
+            val t                 = innerType.possibleTypes
+              .flatMap(_.find(_.name.exists(typeName.contains)))
+              .orElse(typeName.flatMap(rootType.types.get))
               .getOrElse(fieldType)
-            val fields = loop(selectionSet, t, Some(Fragment(None, resolvedDirectives)))
-            typeCondition match {
-              case None           => fields.map(addField(_, None))
-              case Some(typeName) =>
-                val _targets   = Some(Set(typeName.name))
-                val _condition = subtypeNames(typeName.name, rootType)
-                fields.foreach { field =>
-                  val _field =
-                    if (field._condition.isDefined) field
-                    else field.copy(targets = _targets, _condition = _condition)
-                  addField(_field, Some(typeName.name))
-                }
+            val subtypeNames0     = typeName.flatMap(subtypeNames(_, rootType))
+            val isSubsetCondition = subtypeNames0.getOrElse(Set.empty)
+            loop(
+              selectionSet,
+              t,
+              fragment = Some(Fragment(None, resolvedDirectives)),
+              targets = typeName.map(Set(_)),
+              condition = subtypeNames0
+            ).foreach { case (f, c) =>
+              if (c.exists(isSubsetCondition)) addField(f, c)
+              else addField(f, typeName)
             }
           }
       }
-      map.values().asScala.toList
+      val builder = List.newBuilder[(Field, Option[String])]
+      map.forEach { case ((_, cond), field) => builder += ((field, cond)) }
+      builder.result()
     }
 
-    val fields = loop(selectionSet, fieldType, None)
-    Field("", fieldType, None, fields = fields, directives = directives)
+    val fields = loop(selectionSet, fieldType, None, None, None)
+    Field("", fieldType, None, fields = fields.map(_._1), directives = directives)
   }
 
   private def resolveDirectiveVariables(

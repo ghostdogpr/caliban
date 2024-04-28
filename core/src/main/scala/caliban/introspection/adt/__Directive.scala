@@ -19,5 +19,5 @@ case class __Directive(
     )
 
   lazy val allArgs: List[__InputValue] =
-    args(__DeprecatedArgs(Some(true)))
+    args(__DeprecatedArgs.include)
 }

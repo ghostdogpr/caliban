@@ -4,7 +4,7 @@ import caliban.CalibanError.ExecutionError
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ IntValue, StringValue }
 import caliban.parsing.adt.LocationInfo
-import caliban.{ CalibanError, GraphQLResponse }
+import caliban.{ CalibanError, GraphQLResponse, PathValue }
 import io.circe._
 import io.circe.parser.decode
 import io.circe.syntax._
@@ -89,7 +89,7 @@ object GraphQLResponseCirceSpec extends ZIOSpecDefault {
               errors = List(
                 ExecutionError(
                   "boom",
-                  path = List(Left("step"), Right(0)),
+                  path = List(PathValue.Key("step"), PathValue.Index(0)),
                   locationInfo = Some(LocationInfo(1, 2)),
                   extensions = Some(
                     ObjectValue(

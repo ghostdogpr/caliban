@@ -17,7 +17,21 @@ case class GraphQLResponseError(
   locations: Option[List[Location]],
   path: Option[List[Either[String, Int]]],
   extensions: Option[__Value]
-)
+) {
+
+  /**
+   * Renders the error as a string
+   * @param includeExtensions whether to include the extensions in the error message
+   * @return the error message
+   */
+  def render(includeExtensions: Boolean): String =
+    s"${message} ${locations.getOrElse(Nil).map(loc => s"at line ${loc.line} and column ${loc.column}").mkString(" ")}${path.fold("")(p =>
+      s" at path ${p.map {
+        case Left(value)  => s"/$value"
+        case Right(value) => s"[$value]"
+      }.mkString("")}"
+    )}${if (includeExtensions) extensions.fold("")(ext => s" Extensions: $ext") else ""}"
+}
 
 object GraphQLResponseError {
 

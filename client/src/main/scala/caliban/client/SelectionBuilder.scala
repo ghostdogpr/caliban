@@ -6,12 +6,13 @@ import caliban.client.Operations.IsOperation
 import caliban.client.Selection.Directive
 import caliban.client.__Value.__ObjectValue
 import com.github.plokhotnyuk.jsoniter_scala.core._
+
 import sttp.client3._
 import sttp.client3.jsoniter._
 import sttp.model.Uri
-
 import scala.collection.immutable.{ Map => SMap }
 import scala.util.control.NonFatal
+import scala.math.max
 
 /**
  * Represents a selection from parent type `Origin` that returns a result of type `A`.
@@ -69,7 +70,15 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
    */
   def decode(payload: String): Either[CalibanClientError, (A, List[GraphQLResponseError], Option[__ObjectValue])] =
     for {
-      parsed      <- try Right(readFromString[GraphQLResponse](payload))
+      parsed      <- try Right(
+                       readFromString[GraphQLResponse](
+                         payload,
+                         // allow parsing of large payloads
+                         ReaderConfig
+                           .withMaxBufSize(max(payload.length, ReaderConfig.maxBufSize))
+                           .withMaxCharBufSize(max(payload.length, ReaderConfig.maxCharBufSize))
+                       )
+                     )
                      catch {
                        case NonFatal(ex) => Left(DecodingError("Json deserialization error", Some(ex)))
                      }

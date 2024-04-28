@@ -10,7 +10,9 @@ object ClientWriterSpec extends ZIOSpecDefault {
     schema: String,
     scalarMappings: Map[String, String] = Map.empty,
     additionalImports: List[String] = List.empty,
-    extensibleEnums: Boolean = false
+    extensibleEnums: Boolean = false,
+    excludeDeprecated: Boolean = false,
+    genView: Boolean = false
   ): Task[String] = Parser
     .parseQuery(schema)
     .flatMap(doc =>
@@ -20,7 +22,9 @@ object ClientWriterSpec extends ZIOSpecDefault {
             doc,
             additionalImports = Some(additionalImports),
             extensibleEnums = extensibleEnums,
-            scalarMappings = Some(scalarMappings)
+            scalarMappings = Some(scalarMappings),
+            excludeDeprecated = excludeDeprecated,
+            genView = genView
           )
           .head
           ._2,
@@ -65,6 +69,65 @@ object Client {
     def nicknames: SelectionBuilder[Character, List[String]] =
       _root_.caliban.client.SelectionBuilder.Field("nicknames", ListOf(Scalar()))
   }
+
+}
+"""
+          )
+        }
+      },
+      test("simple object type with exclude deprecated and genView") {
+        val schema =
+          """
+             type Character {
+               name: String!
+               nicknames: [String!]! @deprecated
+             }
+            """.stripMargin
+
+        gen(schema = schema, excludeDeprecated = true, genView = true).map { str =>
+          assertTrue(
+            str ==
+              """import caliban.client.FieldBuilder._
+import caliban.client._
+
+object Client {
+
+  type Character
+  object Character {
+
+    final case class CharacterView(name: String)
+
+    type ViewSelection = SelectionBuilder[Character, CharacterView]
+
+    def view: ViewSelection = name.map(name => CharacterView(name))
+
+    def name: SelectionBuilder[Character, String] = _root_.caliban.client.SelectionBuilder.Field("name", Scalar())
+  }
+
+}
+"""
+          )
+        }
+      },
+      test("simple object type with exclude deprecated and genView, only deprecated fields") {
+        val schema =
+          """
+             type Character {
+               name: String! @deprecated
+               nicknames: [String!]! @deprecated(reason: "blah")
+             }
+            """.stripMargin
+
+        gen(schema = schema, excludeDeprecated = true, genView = true).map { str =>
+          assertTrue(
+            str ==
+              """import caliban.client.FieldBuilder._
+import caliban.client._
+
+object Client {
+
+  type Character
+  object Character {}
 
 }
 """
@@ -261,6 +324,73 @@ object Client {
 
     val values: scala.collection.immutable.Vector[Origin] = scala.collection.immutable.Vector(EARTH, MARS, BELT)
   }
+
+}
+"""
+          )
+        }
+      },
+      test("enum with exclude deprecated") {
+        val schema =
+          """
+             enum Origin {
+               EARTH
+               MARS @deprecated
+               BELT
+             }
+            """.stripMargin
+
+        gen(schema = schema, excludeDeprecated = true).map { str =>
+          assertTrue(
+            str ==
+              """import caliban.client.CalibanClientError.DecodingError
+import caliban.client._
+import caliban.client.__Value._
+
+object Client {
+
+  sealed trait Origin extends scala.Product with scala.Serializable { def value: String }
+  object Origin {
+    case object EARTH extends Origin { val value: String = "EARTH" }
+    case object BELT  extends Origin { val value: String = "BELT"  }
+
+    implicit val decoder: ScalarDecoder[Origin] = {
+      case __StringValue("EARTH") => Right(Origin.EARTH)
+      case __StringValue("BELT")  => Right(Origin.BELT)
+      case other                  => Left(DecodingError(s"Can't build Origin from input $other"))
+    }
+    implicit val encoder: ArgEncoder[Origin]    = {
+      case Origin.EARTH => __EnumValue("EARTH")
+      case Origin.BELT  => __EnumValue("BELT")
+    }
+
+    val values: scala.collection.immutable.Vector[Origin] = scala.collection.immutable.Vector(EARTH, BELT)
+  }
+
+}
+"""
+          )
+        }
+      },
+      test("enum with exclude deprecated, only deprecated values") {
+        val schema =
+          """
+             enum Origin {
+               MARS @deprecated
+               BELT @deprecated(reason: "blah")
+             }
+            """.stripMargin
+
+        gen(schema = schema, excludeDeprecated = true).map { str =>
+          assertTrue(
+            str ==
+              """import caliban.client.CalibanClientError.DecodingError
+import caliban.client._
+import caliban.client.__Value._
+
+object Client {
+
+  sealed trait Origin extends scala.Product with scala.Serializable { def value: String }
 
 }
 """

@@ -12,8 +12,9 @@ import caliban.schema.Types._
 import caliban.uploads.Upload
 import caliban.{ InputValue, ResponseValue }
 import zio.query.ZQuery
+import zio.stacktracer.TracingImplicits.disableAutoTrace
 import zio.stream.ZStream
-import zio.{ Chunk, URIO, ZIO }
+import zio.{ Chunk, Trace, URIO, ZIO }
 
 import java.time._
 import java.time.format.DateTimeFormatter
@@ -81,14 +82,8 @@ trait Schema[-R, T] { self =>
    */
   def arguments: List[__InputValue] = Nil
 
-  /**
-   * Boolean flag indicating whether the [[resolve]] method should be wrapped in a [[FunctionStep]] when resolving
-   * object fields.
-   *
-   * Should be `false` except for objects or wrappers of objects. This prevents fields of case classes to be resolved when they're not
-   * requested in the query, which significantly improves performance in larger schemas
-   */
-  private[schema] def resolveFieldLazily: Boolean = false
+  // Disables traces for caliban-provided effectful schemas
+  private[caliban] implicit def trace: Trace = Trace.empty
 
   /**
    * Builds a new `Schema` of `A` from an existing `Schema` of `T` and a function from `A` to `T`.
@@ -99,7 +94,6 @@ trait Schema[-R, T] { self =>
     override def arguments: List[__InputValue]                             = self.arguments
     override def toType(isInput: Boolean, isSubscription: Boolean): __Type = self.toType_(isInput, isSubscription)
     override def resolve(value: A): Step[R]                                = self.resolve(f(value))
-    override private[schema] def resolveFieldLazily: Boolean               = self.resolveFieldLazily
   }
 
   /**
@@ -111,25 +105,40 @@ trait Schema[-R, T] { self =>
     override def optional: Boolean                                         = self.optional
     override def arguments: List[__InputValue]                             = self.arguments
     override def toType(isInput: Boolean, isSubscription: Boolean): __Type = {
+      val tpe     = self.toType_(isInput, isSubscription)
       val newName = if (isInput) inputName.getOrElse(Schema.customizeInputTypeName(name)) else name
-      self.toType_(isInput, isSubscription).copy(name = Some(newName))
+      val newTpe  = tpe.copy(name = Some(newName))
+
+      tpe.kind match {
+        case __TypeKind.INTERFACE =>
+          val pt = tpe.possibleTypes.map(_.map { t0 =>
+            val newInterfaces = t0
+              .interfaces()
+              .map(_.map(t1 => if (t1.name == tpe.name && t1.name.isDefined) t1.copy(name = Some(newName)) else t1))
+            t0.copy(interfaces = () => newInterfaces)
+          })
+          newTpe.copy(possibleTypes = pt)
+        case _                    => newTpe
+      }
     }
 
-    private val renameTypename: Boolean = self.toType_().kind match {
+    private lazy val renameTypename: Boolean = self.toType_().kind match {
       case __TypeKind.UNION | __TypeKind.ENUM | __TypeKind.INTERFACE => false
       case _                                                         => true
     }
 
-    override private[schema] def resolveFieldLazily: Boolean = self.resolveFieldLazily
-    override def resolve(value: T): Step[R]                  =
-      self.resolve(value) match {
-        case o @ ObjectStep(_, fields)  =>
-          if (renameTypename) ObjectStep(name, fields) else o
-        case p @ PureStep(EnumValue(_)) =>
-          if (renameTypename) PureStep(EnumValue(name)) else p
-        case other                      =>
-          other
+    override def resolve(value: T): Step[R] = {
+      def loop(step: Step[R]): Step[R] = step match {
+        case ObjectStep(_, fields)   => ObjectStep(name, fields)
+        case PureStep(EnumValue(_))  => PureStep(EnumValue(name))
+        case MetadataFunctionStep(s) => MetadataFunctionStep(field => loop(s(field)))
+        case FunctionStep(s)         => FunctionStep(args => loop(s(args)))
+        case other                   => other
       }
+
+      val step = self.resolve(value)
+      if (renameTypename) loop(step) else step
+    }
   }
 }
 
@@ -171,7 +180,8 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
     directives: List[Directive] = List.empty
   ): Schema[R1, A] =
     new Schema[R1, A] {
-      override def toType(isInput: Boolean, isSubscription: Boolean): __Type =
+      override def toType(isInput: Boolean, isSubscription: Boolean): __Type = {
+        val _ = resolver
         if (isInput) {
           makeInputObject(
             Some(customizeInputTypeName(name)),
@@ -182,16 +192,55 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
             directives = Some(directives)
           )
         } else makeObject(Some(name), description, fields(isInput, isSubscription).map(_._1), directives)
-
-      private lazy val fieldsForResolve = fields(false, false)
-
-      override private[schema] def resolveFieldLazily: Boolean = true
-      override def resolve(value: A): Step[R1]                 = {
-        val fieldsBuilder = Map.newBuilder[String, Step[R1]]
-        fieldsForResolve.foreach { case (f, plan) => fieldsBuilder += f.name -> plan(value) }
-        ObjectStep(name, fieldsBuilder.result())
       }
+
+      private lazy val resolver =
+        ObjectFieldResolver[R1, A](name, fields(false, false).map(f => (f._1.name, f._2)))
+
+      override def resolve(value: A): Step[R1] = resolver.resolve(value)
     }
+
+  /**
+   * Creates an enum schema for a type A
+   * @param name         name of the scalar type
+   * @param description  description of the scalar type
+   * @param values       list of possible enum values
+   * @param directives   the directives to add to the type
+   * @param repr         function that defines how to convert A into a string. WARNING: The resulting string must be contained in the values list
+   * @see [[enumValue]]  convenience method for creating enum values required by this method
+   */
+  def enumSchema[A](
+    name: String,
+    description: Option[String] = None,
+    values: List[__EnumValue],
+    directives: List[Directive] = List.empty,
+    repr: A => String
+  ): Schema[Any, A] = new Schema[Any, A] {
+    private val validEnumValues = values.map(_.name).toSet
+
+    override def toType(isInput: Boolean, isSubscription: Boolean): __Type =
+      makeEnum(Some(name), description, values, None, if (directives.nonEmpty) Some(directives) else None)
+
+    override def resolve(value: A): Step[Any] = {
+      val asString = repr(value)
+      if (validEnumValues.contains(asString)) PureStep(EnumValue(asString))
+      else Step.fail(s"Invalid enum value '$asString'")
+    }
+  }
+
+  def enumValue(
+    name: String,
+    description: Option[String] = None,
+    isDeprecated: Boolean = false,
+    deprecationReason: Option[String] = None,
+    directives: List[Directive] = List.empty
+  ): __EnumValue = __EnumValue(
+    name,
+    description,
+    isDeprecated,
+    deprecationReason,
+    directives = if (directives.nonEmpty) Some(directives) else None
+  )
 
   /**
    * Manually defines a field from a name, a description, some directives and a resolver.
@@ -294,8 +343,7 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
     override def optional: Boolean                                         = true
     override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType_(isInput, isSubscription)
 
-    override private[schema] def resolveFieldLazily: Boolean = ev.resolveFieldLazily
-    override def resolve(value: Option[A]): Step[R0]         =
+    override def resolve(value: Option[A]): Step[R0] =
       value match {
         case Some(value) => ev.resolve(value)
         case None        => NullStep
@@ -307,8 +355,7 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
       (if (ev.optional) t else t.nonNull).list
     }
 
-    override private[schema] def resolveFieldLazily: Boolean = ev.resolveFieldLazily
-    override def resolve(value: List[A]): Step[R0]           = ListStep(value.map(ev.resolve))
+    override def resolve(value: List[A]): Step[R0] = ListStep(value.map(ev.resolve))
   }
   implicit def setSchema[R0, A](implicit ev: Schema[R0, A]): Schema[R0, Set[A]]                                        = listSchema[R0, A].contramap(_.toList)
   implicit def seqSchema[R0, A](implicit ev: Schema[R0, A]): Schema[R0, Seq[A]]                                        = listSchema[R0, A].contramap(_.toList)
@@ -394,7 +441,6 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type =
         kvSchema.toType_(isInput, isSubscription).nonNull.list
 
-      override private[schema] def resolveFieldLazily: Boolean = evA.resolveFieldLazily || evB.resolveFieldLazily
       override def resolve(value: Map[A, B]): Step[RA with RB] = ListStep(value.toList.map(kvSchema.resolve))
     }
   implicit def functionSchema[RA, RB, A, B](implicit
@@ -433,7 +479,7 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
               Right(_)
             )
           )
-            .fold(error => QueryStep(ZQuery.fail(error)), value => ev2.resolve(f(value)))
+            .fold(error => Step.fail(error), value => ev2.resolve(f(value)))
 
         }
       private def handleInput[T](onWrapped: => T)(onUnwrapped: => T): T =
@@ -446,12 +492,12 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
     }
 
   implicit def futureSchema[R0, A](implicit ev: Schema[R0, A]): Schema[R0, Future[A]]                                 =
-    effectSchema[R0, R0, R0, Throwable, A].contramap[Future[A]](future => ZIO.fromFuture(_ => future))
+    effectSchema[R0, R0, R0, Throwable, A].contramap[Future[A]](future => ZIO.fromFuture(_ => future)(Trace.empty))
   implicit def infallibleEffectSchema[R0, R1 >: R0, R2 >: R0, A](implicit ev: Schema[R2, A]): Schema[R0, URIO[R1, A]] =
     new Schema[R0, URIO[R1, A]] {
       override def optional: Boolean                                         = ev.optional
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType_(isInput, isSubscription)
-      override def resolve(value: URIO[R1, A]): Step[R0]                     = QueryStep(ZQuery.fromZIO(value.map(ev.resolve)))
+      override def resolve(value: URIO[R1, A]): Step[R0]                     = QueryStep(ZQuery.fromZIONow(value.map(ev.resolve)))
     }
   implicit def effectSchema[R0, R1 >: R0, R2 >: R0, E <: Throwable, A](implicit
     ev: Schema[R2, A]
@@ -459,7 +505,7 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
     new Schema[R0, ZIO[R1, E, A]] {
       override def optional: Boolean                                         = true
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType_(isInput, isSubscription)
-      override def resolve(value: ZIO[R1, E, A]): Step[R0]                   = QueryStep(ZQuery.fromZIO(value.map(ev.resolve)))
+      override def resolve(value: ZIO[R1, E, A]): Step[R0]                   = QueryStep(ZQuery.fromZIONow(value.map(ev.resolve)))
     }
   def customErrorEffectSchema[R0, R1 >: R0, R2 >: R0, E, A](convertError: E => ExecutionError)(implicit
     ev: Schema[R2, A]
@@ -468,7 +514,7 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
       override def optional: Boolean                                         = true
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType_(isInput, isSubscription)
       override def resolve(value: ZIO[R1, E, A]): Step[R0]                   = QueryStep(
-        ZQuery.fromZIO(value.mapBoth(convertError, ev.resolve))
+        ZQuery.fromZIONow(value.mapBoth(convertError, ev.resolve))
       )
     }
   implicit def infallibleQuerySchema[R0, R1 >: R0, R2 >: R0, A](implicit

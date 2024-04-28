@@ -128,8 +128,8 @@ package object tapir {
                     .fromZIO(ZIO.fromEither(argBuilder.build(InputValue.ObjectValue(replacedArgs))))
                     .flatMap(input => serverEndpoint.logic(queryMonadError)(())(input))
                     .map {
-                      case Left(error: Throwable) => QueryStep(ZQuery.fail(error))
-                      case Left(otherError)       => QueryStep(ZQuery.fail(new Throwable(otherError.toString)))
+                      case Left(error: Throwable) => Step.fail(error)
+                      case Left(otherError)       => Step.fail(otherError.toString)
                       case Right(output)          => outputSchema.resolve(output)
                     }
                 )

@@ -14,7 +14,8 @@ trait Config {
     splitFiles: Boolean = false,
     enableFmt: Boolean = true,
     extensibleEnums: Boolean = false,
-    supportIsRepeatable: Boolean = true
+    supportIsRepeatable: Boolean = true,
+    excludeDeprecated: Boolean = false
   ) {
     private[caliban] def toCalibanCommonSettings: CalibanCommonSettings =
       CalibanCommonSettings(
@@ -33,7 +34,9 @@ trait Config {
         abstractEffectType = None,
         preserveInputNames = None,
         supportIsRepeatable = Some(supportIsRepeatable),
-        addDerives = None
+        addDerives = None,
+        envForDerives = None,
+        excludeDeprecated = Some(excludeDeprecated)
       )
 
     private[caliban] def asScalaCode: String = {
@@ -49,7 +52,8 @@ trait Config {
          |  splitFiles = $splitFiles,
          |  enableFmt = $enableFmt,
          |  extensibleEnums = $extensibleEnums,
-         |  supportIsRepeatable = $supportIsRepeatable
+         |  supportIsRepeatable = $supportIsRepeatable,
+         |  excludeDeprecated = $excludeDeprecated
          |)
       """.stripMargin.trim
     }

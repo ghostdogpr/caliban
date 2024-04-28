@@ -4,7 +4,7 @@ import caliban.parsing.adt.Directive
 
 import scala.annotation.StaticAnnotation
 
-object Annotations {
+object Annotations extends AnnotationsVersionSpecific {
 
   /**
    * Annotation used to indicate a type or a field is deprecated.
@@ -44,8 +44,10 @@ object Annotations {
 
   /**
    * Annotation to make a sealed trait an interface instead of a union type or an enum
+   *
+   * @param excludedFields Optionally provide a list of field names that should be excluded from the interface
    */
-  case class GQLInterface() extends StaticAnnotation
+  case class GQLInterface(excludedFields: String*) extends StaticAnnotation
 
   /**
    * Annotation to make a sealed trait a union instead of an enum
@@ -63,4 +65,15 @@ object Annotations {
    * Annotation to specify the default value of an input field
    */
   case class GQLDefault(value: String) extends StaticAnnotation
+
+  /**
+   * Annotation that can be applied to force a field to be derived as nullable
+   */
+  case class GQLNullable() extends StaticAnnotation
+
+  /**
+   * Annotation that can be applied to force a field to be derived as non-nullable
+   */
+  case class GQLNonNullable() extends StaticAnnotation
+
 }

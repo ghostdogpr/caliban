@@ -5,6 +5,7 @@ import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
 import caliban.parsing.adt.Type.{ ListType, NamedType }
 import caliban.parsing.adt.{ Directive, Type }
+import caliban.rendering.DocumentRenderer
 import caliban.schema.Annotations.GQLExcluded
 import caliban.schema.Types
 
@@ -22,6 +23,10 @@ case class __Type(
   @GQLExcluded directives: Option[List[Directive]] = None,
   @GQLExcluded origin: Option[String] = None
 ) { self =>
+  final override lazy val hashCode: Int = super.hashCode()
+
+  private[caliban] lazy val typeNameRepr: String = DocumentRenderer.renderTypeName(this)
+
   def |+|(that: __Type): __Type = __Type(
     kind,
     (name ++ that.name).reduceOption((_, b) => b),
@@ -97,7 +102,7 @@ case class __Type(
             description,
             name.getOrElse(""),
             directives.getOrElse(Nil),
-            enumValues(__DeprecatedArgs(Some(true))).getOrElse(Nil).map(_.toEnumValueDefinition)
+            enumValues(__DeprecatedArgs.include).getOrElse(Nil).map(_.toEnumValueDefinition)
           )
         )
       case __TypeKind.INPUT_OBJECT =>
@@ -122,18 +127,28 @@ case class __Type(
   lazy val nonNull: __Type = __Type(__TypeKind.NON_NULL, ofType = Some(self))
 
   lazy val allFields: List[__Field] =
-    fields(__DeprecatedArgs(Some(true))).getOrElse(Nil)
+    fields(__DeprecatedArgs.include).getOrElse(Nil)
 
   lazy val allInputFields: List[__InputValue] =
-    inputFields(__DeprecatedArgs(Some(true))).getOrElse(Nil)
+    inputFields(__DeprecatedArgs.include).getOrElse(Nil)
 
   lazy val allEnumValues: List[__EnumValue] =
-    enumValues(__DeprecatedArgs(Some(true))).getOrElse(Nil)
+    enumValues(__DeprecatedArgs.include).getOrElse(Nil)
 
-  private[caliban] lazy val allFieldsMap: Map[String, __Field] =
-    allFields.map(f => f.name -> f).toMap
+  private[caliban] lazy val allFieldsMap: collection.Map[String, __Field] = {
+    val map = collection.mutable.HashMap.empty[String, __Field]
+    allFields.foreach(f => map.update(f.name, f))
+    map
+  }
 
   lazy val innerType: __Type = Types.innerType(this)
+
+  private[caliban] lazy val possibleTypeNames: Set[String] =
+    kind match {
+      case __TypeKind.OBJECT                       => name.fold(Set.empty[String])(Set(_))
+      case __TypeKind.INTERFACE | __TypeKind.UNION => possibleTypes.fold(Set.empty[String])(_.flatMap(_.name).toSet)
+      case _                                       => Set.empty
+    }
 }
 
 sealed trait TypeVisitor { self =>

@@ -9,7 +9,6 @@ import caliban.parsing.Parser
 import caliban.{ InputValue, Value }
 import zio.prelude.EReader
 import zio.prelude.fx.ZPure
-import zio.prelude._
 
 object ValueValidator {
   def validateDefaultValue(field: __InputValue, errorContext: => String): EReader[Any, ValidationError, Unit] =
@@ -68,7 +67,7 @@ object ValueValidator {
           case LIST     =>
             argValue match {
               case ListValue(values) =>
-                values.forEach_(v =>
+                ZPure.foreachDiscard(values)(v =>
                   validateType(inputType.ofType.getOrElse(inputType), v, context, s"List item in $errorContext")
                 )
               case NullValue         =>
@@ -81,14 +80,14 @@ object ValueValidator {
           case INPUT_OBJECT =>
             argValue match {
               case ObjectValue(fields) =>
-                inputType.allInputFields.forEach_ { f =>
+                ZPure.foreachDiscard(inputType.allInputFields) { f =>
                   fields.collectFirst { case (name, fieldValue) if name == f.name => fieldValue } match {
-                    case Some(value) =>
+                    case Some(value)                    =>
                       validateType(f._type, value, context, s"Field ${f.name} in $errorContext")
-                    case None        =>
-                      ZPure.when(f.defaultValue.isEmpty) {
-                        validateType(f._type, NullValue, context, s"Field ${f.name} in $errorContext")
-                      }
+                    case None if f.defaultValue.isEmpty =>
+                      validateType(f._type, NullValue, context, s"Field ${f.name} in $errorContext")
+                    case _                              =>
+                      ZPure.unit
                   }
                 }
               case NullValue           =>
@@ -122,7 +121,7 @@ object ValueValidator {
 
   def validateEnum(value: String, inputType: __Type, errorContext: => String): EReader[Any, ValidationError, Unit] = {
     val possible = inputType
-      .enumValues(__DeprecatedArgs(Some(true)))
+      .enumValues(__DeprecatedArgs.include)
       .getOrElse(List.empty)
       .map(_.name)
     val exists   = possible.contains(value)

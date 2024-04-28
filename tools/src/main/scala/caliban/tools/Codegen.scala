@@ -28,11 +28,13 @@ object Codegen {
                                   }
       preserveInputNames        = arguments.preserveInputNames.getOrElse(false)
       addDerives                = arguments.addDerives.getOrElse(false)
+      envForDerives             = arguments.envForDerives
       genView                   = arguments.genView.getOrElse(false)
       scalarMappings            = arguments.scalarMappings
       splitFiles                = arguments.splitFiles.getOrElse(false)
       enableFmt                 = arguments.enableFmt.getOrElse(true)
       extensibleEnums           = arguments.extensibleEnums.getOrElse(false)
+      excludeDeprecated         = arguments.excludeDeprecated.getOrElse(false)
       code                      = genType match {
                                     case GenType.Schema =>
                                       List(
@@ -44,7 +46,8 @@ object Codegen {
                                           scalarMappings,
                                           abstractEffectType,
                                           preserveInputNames,
-                                          addDerives
+                                          addDerives,
+                                          envForDerives
                                         )
                                       )
                                     case GenType.Client =>
@@ -56,7 +59,8 @@ object Codegen {
                                         arguments.imports,
                                         splitFiles,
                                         extensibleEnums,
-                                        scalarMappings
+                                        scalarMappings,
+                                        excludeDeprecated
                                       )
                                   }
       formatted                <- if (enableFmt) Formatter.format(code, arguments.fmtPath) else ZIO.succeed(code)

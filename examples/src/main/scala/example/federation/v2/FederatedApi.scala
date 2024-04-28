@@ -3,7 +3,7 @@ package example.federation.v2
 import caliban._
 import caliban.federation.EntityResolver
 import caliban.federation.tracing.ApolloFederatedTracing
-import caliban.federation.v2_0.{ federated, GQLKey }
+import caliban.federation.v2_6.{ federated, GQLKey }
 import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription }
 import caliban.schema.{ ArgBuilder, GenericSchema, Schema }
 import caliban.schema.ArgBuilder.auto._

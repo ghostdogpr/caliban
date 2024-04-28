@@ -6,7 +6,7 @@ import fastparse.internal.Util
 /**
  * Maps an index to the "friendly" version of an index based on the underlying source.
  */
-trait SourceMapper {
+trait SourceMapper extends Serializable {
 
   def getLocation(index: Int): LocationInfo
 

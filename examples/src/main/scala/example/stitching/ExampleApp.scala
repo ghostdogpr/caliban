@@ -1,12 +1,15 @@
 package example.stitching
 
 import caliban._
-import caliban.gateway.{ SubGraph, SuperGraph }
-import caliban.interop.tapir.{ HttpInterpreter, WebSocketInterpreter }
-import caliban.introspection.adt.TypeVisitor
+import caliban.quick._
 import caliban.schema.ArgBuilder.auto._
 import caliban.schema.Schema.auto._
 import caliban.schema._
+import caliban.tools.stitching.{ HttpRequest, RemoteResolver, RemoteSchemaResolver, ResolveRequest }
+import caliban.tools.{ Options, RemoteSchema, SchemaLoader }
+import sttp.capabilities.WebSockets
+import sttp.capabilities.zio.ZioStreams
+import sttp.client3.SttpBackend
 import caliban.wrappers.Wrappers
 import sttp.client3.httpclient.zio._
 import zio._
@@ -75,37 +78,17 @@ object Configuration {
     }
 }
 
-import caliban.ZHttpAdapter
-import zio.http._
-import zio.stream._
-
 object ExampleApp extends ZIOAppDefault {
-  import sttp.tapir.json.circe._
-
-  private val graphiql = Handler.fromStream(ZStream.fromResource("graphiql.html")).toHttp.withDefaultErrorResponse
-
   def run =
-    (for {
-      _           <- ZIO.debug("Building schema")
-      api         <- StitchingExample.enrichedApi
-      interpreter <- (api @@ Wrappers.printErrors).interpreter
-      _           <- ZIO.debug("Starting server")
-      _           <-
-        Server
-          .serve(
-            Http
-              .collectHttp[Request] {
-                case _ -> Root / "api" / "graphql" => ZHttpAdapter.makeHttpService(HttpInterpreter(interpreter))
-                case _ -> Root / "ws" / "graphql"  =>
-                  ZHttpAdapter.makeWebSocketService(WebSocketInterpreter(interpreter))
-                case _ -> Root / "graphiql"        => graphiql
-              }
-          )
-    } yield ())
-      .provide(
-        HttpClientZioBackend.layer(),
-        Configuration.fromEnvironment,
-        Server.default
+    (StitchingExample.enrichedApi @@ Wrappers.printErrors).flatMap {
+      _.runServer(
+        port = 8080,
+        apiPath = "/api/graphql",
+        graphiqlPath = Some("/graphiql"),
+        webSocketPath = Some("/ws/graphql")
       )
-      .onExit(ZIO.debug(_))
+    }.provide(
+      HttpClientZioBackend.layer(),
+      Configuration.fromEnvironment
+    )
 }

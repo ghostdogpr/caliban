@@ -1,6 +1,7 @@
 package caliban.execution
 
 import caliban._
+import caliban.introspection.Introspector
 import caliban.parsing.{ Parser, VariablesCoercer }
 import caliban.schema.RootType
 import caliban.validation.Validator
@@ -22,8 +23,8 @@ import zio._
 @State(Scope.Thread)
 @BenchmarkMode(Array(Mode.Throughput))
 @OutputTimeUnit(TimeUnit.SECONDS)
-@Warmup(iterations = 5, time = 3, timeUnit = TimeUnit.SECONDS)
-@Measurement(iterations = 5, time = 3, timeUnit = TimeUnit.SECONDS)
+@Warmup(iterations = 5, time = 1, timeUnit = TimeUnit.SECONDS)
+@Measurement(iterations = 5, time = 1, timeUnit = TimeUnit.SECONDS)
 @Fork(1)
 class ValidationBenchmark {
 
@@ -41,32 +42,17 @@ class ValidationBenchmark {
 
   import NestedZQueryBenchmarkSchema._
 
-  val parsedSimpleQuery       = run(Parser.parseQuery(simpleQuery))
-  val parsedMultifieldQuery   = run(Parser.parseQuery(multifieldQuery))
-  val parsedDeepQuery         = run(Parser.parseQuery(deepQuery))
-  val parsedDeepWithArgsQuery = run(Parser.parseQuery(deepWithArgsQuery))
+  val parsedSimpleQuery        = run(Parser.parseQuery(simpleQuery))
+  val parsedMultifieldQuery    = run(Parser.parseQuery(multifieldQuery))
+  val parsedDeepQuery          = run(Parser.parseQuery(deepQuery))
+  val parsedDeepWithArgsQuery  = run(Parser.parseQuery(deepWithArgsQuery))
+  val parsedIntrospectionQuery = run(Parser.parseQuery(GraphQLBenchmarks.fullIntrospectionQuery))
 
-  val simple100Type = run(
+  val simpleType = run(
     toSchema(graphQL[Any, SimpleRoot, Unit, Unit](RootResolver(NestedZQueryBenchmarkSchema.simple100Elements)))
   )
 
-  val simple1000Type = run(
-    toSchema(
-      graphQL[Any, SimpleRoot, Unit, Unit](
-        RootResolver(NestedZQueryBenchmarkSchema.simple1000Elements)
-      )
-    )
-  )
-
-  val simple10000Type = run(
-    toSchema(
-      graphQL[Any, SimpleRoot, Unit, Unit](
-        RootResolver(NestedZQueryBenchmarkSchema.simple10000Elements)
-      )
-    )
-  )
-
-  val multifield100Type   =
+  val multifieldType =
     run(
       toSchema(
         graphQL[Any, MultifieldRoot, Unit, Unit](
@@ -74,24 +60,8 @@ class ValidationBenchmark {
         )
       )
     )
-  val multifield1000Type  =
-    run(
-      toSchema(
-        graphQL[Any, MultifieldRoot, Unit, Unit](
-          RootResolver(NestedZQueryBenchmarkSchema.multifield1000Elements)
-        )
-      )
-    )
-  val multifield10000Type =
-    run(
-      toSchema(
-        graphQL[Any, MultifieldRoot, Unit, Unit](
-          RootResolver(NestedZQueryBenchmarkSchema.multifield10000Elements)
-        )
-      )
-    )
 
-  val deep100Type   =
+  val deepType =
     run(
       toSchema(
         graphQL[Any, DeepRoot, Unit, Unit](
@@ -99,24 +69,8 @@ class ValidationBenchmark {
         )
       )
     )
-  val deep1000Type  =
-    run(
-      toSchema(
-        graphQL[Any, DeepRoot, Unit, Unit](
-          RootResolver[DeepRoot](NestedZQueryBenchmarkSchema.deep1000Elements)
-        )
-      )
-    )
-  val deep10000Type =
-    run(
-      toSchema(
-        graphQL[Any, DeepRoot, Unit, Unit](
-          RootResolver[DeepRoot](NestedZQueryBenchmarkSchema.deep10000Elements)
-        )
-      )
-    )
 
-  val deepWithArgs100Type  =
+  val deepWithArgsType =
     run(
       toSchema(
         graphQL[Any, DeepWithArgsRoot, Unit, Unit](
@@ -124,79 +78,35 @@ class ValidationBenchmark {
         )
       )
     )
-  val deepWithArgs1000Type =
-    run(
-      toSchema(
-        graphQL[Any, DeepWithArgsRoot, Unit, Unit](
-          RootResolver[DeepWithArgsRoot](NestedZQueryBenchmarkSchema.deepWithArgs1000Elements)
-        )
-      )
-    )
 
   @Benchmark
-  def simple100(): Any = {
-    val io = Validator.validate(parsedSimpleQuery, simple100Type)
+  def simple(): Any = {
+    val io = Validator.validate(parsedSimpleQuery, simpleType)
     run(io)
   }
 
   @Benchmark
-  def simple1000(): Any = {
-    val io = Validator.validate(parsedSimpleQuery, simple1000Type)
+  def multifield(): Any = {
+    val io = Validator.validate(parsedMultifieldQuery, multifieldType)
     run(io)
   }
 
   @Benchmark
-  def simple10000(): Any = {
-    val io = Validator.validate(parsedSimpleQuery, simple10000Type)
+  def deep(): Any = {
+    val io = Validator.validate(parsedDeepQuery, deepType)
     run(io)
   }
 
   @Benchmark
-  def multifield100(): Any = {
-    val io = Validator.validate(parsedMultifieldQuery, multifield100Type)
+  def variableCoercer(): Any = {
+    val io = VariablesCoercer.coerceVariables(deepArgs100Elements, parsedDeepWithArgsQuery, deepWithArgsType, false)
     run(io)
   }
 
   @Benchmark
-  def multifield1000(): Any = {
-    val io = Validator.validate(parsedMultifieldQuery, multifield1000Type)
-    run(io)
-  }
-
-  @Benchmark
-  def multifield10000(): Any = {
-    val io = Validator.validate(parsedMultifieldQuery, multifield10000Type)
-    run(io)
-  }
-
-  @Benchmark
-  def deep100(): Any = {
-    val io = Validator.validate(parsedDeepQuery, deep100Type)
-    run(io)
-  }
-
-  @Benchmark
-  def deep1000(): Any = {
-    val io = Validator.validate(parsedDeepQuery, deep1000Type)
-    run(io)
-  }
-
-  @Benchmark
-  def deep10000(): Any = {
-    val io = Validator.validate(parsedDeepQuery, deep10000Type)
-    run(io)
-  }
-
-  @Benchmark
-  def variableCoercer100(): Any = {
-    val io = VariablesCoercer.coerceVariables(deepArgs100Elements, parsedDeepWithArgsQuery, deepWithArgs100Type, false)
-    run(io)
-  }
-
-  @Benchmark
-  def variableCoercer1000(): Any = {
+  def introspection(): Any = {
     val io =
-      VariablesCoercer.coerceVariables(deepArgs1000Elements, parsedDeepWithArgsQuery, deepWithArgs1000Type, false)
+      Validator.validate(parsedIntrospectionQuery, Introspector.introspectionRootType)
     run(io)
   }
 

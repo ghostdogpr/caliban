@@ -1,26 +1,27 @@
 package caliban.interop.tapir
 
-import caliban._
 import caliban.ResponseValue.StreamValue
+import caliban._
 import caliban.wrappers.Caching
-import sttp.capabilities.{ Streams, WebSockets }
 import sttp.capabilities.zio.ZioStreams
-import sttp.capabilities.zio.ZioStreams.Pipe
+import sttp.capabilities.{ Streams, WebSockets }
+import sttp.model.sse.ServerSentEvent
 import sttp.model.{ headers => _, _ }
 import sttp.monad.MonadError
 import sttp.tapir.Codec.JsonCodec
 import sttp.tapir.model.ServerRequest
 import sttp.tapir.server.ServerEndpoint
+import sttp.tapir.ztapir.ZioServerSentEvents
 import sttp.tapir.{ headers, _ }
 import zio._
-import zio.stream.{ ZChannel, ZPipeline, ZStream }
+import zio.stream.ZStream
 
 import java.nio.charset.StandardCharsets
 import scala.concurrent.Future
 
 object TapirAdapter {
 
-  type CalibanPipe   = Pipe[GraphQLWSInput, Either[GraphQLWSClose, GraphQLWSOutput]]
+  type CalibanPipe   = caliban.ws.CalibanPipe
   type UploadRequest = (Seq[Part[Array[Byte]]], ServerRequest)
   type ZioWebSockets = ZioStreams with WebSockets
 
@@ -89,6 +90,10 @@ object TapirAdapter {
       oneOfVariantValueMatcher[CalibanBody.Stream[stream.BinaryStream]](
         streamTextBody(stream)(CodecFormat.Json(), Some(StandardCharsets.UTF_8)).toEndpointIO
           .map(Right(_)) { case Right(value) => value }
+      ) { case Right(_) => true },
+      oneOfVariantValueMatcher[CalibanBody.Stream[stream.BinaryStream]](
+        streamBinaryBody(stream)(CodecFormat.TextEventStream()).toEndpointIO
+          .map(Right(_)) { case Right(value) => value }
       ) { case Right(_) => true }
     )
 
@@ -100,49 +105,43 @@ object TapirAdapter {
     streamConstructor: StreamConstructor[BS],
     responseCodec: JsonCodec[ResponseValue]
   ): (MediaType, StatusCode, Option[String], CalibanBody[BS]) = {
+    val accepts = new HttpUtils.AcceptsGqlEncodings(request.header(HeaderNames.Accept))
 
-    /**
-     * NOTE: From  1st January 2025 this logic should be changed to use `application/graphql-response+json` as the
-     * default content-type when the client does not specify an accept header.
-     *
-     * @see [[https://graphql.github.io/graphql-over-http/draft/#sec-Legacy-watershed]]
-     */
-    def acceptsGqlJson = request.acceptsContentTypes.fold(
-      _ => false,
-      _.exists {
-        case ContentTypeRange("application", "graphql-response+json", _) => true
-        case _                                                           => false
-      }
-    )
     response match {
       case resp @ GraphQLResponse(StreamValue(stream), _, _, _) =>
         (
-          DeferMultipart.mediaType,
+          deferMultipartMediaType,
           StatusCode.Ok,
           None,
           encodeMultipartMixedResponse(resp, stream)
         )
-      case resp if acceptsGqlJson                               =>
-        val code           =
-          response.errors.collectFirst { case _: CalibanError.ParsingError | _: CalibanError.ValidationError =>
-            StatusCode.BadRequest
-          }.getOrElse(StatusCode.Ok)
-        val cacheDirective = computeCacheDirective(response.extensions)
+      case resp if accepts.graphQLJson                          =>
+        val isBadRequest   = response.errors.collectFirst {
+          case _: CalibanError.ParsingError | _: CalibanError.ValidationError => true
+        }.getOrElse(false)
+        val code           = if (isBadRequest) StatusCode.BadRequest else StatusCode.Ok
+        val cacheDirective = HttpUtils.computeCacheDirective(response.extensions)
         (
           GraphqlResponseJson.mediaType,
           code,
-          computeCacheDirective(response.extensions),
+          HttpUtils.computeCacheDirective(response.extensions),
           encodeSingleResponse(
             resp,
-            keepDataOnErrors = false,
+            keepDataOnErrors = !isBadRequest,
             excludeExtensions = cacheDirective.map(_ => Set(Caching.DirectiveName))
           )
         )
+      case resp if accepts.serverSentEvents                     =>
+        (
+          MediaType.TextEventStream,
+          StatusCode.Ok,
+          None,
+          encodeTextEventStreamResponse(resp)
+        )
       case resp                                                 =>
-        val code           =
-          response.errors.collectFirst { case HttpRequestMethod.MutationOverGetError => StatusCode.BadRequest }
-            .getOrElse(StatusCode.Ok)
-        val cacheDirective = computeCacheDirective(response.extensions)
+        val code           = response.errors.collectFirst { case HttpRequestMethod.MutationOverGetError => StatusCode.BadRequest }
+          .getOrElse(StatusCode.Ok)
+        val cacheDirective = HttpUtils.computeCacheDirective(response.extensions)
         (
           MediaType.ApplicationJson,
           code,
@@ -156,21 +155,8 @@ object TapirAdapter {
     }
   }
 
-  private object DeferMultipart {
-    private val Newline        = "\r\n"
-    private val ContentType    = "Content-Type: application/json; charset=utf-8"
-    private val SubHeader      = s"$Newline$ContentType$Newline$Newline"
-    private val Boundary       = "---"
-    private val BoundaryHeader = "-"
-    private val DeferSpec      = "20220824"
-
-    val InnerBoundary = s"$Newline$Boundary$SubHeader"
-    val EndBoundary   = s"$Newline-----$Newline"
-
-    private val DeferHeaderParams: Map[String, String] = Map("boundary" -> BoundaryHeader, "deferSpec" -> DeferSpec)
-
-    val mediaType: MediaType = MediaType.MultipartMixed.copy(otherParameters = DeferHeaderParams)
-  }
+  private val deferMultipartMediaType: MediaType =
+    MediaType.MultipartMixed.copy(otherParameters = HttpUtils.DeferMultipart.DeferHeaderParams)
 
   private object GraphqlResponseJson extends CodecFormat {
     override val mediaType: MediaType = MediaType("application", "graphql-response+json")
@@ -180,24 +166,9 @@ object TapirAdapter {
     resp: GraphQLResponse[E],
     stream: ZStream[Any, Throwable, ResponseValue]
   )(implicit streamConstructor: StreamConstructor[BS], responseCodec: JsonCodec[ResponseValue]): CalibanBody[BS] = {
-    import DeferMultipart._
+    import HttpUtils.DeferMultipart._
 
-    val pipeline = ZPipeline.fromChannel {
-      lazy val reader: ZChannel[Any, Throwable, Chunk[ResponseValue], Any, Throwable, Chunk[ResponseValue], Any] =
-        ZChannel.readWithCause(
-          (in: Chunk[ResponseValue]) =>
-            in.headOption match {
-              case Some(value) =>
-                ZChannel.write(in.updated(0, resp.copy(data = value).toResponseValue)) *>
-                  ZChannel.identity[Throwable, Chunk[ResponseValue], Any]
-              case None        => reader
-            },
-          (cause: Cause[Throwable]) => ZChannel.failCause(cause),
-          (_: Any) => ZChannel.unit
-        )
-
-      reader
-    }
+    val pipeline = HttpUtils.DeferMultipart.createPipeline(resp)
 
     Right(
       streamConstructor(
@@ -208,6 +179,17 @@ object TapirAdapter {
           .mapConcat(_.getBytes(StandardCharsets.UTF_8))
       )
     )
+  }
+
+  private def encodeTextEventStreamResponse[E, BS](
+    resp: GraphQLResponse[E]
+  )(implicit streamConstructor: StreamConstructor[BS], responseCodec: JsonCodec[ResponseValue]): CalibanBody[BS] = {
+    val response = HttpUtils.ServerSentEvents.transformResponse(
+      resp,
+      v => ServerSentEvent(Some(responseCodec.encode(v)), Some("next")),
+      ServerSentEvent(None, Some("complete"))
+    )
+    Right(streamConstructor(ZioServerSentEvents.serialiseSSEToBytes(response)))
   }
 
   private def encodeSingleResponse[E](
@@ -253,12 +235,4 @@ object TapirAdapter {
   def isFtv1Header(r: Header): Boolean =
     r.name == GraphQLRequest.`apollo-federation-include-trace` && r.value == GraphQLRequest.ftv1
 
-  private def computeCacheDirective(extensions: Option[ResponseValue.ObjectValue]): Option[String] =
-    extensions
-      .flatMap(_.fields.collectFirst { case (Caching.DirectiveName, ResponseValue.ObjectValue(fields)) =>
-        fields.collectFirst { case ("httpHeader", Value.StringValue(cacheHeader)) =>
-          cacheHeader
-        }
-      })
-      .flatten
 }

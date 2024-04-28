@@ -1,33 +1,51 @@
 package caliban.schema
 
 import caliban.CalibanError.ExecutionError
-import caliban.{ CalibanError, InputValue }
 import caliban.Value.*
-import caliban.schema.Annotations.GQLDefault
-import caliban.schema.Annotations.GQLName
+import caliban.schema.Annotations.{ GQLDefault, GQLName }
 import caliban.schema.macros.Macros
+import caliban.{ CalibanError, InputValue }
 import magnolia1.Macro as MagnoliaMacro
 
-import scala.deriving.Mirror
 import scala.compiletime.*
+import scala.deriving.Mirror
 import scala.util.NotGiven
 
 trait CommonArgBuilderDerivation {
-  inline def recurse[P, Label, A <: Tuple](
+  inline def recurseSum[P, Label, A <: Tuple](
     inline values: List[(String, List[Any], ArgBuilder[Any])] = Nil
   ): List[(String, List[Any], ArgBuilder[Any])] =
     inline erasedValue[(Label, A)] match {
       case (_: EmptyTuple, _)                 => values.reverse
       case (_: (name *: names), _: (t *: ts)) =>
-        recurse[P, names, ts](
+        recurseSum[P, names, ts] {
+          inline summonInline[Mirror.Of[t]] match {
+            case m: Mirror.SumOf[t] =>
+              recurseSum[t, m.MirroredElemLabels, m.MirroredElemTypes](values)
+            case _                  =>
+              (
+                constValue[name].toString,
+                MagnoliaMacro.anns[t], {
+                  inline if (Macros.isEnumField[P, t])
+                    inline if (!Macros.implicitExists[ArgBuilder[t]]) derived[t]
+                    else summonInline[ArgBuilder[t]]
+                  else summonInline[ArgBuilder[t]]
+                }.asInstanceOf[ArgBuilder[Any]]
+              ) :: values
+          }
+        }
+    }
+
+  inline def recurseProduct[P, Label, A <: Tuple](
+    inline values: List[(String, ArgBuilder[Any])] = Nil
+  ): List[(String, ArgBuilder[Any])] =
+    inline erasedValue[(Label, A)] match {
+      case (_: EmptyTuple, _)                 => values.reverse
+      case (_: (name *: names), _: (t *: ts)) =>
+        recurseProduct[P, names, ts](
           (
             constValue[name].toString,
-            MagnoliaMacro.anns[t], {
-              if (Macros.isEnumField[P, t])
-                if (!Macros.implicitExists[ArgBuilder[t]]) derived[t]
-                else summonInline[ArgBuilder[t]]
-              else summonInline[ArgBuilder[t]]
-            }.asInstanceOf[ArgBuilder[Any]]
+            summonInline[ArgBuilder[t]].asInstanceOf[ArgBuilder[Any]]
           ) :: values
         )
     }
@@ -36,24 +54,23 @@ trait CommonArgBuilderDerivation {
     inline summonInline[Mirror.Of[A]] match {
       case m: Mirror.SumOf[A] =>
         makeSumArgBuilder[A](
-          recurse[A, m.MirroredElemLabels, m.MirroredElemTypes](),
+          recurseSum[A, m.MirroredElemLabels, m.MirroredElemTypes](),
           constValue[m.MirroredLabel]
         )
 
       case m: Mirror.ProductOf[A] =>
         makeProductArgBuilder(
-          recurse[A, m.MirroredElemLabels, m.MirroredElemTypes](),
-          MagnoliaMacro.paramAnns[A].to(Map)
+          recurseProduct[A, m.MirroredElemLabels, m.MirroredElemTypes](),
+          MagnoliaMacro.paramAnns[A].toMap
         )(m.fromProduct)
     }
 
   private def makeSumArgBuilder[A](
     _subTypes: => List[(String, List[Any], ArgBuilder[Any])],
-    _traitLabel: => String
+    traitLabel: String
   ) = new ArgBuilder[A] {
-    private lazy val subTypes   = _subTypes
-    private lazy val traitLabel = _traitLabel
-    private val emptyInput      = InputValue.ObjectValue(Map())
+    private lazy val subTypes = _subTypes
+    private val emptyInput    = InputValue.ObjectValue(Map.empty)
 
     def build(input: InputValue): Either[ExecutionError, A] =
       input.match {
@@ -66,7 +83,7 @@ trait CommonArgBuilderDerivation {
                 label,
                 annotations,
                 builder: ArgBuilder[A @unchecked]
-              ) if label == value || annotations.exists { case GQLName(name) => name == value } =>
+              ) if label == value || annotations.contains(GQLName(value)) =>
             builder
         }
           .toRight(ExecutionError(s"Invalid value $value for trait $traitLabel"))
@@ -75,14 +92,13 @@ trait CommonArgBuilderDerivation {
   }
 
   private def makeProductArgBuilder[A](
-    _fields: => List[(String, List[Any], ArgBuilder[Any])],
-    _annotations: => Map[String, List[Any]]
+    _fields: => List[(String, ArgBuilder[Any])],
+    annotations: Map[String, List[Any]]
   )(fromProduct: Product => A) = new ArgBuilder[A] {
-    private lazy val fields      = _fields
-    private lazy val annotations = _annotations
+    private lazy val fields = _fields
 
     def build(input: InputValue): Either[ExecutionError, A] =
-      fields.view.map { (label, _, builder) =>
+      fields.view.map { (label, builder) =>
         input match {
           case InputValue.ObjectValue(fields) =>
             val labelList  = annotations.get(label)
@@ -103,7 +119,7 @@ trait CommonArgBuilderDerivation {
 trait ArgBuilderDerivation extends CommonArgBuilderDerivation {
   inline def gen[A]: ArgBuilder[A] = derived
 
-  sealed trait Auto[A] extends ArgBuilder[A] {
+  sealed abstract class Auto[A] extends ArgBuilder[A] {
     inline given genAuto[T](using NotGiven[ArgBuilder[T]]): ArgBuilder[T] = derived
   }
 

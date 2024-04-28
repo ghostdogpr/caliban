@@ -1,0 +1,41 @@
+directive @lazy on FIELD_DEFINITION
+directive @newtype(name : String) on FIELD_DEFINITION | ARGUMENT_DEFINITION | INPUT_FIELD_DEFINITION
+
+scalar FID
+
+type Query {
+    getFoo(
+        id: ID! @newtype(name: "CustomId"),
+        maybeId : ID @newtype(name: "ACustomIdOpt")
+        maybeAllIDsOpt: [ID] @newtype(name: "AMaybeInnerIdOpt")
+    ): Foo
+}
+
+type Mutation {
+    updateFoo(foo: FooInput!): Foo
+}
+
+type Foo {
+    id : ID! @newtype(name: "CustomId")
+    strId : String! @newtype(name: "CustomStrId")
+    intId : Int! @newtype(name: "CustomIntId")
+    fid : FID! @newtype(name: "CustomFId")
+    maybeId : ID @newtype(name: "CustomIdOpt")
+    IDs : [ID!]!
+    allIDs : [ID!]! @newtype(name: "InnerId")
+    allIDsOpt: [ID]! @newtype(name: "InnerOptId")
+    mapbeAllIDs: [ID!] @newtype(name: "MaybeInnerId")
+    mapbeAllIDsOpt: [ID] @newtype(name: "MaybeInnerIdOpt")
+    getLazyFoo : FooLazy @lazy
+}
+
+type FooLazy {
+    id : ID!
+}
+
+
+input FooInput {
+    id : ID! @newtype(name: "CustomId")
+    allIDs : [ID!]! @newtype(name: "IInnerId")
+    maybeAllIDsOpt: [ID] @newtype(name: "IMaybeInnerIdOpt")
+}

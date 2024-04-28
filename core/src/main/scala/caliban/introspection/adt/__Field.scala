@@ -18,6 +18,8 @@ case class __Field(
   @GQLExcluded extend: Option[Extend] = None,
   @GQLExcluded renameInput: String => String = identity
 ) {
+  final override lazy val hashCode: Int = super.hashCode()
+
   def toFieldDefinition: FieldDefinition = {
     val allDirectives = (if (isDeprecated)
                            List(
@@ -34,7 +36,7 @@ case class __Field(
     InputValueDefinition(description, name, _type.toType(), None, directives.getOrElse(Nil))
 
   lazy val allArgs: List[__InputValue] =
-    args(__DeprecatedArgs(Some(true)))
+    args(__DeprecatedArgs.include)
 
   private[caliban] lazy val _type: __Type = `type`()
 

@@ -12,7 +12,9 @@ package object validation {
     parentType: __Type,
     selection: Field,
     fieldDef: __Field
-  )
+  ) {
+    final override lazy val hashCode: Int = super.hashCode()
+  }
 
   type FieldMap = Map[String, Set[SelectedField]]
 
