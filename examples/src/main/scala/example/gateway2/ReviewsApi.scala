@@ -3,6 +3,7 @@ package example.gateway2
 import caliban._
 import caliban.federation.v2_5._
 import caliban.interop.tapir.HttpInterpreter
+import caliban.quick.GraphqlServerOps
 import caliban.schema.Schema
 import sttp.tapir.json.circe._
 import zio._
@@ -24,13 +25,5 @@ object ReviewsApi extends ZIOAppDefault {
   val api      = graphQL(resolver) @@ federated
 
   def run: Task[Unit] =
-    api.interpreter
-      .flatMap(interpreter =>
-        Server.serve(
-          Http.collectHttp[Request] { case _ -> Root / "api" / "graphql" =>
-            ZHttpAdapter.makeHttpService(HttpInterpreter(interpreter))
-          }
-        )
-      )
-      .provide(ZLayer.succeed(Server.Config.default.port(8089)), Server.live)
+    api.runServer(8089, "/api/graphql")
 }

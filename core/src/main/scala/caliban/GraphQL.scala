@@ -117,7 +117,10 @@ trait GraphQL[-R] { self =>
                   doc          <- wrap(Parser.parseQuery)(parsingWrappers, request.query.getOrElse(""))
                   coercedVars  <- coerceVariables(doc, request.variables.getOrElse(Map.empty))
                   executionReq <- wrap(validation(request.operationName, coercedVars))(validationWrappers, doc)
-                  result       <- wrap(execution(schemaToExecute(doc), fieldWrappers))(executionWrappers, executionReq)
+                  result       <- wrap(execution(schemaToExecute(doc), fieldWrappers, doc.isIntrospection))(
+                                    executionWrappers,
+                                    executionReq
+                                  )
                 } yield result).catchAll(Executor.fail(_))
               )(overallWrappers, request)
           }
@@ -154,23 +157,15 @@ trait GraphQL[-R] { self =>
 
         private def execution(
           schemaToExecute: RootSchema[R],
-          fieldWrappers: List[FieldWrapper[R]]
+          fieldWrappers: List[FieldWrapper[R]],
+          isIntrospection: Boolean
         )(request: ExecutionRequest)(implicit trace: Trace) = {
           val op = request.operationType match {
             case OperationType.Query        => schemaToExecute.query
             case OperationType.Mutation     => schemaToExecute.mutation.getOrElse(schemaToExecute.query)
             case OperationType.Subscription => schemaToExecute.subscription.getOrElse(schemaToExecute.query)
           }
-          Configurator.configuration.flatMap { config =>
-            Executor.executeRequest(
-              request,
-              op.plan,
-              fieldWrappers,
-              config.queryExecution,
-              features,
-              config.queryCache
-            )
-          }
+          resolve(op, fieldWrappers, isIntrospection)(request)
         }
 
         private def typeToValidate(doc: Document) =
@@ -192,6 +187,13 @@ trait GraphQL[-R] { self =>
       }
     }
 
+  protected def resolve[R1 <: R](op: Operation[R1], fieldWrappers: List[FieldWrapper[R1]], isIntrospection: Boolean)(
+    req: ExecutionRequest
+  )(implicit trace: Trace): URIO[R1, GraphQLResponse[CalibanError]] =
+    Configurator.configuration.flatMap { config =>
+      Executor.executeRequest(req, op.plan, fieldWrappers, config.queryExecution, features, config.queryCache)
+    }
+
   /**
    * Attaches a function that will wrap one of the stages of query processing
    * (parsing, validation, execution, field execution or overall).
@@ -208,7 +210,7 @@ trait GraphQL[-R] { self =>
         op: Operation[R1],
         fieldWrappers: List[FieldWrapper[R1]],
         isIntrospection: Boolean
-      )(req: ExecutionRequest): URIO[R1, GraphQLResponse[CalibanError]] =
+      )(req: ExecutionRequest)(implicit trace: Trace): URIO[R1, GraphQLResponse[CalibanError]] =
         self.resolve(op, fieldWrappers, isIntrospection)(req)
     }
 

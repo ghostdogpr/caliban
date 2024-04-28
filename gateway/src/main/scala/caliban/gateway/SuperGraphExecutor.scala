@@ -1,22 +1,22 @@
 package caliban.gateway
 
 import caliban.CalibanError.ExecutionError
-import caliban.ResponseValue.{ ListValue, ObjectValue }
+import caliban.ResponseValue.{ListValue, ObjectValue}
 import caliban.Value.NullValue
 import caliban.execution._
 import caliban.gateway.FetchDataSource.FetchRequest
-import caliban.gateway.Resolver.{ Extractor, Fetcher }
+import caliban.gateway.Resolver.{Extractor, Fetcher}
 import caliban.gateway.SubGraph.SubGraphExecutor
-import caliban.introspection.adt.{ __Directive, __TypeKind, Extend, TypeVisitor }
+import caliban.introspection.adt.{Extend, TypeVisitor, __Directive, __TypeKind}
 import caliban.parsing.adt.OperationType
 import caliban.schema.Step.NullStep
-import caliban.schema.{ Operation, RootSchemaBuilder, Types }
+import caliban.schema.{Operation, RootSchemaBuilder, Types}
 import caliban.wrappers.Wrapper
 import caliban.wrappers.Wrapper.FieldWrapper
-import caliban.{ CalibanError, GraphQL, GraphQLResponse, ResponseValue }
+import caliban.{CalibanError, GraphQL, GraphQLResponse, ResponseValue}
 import zio.prelude.NonEmptyList
 import zio.query.ZQuery
-import zio.{ Chunk, URIO }
+import zio.{Chunk, Trace, URIO}
 
 private case class SuperGraphExecutor[-R](
   private val subGraphs: NonEmptyList[SubGraphExecutor[R]],
@@ -53,7 +53,7 @@ private case class SuperGraphExecutor[-R](
     op: Operation[R1],
     fieldWrappers: List[FieldWrapper[R1]],
     isIntrospection: Boolean
-  )(req: ExecutionRequest): URIO[R1, GraphQLResponse[CalibanError]] =
+  )(req: ExecutionRequest)(implicit trace: Trace): URIO[R1, GraphQLResponse[CalibanError]] =
     if (isIntrospection)
       Executor.executeRequest(req, op.plan, fieldWrappers, QueryExecution.Parallel, features)
     else

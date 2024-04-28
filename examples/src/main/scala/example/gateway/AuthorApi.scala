@@ -3,6 +3,7 @@ package example.gateway
 import caliban.Value.StringValue
 import caliban._
 import caliban.interop.tapir.HttpInterpreter
+import caliban.quick.GraphqlServerOps
 import caliban.schema.{ ArgBuilder, Schema }
 import caliban.schema.ArgBuilder.auto._
 import caliban.schema.Schema.auto._
@@ -60,13 +61,5 @@ object AuthorApi extends ZIOAppDefault {
   val api      = graphQL(resolver)
 
   def run: Task[Unit] =
-    api.interpreter
-      .flatMap(interpreter =>
-        Server.serve(
-          Http.collectHttp[Request] { case _ -> Root / "api" / "graphql" =>
-            ZHttpAdapter.makeHttpService(HttpInterpreter(interpreter))
-          }
-        )
-      )
-      .provide(ZLayer.succeed(Server.Config.default.port(8083)), Server.live)
+    api.runServer(8083, "/api/graphql")
 }

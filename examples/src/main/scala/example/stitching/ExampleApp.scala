@@ -1,15 +1,12 @@
 package example.stitching
 
 import caliban._
-import caliban.quick._
-import caliban.schema.ArgBuilder.auto._
+import caliban.gateway.{ SubGraph, SuperGraph }
+import caliban.introspection.adt.TypeVisitor
+import caliban.quick.GraphqlServerOps
 import caliban.schema.Schema.auto._
+import caliban.schema.ArgBuilder.auto._
 import caliban.schema._
-import caliban.tools.stitching.{ HttpRequest, RemoteResolver, RemoteSchemaResolver, ResolveRequest }
-import caliban.tools.{ Options, RemoteSchema, SchemaLoader }
-import sttp.capabilities.WebSockets
-import sttp.capabilities.zio.ZioStreams
-import sttp.client3.SttpBackend
 import caliban.wrappers.Wrappers
 import sttp.client3.httpclient.zio._
 import zio._
@@ -64,7 +61,7 @@ object StitchingExample extends GenericSchema[Any] {
                       // remove interfaces that Repository extends
                       .transform(TypeVisitor.filterInterface { case ("Repository", _) => false })
                       .build
-    } yield superGraph
+    } yield superGraph @@ Wrappers.printErrors
 }
 
 case class Configuration(githubToken: String)
@@ -80,7 +77,7 @@ object Configuration {
 
 object ExampleApp extends ZIOAppDefault {
   def run =
-    (StitchingExample.enrichedApi @@ Wrappers.printErrors).flatMap {
+    (StitchingExample.enrichedApi).flatMap {
       _.runServer(
         port = 8080,
         apiPath = "/api/graphql",
