@@ -2,6 +2,7 @@ package example.gateway
 
 import caliban._
 import caliban.interop.tapir.HttpInterpreter
+import caliban.quick.GraphqlServerOps
 import caliban.schema.ArgBuilder.auto._
 import caliban.schema.Schema.auto._
 import sttp.tapir.json.circe._
@@ -31,13 +32,5 @@ object BookApi extends ZIOAppDefault {
   val api      = graphQL(resolver)
 
   def run: Task[Unit] =
-    api.interpreter
-      .flatMap(interpreter =>
-        Server.serve(
-          Http.collectHttp[Request] { case _ -> Root / "api" / "graphql" =>
-            ZHttpAdapter.makeHttpService(HttpInterpreter(interpreter))
-          }
-        )
-      )
-      .provide(ZLayer.succeed(Server.Config.default.port(8082)), Server.live)
+    api.runServer(8082, "/api/graphql")
 }

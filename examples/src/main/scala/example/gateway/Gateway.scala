@@ -1,15 +1,12 @@
 package example.gateway
 
 import caliban.InputValue.{ ListValue, ObjectValue }
-import caliban.ZHttpAdapter
 import caliban.gateway.{ SubGraph, SuperGraph }
-import caliban.interop.tapir.HttpInterpreter
 import caliban.introspection.adt.TypeVisitor
+import caliban.quick.GraphqlServerOps
 import caliban.tools.SttpClient
 import sttp.client3.httpclient.zio.HttpClientZioBackend
-import sttp.tapir.json.circe._
 import zio._
-import zio.http._
 
 object Gateway extends ZIOAppDefault {
   val stores: SubGraph[SttpClient]  = SubGraph.graphQL("Stores", "http://localhost:8081/api/graphql")
@@ -47,13 +44,6 @@ object Gateway extends ZIOAppDefault {
   def run: Task[Unit] =
     gateway.build
       .tap(api => ZIO.debug(api.render))
-      .flatMap(_.interpreter)
-      .flatMap(interpreter =>
-        Server.serve(
-          Http.collectHttp[Request] { case _ -> Root / "api" / "graphql" =>
-            ZHttpAdapter.makeHttpService(HttpInterpreter(interpreter))
-          }
-        )
-      )
-      .provide(ZLayer.succeed(Server.Config.default.port(8084)), Server.live, HttpClientZioBackend.layer())
+      .flatMap(_.runServer(8084, apiPath = "api/graphql"))
+      .provide(HttpClientZioBackend.layer())
 }

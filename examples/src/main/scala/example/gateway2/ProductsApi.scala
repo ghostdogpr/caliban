@@ -3,12 +3,10 @@ package example.gateway2
 import caliban._
 import caliban.federation.EntityResolver
 import caliban.federation.v2_5._
-import caliban.interop.tapir.HttpInterpreter
+import caliban.quick.GraphqlServerOps
 import caliban.schema.ArgBuilder.auto._
 import caliban.schema.Schema
-import sttp.tapir.json.circe._
 import zio._
-import zio.http._
 import zio.query.ZQuery
 
 import java.util.UUID
@@ -26,13 +24,5 @@ object ProductsApi extends ZIOAppDefault {
   )
 
   def run: Task[Unit] =
-    api.interpreter
-      .flatMap(interpreter =>
-        Server.serve(
-          Http.collectHttp[Request] { case _ -> Root / "api" / "graphql" =>
-            ZHttpAdapter.makeHttpService(HttpInterpreter(interpreter))
-          }
-        )
-      )
-      .provide(ZLayer.succeed(Server.Config.default.port(8088)), Server.live)
+    api.runServer(8088, "/api/graphql")
 }
