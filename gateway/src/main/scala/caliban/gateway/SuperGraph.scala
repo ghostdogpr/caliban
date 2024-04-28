@@ -1,7 +1,8 @@
 package caliban.gateway
 
 import caliban._
-import caliban.introspection.adt.{ __Schema, Extend, TypeVisitor }
+import caliban.introspection.adt.{ __DeprecatedArgs, __Schema, __TypeKind, Extend, TypeVisitor }
+import caliban.tools.SttpClient
 import zio.prelude.NonEmptyList
 import zio.{ Chunk, RIO, ZIO }
 
@@ -66,4 +67,20 @@ object SuperGraph {
   val empty: SuperGraph[Any] = new SuperGraph[Any](Nil)
 
   def compose[R](subGraphs: List[SubGraph[R]]): SuperGraph[R] = new SuperGraph[R](subGraphs)
+
+  def fromSchema(schema: __Schema): SuperGraph[SttpClient] = {
+    val subgraphs = schema.types.collectFirst {
+      case t if t.kind == __TypeKind.ENUM && t.name.contains("join__Graph") =>
+        val entries = t.enumValues(__DeprecatedArgs()).getOrElse(Nil)
+        entries.flatMap { entry =>
+          for {
+            value <- entry.directives.flatMap(_.find(_.name == "join__graph"))
+            url   <- value.arguments.get("url").collectFirst { case Value.StringValue(url) => url }
+            name  <- value.arguments.get("name").collectFirst { case Value.StringValue(name) => name }
+          } yield SubGraph.federated(name, url)
+        }
+    }.getOrElse(Nil)
+
+    compose(subgraphs)
+  }
 }
