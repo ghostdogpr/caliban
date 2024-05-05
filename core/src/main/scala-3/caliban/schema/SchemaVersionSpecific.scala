@@ -11,7 +11,7 @@ transparent trait SchemaVersionSpecific extends GenericSchema[Any] {
    * {{{
    *  case class Author(id: String, firstName: String, lastName: String)
    *
-   *  given Schema[Any, Book] = Schema.custom("Author"))(
+   *  given Schema[Any, Author] = Schema.custom("Author")(
    *    field("id")(_.id),
    *    field("fullName")(author => s"${author.firstName} ${author.lastName}"),
    *  )
