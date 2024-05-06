@@ -312,7 +312,7 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
    *
    * }}}
    *
-   * @see `custom` for an improved variant using context functions (Scala 3 only)
+   * @see `customObj` for an improved variant using context functions (Scala 3 only)
    */
   def obj[R1, V](name: String, description: Option[String] = None, directives: List[Directive] = Nil)(
     fields: FieldAttributes => List[(__Field, V => Step[R1])]
