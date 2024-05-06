@@ -304,7 +304,7 @@ object SchemaDerivesAutoSpec extends ZIOSpecDefault {
           test("from local scope") {
             case class A(a: Int)
 
-            given Schema[Any, A] = Schema.custom[Any, A]("A")(
+            given Schema[Any, A] = Schema.customObj[Any, A]("A")(
               Schema.field("a")(_.a.toString),
               Schema.field("b")(v => Option(v.a))
             )
@@ -321,7 +321,7 @@ object SchemaDerivesAutoSpec extends ZIOSpecDefault {
             object FooSchema extends SchemaDerivation[Foo]
             case class A(a: Int)
 
-            given Schema[Any, A] = Schema.custom[Any, A]("A")(
+            given Schema[Any, A] = Schema.customObj[Any, A]("A")(
               Schema.field("a")(_.a.toString),
               Schema.field("b")(v => Option(v.a))
             )

@@ -11,7 +11,7 @@ transparent trait SchemaVersionSpecific extends GenericSchema[Any] {
    * {{{
    *  case class Author(id: String, firstName: String, lastName: String)
    *
-   *  given Schema[Any, Author] = Schema.custom("Author")(
+   *  given Schema[Any, Author] = Schema.customObj("Author")(
    *    field("id")(_.id),
    *    field("fullName")(author => s"${author.firstName} ${author.lastName}"),
    *  )
@@ -19,7 +19,7 @@ transparent trait SchemaVersionSpecific extends GenericSchema[Any] {
    *
    * @see [[caliban.schema.GenericSchema.obj]]
    */
-  def custom[R1, V](
+  def customObj[R1, V](
     name: String,
     description: Option[String] = None,
     directives: List[Directive] = Nil
