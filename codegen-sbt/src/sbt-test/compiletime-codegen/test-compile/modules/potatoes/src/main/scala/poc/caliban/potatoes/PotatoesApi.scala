@@ -33,7 +33,7 @@ object Resolvers {
   private val queries =
     Query(
       byName = name => PotatoesService.findByName(name),
-      byColor = color => PotatoesService.findByColor(color),
+      byColor = color => PotatoesService.findByColor(color)
     )
 
   private val mutations =

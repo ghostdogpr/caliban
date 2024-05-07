@@ -22,7 +22,7 @@ object FederatedApi {
       maxDepth(30) |+|                 // query analyzer that limit query depth
       timeout(3 seconds) |+|           // wrapper that fails slow queries
       printSlowQueries(500 millis) |+| // wrapper that logs slow queries
-      ApolloFederatedTracing.wrapper()   // wrapper for https://github.com/apollographql/apollo-tracing
+      ApolloFederatedTracing.wrapper() // wrapper for https://github.com/apollographql/apollo-tracing
 
   object Characters extends GenericSchema[CharacterService] {
     import example.federation.FederationData.characters._
