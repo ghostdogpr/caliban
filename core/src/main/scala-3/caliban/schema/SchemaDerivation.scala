@@ -140,6 +140,8 @@ trait SchemaDerivation[R] extends CommonSchemaDerivation {
 
   inline def genDebug[R, A]: Schema[R, A] = PrintDerived(derived[R, A])
 
+  inline def unionType[T]: Schema[R, T] = ${ TypeUnionDerivation.typeUnionSchema[R, T] }
+
   final lazy val auto = new AutoSchemaDerivation[Any] {}
 
   final class SemiAuto[A](impl: Schema[R, A]) extends Schema[R, A] {

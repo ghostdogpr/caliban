@@ -273,6 +273,54 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
           data1 == """{"enum2String":"ENUM1"}""",
           data2 == """{"enum2String":"ENUM2"}"""
         )
+      },
+      test("union type") {
+        final case class Foo(value: String) derives Schema.SemiAuto
+        final case class Bar(foo: Int) derives Schema.SemiAuto
+        final case class Baz(bar: Int) derives Schema.SemiAuto
+        type Payload = Foo | Bar | Baz
+
+        given Schema[Any, Payload] = Schema.unionType[Payload]
+
+        final case class QueryInput(isFoo: Boolean) derives ArgBuilder, Schema.SemiAuto
+        final case class Query(testQuery: QueryInput => zio.UIO[Payload]) derives Schema.SemiAuto
+
+        val gql = graphQL(RootResolver(Query(i => ZIO.succeed(if (i.isFoo) Foo("foo") else Bar(1)))))
+
+        val expectedSchema =
+          """schema {
+  query: Query
+}
+
+union Payload = Foo | Bar | Baz
+
+type Bar {
+  foo: Int!
+}
+
+type Baz {
+  bar: Int!
+}
+
+type Foo {
+  value: String!
+}
+
+type Query {
+  testQuery(isFoo: Boolean!): Payload!
+}""".stripMargin
+        val interpreter    = gql.interpreterUnsafe
+
+        for {
+          res1 <- interpreter.execute("{ testQuery(isFoo: true){ ... on Foo { value } } }")
+          res2 <- interpreter.execute("{ testQuery(isFoo: false){ ... on Bar { foo } } }")
+          data1 = res1.data.toString
+          data2 = res2.data.toString
+        } yield assertTrue(
+          data1 == """{"testQuery":{"value":"foo"}}""",
+          data2 == """{"testQuery":{"foo":1}}""",
+          gql.render == expectedSchema
+        )
       }
     )
   }
