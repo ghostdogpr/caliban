@@ -13,6 +13,8 @@ import zio._
 import zio.prelude.EReader
 import zio.prelude.fx.ZPure
 
+import scala.collection.compat._
+
 object VariablesCoercer {
 
   def coerceVariables(
@@ -262,7 +264,10 @@ object VariablesCoercer {
     f: (String, InputValue) => EReader[Any, ValidationError, InputValue]
   ): EReader[Any, ValidationError, InputValue.ObjectValue] =
     if (in.isEmpty) emptyObjectValue
-    else
+    else if (in.size == 1) {
+      val (k, v) = in.head
+      f(k, v).map(v => InputValue.ObjectValue(Map(k -> v)))
+    } else
       ZPure.suspend {
         type Out = EReader[Any, ValidationError, InputValue.ObjectValue]
 
