@@ -40,6 +40,13 @@ object Configurator {
   ): ZIO[R, E, A] =
     configRef.locally(cfg)(f)
 
+  private[caliban] def locallyWith[R, E, A](
+    cfg: ExecutionConfiguration => ExecutionConfiguration
+  )(
+    f: ZIO[R, E, A]
+  ): ZIO[R, E, A] =
+    configRef.locallyWith(cfg)(f)
+
   /**
    * Skip validation of the query.
    * @param skip if true, the query will not be validated (in that case, the `validations` field is ignored).
