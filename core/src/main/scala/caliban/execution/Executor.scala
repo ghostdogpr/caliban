@@ -265,9 +265,7 @@ object Executor {
       step match {
         case s: PureStep                => s
         case s: QueryStep[R]            => reduceQuery(s.query)
-        case s: ObjectStep[R]           =>
-          val obj = transformer.transformStep(s, currentField)
-          reduceObjectStep(obj.name, obj.fields)
+        case s: ObjectStep[R]           => val t = transformer(s, currentField); reduceObjectStep(t.name, t.fields)
         case s: FunctionStep[R]         => reduceStep(wrapFn(s.step, arguments), currentField, Map.empty, path)
         case s: MetadataFunctionStep[R] => reduceStep(wrapFn(s.step, currentField), currentField, arguments, path)
         case s: ListStep[R]             => reduceListStep(s.steps)
