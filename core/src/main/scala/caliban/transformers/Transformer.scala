@@ -6,8 +6,6 @@ import caliban.introspection.adt._
 import caliban.schema.Step
 import caliban.schema.Step.{ FunctionStep, MetadataFunctionStep, NullStep, ObjectStep }
 
-import scala.collection.mutable
-
 /**
  * A transformer is able to modify a type, modifying its schema and the way it is resolved.
  */
@@ -33,74 +31,117 @@ object Transformer {
    */
   def empty[R]: Transformer[R] = Empty
 
-  /**
-   * A transformer that does nothing.
-   */
-  case object Empty extends Transformer[Any] {
+  private case object Empty extends Transformer[Any] {
     val typeVisitor: TypeVisitor = TypeVisitor.empty
 
     def transformStep[R1](step: Step[R1], field: Field): Step[R1] = step
-
-    override def |+|[R0](that: Transformer[R0]): Transformer[R0] = new Transformer[R0] {
-      val typeVisitor: TypeVisitor                                        = that.typeVisitor
-      def transformStep[R1 <: R0](step: Step[R1], field: Field): Step[R1] = that.transformStep(step, field)
-    }
+    override def |+|[R0](that: Transformer[R0]): Transformer[R0]  = that
   }
 
-  /**
-   * A transformer that allows renaming types.
-   * @param f a partial function that takes a type name and returns a new name for that type
-   */
-  case class RenameType(private val f: (String, String)*) extends Transformer[Any] {
-    private val map = f.toMap
+  object RenameType {
 
-    private def rename(name: String): String = map.getOrElse(name, name)
+    /**
+     * A transformer that allows renaming types.
+     * {{{
+     *   RenameType(
+     *     "Foo" -> "Bar",
+     *     "Baz" -> "Qux"
+     *   )
+     * }}}
+     * @param f tuples in the format of `(OldName -> NewName)`
+     */
+    def apply(f: (String, String)*): Transformer[Any] =
+      new RenameType(f.toMap)
+  }
+
+  final private class RenameType(map: Map[String, String]) extends Transformer[Any] {
+
+    private def renameType(t: __Type) =
+      t.name.flatMap(map.get).fold(t)(newName => t.copy(name = Some(newName)))
+
+    private def renameEnum(t: __EnumValue) =
+      map.get(t.name).fold(t)(newName => t.copy(name = newName))
 
     val typeVisitor: TypeVisitor =
-      TypeVisitor.modify(t => t.copy(name = t.name.map(rename))) |+|
-        TypeVisitor.enumValues.modify(v => v.copy(name = rename(v.name)))
+      TypeVisitor.modify(renameType(_)) |+| TypeVisitor.enumValues.modify(renameEnum)
 
     def transformStep[R](step: Step[R], field: Field): Step[R] = step match {
-      case ObjectStep(typeName, fields) =>
-        val res = map.get(typeName)
-        if (res.isEmpty) step else ObjectStep(res.get, fields)
-      case _                            => step
+      case step @ ObjectStep(typeName, _) =>
+        map.getOrElse(typeName, null) match {
+          case null    => step
+          case newName => step.copy(name = newName)
+        }
+      case _                              => step
     }
   }
 
-  /**
-   * A transformer that allows renaming fields.
-   * @param f a partial function that takes a type name and a field name and returns a new name for that field
-   */
-  case class RenameField(private val f: (String, (String, String))*) extends Transformer[Any] {
-    private val visitorMap   = toMap2(f)
+  object RenameField {
+
+    /**
+     * A transformer that allows renaming fields on types
+     *
+     * {{{
+     *   RenameField(
+     *     "TypeA" -> "foo" -> "bar",
+     *     "TypeB" -> "baz" -> "qux",
+     *   )
+     * }}}
+     *
+     * @param f tuples in the format of `(TypeName -> oldName -> newName)`
+     */
+
+    def apply(f: ((String, String), String)*): Transformer[Any] =
+      new RenameField(tuplesToMap2(f: _*))
+  }
+
+  final private class RenameField(visitorMap: Map[String, Map[String, String]]) extends Transformer[Any] {
     private val transformMap = swapMap2(visitorMap)
 
-    val typeVisitor: TypeVisitor = {
-      def _get(t: __Type, name: String) = getFromMap2(visitorMap, name)(t.name.getOrElse(""), name)
-
-      TypeVisitor.fields.modifyWith((t, field) => field.copy(name = _get(t, field.name))) |+|
-        TypeVisitor.inputFields.modifyWith((t, field) => field.copy(name = _get(t, field.name)))
+    private def renameField(t: __Type, field: __Field) = {
+      val newName = getFromMap2(visitorMap, null)(t.name.getOrElse(""), field.name)
+      if (newName eq null) field else field.copy(name = newName)
     }
 
+    private def renameInputField(t: __Type, input: __InputValue) = {
+      val newName = getFromMap2(visitorMap, null)(t.name.getOrElse(""), input.name)
+      if (newName eq null) input else input.copy(name = newName)
+    }
+
+    val typeVisitor: TypeVisitor =
+      TypeVisitor.fields.modifyWith(renameField) |+| TypeVisitor.inputFields.modifyWith(renameInputField)
+
     def transformStep[R](step: Step[R], field: Field): Step[R] = step match {
-      case ObjectStep(typeName, fields) =>
-        ObjectStep(
-          typeName,
-          fieldName => fields(getFromMap2(transformMap, fieldName)(typeName, fieldName))
-        )
-      case _                            => step
+      case step @ ObjectStep(typeName, fields) =>
+        transformMap.getOrElse(typeName, null) match {
+          case null => step
+          case map  => step.copy(fields = name => fields(map.getOrElse(name, name)))
+        }
+      case _                                   => step
     }
   }
 
-  /**
-   * A transformer that allows renaming arguments.
-   * @param f a partial function that takes a type name and a field name and returns another
-   *          partial function from an argument name to a new name for that argument
-   */
-  case class RenameArgument(private val f: (String, (String, (String, String)))*) extends Transformer[Any] {
-    private val visitorMap   = toMap3(f)
-    private val transformMap = swapMap3(visitorMap)
+  object RenameArgument {
+
+    /**
+     * A transformer that allows renaming arguments on fields
+     *
+     * {{{
+     *   RenameArgument(
+     *     "TypeA" -> "fieldA" -> "foo" -> "bar",
+     *     "TypeA" -> "fieldB" -> "baz" -> "qux",
+     * }}}
+     *
+     * @param f tuples in the format of `(TypeName -> fieldName -> oldArgumentName -> newArgumentName)`
+     */
+    def apply(f: (((String, String), String), String)*): Transformer[Any] =
+      new RenameArgument(tuplesToMap3(f: _*))
+  }
+
+  final private class RenameArgument(visitorMap: Map[String, Map[String, Map[String, String]]])
+      extends Transformer[Any] {
+
+    private val transformMap: Map[String, Map[String, Map[String, String]]] =
+      swapMap3(visitorMap)
 
     val typeVisitor: TypeVisitor =
       TypeVisitor.fields.modifyWith((t, field) =>
@@ -120,97 +161,110 @@ object Transformer {
       )
 
     def transformStep[R](step: Step[R], field: Field): Step[R] = step match {
-      case ObjectStep(typeName, fields) =>
-        ObjectStep(
-          typeName,
-          fieldName => {
-            val step   = fields(fieldName)
-            val rename = transformMap.get(typeName).flatMap(_.get(fieldName))
-            if (rename.isEmpty) step
-            else
-              mapFunctionStep(step)(_.map { case (argName, input) =>
-                rename.get.getOrElse(argName, argName) -> input
-              })
-          }
-        )
-      case _                            => step
+      case step @ ObjectStep(typeName, fields) =>
+        transformMap.getOrElse(typeName, null) match {
+          case null => step
+          case map0 =>
+            step.copy(fields =
+              fieldName =>
+                map0.getOrElse(fieldName, null) match {
+                  case null => fields(fieldName)
+                  case map1 =>
+                    mapFunctionStep(fields(fieldName))(_.map { case (argName, input) =>
+                      map1.getOrElse(argName, argName) -> input
+                    })
+                }
+            )
+        }
+      case _                                   => step
     }
   }
 
-  /**
-   * A transformer that allows filtering fields.
-   * @param f a partial function that takes a type name and a field name and
-   *          returns a boolean (true means the field should be kept)
-   */
-  case class FilterField(private val f: (String, (String, Boolean))*) extends Transformer[Any] {
-    private val map = toMap2[Boolean](f)
+  object ExcludeField {
+
+    /**
+     * A transformer that allows excluding fields from types.
+     *
+     * {{{
+     *   ExcludeField(
+     *     "TypeA" -> "foo",
+     *     "TypeB" -> "bar",
+     *   )
+     * }}}
+     *
+     * @param f tuples in the format of `(TypeName -> fieldToBeExcluded)`
+     */
+    def apply(f: (String, String)*): Transformer[Any] =
+      new ExcludeField(f.groupMap(_._1)(_._2).transform((_, l) => l.toSet))
+  }
+
+  final private class ExcludeField(map: Map[String, Set[String]]) extends Transformer[Any] {
+
+    private def shouldKeep(typeName: String, fieldName: String): Boolean =
+      !map.getOrElse(typeName, Set.empty).contains(fieldName)
 
     val typeVisitor: TypeVisitor = {
-      val _get = getFromMap2(map) _
-      TypeVisitor.fields.filterWith((t, field) => _get(t.name.getOrElse(""), field.name)) |+|
-        TypeVisitor.inputFields.filterWith((t, field) => _get(t.name.getOrElse(""), field.name))
+      TypeVisitor.fields.filterWith((t, field) => shouldKeep(t.name.getOrElse(""), field.name)) |+|
+        TypeVisitor.inputFields.filterWith((t, field) => shouldKeep(t.name.getOrElse(""), field.name))
     }
 
     def transformStep[R](step: Step[R], field: Field): Step[R] = step match {
-      case ObjectStep(typeName, fields) =>
-        ObjectStep(
-          typeName,
-          fieldName => if (getFromMap2(map, default = true)(typeName, fieldName)) fields(fieldName) else NullStep
-        )
-      case _                            => step
+      case step @ ObjectStep(typeName, fields) =>
+        map.getOrElse(typeName, null) match {
+          case null    => step
+          case exclude => step.copy(fields = name => if (!exclude(name)) fields(name) else NullStep)
+        }
+      case _                                   => step
     }
   }
 
-  /**
-   * A transformer that allows filtering types.
-   *
-   * @param f a partial function that takes a type name and an interface name and
-   *          returns a boolean (true means the type should be kept)
-   */
-  case class FilterInterface(private val f: (String, (String, Boolean))*) extends Transformer[Any] {
-    private val map = toMap2(f)
+  object ExcludeArgument {
 
-    val typeVisitor: TypeVisitor =
-      TypeVisitor.modify(t =>
-        t.copy(interfaces =
-          () =>
-            t.interfaces()
-              .map(
-                _.filter(interface => getFromMap2(map)(t.name.getOrElse(""), interface.name.getOrElse("")))
-              )
-        )
+    /**
+     * A transformer that allows excluding arguments from fields
+     *
+     * {{{
+     *   ExcludeArgument(
+     *     "TypeA" -> "fieldA" -> "arg",
+     *     "TypeA" -> "fieldB" -> "arg2",
+     *   )
+     * }}}
+     *
+     * @param f tuples in the format of `(TypeName -> fieldName -> argumentToBeExcluded)`
+     */
+    def apply(f: ((String, String), String)*): Transformer[Any] =
+      new ExcludeArgument(
+        f
+          .groupMap(_._1._1)(v => v._1._2 -> v._2)
+          .transform((_, v) => v.groupMap(_._1)(_._2).transform((_, v) => v.toSet))
       )
-
-    def transformStep[R](step: Step[R], field: Field): Step[R] = step
   }
+  final private class ExcludeArgument(map: Map[String, Map[String, Set[String]]]) extends Transformer[Any] {
 
-  /**
-   * A transformer that allows filtering arguments.
-   * @param f a partial function that takes a type name, a field name and an argument name and
-   *          returns a boolean (true means the argument should be kept)
-   */
-  case class FilterArgument(private val f: (String, (String, (String, Boolean)))*) extends Transformer[Any] {
-    private val map = toMap3(f)
+    private def shouldKeep(typeName: String, fieldName: String, argName: String): Boolean =
+      !getFromMap2(map, Set.empty[String])(typeName, fieldName).contains(argName)
 
     val typeVisitor: TypeVisitor =
       TypeVisitor.fields.modifyWith((t, field) =>
         field.copy(args =
           field
             .args(_)
-            .filter(arg => getFromMap3(map)(t.name.getOrElse(""), field.name, arg.name))
+            .filter(arg => shouldKeep(t.name.getOrElse(""), field.name, arg.name))
         )
       )
 
     def transformStep[R](step: Step[R], field: Field): Step[R] = step match {
-      case ObjectStep(typeName, fields) =>
-        ObjectStep(
-          typeName,
-          fieldName =>
-            mapFunctionStep(fields(fieldName))(_.filter { case (argName, _) =>
-              getFromMap3(map)(typeName, fieldName, argName)
+      case step @ ObjectStep(typeName, fields) =>
+        map.getOrElse(typeName, null) match {
+          case null => step
+          case map1 =>
+            step.copy(fields = fieldName => {
+              val s = map1.getOrElse(fieldName, null)
+              if (s eq null) fields(fieldName)
+              else mapFunctionStep(fields(fieldName))(_.filterNot { case (argName, _) => s.contains(argName) })
             })
-        )
-      case _                            => step
+        }
+      case _                                   => step
     }
   }
 
@@ -225,40 +279,21 @@ object Transformer {
       case other                   => other
     }
 
-  private def toMap2[V](t: Seq[(String, (String, V))]): Map[String, Map[String, V]] =
-    t.groupMap(_._1)(_._2).transform { case (_, l) => l.toMap }
+  private def tuplesToMap2(f: ((String, String), String)*): Map[String, Map[String, String]] =
+    f.groupMap(_._1._1)(v => v._1._2 -> v._2).transform((_, l) => l.toMap)
 
-  private def toMap3[V](
-    t: Seq[(String, (String, (String, V)))]
-  ): Map[String, Map[String, Map[String, V]]] =
-    t.groupMap(_._1)(_._2).transform { case (_, l) => l.groupMap(_._1)(_._2).transform { case (_, l) => l.toMap } }
+  private def tuplesToMap3(f: (((String, String), String), String)*): Map[String, Map[String, Map[String, String]]] =
+    f.groupMap(_._1._1._1)(v => v._1._1._2 -> v._1._2 -> v._2).transform((_, l) => tuplesToMap2(l: _*))
 
   private def swapMap2[V](m: Map[String, Map[String, V]]): Map[String, Map[V, String]] =
-    m.transform { case (_, m) => m.map(_.swap) }
+    m.transform((_, m) => m.map(_.swap))
 
   private def swapMap3[V](m: Map[String, Map[String, Map[String, V]]]): Map[String, Map[String, Map[V, String]]] =
-    m.transform { case (_, m) => m.transform { case (_, m) => m.map(_.swap) } }
+    m.transform((_, m) => swapMap2(m))
 
-  private def getFromMap2(
-    m: Map[String, Map[String, String]],
-    default: => String
-  )(k1: String, k2: String): String =
+  private def getFromMap2[V](
+    m: Map[String, Map[String, V]],
+    default: => V
+  )(k1: String, k2: String): V =
     m.get(k1).flatMap(_.get(k2)).getOrElse(default)
-
-  // Overloading to avoid boxing of Boolean
-  private def getFromMap2(
-    m: Map[String, Map[String, Boolean]],
-    default: Boolean = true
-  )(k1: String, k2: String): Boolean = {
-    val res = m.get(k1).flatMap(_.get(k2))
-    if (res.isEmpty) default else res.get
-  }
-
-  private def getFromMap3(
-    m: Map[String, Map[String, Map[String, Boolean]]],
-    default: Boolean = true
-  )(k1: String, k2: String, k3: String): Boolean = {
-    val res = m.get(k1).flatMap(_.get(k2)).flatMap(_.get(k3))
-    if (res.isEmpty) default else res.get
-  }
 }

@@ -37,7 +37,7 @@ object TransformerSpec extends ZIOSpecDefault {
         )
       },
       test("rename field") {
-        val transformed: GraphQL[Any] = api.transform(Transformer.RenameField("InnerObject" -> ("b" -> "c")))
+        val transformed: GraphQL[Any] = api.transform(Transformer.RenameField("InnerObject" -> "b" -> "c"))
         val rendered                  = transformed.render
         for {
           interpreter <- transformed.interpreter
@@ -60,7 +60,7 @@ object TransformerSpec extends ZIOSpecDefault {
       },
       test("rename argument") {
         val transformed: GraphQL[Any] = api.transform(Transformer.RenameArgument {
-          "InnerObject" -> ("b" -> ("arg" -> "arg2"))
+          "InnerObject" -> "b" -> "arg" -> "arg2"
         })
         val rendered                  = transformed.render
         for {
@@ -86,7 +86,7 @@ object TransformerSpec extends ZIOSpecDefault {
         case class Query(a: String, b: Int)
         val api: GraphQL[Any] = graphQL(RootResolver(Query("a", 2)))
 
-        val transformed: GraphQL[Any] = api.transform(Transformer.FilterField("Query" -> ("b" -> false)))
+        val transformed: GraphQL[Any] = api.transform(Transformer.ExcludeField("Query" -> "b"))
         val rendered                  = transformed.render
         for {
           interpreter <- transformed.interpreter
@@ -108,7 +108,7 @@ object TransformerSpec extends ZIOSpecDefault {
         case class Query(a: Args => String)
         val api: GraphQL[Any] = graphQL(RootResolver(Query(_.arg.getOrElse("missing"))))
 
-        val transformed: GraphQL[Any] = api.transform(Transformer.FilterArgument("Query" -> ("a" -> ("arg" -> false))))
+        val transformed: GraphQL[Any] = api.transform(Transformer.ExcludeArgument("Query" -> "a" -> "arg"))
         val rendered                  = transformed.render
         for {
           interpreter <- transformed.interpreter
@@ -128,7 +128,7 @@ object TransformerSpec extends ZIOSpecDefault {
       test("combine transformers") {
         val transformed: GraphQL[Any] = api
           .transform(Transformer.RenameType("InnerObject" -> "Renamed"))
-          .transform(Transformer.RenameField("Renamed" -> ("b" -> "c")))
+          .transform(Transformer.RenameField("Renamed" -> "b" -> "c"))
         val rendered                  = transformed.render
         for {
           interpreter <- transformed.interpreter
