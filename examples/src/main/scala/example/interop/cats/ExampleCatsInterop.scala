@@ -67,7 +67,7 @@ object ExampleCatsInterop extends IOApp.Simple {
       val api = graphQL(RootResolver(Some(queries), Option.empty[Unit], Some(subscriptions)))
 
       for {
-        interpreter <- api.interpreterAsync[IO]
+        interpreter <- api.interpreterF[IO]
 
         _      <- console.println("execute a query:")
         _      <- interpreter.checkAsync[IO](query)

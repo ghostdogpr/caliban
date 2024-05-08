@@ -167,11 +167,27 @@ object Wrappers {
   ): Wrapper.EffectfulWrapper[Any] =
     FieldMetrics.wrapper(totalLabel, durationLabel, buckets, extraLabels)
 
-  private def countFields(field: Field): UIO[Int] =
-    innerFields(field.fields)
+  private def countFields(rootField: Field): UIO[Int] = {
+    def loopUnsafe(field: Field): Int = {
+      val iter  = field.fields.iterator
+      var count = 0
+      while (iter.hasNext) {
+        val f = iter.next()
+        count += loopUnsafe(f) + 1
+      }
+      count
+    }
 
-  private def innerFields(fields: List[Field]): UIO[Int] =
-    ZIO.foreach(fields)(countFields).map(_.sum + fields.length)
+    def loopSafe(field: Field): UIO[Int] = {
+      val fields = field.fields
+      ZIO.foreach(fields)(loopSafe).map(_.sum + fields.length)
+    }
+
+    try Exit.succeed(loopUnsafe(rootField))
+    catch {
+      case _: StackOverflowError => loopSafe(rootField)
+    }
+  }
 
   /**
    * Returns a wrapper that check directives on fields and can potentially fail the query

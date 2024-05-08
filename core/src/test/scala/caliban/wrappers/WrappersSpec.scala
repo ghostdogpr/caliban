@@ -64,6 +64,36 @@ object WrappersSpec extends ZIOSpecDefault {
           counter     <- ref.get
         } yield assertTrue(counter == 2)
       },
+      // i2161
+      test("wrapPureValues true and false") {
+        case class Obj1(a1: List[Obj2])
+        case class Obj2(a2: Int)
+        case class Test(a0: Obj1, b: UIO[Int])
+        for {
+          ref1        <- Ref.make[Int](0)
+          wrapper1     = new FieldWrapper[Any](true) {
+                           def wrap[R1 <: Any](
+                             query: ZQuery[R1, ExecutionError, ResponseValue],
+                             info: FieldInfo
+                           ): ZQuery[R1, ExecutionError, ResponseValue] =
+                             ZQuery.fromZIO(ref1.update(_ + 1)) *> query
+                         }
+          ref2        <- Ref.make[Int](0)
+          wrapper2     = new FieldWrapper[Any](false) {
+                           def wrap[R1 <: Any](
+                             query: ZQuery[R1, ExecutionError, ResponseValue],
+                             info: FieldInfo
+                           ): ZQuery[R1, ExecutionError, ResponseValue] =
+                             ZQuery.fromZIO(ref2.update(_ + 1)) *> query
+                         }
+          interpreter <-
+            (graphQL(RootResolver(Test(Obj1(List(Obj2(1))), ZIO.succeed(2)))) @@ wrapper1 @@ wrapper2).interpreter.orDie
+          query        = gqldoc("""{ a0 { a1 { a2 } } b }""")
+          _           <- interpreter.execute(query)
+          counter1    <- ref1.get
+          counter2    <- ref2.get
+        } yield assertTrue(counter1 == 4, counter2 == 1)
+      },
       test("Max fields") {
         case class A(b: B)
         case class B(c: Int)

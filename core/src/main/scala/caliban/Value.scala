@@ -22,7 +22,7 @@ object InputValue {
   }
   case class ObjectValue(fields: Map[String, InputValue]) extends InputValue {
     override def toString: String =
-      fields.map { case (name, value) => s""""$name:${value.toString}"""" }.mkString("{", ",", "}")
+      fields.map { case (name, value) => s""""$name":${value.toString}""" }.mkString("{", ",", "}")
 
     override def toInputString: String = ValueRenderer.inputObjectValueRenderer.render(this)
   }
@@ -173,7 +173,14 @@ object Value {
     def apply(v: Float): FloatValue      = FloatNumber(v)
     def apply(v: Double): FloatValue     = DoubleNumber(v)
     def apply(v: BigDecimal): FloatValue = BigDecimalNumber(v)
-    def apply(s: String): FloatValue     = BigDecimalNumber(BigDecimal(s))
+
+    @deprecated("Use `fromStringUnsafe` instead", "2.6.0")
+    def apply(s: String): FloatValue = fromStringUnsafe(s)
+
+    @throws[NumberFormatException]("if the string is not a valid representation of a float")
+    def fromStringUnsafe(s: String): FloatValue =
+      try DoubleNumber(s.toDouble)
+      catch { case NonFatal(_) => BigDecimalNumber(BigDecimal(s)) }
 
     final case class FloatNumber(value: Float)           extends FloatValue {
       override def toFloat: Float           = value

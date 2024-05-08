@@ -45,7 +45,7 @@ object ExampleMonixInterop extends TaskApp {
 
   override def run(args: List[String]): Task[ExitCode] =
     for {
-      interpreter <- api.interpreterAsync
+      interpreter <- api.interpreterMonix
       _           <- interpreter.checkAsync(query)
       result      <- interpreter.executeAsync(query)
       _           <- Task.eval(println(result.data))

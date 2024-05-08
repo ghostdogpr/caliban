@@ -83,7 +83,7 @@ trait CommonArgBuilderDerivation {
                 label,
                 annotations,
                 builder: ArgBuilder[A @unchecked]
-              ) if label == value || annotations.exists { case GQLName(name) => name == value } =>
+              ) if label == value || annotations.contains(GQLName(value)) =>
             builder
         }
           .toRight(ExecutionError(s"Invalid value $value for trait $traitLabel"))
@@ -119,7 +119,7 @@ trait CommonArgBuilderDerivation {
 trait ArgBuilderDerivation extends CommonArgBuilderDerivation {
   inline def gen[A]: ArgBuilder[A] = derived
 
-  sealed trait Auto[A] extends ArgBuilder[A] {
+  sealed abstract class Auto[A] extends ArgBuilder[A] {
     inline given genAuto[T](using NotGiven[ArgBuilder[T]]): ArgBuilder[T] = derived
   }
 

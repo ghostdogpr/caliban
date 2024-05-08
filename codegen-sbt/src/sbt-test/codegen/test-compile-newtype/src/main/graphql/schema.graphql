@@ -1,3 +1,4 @@
+directive @lazy on FIELD_DEFINITION
 directive @newtype(name : String) on FIELD_DEFINITION | ARGUMENT_DEFINITION | INPUT_FIELD_DEFINITION
 
 scalar FID
@@ -25,7 +26,13 @@ type Foo {
     allIDsOpt: [ID]! @newtype(name: "InnerOptId")
     mapbeAllIDs: [ID!] @newtype(name: "MaybeInnerId")
     mapbeAllIDsOpt: [ID] @newtype(name: "MaybeInnerIdOpt")
+    getLazyFoo : FooLazy @lazy
 }
+
+type FooLazy {
+    id : ID!
+}
+
 
 input FooInput {
     id : ID! @newtype(name: "CustomId")
