@@ -20,19 +20,19 @@ final class QuickAdapter[-R] private (requestHandler: QuickRequestHandler[R]) {
     Handler.fromFunctionZIO[Request](requestHandler.handleHttpRequest)
 
   /**
-   * Converts this adapter to an `HttpApp` serving the GraphQL API at the specified path.
+   * Converts this adapter to an `Routes` serving the GraphQL API at the specified path.
    *
    * @param apiPath The path where the GraphQL API will be served.
    * @param graphiqlPath The path where the GraphiQL UI will be served. If None, GraphiQL will not be served.
    * @param uploadPath The path where files can be uploaded. If None, uploads will be disabled.
    * @param webSocketPath The path where websocket requests will be set. If None, websocket-based subscriptions will be disabled.
    */
-  def toApp(
+  def routes(
     apiPath: String,
     graphiqlPath: Option[String] = None,
     uploadPath: Option[String] = None,
     webSocketPath: Option[String] = None
-  ): HttpApp[R] = {
+  ): Routes[R, Nothing] = {
     val apiRoutes     = List(
       RoutePattern(Method.POST, apiPath) -> handlers.api,
       RoutePattern(Method.GET, apiPath)  -> handlers.api
@@ -46,8 +46,17 @@ final class QuickAdapter[-R] private (requestHandler: QuickRequestHandler[R]) {
     val wsRoute       = webSocketPath.toList.map { wsPath =>
       RoutePattern(Method.ANY, wsPath) -> handlers.webSocket
     }
-    Routes.fromIterable(apiRoutes ::: graphiqlRoute ::: uploadRoute ::: wsRoute).toHttpApp
+    Routes.fromIterable(apiRoutes ::: graphiqlRoute ::: uploadRoute ::: wsRoute)
   }
+
+  @deprecated("Use `routes` instead", "2.6.1")
+  def toApp(
+    apiPath: String,
+    graphiqlPath: Option[String] = None,
+    uploadPath: Option[String] = None,
+    webSocketPath: Option[String] = None
+  ): HttpApp[R] =
+    HttpApp(routes(apiPath, graphiqlPath, uploadPath, webSocketPath))
 
   /**
    * Runs the server using the default zio-http server configuration on the specified port.
@@ -67,7 +76,7 @@ final class QuickAdapter[-R] private (requestHandler: QuickRequestHandler[R]) {
     webSocketPath: Option[String] = None
   )(implicit trace: Trace): RIO[R, Nothing] =
     Server
-      .serve[R](toApp(apiPath, graphiqlPath = graphiqlPath, uploadPath = uploadPath, webSocketPath = webSocketPath))
+      .serve[R](routes(apiPath, graphiqlPath = graphiqlPath, uploadPath = uploadPath, webSocketPath = webSocketPath))
       .provideSomeLayer[R](Server.defaultWithPort(port))
 
   def configure(config: ExecutionConfiguration)(implicit trace: Trace): QuickAdapter[R] =

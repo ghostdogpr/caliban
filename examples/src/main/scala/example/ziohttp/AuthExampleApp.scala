@@ -93,15 +93,14 @@ object AuthExampleApp extends ZIOAppDefault {
     (for {
       exampleApi  <- ZIO.service[GraphQL[Any]]
       interpreter <- (exampleApi |+| Authed.api).interpreter
-      port        <- Server
-                       .install(
-                         Routes(
-                           Method.ANY / "api" / "graphql" ->
-                             ZHttpAdapter.makeHttpService(HttpInterpreter(interpreter)) @@ Auth.middleware,
-                           Method.ANY / "ws" / "graphql"  -> Auth.WebSockets.live(interpreter),
-                           Method.ANY / "graphiql"        -> graphiql
-                         ).toHttpApp
+      port        <- Server.install(
+                       Routes(
+                         Method.ANY / "api" / "graphql" ->
+                           ZHttpAdapter.makeHttpService(HttpInterpreter(interpreter)) @@ Auth.middleware,
+                         Method.ANY / "ws" / "graphql"  -> Auth.WebSockets.live(interpreter),
+                         Method.ANY / "graphiql"        -> graphiql
                        )
+                     )
       _           <- ZIO.logInfo(s"Server started on port $port")
       _           <- ZIO.never
     } yield ())

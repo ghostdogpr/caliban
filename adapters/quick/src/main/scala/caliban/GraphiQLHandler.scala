@@ -1,8 +1,11 @@
 package caliban
 
+import zio.Trace
 import zio.http._
+import zio.stacktracer.TracingImplicits.disableAutoTrace
 
 object GraphiQLHandler {
+  private implicit val trace: Trace = Trace.empty
 
   /**
    * Creates a handler which serves the GraphiQL UI from CDN.
