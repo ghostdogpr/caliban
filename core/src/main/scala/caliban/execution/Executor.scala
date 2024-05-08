@@ -262,14 +262,16 @@ object Executor {
         try step(input)
         catch { case NonFatal(e) => Step.fail(e) }
 
-      transformer.transformStep(step, currentField) match {
-        case s: PureStep                    => s
-        case QueryStep(inner)               => reduceQuery(inner)
-        case ObjectStep(objectName, fields) => reduceObjectStep(objectName, fields)
-        case FunctionStep(step)             => reduceStep(wrapFn(step, arguments), currentField, Map.empty, path)
-        case MetadataFunctionStep(step)     => reduceStep(wrapFn(step, currentField), currentField, arguments, path)
-        case ListStep(steps)                => reduceListStep(steps)
-        case StreamStep(stream)             => reduceStream(stream)
+      step match {
+        case s: PureStep                => s
+        case s: QueryStep[R]            => reduceQuery(s.query)
+        case s: ObjectStep[R]           =>
+          val obj = transformer.transformStep(s, currentField)
+          reduceObjectStep(obj.name, obj.fields)
+        case s: FunctionStep[R]         => reduceStep(wrapFn(s.step, arguments), currentField, Map.empty, path)
+        case s: MetadataFunctionStep[R] => reduceStep(wrapFn(s.step, currentField), currentField, arguments, path)
+        case s: ListStep[R]             => reduceListStep(s.steps)
+        case s: StreamStep[R]           => reduceStream(s.inner)
       }
     }
 

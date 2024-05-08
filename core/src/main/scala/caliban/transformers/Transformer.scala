@@ -13,16 +13,14 @@ import scala.collection.compat._
 abstract class Transformer[-R] { self =>
   val typeVisitor: TypeVisitor
 
-  def transformStep[R1 <: R](step: Step[R1], field: Field): Step[R1]
+  def transformStep[R1 <: R](step: ObjectStep[R1], field: Field): ObjectStep[R1]
 
-  def |+|[R0 <: R](that: Transformer[R0]): Transformer[R0] = new Transformer[R0] {
-    val typeVisitor: TypeVisitor = self.typeVisitor |+| that.typeVisitor
-
-    def transformStep[R1 <: R0](step: Step[R1], field: Field): Step[R1] =
-      that.transformStep(self.transformStep(step, field), field)
-  }
-
-  final def isEmpty: Boolean = self eq Transformer.Empty
+  def |+|[R0 <: R](that: Transformer[R0]): Transformer[R0] =
+    (self, that) match {
+      case (l, Transformer.Empty) => l
+      case (Transformer.Empty, r) => r
+      case _                      => new Transformer.Combined[R0](self, that)
+    }
 }
 
 object Transformer {
@@ -35,8 +33,7 @@ object Transformer {
   private case object Empty extends Transformer[Any] {
     val typeVisitor: TypeVisitor = TypeVisitor.empty
 
-    def transformStep[R1](step: Step[R1], field: Field): Step[R1] = step
-    override def |+|[R0](that: Transformer[R0]): Transformer[R0]  = that
+    def transformStep[R1](step: ObjectStep[R1], field: Field): ObjectStep[R1] = step
   }
 
   object RenameType {
@@ -57,23 +54,22 @@ object Transformer {
 
   final private class RenameType(map: Map[String, String]) extends Transformer[Any] {
 
-    private def renameType(t: __Type) =
-      t.name.flatMap(map.get).fold(t)(newName => t.copy(name = Some(newName)))
+    val typeVisitor: TypeVisitor = {
+      val renameType = { (t: __Type) =>
+        t.name.flatMap(map.get).fold(t)(newName => t.copy(name = Some(newName)))
+      }
+      val renameEnum = { (t: __EnumValue) =>
+        map.get(t.name).fold(t)(newName => t.copy(name = newName))
+      }
 
-    private def renameEnum(t: __EnumValue) =
-      map.get(t.name).fold(t)(newName => t.copy(name = newName))
-
-    val typeVisitor: TypeVisitor =
-      TypeVisitor.modify(renameType(_)) |+| TypeVisitor.enumValues.modify(renameEnum)
-
-    def transformStep[R](step: Step[R], field: Field): Step[R] = step match {
-      case step @ ObjectStep(typeName, _) =>
-        map.getOrElse(typeName, null) match {
-          case null    => step
-          case newName => step.copy(name = newName)
-        }
-      case _                              => step
+      TypeVisitor.modify(renameType) |+| TypeVisitor.enumValues.modify(renameEnum)
     }
+
+    def transformStep[R](step: ObjectStep[R], field: Field): ObjectStep[R] =
+      map.getOrElse(step.name, null) match {
+        case null    => step
+        case newName => step.copy(name = newName)
+      }
   }
 
   object RenameField {
@@ -98,27 +94,26 @@ object Transformer {
   final private class RenameField(visitorMap: Map[String, Map[String, String]]) extends Transformer[Any] {
     private val transformMap = swapMap2(visitorMap)
 
-    private def renameField(t: __Type, field: __Field) = {
-      val newName = getFromMap2(visitorMap, null)(t.name.getOrElse(""), field.name)
-      if (newName eq null) field else field.copy(name = newName)
-    }
+    val typeVisitor: TypeVisitor = {
+      def getName(t: __Type, name: String) = getFromMap2(visitorMap, null)(t.name.getOrElse(""), name)
 
-    private def renameInputField(t: __Type, input: __InputValue) = {
-      val newName = getFromMap2(visitorMap, null)(t.name.getOrElse(""), input.name)
-      if (newName eq null) input else input.copy(name = newName)
-    }
+      val renameField = { (t: __Type, field: __Field) =>
+        val newName = getName(t, field.name)
+        if (newName eq null) field else field.copy(name = newName)
+      }
 
-    val typeVisitor: TypeVisitor =
+      val renameInputField = { (t: __Type, input: __InputValue) =>
+        val newName = getName(t, input.name)
+        if (newName eq null) input else input.copy(name = newName)
+      }
       TypeVisitor.fields.modifyWith(renameField) |+| TypeVisitor.inputFields.modifyWith(renameInputField)
-
-    def transformStep[R](step: Step[R], field: Field): Step[R] = step match {
-      case step @ ObjectStep(typeName, fields) =>
-        transformMap.getOrElse(typeName, null) match {
-          case null => step
-          case map  => step.copy(fields = name => fields(map.getOrElse(name, name)))
-        }
-      case _                                   => step
     }
+
+    def transformStep[R](step: ObjectStep[R], field: Field): ObjectStep[R] =
+      transformMap.getOrElse(step.name, null) match {
+        case null => step
+        case map  => step.copy(fields = name => step.fields(map.getOrElse(name, name)))
+      }
   }
 
   object RenameArgument {
@@ -130,6 +125,7 @@ object Transformer {
      *   RenameArgument(
      *     "TypeA" -> "fieldA" -> "foo" -> "bar",
      *     "TypeA" -> "fieldB" -> "baz" -> "qux",
+     *   )
      * }}}
      *
      * @param f tuples in the format of `(TypeName -> fieldName -> oldArgumentName -> newArgumentName)`
@@ -141,44 +137,35 @@ object Transformer {
   final private class RenameArgument(visitorMap: Map[String, Map[String, Map[String, String]]])
       extends Transformer[Any] {
 
-    private val transformMap: Map[String, Map[String, Map[String, String]]] =
-      swapMap3(visitorMap)
+    private val transformMap: Map[String, Map[String, Map[String, String]]] = swapMap3(visitorMap)
 
     val typeVisitor: TypeVisitor =
       TypeVisitor.fields.modifyWith((t, field) =>
         visitorMap.get(t.name.getOrElse("")).flatMap(_.get(field.name)) match {
-          case Some(rename) =>
-            field.copy(args =
-              field
-                .args(_)
-                .map(arg =>
-                  rename
-                    .get(arg.name)
-                    .fold(arg)(newName => arg.copy(name = newName))
-                )
-            )
-          case None         => field
+          case Some(renames) =>
+            field.copy(args = field.args(_).map { arg =>
+              renames.get(arg.name).fold(arg)(newName => arg.copy(name = newName))
+            })
+          case None          => field
         }
       )
 
-    def transformStep[R](step: Step[R], field: Field): Step[R] = step match {
-      case step @ ObjectStep(typeName, fields) =>
-        transformMap.getOrElse(typeName, null) match {
-          case null => step
-          case map0 =>
-            step.copy(fields =
-              fieldName =>
-                map0.getOrElse(fieldName, null) match {
-                  case null => fields(fieldName)
-                  case map1 =>
-                    mapFunctionStep(fields(fieldName))(_.map { case (argName, input) =>
-                      map1.getOrElse(argName, argName) -> input
-                    })
-                }
-            )
-        }
-      case _                                   => step
-    }
+    def transformStep[R](step: ObjectStep[R], field: Field): ObjectStep[R] =
+      transformMap.getOrElse(step.name, null) match {
+        case null => step
+        case map0 =>
+          val fields = step.fields
+          step.copy(fields =
+            fieldName =>
+              map0.getOrElse(fieldName, null) match {
+                case null => fields(fieldName)
+                case map1 =>
+                  mapFunctionStep(fields(fieldName))(_.map { case (argName, input) =>
+                    map1.getOrElse(argName, argName) -> input
+                  })
+              }
+          )
+      }
   }
 
   object ExcludeField {
@@ -209,14 +196,11 @@ object Transformer {
         TypeVisitor.inputFields.filterWith((t, field) => shouldKeep(t.name.getOrElse(""), field.name))
     }
 
-    def transformStep[R](step: Step[R], field: Field): Step[R] = step match {
-      case step @ ObjectStep(typeName, fields) =>
-        map.getOrElse(typeName, null) match {
-          case null    => step
-          case exclude => step.copy(fields = name => if (!exclude(name)) fields(name) else NullStep)
-        }
-      case _                                   => step
-    }
+    def transformStep[R](step: ObjectStep[R], field: Field): ObjectStep[R] =
+      map.getOrElse(step.name, null) match {
+        case null => step
+        case excl => step.copy(fields = name => if (!excl(name)) step.fields(name) else NullStep)
+      }
   }
 
   object ExcludeArgument {
@@ -240,6 +224,7 @@ object Transformer {
           .transform((_, v) => v.groupMap(_._1)(_._2).transform((_, v) => v.toSet))
       )
   }
+
   final private class ExcludeArgument(map: Map[String, Map[String, Set[String]]]) extends Transformer[Any] {
 
     private def shouldKeep(typeName: String, fieldName: String, argName: String): Boolean =
@@ -254,19 +239,26 @@ object Transformer {
         )
       )
 
-    def transformStep[R](step: Step[R], field: Field): Step[R] = step match {
-      case step @ ObjectStep(typeName, fields) =>
-        map.getOrElse(typeName, null) match {
-          case null => step
-          case map1 =>
-            step.copy(fields = fieldName => {
-              val s = map1.getOrElse(fieldName, null)
-              if (s eq null) fields(fieldName)
-              else mapFunctionStep(fields(fieldName))(_.filterNot { case (argName, _) => s.contains(argName) })
-            })
-        }
-      case _                                   => step
-    }
+    def transformStep[R](step: ObjectStep[R], field: Field): ObjectStep[R] =
+      map.getOrElse(step.name, null) match {
+        case null  => step
+        case inner =>
+          val fields = step.fields
+          step.copy(fields =
+            fieldName =>
+              inner.getOrElse(fieldName, null) match {
+                case null => fields(fieldName)
+                case excl => mapFunctionStep(fields(fieldName))(_.filterNot { case (argName, _) => excl(argName) })
+              }
+          )
+      }
+  }
+
+  final private class Combined[-R](left: Transformer[R], right: Transformer[R]) extends Transformer[R] {
+    val typeVisitor: TypeVisitor = left.typeVisitor |+| right.typeVisitor
+
+    def transformStep[R1 <: R](step: ObjectStep[R1], field: Field): ObjectStep[R1] =
+      right.transformStep(left.transformStep(step, field), field)
   }
 
   private def mapFunctionStep[R](step: Step[R])(f: Map[String, InputValue] => Map[String, InputValue]): Step[R] =
