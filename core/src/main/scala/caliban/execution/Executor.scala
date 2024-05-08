@@ -132,8 +132,6 @@ object Executor {
     wrapPureValues: Boolean
   )(implicit trace: Trace) {
 
-    private val isEmptyTransformer = transformer.isEmpty
-
     def reduceStep(
       step: Step[R],
       currentField: Field,
@@ -264,8 +262,7 @@ object Executor {
         try step(input)
         catch { case NonFatal(e) => Step.fail(e) }
 
-      val step0 = if (isEmptyTransformer) step else transformer.transformStep(step, currentField)
-      step0 match {
+      transformer.transformStep(step, currentField) match {
         case s: PureStep                    => s
         case QueryStep(inner)               => reduceQuery(inner)
         case ObjectStep(objectName, fields) => reduceObjectStep(objectName, fields)

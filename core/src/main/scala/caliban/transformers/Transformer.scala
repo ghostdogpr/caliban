@@ -5,6 +5,7 @@ import caliban.execution.Field
 import caliban.introspection.adt._
 import caliban.schema.Step
 import caliban.schema.Step.{ FunctionStep, MetadataFunctionStep, NullStep, ObjectStep }
+import scala.collection.compat._
 
 /**
  * A transformer is able to modify a type, modifying its schema and the way it is resolved.
