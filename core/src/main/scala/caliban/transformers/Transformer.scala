@@ -244,7 +244,7 @@ object Transformer {
      *   ExcludeArgument("TypeA" -> "fieldA" -> "nested.arg")
      * }}}
      *
-     * '''WARNING''': Excluding arguments from inputs might is an experimental feature and might lead to unexpected behavior.
+     * '''WARNING''': Excluding arguments from inputs is an experimental feature and might lead to unexpected behavior.
      *                Use with extreme care.
      *
      * @param f tuples in the format of `(TypeName -> fieldName -> argumentToBeExcluded)`
