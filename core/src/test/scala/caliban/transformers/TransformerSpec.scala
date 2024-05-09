@@ -104,16 +104,16 @@ object TransformerSpec extends ZIOSpecDefault {
               |}""".stripMargin
         )
       },
-      test("filter field on input object") {
+      test("exclude field from input object") {
         case class Nested(a: String, b: Option[String], c: String)
         case class Args(a: String, b: String, l: List[String], nested: Nested)
         case class Query(foo: Args => String)
         val api: GraphQL[Any] = graphQL(RootResolver(Query(_ => "value")))
 
         val transformed: GraphQL[Any] = api.transform(
-          Transformer.ExcludeArgument(
-            "Query" -> "foo" -> "nested.b",
-            "Query" -> "foo" -> "nested.c" // Must not be filtered since it's non-nullable!
+          Transformer.ExcludeInputField(
+            "NestedInput" -> "b",
+            "NestedInput" -> "c" // non-nullable field can't be removed
           )
         )
 

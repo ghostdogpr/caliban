@@ -225,11 +225,52 @@ object Transformer {
       }
   }
 
+  object ExcludeInputField {
+
+    /**
+     * A transformer that allows excluding fields from input types.
+     *
+     * {{{
+     *   ExcludeField(
+     *     "TypeAInput" -> "foo",
+     *     "TypeBInput" -> "bar",
+     *   )
+     * }}}
+     *
+     * @note the '''field must be optional''', otherwise the filter will be silently ignored
+     * @param f tuples in the format of `(TypeName -> inputFieldToExclude)`
+     */
+    def apply(f: (String, String)*): Transformer[Any] =
+      if (f.isEmpty) Empty else new ExcludeInputField(f.groupMap(_._1)(_._2).transform((_, l) => l.toSet))
+  }
+
+  final private class ExcludeInputField(map: Map[String, Set[String]]) extends Transformer[Any] {
+
+    val typeVisitor: TypeVisitor =
+      TypeVisitor.fields.modify { field =>
+        def loop(parentType: Option[String])(arg: __InputValue): Option[__InputValue] =
+          parentType.flatMap(map.get) match {
+            case Some(s) if arg._type.isNullable && s.contains(arg.name) =>
+              None
+            case _                                                       =>
+              lazy val newType = arg._type.mapInnerType { t =>
+                t.copy(inputFields = t.inputFields(_).map(_.flatMap(loop(t.name))))
+              }
+              Some(arg.copy(`type` = () => newType))
+          }
+
+        field.copy(args = field.args(_).flatMap(loop(None)))
+      }
+
+    protected val typeNames: Set[String]                                             = Set.empty
+    protected def transformStep[R](step: ObjectStep[R], field: Field): ObjectStep[R] = step
+
+  }
+
   object ExcludeArgument {
 
     /**
-     * A transformer that allows excluding arguments from fields.
-     * Note that the argument must be optional, otherwise the filter will be silently ignored
+     * A transformer that allows excluding arguments from fields
      *
      * {{{
      *   ExcludeArgument(
@@ -237,15 +278,6 @@ object Transformer {
      *     "TypeA" -> "fieldB" -> "arg2",
      *   )
      * }}}
-     *
-     * You can also use the following notation to exclude nested arguments:
-     *
-     * {{{
-     *   ExcludeArgument("TypeA" -> "fieldA" -> "nested.arg")
-     * }}}
-     *
-     * '''WARNING''': Excluding arguments from inputs is an experimental feature and might lead to unexpected behavior.
-     *                Use with extreme care.
      *
      * @param f tuples in the format of `(TypeName -> fieldName -> argumentToBeExcluded)`
      */
@@ -261,32 +293,17 @@ object Transformer {
 
   final private class ExcludeArgument(map: Map[String, Map[String, Set[String]]]) extends Transformer[Any] {
 
+    private def shouldKeep(typeName: String, fieldName: String, argName: String): Boolean =
+      !getFromMap2(map, Set.empty[String])(typeName, fieldName).contains(argName)
+
     val typeVisitor: TypeVisitor =
-      TypeVisitor.fields.modifyWith { (t, field) =>
-        def loop(arg: __InputValue, l: List[List[String]]): Option[__InputValue] = {
-          val (now0, later0) = l.partition(_.sizeCompare(1) <= 0)
-          val now            = now0.flatten
-          val later          = later0.map(_.tail)
-
-          if (now.contains(arg.name) && arg._type.isNullable)
-            None
-          else if (later.isEmpty)
-            Some(arg)
-          else {
-            val newType = arg._type.mapInnerType { t =>
-              t.copy(inputFields = t.inputFields(_).map(_.flatMap(loop(_, later))))
-            }
-            Some(arg.copy(`type` = () => newType))
-          }
-        }
-
-        t.name.flatMap(map.get).flatMap(_.get(field.name)) match {
-          case None      => field
-          case Some(set) =>
-            val asList = set.toList.map(_.split('.').toList)
-            field.copy(args = field.args(_).flatMap(loop(_, asList)))
-        }
-      }
+      TypeVisitor.fields.modifyWith((t, field) =>
+        field.copy(args =
+          field
+            .args(_)
+            .filter(arg => shouldKeep(t.name.getOrElse(""), field.name, arg.name))
+        )
+      )
 
     protected val typeNames: Set[String] = map.keySet
 
