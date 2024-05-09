@@ -1,19 +1,12 @@
 package caliban
 
 import caliban.interop.tapir.TestData.sampleCharacters
-import caliban.interop.tapir.{
-  FakeAuthorizationInterceptor,
-  HttpInterpreter,
-  HttpUploadInterpreter,
-  TapirAdapterSpec,
-  TestApi,
-  TestService,
-  WebSocketInterpreter
-}
+import caliban.interop.tapir._
 import caliban.uploads.Uploads
 import com.comcast.ip4s._
 import com.github.plokhotnyuk.jsoniter_scala.core._
 import com.github.plokhotnyuk.jsoniter_scala.macros._
+import fs2.io.net.Network
 import org.http4s.ember.server.EmberServerBuilder
 import org.http4s.server.Router
 import org.http4s.server.middleware.CORS
@@ -21,8 +14,7 @@ import sttp.client3.UriContext
 import sttp.tapir.Codec.JsonCodec
 import zio._
 import zio.interop.catz._
-import zio.test.{ Live, ZIOSpecDefault }
-import fs2.io.net.Network
+import zio.test.{ testEnvironment, Live, TestEnvironment, ZIOSpecDefault }
 
 import scala.language.postfixOps
 
@@ -30,6 +22,8 @@ object Http4sAdapterSpec extends ZIOSpecDefault {
 
   type Env         = TestService with Uploads
   type TestTask[A] = RIO[Env, A]
+
+  override val bootstrap: ZLayer[Any, Any, TestEnvironment] = testEnvironment ++ Runtime.enableAutoBlockingExecutor
 
   private implicit val network: Network[TestTask] = Network.forAsync[TestTask]
 
