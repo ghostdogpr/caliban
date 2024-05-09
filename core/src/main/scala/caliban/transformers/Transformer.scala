@@ -1,5 +1,6 @@
 package caliban.transformers
 
+import caliban.CalibanError.ValidationError
 import caliban.InputValue
 import caliban.execution.Field
 import caliban.introspection.adt._
@@ -227,7 +228,8 @@ object Transformer {
   object ExcludeArgument {
 
     /**
-     * A transformer that allows excluding arguments from fields
+     * A transformer that allows excluding arguments from fields.
+     * Note that the field must be nullable, otherwise the filter will be silently ignored
      *
      * {{{
      *   ExcludeArgument(
@@ -235,6 +237,15 @@ object Transformer {
      *     "TypeA" -> "fieldB" -> "arg2",
      *   )
      * }}}
+     *
+     * You can also use the following notation to exclude nested arguments:
+     *
+     * {{{
+     *   ExcludeArgument("TypeA" -> "fieldA" -> "nested.arg")
+     * }}}
+     *
+     * '''WARNING''': Excluding arguments from inputs might is an experimental feature and might lead to unexpected behavior.
+     *                Use with extreme care.
      *
      * @param f tuples in the format of `(TypeName -> fieldName -> argumentToBeExcluded)`
      */
@@ -250,17 +261,32 @@ object Transformer {
 
   final private class ExcludeArgument(map: Map[String, Map[String, Set[String]]]) extends Transformer[Any] {
 
-    private def shouldKeep(typeName: String, fieldName: String, argName: String): Boolean =
-      !getFromMap2(map, Set.empty[String])(typeName, fieldName).contains(argName)
-
     val typeVisitor: TypeVisitor =
-      TypeVisitor.fields.modifyWith((t, field) =>
-        field.copy(args =
-          field
-            .args(_)
-            .filter(arg => shouldKeep(t.name.getOrElse(""), field.name, arg.name))
-        )
-      )
+      TypeVisitor.fields.modifyWith { (t, field) =>
+        def loop(arg: __InputValue, l: List[List[String]]): Option[__InputValue] = {
+          val (now0, later0) = l.partition(_.sizeCompare(1) <= 0)
+          val now            = now0.flatten
+          val later          = later0.map(_.tail)
+
+          if (now.contains(arg.name) && arg._type.isNullable)
+            None
+          else if (later.isEmpty)
+            Some(arg)
+          else {
+            val newType = arg._type.mapInnerType { t =>
+              t.copy(inputFields = t.inputFields(_).map(_.flatMap(loop(_, later))))
+            }
+            Some(arg.copy(`type` = () => newType))
+          }
+        }
+
+        t.name.flatMap(map.get).flatMap(_.get(field.name)) match {
+          case None      => field
+          case Some(set) =>
+            val asList = set.toList.map(_.split('.').toList)
+            field.copy(args = field.args(_).flatMap(loop(_, asList)))
+        }
+      }
 
     protected val typeNames: Set[String] = map.keySet
 

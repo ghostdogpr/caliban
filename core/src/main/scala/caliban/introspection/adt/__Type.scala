@@ -149,6 +149,15 @@ case class __Type(
       case __TypeKind.INTERFACE | __TypeKind.UNION => possibleTypes.fold(Set.empty[String])(_.flatMap(_.name).toSet)
       case _                                       => Set.empty
     }
+
+  private[caliban] def mapInnerType(f: __Type => __Type): __Type = {
+    def loop(t: __Type): __Type =
+      t.ofType match {
+        case None     => f(t)
+        case Some(t0) => t.copy(ofType = Some(loop(t0)))
+      }
+    loop(self)
+  }
 }
 
 sealed trait TypeVisitor { self =>

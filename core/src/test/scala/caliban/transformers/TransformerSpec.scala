@@ -1,5 +1,6 @@
 package caliban.transformers
 
+import caliban.Macros.gqldoc
 import caliban._
 import caliban.schema.ArgBuilder.auto._
 import caliban.schema.Schema.auto._
@@ -100,6 +101,41 @@ object TransformerSpec extends ZIOSpecDefault {
               |
               |type Query {
               |  a: String!
+              |}""".stripMargin
+        )
+      },
+      test("filter field on input object") {
+        case class Nested(a: String, b: Option[String], c: String)
+        case class Args(a: String, b: String, l: List[String], nested: Nested)
+        case class Query(foo: Args => String)
+        val api: GraphQL[Any] = graphQL(RootResolver(Query(_ => "value")))
+
+        val transformed: GraphQL[Any] = api.transform(
+          Transformer.ExcludeArgument(
+            "Query" -> "foo" -> "nested.b",
+            "Query" -> "foo" -> "nested.c" // Must not be filtered since it's non-nullable!
+          )
+        )
+
+        val rendered = transformed.render
+        for {
+          interpreter <- transformed.interpreter
+          query        = gqldoc("""{ foo(a: "asd", b: "dsa", l:[], nested: {a:"ad", c:"da"}) }""")
+          result      <- interpreter.execute(query).map(_.data.toString)
+        } yield assertTrue(
+          result == """{"foo":"value"}""",
+          rendered ==
+            """schema {
+              |  query: Query
+              |}
+              |
+              |input NestedInput {
+              |  a: String!
+              |  c: String!
+              |}
+              |
+              |type Query {
+              |  foo(a: String!, b: String!, l: [String!]!, nested: NestedInput!): String!
               |}""".stripMargin
         )
       },
