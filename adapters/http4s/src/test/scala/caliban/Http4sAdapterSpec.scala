@@ -14,7 +14,7 @@ import sttp.client3.UriContext
 import sttp.tapir.Codec.JsonCodec
 import zio._
 import zio.interop.catz._
-import zio.test.{ testEnvironment, Live, TestEnvironment, ZIOSpecDefault }
+import zio.test.{ Live, ZIOSpecDefault }
 
 import scala.language.postfixOps
 
@@ -22,8 +22,6 @@ object Http4sAdapterSpec extends ZIOSpecDefault {
 
   type Env         = TestService with Uploads
   type TestTask[A] = RIO[Env, A]
-
-  override val bootstrap: ZLayer[Any, Any, TestEnvironment] = testEnvironment ++ Runtime.enableAutoBlockingExecutor
 
   private implicit val network: Network[TestTask] = Network.forAsync[TestTask]
 
