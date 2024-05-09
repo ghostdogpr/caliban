@@ -1,5 +1,6 @@
 package caliban.transformers
 
+import caliban.CalibanError.ValidationError
 import caliban.InputValue
 import caliban.execution.Field
 import caliban.introspection.adt._
@@ -222,6 +223,48 @@ object Transformer {
         case null => step
         case excl => step.copy(fields = name => if (!excl(name)) step.fields(name) else NullStep)
       }
+  }
+
+  object ExcludeInputField {
+
+    /**
+     * A transformer that allows excluding fields from input types.
+     *
+     * {{{
+     *   ExcludeField(
+     *     "TypeAInput" -> "foo",
+     *     "TypeBInput" -> "bar",
+     *   )
+     * }}}
+     *
+     * @note the '''field must be optional''', otherwise the filter will be silently ignored
+     * @param f tuples in the format of `(TypeName -> inputFieldToExclude)`
+     */
+    def apply(f: (String, String)*): Transformer[Any] =
+      if (f.isEmpty) Empty else new ExcludeInputField(f.groupMap(_._1)(_._2).transform((_, l) => l.toSet))
+  }
+
+  final private class ExcludeInputField(map: Map[String, Set[String]]) extends Transformer[Any] {
+
+    val typeVisitor: TypeVisitor =
+      TypeVisitor.fields.modify { field =>
+        def loop(parentType: Option[String])(arg: __InputValue): Option[__InputValue] =
+          parentType.flatMap(map.get) match {
+            case Some(s) if arg._type.isNullable && s.contains(arg.name) =>
+              None
+            case _                                                       =>
+              lazy val newType = arg._type.mapInnerType { t =>
+                t.copy(inputFields = t.inputFields(_).map(_.flatMap(loop(t.name))))
+              }
+              Some(arg.copy(`type` = () => newType))
+          }
+
+        field.copy(args = field.args(_).flatMap(loop(None)))
+      }
+
+    protected val typeNames: Set[String]                                             = Set.empty
+    protected def transformStep[R](step: ObjectStep[R], field: Field): ObjectStep[R] = step
+
   }
 
   object ExcludeArgument {
