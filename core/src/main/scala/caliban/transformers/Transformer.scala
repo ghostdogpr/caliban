@@ -229,7 +229,7 @@ object Transformer {
 
     /**
      * A transformer that allows excluding arguments from fields.
-     * Note that the field must be nullable, otherwise the filter will be silently ignored
+     * Note that the argument must be optional, otherwise the filter will be silently ignored
      *
      * {{{
      *   ExcludeArgument(
