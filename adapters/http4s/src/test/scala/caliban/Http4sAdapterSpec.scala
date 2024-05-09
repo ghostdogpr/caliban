@@ -1,19 +1,12 @@
 package caliban
 
 import caliban.interop.tapir.TestData.sampleCharacters
-import caliban.interop.tapir.{
-  FakeAuthorizationInterceptor,
-  HttpInterpreter,
-  HttpUploadInterpreter,
-  TapirAdapterSpec,
-  TestApi,
-  TestService,
-  WebSocketInterpreter
-}
+import caliban.interop.tapir._
 import caliban.uploads.Uploads
 import com.comcast.ip4s._
 import com.github.plokhotnyuk.jsoniter_scala.core._
 import com.github.plokhotnyuk.jsoniter_scala.macros._
+import fs2.io.net.Network
 import org.http4s.ember.server.EmberServerBuilder
 import org.http4s.server.Router
 import org.http4s.server.middleware.CORS
@@ -22,7 +15,6 @@ import sttp.tapir.Codec.JsonCodec
 import zio._
 import zio.interop.catz._
 import zio.test.{ Live, ZIOSpecDefault }
-import fs2.io.net.Network
 
 import scala.language.postfixOps
 

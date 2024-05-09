@@ -1021,5 +1021,5 @@ object SchemaWriterSpec extends ZIOSpecDefault {
         }
       )
     }: _*
-  ) @@ TestAspect.sequential
+  ) @@ TestAspect.parallelN(4)
 }
