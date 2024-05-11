@@ -76,7 +76,7 @@ trait Schema[-R, T] { self =>
    * Defines if the type can resolve to null or not.
    * It is true if the type is nullable or if it can fail.
    */
-  @deprecatedOverriding("this method will be made final. Override canFail and nullable instead", "2.6.1")
+  @deprecatedOverriding("this method will be made final. Override canFail and nullable instead", "2.7.0")
   def optional: Boolean = canFail || nullable
 
   /**
