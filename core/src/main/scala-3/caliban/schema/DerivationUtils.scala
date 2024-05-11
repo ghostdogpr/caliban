@@ -132,8 +132,8 @@ private object DerivationUtils {
         val hasNonNullAnn  = fieldAnnotations.contains(GQLNonNullable())
 
         if (hasNonNullAnn) (false, false)
-        else if (hasNullableAnn || schema.nullable) (true, false)
-        else if (schema.canFail) (true, true)
+        else if (hasNullableAnn) (true, false)
+        else if (schema.optional) (true, !schema.nullable)
         else (false, false)
       }
       Types.makeField(

@@ -100,8 +100,8 @@ trait CommonSchemaDerivation[R] {
                 val hasNonNullAnn  = p.annotations.contains(GQLNonNullable())
 
                 if (hasNonNullAnn) (false, false)
-                else if (hasNullableAnn || p.typeclass.nullable) (true, false)
-                else if (p.typeclass.canFail) (true, true)
+                else if (hasNullableAnn) (true, false)
+                else if (p.typeclass.optional) (true, !p.typeclass.nullable)
                 else (false, false)
               }
               Types.makeField(
