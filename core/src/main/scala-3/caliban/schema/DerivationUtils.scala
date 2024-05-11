@@ -126,24 +126,28 @@ private object DerivationUtils {
     Some(getName(annotations, info)),
     getDescription(annotations),
     fields.map { (name, fieldAnnotations, schema) =>
-      val deprecatedReason                  = getDeprecatedReason(fieldAnnotations)
-      val (isNullable, isNullabilityForced) = {
+      val deprecatedReason                = getDeprecatedReason(fieldAnnotations)
+      val (isNullable, isSemanticNonNull) = {
         val hasNullableAnn = fieldAnnotations.contains(GQLNullable())
         val hasNonNullAnn  = fieldAnnotations.contains(GQLNonNullable())
-        (!hasNonNullAnn && (hasNullableAnn || schema.nullable), hasNullableAnn || hasNonNullAnn)
+
+        if (hasNonNullAnn) (false, false)
+        else if (hasNullableAnn || schema.nullable) (true, false)
+        else if (schema.canFail) (true, true)
+        else (false, false)
       }
       Types.makeField(
         name,
         getDescription(fieldAnnotations),
         schema.arguments,
         () =>
-          if (isNullable || (!isNullabilityForced && schema.canFail)) schema.toType_(isInput, isSubscription)
+          if (isNullable) schema.toType_(isInput, isSubscription)
           else schema.toType_(isInput, isSubscription).nonNull,
         deprecatedReason.isDefined,
         deprecatedReason,
         Option(
           getDirectives(fieldAnnotations) ++ {
-            if (enableSemanticNonNull && !isNullable && schema.canFail) Some(SchemaUtils.SemanticNonNull)
+            if (enableSemanticNonNull && isSemanticNonNull) Some(SchemaUtils.SemanticNonNull)
             else None
           }
         ).filter(_.nonEmpty)

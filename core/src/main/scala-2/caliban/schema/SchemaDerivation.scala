@@ -95,24 +95,27 @@ trait CommonSchemaDerivation[R] {
           ctx.parameters
             .filterNot(_.annotations.exists(_ == GQLExcluded()))
             .map { p =>
-              val (isNullable, isNullabilityForced) = {
+              val (isNullable, isSemanticNonNull) = {
                 val hasNullableAnn = p.annotations.contains(GQLNullable())
                 val hasNonNullAnn  = p.annotations.contains(GQLNonNullable())
-                (!hasNonNullAnn && (hasNullableAnn || p.typeclass.nullable), hasNullableAnn || hasNonNullAnn)
+
+                if (hasNonNullAnn) (false, false)
+                else if (hasNullableAnn || p.typeclass.nullable) (true, false)
+                else if (p.typeclass.canFail) (true, true)
+                else (false, false)
               }
               Types.makeField(
                 getName(p),
                 getDescription(p),
                 p.typeclass.arguments,
                 () =>
-                  if (isNullable || (!isNullabilityForced && p.typeclass.canFail))
-                    p.typeclass.toType_(isInput, isSubscription)
+                  if (isNullable) p.typeclass.toType_(isInput, isSubscription)
                   else p.typeclass.toType_(isInput, isSubscription).nonNull,
                 p.annotations.collectFirst { case GQLDeprecated(_) => () }.isDefined,
                 p.annotations.collectFirst { case GQLDeprecated(reason) => reason },
                 Option(
                   p.annotations.collect { case GQLDirective(dir) => dir }.toList ++ {
-                    if (config.enableSemanticNonNull && !isNullable && p.typeclass.canFail)
+                    if (config.enableSemanticNonNull && isSemanticNonNull)
                       Some(SchemaUtils.SemanticNonNull)
                     else None
                   }
