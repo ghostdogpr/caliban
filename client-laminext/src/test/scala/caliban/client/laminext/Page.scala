@@ -25,13 +25,13 @@ object Page {
       ws.connect,
       ws.connected
         .map(_ => ws.init())
-        .flatMap(_ => deletedCharacters.received.collectRight) --> (name => characters.update(_.filterNot(_ == name))),
+        .combineWith(deletedCharacters.received.collectRight) --> (name => characters.update(_.filterNot(_ == name))),
       child <-- characters.signal.map(c => div(c.mkString(", "))),
       br(),
       button(
         "Delete first",
         disabled <-- characters.signal.map(_.isEmpty),
-        thisEvents(onClick).flatMap(_ =>
+        thisEvents(onClick).combineWith(
           characters.now().headOption match {
             case Some(name) => deleteCharacter(name)
             case None       => EventStream.empty
