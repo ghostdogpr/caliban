@@ -41,7 +41,8 @@ object Scala3TestPlugin extends AutoPlugin {
         s"set ThisBuild / crossScalaVersions := Seq(${scalaVersionsToTest}); +publishLocal;" +
         s"codegenSbt/changeScalaVersionInTest ${scala212Text} ${scala3VersionText};" +
         s"codegenSbt/scripted; codegenSbt/changeScalaVersionInTest ${scala3VersionText} ${scala212Text}",
-      state
+      state,
+      msg => throw new Exception("Error while parsing SBT command: " + msg)
     )
     newState
   }
