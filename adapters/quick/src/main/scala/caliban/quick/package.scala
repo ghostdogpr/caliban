@@ -26,7 +26,8 @@ package object quick {
       uploadPath: Option[String] = None,
       webSocketPath: Option[String] = None
     )(implicit
-      trace: Trace
+      trace: Trace,
+      tag: Tag[R]
     ): RIO[R, Nothing] =
       gql.interpreter.flatMap(
         QuickAdapter(_).runServer(
@@ -147,7 +148,7 @@ package object quick {
       apiPath: String = "/graphql",
       graphiqlPath: Option[String] = Some("/graphiql"),
       uploadPath: Option[String] = None
-    )(implicit trace: Trace, ev: Any =:= R): Unit = {
+    )(implicit trace: Trace, tag: Tag[R], ev: Any =:= R): Unit = {
       val run: RIO[R, Nothing] =
         QuickAdapter(interpreter)
           .runServer(port, apiPath, graphiqlPath, uploadPath)

@@ -4,7 +4,7 @@ import caliban.Configurator.ExecutionConfiguration
 import zio._
 import zio.http._
 
-final class QuickAdapter[-R] private (requestHandler: QuickRequestHandler[R]) {
+final class QuickAdapter[R] private (requestHandler: QuickRequestHandler[R]) {
 
   /**
    * Converts this adapter to a [[QuickHandlers]] which contains [[zio.http.RequestHandler]]s for manually constructing zio-http routes
@@ -74,7 +74,7 @@ final class QuickAdapter[-R] private (requestHandler: QuickRequestHandler[R]) {
     graphiqlPath: Option[String] = None,
     uploadPath: Option[String] = None,
     webSocketPath: Option[String] = None
-  )(implicit trace: Trace): RIO[R, Nothing] =
+  )(implicit trace: Trace, tag: Tag[R]): RIO[R, Nothing] =
     Server
       .serve[R](routes(apiPath, graphiqlPath = graphiqlPath, uploadPath = uploadPath, webSocketPath = webSocketPath))
       .provideSomeLayer[R](Server.defaultWithPort(port))
