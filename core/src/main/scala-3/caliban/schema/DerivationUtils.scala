@@ -120,27 +120,37 @@ private object DerivationUtils {
   def mkObject[R](
     annotations: List[Any],
     fields: List[(String, List[Any], Schema[R, Any])],
-    info: TypeInfo
+    info: TypeInfo,
+    enableSemanticNonNull: Boolean
   )(isInput: Boolean, isSubscription: Boolean): __Type = makeObject(
     Some(getName(annotations, info)),
     getDescription(annotations),
     fields.map { (name, fieldAnnotations, schema) =>
-      val deprecatedReason = getDeprecatedReason(fieldAnnotations)
-      val isOptional       = {
+      val deprecatedReason                = getDeprecatedReason(fieldAnnotations)
+      val (isNullable, isSemanticNonNull) = {
         val hasNullableAnn = fieldAnnotations.contains(GQLNullable())
         val hasNonNullAnn  = fieldAnnotations.contains(GQLNonNullable())
-        !hasNonNullAnn && (hasNullableAnn || schema.optional)
+
+        if (hasNonNullAnn) (false, false)
+        else if (hasNullableAnn) (true, false)
+        else if (schema.optional) (true, !schema.nullable)
+        else (false, false)
       }
       Types.makeField(
         name,
         getDescription(fieldAnnotations),
         schema.arguments,
         () =>
-          if (isOptional) schema.toType_(isInput, isSubscription)
+          if (isNullable) schema.toType_(isInput, isSubscription)
           else schema.toType_(isInput, isSubscription).nonNull,
         deprecatedReason.isDefined,
         deprecatedReason,
-        Option(getDirectives(fieldAnnotations)).filter(_.nonEmpty)
+        Option(
+          getDirectives(fieldAnnotations) ++ {
+            if (enableSemanticNonNull && isSemanticNonNull) Some(SchemaUtils.SemanticNonNull)
+            else None
+          }
+        ).filter(_.nonEmpty)
       )
     },
     getDirectives(annotations),
