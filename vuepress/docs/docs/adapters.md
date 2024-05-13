@@ -166,7 +166,7 @@ for {
             Method.GET / "graphiql"            -> graphiql,
             Method.POST / "upload" / "graphql" -> handlers.upload
             // Add more routes, apply middleware, etc.
-          ).toHttpApp
+          )
     _ <- Server.serve(app).provide(Server.defaultWithPort(8080))
 } yield ()
 ```
