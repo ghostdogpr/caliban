@@ -2,7 +2,7 @@ package caliban.schema
 
 import caliban.Value.StringValue
 import caliban._
-import caliban.introspection.adt.{ __DeprecatedArgs, __Type, __TypeKind }
+import caliban.introspection.adt.{ __DeprecatedArgs, __Field, __Type, __TypeKind }
 import caliban.parsing.adt.Directive
 import caliban.schema.Annotations._
 import caliban.schema.ArgBuilder.auto._
@@ -386,6 +386,7 @@ object SchemaSpec extends ZIOSpecDefault {
     )
 
   case class EffectfulFieldSchema(q: Task[Int], @GQLNonNullable qAnnotated: Task[Int])
+  case class OptionalEffectfulFieldSchema(q: Task[Option[String]], @GQLNonNullable qAnnotated: Task[Option[String]])
   case class InfallibleFieldSchema(q: UIO[Int], @GQLNullable qAnnotated: UIO[Int])
   case class FutureFieldSchema(q: Future[Int])
   case class IDSchema(id: UUID)

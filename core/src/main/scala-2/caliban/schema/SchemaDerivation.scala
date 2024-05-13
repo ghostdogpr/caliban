@@ -11,6 +11,21 @@ import scala.language.experimental.macros
 
 trait CommonSchemaDerivation[R] {
 
+  case class DerivationConfig(
+    /**
+     * Whether to enable the `SemanticNonNull` feature on derivation.
+     * It is currently disabled by default since it is not yet stable.
+     */
+    enableSemanticNonNull: Boolean = false
+  )
+
+  /**
+   * Returns a configuration object that can be used to customize the derivation behavior.
+   *
+   * Override this method to customize the configuration.
+   */
+  def config: DerivationConfig = DerivationConfig()
+
   /**
    * Default naming logic for input types.
    * This is needed to avoid a name clash between a type used as an input and the same type used as an output.
@@ -80,21 +95,31 @@ trait CommonSchemaDerivation[R] {
           ctx.parameters
             .filterNot(_.annotations.exists(_ == GQLExcluded()))
             .map { p =>
-              val isOptional = {
+              val (isNullable, isSemanticNonNull) = {
                 val hasNullableAnn = p.annotations.contains(GQLNullable())
                 val hasNonNullAnn  = p.annotations.contains(GQLNonNullable())
-                !hasNonNullAnn && (hasNullableAnn || p.typeclass.optional)
+
+                if (hasNonNullAnn) (false, false)
+                else if (hasNullableAnn) (true, false)
+                else if (p.typeclass.optional) (true, !p.typeclass.nullable)
+                else (false, false)
               }
               Types.makeField(
                 getName(p),
                 getDescription(p),
                 p.typeclass.arguments,
                 () =>
-                  if (isOptional) p.typeclass.toType_(isInput, isSubscription)
+                  if (isNullable) p.typeclass.toType_(isInput, isSubscription)
                   else p.typeclass.toType_(isInput, isSubscription).nonNull,
                 p.annotations.collectFirst { case GQLDeprecated(_) => () }.isDefined,
                 p.annotations.collectFirst { case GQLDeprecated(reason) => reason },
-                Option(p.annotations.collect { case GQLDirective(dir) => dir }.toList).filter(_.nonEmpty)
+                Option(
+                  p.annotations.collect { case GQLDirective(dir) => dir }.toList ++ {
+                    if (config.enableSemanticNonNull && isSemanticNonNull)
+                      Some(SchemaUtils.SemanticNonNull)
+                    else None
+                  }
+                ).filter(_.nonEmpty)
               )
             }
             .toList,

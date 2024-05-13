@@ -149,4 +149,117 @@ case class __Type(
       case __TypeKind.INTERFACE | __TypeKind.UNION => possibleTypes.fold(Set.empty[String])(_.flatMap(_.name).toSet)
       case _                                       => Set.empty
     }
+
+  private[caliban] def mapInnerType(f: __Type => __Type): __Type = {
+    def loop(t: __Type): __Type =
+      t.ofType match {
+        case None     => f(t)
+        case Some(t0) => t.copy(ofType = Some(loop(t0)))
+      }
+    loop(self)
+  }
+}
+
+sealed trait TypeVisitor { self =>
+  import TypeVisitor._
+
+  def |+|(that: TypeVisitor): TypeVisitor = TypeVisitor.Combine(self, that)
+
+  def visit(t: __Type): __Type = {
+    def collect(visitor: TypeVisitor): __Type => __Type =
+      visitor match {
+        case Empty           => identity
+        case Modify(f)       => f
+        case Combine(v1, v2) => collect(v1) andThen collect(v2)
+      }
+
+    val f = collect(self)
+
+    def loop(t: __Type): __Type =
+      f(
+        t.copy(
+          fields = t.fields(_).map(_.map(field => field.copy(`type` = () => loop(field.`type`())))),
+          inputFields = t.inputFields(_).map(_.map(field => field.copy(`type` = () => loop(field.`type`())))),
+          interfaces = () => t.interfaces().map(_.map(loop)),
+          possibleTypes = t.possibleTypes.map(_.map(loop)),
+          ofType = t.ofType.map(loop)
+        )
+      )
+
+    loop(t)
+  }
+}
+
+object TypeVisitor {
+  private case object Empty                                    extends TypeVisitor {
+    override def |+|(that: TypeVisitor): TypeVisitor = that
+    override def visit(t: __Type): __Type            = t
+  }
+  private case class Modify(f: __Type => __Type)               extends TypeVisitor
+  private case class Combine(v1: TypeVisitor, v2: TypeVisitor) extends TypeVisitor
+
+  val empty: TypeVisitor                                               = Empty
+  def modify(f: __Type => __Type): TypeVisitor                         = Modify(f)
+  private[caliban] def modify[A](visitor: ListVisitor[A]): TypeVisitor = modify(t => visitor.visit(t))
+
+  object fields      extends ListVisitorConstructors[__Field]      {
+    val set: __Type => (List[__Field] => List[__Field]) => __Type =
+      t => f => t.copy(fields = args => t.fields(args).map(f))
+  }
+  object inputFields extends ListVisitorConstructors[__InputValue] {
+    val set: __Type => (List[__InputValue] => List[__InputValue]) => __Type =
+      t => f => t.copy(inputFields = args => t.inputFields(args).map(f))
+  }
+  object enumValues  extends ListVisitorConstructors[__EnumValue]  {
+    val set: __Type => (List[__EnumValue] => List[__EnumValue]) => __Type =
+      t => f => t.copy(enumValues = args => t.enumValues(args).map(f))
+  }
+  object directives  extends ListVisitorConstructors[Directive]    {
+    val set: __Type => (List[Directive] => List[Directive]) => __Type =
+      t => f => t.copy(directives = t.directives.map(f))
+  }
+}
+
+private[caliban] sealed abstract class ListVisitor[A](implicit val set: __Type => (List[A] => List[A]) => __Type) {
+  self =>
+  import ListVisitor._
+
+  def visit(t: __Type): __Type =
+    self match {
+      case Filter(predicate) => set(t)(_.filter(predicate(t)))
+      case Modify(f)         => set(t)(_.map(f(t)))
+      case Add(f)            => set(t)(f(t).foldLeft(_) { case (as, a) => a :: as })
+    }
+}
+
+private[caliban] object ListVisitor {
+  private case class Filter[A](predicate: __Type => A => Boolean)(implicit
+    set: __Type => (List[A] => List[A]) => __Type
+  ) extends ListVisitor[A]
+  private case class Modify[A](f: __Type => A => A)(implicit
+    set: __Type => (List[A] => List[A]) => __Type
+  ) extends ListVisitor[A]
+  private case class Add[A](f: __Type => List[A])(implicit
+    set: __Type => (List[A] => List[A]) => __Type
+  ) extends ListVisitor[A]
+
+  def filter[A](predicate: (__Type, A) => Boolean)(implicit
+    set: __Type => (List[A] => List[A]) => __Type
+  ): TypeVisitor =
+    TypeVisitor.modify(Filter[A](t => field => predicate(t, field)))
+  def modify[A](f: (__Type, A) => A)(implicit set: __Type => (List[A] => List[A]) => __Type): TypeVisitor =
+    TypeVisitor.modify(Modify[A](t => field => f(t, field)))
+  def add[A](f: __Type => List[A])(implicit set: __Type => (List[A] => List[A]) => __Type): TypeVisitor   =
+    TypeVisitor.modify(Add(f))
+}
+
+private[caliban] trait ListVisitorConstructors[A] {
+  implicit val set: __Type => (List[A] => List[A]) => __Type
+
+  def filter(predicate: A => Boolean): TypeVisitor               = filterWith((_, a) => predicate(a))
+  def filterWith(predicate: (__Type, A) => Boolean): TypeVisitor = ListVisitor.filter(predicate)
+  def modify(f: A => A): TypeVisitor                             = modifyWith((_, a) => f(a))
+  def modifyWith(f: (__Type, A) => A): TypeVisitor               = ListVisitor.modify(f)
+  def add(list: List[A]): TypeVisitor                            = addWith(_ => list)
+  def addWith(f: __Type => List[A]): TypeVisitor                 = ListVisitor.add(f)
 }

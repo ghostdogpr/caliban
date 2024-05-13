@@ -4,6 +4,7 @@ import caliban.CalibanError.ExecutionError
 import caliban.execution.{ Feature, Field }
 import caliban.introspection.adt._
 import caliban.schema._
+import caliban.transformers.Transformer
 import caliban.{ CalibanError, GraphQL, ResponseValue }
 import zio._
 import zio.query._
@@ -50,10 +51,11 @@ case class RemoteSchemaResolver(schema: __Schema, typeMap: Map[String, __Type]) 
     )
 
     new GraphQL[R] {
-      protected val additionalDirectives: List[__Directive]            = schema.directives
-      protected val schemaBuilder: caliban.schema.RootSchemaBuilder[R] = builder
-      protected val wrappers: List[caliban.wrappers.Wrapper[R]]        = List()
-      protected val features: Set[Feature]                             = Set.empty
+      override protected val additionalDirectives: List[__Directive]            = schema.directives
+      override protected val schemaBuilder: caliban.schema.RootSchemaBuilder[R] = builder
+      override protected val wrappers: List[caliban.wrappers.Wrapper[R]]        = List()
+      override protected val features: Set[Feature]                             = Set.empty
+      override protected val transformer: Transformer[R]                        = Transformer.empty
     }
   }
 }

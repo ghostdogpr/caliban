@@ -9,6 +9,7 @@ import caliban.parsing.adt._
 import caliban.schema.ReducedStep.DeferStep
 import caliban.schema.Step.{ PureStep => _, _ }
 import caliban.schema.{ PureStep, ReducedStep, Step, Types }
+import caliban.transformers.Transformer
 import caliban.wrappers.Wrapper.FieldWrapper
 import zio._
 import zio.query._
@@ -38,11 +39,13 @@ object Executor {
     fieldWrappers: List[FieldWrapper[R]] = Nil,
     queryExecution: QueryExecution = QueryExecution.Parallel,
     featureSet: Set[Feature] = Set.empty,
-    makeCache: UIO[Cache] = Cache.empty(Trace.empty)
+    makeCache: UIO[Cache] = Cache.empty(Trace.empty),
+    transformer: Transformer[R] = Transformer.empty[R]
   )(implicit trace: Trace): URIO[R, GraphQLResponse[CalibanError]] = {
     val wrapPureValues      = fieldWrappers.exists(_.wrapPureValues)
     val stepReducer         =
       new StepReducer[R](
+        transformer,
         request.operationType eq OperationType.Subscription,
         featureSet(Feature.Defer),
         wrapPureValues
@@ -123,6 +126,7 @@ object Executor {
     ZIO.succeed(GraphQLResponse(NullValue, List(error)))
 
   private final class StepReducer[R](
+    transformer: Transformer[R],
     isSubscription: Boolean,
     isDeferredEnabled: Boolean,
     wrapPureValues: Boolean
@@ -259,13 +263,13 @@ object Executor {
         catch { case NonFatal(e) => Step.fail(e) }
 
       step match {
-        case s: PureStep                    => s
-        case QueryStep(inner)               => reduceQuery(inner)
-        case ObjectStep(objectName, fields) => reduceObjectStep(objectName, fields)
-        case FunctionStep(step)             => reduceStep(wrapFn(step, arguments), currentField, Map.empty, path)
-        case MetadataFunctionStep(step)     => reduceStep(wrapFn(step, currentField), currentField, arguments, path)
-        case ListStep(steps)                => reduceListStep(steps)
-        case StreamStep(stream)             => reduceStream(stream)
+        case s: PureStep                => s
+        case s: QueryStep[R]            => reduceQuery(s.query)
+        case s: ObjectStep[R]           => val t = transformer(s, currentField); reduceObjectStep(t.name, t.fields)
+        case s: FunctionStep[R]         => reduceStep(wrapFn(s.step, arguments), currentField, Map.empty, path)
+        case s: MetadataFunctionStep[R] => reduceStep(wrapFn(s.step, currentField), currentField, arguments, path)
+        case s: ListStep[R]             => reduceListStep(s.steps)
+        case s: StreamStep[R]           => reduceStream(s.inner)
       }
     }
 

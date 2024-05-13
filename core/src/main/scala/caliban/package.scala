@@ -6,6 +6,7 @@ import caliban.parsing.adt.{ Directive, Document }
 import caliban.rendering.DocumentRenderer
 import caliban.schema.Types.collectTypes
 import caliban.schema._
+import caliban.transformers.Transformer
 import caliban.wrappers.Wrapper
 
 package object caliban {
@@ -26,7 +27,7 @@ package object caliban {
     mutationSchema: Schema[R, M],
     subscriptionSchema: Schema[R, S]
   ): GraphQL[R] = new GraphQL[R] {
-    val schemaBuilder: RootSchemaBuilder[R]     = RootSchemaBuilder(
+    override protected val schemaBuilder: RootSchemaBuilder[R]     = RootSchemaBuilder(
       resolver.queryResolver.map(r => Operation(querySchema.toType_(), querySchema.resolve(r))),
       resolver.mutationResolver.map(r => Operation(mutationSchema.toType_(), mutationSchema.resolve(r))),
       resolver.subscriptionResolver.map(r =>
@@ -35,9 +36,10 @@ package object caliban {
       schemaDirectives = schemaDirectives,
       schemaDescription = schemaDescription
     )
-    val wrappers: List[Wrapper[R]]              = Nil
-    val additionalDirectives: List[__Directive] = directives
-    val features: Set[Feature]                  = Set.empty
+    override protected val wrappers: List[Wrapper[R]]              = Nil
+    override protected val additionalDirectives: List[__Directive] = directives
+    override protected val features: Set[Feature]                  = Set.empty
+    override protected val transformer: Transformer[R]             = Transformer.empty
   }
 
   /**

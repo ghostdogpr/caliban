@@ -15,7 +15,7 @@ val fs2Version                = "3.10.2"
 val http4sVersion             = "0.23.27"
 val javaTimeVersion           = "2.5.0"
 val jsoniterVersion           = "2.28.5"
-val laminextVersion           = "0.16.2"
+val laminextVersion           = "0.17.0"
 val magnoliaScala2Version     = "1.1.9"
 val magnoliaScala3Version     = "1.3.6"
 val pekkoHttpVersion          = "1.0.1"
@@ -23,13 +23,13 @@ val playVersion               = "3.0.3"
 val playJsonVersion           = "3.0.3"
 val scalafmtVersion           = "3.8.0"
 val sttpVersion               = "3.9.6"
-val tapirVersion              = "1.10.6"
-val zioVersion                = "2.0.22"
+val tapirVersion              = "1.10.7"
+val zioVersion                = "2.1.1"
 val zioInteropCats2Version    = "22.0.0.0"
 val zioInteropCats3Version    = "23.1.0.2"
 val zioInteropReactiveVersion = "2.0.2"
 val zioConfigVersion          = "3.0.7"
-val zqueryVersion             = "0.7.0"
+val zqueryVersion             = "0.7.1"
 val zioJsonVersion            = "0.6.2"
 val zioHttpVersion            = "3.0.0-RC6+44-68b7cadb-SNAPSHOT"
 val zioOpenTelemetryVersion   = "3.0.0-RC21"
@@ -240,7 +240,7 @@ lazy val tracing = project
       "dev.zio"         %% "zio-opentelemetry"         % zioOpenTelemetryVersion,
       "dev.zio"         %% "zio-test"                  % zioVersion % Test,
       "dev.zio"         %% "zio-test-sbt"              % zioVersion % Test,
-      "io.opentelemetry" % "opentelemetry-sdk-testing" % "1.37.0"   % Test
+      "io.opentelemetry" % "opentelemetry-sdk-testing" % "1.38.0"   % Test
     )
   )
   .dependsOn(core, tools)
@@ -709,7 +709,7 @@ lazy val commonSettings = Def.settings(
   })
 )
 
-lazy val enforceMimaCompatibility = true // Enable / disable failing CI on binary incompatibilities
+lazy val enforceMimaCompatibility = false // Enable / disable failing CI on binary incompatibilities
 
 lazy val enableMimaSettingsJVM =
   Def.settings(
