@@ -3,8 +3,11 @@ package caliban
 import caliban.Configurator.ExecutionConfiguration
 import zio._
 import zio.http._
+import zio.stacktracer.TracingImplicits.disableAutoTrace
 
 final class QuickAdapter[R] private (requestHandler: QuickRequestHandler[R]) {
+
+  private implicit val trace: Trace = Trace.empty
 
   /**
    * Converts this adapter to a [[QuickHandlers]] which contains [[zio.http.RequestHandler]]s for manually constructing zio-http routes
