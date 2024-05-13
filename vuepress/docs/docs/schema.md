@@ -534,7 +534,7 @@ case class MyClass(field: String) derives MySchemaDerivation.SemiAuto
 
 Caliban supports deriving schemas to the form that supports [the SemanticNonNull type RFC](https://github.com/graphql/graphql-spec/pull/1065), by introducing the `@semanticNonNull` directive.
 While Caliban resolves all fallible effectful types (`ZIO[R, Throwable, A]`, ...) as nullable by default,
-with the feature enabled, fields that doesn't get resolved to nullable types (for example, `ZIO[R, Throwable, A]` where `A` is not `Option[A]`, ...)
+with the feature enabled, fields that don't get resolved to nullable types (for example, `ZIO[R, Throwable, A]` where `A` is not `Option[A]`, ...)
 will be marked with `@semanticNonNull` to express that the field never returns `null` unless the effect fails.
 `@GQLNullable` annotation can be used to override this behavior per field.
 
