@@ -25,7 +25,7 @@ jobs:
         with:
           compose: 'apollo-compatibility/docker-compose.yaml'
           schema: 'apollo-compatibility/products.graphql'
-          path: 'graphql'
+          path: '/graphql'
           port: 4001
           debug: true
           token: ${{ secrets.GITHUB_TOKEN }}
