@@ -9,4 +9,4 @@ COPY adapters/quick ./adapters/quick
 COPY macros ./macros
 COPY apollo-compatibility/src ./apollo-compatibility/src
 EXPOSE 4001
-CMD sbt apollo-compatibility/run
+CMD sbt "apolloCompatibility/run"
