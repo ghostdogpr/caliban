@@ -592,6 +592,19 @@ lazy val apolloCompatibility =
       crossScalaVersions                                   := Seq(scala213),
       libraryDependencySchemes += "org.scala-lang.modules" %% "scala-java8-compat" % "always"
     )
+    .settings(
+      assembly / assemblyJarName       := s"apollo-subgraph-compatibility.jar",
+      assembly / mainClass             := Some("Main"),
+      assembly / assemblyOutputPath    := {
+        (assembly / baseDirectory).value / "target" / (assembly / assemblyJarName).value
+      },
+      assembly / test                  := {},
+      assembly / assemblyMergeStrategy := {
+        case x if Assembly.isConfigFile(x)       => MergeStrategy.concat
+        case PathList("META-INF", "MANIFEST.MF") => MergeStrategy.discard
+        case _                                   => MergeStrategy.first
+      }
+    )
     .dependsOn(federation, core, quickAdapter)
 
 lazy val reporting = project

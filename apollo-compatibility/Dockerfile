@@ -1,12 +1,7 @@
 FROM sbtscala/scala-sbt:graalvm-ce-22.3.3-b1-java17_1.9.8_2.13.12 AS build
 
-WORKDIR /build
+WORKDIR /app
 COPY build.sbt .
-COPY project ./project
-COPY core ./core
-COPY federation ./federation
-COPY adapters/quick ./adapters/quick
-COPY macros ./macros
-COPY apollo-compatibility/src ./apollo-compatibility/src
+COPY apollo-compatibility/target/apollo-subgraph-compatibility.jar /app/artifact.jar
 EXPOSE 4001
-CMD sbt "apolloCompatibility/run"
+CMD java $* -jar artifact.jar
