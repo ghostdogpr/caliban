@@ -1,0 +1,37 @@
+name: Federation Specification Compatibility Test
+
+on:
+  pull_request:
+    branches:
+      - series/2.x
+
+jobs:
+  compatibility:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout current branch (full)
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+
+      - name: Setup Java (temurin@17)
+        uses: actions/setup-java@v2
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Compatibility Test
+        uses: apollographql/federation-subgraph-compatibility@v2
+        with:
+          compose: 'apollo-compatibility/docker-compose.yaml'
+          schema: 'apollo-compatibility/schema.graphql'
+          path: 'graphql'
+          port: 4001
+          debug: true
+          token: ${{ secrets.GITHUB_TOKEN }}
+          # Boolean flag to indicate whether any failing test should fail the script
+          failOnWarning: false
+          # Boolean flag to indicate whether any required test should fail the script
+          failOnRequired: false
+          # Working directory to run the test from
+          workingDirectory: ''

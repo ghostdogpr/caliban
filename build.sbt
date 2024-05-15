@@ -98,7 +98,8 @@ lazy val allProjects: Seq[ProjectReference] =
     codegenSbt,
     federation,
     reporting,
-    tracing
+    tracing,
+    apolloCompatibility
   )
 
 lazy val root = project
@@ -574,6 +575,24 @@ lazy val examples = project
     zioHttp,
     tools
   )
+
+lazy val apolloCompatibility =
+  project
+    .in(file("apollo-compatibility"))
+    .settings(commonSettings)
+    .settings(
+      name               := "apollo-compatibility",
+      publish / skip     := true,
+      run / fork         := true,
+      run / connectInput := true
+    )
+    .settings(
+      skip                                                 := (scalaVersion.value != scala213),
+      ideSkipProject                                       := (scalaVersion.value != scala213),
+      crossScalaVersions                                   := Seq(scala213),
+      libraryDependencySchemes += "org.scala-lang.modules" %% "scala-java8-compat" % "always"
+    )
+    .dependsOn(federation, core, quickAdapter)
 
 lazy val reporting = project
   .in(file("reporting"))
