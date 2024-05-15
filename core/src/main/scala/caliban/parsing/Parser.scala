@@ -28,10 +28,12 @@ object Parser {
    */
   def parseQueryEither(query: String): Either[ParsingError, Document] = {
     val sm = SourceMapper(query)
-    try parse(query, document(_)) match {
-      case Parsed.Success(value, _) => Right(Document(value.definitions, sm))
-      case f: Parsed.Failure        => Left(ParsingError(f.msg, Some(sm.getLocation(f.index))))
-    } catch {
+    try
+      parse(query, document(_)) match {
+        case Parsed.Success(value, _) => Right(Document(value.definitions, sm))
+        case f: Parsed.Failure        => Left(ParsingError(f.msg, Some(sm.getLocation(f.index))))
+      }
+    catch {
       case NonFatal(ex) => Left(ParsingError(s"Internal parsing error", innerThrowable = Some(ex)))
     }
   }

@@ -27,10 +27,10 @@ trait PotatoesService {
 }
 
 object PotatoesService {
-  def findByName(name: Potato.Name) = ZIO.serviceWithZIO[PotatoesService](_.findByName(name))
-  def findByColor(color: Potato.Color) = ZIO.serviceWithZIO[PotatoesService](_.findByColor(color))
+  def findByName(name: Potato.Name)                          = ZIO.serviceWithZIO[PotatoesService](_.findByName(name))
+  def findByColor(color: Potato.Color)                       = ZIO.serviceWithZIO[PotatoesService](_.findByColor(color))
   def makeNewSpecies(name: Potato.Name, color: Potato.Color) =
     ZIO.serviceWithZIO[PotatoesService](_.makeNewSpecies(name, color))
-  def eradicate(name: Potato.Name) = ZIO.serviceWithZIO[PotatoesService](_.eradicate(name))
-  def all = ZStream.serviceWithStream[PotatoesService](_.all)
+  def eradicate(name: Potato.Name)                           = ZIO.serviceWithZIO[PotatoesService](_.eradicate(name))
+  def all                                                    = ZStream.serviceWithStream[PotatoesService](_.all)
 }

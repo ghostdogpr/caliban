@@ -26,11 +26,11 @@ case class GraphQLResponseError(
    */
   def render(includeExtensions: Boolean): String =
     s"${message} ${locations.getOrElse(Nil).map(loc => s"at line ${loc.line} and column ${loc.column}").mkString(" ")}${path.fold("")(p =>
-      s" at path ${p.map {
-        case Left(value)  => s"/$value"
-        case Right(value) => s"[$value]"
-      }.mkString("")}"
-    )}${if (includeExtensions) extensions.fold("")(ext => s" Extensions: $ext") else ""}"
+        s" at path ${p.map {
+            case Left(value)  => s"/$value"
+            case Right(value) => s"[$value]"
+          }.mkString("")}"
+      )}${if (includeExtensions) extensions.fold("")(ext => s" Extensions: $ext") else ""}"
 }
 
 object GraphQLResponseError {

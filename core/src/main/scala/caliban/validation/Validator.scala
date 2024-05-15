@@ -516,7 +516,7 @@ object Validator {
           if (applicableTypes.isEmpty)
             failValidation(
               s"${name.fold("Inline fragment spread")(n => s"Fragment spread '$n'")} is not possible: possible types are '${possibleTypes
-                .mkString(", ")}' and possible fragment types are '${possibleFragmentTypes.mkString(", ")}'.",
+                  .mkString(", ")}' and possible fragment types are '${possibleFragmentTypes.mkString(", ")}'.",
               "Fragments are declared on a type and will only apply when the runtime object type matches the type condition. They also are spread within the context of a parent type. A fragment spread is only valid if its type condition could ever apply within the parent type."
             )
           else validateFields(context, selectionSet, fragmentType)
@@ -568,13 +568,13 @@ object Validator {
         case (None, None) | (None, Some(NullValue)) =>
           failValidation(
             s"Required argument '${arg.name}' is null or missing on field '${field.name}' of type '${currentType.name
-              .getOrElse("")}'.",
+                .getOrElse("")}'.",
             "Arguments can be required. An argument is required if the argument type is non‐null and does not have a default value. Otherwise, the argument is optional."
           )
         case (Some(_), Some(NullValue))             =>
           failValidation(
             s"Required argument '${arg.name}' is null on '${field.name}' of type '${currentType.name
-              .getOrElse("")}'.",
+                .getOrElse("")}'.",
             "Arguments can be required. An argument is required if the argument type is non‐null and does not have a default value. Otherwise, the argument is optional."
           )
         case _                                      => zunit
@@ -714,7 +714,7 @@ object Validator {
         case Type.NamedType(name, _) =>
           failWhen(!locationType.name.contains(name))(
             s"Variable '$variableName' usage is not allowed because its type doesn't match the schema ($name instead of ${locationType.name
-              .getOrElse("")}).",
+                .getOrElse("")}).",
             explanation
           )
       }
@@ -785,7 +785,7 @@ object Validator {
 
   lazy val validateSubscriptionOperation: QueryValidation = ZPure.environmentWithPure { env =>
     val context = env.get[Context]
-    val error   = {
+    val error   =
       for {
         t           <- context.rootType.subscriptionType
         op          <- context.operations.find(_.operationType == OperationType.Subscription)
@@ -820,7 +820,6 @@ object Validator {
                            )
                        }
       } yield error
-    }
     ZPure.fromOption(error).flip
   }
 
@@ -1162,9 +1161,9 @@ object Validator {
       case Some((name, values)) =>
         failValidation(
           s"Type '$name' is defined multiple times (${values
-            .sortBy(v => v.origin.getOrElse(""))
-            .map(v => s"${v.kind}${v.origin.fold("")(a => s" in $a")}")
-            .mkString(", ")}).",
+              .sortBy(v => v.origin.getOrElse(""))
+              .map(v => s"${v.kind}${v.origin.fold("")(a => s" in $a")}")
+              .mkString(", ")}).",
           "Each type must be defined only once."
         )
     }

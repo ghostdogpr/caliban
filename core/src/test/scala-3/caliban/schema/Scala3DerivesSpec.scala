@@ -133,7 +133,7 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
           sealed trait Foo derives Schema.SemiAuto {
             val i: Instant
           }
-          object Foo {
+          object Foo                               {
             final case class FooA(i: Instant, s1: String) extends Foo derives Schema.SemiAuto, ArgBuilder
             final case class FooB(i: Instant, i1: Int)    extends Foo derives Schema.SemiAuto, ArgBuilder
           }

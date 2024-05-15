@@ -730,7 +730,8 @@ lazy val apiMappingSettings = Def.settings(
   apiMappings ++= {
     val depsByModule = (Compile / dependencyClasspathAsJars).value.flatMap { dep =>
       dep.get(moduleID.key).map((_, dep.data))
-    }.groupBy { case (moduleID, _) => (moduleID.organization, moduleID.name) }.mapValues(_.head)
+    }.groupBy { case (moduleID, _) => (moduleID.organization, moduleID.name) }
+      .mapValues(_.head)
 
     val cross = CrossVersion(crossVersion.value, scalaVersion.value, scalaBinaryVersion.value)
       .getOrElse((s: String) => s)

@@ -130,31 +130,34 @@ object Client {
       User21Selection,
       User22Selection,
       User23Selection
-    ] = SelectionBuilder[Big, BigView[
-      User1Selection,
-      User2Selection,
-      User3Selection,
-      User4Selection,
-      User5Selection,
-      User6Selection,
-      User7Selection,
-      User8Selection,
-      User9Selection,
-      User10Selection,
-      User11Selection,
-      User12Selection,
-      User13Selection,
-      User14Selection,
-      User15Selection,
-      User16Selection,
-      User17Selection,
-      User18Selection,
-      User19Selection,
-      User20Selection,
-      User21Selection,
-      User22Selection,
-      User23Selection
-    ]]
+    ] = SelectionBuilder[
+      Big,
+      BigView[
+        User1Selection,
+        User2Selection,
+        User3Selection,
+        User4Selection,
+        User5Selection,
+        User6Selection,
+        User7Selection,
+        User8Selection,
+        User9Selection,
+        User10Selection,
+        User11Selection,
+        User12Selection,
+        User13Selection,
+        User14Selection,
+        User15Selection,
+        User16Selection,
+        User17Selection,
+        User18Selection,
+        User19Selection,
+        User20Selection,
+        User21Selection,
+        User22Selection,
+        User23Selection
+      ]
+    ]
 
     def view[
       User1Selection,
