@@ -1,4 +1,4 @@
-FROM sbtscala/scala-sbt:eclipse-temurin-alpine-22_36_1.10.0_3.4.1 AS build
+FROM sbtscala/scala-sbt:graalvm-ce-22.3.3-b1-java17_1.9.8_2.13.12 AS build
 
 WORKDIR /build
 COPY build.sbt .
