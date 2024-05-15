@@ -21,9 +21,9 @@ object Main extends ZIOAppDefault {
       ProductService with UserService with InventoryService with Server,
       CalibanError.ValidationError,
       Int
-    ] = (ProductSchema.api.toApp("/graphql") flatMap Server.install)
+    ] = (ProductSchema.api.toApp("/graphql") flatMap Server.serve)
 
-    (server *> Console.printLine("Press any key to exit...") *> Console.readLine).orDie
+    server.orDie
       .provide(
         Server.defaultWithPort(4001),
         ProductService.inMemory,
