@@ -24,7 +24,7 @@ jobs:
         uses: apollographql/federation-subgraph-compatibility@v2
         with:
           compose: 'apollo-compatibility/docker-compose.yaml'
-          schema: 'apollo-compatibility/schema.graphql'
+          schema: 'apollo-compatibility/products.graphql'
           path: 'graphql'
           port: 4001
           debug: true
