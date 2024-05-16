@@ -150,6 +150,7 @@ lazy val macros = project
   .settings(name := "caliban-macros")
   .settings(commonSettings)
   .settings(enableMimaSettingsJVM)
+  .disablePlugins(AssemblyPlugin)
   .settings(
     libraryDependencies ++= {
       if (scalaVersion.value == scala3) {
@@ -170,6 +171,7 @@ lazy val core = project
   .settings(name := "caliban")
   .settings(commonSettings)
   .settings(enableMimaSettingsJVM)
+  .disablePlugins(AssemblyPlugin)
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++=
@@ -204,6 +206,7 @@ lazy val tools = project
   .settings(name := "caliban-tools")
   .settings(commonSettings)
   .settings(enableMimaSettingsJVM)
+  .disablePlugins(AssemblyPlugin)
   .settings(
     buildInfoKeys    := Seq[BuildInfoKey](
       "scalaPartialVersion" -> CrossVersion.partialVersion(scalaVersion.value),
@@ -231,6 +234,7 @@ lazy val tracing = project
   .settings(name := "caliban-tracing")
   .settings(commonSettings)
   .settings(enableMimaSettingsJVM)
+  .disablePlugins(AssemblyPlugin)
   .settings(
     buildInfoPackage := "caliban.tracing",
     buildInfoObject  := "BuildInfo"
@@ -251,6 +255,7 @@ lazy val codegenSbt = project
   .settings(name := "caliban-codegen-sbt")
   .settings(commonSettings)
   .enablePlugins(BuildInfoPlugin)
+  .disablePlugins(AssemblyPlugin)
   .settings(
     skip             := (scalaVersion.value != scala212),
     ideSkipProject   := (scalaVersion.value != scala212),
@@ -290,6 +295,7 @@ lazy val catsInterop = project
   .settings(name := "caliban-cats")
   .settings(commonSettings)
   .settings(enableMimaSettingsJVM)
+  .disablePlugins(AssemblyPlugin)
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= {
@@ -310,6 +316,7 @@ lazy val monixInterop = project
   .settings(name := "caliban-monix")
   .settings(commonSettings)
   .settings(enableMimaSettingsJVM)
+  .disablePlugins(AssemblyPlugin)
   .settings(
     libraryDependencies ++= Seq(
       "dev.zio"  %% "zio-interop-reactivestreams" % zioInteropReactiveVersion,
@@ -324,6 +331,7 @@ lazy val tapirInterop = project
   .settings(name := "caliban-tapir")
   .settings(commonSettings)
   .settings(enableMimaSettingsJVM)
+  .disablePlugins(AssemblyPlugin)
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= {
@@ -347,6 +355,7 @@ lazy val http4s = project
   .settings(name := "caliban-http4s")
   .settings(commonSettings)
   .settings(enableMimaSettingsJVM)
+  .disablePlugins(AssemblyPlugin)
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= {
@@ -374,6 +383,7 @@ lazy val zioHttp = project
   .settings(name := "caliban-zio-http")
   .settings(commonSettings)
   .settings(enableMimaSettingsJVM)
+  .disablePlugins(AssemblyPlugin)
   .settings(
     resolvers += "Sonatype OSS Snapshots" at "https://oss.sonatype.org/content/repositories/snapshots",
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
@@ -391,6 +401,7 @@ lazy val quickAdapter = project
   .settings(name := "caliban-quick")
   .settings(commonSettings)
   .settings(enableMimaSettingsJVM)
+  .disablePlugins(AssemblyPlugin)
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
@@ -407,6 +418,7 @@ lazy val akkaHttp = project
   .settings(name := "caliban-akka-http")
   .settings(commonSettings)
   .settings(enableMimaSettingsJVM)
+  .disablePlugins(AssemblyPlugin)
   .settings(
     skip           := (scalaVersion.value == scala3),
     ideSkipProject := (scalaVersion.value == scala3),
@@ -427,6 +439,7 @@ lazy val pekkoHttp = project
   .settings(name := "caliban-pekko-http")
   .settings(commonSettings)
   .settings(enableMimaSettingsJVM)
+  .disablePlugins(AssemblyPlugin)
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= {
@@ -445,6 +458,7 @@ lazy val play = project
   .settings(name := "caliban-play")
   .settings(commonSettings)
   .settings(enableMimaSettingsJVM)
+  .disablePlugins(AssemblyPlugin)
   .settings(
     skip           := (scalaVersion.value == scala212),
     ideSkipProject := (scalaVersion.value == scala212),
@@ -471,6 +485,7 @@ lazy val client    = crossProject(JSPlatform, JVMPlatform, NativePlatform)
   .in(file("client"))
   .settings(name := "caliban-client")
   .settings(commonSettings)
+  .disablePlugins(AssemblyPlugin)
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
@@ -515,6 +530,7 @@ lazy val clientLaminext = crossProject(JSPlatform)
   .settings(commonSettings)
   .settings(enableMimaSettingsJS)
   .dependsOn(clientJS)
+  .disablePlugins(AssemblyPlugin)
   .settings(
     testFrameworks                         := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     Test / scalaJSLinkerConfig ~= { _.withModuleKind(ModuleKind.ESModule) },
@@ -535,6 +551,7 @@ lazy val clientLaminext = crossProject(JSPlatform)
 lazy val examples = project
   .in(file("examples"))
   .settings(commonSettings)
+  .disablePlugins(AssemblyPlugin)
   .settings(
     publish / skip     := true,
     run / fork         := true,
@@ -613,6 +630,7 @@ lazy val reporting = project
   .settings(commonSettings)
   .settings(enableMimaSettingsJVM)
   .dependsOn(clientJVM, core)
+  .disablePlugins(AssemblyPlugin)
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
@@ -626,6 +644,7 @@ lazy val reporting = project
 lazy val benchmarks = project
   .in(file("benchmarks"))
   .settings(commonSettings)
+  .disablePlugins(AssemblyPlugin)
   .settings(
     skip               := (scalaVersion.value == scala212),
     ideSkipProject     := (scalaVersion.value == scala212),
@@ -653,6 +672,7 @@ lazy val federation = project
   .settings(commonSettings)
   .settings(enableMimaSettingsJVM)
   .dependsOn(core % "compile->compile;test->test")
+  .disablePlugins(AssemblyPlugin)
   .settings(
     testFrameworks       := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
@@ -672,6 +692,7 @@ lazy val docs = project
   .in(file("mdoc"))
   .enablePlugins(MdocPlugin)
   .settings(commonSettings)
+  .disablePlugins(AssemblyPlugin)
   .settings(
     skip               := (scalaVersion.value == scala3),
     ideSkipProject     := (scalaVersion.value == scala3),

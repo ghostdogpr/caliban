@@ -116,7 +116,7 @@ To use `ZQuery` with Caliban, you can simply include fields of type `ZQuery` in 
 ```scala
 case class Queries(
   users: ZQuery[Any, Nothing, List[User]],
-  user: models.UserArgs => ZQuery[Any, Nothing, User])
+  user: UserArgs => ZQuery[Any, Nothing, User])
 ```
 
 During the query execution, Caliban will merge all the requested fields that return a `ZQuery` into a single `ZQuery` and run it, so that all the possible optimizations are applied.
