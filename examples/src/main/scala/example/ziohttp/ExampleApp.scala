@@ -19,15 +19,13 @@ object ExampleApp extends ZIOAppDefault {
     (for {
       interpreter <- ZIO.serviceWithZIO[GraphQL[Any]](_.interpreter)
       _           <-
-        Server
-          .serve(
-            Routes(
-              Method.ANY / "api" / "graphql" -> ZHttpAdapter.makeHttpService(HttpInterpreter(interpreter)),
-              Method.ANY / "ws" / "graphql"  ->
-                ZHttpAdapter.makeWebSocketService(WebSocketInterpreter(interpreter)),
-              Method.ANY / "graphiql"        -> graphiql
-            ).toHttpApp
+        Server.serve(
+          Routes(
+            Method.ANY / "api" / "graphql" -> ZHttpAdapter.makeHttpService(HttpInterpreter(interpreter)),
+            Method.ANY / "ws" / "graphql"  -> ZHttpAdapter.makeWebSocketService(WebSocketInterpreter(interpreter)),
+            Method.ANY / "graphiql"        -> graphiql
           )
+        )
       _           <- Console.printLine("Server online at http://localhost:8088/")
       _           <- Console.printLine("Press RETURN to stop...") *> Console.readLine
     } yield ())

@@ -38,7 +38,7 @@ object ZHttpAdapterSpec extends ZIOSpecDefault {
                   ),
               Method.ANY / "ws" / "graphql"  ->
                 ZHttpAdapter.makeWebSocketService(WebSocketInterpreter(interpreter))
-            ).toHttpApp
+            )
           )
           .forkScoped
       _           <- Live.live(Clock.sleep(3 seconds))

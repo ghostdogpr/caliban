@@ -3,6 +3,7 @@ package caliban.quick
 import caliban.ws.WebSocketHooks
 import zio._
 import zio.http.{ WebSocketConfig => ZWebSocketConfig }
+import zio.stacktracer.TracingImplicits.disableAutoTrace
 
 case class WebSocketConfig[-R](
   keepAliveTime: Option[Duration],
