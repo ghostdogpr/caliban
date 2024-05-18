@@ -115,10 +115,10 @@ If you have any specific server requirements or need to interop with other libra
 Support for JSON encoding / decoding of the inputs and responses for tapir-based adapters is enabled by adding **one** of the following dependencies to your `build.sbt` file:
 
 ```scala
-"com.softwaremill.sttp.tapir" %% "tapir-json-circe"     % "1.2.11" // circe
-"com.softwaremill.sttp.tapir" %% "tapir-jsoniter-scala" % "1.2.11" // jsoniter
-"com.softwaremill.sttp.tapir" %% "tapir-json-play"      % "1.2.11" // play-json
-"com.softwaremill.sttp.tapir" %% "tapir-json-zio"       % "1.2.11" // zio-json
+"com.softwaremill.sttp.tapir" %% "tapir-json-circe"     % "1.10.7" // circe
+"com.softwaremill.sttp.tapir" %% "tapir-jsoniter-scala" % "1.10.7" // jsoniter
+"com.softwaremill.sttp.tapir" %% "tapir-json-play"      % "1.10.7" // play-json
+"com.softwaremill.sttp.tapir" %% "tapir-json-zio"       % "1.10.7" // zio-json
 ```
 
 And then later in your code (you only need one!):
