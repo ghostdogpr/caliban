@@ -113,3 +113,17 @@ val interfaceType = Schema.gen[Any, Interface].toType_()
 val api = graphQL(RootResolver(Query(A("a"), B("b")))).withAdditionalTypes(List(interfaceType))
 ```
 
+### Can I check that a GraphQL query is valid at compile-time?
+
+Caliban provides a little macro called `gqldoc` that can check at **compile-time** that a GraphQL query (a *document* to be exact) has valid syntax.
+
+```scala mdoc:silent
+import caliban.Macros.gqldoc
+
+val query = gqldoc("""
+  query test {
+    amos: character(name: "Amos Burton") {
+      name
+    }
+  }""")
+```

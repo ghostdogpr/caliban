@@ -1,6 +1,6 @@
 # Schema Reporting
 
-The `caliban-reporting` module allows you to integrate with Apollo's [schema reporting protocol](https://www.apollographql.com/docs/studio/schema/schema-reporting-protocol/).
+The `caliban-reporting` module allows you to integrate with Apollo's [schema reporting protocol](https://github.com/apollographql/apollo-schema-reporting-preview-docs/blob/master/schema-reporting-protocol.md).
 This enables your servers to automatically publish updated schemas on start up without involving any additional tooling.
 
 You can enable the settings by providing the `ReportingDaemon` to your `Runtime` during setup.
