@@ -424,6 +424,12 @@ val api = graphQL[MyEnv, Queries, Unit, Unit](RootResolver(queries))
 // val api = graphQL(RootResolver(queries)) // it will infer MyEnv thanks to the instance above
 ```
 
+## Subscriptions
+
+All the fields of the subscription root case class MUST return `ZStream` or `? => ZStream` objects.
+
+The [cats and monix interop modules](interop.md) also let you use fs2 `Stream` and monix `Observable` respectively.
+
 ## Annotations
 
 Caliban supports a few annotations to enrich data types:
