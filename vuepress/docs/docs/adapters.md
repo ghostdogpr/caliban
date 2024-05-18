@@ -15,12 +15,12 @@ Under the hood, adapters use the [tapir](https://tapir.softwaremill.com/en/lates
 
 The following adapters are provided:
 - `Http4sAdapter` exposes a route for http4s.
-- `ZHttpAdapter` exposes a route for zio-http. This one doesn't support uploads yet.
+- `QuickAdapter` exposes a route for zio-http.
 - `PlayHttpAdapter` exposes a route for play.
 - `AkkaHttpAdapter` exposes a route for akka.
 - `PekkoHttpAdapter` exposes a route for pekko.
 
-To use them, you first need to transform your `GraphQLInterpreter` into a new type of interpreter that supports the protocol you want to use.
+To use them, you first need to transform your `GraphQLInterpreter` obtained from `api.interpreter` into a new type of interpreter that supports the protocol you want to use.
 There are 3 of them:
 - `HttpInterpreter` follows the [standard GraphQL protocol](https://graphql.org/learn/serving-over-http/#http-methods-headers-and-body)
 - `HttpUploadInterpreter` follows the [GraphQL multipart request protocol](https://github.com/jaydenseric/graphql-multipart-request-spec)
@@ -138,11 +138,11 @@ import caliban.quick._
 
 val api: GraphQL[Any] = ???
 
-api.runServer(
+api.unsafe.runServer(
   port = 8080,
   apiPath = "/api/graphql",
   graphiqlPath = Some("/graphiql"),
-  uploadPath = Some("/upload/graphql"), // Optional, for enabling GraphQL uploads
+  uploadPath = Some("/upload/graphql"), // optional, for enabling GraphQL uploads
 )
 ```
 

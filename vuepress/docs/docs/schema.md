@@ -1,6 +1,9 @@
-# Schemas
+# Schema generation
 
 A GraphQL schema will be derived automatically at compile-time (no reflection) from the types present in your resolver.
+
+If you're more interested in the schema-first approach, it is also possible to [generate the Scala code from a GraphQL schema file](server-codegen.md).
+
 The table below shows how common Scala types are converted to GraphQL types.
 
 | Scala Type                                                          | GraphQL Type                                                     |
@@ -442,46 +445,6 @@ ISO standard strings for serialization and deserialization. However, you can cus
 explicit constructor available under the `ArgBuilder` companion object. For instance, you can specify an `instantEpoch` 
 to handle instants which are encoded using a `Long` from the standard java epoch time (January 1st 1970 00:00:00).
 For some time formats you can also specify a specific `DateTimeFormatter` to handle your particular date time needs.
-
-## Schema-first with code generation
-
-Caliban can automatically generate Scala code from a GraphQL schema.
-
-In order to use this feature, add the `caliban-codegen-sbt` sbt plugin to your `project/plugins.sbt` file:
-```scala
-addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen-sbt" % "2.6.0")
-```
-
-And enable it in your `build.sbt` file:
-```scala
-enablePlugins(CalibanPlugin)
-```
-
-Then call the `calibanGenSchema` sbt command.
-```
-calibanGenSchema schemaPath outputPath [options]
-```
-This command will create a Scala file in `outputPath` containing all the types defined in the provided GraphQL schema at `schemaPath`. You can also provide a URL, and the schema will be obtained using introspection.
-
-Example:
-```
-calibanGenSchema project/schema.graphql src/main/MyAPI.scala --addDerives true
-```
-
-### Options
-- `--scalafmtPath`: Specifies the configuration file for Scalafmt. Default: `.scalafmt.conf`.
-- `--headers`: Provides request headers when `schemaPath` is a URL. Example: `name:value,name2:value2`.
-- `--packageName`: Overrides the package name derived from the folder of `outputPath`.
-- `--effect`: Overrides the default effect (`zio.UIO`) for wrapping fields in Queries and Mutations.
-- `--scalarMappings`: Forces a mapping between a GraphQL type and a Scala class (e.g., scalars). Example: `gqlType:f.q.d.n.Type,gqlType2:f.q.d.n.Type2`.
-- `--imports`: Adds additional imports to the generated code. Example: `a.b.c._,c.d.E`.
-- `--abstractEffectType`: Indicates that the effect type is abstract. Fields in Queries and Mutations will return `F[_]`. Value should be `true` or `false`.
-- `--preserveInputNames`: Disables the default behavior of appending `Input` to the type name of input types in the derived schema. Value should be `true` or `false`.
-- `--addDerives`: Adds `derives` clauses for type class instance derivation in Scala 3. Value should be `true` or `false`.
-- `--envForDerives`: Specifies the type alias for your ZIO Environment when using `derives` and a ZIO Environment other than `Any`.
-
-Since Caliban 1.3.0, you can generate schemas using an sbt `sourceGenerator`, which means your schemas will be generated every time you compile.
-This can be configured with the same settings as [the client generators](client.md#code-generation), but you have to specify `.genType(Codegen.GenType.Schema)` in the `calibanSettings` entry for a given file.
 
 ## Building Schemas by hand
 
