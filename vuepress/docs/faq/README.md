@@ -2,7 +2,7 @@
 
 ### I don't know where to start 😥
 
-No worries! Head to the [Resources](https://ghostdogpr.github.io/caliban/resources/) page to find a few introductory videos and blog posts. Once you're ready for more details, check the [Documentation](https://ghostdogpr.github.io/caliban/docs/). If you prefer looking at some code first, check [this list of examples](https://ghostdogpr.github.io/caliban/docs/examples.html).
+No worries! Head to the [Resources](https://ghostdogpr.github.io/caliban/resources/) page to find a few introductory videos and blog posts, in particular this [Beginner's Guide to GraphQL in Scala](https://blog.pierre-ricadat.com/a-beginners-guide-to-graphql-in-scala). Once you're ready for more details, check the [Documentation](https://ghostdogpr.github.io/caliban/docs/). If you prefer looking at some code first, check [this list of examples](https://ghostdogpr.github.io/caliban/docs/examples.html).
 
 If you're still lost, just come to the [Discord channel](https://discord.gg/EYpumuv)!
  

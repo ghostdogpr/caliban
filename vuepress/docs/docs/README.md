@@ -131,3 +131,12 @@ import sttp.tapir.json.zio._
 ```
 
 For more info on the adapters and the JSON implementations, see [here](adapters.md#json-handling).
+
+## Where to go next?
+
+The rest of the documentation covers in details how to create [schemas](schema.md), [customize](middleware.md) and [optimize](optimization.md) query processing, [expose](adapters.md) APIs, and much more.
+
+If you'd like to see a more detailed version of this tutorial, check out this [Beginner's Guide to GraphQL in Scala](https://blog.pierre-ricadat.com/a-beginners-guide-to-graphql-in-scala).
+If you prefer looking at some code first, check [this list of examples](https://ghostdogpr.github.io/caliban/docs/examples.html).
+
+If you have any questions, just come to the [Discord channel](https://discord.gg/EYpumuv)!
