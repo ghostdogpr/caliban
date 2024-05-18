@@ -15,7 +15,6 @@ Under the hood, adapters use the [tapir](https://tapir.softwaremill.com/en/lates
 
 The following adapters are provided:
 - `Http4sAdapter` exposes a route for http4s.
-- `QuickAdapter` exposes a route for zio-http.
 - `PlayHttpAdapter` exposes a route for play.
 - `AkkaHttpAdapter` exposes a route for akka.
 - `PekkoHttpAdapter` exposes a route for pekko.
