@@ -1,4 +1,4 @@
-# Interop
+# Interop with other libraries
 
 If you prefer using [Cats Effect](https://github.com/typelevel/cats-effect) or [Monix](https://github.com/monix/monix) rather than ZIO, you can use the respective `caliban-cats` and `caliban-monix` modules.
 
