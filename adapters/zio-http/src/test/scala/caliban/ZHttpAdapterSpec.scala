@@ -13,7 +13,7 @@ import caliban.uploads.Uploads
 import sttp.client3.UriContext
 import zio._
 import zio.http._
-import zio.test.{ Live, ZIOSpecDefault }
+import zio.test.{ Live, TestAspect, ZIOSpecDefault }
 
 import scala.annotation.nowarn
 import scala.language.postfixOps
@@ -51,7 +51,7 @@ object ZHttpAdapterSpec extends ZIOSpecDefault {
       "ZHttpAdapterSpec",
       uri"http://localhost:8089/api/graphql",
       wsUri = Some(uri"ws://localhost:8089/ws/graphql")
-    )
+    ) @@ TestAspect.blocking // Temporary, remove on next zio-http release
     suite.provideShared(
       apiLayer,
       Scope.default,
