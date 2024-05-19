@@ -129,7 +129,7 @@ lazy val rootJVM213 = project
     ideSkipProject     := true
   )
   .aggregate({
-    val excluded: Set[ProjectReference] = Set(clientJS, clientNative, clientLaminext, codegenSbt, apolloCompatibility)
+    val excluded: Set[ProjectReference] = Set(clientJS, clientNative, clientLaminext, codegenSbt)
     allProjects.filterNot(excluded.contains)
   } *)
 
@@ -141,7 +141,8 @@ lazy val rootJVM3 = project
     ideSkipProject     := true
   )
   .aggregate({
-    val excluded: Set[ProjectReference] = Set(clientJS, clientNative, clientLaminext, codegenSbt, akkaHttp)
+    val excluded: Set[ProjectReference] =
+      Set(clientJS, clientNative, clientLaminext, codegenSbt, akkaHttp, apolloCompatibility)
     allProjects.filterNot(excluded.contains)
   } *)
 

@@ -2,7 +2,7 @@ import caliban.CalibanError
 import zio._
 import caliban.quick._
 import services.{ InventoryService, ProductService, UserService }
-import zio.http.Server
+import zio.http.{ Response, Routes, Server }
 
 object Main extends ZIOAppDefault {
 
@@ -14,14 +14,14 @@ object Main extends ZIOAppDefault {
             })
   } yield ()
 
-  val printSchema = Console.printLine(ProductSchema.print)
+  private val printSchema = Console.printLine(ProductSchema.print)
 
-  val runServer = {
-    val server: ZIO[
-      ProductService with UserService with InventoryService with Server,
-      CalibanError.ValidationError,
-      Int
-    ] = (ProductSchema.api.toApp("/graphql") flatMap Server.serve)
+  private val runServer = {
+    val routes: Task[Routes[ProductService with UserService with InventoryService, Response]] =
+      ProductSchema.api.routes("/graphql")
+
+    val server: ZIO[ProductService with UserService with InventoryService with Server, Throwable, Response] =
+      routes.flatMap(Server.serve(_))
 
     server.orDie
       .provide(
