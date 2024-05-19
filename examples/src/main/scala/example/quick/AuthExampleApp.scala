@@ -67,7 +67,7 @@ object AuthExampleApp extends ZIOAppDefault {
                           Routes(
                             Method.POST / "api" / "graphql" -> handlers.api,
                             Method.GET / "graphiql"         -> graphiqlHandler
-                          ).toHttpApp
+                          )
                         )
       _              <- ZIO.logInfo(s"Server started on port $port")
       _              <- ZIO.never

@@ -211,10 +211,9 @@ object Transformer {
     private def shouldKeep(typeName: String, fieldName: String): Boolean =
       !map.getOrElse(typeName, Set.empty).contains(fieldName)
 
-    val typeVisitor: TypeVisitor = {
+    val typeVisitor: TypeVisitor =
       TypeVisitor.fields.filterWith((t, field) => shouldKeep(t.name.getOrElse(""), field.name)) |+|
         TypeVisitor.inputFields.filterWith((t, field) => shouldKeep(t.name.getOrElse(""), field.name))
-    }
 
     protected val typeNames: Set[String] = map.keySet
 

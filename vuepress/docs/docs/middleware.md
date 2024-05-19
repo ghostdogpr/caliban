@@ -150,22 +150,22 @@ Here is such an example that is part of the `federation` package which makes a s
 a federated graph:
 
 ```scala
-  def federate[R](original: GraphQL[R]): GraphQL[R] = {
-    import Schema._
+def federate[R](original: GraphQL[R]): GraphQL[R] = {
+  import Schema._
 
-    case class Query(
-      _service: _Service,
-      _fieldSet: FieldSet = FieldSet("")
-    )
+  case class Query(
+    _service: _Service,
+    _fieldSet: FieldSet = FieldSet("")
+  )
 
-    graphQL(RootResolver(Query(_service = _Service(original.render))), federationDirectives) |+| original
+  graphQL(RootResolver(Query(_service = _Service(original.render))), federationDirectives) |+| original
+}
+
+lazy val federated: GraphQLAspect[Nothing, Any] = 
+  new GraphQLAspect[Nothing, Any] {
+    def apply[R1](original: GraphQL[R1]): GraphQL[R1] =
+      federate(original)
   }
-
-  lazy val federated: GraphQLAspect[Nothing, Any] = 
-    new GraphQLAspect[Nothing, Any] {
-      def apply[R1](original: GraphQL[R1]): GraphQL[R1] =
-        federate(original)
-    }
 ```
 
 ## Cost Estimation

@@ -4,7 +4,7 @@ import org.apache.pekko.actor.ActorSystem
 import org.apache.pekko.http.scaladsl.Http
 import org.apache.pekko.http.scaladsl.server.Directives._
 import caliban.interop.tapir.{ HttpInterpreter, WebSocketInterpreter }
-import caliban.{ PekkoHttpAdapter, GraphQL }
+import caliban.{ GraphQL, PekkoHttpAdapter }
 import example.ExampleData.sampleCharacters
 import example.{ ExampleApi, ExampleService }
 import sttp.tapir.json.circe._

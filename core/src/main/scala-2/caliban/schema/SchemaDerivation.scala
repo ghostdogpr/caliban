@@ -128,8 +128,10 @@ trait CommonSchemaDerivation[R] {
         )
     }
 
+    private lazy val enumValue = PureStep(EnumValue(getName(ctx)))
+
     override def resolve(value: T): Step[R] =
-      if (ctx.isObject) PureStep(EnumValue(getName(ctx)))
+      if (ctx.isObject) enumValue
       else if (_isValueType) resolveValueType(value)
       else objectResolver.resolve(value)
 

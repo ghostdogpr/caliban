@@ -31,9 +31,9 @@ val zioInteropReactiveVersion = "2.0.2"
 val zioConfigVersion          = "3.0.7"
 val zqueryVersion             = "0.7.1"
 val zioJsonVersion            = "0.6.2"
-val zioHttpVersion            = "3.0.0-RC6"
+val zioHttpVersion            = "3.0.0-RC7"
 val zioOpenTelemetryVersion   = "3.0.0-RC21"
-val zioPreludeVersion         = "1.0.0-RC25"
+val zioPreludeVersion         = "1.0.0-RC26"
 
 Global / onChangedBuildSource := ReloadOnSourceChanges
 
@@ -603,15 +603,20 @@ lazy val benchmarks = project
   .dependsOn(core % "compile->compile")
   .enablePlugins(JmhPlugin)
   .settings(
+    libraryDependencySchemes ++= Seq(
+      "org.typelevel" %% "cats-parse" % VersionScheme.Always
+    ),
     libraryDependencies ++= Seq(
-      "org.sangria-graphql"                   %% "sangria"             % "4.0.1",
+      "org.sangria-graphql"                   %% "sangria"             % "4.1.0",
       "org.sangria-graphql"                   %% "sangria-circe"       % "1.3.2",
-      "edu.gemini"                            %% "gsp-graphql-core"    % "0.13.0",
-      "edu.gemini"                            %% "gsp-graphql-generic" % "0.13.0",
-      "io.github.valdemargr"                  %% "gql-server"          % "0.3.3",
+      "org.typelevel"                         %% "grackle-core"        % "0.17.0",
+      "org.typelevel"                         %% "grackle-generic"     % "0.17.0",
+      "io.github.valdemargr"                  %% "gql-server"          % "0.3.5",
       "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-core" % jsoniterVersion,
       "io.circe"                              %% "circe-parser"        % circeVersion,
-      "dev.zio"                               %% "zio-json"            % zioJsonVersion
+      "dev.zio"                               %% "zio-json"            % zioJsonVersion,
+      "dev.zio"                               %% "zio-test"            % zioVersion % Test,
+      "dev.zio"                               %% "zio-test-sbt"        % zioVersion % Test
     )
   )
 
@@ -730,7 +735,8 @@ lazy val apiMappingSettings = Def.settings(
   apiMappings ++= {
     val depsByModule = (Compile / dependencyClasspathAsJars).value.flatMap { dep =>
       dep.get(moduleID.key).map((_, dep.data))
-    }.groupBy { case (moduleID, _) => (moduleID.organization, moduleID.name) }.mapValues(_.head)
+    }.groupBy { case (moduleID, _) => (moduleID.organization, moduleID.name) }
+      .mapValues(_.head)
 
     val cross = CrossVersion(crossVersion.value, scalaVersion.value, scalaBinaryVersion.value)
       .getOrElse((s: String) => s)

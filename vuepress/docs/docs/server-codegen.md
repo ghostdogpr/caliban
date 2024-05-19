@@ -1,10 +1,10 @@
-# Server code generation from schema
+# Code generation
 
-If you want a workflow where you first edit a graphql schema file, and then generate type-safe server stubs, Caliban has your back.
+If you want a workflow where you first edit a GraphQL schema file, and then generate type-safe server stubs, Caliban has your back.
 
 You'll first need to add the following dependency to your `project/plugins.sbt` file:
 ```scala
-addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen-sbt" % "2.3.1")
+addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen-sbt" % "2.6.0")
 ```
 
 You then enable it in your `build.sbt` file:
@@ -15,18 +15,10 @@ lazy val myproject = project
   // enable caliban codegen plugin
   .enablePlugins(CalibanPlugin)
   .settings(
-    scalaVersion := "3.3.3",
-    libraryDependencies ++= List(
-      // the exact list of dependencies will vary with the libraries you want
-      "com.github.ghostdogpr" %% "caliban" % "2.3.1",
-      "com.github.ghostdogpr" %% "caliban-http4s" % "2.3.1",
-      "com.github.ghostdogpr" %% "caliban-cats" % "2.3.1",
-      "com.softwaremill.sttp.tapir" %% "tapir-json-circe" % "1.7.5",
-      "org.http4s" %% "http4s-ember-server" % "0.23.19"
-    ),
+    // add code generation settings
     Compile / caliban / calibanSettings ++= Seq(
       calibanSetting(file("myproject/src/main/graphql/myapi.graphql"))(
-        // important to set this. otherwise you'll get client code
+        // important to set this, otherwise you'll get client code
         _.genType(Codegen.GenType.Schema)
           // you can customize the codegen further with this DSL
           .clientName("NameOfApi.scala")
@@ -36,7 +28,30 @@ lazy val myproject = project
   )
 ```
 
-### Lazy evaluation
+You can also generate it manually using the following sbt command:
+```
+calibanGenSchema schemaPath outputPath [options]
+```
+
+Example:
+```
+calibanGenSchema project/schema.graphql src/main/MyAPI.scala --addDerives true
+```
+
+## Options
+
+- `scalafmtPath`: Specifies the configuration file for Scalafmt. Default: `.scalafmt.conf`.
+- `headers`: Provides request headers when `schemaPath` is a URL.
+- `packageName`: Overrides the package name derived from the folder of `outputPath`.
+- `effect`: Overrides the default effect (`zio.UIO`) for wrapping fields in Queries and Mutations.
+- `scalarMappings`: Forces a mapping between a GraphQL type and a Scala class (e.g., scalars).
+- `imports`: Adds additional imports to the generated code.
+- `abstractEffectType`: Indicates that the effect type is abstract. Fields in Queries and Mutations will return `F[_]`.
+- `preserveInputNames`: Disables the default behavior of appending `Input` to the type name of input types in the derived schema.
+- `addDerives`: Adds `derives` clauses for type class instance derivation in Scala 3.
+- `envForDerives`: Specifies the type alias for your ZIO Environment when using `derives` and a ZIO Environment other than `Any`.
+
+## Lazy evaluation
 
 The main difference between generating code for client usage and for server usage is that on the server you need to account for 
 code which should only be evaluated if the client requests the field!
@@ -64,7 +79,7 @@ case class MyType(myLazyField: zio.UIO[String], myField: String)
 
 When implementing this, `myLazyField` will only be evaluated if the client requested it in the query
 
-### Newtype declaration
+## Newtype declaration
 
 The `@newtype` directive in caliban allows you to wrap your GraphQL fields into statically
 typed IDs for backend. For clients, they can use the GraphQL as before and do not

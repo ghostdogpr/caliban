@@ -41,7 +41,7 @@ module.exports = {
           },
           {
             text: 'Scaladoc',
-            link: 'https://javadoc.io/doc/com.github.ghostdogpr/caliban_2.12/'
+            link: 'https://javadoc.io/doc/com.github.ghostdogpr/caliban_3/'
           },
         ],
         sidebar: {
@@ -52,16 +52,14 @@ module.exports = {
             children: [
               '',
               'schema',
+              'server-codegen',
+              'adapters',
               'middleware',
               'optimization',
-              'validation',
-              'introspection',
-              'adapters',
               'interop',
               'federation',
               'relay-connections',
               'schema-reporting',
-              'server-codegen',
             ]
           },
           {

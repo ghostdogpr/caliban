@@ -81,7 +81,7 @@ object WebSocketInterpreter {
     interpreter: WebSocketInterpreter[R, E],
     path: List[String]
   ) extends WebSocketInterpreter[R, E] {
-    val endpoint: PublicEndpoint[(ServerRequest, String), TapirResponse, (String, CalibanPipe), ZioWebSockets] = {
+    val endpoint: PublicEndpoint[(ServerRequest, String), TapirResponse, (String, CalibanPipe), ZioWebSockets] =
       if (path.nonEmpty) {
         val p: List[EndpointInput[Unit]]   = path.map(stringToPath)
         val fixedPath: EndpointInput[Unit] = p.tail.foldLeft(p.head)(_ / _)
@@ -90,7 +90,6 @@ object WebSocketInterpreter {
       } else {
         interpreter.endpoint
       }
-    }
 
     def makeProtocol(
       serverRequest: ServerRequest,

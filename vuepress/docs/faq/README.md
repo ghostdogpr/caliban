@@ -2,7 +2,7 @@
 
 ### I don't know where to start 😥
 
-No worries! Head to the [Resources](https://ghostdogpr.github.io/caliban/resources/) page to find a few introductory videos and blog posts. Once you're ready for more details, check the [Documentation](https://ghostdogpr.github.io/caliban/docs/). If you prefer looking at some code first, check [this list of examples](https://ghostdogpr.github.io/caliban/docs/examples.html).
+No worries! Head to the [Resources](https://ghostdogpr.github.io/caliban/resources/) page to find a few introductory videos and blog posts, in particular this [Beginner's Guide to GraphQL in Scala](https://blog.pierre-ricadat.com/a-beginners-guide-to-graphql-in-scala). Once you're ready for more details, check the [Documentation](https://ghostdogpr.github.io/caliban/docs/). If you prefer looking at some code first, check [this list of examples](https://ghostdogpr.github.io/caliban/docs/examples.html).
 
 If you're still lost, just come to the [Discord channel](https://discord.gg/EYpumuv)!
  
@@ -113,3 +113,17 @@ val interfaceType = Schema.gen[Any, Interface].toType_()
 val api = graphQL(RootResolver(Query(A("a"), B("b")))).withAdditionalTypes(List(interfaceType))
 ```
 
+### Can I check that a GraphQL query is valid at compile-time?
+
+Caliban provides a little macro called `gqldoc` that can check at **compile-time** that a GraphQL query (a *document* to be exact) has valid syntax.
+
+```scala mdoc:silent
+import caliban.Macros.gqldoc
+
+val query = gqldoc("""
+  query test {
+    amos: character(name: "Amos Burton") {
+      name
+    }
+  }""")
+```

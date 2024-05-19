@@ -3,6 +3,7 @@ package caliban
 import caliban.Configurator.ExecutionConfiguration
 import zio._
 import zio.http._
+import zio.stacktracer.TracingImplicits.disableAutoTrace
 
 package object quick {
 
@@ -25,7 +26,8 @@ package object quick {
       uploadPath: Option[String] = None,
       webSocketPath: Option[String] = None
     )(implicit
-      trace: Trace
+      trace: Trace,
+      tag: Tag[R]
     ): RIO[R, Nothing] =
       gql.interpreter.flatMap(
         QuickAdapter(_).runServer(
@@ -38,12 +40,29 @@ package object quick {
       )
 
     /**
-     * Creates zio-http `HttpApp` from the GraphQL API
+     * Creates zio-http `Routes` from the GraphQL API
      *
      * @param apiPath The route to serve the API on, e.g., `/api/graphql`
      * @param graphiqlPath Optionally define a route to serve the GraphiQL UI on, e.g., `/graphiql`
      * @param uploadPath Optionally define a route to serve file uploads on, e.g., `/api/upload`
+     * @param webSocketPath The path where websocket requests will be set. If None, websocket-based subscriptions will be disabled.
      */
+    def routes(
+      apiPath: String,
+      graphiqlPath: Option[String] = None,
+      uploadPath: Option[String] = None,
+      webSocketPath: Option[String] = None
+    )(implicit trace: Trace): Task[Routes[R, Nothing]] =
+      gql.interpreter.map(
+        QuickAdapter(_).routes(
+          apiPath = apiPath,
+          graphiqlPath = graphiqlPath,
+          uploadPath = uploadPath,
+          webSocketPath = webSocketPath
+        )
+      )
+
+    @deprecated("use `routes` instead", "2.6.1")
     def toApp(
       apiPath: String,
       graphiqlPath: Option[String] = None,
@@ -88,13 +107,34 @@ package object quick {
     /**
      * Unsafe API which allows running the server impurely
      */
-    def unsafe: UnsafeApi[R] = gql.interpreterEither.fold(throw _, new UnsafeApi(_))
+    def unsafe: UnsafeApi[R] = new UnsafeApi[R](gql.interpreterUnsafe)
   }
 
   final class UnsafeApi[R](
     interpreter: GraphQLInterpreter[R, Any],
     executionConfig: ExecutionConfiguration = ExecutionConfiguration()
   ) {
+
+    /**
+     * Creates zio-http `Routes` from the GraphQL API
+     *
+     * @param apiPath The route to serve the API on, e.g., `/api/graphql`
+     * @param graphiqlPath Optionally define a route to serve the GraphiQL UI on, e.g., `/graphiql`
+     * @param uploadPath Optionally define a route to serve file uploads on, e.g., `/api/upload`
+     * @param webSocketPath The path where websocket requests will be set. If None, websocket-based subscriptions will be disabled.
+     */
+    def routes(
+      apiPath: String,
+      graphiqlPath: Option[String] = None,
+      uploadPath: Option[String] = None,
+      webSocketPath: Option[String] = None
+    ): Routes[R, Any] =
+      QuickAdapter(interpreter).routes(
+        apiPath = apiPath,
+        graphiqlPath = graphiqlPath,
+        uploadPath = uploadPath,
+        webSocketPath = webSocketPath
+      )
 
     /**
      * Convenience method for impurely running the server.
@@ -108,11 +148,11 @@ package object quick {
       apiPath: String = "/graphql",
       graphiqlPath: Option[String] = Some("/graphiql"),
       uploadPath: Option[String] = None
-    )(implicit trace: Trace, ev: Any =:= R): Unit = {
+    )(implicit trace: Trace, tag: Tag[R], ev: Any =:= R): Unit = {
       val run: RIO[R, Nothing] =
         QuickAdapter(interpreter)
-          .configure(executionConfig)
           .runServer(port, apiPath, graphiqlPath, uploadPath)
+          .provideSomeLayer[R](ZLayer.scoped[Any](Configurator.set(executionConfig)))
 
       ZIOApp.fromZIO(run.asInstanceOf[RIO[Any, Nothing]]).main(Array.empty)
     }
