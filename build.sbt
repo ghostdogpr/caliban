@@ -614,7 +614,9 @@ lazy val benchmarks = project
       "io.github.valdemargr"                  %% "gql-server"          % "0.3.5",
       "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-core" % jsoniterVersion,
       "io.circe"                              %% "circe-parser"        % circeVersion,
-      "dev.zio"                               %% "zio-json"            % zioJsonVersion
+      "dev.zio"                               %% "zio-json"            % zioJsonVersion,
+      "dev.zio"                               %% "zio-test"            % zioVersion % Test,
+      "dev.zio"                               %% "zio-test-sbt"        % zioVersion % Test
     )
   )
 
