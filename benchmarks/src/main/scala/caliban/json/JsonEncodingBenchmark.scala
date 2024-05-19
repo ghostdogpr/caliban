@@ -1,8 +1,9 @@
-package caliban
+package caliban.json
 
 import caliban.Value._
-import caliban.interop.circe.json.GraphQLResponseCirce.{ graphQLResponseEncoder => circeEncoder }
-import caliban.interop.zio.GraphQLResponseZioJson.{ graphQLResponseEncoder => zioEncoder }
+import caliban.interop.circe.json.GraphQLResponseCirce.{graphQLResponseEncoder => circeEncoder}
+import caliban.interop.zio.GraphQLResponseZioJson.{graphQLResponseEncoder => zioEncoder}
+import caliban.{GraphQLResponse, ResponseValue}
 import com.github.plokhotnyuk.jsoniter_scala.core._
 import org.openjdk.jmh.annotations._
 
@@ -14,7 +15,7 @@ import java.util.concurrent.TimeUnit
 @Warmup(iterations = 5, time = 3, timeUnit = TimeUnit.SECONDS)
 @Measurement(iterations = 5, time = 3, timeUnit = TimeUnit.SECONDS)
 @Fork(1)
-class JsonEncodingBenchmarks {
+class JsonEncodingBenchmark {
 
   private def mkObject(depth: Int, lengthMultiplier: Int): ResponseValue = {
     val depthM1 = depth - 1

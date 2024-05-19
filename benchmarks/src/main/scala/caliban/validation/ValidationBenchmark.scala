@@ -1,24 +1,14 @@
-package caliban.execution
+package caliban.validation
 
 import caliban._
+import caliban.execution.NestedZQueryBenchmarkSchema
 import caliban.introspection.Introspector
 import caliban.parsing.{ Parser, VariablesCoercer }
 import caliban.schema.RootType
-import caliban.validation.Validator
-import org.openjdk.jmh.annotations.{
-  Benchmark,
-  BenchmarkMode,
-  Fork,
-  Measurement,
-  Mode,
-  OutputTimeUnit,
-  Scope,
-  State,
-  Warmup
-}
+import org.openjdk.jmh.annotations.{ Scope, _ }
+import zio._
 
 import java.util.concurrent.TimeUnit
-import zio._
 
 @State(Scope.Thread)
 @BenchmarkMode(Array(Mode.Throughput))
@@ -46,7 +36,7 @@ class ValidationBenchmark {
   val parsedMultifieldQuery    = run(Parser.parseQuery(multifieldQuery))
   val parsedDeepQuery          = run(Parser.parseQuery(deepQuery))
   val parsedDeepWithArgsQuery  = run(Parser.parseQuery(deepWithArgsQuery))
-  val parsedIntrospectionQuery = run(Parser.parseQuery(GraphQLBenchmarks.fullIntrospectionQuery))
+  val parsedIntrospectionQuery = run(Parser.parseQuery(ComplexQueryBenchmark.fullIntrospectionQuery))
 
   val simpleType = run(
     toSchema(graphQL[Any, SimpleRoot, Unit, Unit](RootResolver(NestedZQueryBenchmarkSchema.simple100Elements)))
