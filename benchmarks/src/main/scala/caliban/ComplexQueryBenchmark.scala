@@ -23,14 +23,14 @@ class ComplexQueryBenchmark {
   implicit val executionContext: ExecutionContextExecutor = scala.concurrent.ExecutionContext.global
 
   @Benchmark
-  def introspectCaliban(): Unit = {
+  def runCaliban(): Unit = {
     val io = Caliban.interpreter.execute(fullIntrospectionQuery)
     Caliban.run(io)
     ()
   }
 
   @Benchmark
-  def introspectSangria(): Unit = {
+  def runSangria(): Unit = {
     val future: Future[Json] =
       Future
         .fromTry(QueryParser.parse(fullIntrospectionQuery))
@@ -40,14 +40,14 @@ class ComplexQueryBenchmark {
   }
 
   @Benchmark
-  def introspectGrackle(): Unit = {
+  def runGrackle(): Unit = {
     val io = Grackle.compileAndRun(fullIntrospectionQuery)
     Grackle.run(io)
     ()
   }
 
   @Benchmark
-  def introspectGql(): Unit = {
+  def runGql(): Unit = {
     val io = gql.Compiler[IO].compile(Gql.schema, fullIntrospectionQuery) match {
       case Right(gql.Application.Query(run)) => run
       case _                                 => IO.raiseError(new Exception("Failed to compile"))

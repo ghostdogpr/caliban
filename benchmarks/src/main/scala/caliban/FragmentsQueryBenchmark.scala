@@ -23,14 +23,14 @@ class FragmentsQueryBenchmark {
   implicit val executionContext: ExecutionContextExecutor = scala.concurrent.ExecutionContext.global
 
   @Benchmark
-  def fragmentsCaliban(): Unit = {
+  def runCaliban(): Unit = {
     val io = Caliban.interpreter.execute(fragmentsQuery)
     Caliban.run(io)
     ()
   }
 
   @Benchmark
-  def fragmentsSangria(): Unit = {
+  def runSangria(): Unit = {
     val future: Future[Json] =
       Future
         .fromTry(QueryParser.parse(fragmentsQuery))
@@ -40,14 +40,14 @@ class FragmentsQueryBenchmark {
   }
 
   @Benchmark
-  def fragmentsGrackle(): Unit = {
+  def runGrackle(): Unit = {
     val io = Grackle.compileAndRun(fragmentsQuery)
     Grackle.run(io)
     ()
   }
 
   @Benchmark
-  def fragmentsGql(): Unit = {
+  def runGql(): Unit = {
     val io = gql.Compiler[IO].compile(Gql.schema, fragmentsQuery) match {
       case Right(gql.Application.Query(run)) => run
       case _                                 => IO.raiseError(new Exception("Failed to compile"))

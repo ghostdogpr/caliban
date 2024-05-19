@@ -24,27 +24,27 @@ class ParserBenchmark {
   implicit val executionContext: ExecutionContextExecutor = scala.concurrent.ExecutionContext.global
 
   @Benchmark
-  def parserCaliban(): Unit = {
+  def runCaliban(): Unit = {
     val io = Parser.parseQuery(fullIntrospectionQuery)
     Caliban.run(io)
     ()
   }
 
   @Benchmark
-  def parserSangria(): Unit = {
+  def runSangria(): Unit = {
     val future = Future.fromTry(QueryParser.parse(fullIntrospectionQuery))
     Await.result(future, 1.minute)
     ()
   }
 
   @Benchmark
-  def parserGrackle(): Unit = {
+  def runGrackle(): Unit = {
     Grackle.compiler.compile(fullIntrospectionQuery)
     ()
   }
 
   @Benchmark
-  def parserGql(): Unit = {
+  def runGql(): Unit = {
     gql.parser.parseQuery(fullIntrospectionQuery)
     ()
   }
