@@ -5,7 +5,7 @@ import caliban.parsing.adt.Document
 import caliban.schema.Schema.auto._
 import caliban.schema.ArgBuilder.auto._
 import cats.effect.IO
-import edu.gemini.grackle.generic.GenericMapping
+import grackle.generic.GenericMapping
 import io.circe.{ Encoder, Json }
 import zio.{ Runtime, Task, UIO, Unsafe, ZIO }
 
@@ -107,14 +107,13 @@ object Sangria {
 }
 
 object Grackle extends GenericMapping[IO] {
-  import edu.gemini.grackle.Cursor.{ Context, Env }
-  import edu.gemini.grackle.Predicate._
-  import edu.gemini.grackle.Query._
-  import edu.gemini.grackle.QueryCompiler._
-  import edu.gemini.grackle.Value._
-  import edu.gemini.grackle._
-  import edu.gemini.grackle.generic._
-  import edu.gemini.grackle.syntax._
+  import grackle.Predicate._
+  import grackle.Query._
+  import grackle.QueryCompiler._
+  import grackle.Value._
+  import grackle._
+  import grackle.generic._
+  import grackle.syntax._
   import semiauto._
 
   val schema =
@@ -165,7 +164,7 @@ object Grackle extends GenericMapping[IO] {
       override def asLeaf: Result[Json] = Json.fromString(focus.toString).success
     }
     new CursorBuilder[Origin]           {
-      val tpe = EnumType("Origin", None, List("EARTH", "MARS", "BELT").map(EnumValue(_, None)))
+      val tpe = EnumType("Origin", None, List("EARTH", "MARS", "BELT").map(EnumValueDefinition(_, None, Nil)), Nil)
 
       def build(context: Context, focus: Origin, parent: Option[Cursor], env: Env): Result[Cursor] =
         OriginCursor(context.asType(tpe), focus, parent, env).success
@@ -200,27 +199,26 @@ object Grackle extends GenericMapping[IO] {
   implicit val eq: cats.Eq[Origin] = cats.Eq.fromUniversalEquals[Origin]
 
   // #elaborator
-  override val selectElaborator = new SelectElaborator(
-    Map(
-      QueryType -> {
-        case Select(f @ "character", List(Binding("id", IDValue(id))), child)        =>
-          Select(f, Nil, Unique(Filter(Eql(CharacterType / "id", Const(id)), child))).success
-        case Select("characters", List(Binding("origin", TypedEnumValue(e))), child) =>
-          val originOpt = e.name match {
-            case "EARTH" => Some(Origin.EARTH)
-            case "MARS"  => Some(Origin.MARS)
-            case "BELT"  => Some(Origin.BELT)
-            case _       => None
-          }
-          originOpt
-            .map((origin: Origin) =>
-              Select("characters", Nil, Unique(Filter(Eql(CharacterType / "origin", Const(origin)), child))).success
-            )
-            .getOrElse(Result.failure(s"Unknown origin '${e.name}'"))
-
+  override val selectElaborator = SelectElaborator {
+    case (QueryType, f @ "character", List(Binding("id", IDValue(id))))      =>
+      Elab.transformChild { child =>
+        Unique(Filter(Eql(CharacterType / "id", Const(id)), child))
       }
-    )
-  )
+    case (QueryType, "characters", List(Binding("origin", EnumValue(name)))) =>
+      val originOpt = name match {
+        case "EARTH" => Some(Origin.EARTH)
+        case "MARS"  => Some(Origin.MARS)
+        case "BELT"  => Some(Origin.BELT)
+        case _       => None
+      }
+      originOpt
+        .map((origin: Origin) =>
+          Elab.transformChild { child =>
+            Unique(Filter(Eql(CharacterType / "origin", Const(origin)), child))
+          }
+        )
+        .getOrElse(Elab.failure(s"Unknown origin '$name'"))
+  }
 
   def run[A](io: IO[A]): A = io.unsafeRunSync()(cats.effect.unsafe.IORuntime.global)
 }

@@ -603,12 +603,15 @@ lazy val benchmarks = project
   .dependsOn(core % "compile->compile")
   .enablePlugins(JmhPlugin)
   .settings(
+    libraryDependencySchemes ++= Seq(
+      "org.typelevel" %% "cats-parse" % VersionScheme.Always
+    ),
     libraryDependencies ++= Seq(
-      "org.sangria-graphql"                   %% "sangria"             % "4.0.1",
+      "org.sangria-graphql"                   %% "sangria"             % "4.1.0",
       "org.sangria-graphql"                   %% "sangria-circe"       % "1.3.2",
-      "edu.gemini"                            %% "gsp-graphql-core"    % "0.13.0",
-      "edu.gemini"                            %% "gsp-graphql-generic" % "0.13.0",
-      "io.github.valdemargr"                  %% "gql-server"          % "0.3.3",
+      "org.typelevel"                         %% "grackle-core"        % "0.19.0",
+      "org.typelevel"                         %% "grackle-generic"     % "0.19.0",
+      "io.github.valdemargr"                  %% "gql-server"          % "0.3.5",
       "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-core" % jsoniterVersion,
       "io.circe"                              %% "circe-parser"        % circeVersion,
       "dev.zio"                               %% "zio-json"            % zioJsonVersion
