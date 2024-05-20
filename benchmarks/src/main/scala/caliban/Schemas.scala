@@ -116,6 +116,8 @@ object Grackle extends GenericMapping[IO] {
   import grackle.syntax._
   import semiauto._
 
+  override def parserConfig: GraphQLParser.Config = super.parserConfig.copy(maxSelectionWidth = 100000)
+
   val schema =
     schema"""
           type Query {

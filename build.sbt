@@ -609,8 +609,8 @@ lazy val benchmarks = project
     libraryDependencies ++= Seq(
       "org.sangria-graphql"                   %% "sangria"             % "4.1.0",
       "org.sangria-graphql"                   %% "sangria-circe"       % "1.3.2",
-      "org.typelevel"                         %% "grackle-core"        % "0.17.0",
-      "org.typelevel"                         %% "grackle-generic"     % "0.17.0",
+      "org.typelevel"                         %% "grackle-core"        % "0.19.1",
+      "org.typelevel"                         %% "grackle-generic"     % "0.19.1",
       "io.github.valdemargr"                  %% "gql-server"          % "0.3.5",
       "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-core" % jsoniterVersion,
       "io.circe"                              %% "circe-parser"        % circeVersion,
