@@ -13,7 +13,7 @@ import caliban.uploads.Uploads
 import sttp.client3.UriContext
 import zio._
 import zio.http._
-import zio.test.{ Live, TestAspect, ZIOSpecDefault }
+import zio.test.{ Live, TestEnvironment, ZIOSpecDefault }
 
 import scala.annotation.nowarn
 import scala.language.postfixOps
@@ -21,6 +21,10 @@ import scala.language.postfixOps
 @nowarn
 object ZHttpAdapterSpec extends ZIOSpecDefault {
   import sttp.tapir.json.zio._
+
+  // Temporary, remove on next zio-http release
+  override val bootstrap: ZLayer[Any, Any, TestEnvironment] =
+    super.bootstrap ++ Runtime.setExecutor(Executor.makeDefault(true))
 
   private val envLayer = TestService.make(sampleCharacters) ++ Uploads.empty
 
@@ -51,7 +55,7 @@ object ZHttpAdapterSpec extends ZIOSpecDefault {
       "ZHttpAdapterSpec",
       uri"http://localhost:8089/api/graphql",
       wsUri = Some(uri"ws://localhost:8089/ws/graphql")
-    ) @@ TestAspect.blocking // Temporary, remove on next zio-http release
+    )
     suite.provideShared(
       apiLayer,
       Scope.default,
