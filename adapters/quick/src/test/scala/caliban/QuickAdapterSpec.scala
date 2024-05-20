@@ -28,6 +28,7 @@ object QuickAdapterSpec extends ZIOSpecDefault {
 
   private val apiLayer = envLayer >>> ZLayer.fromZIO {
     for {
+      _       <- ZIO.yieldNow
       app     <- TestApi.api
                    .routes("/api/graphql", uploadPath = Some("/upload/graphql"), webSocketPath = Some("/ws/graphql"))
                    .map(_ @@ auth)

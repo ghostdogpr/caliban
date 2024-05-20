@@ -30,6 +30,7 @@ object ZHttpAdapterSpec extends ZIOSpecDefault {
 
   private val apiLayer = envLayer >>> ZLayer.fromZIO {
     for {
+      _           <- ZIO.yieldNow
       interpreter <- TestApi.api.interpreter
       _           <-
         Server
