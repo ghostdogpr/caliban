@@ -6,7 +6,7 @@ import caliban.uploads.Uploads
 import sttp.client3.UriContext
 import zio._
 import zio.http._
-import zio.test.{ Live, TestEnvironment, ZIOSpecDefault }
+import zio.test.{ testEnvironment, Live, TestEnvironment, ZIOSpecDefault }
 
 import scala.language.postfixOps
 
@@ -16,7 +16,7 @@ object QuickAdapterSpec extends ZIOSpecDefault {
 
   // Temporary, remove on next zio-http release
   override val bootstrap: ZLayer[Any, Any, TestEnvironment] =
-    super.bootstrap ++ Runtime.setExecutor(Executor.makeDefault(true))
+    testEnvironment ++ Runtime.setExecutor(Executor.makeDefault(true))
 
   private val envLayer = TestService.make(sampleCharacters) ++ Uploads.empty
 
