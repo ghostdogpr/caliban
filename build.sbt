@@ -142,7 +142,7 @@ lazy val rootJVM3 = project
   )
   .aggregate({
     val excluded: Set[ProjectReference] =
-      Set(clientJS, clientNative, clientLaminext, codegenSbt, akkaHttp, apolloCompatibility)
+      Set(clientJS, clientNative, clientLaminext, codegenSbt, akkaHttp)
     allProjects.filterNot(excluded.contains)
   } *)
 
@@ -605,9 +605,9 @@ lazy val apolloCompatibility =
       run / connectInput := true
     )
     .settings(
-      skip                                                 := (scalaVersion.value != scala213),
-      ideSkipProject                                       := (scalaVersion.value != scala213),
-      crossScalaVersions                                   := Seq(scala213),
+      skip                                                 := (scalaVersion.value == scala212),
+      ideSkipProject                                       := (scalaVersion.value != scala212),
+      crossScalaVersions                                   := Seq(scala213, scala3),
       libraryDependencySchemes += "org.scala-lang.modules" %% "scala-java8-compat" % "always"
     )
     .settings(
