@@ -1,4 +1,4 @@
-# federated subgraph to test apollo federation spec compatibility
+# Federated subgraph to test apollo federation spec compatibility
 
 Implementation of a federated subgraph aligned to the requirements outlined in [apollo-federation-subgraph-compatibility](https://github.com/apollographql/apollo-federation-subgraph-compatibility).
 
