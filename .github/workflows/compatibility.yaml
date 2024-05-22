@@ -32,7 +32,6 @@ jobs:
           path: '/graphql'
           port: 4001
           debug: true
-          token: ${{ secrets.GITHUB_TOKEN }}
           # Boolean flag to indicate whether any failing test should fail the script
           failOnWarning: false
           # Boolean flag to indicate whether any required test should fail the script
