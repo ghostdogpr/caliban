@@ -1,7 +1,8 @@
 package caliban.schema
 
 import caliban.*
-import caliban.schema.Annotations.{ GQLDescription, GQLField, GQLInterface, GQLName }
+import caliban.parsing.adt.Directive
+import caliban.schema.Annotations.{ GQLDescription, GQLDirective, GQLField, GQLInterface, GQLName }
 import zio.test.{ assertTrue, ZIOSpecDefault }
 import zio.{ RIO, Task, ZIO }
 
@@ -278,8 +279,10 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
         final case class Foo(value: String) derives Schema.SemiAuto
         final case class Bar(foo: Int) derives Schema.SemiAuto
         final case class Baz(bar: Int) derives Schema.SemiAuto
+        @GQLName("Payload2")
+        @GQLDescription("Union type Payload")
+        @GQLDirective(Directive.apply("mydirective", Map("arg" -> Value.StringValue("value"))))
         type Payload = Foo | Bar | Baz
-
         given Schema[Any, Payload] = Schema.unionType[Payload]
 
         final case class QueryInput(isFoo: Boolean) derives ArgBuilder, Schema.SemiAuto
@@ -292,7 +295,8 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
   query: Query
 }
 
-union Payload = Foo | Bar | Baz
+"Union type Payload"
+union Payload2 @mydirective(arg: "value") = Foo | Bar | Baz
 
 type Bar {
   foo: Int!
@@ -307,7 +311,7 @@ type Foo {
 }
 
 type Query {
-  testQuery(isFoo: Boolean!): Payload!
+  testQuery(isFoo: Boolean!): Payload2!
 }""".stripMargin
         val interpreter    = gql.interpreterUnsafe
 

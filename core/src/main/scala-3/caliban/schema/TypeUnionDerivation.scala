@@ -10,6 +10,14 @@ object TypeUnionDerivation {
   def typeUnionSchema[R: Type, T: Type](using quotes: Quotes): Expr[Schema[R, T]] = {
     import quotes.reflect.*
 
+    val typeName = TypeRepr.of[T].show
+
+    if (typeName.contains("|")) {
+      report.error(
+        s"You must explicitly add type parameter to derive Schema for a union type in order to capture the name of the type alias"
+      )
+    }
+
     class TypeAndSchema[A](val typeRef: String, val schema: Expr[Schema[R, A]], val tpe: Type[A])
 
     def rec[A](using tpe: Type[A]): List[TypeAndSchema[?]] =
@@ -37,14 +45,8 @@ object TypeUnionDerivation {
         '{ (${ Expr(tas.typeRef) }, ${ tas.schema }.asInstanceOf[Schema[R, Any]]) }
       }
     )
-    val name                                                       = TypeRepr.of[T].show
 
-    if (name.contains("|")) {
-      report.error(
-        s"You must explicitly add type parameter to derive Schema for a union type in order to capture the name of the type alias"
-      )
-    }
-
+    val annotations: Expr[List[Any]] = magnolia1.Macro.anns[T](summon, quotes)
     '{
       val schemaByName: Map[String, Schema[R, Any]] = ${ schemaByTypeNameList }.toMap
       new Schema[R, T] {
@@ -66,9 +68,10 @@ object TypeUnionDerivation {
 
         def toType(isInput: Boolean, isSubscription: Boolean): __Type =
           Types.makeUnion(
-            Some(${ Expr(name) }),
-            None,
-            schemaByName.values.map(_.toType_(isInput, isSubscription)).toList
+            Some(DerivationUtils.getName(${ annotations }, ${ Expr(typeName) })),
+            DerivationUtils.getDescription(${ annotations }),
+            schemaByName.values.map(_.toType_(isInput, isSubscription)).toList,
+            directives = Option(DerivationUtils.getDirectives(${ annotations })).filter(_.nonEmpty)
           )
       }
     }
