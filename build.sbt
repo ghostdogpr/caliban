@@ -606,7 +606,7 @@ lazy val apolloCompatibility =
     )
     .settings(
       skip                                                 := (scalaVersion.value == scala212),
-      ideSkipProject                                       := (scalaVersion.value != scala212),
+      ideSkipProject                                       := (scalaVersion.value == scala212),
       crossScalaVersions                                   := Seq(scala213, scala3),
       libraryDependencySchemes += "org.scala-lang.modules" %% "scala-java8-compat" % "always"
     )
