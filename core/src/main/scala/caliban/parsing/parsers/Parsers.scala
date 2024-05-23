@@ -13,9 +13,6 @@ import caliban.parsing.adt.Type._
 import caliban.parsing.adt._
 import fastparse._
 
-import scala.annotation.nowarn
-
-@nowarn("msg=NoWhitespace") // False positive warning in Scala 2.x
 object Parsers extends SelectionParsers {
   def argumentDefinition(implicit ev: P[Any]): P[InputValueDefinition]        =
     (stringValue.? ~ name ~ ":" ~ type_ ~ defaultValue.? ~ directives.?).map {
@@ -348,7 +345,7 @@ object Parsers extends SelectionParsers {
     schemaExtension | typeExtension
 
   def definition(implicit ev: P[Any]): P[Definition] =
-    executableDefinition | typeSystemDefinition | typeSystemExtension
+    typeSystemDefinition | typeSystemExtension
 
   def document(implicit ev: P[Any]): P[ParsedDocument] =
     ((Start ~ executableDefinition.rep ~ End) | (Start ~ definition.rep ~ End)).map(seq => ParsedDocument(seq.toList))
