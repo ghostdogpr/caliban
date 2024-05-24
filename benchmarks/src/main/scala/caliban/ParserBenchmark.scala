@@ -1,8 +1,12 @@
 package caliban
 
 import caliban.parsing.Parser
+import caliban.parsing.adt.Document
+import cats.data.NonEmptyList
+import cats.parse.Caret
+import gql.parser.QueryAst
+import grackle.Operation
 import org.openjdk.jmh.annotations._
-import org.openjdk.jmh.infra.Blackhole
 import sangria.parser.QueryParser
 
 import java.util.concurrent.TimeUnit
@@ -20,26 +24,18 @@ class ParserBenchmark {
   implicit val executionContext: ExecutionContextExecutor = scala.concurrent.ExecutionContext.global
 
   @Benchmark
-  def runCaliban(bh: Blackhole): Unit = {
-    bh.consume(Parser.parseQueryEither(fullIntrospectionQuery).fold(throw _, identity))
-    ()
-  }
+  def runCaliban(): Document =
+    Parser.parseQueryEither(fullIntrospectionQuery).fold(throw _, identity)
 
   @Benchmark
-  def runSangria(bh: Blackhole): Unit = {
-    bh.consume(QueryParser.parse(fullIntrospectionQuery).fold(throw _, identity))
-    ()
-  }
+  def runSangria(): sangria.ast.Document =
+    QueryParser.parse(fullIntrospectionQuery).fold(throw _, identity)
 
   @Benchmark
-  def runGrackle(bh: Blackhole): Unit = {
-    bh.consume(Grackle.compiler.compile(fullIntrospectionQuery))
-    ()
-  }
+  def runGrackle(): Operation =
+    Grackle.compiler.compile(fullIntrospectionQuery).getOrElse(throw new Throwable("Grackle failed to parse query"))
 
   @Benchmark
-  def runGql(bh: Blackhole): Unit = {
-    bh.consume(gql.parser.parseQuery(fullIntrospectionQuery))
-    ()
-  }
+  def runGql(): NonEmptyList[QueryAst.ExecutableDefinition[Caret]] =
+    gql.parser.parseQuery(fullIntrospectionQuery).fold(e => throw new Throwable(e.prettyError.value), identity)
 }
