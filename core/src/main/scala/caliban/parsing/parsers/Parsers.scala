@@ -348,7 +348,7 @@ object Parsers extends SelectionParsers {
     schemaExtension | typeExtension
 
   def definition(implicit ev: P[Any]): P[Definition] =
-    typeSystemDefinition | typeSystemExtension
+    executableDefinition | typeSystemDefinition | typeSystemExtension
 
   def document(implicit ev: P[Any]): P[ParsedDocument] =
     ((Start ~ executableDefinition.rep ~ End) | (Start ~ definition.rep ~ End)).map(seq => ParsedDocument(seq.toList))
