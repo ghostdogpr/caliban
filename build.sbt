@@ -3,37 +3,37 @@ import org.scalajs.linker.interface.ModuleSplitStyle
 import sbtcrossproject.CrossPlugin.autoImport.{ crossProject, CrossType }
 
 val scala212 = "2.12.19"
-val scala213 = "2.13.13"
+val scala213 = "2.13.14"
 val scala3   = "3.3.3"
 val allScala = Seq(scala212, scala213, scala3)
 
 val akkaVersion               = "2.6.20"
 val catsEffect3Version        = "3.5.4"
 val catsMtlVersion            = "1.3.0"
-val circeVersion              = "0.14.6"
+val circeVersion              = "0.14.7"
 val fs2Version                = "3.10.2"
-val http4sVersion             = "0.23.26"
+val http4sVersion             = "0.23.27"
 val javaTimeVersion           = "2.5.0"
-val jsoniterVersion           = "2.28.4"
-val laminextVersion           = "0.16.2"
-val magnoliaScala2Version     = "1.1.9"
-val magnoliaScala3Version     = "1.3.6"
+val jsoniterVersion           = "2.28.5"
+val laminextVersion           = "0.17.0"
+val magnoliaScala2Version     = "1.1.10"
+val magnoliaScala3Version     = "1.3.7"
 val pekkoHttpVersion          = "1.0.1"
-val playVersion               = "3.0.2"
-val playJsonVersion           = "3.0.2"
+val playVersion               = "3.0.3"
+val playJsonVersion           = "3.0.3"
 val scalafmtVersion           = "3.8.0"
-val sttpVersion               = "3.9.5"
-val tapirVersion              = "1.10.5"
-val zioVersion                = "2.0.22"
+val sttpVersion               = "3.9.7"
+val tapirVersion              = "1.10.7"
+val zioVersion                = "2.1.1"
 val zioInteropCats2Version    = "22.0.0.0"
 val zioInteropCats3Version    = "23.1.0.2"
 val zioInteropReactiveVersion = "2.0.2"
 val zioConfigVersion          = "3.0.7"
-val zqueryVersion             = "0.7.0"
+val zqueryVersion             = "0.7.1"
 val zioJsonVersion            = "0.6.2"
-val zioHttpVersion            = "3.0.0-RC6"
+val zioHttpVersion            = "3.0.0-RC7"
 val zioOpenTelemetryVersion   = "3.0.0-RC21"
-val zioPreludeVersion         = "1.0.0-RC24"
+val zioPreludeVersion         = "1.0.0-RC26"
 
 Global / onChangedBuildSource := ReloadOnSourceChanges
 
@@ -98,7 +98,8 @@ lazy val allProjects: Seq[ProjectReference] =
     codegenSbt,
     federation,
     reporting,
-    tracing
+    tracing,
+    apolloCompatibility
   )
 
 lazy val root = project
@@ -116,7 +117,7 @@ lazy val rootJVM212 = project
     ideSkipProject     := true
   )
   .aggregate({
-    val excluded: Set[ProjectReference] = Set(clientJS, clientNative, clientLaminext, play)
+    val excluded: Set[ProjectReference] = Set(clientJS, clientNative, clientLaminext, play, apolloCompatibility)
     allProjects.filterNot(excluded.contains)
   } *)
 
@@ -140,7 +141,8 @@ lazy val rootJVM3 = project
     ideSkipProject     := true
   )
   .aggregate({
-    val excluded: Set[ProjectReference] = Set(clientJS, clientNative, clientLaminext, codegenSbt, akkaHttp)
+    val excluded: Set[ProjectReference] =
+      Set(clientJS, clientNative, clientLaminext, codegenSbt, akkaHttp)
     allProjects.filterNot(excluded.contains)
   } *)
 
@@ -149,6 +151,7 @@ lazy val macros = project
   .settings(name := "caliban-macros")
   .settings(commonSettings)
   .settings(enableMimaSettingsJVM)
+  .disablePlugins(AssemblyPlugin)
   .settings(
     libraryDependencies ++= {
       if (scalaVersion.value == scala3) {
@@ -169,6 +172,7 @@ lazy val core = project
   .settings(name := "caliban")
   .settings(commonSettings)
   .settings(enableMimaSettingsJVM)
+  .disablePlugins(AssemblyPlugin)
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++=
@@ -203,6 +207,7 @@ lazy val tools = project
   .settings(name := "caliban-tools")
   .settings(commonSettings)
   .settings(enableMimaSettingsJVM)
+  .disablePlugins(AssemblyPlugin)
   .settings(
     buildInfoKeys    := Seq[BuildInfoKey](
       "scalaPartialVersion" -> CrossVersion.partialVersion(scalaVersion.value),
@@ -230,6 +235,7 @@ lazy val tracing = project
   .settings(name := "caliban-tracing")
   .settings(commonSettings)
   .settings(enableMimaSettingsJVM)
+  .disablePlugins(AssemblyPlugin)
   .settings(
     buildInfoPackage := "caliban.tracing",
     buildInfoObject  := "BuildInfo"
@@ -240,7 +246,7 @@ lazy val tracing = project
       "dev.zio"         %% "zio-opentelemetry"         % zioOpenTelemetryVersion,
       "dev.zio"         %% "zio-test"                  % zioVersion % Test,
       "dev.zio"         %% "zio-test-sbt"              % zioVersion % Test,
-      "io.opentelemetry" % "opentelemetry-sdk-testing" % "1.37.0"   % Test
+      "io.opentelemetry" % "opentelemetry-sdk-testing" % "1.38.0"   % Test
     )
   )
   .dependsOn(core, tools)
@@ -250,6 +256,7 @@ lazy val codegenSbt = project
   .settings(name := "caliban-codegen-sbt")
   .settings(commonSettings)
   .enablePlugins(BuildInfoPlugin)
+  .disablePlugins(AssemblyPlugin)
   .settings(
     skip             := (scalaVersion.value != scala212),
     ideSkipProject   := (scalaVersion.value != scala212),
@@ -289,6 +296,7 @@ lazy val catsInterop = project
   .settings(name := "caliban-cats")
   .settings(commonSettings)
   .settings(enableMimaSettingsJVM)
+  .disablePlugins(AssemblyPlugin)
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= {
@@ -309,6 +317,7 @@ lazy val monixInterop = project
   .settings(name := "caliban-monix")
   .settings(commonSettings)
   .settings(enableMimaSettingsJVM)
+  .disablePlugins(AssemblyPlugin)
   .settings(
     libraryDependencies ++= Seq(
       "dev.zio"  %% "zio-interop-reactivestreams" % zioInteropReactiveVersion,
@@ -323,6 +332,7 @@ lazy val tapirInterop = project
   .settings(name := "caliban-tapir")
   .settings(commonSettings)
   .settings(enableMimaSettingsJVM)
+  .disablePlugins(AssemblyPlugin)
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= {
@@ -346,6 +356,7 @@ lazy val http4s = project
   .settings(name := "caliban-http4s")
   .settings(commonSettings)
   .settings(enableMimaSettingsJVM)
+  .disablePlugins(AssemblyPlugin)
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= {
@@ -373,6 +384,7 @@ lazy val zioHttp = project
   .settings(name := "caliban-zio-http")
   .settings(commonSettings)
   .settings(enableMimaSettingsJVM)
+  .disablePlugins(AssemblyPlugin)
   .settings(
     resolvers += "Sonatype OSS Snapshots" at "https://oss.sonatype.org/content/repositories/snapshots",
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
@@ -390,6 +402,7 @@ lazy val quickAdapter = project
   .settings(name := "caliban-quick")
   .settings(commonSettings)
   .settings(enableMimaSettingsJVM)
+  .disablePlugins(AssemblyPlugin)
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
@@ -406,6 +419,7 @@ lazy val akkaHttp = project
   .settings(name := "caliban-akka-http")
   .settings(commonSettings)
   .settings(enableMimaSettingsJVM)
+  .disablePlugins(AssemblyPlugin)
   .settings(
     skip           := (scalaVersion.value == scala3),
     ideSkipProject := (scalaVersion.value == scala3),
@@ -426,6 +440,7 @@ lazy val pekkoHttp = project
   .settings(name := "caliban-pekko-http")
   .settings(commonSettings)
   .settings(enableMimaSettingsJVM)
+  .disablePlugins(AssemblyPlugin)
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= {
@@ -444,6 +459,7 @@ lazy val play = project
   .settings(name := "caliban-play")
   .settings(commonSettings)
   .settings(enableMimaSettingsJVM)
+  .disablePlugins(AssemblyPlugin)
   .settings(
     skip           := (scalaVersion.value == scala212),
     ideSkipProject := (scalaVersion.value == scala212),
@@ -470,6 +486,7 @@ lazy val client    = crossProject(JSPlatform, JVMPlatform, NativePlatform)
   .in(file("client"))
   .settings(name := "caliban-client")
   .settings(commonSettings)
+  .disablePlugins(AssemblyPlugin)
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
@@ -514,6 +531,7 @@ lazy val clientLaminext = crossProject(JSPlatform)
   .settings(commonSettings)
   .settings(enableMimaSettingsJS)
   .dependsOn(clientJS)
+  .disablePlugins(AssemblyPlugin)
   .settings(
     testFrameworks                         := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     Test / scalaJSLinkerConfig ~= { _.withModuleKind(ModuleKind.ESModule) },
@@ -534,6 +552,7 @@ lazy val clientLaminext = crossProject(JSPlatform)
 lazy val examples = project
   .in(file("examples"))
   .settings(commonSettings)
+  .disablePlugins(AssemblyPlugin)
   .settings(
     publish / skip     := true,
     run / fork         := true,
@@ -575,12 +594,44 @@ lazy val examples = project
     tools
   )
 
+lazy val apolloCompatibility =
+  project
+    .in(file("apollo-compatibility"))
+    .settings(commonSettings)
+    .settings(
+      name               := "apollo-compatibility",
+      publish / skip     := true,
+      run / fork         := true,
+      run / connectInput := true
+    )
+    .settings(
+      skip                                                 := (scalaVersion.value == scala212),
+      ideSkipProject                                       := (scalaVersion.value == scala212),
+      crossScalaVersions                                   := Seq(scala213, scala3),
+      libraryDependencySchemes += "org.scala-lang.modules" %% "scala-java8-compat" % "always"
+    )
+    .settings(
+      assembly / assemblyJarName       := s"apollo-subgraph-compatibility.jar",
+      assembly / mainClass             := Some("Main"),
+      assembly / assemblyOutputPath    := {
+        (assembly / baseDirectory).value / "target" / (assembly / assemblyJarName).value
+      },
+      assembly / test                  := {},
+      assembly / assemblyMergeStrategy := {
+        case x if Assembly.isConfigFile(x)       => MergeStrategy.concat
+        case PathList("META-INF", "MANIFEST.MF") => MergeStrategy.discard
+        case _                                   => MergeStrategy.first
+      }
+    )
+    .dependsOn(federation, core, quickAdapter)
+
 lazy val reporting = project
   .in(file("reporting"))
   .settings(name := "caliban-reporting")
   .settings(commonSettings)
   .settings(enableMimaSettingsJVM)
   .dependsOn(clientJVM, core)
+  .disablePlugins(AssemblyPlugin)
   .settings(
     testFrameworks := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
@@ -594,6 +645,7 @@ lazy val reporting = project
 lazy val benchmarks = project
   .in(file("benchmarks"))
   .settings(commonSettings)
+  .disablePlugins(AssemblyPlugin)
   .settings(
     skip               := (scalaVersion.value == scala212),
     ideSkipProject     := (scalaVersion.value == scala212),
@@ -603,15 +655,20 @@ lazy val benchmarks = project
   .dependsOn(core % "compile->compile")
   .enablePlugins(JmhPlugin)
   .settings(
+    libraryDependencySchemes ++= Seq(
+      "org.typelevel" %% "cats-parse" % VersionScheme.Always
+    ),
     libraryDependencies ++= Seq(
-      "org.sangria-graphql"                   %% "sangria"             % "4.0.1",
+      "org.sangria-graphql"                   %% "sangria"             % "4.1.0",
       "org.sangria-graphql"                   %% "sangria-circe"       % "1.3.2",
-      "edu.gemini"                            %% "gsp-graphql-core"    % "0.13.0",
-      "edu.gemini"                            %% "gsp-graphql-generic" % "0.13.0",
-      "io.github.valdemargr"                  %% "gql-server"          % "0.3.3",
+      "org.typelevel"                         %% "grackle-core"        % "0.19.1",
+      "org.typelevel"                         %% "grackle-generic"     % "0.19.1",
+      "io.github.valdemargr"                  %% "gql-server"          % "0.3.5",
       "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-core" % jsoniterVersion,
       "io.circe"                              %% "circe-parser"        % circeVersion,
-      "dev.zio"                               %% "zio-json"            % zioJsonVersion
+      "dev.zio"                               %% "zio-json"            % zioJsonVersion,
+      "dev.zio"                               %% "zio-test"            % zioVersion % Test,
+      "dev.zio"                               %% "zio-test-sbt"        % zioVersion % Test
     )
   )
 
@@ -621,6 +678,7 @@ lazy val federation = project
   .settings(commonSettings)
   .settings(enableMimaSettingsJVM)
   .dependsOn(core % "compile->compile;test->test")
+  .disablePlugins(AssemblyPlugin)
   .settings(
     testFrameworks       := Seq(new TestFramework("zio.test.sbt.ZTestFramework")),
     libraryDependencies ++= Seq(
@@ -640,6 +698,7 @@ lazy val docs = project
   .in(file("mdoc"))
   .enablePlugins(MdocPlugin)
   .settings(commonSettings)
+  .disablePlugins(AssemblyPlugin)
   .settings(
     skip               := (scalaVersion.value == scala3),
     ideSkipProject     := (scalaVersion.value == scala3),
@@ -668,7 +727,9 @@ lazy val commonSettings = Def.settings(
     "-language:higherKinds",
     "-language:existentials",
     "-unchecked",
-    "-Xfatal-warnings"
+    "-Xfatal-warnings",
+    "-release",
+    "11"
   ) ++ (CrossVersion.partialVersion(scalaVersion.value) match {
     case Some((2, 12)) =>
       Seq(
@@ -728,7 +789,8 @@ lazy val apiMappingSettings = Def.settings(
   apiMappings ++= {
     val depsByModule = (Compile / dependencyClasspathAsJars).value.flatMap { dep =>
       dep.get(moduleID.key).map((_, dep.data))
-    }.groupBy { case (moduleID, _) => (moduleID.organization, moduleID.name) }.mapValues(_.head)
+    }.groupBy { case (moduleID, _) => (moduleID.organization, moduleID.name) }
+      .mapValues(_.head)
 
     val cross = CrossVersion(crossVersion.value, scalaVersion.value, scalaBinaryVersion.value)
       .getOrElse((s: String) => s)

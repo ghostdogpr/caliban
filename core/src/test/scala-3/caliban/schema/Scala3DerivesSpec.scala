@@ -1,7 +1,8 @@
 package caliban.schema
 
 import caliban.*
-import caliban.schema.Annotations.{ GQLDescription, GQLField, GQLInterface, GQLName }
+import caliban.parsing.adt.Directive
+import caliban.schema.Annotations.{ GQLDescription, GQLDirective, GQLField, GQLInterface, GQLName }
 import zio.test.{ assertTrue, ZIOSpecDefault }
 import zio.{ RIO, Task, ZIO }
 
@@ -133,7 +134,7 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
           sealed trait Foo derives Schema.SemiAuto {
             val i: Instant
           }
-          object Foo {
+          object Foo                               {
             final case class FooA(i: Instant, s1: String) extends Foo derives Schema.SemiAuto, ArgBuilder
             final case class FooB(i: Instant, i1: Int)    extends Foo derives Schema.SemiAuto, ArgBuilder
           }
@@ -272,6 +273,57 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
         } yield assertTrue(
           data1 == """{"enum2String":"ENUM1"}""",
           data2 == """{"enum2String":"ENUM2"}"""
+        )
+      },
+      test("union type") {
+        final case class Foo(value: String) derives Schema.SemiAuto
+        final case class Bar(foo: Int) derives Schema.SemiAuto
+        final case class Baz(bar: Int) derives Schema.SemiAuto
+        @GQLName("Payload2")
+        @GQLDescription("Union type Payload")
+        @GQLDirective(Directive.apply("mydirective", Map("arg" -> Value.StringValue("value"))))
+        type Payload = Foo | Bar | Baz
+        given Schema[Any, Payload] = Schema.unionType[Payload]
+
+        final case class QueryInput(isFoo: Boolean) derives ArgBuilder, Schema.SemiAuto
+        final case class Query(testQuery: QueryInput => zio.UIO[Payload]) derives Schema.SemiAuto
+
+        val gql = graphQL(RootResolver(Query(i => ZIO.succeed(if (i.isFoo) Foo("foo") else Bar(1)))))
+
+        val expectedSchema =
+          """schema {
+  query: Query
+}
+
+"Union type Payload"
+union Payload2 @mydirective(arg: "value") = Foo | Bar | Baz
+
+type Bar {
+  foo: Int!
+}
+
+type Baz {
+  bar: Int!
+}
+
+type Foo {
+  value: String!
+}
+
+type Query {
+  testQuery(isFoo: Boolean!): Payload2!
+}""".stripMargin
+        val interpreter    = gql.interpreterUnsafe
+
+        for {
+          res1 <- interpreter.execute("{ testQuery(isFoo: true){ ... on Foo { value } } }")
+          res2 <- interpreter.execute("{ testQuery(isFoo: false){ ... on Bar { foo } } }")
+          data1 = res1.data.toString
+          data2 = res2.data.toString
+        } yield assertTrue(
+          data1 == """{"testQuery":{"value":"foo"}}""",
+          data2 == """{"testQuery":{"foo":1}}""",
+          gql.render == expectedSchema
         )
       }
     )

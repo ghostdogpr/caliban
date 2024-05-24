@@ -27,13 +27,29 @@ object Configurator {
     queryExecution: QueryExecution = QueryExecution.Parallel,
     validations: List[QueryValidation] = AllValidations,
     queryCache: UIO[Cache] = Cache.empty(Trace.empty)
-  )
+  ) { self =>
+
+    /**
+     * Creates a ZLayer that can be used to set this configuration at the application level
+     */
+    def toLayer: ULayer[Unit] = ZLayer.scoped(set(self))
+  }
 
   private val configRef: FiberRef[ExecutionConfiguration] =
     Unsafe.unsafe(implicit u => FiberRef.unsafe.make(ExecutionConfiguration()))
 
   private[caliban] val configuration: UIO[ExecutionConfiguration] =
     configRef.get
+
+  private[caliban] def locallyWith[R, E, A](
+    cfg: ExecutionConfiguration => ExecutionConfiguration
+  )(
+    f: ZIO[R, E, A]
+  ): ZIO[R, E, A] =
+    configRef.locallyWith(cfg)(f)
+
+  private[caliban] def set(cfg: ExecutionConfiguration): URIO[Scope, Unit] =
+    configRef.locallyScoped(cfg)
 
   private[caliban] def setWith[R, E, A](cfg: ExecutionConfiguration)(f: ZIO[R, E, A])(implicit
     trace: Trace

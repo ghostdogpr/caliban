@@ -36,14 +36,15 @@ object CatsInteropSpec extends ZIOSpecDefault {
           type Effect[A] = Kleisli[IO, RootContext, A]
           implicit val rtm: Runtime[RootContext] = Runtime.default.withEnvironment(ZEnvironment(rootCtx))
           for {
-            contextual <- ZIO.succeed(main[Effect](inner).run(rootCtx).unsafeRunSync())
+            contextual <- ZIO.succeedBlocking(main[Effect](inner).run(rootCtx).unsafeRunSync())
           } yield assertTrue(contextual == List(rootCtx, inner, rootCtx))
         },
         test("IO") {
-          implicit val rtm: Runtime[RootContext]   = Runtime.default.withEnvironment(ZEnvironment(rootCtx))
-          implicit val local: IOLocal[RootContext] = IOLocal(rootCtx).unsafeRunSync()
+          implicit val rtm: Runtime[RootContext] = Runtime.default.withEnvironment(ZEnvironment(rootCtx))
           for {
-            contextual <- ZIO.succeed(main[IO](inner).unsafeRunSync())
+            contextual <- ZIO.succeedBlocking {
+                            IOLocal(rootCtx).flatMap(implicit local => main[IO](inner)).unsafeRunSync()
+                          }
           } yield assertTrue(contextual == List(rootCtx, inner, rootCtx))
         }
       )
@@ -64,14 +65,15 @@ object CatsInteropSpec extends ZIOSpecDefault {
           type Effect[A] = Kleisli[IO, Context, A]
           implicit val rtm: Runtime[Context] = Runtime.default.withEnvironment(ZEnvironment(rootCtx))
           for {
-            contextual <- ZIO.succeed(main[Effect](inner).run(rootCtx).unsafeRunSync())
+            contextual <- ZIO.succeedBlocking(main[Effect](inner).run(rootCtx).unsafeRunSync())
           } yield assertTrue(contextual == List(rootCtx, rootCtx, rootCtx))
         },
         test("IO") {
-          implicit val rtm: Runtime[Context]     = Runtime.default.withEnvironment(ZEnvironment(rootCtx))
-          implicit val ioLocal: IOLocal[Context] = IOLocal(rootCtx).unsafeRunSync()
+          implicit val rtm: Runtime[Context] = Runtime.default.withEnvironment(ZEnvironment(rootCtx))
           for {
-            contextual <- ZIO.succeed(main[IO](inner).unsafeRunSync())
+            contextual <- ZIO.succeedBlocking {
+                            IOLocal(rootCtx).flatMap(implicit local => main[IO](inner)).unsafeRunSync()
+                          }
           } yield assertTrue(contextual == List(rootCtx, rootCtx, rootCtx))
         }
       )

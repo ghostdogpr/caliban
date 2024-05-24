@@ -1,6 +1,9 @@
-# Schemas
+# Schema generation
 
 A GraphQL schema will be derived automatically at compile-time (no reflection) from the types present in your resolver.
+
+If you're more interested in the schema-first approach, it is also possible to [generate the Scala code from a GraphQL schema file](server-codegen.md).
+
 The table below shows how common Scala types are converted to GraphQL types.
 
 | Scala Type                                                          | GraphQL Type                                                     |
@@ -22,7 +25,7 @@ The table below shows how common Scala types are converted to GraphQL types.
 | java.time.OffsetDateTime                                            | OffsetDateTime (custom scalar)                                   |
 | java.time.ZonedDateTime                                             | ZonedDateTime (custom scalar)                                    |
 | Case Class                                                          | Object                                                           |
-| Sealed Trait                                                        | Enum or Union                                                    |
+| Sealed Trait                                                        | Enum, Union or Interface (see [below](#enums-unions-interfaces)) |
 | Option[A]                                                           | Nullable A                                                       |
 | List[A]                                                             | List of A                                                        |
 | Set[A]                                                              | List of A                                                        |
@@ -110,9 +113,8 @@ sealed trait Role
 object Role {
   case class Captain(shipName: String) extends Role
   case class Engineer(specialty: String) extends Role
-  
   @GQLValueType
-  case class Proxy(pilot: Pilot)
+  case class Proxy(pilot: Pilot) extends Role
 }
 ```
 
@@ -152,7 +154,7 @@ import caliban.schema.Schema.auto._
 ```
 Using this import, Caliban will generate `Schema` instances for all the case classes and sealed traits that are found inside your resolver.
 
-::: warning Auto derivation limitations
+::: warning Limitations
 Auto derivation is the easiest way to get started, but it has some drawbacks:
 - If a type is referenced in several places inside your resolver, a `Schema` will be generated for each occurrence, which can lead to longer compilation times and a high amount of generated code (a sign of this is that the compiler will suggest increasing `-Xmax-inlines` in Scala 3).
 - When a `Schema` is missing for a nested type inside your resolver, it can sometimes be difficult to find out which type is missing when using auto derivation, because the error message will mention the root type and not the nested one.
@@ -297,32 +299,13 @@ type Queries {
 }
 ```
 
-Caliban provides auto-derivation for common types such as `Int`, `String`, `List`, `Option`, etc. but you can also support your own types by providing an implicit instance of `caliban.schema.ArgBuilder` that defines how incoming arguments from that types should be extracted. You also need a `Schema` for those types.
+Caliban provides auto-derivation for common types such as `Int`, `String`, `List`, `Option`, etc. but you can also support your own types by providing an implicit instance of `ArgBuilder` that defines how incoming arguments from that types should be extracted. You also need a `Schema` for those types.
 
-Derivation of `ArgBuilder` for case classes works similarly to `Schema` derivation. You can use auto derivation by adding the following import, or via the `derives` keyword (Scala 3 only):
-
-
-<code-group>
-  <code-block title="Scala 2" active>
+Derivation of `ArgBuilder` for case classes works similarly to `Schema` derivation. You can use auto derivation by adding the following import:
 
 ```scala mdoc:silent
 import caliban.schema.ArgBuilder.auto._
 ```
-  </code-block>
-  <code-block title="Scala 3">
-
-```scala
-import caliban.schema.{ArgBuilder, Schema}
-
-case class FieldArg(value: String)
-case class MyClass(field: FieldArg) derives Schema.Auto, ArgBuilder.GenAuto
-
-// if you don't want to use the `derives` syntax, you can also use the following:
-given ArgBuilder[MyClass]  = ArgBuilder.GenAuto.derived
-given Schema[Any, MyClass] = Schema.Auto.derived
-```
-  </code-block>
-</code-group>
 
 Or you can use semi-auto derivation as follows:
 
@@ -358,13 +341,14 @@ There is no `ArgBuilder` for tuples. If you have multiple arguments, use a case 
 
 ## Custom types
 
-Caliban provides auto-derivation for common types such as `Int`, `String`, `List`, `Option`, etc. but you can also support your own types by providing an implicit instance of `caliban.schema.Schema`. Note that you don't have to do this if your types are just case classes composed of common types.
+Caliban provides auto-derivation for common types such as `Int`, `String`, `List`, `Option`, etc. but you can also support your own types by providing an implicit instance of `Schema`. Note that you don't have to do this if your types are just case classes composed of common types.
 
 An easy way to do this is to reuse existing instances and use `contramap` to map from your type to the original type. Here's an example of creating an instance for [refined](https://github.com/fthomas/refined)'s `NonEmptyString` reusing existing instance for `String` (if you use `refined`, you might want to look at [caliban-refined](https://github.com/niqdev/caliban-extras#caliban-refined)):
 
 ```scala
 import caliban.schema._
-implicit val nonEmptyStringSchema: Schema[Any, NonEmptyString] = Schema.stringSchema.contramap(_.value)
+implicit val nonEmptyStringSchema: Schema[Any, NonEmptyString] = 
+  Schema.stringSchema.contramap(_.value)
 ```
 
 You can also use the `scalarSchema` helper to create your own scalar types, providing a name, an optional description, and a function from your type to a `ResponseValue`:
@@ -373,10 +357,11 @@ You can also use the `scalarSchema` helper to create your own scalar types, prov
 import caliban.schema._
 import caliban.ResponseValue.ObjectValue
 
-implicit val unitSchema: Schema[Any, Unit] = Schema.scalarSchema("Unit", None, None, None, _ => ObjectValue(Nil))
+implicit val unitSchema: Schema[Any, Unit] =
+  Schema.scalarSchema("Unit", None, None, None, _ => ObjectValue(Nil))
 ```
 
-If you are using a custom type as part of the input you also have to provide an implicit instance of `caliban.schema.ArgBuilder`. For example here's how to do that for `java.time.LocalDate`:
+If you are using a custom type as part of the input you also have to provide an implicit instance of `ArgBuilder`. For example here's how to do that for `java.time.LocalDate`:
 
 ```scala mdoc:silent
 import java.time.LocalDate
@@ -439,6 +424,12 @@ val api = graphQL[MyEnv, Queries, Unit, Unit](RootResolver(queries))
 // val api = graphQL(RootResolver(queries)) // it will infer MyEnv thanks to the instance above
 ```
 
+## Subscriptions
+
+All the fields of the subscription root case class MUST return `ZStream` or `? => ZStream` objects.
+
+The [cats and monix interop modules](interop.md) also let you use fs2 `Stream` and monix `Observable` respectively.
+
 ## Annotations
 
 Caliban supports a few annotations to enrich data types:
@@ -461,52 +452,9 @@ explicit constructor available under the `ArgBuilder` companion object. For inst
 to handle instants which are encoded using a `Long` from the standard java epoch time (January 1st 1970 00:00:00).
 For some time formats you can also specify a specific `DateTimeFormatter` to handle your particular date time needs.
 
-## Code generation
-
-Caliban can automatically generate Scala code from a GraphQL schema.
-
-In order to use this feature, add the `caliban-codegen-sbt` sbt plugin to your `project/plugins.sbt` file:
-```scala
-addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen-sbt" % "2.6.0")
-```
-
-And enable it in your `build.sbt` file:
-```scala
-enablePlugins(CalibanPlugin)
-```
-
-Then call the `calibanGenSchema` sbt command.
-```scala
-calibanGenSchema schemaPath outputPath [--scalafmtPath path] [--headers name:value,name2:value2] [--packageName name] [--effect fqdn.Effect] [--scalarMappings gqlType:f.q.d.n.Type,gqlType2:f.q.d.n.Type2] [--imports a.b.c._,c.d.E] [--abstractEffectType true|false]
-
-calibanGenSchema project/schema.graphql src/main/MyAPI.scala
-```
-This command will create a Scala file in `outputPath` containing all the types defined in the provided GraphQL schema defined at `schemaPath`. Instead of a file, you can provide a URL and the schema will be obtained using introspection.
-
-The generated code will be formatted with Scalafmt using the configuration defined by `--scalafmtPath` option (default: `.scalafmt.conf`). If you provide a URL for `schemaPath`, you can provide request headers with `--headers` option.
-
-The package of the generated code is derived from the folder of `outputPath`. This can be overridden by providing an alternative package with the `--packageName` option.
-
-By default, each Query and Mutation will be wrapped into a `zio.UIO` effect. This can be overridden by providing an alternative effect with the `--effect` option.
-
-You can also indicate that the effect type is abstract via `--abstractEffectType true`, in which case `Query` will be replaced by `Query[F[_]]` and so on (note `F` will be used unless `--effect <effect>` is explicitly given in which case `<effect>` would be used in place of `F`).
-
-By default the suffix `Input` is appended to the type name of input types in the derived schema.  Use the `--preserveInputNames` flag to disable this. 
-
-If you use scala3, you can enable `--addDerives` flag to automatically add `derives` clauses to the generated code. It will add type class instance derivation that create schema.
-
-In case you use derives and ZIO Environment other than Any, you need to pass type info or your schema generation will fail. Use the `--envForDerives` flag to
-pass in the type alias for your ZIO Environment.
-
-If you want to force a mapping between a GraphQL type and a Scala class (such as scalars), you can use the
-`--scalarMappings` option. Also you can add additional imports by providing `--imports` option.
-
-Since Caliban 1.3.0, you can generate schemas using an sbt `sourceGenerator`, which means your schemas will be generated every time you compile (or when you import your build into [Metals](https://scalameta.org/metals/)).
-This can be configured with the same settings as [the client generators](client.md#code-generation), but you have to specify `.genType(Codegen.GenType.Schema)` in the `calibanSettings` entry for a given file.
-
 ## Building Schemas by hand
 
-Sometimes for whatever reason schema generation fails. This can happen if your schema has co-recursive types and Magnolia is unable
+Sometimes for whatever reason schema generation fails. This can happen if your schema has co-recursive types and derivation is unable
 to generate a schema for them. In cases like these you may need to instead create your own schema by hand.
 
 Consider the case where you have three types which create cyclical dependencies on one another

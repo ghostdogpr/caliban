@@ -15,7 +15,7 @@ object TriState {
 
   def schemaCustom[R, A](undefined: PureStep)(implicit ev: Schema[R, A]): Schema[R, TriState[A]] =
     new Schema[R, TriState[A]] {
-      override val optional = true
+      override val nullable = true
 
       override def toType(isInput: Boolean, isSubscription: Boolean) = ev.toType_(isInput, isSubscription)
 

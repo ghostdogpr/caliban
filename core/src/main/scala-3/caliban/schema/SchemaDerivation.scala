@@ -23,6 +23,21 @@ object PrintDerived {
 trait CommonSchemaDerivation {
   export DerivationUtils.customizeInputTypeName
 
+  case class DerivationConfig(
+    /**
+     * Whether to enable the `SemanticNonNull` feature on derivation.
+     * It is currently disabled by default since it is not yet stable.
+     */
+    enableSemanticNonNull: Boolean = false
+  )
+
+  /**
+   * Returns a configuration object that can be used to customize the derivation behavior.
+   *
+   * Override this method to customize the configuration.
+   */
+  def config: DerivationConfig = DerivationConfig()
+
   inline def recurseSum[R, P, Label, A <: Tuple](
     inline types: List[(String, __Type, List[Any])] = Nil,
     inline schemas: List[Schema[R, Any]] = Nil
@@ -95,7 +110,8 @@ trait CommonSchemaDerivation {
             new EnumValueSchema[R, A](
               MagnoliaMacro.typeInfo[A],
               // Workaround until we figure out why the macro uses the parent's annotations when the leaf is a Scala 3 enum
-              inline if (!MagnoliaMacro.isEnum[A]) MagnoliaMacro.anns[A] else Nil
+              inline if (!MagnoliaMacro.isEnum[A]) MagnoliaMacro.anns[A] else Nil,
+              config.enableSemanticNonNull
             )
           case _ if Macros.hasAnnotation[A, GQLValueType] =>
             new ValueTypeSchema[R, A](
@@ -109,7 +125,8 @@ trait CommonSchemaDerivation {
               Macros.fieldsFromMethods[R, A],
               MagnoliaMacro.typeInfo[A],
               MagnoliaMacro.anns[A],
-              MagnoliaMacro.paramAnns[A].toMap
+              MagnoliaMacro.paramAnns[A].toMap,
+              config.enableSemanticNonNull
             )(using summonInline[ClassTag[A]])
         }
 
@@ -122,6 +139,8 @@ trait SchemaDerivation[R] extends CommonSchemaDerivation {
   inline def gen[R, A]: Schema[R, A] = derived[R, A]
 
   inline def genDebug[R, A]: Schema[R, A] = PrintDerived(derived[R, A])
+
+  inline def unionType[T]: Schema[R, T] = ${ TypeUnionDerivation.typeUnionSchema[R, T] }
 
   final lazy val auto = new AutoSchemaDerivation[Any] {}
 

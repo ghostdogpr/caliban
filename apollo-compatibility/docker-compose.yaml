@@ -1,0 +1,7 @@
+services:
+  products:
+    build:
+      context: .
+      dockerfile: ./apollo-compatibility/Dockerfile
+    ports:
+      - 4001:4001

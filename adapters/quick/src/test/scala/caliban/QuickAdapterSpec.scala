@@ -6,7 +6,7 @@ import caliban.uploads.Uploads
 import sttp.client3.UriContext
 import zio._
 import zio.http._
-import zio.test.{ Live, ZIOSpecDefault }
+import zio.test.{ Live, TestAspect, ZIOSpecDefault }
 
 import scala.language.postfixOps
 
@@ -25,7 +25,7 @@ object QuickAdapterSpec extends ZIOSpecDefault {
   private val apiLayer = envLayer >>> ZLayer.fromZIO {
     for {
       app     <- TestApi.api
-                   .toApp("/api/graphql", uploadPath = Some("/upload/graphql"), webSocketPath = Some("/ws/graphql"))
+                   .routes("/api/graphql", uploadPath = Some("/upload/graphql"), webSocketPath = Some("/ws/graphql"))
                    .map(_ @@ auth)
       _       <- Server.serve(app).forkScoped
       _       <- Live.live(Clock.sleep(3 seconds))
@@ -39,7 +39,7 @@ object QuickAdapterSpec extends ZIOSpecDefault {
       uri"http://localhost:8090/api/graphql",
       wsUri = Some(uri"ws://localhost:8090/ws/graphql"),
       uploadUri = Some(uri"http://localhost:8090/upload/graphql")
-    )
+    ) @@ TestAspect.blocking // Temporary, remove on next zio-http release
     suite.provideShared(
       apiLayer,
       Scope.default,

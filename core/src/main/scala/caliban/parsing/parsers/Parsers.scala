@@ -15,7 +15,7 @@ import fastparse._
 
 import scala.annotation.nowarn
 
-@nowarn("msg=NoWhitespace") // False positive warning in Scala 2.x
+@nowarn("msg=NoWhitespace") // False positive warning in Scala 2.12.x
 object Parsers extends SelectionParsers {
   def argumentDefinition(implicit ev: P[Any]): P[InputValueDefinition]        =
     (stringValue.? ~ name ~ ":" ~ type_ ~ defaultValue.? ~ directives.?).map {

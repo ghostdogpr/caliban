@@ -83,14 +83,21 @@ final private class QuickRequestHandler[R](
       )
     }
 
+    def checkNonEmptyRequest(r: GraphQLRequest): IO[Response, GraphQLRequest] =
+      if (!r.isEmpty) Exit.succeed(r) else Exit.fail(EmptyRequestErrorResponse)
+
     def decodeBody(body: Body) = {
+
       def decodeApplicationGql() =
         body.asString.mapBoth(_ => BodyDecodeErrorResponse, b => GraphQLRequest(Some(b)))
 
-      def decodeJson() =
-        body.asArray
-          .flatMap(arr => ZIO.attempt(readFromArray[GraphQLRequest](arr)))
-          .orElseFail(BodyDecodeErrorResponse)
+      def decodeJson(): ZIO[Any, Response, GraphQLRequest] =
+        body.asArray.foldZIO(
+          _ => ZIO.fail(BodyDecodeErrorResponse),
+          arr =>
+            try checkNonEmptyRequest(readFromArray[GraphQLRequest](arr))
+            catch { case NonFatal(_) => ZIO.fail(BodyDecodeErrorResponse) }
+        )
 
       val isApplicationGql =
         httpReq.body.mediaType.exists { mt =>
@@ -103,13 +110,13 @@ final private class QuickRequestHandler[R](
 
     val queryParams = httpReq.url.queryParams
 
-    (if ((httpReq.method eq Method.GET) || queryParams.hasQueryParam("query")) {
-       ZIO.fromEither(decodeQueryParams(queryParams))
-     } else {
-       val req = decodeBody(httpReq.body)
-       if (isFtv1Request(httpReq)) req.map(_.withFederatedTracing)
-       else req
-     }).tap(r => ZIO.fail(EmptyRequestErrorResponse).when(r.isEmpty))
+    if ((httpReq.method eq Method.GET) || queryParams.hasQueryParam("query")) {
+      decodeQueryParams(queryParams).fold(ZIO.fail(_), checkNonEmptyRequest)
+    } else {
+      val req = decodeBody(httpReq.body)
+      if (isFtv1Request(httpReq)) req.map(_.withFederatedTracing)
+      else req
+    }
 
   }
 
@@ -227,9 +234,10 @@ final private class QuickRequestHandler[R](
     )
 
   private def isFtv1Request(req: Request) =
-    req.headers
-      .get(GraphQLRequest.`apollo-federation-include-trace`)
-      .exists(_.equalsIgnoreCase(GraphQLRequest.ftv1))
+    req.headers.get(GraphQLRequest.`apollo-federation-include-trace`) match {
+      case None    => false
+      case Some(h) => h.equalsIgnoreCase(GraphQLRequest.ftv1)
+    }
 
   private def webSocketChannelListener(protocol: Protocol)(ch: WebSocketChannel)(implicit trace: Trace): RIO[R, Unit] =
     for {

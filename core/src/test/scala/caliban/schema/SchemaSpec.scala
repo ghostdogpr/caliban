@@ -2,7 +2,7 @@ package caliban.schema
 
 import caliban.Value.StringValue
 import caliban._
-import caliban.introspection.adt.{ __DeprecatedArgs, __Type, __TypeKind }
+import caliban.introspection.adt.{ __DeprecatedArgs, __Field, __Type, __TypeKind }
 import caliban.parsing.adt.Directive
 import caliban.schema.Annotations._
 import caliban.schema.ArgBuilder.auto._
@@ -386,6 +386,7 @@ object SchemaSpec extends ZIOSpecDefault {
     )
 
   case class EffectfulFieldSchema(q: Task[Int], @GQLNonNullable qAnnotated: Task[Int])
+  case class OptionalEffectfulFieldSchema(q: Task[Option[String]], @GQLNonNullable qAnnotated: Task[Option[String]])
   case class InfallibleFieldSchema(q: UIO[Int], @GQLNullable qAnnotated: UIO[Int])
   case class FutureFieldSchema(q: Future[Int])
   case class IDSchema(id: UUID)
@@ -396,7 +397,7 @@ object SchemaSpec extends ZIOSpecDefault {
 
   @GQLInterface
   sealed trait MyInterface
-  object MyInterface             {
+  object MyInterface {
     case class A(c1: Int, c2: Int => Int, d1: Int, d2: Int => Int, d3: Int => Int)      extends MyInterface
     case class B(c1: Int, c2: Int => Int, d1: Boolean, d2: Int, d3: Option[Int] => Int) extends MyInterface
   }
@@ -410,7 +411,7 @@ object SchemaSpec extends ZIOSpecDefault {
 
   @GQLUnion
   sealed trait EnumLikeUnion
-  object EnumLikeUnion           {
+  object EnumLikeUnion {
     case object A extends EnumLikeUnion
     case object B extends EnumLikeUnion
   }
@@ -418,7 +419,7 @@ object SchemaSpec extends ZIOSpecDefault {
   @GQLUnion
   sealed trait RedirectingUnion
 
-  object RedirectingUnion  {
+  object RedirectingUnion {
     case class B(common: Int)
 
     case class A(common: Int) extends RedirectingUnion

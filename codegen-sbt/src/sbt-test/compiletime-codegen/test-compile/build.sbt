@@ -2,7 +2,7 @@ import sbt.Def.spaceDelimited
 import sbt.librarymanagement.Resolver
 
 val scala212 = "2.12.19"
-val scala213 = "2.13.13"
+val scala213 = "2.13.14"
 val scala3   = "3.3.3"
 val allScala = Seq(scala212, scala213, scala3)
 
@@ -34,8 +34,8 @@ lazy val calibanLib: Seq[ModuleID] =
   }
 
 lazy val sttp = Seq(
-  "com.softwaremill.sttp.client3" %% "core" % "3.9.5",
-  "com.softwaremill.sttp.client3" %% "zio"  % "3.9.5"
+  "com.softwaremill.sttp.client3" %% "core" % "3.9.7",
+  "com.softwaremill.sttp.client3" %% "zio"  % "3.9.7"
 )
 
 // ### App Modules ###

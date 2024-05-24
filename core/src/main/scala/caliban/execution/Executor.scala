@@ -9,6 +9,7 @@ import caliban.parsing.adt._
 import caliban.schema.ReducedStep.DeferStep
 import caliban.schema.Step.{ PureStep => _, _ }
 import caliban.schema.{ PureStep, ReducedStep, Step, Types }
+import caliban.transformers.Transformer
 import caliban.wrappers.Wrapper.FieldWrapper
 import zio._
 import zio.query._
@@ -38,11 +39,13 @@ object Executor {
     fieldWrappers: List[FieldWrapper[R]] = Nil,
     queryExecution: QueryExecution = QueryExecution.Parallel,
     featureSet: Set[Feature] = Set.empty,
-    makeCache: UIO[Cache] = Cache.empty(Trace.empty)
+    makeCache: UIO[Cache] = Cache.empty(Trace.empty),
+    transformer: Transformer[R] = Transformer.empty[R]
   )(implicit trace: Trace): URIO[R, GraphQLResponse[CalibanError]] = {
     val wrapPureValues      = fieldWrappers.exists(_.wrapPureValues)
     val stepReducer         =
       new StepReducer[R](
+        transformer,
         request.operationType eq OperationType.Subscription,
         featureSet(Feature.Defer),
         wrapPureValues
@@ -123,6 +126,7 @@ object Executor {
     ZIO.succeed(GraphQLResponse(NullValue, List(error)))
 
   private final class StepReducer[R](
+    transformer: Transformer[R],
     isSubscription: Boolean,
     isDeferredEnabled: Boolean,
     wrapPureValues: Boolean
@@ -139,15 +143,14 @@ object Executor {
         def reduceField(f: Field): (String, ReducedStep[R], FieldInfo) = {
           val aliasedName = f.aliasedName
           val fname       = f.name
-          val field       = {
+          val field       =
             if (fname == "__typename") PureStep(StringValue(objectName))
             else reduceStep(getFieldStep(fname), f, f.arguments, PathValue.Key(aliasedName) :: path)
-          }
           (aliasedName, field, fieldInfo(f, aliasedName, path, f.directives))
         }
 
         val filteredFields    = mergeFields(currentField, objectName)
-        val (deferred, eager) = {
+        val (deferred, eager) =
           if (isDeferredEnabled) {
             filteredFields.partitionMap { f =>
               val entry = reduceField(f)
@@ -159,7 +162,6 @@ object Executor {
               }
             }
           } else (Nil, filteredFields.map(reduceField))
-        }
 
         val eagerReduced = reduceObject(eager)
         deferred match {
@@ -259,13 +261,13 @@ object Executor {
         catch { case NonFatal(e) => Step.fail(e) }
 
       step match {
-        case s: PureStep                    => s
-        case QueryStep(inner)               => reduceQuery(inner)
-        case ObjectStep(objectName, fields) => reduceObjectStep(objectName, fields)
-        case FunctionStep(step)             => reduceStep(wrapFn(step, arguments), currentField, Map.empty, path)
-        case MetadataFunctionStep(step)     => reduceStep(wrapFn(step, currentField), currentField, arguments, path)
-        case ListStep(steps)                => reduceListStep(steps)
-        case StreamStep(stream)             => reduceStream(stream)
+        case s: PureStep                => s
+        case s: QueryStep[R]            => reduceQuery(s.query)
+        case s: ObjectStep[R]           => val t = transformer(s, currentField); reduceObjectStep(t.name, t.fields)
+        case s: FunctionStep[R]         => reduceStep(wrapFn(s.step, arguments), currentField, Map.empty, path)
+        case s: MetadataFunctionStep[R] => reduceStep(wrapFn(s.step, currentField), currentField, arguments, path)
+        case s: ListStep[R]             => reduceListStep(s.steps)
+        case s: StreamStep[R]           => reduceStream(s.inner)
       }
     }
 
@@ -366,7 +368,7 @@ object Executor {
     )(
       as: A => ZQuery[R, E, B]
     )(implicit bf: BuildFrom[Coll[A], B, Coll[B]]): ZQuery[R, E, Coll[B]] =
-      if (in.sizeCompare(1) == 0) as(in.head).map(bf.newBuilder(in).+=(_).result())
+      if (in.sizeCompare(1) == 0) as(in.head).map(v => bf.fromSpecific(in)(v :: Nil))
       else if (isMutation && isTopLevelField) ZQuery.foreach(in)(as)
       else
         (queryExecutionTag: @switch) match {
@@ -429,16 +431,19 @@ object Executor {
           }.map(combineQueryResults)
         }
 
-        def combineResults(names: List[String], resolved: List[ResponseValue])(fromQueries: Vector[ResponseValue]) = {
+        def combineResults(names: List[String], resolved: List[ResponseValue])(fromQueries: List[ResponseValue]) = {
           val nil                                    = Nil
           var results: List[(String, ResponseValue)] = nil
-          var i                                      = fromQueries.length
+          var remainingQueries                       = fromQueries
           var remainingResponses                     = resolved
           var remainingNames                         = names
           while (remainingResponses ne nil) {
             val name = remainingNames.head
             val resp = remainingResponses.head match {
-              case null => i -= 1; fromQueries(i)
+              case null =>
+                val v = remainingQueries.head
+                remainingQueries = remainingQueries.tail
+                v
               case v    => v
             }
             results = (name, resp) :: results
@@ -449,24 +454,24 @@ object Executor {
         }
 
         def collectMixed() = {
-          val queries                       = new VectorBuilder[(String, ReducedStep[R], FieldInfo)]
-          val nil                           = Nil // Bring into stack memory to avoid fetching from heap on each iteration
-          var names: List[String]           = nil
-          var resolved: List[ResponseValue] = nil
-          var remaining                     = steps
+          val nil                                                = Nil // Bring into stack memory to avoid fetching from heap on each iteration
+          var queries: List[(String, ReducedStep[R], FieldInfo)] = nil
+          var names: List[String]                                = nil
+          var resolved: List[ResponseValue]                      = nil
+          var remaining                                          = steps
           while (remaining ne nil) {
-            val (name, step, _) = remaining.head
-            val value           = step match {
+            val t @ (name, step, _) = remaining.head
+            val value               = step match {
               case PureStep(value) => value
               case _               =>
-                queries.addOne(remaining.head)
+                queries = t :: queries
                 null
             }
             resolved = value :: resolved
             names = name :: names
             remaining = remaining.tail
           }
-          collectAll(queries.result(), isTopLevelField) { case (_, s, i) => objectFieldQuery(s, i) }
+          collectAll(queries, isTopLevelField) { case (_, s, i) => objectFieldQuery(s, i) }
             .map(combineResults(names, resolved))
         }
 

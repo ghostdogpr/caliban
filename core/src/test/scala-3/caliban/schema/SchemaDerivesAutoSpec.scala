@@ -273,6 +273,7 @@ object SchemaDerivesAutoSpec extends ZIOSpecDefault {
 
             |type A {
             |  a: String!
+            |  b: Int
             |}
 
             |type Queries {
@@ -280,10 +281,10 @@ object SchemaDerivesAutoSpec extends ZIOSpecDefault {
             |}""".stripMargin
         List(
           test("from GenericSchema[Any]") {
-            case class A(a: String)
+            case class A(a: String, b: Option[Int])
             case class Queries(as: List[A]) derives Schema.Auto
 
-            val resolver = RootResolver(Queries(List(A("a"), A("b"))))
+            val resolver = RootResolver(Queries(List(A("a", None), A("b", None))))
             val gql      = graphQL(resolver)
 
             assertTrue(gql.render == expected)
@@ -292,10 +293,10 @@ object SchemaDerivesAutoSpec extends ZIOSpecDefault {
             trait Foo
             object FooSchema extends SchemaDerivation[Foo]
 
-            case class A(a: String)
+            case class A(a: String, b: Option[Int])
             case class Queries(as: List[A]) derives FooSchema.Auto
 
-            val resolver = RootResolver(Queries(List(A("a"), A("b"))))
+            val resolver = RootResolver(Queries(List(A("a", None), A("b", None))))
             val gql      = graphQL(resolver)
 
             assertTrue(gql.render == expected)
@@ -303,9 +304,10 @@ object SchemaDerivesAutoSpec extends ZIOSpecDefault {
           test("from local scope") {
             case class A(a: Int)
 
-            given Schema[Any, A] = Schema.obj[Any, A]("A") { case given FieldAttributes =>
-              List(Schema.field("a")(_.a.toString))
-            }
+            given Schema[Any, A] = Schema.customObj[Any, A]("A")(
+              Schema.field("a")(_.a.toString),
+              Schema.field("b")(v => Option(v.a))
+            )
 
             case class Queries(as: List[A]) derives Schema.Auto
 
@@ -319,9 +321,10 @@ object SchemaDerivesAutoSpec extends ZIOSpecDefault {
             object FooSchema extends SchemaDerivation[Foo]
             case class A(a: Int)
 
-            given Schema[Any, A] = Schema.obj[Any, A]("A") { case given FieldAttributes =>
-              List(Schema.field("a")(_.a.toString))
-            }
+            given Schema[Any, A] = Schema.customObj[Any, A]("A")(
+              Schema.field("a")(_.a.toString),
+              Schema.field("b")(v => Option(v.a))
+            )
 
             case class Queries(as: List[A]) derives FooSchema.Auto
 

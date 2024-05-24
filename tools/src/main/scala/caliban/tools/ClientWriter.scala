@@ -179,8 +179,8 @@ object ClientWriter {
             (
               s"[$typeLetter]",
               s"(${unionTypes
-                .map(t => s"""${safeTypeName(s"on${t.name}")}: scala.Option[SelectionBuilder[${safeTypeName(t.name)}, $typeLetter]] = None""")
-                .mkString(", ")})",
+                  .map(t => s"""${safeTypeName(s"on${t.name}")}: scala.Option[SelectionBuilder[${safeTypeName(t.name)}, $typeLetter]] = None""")
+                  .mkString(", ")})",
               s"${writeType(field.ofType).replace(fieldType, s"scala.Option[$typeLetter]")}",
               writeTypeBuilder(
                 field.ofType,
@@ -210,8 +210,8 @@ object ClientWriter {
             (
               s"[$typeLetter]",
               s"(${interfaceTypes
-                .map(t => s"""${safeTypeName(s"on${t.name}")}: scala.Option[SelectionBuilder[${safeTypeName(t.name)}, $typeLetter]] = None""")
-                .mkString(", ")})",
+                  .map(t => s"""${safeTypeName(s"on${t.name}")}: scala.Option[SelectionBuilder[${safeTypeName(t.name)}, $typeLetter]] = None""")
+                  .mkString(", ")})",
               s"${writeType(field.ofType).replace(fieldType, s"""scala.Option[$typeLetter]""")}",
               writeTypeBuilder(
                 field.ofType,
@@ -245,15 +245,15 @@ object ClientWriter {
         case Nil  => ""
         case list =>
           s", arguments = List(${list.zipWithIndex.map { case (arg, idx) =>
-            s"""Argument("${arg.name}", ${safeName(arg.name)}, "${arg.ofType.toString}")(encoder$idx)"""
-          }.mkString(", ")})"
+              s"""Argument("${arg.name}", ${safeName(arg.name)}, "${arg.ofType.toString}")(encoder$idx)"""
+            }.mkString(", ")})"
       }
       val implicits                                        = field.args match {
         case Nil  => ""
         case list =>
           s"(implicit ${list.zipWithIndex.map { case (arg, idx) =>
-            s"""encoder$idx: ArgEncoder[${writeType(arg.ofType)}]"""
-          }.mkString(", ")})"
+              s"""encoder$idx: ArgEncoder[${writeType(arg.ofType)}]"""
+            }.mkString(", ")})"
       }
 
       val name          =
@@ -306,9 +306,8 @@ object ClientWriter {
     ): String =
       s"type ${typedef.name} = _root_.caliban.client.Operations.RootQuery"
 
-    def writeRootQuery(typedef: ObjectTypeDefinition): String =
-      s"""object ${typedef.name} {
-         |  ${typedef.fields.flatMap { field =>
+    def writeRootQuery(typedef: ObjectTypeDefinition): String = {
+      val formattedFields = typedef.fields.flatMap { field =>
         if (isOptionalInterfaceType(field)) {
           Vector(
             writeField(
@@ -338,18 +337,19 @@ object ClientWriter {
           )
         }
       }
-        .mkString("\n  ")}
+      s"""object ${typedef.name} {
+         |  ${formattedFields.mkString("\n  ")}
          |}
          |""".stripMargin
+    }
 
     def writeRootMutationType(
       typedef: ObjectTypeDefinition
     ): String =
       s"type ${typedef.name} = _root_.caliban.client.Operations.RootMutation"
 
-    def writeRootMutation(typedef: ObjectTypeDefinition): String =
-      s"""object ${typedef.name} {
-         |  ${typedef.fields.flatMap { field =>
+    def writeRootMutation(typedef: ObjectTypeDefinition): String = {
+      val formattedFields = typedef.fields.flatMap { field =>
         if (isOptionalInterfaceType(field)) {
           Vector(
             writeField(
@@ -379,18 +379,19 @@ object ClientWriter {
           )
         }
       }
-        .mkString("\n  ")}
+      s"""object ${typedef.name} {
+         |  ${formattedFields.mkString("\n  ")}
          |}
          |""".stripMargin
+    }
 
     def writeRootSubscriptionType(
       typedef: ObjectTypeDefinition
     ): String =
       s"type ${typedef.name} = _root_.caliban.client.Operations.RootSubscription"
 
-    def writeRootSubscription(typedef: ObjectTypeDefinition): String =
-      s"""object ${typedef.name} {
-         |  ${typedef.fields.flatMap { field =>
+    def writeRootSubscription(typedef: ObjectTypeDefinition): String = {
+      val formattedFields = typedef.fields.flatMap { field =>
         if (isOptionalInterfaceType(field)) {
           Vector(
             writeField(
@@ -420,9 +421,11 @@ object ClientWriter {
           )
         }
       }
-        .mkString("\n  ")}
+      s"""object ${typedef.name} {
+         |  ${formattedFields.mkString("\n  ")}
          |}
          |""".stripMargin
+    }
 
     def writeObjectType(typedef: ObjectTypeDefinition): String = {
 
@@ -634,19 +637,19 @@ object ClientWriter {
       typedef: InputObjectTypeDefinition
     ): String = {
       val inputObjectName = safeTypeName(typedef.name)
+      val formattedFields = typedef.fields
+        .map(f =>
+          s""""${f.name}" -> ${writeInputValue(
+              f.ofType,
+              s"value.${safeName(f.name)}",
+              inputObjectName
+            )}"""
+        )
       s"""final case class $inputObjectName(${writeArgumentFields(typedef.fields)})
          |object $inputObjectName {
          |  implicit val encoder: ArgEncoder[$inputObjectName] = new ArgEncoder[$inputObjectName] {
          |    override def encode(value: $inputObjectName): __Value =
-         |      __ObjectValue(List(${typedef.fields
-        .map(f =>
-          s""""${f.name}" -> ${writeInputValue(
-               f.ofType,
-               s"value.${safeName(f.name)}",
-               inputObjectName
-             )}"""
-        )
-        .mkString(", ")}))
+         |      __ObjectValue(List(${formattedFields.mkString(", ")}))
          |  }
          |}""".stripMargin
     }
@@ -696,7 +699,8 @@ object ClientWriter {
         (if (extensibleEnums) Some(s"case ${typedef.name}.__Unknown (value) => __EnumValue(value)") else None)
 
       val enumObject =
-        if (typedef.enumValuesDefinition.nonEmpty)
+        if (typedef.enumValuesDefinition.nonEmpty) {
+          val formattedEnumValues = typedef.enumValuesDefinition.map(v => safeEnumValue(v.enumValue)).mkString(", ")
           s"""object $enumName {
             ${enumCases.mkString("\n")}
 
@@ -708,11 +712,9 @@ object ClientWriter {
               ${encoderCases.mkString("\n")}
             }
 
-            val values: scala.collection.immutable.Vector[$enumName] = scala.collection.immutable.Vector(${typedef.enumValuesDefinition
-            .map(v => safeEnumValue(v.enumValue))
-            .mkString(", ")})
+            val values: scala.collection.immutable.Vector[$enumName] = scala.collection.immutable.Vector($formattedEnumValues)
           }"""
-        else
+        } else
           ""
 
       s"""sealed trait $enumName extends scala.Product with scala.Serializable { def value: String }
@@ -977,7 +979,7 @@ object ClientWriter {
            |
            |package object ${packageName.get.reverse.takeWhile(_ != '.').reverse} {
            |  ${(scalars ::: interfaceTypes ::: objectTypes ::: queryTypes ::: mutationTypes ::: subscriptionTypes)
-          .mkString("\n")}
+            .mkString("\n")}
            |}
            |""".stripMargin
       val classFiles        =
@@ -995,23 +997,23 @@ object ClientWriter {
     } else {
       val imports =
         s"""${if (enums.nonEmpty)
-          """import caliban.client.CalibanClientError.DecodingError
-            |""".stripMargin
-        else ""}${if (
-          interfaces.nonEmpty || objects.nonEmpty || queries.nonEmpty || mutations.nonEmpty || subscriptions.nonEmpty
-        )
-          """import caliban.client.FieldBuilder._
-            |""".stripMargin
-        else
-          ""}${if (
-          enums.nonEmpty || interfaces.nonEmpty || objects.nonEmpty || queries.nonEmpty || mutations.nonEmpty || subscriptions.nonEmpty || inputs.nonEmpty
-        )
-          """import caliban.client._
-            |""".stripMargin
-        else ""}${if (enums.nonEmpty || inputs.nonEmpty)
-          """import caliban.client.__Value._
-            |""".stripMargin
-        else ""}"""
+            """import caliban.client.CalibanClientError.DecodingError
+              |""".stripMargin
+          else ""}${if (
+            interfaces.nonEmpty || objects.nonEmpty || queries.nonEmpty || mutations.nonEmpty || subscriptions.nonEmpty
+          )
+            """import caliban.client.FieldBuilder._
+              |""".stripMargin
+          else
+            ""}${if (
+            enums.nonEmpty || interfaces.nonEmpty || objects.nonEmpty || queries.nonEmpty || mutations.nonEmpty || subscriptions.nonEmpty || inputs.nonEmpty
+          )
+            """import caliban.client._
+              |""".stripMargin
+          else ""}${if (enums.nonEmpty || inputs.nonEmpty)
+            """import caliban.client.__Value._
+              |""".stripMargin
+          else ""}"""
 
       List(objectName -> s"""${packageName.fold("")(p => s"package $p\n\n")}$imports\n
                             |$additionalImportsString

@@ -4,8 +4,15 @@ import caliban.ResponseValue.ObjectValue
 import caliban.Value.{ EnumValue, NullValue, StringValue }
 import caliban.introspection.adt.{ __DeprecatedArgs, __Field, __Type }
 import caliban.schema.Step.MetadataFunctionStep
+import caliban.parsing.adt.Directive
 
 private[schema] object SchemaUtils {
+
+  /**
+   * Directive used to mark a field as semantically non-nullable.
+   */
+  val SemanticNonNull = Directive("semanticNonNull")
+
   private val fakeField =
     Some(
       List(
