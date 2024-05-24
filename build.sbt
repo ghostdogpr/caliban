@@ -17,7 +17,7 @@ val javaTimeVersion           = "2.5.0"
 val jsoniterVersion           = "2.28.5"
 val laminextVersion           = "0.17.0"
 val magnoliaScala2Version     = "1.1.10"
-val magnoliaScala3Version     = "1.3.6"
+val magnoliaScala3Version     = "1.3.7"
 val pekkoHttpVersion          = "1.0.1"
 val playVersion               = "3.0.3"
 val playJsonVersion           = "3.0.3"
@@ -606,7 +606,7 @@ lazy val apolloCompatibility =
     )
     .settings(
       skip                                                 := (scalaVersion.value == scala212),
-      ideSkipProject                                       := (scalaVersion.value != scala212),
+      ideSkipProject                                       := (scalaVersion.value == scala212),
       crossScalaVersions                                   := Seq(scala213, scala3),
       libraryDependencySchemes += "org.scala-lang.modules" %% "scala-java8-compat" % "always"
     )
