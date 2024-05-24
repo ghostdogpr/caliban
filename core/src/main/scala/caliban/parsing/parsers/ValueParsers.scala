@@ -7,7 +7,7 @@ import fastparse._
 
 import scala.annotation.nowarn
 
-@nowarn("msg=NoWhitespace") // False positive warning in Scala 2.x
+@nowarn("msg=NoWhitespace") // False positive warning in Scala 2.12.x
 private[caliban] trait ValueParsers extends NumberParsers {
   def booleanValue(implicit ev: P[Any]): P[BooleanValue] =
     StringIn("true", "false").!.map(v => BooleanValue(v.toBoolean))
