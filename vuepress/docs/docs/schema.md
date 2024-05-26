@@ -229,10 +229,10 @@ given Schema[Any, Origin] = Schema.Auto.derived
   <code-block title="Scala 3 (Custom schema)">
 
 ```scala
-import caliban.schema.Schema
+import caliban.schema.SchemaDerivation
 
 trait MyEnv
-object EnvSchema extends Schema.SchemaDerivation[MyEnv]
+object EnvSchema extends SchemaDerivation[MyEnv]
 
 enum Origin derives EnvSchema.Auto {
   case EARTH, MARS, BELT
