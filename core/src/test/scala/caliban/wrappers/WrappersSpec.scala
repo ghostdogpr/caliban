@@ -301,7 +301,7 @@ object WrappersSpec extends ZIOSpecDefault {
           ): Document => ZIO[R1, ValidationError, ExecutionRequest] =
             (doc: Document) =>
               f(doc) <* {
-                ZIO.unlessZIO(Configurator.configuration.map(_.skipValidation)) {
+                ZIO.unlessZIO(Configurator.skipValidation) {
                   ZIO.whenZIO(fail.get)(ZIO.fail(ValidationError("boom", "boom")))
                 }
               }

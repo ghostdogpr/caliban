@@ -26,7 +26,7 @@ final private class QuickRequestHandler[R](
 
   def configure(config: ExecutionConfiguration)(implicit trace: Trace): QuickRequestHandler[R] =
     new QuickRequestHandler[R](
-      interpreter.wrapExecutionWith[R, Any](Configurator.setWith(config)(_)),
+      interpreter.wrapExecutionWith[R, Any](Configurator.ref.locally(config)(_)),
       wsConfig
     )
 

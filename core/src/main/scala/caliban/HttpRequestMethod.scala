@@ -1,7 +1,8 @@
 package caliban
 
 import caliban.CalibanError.ValidationError
-import zio.{ FiberRef, Scope, UIO, URIO, Unsafe, ZIO }
+import zio.stacktracer.TracingImplicits.disableAutoTrace
+import zio.{ FiberRef, Trace, Unsafe, ZIO }
 
 private[caliban] sealed trait HttpRequestMethod
 
@@ -13,9 +14,10 @@ private[caliban] object HttpRequestMethod {
 
   private val fiberRef: FiberRef[HttpRequestMethod] = Unsafe.unsafe(implicit u => FiberRef.unsafe.make(POST))
 
-  val get: UIO[HttpRequestMethod] = fiberRef.get
+  def getWith[R, E, A](zio: HttpRequestMethod => ZIO[R, E, A])(implicit trace: Trace): ZIO[R, E, A] =
+    fiberRef.getWith(zio)
 
-  def setWith[R, E, B](method: HttpRequestMethod)(zio: ZIO[R, E, B]): ZIO[R, E, B] =
+  def setWith[R, E, B](method: HttpRequestMethod)(zio: ZIO[R, E, B])(implicit trace: Trace): ZIO[R, E, B] =
     method match {
       case POST => zio
       case GET  => fiberRef.locally(method)(zio)

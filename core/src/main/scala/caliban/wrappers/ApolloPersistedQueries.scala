@@ -62,7 +62,7 @@ object ApolloPersistedQueries {
       ): Document => ZIO[R1, ValidationError, ExecutionRequest] =
         (doc: Document) =>
           docVar.await.flatMap {
-            case Some((_, Some(_))) => Configurator.locallyWith(_.copy(skipValidation = true))(f(doc))
+            case Some((_, Some(_))) => Configurator.ref.locallyWith(_.copy(skipValidation = true))(f(doc))
             case Some((hash, None)) => f(doc) <* ApolloPersistence.add(hash, doc)
             case None               => f(doc)
           }
