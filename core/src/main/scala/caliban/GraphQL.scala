@@ -124,43 +124,45 @@ trait GraphQL[-R] { self =>
         private def coerceVariables(doc: Document, variables: Map[String, InputValue])(implicit
           trace: Trace
         ): IO[ValidationError, Map[String, InputValue]] =
-          Configurator.configuration.flatMap { config =>
+          Configurator.ref.getWith { config =>
             if (doc.isIntrospection && !config.enableIntrospection)
               ZIO.fail(CalibanError.ValidationError("Introspection is disabled", ""))
             else
-              VariablesCoercer
-                .coerceVariablesEither(variables, doc, typeToValidate(doc), config.skipValidation)
-                .fold(ZIO.fail(_), ZIO.succeed(_))
+              VariablesCoercer.coerceVariablesEither(variables, doc, typeToValidate(doc), config.skipValidation) match {
+                case Right(value) => ZIO.succeed(value)
+                case Left(error)  => ZIO.fail(error)
+              }
           }
 
         private def validation(
           operationName: Option[String],
           coercedVars: Map[String, InputValue]
         )(doc: Document)(implicit trace: Trace): IO[ValidationError, ExecutionRequest] =
-          Configurator.configuration.flatMap { config =>
-            Validator
-              .prepareEither(
-                doc,
-                typeToValidate(doc),
-                schemaToExecute(doc),
-                operationName,
-                coercedVars,
-                config.skipValidation,
-                config.validations
-              )
-              .fold(ZIO.fail(_), checkHttpMethod(config))
+          Configurator.ref.getWith { config =>
+            Validator.prepareEither(
+              doc,
+              typeToValidate(doc),
+              schemaToExecute(doc),
+              operationName,
+              coercedVars,
+              config.skipValidation,
+              config.validations
+            ) match {
+              case Right(value) => checkHttpMethod(config)(value)
+              case Left(error)  => ZIO.fail(error)
+            }
           }
 
-        private def execution(
-          schemaToExecute: RootSchema[R],
-          fieldWrappers: List[FieldWrapper[R]]
+        private def execution[R1 <: R](
+          schemaToExecute: RootSchema[R1],
+          fieldWrappers: List[FieldWrapper[R1]]
         )(request: ExecutionRequest)(implicit trace: Trace) = {
           val op = request.operationType match {
             case OperationType.Query        => schemaToExecute.query
             case OperationType.Mutation     => schemaToExecute.mutation.getOrElse(schemaToExecute.query)
             case OperationType.Subscription => schemaToExecute.subscription.getOrElse(schemaToExecute.query)
           }
-          Configurator.configuration.flatMap { config =>
+          Configurator.ref.getWith { config =>
             Executor.executeRequest(
               request,
               op.plan,
@@ -183,7 +185,7 @@ trait GraphQL[-R] { self =>
           trace: Trace
         ): IO[ValidationError, ExecutionRequest] =
           if ((req.operationType eq OperationType.Mutation) && !cfg.allowMutationsOverGetRequests)
-            HttpRequestMethod.get.flatMap {
+            HttpRequestMethod.getWith {
               case HttpRequestMethod.GET => ZIO.fail(HttpRequestMethod.MutationOverGetError)
               case _                     => ZIO.succeed(req)
             }

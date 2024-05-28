@@ -32,63 +32,48 @@ object Configurator {
     /**
      * Creates a ZLayer that can be used to set this configuration at the application level
      */
-    def toLayer: ULayer[Unit] = ZLayer.scoped(set(self))
+    def toLayer: ULayer[Unit] = ZLayer.scoped(ref.locallyScoped(self))
   }
 
-  private val configRef: FiberRef[ExecutionConfiguration] =
+  private[caliban] val ref: FiberRef[ExecutionConfiguration] =
     Unsafe.unsafe(implicit u => FiberRef.unsafe.make(ExecutionConfiguration()))
 
-  private[caliban] val configuration: UIO[ExecutionConfiguration] =
-    configRef.get
-
-  private[caliban] def locallyWith[R, E, A](
-    cfg: ExecutionConfiguration => ExecutionConfiguration
-  )(
-    f: ZIO[R, E, A]
-  ): ZIO[R, E, A] =
-    configRef.locallyWith(cfg)(f)
-
-  private[caliban] def set(cfg: ExecutionConfiguration): URIO[Scope, Unit] =
-    configRef.locallyScoped(cfg)
-
-  private[caliban] def setWith[R, E, A](cfg: ExecutionConfiguration)(f: ZIO[R, E, A])(implicit
-    trace: Trace
-  ): ZIO[R, E, A] =
-    configRef.locally(cfg)(f)
+  private[caliban] val skipValidation: UIO[Boolean] =
+    ref.getWith(cfg => ZIO.succeed(cfg.skipValidation))
 
   /**
    * Skip validation of the query.
    * @param skip if true, the query will not be validated (in that case, the `validations` field is ignored).
    */
   def setSkipValidation(skip: Boolean): URIO[Scope, Unit] =
-    configRef.locallyScopedWith(_.copy(skipValidation = skip))
+    ref.locallyScopedWith(_.copy(skipValidation = skip))
 
   /**
    * Set the validations to run on the query during the validation phase.
    * @param validations the validations to run on the query during the validation phase.
    */
   def setValidations(validations: List[QueryValidation]): URIO[Scope, Unit] =
-    configRef.locallyScopedWith(_.copy(validations = validations))
+    ref.locallyScopedWith(_.copy(validations = validations))
 
   /**
    * Enable or disable introspection queries.
    * @param enable if true, introspection queries are allowed.
    */
   def setEnableIntrospection(enable: Boolean): URIO[Scope, Unit] =
-    configRef.locallyScopedWith(_.copy(enableIntrospection = enable))
+    ref.locallyScopedWith(_.copy(enableIntrospection = enable))
 
   /**
    * Set the execution strategy to use (sequential, parallel, batched).
    * @param queryExecution the execution strategy to use.
    */
   def setQueryExecution(queryExecution: QueryExecution): URIO[Scope, Unit] =
-    configRef.locallyScopedWith(_.copy(queryExecution = queryExecution))
+    ref.locallyScopedWith(_.copy(queryExecution = queryExecution))
 
   /**
    * Enable or disable mutations for GET requests. See [[ExecutionConfiguration]] for more details
    */
   def setAllowMutationsOverGetRequests(allow: Boolean): URIO[Scope, Unit] =
-    configRef.locallyScopedWith(_.copy(allowMutationsOverGetRequests = allow))
+    ref.locallyScopedWith(_.copy(allowMutationsOverGetRequests = allow))
 
   /**
    * Sets an effect which will be used to create a new ZQuery [[zio.query.Cache]] for each query execution.
@@ -97,5 +82,5 @@ object Configurator {
    * @see [[ExecutionConfiguration]] for more details
    */
   def setQueryCache(mkCache: UIO[Cache]): URIO[Scope, Unit] =
-    configRef.locallyScopedWith(_.copy(queryCache = mkCache))
+    ref.locallyScopedWith(_.copy(queryCache = mkCache))
 }

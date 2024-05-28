@@ -89,7 +89,7 @@ class NestedZQueryBenchmark {
   def simpleParallelQuery100(): Any = {
     val io =
       simple100
-        .wrapExecutionWith(Configurator.setWith(parallel)(_))
+        .wrapExecutionWith(Configurator.ref.locally(parallel)(_))
         .execute(simpleQuery)
     run(io)
   }
@@ -98,7 +98,7 @@ class NestedZQueryBenchmark {
   def simpleParallelQuery1000(): Any = {
     val io =
       simple1000
-        .wrapExecutionWith(Configurator.setWith(parallel)(_))
+        .wrapExecutionWith(Configurator.ref.locally(parallel)(_))
         .execute(simpleQuery)
     run(io)
   }
@@ -107,7 +107,7 @@ class NestedZQueryBenchmark {
   def simpleParallelQuery10000(): Any = {
     val io =
       simple10000
-        .wrapExecutionWith(Configurator.setWith(parallel)(_))
+        .wrapExecutionWith(Configurator.ref.locally(parallel)(_))
         .execute(simpleQuery)
     run(io)
   }
@@ -116,7 +116,7 @@ class NestedZQueryBenchmark {
   def simpleSequentialQuery100(): Any = {
     val io =
       simple100
-        .wrapExecutionWith(Configurator.setWith(sequential)(_))
+        .wrapExecutionWith(Configurator.ref.locally(sequential)(_))
         .execute(simpleQuery)
     run(io)
   }
@@ -125,7 +125,7 @@ class NestedZQueryBenchmark {
   def simpleSequentialQuery1000(): Any = {
     val io =
       simple1000
-        .wrapExecutionWith(Configurator.setWith(sequential)(_))
+        .wrapExecutionWith(Configurator.ref.locally(sequential)(_))
         .execute(simpleQuery)
     run(io)
   }
@@ -134,7 +134,7 @@ class NestedZQueryBenchmark {
   def simpleSequentialQuery10000(): Any = {
     val io =
       simple10000
-        .wrapExecutionWith(Configurator.setWith(sequential)(_))
+        .wrapExecutionWith(Configurator.ref.locally(sequential)(_))
         .execute(simpleQuery)
     run(io)
   }
@@ -143,7 +143,7 @@ class NestedZQueryBenchmark {
   def simpleBatchedQuery100(): Any = {
     val io =
       simple100
-        .wrapExecutionWith(Configurator.setWith(batched)(_))
+        .wrapExecutionWith(Configurator.ref.locally(batched)(_))
         .execute(simpleQuery)
     run(io)
   }
@@ -152,7 +152,7 @@ class NestedZQueryBenchmark {
   def simpleBatchedQuery1000(): Any = {
     val io =
       simple1000
-        .wrapExecutionWith(Configurator.setWith(batched)(_))
+        .wrapExecutionWith(Configurator.ref.locally(batched)(_))
         .execute(simpleQuery)
     run(io)
   }
@@ -161,7 +161,7 @@ class NestedZQueryBenchmark {
   def simpleBatchedQuery10000(): Any = {
     val io =
       simple10000
-        .wrapExecutionWith(Configurator.setWith(batched)(_))
+        .wrapExecutionWith(Configurator.ref.locally(batched)(_))
         .execute(simpleQuery)
     run(io)
   }
@@ -169,7 +169,7 @@ class NestedZQueryBenchmark {
   @Benchmark
   def multifieldParallelQuery100(): Any = {
     val io = multifield100
-      .wrapExecutionWith(Configurator.setWith(parallel)(_))
+      .wrapExecutionWith(Configurator.ref.locally(parallel)(_))
       .execute(multifieldQuery)
     run(io)
   }
@@ -177,7 +177,7 @@ class NestedZQueryBenchmark {
   @Benchmark
   def multifieldParallelQuery1000(): Any = {
     val io = multifield1000
-      .wrapExecutionWith(Configurator.setWith(parallel)(_))
+      .wrapExecutionWith(Configurator.ref.locally(parallel)(_))
       .execute(multifieldQuery)
     run(io)
   }
@@ -185,7 +185,7 @@ class NestedZQueryBenchmark {
   @Benchmark
   def multifieldParallelQuery10000(): Any = {
     val io = multifield10000
-      .wrapExecutionWith(Configurator.setWith(parallel)(_))
+      .wrapExecutionWith(Configurator.ref.locally(parallel)(_))
       .execute(multifieldQuery)
     run(io)
   }
@@ -193,7 +193,7 @@ class NestedZQueryBenchmark {
   @Benchmark
   def multifieldSequentialQuery100(): Any = {
     val io = multifield100
-      .wrapExecutionWith(Configurator.setWith(sequential)(_))
+      .wrapExecutionWith(Configurator.ref.locally(sequential)(_))
       .execute(multifieldQuery)
     run(io)
   }
@@ -201,7 +201,7 @@ class NestedZQueryBenchmark {
   @Benchmark
   def multifieldSequentialQuery1000(): Any = {
     val io = multifield1000
-      .wrapExecutionWith(Configurator.setWith(sequential)(_))
+      .wrapExecutionWith(Configurator.ref.locally(sequential)(_))
       .execute(multifieldQuery)
     run(io)
   }
@@ -209,7 +209,7 @@ class NestedZQueryBenchmark {
   @Benchmark
   def multifieldSequentialQuery10000(): Any = {
     val io = multifield10000
-      .wrapExecutionWith(Configurator.setWith(sequential)(_))
+      .wrapExecutionWith(Configurator.ref.locally(sequential)(_))
       .execute(multifieldQuery)
     run(io)
   }
@@ -217,7 +217,7 @@ class NestedZQueryBenchmark {
   @Benchmark
   def multifieldBatchedQuery100(): Any = {
     val io = multifield100
-      .wrapExecutionWith(Configurator.setWith(batched)(_))
+      .wrapExecutionWith(Configurator.ref.locally(batched)(_))
       .execute(multifieldQuery)
     run(io)
   }
@@ -225,7 +225,7 @@ class NestedZQueryBenchmark {
   @Benchmark
   def multifieldBatchedQuery1000(): Any = {
     val io = multifield1000
-      .wrapExecutionWith(Configurator.setWith(batched)(_))
+      .wrapExecutionWith(Configurator.ref.locally(batched)(_))
       .execute(multifieldQuery)
     run(io)
   }
@@ -233,7 +233,7 @@ class NestedZQueryBenchmark {
   @Benchmark
   def multifieldBatchedQuery10000(): Any = {
     val io = multifield10000
-      .wrapExecutionWith(Configurator.setWith(batched)(_))
+      .wrapExecutionWith(Configurator.ref.locally(batched)(_))
       .execute(multifieldQuery)
     run(io)
   }
@@ -241,7 +241,7 @@ class NestedZQueryBenchmark {
   @Benchmark
   def deepParallelQuery100(): Any = {
     val io = deep100
-      .wrapExecutionWith(Configurator.setWith(parallel)(_))
+      .wrapExecutionWith(Configurator.ref.locally(parallel)(_))
       .execute(deepQuery)
     run(io)
   }
@@ -249,7 +249,7 @@ class NestedZQueryBenchmark {
   @Benchmark
   def deepParallelQuery1000(): Any = {
     val io = deep1000
-      .wrapExecutionWith(Configurator.setWith(parallel)(_))
+      .wrapExecutionWith(Configurator.ref.locally(parallel)(_))
       .execute(deepQuery)
     run(io)
   }
@@ -258,7 +258,7 @@ class NestedZQueryBenchmark {
   def deepParallelQuery10000(): Any = {
     val io =
       deep10000
-        .wrapExecutionWith(Configurator.setWith(parallel)(_))
+        .wrapExecutionWith(Configurator.ref.locally(parallel)(_))
         .execute(deepQuery)
     run(io)
   }
@@ -267,7 +267,7 @@ class NestedZQueryBenchmark {
   def deepSequentialQuery100(): Any = {
     val io =
       deep100
-        .wrapExecutionWith(Configurator.setWith(sequential)(_))
+        .wrapExecutionWith(Configurator.ref.locally(sequential)(_))
         .execute(deepQuery)
     run(io)
   }
@@ -276,7 +276,7 @@ class NestedZQueryBenchmark {
   def deepSequentialQuery1000(): Any = {
     val io =
       deep1000
-        .wrapExecutionWith(Configurator.setWith(sequential)(_))
+        .wrapExecutionWith(Configurator.ref.locally(sequential)(_))
         .execute(deepQuery)
     run(io)
   }
@@ -285,7 +285,7 @@ class NestedZQueryBenchmark {
   def deepSequentialQuery10000(): Any = {
     val io =
       deep10000
-        .wrapExecutionWith(Configurator.setWith(sequential)(_))
+        .wrapExecutionWith(Configurator.ref.locally(sequential)(_))
         .execute(deepQuery)
     run(io)
   }
@@ -293,7 +293,7 @@ class NestedZQueryBenchmark {
   @Benchmark
   def deepBatchedQuery100(): Any = {
     val io = deep100
-      .wrapExecutionWith(Configurator.setWith(batched)(_))
+      .wrapExecutionWith(Configurator.ref.locally(batched)(_))
       .execute(deepQuery)
     run(io)
   }
@@ -301,7 +301,7 @@ class NestedZQueryBenchmark {
   @Benchmark
   def deepBatchedQuery1000(): Any = {
     val io = deep1000
-      .wrapExecutionWith(Configurator.setWith(batched)(_))
+      .wrapExecutionWith(Configurator.ref.locally(batched)(_))
       .execute(deepQuery)
     run(io)
   }
@@ -309,7 +309,7 @@ class NestedZQueryBenchmark {
   @Benchmark
   def deepBatchedQuery10000(): Any = {
     val io = deep10000
-      .wrapExecutionWith(Configurator.setWith(batched)(_))
+      .wrapExecutionWith(Configurator.ref.locally(batched)(_))
       .execute(deepQuery)
     run(io)
   }
@@ -317,7 +317,7 @@ class NestedZQueryBenchmark {
   @Benchmark
   def noWrappersBenchmark(): Any = {
     val io = multifield1000
-      .wrapExecutionWith(Configurator.setWith(batched)(_))
+      .wrapExecutionWith(Configurator.ref.locally(batched)(_))
       .execute(multifieldQuery)
     run(io)
   }
@@ -325,7 +325,7 @@ class NestedZQueryBenchmark {
   @Benchmark
   def apolloTracingBenchmark(): Any = {
     val io = apolloInterpreter
-      .wrapExecutionWith(Configurator.setWith(batched)(_))
+      .wrapExecutionWith(Configurator.ref.locally(batched)(_))
       .execute(multifieldQuery)
     run(io)
   }
@@ -333,7 +333,7 @@ class NestedZQueryBenchmark {
   @Benchmark
   def metricsBenchmark(): Any = {
     val io = metricsInterpreter
-      .wrapExecutionWith(Configurator.setWith(batched)(_))
+      .wrapExecutionWith(Configurator.ref.locally(batched)(_))
       .execute(multifieldQuery)
     run(io)
   }

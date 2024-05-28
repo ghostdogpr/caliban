@@ -152,7 +152,7 @@ package object quick {
       val run: RIO[R, Nothing] =
         QuickAdapter(interpreter)
           .runServer(port, apiPath, graphiqlPath, uploadPath)
-          .provideSomeLayer[R](ZLayer.scoped[Any](Configurator.set(executionConfig)))
+          .provideSomeLayer[R](ZLayer.scoped[Any](Configurator.ref.locallyScoped(executionConfig)))
 
       ZIOApp.fromZIO(run.asInstanceOf[RIO[Any, Nothing]]).main(Array.empty)
     }
