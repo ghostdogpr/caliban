@@ -502,7 +502,7 @@ implicit lazy val userSchema: Schema[Any, User] = obj("User", Some("A user of th
     )
 )
 ```
-</code-block>
+  </code-block>
   <code-block title="Scala 3">
 
 ```scala 3 mdoc:silent
