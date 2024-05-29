@@ -513,10 +513,19 @@ For that, simply use the `GraphQL#transform` method and provide one of the possi
 - `ExcludeInputField` to exclude an input field (providing a list of `(TypeName -> fieldToBeExcluded)`)
 - `ExcludeArgument` to exclude an argument (providing a list of `(TypeName -> fieldName -> argumentToBeExcluded)`)
 
+
+In the following example, we can expose 2 different APIs created from the same schema: the v1 API will not expose the `nicknames` field of the `Character` type.
 ```scala
-api
-  .transform(Transformer.RenameType("MyType" -> "MyTypeRenamed"))
-  .transform(Transformer.ExcludeField("MyType" -> "myField"))
+case class Queries(character: Character)
+
+case class Character(
+  name: String,
+  @GQLDescription("experimental field")
+  nicknames: List[String]
+)
+
+val apiBeta = graphQL(RootResolver(Queries(???, ???)))
+val apiV1   = apiBeta.transform(Transformer.ExcludeField("Character" -> "nicknames"))
 ```
 
 You can also create your own transformers by extending the `Transformer` trait and implementing its methods.
