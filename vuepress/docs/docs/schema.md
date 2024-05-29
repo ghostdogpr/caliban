@@ -470,6 +470,9 @@ case class User(id: String, group: UIO[Group])
 These three types all depend on one another and if you attempt to generate a schema from them you will either end up with compiler errors or you will end up with a nasty runtime
 error from a `NullPointerException`. To help the compiler out we can hand generate the types for these case classes instead.
 
+<code-group>
+  <code-block title="Scala 2" active>
+
 ```scala mdoc:silent
 import caliban.schema.Schema
 import caliban.schema.Schema.{obj, field}
@@ -499,3 +502,28 @@ implicit lazy val userSchema: Schema[Any, User] = obj("User", Some("A user of th
     )
 )
 ```
+</code-block>
+  <code-block title="Scala 3">
+
+```scala 3 mdoc:silent
+import caliban.schema.Schema
+import caliban.schema.Schema.{customObj, field}
+
+given Schema[Any, Group] = customObj("Group", Some("A group of users"))(
+  field("id")(_.id),
+  field("users")(_.users),
+  field("parent")(_.parent),
+  field("organization")(_.organization)
+)
+given Schema[Any, Organization] = customObj("Organization", Some("An organization of groups"))(
+  field("id")(_.id),
+  field("groups")(_.groups)
+)
+
+given Schema[Any, User] = customObj("User", Some("A user of the service"))(
+  field("id")(_.id),
+  field("group")(_.group)
+)
+```
+  </code-block>
+</code-group>
