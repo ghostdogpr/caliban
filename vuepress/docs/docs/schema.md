@@ -499,3 +499,22 @@ implicit lazy val userSchema: Schema[Any, User] = obj("User", Some("A user of th
     )
 )
 ```
+
+## Schema transformations
+
+It is also possible to modify your schemas after they have been generated.
+This can be useful if you want to rename or remove particular types, fields or arguments from your schema without modifying the related Scala types.
+
+For that, simply use the `GraphQL#transform` method and provide one of the possible transformers:
+- `RenameType` to rename types (providing a list of `(OldName -> NewName)`)
+- `RenameField` to rename a field (providing a list of `(TypeName -> oldName -> newName)`)
+- `RenameArgument` to rename an argument (providing a list of `(TypeName -> fieldName -> oldArgumentName -> newArgumentName)`)
+- `ExcludeField` to exclude a field (providing a list of `(TypeName -> fieldToBeExcluded)`)
+- `ExcludeInputField` to exclude an input field (providing a list of `(TypeName -> fieldToBeExcluded)`)
+- `ExcludeArgument` to exclude an argument (providing a list of `(TypeName -> fieldName -> argumentToBeExcluded)`)
+
+```scala
+api
+  .transform(Transformer.RenameType("MyType" -> "MyTypeRenamed"))
+  .transform(Transformer.ExcludeField("MyType" -> "myField"))
+```
