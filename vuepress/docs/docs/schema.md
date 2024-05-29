@@ -452,6 +452,86 @@ explicit constructor available under the `ArgBuilder` companion object. For inst
 to handle instants which are encoded using a `Long` from the standard java epoch time (January 1st 1970 00:00:00).
 For some time formats you can also specify a specific `DateTimeFormatter` to handle your particular date time needs.
 
+## Using features that are disabled by default
+
+Some features of Caliban's schema derivation are disabled by default.
+To enable them, you need to declare a custom schema derivation object like this:
+
+<code-group>
+  <code-block title="Scala 2" active>
+
+```scala
+import caliban.schema.SchemaDerivation
+
+object MySchemaDerivation extends SchemaDerivation[Any] {
+  override def config = DerivationConfig(
+    // add your config overrides here
+    enableSemanticNonNull = true
+  )
+}
+
+case class MyClass(field: String)
+
+// use the custom schema derivation defined above
+implicit val schemaForMyClass: Schema[Any, MyClass] = MySchemaDerivation.gen
+```
+  </code-block>
+  <code-block title="Scala 3 (with given)">
+
+```scala
+import caliban.schema.SchemaDerivation
+
+object MySchemaDerivation extends SchemaDerivation[Any] {
+  override def config = DerivationConfig(
+    // add your config overrides here
+    enableSemanticNonNull = true
+  )
+}
+
+case class MyClass(field: String)
+
+// use the custom schema derivation defined above
+given Schema[Any, MyClass] = MySchemaDerivation.gen
+```
+  </code-block>
+  <code-block title="Scala 3 (with derives)">
+
+```scala
+import caliban.schema.{ CommonSchemaDerivation, Schema }
+
+trait MySchemaDerivation[R] extends CommonSchemaDerivation {
+  override def config = DerivationConfig(
+    // add your config overrides here
+    enableSemanticNonNull = true
+  )
+
+  final class SemiAuto[A](impl: Schema[R, A]) extends Schema[R, A] {
+    export impl.*
+  }
+
+  object SemiAuto {
+    inline def derived[A]: SemiAuto[A] = new SemiAuto[A](MySchemaDerivation.derived[R, A])
+  }
+}
+
+object MySchemaDerivation extends MySchemaDerivation[Any]
+
+case class MyClass(field: String) derives MySchemaDerivation.SemiAuto
+```
+  </code-block>
+</code-group>
+
+### SemanticNonNull support
+
+Caliban supports deriving schemas to the form that supports [the SemanticNonNull type RFC](https://github.com/graphql/graphql-spec/pull/1065), by introducing the `@semanticNonNull` directive.
+While Caliban resolves all fallible effectful types (`ZIO[R, Throwable, A]`, ...) as nullable by default,
+with the feature enabled, fields that don't get resolved to nullable types (for example, `ZIO[R, Throwable, A]` where `A` is not `Option[A]`, ...)
+will be marked with `@semanticNonNull` to express that the field never returns `null` unless the effect fails.
+`@GQLNullable` annotation can be used to override this behavior per field.
+
+If you have custom types that override the `Schema` trait, make sure to override `nullable` and `canFail` methods to return the correct values.
+All types that return `false` for `nullable` and `true` for `canFail` will be treated as semantically non-nullable.
+
 ## Building Schemas by hand
 
 Sometimes for whatever reason schema generation fails. This can happen if your schema has co-recursive types and derivation is unable
