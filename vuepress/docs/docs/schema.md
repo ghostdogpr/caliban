@@ -518,3 +518,5 @@ api
   .transform(Transformer.RenameType("MyType" -> "MyTypeRenamed"))
   .transform(Transformer.ExcludeField("MyType" -> "myField"))
 ```
+
+You can also create your own transformers by extending the `Transformer` trait and implementing its methods.
