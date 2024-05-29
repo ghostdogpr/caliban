@@ -607,3 +607,33 @@ given Schema[Any, User] = customObj("User", Some("A user of the service"))(
 ```
   </code-block>
 </code-group>
+
+## Schema transformations
+
+It is also possible to modify your schemas after they have been generated.
+This can be useful if you want to rename or remove particular types, fields or arguments from your schema without modifying the related Scala types.
+
+For that, simply use the `GraphQL#transform` method and provide one of the possible transformers:
+- `RenameType` to rename types (providing a list of `(OldName -> NewName)`)
+- `RenameField` to rename a field (providing a list of `(TypeName -> oldName -> newName)`)
+- `RenameArgument` to rename an argument (providing a list of `(TypeName -> fieldName -> oldArgumentName -> newArgumentName)`)
+- `ExcludeField` to exclude a field (providing a list of `(TypeName -> fieldToBeExcluded)`)
+- `ExcludeInputField` to exclude an input field (providing a list of `(TypeName -> fieldToBeExcluded)`)
+- `ExcludeArgument` to exclude an argument (providing a list of `(TypeName -> fieldName -> argumentToBeExcluded)`)
+
+
+In the following example, we can expose 2 different APIs created from the same schema: the v1 API will not expose the `nicknames` field of the `Character` type.
+```scala
+case class Queries(character: Character)
+
+case class Character(
+  name: String,
+  @GQLDescription("experimental field")
+  nicknames: List[String]
+)
+
+val apiBeta = graphQL(RootResolver(Queries(???, ???)))
+val apiV1   = apiBeta.transform(Transformer.ExcludeField("Character" -> "nicknames"))
+```
+
+You can also create your own transformers by extending the `Transformer` trait and implementing its methods.
