@@ -35,4 +35,7 @@ case class __Field(
     args(__DeprecatedArgs.include)
 
   private[caliban] lazy val _type: __Type = `type`()
+
+  private[caliban] lazy val allArgNames: Set[String] =
+    allArgs.view.map(_.name).toSet
 }

@@ -139,28 +139,62 @@ object TransformerSpec extends ZIOSpecDefault {
               |}""".stripMargin
         )
       },
-      test("filter argument") {
-        case class Args(arg: Option[String])
-        case class Query(a: Args => String)
-        val api: GraphQL[Any] = graphQL(RootResolver(Query(_.arg.getOrElse("missing"))))
+      suite("ExcludeArgument")(
+        test("filter nullable argument") {
+          case class Args(arg: Option[String])
+          case class Query(a: Args => String)
+          val api: GraphQL[Any] = graphQL(RootResolver(Query(_.arg.getOrElse("missing"))))
 
-        val transformed: GraphQL[Any] = api.transform(Transformer.ExcludeArgument("Query" -> "a" -> "arg"))
-        val rendered                  = transformed.render
-        for {
-          interpreter <- transformed.interpreter
-          result      <- interpreter.execute("""{ a }""").map(_.data.toString)
-        } yield assertTrue(
-          result == """{"a":"missing"}""",
-          rendered ==
-            """schema {
-              |  query: Query
-              |}
-              |
-              |type Query {
-              |  a: String!
-              |}""".stripMargin
-        )
-      },
+          val transformed: GraphQL[Any] = api.transform(Transformer.ExcludeArgument("Query" -> "a" -> "arg"))
+          val rendered                  = transformed.render
+          for {
+            interpreter <- transformed.interpreter
+            result      <- interpreter.execute("""{ a }""").map(_.data.toString)
+          } yield assertTrue(
+            result == """{"a":"missing"}""",
+            rendered ==
+              """schema {
+                |  query: Query
+                |}
+                |
+                |type Query {
+                |  a: String!
+                |}""".stripMargin
+          )
+        },
+        test("cannot filter non-nullable arguments") {
+          case class Args(arg1: String, arg2: Option[String], arg3: Option[String])
+          case class Query(a: Args => String)
+          val api: GraphQL[Any] = graphQL(
+            RootResolver(
+              Query(t => s"a1:${t.arg1} a2:${t.arg2.getOrElse("missing")} a3:${t.arg3.getOrElse("missing")}")
+            )
+          )
+
+          val transformed: GraphQL[Any] = api.transform(
+            Transformer.ExcludeArgument(
+              "Query" -> "a" -> "arg1",
+              "Query" -> "a" -> "arg2"
+            )
+          )
+          val rendered                  = transformed.render
+          for {
+            _           <- Configurator.setSkipValidation(true)
+            interpreter <- transformed.interpreter
+            result      <- interpreter.execute("""{ a(arg1:"foo", arg2:"bar", arg3:"baz") }""").map(_.data.toString)
+          } yield assertTrue(
+            result == """{"a":"a1:foo a2:missing a3:baz"}""",
+            rendered ==
+              """schema {
+                |  query: Query
+                |}
+                |
+                |type Query {
+                |  a(arg1: String!, arg3: String): String!
+                |}""".stripMargin
+          )
+        }
+      ),
       test("combine transformers") {
         val transformed: GraphQL[Any] = api
           .transform(Transformer.RenameType("InnerObject" -> "Renamed"))
