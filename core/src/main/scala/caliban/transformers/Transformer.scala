@@ -278,6 +278,7 @@ object Transformer {
      *   )
      * }}}
      *
+     * @note the '''argument must be optional''', otherwise the filter will be silently ignored
      * @param f tuples in the format of `(TypeName -> fieldName -> argumentToBeExcluded)`
      */
     def apply(f: ((String, String), String)*): Transformer[Any] =
@@ -292,15 +293,15 @@ object Transformer {
 
   final private class ExcludeArgument(map: Map[String, Map[String, Set[String]]]) extends Transformer[Any] {
 
-    private def shouldKeep(typeName: String, fieldName: String, argName: String): Boolean =
-      !getFromMap2(map, Set.empty[String])(typeName, fieldName).contains(argName)
+    private def shouldExclude(typeName: String, fieldName: String, arg: __InputValue): Boolean =
+      arg._type.isNullable && getFromMap2(map, Set.empty[String])(typeName, fieldName).contains(arg.name)
 
     val typeVisitor: TypeVisitor =
       TypeVisitor.fields.modifyWith((t, field) =>
         field.copy(args =
           field
             .args(_)
-            .filter(arg => shouldKeep(t.name.getOrElse(""), field.name, arg.name))
+            .filterNot(arg => shouldExclude(t.name.getOrElse(""), field.name, arg))
         )
       )
 
@@ -313,9 +314,11 @@ object Transformer {
           val fields = step.fields
           step.copy(fields =
             fieldName =>
-              inner.getOrElse(fieldName, null) match {
-                case null => fields(fieldName)
-                case excl => mapFunctionStep(fields(fieldName))(_.filterNot { case (argName, _) => excl(argName) })
+              if (inner.contains(fieldName)) {
+                val args = field.fieldType.allFieldsMap(fieldName).allArgNames
+                mapFunctionStep(fields(fieldName))(_.filterNot { case (argName, _) => !args.contains(argName) })
+              } else {
+                fields(fieldName)
               }
           )
       }
