@@ -1,6 +1,5 @@
 package caliban.transformers
 
-import caliban.CalibanError.ValidationError
 import caliban.InputValue
 import caliban.execution.Field
 import caliban.introspection.adt._
