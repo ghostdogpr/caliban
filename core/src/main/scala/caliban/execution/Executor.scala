@@ -386,20 +386,20 @@ object Executor {
             case wrapper :: tail =>
               val q =
                 if (isPure && !wrapper.wrapPureValues) query
-                else
-                  wrapper
-                    .wrap(query, fieldInfo)
-                    .mapErrorCause(e =>
-                      effectfulExecutionError(
-                        PathValue.Key(fieldInfo.name) :: fieldInfo.path,
-                        Some(fieldInfo.details.locationInfo),
-                        e
-                      )
-                    )
-
+                else wrapper.wrap(query, fieldInfo)
               loop(q, tail)
           }
-        loop(query, fieldWrappers)
+
+        if ((isPure && !wrapPureValues) || (fieldWrappers eq Nil)) query
+        else {
+          loop(query, fieldWrappers).mapErrorCause(e =>
+            effectfulExecutionError(
+              PathValue.Key(fieldInfo.name) :: fieldInfo.path,
+              Some(fieldInfo.details.locationInfo),
+              e
+            )
+          )
+        }
       }
 
       def objectFieldQuery(step: ReducedStep[R], info: FieldInfo, isPure: Boolean = false) = {
