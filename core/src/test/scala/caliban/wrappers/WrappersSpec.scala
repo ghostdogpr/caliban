@@ -8,7 +8,7 @@ import caliban.TestUtils._
 import caliban.Value.{ IntValue, StringValue }
 import caliban.execution.{ ExecutionRequest, FieldInfo }
 import caliban.introspection.adt.{ __Directive, __DirectiveLocation }
-import caliban.parsing.adt.{ Directive, Document }
+import caliban.parsing.adt.{ Directive, Document, LocationInfo }
 import caliban.schema.Annotations.GQLDirective
 import caliban.schema.{ ArgBuilder, GenericSchema, Schema }
 import caliban.schema.Schema.auto._
@@ -93,6 +93,29 @@ object WrappersSpec extends ZIOSpecDefault {
           counter1    <- ref1.get
           counter2    <- ref2.get
         } yield assertTrue(counter1 == 4, counter2 == 1)
+      },
+      test("Failures in FieldWrapper have a path and location") {
+        case class Query(a: A)
+        case class A(b: B)
+        case class B(c: Int)
+
+        val wrapper = new FieldWrapper[Any](true) {
+          def wrap[R1 <: Any](
+            query: ZQuery[R1, ExecutionError, ResponseValue],
+            info: FieldInfo
+          ): ZQuery[R1, ExecutionError, ResponseValue] =
+            if (info.name == "c") ZQuery.fail(ExecutionError("error"))
+            else query
+        }
+        for {
+          interpreter <- (graphQL(RootResolver(Query(A(B(1))))) @@ wrapper).interpreter.orDie
+          query        = gqldoc("""{ a { b { c } } }""")
+          result      <- interpreter.execute(query)
+          firstError   = result.errors.head.asInstanceOf[ExecutionError]
+        } yield assertTrue(
+          firstError.path.mkString(",") == """"a","b","c"""",
+          firstError.locationInfo.contains(LocationInfo(11, 1))
+        )
       },
       test("Max fields") {
         case class A(b: B)
