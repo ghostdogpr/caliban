@@ -128,7 +128,7 @@ package object quick {
       graphiqlPath: Option[String] = None,
       uploadPath: Option[String] = None,
       webSocketPath: Option[String] = None
-    ): Routes[R, Any] =
+    ): Routes[R, Nothing] =
       QuickAdapter(interpreter).routes(
         apiPath = apiPath,
         graphiqlPath = graphiqlPath,
