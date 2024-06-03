@@ -12,7 +12,8 @@ case class __Field(
   `type`: () => __Type,
   isDeprecated: Boolean = false,
   deprecationReason: Option[String] = None,
-  @GQLExcluded directives: Option[List[Directive]] = None
+  @GQLExcluded directives: Option[List[Directive]] = None,
+  @GQLExcluded tags: Set[String] = Set.empty
 ) {
   final override lazy val hashCode: Int = super.hashCode()
 

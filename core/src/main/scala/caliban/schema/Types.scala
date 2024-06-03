@@ -68,7 +68,8 @@ object Types {
     `type`: () => __Type,
     isDeprecated: Boolean = false,
     deprecationReason: Option[String] = None,
-    directives: Option[List[Directive]] = None
+    directives: Option[List[Directive]] = None,
+    tags: Set[String] = Set.empty
   ): __Field =
     __Field(
       name,
@@ -79,7 +80,8 @@ object Types {
       `type`,
       isDeprecated,
       deprecationReason,
-      directives
+      directives,
+      tags
     )
 
   def makeInputObject(

@@ -19,7 +19,7 @@ abstract class Transformer[-R] { self =>
    * Set of type names that this transformer applies to.
    * Needed for applying optimizations when combining transformers.
    */
-  protected val typeNames: collection.Set[String]
+  protected def typeNames: collection.Set[String]
 
   protected def transformStep[R1 <: R](step: ObjectStep[R1], field: Field): ObjectStep[R1]
 
@@ -323,20 +323,73 @@ object Transformer {
       }
   }
 
-  final private class Combined[-R](left: Transformer[R], right: Transformer[R]) extends Transformer[R] {
+  object ExcludeTags {
+
+    /**
+     * A transformer that allows excluding tagged fields and input arguments.
+     *
+     * {{{
+     *   ExcludeTaggedFields("TagA", "TagB")
+     * }}}
+     *
+     * @param f tuples in the format of `(TypeName -> fieldToBeExcluded)`
+     */
+    def apply(f: String*): Transformer[Any] =
+      if (f.isEmpty) Empty else new ExcludeTags(f.toSet)
+  }
+
+  final private class ExcludeTags(tags: Set[String]) extends Transformer[Any] {
+    private val map: mutable.HashMap[String, Set[String]] = mutable.HashMap.empty
+
+    private def shouldKeep(tpe: __Type, field: __Field): Boolean = {
+      val keep = field.tags.intersect(tags).isEmpty
+      if (!keep) map.updateWith(tpe.name.getOrElse("")) {
+        case Some(set) => Some(set + field.name)
+        case None      => Some(Set(field.name))
+      }
+      keep
+    }
+
+    val typeVisitor: TypeVisitor =
+      TypeVisitor.fields.filterWith((t, field) => shouldKeep(t, field)) |+|
+        TypeVisitor.fields.modify { field =>
+          def loop(arg: __InputValue): Option[__InputValue] =
+            if (arg._type.isNullable && arg.tags.intersect(tags).nonEmpty) None
+            else {
+              lazy val newType = arg._type.mapInnerType { t =>
+                t.copy(inputFields = t.inputFields(_).map(_.flatMap(loop)))
+              }
+              Some(arg.copy(`type` = () => newType))
+            }
+
+          field.copy(args = field.args(_).flatMap(loop))
+        }
+
+    protected def typeNames: collection.Set[String] = map.keySet
+
+    protected def transformStep[R](step: ObjectStep[R], field: Field): ObjectStep[R] =
+      map.getOrElse(step.name, null) match {
+        case null => step
+        case excl => step.copy(fields = name => if (!excl(name)) step.fields(name) else NullStep)
+      }
+  }
+
+  final private class Combined[-R](left: Transformer[R], right: Transformer[R]) extends Transformer[R] { self =>
     val typeVisitor: TypeVisitor = left.typeVisitor |+| right.typeVisitor
 
-    protected val typeNames: mutable.HashSet[String] = {
+    protected def typeNames: mutable.HashSet[String] = {
       val set = mutable.HashSet.from(left.typeNames)
       set ++= right.typeNames
       set
     }
 
+    private[this] lazy val appliesToType = typeNames
+
     protected def transformStep[R1 <: R](step: ObjectStep[R1], field: Field): ObjectStep[R1] =
       right.transformStep(left.transformStep(step, field), field)
 
     override def apply[R1 <: R](step: ObjectStep[R1], field: Field): ObjectStep[R1] =
-      if (typeNames(step.name)) transformStep(step, field) else step
+      if (appliesToType(step.name)) transformStep(step, field) else step
   }
 
   private def mapFunctionStep[R](step: Step[R])(f: Map[String, InputValue] => Map[String, InputValue]): Step[R] =

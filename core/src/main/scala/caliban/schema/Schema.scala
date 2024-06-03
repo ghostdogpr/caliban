@@ -264,9 +264,10 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
   def field[V](
     name: String,
     description: Option[String] = None,
-    directives: List[Directive] = List.empty
+    directives: List[Directive] = List.empty,
+    tags: Set[String] = Set.empty
   ): PartiallyAppliedField[V] =
-    PartiallyAppliedField[V](name, description, directives)
+    PartiallyAppliedField[V](name, description, directives, tags)
 
   /**
    * Manually defines a lazy field from a name, a description, some directives and a resolver.
@@ -274,9 +275,10 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
   def fieldLazy[V](
     name: String,
     description: Option[String] = None,
-    directives: List[Directive] = List.empty
+    directives: List[Directive] = List.empty,
+    tags: Set[String] = Set.empty
   ): PartiallyAppliedFieldLazy[V] =
-    PartiallyAppliedFieldLazy[V](name, description, directives)
+    PartiallyAppliedFieldLazy[V](name, description, directives, tags)
 
   /**
    * Manually defines a field with arguments from a name, a description, some directives and a resolver.
@@ -284,9 +286,10 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
   def fieldWithArgs[V, A](
     name: String,
     description: Option[String] = None,
-    directives: List[Directive] = Nil
+    directives: List[Directive] = Nil,
+    tags: Set[String] = Set.empty
   ): PartiallyAppliedFieldWithArgs[V, A] =
-    PartiallyAppliedFieldWithArgs[V, A](name, description, directives)
+    PartiallyAppliedFieldWithArgs[V, A](name, description, directives, tags)
 
   /**
    * Creates a new hand-rolled schema. For normal usage use the derived schemas, this is primarily for schemas
@@ -718,7 +721,8 @@ case class FieldAttributes(isInput: Boolean, isSubscription: Boolean)
 abstract class PartiallyAppliedFieldBase[V](
   name: String,
   description: Option[String],
-  directives: List[Directive]
+  directives: List[Directive],
+  tags: Set[String]
 ) {
   def apply[R, V1](fn: V => V1)(implicit ev: Schema[R, V1], ft: FieldAttributes): (__Field, V => Step[R]) =
     either[R, V1](v => Left(fn(v)))(ev, ft)
@@ -739,15 +743,17 @@ abstract class PartiallyAppliedFieldBase[V](
       deprecationReason = Directives.deprecationReason(directives),
       directives = Some(
         directives.filter(_.name != "deprecated")
-      ).filter(_.nonEmpty)
+      ).filter(_.nonEmpty),
+      tags = tags
     )
 }
 
 case class PartiallyAppliedField[V](
   name: String,
   description: Option[String],
-  directives: List[Directive]
-) extends PartiallyAppliedFieldBase[V](name, description, directives) {
+  directives: List[Directive],
+  tags: Set[String]
+) extends PartiallyAppliedFieldBase[V](name, description, directives, tags) {
   def either[R, V1](
     fn: V => Either[V1, Step[R]]
   )(implicit ev: Schema[R, V1], ft: FieldAttributes): (__Field, V => Step[R]) =
@@ -757,8 +763,9 @@ case class PartiallyAppliedField[V](
 case class PartiallyAppliedFieldLazy[V](
   name: String,
   description: Option[String],
-  directives: List[Directive]
-) extends PartiallyAppliedFieldBase[V](name, description, directives) {
+  directives: List[Directive],
+  tags: Set[String]
+) extends PartiallyAppliedFieldBase[V](name, description, directives, tags) {
   def either[R, V1](
     fn: V => Either[V1, Step[R]]
   )(implicit ev: Schema[R, V1], ft: FieldAttributes): (__Field, V => Step[R]) =
@@ -768,7 +775,8 @@ case class PartiallyAppliedFieldLazy[V](
 case class PartiallyAppliedFieldWithArgs[V, A](
   name: String,
   description: Option[String],
-  directives: List[Directive]
+  directives: List[Directive],
+  tags: Set[String]
 ) {
   def apply[R, V1](fn: V => (A => V1))(implicit ev1: Schema[R, A => V1], fa: FieldAttributes): (__Field, V => Step[R]) =
     (
@@ -783,7 +791,8 @@ case class PartiallyAppliedFieldWithArgs[V, A](
         deprecationReason = Directives.deprecationReason(directives),
         directives = Some(
           directives.filter(_.name != "deprecated")
-        ).filter(_.nonEmpty)
+        ).filter(_.nonEmpty),
+        tags = tags
       ),
       (v: V) => ev1.resolve(fn(v))
     )
