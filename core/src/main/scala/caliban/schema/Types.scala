@@ -1,7 +1,7 @@
 package caliban.schema
 
 import caliban.introspection.adt._
-import caliban.parsing.adt.Directive
+import caliban.parsing.adt.{ Directive, Directives }
 
 import scala.annotation.tailrec
 
@@ -87,8 +87,7 @@ object Types {
     description: Option[String],
     fields: List[__InputValue],
     origin: Option[String] = None,
-    directives: Option[List[Directive]] = None,
-    isOneOf: Boolean = false
+    directives: Option[List[Directive]] = None
   ): __Type =
     __Type(
       __TypeKind.INPUT_OBJECT,
@@ -99,7 +98,7 @@ object Types {
         else Some(fields.filter(!_.isDeprecated)),
       origin = origin,
       directives = directives,
-      isOneOf = Some(isOneOf)
+      isOneOf = Some(Directives.isOneOf(directives.getOrElse(Nil)))
     )
 
   def makeUnion(

@@ -3,7 +3,7 @@ package caliban.schema
 import caliban.CalibanError.ValidationError
 import caliban.Value._
 import caliban.introspection.adt._
-import caliban.parsing.adt.Directive
+import caliban.parsing.adt.{ Directive, Directives }
 import caliban.schema.Annotations._
 import caliban.schema.Types._
 import magnolia1._
@@ -202,8 +202,7 @@ trait CommonSchemaDerivation[R] {
             p.typeclass.toType_(isInput = true).allInputFields.map(_.nullable)
           },
           Some(ctx.typeName.full),
-          Some(List(Directive("oneOf"))),
-          isOneOf = true
+          Some(List(Directive(Directives.OneOf)))
         )
       } else if (!isInterface) {
         containsEmptyUnionObjects = emptyUnionObjectIdxs.contains(true)

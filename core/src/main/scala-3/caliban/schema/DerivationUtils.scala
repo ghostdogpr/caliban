@@ -1,7 +1,7 @@
 package caliban.schema
 
 import caliban.introspection.adt.*
-import caliban.parsing.adt.Directive
+import caliban.parsing.adt.{ Directive, Directives }
 import caliban.schema.Annotations.*
 import caliban.schema.Types.*
 import magnolia1.TypeInfo
@@ -132,8 +132,7 @@ private object DerivationUtils {
       getDescription(annotations),
       schemas.flatMap(_.toType_(isInput = true).allInputFields.map(_.nullable)),
       Some(info.full),
-      Some(List(Directive("oneOf"))),
-      isOneOf = true
+      Some(List(Directive(Directives.OneOf)))
     )
 
   def mkObject[R](

@@ -203,8 +203,7 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
             fields(isInput, isSubscription).map { case (f, _) =>
               __InputValue(f.name, f.description, f.`type`, None, directives = f.directives)
             },
-            directives = Some(directives),
-            isOneOf = directives.exists(_.name == "oneOf")
+            directives = Some(directives)
           )
         } else makeObject(Some(name), description, fields(isInput, isSubscription).map(_._1), directives)
       }
