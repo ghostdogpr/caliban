@@ -1,4 +1,10 @@
-import com.typesafe.tools.mima.core.{ DirectMissingMethodProblem, MissingClassProblem, ProblemFilters }
+import com.typesafe.tools.mima.core.{
+  DirectMissingMethodProblem,
+  FinalMethodProblem,
+  MissingClassProblem,
+  MissingTypesProblem,
+  ProblemFilters
+}
 import org.scalajs.linker.interface.ModuleSplitStyle
 import sbtcrossproject.CrossPlugin.autoImport.{ crossProject, CrossType }
 
@@ -774,7 +780,14 @@ lazy val enableMimaSettingsJVM =
   Def.settings(
     mimaFailOnProblem     := enforceMimaCompatibility,
     mimaPreviousArtifacts := previousStableVersion.value.map(organization.value %% moduleName.value % _).toSet,
-    mimaBinaryIssueFilters ++= Seq()
+    mimaBinaryIssueFilters ++= Seq(
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.parsing.adt.Type.$init$"),
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.introspection.adt.__Type.*"),
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.introspection.adt.__InputValue.*"),
+      ProblemFilters.exclude[FinalMethodProblem]("caliban.parsing.adt.Type*"),
+      ProblemFilters.exclude[MissingTypesProblem]("caliban.introspection.adt.__Type$"),
+      ProblemFilters.exclude[MissingTypesProblem]("caliban.introspection.adt.__InputValue$")
+    )
   )
 
 lazy val enableMimaSettingsJS =
