@@ -8,11 +8,10 @@ import scala.quoted.*
 export magnolia1.TypeInfo
 
 object Macros {
-  inline def isFieldExcluded[P, T]: Boolean      = ${ isFieldExcludedImpl[P, T] }
-  inline def isEnumField[P, T]: Boolean          = ${ isEnumFieldImpl[P, T] }
-  inline def implicitExists[T]: Boolean          = ${ implicitExistsImpl[T] }
-  inline def hasAnnotation[T, Ann]: Boolean      = ${ hasAnnotationImpl[T, Ann] }
-  inline def hasOneOfInputAnnotation[P]: Boolean = ${ hasOneOfInputAnnotationImpl[P] }
+  inline def isFieldExcluded[P, T]: Boolean = ${ isFieldExcludedImpl[P, T] }
+  inline def isEnumField[P, T]: Boolean     = ${ isEnumFieldImpl[P, T] }
+  inline def implicitExists[T]: Boolean     = ${ implicitExistsImpl[T] }
+  inline def hasAnnotation[T, Ann]: Boolean = ${ hasAnnotationImpl[T, Ann] }
 
   inline def fieldsFromMethods[R, T]: List[(String, List[Any], Schema[R, ?])] = ${ fieldsFromMethodsImpl[R, T] }
 
@@ -115,8 +114,4 @@ If you use a custom type as an argument, you also need to provide an implicit Ar
 See https://ghostdogpr.github.io/caliban/docs/schema.html for more information.
 """
 
-  def hasOneOfInputAnnotationImpl[T: Type](using q: Quotes): Expr[Boolean] = {
-    import q.reflect.*
-    Expr(TypeRepr.of[T].typeSymbol.annotations.exists(_.tpe.typeSymbol.name == "GQLOneOfInput"))
-  }
 }

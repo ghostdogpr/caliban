@@ -2,7 +2,7 @@ package caliban.schema
 
 import caliban.CalibanError.ExecutionError
 import caliban.Value.*
-import caliban.schema.Annotations.{ GQLDefault, GQLName }
+import caliban.schema.Annotations.{ GQLDefault, GQLName, GQLOneOfInput }
 import caliban.schema.macros.Macros
 import caliban.{ CalibanError, InputValue }
 import magnolia1.Macro as MagnoliaMacro
@@ -53,7 +53,7 @@ trait CommonArgBuilderDerivation {
   inline def derived[A]: ArgBuilder[A] =
     inline summonInline[Mirror.Of[A]] match {
       case m: Mirror.SumOf[A] =>
-        inline if (Macros.hasOneOfInputAnnotation[A]) {
+        inline if (Macros.hasAnnotation[A, GQLOneOfInput]) {
           makeOneOfBuilder[A](
             recurseSum[A, m.MirroredElemLabels, m.MirroredElemTypes](),
             constValue[m.MirroredLabel]
