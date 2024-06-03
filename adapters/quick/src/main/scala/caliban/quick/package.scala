@@ -128,7 +128,7 @@ package object quick {
       graphiqlPath: Option[String] = None,
       uploadPath: Option[String] = None,
       webSocketPath: Option[String] = None
-    ): Routes[R, Any] =
+    ): Routes[R, Nothing] =
       QuickAdapter(interpreter).routes(
         apiPath = apiPath,
         graphiqlPath = graphiqlPath,
@@ -152,7 +152,7 @@ package object quick {
       val run: RIO[R, Nothing] =
         QuickAdapter(interpreter)
           .runServer(port, apiPath, graphiqlPath, uploadPath)
-          .provideSomeLayer[R](ZLayer.scoped[Any](Configurator.set(executionConfig)))
+          .provideSomeLayer[R](ZLayer.scoped[Any](Configurator.ref.locallyScoped(executionConfig)))
 
       ZIOApp.fromZIO(run.asInstanceOf[RIO[Any, Nothing]]).main(Array.empty)
     }

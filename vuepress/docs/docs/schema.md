@@ -229,10 +229,10 @@ given Schema[Any, Origin] = Schema.Auto.derived
   <code-block title="Scala 3 (Custom schema)">
 
 ```scala
-import caliban.schema.Schema
+import caliban.schema.SchemaDerivation
 
 trait MyEnv
-object EnvSchema extends Schema.SchemaDerivation[MyEnv]
+object EnvSchema extends SchemaDerivation[MyEnv]
 
 enum Origin derives EnvSchema.Auto {
   case EARTH, MARS, BELT
@@ -452,6 +452,86 @@ explicit constructor available under the `ArgBuilder` companion object. For inst
 to handle instants which are encoded using a `Long` from the standard java epoch time (January 1st 1970 00:00:00).
 For some time formats you can also specify a specific `DateTimeFormatter` to handle your particular date time needs.
 
+## Using features that are disabled by default
+
+Some features of Caliban's schema derivation are disabled by default.
+To enable them, you need to declare a custom schema derivation object like this:
+
+<code-group>
+  <code-block title="Scala 2" active>
+
+```scala
+import caliban.schema.SchemaDerivation
+
+object MySchemaDerivation extends SchemaDerivation[Any] {
+  override def config = DerivationConfig(
+    // add your config overrides here
+    enableSemanticNonNull = true
+  )
+}
+
+case class MyClass(field: String)
+
+// use the custom schema derivation defined above
+implicit val schemaForMyClass: Schema[Any, MyClass] = MySchemaDerivation.gen
+```
+  </code-block>
+  <code-block title="Scala 3 (with given)">
+
+```scala
+import caliban.schema.SchemaDerivation
+
+object MySchemaDerivation extends SchemaDerivation[Any] {
+  override def config = DerivationConfig(
+    // add your config overrides here
+    enableSemanticNonNull = true
+  )
+}
+
+case class MyClass(field: String)
+
+// use the custom schema derivation defined above
+given Schema[Any, MyClass] = MySchemaDerivation.gen
+```
+  </code-block>
+  <code-block title="Scala 3 (with derives)">
+
+```scala
+import caliban.schema.{ CommonSchemaDerivation, Schema }
+
+trait MySchemaDerivation[R] extends CommonSchemaDerivation {
+  override def config = DerivationConfig(
+    // add your config overrides here
+    enableSemanticNonNull = true
+  )
+
+  final class SemiAuto[A](impl: Schema[R, A]) extends Schema[R, A] {
+    export impl.*
+  }
+
+  object SemiAuto {
+    inline def derived[A]: SemiAuto[A] = new SemiAuto[A](MySchemaDerivation.derived[R, A])
+  }
+}
+
+object MySchemaDerivation extends MySchemaDerivation[Any]
+
+case class MyClass(field: String) derives MySchemaDerivation.SemiAuto
+```
+  </code-block>
+</code-group>
+
+### SemanticNonNull support
+
+Caliban supports deriving schemas to the form that supports [the SemanticNonNull type RFC](https://github.com/graphql/graphql-spec/pull/1065), by introducing the `@semanticNonNull` directive.
+While Caliban resolves all fallible effectful types (`ZIO[R, Throwable, A]`, ...) as nullable by default,
+with the feature enabled, fields that don't get resolved to nullable types (for example, `ZIO[R, Throwable, A]` where `A` is not `Option[A]`, ...)
+will be marked with `@semanticNonNull` to express that the field never returns `null` unless the effect fails.
+`@GQLNullable` annotation can be used to override this behavior per field.
+
+If you have custom types that override the `Schema` trait, make sure to override `nullable` and `canFail` methods to return the correct values.
+All types that return `false` for `nullable` and `true` for `canFail` will be treated as semantically non-nullable.
+
 ## Building Schemas by hand
 
 Sometimes for whatever reason schema generation fails. This can happen if your schema has co-recursive types and derivation is unable
@@ -469,6 +549,9 @@ case class User(id: String, group: UIO[Group])
 
 These three types all depend on one another and if you attempt to generate a schema from them you will either end up with compiler errors or you will end up with a nasty runtime
 error from a `NullPointerException`. To help the compiler out we can hand generate the types for these case classes instead.
+
+<code-group>
+  <code-block title="Scala 2" active>
 
 ```scala mdoc:silent
 import caliban.schema.Schema
@@ -499,3 +582,58 @@ implicit lazy val userSchema: Schema[Any, User] = obj("User", Some("A user of th
     )
 )
 ```
+  </code-block>
+  <code-block title="Scala 3">
+
+```scala 3 mdoc:silent
+import caliban.schema.Schema
+import caliban.schema.Schema.{customObj, field}
+
+given Schema[Any, Group] = customObj("Group", Some("A group of users"))(
+  field("id")(_.id),
+  field("users")(_.users),
+  field("parent")(_.parent),
+  field("organization")(_.organization)
+)
+given Schema[Any, Organization] = customObj("Organization", Some("An organization of groups"))(
+  field("id")(_.id),
+  field("groups")(_.groups)
+)
+
+given Schema[Any, User] = customObj("User", Some("A user of the service"))(
+  field("id")(_.id),
+  field("group")(_.group)
+)
+```
+  </code-block>
+</code-group>
+
+## Schema transformations
+
+It is also possible to modify your schemas after they have been generated.
+This can be useful if you want to rename or remove particular types, fields or arguments from your schema without modifying the related Scala types.
+
+For that, simply use the `GraphQL#transform` method and provide one of the possible transformers:
+- `RenameType` to rename types (providing a list of `(OldName -> NewName)`)
+- `RenameField` to rename a field (providing a list of `(TypeName -> oldName -> newName)`)
+- `RenameArgument` to rename an argument (providing a list of `(TypeName -> fieldName -> oldArgumentName -> newArgumentName)`)
+- `ExcludeField` to exclude a field (providing a list of `(TypeName -> fieldToBeExcluded)`)
+- `ExcludeInputField` to exclude an input field (providing a list of `(TypeName -> fieldToBeExcluded)`)
+- `ExcludeArgument` to exclude an argument (providing a list of `(TypeName -> fieldName -> argumentToBeExcluded)`)
+
+
+In the following example, we can expose 2 different APIs created from the same schema: the v1 API will not expose the `nicknames` field of the `Character` type.
+```scala
+case class Queries(character: Character)
+
+case class Character(
+  name: String,
+  @GQLDescription("experimental field")
+  nicknames: List[String]
+)
+
+val apiBeta = graphQL(RootResolver(Queries(???, ???)))
+val apiV1   = apiBeta.transform(Transformer.ExcludeField("Character" -> "nicknames"))
+```
+
+You can also create your own transformers by extending the `Transformer` trait and implementing its methods.

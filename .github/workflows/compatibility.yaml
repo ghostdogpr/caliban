@@ -4,6 +4,10 @@ on:
   pull_request:
     branches:
       - series/2.x
+    paths:
+      - apollo-compatibility/**
+      - federation/**
+      - adapters/quick/**
 
 jobs:
   compatibility:

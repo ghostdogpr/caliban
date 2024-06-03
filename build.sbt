@@ -14,7 +14,7 @@ val circeVersion              = "0.14.7"
 val fs2Version                = "3.10.2"
 val http4sVersion             = "0.23.27"
 val javaTimeVersion           = "2.5.0"
-val jsoniterVersion           = "2.28.5"
+val jsoniterVersion           = "2.30.1"
 val laminextVersion           = "0.17.0"
 val magnoliaScala2Version     = "1.1.10"
 val magnoliaScala3Version     = "1.3.7"
@@ -23,7 +23,7 @@ val playVersion               = "3.0.3"
 val playJsonVersion           = "3.0.3"
 val scalafmtVersion           = "3.8.0"
 val sttpVersion               = "3.9.7"
-val tapirVersion              = "1.10.7"
+val tapirVersion              = "1.10.8"
 val zioVersion                = "2.1.1"
 val zioInteropCats2Version    = "22.0.0.0"
 val zioInteropCats3Version    = "23.1.0.2"
@@ -31,9 +31,9 @@ val zioInteropReactiveVersion = "2.0.2"
 val zioConfigVersion          = "3.0.7"
 val zqueryVersion             = "0.7.1"
 val zioJsonVersion            = "0.6.2"
-val zioHttpVersion            = "3.0.0-RC7"
+val zioHttpVersion            = "3.0.0-RC8"
 val zioOpenTelemetryVersion   = "3.0.0-RC21"
-val zioPreludeVersion         = "1.0.0-RC26"
+val zioPreludeVersion         = "1.0.0-RC27"
 
 Global / onChangedBuildSource := ReloadOnSourceChanges
 
@@ -768,7 +768,7 @@ lazy val commonSettings = Def.settings(
   })
 )
 
-lazy val enforceMimaCompatibility = false // Enable / disable failing CI on binary incompatibilities
+lazy val enforceMimaCompatibility = true // Enable / disable failing CI on binary incompatibilities
 
 lazy val enableMimaSettingsJVM =
   Def.settings(

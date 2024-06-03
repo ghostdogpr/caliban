@@ -52,8 +52,7 @@ object Validator {
    * Verifies that the given document is valid for this type. Fails with a [[caliban.CalibanError.ValidationError]] otherwise.
    */
   def validate(document: Document, rootType: RootType)(implicit trace: Trace): IO[ValidationError, Unit] =
-    Configurator.configuration
-      .flatMap(v => ZIO.fromEither(check(document, rootType, Map.empty, v.validations).map(_ => ())))
+    Configurator.ref.getWith(v => ZIO.fromEither(check(document, rootType, Map.empty, v.validations).map(_ => ())))
 
   /**
    * Verifies that the given schema is valid. Fails with a [[caliban.CalibanError.ValidationError]] otherwise.

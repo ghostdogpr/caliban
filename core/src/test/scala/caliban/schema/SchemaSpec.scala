@@ -130,6 +130,13 @@ object SchemaSpec extends ZIOSpecDefault {
           isSome(hasField[__Type, String]("to", _.ofType.flatMap(_.name).get, equalTo("Json")))
         )
       },
+      test("field with Json object [zio]") {
+        import caliban.interop.zio.json._
+        case class Queries(to: zio.json.ast.Json, from: zio.json.ast.Json => Unit)
+        assert(introspect[Queries].fields(__DeprecatedArgs()).toList.flatten.headOption.map(_._type))(
+          isSome(hasField[__Type, String]("to", _.ofType.flatMap(_.name).get, equalTo("Json")))
+        )
+      },
       test("ZStream in a Query returns a list type") {
         case class Query(a: ZStream[Any, Throwable, Int])
 

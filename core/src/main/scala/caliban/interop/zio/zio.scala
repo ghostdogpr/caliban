@@ -2,8 +2,12 @@ package caliban.interop.zio
 
 import caliban.Value._
 import caliban._
+import caliban.introspection.adt.__Type
 import caliban.parsing.adt.LocationInfo
+import caliban.schema.Types.makeScalar
+import caliban.schema.{ ArgBuilder, PureStep, Schema, Step }
 import zio.Chunk
+import zio.json.ast.Json
 import zio.json.{ JsonDecoder, JsonEncoder }
 
 import scala.annotation.switch
@@ -20,6 +24,47 @@ private[caliban] object IsZIOJsonEncoder {
 private[caliban] trait IsZIOJsonDecoder[F[_]]
 private[caliban] object IsZIOJsonDecoder {
   implicit val isZIOJsonDecoder: IsZIOJsonDecoder[JsonDecoder] = null
+}
+
+object json {
+  import zio.json.ast
+  implicit val jsonSchema: Schema[Any, ast.Json] = new Schema[Any, ast.Json] {
+    override def toType(isInput: Boolean, isSubscription: Boolean): __Type = makeScalar("Json")
+
+    override def resolve(value: Json): Step[Any] =
+      PureStep(toResponseValue(value))
+  }
+
+  implicit val jsonArgBuilder: ArgBuilder[ast.Json] = (input: InputValue) => Right(fromInputValue(input))
+
+  private def fromInputValue(input: InputValue): ast.Json =
+    input match {
+      case InputValue.ListValue(values)   =>
+        ast.Json.Arr(Chunk.fromIterable(values.map(fromInputValue)))
+      case InputValue.ObjectValue(fields) =>
+        ast.Json.Obj(Chunk.fromIterable(fields.map { case (k, v) => k -> fromInputValue(v) }))
+      case InputValue.VariableValue(name) => ast.Json.Str(name)
+      case EnumValue(value)               => ast.Json.Str(value)
+      case BooleanValue(value)            => ast.Json.Bool(value)
+      case StringValue(value)             => ast.Json.Str(value)
+      case x: IntValue                    => ast.Json.Num(BigDecimal(x.toBigInt))
+      case x: FloatValue                  => ast.Json.Num(x.toBigDecimal)
+      case Value.NullValue                => ast.Json.Null
+    }
+
+  private def toResponseValue(input: Json): ResponseValue =
+    input match {
+      case Json.Str(value)    => Value.StringValue(value)
+      case Json.Obj(fields)   => ResponseValue.ObjectValue(fields.map { case (k, v) => k -> toResponseValue(v) }.toList)
+      case Json.Arr(elements) => ResponseValue.ListValue(elements.map(toResponseValue).toList)
+      case Json.Bool(value)   => Value.BooleanValue(value)
+      case Json.Num(value)    =>
+        try IntValue(value.intValueExact)
+        catch {
+          case _: ArithmeticException => Value.FloatValue(value)
+        }
+      case Json.Null          => Value.NullValue
+    }
 }
 
 /**

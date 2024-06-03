@@ -313,16 +313,6 @@ object Executor {
     private def calculateMapCapacity(nMappings: Int): Int =
       Math.ceil(nMappings / 0.75d).toInt
 
-    private def effectfulExecutionError(
-      path: List[PathValue],
-      locationInfo: Option[LocationInfo],
-      cause: Cause[Throwable]
-    ): Cause[ExecutionError] =
-      cause.failureOption orElse cause.defects.headOption match {
-        case Some(e: ExecutionError) => Cause.fail(e.copy(path = path.reverse, locationInfo = locationInfo))
-        case other                   => Cause.fail(ExecutionError("Effect failure", path.reverse, locationInfo, other))
-      }
-
     private def fieldInfo(
       field: Field,
       aliasedName: String,
@@ -394,10 +384,22 @@ object Executor {
           wrappers match {
             case Nil             => query
             case wrapper :: tail =>
-              val q = if (isPure && !wrapper.wrapPureValues) query else wrapper.wrap(query, fieldInfo)
+              val q =
+                if (isPure && !wrapper.wrapPureValues) query
+                else wrapper.wrap(query, fieldInfo)
               loop(q, tail)
           }
-        loop(query, fieldWrappers)
+
+        if ((isPure && !wrapPureValues) || (fieldWrappers eq Nil)) query
+        else {
+          loop(query, fieldWrappers).mapErrorCause(e =>
+            effectfulExecutionError(
+              PathValue.Key(fieldInfo.name) :: fieldInfo.path,
+              Some(fieldInfo.details.locationInfo),
+              e
+            )
+          )
+        }
       }
 
       def objectFieldQuery(step: ReducedStep[R], info: FieldInfo, isPure: Boolean = false) = {
@@ -507,6 +509,18 @@ object Executor {
       loop(step, isTopLevelField = true).catchAll(handleError)
     }
   }
+
+  private def effectfulExecutionError(
+    path: List[PathValue],
+    locationInfo: Option[LocationInfo],
+    cause: Cause[Throwable]
+  ): Cause[ExecutionError] =
+    cause.failureOption orElse cause.defects.headOption match {
+      case Some(e: ExecutionError) if e.path.isEmpty =>
+        Cause.fail(e.copy(path = path.reverse, locationInfo = locationInfo))
+      case Some(e: ExecutionError)                   => Cause.fail(e)
+      case other                                     => Cause.fail(ExecutionError("Effect failure", path.reverse, locationInfo, other))
+    }
 
   // The implicit classes below are for methods that don't exist in Scala 2.12 so we add them as syntax methods instead
   private implicit class EnrichedListOps[+A](private val list: List[A]) extends AnyVal {

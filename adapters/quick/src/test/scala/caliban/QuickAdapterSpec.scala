@@ -39,7 +39,7 @@ object QuickAdapterSpec extends ZIOSpecDefault {
       uri"http://localhost:8090/api/graphql",
       wsUri = Some(uri"ws://localhost:8090/ws/graphql"),
       uploadUri = Some(uri"http://localhost:8090/upload/graphql")
-    ) @@ TestAspect.blocking // Temporary, remove on next zio-http release
+    )
     suite.provideShared(
       apiLayer,
       Scope.default,

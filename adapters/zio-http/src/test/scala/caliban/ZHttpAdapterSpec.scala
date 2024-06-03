@@ -51,7 +51,7 @@ object ZHttpAdapterSpec extends ZIOSpecDefault {
       "ZHttpAdapterSpec",
       uri"http://localhost:8089/api/graphql",
       wsUri = Some(uri"ws://localhost:8089/ws/graphql")
-    ) @@ TestAspect.blocking // Temporary, remove on next zio-http release
+    )
     suite.provideShared(
       apiLayer,
       Scope.default,

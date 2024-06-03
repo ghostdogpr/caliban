@@ -614,6 +614,36 @@ object ExecutionSpec extends ZIOSpecDefault {
           assertTrue(response.data.toString == """{"test":{"a":333}}""")
         }
       },
+      test("zio-json scalar") {
+        import caliban.interop.zio.json._
+        import zio.json.ast._
+        case class JsonArg(value: Json)
+        case class Queries(test: JsonArg => Json)
+
+        val interpreter = graphQL(
+          RootResolver(
+            Queries(json =>
+              Json.Obj(
+                "a" -> Json.Arr(
+                  Json.Num(333),
+                  Json.Str("hello"),
+                  Json.Bool(false),
+                  Json.Null,
+                  Json.Obj("b" -> Json.Num(444))
+                )
+              ) merge json.value
+            )
+          )
+        ).interpreter
+        val query       = gqldoc("""
+             {
+               test(value: {world: 123})
+             }""")
+
+        interpreter.flatMap(_.execute(query)).map { response =>
+          assertTrue(response.data.toString == """{"test":{"a":[333,"hello",false,null,{"b":444}],"world":123}}""")
+        }
+      },
       test("test Interface") {
         case class Test(i: Interface)
         val interpreter = graphQL(RootResolver(Test(Interface.B("ok")))).interpreter
