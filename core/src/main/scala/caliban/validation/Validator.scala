@@ -959,12 +959,13 @@ object Validator {
         }
 
     t.allInputFields match {
-      case Nil    =>
+      case Nil                       =>
         failValidation(
           s"$inputObjectContext does not have fields",
           "An Input Object type must define one or more input fields"
         )
-      case fields => ZPure.when(t._isOneOfInput)(validateOneOfFields(fields)) *> validateFields(fields)
+      case fields if t._isOneOfInput => validateOneOfFields(fields) *> validateFields(fields)
+      case fields                    => validateFields(fields)
     }
   }
 
