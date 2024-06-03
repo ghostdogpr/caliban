@@ -97,26 +97,30 @@ private object DerivationUtils {
     annotations: List[Any],
     fields: List[(String, List[Any], Schema[R, Any])],
     info: TypeInfo
-  )(isInput: Boolean, isSubscription: Boolean): __Type = makeInputObject(
-    Some(getInputName(annotations).getOrElse(customizeInputTypeName(getName(annotations, info)))),
-    getDescription(annotations),
-    fields.map { (name, fieldAnnotations, schema) =>
-      __InputValue(
-        name,
-        getDescription(fieldAnnotations),
-        () =>
-          if (schema.optional) schema.toType_(isInput, isSubscription)
-          else schema.toType_(isInput, isSubscription).nonNull,
-        getDefaultValue(fieldAnnotations),
-        getDeprecatedReason(fieldAnnotations).isDefined,
-        getDeprecatedReason(fieldAnnotations),
-        Some(getDirectives(fieldAnnotations)).filter(_.nonEmpty),
-        Some(info.short)
-      )
-    },
-    Some(info.full),
-    Some(getDirectives(annotations))
-  )
+  )(isInput: Boolean, isSubscription: Boolean): __Type = {
+    lazy val tpe: __Type = makeInputObject(
+      Some(getInputName(annotations).getOrElse(customizeInputTypeName(getName(annotations, info)))),
+      getDescription(annotations),
+      fields.map { (name, fieldAnnotations, schema) =>
+        val deprecationReason = getDeprecatedReason(fieldAnnotations)
+        __InputValue(
+          name,
+          description = getDescription(fieldAnnotations),
+          `type` = () =>
+            if (schema.optional) schema.toType_(isInput, isSubscription)
+            else schema.toType_(isInput, isSubscription).nonNull,
+          defaultValue = getDefaultValue(fieldAnnotations),
+          isDeprecated = deprecationReason.isDefined,
+          deprecationReason = deprecationReason,
+          directives = Some(getDirectives(fieldAnnotations)).filter(_.nonEmpty),
+          parentType = () => Some(tpe)
+        )
+      },
+      Some(info.full),
+      Some(getDirectives(annotations))
+    )
+    tpe
+  }
 
   def mkOneOfInput[R](
     annotations: List[Any],

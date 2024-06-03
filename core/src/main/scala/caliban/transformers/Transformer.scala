@@ -246,18 +246,18 @@ object Transformer {
 
     val typeVisitor: TypeVisitor =
       TypeVisitor.fields.modify { field =>
-        def loop(parentType: Option[String])(arg: __InputValue): Option[__InputValue] =
-          parentType.flatMap(map.get) match {
+        def loop(arg: __InputValue): Option[__InputValue] =
+          arg._parentType.flatMap(_.name).flatMap(map.get) match {
             case Some(s) if arg._type.isNullable && s.contains(arg.name) =>
               None
             case _                                                       =>
               lazy val newType = arg._type.mapInnerType { t =>
-                t.copy(inputFields = t.inputFields(_).map(_.flatMap(loop(t.name))))
+                t.copy(inputFields = t.inputFields(_).map(_.flatMap(loop)))
               }
               Some(arg.copy(`type` = () => newType))
           }
 
-        field.copy(args = field.args(_).flatMap(loop(None)))
+        field.copy(args = field.args(_).flatMap(loop))
       }
 
     protected val typeNames: Set[String]                                             = Set.empty

@@ -933,9 +933,10 @@ object Validator {
     }
 
     def noDuplicatedOneOfOrigin(inputValues: List[__InputValue]): EReader[Any, ValidationError, Unit] = {
-      val resolveOrigin  = (i: __InputValue) => i.parentTypeName.getOrElse("<unexpected validation error>")
+      val resolveOrigin  = (i: __InputValue) =>
+        i._parentType.flatMap(_.origin).getOrElse("<unexpected validation error>")
       val messageBuilder = (i: __InputValue) =>
-        s"$inputObjectContext has multiple arguments from the same case class: ${resolveOrigin(i)}"
+        s"$inputObjectContext is extended by a case class with multiple arguments: ${resolveOrigin(i)}"
       val explanatory    = "All case classes used as arguments to OneOf Input Objects must have exactly one field"
       noDuplicateName[__InputValue](inputValues, resolveOrigin, messageBuilder, explanatory)
     }

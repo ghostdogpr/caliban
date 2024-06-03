@@ -67,7 +67,7 @@ trait CommonSchemaDerivation[R] {
         if (isScalarValueType(ctx)) makeScalar(getName(ctx), getDescription(ctx))
         else ctx.parameters.head.typeclass.toType_(isInput, isSubscription)
       } else if (isInput) {
-        makeInputObject(
+        lazy val tpe: __Type = makeInputObject(
           Some(ctx.annotations.collectFirst { case GQLInputName(suffix) => suffix }
             .getOrElse(customizeInputTypeName(getName(ctx)))),
           getDescription(ctx),
@@ -83,13 +83,14 @@ trait CommonSchemaDerivation[R] {
                 p.annotations.collectFirst { case GQLDeprecated(_) => () }.isDefined,
                 p.annotations.collectFirst { case GQLDeprecated(reason) => reason },
                 Some(p.annotations.collect { case GQLDirective(dir) => dir }.toList).filter(_.nonEmpty),
-                Some(ctx.typeName.short)
+                () => Some(tpe)
               )
             )
             .toList,
           Some(ctx.typeName.full),
           Some(getDirectives(ctx))
         )
+        tpe
       } else
         makeObject(
           Some(getName(ctx)),

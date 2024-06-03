@@ -363,7 +363,7 @@ object ValidationSchemaSpec extends ZIOSpecDefault {
 
           check(
             graphQL(RootResolver(Queries(_.toString))),
-            "OneOf InputObject 'FooInput' has multiple arguments from the same case class: ArgA"
+            "OneOf InputObject 'FooInput' is extended by a case class with multiple arguments: caliban.validation.ValidationSchemaSpec.spec.ArgA"
           )
         },
         test("cannot have default values") {
