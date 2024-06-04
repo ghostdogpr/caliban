@@ -6,6 +6,7 @@ import caliban.Value._
 import caliban.schema.Annotations.{ GQLDefault, GQLName, GQLOneOfInput }
 import magnolia1._
 
+import scala.collection.compat._
 import scala.language.experimental.macros
 
 trait CommonArgBuilderDerivation {
@@ -26,11 +27,15 @@ trait CommonArgBuilderDerivation {
 
   def join[T](ctx: CaseClass[ArgBuilder, T]): ArgBuilder[T] = new ArgBuilder[T] {
 
-    private val params = Array.from(ctx.parameters.map { p =>
-      val label   = p.annotations.collectFirst { case GQLName(name) => name }.getOrElse(p.label)
-      val default = p.typeclass.buildMissing(p.annotations.collectFirst { case GQLDefault(v) => v })
-      (label, default)
-    })
+    private val params = {
+      val arr = Array.ofDim[(String, EitherExecutionError[Any])](ctx.parameters.length)
+      ctx.parameters.zipWithIndex.foreach { case (p, i) =>
+        val label   = p.annotations.collectFirst { case GQLName(name) => name }.getOrElse(p.label)
+        val default = p.typeclass.buildMissing(p.annotations.collectFirst { case GQLDefault(v) => v })
+        arr(i) = (label, default)
+      }
+      arr
+    }
 
     private val required = params.collect { case (label, default) if default.isLeft => label }
 
