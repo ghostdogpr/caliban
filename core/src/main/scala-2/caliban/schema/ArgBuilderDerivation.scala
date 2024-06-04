@@ -24,17 +24,34 @@ trait CommonArgBuilderDerivation {
     override def map[A, B](from: EitherExecutionError[A])(fn: A => B): EitherExecutionError[B] = from.map(fn)
   }
 
-  def join[T](ctx: CaseClass[ArgBuilder, T]): ArgBuilder[T] =
-    (input: InputValue) =>
-      ctx.constructMonadic { p =>
-        input match {
-          case InputValue.ObjectValue(fields) =>
-            val label   = p.annotations.collectFirst { case GQLName(name) => name }.getOrElse(p.label)
-            val default = p.annotations.collectFirst { case GQLDefault(v) => v }
-            fields.get(label).fold(p.typeclass.buildMissing(default))(p.typeclass.build)
-          case value                          => p.typeclass.build(value)
-        }
+  def join[T](ctx: CaseClass[ArgBuilder, T]): ArgBuilder[T] = new ArgBuilder[T] {
+
+    private val params = Array.from(ctx.parameters.map { p =>
+      val label   = p.annotations.collectFirst { case GQLName(name) => name }.getOrElse(p.label)
+      val default = p.typeclass.buildMissing(p.annotations.collectFirst { case GQLDefault(v) => v })
+      (label, default)
+    })
+
+    private val required = params.collect { case (label, default) if default.isLeft => label }
+
+    override private[schema] val partial: PartialFunction[InputValue, Either[ExecutionError, T]] = {
+      case InputValue.ObjectValue(fields) if required.forall(fields.contains) => fromFields(fields)
+    }
+
+    def build(input: InputValue): Either[ExecutionError, T] =
+      input match {
+        case InputValue.ObjectValue(fields) => fromFields(fields)
+        case _                              => Left(ExecutionError("expected an input object"))
       }
+
+    private[this] def fromFields(fields: Map[String, InputValue]): Either[ExecutionError, T] =
+      ctx.constructMonadic { p =>
+        val idx              = p.index
+        val (label, default) = params(idx)
+        val field            = fields.getOrElse(label, null)
+        if (field ne null) p.typeclass.build(field) else default
+      }
+  }
 
   def split[T](ctx: SealedTrait[ArgBuilder, T]): ArgBuilder[T] =
     if (ctx.annotations.contains(GQLOneOfInput())) makeOneOfBuilder(ctx)
@@ -57,25 +74,24 @@ trait CommonArgBuilderDerivation {
       case None        => Left(ExecutionError(s"Can't build a trait from input $input"))
     }
 
-  private def makeOneOfBuilder[A](ctx: SealedTrait[ArgBuilder, A]): ArgBuilder[A] =
-    new ArgBuilder[A] {
+  private def makeOneOfBuilder[A](ctx: SealedTrait[ArgBuilder, A]): ArgBuilder[A] = new ArgBuilder[A] {
 
-      private def inputError(input: InputValue) =
-        ExecutionError(s"Invalid oneOf input $input for trait ${ctx.typeName.short}")
+    private def inputError(input: InputValue) =
+      ExecutionError(s"Invalid oneOf input $input for trait ${ctx.typeName.short}")
 
-      private val combined = ctx.subtypes.map(_.typeclass).toList.asInstanceOf[List[ArgBuilder[A]]] match {
-        case head :: tail =>
-          tail.foldLeft(head)(_ orElse _).orElse(input => Left(inputError(input)))
-        case _            =>
-          (_ => Left(ExecutionError("OneOf Input Objects must have at least one subtype"))): ArgBuilder[A]
+    override val partial: PartialFunction[InputValue, Either[ExecutionError, A]] = {
+      val xs = ctx.subtypes.map(_.typeclass).toList.asInstanceOf[List[ArgBuilder[A]]]
+
+      val checkSize: PartialFunction[InputValue, Either[ExecutionError, A]] = {
+        case InputValue.ObjectValue(f) if f.size != 1 =>
+          Left(ExecutionError("Exactly one key must be specified for oneOf inputs"))
       }
-
-      def build(input: InputValue): Either[ExecutionError, A] = input match {
-        case InputValue.ObjectValue(f) if f.size == 1 => combined.build(input)
-        case InputValue.ObjectValue(_)                => Left(ExecutionError("Exactly one key must be specified for oneOf inputs"))
-        case _                                        => Left(inputError(input))
-      }
+      xs.foldLeft(checkSize)(_ orElse _.partial)
     }
+
+    def build(input: InputValue): Either[ExecutionError, A] =
+      partial.applyOrElse(input, (in: InputValue) => Left(inputError(in)))
+  }
 
 }
 
