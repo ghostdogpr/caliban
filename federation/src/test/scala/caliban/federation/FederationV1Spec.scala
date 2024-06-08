@@ -150,6 +150,30 @@ object FederationV1Spec extends ZIOSpecDefault {
           )
         )
       }
+    },
+    test("introspection should include _Any and _FieldSet scalars") {
+      val interpreter = (graphQL(resolver) @@ federated(entityResolver)).interpreter
+
+      val query = gqldoc("""{ __schema { types { name } } }""")
+      interpreter
+        .flatMap(_.execute(query))
+        .map(d =>
+          ResponseValue.at(
+            PathValue.Key("__schema") :: PathValue.Key("types") :: PathValue.Key("name") :: Nil
+          )(d.data)
+        )
+        .map(responseValue =>
+          assertTrue(
+            responseValue
+              .is(_.subtype[ListValue])
+              .values
+              .contains(StringValue("_Any")),
+            responseValue
+              .is(_.subtype[ListValue])
+              .values
+              .contains(StringValue("_FieldSet"))
+          )
+        )
     }
   )
 }
