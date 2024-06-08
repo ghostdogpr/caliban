@@ -10,8 +10,8 @@
   "keywords": [],
   "license": "MIT",
   "dependencies": {
-    "@apollo/server": "4.9.5",
-    "@apollo/gateway": "2.6.2",
+    "@apollo/gateway": "2.8.0",
+    "@apollo/server": "4.10.4",
     "graphql": "16.8.1"
   }
 }
