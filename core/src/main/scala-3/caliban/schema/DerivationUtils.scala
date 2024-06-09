@@ -48,7 +48,7 @@ private object DerivationUtils {
     makeEnum(
       Some(getName(annotations, info)),
       getDescription(annotations),
-      subTypes.collect { case (name, __Type(_, _, description, _, _, _, _, _, _, _, _, _), annotations) =>
+      subTypes.map { case (name, __Type(_, _, description, _, _, _, _, _, _, _, _, _), annotations) =>
         __EnumValue(
           getName(annotations, name),
           description,
@@ -56,7 +56,7 @@ private object DerivationUtils {
           getDeprecatedReason(annotations),
           Some(annotations.collect { case GQLDirective(dir) => dir }.toList).filter(_.nonEmpty)
         )
-      },
+      }.sortBy(_.name),
       Some(info.full),
       Some(getDirectives(annotations))
     )

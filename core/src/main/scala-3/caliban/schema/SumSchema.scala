@@ -39,7 +39,7 @@ final private class SumSchema[R, A](
       makeUnion(
         Some(getName(annotations, info)),
         getDescription(annotations),
-        subTypes.map(_._2).distinctBy(_.name).map(SchemaUtils.fixEmptyUnionObject),
+        subTypes.map(_._2).distinctBy(_.name).map(SchemaUtils.fixEmptyUnionObject).sortBy(_.name),
         Some(info.full),
         Some(getDirectives(annotations))
       )
