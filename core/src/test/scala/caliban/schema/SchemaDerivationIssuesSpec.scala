@@ -268,6 +268,66 @@ object SchemaDerivationIssuesSpec extends ZIOSpecDefault {
         expected =
           """{"widget":{"__typename":"WidgetB","name":"a","children":{"total":1,"nodes":[{"name":"a","foo":"FOO"}]}}}"""
       } yield assertTrue(data1 == expected, data2 == expected)
+    },
+    test("sum types are sorted by name") {
+      import sorting._
+      val rendered = schema.render
+      assertTrue(
+        rendered ==
+          """schema {
+            |  query: Queries
+            |}
+            |
+            |union Union = A | B | C | ChildE | ChildY | D | Z
+            |
+            |enum Enum {
+            |  B
+            |  C
+            |  ChildE
+            |  ChildY
+            |  D
+            |  Z
+            |}
+            |
+            |type A {
+            |  field: String!
+            |}
+            |
+            |type B {
+            |  "Fake field because GraphQL does not support empty objects. Do not query, use __typename instead."
+            |  _: Boolean
+            |}
+            |
+            |type C {
+            |  "Fake field because GraphQL does not support empty objects. Do not query, use __typename instead."
+            |  _: Boolean
+            |}
+            |
+            |type ChildE {
+            |  "Fake field because GraphQL does not support empty objects. Do not query, use __typename instead."
+            |  _: Boolean
+            |}
+            |
+            |type ChildY {
+            |  "Fake field because GraphQL does not support empty objects. Do not query, use __typename instead."
+            |  _: Boolean
+            |}
+            |
+            |type D {
+            |  "Fake field because GraphQL does not support empty objects. Do not query, use __typename instead."
+            |  _: Boolean
+            |}
+            |
+            |type Queries {
+            |  e: Enum!
+            |  u: Union!
+            |}
+            |
+            |type Z {
+            |  "Fake field because GraphQL does not support empty objects. Do not query, use __typename instead."
+            |  _: Boolean
+            |}""".stripMargin
+      )
     }
   )
 }
@@ -614,5 +674,60 @@ object i2076 {
       Some(Widget.B("a", _ => ZIO.succeed(Widget.B.Connection(1, Chunk(Widget.B.Child("a", "FOO"))))))
     )
     graphQL(RootResolver(queries))
+  }
+}
+
+object sorting {
+  sealed trait Enum
+  object Enum {
+    implicit val schema: Schema[Any, Enum] = Schema.gen
+  }
+
+  sealed trait Union
+  object Union {
+    implicit val schema: Schema[Any, Union] = Schema.gen
+  }
+
+  case object Z extends Enum with Union {
+    implicit val schema: Schema[Any, Z.type] = Schema.gen
+  }
+
+  @GQLName("ChildY")
+  case object Y extends Enum with Union {
+    implicit val schema: Schema[Any, Y.type] = Schema.gen
+  }
+
+  @GQLName("B")
+  case object B extends Enum with Union {
+    implicit val schema: Schema[Any, B.type] = Schema.gen
+  }
+
+  case class A(field: String) extends Union
+  object A {
+    implicit val schema: Schema[Any, A] = Schema.gen
+  }
+
+  case object C extends Enum with Union {
+    implicit val schema: Schema[Any, C.type] = Schema.gen
+  }
+
+  case object D extends Enum with Union {
+    implicit val schema: Schema[Any, D.type] = Schema.gen
+  }
+
+  @GQLName("ChildE")
+  case object E extends Enum with Union {
+    implicit val schema: Schema[Any, E.type] = Schema.gen
+  }
+
+  case class Queries(e: Enum, u: Union)
+
+  object Queries {
+    implicit val schema: Schema[Any, Queries] = Schema.gen
+  }
+
+  val schema = {
+    val queries = Queries(e = Z, u = Z)
+    caliban.graphQL(RootResolver(queries))
   }
 }
