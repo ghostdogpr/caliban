@@ -16,6 +16,7 @@ import zio.query._
 import zio.stacktracer.TracingImplicits.disableAutoTrace
 import zio.stream.ZStream
 
+import java.util.concurrent.atomic.AtomicReference
 import scala.annotation.{ switch, tailrec }
 import scala.collection.compat.{ BuildFrom => _, _ }
 import scala.collection.immutable.VectorBuilder
@@ -58,28 +59,34 @@ object Executor {
         wrapPureValues
       )
 
-    def runQuery(step: ReducedStep[R], cache: Cache) =
-      for {
-        env          <- ZIO.environment[R]
-        deferred     <- Ref.make(List.empty[Deferred[R]])
-        errors       <- Ref.make(List.empty[CalibanError])
-        result       <- reducedStepExecutor.makeQuery(step, errors, deferred).runCache(cache)
-        resultErrors <- errors.get
-        defers       <- deferred.get
-      } yield
-        if (defers.nonEmpty) {
-          val stream = (makeDeferStream(defers, cache)
-            .mapChunks(chunk => Chunk.single(GraphQLIncrementalResponse(chunk.toList, hasNext = true))) ++ ZStream
-            .succeed(GraphQLIncrementalResponse.empty))
-            .map(_.toResponseValue)
-            .provideEnvironment(env)
+    def runQuery(step: ReducedStep[R], cache: Cache) = {
+      val deferred = new AtomicReference(List.empty[Deferred[R]])
+      val errors   = new AtomicReference(List.empty[CalibanError])
+      reducedStepExecutor
+        .makeQuery(step, errors, deferred)
+        .runCache(cache)
+        .flatMap { result =>
+          val resultErrors = errors.get().reverse
+          val defers       = deferred.get()
+          if (defers.nonEmpty) {
+            ZIO.environmentWith[R] { env =>
+              val stream = (makeDeferStream(defers, cache)
+                .mapChunks(chunk => Chunk.single(GraphQLIncrementalResponse(chunk.toList, hasNext = true))) ++ ZStream
+                .succeed(GraphQLIncrementalResponse.empty))
+                .map(_.toResponseValue)
+                .provideEnvironment(env)
 
-          GraphQLResponse(
-            StreamValue(ZStream.succeed(result) ++ stream),
-            resultErrors.reverse,
-            hasNext = Some(true)
-          )
-        } else GraphQLResponse(result, resultErrors.reverse, hasNext = None)
+              GraphQLResponse(
+                StreamValue(ZStream.succeed(result) ++ stream),
+                resultErrors,
+                hasNext = Some(true)
+              )
+            }
+          } else
+            Exit.succeed(GraphQLResponse(result, resultErrors, hasNext = None))
+
+        }
+    }
 
     def makeDeferStream(
       defers: List[Deferred[R]],
@@ -101,20 +108,24 @@ object Executor {
       cache: Cache,
       path: List[PathValue],
       label: Option[String]
-    ) =
-      for {
-        deferred     <- Ref.make(List.empty[Deferred[R]])
-        errors       <- Ref.make(List.empty[CalibanError])
-        result       <- reducedStepExecutor.makeQuery(step, errors, deferred).runCache(cache)
-        resultErrors <- errors.get
-        defers       <- deferred.get
-      } yield (Incremental.Defer(
-        result,
-        errors = resultErrors.reverse,
-        path = ListValue(path.reverse),
-        label = label
-      )
-        -> defers)
+    ) = {
+      val deferred = new AtomicReference(List.empty[Deferred[R]])
+      val errors   = new AtomicReference(List.empty[CalibanError])
+      reducedStepExecutor
+        .makeQuery(step, errors, deferred)
+        .runCache(cache)
+        .map { result =>
+          (
+            Incremental.Defer(
+              result,
+              errors = errors.get().reverse,
+              path = ListValue(path.reverse),
+              label = label
+            ),
+            deferred.get()
+          )
+        }
+    }
 
     for {
       cache    <- makeCache
@@ -371,12 +382,14 @@ object Executor {
 
     def makeQuery(
       step: ReducedStep[R],
-      errors: Ref[List[CalibanError]],
-      deferred: Ref[List[Deferred[R]]]
+      errors: AtomicReference[List[CalibanError]],
+      deferred: AtomicReference[List[Deferred[R]]]
     ): URQuery[R, ResponseValue] = {
 
-      def handleError(error: ExecutionError): UQuery[ResponseValue] =
-        ZQuery.fromZIONow(errors.update(error :: _).as(NullValue))
+      def handleError(error: ExecutionError): UQuery[ResponseValue] = {
+        errors.updateAndGet(error :: _)
+        nullValueQuery
+      }
 
       def wrap(query: ExecutionQuery[ResponseValue], isPure: Boolean, fieldInfo: FieldInfo) = {
         @tailrec
@@ -503,7 +516,8 @@ object Executor {
             val deferredSteps = nextSteps.map { case (step, label) =>
               Deferred(path, step, label)
             }
-            ZQuery.fromZIONow(deferred.update(deferredSteps ::: _)) *> loop(obj)
+            deferred.updateAndGet(deferredSteps ::: _)
+            loop(obj)
         }
 
       loop(step, isTopLevelField = true).catchAll(handleError)
@@ -521,6 +535,8 @@ object Executor {
       case Some(e: ExecutionError)                   => Cause.fail(e)
       case other                                     => Cause.fail(ExecutionError("Effect failure", path.reverse, locationInfo, other))
     }
+
+  private val nullValueQuery = ZQuery.succeed(NullValue)(Trace.empty)
 
   // The implicit classes below are for methods that don't exist in Scala 2.12 so we add them as syntax methods instead
   private implicit class EnrichedListOps[+A](private val list: List[A]) extends AnyVal {
