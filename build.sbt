@@ -44,6 +44,7 @@ inThisBuild(
     organization             := "com.github.ghostdogpr",
     homepage                 := Some(url("https://github.com/ghostdogpr/caliban")),
     licenses                 := List(License.Apache2),
+    // resolvers += "Sonatype OSS Snapshots" at "https://oss.sonatype.org/content/repositories/snapshots",
     Test / parallelExecution := false,
     scmInfo                  := Some(
       ScmInfo(
