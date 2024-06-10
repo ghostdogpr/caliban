@@ -2,6 +2,7 @@ package caliban.federation.v2x
 
 import caliban.InputValue.{ ListValue, ObjectValue }
 import caliban.Macros.gqldoc
+import caliban.TestUtils._
 import caliban.Value.StringValue
 import caliban.parsing.Parser
 import caliban.parsing.adt.{ Definition, Directive }
@@ -11,7 +12,6 @@ import io.circe.Json
 import io.circe.parser.decode
 import zio.ZIO
 import zio.test.Assertion.{ hasSameElements, isSome }
-import zio.test.{ assertTrue, ZIOSpecDefault }
 import zio.test._
 
 object FederationV2Spec extends ZIOSpecDefault {
@@ -182,6 +182,30 @@ object FederationV2Spec extends ZIOSpecDefault {
             )
           )
         }
+      },
+      test("introspection doesn't contain _FieldSet scalar") {
+        import caliban.federation.v2_8._
+        val interpreter = (graphQL(resolver) @@ federated).interpreter
+        val query       = gqldoc("""{ __schema { types { name } } }""")
+        interpreter
+          .flatMap(_.execute(query))
+          .map(d =>
+            ResponseValue.at(
+              PathValue.Key("__schema") :: PathValue.Key("types") :: PathValue.Key("name") :: Nil
+            )(d.data)
+          )
+          .map(responseValue =>
+            assertTrue(
+              !responseValue
+                .is(_.subtype[ResponseValue.ListValue])
+                .values
+                .contains(StringValue("_Any")),
+              !responseValue
+                .is(_.subtype[ResponseValue.ListValue])
+                .values
+                .contains(StringValue("_FieldSet"))
+            )
+          )
       }
     )
 
