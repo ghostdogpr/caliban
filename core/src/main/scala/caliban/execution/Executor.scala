@@ -83,7 +83,7 @@ object Executor {
               )
             }
           } else
-            Exit.succeed(GraphQLResponse(result, resultErrors, hasNext = None))
+            ZIO.succeed(GraphQLResponse(result, resultErrors, hasNext = None))
 
         }
     }
