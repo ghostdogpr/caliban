@@ -314,7 +314,10 @@ object Transformer {
           step.copy(fields =
             fieldName =>
               if (inner.contains(fieldName)) {
-                val args = field.fieldType.allFieldsMap(fieldName).allArgNames
+                val args = field.fieldType.getFieldOrNull(fieldName) match {
+                  case null => Set.empty[String]
+                  case f    => f.allArgNames
+                }
                 mapFunctionStep(fields(fieldName))(_.filterNot { case (argName, _) => !args.contains(argName) })
               } else {
                 fields(fieldName)
