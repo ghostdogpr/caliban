@@ -162,8 +162,9 @@ object Field {
             val t = if (selected eq null) Types.string else selected._type
 
             val fields =
-              if (selectionSet.nonEmpty) loop(selectionSet, t, None, None, None)
-              else leftNil // Fragments apply on to the direct children of the fragment spread
+              if (selectionSet.nonEmpty)
+                loop(selectionSet, t, None, None, None).fold(identityFnList, _.map(_._1))
+              else Nil
 
             builder.addField(
               new Field(
@@ -171,7 +172,7 @@ object Field {
                 t,
                 Some(innerType),
                 alias,
-                fields.fold(identityFnList, _.map(_._1)),
+                fields,
                 targets = targets,
                 arguments = resolveVariables(arguments, variableDefinitionsMap, variableValues),
                 directives = resolvedDirectives,
@@ -244,7 +245,6 @@ object Field {
   }
 
   private val identityFnList: List[Field] => List[Field] = l => l
-  private val leftNil                                    = Left(List.empty[Field])
 
   private def resolveDirectiveVariables(
     variableValues: Map[String, InputValue],
