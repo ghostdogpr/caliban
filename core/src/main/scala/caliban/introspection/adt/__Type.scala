@@ -135,11 +135,14 @@ case class __Type(
   lazy val allEnumValues: List[__EnumValue] =
     enumValues(__DeprecatedArgs.include).getOrElse(Nil)
 
-  private[caliban] lazy val allFieldsMap: collection.Map[String, __Field] = {
+  private lazy val allFieldsMap = {
     val map = collection.mutable.HashMap.empty[String, __Field]
     allFields.foreach(f => map.update(f.name, f))
     map
   }
+
+  private[caliban] def getFieldOrNull(name: String): __Field =
+    allFieldsMap.getOrElse(name, null)
 
   lazy val innerType: __Type = Types.innerType(this)
 

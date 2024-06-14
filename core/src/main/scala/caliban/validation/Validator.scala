@@ -539,16 +539,16 @@ object Validator {
 
   private def validateField(context: Context, field: Field, currentType: __Type): EReader[Any, ValidationError, Unit] =
     if (field.name != "__typename") {
-      currentType.allFieldsMap.get(field.name) match {
-        case Some(f) =>
-          val v1 = validateFields(context, field.selectionSet, f._type.innerType)
-          val v2 = validateArguments(field, f, currentType, context)
-          v2.fold(v1)(v1 *> _)
-        case None    =>
+      currentType.getFieldOrNull(field.name) match {
+        case null =>
           failValidation(
             s"Field '${field.name}' does not exist on type '${DocumentRenderer.renderTypeName(currentType)}'.",
             "The target field of a field selection must be defined on the scoped type of the selection set. There are no limitations on alias names."
           )
+        case f    =>
+          val v1 = validateFields(context, field.selectionSet, f._type.innerType)
+          val v2 = validateArguments(field, f, currentType, context)
+          v2.fold(v1)(v1 *> _)
       }
     } else zunit
 
@@ -920,13 +920,13 @@ object Validator {
     lazy val objectContext = s"Object '${obj.name.getOrElse("")}'"
 
     def validateInterfaceFields(obj: __Type) = {
-      def fieldNames(t: __Type) = t.allFieldsMap.keySet
+      def fieldNames(t: __Type) = t.allFields.map(_.name)
 
       val supertype = obj.interfaces().toList.flatten
 
       def checkForMissingFields(): EReader[Any, ValidationError, Unit] = {
-        val objectFieldNames    = fieldNames(obj)
-        val interfaceFieldNames = supertype.map(fieldNames).toSet.flatten
+        val objectFieldNames    = fieldNames(obj).toSet
+        val interfaceFieldNames = supertype.flatMap(fieldNames).toSet
         val isMissingFields     = objectFieldNames.union(interfaceFieldNames) != objectFieldNames
 
         failWhen(interfaceFieldNames.nonEmpty && isMissingFields)(

@@ -154,14 +154,15 @@ object Field {
 
       selectionSet.foreach {
         case F(alias, name, arguments, directives, selectionSet, index) =>
-          val selected = innerType.allFieldsMap.get(name)
+          val selected = innerType.getFieldOrNull(name)
 
-          val schemaDirectives   = selected.flatMap(_.directives).getOrElse(Nil)
+          val schemaDirectives   = if (selected eq null) Nil else selected.directives.getOrElse(Nil)
           val resolvedDirectives =
             (directives ::: schemaDirectives).map(resolveDirectiveVariables(variableValues, variableDefinitionsMap))
 
           if (checkDirectives(resolvedDirectives)) {
-            val t = selected.fold(Types.string)(_._type) // default only case where it's not found is __typename
+            // default only case where it's not found is __typename
+            val t = if (selected eq null) Types.string else selected._type
 
             val fields =
               if (selectionSet.nonEmpty) loop(selectionSet, t, None, None, None)

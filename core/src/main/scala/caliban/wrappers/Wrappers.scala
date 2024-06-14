@@ -204,8 +204,13 @@ object Wrappers {
         query: ZQuery[R1, ExecutionError, ResponseValue],
         info: FieldInfo
       ): ZQuery[R1, ExecutionError, ResponseValue] = {
-        val directives = info.parent.flatMap(_.allFieldsMap.get(info.name)).flatMap(_.directives).getOrElse(Nil)
-        ZQuery.fromZIO(check(directives)) *> query
+        val directives = info.parent
+          .flatMap(_.getFieldOrNull(info.name) match {
+            case null => None
+            case f    => f.directives
+          })
+          .getOrElse(Nil)
+        ZQuery.fromZIONow(check(directives)) *> query
       }
     }
 }
