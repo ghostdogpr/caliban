@@ -8,5 +8,7 @@ object Versions {
   val v2_4 = FederationV2.v2_4
   val v2_5 = FederationV2.v2_5
   val v2_6 = FederationV2.v2_6
+  val v2_7 = FederationV2.v2_7
+  val v2_8 = FederationV2.v2_8
 
 }

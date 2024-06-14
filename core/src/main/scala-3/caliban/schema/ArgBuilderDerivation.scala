@@ -12,7 +12,7 @@ import scala.deriving.Mirror
 import scala.util.NotGiven
 
 trait CommonArgBuilderDerivation {
-  inline def recurseSum[P, Label, A <: Tuple](
+  transparent inline def recurseSum[P, Label <: Tuple, A <: Tuple](
     inline values: List[(String, List[Any], ArgBuilder[Any])] = Nil
   ): List[(String, List[Any], ArgBuilder[Any])] =
     inline erasedValue[(Label, A)] match {
@@ -36,7 +36,7 @@ trait CommonArgBuilderDerivation {
         }
     }
 
-  inline def recurseProduct[P, Label, A <: Tuple](
+  transparent inline def recurseProduct[P, Label <: Tuple, A <: Tuple](
     inline values: List[(String, ArgBuilder[Any])] = Nil
   ): List[(String, ArgBuilder[Any])] =
     inline erasedValue[(Label, A)] match {

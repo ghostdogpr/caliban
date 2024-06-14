@@ -52,4 +52,14 @@ object FederationV2 {
     `import` = v2_5.`import` :+ Import("@policy")
   )
 
+  private[v2x] val v2_7 = Link(
+    url = s"$federationV2Url/v2.7",
+    `import` = v2_6.`import`
+  )
+
+  private[v2x] val v2_8 = Link(
+    url = s"$federationV2Url/v2.8",
+    `import` = v2_7.`import` :+ Import("@context") :+ Import("@fromContext")
+  )
+
 }

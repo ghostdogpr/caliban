@@ -9,6 +9,7 @@ import caliban.interop.zio.{ IsZIOJsonDecoder, IsZIOJsonEncoder }
 import caliban.rendering.ValueRenderer
 import zio.stream.Stream
 
+import scala.annotation.tailrec
 import scala.util.control.NonFatal
 import scala.util.hashing.MurmurHash3
 
@@ -67,6 +68,38 @@ sealed trait ResponseValue extends Serializable { self =>
   }
 }
 object ResponseValue {
+
+  def at(path: List[PathValue])(value: ResponseValue): ResponseValue = {
+    def loop(path: List[PathValue], value: ResponseValue): ResponseValue = path match {
+      case Nil                            => value
+      case PathValue.Key(key) :: tail     =>
+        value match {
+          case ObjectValue(fields) =>
+            fields.find(_._1 == key) match {
+              case Some((_, v)) => loop(tail, v)
+              case None         => Value.NullValue
+            }
+          case ListValue(values)   =>
+            ListValue(values.map(loop(path, _)))
+          case _                   => Value.NullValue
+        }
+      case PathValue.Index(index) :: tail =>
+        value match {
+          case ListValue(values) =>
+            val idx = index
+            if (idx < values.size) {
+              loop(tail, values(idx))
+            } else {
+              Value.NullValue
+            }
+          case _                 => Value.NullValue
+        }
+      case _                              => Value.NullValue
+    }
+
+    loop(path, value)
+  }
+
   case class ListValue(values: List[ResponseValue])                extends ResponseValue {
     override def toString: String = ValueRenderer.responseListValueRenderer.renderCompact(this)
   }

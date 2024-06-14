@@ -13,7 +13,8 @@ object Macros {
   inline def implicitExists[T]: Boolean     = ${ implicitExistsImpl[T] }
   inline def hasAnnotation[T, Ann]: Boolean = ${ hasAnnotationImpl[T, Ann] }
 
-  inline def fieldsFromMethods[R, T]: List[(String, List[Any], Schema[R, ?])] = ${ fieldsFromMethodsImpl[R, T] }
+  transparent inline def fieldsFromMethods[R, T]: List[(String, List[Any], Schema[R, ?])] =
+    ${ fieldsFromMethodsImpl[R, T] }
 
   /**
    * Tests whether type argument [[FieldT]] in [[Parent]] is annotated with [[GQLExcluded]]
