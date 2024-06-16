@@ -1,9 +1,9 @@
 package caliban.json
 
 import caliban.Value._
-import caliban.interop.circe.json.GraphQLResponseCirce.{graphQLResponseEncoder => circeEncoder}
-import caliban.interop.zio.GraphQLResponseZioJson.{graphQLResponseEncoder => zioEncoder}
-import caliban.{GraphQLResponse, ResponseValue}
+import caliban.interop.circe.json.GraphQLResponseCirce.{ graphQLResponseEncoder => circeEncoder }
+import caliban.interop.zio.GraphQLResponseZioJson.{ graphQLResponseEncoder => zioEncoder }
+import caliban.{ GraphQLResponse, ResponseValue }
 import com.github.plokhotnyuk.jsoniter_scala.core._
 import org.openjdk.jmh.annotations._
 
