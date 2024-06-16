@@ -1,6 +1,5 @@
 package caliban
 
-import caliban.PlayAdapter.convertHttpStreamingEndpoint
 import caliban.interop.tapir.TapirAdapter._
 import caliban.interop.tapir.{ HttpInterpreter, HttpUploadInterpreter, StreamConstructor, WebSocketInterpreter }
 import org.apache.pekko.stream.scaladsl.{ Flow, Sink, Source }
@@ -28,11 +27,7 @@ class PlayAdapter private (private val options: Option[PlayServerOptions]) {
   def makeHttpService[R, E](
     interpreter: HttpInterpreter[R, E]
   )(implicit runtime: Runtime[R], materializer: Materializer): Routes =
-    playInterpreter.toRoutes(
-      interpreter
-        .serverEndpoints[R, PekkoStreams](PekkoStreams)
-        .map(convertHttpStreamingEndpoint[R, (GraphQLRequest, ServerRequest)])
-    )
+    playInterpreter.toRoutes(interpreter.serverEndpointsFuture[PekkoStreams](PekkoStreams)(runtime))
 
   def makeHttpUploadService[R, E](interpreter: HttpUploadInterpreter[R, E])(implicit
     runtime: Runtime[R],
@@ -40,7 +35,7 @@ class PlayAdapter private (private val options: Option[PlayServerOptions]) {
     requestCodec: JsonCodec[GraphQLRequest],
     mapCodec: JsonCodec[Map[String, Seq[String]]]
   ): Routes =
-    playInterpreter.toRoutes(convertHttpStreamingEndpoint(interpreter.serverEndpoint[R, PekkoStreams](PekkoStreams)))
+    playInterpreter.toRoutes(interpreter.serverEndpointFuture[PekkoStreams](PekkoStreams)(runtime))
 
   def makeWebSocketService[R, E](
     interpreter: WebSocketInterpreter[R, E]
@@ -104,36 +99,6 @@ object PlayAdapter extends PlayAdapter(None) {
     new PlayAdapter(Some(options))
 
   type AkkaPipe = Flow[GraphQLWSInput, Either[GraphQLWSClose, GraphQLWSOutput], Any]
-
-  def convertHttpStreamingEndpoint[R, Input](
-    endpoint: ServerEndpoint.Full[
-      Unit,
-      Unit,
-      Input,
-      TapirResponse,
-      CalibanResponse[PekkoStreams.BinaryStream],
-      PekkoStreams,
-      RIO[R, *]
-    ]
-  )(implicit runtime: Runtime[R], mat: Materializer): ServerEndpoint[PekkoStreams, Future] =
-    ServerEndpoint[
-      Unit,
-      Unit,
-      Input,
-      TapirResponse,
-      CalibanResponse[PekkoStreams.BinaryStream],
-      PekkoStreams,
-      Future
-    ](
-      endpoint.endpoint,
-      _ => _ => Future.successful(Right(())),
-      _ =>
-        _ =>
-          req =>
-            Unsafe.unsafe { implicit u =>
-              runtime.unsafe.runToFuture(endpoint.logic(zioMonadError)(())(req))
-            }
-    )
 
   def convertWebSocketEndpoint[R](
     endpoint: ServerEndpoint.Full[

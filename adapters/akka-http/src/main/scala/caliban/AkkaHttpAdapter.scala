@@ -10,7 +10,7 @@ import caliban.interop.tapir.{ HttpInterpreter, HttpUploadInterpreter, StreamCon
 import sttp.capabilities.WebSockets
 import sttp.capabilities.akka.AkkaStreams
 import sttp.capabilities.akka.AkkaStreams.Pipe
-import sttp.model.{ MediaType, StatusCode }
+import sttp.model.StatusCode
 import sttp.tapir.Codec.JsonCodec
 import sttp.tapir.PublicEndpoint
 import sttp.tapir.model.ServerRequest
@@ -27,11 +27,7 @@ class AkkaHttpAdapter private (private val options: AkkaHttpServerOptions)(impli
   def makeHttpService[R, E](
     interpreter: HttpInterpreter[R, E]
   )(implicit runtime: Runtime[R], materializer: Materializer): Route =
-    akkaInterpreter.toRoute(
-      interpreter
-        .serverEndpoints[R, AkkaStreams](AkkaStreams)
-        .map(convertHttpStreamingEndpoint[R, (GraphQLRequest, ServerRequest)])
-    )
+    akkaInterpreter.toRoute(interpreter.serverEndpointsFuture[AkkaStreams](AkkaStreams)(runtime))
 
   def makeHttpUploadService[R, E](interpreter: HttpUploadInterpreter[R, E])(implicit
     runtime: Runtime[R],
@@ -39,7 +35,7 @@ class AkkaHttpAdapter private (private val options: AkkaHttpServerOptions)(impli
     requestCodec: JsonCodec[GraphQLRequest],
     mapCodec: JsonCodec[Map[String, Seq[String]]]
   ): Route =
-    akkaInterpreter.toRoute(convertHttpStreamingEndpoint(interpreter.serverEndpoint[R, AkkaStreams](AkkaStreams)))
+    akkaInterpreter.toRoute(interpreter.serverEndpointFuture[AkkaStreams](AkkaStreams)(runtime))
 
   def makeWebSocketService[R, E](
     interpreter: WebSocketInterpreter[R, E]
@@ -106,25 +102,6 @@ object AkkaHttpAdapter {
     new AkkaHttpAdapter(options)
 
   type AkkaPipe = Flow[GraphQLWSInput, Either[GraphQLWSClose, GraphQLWSOutput], Any]
-
-  def convertHttpStreamingEndpoint[R, I](
-    endpoint: ServerEndpoint.Full[Unit, Unit, I, TapirResponse, CalibanResponse[
-      AkkaStreams.BinaryStream
-    ], AkkaStreams, RIO[R, *]]
-  )(implicit runtime: Runtime[R]): ServerEndpoint[AkkaStreams, Future] =
-    ServerEndpoint[
-      Unit,
-      Unit,
-      I,
-      TapirResponse,
-      CalibanResponse[AkkaStreams.BinaryStream],
-      AkkaStreams,
-      Future
-    ](
-      endpoint.endpoint,
-      _ => _ => Future.successful(Right(())),
-      _ => _ => req => Unsafe.unsafe(implicit u => runtime.unsafe.runToFuture(endpoint.logic(zioMonadError)(())(req)))
-    )
 
   def convertWebSocketEndpoint[R](
     endpoint: ServerEndpoint.Full[

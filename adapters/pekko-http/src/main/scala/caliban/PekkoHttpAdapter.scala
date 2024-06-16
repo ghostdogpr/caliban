@@ -1,16 +1,16 @@
 package caliban
 
+import caliban.PekkoHttpAdapter._
+import caliban.interop.tapir.TapirAdapter._
+import caliban.interop.tapir.{ HttpInterpreter, HttpUploadInterpreter, StreamConstructor, WebSocketInterpreter }
 import org.apache.pekko.http.scaladsl.server.Route
 import org.apache.pekko.stream.scaladsl.{ Flow, Sink, Source }
 import org.apache.pekko.stream.{ Materializer, OverflowStrategy }
 import org.apache.pekko.util.ByteString
-import caliban.PekkoHttpAdapter._
-import caliban.interop.tapir.TapirAdapter._
-import caliban.interop.tapir.{ HttpInterpreter, HttpUploadInterpreter, StreamConstructor, WebSocketInterpreter }
 import sttp.capabilities.WebSockets
 import sttp.capabilities.pekko.PekkoStreams
 import sttp.capabilities.pekko.PekkoStreams.Pipe
-import sttp.model.{ MediaType, StatusCode }
+import sttp.model.StatusCode
 import sttp.tapir.Codec.JsonCodec
 import sttp.tapir.PublicEndpoint
 import sttp.tapir.model.ServerRequest
@@ -27,11 +27,7 @@ class PekkoHttpAdapter private (val options: PekkoHttpServerOptions)(implicit ec
   def makeHttpService[R, E](
     interpreter: HttpInterpreter[R, E]
   )(implicit runtime: Runtime[R], materializer: Materializer): Route =
-    pekkoInterpreter.toRoute(
-      interpreter
-        .serverEndpoints[R, PekkoStreams](PekkoStreams)
-        .map(convertHttpStreamingEndpoint[R, (GraphQLRequest, ServerRequest)])
-    )
+    pekkoInterpreter.toRoute(interpreter.serverEndpointsFuture[PekkoStreams](PekkoStreams)(runtime))
 
   def makeHttpUploadService[R, E](interpreter: HttpUploadInterpreter[R, E])(implicit
     runtime: Runtime[R],
@@ -39,7 +35,7 @@ class PekkoHttpAdapter private (val options: PekkoHttpServerOptions)(implicit ec
     requestCodec: JsonCodec[GraphQLRequest],
     mapCodec: JsonCodec[Map[String, Seq[String]]]
   ): Route =
-    pekkoInterpreter.toRoute(convertHttpStreamingEndpoint(interpreter.serverEndpoint[R, PekkoStreams](PekkoStreams)))
+    pekkoInterpreter.toRoute(interpreter.serverEndpointFuture[PekkoStreams](PekkoStreams)(runtime))
 
   def makeWebSocketService[R, E](
     interpreter: WebSocketInterpreter[R, E]
@@ -106,25 +102,6 @@ object PekkoHttpAdapter {
     new PekkoHttpAdapter(options)
 
   type PekkoPipe = Flow[GraphQLWSInput, Either[GraphQLWSClose, GraphQLWSOutput], Any]
-
-  def convertHttpStreamingEndpoint[R, I](
-    endpoint: ServerEndpoint.Full[Unit, Unit, I, TapirResponse, CalibanResponse[
-      PekkoStreams.BinaryStream
-    ], PekkoStreams, RIO[R, *]]
-  )(implicit runtime: Runtime[R]): ServerEndpoint[PekkoStreams, Future] =
-    ServerEndpoint[
-      Unit,
-      Unit,
-      I,
-      TapirResponse,
-      CalibanResponse[PekkoStreams.BinaryStream],
-      PekkoStreams,
-      Future
-    ](
-      endpoint.endpoint,
-      _ => _ => Future.successful(Right(())),
-      _ => _ => req => Unsafe.unsafe(implicit u => runtime.unsafe.runToFuture(endpoint.logic(zioMonadError)(())(req)))
-    )
 
   def convertWebSocketEndpoint[R](
     endpoint: ServerEndpoint.Full[

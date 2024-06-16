@@ -8,6 +8,7 @@ import sttp.capabilities.{ Streams, WebSockets }
 import sttp.model.sse.ServerSentEvent
 import sttp.model.{ headers => _, _ }
 import sttp.monad.MonadError
+import sttp.shared.Identity
 import sttp.tapir.Codec.JsonCodec
 import sttp.tapir.model.ServerRequest
 import sttp.tapir.server.ServerEndpoint
@@ -199,24 +200,27 @@ object TapirAdapter {
   ) =
     Left(response.toResponseValue(keepDataOnErrors, excludeExtensions))
 
-  def convertHttpEndpointToFuture[R](
-    endpoint: ServerEndpoint[ZioStreams, RIO[R, *]]
-  )(implicit runtime: Runtime[R]): ServerEndpoint[ZioStreams, Future] =
-    ServerEndpoint[
-      endpoint.SECURITY_INPUT,
-      endpoint.PRINCIPAL,
-      endpoint.INPUT,
-      endpoint.ERROR_OUTPUT,
-      endpoint.OUTPUT,
-      ZioStreams,
-      Future
-    ](
+  private val rightUnit: Right[Nothing, Unit] = Right(())
+
+  def convertHttpEndpointToFuture[R, BS, S, I](
+    endpoint: ServerEndpoint.Full[Unit, Unit, I, TapirResponse, CalibanResponse[BS], S, RIO[R, *]]
+  )(implicit runtime: Runtime[R]): ServerEndpoint[S, Future] =
+    ServerEndpoint[Unit, Unit, I, TapirResponse, CalibanResponse[BS], S, Future](
       endpoint.endpoint,
+      _ => _ => Future.successful(rightUnit),
       _ =>
-        a => Unsafe.unsafe(implicit u => runtime.unsafe.runToFuture(endpoint.securityLogic(zioMonadError)(a)).future),
+        _ =>
+          req => Unsafe.unsafe(implicit u => runtime.unsafe.runToFuture(endpoint.logic(zioMonadError)(())(req)).future)
+    )
+
+  def convertHttpEndpointToIdentity[R, BS, S, I](
+    endpoint: ServerEndpoint.Full[Unit, Unit, I, TapirResponse, CalibanResponse[BS], S, RIO[R, *]]
+  )(implicit runtime: Runtime[R]): ServerEndpoint[S, Identity] =
+    ServerEndpoint[Unit, Unit, I, TapirResponse, CalibanResponse[BS], S, Identity](
+      endpoint.endpoint,
+      _ => _ => rightUnit,
       _ =>
-        u =>
-          req => Unsafe.unsafe(implicit un => runtime.unsafe.runToFuture(endpoint.logic(zioMonadError)(u)(req)).future)
+        _ => req => Unsafe.unsafe(implicit u => runtime.unsafe.run(endpoint.logic(zioMonadError)(())(req)).getOrThrow())
     )
 
   def zioMonadError[R]: MonadError[RIO[R, *]] = new MonadError[RIO[R, *]] {
