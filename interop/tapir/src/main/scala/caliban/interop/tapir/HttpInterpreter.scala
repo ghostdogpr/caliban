@@ -32,21 +32,25 @@ sealed trait HttpInterpreter[-R, E] { self =>
       val (graphQLRequest, serverRequest) = request
       executeRequest(graphQLRequest, serverRequest).either
     }
-    endpoints[S](streams).map(_.serverLogic(logic))
+    endpoints[S](streams).map(_.serverLogic(logic(_)))
   }
 
   def serverEndpointsFuture[S](streams: Streams[S])(runtime: Runtime[R])(implicit
     streamConstructor: StreamConstructor[streams.BinaryStream]
   ): List[ServerEndpoint[S, Future]] = {
     implicit val r: Runtime[R] = runtime
-    serverEndpoints(streams).map(convertHttpEndpointToFuture)
+    serverEndpoints(streams).map(
+      convertHttpEndpointToFuture[R, streams.BinaryStream, S, (GraphQLRequest, ServerRequest)]
+    )
   }
 
   def serverEndpointsIdentity[S](streams: Streams[S])(runtime: Runtime[R])(implicit
     streamConstructor: StreamConstructor[streams.BinaryStream]
   ): List[ServerEndpoint[S, Identity]] = {
     implicit val r: Runtime[R] = runtime
-    serverEndpoints(streams).map(convertHttpEndpointToIdentity)
+    serverEndpoints(streams).map(
+      convertHttpEndpointToIdentity[R, streams.BinaryStream, S, (GraphQLRequest, ServerRequest)]
+    )
   }
 
   def intercept[R1](interceptor: Interceptor[R1, R]): HttpInterpreter[R1, E] =

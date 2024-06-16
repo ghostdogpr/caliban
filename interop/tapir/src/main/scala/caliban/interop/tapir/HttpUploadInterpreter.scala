@@ -79,7 +79,7 @@ sealed trait HttpUploadInterpreter[-R, E] { self =>
       io.either
     }
 
-    endpoint(streams).serverLogic(logic)
+    endpoint(streams).serverLogic(logic(_))
   }
 
   def serverEndpointFuture[S](streams: Streams[S])(runtime: Runtime[R])(implicit
@@ -88,7 +88,7 @@ sealed trait HttpUploadInterpreter[-R, E] { self =>
     mapCodec: JsonCodec[Map[String, Seq[String]]]
   ): ServerEndpoint[S, Future] = {
     implicit val r: Runtime[R] = runtime
-    convertHttpEndpointToFuture(serverEndpoint(streams))
+    convertHttpEndpointToFuture[R, streams.BinaryStream, S, UploadRequest](serverEndpoint(streams))
   }
 
   def serverEndpointIdentity[S](streams: Streams[S])(runtime: Runtime[R])(implicit
@@ -97,7 +97,7 @@ sealed trait HttpUploadInterpreter[-R, E] { self =>
     mapCodec: JsonCodec[Map[String, Seq[String]]]
   ): ServerEndpoint[S, Identity] = {
     implicit val r: Runtime[R] = runtime
-    convertHttpEndpointToIdentity(serverEndpoint(streams))
+    convertHttpEndpointToIdentity[R, streams.BinaryStream, S, UploadRequest](serverEndpoint(streams))
   }
 
   def intercept[R1](interceptor: Interceptor[R1, R]): HttpUploadInterpreter[R1, E] =
