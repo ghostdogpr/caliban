@@ -1,5 +1,6 @@
 package caliban
 
+import caliban.Configurator.ExecutionConfiguration
 import caliban.ws.WebSocketHooks
 import zio.Duration
 import zio.http.{ WebSocketConfig => ZWebSocketConfig, _ }
@@ -10,8 +11,11 @@ import zio.http.{ WebSocketConfig => ZWebSocketConfig, _ }
 )
 object ZHttpAdapter {
 
-  def makeHttpService[R, E](interpreter: GraphQLInterpreter[R, E]): RequestHandler[R, Nothing] =
-    QuickAdapter(interpreter).handlers.api
+  def makeHttpService[R, E](
+    interpreter: GraphQLInterpreter[R, E],
+    config: ExecutionConfiguration = ExecutionConfiguration()
+  ): RequestHandler[R, Nothing] =
+    QuickAdapter(interpreter).configure(config).handlers.api
 
   def makeWebSocketService[R, E](
     interpreter: GraphQLInterpreter[R, E],
