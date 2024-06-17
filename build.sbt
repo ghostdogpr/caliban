@@ -753,7 +753,15 @@ lazy val enableMimaSettingsJVM =
     mimaFailOnProblem     := enforceMimaCompatibility,
     mimaPreviousArtifacts := previousStableVersion.value.map(organization.value %% moduleName.value % _).toSet,
     mimaBinaryIssueFilters ++= Seq(
-      ProblemFilters.exclude[IncompatibleMethTypeProblem]("caliban.execution.Executor#ReducedStepExecutor.makeQuery")
+      ProblemFilters.exclude[IncompatibleMethTypeProblem]("caliban.execution.Executor#ReducedStepExecutor.makeQuery"),
+      ProblemFilters.exclude[Problem]("caliban.interop.*"),
+      ProblemFilters.exclude[Problem]("caliban.CalibanError.zio*"),
+      ProblemFilters.exclude[Problem]("caliban.GraphQLRequest.zio*"),
+      ProblemFilters.exclude[Problem]("caliban.GraphQLResponse.zio*"),
+      ProblemFilters.exclude[Problem]("caliban.GraphQLWSInput.zio*"),
+      ProblemFilters.exclude[Problem]("caliban.GraphQLWSOutput.zio*"),
+      ProblemFilters.exclude[Problem]("caliban.InputValue.*Zio*"),
+      ProblemFilters.exclude[Problem]("caliban.ResponseValue.*Zio*")
     )
   )
 

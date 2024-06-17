@@ -8,25 +8,9 @@ import caliban.schema.Types.makeScalar
 import caliban.schema.{ ArgBuilder, PureStep, Schema, Step }
 import zio.Chunk
 import zio.json.ast.Json
-import zio.json.{ JsonCodec, JsonDecoder, JsonEncoder }
+import zio.json.JsonCodec
 
 import scala.annotation.switch
-
-@deprecated("kept for compatibility purposes only", "1.7.2")
-private[caliban] trait IsZIOJsonEncoder[F[_]]
-
-@deprecated("kept for compatibility purposes only", "1.7.2")
-private[caliban] object IsZIOJsonEncoder {
-  implicit val isZIOJsonEncoder: IsZIOJsonEncoder[JsonEncoder] = null
-}
-
-@deprecated("kept for compatibility purposes only", "1.7.2")
-private[caliban] trait IsZIOJsonDecoder[F[_]]
-
-@deprecated("kept for compatibility purposes only", "1.7.2")
-private[caliban] object IsZIOJsonDecoder {
-  implicit val isZIOJsonDecoder: IsZIOJsonDecoder[JsonDecoder] = null
-}
 
 /**
  * This class is an implementation of the pattern described in https://blog.7mind.io/no-more-orphans.html

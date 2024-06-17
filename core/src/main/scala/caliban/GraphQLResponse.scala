@@ -6,7 +6,7 @@ import caliban.interop.circe._
 import caliban.interop.jsoniter.IsJsoniterCodec
 import caliban.interop.play.{ IsPlayJsonReads, IsPlayJsonWrites }
 import caliban.interop.tapir.IsTapirSchema
-import caliban.interop.zio.{ IsZIOJsonCodec, IsZIOJsonDecoder, IsZIOJsonEncoder }
+import caliban.interop.zio.IsZIOJsonCodec
 
 /**
  * Represents the result of a GraphQL query, containing a data object and a list of errors.
@@ -59,11 +59,4 @@ object GraphQLResponse {
     caliban.interop.play.json.GraphQLResponsePlayJson.graphQLResponseWrites.asInstanceOf[F[GraphQLResponse[E]]]
   implicit def playJsonReads[F[_]: IsPlayJsonReads, E]: F[GraphQLResponse[E]]   =
     caliban.interop.play.json.GraphQLResponsePlayJson.graphQLResponseReads.asInstanceOf[F[GraphQLResponse[E]]]
-
-  @deprecated("kept for compatibility purposes only", "1.7.2")
-  def zioJsonEncoder[F[_]: IsZIOJsonEncoder, E]: F[GraphQLResponse[E]] =
-    caliban.interop.zio.GraphQLResponseZioJson.graphQLResponseEncoder.asInstanceOf[F[GraphQLResponse[E]]]
-  @deprecated("kept for compatibility purposes only", "1.7.2")
-  def zioJsonDecoder[F[_]: IsZIOJsonDecoder, E]: F[GraphQLResponse[E]] =
-    caliban.interop.zio.GraphQLResponseZioJson.graphQLResponseDecoder.asInstanceOf[F[GraphQLResponse[E]]]
 }

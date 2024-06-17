@@ -5,7 +5,7 @@ import caliban.Value.StringValue
 import caliban.interop.circe.{ IsCirceDecoder, IsCirceEncoder }
 import caliban.interop.jsoniter.IsJsoniterCodec
 import caliban.interop.play.{ IsPlayJsonReads, IsPlayJsonWrites }
-import caliban.interop.zio.{ IsZIOJsonCodec, IsZIOJsonDecoder, IsZIOJsonEncoder }
+import caliban.interop.zio.IsZIOJsonCodec
 import caliban.parsing.adt.LocationInfo
 
 import scala.util.control.NoStackTrace
@@ -98,11 +98,4 @@ object CalibanError {
     caliban.interop.play.json.ErrorPlayJson.errorValueWrites.asInstanceOf[F[CalibanError]]
   implicit def playJsonReads[F[_]](implicit ev: IsPlayJsonReads[F]): F[CalibanError]   =
     caliban.interop.play.json.ErrorPlayJson.errorValueReads.asInstanceOf[F[CalibanError]]
-
-  @deprecated("kept for compatibility purposes only", "1.7.2")
-  def zioJsonEncoder[F[_]](implicit ev: IsZIOJsonEncoder[F]): F[CalibanError] =
-    caliban.interop.zio.ErrorZioJson.errorValueEncoder.asInstanceOf[F[CalibanError]]
-  @deprecated("kept for compatibility purposes only", "1.7.2")
-  def zioJsonDecoder[F[_]](implicit ev: IsZIOJsonDecoder[F]): F[CalibanError] =
-    caliban.interop.zio.ErrorZioJson.errorValueDecoder.asInstanceOf[F[CalibanError]]
 }
