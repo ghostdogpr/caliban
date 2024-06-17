@@ -753,7 +753,13 @@ lazy val enableMimaSettingsJVM =
     mimaFailOnProblem     := enforceMimaCompatibility,
     mimaPreviousArtifacts := previousStableVersion.value.map(organization.value %% moduleName.value % _).toSet,
     mimaBinaryIssueFilters ++= Seq(
-      ProblemFilters.exclude[IncompatibleMethTypeProblem]("caliban.execution.Executor#ReducedStepExecutor.makeQuery")
+      ProblemFilters.exclude[IncompatibleMethTypeProblem]("caliban.execution.Executor#ReducedStepExecutor.makeQuery"),
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.AkkaHttpAdapter.convertHttpStreamingEndpoint"),
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.PekkoHttpAdapter.convertHttpStreamingEndpoint"),
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.PlayAdapter.convertHttpStreamingEndpoint"),
+      ProblemFilters.exclude[DirectMissingMethodProblem](
+        "caliban.interop.tapir.TapirAdapter.convertHttpEndpointToFuture"
+      )
     )
   )
 

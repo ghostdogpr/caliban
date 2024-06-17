@@ -202,7 +202,7 @@ object TapirAdapter {
 
   private val rightUnit: Right[Nothing, Unit] = Right(())
 
-  def convertHttpEndpointToFuture[R, BS, S, I](
+  private[caliban] def convertHttpEndpointToFuture[R, BS, S, I](
     endpoint: ServerEndpoint.Full[Unit, Unit, I, TapirResponse, CalibanResponse[BS], S, RIO[R, *]]
   )(implicit runtime: Runtime[R]): ServerEndpoint[S, Future] =
     ServerEndpoint[Unit, Unit, I, TapirResponse, CalibanResponse[BS], S, Future](
@@ -213,7 +213,7 @@ object TapirAdapter {
           req => Unsafe.unsafe(implicit u => runtime.unsafe.runToFuture(endpoint.logic(zioMonadError)(())(req)).future)
     )
 
-  def convertHttpEndpointToIdentity[R, BS, S, I](
+  private[caliban] def convertHttpEndpointToIdentity[R, BS, S, I](
     endpoint: ServerEndpoint.Full[Unit, Unit, I, TapirResponse, CalibanResponse[BS], S, RIO[R, *]]
   )(implicit runtime: Runtime[R]): ServerEndpoint[S, Identity] =
     ServerEndpoint[Unit, Unit, I, TapirResponse, CalibanResponse[BS], S, Identity](
