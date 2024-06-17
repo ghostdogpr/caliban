@@ -373,15 +373,7 @@ lazy val zioHttp = project
   .settings(commonSettings)
   .settings(enableMimaSettingsJVM)
   .disablePlugins(AssemblyPlugin)
-  .settings(
-    libraryDependencies ++= Seq(
-      "dev.zio"                     %% "zio-http"              % zioHttpVersion,
-      "com.softwaremill.sttp.tapir" %% "tapir-zio-http-server" % tapirVersion,
-      "dev.zio"                     %% "zio-json"              % zioJsonVersion % Test,
-      "com.softwaremill.sttp.tapir" %% "tapir-json-zio"        % tapirVersion   % Test
-    )
-  )
-  .dependsOn(core, tapirInterop % "compile->compile;test->test")
+  .dependsOn(core, quickAdapter)
 
 lazy val quickAdapter = project
   .in(file("adapters/quick"))
