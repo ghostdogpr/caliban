@@ -410,11 +410,11 @@ lazy val akkaHttp = project
     ideSkipProject := (scalaVersion.value == scala3),
     crossScalaVersions -= scala3,
     libraryDependencies ++= Seq(
-      "com.typesafe.akka"             %% "akka-http"                  % "10.2.10",
-      "com.typesafe.akka"             %% "akka-serialization-jackson" % akkaVersion,
-      "com.softwaremill.sttp.tapir"   %% "tapir-akka-http-server"     % tapirVersion,
-      "com.softwaremill.sttp.tapir"   %% "tapir-json-circe"           % tapirVersion % Test,
-      compilerPlugin(("org.typelevel" %% "kind-projector"             % "0.13.3").cross(CrossVersion.full))
+      "com.typesafe.akka"           %% "akka-http"                  % "10.2.10",
+      "com.typesafe.akka"           %% "akka-serialization-jackson" % akkaVersion,
+      "com.softwaremill.sttp.tapir" %% "tapir-akka-http-server"     % tapirVersion,
+      "com.softwaremill.sttp.tapir" %% "tapir-json-circe"           % tapirVersion % Test,
+      compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.3").cross(CrossVersion.full))
     )
   )
   .dependsOn(core, tapirInterop % "compile->compile;test->test")

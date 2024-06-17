@@ -4,7 +4,7 @@ import caliban._
 import caliban.execution.NestedZQueryBenchmarkSchema
 import caliban.introspection.Introspector
 import caliban.parsing.{ Parser, VariablesCoercer }
-import caliban.schema.RootType
+import caliban.schema.{ RootSchema, RootType }
 import org.openjdk.jmh.annotations.{ Scope, _ }
 import zio._
 
@@ -15,15 +15,15 @@ import java.util.concurrent.TimeUnit
 @OutputTimeUnit(TimeUnit.SECONDS)
 @Warmup(iterations = 5, time = 1, timeUnit = TimeUnit.SECONDS)
 @Measurement(iterations = 5, time = 1, timeUnit = TimeUnit.SECONDS)
-@Fork(1)
+@Fork(2)
 class ValidationBenchmark {
 
   private val runtime = Runtime.default
 
-  def run[A](zio: Task[A]): A                                      = Unsafe.unsafe(implicit u => runtime.unsafe.run(zio).getOrThrow())
-  def toSchema[R](graphQL: GraphQL[R]): IO[CalibanError, RootType] =
+  def run[A](zio: Task[A]): A                                                       = Unsafe.unsafe(implicit u => runtime.unsafe.run(zio).getOrThrow())
+  def toSchema[R](graphQL: GraphQL[R]): IO[CalibanError, (RootSchema[R], RootType)] =
     graphQL.validateRootSchema.map { schema =>
-      RootType(
+      schema -> RootType(
         schema.query.opType,
         schema.mutation.map(_.opType),
         schema.subscription.map(_.opType)
@@ -38,11 +38,11 @@ class ValidationBenchmark {
   val parsedDeepWithArgsQuery  = run(Parser.parseQuery(deepWithArgsQuery))
   val parsedIntrospectionQuery = run(Parser.parseQuery(ComplexQueryBenchmark.fullIntrospectionQuery))
 
-  val simpleType = run(
+  val (simpleSchema, simpleType) = run(
     toSchema(graphQL[Any, SimpleRoot, Unit, Unit](RootResolver(NestedZQueryBenchmarkSchema.simple100Elements)))
   )
 
-  val multifieldType =
+  val (multifieldSchema, multifieldType) =
     run(
       toSchema(
         graphQL[Any, MultifieldRoot, Unit, Unit](
@@ -51,7 +51,7 @@ class ValidationBenchmark {
       )
     )
 
-  val deepType =
+  val (deepSchema, deepType) =
     run(
       toSchema(
         graphQL[Any, DeepRoot, Unit, Unit](
@@ -60,7 +60,7 @@ class ValidationBenchmark {
       )
     )
 
-  val deepWithArgsType =
+  val (deepWithArgsSchema, deepWithArgsType) =
     run(
       toSchema(
         graphQL[Any, DeepWithArgsRoot, Unit, Unit](
@@ -99,5 +99,61 @@ class ValidationBenchmark {
       Validator.validate(parsedIntrospectionQuery, Introspector.introspectionRootType)
     run(io)
   }
+
+  @Benchmark
+  def fieldCreationSimple(): Any =
+    Validator
+      .prepareEither(
+        parsedSimpleQuery,
+        simpleType,
+        simpleSchema,
+        None,
+        Map.empty,
+        skipValidation = true,
+        validations = Nil
+      )
+      .fold(throw _, identity)
+
+  @Benchmark
+  def fieldCreationMultifield(): Any =
+    Validator
+      .prepareEither(
+        parsedMultifieldQuery,
+        multifieldType,
+        multifieldSchema,
+        None,
+        Map.empty,
+        skipValidation = true,
+        validations = Nil
+      )
+      .fold(throw _, identity)
+
+  @Benchmark
+  def fieldCreationDeep(): Any =
+    Validator
+      .prepareEither(
+        parsedDeepQuery,
+        deepType,
+        deepSchema,
+        None,
+        Map.empty,
+        skipValidation = true,
+        validations = Nil
+      )
+      .fold(throw _, identity)
+
+  @Benchmark
+  def fieldCreationIntrospection(): Any =
+    Validator
+      .prepareEither(
+        parsedIntrospectionQuery,
+        Introspector.introspectionRootType,
+        simpleSchema,
+        None,
+        Map.empty,
+        skipValidation = true,
+        validations = Nil
+      )
+      .fold(throw _, identity)
 
 }
