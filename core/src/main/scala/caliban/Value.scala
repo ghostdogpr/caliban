@@ -1,7 +1,7 @@
 package caliban
 
 import caliban.Value.StringValue
-import caliban.interop.circe.*
+import caliban.interop.circe._
 import caliban.interop.jsoniter.IsJsoniterCodec
 import caliban.interop.play.{ IsPlayJsonReads, IsPlayJsonWrites }
 import caliban.interop.tapir.IsTapirSchema
@@ -9,7 +9,6 @@ import caliban.interop.zio.{ IsZIOJsonCodec, IsZIOJsonDecoder, IsZIOJsonEncoder 
 import caliban.rendering.ValueRenderer
 import zio.stream.Stream
 
-import scala.annotation.tailrec
 import scala.util.control.NonFatal
 import scala.util.hashing.MurmurHash3
 

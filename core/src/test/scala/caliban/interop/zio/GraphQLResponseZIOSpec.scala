@@ -24,7 +24,7 @@ object GraphQLResponseZIOSpec extends ZIOSpecDefault {
           ("myCustomKey", StringValue("my-value"))
         )
 
-        val response = GraphQLResponse(
+        val response = GraphQLResponse[CalibanError](
           StringValue("data"),
           List(
             ExecutionError(

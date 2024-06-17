@@ -1,8 +1,8 @@
 package caliban
 
-import caliban.ResponseValue.*
-import caliban.Value.*
-import caliban.interop.circe.*
+import caliban.ResponseValue._
+import caliban.Value._
+import caliban.interop.circe._
 import caliban.interop.jsoniter.IsJsoniterCodec
 import caliban.interop.play.{ IsPlayJsonReads, IsPlayJsonWrites }
 import caliban.interop.tapir.IsTapirSchema

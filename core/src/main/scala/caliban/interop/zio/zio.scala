@@ -1,7 +1,7 @@
 package caliban.interop.zio
 
-import caliban.Value.*
-import caliban.*
+import caliban.Value._
+import caliban._
 import caliban.introspection.adt.__Type
 import caliban.parsing.adt.LocationInfo
 import caliban.schema.Types.makeScalar
@@ -387,23 +387,21 @@ private[caliban] object ValueZIOJson {
 
   implicit val inputValueCodec: JsonCodec[InputValue] = JsonCodec(inputValueEncoder, inputValueDecoder)
 
-  val responseValueDecoder: JsonDecoder[ResponseValue] =
-    (trace: List[JsonDecoder.JsonError], in: RetractReader) => {
-      val c = in.nextNonWhitespace()
-      in.retract()
-      (c: @switch) match {
-        case 'n'                                                             => Null.decoder.unsafeDecode(trace, in)
-        case 'f' | 't'                                                       => Bool.decoder.unsafeDecode(trace, in)
-        case '{'                                                             => Obj.responseDecoder.unsafeDecode(trace, in)
-        case '['                                                             => Arr.responseDecoder.unsafeDecode(trace, in)
-        case '"'                                                             => Str.decoder.unsafeDecode(trace, in)
-        case '-' | '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' =>
-          Num.decoder.unsafeDecode(trace, in)
-        case c                                                               =>
-          throw JsonDecoder.UnsafeJson(JsonDecoder.JsonError.Message(s"unexpected '$c'") :: trace)
-      }
-
+  val responseValueDecoder: JsonDecoder[ResponseValue] = (trace: List[JsonDecoder.JsonError], in: RetractReader) => {
+    val c = in.nextNonWhitespace()
+    in.retract()
+    (c: @switch) match {
+      case 'n'                                                             => Null.decoder.unsafeDecode(trace, in)
+      case 'f' | 't'                                                       => Bool.decoder.unsafeDecode(trace, in)
+      case '{'                                                             => Obj.responseDecoder.unsafeDecode(trace, in)
+      case '['                                                             => Arr.responseDecoder.unsafeDecode(trace, in)
+      case '"'                                                             => Str.decoder.unsafeDecode(trace, in)
+      case '-' | '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' =>
+        Num.decoder.unsafeDecode(trace, in)
+      case c                                                               =>
+        throw JsonDecoder.UnsafeJson(JsonDecoder.JsonError.Message(s"unexpected '$c'") :: trace)
     }
+  }
 
   val responseValueEncoder: JsonEncoder[ResponseValue] =
     (a: ResponseValue, indent: Option[Int], out: Write) =>
