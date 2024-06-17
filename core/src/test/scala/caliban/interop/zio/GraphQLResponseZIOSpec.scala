@@ -10,7 +10,7 @@ import zio.test.Assertion.{ equalTo, isRight }
 import zio.test.{ assert, assertTrue, ZIOSpecDefault }
 
 object GraphQLResponseZIOSpec extends ZIOSpecDefault {
-  implicit val encoder: JsonEncoder[GraphQLResponse[Any]] = GraphQLResponse.zioJsonEncoder
+  implicit val encoder: JsonEncoder[GraphQLResponse[Any]] = GraphQLResponse.zioJsonCodec.encoder
 
   override def spec =
     suite("GraphQLResponseZIOSpec")(

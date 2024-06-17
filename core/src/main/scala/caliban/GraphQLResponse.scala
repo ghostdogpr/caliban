@@ -1,12 +1,12 @@
 package caliban
 
-import caliban.ResponseValue._
-import caliban.Value._
-import caliban.interop.circe._
+import caliban.ResponseValue.*
+import caliban.Value.*
+import caliban.interop.circe.*
 import caliban.interop.jsoniter.IsJsoniterCodec
 import caliban.interop.play.{ IsPlayJsonReads, IsPlayJsonWrites }
 import caliban.interop.tapir.IsTapirSchema
-import caliban.interop.zio.{ IsZIOJsonDecoder, IsZIOJsonEncoder }
+import caliban.interop.zio.{ IsZIOJsonCodec, IsZIOJsonDecoder, IsZIOJsonEncoder }
 
 /**
  * Represents the result of a GraphQL query, containing a data object and a list of errors.
@@ -49,10 +49,8 @@ object GraphQLResponse {
     caliban.interop.circe.json.GraphQLResponseCirce.graphQLResponseEncoder.asInstanceOf[F[GraphQLResponse[E]]]
   implicit def circeDecoder[F[_]: IsCirceDecoder, E]: F[GraphQLResponse[E]]     =
     caliban.interop.circe.json.GraphQLResponseCirce.graphQLResponseDecoder.asInstanceOf[F[GraphQLResponse[E]]]
-  implicit def zioJsonEncoder[F[_]: IsZIOJsonEncoder, E]: F[GraphQLResponse[E]] =
-    caliban.interop.zio.GraphQLResponseZioJson.graphQLResponseEncoder.asInstanceOf[F[GraphQLResponse[E]]]
-  implicit def zioJsonDecoder[F[_]: IsZIOJsonDecoder, E]: F[GraphQLResponse[E]] =
-    caliban.interop.zio.GraphQLResponseZioJson.graphQLResponseDecoder.asInstanceOf[F[GraphQLResponse[E]]]
+  implicit def zioJsonCodec[F[_]: IsZIOJsonCodec, E]: F[GraphQLResponse[E]]     =
+    caliban.interop.zio.GraphQLResponseZioJson.graphQLResponseCodec.asInstanceOf[F[GraphQLResponse[E]]]
   implicit def tapirSchema[F[_]: IsTapirSchema, E]: F[GraphQLResponse[E]]       =
     caliban.interop.tapir.schema.responseSchema.asInstanceOf[F[GraphQLResponse[E]]]
   implicit def jsoniterCodec[F[_]: IsJsoniterCodec, E]: F[GraphQLResponse[E]]   =
@@ -61,4 +59,11 @@ object GraphQLResponse {
     caliban.interop.play.json.GraphQLResponsePlayJson.graphQLResponseWrites.asInstanceOf[F[GraphQLResponse[E]]]
   implicit def playJsonReads[F[_]: IsPlayJsonReads, E]: F[GraphQLResponse[E]]   =
     caliban.interop.play.json.GraphQLResponsePlayJson.graphQLResponseReads.asInstanceOf[F[GraphQLResponse[E]]]
+
+  @deprecated("kept for compatibility purposes only", "1.7.2")
+  def zioJsonEncoder[F[_]: IsZIOJsonEncoder, E]: F[GraphQLResponse[E]] =
+    caliban.interop.zio.GraphQLResponseZioJson.graphQLResponseEncoder.asInstanceOf[F[GraphQLResponse[E]]]
+  @deprecated("kept for compatibility purposes only", "1.7.2")
+  def zioJsonDecoder[F[_]: IsZIOJsonDecoder, E]: F[GraphQLResponse[E]] =
+    caliban.interop.zio.GraphQLResponseZioJson.graphQLResponseDecoder.asInstanceOf[F[GraphQLResponse[E]]]
 }
