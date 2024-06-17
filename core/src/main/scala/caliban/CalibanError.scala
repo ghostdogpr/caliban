@@ -5,7 +5,7 @@ import caliban.Value.StringValue
 import caliban.interop.circe.{ IsCirceDecoder, IsCirceEncoder }
 import caliban.interop.jsoniter.IsJsoniterCodec
 import caliban.interop.play.{ IsPlayJsonReads, IsPlayJsonWrites }
-import caliban.interop.zio.{ IsZIOJsonDecoder, IsZIOJsonEncoder }
+import caliban.interop.zio.{ IsZIOJsonCodec, IsZIOJsonDecoder, IsZIOJsonEncoder }
 import caliban.parsing.adt.LocationInfo
 
 import scala.util.control.NoStackTrace
@@ -86,21 +86,23 @@ object CalibanError {
       )
   }
 
-  implicit def circeEncoder[F[_]](implicit ev: IsCirceEncoder[F]): F[CalibanError] =
+  implicit def circeEncoder[F[_]](implicit ev: IsCirceEncoder[F]): F[CalibanError]     =
     caliban.interop.circe.json.ErrorCirce.errorValueEncoder.asInstanceOf[F[CalibanError]]
-  implicit def circeDecoder[F[_]](implicit ev: IsCirceDecoder[F]): F[CalibanError] =
+  implicit def circeDecoder[F[_]](implicit ev: IsCirceDecoder[F]): F[CalibanError]     =
     caliban.interop.circe.json.ErrorCirce.errorValueDecoder.asInstanceOf[F[CalibanError]]
-
-  implicit def zioJsonEncoder[F[_]](implicit ev: IsZIOJsonEncoder[F]): F[CalibanError] =
-    caliban.interop.zio.ErrorZioJson.errorValueEncoder.asInstanceOf[F[CalibanError]]
-  implicit def zioJsonDecoder[F[_]](implicit ev: IsZIOJsonDecoder[F]): F[CalibanError] =
-    caliban.interop.zio.ErrorZioJson.errorValueDecoder.asInstanceOf[F[CalibanError]]
-
-  implicit def jsoniterCodec[F[_]](implicit ev: IsJsoniterCodec[F]): F[CalibanError] =
+  implicit def zioJsonCodec[F[_]](implicit ev: IsZIOJsonCodec[F]): F[CalibanError]     =
+    caliban.interop.zio.ErrorZioJson.errorValueCodec.asInstanceOf[F[CalibanError]]
+  implicit def jsoniterCodec[F[_]](implicit ev: IsJsoniterCodec[F]): F[CalibanError]   =
     caliban.interop.jsoniter.ErrorJsoniter.errorValueCodec.asInstanceOf[F[CalibanError]]
-
   implicit def playJsonWrites[F[_]](implicit ev: IsPlayJsonWrites[F]): F[CalibanError] =
     caliban.interop.play.json.ErrorPlayJson.errorValueWrites.asInstanceOf[F[CalibanError]]
   implicit def playJsonReads[F[_]](implicit ev: IsPlayJsonReads[F]): F[CalibanError]   =
     caliban.interop.play.json.ErrorPlayJson.errorValueReads.asInstanceOf[F[CalibanError]]
+
+  @deprecated("kept for compatibility purposes only", "1.7.2")
+  def zioJsonEncoder[F[_]](implicit ev: IsZIOJsonEncoder[F]): F[CalibanError] =
+    caliban.interop.zio.ErrorZioJson.errorValueEncoder.asInstanceOf[F[CalibanError]]
+  @deprecated("kept for compatibility purposes only", "1.7.2")
+  def zioJsonDecoder[F[_]](implicit ev: IsZIOJsonDecoder[F]): F[CalibanError] =
+    caliban.interop.zio.ErrorZioJson.errorValueDecoder.asInstanceOf[F[CalibanError]]
 }

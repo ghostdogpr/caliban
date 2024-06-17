@@ -8,22 +8,33 @@ import caliban.schema.Types.makeScalar
 import caliban.schema.{ ArgBuilder, PureStep, Schema, Step }
 import zio.Chunk
 import zio.json.ast.Json
-import zio.json.{ JsonDecoder, JsonEncoder }
+import zio.json.{ JsonCodec, JsonDecoder, JsonEncoder }
 
 import scala.annotation.switch
+
+@deprecated("kept for compatibility purposes only", "1.7.2")
+private[caliban] trait IsZIOJsonEncoder[F[_]]
+
+@deprecated("kept for compatibility purposes only", "1.7.2")
+private[caliban] object IsZIOJsonEncoder {
+  implicit val isZIOJsonEncoder: IsZIOJsonEncoder[JsonEncoder] = null
+}
+
+@deprecated("kept for compatibility purposes only", "1.7.2")
+private[caliban] trait IsZIOJsonDecoder[F[_]]
+
+@deprecated("kept for compatibility purposes only", "1.7.2")
+private[caliban] object IsZIOJsonDecoder {
+  implicit val isZIOJsonDecoder: IsZIOJsonDecoder[JsonDecoder] = null
+}
 
 /**
  * This class is an implementation of the pattern described in https://blog.7mind.io/no-more-orphans.html
  * It makes it possible to mark circe dependency as optional and keep Encoders defined in the companion object.
  */
-private[caliban] trait IsZIOJsonEncoder[F[_]]
-private[caliban] object IsZIOJsonEncoder {
-  implicit val isZIOJsonEncoder: IsZIOJsonEncoder[JsonEncoder] = null
-}
-
-private[caliban] trait IsZIOJsonDecoder[F[_]]
-private[caliban] object IsZIOJsonDecoder {
-  implicit val isZIOJsonDecoder: IsZIOJsonDecoder[JsonDecoder] = null
+private[caliban] trait IsZIOJsonCodec[F[_]]
+private[caliban] object IsZIOJsonCodec {
+  implicit val isZIOJsonCodec: IsZIOJsonCodec[JsonCodec] = null
 }
 
 object json {
@@ -339,7 +350,7 @@ private[caliban] object ValueZIOJson {
     }
   }
 
-  implicit val inputValueDecoder: JsonDecoder[InputValue] = (trace: List[JsonDecoder.JsonError], in: RetractReader) => {
+  val inputValueDecoder: JsonDecoder[InputValue] = (trace: List[JsonDecoder.JsonError], in: RetractReader) => {
     val c = in.nextNonWhitespace()
     in.retract()
     (c: @switch) match {
@@ -374,6 +385,8 @@ private[caliban] object ValueZIOJson {
       case InputValue.VariableValue(name)     => JsonEncoder.string.unsafeEncode(name, indent, out)
     }
 
+  implicit val inputValueCodec: JsonCodec[InputValue] = JsonCodec(inputValueEncoder, inputValueDecoder)
+
   val responseValueDecoder: JsonDecoder[ResponseValue] = (trace: List[JsonDecoder.JsonError], in: RetractReader) => {
     val c = in.nextNonWhitespace()
     in.retract()
@@ -388,10 +401,9 @@ private[caliban] object ValueZIOJson {
       case c                                                               =>
         throw JsonDecoder.UnsafeJson(JsonDecoder.JsonError.Message(s"unexpected '$c'") :: trace)
     }
-
   }
 
-  implicit val responseValueEncoder: JsonEncoder[ResponseValue] =
+  val responseValueEncoder: JsonEncoder[ResponseValue] =
     (a: ResponseValue, indent: Option[Int], out: Write) =>
       a match {
         case Value.NullValue                    => Null.encoder.unsafeEncode(NullValue, indent, out)
@@ -408,6 +420,8 @@ private[caliban] object ValueZIOJson {
         case ResponseValue.ObjectValue(fields)  => Obj.responseEncoder.unsafeEncode(fields, indent, out)
         case s: ResponseValue.StreamValue       => JsonEncoder.string.unsafeEncode(s.toString, indent, out)
       }
+
+  implicit val responseValueCodec: JsonCodec[ResponseValue] = JsonCodec(responseValueEncoder, responseValueDecoder)
 
 }
 
@@ -442,15 +456,13 @@ private[caliban] object ErrorZioJson {
         e.extensions
       )
     )
+
+  val errorValueCodec: JsonCodec[CalibanError] = JsonCodec(errorValueEncoder, errorValueDecoder)
 }
 
 private[caliban] object GraphQLResponseZioJson {
   import zio.json._
   import zio.json.internal.Write
-
-  val graphQLResponseEncoder: JsonEncoder[GraphQLResponse[Any]] =
-    (a: GraphQLResponse[Any], indent: Option[Int], out: Write) =>
-      ValueZIOJson.responseValueEncoder.unsafeEncode(a.toResponseValue, indent, out)
 
   case class GQLResponse(data: ResponseValue, errors: Option[List[CalibanError]])
   object GQLResponse {
@@ -458,10 +470,15 @@ private[caliban] object GraphQLResponseZioJson {
     implicit val decoder: JsonDecoder[GQLResponse]            = DeriveJsonDecoder.gen[GQLResponse]
   }
 
-  implicit val errorValueDecoder: JsonDecoder[CalibanError]                       = ErrorZioJson.errorValueDecoder
-  implicit val objectValueDecoder: JsonDecoder[ResponseValue.ObjectValue]         = ValueZIOJson.Obj.responseDecoder
-  implicit val listValueDecoder: JsonDecoder[ResponseValue.ListValue]             = ValueZIOJson.Arr.responseDecoder
-  implicit val graphQLResponseDecoder: JsonDecoder[GraphQLResponse[CalibanError]] =
+  implicit val errorValueDecoder: JsonDecoder[CalibanError]               = ErrorZioJson.errorValueDecoder
+  implicit val objectValueDecoder: JsonDecoder[ResponseValue.ObjectValue] = ValueZIOJson.Obj.responseDecoder
+  implicit val listValueDecoder: JsonDecoder[ResponseValue.ListValue]     = ValueZIOJson.Arr.responseDecoder
+
+  val graphQLResponseEncoder: JsonEncoder[GraphQLResponse[Any]] =
+    (a: GraphQLResponse[Any], indent: Option[Int], out: Write) =>
+      ValueZIOJson.responseValueEncoder.unsafeEncode(a.toResponseValue, indent, out)
+
+  val graphQLResponseDecoder: JsonDecoder[GraphQLResponse[CalibanError]] =
     GQLResponse.decoder.map { resp =>
       GraphQLResponse[CalibanError](
         data = resp.data,
@@ -469,6 +486,12 @@ private[caliban] object GraphQLResponseZioJson {
         extensions = None
       )
     }
+
+  implicit val graphQLResponseCodec: JsonCodec[GraphQLResponse[CalibanError]] =
+    JsonCodec(
+      graphQLResponseEncoder.asInstanceOf[JsonEncoder[GraphQLResponse[CalibanError]]],
+      graphQLResponseDecoder
+    )
 }
 
 private[caliban] object GraphQLRequestZioJson {
@@ -476,6 +499,7 @@ private[caliban] object GraphQLRequestZioJson {
 
   val graphQLRequestDecoder: JsonDecoder[GraphQLRequest] = DeriveJsonDecoder.gen[GraphQLRequest]
   val graphQLRequestEncoder: JsonEncoder[GraphQLRequest] = DeriveJsonEncoder.gen[GraphQLRequest]
+  val graphQLRequestCodec: JsonCodec[GraphQLRequest]     = JsonCodec(graphQLRequestEncoder, graphQLRequestDecoder)
 }
 
 private[caliban] object GraphQLWSInputZioJson {
@@ -483,6 +507,7 @@ private[caliban] object GraphQLWSInputZioJson {
 
   val graphQLWSInputDecoder: JsonDecoder[GraphQLWSInput] = DeriveJsonDecoder.gen[GraphQLWSInput]
   val graphQLWSInputEncoder: JsonEncoder[GraphQLWSInput] = DeriveJsonEncoder.gen[GraphQLWSInput]
+  val graphQLWSInputCodec: JsonCodec[GraphQLWSInput]     = JsonCodec(graphQLWSInputEncoder, graphQLWSInputDecoder)
 }
 
 private[caliban] object GraphQLWSOutputZioJson {
@@ -490,4 +515,5 @@ private[caliban] object GraphQLWSOutputZioJson {
 
   val graphQLWSOutputDecoder: JsonDecoder[GraphQLWSOutput] = DeriveJsonDecoder.gen[GraphQLWSOutput]
   val graphQLWSOutputEncoder: JsonEncoder[GraphQLWSOutput] = DeriveJsonEncoder.gen[GraphQLWSOutput]
+  val graphQLWSOutputCodec: JsonCodec[GraphQLWSOutput]     = JsonCodec(graphQLWSOutputEncoder, graphQLWSOutputDecoder)
 }
