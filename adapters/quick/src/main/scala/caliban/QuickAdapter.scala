@@ -3,6 +3,8 @@ package caliban
 import caliban.Configurator.ExecutionConfiguration
 import zio._
 import zio.http._
+import zio.http.netty.NettyConfig
+import zio.http.netty.NettyConfig.LeakDetectionLevel
 import zio.stacktracer.TracingImplicits.disableAutoTrace
 
 final class QuickAdapter[R] private (requestHandler: QuickRequestHandler[R]) {
@@ -80,7 +82,11 @@ final class QuickAdapter[R] private (requestHandler: QuickRequestHandler[R]) {
   )(implicit trace: Trace, tag: Tag[R]): RIO[R, Nothing] =
     Server
       .serve[R](routes(apiPath, graphiqlPath = graphiqlPath, uploadPath = uploadPath, webSocketPath = webSocketPath))
-      .provideSomeLayer[R](Server.defaultWithPort(port))
+      .provideSomeLayer[R](
+        ZLayer.succeed(Server.Config.default.port(port))
+          ++ ZLayer.succeed(NettyConfig.default.leakDetection(LeakDetectionLevel.DISABLED))
+          >+> Server.customized
+      )
 
   def configure(config: ExecutionConfiguration)(implicit trace: Trace): QuickAdapter[R] =
     new QuickAdapter(requestHandler.configure(config))
