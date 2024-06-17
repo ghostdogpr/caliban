@@ -44,8 +44,10 @@ final private class QuickRequestHandler[R](
   def handleHttpRequest(request: Request)(implicit trace: Trace): URIO[R, Response] =
     transformHttpRequest(request)
       .flatMap(executeRequest(request.method, _))
-      .map(transformResponse(request, _))
-      .merge
+      .foldZIO(
+        Exit.succeed,
+        resp => Exit.succeed(transformResponse(request, resp))
+      )
 
   def handleUploadRequest(request: Request)(implicit trace: Trace): URIO[R, Response] =
     transformUploadRequest(request).flatMap { case (req, fileHandle) =>
@@ -93,10 +95,10 @@ final private class QuickRequestHandler[R](
 
       def decodeJson(): ZIO[Any, Response, GraphQLRequest] =
         body.asArray.foldZIO(
-          _ => ZIO.fail(BodyDecodeErrorResponse),
+          _ => Exit.fail(BodyDecodeErrorResponse),
           arr =>
             try checkNonEmptyRequest(readFromArray[GraphQLRequest](arr))
-            catch { case NonFatal(_) => ZIO.fail(BodyDecodeErrorResponse) }
+            catch { case NonFatal(_) => Exit.fail(BodyDecodeErrorResponse) }
         )
 
       val isApplicationGql =
@@ -111,7 +113,7 @@ final private class QuickRequestHandler[R](
     val queryParams = httpReq.url.queryParams
 
     if ((httpReq.method eq Method.GET) || queryParams.hasQueryParam("query")) {
-      decodeQueryParams(queryParams).fold(ZIO.fail(_), checkNonEmptyRequest)
+      decodeQueryParams(queryParams).fold(Exit.fail, checkNonEmptyRequest)
     } else {
       val req = decodeBody(httpReq.body)
       if (isFtv1Request(httpReq)) req.map(_.withFederatedTracing)
@@ -168,11 +170,14 @@ final private class QuickRequestHandler[R](
   }
 
   private def responseHeaders(headers: Headers, cacheDirective: Option[String]): Headers =
-    cacheDirective.fold(headers)(headers.addHeader(Header.CacheControl.name, _))
+    cacheDirective match {
+      case None    => headers
+      case Some(h) => headers.addHeader(Header.CacheControl.name, h)
+    }
 
   private def transformResponse(httpReq: Request, resp: GraphQLResponse[Any])(implicit trace: Trace): Response = {
     val accepts        = new HttpUtils.AcceptsGqlEncodings(httpReq.headers.get(Header.Accept.name))
-    val cacheDirective = HttpUtils.computeCacheDirective(resp.extensions)
+    val cacheDirective = resp.extensions.flatMap(HttpUtils.computeCacheDirective)
 
     resp match {
       case resp @ GraphQLResponse(StreamValue(stream), _, _, _) =>
@@ -184,9 +189,10 @@ final private class QuickRequestHandler[R](
       case resp if accepts.serverSentEvents                     =>
         Response.fromServerSentEvents(encodeTextEventStream(resp))
       case resp if accepts.graphQLJson                          =>
-        val isBadRequest = resp.errors.collectFirst {
+        val isBadRequest = resp.errors.exists {
           case _: CalibanError.ParsingError | _: CalibanError.ValidationError => true
-        }.getOrElse(false)
+          case _                                                              => false
+        }
         Response(
           status = if (isBadRequest) Status.BadRequest else Status.Ok,
           headers = responseHeaders(ContentTypeGql, cacheDirective),
@@ -194,9 +200,9 @@ final private class QuickRequestHandler[R](
             encodeSingleResponse(resp, keepDataOnErrors = !isBadRequest, hasCacheDirective = cacheDirective.isDefined)
         )
       case resp                                                 =>
+        val isBadRequest = resp.errors.contains(HttpRequestMethod.MutationOverGetError)
         Response(
-          status = resp.errors.collectFirst { case HttpRequestMethod.MutationOverGetError => Status.BadRequest }
-            .getOrElse(Status.Ok),
+          status = if (isBadRequest) Status.BadRequest else Status.Ok,
           headers = responseHeaders(ContentTypeJson, cacheDirective),
           body = encodeSingleResponse(resp, keepDataOnErrors = true, hasCacheDirective = cacheDirective.isDefined)
         )
@@ -297,6 +303,8 @@ object QuickRequestHandler {
       override def nullValue: InputValue.ObjectValue                                                    =
         null.asInstanceOf[InputValue.ObjectValue]
     }
+
+  private implicit val responseCodec: JsonValueCodec[ResponseValue] = ValueJsoniter.responseValueCodec
 
   private implicit val stringListCodec: JsonValueCodec[Map[String, List[String]]] = JsonCodecMaker.make
 }

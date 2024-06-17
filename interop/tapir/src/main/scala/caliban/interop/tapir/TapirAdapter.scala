@@ -105,7 +105,8 @@ object TapirAdapter {
     streamConstructor: StreamConstructor[BS],
     responseCodec: JsonCodec[ResponseValue]
   ): (MediaType, StatusCode, Option[String], CalibanBody[BS]) = {
-    val accepts = new HttpUtils.AcceptsGqlEncodings(request.header(HeaderNames.Accept))
+    val accepts        = new HttpUtils.AcceptsGqlEncodings(request.header(HeaderNames.Accept))
+    val cacheDirective = response.extensions.flatMap(HttpUtils.computeCacheDirective)
 
     response match {
       case resp @ GraphQLResponse(StreamValue(stream), _, _, _) =>
@@ -116,15 +117,14 @@ object TapirAdapter {
           encodeMultipartMixedResponse(resp, stream)
         )
       case resp if accepts.graphQLJson                          =>
-        val isBadRequest   = response.errors.collectFirst {
+        val isBadRequest = response.errors.exists {
           case _: CalibanError.ParsingError | _: CalibanError.ValidationError => true
-        }.getOrElse(false)
-        val code           = if (isBadRequest) StatusCode.BadRequest else StatusCode.Ok
-        val cacheDirective = HttpUtils.computeCacheDirective(response.extensions)
+          case _                                                              => false
+        }
         (
           GraphqlResponseJson.mediaType,
-          code,
-          HttpUtils.computeCacheDirective(response.extensions),
+          if (isBadRequest) StatusCode.BadRequest else StatusCode.Ok,
+          cacheDirective,
           encodeSingleResponse(
             resp,
             keepDataOnErrors = !isBadRequest,
@@ -139,12 +139,10 @@ object TapirAdapter {
           encodeTextEventStreamResponse(resp)
         )
       case resp                                                 =>
-        val code           = response.errors.collectFirst { case HttpRequestMethod.MutationOverGetError => StatusCode.BadRequest }
-          .getOrElse(StatusCode.Ok)
-        val cacheDirective = HttpUtils.computeCacheDirective(response.extensions)
+        val isBadRequest = response.errors.contains(HttpRequestMethod.MutationOverGetError)
         (
           MediaType.ApplicationJson,
-          code,
+          if (isBadRequest) StatusCode.BadRequest else StatusCode.Ok,
           cacheDirective,
           encodeSingleResponse(
             resp,
