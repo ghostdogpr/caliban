@@ -5,11 +5,10 @@ import caliban.interop.circe._
 import caliban.interop.jsoniter.IsJsoniterCodec
 import caliban.interop.play.{ IsPlayJsonReads, IsPlayJsonWrites }
 import caliban.interop.tapir.IsTapirSchema
-import caliban.interop.zio.{ IsZIOJsonDecoder, IsZIOJsonEncoder }
+import caliban.interop.zio.IsZIOJsonCodec
 import caliban.rendering.ValueRenderer
 import zio.stream.Stream
 
-import scala.annotation.tailrec
 import scala.util.control.NonFatal
 import scala.util.hashing.MurmurHash3
 
@@ -35,10 +34,8 @@ object InputValue {
     caliban.interop.circe.json.ValueCirce.inputValueEncoder.asInstanceOf[F[InputValue]]
   implicit def circeDecoder[F[_]: IsCirceDecoder]: F[InputValue]               =
     caliban.interop.circe.json.ValueCirce.inputValueDecoder.asInstanceOf[F[InputValue]]
-  implicit def inputValueZioJsonEncoder[F[_]: IsZIOJsonEncoder]: F[InputValue] =
-    caliban.interop.zio.ValueZIOJson.inputValueEncoder.asInstanceOf[F[InputValue]]
-  implicit def inputValueZioJsonDecoder[F[_]: IsZIOJsonDecoder]: F[InputValue] =
-    caliban.interop.zio.ValueZIOJson.inputValueDecoder.asInstanceOf[F[InputValue]]
+  implicit def zioJsonCodec[F[_]: IsZIOJsonCodec]: F[InputValue]               =
+    caliban.interop.zio.ValueZIOJson.inputValueCodec.asInstanceOf[F[InputValue]]
   implicit def jsoniterCodec[F[_]: IsJsoniterCodec]: F[InputValue]             =
     caliban.interop.jsoniter.ValueJsoniter.inputValueCodec.asInstanceOf[F[InputValue]]
   implicit def inputValuePlayJsonWrites[F[_]: IsPlayJsonWrites]: F[InputValue] =
@@ -124,10 +121,8 @@ object ResponseValue {
     caliban.interop.circe.json.ValueCirce.responseValueDecoder.asInstanceOf[F[ResponseValue]]
   implicit def tapirSchema[F[_]: IsTapirSchema]: F[ResponseValue]                    =
     caliban.interop.tapir.schema.responseValueSchema.asInstanceOf[F[ResponseValue]]
-  implicit def responseValueZioJsonEncoder[F[_]: IsZIOJsonEncoder]: F[ResponseValue] =
-    caliban.interop.zio.ValueZIOJson.responseValueEncoder.asInstanceOf[F[ResponseValue]]
-  implicit def responseValueZioJsonDecoder[F[_]: IsZIOJsonDecoder]: F[ResponseValue] =
-    caliban.interop.zio.ValueZIOJson.responseValueDecoder.asInstanceOf[F[ResponseValue]]
+  implicit def zioJsonCodec[F[_]: IsZIOJsonCodec]: F[ResponseValue]                  =
+    caliban.interop.zio.ValueZIOJson.responseValueCodec.asInstanceOf[F[ResponseValue]]
   implicit def jsoniterCodec[F[_]: IsJsoniterCodec]: F[ResponseValue]                =
     caliban.interop.jsoniter.ValueJsoniter.responseValueCodec.asInstanceOf[F[ResponseValue]]
   implicit def responseValuePlayJsonWrites[F[_]: IsPlayJsonWrites]: F[ResponseValue] =

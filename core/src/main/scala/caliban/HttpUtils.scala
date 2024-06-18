@@ -60,11 +60,10 @@ private[caliban] object HttpUtils {
       }).map(v => toSse(v.toResponseValue)) ++ ZStream.succeed(done)
   }
 
-  def computeCacheDirective(extensions: Option[ResponseValue.ObjectValue]): Option[String] =
-    extensions
-      .flatMap(_.fields.collectFirst { case (Caching.DirectiveName, ResponseValue.ObjectValue(fields)) =>
-        fields.collectFirst { case ("httpHeader", Value.StringValue(cacheHeader)) => cacheHeader }
-      }.flatten)
+  def computeCacheDirective(extensions: ResponseValue.ObjectValue): Option[String] =
+    extensions.fields.collectFirst { case (Caching.DirectiveName, ResponseValue.ObjectValue(fields)) =>
+      fields.collectFirst { case ("httpHeader", Value.StringValue(cacheHeader)) => cacheHeader }
+    }.flatten
 
   final class AcceptsGqlEncodings(header0: Option[String]) {
     private val isEmpty     = header0.isEmpty

@@ -6,7 +6,9 @@ import caliban.interop.circe._
 import caliban.interop.jsoniter.IsJsoniterCodec
 import caliban.interop.play.{ IsPlayJsonReads, IsPlayJsonWrites }
 import caliban.interop.tapir.IsTapirSchema
-import caliban.interop.zio.{ IsZIOJsonDecoder, IsZIOJsonEncoder }
+import caliban.interop.zio.IsZIOJsonCodec
+
+import scala.collection.mutable.ListBuffer
 
 /**
  * Represents the result of a GraphQL query, containing a data object and a list of errors.
@@ -20,22 +22,30 @@ case class GraphQLResponse[+E](
   def toResponseValue: ResponseValue = toResponseValue(keepDataOnErrors = true)
 
   def toResponseValue(keepDataOnErrors: Boolean, excludeExtensions: Option[Set[String]] = None): ResponseValue = {
-    val hasErrors = errors.nonEmpty
-    ObjectValue(
-      List(
-        "data"       -> (if (!hasErrors || keepDataOnErrors) Some(data) else None),
-        "errors"     -> (if (hasErrors)
-                       Some(ListValue(errors.map {
-                         case e: CalibanError => e.toResponseValue
-                         case e               => ObjectValue(List("message" -> StringValue(e.toString)))
-                       }))
-                     else None),
-        "extensions" -> excludeExtensions.fold(extensions)(excl =>
-          extensions.map(obj => ObjectValue(obj.fields.filterNot(f => excl.contains(f._1))))
-        ),
-        "hasNext"    -> hasNext.map(BooleanValue.apply)
-      ).collect { case (name, Some(v)) => name -> v }
-    )
+    val builder     = new ListBuffer[(String, ResponseValue)]
+    val hasErrors   = errors.nonEmpty
+    val extensions0 = excludeExtensions match {
+      case None       => extensions
+      case Some(excl) =>
+        extensions.flatMap { obj =>
+          val newFields = obj.fields.filterNot(f => excl.contains(f._1))
+          if (newFields.nonEmpty) Some(ObjectValue(newFields)) else None
+        }
+    }
+
+    if (!hasErrors || keepDataOnErrors)
+      builder += "data"       -> data
+    if (hasErrors)
+      builder += "errors"     -> ListValue(errors.map {
+        case e: CalibanError => e.toResponseValue
+        case e               => ObjectValue(List("message" -> StringValue(e.toString)))
+      })
+    if (extensions0.nonEmpty)
+      builder += "extensions" -> extensions0.get
+    if (hasNext.nonEmpty)
+      builder += "hasNext"    -> BooleanValue(hasNext.get)
+
+    ObjectValue(builder.result())
   }
 
   def withExtension(key: String, value: ResponseValue): GraphQLResponse[E] =
@@ -49,10 +59,8 @@ object GraphQLResponse {
     caliban.interop.circe.json.GraphQLResponseCirce.graphQLResponseEncoder.asInstanceOf[F[GraphQLResponse[E]]]
   implicit def circeDecoder[F[_]: IsCirceDecoder, E]: F[GraphQLResponse[E]]     =
     caliban.interop.circe.json.GraphQLResponseCirce.graphQLResponseDecoder.asInstanceOf[F[GraphQLResponse[E]]]
-  implicit def zioJsonEncoder[F[_]: IsZIOJsonEncoder, E]: F[GraphQLResponse[E]] =
-    caliban.interop.zio.GraphQLResponseZioJson.graphQLResponseEncoder.asInstanceOf[F[GraphQLResponse[E]]]
-  implicit def zioJsonDecoder[F[_]: IsZIOJsonDecoder, E]: F[GraphQLResponse[E]] =
-    caliban.interop.zio.GraphQLResponseZioJson.graphQLResponseDecoder.asInstanceOf[F[GraphQLResponse[E]]]
+  implicit def zioJsonCodec[F[_]: IsZIOJsonCodec, E]: F[GraphQLResponse[E]]     =
+    caliban.interop.zio.GraphQLResponseZioJson.graphQLResponseCodec.asInstanceOf[F[GraphQLResponse[E]]]
   implicit def tapirSchema[F[_]: IsTapirSchema, E]: F[GraphQLResponse[E]]       =
     caliban.interop.tapir.schema.responseSchema.asInstanceOf[F[GraphQLResponse[E]]]
   implicit def jsoniterCodec[F[_]: IsJsoniterCodec, E]: F[GraphQLResponse[E]]   =

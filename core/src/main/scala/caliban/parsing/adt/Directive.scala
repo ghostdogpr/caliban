@@ -9,6 +9,7 @@ object Directives {
   final val LazyDirective       = "lazy"
   final val NewtypeDirective    = "newtype"
   final val DeprecatedDirective = "deprecated"
+  final val OneOf               = "oneOf"
 
   def isDeprecated(directives: List[Directive]): Boolean =
     directives.exists(_.name == DeprecatedDirective)
@@ -16,10 +17,14 @@ object Directives {
   def deprecationReason(directives: List[Directive]): Option[String] =
     findDirective(directives, DeprecatedDirective, "reason")
 
-  def isNewType(directives: List[Directive]): Boolean          =
+  def isNewType(directives: List[Directive]): Boolean =
     directives.exists(_.name == NewtypeDirective)
+
   def newTypeName(directives: List[Directive]): Option[String] =
     findDirective(directives, NewtypeDirective, "name")
+
+  def isOneOf(directives: List[Directive]): Boolean =
+    directives.exists(_.name == OneOf)
 
   private def findDirective(directives: List[Directive], name: String, argument: String): Option[String] =
     directives.collectFirst {

@@ -23,14 +23,14 @@ val playVersion               = "3.0.3"
 val playJsonVersion           = "3.0.3"
 val scalafmtVersion           = "3.8.0"
 val sttpVersion               = "3.9.7"
-val tapirVersion              = "1.10.8"
+val tapirVersion              = "1.10.9"
 val zioVersion                = "2.1.3"
 val zioInteropCats2Version    = "22.0.0.0"
 val zioInteropCats3Version    = "23.1.0.2"
 val zioInteropReactiveVersion = "2.0.2"
 val zioConfigVersion          = "3.0.7"
 val zqueryVersion             = "0.7.1"
-val zioJsonVersion            = "0.6.2"
+val zioJsonVersion            = "0.7.0"
 val zioHttpVersion            = "3.0.0-RC8"
 val zioOpenTelemetryVersion   = "3.0.0-RC21"
 val zioPreludeVersion         = "1.0.0-RC27"
@@ -373,15 +373,7 @@ lazy val zioHttp = project
   .settings(commonSettings)
   .settings(enableMimaSettingsJVM)
   .disablePlugins(AssemblyPlugin)
-  .settings(
-    libraryDependencies ++= Seq(
-      "dev.zio"                     %% "zio-http"              % zioHttpVersion,
-      "com.softwaremill.sttp.tapir" %% "tapir-zio-http-server" % tapirVersion,
-      "dev.zio"                     %% "zio-json"              % zioJsonVersion % Test,
-      "com.softwaremill.sttp.tapir" %% "tapir-json-zio"        % tapirVersion   % Test
-    )
-  )
-  .dependsOn(core, tapirInterop % "compile->compile;test->test")
+  .dependsOn(core, quickAdapter)
 
 lazy val quickAdapter = project
   .in(file("adapters/quick"))
@@ -410,11 +402,11 @@ lazy val akkaHttp = project
     ideSkipProject := (scalaVersion.value == scala3),
     crossScalaVersions -= scala3,
     libraryDependencies ++= Seq(
-      "com.typesafe.akka"             %% "akka-http"                  % "10.2.10",
-      "com.typesafe.akka"             %% "akka-serialization-jackson" % akkaVersion,
-      "com.softwaremill.sttp.tapir"   %% "tapir-akka-http-server"     % tapirVersion,
-      "com.softwaremill.sttp.tapir"   %% "tapir-json-circe"           % tapirVersion % Test,
-      compilerPlugin(("org.typelevel" %% "kind-projector"             % "0.13.3").cross(CrossVersion.full))
+      "com.typesafe.akka"           %% "akka-http"                  % "10.2.10",
+      "com.typesafe.akka"           %% "akka-serialization-jackson" % akkaVersion,
+      "com.softwaremill.sttp.tapir" %% "tapir-akka-http-server"     % tapirVersion,
+      "com.softwaremill.sttp.tapir" %% "tapir-json-circe"           % tapirVersion % Test,
+      compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.3").cross(CrossVersion.full))
     )
   )
   .dependsOn(core, tapirInterop % "compile->compile;test->test")
@@ -746,21 +738,13 @@ lazy val commonSettings = Def.settings(
   })
 )
 
-lazy val enforceMimaCompatibility = true // Enable / disable failing CI on binary incompatibilities
+lazy val enforceMimaCompatibility = false // Enable / disable failing CI on binary incompatibilities
 
 lazy val enableMimaSettingsJVM =
   Def.settings(
-    mimaFailOnProblem     := enforceMimaCompatibility,
-    mimaPreviousArtifacts := previousStableVersion.value.map(organization.value %% moduleName.value % _).toSet,
-    mimaBinaryIssueFilters ++= Seq(
-      ProblemFilters.exclude[IncompatibleMethTypeProblem]("caliban.execution.Executor#ReducedStepExecutor.makeQuery"),
-      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.AkkaHttpAdapter.convertHttpStreamingEndpoint"),
-      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.PekkoHttpAdapter.convertHttpStreamingEndpoint"),
-      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.PlayAdapter.convertHttpStreamingEndpoint"),
-      ProblemFilters.exclude[DirectMissingMethodProblem](
-        "caliban.interop.tapir.TapirAdapter.convertHttpEndpointToFuture"
-      )
-    )
+    mimaFailOnProblem      := enforceMimaCompatibility,
+    mimaPreviousArtifacts  := previousStableVersion.value.map(organization.value %% moduleName.value % _).toSet,
+    mimaBinaryIssueFilters := Seq()
   )
 
 lazy val enableMimaSettingsJS =

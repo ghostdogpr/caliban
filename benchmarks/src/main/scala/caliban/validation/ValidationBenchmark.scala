@@ -4,7 +4,7 @@ import caliban._
 import caliban.execution.NestedZQueryBenchmarkSchema
 import caliban.introspection.Introspector
 import caliban.parsing.{ Parser, VariablesCoercer }
-import caliban.schema.RootType
+import caliban.schema.{ RootSchema, RootType }
 import org.openjdk.jmh.annotations.{ Scope, _ }
 import zio._
 
@@ -15,7 +15,7 @@ import java.util.concurrent.TimeUnit
 @OutputTimeUnit(TimeUnit.SECONDS)
 @Warmup(iterations = 5, time = 1, timeUnit = TimeUnit.SECONDS)
 @Measurement(iterations = 5, time = 1, timeUnit = TimeUnit.SECONDS)
-@Fork(1)
+@Fork(2)
 class ValidationBenchmark {
 
   private val runtime = Runtime.default
@@ -99,5 +99,57 @@ class ValidationBenchmark {
       Validator.validate(parsedIntrospectionQuery, Introspector.introspectionRootType)
     run(io)
   }
+
+  @Benchmark
+  def fieldCreationSimple(): Any =
+    Validator
+      .prepareEither(
+        parsedSimpleQuery,
+        simpleType,
+        None,
+        Map.empty,
+        skipValidation = true,
+        validations = Nil
+      )
+      .fold(throw _, identity)
+
+  @Benchmark
+  def fieldCreationMultifield(): Any =
+    Validator
+      .prepareEither(
+        parsedMultifieldQuery,
+        multifieldType,
+        None,
+        Map.empty,
+        skipValidation = true,
+        validations = Nil
+      )
+      .fold(throw _, identity)
+
+  @Benchmark
+  def fieldCreationDeep(): Any =
+    Validator
+      .prepareEither(
+        parsedDeepQuery,
+        deepType,
+        None,
+        Map.empty,
+        skipValidation = true,
+        validations = Nil
+      )
+      .fold(throw _, identity)
+
+  @Benchmark
+  def fieldCreationIntrospection(): Any =
+    Validator
+      .prepareEither(
+        parsedIntrospectionQuery,
+        Introspector.introspectionRootType,
+        None,
+        Map.empty,
+        skipValidation = true,
+        validations = Nil
+      )
+      .fold(throw _, identity)
 
 }
