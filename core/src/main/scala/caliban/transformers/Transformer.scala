@@ -332,7 +332,7 @@ object Transformer {
      * A transformer that allows excluding tagged fields and input arguments.
      *
      * {{{
-     *   ExcludeTaggedFields("TagA", "TagB")
+     *   ExcludeTags("TagA", "TagB")
      * }}}
      *
      * @param f tuples in the format of `(TypeName -> fieldToBeExcluded)`
