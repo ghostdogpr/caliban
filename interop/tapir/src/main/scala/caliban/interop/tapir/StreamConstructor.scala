@@ -1,6 +1,5 @@
 package caliban.interop.tapir
 
-import sttp.capabilities.Streams
 import zio.stream.ZStream
 
 trait StreamConstructor[BS] {
@@ -9,7 +8,8 @@ trait StreamConstructor[BS] {
 
 object StreamConstructor {
   implicit val zioStreams: StreamConstructor[ZStream[Any, Throwable, Byte]] =
-    new StreamConstructor[ZStream[Any, Throwable, Byte]] {
-      override def apply(stream: ZStream[Any, Throwable, Byte]): ZStream[Any, Throwable, Byte] = stream
-    }
+    (stream: ZStream[Any, Throwable, Byte]) => stream
+
+  implicit val noStreams: StreamConstructor[Nothing] =
+    (_: ZStream[Any, Throwable, Byte]) => throw new UnsupportedOperationException("Streams are not supported")
 }

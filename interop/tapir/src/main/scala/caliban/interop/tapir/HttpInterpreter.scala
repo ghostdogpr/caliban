@@ -4,10 +4,14 @@ import caliban._
 import caliban.interop.tapir.TapirAdapter._
 import sttp.capabilities.Streams
 import sttp.model.{ headers => _, _ }
+import sttp.shared.Identity
 import sttp.tapir.Codec.JsonCodec
 import sttp.tapir.model.ServerRequest
 import sttp.tapir._
+import sttp.tapir.server.ServerEndpoint
 import zio._
+
+import scala.concurrent.Future
 
 sealed trait HttpInterpreter[-R, E] { self =>
   protected def endpoints[S](streams: Streams[S]): List[
@@ -29,6 +33,24 @@ sealed trait HttpInterpreter[-R, E] { self =>
       executeRequest(graphQLRequest, serverRequest).either
     }
     endpoints[S](streams).map(_.serverLogic(logic(_)))
+  }
+
+  def serverEndpointsFuture[S](streams: Streams[S])(runtime: Runtime[R])(implicit
+    streamConstructor: StreamConstructor[streams.BinaryStream]
+  ): List[ServerEndpoint[S, Future]] = {
+    implicit val r: Runtime[R] = runtime
+    serverEndpoints(streams).map(
+      convertHttpEndpointToFuture[R, streams.BinaryStream, S, (GraphQLRequest, ServerRequest)]
+    )
+  }
+
+  def serverEndpointsIdentity[S](streams: Streams[S])(runtime: Runtime[R])(implicit
+    streamConstructor: StreamConstructor[streams.BinaryStream]
+  ): List[ServerEndpoint[S, Identity]] = {
+    implicit val r: Runtime[R] = runtime
+    serverEndpoints(streams).map(
+      convertHttpEndpointToIdentity[R, streams.BinaryStream, S, (GraphQLRequest, ServerRequest)]
+    )
   }
 
   def intercept[R1](interceptor: Interceptor[R1, R]): HttpInterpreter[R1, E] =

@@ -1,18 +1,19 @@
 package caliban.interop.tapir
 
-import caliban.Value.{ IntValue, StringValue }
 import caliban._
 import caliban.interop.tapir.TapirAdapter._
 import caliban.uploads.{ FileMeta, GraphQLUploadRequest, Uploads }
 import sttp.capabilities.Streams
 import sttp.model._
+import sttp.shared.Identity
 import sttp.tapir.Codec.JsonCodec
 import sttp.tapir._
 import sttp.tapir.model.ServerRequest
+import sttp.tapir.server.ServerEndpoint
 import zio._
 
 import java.nio.charset.StandardCharsets
-import scala.util.Try
+import scala.concurrent.Future
 
 sealed trait HttpUploadInterpreter[-R, E] { self =>
   protected def endpoint[S](
@@ -79,6 +80,24 @@ sealed trait HttpUploadInterpreter[-R, E] { self =>
     }
 
     endpoint(streams).serverLogic(logic(_))
+  }
+
+  def serverEndpointFuture[S](streams: Streams[S])(runtime: Runtime[R])(implicit
+    streamConstructor: StreamConstructor[streams.BinaryStream],
+    requestCodec: JsonCodec[GraphQLRequest],
+    mapCodec: JsonCodec[Map[String, Seq[String]]]
+  ): ServerEndpoint[S, Future] = {
+    implicit val r: Runtime[R] = runtime
+    convertHttpEndpointToFuture[R, streams.BinaryStream, S, UploadRequest](serverEndpoint(streams))
+  }
+
+  def serverEndpointIdentity[S](streams: Streams[S])(runtime: Runtime[R])(implicit
+    streamConstructor: StreamConstructor[streams.BinaryStream],
+    requestCodec: JsonCodec[GraphQLRequest],
+    mapCodec: JsonCodec[Map[String, Seq[String]]]
+  ): ServerEndpoint[S, Identity] = {
+    implicit val r: Runtime[R] = runtime
+    convertHttpEndpointToIdentity[R, streams.BinaryStream, S, UploadRequest](serverEndpoint(streams))
   }
 
   def intercept[R1](interceptor: Interceptor[R1, R]): HttpUploadInterpreter[R1, E] =
