@@ -465,16 +465,12 @@ object ParserSpec extends ZIOSpecDefault {
                       |    name(
                       |  }
                       |}""".stripMargin
-        Parser
-          .parseQuery(query)
-          .exit
-          .map(
-            assert(_)(
-              fails(
-                isSubtype[ParsingError](hasField("locationInfo", _.locationInfo, isSome(equalTo(LocationInfo(3, 4)))))
-              )
-            )
+
+        assert(Parser.parseQuery(query))(
+          isLeft(
+            isSubtype[ParsingError](hasField("locationInfo", _.locationInfo, isSome(equalTo(LocationInfo(3, 4)))))
           )
+        )
       },
       test("type") {
         val gqltype =

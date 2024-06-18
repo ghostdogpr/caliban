@@ -2,7 +2,7 @@ package caliban.tools
 
 import caliban.parsing.Parser
 import caliban.parsing.adt.Directives.NewtypeDirective
-import zio.Task
+import zio.{ Task, ZIO }
 import zio.test._
 
 object SchemaWriterSpec extends SnapshotTest {
@@ -17,8 +17,8 @@ object SchemaWriterSpec extends SnapshotTest {
     isEffectTypeAbstract: Boolean = false,
     preserveInputNames: Boolean = false,
     addDerives: Boolean = false
-  ): Task[String] = Parser
-    .parseQuery(schema.stripMargin)
+  ): Task[String] = ZIO
+    .fromEither(Parser.parseQuery(schema.stripMargin))
     .flatMap(doc =>
       Formatter
         .format(

@@ -22,19 +22,11 @@ object VariablesCoercer {
     doc: Document,
     rootType: RootType,
     skipValidation: Boolean
-  )(implicit trace: Trace): IO[ValidationError, GraphQLRequest] =
+  ): Either[ValidationError, GraphQLRequest] =
     coerceVariables(req.variables.getOrElse(Map.empty), doc, rootType, skipValidation)
       .map(m => req.copy(variables = Some(m)))
 
   def coerceVariables(
-    variables: Map[String, InputValue],
-    doc: Document,
-    rootType: RootType,
-    skipValidation: Boolean
-  )(implicit trace: Trace): IO[ValidationError, Map[String, InputValue]] =
-    ZIO.fromEither(coerceVariablesEither(variables, doc, rootType, skipValidation))
-
-  def coerceVariablesEither(
     variables: Map[String, InputValue],
     doc: Document,
     rootType: RootType,
