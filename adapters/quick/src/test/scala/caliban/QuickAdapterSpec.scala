@@ -6,7 +6,7 @@ import caliban.uploads.Uploads
 import sttp.client3.UriContext
 import zio._
 import zio.http._
-import zio.test.{ Live, TestAspect, ZIOSpecDefault }
+import zio.test.{ Live, ZIOSpecDefault }
 
 import scala.language.postfixOps
 
@@ -24,10 +24,10 @@ object QuickAdapterSpec extends ZIOSpecDefault {
 
   private val apiLayer = envLayer >>> ZLayer.fromZIO {
     for {
-      app     <- TestApi.api
+      _       <- TestApi.api
                    .routes("/api/graphql", uploadPath = Some("/upload/graphql"), webSocketPath = Some("/ws/graphql"))
                    .map(_ @@ auth)
-      _       <- Server.serve(app).forkScoped
+                   .flatMap(_.serve[TestService & Uploads].forkScoped)
       _       <- Live.live(Clock.sleep(3 seconds))
       service <- ZIO.service[TestService]
     } yield service
