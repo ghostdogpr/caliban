@@ -373,15 +373,7 @@ lazy val zioHttp = project
   .settings(commonSettings)
   .settings(enableMimaSettingsJVM)
   .disablePlugins(AssemblyPlugin)
-  .settings(
-    libraryDependencies ++= Seq(
-      "dev.zio"                     %% "zio-http"              % zioHttpVersion,
-      "com.softwaremill.sttp.tapir" %% "tapir-zio-http-server" % tapirVersion,
-      "dev.zio"                     %% "zio-json"              % zioJsonVersion % Test,
-      "com.softwaremill.sttp.tapir" %% "tapir-json-zio"        % tapirVersion   % Test
-    )
-  )
-  .dependsOn(core, tapirInterop % "compile->compile;test->test")
+  .dependsOn(core, quickAdapter)
 
 lazy val quickAdapter = project
   .in(file("adapters/quick"))
@@ -753,7 +745,13 @@ lazy val enableMimaSettingsJVM =
     mimaFailOnProblem     := enforceMimaCompatibility,
     mimaPreviousArtifacts := previousStableVersion.value.map(organization.value %% moduleName.value % _).toSet,
     mimaBinaryIssueFilters ++= Seq(
-      ProblemFilters.exclude[IncompatibleMethTypeProblem]("caliban.execution.Executor#ReducedStepExecutor.makeQuery")
+      ProblemFilters.exclude[IncompatibleMethTypeProblem]("caliban.execution.Executor#ReducedStepExecutor.makeQuery"),
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.parsing.adt.Type.$init$"),
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.introspection.adt.__Type.*"),
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.introspection.adt.__InputValue.*"),
+      ProblemFilters.exclude[FinalMethodProblem]("caliban.parsing.adt.Type*"),
+      ProblemFilters.exclude[MissingTypesProblem]("caliban.introspection.adt.__Type$"),
+      ProblemFilters.exclude[MissingTypesProblem]("caliban.introspection.adt.__InputValue$")
     )
   )
 

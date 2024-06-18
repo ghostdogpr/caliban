@@ -25,7 +25,7 @@ final class QuickAdapter[R] private (requestHandler: QuickRequestHandler[R]) {
     Handler.fromFunctionZIO[Request](requestHandler.handleHttpRequest)
 
   /**
-   * Converts this adapter to an `Routes` serving the GraphQL API at the specified path.
+   * Converts this adapter to a `Routes` serving the GraphQL API at the specified path.
    *
    * @param apiPath The path where the GraphQL API will be served.
    * @param graphiqlPath The path where the GraphiQL UI will be served. If None, GraphiQL will not be served.

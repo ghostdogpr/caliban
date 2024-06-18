@@ -4,17 +4,19 @@ import caliban.CalibanError.ParsingError
 import caliban.TestUtils._
 import caliban.introspection.adt.{ __Type, __TypeKind }
 import caliban.parsing.Parser
-import caliban.parsing.adt.Definition.{ TypeSystemDefinition, TypeSystemExtension }
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition.{
   EnumValueDefinition,
   FieldDefinition,
   InputValueDefinition
 }
+import caliban.parsing.adt.Definition.{ TypeSystemDefinition, TypeSystemExtension }
 import caliban.parsing.adt.{ Definition, Directive }
 import caliban.rendering.DocumentRenderer
+import caliban.schema.Annotations.GQLOneOfInput
 import caliban.schema.Schema.auto._
 import caliban.schema.ArgBuilder.auto._
+import caliban.schema.{ ArgBuilder, Schema }
 import zio.{ IO, ZIO }
 import zio.test.Assertion._
 import zio.test._
@@ -179,7 +181,51 @@ object RenderingSpec extends ZIOSpecDefault {
         test("kitchen sink with query")(roundTrip("document-tests/kitchen-sink-query.graphql")),
         test("compact query")(roundTrip("document-tests/query-compact.graphql", isCompact = true)),
         test("compact kitchen sink")(roundTrip("document-tests/kitchen-sink-compact.graphql", isCompact = true))
-      )
+      ),
+      suite("OneOf input objects") {
+        def expected(label: String) =
+          s"""schema {
+             |  query: Queries
+             |}
+             |
+             |input FooInput @oneOf {
+             |  stringValue: String
+             |  otherStringField: String
+             |  intValue: FooIntInput
+             |  otherIntField: FooInt2Input
+             |}
+             |
+             |input FooInt2Input {
+             |  intValue: Int!
+             |}
+             |
+             |input FooIntInput {
+             |  intValue: Int!
+             |}
+             |
+             |type Queries {
+             |  foo($label: FooInput!): String!
+             |}""".stripMargin
+
+        List(
+          test("as value types") {
+            case class Queries(foo: Foo => String)
+
+            implicit val schema: Schema[Any, Queries] = Schema.gen
+            val resolver                              = RootResolver(Queries(_.toString))
+
+            assertTrue(graphQL(resolver).render == expected("value"))
+          },
+          test("wrapped in a case class") {
+            case class Queries(foo: Foo.Wrapped => String)
+
+            implicit val schema: Schema[Any, Queries] = Schema.gen
+            val resolver                              = RootResolver(Queries(_.toString))
+
+            assertTrue(graphQL(resolver).render == expected("fooInput"))
+          }
+        )
+      }
     )
 
   private def roundTrip(file: String, isCompact: Boolean = false) =
@@ -190,4 +236,25 @@ object RenderingSpec extends ZIOSpecDefault {
       reparsed <- Parser.parseQuery(rendered).either
     } yield assertTrue(input == rendered, reparsed.isRight))
 
+  @GQLOneOfInput
+  sealed trait Foo
+
+  object Foo {
+    case class ArgA(stringValue: String)      extends Foo
+    case class ArgB(otherStringField: String) extends Foo
+    case class ArgC(intValue: FooInt)         extends Foo
+    case class ArgD(otherIntField: FooInt2)   extends Foo
+
+    case class FooInt(intValue: Int)
+    case class FooInt2(intValue: Int)
+
+    case class Wrapped(fooInput: Foo)
+  }
+
+  implicit val fooIntAb: ArgBuilder[Foo.FooInt]        = ArgBuilder.gen
+  implicit val fooInt2Ab: ArgBuilder[Foo.FooInt2]      = ArgBuilder.gen
+  implicit val fooAb: ArgBuilder[Foo]                  = ArgBuilder.gen
+  implicit val fooIntSchema: Schema[Any, Foo.FooInt]   = Schema.gen
+  implicit val fooInt2Schema: Schema[Any, Foo.FooInt2] = Schema.gen
+  implicit val fooSchema: Schema[Any, Foo]             = Schema.gen
 }
