@@ -15,7 +15,7 @@ import caliban.validation.Validator
 import caliban.wrappers.Wrapper
 import caliban.wrappers.Wrapper._
 import zio.stacktracer.TracingImplicits.disableAutoTrace
-import zio.{ IO, Trace, URIO, ZIO }
+import zio.{ Exit, IO, Trace, URIO, Unsafe, ZIO }
 
 /**
  * A `GraphQL[-R]` represents a GraphQL API whose execution requires a ZIO environment of type `R`.
@@ -63,8 +63,8 @@ trait GraphQL[-R] { self =>
    *
    * @see [[interpreterEither]] for a variant that returns an Either instead, making it easier to embed in non-ZIO applications
    */
-  final def interpreter(implicit trace: Trace): IO[ValidationError, GraphQLInterpreter[R, CalibanError]] =
-    ZIO.fromEither(interpreterEither)
+  final def interpreter: Exit[ValidationError, GraphQLInterpreter[R, CalibanError]] =
+    Exit.fromEither(interpreterEither)
 
   /**
    * Impure variant of [[interpreterEither]] which throws schema validation errors. Useful for cases that the
@@ -72,7 +72,7 @@ trait GraphQL[-R] { self =>
    */
   @throws[CalibanError.ValidationError]("if the schema is invalid")
   final def interpreterUnsafe: GraphQLInterpreter[R, CalibanError] =
-    interpreterEither.fold(throw _, identity)
+    Unsafe.unsafe(interpreter.getOrThrowFiberFailure()(_))
 
   /**
    * Creates an interpreter from your API. A GraphQLInterpreter is a wrapper around your API that allows
