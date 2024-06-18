@@ -5,7 +5,7 @@ import caliban.interop.circe._
 import caliban.interop.jsoniter.IsJsoniterCodec
 import caliban.interop.play.{ IsPlayJsonReads, IsPlayJsonWrites }
 import caliban.interop.tapir.IsTapirSchema
-import caliban.interop.zio.{ IsZIOJsonCodec, IsZIOJsonDecoder, IsZIOJsonEncoder }
+import caliban.interop.zio.IsZIOJsonCodec
 import caliban.rendering.ValueRenderer
 import zio.stream.Stream
 
@@ -42,13 +42,6 @@ object InputValue {
     caliban.interop.play.json.ValuePlayJson.inputValueWrites.asInstanceOf[F[InputValue]]
   implicit def inputValuePlayJsonReads[F[_]: IsPlayJsonReads]: F[InputValue]   =
     caliban.interop.play.json.ValuePlayJson.inputValueReads.asInstanceOf[F[InputValue]]
-
-  @deprecated("kept for compatibility purposes only", "1.7.2")
-  def inputValueZioJsonEncoder[F[_]: IsZIOJsonEncoder]: F[InputValue] =
-    caliban.interop.zio.ValueZIOJson.inputValueEncoder.asInstanceOf[F[InputValue]]
-  @deprecated("kept for compatibility purposes only", "1.7.2")
-  def inputValueZioJsonDecoder[F[_]: IsZIOJsonDecoder]: F[InputValue] =
-    caliban.interop.zio.ValueZIOJson.inputValueDecoder.asInstanceOf[F[InputValue]]
 }
 
 sealed trait ResponseValue extends Serializable { self =>
@@ -136,13 +129,6 @@ object ResponseValue {
     caliban.interop.play.json.ValuePlayJson.responseValueWrites.asInstanceOf[F[ResponseValue]]
   implicit def responseValuePlayJsonReads[F[_]: IsPlayJsonReads]: F[ResponseValue]   =
     caliban.interop.play.json.ValuePlayJson.responseValueReads.asInstanceOf[F[ResponseValue]]
-
-  @deprecated("kept for compatibility purposes only", "1.7.2")
-  def responseValueZioJsonEncoder[F[_]: IsZIOJsonEncoder]: F[ResponseValue] =
-    caliban.interop.zio.ValueZIOJson.responseValueEncoder.asInstanceOf[F[ResponseValue]]
-  @deprecated("kept for compatibility purposes only", "1.7.2")
-  def responseValueZioJsonDecoder[F[_]: IsZIOJsonDecoder]: F[ResponseValue] =
-    caliban.interop.zio.ValueZIOJson.responseValueDecoder.asInstanceOf[F[ResponseValue]]
 }
 
 sealed trait Value extends InputValue with ResponseValue
