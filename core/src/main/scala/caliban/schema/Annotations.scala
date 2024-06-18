@@ -76,4 +76,9 @@ object Annotations extends AnnotationsVersionSpecific {
    */
   case class GQLNonNullable() extends StaticAnnotation
 
+  /**
+   * Annotation to make a sealed trait as a GraphQL @oneOf input
+   */
+  case class GQLOneOfInput() extends StaticAnnotation
+
 }

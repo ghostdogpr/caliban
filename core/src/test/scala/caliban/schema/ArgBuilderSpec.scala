@@ -5,6 +5,7 @@ import caliban.InputValue
 import caliban.InputValue.ObjectValue
 import caliban.schema.ArgBuilder.auto._
 import caliban.Value.{ IntValue, NullValue, StringValue }
+import caliban.schema.Annotations.GQLOneOfInput
 import zio.test.Assertion._
 import zio.test._
 
@@ -96,6 +97,56 @@ object ArgBuilderSpec extends ZIOSpecDefault {
         assertTrue(derivedAB.build(ObjectValue(Map("a" -> NullValue))) == Right(Wrapper(NullNullable))) &&
         assertTrue(derivedAB.build(ObjectValue(Map("a" -> StringValue("x")))) == Right(Wrapper(SomeNullable("x"))))
       }
-    )
+    ),
+    suite("oneOf") {
+      @GQLOneOfInput
+      sealed trait Foo
+
+      object Foo {
+        case class Arg1(stringValue: String) extends Foo
+        case class Arg2(fooString2: String)  extends Foo
+        case class Arg3(intValue: Foo1)      extends Foo
+        case class Arg4(fooInt2: Foo2)       extends Foo
+
+      }
+
+      case class Foo1(foo1: Int)
+      case class Foo2(foo2: Int)
+
+      implicit val foo1Ab: ArgBuilder[Foo1]   = ArgBuilder.gen
+      implicit val foo2Ab: ArgBuilder[Foo2]   = ArgBuilder.gen
+      implicit val f1Ab: ArgBuilder[Foo.Arg1] = ArgBuilder.gen
+      implicit val f2Ab: ArgBuilder[Foo.Arg2] = ArgBuilder.gen
+      implicit val f3Ab: ArgBuilder[Foo.Arg3] = ArgBuilder.gen
+      implicit val f4Ab: ArgBuilder[Foo.Arg4] = ArgBuilder.gen
+      val fooAb: ArgBuilder[Foo]              = ArgBuilder.gen
+
+      List(
+        test("valid input") {
+          val inputs = List(
+            Map("stringValue" -> StringValue("foo"))                    -> Foo.Arg1("foo"),
+            Map("fooString2" -> StringValue("foo2"))                    -> Foo.Arg2("foo2"),
+            Map("intValue" -> ObjectValue(Map("foo1" -> IntValue(42)))) -> Foo.Arg3(Foo1(42)),
+            Map("fooInt2" -> ObjectValue(Map("foo2" -> IntValue(24))))  -> Foo.Arg4(Foo2(24))
+          )
+
+          inputs.foldLeft(assertCompletes) { case (acc, (input, expected)) =>
+            acc && assertTrue(fooAb.build(ObjectValue(input)) == Right(expected))
+          }
+        },
+        test("invalid input") {
+          List(
+            Map("invalid"     -> StringValue("foo")),
+            Map("stringValue" -> StringValue("foo"), "fooString2" -> StringValue("foo2")),
+            Map("stringValue" -> ObjectValue(Map("value" -> StringValue("foo")))),
+            Map("stringValue" -> NullValue),
+            Map("stringValue" -> StringValue("foo"), "invalid"    -> NullValue)
+          )
+            .map(input => assertTrue(fooAb.build(ObjectValue(input)).isLeft))
+            .foldLeft(assertCompletes)(_ && _)
+
+        }
+      )
+    }
   )
 }

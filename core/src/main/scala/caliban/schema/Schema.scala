@@ -469,22 +469,23 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
     ev2: Schema[RB, B]
   ): Schema[RB, A => B] =
     new Schema[RB, A => B] {
-      private lazy val inputType                 = ev1.toType_(true)
-      private val unwrappedArgumentName          = "value"
-      override def arguments: List[__InputValue] = {
+      private lazy val inputType        = ev1.toType_(true)
+      private val unwrappedArgumentName = "value"
+
+      private def mkValueType = List(
+        __InputValue(
+          unwrappedArgumentName,
+          None,
+          () => if (ev1.nullable || ev1.canFail) inputType else inputType.nonNull,
+          None
+        )
+      )
+
+      override lazy val arguments: List[__InputValue] = {
         val input = inputType.allInputFields
-        if (input.nonEmpty) input
-        else
-          handleInput(List.empty[__InputValue])(
-            List(
-              __InputValue(
-                unwrappedArgumentName,
-                None,
-                () => if (ev1.nullable || ev1.canFail) inputType else inputType.nonNull,
-                None
-              )
-            )
-          )
+        if (inputType._isOneOfInput) mkValueType
+        else if (input.nonEmpty) input
+        else handleInput(List.empty[__InputValue])(mkValueType)
       }
 
       override def nullable: Boolean                                         = ev2.nullable
@@ -508,6 +509,7 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
           case __TypeKind.SCALAR | __TypeKind.ENUM | __TypeKind.LIST =>
             // argument was not wrapped in a case class
             onUnwrapped
+          case _ if inputType._isOneOfInput                          => onUnwrapped
           case _                                                     => onWrapped
         }
     }

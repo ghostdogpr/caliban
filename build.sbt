@@ -753,7 +753,13 @@ lazy val enableMimaSettingsJVM =
     mimaFailOnProblem     := enforceMimaCompatibility,
     mimaPreviousArtifacts := previousStableVersion.value.map(organization.value %% moduleName.value % _).toSet,
     mimaBinaryIssueFilters ++= Seq(
-      ProblemFilters.exclude[IncompatibleMethTypeProblem]("caliban.execution.Executor#ReducedStepExecutor.makeQuery")
+      ProblemFilters.exclude[IncompatibleMethTypeProblem]("caliban.execution.Executor#ReducedStepExecutor.makeQuery"),
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.parsing.adt.Type.$init$"),
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.introspection.adt.__Type.*"),
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.introspection.adt.__InputValue.*"),
+      ProblemFilters.exclude[FinalMethodProblem]("caliban.parsing.adt.Type*"),
+      ProblemFilters.exclude[MissingTypesProblem]("caliban.introspection.adt.__Type$"),
+      ProblemFilters.exclude[MissingTypesProblem]("caliban.introspection.adt.__InputValue$")
     )
   )
 

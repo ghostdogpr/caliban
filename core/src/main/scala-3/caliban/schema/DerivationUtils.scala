@@ -1,7 +1,7 @@
 package caliban.schema
 
 import caliban.introspection.adt.*
-import caliban.parsing.adt.Directive
+import caliban.parsing.adt.{ Directive, Directives }
 import caliban.schema.Annotations.*
 import caliban.schema.Types.*
 import magnolia1.TypeInfo
@@ -48,13 +48,13 @@ private object DerivationUtils {
     makeEnum(
       Some(getName(annotations, info)),
       getDescription(annotations),
-      subTypes.map { case (name, __Type(_, _, description, _, _, _, _, _, _, _, _, _), annotations) =>
+      subTypes.map { case (name, __Type(_, _, description, _, _, _, _, _, _, _, _, _, _), annotations) =>
         __EnumValue(
           getName(annotations, name),
           description,
           getDeprecatedReason(annotations).isDefined,
           getDeprecatedReason(annotations),
-          Some(annotations.collect { case GQLDirective(dir) => dir }.toList).filter(_.nonEmpty)
+          Some(annotations.collect { case GQLDirective(dir) => dir }).filter(_.nonEmpty)
         )
       }.sortBy(_.name),
       Some(info.full),
@@ -97,25 +97,43 @@ private object DerivationUtils {
     annotations: List[Any],
     fields: List[(String, List[Any], Schema[R, Any])],
     info: TypeInfo
-  )(isInput: Boolean, isSubscription: Boolean): __Type = makeInputObject(
-    Some(getInputName(annotations).getOrElse(customizeInputTypeName(getName(annotations, info)))),
-    getDescription(annotations),
-    fields.map { (name, fieldAnnotations, schema) =>
-      __InputValue(
-        name,
-        getDescription(fieldAnnotations),
-        () =>
-          if (schema.optional) schema.toType_(isInput, isSubscription)
-          else schema.toType_(isInput, isSubscription).nonNull,
-        getDefaultValue(fieldAnnotations),
-        getDeprecatedReason(fieldAnnotations).isDefined,
-        getDeprecatedReason(fieldAnnotations),
-        Some(getDirectives(fieldAnnotations)).filter(_.nonEmpty)
-      )
-    },
-    Some(info.full),
-    Some(getDirectives(annotations))
-  )
+  )(isInput: Boolean, isSubscription: Boolean): __Type = {
+    lazy val tpe: __Type = makeInputObject(
+      Some(getInputName(annotations).getOrElse(customizeInputTypeName(getName(annotations, info)))),
+      getDescription(annotations),
+      fields.map { (name, fieldAnnotations, schema) =>
+        val deprecationReason = getDeprecatedReason(fieldAnnotations)
+        __InputValue(
+          name,
+          description = getDescription(fieldAnnotations),
+          `type` = () =>
+            if (schema.optional) schema.toType_(isInput, isSubscription)
+            else schema.toType_(isInput, isSubscription).nonNull,
+          defaultValue = getDefaultValue(fieldAnnotations),
+          isDeprecated = deprecationReason.isDefined,
+          deprecationReason = deprecationReason,
+          directives = Some(getDirectives(fieldAnnotations)).filter(_.nonEmpty),
+          parentType = () => Some(tpe)
+        )
+      },
+      Some(info.full),
+      Some(getDirectives(annotations))
+    )
+    tpe
+  }
+
+  def mkOneOfInput[R](
+    annotations: List[Any],
+    schemas: List[Schema[R, Any]],
+    info: TypeInfo
+  ): __Type =
+    makeInputObject(
+      Some(getInputName(annotations).getOrElse(customizeInputTypeName(getName(annotations, info)))),
+      getDescription(annotations),
+      schemas.flatMap(_.toType_(isInput = true).allInputFields.map(_.nullable)),
+      Some(info.full),
+      Some(List(Directive(Directives.OneOf)))
+    )
 
   def mkObject[R](
     annotations: List[Any],
