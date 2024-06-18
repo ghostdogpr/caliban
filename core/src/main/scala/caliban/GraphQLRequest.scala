@@ -6,7 +6,7 @@ import caliban.interop.circe.{ IsCirceDecoder, IsCirceEncoder }
 import caliban.interop.jsoniter.IsJsoniterCodec
 import caliban.interop.play.{ IsPlayJsonReads, IsPlayJsonWrites }
 import caliban.interop.tapir.IsTapirSchema
-import caliban.interop.zio.{ IsZIOJsonDecoder, IsZIOJsonEncoder }
+import caliban.interop.zio.IsZIOJsonCodec
 
 /**
  * Represents a GraphQL request, containing a query, an operation name and a map of variables.
@@ -34,10 +34,8 @@ object GraphQLRequest {
     caliban.interop.circe.json.GraphQLRequestCirce.graphQLRequestDecoder.asInstanceOf[F[GraphQLRequest]]
   implicit def circeEncoder[F[_]: IsCirceEncoder]: F[GraphQLRequest]     =
     caliban.interop.circe.json.GraphQLRequestCirce.graphQLRequestEncoder.asInstanceOf[F[GraphQLRequest]]
-  implicit def zioJsonDecoder[F[_]: IsZIOJsonDecoder]: F[GraphQLRequest] =
-    caliban.interop.zio.GraphQLRequestZioJson.graphQLRequestDecoder.asInstanceOf[F[GraphQLRequest]]
-  implicit def zioJsonEncoder[F[_]: IsZIOJsonEncoder]: F[GraphQLRequest] =
-    caliban.interop.zio.GraphQLRequestZioJson.graphQLRequestEncoder.asInstanceOf[F[GraphQLRequest]]
+  implicit def zioJsonCodec[F[_]: IsZIOJsonCodec]: F[GraphQLRequest]     =
+    caliban.interop.zio.GraphQLRequestZioJson.graphQLRequestCodec.asInstanceOf[F[GraphQLRequest]]
   implicit def tapirSchema[F[_]: IsTapirSchema]: F[GraphQLRequest]       =
     caliban.interop.tapir.schema.requestSchema.asInstanceOf[F[GraphQLRequest]]
   implicit def jsoniterCodec[F[_]: IsJsoniterCodec]: F[GraphQLRequest]   =

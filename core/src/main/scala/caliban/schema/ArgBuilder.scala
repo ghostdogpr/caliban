@@ -35,6 +35,20 @@ trait ArgBuilder[T] { self =>
    */
   def build(input: InputValue): Either[ExecutionError, T]
 
+  private[schema] def partial: PartialFunction[InputValue, Either[ExecutionError, T]] =
+    new PartialFunction[InputValue, Either[ExecutionError, T]] {
+      final def isDefinedAt(x: InputValue): Boolean             = build(x).isRight
+      final def apply(x: InputValue): Either[ExecutionError, T] = build(x)
+
+      final override def applyOrElse[A1 <: InputValue, B1 >: Either[ExecutionError, T]](
+        x: A1,
+        default: A1 => B1
+      ): B1 = {
+        val maybeMatch = build(x)
+        if (maybeMatch.isRight) maybeMatch else default(x)
+      }
+    }
+
   /**
    * Builds a value of type `T` from a missing input value.
    * By default, this delegates to [[build]], passing it NullValue.

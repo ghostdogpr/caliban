@@ -1,7 +1,7 @@
 package caliban.schema
 
 import caliban.introspection.adt._
-import caliban.parsing.adt.Directive
+import caliban.parsing.adt.{ Directive, Directives }
 
 import scala.annotation.tailrec
 
@@ -97,7 +97,8 @@ object Types {
         if (args.includeDeprecated.getOrElse(false)) Some(fields)
         else Some(fields.filter(!_.isDeprecated)),
       origin = origin,
-      directives = directives
+      directives = directives,
+      isOneOf = Some(Directives.isOneOf(directives.getOrElse(Nil)))
     )
 
   def makeUnion(
@@ -240,4 +241,5 @@ object Types {
       case __TypeKind.NON_NULL => t.ofType.map(name)
       case _                   => t.name
     }).getOrElse("")
+
 }

@@ -13,6 +13,11 @@ abstract class FederationSupport(
 ) {
   import FederationHelpers._
 
+  // This is a bit of a hack to determine if we are using the v1 version of the federation spec
+  // All of the v2 directives come through schema directives while the v1 is through the supported directives field instead
+  private val isV1       = supportedDirectives.nonEmpty && schemaDirectives.isEmpty
+  private val extraTypes = if (isV1) List(fieldSetSchema.toType_()) else Nil
+
   /**
    * Accepts a GraphQL and returns a GraphQL with the minimum settings to support federation. This variant does not
    * provide any stitching capabilities, it merely makes this schema consumable by a graphql federation gateway.
@@ -20,17 +25,17 @@ abstract class FederationSupport(
    * @return A new schema which has been augmented with federation types
    */
   def federate[R](original: GraphQL[R]): GraphQL[R] = {
-    import caliban.schema.Schema.auto._
-
     case class Query(
-      _service: _Service,
-      _fieldSet: FieldSet = FieldSet("")
+      _service: _Service
     )
+
+    implicit val serviceSchema = Schema.gen[R, _Service]
+    implicit val querySchema   = Schema.gen[R, Query]
 
     graphQL(
       RootResolver(Query(_service = _Service(original.withSchemaDirectives(schemaDirectives).render))),
       supportedDirectives
-    ) |+| original
+    ).withAdditionalTypes(extraTypes) |+| original
   }
 
   def federated[R](resolver: EntityResolver[R], others: EntityResolver[R]*): GraphQLAspect[Nothing, R] =
@@ -57,7 +62,6 @@ abstract class FederationSupport(
     val resolvers = resolver +: otherResolvers.toList
 
     val genericSchema = new GenericSchema[R] {}
-    import genericSchema.auto._
 
     implicit val entitySchema: Schema[R, _Entity] = new Schema[R, _Entity] {
       override def nullable: Boolean                                         = true
@@ -84,13 +88,16 @@ abstract class FederationSupport(
 
     case class Query(
       _entities: RepresentationsArgs => List[_Entity],
-      _service: ZQuery[Any, Nothing, _Service],
-      _fieldSet: FieldSet = FieldSet("")
+      _service: ZQuery[Any, Nothing, _Service]
     )
 
     val withSDL = original
       .withAdditionalTypes(resolvers.map(_.toType).flatMap(Types.collectTypes(_)))
       .withSchemaDirectives(schemaDirectives)
+
+    implicit val representationsArgsSchema: Schema[Any, RepresentationsArgs] = Schema.gen
+    implicit val serviceSchema: Schema[R, _Service]                          = genericSchema.gen[R, _Service]
+    implicit val querySchema: Schema[R, Query]                               = genericSchema.gen[R, Query]
 
     graphQL[R, Query, Unit, Unit](
       RootResolver(
@@ -100,7 +107,7 @@ abstract class FederationSupport(
         )
       ),
       supportedDirectives
-    ) |+| original
+    ).withAdditionalTypes(extraTypes) |+| original
 
   }
 }

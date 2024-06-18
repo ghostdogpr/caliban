@@ -21,7 +21,8 @@ case class __Type(
   ofType: Option[__Type] = None,
   specifiedBy: Option[String] = None,
   @GQLExcluded directives: Option[List[Directive]] = None,
-  @GQLExcluded origin: Option[String] = None
+  @GQLExcluded origin: Option[String] = None,
+  isOneOf: Option[Boolean] = None
 ) { self =>
   final override lazy val hashCode: Int = super.hashCode()
 
@@ -135,11 +136,14 @@ case class __Type(
   lazy val allEnumValues: List[__EnumValue] =
     enumValues(__DeprecatedArgs.include).getOrElse(Nil)
 
-  private[caliban] lazy val allFieldsMap: collection.Map[String, __Field] = {
+  private lazy val allFieldsMap = {
     val map = collection.mutable.HashMap.empty[String, __Field]
     allFields.foreach(f => map.update(f.name, f))
     map
   }
+
+  private[caliban] def getFieldOrNull(name: String): __Field =
+    allFieldsMap.getOrElse(name, null)
 
   lazy val innerType: __Type = Types.innerType(this)
 
@@ -149,6 +153,8 @@ case class __Type(
       case __TypeKind.INTERFACE | __TypeKind.UNION => possibleTypes.fold(Set.empty[String])(_.flatMap(_.name).toSet)
       case _                                       => Set.empty
     }
+
+  private[caliban] val _isOneOfInput: Boolean = isOneOf.getOrElse(false)
 
   private[caliban] def mapInnerType(f: __Type => __Type): __Type = {
     def loop(t: __Type): __Type =

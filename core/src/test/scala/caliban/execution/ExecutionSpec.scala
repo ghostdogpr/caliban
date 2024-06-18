@@ -1,13 +1,15 @@
 package caliban.execution
 
+import java.util.UUID
 import caliban.CalibanError.ExecutionError
+import caliban.InputValue.ObjectValue
 import caliban.Macros.gqldoc
 import caliban.TestUtils._
 import caliban.Value.{ BooleanValue, IntValue, NullValue, StringValue }
 import caliban._
 import caliban.introspection.adt.__Type
 import caliban.parsing.adt.LocationInfo
-import caliban.schema.Annotations.{ GQLInterface, GQLName, GQLValueType }
+import caliban.schema.Annotations.{ GQLInterface, GQLName, GQLOneOfInput, GQLValueType }
 import caliban.schema.ArgBuilder.auto._
 import caliban.schema.Schema.auto._
 import caliban.schema._
@@ -1431,6 +1433,52 @@ object ExecutionSpec extends ZIOSpecDefault {
           r6 == List("m2", "m1-f2", "m1-f1", "m1"),
           r7 == List("m2-f2", "m2-f1", "m2", "m1-f2", "m1-f1", "m1")
         )
+      },
+      test("oneOf inputs") {
+
+        @GQLOneOfInput
+        sealed trait Foo
+        object Foo {
+          case class FooString(stringValue: String) extends Foo
+          case class FooInt(intValue: Int)          extends Foo
+
+          case class Wrapper(fooInput: Foo)
+        }
+
+        case class Queries(foo: Foo.Wrapper => String, fooUnwrapped: Foo => String)
+
+        implicit val fooStringAb: ArgBuilder[Foo.FooString] = ArgBuilder.gen
+        implicit val fooIntAb: ArgBuilder[Foo.FooInt]       = ArgBuilder.gen
+        implicit val fooAb: ArgBuilder[Foo]                 = ArgBuilder.gen
+        implicit val schema: Schema[Any, Queries]           = Schema.gen
+
+        val api: GraphQL[Any] = graphQL(
+          RootResolver(
+            Queries(
+              {
+                case Foo.Wrapper(Foo.FooString(value)) => value
+                case Foo.Wrapper(Foo.FooInt(value))    => value.toString
+              },
+              {
+                case Foo.FooString(value) => value
+                case Foo.FooInt(value)    => value.toString
+              }
+            )
+          )
+        )
+
+        val cases = List(
+          gqldoc("""{ foo(fooInput: {stringValue: "hello"}) }""")                 -> """{"foo":"hello"}""",
+          gqldoc("""{ foo(fooInput: {intValue: 42}) }""")                         -> """{"foo":"42"}""",
+          gqldoc("""{ fooUnwrapped(value: {intValue: 42}) }""")                   -> """{"fooUnwrapped":"42"}""",
+          gqldoc("""query Foo($args: FooInput!){ fooUnwrapped(value: $args) }""") -> """{"fooUnwrapped":"42"}"""
+        )
+
+        ZIO.foldLeft(cases)(assertCompletes) { case (acc, (query, expected)) =>
+          api.interpreter
+            .flatMap(_.execute(query, variables = Map("args" -> ObjectValue(Map("intValue" -> IntValue(42))))))
+            .map(response => assertTrue(response.data.toString == expected))
+        }
       }
     )
 }

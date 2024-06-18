@@ -11,6 +11,7 @@ import caliban.schema.{ RootType, Types }
 import caliban.{ InputValue, Value }
 
 import scala.collection.mutable
+import scala.collection.mutable.ListBuffer
 
 /**
  * Represents a field used during the execution of a query
@@ -135,7 +136,7 @@ object Field {
     directives: List[Directive],
     rootType: RootType
   ): Field = {
-    val memoizedFragments      = new mutable.HashMap[String, (List[(Field, Option[String])])]()
+    val memoizedFragments      = new mutable.HashMap[String, List[(Field, Option[String])]]()
     val variableDefinitionsMap = variableDefinitions.map(v => v.name -> v).toMap
 
     def loop(
@@ -144,36 +145,34 @@ object Field {
       fragment: Option[Fragment],
       targets: Option[Set[String]],
       condition: Option[Set[String]]
-    ): List[(Field, Option[String])] = {
-      val map = new java.util.LinkedHashMap[(String, Option[String]), Field]()
-
-      def addField(f: Field, condition: Option[String]): Unit =
-        map.compute((f.aliasedName, condition), (_, existing) => if (existing == null) f else existing.combine(f))
-
+    ): Either[List[Field], List[(Field, Option[String])]] = {
+      val builder   = FieldBuilder.forSelectionSet(selectionSet)
       val innerType = fieldType.innerType
 
       selectionSet.foreach {
         case F(alias, name, arguments, directives, selectionSet, index) =>
-          val selected = innerType.allFieldsMap.get(name)
+          val selected = innerType.getFieldOrNull(name)
 
-          val schemaDirectives   = selected.flatMap(_.directives).getOrElse(Nil)
+          val schemaDirectives   = if (selected eq null) Nil else selected.directives.getOrElse(Nil)
           val resolvedDirectives =
             (directives ::: schemaDirectives).map(resolveDirectiveVariables(variableValues, variableDefinitionsMap))
 
           if (checkDirectives(resolvedDirectives)) {
-            val t = selected.fold(Types.string)(_._type) // default only case where it's not found is __typename
+            // default only case where it's not found is __typename
+            val t = if (selected eq null) Types.string else selected._type
 
             val fields =
-              if (selectionSet.nonEmpty) loop(selectionSet, t, None, None, None)
-              else Nil // Fragments apply on to the direct children of the fragment spread
+              if (selectionSet.nonEmpty)
+                loop(selectionSet, t, None, None, None).fold(identityFnList, _.map(_._1))
+              else Nil
 
-            addField(
+            builder.addField(
               new Field(
                 name,
                 t,
                 Some(innerType),
                 alias,
-                fields.map(_._1),
+                fields,
                 targets = targets,
                 arguments = resolveVariables(arguments, variableDefinitionsMap, variableValues),
                 directives = resolvedDirectives,
@@ -188,28 +187,30 @@ object Field {
           val fields = memoizedFragments.getOrElseUpdate(
             name, {
               val resolvedDirectives = directives.map(resolveDirectiveVariables(variableValues, variableDefinitionsMap))
-              val _fields            = if (checkDirectives(resolvedDirectives)) {
-                fragments.get(name).map { f =>
-                  val typeCondName      = f.typeCondition.name
-                  val t                 = rootType.types.getOrElse(typeCondName, fieldType)
-                  val subtypeNames0     = subtypeNames(typeCondName, rootType)
-                  val isSubsetCondition = subtypeNames0.getOrElse(Set.empty)
-                  loop(
-                    f.selectionSet,
-                    t,
-                    fragment = Some(Fragment(Some(name), resolvedDirectives)),
-                    targets = Some(Set(typeCondName)),
-                    condition = subtypeNames0
-                  ).map {
-                    case t @ (_, Some(c)) if isSubsetCondition(c) => t
-                    case (f1, _)                                  => (f1, Some(typeCondName))
-                  }
+              val f                  = fragments.getOrElse(name, null)
+              if ((f ne null) && checkDirectives(resolvedDirectives)) {
+                val typeCondName      = f.typeCondition.name
+                val t                 = rootType.types.getOrElse(typeCondName, fieldType)
+                val subtypeNames0     = subtypeNames(typeCondName, rootType)
+                val isSubsetCondition = subtypeNames0.getOrElse(Set.empty)
+                loop(
+                  f.selectionSet,
+                  t,
+                  fragment = Some(Fragment(Some(name), resolvedDirectives)),
+                  targets = Some(Set(typeCondName)),
+                  condition = subtypeNames0
+                ) match {
+                  case Left(l)  => l.map((_, Some(typeCondName)))
+                  case Right(l) =>
+                    l.map {
+                      case t @ (_, Some(c)) if isSubsetCondition(c) => t
+                      case (f1, _)                                  => (f1, Some(typeCondName))
+                    }
                 }
-              } else None
-              _fields.getOrElse(Nil)
+              } else Nil
             }
           )
-          fields.foreach((addField _).tupled)
+          fields.foreach((builder.addField _).tupled)
         case InlineFragment(typeCondition, directives, selectionSet)    =>
           val resolvedDirectives = directives.map(resolveDirectiveVariables(variableValues, variableDefinitionsMap))
           if (checkDirectives(resolvedDirectives)) {
@@ -226,20 +227,24 @@ object Field {
               fragment = Some(Fragment(None, resolvedDirectives)),
               targets = typeName.map(Set(_)),
               condition = subtypeNames0
-            ).foreach { case (f, c) =>
-              if (c.exists(isSubsetCondition)) addField(f, c)
-              else addField(f, typeName)
+            ) match {
+              case Left(l)  => l.foreach(builder.addField(_, typeName))
+              case Right(l) =>
+                l.foreach {
+                  case (f, c) if c.exists(isSubsetCondition) => builder.addField(f, c)
+                  case (f, _)                                => builder.addField(f, typeName)
+                }
             }
           }
       }
-      val builder = List.newBuilder[(Field, Option[String])]
-      map.forEach { case ((_, cond), field) => builder += ((field, cond)) }
       builder.result()
     }
 
     val fields = loop(selectionSet, fieldType, None, None, None)
-    Field("", fieldType, None, fields = fields.map(_._1), directives = directives)
+    Field("", fieldType, None, fields = fields.fold(identityFnList, _.map(_._1)), directives = directives)
   }
+
+  private val identityFnList: List[Field] => List[Field] = l => l
 
   private def resolveDirectiveVariables(
     variableValues: Map[String, InputValue],
@@ -296,4 +301,34 @@ object Field {
       case Some(BooleanValue(value)) => value
       case _                         => default
     }
+
+  private abstract class FieldBuilder {
+    def addField(f: Field, condition: Option[String]): Unit
+    def result(): Either[List[Field], List[(Field, Option[String])]]
+  }
+
+  private object FieldBuilder {
+    def forSelectionSet(selectionSet: List[Selection]): FieldBuilder =
+      if (selectionSet.forall(_.isInstanceOf[F])) new FieldsOnly else new Full
+
+    private final class FieldsOnly extends FieldBuilder {
+      private[this] val builder = new ListBuffer[Field]
+
+      def addField(f: Field, condition: Option[String]): Unit          = builder += f
+      def result(): Either[List[Field], List[(Field, Option[String])]] = Left(builder.result())
+    }
+
+    private final class Full extends FieldBuilder {
+      private[this] val map = new java.util.LinkedHashMap[(String, Option[String]), Field]()
+
+      def addField(f: Field, condition: Option[String]): Unit =
+        map.compute((f.aliasedName, condition), (_, existing) => if (existing eq null) f else existing.combine(f))
+
+      def result(): Either[List[Field], List[(Field, Option[String])]] = {
+        val builder = new ListBuffer[(Field, Option[String])]
+        map.forEach { case ((_, cond), field) => builder += ((field, cond)) }
+        Right(builder.result())
+      }
+    }
+  }
 }

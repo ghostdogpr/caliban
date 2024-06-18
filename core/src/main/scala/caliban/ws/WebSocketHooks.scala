@@ -69,7 +69,9 @@ trait WebSocketHooks[-R, +E] { self =>
 }
 
 object WebSocketHooks {
-  def empty[R, E]: WebSocketHooks[R, E] = new WebSocketHooks[R, E] {}
+  def empty[R, E]: WebSocketHooks[R, E] = Empty
+
+  private case object Empty extends WebSocketHooks[Any, Nothing]
 
   /**
    * Specifies a callback that will be run before an incoming subscription

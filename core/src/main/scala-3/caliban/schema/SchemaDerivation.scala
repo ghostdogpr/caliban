@@ -38,7 +38,7 @@ trait CommonSchemaDerivation {
    */
   def config: DerivationConfig = DerivationConfig()
 
-  inline def recurseSum[R, P, Label, A <: Tuple](
+  transparent inline def recurseSum[R, P, Label <: Tuple, A <: Tuple](
     inline types: List[(String, __Type, List[Any])] = Nil,
     inline schemas: List[Schema[R, Any]] = Nil
   ): (
@@ -72,16 +72,16 @@ trait CommonSchemaDerivation {
 
     }
 
-  inline def recurseProduct[R, P, Label, A <: Tuple](
-    inline values: List[(String, Schema[R, Any], Int)] = Nil
-  )(inline index: Int = 0): List[(String, Schema[R, Any], Int)] =
+  transparent inline def recurseProduct[R, P, Label <: Tuple, A <: Tuple](
+    inline values: List[ProductFieldInfo[R]] = Nil
+  )(inline index: Int = 0): List[ProductFieldInfo[R]] =
     inline erasedValue[(Label, A)] match {
       case (_: EmptyTuple, _)                 => values.reverse
       case (_: (name *: names), _: (t *: ts)) =>
         recurseProduct[R, P, names, ts] {
           inline if (Macros.isFieldExcluded[P, name]) values
           else
-            (
+            ProductFieldInfo[R](
               constValue[name].toString,
               summonInline[Schema[R, t]].asInstanceOf[Schema[R, Any]],
               index
@@ -89,7 +89,7 @@ trait CommonSchemaDerivation {
         }(index + 1)
     }
 
-  inline def valueTypeSchema[R, Label, A <: Tuple]: Schema[R, Any] =
+  transparent inline def valueTypeSchema[R, Label <: Tuple, A <: Tuple]: Schema[R, Any] =
     inline erasedValue[(Label, A)] match {
       case (_: EmptyTuple, _) => error("GQLValueType case classes must have at least one field")
       case (_, _: (t *: _))   => summonInline[Schema[R, t]].asInstanceOf[Schema[R, Any]]

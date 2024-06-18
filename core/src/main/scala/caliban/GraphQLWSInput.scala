@@ -4,7 +4,7 @@ import caliban.interop.circe.{ IsCirceDecoder, IsCirceEncoder }
 import caliban.interop.jsoniter.IsJsoniterCodec
 import caliban.interop.play.{ IsPlayJsonReads, IsPlayJsonWrites }
 import caliban.interop.tapir.IsTapirSchema
-import caliban.interop.zio.{ IsZIOJsonDecoder, IsZIOJsonEncoder }
+import caliban.interop.zio.IsZIOJsonCodec
 
 case class GraphQLWSInput(`type`: String, id: Option[String], payload: Option[InputValue])
 
@@ -13,10 +13,8 @@ object GraphQLWSInput {
     caliban.interop.circe.json.GraphQLWSInputCirce.graphQLWSInputEncoder.asInstanceOf[F[GraphQLWSInput]]
   implicit def circeDecoder[F[_]: IsCirceDecoder]: F[GraphQLWSInput]     =
     caliban.interop.circe.json.GraphQLWSInputCirce.graphQLWSInputDecoder.asInstanceOf[F[GraphQLWSInput]]
-  implicit def zioJsonDecoder[F[_]: IsZIOJsonDecoder]: F[GraphQLWSInput] =
-    caliban.interop.zio.GraphQLWSInputZioJson.graphQLWSInputDecoder.asInstanceOf[F[GraphQLWSInput]]
-  implicit def zioJsonEncoder[F[_]: IsZIOJsonEncoder]: F[GraphQLWSInput] =
-    caliban.interop.zio.GraphQLWSInputZioJson.graphQLWSInputEncoder.asInstanceOf[F[GraphQLWSInput]]
+  implicit def zioJsonCodec[F[_]: IsZIOJsonCodec]: F[GraphQLWSInput]     =
+    caliban.interop.zio.GraphQLWSInputZioJson.graphQLWSInputCodec.asInstanceOf[F[GraphQLWSInput]]
   implicit def tapirSchema[F[_]: IsTapirSchema]: F[GraphQLWSInput]       =
     caliban.interop.tapir.schema.wsInputSchema.asInstanceOf[F[GraphQLWSInput]]
   implicit def jsoniterCodec[F[_]: IsJsoniterCodec]: F[GraphQLWSInput]   =

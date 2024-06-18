@@ -8,7 +8,7 @@ import scala.annotation.threadUnsafe
 import scala.reflect.ClassTag
 
 final private class ObjectSchema[R, A](
-  _constructorFields: => List[(String, Schema[R, Any], Int)],
+  _constructorFields: => List[ProductFieldInfo[R]],
   _methodFields: => List[(String, List[Any], Schema[R, ?])],
   info: TypeInfo,
   anns: List[Any],
@@ -19,7 +19,7 @@ final private class ObjectSchema[R, A](
 
   @threadUnsafe
   private lazy val fields = {
-    val fromConstructor = _constructorFields.view.map { (label, schema, index) =>
+    val fromConstructor = _constructorFields.view.map { case ProductFieldInfo(label, schema, index) =>
       val fieldAnns = paramAnnotations.getOrElse(label, Nil)
       ((getName(fieldAnns, label), fieldAnns, schema), Left(index))
     }

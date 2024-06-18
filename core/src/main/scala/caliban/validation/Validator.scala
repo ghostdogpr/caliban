@@ -92,26 +92,24 @@ object Validator {
    *
    * @see [[prepareEither]] for a variant that returns an Either instead
    */
-  def prepare[R](
+  def prepare(
     document: Document,
     rootType: RootType,
-    rootSchema: RootSchema[R],
     operationName: Option[String],
     variables: Map[String, InputValue],
     skipValidation: Boolean,
     validations: List[QueryValidation]
   ): IO[ValidationError, ExecutionRequest] = ZIO.fromEither(
-    prepareEither(document, rootType, rootSchema, operationName, variables, skipValidation, validations)
+    prepareEither(document, rootType, operationName, variables, skipValidation, validations)
   )(Trace.empty)
 
   /**
    * Prepare the request for execution.
    * Fails with a [[caliban.CalibanError.ValidationError]] otherwise.
    */
-  def prepareEither[R](
+  def prepareEither(
     document: Document,
     rootType: RootType,
-    rootSchema: RootSchema[R],
     operationName: Option[String],
     variables: Map[String, InputValue],
     skipValidation: Boolean,
@@ -140,19 +138,19 @@ object Validator {
       operation.flatMap { op =>
         (op.operationType match {
           case Query        =>
-            Right(rootSchema.query)
+            Right(rootType.queryType)
           case Mutation     =>
-            rootSchema.mutation.toRight(ValidationError("Mutations are not supported on this schema", ""))
+            rootType.mutationType.toRight(ValidationError("Mutations are not supported on this schema", ""))
           case Subscription =>
-            rootSchema.subscription.toRight(ValidationError("Subscriptions are not supported on this schema", ""))
-        }).map(operation =>
+            rootType.subscriptionType.toRight(ValidationError("Subscriptions are not supported on this schema", ""))
+        }).map(opType =>
           ExecutionRequest(
             F(
               op.selectionSet,
               fragments,
               variables,
               op.variableDefinitions,
-              operation.opType,
+              opType,
               document.sourceMapper,
               op.directives,
               rootType
@@ -374,14 +372,35 @@ object Validator {
               "If any operation defines more than one variable with the same name, it is ambiguous and invalid. It is invalid even if the type of the duplicate variable is the same."
             )
           } *> validateAll(op.variableDefinitions) { v =>
-            val t = Type.innerType(v.variableType)
-            failWhen(context.rootType.types.get(t).map(_.kind).exists {
+            val t = context.rootType.types.get(Type.innerType(v.variableType))
+
+            val v1 = failWhen(t.map(_.kind).exists {
               case __TypeKind.OBJECT | __TypeKind.UNION | __TypeKind.INTERFACE => true
               case _                                                           => false
             })(
               s"Type of variable '${v.name}' is not a valid input type.",
               "Variables can only be input types. Objects, unions, and interfaces cannot be used as inputs."
             )
+
+            val v2 =
+              if (
+                t match {
+                  case Some(t0) => t0._isOneOfInput
+                  case _        => false
+                }
+              )
+                Some(
+                  failWhen(v.variableType.nullable)(
+                    s"Variable '${v.name}' cannot be nullable.",
+                    "Variables used for OneOf Input Object fields must be non-nullable."
+                  ) *> validateOneOfInputValue(
+                    context.variables.getOrElse(v.name, NullValue),
+                    s"Variable '${v.name}'"
+                  )
+                )
+              else None
+
+            v2.fold(v1)(v1 *> _)
           } *> {
             validateAll(variableUsages)(v =>
               failWhen(!op.variableDefinitions.exists(_.name == v))(
@@ -539,16 +558,16 @@ object Validator {
 
   private def validateField(context: Context, field: Field, currentType: __Type): EReader[Any, ValidationError, Unit] =
     if (field.name != "__typename") {
-      currentType.allFieldsMap.get(field.name) match {
-        case Some(f) =>
-          val v1 = validateFields(context, field.selectionSet, f._type.innerType)
-          val v2 = validateArguments(field, f, currentType, context)
-          v2.fold(v1)(v1 *> _)
-        case None    =>
+      currentType.getFieldOrNull(field.name) match {
+        case null =>
           failValidation(
             s"Field '${field.name}' does not exist on type '${DocumentRenderer.renderTypeName(currentType)}'.",
             "The target field of a field selection must be defined on the scoped type of the selection set. There are no limitations on alias names."
           )
+        case f    =>
+          val v1 = validateFields(context, field.selectionSet, f._type.innerType)
+          val v2 = validateArguments(field, f, currentType, context)
+          v2.fold(v1)(v1 *> _)
       }
     } else zunit
 
@@ -562,23 +581,40 @@ object Validator {
     val fieldArgsNonNull = fieldArgs.filter(_._type.kind == __TypeKind.NON_NULL)
     val providedArgs     = field.arguments
 
-    val v1 = validateAllNonEmpty(fieldArgsNonNull)(arg =>
-      (arg.defaultValue, field.arguments.get(arg.name)) match {
+    val v1 = validateAllNonEmpty(fieldArgsNonNull.flatMap { arg =>
+      val arg0 = field.arguments.get(arg.name)
+      val opt1 = (arg.defaultValue, arg0) match {
         case (None, None) | (None, Some(NullValue)) =>
-          failValidation(
-            s"Required argument '${arg.name}' is null or missing on field '${field.name}' of type '${currentType.name
-                .getOrElse("")}'.",
-            "Arguments can be required. An argument is required if the argument type is non‐null and does not have a default value. Otherwise, the argument is optional."
+          Some(
+            failValidation(
+              s"Required argument '${arg.name}' is null or missing on field '${field.name}' of type '${currentType.name
+                  .getOrElse("")}'.",
+              "Arguments can be required. An argument is required if the argument type is non‐null and does not have a default value. Otherwise, the argument is optional."
+            )
           )
         case (Some(_), Some(NullValue))             =>
-          failValidation(
-            s"Required argument '${arg.name}' is null on '${field.name}' of type '${currentType.name
-                .getOrElse("")}'.",
-            "Arguments can be required. An argument is required if the argument type is non‐null and does not have a default value. Otherwise, the argument is optional."
+          Some(
+            failValidation(
+              s"Required argument '${arg.name}' is null on '${field.name}' of type '${currentType.name
+                  .getOrElse("")}'.",
+              "Arguments can be required. An argument is required if the argument type is non‐null and does not have a default value. Otherwise, the argument is optional."
+            )
           )
-        case _                                      => zunit
+        case _                                      => None
       }
-    )
+      val opt2 =
+        if (arg._type.innerType._isOneOfInput)
+          Some(
+            validateOneOfInputValue(
+              arg0.getOrElse(NullValue),
+              s"Argument '${arg.name}' on field '${field.name}'"
+            )
+          )
+        else None
+
+      combineOptionalValidations(opt1, opt2)
+    })(identity)
+
     val v2 = validateAllNonEmpty(providedArgs) { case (arg, argValue) =>
       fieldArgs.find(_.name == arg) match {
         case Some(inputValue) =>
@@ -648,6 +684,23 @@ object Validator {
       case _                                                                           => zunit
     }
   } *> ValueValidator.validateInputTypes(inputValue, argValue, context, errorContext)
+
+  private def validateOneOfInputValue(
+    inputValue: InputValue,
+    errorContext: => String
+  ): EReader[Any, ValidationError, Unit] =
+    ZPure
+      .whenCase(inputValue match {
+        case InputValue.ObjectValue(fields) if fields.size == 1 => fields.headOption.map(_._2)
+        case vv: InputValue.VariableValue                       => Some(vv)
+        case _                                                  => None
+      }) { case None | Some(NullValue) =>
+        failValidation(
+          s"$errorContext is not a valid OneOf Input Object",
+          "OneOf Input Object arguments must specify exactly one non-null key"
+        )
+      }
+      .unit
 
   private def checkVariableUsageAllowed(
     variableDefinition: VariableDefinition,
@@ -865,7 +918,7 @@ object Validator {
     }
 
   private[caliban] def validateInputObject(t: __Type): EReader[Any, ValidationError, Unit] = {
-    lazy val inputObjectContext = s"""InputObject '${t.name.getOrElse("")}'"""
+    lazy val inputObjectContext = s"""${if (t._isOneOfInput) "OneOf " else ""}InputObject '${t.name.getOrElse("")}'"""
 
     def noDuplicateInputValueName(
       inputValues: List[__InputValue],
@@ -877,17 +930,40 @@ object Validator {
       noDuplicateName[__InputValue](inputValues, _.name, messageBuilder, explanatory)
     }
 
+    def noDuplicatedOneOfOrigin(inputValues: List[__InputValue]): EReader[Any, ValidationError, Unit] = {
+      val resolveOrigin  = (i: __InputValue) =>
+        i._parentType.flatMap(_.origin).getOrElse("<unexpected validation error>")
+      val messageBuilder = (i: __InputValue) =>
+        s"$inputObjectContext is extended by a case class with multiple arguments: ${resolveOrigin(i)}"
+      val explanatory    = "All case classes used as arguments to OneOf Input Objects must have exactly one field"
+      noDuplicateName[__InputValue](inputValues, resolveOrigin, messageBuilder, explanatory)
+    }
+
     def validateFields(fields: List[__InputValue]): EReader[Any, ValidationError, Unit] =
       validateAll(fields)(validateInputValue(_, inputObjectContext)) *>
         noDuplicateInputValueName(fields, inputObjectContext)
 
+    def validateOneOfFields(fields: List[__InputValue]): EReader[Any, ValidationError, Unit] =
+      noDuplicatedOneOfOrigin(fields) *>
+        validateAll(fields) { f =>
+          failWhen(f.defaultValue.isDefined)(
+            s"$inputObjectContext argument has a default value",
+            "Fields of OneOf input objects cannot have default values"
+          ) *>
+            failWhen(!f._type.isNullable)(
+              s"$inputObjectContext argument is not nullable",
+              "All of OneOf input fields must be declared as nullable in the schema according to the spec"
+            )
+        }
+
     t.allInputFields match {
-      case Nil    =>
+      case Nil                       =>
         failValidation(
           s"$inputObjectContext does not have fields",
           "An Input Object type must define one or more input fields"
         )
-      case fields => validateFields(fields)
+      case fields if t._isOneOfInput => validateOneOfFields(fields) *> validateFields(fields)
+      case fields                    => validateFields(fields)
     }
   }
 
@@ -920,13 +996,13 @@ object Validator {
     lazy val objectContext = s"Object '${obj.name.getOrElse("")}'"
 
     def validateInterfaceFields(obj: __Type) = {
-      def fieldNames(t: __Type) = t.allFieldsMap.keySet
+      def fieldNames(t: __Type) = t.allFields.map(_.name)
 
       val supertype = obj.interfaces().toList.flatten
 
       def checkForMissingFields(): EReader[Any, ValidationError, Unit] = {
-        val objectFieldNames    = fieldNames(obj)
-        val interfaceFieldNames = supertype.map(fieldNames).toSet.flatten
+        val objectFieldNames    = fieldNames(obj).toSet
+        val interfaceFieldNames = supertype.flatMap(fieldNames).toSet
         val isMissingFields     = objectFieldNames.union(interfaceFieldNames) != objectFieldNames
 
         failWhen(interfaceFieldNames.nonEmpty && isMissingFields)(

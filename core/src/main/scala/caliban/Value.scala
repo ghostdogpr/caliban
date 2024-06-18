@@ -5,7 +5,7 @@ import caliban.interop.circe._
 import caliban.interop.jsoniter.IsJsoniterCodec
 import caliban.interop.play.{ IsPlayJsonReads, IsPlayJsonWrites }
 import caliban.interop.tapir.IsTapirSchema
-import caliban.interop.zio.{ IsZIOJsonDecoder, IsZIOJsonEncoder }
+import caliban.interop.zio.IsZIOJsonCodec
 import caliban.rendering.ValueRenderer
 import zio.stream.Stream
 
@@ -34,10 +34,8 @@ object InputValue {
     caliban.interop.circe.json.ValueCirce.inputValueEncoder.asInstanceOf[F[InputValue]]
   implicit def circeDecoder[F[_]: IsCirceDecoder]: F[InputValue]               =
     caliban.interop.circe.json.ValueCirce.inputValueDecoder.asInstanceOf[F[InputValue]]
-  implicit def inputValueZioJsonEncoder[F[_]: IsZIOJsonEncoder]: F[InputValue] =
-    caliban.interop.zio.ValueZIOJson.inputValueEncoder.asInstanceOf[F[InputValue]]
-  implicit def inputValueZioJsonDecoder[F[_]: IsZIOJsonDecoder]: F[InputValue] =
-    caliban.interop.zio.ValueZIOJson.inputValueDecoder.asInstanceOf[F[InputValue]]
+  implicit def zioJsonCodec[F[_]: IsZIOJsonCodec]: F[InputValue]               =
+    caliban.interop.zio.ValueZIOJson.inputValueCodec.asInstanceOf[F[InputValue]]
   implicit def jsoniterCodec[F[_]: IsJsoniterCodec]: F[InputValue]             =
     caliban.interop.jsoniter.ValueJsoniter.inputValueCodec.asInstanceOf[F[InputValue]]
   implicit def inputValuePlayJsonWrites[F[_]: IsPlayJsonWrites]: F[InputValue] =
@@ -67,6 +65,38 @@ sealed trait ResponseValue extends Serializable { self =>
   }
 }
 object ResponseValue {
+
+  def at(path: List[PathValue])(value: ResponseValue): ResponseValue = {
+    def loop(path: List[PathValue], value: ResponseValue): ResponseValue = path match {
+      case Nil                            => value
+      case PathValue.Key(key) :: tail     =>
+        value match {
+          case ObjectValue(fields) =>
+            fields.find(_._1 == key) match {
+              case Some((_, v)) => loop(tail, v)
+              case None         => Value.NullValue
+            }
+          case ListValue(values)   =>
+            ListValue(values.map(loop(path, _)))
+          case _                   => Value.NullValue
+        }
+      case PathValue.Index(index) :: tail =>
+        value match {
+          case ListValue(values) =>
+            val idx = index
+            if (idx < values.size) {
+              loop(tail, values(idx))
+            } else {
+              Value.NullValue
+            }
+          case _                 => Value.NullValue
+        }
+      case _                              => Value.NullValue
+    }
+
+    loop(path, value)
+  }
+
   case class ListValue(values: List[ResponseValue])                extends ResponseValue {
     override def toString: String = ValueRenderer.responseListValueRenderer.renderCompact(this)
   }
@@ -91,10 +121,8 @@ object ResponseValue {
     caliban.interop.circe.json.ValueCirce.responseValueDecoder.asInstanceOf[F[ResponseValue]]
   implicit def tapirSchema[F[_]: IsTapirSchema]: F[ResponseValue]                    =
     caliban.interop.tapir.schema.responseValueSchema.asInstanceOf[F[ResponseValue]]
-  implicit def responseValueZioJsonEncoder[F[_]: IsZIOJsonEncoder]: F[ResponseValue] =
-    caliban.interop.zio.ValueZIOJson.responseValueEncoder.asInstanceOf[F[ResponseValue]]
-  implicit def responseValueZioJsonDecoder[F[_]: IsZIOJsonDecoder]: F[ResponseValue] =
-    caliban.interop.zio.ValueZIOJson.responseValueDecoder.asInstanceOf[F[ResponseValue]]
+  implicit def zioJsonCodec[F[_]: IsZIOJsonCodec]: F[ResponseValue]                  =
+    caliban.interop.zio.ValueZIOJson.responseValueCodec.asInstanceOf[F[ResponseValue]]
   implicit def jsoniterCodec[F[_]: IsJsoniterCodec]: F[ResponseValue]                =
     caliban.interop.jsoniter.ValueJsoniter.responseValueCodec.asInstanceOf[F[ResponseValue]]
   implicit def responseValuePlayJsonWrites[F[_]: IsPlayJsonWrites]: F[ResponseValue] =

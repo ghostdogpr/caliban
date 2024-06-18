@@ -1,7 +1,7 @@
 package caliban.schema
 
 import caliban.introspection.adt.__Type
-import caliban.schema.Annotations.{ GQLInterface, GQLUnion }
+import caliban.schema.Annotations.{ GQLInterface, GQLOneOfInput, GQLUnion }
 import caliban.schema.DerivationUtils.*
 import caliban.schema.Types.makeUnion
 import magnolia1.TypeInfo
@@ -26,6 +26,7 @@ final private class SumSchema[R, A](
   }
 
   private var containsEmptyUnionObjects = false
+  private val isOneOfInput              = annotations.contains(GQLOneOfInput())
 
   def toType(isInput: Boolean, isSubscription: Boolean): __Type = {
     val _                         = schemas
@@ -33,13 +34,14 @@ final private class SumSchema[R, A](
     val isUnion                   = annotations.contains(GQLUnion())
     @threadUnsafe lazy val isEnum = subTypes.forall((_, t, _) => t.allFields.isEmpty && t.allInputFields.isEmpty)
 
-    if (!isInterface && !isUnion && subTypes.nonEmpty && isEnum) mkEnum(annotations, info, subTypes)
+    if (!isInterface && !isUnion && subTypes.nonEmpty && isEnum && !isOneOfInput) mkEnum(annotations, info, subTypes)
+    else if (isOneOfInput && isInput) mkOneOfInput(annotations, schemas.toList, info)
     else if (!isInterface) {
       containsEmptyUnionObjects = emptyUnionObjectIdxs.contains(true)
       makeUnion(
         Some(getName(annotations, info)),
         getDescription(annotations),
-        subTypes.map(_._2).distinctBy(_.name).map(SchemaUtils.fixEmptyUnionObject),
+        subTypes.map(_._2).distinctBy(_.name).map(SchemaUtils.fixEmptyUnionObject).sortBy(_.name),
         Some(info.full),
         Some(getDirectives(annotations))
       )

@@ -61,7 +61,6 @@ object FieldSpec extends ZIOSpecDefault {
     req     <- Validator.prepare(
                  doc,
                  rootType,
-                 schema,
                  operationName = None,
                  Map.empty,
                  skipValidation = false,
