@@ -1,7 +1,7 @@
 package caliban.tools
 
 import caliban.parsing.Parser
-import zio.Task
+import zio.{ Task, ZIO }
 import zio.test._
 
 object ClientWriterSpec extends SnapshotTest {
@@ -13,8 +13,8 @@ object ClientWriterSpec extends SnapshotTest {
     extensibleEnums: Boolean = false,
     excludeDeprecated: Boolean = false,
     genView: Boolean = false
-  ): Task[String] = Parser
-    .parseQuery(schema)
+  ): Task[String] = ZIO
+    .fromEither(Parser.parseQuery(schema))
     .flatMap(doc =>
       Formatter.format(
         ClientWriter
@@ -35,8 +35,8 @@ object ClientWriterSpec extends SnapshotTest {
   def genSplit(
     schema: String,
     scalarMappings: Map[String, String] = Map.empty
-  ): Task[List[(String, String)]] = Parser
-    .parseQuery(schema)
+  ): Task[List[(String, String)]] = ZIO
+    .fromEither(Parser.parseQuery(schema))
     .flatMap(doc =>
       Formatter.format(
         ClientWriter.write(doc, packageName = Some("test"), splitFiles = true, scalarMappings = Some(scalarMappings)),

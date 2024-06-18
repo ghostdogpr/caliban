@@ -1,15 +1,15 @@
 package caliban.tools
 
 import caliban.parsing.Parser
-import zio.Task
 import zio.test._
+import zio.{ Task, ZIO }
 
 object ClientWriterViewSpec extends SnapshotTest {
   override val testName: String = "ClientWriterViewSpec"
 
   val gen: String => Task[String] = (schema: String) =>
-    Parser
-      .parseQuery(schema)
+    ZIO
+      .fromEither(Parser.parseQuery(schema))
       .flatMap(doc => Formatter.format(ClientWriter.write(doc, genView = true, scalarMappings = None).head._2, None))
 
   override def spec =

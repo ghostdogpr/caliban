@@ -53,20 +53,22 @@ object FieldSpec extends ZIOSpecDefault {
     fields <- ref.get
   } yield fields
 
-  private def prepare(query: String) = for {
-    ref     <- Ref.make[Chunk[Field]](Chunk.empty)
-    schema  <- api(ref).validateRootSchema
-    doc     <- Parser.parseQuery(query)
-    rootType = RootType(schema.query.opType, mutationType = None, subscriptionType = None)
-    req     <- Validator.prepare(
-                 doc,
-                 rootType,
-                 operationName = None,
-                 Map.empty,
-                 skipValidation = false,
-                 validations = AllValidations
-               )
-  } yield req
+  private def prepare(query: String) = Unsafe.unsafe { implicit us =>
+    val ref = Ref.unsafe.make[Chunk[Field]](Chunk.empty)
+    for {
+      schema  <- api(ref).validateRootSchema
+      doc     <- Parser.parseQuery(query)
+      rootType = RootType(schema.query.opType, mutationType = None, subscriptionType = None)
+      req     <- Validator.prepare(
+                   doc,
+                   rootType,
+                   operationName = None,
+                   Map.empty,
+                   skipValidation = false,
+                   validations = AllValidations
+                 )
+    } yield req
+  }
 
   private val targetsSpec = suite("targets")(
     test("gets populated with inline fragments") {

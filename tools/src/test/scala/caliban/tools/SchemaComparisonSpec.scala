@@ -16,7 +16,7 @@ object SchemaComparisonSpec extends ZIOSpecDefault {
     schema1: String,
     schema2: String,
     expected: List[String]
-  ): ZIO[Any, CalibanError.ParsingError, TestResult] =
+  ): Either[CalibanError.ParsingError, TestResult] =
     for {
       s1  <- Parser.parseQuery(schema1)
       s2  <- Parser.parseQuery(schema2)
@@ -27,7 +27,7 @@ object SchemaComparisonSpec extends ZIOSpecDefault {
     schema1: String,
     schema2: String,
     expected: List[SchemaComparisonChange]
-  ): ZIO[Any, CalibanError.ParsingError, TestResult] =
+  ): Either[CalibanError.ParsingError, TestResult] =
     for {
       s1  <- Parser.parseQuery(schema1)
       s2  <- Parser.parseQuery(schema2)
@@ -253,8 +253,9 @@ object SchemaComparisonSpec extends ZIOSpecDefault {
 
           val expected = SchemaComparisonChange.DirectiveDefinitionRepeatableChanged("test", from = false, to = true)
 
-          compareChanges(nonRepeatable, repeatable, List(expected)) &&
-          assertTrue(!expected.breaking)
+          compareChanges(nonRepeatable, repeatable, List(expected)).map(
+            _ && assertTrue(!expected.breaking)
+          )
         },
         test("becomes non-repeatable") {
           val repeatable    = "directive @test repeatable on FIELD_DEFINITION"
@@ -262,9 +263,9 @@ object SchemaComparisonSpec extends ZIOSpecDefault {
 
           val expected = SchemaComparisonChange.DirectiveDefinitionRepeatableChanged("test", from = true, to = false)
 
-          compareChanges(repeatable, nonRepeatable, List(expected)) &&
-          assertTrue(expected.breaking)
-
+          compareChanges(repeatable, nonRepeatable, List(expected)).map {
+            _ && assertTrue(expected.breaking)
+          }
         },
         test("changes in base interfaces") {
           val schema1: String =

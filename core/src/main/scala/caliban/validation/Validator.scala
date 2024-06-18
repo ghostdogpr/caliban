@@ -49,18 +49,23 @@ object Validator {
     )
 
   /**
-   * Verifies that the given document is valid for this type. Fails with a [[caliban.CalibanError.ValidationError]] otherwise.
+   * Verifies that the given document is valid for this type.
+   * Fails with a [[caliban.CalibanError.ValidationError]] otherwise.
    */
   def validate(document: Document, rootType: RootType)(implicit trace: Trace): IO[ValidationError, Unit] =
     Configurator.ref.getWith(v => ZIO.fromEither(check(document, rootType, Map.empty, v.validations).map(_ => ())))
 
   /**
+   * Verifies that the given document is valid for this type for all available validations.
+   * Fails with a [[caliban.CalibanError.ValidationError]] otherwise.
+   */
+  def validateAll(document: Document, rootType: RootType): Either[ValidationError, Unit] =
+    check(document, rootType, Map.empty, AllValidations).map(_ => ())
+
+  /**
    * Verifies that the given schema is valid. Fails with a [[caliban.CalibanError.ValidationError]] otherwise.
    */
-  def validateSchema[R](schema: RootSchemaBuilder[R])(implicit trace: Trace): IO[ValidationError, RootSchema[R]] =
-    ZIO.fromEither(validateSchemaEither(schema))
-
-  def validateSchemaEither[R](schema: RootSchemaBuilder[R]): Either[ValidationError, RootSchema[R]] = {
+  def validateSchema[R](schema: RootSchemaBuilder[R]): Either[ValidationError, RootSchema[R]] = {
     val types = schema.types
     ZPure.foreachDiscard(types.sorted)(validateType) *>
       validateClashingTypes(types) *>
@@ -89,25 +94,8 @@ object Validator {
   /**
    * Prepare the request for execution.
    * Fails with a [[caliban.CalibanError.ValidationError]] otherwise.
-   *
-   * @see [[prepareEither]] for a variant that returns an Either instead
    */
   def prepare(
-    document: Document,
-    rootType: RootType,
-    operationName: Option[String],
-    variables: Map[String, InputValue],
-    skipValidation: Boolean,
-    validations: List[QueryValidation]
-  ): IO[ValidationError, ExecutionRequest] = ZIO.fromEither(
-    prepareEither(document, rootType, operationName, variables, skipValidation, validations)
-  )(Trace.empty)
-
-  /**
-   * Prepare the request for execution.
-   * Fails with a [[caliban.CalibanError.ValidationError]] otherwise.
-   */
-  def prepareEither(
     document: Document,
     rootType: RootType,
     operationName: Option[String],

@@ -22,8 +22,9 @@ object CalibanSpec extends ZIOSpecDefault {
         assertTrue(Caliban.run(io).errors.isEmpty)
       },
       test("Parser") {
-        val io = Parser.parseQuery(fullIntrospectionQuery)
-        assertTrue(Caliban.run(io).definitions.nonEmpty)
+        Parser.parseQuery(fullIntrospectionQuery).map { doc =>
+          assertTrue(doc.definitions.nonEmpty)
+        }
       }
     )
 }

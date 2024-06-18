@@ -25,7 +25,7 @@ class ParserBenchmark {
 
   @Benchmark
   def runCaliban(): Document =
-    Parser.parseQueryEither(fullIntrospectionQuery).fold(throw _, identity)
+    Parser.parseQuery(fullIntrospectionQuery).fold(throw _, identity)
 
   @Benchmark
   def runSangria(): sangria.ast.Document =
