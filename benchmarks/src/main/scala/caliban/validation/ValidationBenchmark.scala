@@ -19,14 +19,14 @@ class ValidationBenchmark {
 
   def run[A](either: Either[Throwable, A]): A = either.fold(throw _, identity)
 
-  def toRootType[R](graphQL: GraphQL[R]): Either[CalibanError, RootType] =
-    graphQL.validateRootSchema.map { schema =>
+  def toRootType[R](graphQL: GraphQL[R]): RootType =
+    run(graphQL.validateRootSchema.map { schema =>
       RootType(
         schema.query.opType,
         schema.mutation.map(_.opType),
         schema.subscription.map(_.opType)
       )
-    }
+    })
 
   import NestedZQueryBenchmarkSchema._
 
@@ -36,34 +36,27 @@ class ValidationBenchmark {
   val parsedDeepWithArgsQuery  = run(Parser.parseQuery(deepWithArgsQuery))
   val parsedIntrospectionQuery = run(Parser.parseQuery(ComplexQueryBenchmark.fullIntrospectionQuery))
 
-  val simpleType = run(
+  val simpleType =
     toRootType(graphQL[Any, SimpleRoot, Unit, Unit](RootResolver(NestedZQueryBenchmarkSchema.simple100Elements)))
-  )
 
   val multifieldType =
-    run(
-      toRootType(
-        graphQL[Any, MultifieldRoot, Unit, Unit](
-          RootResolver(NestedZQueryBenchmarkSchema.multifield100Elements)
-        )
+    toRootType(
+      graphQL[Any, MultifieldRoot, Unit, Unit](
+        RootResolver(NestedZQueryBenchmarkSchema.multifield100Elements)
       )
     )
 
   val deepType =
-    run(
-      toRootType(
-        graphQL[Any, DeepRoot, Unit, Unit](
-          RootResolver[DeepRoot](NestedZQueryBenchmarkSchema.deep100Elements)
-        )
+    toRootType(
+      graphQL[Any, DeepRoot, Unit, Unit](
+        RootResolver[DeepRoot](NestedZQueryBenchmarkSchema.deep100Elements)
       )
     )
 
   val deepWithArgsType =
-    run(
-      toRootType(
-        graphQL[Any, DeepWithArgsRoot, Unit, Unit](
-          RootResolver[DeepWithArgsRoot](NestedZQueryBenchmarkSchema.deepWithArgs100Elements)
-        )
+    toRootType(
+      graphQL[Any, DeepWithArgsRoot, Unit, Unit](
+        RootResolver[DeepWithArgsRoot](NestedZQueryBenchmarkSchema.deepWithArgs100Elements)
       )
     )
 
