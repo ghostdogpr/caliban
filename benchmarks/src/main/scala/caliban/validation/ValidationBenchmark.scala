@@ -20,10 +20,10 @@ class ValidationBenchmark {
 
   private val runtime = Runtime.default
 
-  def run[A](zio: Task[A]): A                                                       = Unsafe.unsafe(implicit u => runtime.unsafe.run(zio).getOrThrow())
-  def toSchema[R](graphQL: GraphQL[R]): IO[CalibanError, (RootSchema[R], RootType)] =
+  def run[A](zio: Task[A]): A                                      = Unsafe.unsafe(implicit u => runtime.unsafe.run(zio).getOrThrow())
+  def toSchema[R](graphQL: GraphQL[R]): IO[CalibanError, RootType] =
     graphQL.validateRootSchema.map { schema =>
-      schema -> RootType(
+      RootType(
         schema.query.opType,
         schema.mutation.map(_.opType),
         schema.subscription.map(_.opType)
@@ -38,11 +38,11 @@ class ValidationBenchmark {
   val parsedDeepWithArgsQuery  = run(Parser.parseQuery(deepWithArgsQuery))
   val parsedIntrospectionQuery = run(Parser.parseQuery(ComplexQueryBenchmark.fullIntrospectionQuery))
 
-  val (simpleSchema, simpleType) = run(
+  val simpleType = run(
     toSchema(graphQL[Any, SimpleRoot, Unit, Unit](RootResolver(NestedZQueryBenchmarkSchema.simple100Elements)))
   )
 
-  val (multifieldSchema, multifieldType) =
+  val multifieldType =
     run(
       toSchema(
         graphQL[Any, MultifieldRoot, Unit, Unit](
@@ -51,7 +51,7 @@ class ValidationBenchmark {
       )
     )
 
-  val (deepSchema, deepType) =
+  val deepType =
     run(
       toSchema(
         graphQL[Any, DeepRoot, Unit, Unit](
@@ -60,7 +60,7 @@ class ValidationBenchmark {
       )
     )
 
-  val (deepWithArgsSchema, deepWithArgsType) =
+  val deepWithArgsType =
     run(
       toSchema(
         graphQL[Any, DeepWithArgsRoot, Unit, Unit](
@@ -106,7 +106,6 @@ class ValidationBenchmark {
       .prepareEither(
         parsedSimpleQuery,
         simpleType,
-        simpleSchema,
         None,
         Map.empty,
         skipValidation = true,
@@ -120,7 +119,6 @@ class ValidationBenchmark {
       .prepareEither(
         parsedMultifieldQuery,
         multifieldType,
-        multifieldSchema,
         None,
         Map.empty,
         skipValidation = true,
@@ -134,7 +132,6 @@ class ValidationBenchmark {
       .prepareEither(
         parsedDeepQuery,
         deepType,
-        deepSchema,
         None,
         Map.empty,
         skipValidation = true,
@@ -148,7 +145,6 @@ class ValidationBenchmark {
       .prepareEither(
         parsedIntrospectionQuery,
         Introspector.introspectionRootType,
-        simpleSchema,
         None,
         Map.empty,
         skipValidation = true,

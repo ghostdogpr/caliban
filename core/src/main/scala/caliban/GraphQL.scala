@@ -142,7 +142,6 @@ trait GraphQL[-R] { self =>
             Validator.prepareEither(
               doc,
               typeToValidate(doc),
-              schemaToExecute(doc),
               operationName,
               coercedVars,
               config.skipValidation,

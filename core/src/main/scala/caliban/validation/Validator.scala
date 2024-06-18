@@ -92,26 +92,24 @@ object Validator {
    *
    * @see [[prepareEither]] for a variant that returns an Either instead
    */
-  def prepare[R](
+  def prepare(
     document: Document,
     rootType: RootType,
-    rootSchema: RootSchema[R],
     operationName: Option[String],
     variables: Map[String, InputValue],
     skipValidation: Boolean,
     validations: List[QueryValidation]
   ): IO[ValidationError, ExecutionRequest] = ZIO.fromEither(
-    prepareEither(document, rootType, rootSchema, operationName, variables, skipValidation, validations)
+    prepareEither(document, rootType, operationName, variables, skipValidation, validations)
   )(Trace.empty)
 
   /**
    * Prepare the request for execution.
    * Fails with a [[caliban.CalibanError.ValidationError]] otherwise.
    */
-  def prepareEither[R](
+  def prepareEither(
     document: Document,
     rootType: RootType,
-    rootSchema: RootSchema[R],
     operationName: Option[String],
     variables: Map[String, InputValue],
     skipValidation: Boolean,
@@ -140,19 +138,19 @@ object Validator {
       operation.flatMap { op =>
         (op.operationType match {
           case Query        =>
-            Right(rootSchema.query)
+            Right(rootType.queryType)
           case Mutation     =>
-            rootSchema.mutation.toRight(ValidationError("Mutations are not supported on this schema", ""))
+            rootType.mutationType.toRight(ValidationError("Mutations are not supported on this schema", ""))
           case Subscription =>
-            rootSchema.subscription.toRight(ValidationError("Subscriptions are not supported on this schema", ""))
-        }).map(operation =>
+            rootType.subscriptionType.toRight(ValidationError("Subscriptions are not supported on this schema", ""))
+        }).map(opType =>
           ExecutionRequest(
             F(
               op.selectionSet,
               fragments,
               variables,
               op.variableDefinitions,
-              operation.opType,
+              opType,
               document.sourceMapper,
               op.directives,
               rootType
