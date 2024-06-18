@@ -8,10 +8,11 @@ import caliban.parsing.adt.Selection.Field
 import caliban.schema.Step.QueryStep
 import caliban.schema._
 import caliban.wrappers.Wrapper.IntrospectionWrapper
-import zio.ZIO
+import zio.{ Exit, ZIO }
 import zio.query.ZQuery
 
 import scala.annotation.tailrec
+import scala.collection.mutable
 
 object Introspector extends IntrospectionDerivation {
   private[caliban] val directives = List(
@@ -75,13 +76,15 @@ object Introspector extends IntrospectionDerivation {
         case wrapper :: tail => wrap(wrapper.wrap(query))(tail)
       }
 
-    val types = (rootType.types ++ introspectionRootType.types - "__Introspection")
-      .updated("Boolean", Types.boolean) // because of skip and include
-      .updated("String", Types.string)   // because of specifiedBy
-      .values
-      .toList
-      .sortBy(_.name.getOrElse(""))
+    val typesMap = new mutable.HashMap[String, __Type]()
+    typesMap.sizeHint(rootType.types.size + introspectionRootType.types.size + 2)
+    typesMap ++= rootType.types
+    typesMap ++= introspectionRootType.types
+    typesMap.remove("__Introspection")
+    typesMap.update("Boolean", Types.boolean) // because of skip and include
+    typesMap.update("String", Types.string)   // because of specifiedBy
 
+    val types    = typesMap.values.toList.sortBy(_.name)
     val hasOneOf = types.exists(_._isOneOfInput)
 
     val resolver = __Introspection(
@@ -93,25 +96,23 @@ object Introspector extends IntrospectionDerivation {
         types,
         directives ++ (if (hasOneOf) List(oneOfDirective) else Nil) ++ rootType.additionalDirectives
       ),
-      args => types.find(_.name.contains(args.name))
+      args => typesMap.get(args.name)
     )
 
-    RootSchema(
-      Operation(
-        introspectionType,
-        QueryStep(ZQuery.fromZIO(wrap(ZIO.succeed(resolver))(introWrappers)).map(introspectionSchema.resolve))
-      ),
-      None,
-      None
-    )
+    val step = introWrappers match {
+      case Nil => introspectionSchema.resolve(resolver)
+      case ws  => QueryStep(ZQuery.fromZIO(wrap(ZIO.succeed(resolver))(ws).map(introspectionSchema.resolve)))
+    }
+
+    RootSchema(Operation(introspectionType, step), None, None)
   }
 
   private[caliban] def isIntrospection(document: Document): Boolean =
     document.definitions.forall {
       case OperationDefinition(_, _, _, _, selectionSet) =>
         selectionSet.nonEmpty && selectionSet.forall {
-          case Field(_, name, _, _, _, _) => name == "__schema" || name == "__type"
-          case _                          => false
+          case Field(_, "__schema" | "__type", _, _, _, _) => true
+          case _                                           => false
         }
       case _                                             => true
     }
