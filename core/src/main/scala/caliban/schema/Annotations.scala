@@ -81,4 +81,9 @@ object Annotations extends AnnotationsVersionSpecific {
    */
   case class GQLOneOfInput() extends StaticAnnotation
 
+  /**
+   * Compile-time annotation that can be used in conjunction with [[caliban.transformers.Transformer]] to
+   * customize schema generation.
+   */
+  case class GQLTag(tags: String*) extends StaticAnnotation
 }
