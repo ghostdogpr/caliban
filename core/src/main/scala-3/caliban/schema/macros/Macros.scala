@@ -1,6 +1,6 @@
 package caliban.schema.macros
 
-import caliban.schema.Annotations.{ GQLExcluded, GQLField }
+import caliban.schema.Annotations.*
 import caliban.schema.Schema
 
 import scala.quoted.*

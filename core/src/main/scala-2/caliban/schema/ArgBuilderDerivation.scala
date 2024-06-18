@@ -3,10 +3,10 @@ package caliban.schema
 import caliban.CalibanError.ExecutionError
 import caliban.InputValue
 import caliban.Value._
-import caliban.schema.Annotations.GQLDefault
-import caliban.schema.Annotations.GQLName
+import caliban.schema.Annotations.{ GQLDefault, GQLName, GQLOneOfInput }
 import magnolia1._
 
+import scala.collection.compat._
 import scala.language.experimental.macros
 
 trait CommonArgBuilderDerivation {
@@ -25,19 +25,44 @@ trait CommonArgBuilderDerivation {
     override def map[A, B](from: EitherExecutionError[A])(fn: A => B): EitherExecutionError[B] = from.map(fn)
   }
 
-  def join[T](ctx: CaseClass[ArgBuilder, T]): ArgBuilder[T] =
-    (input: InputValue) =>
-      ctx.constructMonadic { p =>
-        input match {
-          case InputValue.ObjectValue(fields) =>
-            val label   = p.annotations.collectFirst { case GQLName(name) => name }.getOrElse(p.label)
-            val default = p.annotations.collectFirst { case GQLDefault(v) => v }
-            fields.get(label).fold(p.typeclass.buildMissing(default))(p.typeclass.build)
-          case value                          => p.typeclass.build(value)
-        }
+  def join[T](ctx: CaseClass[ArgBuilder, T]): ArgBuilder[T] = new ArgBuilder[T] {
+
+    private val params = {
+      val arr = Array.ofDim[(String, EitherExecutionError[Any])](ctx.parameters.length)
+      ctx.parameters.zipWithIndex.foreach { case (p, i) =>
+        val label   = p.annotations.collectFirst { case GQLName(name) => name }.getOrElse(p.label)
+        val default = p.typeclass.buildMissing(p.annotations.collectFirst { case GQLDefault(v) => v })
+        arr(i) = (label, default)
+      }
+      arr
+    }
+
+    private val required = params.collect { case (label, default) if default.isLeft => label }
+
+    override private[schema] val partial: PartialFunction[InputValue, Either[ExecutionError, T]] = {
+      case InputValue.ObjectValue(fields) if required.forall(fields.contains) => fromFields(fields)
+    }
+
+    def build(input: InputValue): Either[ExecutionError, T] =
+      input match {
+        case InputValue.ObjectValue(fields) => fromFields(fields)
+        case _                              => Left(ExecutionError("expected an input object"))
       }
 
-  def split[T](ctx: SealedTrait[ArgBuilder, T]): ArgBuilder[T] = input =>
+    private[this] def fromFields(fields: Map[String, InputValue]): Either[ExecutionError, T] =
+      ctx.constructMonadic { p =>
+        val idx              = p.index
+        val (label, default) = params(idx)
+        val field            = fields.getOrElse(label, null)
+        if (field ne null) p.typeclass.build(field) else default
+      }
+  }
+
+  def split[T](ctx: SealedTrait[ArgBuilder, T]): ArgBuilder[T] =
+    if (ctx.annotations.contains(GQLOneOfInput())) makeOneOfBuilder(ctx)
+    else makeSumBuilder(ctx)
+
+  private def makeSumBuilder[T](ctx: SealedTrait[ArgBuilder, T]): ArgBuilder[T] = input =>
     (input match {
       case EnumValue(value)   => Some(value)
       case StringValue(value) => Some(value)
@@ -53,6 +78,26 @@ trait CommonArgBuilderDerivation {
         }
       case None        => Left(ExecutionError(s"Can't build a trait from input $input"))
     }
+
+  private def makeOneOfBuilder[A](ctx: SealedTrait[ArgBuilder, A]): ArgBuilder[A] = new ArgBuilder[A] {
+
+    private def inputError(input: InputValue) =
+      ExecutionError(s"Invalid oneOf input $input for trait ${ctx.typeName.short}")
+
+    override val partial: PartialFunction[InputValue, Either[ExecutionError, A]] = {
+      val xs = ctx.subtypes.map(_.typeclass).toList.asInstanceOf[List[ArgBuilder[A]]]
+
+      val checkSize: PartialFunction[InputValue, Either[ExecutionError, A]] = {
+        case InputValue.ObjectValue(f) if f.size != 1 =>
+          Left(ExecutionError("Exactly one key must be specified for oneOf inputs"))
+      }
+      xs.foldLeft(checkSize)(_ orElse _.partial)
+    }
+
+    def build(input: InputValue): Either[ExecutionError, A] =
+      partial.applyOrElse(input, (in: InputValue) => Left(inputError(in)))
+  }
+
 }
 
 trait ArgBuilderDerivation extends CommonArgBuilderDerivation {

@@ -5,7 +5,8 @@ import caliban._
 import caliban.TestUtils._
 import caliban.TestUtils.InvalidSchemas._
 import caliban.introspection.adt._
-import caliban.schema.Types
+import caliban.schema.Annotations.{ GQLDefault, GQLOneOfInput }
+import caliban.schema.{ ArgBuilder, Schema, Types }
 import caliban.schema.Schema.auto._
 import caliban.schema.ArgBuilder.auto._
 import caliban.{ GraphQL, RootResolver }
@@ -334,6 +335,67 @@ object ValidationSchemaSpec extends ZIOSpecDefault {
             )
           }
         )
-      }
+      },
+      suite("OneOf input objects")(
+        test("must have at least one input field") {
+          @GQLOneOfInput
+          sealed trait Foo
+          case object ArgA extends Foo
+          case class Queries(foo: Foo => String)
+
+          implicit val ab: ArgBuilder[Foo]          = ArgBuilder.gen
+          implicit val schema: Schema[Any, Queries] = Schema.gen
+
+          check(
+            graphQL(RootResolver(Queries(_.toString))),
+            "OneOf InputObject 'FooInput' does not have fields"
+          )
+        },
+        test("case classes extending OneOf sealed traits must have a single argument") {
+          @GQLOneOfInput
+          sealed trait Foo
+          case class ArgA(foo: String, bar: String) extends Foo
+          case class ArgB(baz: String)              extends Foo
+          case class Queries(foo: Foo => String)
+
+          implicit val ab: ArgBuilder[Foo]          = ArgBuilder.gen
+          implicit val schema: Schema[Any, Queries] = Schema.gen
+
+          check(
+            graphQL(RootResolver(Queries(_.toString))),
+            "OneOf InputObject 'FooInput' is extended by a case class with multiple arguments: caliban.validation.ValidationSchemaSpec.spec.ArgA"
+          )
+        },
+        test("cannot have default values") {
+          @GQLOneOfInput
+          sealed trait Foo
+          case class ArgA(@GQLDefault("foo") foo: String) extends Foo
+          case class ArgB(bar: String)                    extends Foo
+          case class Queries(foo: Foo => String)
+
+          implicit val ab: ArgBuilder[Foo]          = ArgBuilder.gen
+          implicit val schema: Schema[Any, Queries] = Schema.gen
+
+          check(
+            graphQL(RootResolver(Queries(_.toString))),
+            "OneOf InputObject 'FooInput' argument has a default value"
+          )
+        },
+        test("must have unique field names") {
+          @GQLOneOfInput
+          sealed trait Foo
+          case class ArgA(foo: Int)    extends Foo
+          case class ArgB(foo: String) extends Foo
+          case class Queries(foo: Foo => String)
+
+          implicit val ab: ArgBuilder[Foo]          = ArgBuilder.gen
+          implicit val schema: Schema[Any, Queries] = Schema.gen
+
+          check(
+            graphQL(RootResolver(Queries(_.toString))),
+            "OneOf InputObject 'FooInput' has repeated fields: foo"
+          )
+        }
+      )
     )
 }
