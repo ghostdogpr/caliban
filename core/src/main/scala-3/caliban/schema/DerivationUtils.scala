@@ -45,7 +45,7 @@ private object DerivationUtils {
     annotations.collectFirst { case GQLDeprecated(reason) => reason }
 
   def getTags(annotations: Seq[Any]): Set[String] =
-    annotations.collect { case GQLTag(dir) => dir }.toSet
+    annotations.collect { case GQLTag(tags*) => tags }.flatten.toSet
 
   def mkEnum(annotations: List[Any], info: TypeInfo, subTypes: List[(String, __Type, List[Any])]): __Type =
     makeEnum(
@@ -117,7 +117,7 @@ private object DerivationUtils {
           deprecationReason = deprecationReason,
           directives = Some(getDirectives(fieldAnnotations)).filter(_.nonEmpty),
           parentType = () => Some(tpe),
-          getTags(p.annotations)
+          getTags(fieldAnnotations)
         )
       },
       Some(info.full),
