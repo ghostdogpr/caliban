@@ -2,7 +2,7 @@ package caliban.tools
 
 import caliban.tools.SnapshotTest.GitLock
 import zio.internal.stacktracer.SourceLocation
-import zio.test.{ assert, assertTrue, Assertion, Spec, TestResult, ZIOSpecDefault }
+import zio.test._
 import zio.{ Task, Trace }
 
 import java.nio.file.{ Files, Path }
@@ -18,7 +18,8 @@ trait SnapshotTest extends ZIOSpecDefault {
     zio.test.test[Task[TestResult]](label) {
       str.map { str =>
         val isCi = SnapshotTest.isCi
-        val path = SnapshotTest.projectRoot.resolve(s"tools/src/test/resources/snapshots/$testName/${label + ".scala"}")
+        val path =
+          SnapshotTest.projectRoot.resolve(s"tools/src/test/resources/snapshots/$testName/${label + ".scala"}")
 
         def write(): TestResult = {
           Files.createDirectories(path.getParent)
@@ -51,7 +52,7 @@ trait SnapshotTest extends ZIOSpecDefault {
             write()
         }
       }
-    }
+    } @@ TestAspect.blocking
   }
 
 }

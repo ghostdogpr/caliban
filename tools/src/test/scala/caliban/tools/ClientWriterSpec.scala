@@ -1,8 +1,8 @@
 package caliban.tools
 
 import caliban.parsing.Parser
+import zio.test.TestAspect
 import zio.{ Task, ZIO }
-import zio.test._
 
 object ClientWriterSpec extends SnapshotTest {
   override val testName: String = "ClientWriterSpec"
@@ -413,5 +413,5 @@ object ClientWriterSpec extends SnapshotTest {
              }
             """)
       }
-    ) @@ TestAspect.sequential
+    ) @@ TestAspect.parallelN(4)
 }
