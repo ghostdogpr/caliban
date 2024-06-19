@@ -469,5 +469,5 @@ object SchemaWriterSpec extends SnapshotTest {
   )
 
   override def spec =
-    suite("SchemaWriterSpec")(assertions) @@ TestAspect.parallelN(8)
+    suite("SchemaWriterSpec")(assertions) @@ TestAspect.parallelN(4)
 }

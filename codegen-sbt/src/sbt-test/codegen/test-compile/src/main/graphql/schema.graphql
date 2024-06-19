@@ -1,4 +1,5 @@
 directive @lazy on FIELD_DEFINITION
+directive @oneOf on INPUT_OBJECT
 
 # Schema
 schema {
@@ -11,6 +12,8 @@ type Q {
     characters: [Character!]!
     # nested object type with argument
     character(name: String!): Character
+
+    character2(oneOfThese: CharacterOneOfInput!): Character
 
     # default arguments for optional and list arguments
     characters2(
@@ -41,6 +44,16 @@ input CharacterInput {
     wait: String!
 }
 
+# Input object
+input CharacterOneOfInput @oneOf {
+    name: String
+    nickname: String
+    origin: Origin
+
+    # reserved name
+    wait: String
+}
+
 # Object
 type Character {
     name: String!
@@ -63,12 +76,12 @@ type Character {
     # Deprecated field + comment with double quotes and newlines
     """a deprecated field"""
     oldName3: String!
-      @deprecated(reason: """
-        This field is deprecated for the following reasons:
-        1. "Outdated data model": The field relies on an outdated data model.
-        2. "Performance issues": Queries using this field have performance issues.
-        Please use `name` instead.
-      """)
+    @deprecated(reason: """
+    This field is deprecated for the following reasons:
+    1. "Outdated data model": The field relies on an outdated data model.
+    2. "Performance issues": Queries using this field have performance issues.
+    Please use `name` instead.
+    """)
 }
 
 # Enum
@@ -110,14 +123,14 @@ type Product {
 }
 
 type Canterbury {
-  officer: Officer!
+    officer: Officer!
 }
 
 type Officer {
-  dossier: Dossier! @lazy
+    dossier: Dossier! @lazy
 }
 
 type Dossier {
-  homeWorld: String!
-  faction: String! @lazy
+    homeWorld: String!
+    faction: String! @lazy
 }

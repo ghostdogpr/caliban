@@ -6,8 +6,7 @@ object Client {
   sealed trait CharacterInput {
     protected def encode: __Value
   }
-
-  object CharacterInput {
+  object CharacterInput       {
     final case class Name(name: String)                       extends CharacterInput {
       protected def encode: __Value = __ObjectValue(List("name" -> implicitly[ArgEncoder[String]].encode(name)))
     }

@@ -421,5 +421,5 @@ object ClientWriterSpec extends SnapshotTest {
              }
             """)
       }
-    ) @@ TestAspect.parallelN(8)
+    ) @@ TestAspect.parallelN(4)
 }

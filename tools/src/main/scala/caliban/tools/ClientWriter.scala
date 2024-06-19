@@ -673,7 +673,6 @@ object ClientWriter {
       s"""sealed trait $inputObjectName {
          |  protected def encode: __Value
          |}
-         |
          |object $inputObjectName {
          |  $leafTypes
          |
