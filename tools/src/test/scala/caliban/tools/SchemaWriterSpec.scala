@@ -186,6 +186,16 @@ object SchemaWriterSpec extends SnapshotTest {
                name: String!
              }
             """)),
+    snapshotTest("input type oneOf")(gen("""
+             type Character {
+                name: String!
+             }
+
+             input CharacterArgs @oneOf {
+               foo: String
+               bar: Int
+             }
+            """)),
     snapshotTest("input type with preserved input")(
       gen(
         """
@@ -459,5 +469,5 @@ object SchemaWriterSpec extends SnapshotTest {
   )
 
   override def spec =
-    suite("SchemaWriterSpec")(assertions) @@ TestAspect.parallelN(4)
+    suite("SchemaWriterSpec")(assertions) @@ TestAspect.parallelN(8)
 }

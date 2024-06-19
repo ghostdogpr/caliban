@@ -4,7 +4,7 @@ import caliban.Value.StringValue
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
 import caliban.parsing.adt.Type.{ ListType, NamedType }
-import caliban.parsing.adt.{ Document, Type }
+import caliban.parsing.adt.{ Directives, Document, Type }
 
 import scala.annotation.tailrec
 
@@ -654,6 +654,35 @@ object ClientWriter {
          |}""".stripMargin
     }
 
+    def writeOneOfInputObject(
+      typedef: InputObjectTypeDefinition
+    ): String = {
+      val inputObjectName = safeTypeName(typedef.name)
+
+      val leafTypes = typedef.fields.map { f =>
+        val name       = f.name
+        val tpe        = f.ofType.toNonNullable
+        val fNonNull   = f.copy(ofType = tpe)
+        val inputValue = writeInputValue(tpe, s"${safeName(f.name)}", inputObjectName)
+
+        s"""final case class ${name.capitalize}(${writeArgumentFields(List(fNonNull))}) extends $inputObjectName {
+              protected def encode: __Value = __ObjectValue(List("${f.name}" -> $inputValue))
+            }""".stripMargin
+      }.mkString("\n")
+
+      s"""sealed trait $inputObjectName {
+         |  protected def encode: __Value
+         |}
+         |
+         |object $inputObjectName {
+         |  $leafTypes
+         |
+         |  implicit val encoder: ArgEncoder[$inputObjectName] = new ArgEncoder[$inputObjectName] {
+         |    override def encode(value: $inputObjectName): __Value = value.encode
+         |  }
+         |}""".stripMargin
+    }
+
     def writeInputValue(
       t: Type,
       fieldName: String,
@@ -849,7 +878,9 @@ object ClientWriter {
       }
 
     val inputs = schema.inputObjectTypeDefinitions.map { typedef =>
-      val content     = writeInputObject(typedef)
+      val content     =
+        if (Directives.isOneOf(typedef.directives)) writeOneOfInputObject(typedef)
+        else writeInputObject(typedef)
       val fullContent =
         if (splitFiles)
           s"""import caliban.client._
