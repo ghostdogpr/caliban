@@ -18,8 +18,7 @@ trait SnapshotTest extends ZIOSpecDefault {
     zio.test.test[Task[TestResult]](label) {
       str.map { str =>
         val isCi = SnapshotTest.isCi
-        val path =
-          SnapshotTest.projectRoot.resolve(s"tools/src/test/resources/snapshots/$testName/${label + ".scala"}")
+        val path = SnapshotTest.projectRoot.resolve(s"tools/src/test/resources/snapshots/$testName/${label + ".scala"}")
 
         def write(): TestResult = {
           Files.createDirectories(path.getParent)
