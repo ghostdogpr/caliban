@@ -2,7 +2,7 @@ package caliban.introspection.adt
 
 import caliban.Value.StringValue
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition.{ FieldDefinition, InputValueDefinition }
-import caliban.parsing.adt.Directive
+import caliban.parsing.adt.{ Directive, Directives }
 import caliban.schema.Annotations.GQLExcluded
 
 case class __Field(
@@ -12,8 +12,7 @@ case class __Field(
   `type`: () => __Type,
   isDeprecated: Boolean = false,
   deprecationReason: Option[String] = None,
-  @GQLExcluded directives: Option[List[Directive]] = None,
-  @GQLExcluded tags: Set[String] = Set.empty
+  @GQLExcluded directives: Option[List[Directive]] = None
 ) {
   final override lazy val hashCode: Int = super.hashCode()
 
@@ -34,6 +33,8 @@ case class __Field(
 
   lazy val allArgs: List[__InputValue] =
     args(__DeprecatedArgs.include)
+
+  private[caliban] lazy val _tags: Set[String] = directives.fold(Set.empty[String])(Directives.internal.tags)
 
   private[caliban] lazy val _type: __Type = `type`()
 

@@ -1,6 +1,7 @@
 package caliban.schema
 
-import caliban.parsing.adt.Directive
+import caliban.{ InputValue, Value }
+import caliban.parsing.adt.{ Directive, Directives }
 
 import scala.annotation.StaticAnnotation
 
@@ -85,5 +86,12 @@ object Annotations extends AnnotationsVersionSpecific {
    * Compile-time annotation that can be used in conjunction with [[caliban.transformers.Transformer]] to
    * customize schema generation.
    */
-  case class GQLTag(tags: String*) extends StaticAnnotation
+  case class GQLTag(tags: String*)
+      extends GQLDirective(
+        Directive(
+          Directives.internal.Tag,
+          tags.map(_ -> Value.NullValue).toMap,
+          isIntrospectable = false
+        )
+      )
 }

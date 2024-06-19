@@ -83,8 +83,7 @@ trait CommonSchemaDerivation[R] {
                 p.annotations.collectFirst { case GQLDeprecated(_) => () }.isDefined,
                 p.annotations.collectFirst { case GQLDeprecated(reason) => reason },
                 Some(p.annotations.collect { case GQLDirective(dir) => dir }.toList).filter(_.nonEmpty),
-                () => Some(tpe),
-                getTags(p.annotations)
+                () => Some(tpe)
               )
             )
             .toList,
@@ -123,8 +122,7 @@ trait CommonSchemaDerivation[R] {
                       Some(SchemaUtils.SemanticNonNull)
                     else None
                   }
-                ).filter(_.nonEmpty),
-                getTags(p.annotations)
+                ).filter(_.nonEmpty)
               )
             }
             .toList,
@@ -288,9 +286,6 @@ trait CommonSchemaDerivation[R] {
 
   private def getDescription[Typeclass[_], Type](ctx: ReadOnlyParam[Typeclass, Type]): Option[String] =
     getDescription(ctx.annotations)
-
-  private def getTags(annotations: Seq[Any]): Set[String] =
-    annotations.collect { case GQLTag(tags @ _*) => tags }.flatten.toSet
 
 }
 

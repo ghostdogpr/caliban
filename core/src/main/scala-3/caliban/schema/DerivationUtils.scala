@@ -44,9 +44,6 @@ private object DerivationUtils {
   def getDeprecatedReason(annotations: Seq[Any]): Option[String] =
     annotations.collectFirst { case GQLDeprecated(reason) => reason }
 
-  def getTags(annotations: Seq[Any]): Set[String] =
-    annotations.collect { case GQLTag(tags*) => tags }.flatten.toSet
-
   def mkEnum(annotations: List[Any], info: TypeInfo, subTypes: List[(String, __Type, List[Any])]): __Type =
     makeEnum(
       Some(getName(annotations, info)),
@@ -116,8 +113,7 @@ private object DerivationUtils {
           isDeprecated = deprecationReason.isDefined,
           deprecationReason = deprecationReason,
           directives = Some(getDirectives(fieldAnnotations)).filter(_.nonEmpty),
-          parentType = () => Some(tpe),
-          getTags(fieldAnnotations)
+          parentType = () => Some(tpe)
         )
       },
       Some(info.full),
@@ -172,8 +168,7 @@ private object DerivationUtils {
             if (enableSemanticNonNull && isSemanticNonNull) Some(SchemaUtils.SemanticNonNull)
             else None
           }
-        ).filter(_.nonEmpty),
-        getTags(fieldAnnotations)
+        ).filter(_.nonEmpty)
       )
     },
     getDirectives(annotations),

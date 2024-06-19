@@ -345,7 +345,7 @@ object Transformer {
     private val map: mutable.HashMap[String, Set[String]] = mutable.HashMap.empty
 
     private def shouldKeep(tpe: __Type, field: __Field): Boolean = {
-      val keep = field.tags.intersect(tags).isEmpty
+      val keep = field._tags.intersect(tags).isEmpty
       if (!keep) map.updateWith(tpe.name.getOrElse("")) {
         case Some(set) => Some(set + field.name)
         case None      => Some(Set(field.name))
@@ -357,7 +357,7 @@ object Transformer {
       TypeVisitor.fields.filterWith((t, field) => shouldKeep(t, field)) |+|
         TypeVisitor.fields.modify { field =>
           def loop(arg: __InputValue): Option[__InputValue] =
-            if (arg._type.isNullable && arg.tags.intersect(tags).nonEmpty) None
+            if (arg._type.isNullable && arg._tags.intersect(tags).nonEmpty) None
             else {
               lazy val newType = arg._type.mapInnerType { t =>
                 t.copy(inputFields = t.inputFields(_).map(_.flatMap(loop)))

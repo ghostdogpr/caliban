@@ -2,7 +2,7 @@ package caliban.introspection.adt
 
 import caliban.Value.StringValue
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition.InputValueDefinition
-import caliban.parsing.adt.Directive
+import caliban.parsing.adt.{ Directive, Directives }
 import caliban.parsing.Parser
 import caliban.schema.Annotations.GQLExcluded
 
@@ -16,9 +16,9 @@ case class __InputValue(
   isDeprecated: Boolean = false,
   deprecationReason: Option[String] = None,
   @GQLExcluded directives: Option[List[Directive]] = None,
-  @GQLExcluded parentType: () => Option[__Type] = () => None,
-  @GQLExcluded tags: Set[String] = Set.empty
+  @GQLExcluded parentType: () => Option[__Type] = () => None
 ) {
+
   def toInputValueDefinition: InputValueDefinition = {
     val default       = defaultValue.flatMap(v => Parser.parseInputValue(v).toOption)
     val allDirectives = (if (isDeprecated)
@@ -31,6 +31,8 @@ case class __InputValue(
                          else Nil) ++ directives.getOrElse(Nil)
     InputValueDefinition(description, name, _type.toType(), default, allDirectives)
   }
+
+  private[caliban] lazy val _tags: Set[String] = directives.fold(Set.empty[String])(Directives.internal.tags)
 
   private[caliban] lazy val _type: __Type = `type`()
   private[caliban] lazy val _parentType   = parentType()

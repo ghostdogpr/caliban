@@ -2,7 +2,8 @@ package caliban.transformers
 
 import caliban.Macros.gqldoc
 import caliban._
-import caliban.schema.Annotations.GQLTag
+import caliban.parsing.adt.Directive
+import caliban.schema.Annotations.{ GQLDirective, GQLTag }
 import caliban.schema.ArgBuilder.auto._
 import caliban.schema.Schema.auto._
 import zio.test._

@@ -132,6 +132,21 @@ object RenderingSpec extends ZIOSpecDefault {
         val renderedType = DocumentRenderer.typesRenderer.render(List(testType)).trim
         assertTrue(renderedType == "type TestType @testdirective(object: {key1: \"value1\", key2: \"value2\"})")
       },
+      test("only introspectable directives are rendered") {
+        val all              = List(
+          Directive("d0", isIntrospectable = false),
+          Directive("d1"),
+          Directive("d2", isIntrospectable = false),
+          Directive("d3"),
+          Directive("d4"),
+          Directive("d5", isIntrospectable = false),
+          Directive("d6", isIntrospectable = false)
+        )
+        val filtered         = all.filter(_.isIntrospectable)
+        val renderedAll      = DocumentRenderer.directivesRenderer.render(all)
+        val renderedFiltered = DocumentRenderer.directivesRenderer.render(filtered)
+        assertTrue(renderedAll == renderedFiltered, renderedAll == " @d1 @d3 @d4")
+      },
       test(
         "it should escape \", \\, backspace, linefeed, carriage-return and tab inside a normally quoted description string"
       ) {

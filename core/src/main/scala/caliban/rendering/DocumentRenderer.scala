@@ -572,11 +572,14 @@ object DocumentRenderer extends Renderer[Document] {
   }
 
   private lazy val directiveRenderer: Renderer[Directive] = new Renderer[Directive] {
-    override def unsafeRender(d: Directive, indent: Option[Int], writer: StringBuilder): Unit = {
-      writer append '@'
-      writer append d.name
-      inputArgumentsRenderer.unsafeRender(d.arguments, indent, writer)
-    }
+    override def unsafeRender(d: Directive, indent: Option[Int], writer: StringBuilder): Unit =
+      if (d.isIntrospectable) {
+        writer append '@'
+        writer append d.name
+        inputArgumentsRenderer.unsafeRender(d.arguments, indent, writer)
+      } else {
+        writer.deleteCharAt(writer.size - 1)
+      }
   }
 
   private lazy val fieldDefinitionsRenderer: Renderer[List[FieldDefinition]] =

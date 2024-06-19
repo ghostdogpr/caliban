@@ -60,12 +60,13 @@ case class __Type(
         Some(
           ScalarTypeDefinition(
             description,
-            name.getOrElse(""),
-            directives
-              .getOrElse(Nil) ++
-              specifiedBy
-                .map(url => Directive("specifiedBy", Map("url" -> StringValue(url)), directives.size))
-                .toList
+            name.getOrElse(""), {
+              val dirs = directives.getOrElse(Nil)
+              dirs ++
+                specifiedBy
+                  .map(url => Directive("specifiedBy", Map("url" -> StringValue(url)), dirs.size))
+                  .toList
+            }
           )
         )
       case __TypeKind.OBJECT       =>
