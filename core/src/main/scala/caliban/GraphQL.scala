@@ -15,7 +15,7 @@ import caliban.validation.Validator
 import caliban.wrappers.Wrapper
 import caliban.wrappers.Wrapper._
 import zio.stacktracer.TracingImplicits.disableAutoTrace
-import zio.{ IO, Trace, URIO, ZIO }
+import zio.{ Exit, IO, Trace, URIO, Unsafe, ZIO }
 
 /**
  * A `GraphQL[-R]` represents a GraphQL API whose execution requires a ZIO environment of type `R`.
@@ -31,8 +31,8 @@ trait GraphQL[-R] { self =>
   protected val features: Set[Feature]
   protected val transformer: Transformer[R]
 
-  private[caliban] def validateRootSchema(implicit trace: Trace): IO[ValidationError, RootSchema[R]] =
-    ZIO.fromEither(Validator.validateSchemaEither(schemaBuilder))
+  private[caliban] def validateRootSchema: Either[ValidationError, RootSchema[R]] =
+    Validator.validateSchema(schemaBuilder)
 
   /**
    * Returns a string that renders the API types into the GraphQL SDL.
@@ -63,8 +63,8 @@ trait GraphQL[-R] { self =>
    *
    * @see [[interpreterEither]] for a variant that returns an Either instead, making it easier to embed in non-ZIO applications
    */
-  final def interpreter(implicit trace: Trace): IO[ValidationError, GraphQLInterpreter[R, CalibanError]] =
-    ZIO.fromEither(interpreterEither)
+  final def interpreter: Exit[ValidationError, GraphQLInterpreter[R, CalibanError]] =
+    Exit.fromEither(interpreterEither)
 
   /**
    * Impure variant of [[interpreterEither]] which throws schema validation errors. Useful for cases that the
@@ -72,7 +72,7 @@ trait GraphQL[-R] { self =>
    */
   @throws[CalibanError.ValidationError]("if the schema is invalid")
   final def interpreterUnsafe: GraphQLInterpreter[R, CalibanError] =
-    interpreterEither.fold(throw _, identity)
+    Unsafe.unsafe(interpreter.getOrThrowFiberFailure()(_))
 
   /**
    * Creates an interpreter from your API. A GraphQLInterpreter is a wrapper around your API that allows
@@ -83,7 +83,7 @@ trait GraphQL[-R] { self =>
    * @see [[interpreterUnsafe]] of an unsafe variant that will throw validation errors
    */
   final lazy val interpreterEither: Either[ValidationError, GraphQLInterpreter[R, CalibanError]] =
-    Validator.validateSchemaEither(schemaBuilder).map { schema =>
+    validateRootSchema.map { schema =>
       new GraphQLInterpreter[R, CalibanError] {
         private val rootType =
           RootType(
@@ -98,9 +98,12 @@ trait GraphQL[-R] { self =>
         private val introWrappers                               = wrappers.collect { case w: IntrospectionWrapper[R] => w }
         private lazy val introspectionRootSchema: RootSchema[R] = Introspector.introspect(rootType, introWrappers)
 
+        private def parseZIO(query: String)(implicit trace: Trace): IO[CalibanError.ParsingError, Document] =
+          ZIO.fromEither(Parser.parseQuery(query))
+
         override def check(query: String)(implicit trace: Trace): IO[CalibanError, Unit] =
           for {
-            document      <- Parser.parseQuery(query)
+            document      <- parseZIO(query)
             intro          = Introspector.isIntrospection(document)
             typeToValidate = if (intro) Introspector.introspectionRootType else rootType
             _             <- Validator.validate(document, typeToValidate)
@@ -113,7 +116,7 @@ trait GraphQL[-R] { self =>
             case (overallWrappers, parsingWrappers, validationWrappers, executionWrappers, fieldWrappers, _) =>
               wrap((request: GraphQLRequest) =>
                 (for {
-                  doc          <- wrap(Parser.parseQuery)(parsingWrappers, request.query.getOrElse(""))
+                  doc          <- wrap(parseZIO)(parsingWrappers, request.query.getOrElse(""))
                   coercedVars  <- coerceVariables(doc, request.variables.getOrElse(Map.empty))
                   executionReq <- wrap(validation(request.operationName, coercedVars))(validationWrappers, doc)
                   result       <- wrap(execution(schemaToExecute(doc), fieldWrappers))(executionWrappers, executionReq)
@@ -128,7 +131,7 @@ trait GraphQL[-R] { self =>
             if (doc.isIntrospection && !config.enableIntrospection)
               ZIO.fail(CalibanError.ValidationError("Introspection is disabled", ""))
             else
-              VariablesCoercer.coerceVariablesEither(variables, doc, typeToValidate(doc), config.skipValidation) match {
+              VariablesCoercer.coerceVariables(variables, doc, typeToValidate(doc), config.skipValidation) match {
                 case Right(value) => ZIO.succeed(value)
                 case Left(error)  => ZIO.fail(error)
               }
@@ -139,7 +142,7 @@ trait GraphQL[-R] { self =>
           coercedVars: Map[String, InputValue]
         )(doc: Document)(implicit trace: Trace): IO[ValidationError, ExecutionRequest] =
           Configurator.ref.getWith { config =>
-            Validator.prepareEither(
+            Validator.prepare(
               doc,
               typeToValidate(doc),
               operationName,

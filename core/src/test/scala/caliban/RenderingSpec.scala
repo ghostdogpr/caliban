@@ -57,7 +57,7 @@ object RenderingSpec extends ZIOSpecDefault {
       case other                                                            => other
     }
 
-  def checkApi[R](api: GraphQL[R]): IO[ParsingError, TestResult] = {
+  def checkApi[R](api: GraphQL[R]): Either[ParsingError, TestResult] = {
     val definitions = fixDefinitions(api.toDocument.definitions.filter {
       case d: Definition.TypeSystemDefinition.TypeDefinition.ScalarTypeDefinition =>
         !DocumentRenderer.isBuiltinScalar(d.name)
@@ -245,10 +245,10 @@ object RenderingSpec extends ZIOSpecDefault {
 
   private def roundTrip(file: String, isCompact: Boolean = false) =
     ZIO.scoped(for {
-      input    <- ZIO.fromAutoCloseable(ZIO.attempt(Source.fromResource(file))).map(_.mkString)
-      doc      <- Parser.parseQuery(input)
-      rendered  = if (isCompact) DocumentRenderer.renderCompact(doc) else DocumentRenderer.render(doc)
-      reparsed <- Parser.parseQuery(rendered).either
+      input   <- ZIO.fromAutoCloseable(ZIO.attempt(Source.fromResource(file))).map(_.mkString)
+      doc     <- ZIO.fromEither(Parser.parseQuery(input))
+      rendered = if (isCompact) DocumentRenderer.renderCompact(doc) else DocumentRenderer.render(doc)
+      reparsed = Parser.parseQuery(rendered)
     } yield assertTrue(input == rendered, reparsed.isRight))
 
   @GQLOneOfInput

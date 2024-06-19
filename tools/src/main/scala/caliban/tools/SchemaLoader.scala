@@ -22,10 +22,10 @@ object SchemaLoader {
       ZIO
         .attempt(scala.io.Source.fromFile(path))
         .acquireReleaseWithAuto(f => ZIO.attempt(f.mkString))
-    }.flatMap(Parser.parseQuery)
+    }.map(Parser.parseQuery).absolve
   }
   case class FromString private[SchemaLoader] (schema: String)   extends SchemaLoader {
-    override def load: Task[Document] = Parser.parseQuery(schema)
+    override def load: Task[Document] = ZIO.fromEither(Parser.parseQuery(schema))
   }
   case class FromIntrospection private[SchemaLoader] (
     url: String,

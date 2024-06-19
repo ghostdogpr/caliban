@@ -531,7 +531,7 @@ object ValidationSpec extends ZIOSpecDefault {
               )
           },
           test("schema is valid") {
-            api.validateRootSchema.as(assertCompletes)
+            api.validateRootSchema.map(_ => assertCompletes)
           }
         )
       }
