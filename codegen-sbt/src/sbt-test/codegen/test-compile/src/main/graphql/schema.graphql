@@ -12,7 +12,7 @@ type Q {
     characters: [Character!]!
     # nested object type with argument
     character(name: String!): Character
-
+    # oneOf input object
     character2(oneOfThese: CharacterOneOfInput!): Character
 
     # default arguments for optional and list arguments
