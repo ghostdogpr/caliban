@@ -190,9 +190,8 @@ object CatsInterop {
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type =
         ev.toType_(isInput, isSubscription)
 
-      override def nullable: Boolean =
-        ev.nullable
-      override def canFail: Boolean  = true
+      override def nullable: Boolean = ev.nullable
+      override def canFail: Boolean  = ev.canFail
 
       override def resolve(value: F[A]): Step[R] =
         QueryStep(ZQuery.fromZIO(interop.fromEffect(value).map(ev.resolve)))
