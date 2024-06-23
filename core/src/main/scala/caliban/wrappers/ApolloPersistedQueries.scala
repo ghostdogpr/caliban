@@ -95,7 +95,7 @@ object ApolloPersistedQueries {
                     }
                 }
                 .flatMap(process)
-                .catchAll(ex => ZIO.succeed(GraphQLResponse(NullValue, List(ex))))
+                .catchAll(ex => Exit.succeed(GraphQLResponse(NullValue, List(ex))))
             case None       => docVar.succeed(None) *> process(request)
           }
     }

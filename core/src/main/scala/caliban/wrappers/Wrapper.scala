@@ -7,7 +7,7 @@ import caliban.introspection.adt.__Introspection
 import caliban.parsing.adt.Document
 import caliban.wrappers.Wrapper.CombinedWrapper
 import zio.query.ZQuery
-import zio.{ Trace, UIO, ZIO }
+import zio.{ Exit, Trace, UIO, ZIO }
 import zio.stacktracer.TracingImplicits.disableAutoTrace
 
 import scala.annotation.tailrec
@@ -152,7 +152,7 @@ object Wrapper {
   }
 
   private val emptyWrappers =
-    ZIO.succeed((Nil, Nil, Nil, Nil, Nil, Nil))(Trace.empty)
+    Exit.succeed((Nil, Nil, Nil, Nil, Nil, Nil))
 
   private[caliban] def decompose[R](wrappers: List[Wrapper[R]])(implicit trace: Trace): UIO[
     (

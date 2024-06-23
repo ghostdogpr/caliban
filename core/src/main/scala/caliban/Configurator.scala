@@ -39,7 +39,7 @@ object Configurator {
     Unsafe.unsafe(implicit u => FiberRef.unsafe.make(ExecutionConfiguration()))
 
   private[caliban] val skipValidation: UIO[Boolean] =
-    ref.getWith(cfg => ZIO.succeed(cfg.skipValidation))
+    ref.getWith(cfg => Exit.succeed(cfg.skipValidation))
 
   /**
    * Skip validation of the query.

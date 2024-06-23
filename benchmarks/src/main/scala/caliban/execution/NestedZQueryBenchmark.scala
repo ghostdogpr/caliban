@@ -11,8 +11,8 @@ import java.util.concurrent.TimeUnit
 @State(Scope.Thread)
 @BenchmarkMode(Array(Mode.Throughput))
 @OutputTimeUnit(TimeUnit.SECONDS)
-@Warmup(iterations = 5, time = 3, timeUnit = TimeUnit.SECONDS)
-@Measurement(iterations = 5, time = 3, timeUnit = TimeUnit.SECONDS)
+@Warmup(iterations = 5, time = 1, timeUnit = TimeUnit.SECONDS)
+@Measurement(iterations = 5, time = 1, timeUnit = TimeUnit.SECONDS)
 @Fork(1)
 class NestedZQueryBenchmark {
 
@@ -22,303 +22,142 @@ class NestedZQueryBenchmark {
 
   import NestedZQueryBenchmarkSchema._
 
-  val simple100: GraphQLInterpreter[Any, CalibanError]   =
-    run(graphQL[Any, SimpleRoot, Unit, Unit](RootResolver(NestedZQueryBenchmarkSchema.simple100Elements)).interpreter)
-  val simple1000: GraphQLInterpreter[Any, CalibanError]  =
-    run(graphQL[Any, SimpleRoot, Unit, Unit](RootResolver(NestedZQueryBenchmarkSchema.simple1000Elements)).interpreter)
+  @Param(Array("100", "10000"))
+  var size: Int = _
+
+  @Param(Array("sequential", "parallel", "batched"))
+  var execution: String = _
+
+  val simple100: GraphQLInterpreter[Any, CalibanError] =
+    graphQL[Any, SimpleRoot, Unit, Unit](
+      RootResolver(NestedZQueryBenchmarkSchema.simple100Elements)
+    ).interpreterUnsafe
+
+  val simple1000: GraphQLInterpreter[Any, CalibanError] =
+    graphQL[Any, SimpleRoot, Unit, Unit](
+      RootResolver(NestedZQueryBenchmarkSchema.simple1000Elements)
+    ).interpreterUnsafe
+
   val simple10000: GraphQLInterpreter[Any, CalibanError] =
-    run(graphQL[Any, SimpleRoot, Unit, Unit](RootResolver(NestedZQueryBenchmarkSchema.simple10000Elements)).interpreter)
+    graphQL[Any, SimpleRoot, Unit, Unit](
+      RootResolver(NestedZQueryBenchmarkSchema.simple10000Elements)
+    ).interpreterUnsafe
 
-  val multifield100: GraphQLInterpreter[Any, CalibanError]   =
-    run(
-      graphQL[Any, MultifieldRoot, Unit, Unit](
-        RootResolver(NestedZQueryBenchmarkSchema.multifield100Elements)
-      ).interpreter
-    )
-  val multifield1000: GraphQLInterpreter[Any, CalibanError]  =
-    run(
-      graphQL[Any, MultifieldRoot, Unit, Unit](
-        RootResolver(NestedZQueryBenchmarkSchema.multifield1000Elements)
-      ).interpreter
-    )
+  val multifield100: GraphQLInterpreter[Any, CalibanError] =
+    graphQL[Any, MultifieldRoot, Unit, Unit](
+      RootResolver(NestedZQueryBenchmarkSchema.multifield100Elements)
+    ).interpreterUnsafe
+
+  val multifield1000: GraphQLInterpreter[Any, CalibanError] =
+    graphQL[Any, MultifieldRoot, Unit, Unit](
+      RootResolver(NestedZQueryBenchmarkSchema.multifield1000Elements)
+    ).interpreterUnsafe
+
   val multifield10000: GraphQLInterpreter[Any, CalibanError] =
-    run(
-      graphQL[Any, MultifieldRoot, Unit, Unit](
-        RootResolver(NestedZQueryBenchmarkSchema.multifield10000Elements)
-      ).interpreter
-    )
+    graphQL[Any, MultifieldRoot, Unit, Unit](
+      RootResolver(NestedZQueryBenchmarkSchema.multifield10000Elements)
+    ).interpreterUnsafe
 
-  val deep100: GraphQLInterpreter[Any, CalibanError]   =
-    run(
-      graphQL[Any, DeepRoot, Unit, Unit](
-        RootResolver[DeepRoot](NestedZQueryBenchmarkSchema.deep100Elements)
-      ).interpreter
-    )
-  val deep1000: GraphQLInterpreter[Any, CalibanError]  =
-    run(
-      graphQL[Any, DeepRoot, Unit, Unit](
-        RootResolver[DeepRoot](NestedZQueryBenchmarkSchema.deep1000Elements)
-      ).interpreter
-    )
+  val multifieldEager100: GraphQLInterpreter[Any, CalibanError] =
+    graphQL[Any, MultifieldRoot, Unit, Unit](
+      RootResolver(NestedZQueryBenchmarkSchema.multifieldEager100Elements)
+    ).interpreterUnsafe
+
+  val multifieldEager1000: GraphQLInterpreter[Any, CalibanError] =
+    graphQL[Any, MultifieldRoot, Unit, Unit](
+      RootResolver(NestedZQueryBenchmarkSchema.multifieldEager1000Elements)
+    ).interpreterUnsafe
+
+  val multifieldEager10000: GraphQLInterpreter[Any, CalibanError] =
+    graphQL[Any, MultifieldRoot, Unit, Unit](
+      RootResolver(NestedZQueryBenchmarkSchema.multifieldEager10000Elements)
+    ).interpreterUnsafe
+
+  val deep100: GraphQLInterpreter[Any, CalibanError] =
+    graphQL[Any, DeepRoot, Unit, Unit](
+      RootResolver[DeepRoot](NestedZQueryBenchmarkSchema.deep100Elements)
+    ).interpreterUnsafe
+
+  val deep1000: GraphQLInterpreter[Any, CalibanError] =
+    graphQL[Any, DeepRoot, Unit, Unit](
+      RootResolver[DeepRoot](NestedZQueryBenchmarkSchema.deep1000Elements)
+    ).interpreterUnsafe
+
   val deep10000: GraphQLInterpreter[Any, CalibanError] =
-    run(
-      graphQL[Any, DeepRoot, Unit, Unit](
-        RootResolver[DeepRoot](NestedZQueryBenchmarkSchema.deep10000Elements)
-      ).interpreter
-    )
+    graphQL[Any, DeepRoot, Unit, Unit](
+      RootResolver[DeepRoot](NestedZQueryBenchmarkSchema.deep10000Elements)
+    ).interpreterUnsafe
 
   val metricsInterpreter: GraphQLInterpreter[Any, CalibanError] =
-    run(
-      graphQL[Any, MultifieldRoot, Unit, Unit](
-        RootResolver(NestedZQueryBenchmarkSchema.multifield1000Elements)
-      ).withWrapper(Wrappers.metrics()).interpreter
-    )
+    graphQL[Any, MultifieldRoot, Unit, Unit](
+      RootResolver(NestedZQueryBenchmarkSchema.multifield1000Elements)
+    ).withWrapper(Wrappers.metrics()).interpreterUnsafe
 
   val apolloInterpreter: GraphQLInterpreter[Any, CalibanError] =
-    run(
-      graphQL[Any, MultifieldRoot, Unit, Unit](
-        RootResolver(NestedZQueryBenchmarkSchema.multifield1000Elements)
-      ).withWrapper(ApolloTracing.apolloTracing()).interpreter
-    )
+    graphQL[Any, MultifieldRoot, Unit, Unit](
+      RootResolver(NestedZQueryBenchmarkSchema.multifield1000Elements)
+    ).withWrapper(ApolloTracing.apolloTracing()).interpreterUnsafe
 
   private val batched    = ExecutionConfiguration(queryExecution = QueryExecution.Batched)
   private val parallel   = ExecutionConfiguration(queryExecution = QueryExecution.Parallel)
   private val sequential = ExecutionConfiguration(queryExecution = QueryExecution.Sequential)
 
+  private def cfg() = execution match {
+    case "sequential" => sequential
+    case "parallel"   => parallel
+    case "batched"    => batched
+  }
+
   @Benchmark
-  def simpleParallelQuery100(): Any = {
-    val io =
-      simple100
-        .wrapExecutionWith(Configurator.ref.locally(parallel)(_))
+  def simpleQueryBenchmark(): Any = {
+    val interpreter = size match {
+      case 100   => simple100
+      case 1000  => simple1000
+      case 10000 => simple10000
+    }
+    val io          =
+      interpreter
+        .wrapExecutionWith(Configurator.ref.locally(cfg())(_))
         .execute(simpleQuery)
     run(io)
   }
 
   @Benchmark
-  def simpleParallelQuery1000(): Any = {
-    val io =
-      simple1000
-        .wrapExecutionWith(Configurator.ref.locally(parallel)(_))
-        .execute(simpleQuery)
-    run(io)
-  }
-
-  @Benchmark
-  def simpleParallelQuery10000(): Any = {
-    val io =
-      simple10000
-        .wrapExecutionWith(Configurator.ref.locally(parallel)(_))
-        .execute(simpleQuery)
-    run(io)
-  }
-
-  @Benchmark
-  def simpleSequentialQuery100(): Any = {
-    val io =
-      simple100
-        .wrapExecutionWith(Configurator.ref.locally(sequential)(_))
-        .execute(simpleQuery)
-    run(io)
-  }
-
-  @Benchmark
-  def simpleSequentialQuery1000(): Any = {
-    val io =
-      simple1000
-        .wrapExecutionWith(Configurator.ref.locally(sequential)(_))
-        .execute(simpleQuery)
-    run(io)
-  }
-
-  @Benchmark
-  def simpleSequentialQuery10000(): Any = {
-    val io =
-      simple10000
-        .wrapExecutionWith(Configurator.ref.locally(sequential)(_))
-        .execute(simpleQuery)
-    run(io)
-  }
-
-  @Benchmark
-  def simpleBatchedQuery100(): Any = {
-    val io =
-      simple100
-        .wrapExecutionWith(Configurator.ref.locally(batched)(_))
-        .execute(simpleQuery)
-    run(io)
-  }
-
-  @Benchmark
-  def simpleBatchedQuery1000(): Any = {
-    val io =
-      simple1000
-        .wrapExecutionWith(Configurator.ref.locally(batched)(_))
-        .execute(simpleQuery)
-    run(io)
-  }
-
-  @Benchmark
-  def simpleBatchedQuery10000(): Any = {
-    val io =
-      simple10000
-        .wrapExecutionWith(Configurator.ref.locally(batched)(_))
-        .execute(simpleQuery)
-    run(io)
-  }
-
-  @Benchmark
-  def multifieldParallelQuery100(): Any = {
-    val io = multifield100
-      .wrapExecutionWith(Configurator.ref.locally(parallel)(_))
+  def multifieldQueryBenchmark(): Any = {
+    val interpreter = size match {
+      case 100   => multifield100
+      case 1000  => multifield1000
+      case 10000 => multifield10000
+    }
+    val io          = interpreter
+      .wrapExecutionWith(Configurator.ref.locally(cfg())(_))
       .execute(multifieldQuery)
     run(io)
   }
 
   @Benchmark
-  def multifieldParallelQuery1000(): Any = {
-    val io = multifield1000
-      .wrapExecutionWith(Configurator.ref.locally(parallel)(_))
+  def multifieldQueryEagerBenchmark(): Any = {
+    val interpreter = size match {
+      case 100   => multifieldEager100
+      case 1000  => multifieldEager1000
+      case 10000 => multifieldEager10000
+    }
+    val io          = interpreter
+      .wrapExecutionWith(Configurator.ref.locally(cfg())(_))
       .execute(multifieldQuery)
     run(io)
   }
 
   @Benchmark
-  def multifieldParallelQuery10000(): Any = {
-    val io = multifield10000
-      .wrapExecutionWith(Configurator.ref.locally(parallel)(_))
-      .execute(multifieldQuery)
-    run(io)
-  }
-
-  @Benchmark
-  def multifieldSequentialQuery100(): Any = {
-    val io = multifield100
-      .wrapExecutionWith(Configurator.ref.locally(sequential)(_))
-      .execute(multifieldQuery)
-    run(io)
-  }
-
-  @Benchmark
-  def multifieldSequentialQuery1000(): Any = {
-    val io = multifield1000
-      .wrapExecutionWith(Configurator.ref.locally(sequential)(_))
-      .execute(multifieldQuery)
-    run(io)
-  }
-
-  @Benchmark
-  def multifieldSequentialQuery10000(): Any = {
-    val io = multifield10000
-      .wrapExecutionWith(Configurator.ref.locally(sequential)(_))
-      .execute(multifieldQuery)
-    run(io)
-  }
-
-  @Benchmark
-  def multifieldBatchedQuery100(): Any = {
-    val io = multifield100
-      .wrapExecutionWith(Configurator.ref.locally(batched)(_))
-      .execute(multifieldQuery)
-    run(io)
-  }
-
-  @Benchmark
-  def multifieldBatchedQuery1000(): Any = {
-    val io = multifield1000
-      .wrapExecutionWith(Configurator.ref.locally(batched)(_))
-      .execute(multifieldQuery)
-    run(io)
-  }
-
-  @Benchmark
-  def multifieldBatchedQuery10000(): Any = {
-    val io = multifield10000
-      .wrapExecutionWith(Configurator.ref.locally(batched)(_))
-      .execute(multifieldQuery)
-    run(io)
-  }
-
-  @Benchmark
-  def deepParallelQuery100(): Any = {
-    val io = deep100
-      .wrapExecutionWith(Configurator.ref.locally(parallel)(_))
+  def deepQueryBenchmark(): Any = {
+    val interpreter = size match {
+      case 100   => deep100
+      case 1000  => deep1000
+      case 10000 => deep10000
+    }
+    val io          = interpreter
+      .wrapExecutionWith(Configurator.ref.locally(cfg())(_))
       .execute(deepQuery)
-    run(io)
-  }
-
-  @Benchmark
-  def deepParallelQuery1000(): Any = {
-    val io = deep1000
-      .wrapExecutionWith(Configurator.ref.locally(parallel)(_))
-      .execute(deepQuery)
-    run(io)
-  }
-
-  @Benchmark
-  def deepParallelQuery10000(): Any = {
-    val io =
-      deep10000
-        .wrapExecutionWith(Configurator.ref.locally(parallel)(_))
-        .execute(deepQuery)
-    run(io)
-  }
-
-  @Benchmark
-  def deepSequentialQuery100(): Any = {
-    val io =
-      deep100
-        .wrapExecutionWith(Configurator.ref.locally(sequential)(_))
-        .execute(deepQuery)
-    run(io)
-  }
-
-  @Benchmark
-  def deepSequentialQuery1000(): Any = {
-    val io =
-      deep1000
-        .wrapExecutionWith(Configurator.ref.locally(sequential)(_))
-        .execute(deepQuery)
-    run(io)
-  }
-
-  @Benchmark
-  def deepSequentialQuery10000(): Any = {
-    val io =
-      deep10000
-        .wrapExecutionWith(Configurator.ref.locally(sequential)(_))
-        .execute(deepQuery)
-    run(io)
-  }
-
-  @Benchmark
-  def deepBatchedQuery100(): Any = {
-    val io = deep100
-      .wrapExecutionWith(Configurator.ref.locally(batched)(_))
-      .execute(deepQuery)
-    run(io)
-  }
-
-  @Benchmark
-  def deepBatchedQuery1000(): Any = {
-    val io = deep1000
-      .wrapExecutionWith(Configurator.ref.locally(batched)(_))
-      .execute(deepQuery)
-    run(io)
-  }
-
-  @Benchmark
-  def deepBatchedQuery10000(): Any = {
-    val io = deep10000
-      .wrapExecutionWith(Configurator.ref.locally(batched)(_))
-      .execute(deepQuery)
-    run(io)
-  }
-
-  @Benchmark
-  def noWrappersBenchmark(): Any = {
-    val io = multifield1000
-      .wrapExecutionWith(Configurator.ref.locally(batched)(_))
-      .execute(multifieldQuery)
     run(io)
   }
 

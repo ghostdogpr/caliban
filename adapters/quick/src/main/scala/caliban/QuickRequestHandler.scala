@@ -42,12 +42,14 @@ final private class QuickRequestHandler[R](
     new QuickRequestHandler[R & R1](interpreter, config)
 
   def handleHttpRequest(request: Request)(implicit trace: Trace): URIO[R, Response] =
-    transformHttpRequest(request)
-      .flatMap(executeRequest(request.method, _))
-      .foldZIO(
-        Exit.succeed,
-        resp => Exit.succeed(transformResponse(request, resp))
-      )
+    ZIO.suspendSucceed { // Suspending to ensure that all the CPU work we're about to do happens in the ZIO thread pool
+      transformHttpRequest(request)
+        .flatMap(executeRequest(request.method, _))
+        .foldZIO(
+          Exit.succeed,
+          resp => Exit.succeed(transformResponse(request, resp))
+        )
+    }
 
   def handleUploadRequest(request: Request)(implicit trace: Trace): URIO[R, Response] =
     transformUploadRequest(request).flatMap { case (req, fileHandle) =>

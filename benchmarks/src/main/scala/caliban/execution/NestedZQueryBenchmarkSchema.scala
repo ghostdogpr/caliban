@@ -98,6 +98,10 @@ object NestedZQueryBenchmarkSchema {
   val multifield1000Elements: MultifieldRoot  = generateMulti(1000)
   val multifield10000Elements: MultifieldRoot = generateMulti(10000)
 
+  val multifieldEager100Elements: MultifieldRoot   = generateMultiEager(100)
+  val multifieldEager1000Elements: MultifieldRoot  = generateMultiEager(1000)
+  val multifieldEager10000Elements: MultifieldRoot = generateMultiEager(10000)
+
   val multifieldQuery: String = """{
     entities {
       id
@@ -165,6 +169,22 @@ object NestedZQueryBenchmarkSchema {
   private def generateMulti(n: Int) = {
     val entities = (1 to n).map { i =>
       val qi = ZQuery.succeed(i)
+      MultifieldEntity(
+        i,
+        i + 1,
+        i + 2,
+        qi,
+        qi,
+        qi,
+        ZQuery.succeed(NestedObject(i, qi, qi, qi, qi, qi, qi, qi, qi, qi, qi, qi, qi, qi, qi, qi))
+      )
+    }.toList
+    MultifieldRoot(ZQuery.succeed(entities))
+  }
+
+  private def generateMultiEager(n: Int) = {
+    val entities = (1 to n).map { i =>
+      val qi = ZQuery.succeedNow(i)
       MultifieldEntity(
         i,
         i + 1,

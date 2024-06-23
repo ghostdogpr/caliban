@@ -25,11 +25,11 @@ object Wrappers {
         process: GraphQLRequest => ZIO[R1, Nothing, GraphQLResponse[CalibanError]]
       ): GraphQLRequest => ZIO[R1, Nothing, GraphQLResponse[CalibanError]] =
         request =>
-          process(request).tap(response =>
-            ZIO.when(response.errors.nonEmpty)(
-              printLineError(response.errors.flatMap(prettyStackStrace).mkString("", "\n", "\n")).orDie
-            )
-          )
+          process(request).tap { response =>
+            val errors = response.errors
+            if (errors.nonEmpty) printLineError(errors.flatMap(prettyStackStrace).mkString("", "\n", "\n")).orDie
+            else Exit.unit
+          }
     }
 
   private def prettyStackStrace(t: Throwable): Chunk[String] = {
@@ -68,7 +68,8 @@ object Wrappers {
       ): GraphQLRequest => ZIO[R1, Nothing, GraphQLResponse[CalibanError]] =
         (request: GraphQLRequest) =>
           process(request).timed.flatMap { case (time, res) =>
-            ZIO.when(time > duration)(f(time, request.query.getOrElse(""))).as(res)
+            if (time > duration) f(time, request.query.getOrElse("")).as(res)
+            else Exit.succeed(res)
           }
     }
 
@@ -82,20 +83,17 @@ object Wrappers {
         process: GraphQLRequest => ZIO[R1, Nothing, GraphQLResponse[CalibanError]]
       ): GraphQLRequest => ZIO[R1, Nothing, GraphQLResponse[CalibanError]] =
         (request: GraphQLRequest) =>
-          process(request)
-            .timeout(duration)
-            .map(
-              _.getOrElse(
-                GraphQLResponse(
-                  NullValue,
-                  List(
-                    ExecutionError(
-                      s"Query was interrupted after timeout of ${duration.render}:\n${request.query.getOrElse("")}"
-                    )
-                  )
+          process(request).timeoutTo(
+            GraphQLResponse(
+              NullValue,
+              List(
+                ExecutionError(
+                  s"Query was interrupted after timeout of ${duration.render}:\n${request.query.getOrElse("")}"
                 )
               )
             )
+          )(identity)(duration)
+
     }
 
   /**
@@ -109,25 +107,36 @@ object Wrappers {
       ): Document => ZIO[R1, ValidationError, ExecutionRequest] =
         (doc: Document) =>
           process(doc).tap { req =>
-            ZIO.unlessZIO(Configurator.skipValidation) {
-              calculateDepth(req.field).flatMap { depth =>
-                ZIO.when(depth > maxDepth)(
-                  ZIO.fail(ValidationError(s"Query is too deep: $depth. Max depth: $maxDepth.", ""))
-                )
-              }
+            ZIO.unlessZIODiscard(Configurator.skipValidation) {
+              val depth = calculateDepth(req.field)
+              if (depth > maxDepth) ZIO.fail(ValidationError(s"Query is too deep: $depth. Max depth: $maxDepth.", ""))
+              else Exit.unit
             }
           }
     }
 
-  private def calculateDepth(field: Field): UIO[Int] = {
-    val self     = if (field.name.nonEmpty) 1 else 0
-    val children = field.fields
-    ZIO
-      .foreach(children)(calculateDepth)
-      .map {
-        case Nil  => self
-        case list => list.max + self
+  private def calculateDepth(field: Field): Int = {
+    // Faster because it doesn't allocate a new list on each iteration but not stack-safe
+    def loopUnsafe(field: Field, currentDepth: Int): Int = {
+      var children = field.fields
+      var max      = currentDepth
+      while (children ne Nil) {
+        val d = loopUnsafe(children.head, currentDepth + 1)
+        if (d > max) max = d
+        children = children.tail
       }
+      max
+    }
+
+    @tailrec
+    def loopSafe(fields: List[Field], currentDepth: Int): Int =
+      if (fields.isEmpty) currentDepth
+      else loopSafe(fields.flatMap(_.fields), currentDepth + 1)
+
+    try loopUnsafe(field, 0)
+    catch {
+      case _: StackOverflowError => loopSafe(field.fields, 0)
+    }
   }
 
   /**
@@ -141,12 +150,11 @@ object Wrappers {
       ): Document => ZIO[R1, ValidationError, ExecutionRequest] =
         (doc: Document) =>
           process(doc).tap { req =>
-            ZIO.unlessZIO(Configurator.skipValidation) {
-              countFields(req.field).flatMap { fields =>
-                ZIO.when(fields > maxFields)(
-                  ZIO.fail(ValidationError(s"Query has too many fields: $fields. Max fields: $maxFields.", ""))
-                )
-              }
+            ZIO.unlessZIODiscard(Configurator.skipValidation) {
+              val fields = countFields(req.field)
+              if (fields > maxFields)
+                ZIO.fail(ValidationError(s"Query has too many fields: $fields. Max fields: $maxFields.", ""))
+              else Exit.unit
             }
           }
     }
@@ -167,7 +175,8 @@ object Wrappers {
   ): Wrapper.EffectfulWrapper[Any] =
     FieldMetrics.wrapper(totalLabel, durationLabel, buckets, extraLabels)
 
-  private def countFields(rootField: Field): UIO[Int] = {
+  private def countFields(rootField: Field): Int = {
+    // Faster because it doesn't allocate a new list on each iteration but not stack-safe
     def loopUnsafe(field: Field): Int = {
       val iter  = field.fields.iterator
       var count = 0
@@ -178,14 +187,14 @@ object Wrappers {
       count
     }
 
-    def loopSafe(field: Field): UIO[Int] = {
-      val fields = field.fields
-      ZIO.foreach(fields)(loopSafe).map(_.sum + fields.length)
-    }
+    @tailrec
+    def loopSafe(fields: List[Field], acc: Int): Int =
+      if (fields.isEmpty) acc
+      else loopSafe(fields.flatMap(_.fields), acc + fields.length)
 
-    try Exit.succeed(loopUnsafe(rootField))
+    try loopUnsafe(rootField)
     catch {
-      case _: StackOverflowError => loopSafe(rootField)
+      case _: StackOverflowError => loopSafe(rootField.fields, 0)
     }
   }
 

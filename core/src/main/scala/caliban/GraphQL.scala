@@ -98,8 +98,8 @@ trait GraphQL[-R] { self =>
         private val introWrappers                               = wrappers.collect { case w: IntrospectionWrapper[R] => w }
         private lazy val introspectionRootSchema: RootSchema[R] = Introspector.introspect(rootType, introWrappers)
 
-        private def parseZIO(query: String)(implicit trace: Trace): IO[CalibanError.ParsingError, Document] =
-          ZIO.fromEither(Parser.parseQuery(query))
+        private def parseZIO(query: String): IO[CalibanError.ParsingError, Document] =
+          Exit.fromEither(Parser.parseQuery(query))
 
         override def check(query: String)(implicit trace: Trace): IO[CalibanError, Unit] =
           for {
@@ -120,7 +120,7 @@ trait GraphQL[-R] { self =>
                   coercedVars  <- coerceVariables(doc, request.variables.getOrElse(Map.empty))
                   executionReq <- wrap(validation(request.operationName, coercedVars))(validationWrappers, doc)
                   result       <- wrap(execution(schemaToExecute(doc), fieldWrappers))(executionWrappers, executionReq)
-                } yield result).catchAll(Executor.fail(_))
+                } yield result).catchAll(Executor.fail)
               )(overallWrappers, request)
           }
 
@@ -132,7 +132,7 @@ trait GraphQL[-R] { self =>
               ZIO.fail(CalibanError.ValidationError("Introspection is disabled", ""))
             else
               VariablesCoercer.coerceVariables(variables, doc, typeToValidate(doc), config.skipValidation) match {
-                case Right(value) => ZIO.succeed(value)
+                case Right(value) => Exit.succeed(value)
                 case Left(error)  => ZIO.fail(error)
               }
           }
@@ -189,9 +189,9 @@ trait GraphQL[-R] { self =>
           if ((req.operationType eq OperationType.Mutation) && !cfg.allowMutationsOverGetRequests)
             HttpRequestMethod.getWith {
               case HttpRequestMethod.GET => ZIO.fail(HttpRequestMethod.MutationOverGetError)
-              case _                     => ZIO.succeed(req)
+              case _                     => Exit.succeed(req)
             }
-          else ZIO.succeed(req)
+          else Exit.succeed(req)
 
       }
     }
