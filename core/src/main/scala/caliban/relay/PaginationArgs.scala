@@ -2,7 +2,7 @@ package caliban.relay
 
 import caliban.CalibanError
 import zio.Exit
-import zio.prelude.Validation
+import zio.prelude._
 
 object Pagination {
   import PaginationCount._
@@ -19,7 +19,11 @@ object Pagination {
       .zipWith(args.after match {
         case None    => Validation.succeed(NoCursor)
         case Some(x) => Validation.fromEither(Cursor[C].decode(x)).map(After.apply)
-      })(new Pagination[C](_, _))
+      })(new Pagination[C](_, _))(
+        // Explicit implicits cause thanks Scala 2.12
+        ZValidation.ZValidationIdentityBoth,
+        implicitly
+      )
       .toExit
 
   def apply[C: Cursor](args: BackwardPaginationArgs[C]): Exit[CalibanError, Pagination[C]] =
@@ -30,7 +34,7 @@ object Pagination {
       .zipWith(args.before match {
         case None    => Validation.succeed(NoCursor)
         case Some(x) => Validation.fromEither(Cursor[C].decode(x)).map(Before.apply)
-      })(new Pagination[C](_, _))
+      })(new Pagination[C](_, _))(ZValidation.ZValidationIdentityBoth, implicitly)
       .toExit
 
   def apply[C: Cursor](
@@ -40,7 +44,7 @@ object Pagination {
     after: Option[String]
   ): Exit[CalibanError, Pagination[C]] =
     validateFirstLast(first, last)
-      .zipWith(validateCursors(before, after))(new Pagination[C](_, _))
+      .zipWith(validateCursors(before, after))(new Pagination[C](_, _))(ZValidation.ZValidationIdentityBoth, implicitly)
       .toExit
 
   private def validateCursors[C: Cursor](
