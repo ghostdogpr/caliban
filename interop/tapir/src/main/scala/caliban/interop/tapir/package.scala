@@ -125,7 +125,7 @@ package object tapir {
                 val replacedArgs = args.map { case (k, v) => reverseArgNames.getOrElse(k, k) -> v }
                 QueryStep(
                   ZQuery
-                    .fromZIO(Exit.fromEither(argBuilder.build(InputValue.ObjectValue(replacedArgs))))
+                    .fromEither(argBuilder.build(InputValue.ObjectValue(replacedArgs)))
                     .flatMap(input => serverEndpoint.logic(queryMonadError)(())(input))
                     .map {
                       case Left(error: Throwable) => Step.fail(error)
