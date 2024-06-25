@@ -13,6 +13,9 @@ object Macros {
   inline def implicitExists[T]: Boolean     = ${ implicitExistsImpl[T] }
   inline def hasAnnotation[T, Ann]: Boolean = ${ hasAnnotationImpl[T, Ann] }
 
+  transparent inline def hasFieldsFromMethods[T]: Boolean =
+    ${ hasFieldsFromMethodsImpl[T] }
+
   transparent inline def fieldsFromMethods[R, T]: List[(String, List[Any], Schema[R, ?])] =
     ${ fieldsFromMethodsImpl[R, T] }
 
@@ -46,6 +49,15 @@ object Macros {
   private def isEnumFieldImpl[P: Type, T: Type](using q: Quotes): Expr[Boolean] = {
     import q.reflect.*
     Expr(TypeRepr.of[P].typeSymbol.flags.is(Flags.Enum) && TypeRepr.of[T].typeSymbol.flags.is(Flags.Enum))
+  }
+
+  private def hasFieldsFromMethodsImpl[T: Type](using q: Quotes): Expr[Boolean] = {
+    import q.reflect.*
+    val targetSym = TypeTree.of[T].symbol
+    val annType   = TypeRepr.of[GQLField]
+    val annSym    = annType.typeSymbol
+
+    Expr(targetSym.declaredMethods.exists(_.getAnnotation(annSym).isDefined))
   }
 
   private def fieldsFromMethodsImpl[R: Type, T: Type](using
