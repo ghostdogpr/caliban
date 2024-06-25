@@ -203,6 +203,14 @@ object ClientWriterSpec extends SnapshotTest {
              }
             """)
       },
+      snapshotTest("input object oneOf") {
+        gen("""
+             input CharacterInput @oneOf {
+               name: String
+               nicknames: [String!]
+             }
+            """)
+      },
       snapshotTest("input object with reserved name") {
         gen("""
              input CharacterInput {
@@ -413,5 +421,5 @@ object ClientWriterSpec extends SnapshotTest {
              }
             """)
       }
-    ) @@ TestAspect.sequential
+    ) @@ TestAspect.parallelN(4)
 }

@@ -15,7 +15,7 @@ object Fs2Interop {
         ev.toType_(isInput, isSubscription)
 
       override def nullable: Boolean = ev.nullable
-      override def canFail: Boolean  = true
+      override def canFail: Boolean  = ev.canFail
 
       override def resolve(value: Stream[RIO[R, *], A]): Step[R] =
         ev.resolve(value.toZStream())
@@ -30,7 +30,7 @@ object Fs2Interop {
         ev.toType_(isInput, isSubscription)
 
       override def nullable: Boolean = ev.nullable
-      override def canFail: Boolean  = true
+      override def canFail: Boolean  = ev.canFail
 
       override def resolve(value: Stream[F, A]): Step[R] =
         ev.resolve(value.translate(interop.fromEffectK))

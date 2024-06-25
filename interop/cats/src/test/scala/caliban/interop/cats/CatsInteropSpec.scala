@@ -1,5 +1,7 @@
 package caliban.interop.cats
 
+import caliban.schema.Schema
+import caliban.{ graphQL, RootResolver }
 import cats.Applicative
 import cats.data.{ Chain, Kleisli }
 import cats.effect.kernel.Async
@@ -77,7 +79,34 @@ object CatsInteropSpec extends ZIOSpecDefault {
           } yield assertTrue(contextual == List(rootCtx, rootCtx, rootCtx))
         }
       )
-    }
+    },
+    suite("schema derivation")(
+      test("IO types are derived as non-nullable") {
+        case class Query(io: IO[Int])
+        val query = Query(IO(42))
+
+        val rendered =
+          Dispatcher
+            .parallel[IO]
+            .use { implicit dispatcher =>
+              implicit val ioSchema: Schema[Any, IO[Int]] = CatsInterop.schema[IO, Any, Int]
+              implicit val schema: Schema[Any, Query]     = Schema.gen
+              val api                                     = graphQL(RootResolver(query))
+              IO(api.render)
+            }
+            .unsafeRunSync()
+
+        assertTrue(
+          rendered == """|schema {
+                         |  query: Query
+                         |}
+                         |
+                         |type Query {
+                         |  io: Int!
+                         |}""".stripMargin
+        )
+      } @@ TestAspect.blocking
+    )
   )
 
   private def program[F[_]: Async, R](interop: CatsInterop[F, R], inner: R)(implicit local: Local[F, R]): F[List[R]] = {
