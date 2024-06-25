@@ -11,7 +11,7 @@ import caliban.schema.Types
 import caliban.wrappers.Wrapper.{ EffectfulWrapper, FieldWrapper, OverallWrapper, ValidationWrapper }
 import zio.prelude._
 import zio.query.ZQuery
-import zio.{ durationInt, Duration, FiberRef, Ref, UIO, Unsafe, ZIO }
+import zio.{ durationInt, Duration, Exit, FiberRef, Ref, UIO, Unsafe, ZIO }
 
 import java.util.concurrent.{ ConcurrentHashMap, TimeUnit }
 
@@ -280,7 +280,7 @@ object Caching {
         query.mapZIO { result =>
           cacheOverride.get.flatMap {
             case Some(overrideValue) => state.update(_.restrict(Some(overrideValue))) as result
-            case None                => ZIO.succeed(result)
+            case None                => Exit.succeed(result)
           }
         }
     }

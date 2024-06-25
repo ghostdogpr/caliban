@@ -11,7 +11,7 @@ import sttp.tapir.internal._
 import sttp.tapir.server.ServerEndpoint
 import sttp.tapir.{ EndpointIO, EndpointInput, EndpointOutput, PublicEndpoint }
 import _root_.zio.query.{ URQuery, ZQuery }
-import _root_.zio.{ URIO, ZIO }
+import _root_.zio.{ Exit, URIO, ZIO }
 import caliban.transformers.Transformer
 
 package object tapir {
@@ -125,7 +125,7 @@ package object tapir {
                 val replacedArgs = args.map { case (k, v) => reverseArgNames.getOrElse(k, k) -> v }
                 QueryStep(
                   ZQuery
-                    .fromZIO(ZIO.fromEither(argBuilder.build(InputValue.ObjectValue(replacedArgs))))
+                    .fromEither(argBuilder.build(InputValue.ObjectValue(replacedArgs)))
                     .flatMap(input => serverEndpoint.logic(queryMonadError)(())(input))
                     .map {
                       case Left(error: Throwable) => Step.fail(error)

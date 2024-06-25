@@ -22,7 +22,7 @@ import caliban.{ Configurator, InputValue }
 import zio.prelude._
 import zio.prelude.fx.ZPure
 import zio.stacktracer.TracingImplicits.disableAutoTrace
-import zio.{ IO, Trace, ZIO }
+import zio.{ Exit, IO, Trace }
 
 import scala.annotation.tailrec
 import scala.collection.compat._
@@ -53,7 +53,7 @@ object Validator {
    * Fails with a [[caliban.CalibanError.ValidationError]] otherwise.
    */
   def validate(document: Document, rootType: RootType)(implicit trace: Trace): IO[ValidationError, Unit] =
-    Configurator.ref.getWith(v => ZIO.fromEither(check(document, rootType, Map.empty, v.validations).map(_ => ())))
+    Configurator.ref.getWith(v => Exit.fromEither(check(document, rootType, Map.empty, v.validations).unit))
 
   /**
    * Verifies that the given document is valid for this type for all available validations.

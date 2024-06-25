@@ -101,7 +101,7 @@ object Introspector extends IntrospectionDerivation {
 
     val step = introWrappers match {
       case Nil => introspectionSchema.resolve(resolver)
-      case ws  => QueryStep(ZQuery.fromZIO(wrap(ZIO.succeed(resolver))(ws).map(introspectionSchema.resolve)))
+      case ws  => QueryStep(ZQuery.fromZIONow(wrap(Exit.succeed(resolver))(ws).map(introspectionSchema.resolve)))
     }
 
     RootSchema(Operation(introspectionType, step), None, None)
