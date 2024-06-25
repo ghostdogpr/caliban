@@ -1,3 +1,5 @@
+directive @oneOf on INPUT_OBJECT
+
 # Schema
 schema {
     query: Q
@@ -9,6 +11,8 @@ type Q {
     characters: [Character!]!
     # nested object type with argument
     character(name: String!): Character
+    # oneOf input object
+    character2(oneOfThese: CharacterOneOfInput!): Character
 
     # default arguments for optional and list arguments
     characters2(
@@ -35,6 +39,17 @@ input CharacterInput {
     # reserved name
     wait: String!
 }
+
+# Input object oneOf
+input CharacterOneOfInput @oneOf {
+    name: String
+    nickname: String
+    origin: Origin
+
+    # reserved name
+    wait: String
+}
+
 
 # Object
 type Character {

@@ -12,10 +12,16 @@ sealed trait Type extends Serializable { self =>
     case Type.ListType(ofType, nonNull) => if (nonNull) s"[$ofType]!" else s"[$ofType]"
   }
 
-  def toNullable: Type =
+  final def toNullable: Type =
     self match {
       case Type.NamedType(name, _)  => Type.NamedType(name, nonNull = false)
       case Type.ListType(ofType, _) => Type.ListType(ofType, nonNull = false)
+    }
+
+  final def toNonNullable: Type =
+    self match {
+      case Type.NamedType(name, _)  => Type.NamedType(name, nonNull = true)
+      case Type.ListType(ofType, _) => Type.ListType(ofType, nonNull = true)
     }
 }
 
