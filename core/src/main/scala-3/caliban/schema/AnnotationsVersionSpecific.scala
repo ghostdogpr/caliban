@@ -17,7 +17,7 @@ trait AnnotationsVersionSpecific {
    *
    * If you wish to exclude a public method from being derived as a field, you can annotate it with [[GQLExclude]].
    *
-   * @see [[GQLField]] for the more info on deriving fields from methods
+   * @see [[GQLField]] for a more fine-grained control over which methods are derived as fields
    */
   case class GQLMethodsAsFields() extends StaticAnnotation
 
