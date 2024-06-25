@@ -176,7 +176,7 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
           )
         }
       ),
-      suite("methods as fields") {
+      suite("@GQLField annotation") {
         val expectedSchema =
           """schema {
             |  query: Bar
@@ -244,6 +244,44 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
                 assertTrue(s == """{"foo":{"value":"foo","value2":"foo2"}}""")
               }
             }
+          },
+          test("case object") {
+            case object Foo derives Schema.SemiAuto {
+              @GQLField def fooValue: Option[String] = None
+              @GQLField def barValue: Int            = 42
+            }
+            val rendered = graphQL(RootResolver(Foo)).render
+
+            val expected =
+              """schema {
+                |  query: Foo
+                |}
+                |
+                |type Foo {
+                |  fooValue: String
+                |  barValue: Int!
+                |}""".stripMargin
+
+            assertTrue(rendered == expected)
+          },
+          test("parameterless case class") {
+            case class Foo() derives Schema.SemiAuto {
+              @GQLField def fooValue: Option[String] = None
+              @GQLField def barValue: Int            = 42
+            }
+            val rendered = graphQL(RootResolver(Foo())).render
+
+            val expected =
+              """schema {
+                |  query: Foo
+                |}
+                |
+                |type Foo {
+                |  fooValue: String
+                |  barValue: Int!
+                |}""".stripMargin
+
+            assertTrue(rendered == expected)
           }
         )
       },
@@ -325,44 +363,6 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
           data2 == """{"testQuery":{"foo":1}}""",
           gql.render == expectedSchema
         )
-      },
-      test("case object with @GQLField methods") {
-        case object Foo derives Schema.SemiAuto {
-          @GQLField def fooValue: Option[String] = None
-          @GQLField def barValue: Int            = 42
-        }
-        val rendered = graphQL(RootResolver(Foo)).render
-
-        val expected =
-          """schema {
-            |  query: Foo
-            |}
-            |
-            |type Foo {
-            |  fooValue: String
-            |  barValue: Int!
-            |}""".stripMargin
-
-        assertTrue(rendered == expected)
-      },
-      test("parameterless case class with @GQLField methods") {
-        case class Foo() derives Schema.SemiAuto {
-          @GQLField def fooValue: Option[String] = None
-          @GQLField def barValue: Int            = 42
-        }
-        val rendered = graphQL(RootResolver(Foo())).render
-
-        val expected =
-          """schema {
-            |  query: Foo
-            |}
-            |
-            |type Foo {
-            |  fooValue: String
-            |  barValue: Int!
-            |}""".stripMargin
-
-        assertTrue(rendered == expected)
       }
     )
   }
