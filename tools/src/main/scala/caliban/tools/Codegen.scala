@@ -65,15 +65,15 @@ object Codegen {
                                   }
       formatted                <- if (enableFmt) Formatter.format(code, arguments.fmtPath) else ZIO.succeed(code)
       paths                    <- ZIO.foreach(formatted) { case (objectName, objectCode) =>
-                                    val path =
+                                    val file =
                                       if (splitFiles) new File(new File(arguments.toPath).getParentFile(), s"$objectName.scala")
                                       else new File(arguments.toPath)
 
                                     ZIO.blocking(
                                       ZIO
-                                        .attempt(new PrintWriter(path))
+                                        .attempt(new PrintWriter(file))
                                         .acquireReleaseWithAuto(pw => ZIO.attempt(pw.print(objectCode)))
-                                        .as(path)
+                                        .as(file)
                                     )
                                   }
     } yield paths
