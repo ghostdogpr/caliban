@@ -14,7 +14,7 @@ import caliban.wrappers.Wrapper.FieldWrapper
 import zio._
 import zio.query._
 import zio.stacktracer.TracingImplicits.disableAutoTrace
-import zio.stream.ZStream
+import zio.stream.{ ZSink, ZStream }
 
 import java.util.concurrent.atomic.AtomicReference
 import scala.annotation.{ switch, tailrec }
@@ -48,8 +48,9 @@ object Executor {
       new StepReducer[R](
         transformer,
         request.operationType eq OperationType.Subscription,
-        featureSet(Feature.Defer),
-        wrapPureValues
+        isDeferredEnabled = featureSet(Feature.Defer),
+        isStreamEnabled = featureSet(Feature.Stream),
+        wrapPureValues = wrapPureValues
       )
     val reducedStepExecutor =
       new ReducedStepExecutor[R](
@@ -62,6 +63,7 @@ object Executor {
     def runQuery(step: ReducedStep[R], cache: Cache) = {
       val deferred = new AtomicReference(List.empty[Deferred[R]])
       val errors   = new AtomicReference(List.empty[CalibanError])
+
       reducedStepExecutor
         .makeQuery(step, errors, deferred)
         .runCache(cache)
@@ -91,36 +93,62 @@ object Executor {
       defers: List[Deferred[R]],
       cache: Cache
     ): ZStream[R, Nothing, Incremental[CalibanError]] = {
-      def run(d: Deferred[R]) =
-        ZStream.unwrap(runIncrementalQuery(d.step, cache, d.path, d.label).map {
-          case (resp, Nil)  =>
-            ZStream.succeed(resp)
-          case (resp, more) =>
-            ZStream.succeed(resp) ++ makeDeferStream(more, cache)
+      def runDefer(d: DeferredFragment[R]) =
+        ZStream.unwrap(runIncrementalQuery(d.step, cache).map { case (result, errors, more) =>
+          val resp = ZStream.succeed(
+            Incremental.Defer(
+              result,
+              errors = errors,
+              path = ListValue(d.path.reverse),
+              label = d.label
+            )
+          )
+          more match {
+            case Nil => resp
+            case _   => resp ++ makeDeferStream(more, cache)
+          }
         })
 
-      ZStream.mergeAllUnbounded()(defers.map(run): _*)
+      def runStream(d: DeferredStream[R]) =
+        d.step.inner.orDie.chunks.flatMap { steps =>
+          ZStream.unwrap(ZIO.foreach(steps)(runIncrementalQuery(_, cache)).map { results =>
+            val (values, errors, more) = results.unzip3
+            val resp                   = ZStream.succeed(
+              Incremental.Stream(
+                values.toList,
+                ListValue((IntValue(d.startFrom) :: d.path).reverse),
+                errors.toList.flatten,
+                d.label
+              )
+            )
+
+            more.toList.flatten match {
+              case Nil  => resp
+              case rest => resp ++ makeDeferStream(rest, cache)
+            }
+          })
+        }
+
+      ZStream.mergeAllUnbounded()(defers.map {
+        case d: DeferredFragment[R] => runDefer(d)
+        case d: DeferredStream[R]   => runStream(d)
+      }: _*)
     }
 
     def runIncrementalQuery(
       step: ReducedStep[R],
-      cache: Cache,
-      path: List[PathValue],
-      label: Option[String]
+      cache: Cache
     ) = {
       val deferred = new AtomicReference(List.empty[Deferred[R]])
       val errors   = new AtomicReference(List.empty[CalibanError])
+
       reducedStepExecutor
         .makeQuery(step, errors, deferred)
         .runCache(cache)
         .map { result =>
           (
-            Incremental.Defer(
-              result,
-              errors = errors.get().reverse,
-              path = ListValue(path.reverse),
-              label = label
-            ),
+            result,
+            errors.get().reverse,
             deferred.get()
           )
         }
@@ -141,6 +169,7 @@ object Executor {
     transformer: Transformer[R],
     isSubscription: Boolean,
     isDeferredEnabled: Boolean,
+    isStreamEnabled: Boolean,
     wrapPureValues: Boolean
   )(implicit trace: Trace) {
 
@@ -262,12 +291,53 @@ object Executor {
               .map(reduceStep(_, currentField, arguments, path))
           )
         } else {
-          reduceStep(
-            QueryStep(ZQuery.fromZIONow(stream.runCollect.map(chunk => ListStep(chunk.toList)))),
-            currentField,
-            arguments,
-            path
-          )
+          currentField match {
+            case IsStream(label, Some(initialCount)) if initialCount > 0 && isStreamEnabled =>
+              ReducedStep.QueryStep(
+                ZQuery.fromZIONow(
+                  for {
+                    scope               <- Scope.make
+                    initialAndRemaining <-
+                      stream
+                        .mapErrorCause(effectfulExecutionError(path, Some(currentField.locationInfo), _))
+                        .peel(ZSink.take[Step[R]](initialCount))
+                        .provideSomeEnvironment[R](_.add[Scope](scope))
+                  } yield {
+                    val (initial, remaining) = initialAndRemaining
+                    ReducedStep.DeferStreamStep(
+                      reduceListStep(initial.toList),
+                      ReducedStep.StreamStep(
+                        ZStream.acquireReleaseExitWith(ZIO.unit)((_, exit) => scope.close(exit)) *>
+                          remaining.map(reduceStep(_, currentField, arguments, path))
+                      ),
+                      label,
+                      path,
+                      initialCount
+                    )
+                  }
+                )
+              )
+            case IsStream(label, _) if isStreamEnabled                                      =>
+              ReducedStep.DeferStreamStep(
+                reduceStep(PureStep(ListValue(Nil)), currentField, arguments, path),
+                ReducedStep.StreamStep(
+                  stream
+                    .mapErrorCause(effectfulExecutionError(path, Some(currentField.locationInfo), _))
+                    .map(reduceStep(_, currentField, arguments, path))
+                ),
+                label,
+                path,
+                0
+              )
+
+            case _ =>
+              reduceStep(
+                QueryStep(ZQuery.fromZIONow(stream.runCollect.map(chunk => ListStep(chunk.toList)))),
+                currentField,
+                arguments,
+                path
+              )
+          }
         }
 
       def wrapFn[A](step: A => Step[R], input: A): Step[R] =
@@ -509,11 +579,11 @@ object Executor {
 
       def loop(step: ReducedStep[R], isTopLevelField: Boolean = false): ExecutionQuery[ResponseValue] =
         step match {
-          case PureStep(value)                                  => ZQuery.succeedNow(value)
-          case ReducedStep.QueryStep(step)                      => step.flatMap(loop(_))
-          case ReducedStep.ObjectStep(steps, hasPureFields, _)  => makeObjectQuery(steps, hasPureFields, isTopLevelField)
-          case ReducedStep.ListStep(steps, areItemsNullable, _) => makeListQuery(steps, areItemsNullable)
-          case ReducedStep.StreamStep(stream)                   =>
+          case PureStep(value)                                                         => ZQuery.succeedNow(value)
+          case ReducedStep.QueryStep(step)                                             => step.flatMap(loop(_))
+          case ReducedStep.ObjectStep(steps, hasPureFields, _)                         => makeObjectQuery(steps, hasPureFields, isTopLevelField)
+          case ReducedStep.ListStep(steps, areItemsNullable, _)                        => makeListQuery(steps, areItemsNullable)
+          case ReducedStep.StreamStep(stream)                                          =>
             ZQuery
               .environmentWith[R](env =>
                 ResponseValue.StreamValue(
@@ -522,12 +592,16 @@ object Executor {
                   }.provideEnvironment(env)
                 )
               )
-          case ReducedStep.DeferStep(obj, nextSteps, path)      =>
+          case ReducedStep.DeferStep(obj, nextSteps, path)                             =>
             val deferredSteps = nextSteps.map { case (step, label) =>
-              Deferred(path, step, label)
+              DeferredFragment(path, step, label)
             }
             deferred.updateAndGet(deferredSteps ::: _)
             loop(obj)
+          case ReducedStep.DeferStreamStep(initial, remaining, label, path, startFrom) =>
+            val streamStep = DeferredStream(path, remaining, label, startFrom)
+            deferred.updateAndGet(streamStep :: _)
+            loop(initial)
         }
 
       loop(step, isTopLevelField = true).catchAll(handleError)

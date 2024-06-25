@@ -2,12 +2,13 @@ package example
 
 import example.ExampleData._
 import caliban._
+import caliban.execution.Feature
 import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription, GQLName }
 import caliban.schema.Schema
 import caliban.schema.ArgBuilder.auto._
 import caliban.schema.Schema.auto._
 import caliban.wrappers.ApolloTracing.apolloTracing
-import caliban.wrappers.DeferSupport
+import caliban.wrappers.{ DeferSupport, IncrementalDelivery }
 import caliban.wrappers.Wrappers._
 import zio._
 import zio.stream.ZStream
@@ -91,13 +92,13 @@ object ExampleApi {
         Subscriptions(exampleService.deletedEvents)
       )
     ) @@
-      maxFields(300) @@               // query analyzer that limit query fields
-      maxDepth(30) @@                 // query analyzer that limit query depth
-      timeout(3 seconds) @@           // wrapper that fails slow queries
-      printSlowQueries(500 millis) @@ // wrapper that logs slow queries
-      printErrors @@                  // wrapper that logs errors
-      apolloTracing() @@              // wrapper for https://github.com/apollographql/apollo-tracing
-      DeferSupport.defer              // wrapper that enables @defer directive support
+      maxFields(300) @@                         // query analyzer that limit query fields
+      maxDepth(30) @@                           // query analyzer that limit query depth
+      timeout(3 seconds) @@                     // wrapper that fails slow queries
+      printSlowQueries(500 millis) @@           // wrapper that logs slow queries
+      printErrors @@                            // wrapper that logs errors
+      apolloTracing() @@                        // wrapper for https://github.com/apollographql/apollo-tracing
+      IncrementalDelivery.aspect(Feature.Defer) // wrapper that enables @defer directive support
   }
 
   val layer: ZLayer[ExampleService, Nothing, GraphQL[Any]] =

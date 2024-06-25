@@ -33,5 +33,4 @@ object GraphQLAspect {
   def withTypes(types: List[__Type]): GraphQLAspect[Nothing, Any] = new GraphQLAspect[Nothing, Any] {
     def apply[R](gql: GraphQL[R]): GraphQL[R] = gql.withAdditionalTypes(types)
   }
-
 }

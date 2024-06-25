@@ -127,6 +127,13 @@ case class __Type(
       case _                   => true
     }
 
+  def isList: Boolean =
+    kind match {
+      case __TypeKind.LIST     => true
+      case __TypeKind.NON_NULL => ofType.exists(_.isList)
+      case _                   => false
+    }
+
   lazy val list: __Type    = __Type(__TypeKind.LIST, ofType = Some(self))
   lazy val nonNull: __Type = __Type(__TypeKind.NON_NULL, ofType = Some(self))
 

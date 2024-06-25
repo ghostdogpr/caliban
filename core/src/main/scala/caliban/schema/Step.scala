@@ -116,6 +116,16 @@ object ReducedStep {
     def apply(error: Cause[ExecutionError]): ReducedStep[Any] = QueryStep(ZQuery.failCauseNow(error))
   }
 
+  final case class DeferStreamStep[-R](
+    initial: ReducedStep[R],
+    remaining: StreamStep[R],
+    label: Option[String],
+    path: List[PathValue],
+    startFrom: Int
+  ) extends ReducedStep[R] {
+    final val isPure = false
+  }
+
   // PureStep is both a Step and a ReducedStep so it is defined outside this object
   // This is to avoid boxing/unboxing pure values during step reduction
   type PureStep = caliban.schema.PureStep
