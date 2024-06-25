@@ -284,7 +284,7 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
             assertTrue(rendered == expected)
           },
           test("annotation on case class directly") {
-            @GQLMethodsAsFields
+            @GQLFieldsFromMethods
             case class Foo(value: String) derives Schema.SemiAuto {
               def fooValue: Option[String]   = None
               def barValue: Int              = 42

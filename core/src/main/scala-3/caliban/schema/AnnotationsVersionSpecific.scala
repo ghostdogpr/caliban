@@ -13,12 +13,12 @@ trait AnnotationsVersionSpecific {
   case class GQLField() extends StaticAnnotation
 
   /**
-   * Annotation that can be used on a case class / object to have all the public methods on it derived as fields.
+   * Annotation that can be used on a case class / case object to have all the public methods on it derived as fields.
    *
    * If you wish to exclude a public method from being derived as a field, you can annotate it with [[GQLExclude]].
    *
    * @see [[GQLField]] for a more fine-grained control over which methods are derived as fields
    */
-  case class GQLMethodsAsFields() extends StaticAnnotation
+  case class GQLFieldsFromMethods() extends StaticAnnotation
 
 }
