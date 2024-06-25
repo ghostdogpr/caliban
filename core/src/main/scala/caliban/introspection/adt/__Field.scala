@@ -2,7 +2,7 @@ package caliban.introspection.adt
 
 import caliban.Value.StringValue
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition.{ FieldDefinition, InputValueDefinition }
-import caliban.parsing.adt.{ Directive, Directives }
+import caliban.parsing.adt.Directive
 import caliban.schema.Annotations.GQLExcluded
 
 case class __Field(
@@ -33,8 +33,6 @@ case class __Field(
 
   lazy val allArgs: List[__InputValue] =
     args(__DeprecatedArgs.include)
-
-  private[caliban] lazy val _tags: Set[String] = directives.fold(Set.empty[String])(Directives.internal.tags)
 
   private[caliban] lazy val _type: __Type = `type`()
 

@@ -12,4 +12,14 @@ trait AnnotationsVersionSpecific {
    */
   case class GQLField() extends StaticAnnotation
 
+  /**
+   * Annotation used to provide directives to a schema type
+   */
+  open class GQLDirective(val directive: Directive) extends StaticAnnotation
+
+  object GQLDirective {
+    def unapply(annotation: GQLDirective): Option[Directive] =
+      Some(annotation.directive)
+  }
+
 }

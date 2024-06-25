@@ -3,6 +3,8 @@ package caliban.transformers
 import caliban.InputValue
 import caliban.execution.Field
 import caliban.introspection.adt._
+import caliban.parsing.adt.Directive
+import caliban.schema.Annotations.GQLDirective
 import caliban.schema.Step
 import caliban.schema.Step.{ FunctionStep, MetadataFunctionStep, NullStep, ObjectStep }
 
@@ -326,38 +328,45 @@ object Transformer {
       }
   }
 
-  object ExcludeTags {
+  object ExcludeDirectives {
 
     /**
-     * A transformer that allows excluding tagged fields and input arguments.
+     * A transformer that allows excluding fields and inputs with specific directives.
      *
      * {{{
-     *   ExcludeTags("TagA", "TagB")
-     * }}}
+     *   case object Experimental extends GQLDirective(Directive("experimental"))
+     *   case object Internal extends GQLDirective(Directive("internal"))
      *
-     * @param f tuples in the format of `(TypeName -> fieldToBeExcluded)`
+     *   ExcludeDirectives(Experimental, Internal)
+     * }}}
      */
-    def apply(f: String*): Transformer[Any] =
-      if (f.isEmpty) Empty else new ExcludeTags(f.toSet)
+    def apply(directives: GQLDirective*): Transformer[Any] =
+      if (directives.isEmpty) Empty else new ExcludeDirectives(directives.map(_.directive).toSet)
   }
 
-  final private class ExcludeTags(tags: Set[String]) extends Transformer[Any] {
+  final private class ExcludeDirectives(set: Set[Directive]) extends Transformer[Any] {
     private val map: mutable.HashMap[String, Set[String]] = mutable.HashMap.empty
 
-    private def shouldKeep(tpe: __Type, field: __Field): Boolean = {
-      val keep = field._tags.intersect(tags).isEmpty
-      if (!keep) map.updateWith(tpe.name.getOrElse("")) {
+    private def hasMatchingDirectives(directives: Option[List[Directive]]): Boolean =
+      directives match {
+        case None | Some(Nil) => false
+        case Some(dirs)       => dirs.exists(d => set.contains(d))
+      }
+
+    private def shouldKeepType(tpe: __Type, field: __Field): Boolean = {
+      val matched = hasMatchingDirectives(field.directives)
+      if (matched) map.updateWith(tpe.name.getOrElse("")) {
         case Some(set) => Some(set + field.name)
         case None      => Some(Set(field.name))
       }
-      keep
+      !matched
     }
 
     val typeVisitor: TypeVisitor =
-      TypeVisitor.fields.filterWith((t, field) => shouldKeep(t, field)) |+|
+      TypeVisitor.fields.filterWith((t, field) => shouldKeepType(t, field)) |+|
         TypeVisitor.fields.modify { field =>
           def loop(arg: __InputValue): Option[__InputValue] =
-            if (arg._type.isNullable && arg._tags.intersect(tags).nonEmpty) None
+            if (arg._type.isNullable && hasMatchingDirectives(arg.directives)) None
             else {
               lazy val newType = arg._type.mapInnerType { t =>
                 t.copy(inputFields = t.inputFields(_).map(_.flatMap(loop)))

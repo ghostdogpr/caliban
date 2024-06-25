@@ -34,16 +34,6 @@ object Annotations extends AnnotationsVersionSpecific {
   case class GQLName(value: String) extends StaticAnnotation
 
   /**
-   * Annotation used to provide directives to a schema type
-   */
-  class GQLDirective(val directive: Directive) extends StaticAnnotation
-
-  object GQLDirective {
-    def unapply(annotation: GQLDirective): Option[Directive] =
-      Some(annotation.directive)
-  }
-
-  /**
    * Annotation to make a sealed trait an interface instead of a union type or an enum
    *
    * @param excludedFields Optionally provide a list of field names that should be excluded from the interface
@@ -81,17 +71,4 @@ object Annotations extends AnnotationsVersionSpecific {
    * Annotation to make a sealed trait as a GraphQL @oneOf input
    */
   case class GQLOneOfInput() extends StaticAnnotation
-
-  /**
-   * Compile-time annotation that can be used in conjunction with [[caliban.transformers.Transformer]] to
-   * customize schema generation.
-   */
-  case class GQLTag(tags: String*)
-      extends GQLDirective(
-        Directive(
-          Directives.internal.Tag,
-          tags.map(_ -> Value.NullValue).toMap,
-          isIntrospectable = false
-        )
-      )
 }

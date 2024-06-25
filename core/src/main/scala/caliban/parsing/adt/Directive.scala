@@ -18,16 +18,6 @@ object Directives {
   final val OneOf               = "oneOf"
   final val Stream              = "stream"
 
-  // We prefix these with `_caliban_tag_` to avoid conflicts with user-defined directives
-  private[caliban] object internal {
-    final val Tag = "_caliban_tag"
-
-    def tags(directives: List[Directive]): Set[String] =
-      directives.collect { case Directive(Tag, args, _, _) if args.nonEmpty => args.keySet }
-        .foldLeft(Set.empty[String])(_ ++ _)
-
-  }
-
   def isDeprecated(directives: List[Directive]): Boolean =
     directives.exists(_.name == DeprecatedDirective)
 

@@ -3,7 +3,7 @@ package caliban.transformers
 import caliban.Macros.gqldoc
 import caliban._
 import caliban.parsing.adt.Directive
-import caliban.schema.Annotations.{ GQLDirective, GQLTag }
+import caliban.schema.Annotations.GQLDirective
 import caliban.schema.ArgBuilder.auto._
 import caliban.schema.Schema.auto._
 import zio.test._
@@ -221,21 +221,21 @@ object TransformerSpec extends ZIOSpecDefault {
               |}""".stripMargin
         )
       },
-      suite("ExcludeTag")(
+      suite("ExcludeTag") {
+        case class SchemaA() extends GQLDirective(Directive("schemaA", isIntrospectable = false))
+        case class SchemaB() extends GQLDirective(Directive("schemaB", isIntrospectable = false))
+
         test("fields") {
           case class Query(
             a: String,
-            @GQLTag("schemaA")
-            b: Int,
-            @GQLTag("schemaB")
-            c: Double,
-            @GQLTag("schemaA", "schemaB")
-            d: Boolean
+            @SchemaA b: Int,
+            @SchemaB c: Double,
+            @SchemaA @SchemaB d: Boolean
           )
           val api: GraphQL[Any]  = graphQL(RootResolver(Query("a", 2, 3d, true)))
-          val apiA: GraphQL[Any] = api.transform(Transformer.ExcludeTags("schemaA"))
-          val apiB: GraphQL[Any] = api.transform(Transformer.ExcludeTags("schemaB"))
-          val apiC: GraphQL[Any] = api.transform(Transformer.ExcludeTags("schemaA", "schemaB"))
+          val apiA: GraphQL[Any] = api.transform(Transformer.ExcludeDirectives(SchemaA()))
+          val apiB: GraphQL[Any] = api.transform(Transformer.ExcludeDirectives(SchemaB()))
+          val apiC: GraphQL[Any] = api.transform(Transformer.ExcludeDirectives(SchemaA(), SchemaB()))
 
           for {
             _        <- Configurator.setSkipValidation(true)
@@ -290,23 +290,19 @@ object TransformerSpec extends ZIOSpecDefault {
                 |  a: String!
                 |}""".stripMargin
           )
-        },
-        test("input fields") {
+        } + test("input fields") {
           case class Nested(
             a: String,
-            @GQLTag("schemaA")
-            b: Option[Int],
-            @GQLTag("schemaB")
-            c: Option[Double],
-            @GQLTag("schemaA", "schemaB")
-            d: Option[Boolean]
+            @SchemaA b: Option[Int],
+            @SchemaB c: Option[Double],
+            @SchemaA @SchemaB d: Option[Boolean]
           )
           case class Args(a: String, b: String, l: List[String], nested: Nested)
           case class Query(foo: Args => String)
           val api: GraphQL[Any]  = graphQL(RootResolver(Query(_ => "value")))
-          val apiA: GraphQL[Any] = api.transform(Transformer.ExcludeTags("schemaA"))
-          val apiB: GraphQL[Any] = api.transform(Transformer.ExcludeTags("schemaB"))
-          val apiC: GraphQL[Any] = api.transform(Transformer.ExcludeTags("schemaA", "schemaB"))
+          val apiA: GraphQL[Any] = api.transform(Transformer.ExcludeDirectives(SchemaA()))
+          val apiB: GraphQL[Any] = api.transform(Transformer.ExcludeDirectives(SchemaB()))
+          val apiC: GraphQL[Any] = api.transform(Transformer.ExcludeDirectives(SchemaA(), SchemaB()))
 
           val rendered  = api.render
           val renderedA = apiA.render
@@ -369,6 +365,6 @@ object TransformerSpec extends ZIOSpecDefault {
                 |}""".stripMargin
           )
         }
-      )
+      }
     )
 }
