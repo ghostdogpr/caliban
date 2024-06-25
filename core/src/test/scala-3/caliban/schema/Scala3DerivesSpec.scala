@@ -2,7 +2,7 @@ package caliban.schema
 
 import caliban.*
 import caliban.parsing.adt.Directive
-import caliban.schema.Annotations.{ GQLDescription, GQLDirective, GQLField, GQLInterface, GQLName }
+import caliban.schema.Annotations.*
 import zio.test.{ assertTrue, ZIOSpecDefault }
 import zio.{ RIO, Task, ZIO }
 
@@ -277,6 +277,28 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
                 |}
                 |
                 |type Foo {
+                |  fooValue: String
+                |  barValue: Int!
+                |}""".stripMargin
+
+            assertTrue(rendered == expected)
+          },
+          test("annotation on case class directly") {
+            @GQLMethodsAsFields
+            case class Foo(value: String) derives Schema.SemiAuto {
+              def fooValue: Option[String]   = None
+              def barValue: Int              = 42
+              @GQLExcluded def bazValue: Int = 42
+            }
+            val rendered = graphQL(RootResolver(Foo("foo"))).render
+
+            val expected =
+              """schema {
+                |  query: Foo
+                |}
+                |
+                |type Foo {
+                |  value: String!
                 |  fooValue: String
                 |  barValue: Int!
                 |}""".stripMargin
