@@ -292,27 +292,27 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
 
         val expectedSchema =
           """schema {
-  query: Query
-}
-
-"Union type Payload"
-union Payload2 @mydirective(arg: "value") = Foo | Bar | Baz
-
-type Bar {
-  foo: Int!
-}
-
-type Baz {
-  bar: Int!
-}
-
-type Foo {
-  value: String!
-}
-
-type Query {
-  testQuery(isFoo: Boolean!): Payload2!
-}""".stripMargin
+            |  query: Query
+            |}
+            |
+            |"Union type Payload"
+            |union Payload2 @mydirective(arg: "value") = Foo | Bar | Baz
+            |
+            |type Bar {
+            |  foo: Int!
+            |}
+            |
+            |type Baz {
+            |  bar: Int!
+            |}
+            |
+            |type Foo {
+            |  value: String!
+            |}
+            |
+            |type Query {
+            |  testQuery(isFoo: Boolean!): Payload2!
+            |}""".stripMargin
         val interpreter    = gql.interpreterUnsafe
 
         for {
@@ -325,6 +325,44 @@ type Query {
           data2 == """{"testQuery":{"foo":1}}""",
           gql.render == expectedSchema
         )
+      },
+      test("case object with @GQLField methods") {
+        case object Foo derives Schema.SemiAuto {
+          @GQLField def fooValue: Option[String] = None
+          @GQLField def barValue: Int            = 42
+        }
+        val rendered = graphQL(RootResolver(Foo)).render
+
+        val expected =
+          """schema {
+            |  query: Foo
+            |}
+            |
+            |type Foo {
+            |  fooValue: String
+            |  barValue: Int!
+            |}""".stripMargin
+
+        assertTrue(rendered == expected)
+      },
+      test("parameterless case class with @GQLField methods") {
+        case class Foo() derives Schema.SemiAuto {
+          @GQLField def fooValue: Option[String] = None
+          @GQLField def barValue: Int            = 42
+        }
+        val rendered = graphQL(RootResolver(Foo())).render
+
+        val expected =
+          """schema {
+            |  query: Foo
+            |}
+            |
+            |type Foo {
+            |  fooValue: String
+            |  barValue: Int!
+            |}""".stripMargin
+
+        assertTrue(rendered == expected)
       }
     )
   }

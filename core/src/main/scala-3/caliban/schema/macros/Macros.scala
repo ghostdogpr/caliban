@@ -5,7 +5,7 @@ import caliban.schema.Schema
 
 import scala.quoted.*
 
-export magnolia1.TypeInfo
+export magnolia1.{ Macro as MMacro, TypeInfo }
 
 object Macros {
   inline def isFieldExcluded[P, T]: Boolean = ${ isFieldExcludedImpl[P, T] }
@@ -13,8 +13,12 @@ object Macros {
   inline def implicitExists[T]: Boolean     = ${ implicitExistsImpl[T] }
   inline def hasAnnotation[T, Ann]: Boolean = ${ hasAnnotationImpl[T, Ann] }
 
-  transparent inline def fieldsFromMethods[R, T]: List[(String, List[Any], Schema[R, ?])] =
-    ${ fieldsFromMethodsImpl[R, T] }
+  transparent inline def hasFieldsFromMethods[T]: Boolean =
+    ${ hasFieldsFromMethodsImpl[T] }
+
+  transparent inline def fieldsFromMethods[R, T]: List[(String, List[Any], Schema[R, ?])] = ${
+    fieldsFromMethodsImpl[R, T]
+  }
 
   /**
    * Tests whether type argument [[FieldT]] in [[Parent]] is annotated with [[GQLExcluded]]
@@ -76,18 +80,8 @@ object Macros {
       if (methodSym.signature.paramSigs.size > 0)
         report.errorAndAbort(s"Method '${methodSym.name}' annotated with @GQLField must be parameterless")
 
-    // Unfortunately we can't reuse Magnolias filtering so we copy the implementation
-    def filterAnnotation(ann: Term): Boolean = {
-      val tpe = ann.tpe
-
-      tpe != annType && // No need to include the GQLField annotation
-      (tpe.typeSymbol.maybeOwner.isNoSymbol ||
-        (tpe.typeSymbol.owner.fullName != "scala.annotation.internal" &&
-          tpe.typeSymbol.owner.fullName != "jdk.internal"))
-    }
-
     def extractAnnotations(methodSym: Symbol): List[Expr[Any]] =
-      methodSym.annotations.filter(filterAnnotation).map(_.asExpr.asInstanceOf[Expr[Any]])
+      methodSym.annotations.filter(filterAnnotation(_, annType)).map(_.asExpr.asInstanceOf[Expr[Any]])
 
     Expr.ofList {
       targetSym.declaredMethods
@@ -103,6 +97,25 @@ object Macros {
           }
         }
     }
+  }
+
+  private def hasFieldsFromMethodsImpl[T: Type](using q: Quotes): Expr[Boolean] = {
+    import q.reflect.*
+    val targetSym = TypeTree.of[T].symbol
+    val annType   = TypeRepr.of[GQLField]
+    val annSym    = annType.typeSymbol
+
+    Expr(targetSym.declaredMethods.exists(_.getAnnotation(annSym).isDefined))
+  }
+
+  // Unfortunately we can't reuse Magnolias filtering so we copy the implementation
+  private def filterAnnotation(using q: Quotes)(ann: q.reflect.Term, annType: q.reflect.TypeRepr): Boolean = {
+    val tpe = ann.tpe
+
+    tpe != annType && // No need to include the GQLField annotation
+    (tpe.typeSymbol.maybeOwner.isNoSymbol ||
+      (tpe.typeSymbol.owner.fullName != "scala.annotation.internal" &&
+        tpe.typeSymbol.owner.fullName != "jdk.internal"))
   }
 
   // Copied from Schema so that we have the same compiler error message
