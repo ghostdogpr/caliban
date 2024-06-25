@@ -1,5 +1,7 @@
 package caliban.schema
 
+import caliban.parsing.adt.Directive
+
 import scala.annotation.StaticAnnotation
 
 trait AnnotationsVersionSpecific {
