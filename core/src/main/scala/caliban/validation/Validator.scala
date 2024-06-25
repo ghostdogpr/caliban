@@ -34,10 +34,10 @@ object Validator {
   /**
    * A QueryValidation is a pure program that can access a Context, fail with a ValidationError or succeed with Unit.
    */
-  type QueryValidation            = EReader[Context, ValidationError, Unit]
+  type QueryValidation            = Context => EReader[Any, ValidationError, Unit]
   private type OptionalValidation = Option[EReader[Any, ValidationError, Unit]]
 
-  lazy val AllValidations: List[QueryValidation] =
+  val AllValidations: List[QueryValidation] =
     List(
       validateFragmentSpreads,
       validateOperationNameUniqueness,
@@ -163,7 +163,7 @@ object Validator {
       operations.foreach(op => collectSelectionSets(buf)(op.selectionSet))
       fragments.foreach(f => collectSelectionSets(buf)(f.selectionSet))
       val context = Context(document, rootType, operations, fragmentMap, buf.result(), variables)
-      ZPure.collectAll(validations).provideService[Context](context).runEither.map(_ => fragmentMap)
+      ZPure.foreachDiscard(validations)(_.apply(context)).as(fragmentMap).runEither
     }
   }
 
@@ -309,8 +309,7 @@ object Validator {
         )
     }
 
-  lazy val validateDirectives: QueryValidation = ZPure.environmentWithPure[Context] { env =>
-    val context = env.get[Context]
+  def validateDirectives(context: Context): EReader[Any, ValidationError, Unit] =
     for {
       directives <- collectAllDirectives(context)
       _          <- validateAll(directives) { case (d, location) =>
@@ -344,90 +343,83 @@ object Validator {
                       }
                     }
     } yield ()
-  }
 
-  lazy val validateVariables: QueryValidation =
-    ZPure.environmentWithPure { env =>
-      val context = env.get[Context]
-      validateAll(context.operations) { op =>
-        val variableDefinitions = op.variableDefinitions
-        val variableUsages      = collectVariablesUsed(context, op.selectionSet)
-        if (variableDefinitions.isEmpty && variableUsages.isEmpty) zunit
-        else
-          validateAll(op.variableDefinitions.groupBy(_.name)) { case (name, variables) =>
-            failWhen(variables.sizeCompare(1) > 0)(
-              s"Variable '$name' is defined more than once.",
-              "If any operation defines more than one variable with the same name, it is ambiguous and invalid. It is invalid even if the type of the duplicate variable is the same."
+  def validateVariables(context: Context): EReader[Any, ValidationError, Unit] =
+    validateAll(context.operations) { op =>
+      val variableDefinitions = op.variableDefinitions
+      val variableUsages      = collectVariablesUsed(context, op.selectionSet)
+      if (variableDefinitions.isEmpty && variableUsages.isEmpty) zunit
+      else
+        validateAll(op.variableDefinitions.groupBy(_.name)) { case (name, variables) =>
+          failWhen(variables.sizeCompare(1) > 0)(
+            s"Variable '$name' is defined more than once.",
+            "If any operation defines more than one variable with the same name, it is ambiguous and invalid. It is invalid even if the type of the duplicate variable is the same."
+          )
+        } *> validateAll(op.variableDefinitions) { v =>
+          val t = context.rootType.types.get(Type.innerType(v.variableType))
+
+          val v1 = failWhen(t.map(_.kind).exists {
+            case __TypeKind.OBJECT | __TypeKind.UNION | __TypeKind.INTERFACE => true
+            case _                                                           => false
+          })(
+            s"Type of variable '${v.name}' is not a valid input type.",
+            "Variables can only be input types. Objects, unions, and interfaces cannot be used as inputs."
+          )
+
+          val v2 =
+            if (
+              t match {
+                case Some(t0) => t0._isOneOfInput
+                case _        => false
+              }
             )
-          } *> validateAll(op.variableDefinitions) { v =>
-            val t = context.rootType.types.get(Type.innerType(v.variableType))
-
-            val v1 = failWhen(t.map(_.kind).exists {
-              case __TypeKind.OBJECT | __TypeKind.UNION | __TypeKind.INTERFACE => true
-              case _                                                           => false
-            })(
-              s"Type of variable '${v.name}' is not a valid input type.",
-              "Variables can only be input types. Objects, unions, and interfaces cannot be used as inputs."
-            )
-
-            val v2 =
-              if (
-                t match {
-                  case Some(t0) => t0._isOneOfInput
-                  case _        => false
-                }
-              )
-                Some(
-                  failWhen(v.variableType.nullable)(
-                    s"Variable '${v.name}' cannot be nullable.",
-                    "Variables used for OneOf Input Object fields must be non-nullable."
-                  ) *> validateOneOfInputValue(
-                    context.variables.getOrElse(v.name, NullValue),
-                    s"Variable '${v.name}'"
-                  )
+              Some(
+                failWhen(v.variableType.nullable)(
+                  s"Variable '${v.name}' cannot be nullable.",
+                  "Variables used for OneOf Input Object fields must be non-nullable."
+                ) *> validateOneOfInputValue(
+                  context.variables.getOrElse(v.name, NullValue),
+                  s"Variable '${v.name}'"
                 )
-              else None
+              )
+            else None
 
-            v2.fold(v1)(v1 *> _)
-          } *> {
-            validateAll(variableUsages)(v =>
-              failWhen(!op.variableDefinitions.exists(_.name == v))(
-                s"Variable '$v' is not defined.",
-                "Variables are scoped on a per‐operation basis. That means that any variable used within the context of an operation must be defined at the top level of that operation"
-              )
-            ) *> validateAll(op.variableDefinitions)(v =>
-              failWhen(!variableUsages.contains(v.name))(
-                s"Variable '${v.name}' is not used.",
-                "All variables defined by an operation must be used in that operation or a fragment transitively included by that operation. Unused variables cause a validation error."
-              )
+          v2.fold(v1)(v1 *> _)
+        } *> {
+          validateAll(variableUsages)(v =>
+            failWhen(!op.variableDefinitions.exists(_.name == v))(
+              s"Variable '$v' is not defined.",
+              "Variables are scoped on a per‐operation basis. That means that any variable used within the context of an operation must be defined at the top level of that operation"
             )
-          }
-      }
+          ) *> validateAll(op.variableDefinitions)(v =>
+            failWhen(!variableUsages.contains(v.name))(
+              s"Variable '${v.name}' is not used.",
+              "All variables defined by an operation must be used in that operation or a fragment transitively included by that operation. Unused variables cause a validation error."
+            )
+          )
+        }
     }
 
   private def collectFragmentSpreads(selectionSet: List[Selection]): List[FragmentSpread] =
     selectionSet.collect { case f: FragmentSpread => f }
 
-  lazy val validateFragmentSpreads: QueryValidation =
-    ZPure.environmentWithPure { env =>
-      val context = env.get[Context]
-      if (context.fragments.isEmpty) zunit
-      else {
-        val spreads     = collectFragmentSpreads(context.selectionSets)
-        val spreadNames = mutable.Set.from(spreads.map(_.name))
-        validateAll(context.fragments.values) { f =>
-          if (!spreadNames.contains(f.name))
-            failValidation(
-              s"Fragment '${f.name}' is not used in any spread.",
-              "Defined fragments must be used within a document."
-            )
-          else if (detectCycles(context, f))
-            failValidation(
-              s"Fragment '${f.name}' forms a cycle.",
-              "The graph of fragment spreads must not form any cycles including spreading itself. Otherwise an operation could infinitely spread or infinitely execute on cycles in the underlying data."
-            )
-          else zunit
-        }
+  def validateFragmentSpreads(context: Context): EReader[Any, ValidationError, Unit] =
+    if (context.fragments.isEmpty) zunit
+    else {
+      val spreads     = collectFragmentSpreads(context.selectionSets)
+      val spreadNames = mutable.Set.from(spreads.map(_.name))
+      validateAll(context.fragments.values) { f =>
+        if (!spreadNames.contains(f.name))
+          failValidation(
+            s"Fragment '${f.name}' is not used in any spread.",
+            "Defined fragments must be used within a document."
+          )
+        else if (detectCycles(context, f))
+          failValidation(
+            s"Fragment '${f.name}' forms a cycle.",
+            "The graph of fragment spreads must not form any cycles including spreading itself. Otherwise an operation could infinitely spread or infinitely execute on cycles in the underlying data."
+          )
+        else zunit
       }
     }
 
@@ -440,8 +432,7 @@ object Validator {
     )
   }
 
-  lazy val validateDocumentFields: QueryValidation = ZPure.environmentWithPure { env =>
-    val context = env.get[Context]
+  def validateDocumentFields(context: Context): EReader[Any, ValidationError, Unit] =
     validateAll(context.document.definitions) {
       case OperationDefinition(opType, _, _, _, selectionSet) =>
         opType match {
@@ -460,7 +451,6 @@ object Validator {
       case _: TypeSystemDefinition                            => zunit
       case _: TypeSystemExtension                             => zunit
     }
-  }
 
   private def containsFragments(selectionSet: List[Selection]): Boolean =
     selectionSet.exists {
@@ -782,8 +772,7 @@ object Validator {
       case _                                                                             => None
     }
 
-  lazy val validateOperationNameUniqueness: QueryValidation = ZPure.environmentWithPure { env =>
-    val context       = env.get[Context]
+  def validateOperationNameUniqueness(context: Context): EReader[Any, ValidationError, Unit] = {
     val operations    = context.operations
     val names         = operations.flatMap(_.name).groupBy(identity)
     val repeatedNames = names.collect { case (name, items) if items.length > 1 => name }
@@ -793,8 +782,7 @@ object Validator {
     )
   }
 
-  lazy val validateLoneAnonymousOperation: QueryValidation = ZPure.environmentWithPure { env =>
-    val context    = env.get[Context]
+  def validateLoneAnonymousOperation(context: Context): EReader[Any, ValidationError, Unit] = {
     val operations = context.operations
     val anonymous  = operations.filter(_.name.isEmpty)
     failWhen(operations.length > 1 && anonymous.nonEmpty)(
@@ -823,10 +811,9 @@ object Validator {
     Right(fragmentMap)
   }
 
-  lazy val validateSubscriptionOperation: QueryValidation = ZPure.environmentWithPure { env =>
-    val context = env.get[Context]
-    val error   =
-      for {
+  def validateSubscriptionOperation(context: Context): EReader[Any, ValidationError, Unit] =
+    ZPure
+      .fromOption(for {
         t           <- context.rootType.subscriptionType
         op          <- context.operations.find(_.operationType == OperationType.Subscription)
         field        = F(
@@ -859,9 +846,8 @@ object Validator {
                              )
                            )
                        }
-      } yield error
-    ZPure.fromOption(error).flip
-  }
+      } yield error)
+      .flip
 
   private def validateFragmentType(
     name: Option[String],
