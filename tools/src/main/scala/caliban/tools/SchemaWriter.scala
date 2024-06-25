@@ -145,6 +145,26 @@ object SchemaWriter {
           .mkString(", ")})$derivesSchemaAndArgBuilder"""
     }
 
+    def writeOneOfInputObject(typedef: InputObjectTypeDefinition): String = {
+      val name            = typedef.name
+      val maybeAnnotation = if (preserveInputNames) s"""@GQLInputName("$name")\n""" else ""
+      s"""
+          $maybeAnnotation${writeTypeAnnotations(
+          typedef
+        )}@GQLOneOfInput\nsealed trait $name extends scala.Product with scala.Serializable
+          object $name {
+            ${typedef.fields.map(writeOneOfInputField(_, name)).mkString("\n")}
+          }
+          """
+    }
+
+    def writeOneOfInputField(typedef: InputValueDefinition, parent: String): String = {
+      val name = typedef.name.capitalize
+      s"""${writeInputAnnotations(typedef)}final case class $name(${writeInputValue(
+          typedef.copy(ofType = typedef.ofType.toNonNullable)
+        )}) extends $parent$derivesSchemaAndArgBuilder"""
+    }
+
     def writeEnum(typedef: EnumTypeDefinition): String =
       s"""${writeTypeAnnotations(
           typedef
@@ -417,7 +437,10 @@ object SchemaWriter {
       }
       .mkString("\n")
 
-    val inputs = schema.inputObjectTypeDefinitions.map(writeInputObject).mkString("\n")
+    val inputs = schema.inputObjectTypeDefinitions.map { typedef =>
+      if (Directives.isOneOf(typedef.directives)) writeOneOfInputObject(typedef)
+      else writeInputObject(typedef)
+    }.mkString("\n")
 
     val enums = schema.enumTypeDefinitions.map(writeEnum).mkString("\n")
 

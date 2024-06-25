@@ -1,89 +1,88 @@
 package caliban.relay
 
 import caliban.CalibanError
-import zio._
+import zio.Exit
+import zio.prelude._
 
 object Pagination {
   import PaginationCount._
   import PaginationCursor._
 
-  def apply[C: Cursor](
-    args: PaginationArgs[C]
-  ): ZIO[Any, CalibanError, Pagination[C]] =
+  def apply[C: Cursor](args: PaginationArgs[C]): Exit[CalibanError, Pagination[C]] =
     apply(args.first, args.last, args.before, args.after)
 
-  def apply[C: Cursor](
-    args: ForwardPaginationArgs[C]
-  ): ZIO[Any, CalibanError, Pagination[C]] =
+  def apply[C: Cursor](args: ForwardPaginationArgs[C]): Exit[CalibanError, Pagination[C]] =
     (args.first match {
-      case None    => ZIO.fail(s"first cannot be empty")
-      case Some(a) => validatePositive("first", a).map(First(_))
+      case None    => Validation.fail("first cannot be empty")
+      case Some(a) => validatePositive("first", a).map(First.apply)
     })
-      .validate(args.after match {
-        case None    => ZIO.succeed(NoCursor)
-        case Some(x) => ZIO.fromEither(Cursor[C].decode(x)).map(After(_))
-      })
-      .map { case (count, cursor) => new Pagination[C](count, cursor) }
-      .parallelErrors
-      .mapError((errors: ::[String]) => CalibanError.ExecutionError(msg = errors.mkString(", ")))
+      .zipWith(args.after match {
+        case None    => Validation.succeed(NoCursor)
+        case Some(x) => Validation.fromEither(Cursor[C].decode(x)).map(After.apply)
+      })(new Pagination[C](_, _))(
+        // Explicit implicits cause thanks Scala 2.12
+        ZValidation.ZValidationIdentityBoth,
+        implicitly
+      )
+      .toExit
 
-  def apply[C: Cursor](
-    args: BackwardPaginationArgs[C]
-  ): ZIO[Any, CalibanError, Pagination[C]] =
+  def apply[C: Cursor](args: BackwardPaginationArgs[C]): Exit[CalibanError, Pagination[C]] =
     (args.last match {
-      case None    => ZIO.fail(s"last cannot be empty")
-      case Some(a) => validatePositive("last", a).map(Last(_))
+      case None    => Validation.fail("last cannot be empty")
+      case Some(a) => validatePositive("last", a).map(Last.apply)
     })
-      .validate(args.before match {
-        case None    => ZIO.succeed(NoCursor)
-        case Some(x) => ZIO.fromEither(Cursor[C].decode(x)).map(Before(_))
-      })
-      .map { case (count, cursor) => new Pagination[C](count, cursor) }
-      .parallelErrors
-      .mapError((errors: ::[String]) => CalibanError.ExecutionError(msg = errors.mkString(", ")))
+      .zipWith(args.before match {
+        case None    => Validation.succeed(NoCursor)
+        case Some(x) => Validation.fromEither(Cursor[C].decode(x)).map(Before.apply)
+      })(new Pagination[C](_, _))(ZValidation.ZValidationIdentityBoth, implicitly)
+      .toExit
 
   def apply[C: Cursor](
     first: Option[Int],
     last: Option[Int],
     before: Option[String],
     after: Option[String]
-  ): ZIO[Any, CalibanError, Pagination[C]] =
+  ): Exit[CalibanError, Pagination[C]] =
     validateFirstLast(first, last)
-      .validate(
-        validateCursors(before, after)
-      )
-      .map { case (count, cursor) => new Pagination[C](count, cursor) }
-      .parallelErrors
-      .mapError((errors: ::[String]) => CalibanError.ExecutionError(msg = errors.mkString(", ")))
+      .zipWith(validateCursors(before, after))(new Pagination[C](_, _))(ZValidation.ZValidationIdentityBoth, implicitly)
+      .toExit
 
   private def validateCursors[C: Cursor](
     before: Option[String],
     after: Option[String]
-  ): ZIO[Any, String, PaginationCursor[C]] =
+  ): Validation[String, PaginationCursor[C]] =
     (before, after) match {
       case (Some(_), Some(_)) =>
-        ZIO.fail("before and after cannot both be set")
+        Validation.fail("before and after cannot both be set")
       case (Some(x), _)       =>
-        ZIO.fromEither(Cursor[C].decode(x)).map(Before(_))
+        Validation.fromEither(Cursor[C].decode(x)).map(Before.apply)
       case (_, Some(x))       =>
-        ZIO.fromEither(Cursor[C].decode(x)).map(After(_))
-      case (None, None)       => ZIO.succeed(NoCursor)
+        Validation.fromEither(Cursor[C].decode(x)).map(After.apply)
+      case (None, None)       => Validation.succeed(NoCursor)
     }
 
   private def validateFirstLast(first: Option[Int], last: Option[Int]) =
     (first, last) match {
       case (None, None)       =>
-        ZIO.fail("first and last cannot both be empty")
+        Validation.fail("first and last cannot both be empty")
       case (Some(_), Some(_)) =>
-        ZIO.fail("first and last cannot both be set")
+        Validation.fail("first and last cannot both be set")
       case (Some(a), _)       =>
-        validatePositive("first", a).map(First(_))
+        validatePositive("first", a).map(First.apply)
       case (_, Some(b))       =>
-        validatePositive("last", b).map(Last(_))
+        validatePositive("last", b).map(Last.apply)
     }
 
   private def validatePositive(which: String, i: Int) =
-    ZIO.cond(i > -1, i, s"$which cannot be negative")
+    if (i > -1) Validation.succeed(i) else Validation.fail(s"$which cannot be negative")
+
+  private implicit class ValidationOps[E, A](private val v: Validation[String, A]) extends AnyVal {
+    def toExit: Exit[CalibanError, A] = {
+      val either = v.toEitherWith(errors => CalibanError.ExecutionError(msg = errors.mkString(", ")))
+      Exit.fromEither(either)
+    }
+  }
+
 }
 
 sealed trait PaginationCount extends Product with Serializable {
@@ -112,27 +111,21 @@ abstract class PaginationArgs[C: Cursor] { self =>
   val before: Option[String]
   val after: Option[String]
 
-  def toPagination: ZIO[Any, CalibanError, Pagination[C]] = Pagination(
-    self
-  )
+  def toPagination: Exit[CalibanError, Pagination[C]] = Pagination(self)
 }
 
 abstract class ForwardPaginationArgs[C: Cursor] { self =>
   val first: Option[Int]
   val after: Option[String]
 
-  def toPagination: ZIO[Any, CalibanError, Pagination[C]] = Pagination(
-    self
-  )
+  def toPagination: Exit[CalibanError, Pagination[C]] = Pagination(self)
 }
 
 abstract class BackwardPaginationArgs[C: Cursor] { self =>
   val last: Option[Int]
   val before: Option[String]
 
-  def toPagination: ZIO[Any, CalibanError, Pagination[C]] = Pagination(
-    self
-  )
+  def toPagination: Exit[CalibanError, Pagination[C]] = Pagination(self)
 }
 
 case class PaginationError(reason: String)
