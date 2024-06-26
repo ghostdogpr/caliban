@@ -20,7 +20,10 @@ object ValidationSchemaSpec extends ZIOSpecDefault {
     gql.interpreter.exit.map(assert(_)(fails[ValidationError](hasField("msg", _.msg, equalTo(expectedMessage)))))
 
   def checkTypeError(t: __Type, expectedMessage: String): IO[ValidationError, TestResult] =
-    Validator.validateType(t).toZIO.exit.map(assert(_)(fails(hasField("msg", _.msg, equalTo(expectedMessage)))))
+    ZIO
+      .fromEither(Validator.validateType(t))
+      .exit
+      .map(assert(_)(fails(hasField("msg", _.msg, equalTo(expectedMessage)))))
 
   override def spec =
     suite("ValidationSchemaSpec")(
@@ -35,9 +38,7 @@ object ValidationSchemaSpec extends ZIOSpecDefault {
                 origin = None
               )
             )
-            .toZIO
-            .exit
-            .map(assert(_)(succeeds(anything)))
+            .map(_ => assertCompletes)
         },
         test("must be non-empty") {
           checkTypeError(
@@ -62,9 +63,7 @@ object ValidationSchemaSpec extends ZIOSpecDefault {
                 subTypes = List(__Type(kind = __TypeKind.OBJECT))
               )
             )
-            .toZIO
-            .exit
-            .map(assert(_)(succeeds(anything)))
+            .map(_ => assertCompletes)
         },
         test("must be non-empty") {
           val expectedMessage = "Union EmptyUnion doesn't contain any type."
@@ -301,7 +300,7 @@ object ValidationSchemaSpec extends ZIOSpecDefault {
             graphQL(resolverFieldWithArg).interpreter.exit.map(assert(_)(succeeds(anything)))
           },
           test("fields with additional nullable args are valid") {
-            Validator.validateObject(nullableExtraArgsObject).toZIO.exit.map(assert(_)(succeeds(anything)))
+            Validator.validateObject(nullableExtraArgsObject).map(_ => assertCompletes)
           },
           test("fields with additional non-nullable args are invalid") {
             checkTypeError(

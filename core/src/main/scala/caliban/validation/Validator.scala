@@ -19,8 +19,6 @@ import caliban.rendering.DocumentRenderer
 import caliban.schema._
 import caliban.validation.Utils.isObjectType
 import caliban.{ Configurator, InputValue }
-import zio.prelude._
-import zio.prelude.fx.ZPure
 import zio.stacktracer.TracingImplicits.disableAutoTrace
 import zio.{ Exit, IO, Trace }
 
@@ -30,14 +28,15 @@ import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
 
 object Validator {
+  import ValidationOps._
 
   /**
    * A QueryValidation is a pure program that can access a Context, fail with a ValidationError or succeed with Unit.
    */
-  type QueryValidation            = EReader[Context, ValidationError, Unit]
-  private type OptionalValidation = Option[EReader[Any, ValidationError, Unit]]
+  type QueryValidation            = Context => Either[ValidationError, Unit]
+  private type OptionalValidation = Option[Either[ValidationError, Unit]]
 
-  lazy val AllValidations: List[QueryValidation] =
+  val AllValidations: List[QueryValidation] =
     List(
       validateFragmentSpreads,
       validateOperationNameUniqueness,
@@ -60,36 +59,36 @@ object Validator {
    * Fails with a [[caliban.CalibanError.ValidationError]] otherwise.
    */
   def validateAll(document: Document, rootType: RootType): Either[ValidationError, Unit] =
-    check(document, rootType, Map.empty, AllValidations).map(_ => ())
+    check(document, rootType, Map.empty, AllValidations).unit
 
   /**
    * Verifies that the given schema is valid. Fails with a [[caliban.CalibanError.ValidationError]] otherwise.
    */
   def validateSchema[R](schema: RootSchemaBuilder[R]): Either[ValidationError, RootSchema[R]] = {
     val types = schema.types
-    ZPure.foreachDiscard(types.sorted)(validateType) *>
-      validateClashingTypes(types) *>
-      validateDirectives(types) *>
-      validateRootMutation(schema) *>
-      validateRootSubscription(schema) *>
-      validateRootQuery(schema)
-  }.runEither
+    for {
+      _      <- validateAllDiscard(types.sorted)(validateType)
+      _      <- validateClashingTypes(types)
+      _      <- validateDirectives(types)
+      _      <- validateRootMutation(schema)
+      _      <- validateRootSubscription(schema)
+      schema <- validateRootQuery(schema)
+    } yield schema
+  }
 
-  private val zunit = ZPure.unit[Unit]
-
-  private[caliban] def validateType(t: __Type): EReader[Any, ValidationError, Unit] =
-    ZPure.forEach(t.name)(name => checkName(name, s"Type '$name'")) *>
+  private[caliban] def validateType(t: __Type): Either[ValidationError, Unit] =
+    t.name.fold(unit: Either[ValidationError, Unit])(name => checkName(name, s"Type '$name'")) *>
       (t.kind match {
         case __TypeKind.ENUM         => validateEnum(t)
         case __TypeKind.UNION        => validateUnion(t)
         case __TypeKind.INTERFACE    => validateInterface(t)
         case __TypeKind.INPUT_OBJECT => validateInputObject(t)
         case __TypeKind.OBJECT       => validateObject(t)
-        case _                       => zunit
+        case _                       => unit
       })
 
-  def failValidation(msg: String, explanatoryText: String): EReader[Any, ValidationError, Nothing] =
-    ZPure.fail(ValidationError(msg, explanatoryText))
+  def failValidation(msg: String, explanatoryText: String): Either[ValidationError, Nothing] =
+    Left(ValidationError(msg, explanatoryText))
 
   /**
    * Prepare the request for execution.
@@ -163,7 +162,11 @@ object Validator {
       operations.foreach(op => collectSelectionSets(buf)(op.selectionSet))
       fragments.foreach(f => collectSelectionSets(buf)(f.selectionSet))
       val context = Context(document, rootType, operations, fragmentMap, buf.result(), variables)
-      ZPure.collectAll(validations).provideService[Context](context).runEither.map(_ => fragmentMap)
+      try
+        validateAllDiscard(validations)(_.apply(context)).as(fragmentMap)
+      catch {
+        case _: StackOverflowError => Left(ValidationError("Max query depth exceeded", ""))
+      }
     }
   }
 
@@ -240,12 +243,12 @@ object Validator {
 
   private def collectAllDirectives(
     context: Context
-  ): EReader[Any, ValidationError, List[(Directive, __DirectiveLocation)]] = {
+  ): Either[ValidationError, List[(Directive, __DirectiveLocation)]] = {
     val directiveDefinitions = context.document.directiveDefinitions.groupBy(_.name)
     for {
-      _                   <- validateAll(context.operations)(op => checkDirectivesUniqueness(op.directives, directiveDefinitions))
+      _                   <- validateAllDiscard(context.operations)(op => checkDirectivesUniqueness(op.directives, directiveDefinitions))
       fragmentDirectives   = context.fragments.values.toList.map(_.directives)
-      _                   <- validateAll(fragmentDirectives)(checkDirectivesUniqueness(_, directiveDefinitions))
+      _                   <- validateAllDiscard(fragmentDirectives)(checkDirectivesUniqueness(_, directiveDefinitions))
       selectionDirectives <- collectDirectives(context.selectionSets, directiveDefinitions)
     } yield {
       val all = ListBuffer.empty[(Directive, __DirectiveLocation)]
@@ -266,7 +269,7 @@ object Validator {
   private def collectDirectives(
     selectionSet: List[Selection],
     directiveDefinitions: Map[String, List[DirectiveDefinition]]
-  ): EReader[Any, ValidationError, List[(Directive, __DirectiveLocation)]] = {
+  ): Either[ValidationError, List[(Directive, __DirectiveLocation)]] = {
     val builder = ListBuffer.empty[List[(Directive, __DirectiveLocation)]]
 
     def loop(selectionSet: List[Selection]): Unit =
@@ -285,14 +288,14 @@ object Validator {
       }
     loop(selectionSet)
     val directiveLists                            = builder.result()
-    validateAll(directiveLists)(list => checkDirectivesUniqueness(list.map(_._1), directiveDefinitions))
+    validateAllDiscard(directiveLists)(list => checkDirectivesUniqueness(list.map(_._1), directiveDefinitions))
       .as(directiveLists.flatten)
   }
 
   private def checkDirectivesUniqueness(
     directives: List[Directive],
     directiveDefinitions: Map[String, List[DirectiveDefinition]]
-  ): EReader[Any, ValidationError, Unit] =
+  ): Either[ValidationError, Unit] =
     directives
       .groupBy(_.name)
       .find { case (n, v) =>
@@ -301,7 +304,7 @@ object Validator {
         // it's a minor optimization to short-circuit the length check on a List for the off-chance that list is long
         (v.lengthCompare(1) > 0) && !directiveDefinitions.get(n).exists(_.exists(_.isRepeatable))
       } match {
-      case None            => zunit
+      case None            => unit
       case Some((name, _)) =>
         failValidation(
           s"Directive '$name' is defined more than once.",
@@ -309,11 +312,10 @@ object Validator {
         )
     }
 
-  lazy val validateDirectives: QueryValidation = ZPure.environmentWithPure[Context] { env =>
-    val context = env.get[Context]
+  def validateDirectives(context: Context): Either[ValidationError, Unit] =
     for {
       directives <- collectAllDirectives(context)
-      _          <- validateAll(directives) { case (d, location) =>
+      _          <- validateAllDiscard(directives) { case (d, location) =>
                       (context.rootType.additionalDirectives ::: Introspector.directives).find(_.name == d.name) match {
                         case None            =>
                           failValidation(
@@ -321,7 +323,7 @@ object Validator {
                             "GraphQL servers define what directives they support. For each usage of a directive, the directive must be available on that server."
                           )
                         case Some(directive) =>
-                          validateAll(d.arguments) { case (arg, argValue) =>
+                          validateAllDiscard(d.arguments) { (arg, argValue) =>
                             directive.allArgs.find(_.name == arg) match {
                               case Some(inputValue) =>
                                 validateInputValues(
@@ -344,123 +346,123 @@ object Validator {
                       }
                     }
     } yield ()
-  }
 
-  lazy val validateVariables: QueryValidation =
-    ZPure.environmentWithPure { env =>
-      val context = env.get[Context]
-      validateAll(context.operations) { op =>
-        val variableDefinitions = op.variableDefinitions
-        val variableUsages      = collectVariablesUsed(context, op.selectionSet)
-        if (variableDefinitions.isEmpty && variableUsages.isEmpty) zunit
-        else
-          validateAll(op.variableDefinitions.groupBy(_.name)) { case (name, variables) =>
-            failWhen(variables.sizeCompare(1) > 0)(
-              s"Variable '$name' is defined more than once.",
-              "If any operation defines more than one variable with the same name, it is ambiguous and invalid. It is invalid even if the type of the duplicate variable is the same."
+  def validateVariables(context: Context): Either[ValidationError, Unit] =
+    validateAllDiscard(context.operations) { op =>
+      val variableDefinitions = op.variableDefinitions
+      val variableUsages      = collectVariablesUsed(context, op.selectionSet)
+      if (variableDefinitions.isEmpty && variableUsages.isEmpty) unit
+      else
+        validateAllDiscard(op.variableDefinitions.groupBy(_.name)) { (name, variables) =>
+          failWhen(variables.sizeCompare(1) > 0)(
+            s"Variable '$name' is defined more than once.",
+            "If any operation defines more than one variable with the same name, it is ambiguous and invalid. It is invalid even if the type of the duplicate variable is the same."
+          )
+        } *> validateAllDiscard(op.variableDefinitions) { v =>
+          val t = context.rootType.types.get(Type.innerType(v.variableType))
+
+          val v1 = failWhen(t.map(_.kind).exists {
+            case __TypeKind.OBJECT | __TypeKind.UNION | __TypeKind.INTERFACE => true
+            case _                                                           => false
+          })(
+            s"Type of variable '${v.name}' is not a valid input type.",
+            "Variables can only be input types. Objects, unions, and interfaces cannot be used as inputs."
+          )
+
+          val v2 =
+            if (
+              t match {
+                case Some(t0) => t0._isOneOfInput
+                case _        => false
+              }
             )
-          } *> validateAll(op.variableDefinitions) { v =>
-            val t = context.rootType.types.get(Type.innerType(v.variableType))
-
-            val v1 = failWhen(t.map(_.kind).exists {
-              case __TypeKind.OBJECT | __TypeKind.UNION | __TypeKind.INTERFACE => true
-              case _                                                           => false
-            })(
-              s"Type of variable '${v.name}' is not a valid input type.",
-              "Variables can only be input types. Objects, unions, and interfaces cannot be used as inputs."
-            )
-
-            val v2 =
-              if (
-                t match {
-                  case Some(t0) => t0._isOneOfInput
-                  case _        => false
-                }
-              )
-                Some(
-                  failWhen(v.variableType.nullable)(
-                    s"Variable '${v.name}' cannot be nullable.",
-                    "Variables used for OneOf Input Object fields must be non-nullable."
-                  ) *> validateOneOfInputValue(
-                    context.variables.getOrElse(v.name, NullValue),
-                    s"Variable '${v.name}'"
-                  )
+              Some(
+                failWhen(v.variableType.nullable)(
+                  s"Variable '${v.name}' cannot be nullable.",
+                  "Variables used for OneOf Input Object fields must be non-nullable."
+                ) *> validateOneOfInputValue(
+                  context.variables.getOrElse(v.name, NullValue),
+                  s"Variable '${v.name}'"
                 )
-              else None
+              )
+            else None
 
-            v2.fold(v1)(v1 *> _)
-          } *> {
-            validateAll(variableUsages)(v =>
-              failWhen(!op.variableDefinitions.exists(_.name == v))(
-                s"Variable '$v' is not defined.",
-                "Variables are scoped on a per‐operation basis. That means that any variable used within the context of an operation must be defined at the top level of that operation"
-              )
-            ) *> validateAll(op.variableDefinitions)(v =>
-              failWhen(!variableUsages.contains(v.name))(
-                s"Variable '${v.name}' is not used.",
-                "All variables defined by an operation must be used in that operation or a fragment transitively included by that operation. Unused variables cause a validation error."
-              )
+          v2.fold(v1)(v1 *> _)
+        } *> {
+          validateAllDiscard(variableUsages)(v =>
+            failWhen(!op.variableDefinitions.exists(_.name == v))(
+              s"Variable '$v' is not defined.",
+              "Variables are scoped on a per‐operation basis. That means that any variable used within the context of an operation must be defined at the top level of that operation"
             )
-          }
-      }
+          ) *> validateAllDiscard(op.variableDefinitions)(v =>
+            failWhen(!variableUsages.contains(v.name))(
+              s"Variable '${v.name}' is not used.",
+              "All variables defined by an operation must be used in that operation or a fragment transitively included by that operation. Unused variables cause a validation error."
+            )
+          )
+        }
     }
 
   private def collectFragmentSpreads(selectionSet: List[Selection]): List[FragmentSpread] =
     selectionSet.collect { case f: FragmentSpread => f }
 
-  lazy val validateFragmentSpreads: QueryValidation =
-    ZPure.environmentWithPure { env =>
-      val context = env.get[Context]
-      if (context.fragments.isEmpty) zunit
-      else {
-        val spreads     = collectFragmentSpreads(context.selectionSets)
-        val spreadNames = mutable.Set.from(spreads.map(_.name))
-        validateAll(context.fragments.values) { f =>
-          if (!spreadNames.contains(f.name))
-            failValidation(
-              s"Fragment '${f.name}' is not used in any spread.",
-              "Defined fragments must be used within a document."
-            )
-          else if (detectCycles(context, f))
-            failValidation(
-              s"Fragment '${f.name}' forms a cycle.",
-              "The graph of fragment spreads must not form any cycles including spreading itself. Otherwise an operation could infinitely spread or infinitely execute on cycles in the underlying data."
-            )
-          else zunit
-        }
+  def validateFragmentSpreads(context: Context): Either[ValidationError, Unit] =
+    if (context.fragments.isEmpty) unit
+    else {
+      val spreads     = collectFragmentSpreads(context.selectionSets)
+      val spreadNames = mutable.Set.from(spreads.map(_.name))
+      validateAllDiscard(context.fragments) { (name, f) =>
+        if (!spreadNames.contains(name))
+          failValidation(
+            s"Fragment '$name' is not used in any spread.",
+            "Defined fragments must be used within a document."
+          )
+        else if (detectCycles(context, f))
+          failValidation(
+            s"Fragment '$name' forms a cycle.",
+            "The graph of fragment spreads must not form any cycles including spreading itself. Otherwise an operation could infinitely spread or infinitely execute on cycles in the underlying data."
+          )
+        else unit
       }
     }
 
-  private def detectCycles(context: Context, fragment: FragmentDefinition, visited: Set[String] = Set()): Boolean = {
+  private def detectCycles(
+    context: Context,
+    fragment: FragmentDefinition,
+    visited: Set[String] = Set.empty,
+    checked: mutable.HashSet[String] = mutable.HashSet.empty
+  ): Boolean = !checked.contains(fragment.name) && {
     val selectionSets     = collectSelectionSets()(fragment.selectionSet).result()
     val descendantSpreads = collectFragmentSpreads(selectionSets)
-    descendantSpreads.exists(s =>
-      visited.contains(s.name) ||
-        context.fragments.get(s.name).fold(false)(f => detectCycles(context, f, visited + s.name))
-    )
+    val cycleDetected     = descendantSpreads.exists { s =>
+      visited.contains(s.name) || {
+        val f = context.fragments.getOrElse(s.name, null)
+        (f ne null) && detectCycles(context, f, visited + s.name, checked)
+      }
+    }
+    checked.add(fragment.name)
+    cycleDetected
   }
 
-  lazy val validateDocumentFields: QueryValidation = ZPure.environmentWithPure { env =>
-    val context = env.get[Context]
-    validateAll(context.document.definitions) {
+  def validateDocumentFields(context: Context): Either[ValidationError, Unit] =
+    validateAllDiscard(context.document.definitions) {
       case OperationDefinition(opType, _, _, _, selectionSet) =>
         opType match {
           case OperationType.Query        =>
             validateSelectionSet(context, selectionSet, context.rootType.queryType)
           case OperationType.Mutation     =>
-            context.rootType.mutationType.fold[EReader[Any, ValidationError, Unit]](
+            context.rootType.mutationType.fold[Either[ValidationError, Unit]](
               failValidation("Mutation operations are not supported on this schema.", "")
             )(validateSelectionSet(context, selectionSet, _))
           case OperationType.Subscription =>
-            context.rootType.subscriptionType.fold[EReader[Any, ValidationError, Unit]](
+            context.rootType.subscriptionType.fold[Either[ValidationError, Unit]](
               failValidation("Subscription operations are not supported on this schema.", "")
             )(validateSelectionSet(context, selectionSet, _))
         }
-      case _: FragmentDefinition                              => zunit
-      case _: TypeSystemDefinition                            => zunit
-      case _: TypeSystemExtension                             => zunit
+      case _: FragmentDefinition                              => unit
+      case _: TypeSystemDefinition                            => unit
+      case _: TypeSystemExtension                             => unit
     }
-  }
 
   private def containsFragments(selectionSet: List[Selection]): Boolean =
     selectionSet.exists {
@@ -473,7 +475,7 @@ object Validator {
     context: Context,
     selectionSet: List[Selection],
     currentType: __Type
-  ): EReader[Any, ValidationError, Unit] = {
+  ): Either[ValidationError, Unit] = {
     val v1 = validateFields(context, selectionSet, currentType)
     if (context.fragments.nonEmpty || containsFragments(selectionSet))
       v1 *> FragmentValidator.findConflictsWithinSelectionSet(context, context.rootType.queryType, selectionSet)
@@ -484,19 +486,19 @@ object Validator {
     context: Context,
     selectionSet: List[Selection],
     currentType: __Type
-  ): EReader[Any, ValidationError, Unit] = {
-    val v1 = validateAll(selectionSet) {
+  ): Either[ValidationError, Unit] = {
+    val v1 = validateAllDiscard(selectionSet) {
       case f: Field                                       =>
         validateField(context, f, currentType)
       case FragmentSpread(name, _)                        =>
-        context.fragments.get(name) match {
-          case Some(fragment) =>
-            validateSpread(context, Some(name), currentType, Some(fragment.typeCondition), fragment.selectionSet)
-          case None           =>
+        context.fragments.getOrElse(name, null) match {
+          case null     =>
             failValidation(
               s"Fragment spread '$name' is not defined.",
               "Named fragment spreads must refer to fragments defined within the document. It is a validation error if the target of a spread is not defined."
             )
+          case fragment =>
+            validateSpread(context, Some(name), currentType, Some(fragment.typeCondition), fragment.selectionSet)
         }
       case InlineFragment(typeCondition, _, selectionSet) =>
         validateSpread(context, None, currentType, typeCondition, selectionSet)
@@ -511,15 +513,21 @@ object Validator {
     currentType: __Type,
     typeCondition: Option[NamedType],
     selectionSet: List[Selection]
-  ): EReader[Any, ValidationError, Unit] =
-    typeCondition.fold[Option[__Type]](Some(currentType))(t => context.rootType.types.get(t.name)) match {
-      case Some(fragmentType) =>
+  ): Either[ValidationError, Unit] =
+    typeCondition.fold(currentType)(t => context.rootType.types.getOrElse(t.name, null)) match {
+      case null         =>
+        val typeConditionName = typeCondition.fold("?")(_.name)
+        failValidation(
+          s"${name.fold("Inline fragment spread")(n => s"Fragment spread '$n'")} targets an invalid type: '$typeConditionName'.",
+          "Fragments must be specified on types that exist in the schema. This applies for both named and inline fragments. If they are not defined in the schema, the query does not validate."
+        )
+      case fragmentType =>
         val v1 = validateFragmentType(name, fragmentType)
         val v2 = {
           val possibleTypes         = currentType.possibleTypeNames
           val possibleFragmentTypes = fragmentType.possibleTypeNames
-          val applicableTypes       = possibleTypes intersect possibleFragmentTypes
-          if (applicableTypes.isEmpty)
+          val hasApplicableTypes    = possibleFragmentTypes.exists(possibleTypes.contains)
+          if (!hasApplicableTypes)
             failValidation(
               s"${name.fold("Inline fragment spread")(n => s"Fragment spread '$n'")} is not possible: possible types are '${possibleTypes
                   .mkString(", ")}' and possible fragment types are '${possibleFragmentTypes.mkString(", ")}'.",
@@ -528,12 +536,6 @@ object Validator {
           else validateFields(context, selectionSet, fragmentType)
         }
         v1.fold(v2)(_ *> v2)
-      case None               =>
-        val typeConditionName = typeCondition.fold("?")(_.name)
-        failValidation(
-          s"${name.fold("Inline fragment spread")(n => s"Fragment spread '$n'")} targets an invalid type: '$typeConditionName'.",
-          "Fragments must be specified on types that exist in the schema. This applies for both named and inline fragments. If they are not defined in the schema, the query does not validate."
-        )
     }
 
   private def combineOptionalValidations(v1: OptionalValidation, v2: OptionalValidation): OptionalValidation =
@@ -544,7 +546,7 @@ object Validator {
       case (Some(v1), Some(v2)) => Some(v1 *> v2)
     }
 
-  private def validateField(context: Context, field: Field, currentType: __Type): EReader[Any, ValidationError, Unit] =
+  private def validateField(context: Context, field: Field, currentType: __Type): Either[ValidationError, Unit] =
     if (field.name != "__typename") {
       currentType.getFieldOrNull(field.name) match {
         case null =>
@@ -557,7 +559,7 @@ object Validator {
           val v2 = validateArguments(field, f, currentType, context)
           v2.fold(v1)(v1 *> _)
       }
-    } else zunit
+    } else unit
 
   private def validateArguments(
     field: Field,
@@ -570,9 +572,9 @@ object Validator {
     val providedArgs     = field.arguments
 
     val v1 = validateAllNonEmpty(fieldArgsNonNull.flatMap { arg =>
-      val arg0 = field.arguments.get(arg.name)
+      val arg0 = field.arguments.getOrElse(arg.name, null)
       val opt1 = (arg.defaultValue, arg0) match {
-        case (None, None) | (None, Some(NullValue)) =>
+        case (None, null) | (None, NullValue) =>
           Some(
             failValidation(
               s"Required argument '${arg.name}' is null or missing on field '${field.name}' of type '${currentType.name
@@ -580,7 +582,7 @@ object Validator {
               "Arguments can be required. An argument is required if the argument type is non‐null and does not have a default value. Otherwise, the argument is optional."
             )
           )
-        case (Some(_), Some(NullValue))             =>
+        case (Some(_), NullValue)             =>
           Some(
             failValidation(
               s"Required argument '${arg.name}' is null on '${field.name}' of type '${currentType.name
@@ -588,13 +590,13 @@ object Validator {
               "Arguments can be required. An argument is required if the argument type is non‐null and does not have a default value. Otherwise, the argument is optional."
             )
           )
-        case _                                      => None
+        case _                                => None
       }
       val opt2 =
         if (arg._type.innerType._isOneOfInput)
           Some(
             validateOneOfInputValue(
-              arg0.getOrElse(NullValue),
+              if (arg0 eq null) NullValue else arg0,
               s"Argument '${arg.name}' on field '${field.name}'"
             )
           )
@@ -603,22 +605,25 @@ object Validator {
       combineOptionalValidations(opt1, opt2)
     })(identity)
 
-    val v2 = validateAllNonEmpty(providedArgs) { case (arg, argValue) =>
-      fieldArgs.find(_.name == arg) match {
-        case Some(inputValue) =>
-          validateInputValues(
-            inputValue,
-            argValue,
-            context,
-            s"InputValue '${inputValue.name}' of Field '${field.name}'"
-          )
-        case None             =>
-          failValidation(
-            s"Argument '$arg' is not defined on field '${field.name}' of type '${currentType.name.getOrElse("")}'.",
-            "Every argument provided to a field or directive must be defined in the set of possible arguments of that field or directive."
-          )
-      }
-    }
+    val v2 =
+      if (providedArgs.isEmpty) None
+      else
+        Some(validateAllDiscard(providedArgs) { (arg, argValue) =>
+          fieldArgs.find(_.name == arg) match {
+            case Some(inputValue) =>
+              validateInputValues(
+                inputValue,
+                argValue,
+                context,
+                s"InputValue '${inputValue.name}' of Field '${field.name}'"
+              )
+            case None             =>
+              failValidation(
+                s"Argument '$arg' is not defined on field '${field.name}' of type '${currentType.name.getOrElse("")}'.",
+                "Every argument provided to a field or directive must be defined in the set of possible arguments of that field or directive."
+              )
+          }
+        })
 
     combineOptionalValidations(v1, v2)
   }
@@ -628,14 +633,14 @@ object Validator {
     argValue: InputValue,
     context: Context,
     errorContext: => String
-  ): EReader[Any, ValidationError, Unit] = {
+  ): Either[ValidationError, Unit] = {
     val t           = inputValue._type
     val inputType   = if (t.kind == __TypeKind.NON_NULL) t.ofType.getOrElse(t) else t
     val inputFields = inputType.allInputFields
 
     argValue match {
       case InputValue.ObjectValue(fields) if inputType.kind == __TypeKind.INPUT_OBJECT =>
-        validateAll(fields) { case (k, v) =>
+        validateAllDiscard(fields) { (k, v) =>
           inputFields.find(_.name == k) match {
             case None        =>
               failValidation(
@@ -650,7 +655,7 @@ object Validator {
                 s"InputValue '${inputValue.name}' of Field '$k' of InputObject '${t.name.getOrElse("")}'"
               )
           }
-        } *> validateAll(inputFields)(inputField =>
+        } *> validateAllDiscard(inputFields)(inputField =>
           failWhen(
             inputField.defaultValue.isEmpty &&
               inputField._type.kind == __TypeKind.NON_NULL &&
@@ -661,39 +666,41 @@ object Validator {
           )
         )
       case VariableValue(variableName)                                                 =>
-        context.variableDefinitions.get(variableName) match {
-          case Some(variableDefinition) => checkVariableUsageAllowed(variableDefinition, inputValue)
-          case None                     =>
+        context.variableDefinitions.getOrElse(variableName, null) match {
+          case null               =>
             failValidation(
               s"Variable '$variableName' is not defined.",
               "Variables are scoped on a per‐operation basis. That means that any variable used within the context of an operation must be defined at the top level of that operation"
             )
+          case variableDefinition => checkVariableUsageAllowed(variableDefinition, inputValue)
         }
-      case _                                                                           => zunit
+      case _                                                                           => unit
     }
   } *> ValueValidator.validateInputTypes(inputValue, argValue, context, errorContext)
 
   private def validateOneOfInputValue(
     inputValue: InputValue,
     errorContext: => String
-  ): EReader[Any, ValidationError, Unit] =
-    ZPure
-      .whenCase(inputValue match {
-        case InputValue.ObjectValue(fields) if fields.size == 1 => fields.headOption.map(_._2)
-        case vv: InputValue.VariableValue                       => Some(vv)
-        case _                                                  => None
-      }) { case None | Some(NullValue) =>
+  ): Either[ValidationError, Unit] = {
+    val v = inputValue match {
+      case InputValue.ObjectValue(fields) if fields.size == 1 => fields.headOption.map(_._2)
+      case vv: InputValue.VariableValue                       => Some(vv)
+      case _                                                  => None
+    }
+    v match {
+      case None | Some(NullValue) =>
         failValidation(
           s"$errorContext is not a valid OneOf Input Object",
           "OneOf Input Object arguments must specify exactly one non-null key"
         )
-      }
-      .unit
+      case _                      => unit
+    }
+  }
 
   private def checkVariableUsageAllowed(
     variableDefinition: VariableDefinition,
     inputValue: __InputValue
-  ): EReader[Any, ValidationError, Unit] = {
+  ): Either[ValidationError, Unit] = {
     val locationType = inputValue._type
     val variableType = variableDefinition.variableType
     if (!locationType.isNullable && !variableType.nonNull) {
@@ -716,7 +723,7 @@ object Validator {
     variableName: String,
     variableType: Type,
     locationType: __Type
-  ): EReader[Any, ValidationError, Unit] = {
+  ): Either[ValidationError, Unit] = {
     val explanation = "Variable usages must be compatible with the arguments they are passed to."
     if (!locationType.isNullable) {
       if (variableType.nullable)
@@ -782,8 +789,7 @@ object Validator {
       case _                                                                             => None
     }
 
-  lazy val validateOperationNameUniqueness: QueryValidation = ZPure.environmentWithPure { env =>
-    val context       = env.get[Context]
+  def validateOperationNameUniqueness(context: Context): Either[ValidationError, Unit] = {
     val operations    = context.operations
     val names         = operations.flatMap(_.name).groupBy(identity)
     val repeatedNames = names.collect { case (name, items) if items.length > 1 => name }
@@ -793,8 +799,7 @@ object Validator {
     )
   }
 
-  lazy val validateLoneAnonymousOperation: QueryValidation = ZPure.environmentWithPure { env =>
-    val context    = env.get[Context]
+  def validateLoneAnonymousOperation(context: Context): Either[ValidationError, Unit] = {
     val operations = context.operations
     val anonymous  = operations.filter(_.name.isEmpty)
     failWhen(operations.length > 1 && anonymous.nonEmpty)(
@@ -823,45 +828,42 @@ object Validator {
     Right(fragmentMap)
   }
 
-  lazy val validateSubscriptionOperation: QueryValidation = ZPure.environmentWithPure { env =>
-    val context = env.get[Context]
-    val error   =
-      for {
-        t           <- context.rootType.subscriptionType
-        op          <- context.operations.find(_.operationType == OperationType.Subscription)
-        field        = F(
-                         op.selectionSet,
-                         context.fragments,
-                         Map.empty[String, InputValue],
-                         List.empty[VariableDefinition],
-                         t,
-                         SourceMapper.empty,
-                         Nil,
-                         context.rootType
-                       )
-        subscription = op.name.fold("")(n => s"'$n'")
-        error       <- field.fields match {
-                         case Nil         => None
-                         case head :: Nil =>
-                           if (head.name == "__typename")
-                             Some(
-                               ValidationError(
-                                 s"Subscription $subscription has a field named '__typename'.",
-                                 "The root field of a subscription operation must not be an introspection field."
-                               )
-                             )
-                           else None
-                         case _           =>
+  def validateSubscriptionOperation(context: Context): Either[ValidationError, Unit] =
+    (for {
+      t           <- context.rootType.subscriptionType
+      op          <- context.operations.find(_.operationType == OperationType.Subscription)
+      field        = F(
+                       op.selectionSet,
+                       context.fragments,
+                       Map.empty[String, InputValue],
+                       List.empty[VariableDefinition],
+                       t,
+                       SourceMapper.empty,
+                       Nil,
+                       context.rootType
+                     )
+      subscription = op.name.fold("")(n => s"'$n'")
+      error       <- field.fields match {
+                       case Nil         => None
+                       case head :: Nil =>
+                         if (head.name == "__typename")
                            Some(
                              ValidationError(
-                               s"Subscription $subscription has more than one root field.",
-                               "Subscription operations must have exactly one root field."
+                               s"Subscription $subscription has a field named '__typename'.",
+                               "The root field of a subscription operation must not be an introspection field."
                              )
                            )
-                       }
-      } yield error
-    ZPure.fromOption(error).flip
-  }
+                         else None
+                       case _           =>
+                         Some(
+                           ValidationError(
+                             s"Subscription $subscription has more than one root field.",
+                             "Subscription operations must have exactly one root field."
+                           )
+                         )
+                     }
+    } yield error)
+      .toLeft(())
 
   private def validateFragmentType(
     name: Option[String],
@@ -879,9 +881,9 @@ object Validator {
         )
     }
 
-  private[caliban] def validateEnum(t: __Type): EReader[Any, ValidationError, Unit] =
+  private[caliban] def validateEnum(t: __Type): Either[ValidationError, Unit] =
     t.allEnumValues match {
-      case _ :: _ => zunit
+      case _ :: _ => unit
       case Nil    =>
         failValidation(
           s"Enum ${t.name.getOrElse("")} doesn't contain any values",
@@ -889,7 +891,7 @@ object Validator {
         )
     }
 
-  private[caliban] def validateUnion(t: __Type): EReader[Any, ValidationError, Unit] =
+  private[caliban] def validateUnion(t: __Type): Either[ValidationError, Unit] =
     t.possibleTypes match {
       case None | Some(Nil)                           =>
         failValidation(
@@ -902,23 +904,23 @@ object Validator {
             types.filterNot(isObjectType).map(_.name.getOrElse("")).filterNot(_.isEmpty).mkString("", ", ", "."),
           s"The member types of a Union type must all be Object base types."
         )
-      case _                                          => zunit
+      case _                                          => unit
     }
 
-  private[caliban] def validateInputObject(t: __Type): EReader[Any, ValidationError, Unit] = {
+  private[caliban] def validateInputObject(t: __Type): Either[ValidationError, Unit] = {
     lazy val inputObjectContext = s"""${if (t._isOneOfInput) "OneOf " else ""}InputObject '${t.name.getOrElse("")}'"""
 
     def noDuplicateInputValueName(
       inputValues: List[__InputValue],
       errorContext: => String
-    ): EReader[Any, ValidationError, Unit] = {
+    ): Either[ValidationError, Unit] = {
       val messageBuilder = (i: __InputValue) => s"$errorContext has repeated fields: ${i.name}"
       def explanatory    =
         "The input field must have a unique name within that Input Object type; no two input fields may share the same name"
       noDuplicateName[__InputValue](inputValues, _.name, messageBuilder, explanatory)
     }
 
-    def noDuplicatedOneOfOrigin(inputValues: List[__InputValue]): EReader[Any, ValidationError, Unit] = {
+    def noDuplicatedOneOfOrigin(inputValues: List[__InputValue]): Either[ValidationError, Unit] = {
       val resolveOrigin  = (i: __InputValue) =>
         i._parentType.flatMap(_.origin).getOrElse("<unexpected validation error>")
       val messageBuilder = (i: __InputValue) =>
@@ -927,13 +929,13 @@ object Validator {
       noDuplicateName[__InputValue](inputValues, resolveOrigin, messageBuilder, explanatory)
     }
 
-    def validateFields(fields: List[__InputValue]): EReader[Any, ValidationError, Unit] =
-      validateAll(fields)(validateInputValue(_, inputObjectContext)) *>
+    def validateFields(fields: List[__InputValue]): Either[ValidationError, Unit] =
+      validateAllDiscard(fields)(validateInputValue(_, inputObjectContext)) *>
         noDuplicateInputValueName(fields, inputObjectContext)
 
-    def validateOneOfFields(fields: List[__InputValue]): EReader[Any, ValidationError, Unit] =
+    def validateOneOfFields(fields: List[__InputValue]): Either[ValidationError, Unit] =
       noDuplicatedOneOfOrigin(fields) *>
-        validateAll(fields) { f =>
+        validateAllDiscard(fields) { f =>
           failWhen(f.defaultValue.isDefined)(
             s"$inputObjectContext argument has a default value",
             "Fields of OneOf input objects cannot have default values"
@@ -958,7 +960,7 @@ object Validator {
   private[caliban] def validateInputValue(
     inputValue: __InputValue,
     errorContext: => String
-  ): EReader[Any, ValidationError, Unit] = {
+  ): Either[ValidationError, Unit] = {
     lazy val fieldContext = s"InputValue '${inputValue.name}' of $errorContext"
     for {
       _ <- ValueValidator.validateDefaultValue(inputValue, fieldContext)
@@ -967,7 +969,7 @@ object Validator {
     } yield ()
   }
 
-  private[caliban] def validateInterface(t: __Type): EReader[Any, ValidationError, Unit] = {
+  private[caliban] def validateInterface(t: __Type): Either[ValidationError, Unit] = {
     lazy val interfaceContext = s"Interface '${t.name.getOrElse("")}'"
 
     t.allFields match {
@@ -980,7 +982,7 @@ object Validator {
     }
   }
 
-  def validateObject(obj: __Type): EReader[Any, ValidationError, Unit] = {
+  def validateObject(obj: __Type): Either[ValidationError, Unit] = {
     lazy val objectContext = s"Object '${obj.name.getOrElse("")}'"
 
     def validateInterfaceFields(obj: __Type) = {
@@ -988,7 +990,7 @@ object Validator {
 
       val supertype = obj.interfaces().toList.flatten
 
-      def checkForMissingFields(): EReader[Any, ValidationError, Unit] = {
+      def checkForMissingFields(): Either[ValidationError, Unit] = {
         val objectFieldNames    = fieldNames(obj).toSet
         val interfaceFieldNames = supertype.flatMap(fieldNames).toSet
         val isMissingFields     = objectFieldNames.union(interfaceFieldNames) != objectFieldNames
@@ -1002,7 +1004,7 @@ object Validator {
         )
       }
 
-      def checkForInvalidSubtypeFields(): EReader[Any, ValidationError, Unit] = {
+      def checkForInvalidSubtypeFields(): Either[ValidationError, Unit] = {
         val objectFields    = obj.allFields
         val supertypeFields = supertype.flatMap(_.allFields)
 
@@ -1022,11 +1024,11 @@ object Validator {
           isNonNullableSubtype(supertypeFieldType, objectFieldType)
         }
 
-        validateAll(objectFields) { objField =>
+        validateAllDiscard(objectFields) { objField =>
           lazy val fieldContext = s"Field '${objField.name}'"
 
           supertypeFields.find(_.name == objField.name) match {
-            case None             => zunit
+            case None             => unit
             case Some(superField) =>
               val superArgs = superField.allArgs.map(arg => (arg.name, arg)).toMap
               val extraArgs = objField.allArgs.filter { arg =>
@@ -1061,7 +1063,7 @@ object Validator {
                     s"$fieldContext with extra non-nullable arg(s) '$argNames' in $objectContext is invalid",
                     "Any additional field arguments must not be of a non-nullable type."
                   )
-                case _                                 => zunit
+                case _                                 => unit
               }
           }
         }
@@ -1086,7 +1088,7 @@ object Validator {
   private def isListField(field: __Field) =
     field._type.kind == __TypeKind.LIST
 
-  private[caliban] def onlyInputType(`type`: __Type, errorContext: => String): EReader[Any, ValidationError, Unit] = {
+  private[caliban] def onlyInputType(`type`: __Type, errorContext: => String): Either[ValidationError, Unit] = {
     // https://spec.graphql.org/June2018/#IsInputType()
     def isInputType(t: __Type): Either[__Type, Unit] = {
       import __TypeKind._
@@ -1103,18 +1105,18 @@ object Validator {
           s"${errorType.name.getOrElse("")} of $errorContext is of kind ${errorType.kind}, must be an InputType",
           """The input field must accept a type where IsInputType(type) returns true, https://spec.graphql.org/June2018/#IsInputType()"""
         )
-      case Right(_)        => zunit
+      case Right(_)        => unit
     }
   }
 
-  private[caliban] def validateFields(fields: List[__Field], context: => String): EReader[Any, ValidationError, Unit] =
-    noDuplicateFieldName(fields, context) <*
-      validateAll(fields) { field =>
+  private[caliban] def validateFields(fields: List[__Field], context: => String): Either[ValidationError, Unit] =
+    noDuplicateFieldName(fields, context) *>
+      validateAllDiscard(fields) { field =>
         lazy val fieldContext = s"Field '${field.name}' of $context"
         for {
           _ <- checkName(field.name, fieldContext)
           _ <- onlyOutputType(field._type, fieldContext)
-          _ <- validateAll(field.allArgs)(validateInputValue(_, fieldContext))
+          _ <- validateAllDiscard(field.allArgs)(validateInputValue(_, fieldContext))
         } yield ()
       }
 
@@ -1125,7 +1127,7 @@ object Validator {
     noDuplicateName[__Field](fields, _.name, messageBuilder, explanatory)
   }
 
-  private[caliban] def onlyOutputType(`type`: __Type, errorContext: => String): EReader[Any, ValidationError, Unit] = {
+  private[caliban] def onlyOutputType(`type`: __Type, errorContext: => String): Either[ValidationError, Unit] = {
     // https://spec.graphql.org/June2018/#IsOutputType()
     def isOutputType(t: __Type): Either[__Type, Unit] = {
       import __TypeKind._
@@ -1142,7 +1144,7 @@ object Validator {
           s"${errorType.name.getOrElse("")} of $errorContext is of kind ${errorType.kind}, must be an OutputType",
           """The input field must accept a type where IsOutputType(type) returns true, https://spec.graphql.org/June2018/#IsInputType()"""
         )
-      case Right(_)        => zunit
+      case Right(_)        => unit
     }
   }
 
@@ -1151,18 +1153,19 @@ object Validator {
     nameExtractor: T => String,
     messageBuilder: T => String,
     explanatoryText: => String
-  ): EReader[Any, ValidationError, Unit] =
+  ): Either[ValidationError, Unit] =
     listOfNamed
       .groupBy(nameExtractor(_))
       .collectFirst { case (_, f :: _ :: _) => f }
-      .fold[EReader[Any, ValidationError, Unit]](zunit)(duplicate =>
+      .fold[Either[ValidationError, Unit]](unit)(duplicate =>
         failValidation(messageBuilder(duplicate), explanatoryText)
       )
 
-  private[caliban] def checkName(name: String, fieldContext: => String): EReader[Any, ValidationError, Unit] =
-    ZPure
-      .fromEither(Parser.parseName(name))
-      .mapError(e =>
+  private[caliban] def checkName(name: String, fieldContext: => String): Either[ValidationError, Unit] =
+    Parser
+      .parseName(name)
+      .left
+      .map(e =>
         ValidationError(
           s"$fieldContext is not a valid name.",
           s"Name does not conform to the GraphQL spec for names: ${e.msg}"
@@ -1172,7 +1175,7 @@ object Validator {
   private[caliban] def doesNotStartWithUnderscore(
     name: String,
     errorContext: => String
-  ): EReader[Any, ValidationError, Unit] =
+  ): Either[ValidationError, Unit] =
     failWhen(name.startsWith("__"))(
       s"$errorContext can't start with '__'",
       """Names can not begin with the characters "__" (two underscores)"""
@@ -1180,7 +1183,7 @@ object Validator {
 
   private[caliban] def validateRootQuery[R](
     schema: RootSchemaBuilder[R]
-  ): EReader[Any, ValidationError, RootSchema[R]] =
+  ): Either[ValidationError, RootSchema[R]] =
     schema.query match {
       case None        =>
         failValidation(
@@ -1189,7 +1192,7 @@ object Validator {
         )
       case Some(query) =>
         if (query.opType.kind == __TypeKind.OBJECT)
-          ZPure.succeed(RootSchema(query, schema.mutation, schema.subscription))
+          Right(RootSchema(query, schema.mutation, schema.subscription))
         else
           failValidation(
             "The query root operation is not an object type.",
@@ -1197,30 +1200,30 @@ object Validator {
           )
     }
 
-  private[caliban] def validateRootMutation[R](schema: RootSchemaBuilder[R]): EReader[Any, ValidationError, Unit] =
+  private[caliban] def validateRootMutation[R](schema: RootSchemaBuilder[R]): Either[ValidationError, Unit] =
     schema.mutation match {
       case Some(mutation) if mutation.opType.kind != __TypeKind.OBJECT =>
         failValidation(
           "The mutation root operation is not an object type.",
           "The mutation root operation type is optional; if it is not provided, the service does not support mutations. If it is provided, it must be an Object type."
         )
-      case _                                                           => zunit
+      case _                                                           => unit
     }
 
-  private[caliban] def validateRootSubscription[R](schema: RootSchemaBuilder[R]): EReader[Any, ValidationError, Unit] =
+  private[caliban] def validateRootSubscription[R](schema: RootSchemaBuilder[R]): Either[ValidationError, Unit] =
     schema.subscription match {
       case Some(subscription) if subscription.opType.kind != __TypeKind.OBJECT =>
         failValidation(
           "The mutation root subscription is not an object type.",
           "The mutation root subscription type is optional; if it is not provided, the service does not support subscriptions. If it is provided, it must be an Object type."
         )
-      case _                                                                   => zunit
+      case _                                                                   => unit
     }
 
-  private[caliban] def validateClashingTypes(types: List[__Type]): EReader[Any, ValidationError, Unit] = {
+  private[caliban] def validateClashingTypes(types: List[__Type]): Either[ValidationError, Unit] = {
     val check = types.groupBy(_.name).collectFirst { case (Some(name), v) if v.size > 1 => (name, v) }
     check match {
-      case None                 => zunit
+      case None                 => unit
       case Some((name, values)) =>
         failValidation(
           s"Type '$name' is defined multiple times (${values
@@ -1232,14 +1235,14 @@ object Validator {
     }
   }
 
-  private def validateDirectives(types: List[__Type]): EReader[Any, ValidationError, Unit] = {
+  private def validateDirectives(types: List[__Type]): Either[ValidationError, Unit] = {
 
     def validateArguments(
       args: Map[String, InputValue],
       errorContext: => String
-    ): EReader[Any, ValidationError, Unit] = {
+    ): Either[ValidationError, Unit] = {
       val argumentErrorContextBuilder = (name: String) => s"Argument '$name' of $errorContext"
-      validateAll(args.keys)(argName => checkName(argName, argumentErrorContextBuilder(argName)))
+      validateAllDiscard(args.keys.toList)(argName => checkName(argName, argumentErrorContextBuilder(argName)))
     }
 
     def validateDirective(directive: Directive, errorContext: => String) = {
@@ -1252,65 +1255,33 @@ object Validator {
     def validateDirectives(
       directives: Option[List[Directive]],
       errorContext: => String
-    ): EReader[Any, ValidationError, Unit] =
-      validateAll(directives.getOrElse(List.empty))(validateDirective(_, errorContext))
+    ): Either[ValidationError, Unit] =
+      validateAllDiscard(directives.getOrElse(List.empty))(validateDirective(_, errorContext))
 
     def validateInputValueDirectives(
       inputValues: List[__InputValue],
       errorContext: => String
-    ): EReader[Any, ValidationError, Unit] = {
+    ): Either[ValidationError, Unit] = {
       val inputValueErrorContextBuilder = (name: String) => s"InputValue '$name' of $errorContext"
-      validateAll(inputValues)(iv => validateDirectives(iv.directives, inputValueErrorContextBuilder(iv.name)))
+      validateAllDiscard(inputValues)(iv => validateDirectives(iv.directives, inputValueErrorContextBuilder(iv.name)))
     }
 
     def validateFieldDirectives(
       field: __Field,
       errorContext: => String
-    ): EReader[Any, ValidationError, Unit] = {
+    ): Either[ValidationError, Unit] = {
       lazy val fieldErrorContext = s"Field '${field.name}' of $errorContext"
       validateDirectives(field.directives, fieldErrorContext) *>
         validateInputValueDirectives(field.allArgs, fieldErrorContext)
     }
 
-    validateAll(types) { t =>
+    validateAllDiscard(types) { t =>
       lazy val typeErrorContext = s"Type '${t.name.getOrElse("")}'"
       for {
         _ <- validateDirectives(t.directives, typeErrorContext)
         _ <- validateInputValueDirectives(t.allInputFields, typeErrorContext)
-        _ <- validateAll(t.allFields)(validateFieldDirectives(_, typeErrorContext))
+        _ <- validateAllDiscard(t.allFields)(validateFieldDirectives(_, typeErrorContext))
       } yield ()
     }
-  }
-
-  /**
-   * Wrapper around `ZPure.foreachDiscard` optimized for cases where the input is empty or has only one element.
-   */
-  private def validateAll[R, A](
-    in: Iterable[A]
-  )(f: A => EReader[R, ValidationError, Unit]): EReader[R, ValidationError, Unit] =
-    in.sizeCompare(1) match {
-      case -1 => zunit
-      case 0  => f(in.head)
-      case _  => ZPure.foreachDiscard(in)(f)
-    }
-
-  private def validateAllNonEmpty[A](
-    in: Iterable[A]
-  )(f: A => EReader[Any, ValidationError, Unit]): OptionalValidation =
-    in.sizeCompare(1) match {
-      case -1 => None
-      case 0  => Some(f(in.head))
-      case _  => Some(ZPure.foreachDiscard(in)(f))
-    }
-
-  private def failWhen(
-    condition: Boolean
-  )(msg: => String, explanatoryText: => String): EReader[Any, ValidationError, Unit] =
-    if (condition) failValidation(msg, explanatoryText) else zunit
-
-  private implicit class EnrichedListBufferOps[A](private val lb: ListBuffer[A]) extends AnyVal {
-    // This method doesn't exist in Scala 2.12 so we just use `.map` for it instead
-    def addOne(elem: A): ListBuffer[A]            = lb += elem
-    def addAll(elems: Iterable[A]): ListBuffer[A] = lb ++= elems
   }
 }
