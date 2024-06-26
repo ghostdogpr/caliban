@@ -79,13 +79,13 @@ private[caliban] object ValidationOps {
 
   final implicit class EitherOps[E, A](private val self: Either[E, A]) extends AnyVal {
     def *>[B](other: Either[E, B]): Either[E, B] =
-      self match {
+      (self: @unchecked) match {
         case _: Right[?, ?]                      => other
         case l: Left[E @unchecked, B @unchecked] => l
       }
 
     def as[B](a: B): Either[E, B] =
-      self match {
+      (self: @unchecked) match {
         case _: Right[?, ?]                      => Right(a)
         case l: Left[E @unchecked, B @unchecked] => l
       }
