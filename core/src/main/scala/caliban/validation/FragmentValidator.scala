@@ -16,7 +16,7 @@ object FragmentValidator {
     context: Context,
     parentType: __Type,
     selectionSet: List[Selection]
-  ): EReader[Any, ValidationError, Unit] = {
+  ): Either[ValidationError, Unit] = {
 
     // NOTE: We use the `hashCode()` as the key since it's much more performant
     val shapeCache   = mutable.Map.empty[Int, Chunk[String]]
@@ -123,9 +123,10 @@ object FragmentValidator {
     }
 
     val conflicts = sameResponseShapeByName(selectionSet) ++ sameForCommonParentsByName(selectionSet)
-    conflicts match {
-      case Chunk(head, _*) => ZPure.fail(ValidationError(head, ""))
-      case _               => ZPure.unit
+    if (conflicts.nonEmpty) {
+      Left(ValidationError(conflicts.head, ""))
+    } else {
+      ValidationOps.unitR
     }
   }
 }

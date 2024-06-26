@@ -7,17 +7,18 @@ import caliban.introspection.adt._
 import caliban.introspection.adt.__TypeKind._
 import caliban.parsing.Parser
 import caliban.{ InputValue, Value }
-import zio.prelude.EReader
-import zio.prelude.fx.ZPure
 
-object ValueValidator {
-  def validateDefaultValue(field: __InputValue, errorContext: => String): EReader[Any, ValidationError, Unit] =
+private object ValueValidator {
+  import ValidationOps._
+
+  def validateDefaultValue(field: __InputValue, errorContext: => String): Either[ValidationError, Unit] =
     field.defaultValue match {
       case Some(v) =>
         for {
-          value <- ZPure
-                     .fromEither(Parser.parseInputValue(v))
-                     .mapError(e =>
+          value <- Parser
+                     .parseInputValue(v)
+                     .left
+                     .map(e =>
                        ValidationError(
                          s"$errorContext failed to parse default value: ${e.msg}",
                          "The default value for a field must be written using GraphQL input syntax."
@@ -26,14 +27,12 @@ object ValueValidator {
           _     <- Validator.validateInputValues(field, value, Context.empty, errorContext)
         } yield ()
       case None    =>
-        ZPure
-          .when(!field.`type`().isNullable && field.isDeprecated) {
-            failValidation(
-              s"$errorContext has no default value, is non-null and deprecated.",
-              "If input field type is Non-Null and a default value is not defined, the `@deprecated` directive must not be applied to this input field."
-            )
-          }
-          .unit
+        when(field.isDeprecated && !field._type.isNullable) {
+          failValidation(
+            s"$errorContext has no default value, is non-null and deprecated.",
+            "If input field type is Non-Null and a default value is not defined, the `@deprecated` directive must not be applied to this input field."
+          )
+        }
     }
 
   def validateInputTypes(
@@ -41,14 +40,14 @@ object ValueValidator {
     argValue: InputValue,
     context: Context,
     errorContext: => String
-  ): EReader[Any, ValidationError, Unit] = validateType(inputValue._type, argValue, context, errorContext)
+  ): Either[ValidationError, Unit] = validateType(inputValue._type, argValue, context, errorContext)
 
   def validateType(
     inputType: __Type,
     argValue: InputValue,
     context: Context,
     errorContext: => String
-  ): EReader[Any, ValidationError, Unit] =
+  ): Either[ValidationError, Unit] =
     argValue match {
       case v: VariableValue =>
         val value =
@@ -67,11 +66,11 @@ object ValueValidator {
           case LIST     =>
             argValue match {
               case ListValue(values) =>
-                ZPure.foreachDiscard(values)(v =>
+                validateAllDiscard(values)(v =>
                   validateType(inputType.ofType.getOrElse(inputType), v, context, s"List item in $errorContext")
                 )
               case NullValue         =>
-                ZPure.unit
+                unitR
               case other             =>
                 // handle item as the first item in the list
                 validateType(inputType.ofType.getOrElse(inputType), other, context, s"List item in $errorContext")
@@ -80,18 +79,18 @@ object ValueValidator {
           case INPUT_OBJECT =>
             argValue match {
               case ObjectValue(fields) =>
-                ZPure.foreachDiscard(inputType.allInputFields) { f =>
+                validateAllDiscard(inputType.allInputFields) { f =>
                   fields.collectFirst { case (name, fieldValue) if name == f.name => fieldValue } match {
                     case Some(value)                    =>
                       validateType(f._type, value, context, s"Field ${f.name} in $errorContext")
                     case None if f.defaultValue.isEmpty =>
                       validateType(f._type, NullValue, context, s"Field ${f.name} in $errorContext")
                     case _                              =>
-                      ZPure.unit
+                      unitR
                   }
                 }
               case NullValue           =>
-                ZPure.unit
+                unitR
               case _                   =>
                 failValidation(
                   s"$errorContext has invalid type: $argValue",
@@ -103,7 +102,7 @@ object ValueValidator {
               case EnumValue(value) =>
                 validateEnum(value, inputType, errorContext)
               case NullValue        =>
-                ZPure.unit
+                unitR
               case _                =>
                 failValidation(
                   s"$errorContext has invalid type: $argValue",
@@ -119,59 +118,57 @@ object ValueValidator {
         }
     }
 
-  def validateEnum(value: String, inputType: __Type, errorContext: => String): EReader[Any, ValidationError, Unit] = {
+  def validateEnum(value: String, inputType: __Type, errorContext: => String): Either[ValidationError, Unit] = {
     val possible = inputType
       .enumValues(__DeprecatedArgs.include)
       .getOrElse(List.empty)
       .map(_.name)
     val exists   = possible.contains(value)
 
-    ZPure
-      .unless(exists)(
-        failValidation(
-          s"$errorContext has invalid enum value: $value",
-          s"Was supposed to be one of ${possible.mkString(", ")}"
-        )
+    when(!exists)(
+      failValidation(
+        s"$errorContext has invalid enum value: $value",
+        s"Was supposed to be one of ${possible.mkString(", ")}"
       )
-      .unit
+    )
   }
 
   def validateScalar(
     inputType: __Type,
     argValue: InputValue,
     errorContext: => String
-  ): EReader[Any, ValidationError, Unit] =
+  ): Either[ValidationError, Unit] =
     inputType.name.getOrElse("") match {
       case "String"  =>
         argValue match {
-          case _: StringValue | NullValue => ZPure.unit
+          case _: StringValue | NullValue => unitR
           case t                          => failValidation(s"$errorContext has invalid type $t", "Expected 'String'")
         }
       case "ID"      =>
         argValue match {
-          case _: StringValue | NullValue => ZPure.unit
+          case _: StringValue | NullValue => unitR
           case t                          => failValidation(s"$errorContext has invalid type $t", "Expected 'ID'")
         }
       case "Int"     =>
         argValue match {
-          case _: Value.IntValue | NullValue => ZPure.unit
+          case _: Value.IntValue | NullValue => unitR
           case t                             => failValidation(s"$errorContext has invalid type $t", "Expected 'Int'")
         }
       case "Float"   =>
         argValue match {
-          case _: Value.FloatValue | _: Value.IntValue | NullValue => ZPure.unit
+          case _: Value.FloatValue | _: Value.IntValue | NullValue => unitR
           case t                                                   => failValidation(s"$errorContext has invalid type $t", "Expected 'Float'")
         }
       case "Boolean" =>
         argValue match {
-          case _: BooleanValue | NullValue => ZPure.unit
+          case _: BooleanValue | NullValue => unitR
           case t                           => failValidation(s"$errorContext has invalid type $t", "Expected 'Boolean'")
         }
       // We can't really validate custom scalars here (since we can't summon a correct ArgBuilder instance), so just pass them along
-      case _         => ZPure.unit
+      case _         => unitR
     }
 
-  def failValidation[T](msg: String, explanatoryText: String): EReader[Any, ValidationError, T] =
-    ZPure.fail(ValidationError(msg, explanatoryText))
+  def failValidation[T](msg: String, explanatoryText: String): Either[ValidationError, T] =
+    Left(ValidationError(msg, explanatoryText))
 
 }
