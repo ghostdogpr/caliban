@@ -98,10 +98,10 @@ object VariablesCoercer {
   private def isInputType(t: Type, rootType: RootType): Either[String, Unit] =
     t match {
       case NamedType(name, _)  =>
-        rootType.types
-          .get(name)
-          .map(isInputType(_).left.map(_ => "is not a valid input type."))
-          .getOrElse(Left("is not a valid input type."))
+        rootType.types.getOrElse(name, null) match {
+          case null => Left("is not a valid input type.")
+          case t    => isInputType(t).left.map(_ => "is not a valid input type.")
+        }
       case ListType(ofType, _) =>
         isInputType(ofType, rootType).left.map(_ => "is not a valid input type.")
     }
@@ -158,9 +158,10 @@ object VariablesCoercer {
               "Arguments can be required. An argument is required if the argument type is non‐null and does not have a default value. Otherwise, the argument is optional."
             )
           case _         =>
-            typ.ofType
-              .map(innerType => coerceValues(value, innerType, context))
-              .getOrElse(Right(value))
+            typ.ofType match {
+              case Some(innerType) => coerceValues(value, innerType, context)
+              case _               => Right(value)
+            }
         }
 
       // Break early
@@ -172,10 +173,10 @@ object VariablesCoercer {
           case InputValue.ObjectValue(fields) =>
             val defs = typ.allInputFields
             foreachObjectField(fields) { (k, v) =>
-              defs
-                .find(_.name == k)
-                .map(field => coerceValues(v, field._type, s"$context at field '${field.name}'"))
-                .getOrElse(failValidation(s"$context field '$k' does not exist", coercionDescription))
+              defs.find(_.name == k) match {
+                case Some(field) => coerceValues(v, field._type, s"$context at field '${field.name}'")
+                case _           => failValidation(s"$context field '$k' does not exist", coercionDescription)
+              }
             }
           case v                              =>
             failValidation(
@@ -266,27 +267,24 @@ object VariablesCoercer {
   )(
     f: (String, InputValue) => Either[ValidationError, InputValue]
   ): Either[ValidationError, InputValue.ObjectValue] =
-    if (in.isEmpty) emptyObjectValue
-    else if (in.size == 1) {
-      val (k, v) = in.head
-      f(k, v).map(v => InputValue.ObjectValue(Map(k -> v)))
-    } else {
-      type Out = Either[ValidationError, InputValue.ObjectValue]
+    in.size match {
+      case 0 => emptyObjectValue
+      case 1 =>
+        val (k, v) = in.head
+        f(k, v).map(v => InputValue.ObjectValue(Map(k -> v)))
+      case _ =>
+        val it      = in.iterator
+        val builder = Map.newBuilder[String, InputValue]
+        var err     = null.asInstanceOf[ValidationError]
 
-      val iterator = in.iterator
-      val builder  = Map.newBuilder[String, InputValue]
-
-      lazy val recurse: (String, InputValue) => Out = { (k, v) =>
-        builder += ((k, v))
-        loop()
-      }
-
-      def loop(): Out =
-        if (iterator.hasNext) {
-          val (k, v) = iterator.next()
-          f(k, v).flatMap(recurse(k, _))
-        } else Right(InputValue.ObjectValue(builder.result()))
-
-      loop()
+        while (it.hasNext && (err eq null)) {
+          val (k, v) = it.next()
+          f(k, v) match {
+            case Right(v1) => builder += ((k, v1))
+            case Left(e)   => err = e
+          }
+        }
+        if (err eq null) Right(InputValue.ObjectValue(builder.result()))
+        else Left(err)
     }
 }
