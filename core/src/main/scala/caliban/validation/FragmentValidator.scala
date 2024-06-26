@@ -126,7 +126,7 @@ object FragmentValidator {
     if (conflicts.nonEmpty) {
       Left(ValidationError(conflicts.head, ""))
     } else {
-      ValidationOps.unitR
+      ValidationOps.unit
     }
   }
 }

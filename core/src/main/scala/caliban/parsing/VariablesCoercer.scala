@@ -59,7 +59,7 @@ object VariablesCoercer {
                   s"Type of variable '$variableName' $e",
                   "Variables can only be input types. Objects, unions, and interfaces cannot be used as inputs."
                 )
-              case _       => unitR
+              case _       => unit
             }
           ) *> {
             variables

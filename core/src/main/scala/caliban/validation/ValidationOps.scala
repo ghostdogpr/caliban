@@ -6,10 +6,10 @@ import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
 
 private[caliban] object ValidationOps {
-  val unitR: Either[ValidationError, Unit] = Right(())
+  val unit: Either[Nothing, Unit] = Right(())
 
   def when(cond: Boolean)(f: => Either[ValidationError, Unit]): Either[ValidationError, Unit] =
-    if (cond) f else unitR
+    if (cond) f else unit
 
   // NOTE: We overload instead of using `Iterable` to avoid interface method calls
   def validateAllDiscard[A](
@@ -21,7 +21,7 @@ private[caliban] object ValidationOps {
       if (res.isLeft) return res
       else rem = rem.tail
     }
-    unitR
+    unit
   }
 
   def validateAllDiscard[K, V](
@@ -33,7 +33,7 @@ private[caliban] object ValidationOps {
       val res    = f(k, v)
       if (res.isLeft) return res
     }
-    unitR
+    unit
   }
 
   def validateAllDiscard[A](
@@ -44,7 +44,7 @@ private[caliban] object ValidationOps {
       val res = f(it.next())
       if (res.isLeft) return res
     }
-    unitR
+    unit
   }
 
   def validateAllNonEmpty[A](
@@ -75,7 +75,7 @@ private[caliban] object ValidationOps {
   def failWhen(
     condition: Boolean
   )(msg: => String, explanatoryText: => String): Either[ValidationError, Unit] =
-    if (condition) Validator.failValidation(msg, explanatoryText) else unitR
+    if (condition) Validator.failValidation(msg, explanatoryText) else unit
 
   final implicit class EitherOps[E, A](private val self: Either[E, A]) extends AnyVal {
     def *>[B](other: Either[E, B]): Either[E, B] =
@@ -88,6 +88,12 @@ private[caliban] object ValidationOps {
       (self: @unchecked) match {
         case _: Right[?, ?]                      => Right(a)
         case l: Left[E @unchecked, B @unchecked] => l
+      }
+
+    def unit: Either[E, Unit] =
+      (self: @unchecked) match {
+        case _: Right[?, ?]                         => ValidationOps.unit
+        case l: Left[E @unchecked, Unit @unchecked] => l
       }
   }
 

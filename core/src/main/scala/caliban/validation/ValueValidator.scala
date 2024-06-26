@@ -70,7 +70,7 @@ private object ValueValidator {
                   validateType(inputType.ofType.getOrElse(inputType), v, context, s"List item in $errorContext")
                 )
               case NullValue         =>
-                unitR
+                unit
               case other             =>
                 // handle item as the first item in the list
                 validateType(inputType.ofType.getOrElse(inputType), other, context, s"List item in $errorContext")
@@ -86,11 +86,11 @@ private object ValueValidator {
                     case None if f.defaultValue.isEmpty =>
                       validateType(f._type, NullValue, context, s"Field ${f.name} in $errorContext")
                     case _                              =>
-                      unitR
+                      unit
                   }
                 }
               case NullValue           =>
-                unitR
+                unit
               case _                   =>
                 failValidation(
                   s"$errorContext has invalid type: $argValue",
@@ -102,7 +102,7 @@ private object ValueValidator {
               case EnumValue(value) =>
                 validateEnum(value, inputType, errorContext)
               case NullValue        =>
-                unitR
+                unit
               case _                =>
                 failValidation(
                   s"$errorContext has invalid type: $argValue",
@@ -141,31 +141,31 @@ private object ValueValidator {
     inputType.name.getOrElse("") match {
       case "String"  =>
         argValue match {
-          case _: StringValue | NullValue => unitR
+          case _: StringValue | NullValue => unit
           case t                          => failValidation(s"$errorContext has invalid type $t", "Expected 'String'")
         }
       case "ID"      =>
         argValue match {
-          case _: StringValue | NullValue => unitR
+          case _: StringValue | NullValue => unit
           case t                          => failValidation(s"$errorContext has invalid type $t", "Expected 'ID'")
         }
       case "Int"     =>
         argValue match {
-          case _: Value.IntValue | NullValue => unitR
+          case _: Value.IntValue | NullValue => unit
           case t                             => failValidation(s"$errorContext has invalid type $t", "Expected 'Int'")
         }
       case "Float"   =>
         argValue match {
-          case _: Value.FloatValue | _: Value.IntValue | NullValue => unitR
+          case _: Value.FloatValue | _: Value.IntValue | NullValue => unit
           case t                                                   => failValidation(s"$errorContext has invalid type $t", "Expected 'Float'")
         }
       case "Boolean" =>
         argValue match {
-          case _: BooleanValue | NullValue => unitR
+          case _: BooleanValue | NullValue => unit
           case t                           => failValidation(s"$errorContext has invalid type $t", "Expected 'Boolean'")
         }
       // We can't really validate custom scalars here (since we can't summon a correct ArgBuilder instance), so just pass them along
-      case _         => unitR
+      case _         => unit
     }
 
   def failValidation[T](msg: String, explanatoryText: String): Either[ValidationError, T] =

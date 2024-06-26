@@ -52,14 +52,14 @@ object Validator {
    * Fails with a [[caliban.CalibanError.ValidationError]] otherwise.
    */
   def validate(document: Document, rootType: RootType)(implicit trace: Trace): IO[ValidationError, Unit] =
-    Configurator.ref.getWith(v => Exit.fromEither(check(document, rootType, Map.empty, v.validations).map(_ => ())))
+    Configurator.ref.getWith(v => Exit.fromEither(check(document, rootType, Map.empty, v.validations).unit))
 
   /**
    * Verifies that the given document is valid for this type for all available validations.
    * Fails with a [[caliban.CalibanError.ValidationError]] otherwise.
    */
   def validateAll(document: Document, rootType: RootType): Either[ValidationError, Unit] =
-    check(document, rootType, Map.empty, AllValidations).map(_ => ())
+    check(document, rootType, Map.empty, AllValidations).unit
 
   /**
    * Verifies that the given schema is valid. Fails with a [[caliban.CalibanError.ValidationError]] otherwise.
@@ -76,10 +76,8 @@ object Validator {
     } yield schema
   }
 
-  private val unit: Either[ValidationError, Unit] = Right(())
-
   private[caliban] def validateType(t: __Type): Either[ValidationError, Unit] =
-    t.name.fold(unit)(name => checkName(name, s"Type '$name'")) *>
+    t.name.fold(unit: Either[ValidationError, Unit])(name => checkName(name, s"Type '$name'")) *>
       (t.kind match {
         case __TypeKind.ENUM         => validateEnum(t)
         case __TypeKind.UNION        => validateUnion(t)
