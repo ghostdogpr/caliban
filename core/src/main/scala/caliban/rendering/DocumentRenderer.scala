@@ -76,7 +76,9 @@ object DocumentRenderer extends Renderer[Document] {
     typeDefinitionsRenderer.contramap(_.flatMap(_.toTypeDefinition))
 
   private[caliban] lazy val directivesRenderer: Renderer[List[Directive]] =
-    directiveRenderer.list(Renderer.spaceOrEmpty, omitFirst = false).contramap(_.sortBy(_.name))
+    directiveRenderer
+      .list(Renderer.spaceOrEmpty, omitFirst = false)
+      .contramap(_.filter(_.isIntrospectable).sortBy(_.name))
 
   private[caliban] lazy val descriptionRenderer: Renderer[Option[String]] =
     new Renderer[Option[String]] {
@@ -572,14 +574,11 @@ object DocumentRenderer extends Renderer[Document] {
   }
 
   private lazy val directiveRenderer: Renderer[Directive] = new Renderer[Directive] {
-    override def unsafeRender(d: Directive, indent: Option[Int], writer: StringBuilder): Unit =
-      if (d.isIntrospectable) {
-        writer append '@'
-        writer append d.name
-        inputArgumentsRenderer.unsafeRender(d.arguments, indent, writer)
-      } else {
-        writer.deleteCharAt(writer.size - 1)
-      }
+    override def unsafeRender(d: Directive, indent: Option[Int], writer: StringBuilder): Unit = {
+      writer append '@'
+      writer append d.name
+      inputArgumentsRenderer.unsafeRender(d.arguments, indent, writer)
+    }
   }
 
   private lazy val fieldDefinitionsRenderer: Renderer[List[FieldDefinition]] =

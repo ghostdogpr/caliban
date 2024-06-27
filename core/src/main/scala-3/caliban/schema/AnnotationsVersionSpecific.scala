@@ -13,7 +13,8 @@ trait AnnotationsVersionSpecific {
    * '''NOTE''' This annotation is not safe for use with ahead-of-time compilation (e.g., generating a GraalVM native-image executable)
    */
   case class GQLField() extends StaticAnnotation
-  
+
+  /**
    * Annotation that can be used on a case class / case object to have all the public methods on it derived as fields.
    *
    * If you wish to exclude a public method from being derived as a field, you can annotate it with [[GQLExclude]].
