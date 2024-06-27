@@ -2,6 +2,8 @@ package caliban.transformers
 
 import caliban.Macros.gqldoc
 import caliban._
+import caliban.parsing.adt.Directive
+import caliban.schema.Annotations.GQLDirective
 import caliban.schema.ArgBuilder.auto._
 import caliban.schema.Schema.auto._
 import zio.test._
@@ -218,6 +220,151 @@ object TransformerSpec extends ZIOSpecDefault {
               |  c(arg: String!): String!
               |}""".stripMargin
         )
+      },
+      suite("ExcludeDirectives") {
+        case class SchemaA() extends GQLDirective(Directive("schemaA", isIntrospectable = false))
+        case class SchemaB() extends GQLDirective(Directive("schemaB", isIntrospectable = false))
+
+        test("fields") {
+          case class Query(
+            a: String,
+            @SchemaA b: Int,
+            @SchemaB c: Double,
+            @SchemaA @SchemaB d: Boolean
+          )
+          val api: GraphQL[Any]  = graphQL(RootResolver(Query("a", 2, 3d, true)))
+          val apiA: GraphQL[Any] = api.transform(Transformer.ExcludeDirectives(SchemaA()))
+          val apiB: GraphQL[Any] = api.transform(Transformer.ExcludeDirectives(_.name == "schemaB"))
+          val apiC: GraphQL[Any] = api.transform(Transformer.ExcludeDirectives(SchemaA(), SchemaB()))
+
+          for {
+            _        <- Configurator.setSkipValidation(true)
+            res0     <- api.interpreterUnsafe.execute("""{ a b c d }""").map(_.data.toString)
+            resA     <- apiA.interpreterUnsafe.execute("""{ a b c d }""").map(_.data.toString)
+            resB     <- apiB.interpreterUnsafe.execute("""{ a b c d }""").map(_.data.toString)
+            resC     <- apiC.interpreterUnsafe.execute("""{ a b c d }""").map(_.data.toString)
+            rendered  = api.render
+            renderedA = apiA.render
+            renderedB = apiB.render
+            renderedC = apiC.render
+          } yield assertTrue(
+            res0 == """{"a":"a","b":2,"c":3.0,"d":true}""",
+            resA == """{"a":"a","b":null,"c":3.0,"d":null}""",
+            resB == """{"a":"a","b":2,"c":null,"d":null}""",
+            resC == """{"a":"a","b":null,"c":null,"d":null}""",
+            rendered ==
+              """schema {
+                |  query: Query
+                |}
+                |
+                |type Query {
+                |  a: String!
+                |  b: Int!
+                |  c: Float!
+                |  d: Boolean!
+                |}""".stripMargin,
+            renderedA ==
+              """schema {
+                |  query: Query
+                |}
+                |
+                |type Query {
+                |  a: String!
+                |  c: Float!
+                |}""".stripMargin,
+            renderedB ==
+              """schema {
+                |  query: Query
+                |}
+                |
+                |type Query {
+                |  a: String!
+                |  b: Int!
+                |}""".stripMargin,
+            renderedC ==
+              """schema {
+                |  query: Query
+                |}
+                |
+                |type Query {
+                |  a: String!
+                |}""".stripMargin
+          )
+        } + test("input fields") {
+          case class Nested(
+            a: String,
+            @SchemaA b: Option[Int],
+            @SchemaB c: Option[Double],
+            @SchemaA @SchemaB d: Option[Boolean]
+          )
+          case class Args(a: String, b: String, l: List[String], nested: Nested)
+          case class Query(foo: Args => String)
+          val api: GraphQL[Any]  = graphQL(RootResolver(Query(_ => "value")))
+          val apiA: GraphQL[Any] = api.transform(Transformer.ExcludeDirectives(SchemaA()))
+          val apiB: GraphQL[Any] = api.transform(Transformer.ExcludeDirectives(_.name == "schemaB"))
+          val apiC: GraphQL[Any] = api.transform(Transformer.ExcludeDirectives(SchemaA(), SchemaB()))
+
+          val rendered  = api.render
+          val renderedA = apiA.render
+          val renderedB = apiB.render
+          val renderedC = apiC.render
+
+          assertTrue(
+            rendered ==
+              """schema {
+                |  query: Query
+                |}
+                |
+                |input NestedInput {
+                |  a: String!
+                |  b: Int
+                |  c: Float
+                |  d: Boolean
+                |}
+                |
+                |type Query {
+                |  foo(a: String!, b: String!, l: [String!]!, nested: NestedInput!): String!
+                |}""".stripMargin,
+            renderedA ==
+              """schema {
+                |  query: Query
+                |}
+                |
+                |input NestedInput {
+                |  a: String!
+                |  c: Float
+                |}
+                |
+                |type Query {
+                |  foo(a: String!, b: String!, l: [String!]!, nested: NestedInput!): String!
+                |}""".stripMargin,
+            renderedB ==
+              """schema {
+                |  query: Query
+                |}
+                |
+                |input NestedInput {
+                |  a: String!
+                |  b: Int
+                |}
+                |
+                |type Query {
+                |  foo(a: String!, b: String!, l: [String!]!, nested: NestedInput!): String!
+                |}""".stripMargin,
+            renderedC ==
+              """schema {
+                |  query: Query
+                |}
+                |
+                |input NestedInput {
+                |  a: String!
+                |}
+                |
+                |type Query {
+                |  foo(a: String!, b: String!, l: [String!]!, nested: NestedInput!): String!
+                |}""".stripMargin
+          )
+        }
       }
     )
 }

@@ -286,6 +286,7 @@ trait CommonSchemaDerivation[R] {
 
   private def getDescription[Typeclass[_], Type](ctx: ReadOnlyParam[Typeclass, Type]): Option[String] =
     getDescription(ctx.annotations)
+
 }
 
 trait SchemaDerivation[R] extends CommonSchemaDerivation[R] {

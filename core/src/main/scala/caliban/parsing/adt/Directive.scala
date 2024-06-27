@@ -2,14 +2,21 @@ package caliban.parsing.adt
 
 import caliban.{ InputValue, Value }
 
-case class Directive(name: String, arguments: Map[String, InputValue] = Map.empty, index: Int = 0)
+case class Directive(
+  name: String,
+  arguments: Map[String, InputValue] = Map.empty,
+  index: Int = 0,
+  isIntrospectable: Boolean = true
+)
 
 object Directives {
 
+  final val Defer               = "defer"
+  final val DeprecatedDirective = "deprecated"
   final val LazyDirective       = "lazy"
   final val NewtypeDirective    = "newtype"
-  final val DeprecatedDirective = "deprecated"
   final val OneOf               = "oneOf"
+  final val Stream              = "stream"
 
   def isDeprecated(directives: List[Directive]): Boolean =
     directives.exists(_.name == DeprecatedDirective)

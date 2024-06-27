@@ -1,5 +1,7 @@
 package caliban.schema
 
+import caliban.parsing.adt.Directive
+
 import scala.annotation.StaticAnnotation
 
 trait AnnotationsVersionSpecific {
@@ -20,5 +22,15 @@ trait AnnotationsVersionSpecific {
    * @see [[GQLField]] for a more fine-grained control over which methods are derived as fields
    */
   case class GQLFieldsFromMethods() extends StaticAnnotation
+
+  /**
+   * Annotation used to provide directives to a schema type
+   */
+  open class GQLDirective(val directive: Directive) extends StaticAnnotation
+
+  object GQLDirective {
+    def unapply(annotation: GQLDirective): Option[Directive] =
+      Some(annotation.directive)
+  }
 
 }

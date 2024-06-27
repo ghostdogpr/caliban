@@ -3,6 +3,8 @@ package caliban.transformers
 import caliban.InputValue
 import caliban.execution.Field
 import caliban.introspection.adt._
+import caliban.parsing.adt.Directive
+import caliban.schema.Annotations.GQLDirective
 import caliban.schema.Step
 import caliban.schema.Step.{ FunctionStep, MetadataFunctionStep, NullStep, ObjectStep }
 
@@ -19,7 +21,7 @@ abstract class Transformer[-R] { self =>
    * Set of type names that this transformer applies to.
    * Needed for applying optimizations when combining transformers.
    */
-  protected val typeNames: collection.Set[String]
+  protected def typeNames: collection.Set[String]
 
   protected def transformStep[R1 <: R](step: ObjectStep[R1], field: Field): ObjectStep[R1]
 
@@ -326,20 +328,87 @@ object Transformer {
       }
   }
 
+  object ExcludeDirectives {
+
+    /**
+     * A transformer that allows excluding fields and inputs with specific directives.
+     *
+     * {{{
+     *   case object Experimental extends GQLDirective(Directive("experimental"))
+     *   case object Internal extends GQLDirective(Directive("internal"))
+     *
+     *   ExcludeDirectives(Experimental, Internal)
+     * }}}
+     */
+    def apply(directives: GQLDirective*): Transformer[Any] =
+      if (directives.isEmpty) Empty else new ExcludeDirectives(directives.map(_.directive).toSet.contains)
+
+    /**
+     * A transformer that allows excluding fields and inputs with specific directives based on a predicate.
+     */
+    def apply(predicate: Directive => Boolean): Transformer[Any] =
+      new ExcludeDirectives(predicate)
+
+  }
+
+  final private class ExcludeDirectives(predicate: Directive => Boolean) extends Transformer[Any] {
+    private val map: mutable.HashMap[String, Set[String]] = mutable.HashMap.empty
+
+    private def hasMatchingDirectives(directives: Option[List[Directive]]): Boolean =
+      directives match {
+        case None | Some(Nil) => false
+        case Some(dirs)       => dirs.exists(predicate)
+      }
+
+    private def shouldKeepType(tpe: __Type, field: __Field): Boolean = {
+      val matched = hasMatchingDirectives(field.directives)
+      if (matched) map.updateWith(tpe.name.getOrElse("")) {
+        case Some(set) => Some(set + field.name)
+        case None      => Some(Set(field.name))
+      }
+      !matched
+    }
+
+    val typeVisitor: TypeVisitor =
+      TypeVisitor.fields.filterWith((t, field) => shouldKeepType(t, field)) |+|
+        TypeVisitor.fields.modify { field =>
+          def loop(arg: __InputValue): Option[__InputValue] =
+            if (arg._type.isNullable && hasMatchingDirectives(arg.directives)) None
+            else {
+              lazy val newType = arg._type.mapInnerType { t =>
+                t.copy(inputFields = t.inputFields(_).map(_.flatMap(loop)))
+              }
+              Some(arg.copy(`type` = () => newType))
+            }
+
+          field.copy(args = field.args(_).flatMap(loop))
+        }
+
+    protected def typeNames: collection.Set[String] = map.keySet
+
+    protected def transformStep[R](step: ObjectStep[R], field: Field): ObjectStep[R] =
+      map.getOrElse(step.name, null) match {
+        case null => step
+        case excl => step.copy(fields = name => if (!excl(name)) step.fields(name) else NullStep)
+      }
+  }
+
   final private class Combined[-R](left: Transformer[R], right: Transformer[R]) extends Transformer[R] {
     val typeVisitor: TypeVisitor = left.typeVisitor |+| right.typeVisitor
 
-    protected val typeNames: mutable.HashSet[String] = {
+    protected def typeNames: mutable.HashSet[String] = {
       val set = mutable.HashSet.from(left.typeNames)
       set ++= right.typeNames
       set
     }
 
+    private lazy val materializedTypeNames = typeNames
+
     protected def transformStep[R1 <: R](step: ObjectStep[R1], field: Field): ObjectStep[R1] =
       right.transformStep(left.transformStep(step, field), field)
 
     override def apply[R1 <: R](step: ObjectStep[R1], field: Field): ObjectStep[R1] =
-      if (typeNames(step.name)) transformStep(step, field) else step
+      if (materializedTypeNames(step.name)) transformStep(step, field) else step
   }
 
   private def mapFunctionStep[R](step: Step[R])(f: Map[String, InputValue] => Map[String, InputValue]): Step[R] =

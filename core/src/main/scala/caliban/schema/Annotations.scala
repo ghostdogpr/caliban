@@ -1,6 +1,7 @@
 package caliban.schema
 
-import caliban.parsing.adt.Directive
+import caliban.{ InputValue, Value }
+import caliban.parsing.adt.{ Directive, Directives }
 
 import scala.annotation.StaticAnnotation
 
@@ -31,16 +32,6 @@ object Annotations extends AnnotationsVersionSpecific {
    * Annotation used to provide an alternative name to a field or a type.
    */
   case class GQLName(value: String) extends StaticAnnotation
-
-  /**
-   * Annotation used to provide directives to a schema type
-   */
-  class GQLDirective(val directive: Directive) extends StaticAnnotation
-
-  object GQLDirective {
-    def unapply(annotation: GQLDirective): Option[Directive] =
-      Some(annotation.directive)
-  }
 
   /**
    * Annotation to make a sealed trait an interface instead of a union type or an enum
@@ -80,5 +71,4 @@ object Annotations extends AnnotationsVersionSpecific {
    * Annotation to make a sealed trait as a GraphQL @oneOf input
    */
   case class GQLOneOfInput() extends StaticAnnotation
-
 }

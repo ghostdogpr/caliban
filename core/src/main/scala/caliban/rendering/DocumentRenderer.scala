@@ -76,7 +76,9 @@ object DocumentRenderer extends Renderer[Document] {
     typeDefinitionsRenderer.contramap(_.flatMap(_.toTypeDefinition))
 
   private[caliban] lazy val directivesRenderer: Renderer[List[Directive]] =
-    directiveRenderer.list(Renderer.spaceOrEmpty, omitFirst = false).contramap(_.sortBy(_.name))
+    directiveRenderer
+      .list(Renderer.spaceOrEmpty, omitFirst = false)
+      .contramap(_.filter(_.isIntrospectable).sortBy(_.name))
 
   private[caliban] lazy val descriptionRenderer: Renderer[Option[String]] =
     new Renderer[Option[String]] {

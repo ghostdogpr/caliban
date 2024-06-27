@@ -1,9 +1,9 @@
 package caliban.introspection.adt
 
 import caliban.Value.StringValue
+import caliban.parsing.Parser
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition.InputValueDefinition
 import caliban.parsing.adt.Directive
-import caliban.parsing.Parser
 import caliban.schema.Annotations.GQLExcluded
 
 import scala.annotation.tailrec
