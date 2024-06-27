@@ -83,8 +83,7 @@ object Executor {
               )
             }
           } else
-            ZIO.succeed(GraphQLResponse(result, resultErrors, hasNext = None))
-
+            Exit.succeed(GraphQLResponse(result, resultErrors, hasNext = None))
         }
     }
 
@@ -133,8 +132,8 @@ object Executor {
     } yield response
   }
 
-  private[caliban] def fail(error: CalibanError)(implicit trace: Trace): UIO[GraphQLResponse[CalibanError]] =
-    ZIO.succeed(GraphQLResponse(NullValue, List(error)))
+  private[caliban] def fail(error: CalibanError): UIO[GraphQLResponse[CalibanError]] =
+    Exit.succeed(GraphQLResponse(NullValue, List(error)))
 
   private final class StepReducer[R](
     transformer: Transformer[R],
@@ -243,13 +242,15 @@ object Executor {
         }
       }
 
-      def reduceQuery(query: ZQuery[R, Throwable, Step[R]]) =
-        ReducedStep.QueryStep(
-          query.foldCauseQuery(
-            e => ZQuery.failCause(effectfulExecutionError(path, Some(currentField.locationInfo), e)),
-            a => ZQuery.succeed(reduceStep(a, currentField, arguments, path))
-          )
-        )
+      def reduceQuery(q: ZQuery[R, Throwable, Step[R]]): ReducedStep[R] = {
+        def success(v: Step[R])       = reduceStep(v, currentField, arguments, path)
+        def fail(e: Cause[Throwable]) = effectfulExecutionError(path, Some(currentField.locationInfo), e)
+
+        q.asExitOrElse(null) match {
+          case null => ReducedStep.QueryStep(q.mapBothCause(fail, success))
+          case res  => res.foldExit(e => ReducedStep.FailureStep(fail(e)), success)
+        }
+      }
 
       def reduceStream(stream: ZStream[R, Throwable, Step[R]]) =
         if (isSubscription) {
@@ -499,7 +500,7 @@ object Executor {
 
       def loop(step: ReducedStep[R], isTopLevelField: Boolean = false): ExecutionQuery[ResponseValue] =
         step match {
-          case PureStep(value)                                  => ZQuery.succeed(value)
+          case PureStep(value)                                  => ZQuery.succeedNow(value)
           case ReducedStep.QueryStep(step)                      => step.flatMap(loop(_))
           case ReducedStep.ObjectStep(steps, hasPureFields, _)  => makeObjectQuery(steps, hasPureFields, isTopLevelField)
           case ReducedStep.ListStep(steps, areItemsNullable, _) => makeListQuery(steps, areItemsNullable)
@@ -508,7 +509,7 @@ object Executor {
               .environmentWith[R](env =>
                 ResponseValue.StreamValue(
                   stream.mapChunksZIO { chunk =>
-                    collectAll(chunk, isTopLevelField)(loop(_).catchAll(_ => ZQuery.succeed(NullValue))).run
+                    collectAll(chunk, isTopLevelField)(loop(_).catchAll(_ => nullValueQuery)).run
                   }.provideEnvironment(env)
                 )
               )
@@ -536,7 +537,7 @@ object Executor {
       case other                                     => Cause.fail(ExecutionError("Effect failure", path.reverse, locationInfo, other))
     }
 
-  private val nullValueQuery = ZQuery.succeed(NullValue)(Trace.empty)
+  private val nullValueQuery = ZQuery.succeedNow(NullValue)
 
   // The implicit classes below are for methods that don't exist in Scala 2.12 so we add them as syntax methods instead
   private implicit class EnrichedListOps[+A](private val list: List[A]) extends AnyVal {

@@ -4,7 +4,9 @@ import caliban.CalibanError.ExecutionError
 import caliban.Value.NullValue
 import caliban.execution.{ Field, FieldInfo }
 import caliban.{ InputValue, PathValue, ResponseValue }
+import zio.Cause
 import zio.query.ZQuery
+import zio.stacktracer.TracingImplicits.disableAutoTrace
 import zio.stream.ZStream
 
 sealed trait Step[-R]
@@ -23,7 +25,7 @@ object Step {
   }
 
   object FailureStep {
-    def apply(error: Throwable): Step[Any] = QueryStep(ZQuery.fail(error))
+    def apply(error: Throwable): Step[Any] = QueryStep(ZQuery.failNow(error))
   }
 
   // PureStep is both a Step and a ReducedStep so it is defined outside this object
@@ -108,6 +110,10 @@ object ReducedStep {
     path: List[PathValue]
   ) extends ReducedStep[R] {
     final val isPure = false
+  }
+
+  object FailureStep {
+    def apply(error: Cause[ExecutionError]): ReducedStep[Any] = QueryStep(ZQuery.failCauseNow(error))
   }
 
   // PureStep is both a Step and a ReducedStep so it is defined outside this object

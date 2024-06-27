@@ -2,7 +2,7 @@ package caliban.schema
 
 import caliban.*
 import caliban.parsing.adt.Directive
-import caliban.schema.Annotations.{ GQLDescription, GQLDirective, GQLField, GQLInterface, GQLName }
+import caliban.schema.Annotations.*
 import zio.test.{ assertTrue, ZIOSpecDefault }
 import zio.{ RIO, Task, ZIO }
 
@@ -176,7 +176,7 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
           )
         }
       ),
-      suite("methods as fields") {
+      suite("@GQLField annotation") {
         val expectedSchema =
           """schema {
             |  query: Bar
@@ -244,6 +244,66 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
                 assertTrue(s == """{"foo":{"value":"foo","value2":"foo2"}}""")
               }
             }
+          },
+          test("case object") {
+            case object Foo derives Schema.SemiAuto {
+              @GQLField def fooValue: Option[String] = None
+              @GQLField def barValue: Int            = 42
+            }
+            val rendered = graphQL(RootResolver(Foo)).render
+
+            val expected =
+              """schema {
+                |  query: Foo
+                |}
+                |
+                |type Foo {
+                |  fooValue: String
+                |  barValue: Int!
+                |}""".stripMargin
+
+            assertTrue(rendered == expected)
+          },
+          test("parameterless case class") {
+            case class Foo() derives Schema.SemiAuto {
+              @GQLField def fooValue: Option[String] = None
+              @GQLField def barValue: Int            = 42
+            }
+            val rendered = graphQL(RootResolver(Foo())).render
+
+            val expected =
+              """schema {
+                |  query: Foo
+                |}
+                |
+                |type Foo {
+                |  fooValue: String
+                |  barValue: Int!
+                |}""".stripMargin
+
+            assertTrue(rendered == expected)
+          },
+          test("annotation on case class directly") {
+            @GQLFieldsFromMethods
+            case class Foo(value: String) derives Schema.SemiAuto {
+              def fooValue: Option[String]   = None
+              def barValue: Int              = 42
+              @GQLExcluded def bazValue: Int = 42
+            }
+            val rendered = graphQL(RootResolver(Foo("foo"))).render
+
+            val expected =
+              """schema {
+                |  query: Foo
+                |}
+                |
+                |type Foo {
+                |  value: String!
+                |  fooValue: String
+                |  barValue: Int!
+                |}""".stripMargin
+
+            assertTrue(rendered == expected)
           }
         )
       },
@@ -292,27 +352,27 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
 
         val expectedSchema =
           """schema {
-  query: Query
-}
-
-"Union type Payload"
-union Payload2 @mydirective(arg: "value") = Foo | Bar | Baz
-
-type Bar {
-  foo: Int!
-}
-
-type Baz {
-  bar: Int!
-}
-
-type Foo {
-  value: String!
-}
-
-type Query {
-  testQuery(isFoo: Boolean!): Payload2!
-}""".stripMargin
+            |  query: Query
+            |}
+            |
+            |"Union type Payload"
+            |union Payload2 @mydirective(arg: "value") = Foo | Bar | Baz
+            |
+            |type Bar {
+            |  foo: Int!
+            |}
+            |
+            |type Baz {
+            |  bar: Int!
+            |}
+            |
+            |type Foo {
+            |  value: String!
+            |}
+            |
+            |type Query {
+            |  testQuery(isFoo: Boolean!): Payload2!
+            |}""".stripMargin
         val interpreter    = gql.interpreterUnsafe
 
         for {

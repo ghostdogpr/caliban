@@ -106,20 +106,20 @@ trait CommonSchemaDerivation {
 
       case m: Mirror.ProductOf[A] =>
         inline erasedValue[m.MirroredElemLabels] match {
-          case _: EmptyTuple                              =>
+          case _: EmptyTuple if !Macros.hasFieldsFromMethods[A] =>
             new EnumValueSchema[R, A](
               MagnoliaMacro.typeInfo[A],
               // Workaround until we figure out why the macro uses the parent's annotations when the leaf is a Scala 3 enum
               inline if (!MagnoliaMacro.isEnum[A]) MagnoliaMacro.anns[A] else Nil,
               config.enableSemanticNonNull
             )
-          case _ if Macros.hasAnnotation[A, GQLValueType] =>
+          case _ if Macros.hasAnnotation[A, GQLValueType]       =>
             new ValueTypeSchema[R, A](
               valueTypeSchema[R, m.MirroredElemLabels, m.MirroredElemTypes],
               MagnoliaMacro.typeInfo[A],
               MagnoliaMacro.anns[A]
             )
-          case _                                          =>
+          case _                                                =>
             new ObjectSchema[R, A](
               recurseProduct[R, A, m.MirroredElemLabels, m.MirroredElemTypes]()(),
               Macros.fieldsFromMethods[R, A],

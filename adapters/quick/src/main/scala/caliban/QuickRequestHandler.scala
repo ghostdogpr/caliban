@@ -16,6 +16,7 @@ import zio.stacktracer.TracingImplicits.disableAutoTrace
 import zio.stream.{ UStream, ZPipeline, ZStream }
 
 import java.nio.charset.StandardCharsets.UTF_8
+import scala.util.Try
 import scala.util.control.NonFatal
 
 final private class QuickRequestHandler[R](
@@ -41,20 +42,23 @@ final private class QuickRequestHandler[R](
   def configureWebSocket[R1](config: quick.WebSocketConfig[R1]): QuickRequestHandler[R & R1] =
     new QuickRequestHandler[R & R1](interpreter, config)
 
-  def handleHttpRequest(request: Request)(implicit trace: Trace): URIO[R, Response] =
+  def handleHttpRequest(request: Request)(implicit trace: Trace): URIO[R, Response] = ZIO.suspendSucceed {
     transformHttpRequest(request)
       .flatMap(executeRequest(request.method, _))
       .foldZIO(
         Exit.succeed,
         resp => Exit.succeed(transformResponse(request, resp))
       )
+  }
 
-  def handleUploadRequest(request: Request)(implicit trace: Trace): URIO[R, Response] =
+  def handleUploadRequest(request: Request)(implicit trace: Trace): URIO[R, Response] = ZIO.suspendSucceed {
     transformUploadRequest(request).flatMap { case (req, fileHandle) =>
-      executeRequest(request.method, req)
-        .map(transformResponse(request, _))
-        .provideSomeLayer[R](fileHandle)
-    }.merge
+      executeRequest(request.method, req).provideSomeLayer[R](fileHandle)
+    }.foldZIO(
+      Exit.succeed,
+      v => Exit.succeed(transformResponse(request, v))
+    )
+  }
 
   def handleWebSocketRequest(request: Request)(implicit trace: Trace): URIO[R, Response] =
     Response.fromSocketApp {
@@ -129,10 +133,10 @@ final private class QuickRequestHandler[R](
       partsMap: Map[String, FormField],
       key: String
     )(implicit jsonValueCodec: JsonValueCodec[A]): IO[Response, A] =
-      ZIO
+      Exit
         .fromOption(partsMap.get(key))
         .flatMap(_.asChunk)
-        .flatMap(v => ZIO.attempt(readFromArray[A](v.toArray)))
+        .flatMap(v => Exit.fromTry(Try(readFromArray[A](v.toArray))))
         .orElseFail(Response.badRequest)
 
     def parsePath(path: String): List[PathValue] = path.split('.').toList.map(PathValue.parse)
