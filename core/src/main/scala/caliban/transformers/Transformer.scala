@@ -341,16 +341,23 @@ object Transformer {
      * }}}
      */
     def apply(directives: GQLDirective*): Transformer[Any] =
-      if (directives.isEmpty) Empty else new ExcludeDirectives(directives.map(_.directive).toSet)
+      if (directives.isEmpty) Empty else new ExcludeDirectives(directives.map(_.directive).toSet.contains)
+
+    /**
+     * A transformer that allows excluding fields and inputs with specific directives based on a predicate.
+     */
+    def apply(predicate: Directive => Boolean): Transformer[Any] =
+      new ExcludeDirectives(predicate)
+
   }
 
-  final private class ExcludeDirectives(set: Set[Directive]) extends Transformer[Any] {
+  final private class ExcludeDirectives(predicate: Directive => Boolean) extends Transformer[Any] {
     private val map: mutable.HashMap[String, Set[String]] = mutable.HashMap.empty
 
     private def hasMatchingDirectives(directives: Option[List[Directive]]): Boolean =
       directives match {
         case None | Some(Nil) => false
-        case Some(dirs)       => dirs.exists(d => set.contains(d))
+        case Some(dirs)       => dirs.exists(predicate)
       }
 
     private def shouldKeepType(tpe: __Type, field: __Field): Boolean = {

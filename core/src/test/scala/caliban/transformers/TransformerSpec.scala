@@ -221,7 +221,7 @@ object TransformerSpec extends ZIOSpecDefault {
               |}""".stripMargin
         )
       },
-      suite("ExcludeTag") {
+      suite("ExcludeDirectives") {
         case class SchemaA() extends GQLDirective(Directive("schemaA", isIntrospectable = false))
         case class SchemaB() extends GQLDirective(Directive("schemaB", isIntrospectable = false))
 
@@ -234,7 +234,7 @@ object TransformerSpec extends ZIOSpecDefault {
           )
           val api: GraphQL[Any]  = graphQL(RootResolver(Query("a", 2, 3d, true)))
           val apiA: GraphQL[Any] = api.transform(Transformer.ExcludeDirectives(SchemaA()))
-          val apiB: GraphQL[Any] = api.transform(Transformer.ExcludeDirectives(SchemaB()))
+          val apiB: GraphQL[Any] = api.transform(Transformer.ExcludeDirectives(_.name == "schemaB"))
           val apiC: GraphQL[Any] = api.transform(Transformer.ExcludeDirectives(SchemaA(), SchemaB()))
 
           for {
@@ -301,7 +301,7 @@ object TransformerSpec extends ZIOSpecDefault {
           case class Query(foo: Args => String)
           val api: GraphQL[Any]  = graphQL(RootResolver(Query(_ => "value")))
           val apiA: GraphQL[Any] = api.transform(Transformer.ExcludeDirectives(SchemaA()))
-          val apiB: GraphQL[Any] = api.transform(Transformer.ExcludeDirectives(SchemaB()))
+          val apiB: GraphQL[Any] = api.transform(Transformer.ExcludeDirectives(_.name == "schemaB"))
           val apiC: GraphQL[Any] = api.transform(Transformer.ExcludeDirectives(SchemaA(), SchemaB()))
 
           val rendered  = api.render
