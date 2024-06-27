@@ -13,6 +13,7 @@ import zio.query.ZQuery
 import zio.{ duration2DurationOps, durationInt, Duration, Exit, FiberRef, Ref, UIO, Unsafe, ZIO }
 
 import java.util.concurrent.{ ConcurrentHashMap, TimeUnit }
+import scala.collection.compat._
 
 object Caching {
   val DirectiveName     = "cacheControl"
