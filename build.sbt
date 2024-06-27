@@ -33,7 +33,6 @@ val zqueryVersion             = "0.7.2"
 val zioJsonVersion            = "0.7.0"
 val zioHttpVersion            = "3.0.0-RC9"
 val zioOpenTelemetryVersion   = "3.0.0-RC21"
-val zioPreludeVersion         = "1.0.0-RC27"
 
 Global / onChangedBuildSource := ReloadOnSourceChanges
 
@@ -176,7 +175,6 @@ lazy val core = project
         "dev.zio"                               %% "zio"                     % zioVersion,
         "dev.zio"                               %% "zio-streams"             % zioVersion,
         "dev.zio"                               %% "zio-query"               % zqueryVersion,
-        "dev.zio"                               %% "zio-prelude"             % zioPreludeVersion,
         "dev.zio"                               %% "zio-test"                % zioVersion      % Test,
         "dev.zio"                               %% "zio-test-sbt"            % zioVersion      % Test,
         "dev.zio"                               %% "zio-json"                % zioJsonVersion  % Optional,

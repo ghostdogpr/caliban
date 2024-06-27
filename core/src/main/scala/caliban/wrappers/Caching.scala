@@ -9,11 +9,11 @@ import caliban.parsing.adt.{ Directive, Document }
 import caliban.schema.Annotations.{ GQLDirective, GQLName }
 import caliban.schema.Types
 import caliban.wrappers.Wrapper.{ EffectfulWrapper, FieldWrapper, OverallWrapper, ValidationWrapper }
-import zio.prelude._
 import zio.query.ZQuery
-import zio.{ durationInt, Duration, Exit, FiberRef, Ref, UIO, Unsafe, ZIO }
+import zio.{ duration2DurationOps, durationInt, Duration, Exit, FiberRef, Ref, UIO, Unsafe, ZIO }
 
 import java.util.concurrent.{ ConcurrentHashMap, TimeUnit }
+import scala.collection.compat._
 
 object Caching {
   val DirectiveName     = "cacheControl"
@@ -167,14 +167,12 @@ object Caching {
       override def toString: String = "PUBLIC"
     }
 
-    implicit val ord: Ord[CacheScope] = Ord.make {
-      case (Private, Private) => Ordering.Equals
-      case (Public, Public)   => Ordering.Equals
-      case (Private, Public)  => Ordering.LessThan
-      case (Public, Private)  => Ordering.GreaterThan
+    implicit val ordering: Ordering[CacheScope] = {
+      case (Private, Private) => 0
+      case (Public, Public)   => 0
+      case (Private, Public)  => -1
+      case (Public, Private)  => 1
     }
-
-    implicit val ordering: scala.math.Ordering[CacheScope] = ord.toScala
 
     val _type = __Type(
       __TypeKind.ENUM,
