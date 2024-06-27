@@ -285,7 +285,7 @@ object Validator {
           if (directives.nonEmpty)
             builder addOne directives.map((_, __DirectiveLocation.FIELD))
           loop(selectionSet)
-        case FragmentSpread(name, directives)            =>
+        case FragmentSpread(_, directives)               =>
           if (directives.nonEmpty)
             builder addOne directives.map((_, __DirectiveLocation.FRAGMENT_SPREAD))
         case InlineFragment(_, directives, selectionSet) =>
