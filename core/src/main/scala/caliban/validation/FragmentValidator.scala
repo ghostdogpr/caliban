@@ -5,8 +5,6 @@ import caliban.introspection.adt._
 import caliban.parsing.adt.Selection
 import caliban.validation.Utils._
 import zio.Chunk
-import zio.prelude._
-import zio.prelude.fx.ZPure
 
 import scala.collection.mutable
 import scala.util.hashing.MurmurHash3
@@ -64,12 +62,12 @@ object FragmentValidator {
 
     def doTypesConflict(t1: __Type, t2: __Type): Boolean =
       if (isNonNull(t1))
-        if (isNonNull(t2)) (t1.ofType, t2.ofType).mapN((p1, p2) => doTypesConflict(p1, p2)).getOrElse(true)
+        if (isNonNull(t2)) t1.ofType.flatMap(p1 => t2.ofType.map(p2 => doTypesConflict(p1, p2))).getOrElse(true)
         else true
       else if (isNonNull(t2))
         true
       else if (isListType(t1))
-        if (isListType(t2)) (t1.ofType, t2.ofType).mapN((p1, p2) => doTypesConflict(p1, p2)).getOrElse(true)
+        if (isListType(t2)) t1.ofType.flatMap(p1 => t2.ofType.map(p2 => doTypesConflict(p1, p2))).getOrElse(true)
         else true
       else if (isListType(t2))
         true
