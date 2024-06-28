@@ -273,8 +273,30 @@ type Person {
 The methods annotated with `@GQLField` can return any type for which a `Schema` is defined for, including effects such as `ZIO` and `ZQuery`.
 In addition, you can use any other annotation that is supported for case class arguments, such as `@GQLName`, `@GQLDescription` and `@GQLDeprecated`.
 
+To reduce boilerplate of annotating a lot of methods with `@GQLField`, Caliban also provides the `@GQLFieldsFromMethods` annotation that can be used to derive fields from all methods in a case class / case object.
+
+For demonstration purposes (only!), the example above can be rewritten as follows:
+
+```scala 3
+import caliban.schema.Annotations.GQLFieldsFromMethods
+
+@GQLFieldsFromMethods
+case class Person(
+  fullName: String
+) derives Schema.SemiAuto {
+  private val split = fullName.split(" ")
+  
+  def firstName: String = split.head
+  def lastName: String  = split.last
+}
+```
+
+::: tip
+Annotate a public method with `@GQLExcluded` to exclude it from field derivation.
+:::
+
 ::: warning Caveats
-Derivation of fields via the `@GQLField` annotation can be convenient in certain cases, but has the following limitations:
+Derivation of fields via the `@GQLField` / `@GQLFieldsFromMethods` annotation can be convenient in certain cases, but has the following limitations:
 - The method cannot take arguments. If you need to derive a field that requires arguments, you can return a function instead.
 - The method must be public (i.e. not `private` or `protected`).
 - It currently only works with methods (i.e., `def`). If you need to cache the output of the method, you can create a private lazy val and return it from the method.
