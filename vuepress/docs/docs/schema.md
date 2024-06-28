@@ -339,6 +339,97 @@ given Schema[Any, MyClass] = Schema.gen
 There is no `ArgBuilder` for tuples. If you have multiple arguments, use a case class containing all of them instead of a tuple.
 :::
 
+### Input objects
+
+GraphQL input objects can be derived from case classes in the same way as arguments
+
+```scala mdoc:silent:reset
+case class Name(firstName: String, lastName: String)
+case class NameArgs(name: Name)
+case class Queries(author: NameArgs => String)
+```
+
+This will generate the following schema:
+
+```graphql
+input NameInput {
+    firstName: String!
+    lastName: String!
+}
+
+type Queries {
+    author(name: NameInput!): String!
+}
+```
+
+### `@oneOf` input objects
+
+A `@oneOf` input object is a special type of input object, in which only one of its fields must be set by the client. It is especially useful when you want a user to be able to choose between several potential input types.
+This feature is still an RFC and therefore not yet officially part of the GraphQL spec, but Caliban supports it!
+
+To define a `@oneOf` input object, you need to create a sealed trait (or an enum in Scala 3) with case classes that extend it. The case classes must have a single field, which is the field that the client can set. The sealed trait / enum must be annotated with `@GQLOneOfInput`.
+
+<code-group>
+  <code-block title="Sealed trait" active>
+
+```scala mdoc:silent:reset
+import caliban.schema.Annotations.GQLOneOfInput
+
+case class Name(firstName: String, lastName: String)
+
+@GQLOneOfInput
+sealed trait AuthorInput
+object AuthorInput {
+  case class ById(id: String)
+  case class ByName(name: Name)
+}
+
+case class AuthorArgs(lookup: AuthorInput)
+case class Queries(author: AuthorArgs => String)
+```
+  </code-block>
+  <code-block title="Enum (Scala 3)">
+
+```scala 3 mdoc:silent:reset
+import caliban.schema.Annotations.GQLOneOfInput
+
+case class Name(firstName: String, lastName: String)
+
+@GQLOneOfInput
+enum AuthorInput {
+  case ById(id: String)
+  case ByName(name: Name)
+}
+
+case class AuthorArgs(lookup: AuthorInput)
+case class Queries(author: AuthorArgs => String)
+```
+  </code-block>
+</code-group>
+
+This will generate the following schema, and the validation will verify that only one of those fields is provided in incoming queries.
+
+```graphql
+input NameInput {
+    firstName: String!
+    lastName: String!
+}
+
+input AuthorInput @oneOf {
+    id: String
+    name: NameInput
+}
+
+type Queries {
+    author(lookup: AuthorInput!): String!
+}
+```
+
+A few things to keep in mind when using `@oneOf` input objects:
+- The leaf case classes must contain **exactly 1 non-nullable field**. If you need more than one field, you should wrap them in a case class.
+- The field names in the leaf cases must be unique.
+- You must have a `Schema` and an `ArgBuilder` for any objects used in the leaf cases.
+
 ## Custom types
 
 Caliban provides auto-derivation for common types such as `Int`, `String`, `List`, `Option`, etc. but you can also support your own types by providing an implicit instance of `Schema`. Note that you don't have to do this if your types are just case classes composed of common types.
@@ -443,6 +534,7 @@ Caliban supports a few annotations to enrich data types:
 - `@GQLDirective(directive: Directive)` to add a directive to a field or type.
 - `@GQLValueType(isScalar)` forces a type to behave as a value type for derivation. Meaning that caliban will ignore the outer type and take the first case class parameter as the real type. If `isScalar` is true, it will generate a scalar named after the case class (default: false).
 - `@GQLDefault("defaultValue")` allows you to specify a default value for an input field using GraphQL syntax. The default value will be visible in your schema's SDL and during introspection.
+- `@GQLOneOfInput` allows you turn a sealed trait or Scala 3 enum into an `@oneOf` input type.
 
 ## Java 8 Time types
 
@@ -620,20 +712,24 @@ For that, simply use the `GraphQL#transform` method and provide one of the possi
 - `ExcludeField` to exclude a field (providing a list of `(TypeName -> fieldToBeExcluded)`)
 - `ExcludeInputField` to exclude an input field (providing a list of `(TypeName -> fieldToBeExcluded)`)
 - `ExcludeArgument` to exclude an argument (providing a list of `(TypeName -> fieldName -> argumentToBeExcluded)`)
+- `ExcludeDirectives` to exclude fields and input fields annotated with a specific directive (providing a list of `GQLDirective` or a `Directive => Boolean` predicate)
 
 
 In the following example, we can expose 2 different APIs created from the same schema: the v1 API will not expose the `nicknames` field of the `Character` type.
 ```scala
+case class Beta() extends GQLDirective("beta")
 case class Queries(character: Character)
 
 case class Character(
   name: String,
-  @GQLDescription("experimental field")
-  nicknames: List[String]
+  @Beta nicknames: List[String]
 )
 
 val apiBeta = graphQL(RootResolver(Queries(???, ???)))
-val apiV1   = apiBeta.transform(Transformer.ExcludeField("Character" -> "nicknames"))
+val apiV1   = apiBeta.transform(Transformer.ExcludeDirectives(Beta()))
+
+// alternatively:
+// val apiV1 = apiBeta.transform(Transformer.ExcludeField("Character" -> "nicknames"))
 ```
 
 You can also create your own transformers by extending the `Transformer` trait and implementing its methods.
