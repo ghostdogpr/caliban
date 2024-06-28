@@ -4,7 +4,7 @@ If you want a workflow where you first edit a GraphQL schema file, and then gene
 
 You'll first need to add the following dependency to your `project/plugins.sbt` file:
 ```scala
-addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen-sbt" % "2.7.2")
+addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen-sbt" % "2.8.0")
 ```
 
 You then enable it in your `build.sbt` file:
