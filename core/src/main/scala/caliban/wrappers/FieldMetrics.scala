@@ -11,7 +11,6 @@ import zio.query.ZQuery
 
 import java.util.concurrent.atomic.AtomicReference
 import scala.jdk.CollectionConverters._
-import java.time.{ Clock => JClock }
 
 object FieldMetrics {
   private[caliban] val defaultBuckets = Histogram.Boundaries(

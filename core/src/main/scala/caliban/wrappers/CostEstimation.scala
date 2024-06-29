@@ -4,12 +4,12 @@ import caliban.CalibanError.ValidationError
 import caliban.InputValue.ListValue
 import caliban.ResponseValue.ObjectValue
 import caliban.Value.{ FloatValue, IntValue, StringValue }
+import caliban._
 import caliban.execution.{ ExecutionRequest, Field }
 import caliban.parsing.adt.{ Directive, Document }
 import caliban.schema.Annotations.GQLDirective
 import caliban.schema.Types
-import caliban.wrappers.Wrapper.{ OverallWrapper, SuspendedWrapper, ValidationWrapper }
-import caliban._
+import caliban.wrappers.Wrapper.{ OverallWrapper, ValidationWrapper }
 import zio.{ Ref, UIO, URIO, ZIO }
 
 import scala.annotation.tailrec

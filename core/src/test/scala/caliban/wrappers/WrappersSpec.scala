@@ -23,7 +23,6 @@ import zio.test._
 import scala.language.postfixOps
 
 object WrappersSpec extends ZIOSpecDefault {
-  def newApqWrapper() = ApolloPersistedQueries.wrapper(new ApolloPersistence.Live())
 
   override def spec =
     suite("WrappersSpec")(
@@ -295,13 +294,13 @@ object WrappersSpec extends ZIOSpecDefault {
 
             (for {
               interpreter <-
-                (graphQL(RootResolver(Test("ok"))) @@ newApqWrapper()).interpreter
+                (graphQL(RootResolver(Test("ok"))) @@ ApolloPersistedQueries.wrapper).interpreter
               result      <- interpreter.executeRequest(GraphQLRequest(query = Some("{test}")))
             } yield assertTrue(result.asJson.noSpaces == """{"data":{"test":"ok"}}"""))
           },
           test("hash not found") {
             case class Test(test: String)
-            val interpreter = (graphQL(RootResolver(Test("ok"))) @@ newApqWrapper()).interpreter
+            val interpreter = (graphQL(RootResolver(Test("ok"))) @@ ApolloPersistedQueries.wrapper).interpreter
             interpreter
               .flatMap(
                 _.executeRequest(
@@ -320,7 +319,8 @@ object WrappersSpec extends ZIOSpecDefault {
             case class Test(test: String, malicious: String)
 
             (for {
-              interpreter <- (graphQL(RootResolver(Test("ok", "malicious"))) @@ newApqWrapper()).interpreter
+              interpreter <-
+                (graphQL(RootResolver(Test("ok", "malicious"))) @@ ApolloPersistedQueries.wrapper).interpreter
               // The hash for the query "{test}"  attempting to poison the cache by passing in a different query
               r1          <- interpreter.executeRequest(GraphQLRequest(query = Some("{malicious}"), extensions = extensions))
               r2          <- interpreter.executeRequest(GraphQLRequest(extensions = extensions))
@@ -332,7 +332,7 @@ object WrappersSpec extends ZIOSpecDefault {
             case class Test(test: String)
 
             (for {
-              interpreter <- (graphQL(RootResolver(Test("ok"))) @@ newApqWrapper()).interpreter
+              interpreter <- (graphQL(RootResolver(Test("ok"))) @@ ApolloPersistedQueries.wrapper).interpreter
               _           <- interpreter.executeRequest(GraphQLRequest(query = Some("{test}"), extensions = extensions))
               result      <- interpreter.executeRequest(GraphQLRequest(extensions = extensions))
             } yield assertTrue(result.asJson.noSpaces == """{"data":{"test":"ok"}}"""))
@@ -344,7 +344,7 @@ object WrappersSpec extends ZIOSpecDefault {
               shouldFail  <- Ref.make(false)
               interpreter <-
                 (graphQL(RootResolver(Test("ok"))) @@
-                  mockWrapper(shouldFail) @@ newApqWrapper() @@ mockWrapper(shouldFail)).interpreter
+                  mockWrapper(shouldFail) @@ ApolloPersistedQueries.wrapper @@ mockWrapper(shouldFail)).interpreter
               _           <- interpreter.executeRequest(GraphQLRequest(query = Some("{test}"), extensions = extensions))
               _           <- shouldFail.set(true)
               result      <- interpreter.executeRequest(GraphQLRequest(extensions = extensions))
@@ -357,7 +357,7 @@ object WrappersSpec extends ZIOSpecDefault {
               shouldFail  <- Ref.make(true)
               interpreter <-
                 (graphQL(RootResolver(Test("ok"))) @@
-                  mockWrapper(shouldFail) @@ newApqWrapper() @@ mockWrapper(shouldFail)).interpreter
+                  mockWrapper(shouldFail) @@ ApolloPersistedQueries.wrapper @@ mockWrapper(shouldFail)).interpreter
               first       <- interpreter.executeRequest(GraphQLRequest(query = Some("{test}"), extensions = extensions))
               second      <- interpreter.executeRequest(GraphQLRequest(extensions = extensions))
             } yield {
@@ -388,7 +388,7 @@ object WrappersSpec extends ZIOSpecDefault {
 
             (for {
               interpreter         <-
-                (graphQL(RootResolver(Test(_.testField))) @@ newApqWrapper()).interpreter
+                (graphQL(RootResolver(Test(_.testField))) @@ ApolloPersistedQueries.wrapper).interpreter
               validTest           <-
                 interpreter.executeRequest(
                   GraphQLRequest(query = Some(query), variables = Some(validVariables), extensions = extensions)
