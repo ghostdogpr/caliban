@@ -11,6 +11,7 @@ import zio._
 import zio.metrics.MetricKeyType.Histogram
 import zio.metrics.MetricLabel
 import zio.query.ZQuery
+import java.time.{ Clock => JClock }
 
 import scala.annotation.tailrec
 
@@ -172,7 +173,7 @@ object Wrappers {
     durationLabel: String = "graphql_fields_duration_seconds",
     buckets: Histogram.Boundaries = FieldMetrics.defaultBuckets,
     extraLabels: Set[MetricLabel] = Set.empty
-  ): Wrapper.EffectfulWrapper[Any] =
+  )(implicit clock: Clock = Clock.ClockLive): Wrapper[Any] =
     FieldMetrics.wrapper(totalLabel, durationLabel, buckets, extraLabels)
 
   private def countFields(rootField: Field): Int = {

@@ -8,9 +8,8 @@ import caliban.execution.{ ExecutionRequest, Field }
 import caliban.parsing.adt.{ Directive, Document }
 import caliban.schema.Annotations.GQLDirective
 import caliban.schema.Types
-import caliban.validation.Validator
-import caliban.wrappers.Wrapper.{ EffectfulWrapper, OverallWrapper, ValidationWrapper }
-import caliban.{ CalibanError, Configurator, GraphQLRequest, GraphQLResponse, ResponseValue }
+import caliban.wrappers.Wrapper.{ OverallWrapper, SuspendedWrapper, ValidationWrapper }
+import caliban._
 import zio.{ Ref, UIO, URIO, ZIO }
 
 import scala.annotation.tailrec
@@ -155,11 +154,12 @@ object CostEstimation {
     costWrapper: Ref[Double] => Wrapper[R]
   )(
     p: (Double, GraphQLResponse[CalibanError]) => URIO[R, GraphQLResponse[CalibanError]]
-  ): Wrapper[R] = EffectfulWrapper(
-    Ref.make(0.0).map { cost =>
-      costWrapper(cost) |+| costOverall(resp => cost.get.flatMap(p(_, resp)))
-    }
-  )
+  ): Wrapper[R] = Wrapper.suspend {
+    import caliban.implicits.unsafe
+
+    val cost = Ref.unsafe.make(0.0)
+    costWrapper(cost) |+| costOverall(resp => cost.get.flatMap(p(_, resp)))
+  }
 
   /**
    * Computes the estimated cost of executing the query using the provided function and compares it to

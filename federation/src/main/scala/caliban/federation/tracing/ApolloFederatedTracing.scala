@@ -5,7 +5,8 @@ import caliban.ResponseValue.ObjectValue
 import caliban.Value.{ IntValue, StringValue }
 import caliban._
 import caliban.execution.FieldInfo
-import caliban.wrappers.Wrapper.{ EffectfulWrapper, FieldWrapper, OverallWrapper }
+import caliban.wrappers.Wrapper
+import caliban.wrappers.Wrapper.{ FieldWrapper, OverallWrapper }
 import com.google.protobuf.timestamp.Timestamp
 import mdg.engine.proto.reports.Trace
 import mdg.engine.proto.reports.Trace.{ Error, Location, Node }
@@ -27,15 +28,13 @@ object ApolloFederatedTracing {
    *                          Setting this to true can help improve performance at the cost of generating incomplete traces.
    *                          WARNING: Use this with caution as it could potentially cause issues if the tracing client expects all queried fields to be included in the traces
    */
-  def wrapper(excludePureFields: Boolean = false): EffectfulWrapper[Any] =
-    EffectfulWrapper(
-      for {
-        tracing <- ZIO.succeed(new AtomicReference(Tracing(NodeTrie.empty)))
-        enabled <- ZIO.succeed(new AtomicReference(false))
-        clock   <- ZIO.clock
-      } yield apolloTracingOverall(clock, tracing, enabled) |+|
-        Unsafe.unsafe(implicit u => apolloTracingField(clock.unsafe.nanoTime(), tracing, enabled, !excludePureFields))
-    )
+  def wrapper(excludePureFields: Boolean = false)(implicit clock: Clock = Clock.ClockLive): Wrapper[Any] =
+    Wrapper.suspend {
+      val tracing = new AtomicReference(Tracing(NodeTrie.empty))
+      val enabled = new AtomicReference(false)
+      apolloTracingOverall(clock, tracing, enabled) |+|
+        apolloTracingField(clock.unsafe, tracing, enabled, !excludePureFields)
+    }
 
   private def toTimestamp(epochMilli: Long): Timestamp =
     Timestamp.of(
@@ -92,15 +91,16 @@ object ApolloFederatedTracing {
     }
 
   private def apolloTracingField(
-    nanoTime: => Long,
+    clock: Clock#UnsafeAPI,
     ref: AtomicReference[Tracing],
     enabled: AtomicReference[Boolean],
     wrapPureValues: Boolean
   ): FieldWrapper[Any] =
     new FieldWrapper[Any](wrapPureValues) {
+      import caliban.implicits.unsafe
 
       private def updateState(startTime: Long, fieldInfo: FieldInfo, error: Option[ExecutionError]): Unit = {
-        val endTime = nanoTime
+        val endTime = clock.nanoTime()
         val path    = (PathValue.Key(fieldInfo.name) :: fieldInfo.path).toVector
         val _       = ref.updateAndGet(state =>
           state.copy(
@@ -131,7 +131,7 @@ object ApolloFederatedTracing {
       ): ZQuery[R1, CalibanError.ExecutionError, ResponseValue] =
         if (enabled.get())
           ZQuery.suspend {
-            val startTime = nanoTime
+            val startTime = clock.nanoTime()
             query.foldQuery(
               error =>
                 ZQuery.fail {

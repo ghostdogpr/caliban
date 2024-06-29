@@ -33,20 +33,22 @@ object FederationTracingSpec extends ZIOSpecDefault {
 
   case class Queries(me: ZQuery[Any, Nothing, User])
 
-  def api(excludePureFields: Boolean) = graphQL(
-    RootResolver(
-      Queries(
-        me = ZQuery.succeed(
-          User(
-            "abc123",
-            ZIO.sleep(100.millis) as Name("my_first", Some("my_last")),
-            age = 42,
-            parents = ZIO.succeed(List(Parent("my_parent")))
+  def api(excludePureFields: Boolean) = ZIO.clock.map { implicit clock =>
+    graphQL(
+      RootResolver(
+        Queries(
+          me = ZQuery.succeed(
+            User(
+              "abc123",
+              ZIO.sleep(100.millis) as Name("my_first", Some("my_last")),
+              age = 42,
+              parents = ZIO.succeed(List(Parent("my_parent")))
+            )
           )
         )
       )
-    )
-  ) @@ ApolloFederatedTracing.wrapper(excludePureFields)
+    ) @@ ApolloFederatedTracing.wrapper(excludePureFields)
+  }
 
   val query = gqldoc("query { me { id username { first, family: last } parents { name } age } }")
   val body  = ObjectValue(
@@ -143,7 +145,7 @@ object FederationTracingSpec extends ZIOSpecDefault {
       test("disabled by default") {
         for {
           _           <- TestClock.setTime(Instant.ofEpochSecond(1))
-          interpreter <- api(false).interpreter
+          interpreter <- api(false).flatMap(_.interpreter)
           resultFiber <- interpreter.execute(query).fork
           result      <- TestClock.adjust(1.second) *> resultFiber.join
         } yield assertTrue(result.data == body) && assert(result.extensions)(isNone)
@@ -152,7 +154,7 @@ object FederationTracingSpec extends ZIOSpecDefault {
         def test_(excludePureFields: Boolean, expectedTrace: Trace) =
           for {
             _              <- TestClock.setTime(Instant.ofEpochSecond(1))
-            interpreter    <- api(excludePureFields).interpreter
+            interpreter    <- api(excludePureFields).flatMap(_.interpreter)
             resultFiber    <-
               interpreter
                 .execute(
