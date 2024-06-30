@@ -29,6 +29,7 @@ sealed trait CalibanSettings {
   final def addDerives(value: Boolean): Self                      = withSettings(_.addDerives(value))
   final def envForDerives(value: String): Self                    = withSettings(_.envForDerives(value))
   final def excludeDeprecated(value: Boolean): Self               = withSettings(_.excludeDeprecated(value))
+  final def queriesPath(path: String): Self                       = withSettings(_.queriesPath(path))
 }
 
 final case class CalibanFileSettings(file: File, settings: CalibanCommonSettings) extends CalibanSettings {

@@ -1,6 +1,7 @@
 package caliban.tools
 
-import zio.{ Task, ZIO }
+import caliban.parsing.adt.Document
+import zio.{ Exit, Task, ZIO }
 
 import java.io.{ File, PrintWriter }
 
@@ -13,6 +14,8 @@ object Codegen {
 
     object Client extends GenType
   }
+
+  private val NilQueryOps: Task[List[ExecutableQuery]] = Exit.succeed(Nil)
 
   def generate(
     loader: SchemaLoader,
@@ -35,6 +38,8 @@ object Codegen {
       enableFmt                 = arguments.enableFmt.getOrElse(true)
       extensibleEnums           = arguments.extensibleEnums.getOrElse(false)
       excludeDeprecated         = arguments.excludeDeprecated.getOrElse(false)
+      queriesPath               = if (genType == GenType.Client) arguments.queriesPath else None
+      queryOps                 <- queriesPath.fold(NilQueryOps)(QueryLoader.fromDirectory(schema, _))
       code                      = genType match {
                                     case GenType.Schema =>
                                       List(
@@ -60,7 +65,8 @@ object Codegen {
                                         splitFiles,
                                         extensibleEnums,
                                         scalarMappings,
-                                        excludeDeprecated
+                                        excludeDeprecated,
+                                        queryOps
                                       )
                                   }
       formatted                <- if (enableFmt) Formatter.format(code, arguments.fmtPath) else ZIO.succeed(code)

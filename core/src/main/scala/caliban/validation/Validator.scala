@@ -452,19 +452,22 @@ object Validator {
   }
 
   def validateDocumentFields(context: Context): Either[ValidationError, Unit] =
+    validateDocumentFields(validateFieldArgs = true)(context)
+
+  def validateDocumentFields(validateFieldArgs: Boolean)(context: Context): Either[ValidationError, Unit] =
     validateAllDiscard(context.document.definitions) {
       case OperationDefinition(opType, _, _, _, selectionSet) =>
         opType match {
           case OperationType.Query        =>
-            validateSelectionSet(context, selectionSet, context.rootType.queryType)
+            validateSelectionSet(context, selectionSet, context.rootType.queryType, validateFieldArgs)
           case OperationType.Mutation     =>
             context.rootType.mutationType.fold[Either[ValidationError, Unit]](
               failValidation("Mutation operations are not supported on this schema.", "")
-            )(validateSelectionSet(context, selectionSet, _))
+            )(validateSelectionSet(context, selectionSet, _, validateFieldArgs))
           case OperationType.Subscription =>
             context.rootType.subscriptionType.fold[Either[ValidationError, Unit]](
               failValidation("Subscription operations are not supported on this schema.", "")
-            )(validateSelectionSet(context, selectionSet, _))
+            )(validateSelectionSet(context, selectionSet, _, validateFieldArgs))
         }
       case _: FragmentDefinition                              => unit
       case _: TypeSystemDefinition                            => unit
@@ -483,9 +486,10 @@ object Validator {
   private def validateSelectionSet(
     context: Context,
     selectionSet: List[Selection],
-    currentType: __Type
+    currentType: __Type,
+    validateFieldArgs: Boolean
   ): Either[ValidationError, Unit] = {
-    val v1 = validateFields(context, selectionSet, currentType)(mutable.HashSet.empty)
+    val v1 = validateFields(context, selectionSet, currentType, validateFieldArgs)(mutable.HashSet.empty)
     if (context.fragments.nonEmpty || containsFragments(selectionSet))
       v1 *> FragmentValidator.findConflictsWithinSelectionSet(context, context.rootType.queryType, selectionSet)
     else v1
@@ -494,11 +498,12 @@ object Validator {
   private def validateFields(
     context: Context,
     selectionSet: List[Selection],
-    currentType: __Type
+    currentType: __Type,
+    validateFieldArgs: Boolean
   )(implicit checked: ValidatedFragments): Either[ValidationError, Unit] = {
     val v1 = validateAllDiscard(selectionSet) {
       case f: Field                                       =>
-        validateField(context, f, currentType)
+        validateField(context, f, currentType, validateFieldArgs)
       case FragmentSpread(name, _)                        =>
         context.fragments.getOrElse(name, null) match {
           case null                                              =>
@@ -507,12 +512,19 @@ object Validator {
               "Named fragment spreads must refer to fragments defined within the document. It is a validation error if the target of a spread is not defined."
             )
           case fragment if checked.add((name, currentType.name)) =>
-            validateSpread(context, Some(name), currentType, Some(fragment.typeCondition), fragment.selectionSet)
+            validateSpread(
+              context,
+              Some(name),
+              currentType,
+              Some(fragment.typeCondition),
+              fragment.selectionSet,
+              validateFieldArgs
+            )
           case _                                                 =>
             unit
         }
       case InlineFragment(typeCondition, _, selectionSet) =>
-        validateSpread(context, None, currentType, typeCondition, selectionSet)
+        validateSpread(context, None, currentType, typeCondition, selectionSet, validateFieldArgs)
     }
     val v2 = validateLeafFieldSelection(currentType, selectionSet.nonEmpty)
     v2.fold(v1)(v1 *> _)
@@ -523,7 +535,8 @@ object Validator {
     name: Option[String],
     currentType: __Type,
     typeCondition: Option[NamedType],
-    selectionSet: List[Selection]
+    selectionSet: List[Selection],
+    validateFieldArgs: Boolean
   )(implicit v: ValidatedFragments): Either[ValidationError, Unit] =
     typeCondition.fold(currentType)(t => context.rootType.types.getOrElse(t.name, null)) match {
       case null         =>
@@ -544,7 +557,7 @@ object Validator {
                   .mkString(", ")}' and possible fragment types are '${possibleFragmentTypes.mkString(", ")}'.",
               "Fragments are declared on a type and will only apply when the runtime object type matches the type condition. They also are spread within the context of a parent type. A fragment spread is only valid if its type condition could ever apply within the parent type."
             )
-          else validateFields(context, selectionSet, fragmentType)
+          else validateFields(context, selectionSet, fragmentType, validateFieldArgs)
         }
         v1.fold(v2)(_ *> v2)
     }
@@ -560,7 +573,8 @@ object Validator {
   private def validateField(
     context: Context,
     field: Field,
-    currentType: __Type
+    currentType: __Type,
+    validateFieldArgs: Boolean
   )(implicit v: ValidatedFragments): Either[ValidationError, Unit] =
     if (field.name != "__typename") {
       currentType.getFieldOrNull(field.name) match {
@@ -570,8 +584,8 @@ object Validator {
             "The target field of a field selection must be defined on the scoped type of the selection set. There are no limitations on alias names."
           )
         case f    =>
-          val v1 = validateFields(context, field.selectionSet, f._type.innerType)
-          val v2 = validateArguments(field, f, currentType, context)
+          val v1 = validateFields(context, field.selectionSet, f._type.innerType, validateFieldArgs)
+          val v2 = if (validateFieldArgs) validateArguments(field, f, currentType, context) else None
           v2.fold(v1)(v1 *> _)
       }
     } else unit

@@ -1,10 +1,11 @@
 package caliban.tools
 
 import caliban.Value.StringValue
-import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition
+import caliban.parsing.adt.Definition.TypeSystemDefinition.{ SchemaDefinition, TypeDefinition }
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
 import caliban.parsing.adt.Type.{ ListType, NamedType }
 import caliban.parsing.adt.{ Directives, Document, Type }
+import caliban.validation.Validator
 
 import scala.annotation.tailrec
 
@@ -21,7 +22,8 @@ object ClientWriter {
     splitFiles: Boolean = false,
     extensibleEnums: Boolean = false,
     scalarMappings: Option[Map[String, String]] = None,
-    excludeDeprecated: Boolean = false
+    excludeDeprecated: Boolean = false,
+    executableQueries: List[ExecutableQuery] = Nil
   ): List[(String, String)] = {
     require(packageName.isDefined || !splitFiles, "splitFiles option requires a package name")
 

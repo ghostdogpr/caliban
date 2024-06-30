@@ -6,6 +6,8 @@ import caliban.parsing.adt.Document
 import sttp.client3.httpclient.zio.HttpClientZioBackend
 import zio.{ Task, ZIO }
 
+import java.io.File
+
 trait SchemaLoader {
   def load: Task[Document]
 }
@@ -39,6 +41,7 @@ object SchemaLoader {
   def fromCaliban[R](api: GraphQL[R]): SchemaLoader = FromCaliban(api)
   def fromDocument(doc: Document): SchemaLoader     = FromDocument(doc)
   def fromFile(path: String): SchemaLoader          = FromFile(path)
+  def fromFile(file: File): SchemaLoader            = FromFile(file.getAbsolutePath)
   def fromString(schema: String): SchemaLoader      = FromString(schema)
   def fromIntrospection(
     url: String,
