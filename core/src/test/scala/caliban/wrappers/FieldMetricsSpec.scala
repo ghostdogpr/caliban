@@ -7,7 +7,7 @@ import caliban.schema.ArgBuilder.auto._
 import caliban.schema.Schema.auto._
 import zio._
 import zio.metrics.Metric
-import zio.metrics.{ Metric, MetricLabel, MetricState }
+import zio.metrics.{ MetricLabel, MetricState }
 import zio.test._
 
 object FieldMetricsSpec extends ZIOSpecDefault {
@@ -76,34 +76,32 @@ object FieldMetricsSpec extends ZIOSpecDefault {
                 }
             }
         }""")
-      ZIO.clockWith { implicit clock =>
-        for {
-          interpreter <- (api @@ Wrappers.metrics(extraLabels = Set(MetricLabel("test", "success")))).interpreter
-          _           <- TestClock.adjust(30.seconds)
-          fiber       <- interpreter.execute(query).fork
-          _           <- TestClock.adjust(30.seconds)
-          res         <- fiber.join
-          root        <- metric.tagged("field", "Queries.person").value
-          name        <- metric.tagged("field", "Person.name").value
-          friendsName <- metric.tagged("field", "Friend.name").value
-          totalRoot   <- metricTotal.tagged("field", "Queries.person").tagged("status", "ok").value
-          total       <- metricTotal.tagged("field", "Friend.name").tagged("status", "ok").value
-          totalError  <- metricTotal.tagged("field", "Friend.name").tagged("status", "error").value
-        } yield assertTrue(
-          res.errors.size == 1,
-          getCountForDuration(root, 0.025) == 0,
-          getCountForDuration(root, 0.05) == 1,
-          getCountForDuration(root, 0.5) == 1,
-          getCountForDuration(name, 0.075) == 0,
-          getCountForDuration(name, 0.1) == 1,
-          getCountForDuration(name, 0.5) == 1,
-          getCountForDuration(friendsName, 0.25) == 0,
-          getCountForDuration(friendsName, 0.5) == 3,
-          totalRoot.count == 1.0,
-          total.count == 3.0,
-          totalError.count == 1.0
-        )
-      }
+      for {
+        interpreter <- (api @@ Wrappers.metrics(extraLabels = Set(MetricLabel("test", "success")))).interpreter
+        _           <- TestClock.adjust(30.seconds)
+        fiber       <- interpreter.execute(query).fork
+        _           <- TestClock.adjust(30.seconds)
+        res         <- fiber.join
+        root        <- metric.tagged("field", "Queries.person").value
+        name        <- metric.tagged("field", "Person.name").value
+        friendsName <- metric.tagged("field", "Friend.name").value
+        totalRoot   <- metricTotal.tagged("field", "Queries.person").tagged("status", "ok").value
+        total       <- metricTotal.tagged("field", "Friend.name").tagged("status", "ok").value
+        totalError  <- metricTotal.tagged("field", "Friend.name").tagged("status", "error").value
+      } yield assertTrue(
+        res.errors.size == 1,
+        getCountForDuration(root, 0.025) == 0,
+        getCountForDuration(root, 0.05) == 1,
+        getCountForDuration(root, 0.5) == 1,
+        getCountForDuration(name, 0.075) == 0,
+        getCountForDuration(name, 0.1) == 1,
+        getCountForDuration(name, 0.5) == 1,
+        getCountForDuration(friendsName, 0.25) == 0,
+        getCountForDuration(friendsName, 0.5) == 3,
+        totalRoot.count == 1.0,
+        total.count == 3.0,
+        totalError.count == 1.0
+      )
     }
   )
 }

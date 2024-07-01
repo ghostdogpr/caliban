@@ -6,7 +6,7 @@ import caliban.Value.{ IntValue, StringValue }
 import caliban._
 import caliban.execution.FieldInfo
 import caliban.wrappers.Wrapper
-import caliban.wrappers.Wrapper.{ FieldWrapper, OverallWrapper }
+import caliban.wrappers.Wrapper.{ EffectfulWrapper, FieldWrapper, OverallWrapper }
 import com.google.protobuf.timestamp.Timestamp
 import mdg.engine.proto.reports.Trace
 import mdg.engine.proto.reports.Trace.{ Error, Location, Node }
@@ -28,12 +28,14 @@ object ApolloFederatedTracing {
    *                          Setting this to true can help improve performance at the cost of generating incomplete traces.
    *                          WARNING: Use this with caution as it could potentially cause issues if the tracing client expects all queried fields to be included in the traces
    */
-  def wrapper(excludePureFields: Boolean = false)(implicit clock: Clock = Clock.ClockLive): Wrapper[Any] =
-    Wrapper.suspend {
-      val tracing = new AtomicReference(Tracing(NodeTrie.empty))
-      val enabled = new AtomicReference(false)
-      apolloTracingOverall(clock, tracing, enabled) |+|
-        apolloTracingField(clock.unsafe, tracing, enabled, !excludePureFields)
+  def wrapper(excludePureFields: Boolean = false): EffectfulWrapper[Any] =
+    EffectfulWrapper {
+      ZIO.clock.map { clock =>
+        val tracing = new AtomicReference(Tracing(NodeTrie.empty))
+        val enabled = new AtomicReference(false)
+        apolloTracingOverall(clock, tracing, enabled) |+|
+          apolloTracingField(clock.unsafe, tracing, enabled, !excludePureFields)
+      }
     }
 
   private def toTimestamp(epochMilli: Long): Timestamp =

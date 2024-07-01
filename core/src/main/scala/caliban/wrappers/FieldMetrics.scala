@@ -3,7 +3,7 @@ package caliban.wrappers
 import caliban.Value.StringValue
 import caliban._
 import caliban.execution.FieldInfo
-import caliban.wrappers.Wrapper.OverallWrapper
+import caliban.wrappers.Wrapper.{ EffectfulWrapper, OverallWrapper }
 import zio._
 import zio.metrics.MetricKeyType.Histogram
 import zio.metrics.{ Metric, MetricKey, MetricLabel }
@@ -56,12 +56,14 @@ object FieldMetrics {
     durationLabel: String = "graphql_fields_duration_seconds",
     buckets: Histogram.Boundaries = defaultBuckets,
     extraLabels: Set[MetricLabel] = Set.empty
-  )(implicit clock: Clock = Clock.ClockLive): Wrapper[Any] =
-    Wrapper.suspend {
-      val timings  = new AtomicReference(List.empty[Timing])
-      val failures = new AtomicReference(List.empty[String])
-      val metrics  = new Metrics(totalLabel, durationLabel, buckets, extraLabels)
-      overallWrapper(timings, failures, metrics) |+| fieldWrapper(clock.unsafe, timings, failures)
+  ): EffectfulWrapper[Any] =
+    Wrapper.EffectfulWrapper {
+      ZIO.clock.map { clock =>
+        val timings  = new AtomicReference(List.empty[Timing])
+        val failures = new AtomicReference(List.empty[String])
+        val metrics  = new Metrics(totalLabel, durationLabel, buckets, extraLabels)
+        overallWrapper(timings, failures, metrics) |+| fieldWrapper(clock.unsafe, timings, failures)
+      }
     }
 
   private def overallWrapper(

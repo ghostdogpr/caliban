@@ -742,10 +742,7 @@ lazy val enableMimaSettingsJVM =
   Def.settings(
     mimaFailOnProblem      := enforceMimaCompatibility,
     mimaPreviousArtifacts  := previousStableVersion.value.map(organization.value %% moduleName.value % _).toSet,
-    mimaBinaryIssueFilters := Seq(
-      ProblemFilters.exclude[Problem]("caliban.wrappers.*"),
-      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.federation.tracing.ApolloFederatedTracing.wrapper")
-    )
+    mimaBinaryIssueFilters := Seq()
   )
 
 lazy val enableMimaSettingsJS =

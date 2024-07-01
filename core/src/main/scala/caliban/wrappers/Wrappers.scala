@@ -172,7 +172,7 @@ object Wrappers {
     durationLabel: String = "graphql_fields_duration_seconds",
     buckets: Histogram.Boundaries = FieldMetrics.defaultBuckets,
     extraLabels: Set[MetricLabel] = Set.empty
-  )(implicit clock: Clock = Clock.ClockLive): Wrapper[Any] =
+  ): Wrapper.EffectfulWrapper[Any] =
     FieldMetrics.wrapper(totalLabel, durationLabel, buckets, extraLabels)
 
   private def countFields(rootField: Field): Int = {

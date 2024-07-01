@@ -33,7 +33,7 @@ object FederationTracingSpec extends ZIOSpecDefault {
 
   case class Queries(me: ZQuery[Any, Nothing, User])
 
-  def api(excludePureFields: Boolean) = ZIO.clock.map { implicit clock =>
+  def api(excludePureFields: Boolean) =
     graphQL(
       RootResolver(
         Queries(
@@ -48,7 +48,6 @@ object FederationTracingSpec extends ZIOSpecDefault {
         )
       )
     ) @@ ApolloFederatedTracing.wrapper(excludePureFields)
-  }
 
   val query = gqldoc("query { me { id username { first, family: last } parents { name } age } }")
   val body  = ObjectValue(
@@ -145,7 +144,7 @@ object FederationTracingSpec extends ZIOSpecDefault {
       test("disabled by default") {
         for {
           _           <- TestClock.setTime(Instant.ofEpochSecond(1))
-          interpreter <- api(false).flatMap(_.interpreter)
+          interpreter <- api(false).interpreter
           resultFiber <- interpreter.execute(query).fork
           result      <- TestClock.adjust(1.second) *> resultFiber.join
         } yield assertTrue(result.data == body) && assert(result.extensions)(isNone)
@@ -154,7 +153,7 @@ object FederationTracingSpec extends ZIOSpecDefault {
         def test_(excludePureFields: Boolean, expectedTrace: Trace) =
           for {
             _              <- TestClock.setTime(Instant.ofEpochSecond(1))
-            interpreter    <- api(excludePureFields).flatMap(_.interpreter)
+            interpreter    <- api(excludePureFields).interpreter
             resultFiber    <-
               interpreter
                 .execute(
