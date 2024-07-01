@@ -33,21 +33,20 @@ object FederationTracingSpec extends ZIOSpecDefault {
 
   case class Queries(me: ZQuery[Any, Nothing, User])
 
-  def api(excludePureFields: Boolean) =
-    graphQL(
-      RootResolver(
-        Queries(
-          me = ZQuery.succeed(
-            User(
-              "abc123",
-              ZIO.sleep(100.millis) as Name("my_first", Some("my_last")),
-              age = 42,
-              parents = ZIO.succeed(List(Parent("my_parent")))
-            )
+  def api(excludePureFields: Boolean) = graphQL(
+    RootResolver(
+      Queries(
+        me = ZQuery.succeed(
+          User(
+            "abc123",
+            ZIO.sleep(100.millis) as Name("my_first", Some("my_last")),
+            age = 42,
+            parents = ZIO.succeed(List(Parent("my_parent")))
           )
         )
       )
-    ) @@ ApolloFederatedTracing.wrapper(excludePureFields)
+    )
+  ) @@ ApolloFederatedTracing.wrapper(excludePureFields)
 
   val query = gqldoc("query { me { id username { first, family: last } parents { name } age } }")
   val body  = ObjectValue(
