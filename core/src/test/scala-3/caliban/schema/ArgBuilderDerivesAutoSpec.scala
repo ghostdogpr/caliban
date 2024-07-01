@@ -5,7 +5,8 @@ import caliban.CalibanError.ExecutionError
 import caliban.InputValue.{ ListValue, ObjectValue }
 import caliban.Macros.gqldoc
 import caliban.Value.{ IntValue, NullValue, StringValue }
-import caliban.schema.Annotations.GQLOneOfInput
+import caliban.parsing.adt.Directive
+import caliban.schema.Annotations.{ GQLDescription, GQLDirective, GQLOneOfInput }
 import caliban.schema.ArgBuilder.*
 import zio.ZIO
 import zio.test.*
@@ -70,8 +71,8 @@ object ArgBuilderDerivesAutoSpec extends ZIOSpecDefault {
     suite("enums as oneOf inputs") {
       @GQLOneOfInput
       enum Foo derives Schema.SemiAuto, ArgBuilder {
-        case FooString(stringValue: String) extends Foo
-        case FooInt(intValue: Int)          extends Foo
+        @GQLDescription("fooString") case FooString(stringValue: String)    extends Foo
+        @GQLDirective(Directive("intDirective")) case FooInt(intValue: Int) extends Foo
       }
       case class Wrapper(fooInput: Foo) derives Schema.SemiAuto, ArgBuilder
       case class Queries(foo: Wrapper => String, fooUnwrapped: Foo => String) derives Schema.SemiAuto
@@ -84,8 +85,9 @@ object ArgBuilderDerivesAutoSpec extends ZIOSpecDefault {
               |}
               |
               |input FooInput @oneOf {
+              |  intValue: Int @intDirective
+              |  "fooString"
               |  stringValue: String
-              |  intValue: Int
               |}
               |
               |type Queries {
