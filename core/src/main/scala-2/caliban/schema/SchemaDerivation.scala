@@ -199,8 +199,14 @@ trait CommonSchemaDerivation[R] {
             .getOrElse(customizeInputTypeName(getName(ctx)))),
           getDescription(ctx),
           ctx.subtypes.toList.flatMap { p =>
-            p.typeclass.toType_(isInput = true).allInputFields.map(_.nullable)
-          },
+            val pTpe = p.typeclass.toType_(isInput = true)
+            pTpe.allInputFields.map { t =>
+              t.nullable.copy(
+                description = t.description.orElse(pTpe.description),
+                directives = t.directives.orElse(pTpe.directives)
+              )
+            }
+          }.sortBy(_.name),
           Some(ctx.typeName.full),
           Some(List(Directive(Directives.OneOf)))
         )

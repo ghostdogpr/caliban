@@ -130,7 +130,15 @@ private object DerivationUtils {
     makeInputObject(
       Some(getInputName(annotations).getOrElse(customizeInputTypeName(getName(annotations, info)))),
       getDescription(annotations),
-      schemas.flatMap(_.toType_(isInput = true).allInputFields.map(_.nullable)),
+      schemas.flatMap { s =>
+        val pTpe = s.toType_(isInput = true)
+        pTpe.allInputFields.map { t =>
+          t.nullable.copy(
+            description = t.description.orElse(pTpe.description),
+            directives = t.directives.orElse(pTpe.directives)
+          )
+        }
+      }.sortBy(_.name),
       Some(info.full),
       Some(List(Directive(Directives.OneOf)))
     )

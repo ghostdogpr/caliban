@@ -389,6 +389,27 @@ object SchemaSpec extends ZIOSpecDefault {
                       |  mid2: Mid2!
                       |}""".stripMargin
         )
+      },
+      test("annotations on leaf classes of OneOfInput are added to the input object fields") {
+        case class Query(value: MyOneOfInput => String)
+
+        val schema = graphQL(RootResolver(Query(_.toString))).render
+        println(schema)
+        assertTrue(
+          schema == """schema {
+                      |  query: Query
+                      |}
+                      |
+                      |input MyOneOfInput @oneOf {
+                      |  "foo input"
+                      |  a: Int
+                      |  b: String @barDirective
+                      |}
+                      |
+                      |type Query {
+                      |  value(value: MyOneOfInput!): String!
+                      |}""".stripMargin
+        )
       }
     )
 
@@ -459,5 +480,15 @@ object SchemaSpec extends ZIOSpecDefault {
     case class FooA(a: String, b: String, c: String) extends Mid1
     case class FooB(b: String, c: String, d: String) extends Mid1 with Mid2
     case class FooC(b: String, d: String, e: String) extends Mid2
+  }
+
+  @GQLOneOfInput
+  sealed trait MyOneOfInput
+
+  object OneOfInput {
+    @GQLDescription("foo input")
+    case class Foo(a: Int)    extends MyOneOfInput
+    @GQLDirective(Directive("barDirective"))
+    case class Bar(b: String) extends MyOneOfInput
   }
 }
