@@ -204,10 +204,10 @@ object RenderingSpec extends ZIOSpecDefault {
              |}
              |
              |input FooInput @oneOf {
-             |  stringValue: String
-             |  otherStringField: String
              |  intValue: FooIntInput
              |  otherIntField: FooInt2Input
+             |  otherStringField: String
+             |  stringValue: String
              |}
              |
              |input FooInt2Input {
