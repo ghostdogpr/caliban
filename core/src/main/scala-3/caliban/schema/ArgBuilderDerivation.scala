@@ -1,6 +1,7 @@
 package caliban.schema
 
 import caliban.CalibanError.ExecutionError
+import caliban.InputValue.{ ListValue, VariableValue }
 import caliban.Value.*
 import caliban.schema.Annotations.{ GQLDefault, GQLName, GQLOneOfInput }
 import caliban.schema.macros.Macros
@@ -140,24 +141,39 @@ trait CommonArgBuilderDerivation {
     def build(input: InputValue): Either[ExecutionError, A] =
       input match {
         case InputValue.ObjectValue(fields) => fromFields(fields)
-        case _                              => Left(ExecutionError("expected an input object"))
+        case value                          => fromValue(value)
       }
 
     private def fromFields(fields: Map[String, InputValue]): Either[ExecutionError, A] = {
-      var i          = 0
-      val l          = params.length
-      var acc: Tuple = EmptyTuple
+      var i   = 0
+      val l   = params.length
+      val arr = Array.ofDim[Any](l)
       while (i < l) {
         val (label, default, builder) = params(i)
         val field                     = fields.getOrElse(label, null)
         val value                     = if (field ne null) builder.build(field) else default
         value match {
-          case Right(v)    => acc :*= v
-          case e @ Left(_) => return e.asInstanceOf[Either[ExecutionError, A]]
+          case Right(v) => arr(i) = v
+          case Left(e)  => return Left(e)
         }
         i += 1
       }
-      Right(fromProduct(acc))
+      Right(fromProduct(Tuple.fromArray(arr)))
+    }
+
+    private def fromValue(input: InputValue): Either[ExecutionError, A] = {
+      val l   = params.length
+      val arr = Array.ofDim[Any](l)
+      var i   = 0
+      while (i < l) {
+        val (_, _, builder) = params(i)
+        builder.build(input) match {
+          case Right(v) => arr(i) = v
+          case Left(e)  => return Left(e)
+        }
+        i += 1
+      }
+      Right(fromProduct(Tuple.fromArray(arr)))
     }
 
   }

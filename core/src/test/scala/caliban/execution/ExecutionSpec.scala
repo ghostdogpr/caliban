@@ -860,6 +860,27 @@ object ExecutionSpec extends ZIOSpecDefault {
           .flatMap(_.execute(query))
           .map(result => assertTrue(result.data.toString == """null"""))
       },
+      test("using value types as inputs") {
+        @GQLValueType
+        case class UserArgs(id: Int)
+        case class User(test: UserArgs => String)
+        case class Mutations(user: UIO[User])
+        case class Queries(a: Int)
+        val api = graphQL(RootResolver(Queries(1), Mutations(ZIO.succeed(User(_.toString)))))
+
+        val interpreter = api.interpreter
+        val query       =
+          """mutation {
+            |  user {
+            |    test(value: 123)
+            |  }
+            |}""".stripMargin
+        interpreter
+          .flatMap(_.execute(query))
+          .debug
+          .map(_.data.toString)
+          .map(result => assertTrue(result == """{"user":{"test":"UserArgs(123)"}}"""))
+      },
       test("die inside a nullable list") {
         case class Queries(test: List[Task[String]])
         val api         = graphQL(RootResolver(Queries(List(ZIO.succeed("a"), ZIO.die(new Exception("Boom"))))))

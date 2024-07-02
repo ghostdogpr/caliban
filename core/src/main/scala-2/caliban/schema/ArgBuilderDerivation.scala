@@ -46,7 +46,7 @@ trait CommonArgBuilderDerivation {
     def build(input: InputValue): Either[ExecutionError, T] =
       input match {
         case InputValue.ObjectValue(fields) => fromFields(fields)
-        case _                              => Left(ExecutionError("expected an input object"))
+        case value                          => ctx.constructMonadic(p => p.typeclass.build(value))
       }
 
     private[this] def fromFields(fields: Map[String, InputValue]): Either[ExecutionError, T] =
