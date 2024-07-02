@@ -1,32 +1,28 @@
 package caliban.wrappers
 
-import caliban._
 import caliban.CalibanError.{ ExecutionError, ValidationError }
 import caliban.InputValue.ObjectValue
 import caliban.Macros.gqldoc
 import caliban.TestUtils._
 import caliban.Value.{ IntValue, StringValue }
+import caliban._
 import caliban.execution.{ ExecutionRequest, FieldInfo }
 import caliban.introspection.adt.{ __Directive, __DirectiveLocation }
 import caliban.parsing.adt.{ Directive, Document, LocationInfo }
 import caliban.schema.Annotations.GQLDirective
-import caliban.schema.{ ArgBuilder, GenericSchema, Schema }
 import caliban.schema.Schema.auto._
-import caliban.wrappers.ApolloPersistedQueries.apolloPersistedQueries
+import caliban.schema.{ ArgBuilder, GenericSchema, Schema }
+import caliban.wrappers.ApolloPersistedQueries.ApolloPersistence
 import caliban.wrappers.Wrapper.{ CombinedWrapper, ExecutionWrapper, FieldWrapper, ValidationWrapper }
 import caliban.wrappers.Wrappers._
 import io.circe.syntax._
 import zio._
 import zio.query.ZQuery
-import zio.test.Assertion._
 import zio.test._
 
-import scala.annotation.nowarn
 import scala.language.postfixOps
 
-@nowarn("msg=deprecated")
 object WrappersSpec extends ZIOSpecDefault {
-  import caliban.wrappers.ApolloCaching.GQLCacheControl
 
   override def spec =
     suite("WrappersSpec")(
@@ -272,51 +268,6 @@ object WrappersSpec extends ZIOSpecDefault {
           }
         )
       },
-      test("Apollo Caching") {
-        case class Query(@GQLCacheControl(maxAge = Some(10.seconds)) hero: Hero)
-
-        @GQLCacheControl(maxAge = Some(2.seconds))
-        case class Hero(name: UIO[String], friends: List[Hero] = Nil)
-
-        object schema extends GenericSchema[Any] {
-          implicit lazy val heroSchema: Schema[Any, Hero] = gen
-          def api                                         =
-            graphQL(
-              RootResolver(
-                Query(
-                  Hero(
-                    ZIO.succeed("R2-D2"),
-                    List(
-                      Hero(ZIO.succeed("Luke Skywalker")),
-                      Hero(ZIO.succeed("Han Solo")),
-                      Hero(ZIO.succeed("Leia Organa"))
-                    )
-                  )
-                )
-              )
-            ) @@ ApolloCaching.apolloCaching
-        }
-
-        val query = gqldoc("""
-              {
-                hero {
-                  name
-                  friends {
-                    name
-                  }
-                }
-              }""")
-        for {
-          interpreter <- schema.api.interpreter
-          result      <- interpreter.execute(query).map(_.extensions.map(_.toString))
-        } yield assert(result)(
-          isSome(
-            equalTo(
-              "{\"cacheControl\":{\"version\":1,\"hints\":[{\"path\":[\"hero\"],\"maxAge\":10,\"scope\":\"PRIVATE\"}]}}"
-            )
-          )
-        )
-      },
       suite("Apollo Persisted Queries")({
         def mockWrapper[R](fail: Ref[Boolean]): ValidationWrapper[R] = new ValidationWrapper[R] {
           override def wrap[R1 <: R](
@@ -342,14 +293,14 @@ object WrappersSpec extends ZIOSpecDefault {
             case class Test(test: String)
 
             (for {
-              interpreter <- (graphQL(RootResolver(Test("ok"))) @@ apolloPersistedQueries).interpreter
+              interpreter <-
+                (graphQL(RootResolver(Test("ok"))) @@ ApolloPersistedQueries.wrapper).interpreter
               result      <- interpreter.executeRequest(GraphQLRequest(query = Some("{test}")))
             } yield assertTrue(result.asJson.noSpaces == """{"data":{"test":"ok"}}"""))
-              .provide(ApolloPersistedQueries.live)
           },
           test("hash not found") {
             case class Test(test: String)
-            val interpreter = (graphQL(RootResolver(Test("ok"))) @@ apolloPersistedQueries).interpreter
+            val interpreter = (graphQL(RootResolver(Test("ok"))) @@ ApolloPersistedQueries.wrapper).interpreter
             interpreter
               .flatMap(
                 _.executeRequest(
@@ -363,30 +314,28 @@ object WrappersSpec extends ZIOSpecDefault {
                   response.asJson.noSpaces == """{"data":null,"errors":[{"message":"PersistedQueryNotFound"}]}"""
                 )
               }
-              .provide(ApolloPersistedQueries.live)
           },
           test("cache poisoning") {
             case class Test(test: String, malicious: String)
 
             (for {
-              interpreter <- (graphQL(RootResolver(Test("ok", "malicious"))) @@ apolloPersistedQueries).interpreter
+              interpreter <-
+                (graphQL(RootResolver(Test("ok", "malicious"))) @@ ApolloPersistedQueries.wrapper).interpreter
               // The hash for the query "{test}"  attempting to poison the cache by passing in a different query
               r1          <- interpreter.executeRequest(GraphQLRequest(query = Some("{malicious}"), extensions = extensions))
               r2          <- interpreter.executeRequest(GraphQLRequest(extensions = extensions))
             } yield assertTrue(
               r1.asJson.noSpaces == """{"data":null,"errors":[{"message":"Provided sha does not match any query"}]}"""
             ) && assertTrue(r2.asJson.noSpaces == """{"data":null,"errors":[{"message":"PersistedQueryNotFound"}]}"""))
-              .provideLayer(ApolloPersistedQueries.live)
           },
           test("hash found") {
             case class Test(test: String)
 
             (for {
-              interpreter <- (graphQL(RootResolver(Test("ok"))) @@ apolloPersistedQueries).interpreter
+              interpreter <- (graphQL(RootResolver(Test("ok"))) @@ ApolloPersistedQueries.wrapper).interpreter
               _           <- interpreter.executeRequest(GraphQLRequest(query = Some("{test}"), extensions = extensions))
               result      <- interpreter.executeRequest(GraphQLRequest(extensions = extensions))
             } yield assertTrue(result.asJson.noSpaces == """{"data":{"test":"ok"}}"""))
-              .provide(ApolloPersistedQueries.live)
           },
           test("executes first") {
             case class Test(test: String)
@@ -395,12 +344,11 @@ object WrappersSpec extends ZIOSpecDefault {
               shouldFail  <- Ref.make(false)
               interpreter <-
                 (graphQL(RootResolver(Test("ok"))) @@
-                  mockWrapper(shouldFail) @@ apolloPersistedQueries @@ mockWrapper(shouldFail)).interpreter
+                  mockWrapper(shouldFail) @@ ApolloPersistedQueries.wrapper @@ mockWrapper(shouldFail)).interpreter
               _           <- interpreter.executeRequest(GraphQLRequest(query = Some("{test}"), extensions = extensions))
               _           <- shouldFail.set(true)
               result      <- interpreter.executeRequest(GraphQLRequest(extensions = extensions))
             } yield assertTrue(result.asJson.noSpaces == """{"data":{"test":"ok"}}"""))
-              .provide(ApolloPersistedQueries.live)
           },
           test("does not register successful validation if another validation wrapper fails") {
             case class Test(test: String)
@@ -409,7 +357,7 @@ object WrappersSpec extends ZIOSpecDefault {
               shouldFail  <- Ref.make(true)
               interpreter <-
                 (graphQL(RootResolver(Test("ok"))) @@
-                  mockWrapper(shouldFail) @@ apolloPersistedQueries @@ mockWrapper(shouldFail)).interpreter
+                  mockWrapper(shouldFail) @@ ApolloPersistedQueries.wrapper @@ mockWrapper(shouldFail)).interpreter
               first       <- interpreter.executeRequest(GraphQLRequest(query = Some("{test}"), extensions = extensions))
               second      <- interpreter.executeRequest(GraphQLRequest(extensions = extensions))
             } yield {
@@ -418,7 +366,6 @@ object WrappersSpec extends ZIOSpecDefault {
                 second.asJson.noSpaces == """{"data":null,"errors":[{"message":"PersistedQueryNotFound"}]}"""
               )
             })
-              .provide(ApolloPersistedQueries.live)
           },
           test("invalid / missing variables in cached query") {
             case class TestInput(testField: String)
@@ -441,7 +388,7 @@ object WrappersSpec extends ZIOSpecDefault {
 
             (for {
               interpreter         <-
-                (graphQL(RootResolver(Test(_.testField))) @@ apolloPersistedQueries).interpreter
+                (graphQL(RootResolver(Test(_.testField))) @@ ApolloPersistedQueries.wrapper).interpreter
               validTest           <-
                 interpreter.executeRequest(
                   GraphQLRequest(query = Some(query), variables = Some(validVariables), extensions = extensions)
@@ -457,7 +404,6 @@ object WrappersSpec extends ZIOSpecDefault {
               assertTrue(
                 missingVariableTest.asJson.noSpaces == """{"data":null,"errors":[{"message":"Variable 'testField' is null but is specified to be non-null."}]}"""
               ))
-              .provide(ApolloPersistedQueries.live)
           }
         )
       }),

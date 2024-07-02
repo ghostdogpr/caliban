@@ -7,7 +7,7 @@ import caliban.schema.ArgBuilder.auto._
 import caliban.schema.Schema.auto._
 import zio._
 import zio.metrics.Metric
-import zio.metrics.{ Metric, MetricLabel, MetricState }
+import zio.metrics.{ MetricLabel, MetricState }
 import zio.test._
 
 object FieldMetricsSpec extends ZIOSpecDefault {

@@ -39,7 +39,7 @@ object ApolloTracing {
           } yield apolloTracingOverall(clock, ref) |+|
             apolloTracingParsing(clock, ref) |+|
             apolloTracingValidation(clock, ref) |+|
-            Unsafe.unsafe(implicit u => apolloTracingField(clock.unsafe.nanoTime(), ref, !excludePureFields))
+            apolloTracingField(clock.unsafe, ref, !excludePureFields)
         )
         .someOrElse(Wrapper.empty)
     )
@@ -196,19 +196,21 @@ object ApolloTracing {
     }
 
   private def apolloTracingField(
-    nanoTime: => Long,
+    clock: Clock#UnsafeAPI,
     ref: AtomicReference[Tracing],
     wrapPureValues: Boolean
   ): FieldWrapper[Any] =
     new FieldWrapper[Any](wrapPureValues) {
+      import caliban.implicits.unsafe
+
       def wrap[R1](
         query: ZQuery[R1, CalibanError.ExecutionError, ResponseValue],
         fieldInfo: FieldInfo
       ): ZQuery[R1, CalibanError.ExecutionError, ResponseValue] =
         ZQuery.suspend {
-          val start = nanoTime
+          val start = clock.nanoTime()
           query.map { result =>
-            val end = nanoTime
+            val end = clock.nanoTime()
             val _   = ref.updateAndGet(state =>
               state.copy(
                 execution = state.execution.copy(

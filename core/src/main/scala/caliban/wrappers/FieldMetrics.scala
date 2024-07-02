@@ -3,7 +3,7 @@ package caliban.wrappers
 import caliban.Value.StringValue
 import caliban._
 import caliban.execution.FieldInfo
-import caliban.wrappers.Wrapper.OverallWrapper
+import caliban.wrappers.Wrapper.{ EffectfulWrapper, OverallWrapper }
 import zio._
 import zio.metrics.MetricKeyType.Histogram
 import zio.metrics.{ Metric, MetricKey, MetricLabel }
@@ -56,16 +56,15 @@ object FieldMetrics {
     durationLabel: String = "graphql_fields_duration_seconds",
     buckets: Histogram.Boundaries = defaultBuckets,
     extraLabels: Set[MetricLabel] = Set.empty
-  ): Wrapper.EffectfulWrapper[Any] =
-    Wrapper.EffectfulWrapper(
-      for {
-        timings  <- ZIO.succeed(new AtomicReference(List.empty[Timing]))
-        failures <- ZIO.succeed(new AtomicReference(List.empty[String]))
-        clock    <- ZIO.clock
-        metrics   = new Metrics(totalLabel, durationLabel, buckets, extraLabels)
-      } yield overallWrapper(timings, failures, metrics) |+|
-        Unsafe.unsafe(implicit us => fieldWrapper(clock.unsafe.nanoTime(), timings, failures))
-    )
+  ): EffectfulWrapper[Any] =
+    Wrapper.EffectfulWrapper {
+      ZIO.clock.map { clock =>
+        val timings  = new AtomicReference(List.empty[Timing])
+        val failures = new AtomicReference(List.empty[String])
+        val metrics  = new Metrics(totalLabel, durationLabel, buckets, extraLabels)
+        overallWrapper(timings, failures, metrics) |+| fieldWrapper(clock.unsafe, timings, failures)
+      }
+    }
 
   private def overallWrapper(
     timings: AtomicReference[List[Timing]],
@@ -78,21 +77,20 @@ object FieldMetrics {
       ): GraphQLRequest => ZIO[R1, Nothing, GraphQLResponse[CalibanError]] =
         (request: GraphQLRequest) =>
           process(request) <*
-            ZIO
-              .blocking(for {
-                _          <- ZIO.suspendSucceed(metrics.recordFailures(failures.get))
-                ts         <- ZIO.succeed(timings.get)
-                nodeOffsets = resolveNodeOffsets(ts)
-                _          <- metrics.recordSuccesses(nodeOffsets, ts)
-              } yield ())
-              .forkDaemon
+            (for {
+              _          <- ZIO.suspendSucceed(metrics.recordFailures(failures.get))
+              ts         <- ZIO.succeed(timings.get)
+              nodeOffsets = resolveNodeOffsets(ts)
+              _          <- metrics.recordSuccesses(nodeOffsets, ts)
+            } yield ()).forkDaemon
     }
 
   private def resolveNodeOffsets(timings: List[Timing]): Map[Vector[PathValue], Long] = {
 
     val map       = new java.util.HashMap[Vector[PathValue], Long]()
+    val nil       = Nil
     var remaining = timings
-    while (!remaining.isEmpty) {
+    while (remaining ne nil) {
       val t        = remaining.head
       val iter     = t.path.inits
       val duration = t.duration
@@ -118,11 +116,13 @@ object FieldMetrics {
   }
 
   private def fieldWrapper(
-    nanoTime: => Long,
+    clock: Clock#UnsafeAPI,
     timings: AtomicReference[List[Timing]],
     failures: AtomicReference[List[String]]
   ): Wrapper.FieldWrapper[Any] =
     new Wrapper.FieldWrapper[Any] {
+      import caliban.implicits.unsafe
+
       def wrap[R](
         query: ZQuery[R, CalibanError.ExecutionError, ResponseValue],
         info: FieldInfo
@@ -143,7 +143,7 @@ object FieldMetrics {
           )
 
         ZQuery.suspend {
-          val st = nanoTime
+          val st = clock.nanoTime()
           query.foldQuery(
             e =>
               ZQuery.fail {
@@ -152,7 +152,7 @@ object FieldMetrics {
               },
             result =>
               ZQuery.succeed {
-                val t = makeTiming(nanoTime - st)
+                val t = makeTiming(clock.nanoTime() - st)
                 val _ = timings.updateAndGet(t :: _)
                 result
               }
