@@ -537,6 +537,13 @@ val api = graphQL[MyEnv, Queries, Unit, Unit](RootResolver(queries))
 // val api = graphQL(RootResolver(queries)) // it will infer MyEnv thanks to the instance above
 ```
 
+When using the `derives` syntax in Scala 3, you need to create an object extending `caliban.schema.SchemaDerivation[R]` and use the `SemiAuto` method to generate the schema.
+```scala
+object customSchema extends SchemaDerivation[MyEnv]
+case class Queries(characters: Task[List[Character]],
+                   character: CharacterName => RIO[Console, Character]) derives customSchema.SemiAuto
+```
+
 ## Subscriptions
 
 All the fields of the subscription root case class MUST return `ZStream` or `? => ZStream` objects.
