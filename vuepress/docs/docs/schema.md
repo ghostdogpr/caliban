@@ -540,8 +540,7 @@ val api = graphQL[MyEnv, Queries, Unit, Unit](RootResolver(queries))
 When using the `derives` syntax in Scala 3, you need to create an object extending `caliban.schema.SchemaDerivation[R]` and use the `SemiAuto` method to generate the schema.
 ```scala
 object customSchema extends SchemaDerivation[MyEnv]
-case class Queries(characters: Task[List[Character]],
-                   character: CharacterName => RIO[Console, Character]) derives customSchema.SemiAuto
+case class Queries(test: RIO[MyEnv, List[Int]]) derives customSchema.SemiAuto
 ```
 
 ## Subscriptions
