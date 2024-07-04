@@ -170,7 +170,7 @@ lazy val core = project
   .settings(
     libraryDependencies ++=
       Seq(
-        "com.lihaoyi"                           %% "fastparse"               % "3.1.0",
+        "com.lihaoyi"                           %% "fastparse"               % "3.1.1",
         "org.scala-lang.modules"                %% "scala-collection-compat" % "2.12.0",
         "dev.zio"                               %% "zio"                     % zioVersion,
         "dev.zio"                               %% "zio-streams"             % zioVersion,
