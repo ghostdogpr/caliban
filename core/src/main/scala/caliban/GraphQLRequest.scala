@@ -16,7 +16,7 @@ case class GraphQLRequest(
   operationName: Option[String] = None,
   variables: Option[Map[String, InputValue]] = None,
   extensions: Option[Map[String, InputValue]] = None
-) {
+) { self =>
 
   def withExtension(key: String, value: InputValue): GraphQLRequest =
     copy(extensions = Some(extensions.foldLeft(Map(key -> value))(_ ++ _)))

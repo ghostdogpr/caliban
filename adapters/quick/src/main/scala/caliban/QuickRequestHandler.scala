@@ -168,10 +168,8 @@ final private class QuickRequestHandler[R](
 
   private def executeRequest(method: Method, req: GraphQLRequest)(implicit
     trace: Trace
-  ): ZIO[R, Response, GraphQLResponse[Any]] = {
-    val calibanMethod = if (method == Method.GET) HttpRequestMethod.GET else HttpRequestMethod.POST
-    HttpRequestMethod.setWith(calibanMethod)(interpreter.executeRequest(req))
-  }
+  ): ZIO[R, Response, GraphQLResponse[Any]] =
+    interpreter.executeRequest(HttpRequestMethod.updateRequest(method == Method.GET)(req))
 
   private def responseHeaders(headers: Headers, cacheDirective: Option[String]): Headers =
     cacheDirective match {

@@ -268,6 +268,12 @@ object TapirAdapterSpec {
             ZIO
               .serviceWithZIO[SttpBackend[Task, Capabilities]](run(GraphQLRequest(None)).send(_))
               .map(r => assertTrue(r.code.code == 400))
+          },
+          test("returns 400 for mutations over GET methods") {
+            runHttpRequest(
+              method = Method.GET.method,
+              query = """mutation{ deleteCharacter(name: "Amos Burton") }"""
+            ).map(r => assertTrue(r.code.code == 400))
           }
         )
       ),
