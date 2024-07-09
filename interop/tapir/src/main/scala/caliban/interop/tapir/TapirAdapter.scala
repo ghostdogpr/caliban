@@ -140,7 +140,7 @@ object TapirAdapter {
           encodeTextEventStreamResponse(resp)
         )
       case resp                                                 =>
-        val isBadRequest = response.errors.contains(HttpRequestMethod.MutationOverGetError: Any)
+        val isBadRequest = response.errors.contains(HttpUtils.MutationOverGetError: Any)
         (
           MediaType.ApplicationJson,
           if (isBadRequest) StatusCode.BadRequest else StatusCode.Ok,

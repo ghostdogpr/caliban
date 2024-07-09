@@ -15,7 +15,8 @@ case class GraphQLRequest(
   query: Option[String] = None,
   operationName: Option[String] = None,
   variables: Option[Map[String, InputValue]] = None,
-  extensions: Option[Map[String, InputValue]] = None
+  extensions: Option[Map[String, InputValue]] = None,
+  isHttpGetRequest: Boolean = false
 ) { self =>
 
   def withExtension(key: String, value: InputValue): GraphQLRequest =
@@ -24,9 +25,11 @@ case class GraphQLRequest(
   def withFederatedTracing: GraphQLRequest =
     withExtension(`apollo-federation-include-trace`, StringValue(ftv1))
 
+  private[caliban] def asHttpGetRequest: GraphQLRequest =
+    new GraphQLRequest(query, operationName, variables, extensions, isHttpGetRequest = true)
+
   private[caliban] def isEmpty: Boolean =
     operationName.isEmpty && query.isEmpty && extensions.isEmpty
-
 }
 
 object GraphQLRequest {

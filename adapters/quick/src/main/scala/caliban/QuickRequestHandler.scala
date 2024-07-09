@@ -169,7 +169,7 @@ final private class QuickRequestHandler[R](
   private def executeRequest(method: Method, req: GraphQLRequest)(implicit
     trace: Trace
   ): ZIO[R, Response, GraphQLResponse[Any]] =
-    interpreter.executeRequest(HttpRequestMethod.updateRequest(method == Method.GET)(req))
+    interpreter.executeRequest(if (method == Method.GET) req.asHttpGetRequest else req)
 
   private def responseHeaders(headers: Headers, cacheDirective: Option[String]): Headers =
     cacheDirective match {
@@ -202,7 +202,7 @@ final private class QuickRequestHandler[R](
             encodeSingleResponse(resp, keepDataOnErrors = !isBadRequest, hasCacheDirective = cacheDirective.isDefined)
         )
       case resp                                                 =>
-        val isBadRequest = resp.errors.contains(HttpRequestMethod.MutationOverGetError)
+        val isBadRequest = resp.errors.contains(HttpUtils.MutationOverGetError)
         Response(
           status = if (isBadRequest) Status.BadRequest else Status.Ok,
           headers = responseHeaders(ContentTypeJson, cacheDirective),

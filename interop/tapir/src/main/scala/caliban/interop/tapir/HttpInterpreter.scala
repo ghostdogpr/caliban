@@ -77,7 +77,7 @@ object HttpInterpreter {
       graphQLRequest: GraphQLRequest,
       serverRequest: ServerRequest
     )(implicit streamConstructor: StreamConstructor[BS]): ZIO[R, TapirResponse, CalibanResponse[BS]] = {
-      val req = HttpRequestMethod.updateRequest(serverRequest.method == Method.GET)(graphQLRequest)
+      val req = if (serverRequest.method == Method.GET) graphQLRequest.asHttpGetRequest else graphQLRequest
       interpreter.executeRequest(req).map(buildHttpResponse[E, BS](serverRequest))
     }
   }

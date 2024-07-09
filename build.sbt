@@ -742,7 +742,10 @@ lazy val enableMimaSettingsJVM =
   Def.settings(
     mimaFailOnProblem      := enforceMimaCompatibility,
     mimaPreviousArtifacts  := previousStableVersion.value.map(organization.value %% moduleName.value % _).toSet,
-    mimaBinaryIssueFilters := Seq()
+    mimaBinaryIssueFilters := Seq(
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.GraphQLRequest.*"),
+      ProblemFilters.exclude[Problem]("caliban.HttpRequestMethod*")
+    )
   )
 
 lazy val enableMimaSettingsJS =

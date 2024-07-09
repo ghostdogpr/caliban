@@ -189,8 +189,8 @@ trait GraphQL[-R] { self =>
           if (
             req.operationType == OperationType.Mutation &&
             !cfg.allowMutationsOverGetRequests &&
-            HttpRequestMethod.isGetRequest(gqlReq)
-          ) Exit.fail(HttpRequestMethod.MutationOverGetError)
+            gqlReq.isHttpGetRequest
+          ) Exit.fail(HttpUtils.MutationOverGetError)
           else Exit.succeed(req)
       }
     }
