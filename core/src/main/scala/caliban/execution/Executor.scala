@@ -126,10 +126,10 @@ object Executor {
         }
     }
 
-    for {
-      cache    <- makeCache
-      response <- runQuery(stepReducer.reduceStep(plan, request.field, Map.empty, Nil), cache)
-    } yield response
+    stepReducer.reduceStep(plan, request.field, Map.empty, Nil) match {
+      case PureStep(resp) => Exit.succeed(GraphQLResponse(resp, Nil))
+      case reducedStep    => makeCache.flatMap(runQuery(reducedStep, _))
+    }
   }
 
   private[caliban] def fail(error: CalibanError): UIO[GraphQLResponse[CalibanError]] =
@@ -441,10 +441,17 @@ object Executor {
             }
             ObjectValue(builder.result())
           }
-          collectAll(steps, isTopLevelField) { case (_, step, info) =>
-            // Only way we could have ended with pure fields here is if we wrap pure values, so we check that first as it's cheaper
-            objectFieldQuery(step, info, wrapPureValues && step.isPure)
-          }.map(combineQueryResults)
+
+          steps match {
+            case (name, step, info) :: Nil =>
+              // Shortcut for single field queries
+              objectFieldQuery(step, info, wrapPureValues && step.isPure).map(v => ObjectValue((name, v) :: Nil))
+            case steps                     =>
+              collectAll(steps, isTopLevelField) { case (_, step, info) =>
+                // Only way we could have ended with pure fields here is if we wrap pure values, so we check that first as it's cheaper
+                objectFieldQuery(step, info, wrapPureValues && step.isPure)
+              }.map(combineQueryResults)
+          }
         }
 
         def combineResults(names: List[String], resolved: List[ResponseValue])(fromQueries: List[ResponseValue]) = {
