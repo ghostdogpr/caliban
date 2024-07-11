@@ -175,46 +175,47 @@ object Wrapper {
     )
   ] =
     if (wrappers.isEmpty) emptyWrappers
-    else {
-      val o = ListBuffer.empty[OverallWrapper[R]]
-      val p = ListBuffer.empty[ParsingWrapper[R]]
-      val v = ListBuffer.empty[ValidationWrapper[R]]
-      val e = ListBuffer.empty[ExecutionWrapper[R]]
-      val f = ListBuffer.empty[FieldWrapper[R]]
-      val i = ListBuffer.empty[IntrospectionWrapper[R]]
+    else
+      ZIO.suspendSucceed {
+        val o = ListBuffer.empty[OverallWrapper[R]]
+        val p = ListBuffer.empty[ParsingWrapper[R]]
+        val v = ListBuffer.empty[ValidationWrapper[R]]
+        val e = ListBuffer.empty[ExecutionWrapper[R]]
+        val f = ListBuffer.empty[FieldWrapper[R]]
+        val i = ListBuffer.empty[IntrospectionWrapper[R]]
 
-      def loop(wrapper: Wrapper[R]): Option[URIO[R, Unit]] = wrapper match {
-        case wrapper: OverallWrapper[R]       => o append wrapper; None
-        case wrapper: ParsingWrapper[R]       => p append wrapper; None
-        case wrapper: ValidationWrapper[R]    => v append wrapper; None
-        case wrapper: ExecutionWrapper[R]     => e append wrapper; None
-        case wrapper: FieldWrapper[R]         => f append wrapper; None
-        case wrapper: IntrospectionWrapper[R] => i append wrapper; None
-        case SuspendedWrapper(f)              => loop(f())
-        case CombinedWrapper(wrappers)        =>
-          wrappers.flatMap(loop) match {
-            case Nil => None
-            case fs  => Some(ZIO.collectAllDiscard(fs))
-          }
-        case EffectfulWrapper(wrapper)        =>
-          Some(wrapper.flatMap {
-            loop(_) match {
-              case None    => Exit.unit
-              case Some(w) => w
+        def loop(wrapper: Wrapper[R]): Option[URIO[R, Unit]] = wrapper match {
+          case wrapper: OverallWrapper[R]       => o append wrapper; None
+          case wrapper: ParsingWrapper[R]       => p append wrapper; None
+          case wrapper: ValidationWrapper[R]    => v append wrapper; None
+          case wrapper: ExecutionWrapper[R]     => e append wrapper; None
+          case wrapper: FieldWrapper[R]         => f append wrapper; None
+          case wrapper: IntrospectionWrapper[R] => i append wrapper; None
+          case SuspendedWrapper(f)              => loop(f())
+          case CombinedWrapper(wrappers)        =>
+            wrappers.flatMap(loop) match {
+              case Nil => None
+              case fs  => Some(ZIO.collectAllDiscard(fs))
             }
-          })
-        case Wrapper.Empty                    => None
+          case EffectfulWrapper(wrapper)        =>
+            Some(wrapper.flatMap {
+              loop(_) match {
+                case None    => Exit.unit
+                case Some(w) => w
+              }
+            })
+          case Wrapper.Empty                    => None
+        }
+
+        def finalize[W <: Wrapper[R]](buffer: ListBuffer[W]): List[W] = buffer.sortBy(_.priority).result()
+
+        def result() =
+          (finalize(o), finalize(p), finalize(v), finalize(e), finalize(f), finalize(i))
+
+        wrappers.flatMap(loop) match {
+          case Nil => Exit.succeed(result())
+          case fs  => ZIO.collectAllDiscard(fs).as(result())
+        }
       }
-
-      def finalize[W <: Wrapper[R]](buffer: ListBuffer[W]): List[W] = buffer.sortBy(_.priority).result()
-
-      def result() =
-        (finalize(o), finalize(p), finalize(v), finalize(e), finalize(f), finalize(i))
-
-      wrappers.flatMap(loop) match {
-        case Nil => Exit.succeed(result())
-        case fs  => ZIO.collectAllDiscard(fs).as(result())
-      }
-    }
 
 }
