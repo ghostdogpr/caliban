@@ -126,9 +126,11 @@ object Executor {
         }
     }
 
-    stepReducer.reduceStep(plan, request.field, Map.empty, Nil) match {
-      case PureStep(resp) => Exit.succeed(GraphQLResponse(resp, Nil))
-      case reducedStep    => makeCache.flatMap(runQuery(reducedStep, _))
+    ZIO.suspendSucceed {
+      stepReducer.reduceStep(plan, request.field, Map.empty, Nil) match {
+        case PureStep(resp) => Exit.succeed(GraphQLResponse(resp, Nil))
+        case reducedStep    => makeCache.flatMap(runQuery(reducedStep, _))
+      }
     }
   }
 
