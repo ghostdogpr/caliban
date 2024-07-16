@@ -2,11 +2,8 @@ package caliban
 
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.StringValue
-import caliban.interop.circe.{ IsCirceDecoder, IsCirceEncoder }
-import caliban.interop.jsoniter.IsJsoniterCodec
-import caliban.interop.play.{ IsPlayJsonReads, IsPlayJsonWrites }
-import caliban.interop.zio.IsZIOJsonCodec
 import caliban.parsing.adt.LocationInfo
+import com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec
 
 import scala.util.control.NoStackTrace
 
@@ -86,16 +83,6 @@ object CalibanError {
       )
   }
 
-  implicit def circeEncoder[F[_]](implicit ev: IsCirceEncoder[F]): F[CalibanError]     =
-    caliban.interop.circe.json.ErrorCirce.errorValueEncoder.asInstanceOf[F[CalibanError]]
-  implicit def circeDecoder[F[_]](implicit ev: IsCirceDecoder[F]): F[CalibanError]     =
-    caliban.interop.circe.json.ErrorCirce.errorValueDecoder.asInstanceOf[F[CalibanError]]
-  implicit def zioJsonCodec[F[_]](implicit ev: IsZIOJsonCodec[F]): F[CalibanError]     =
-    caliban.interop.zio.ErrorZioJson.errorValueCodec.asInstanceOf[F[CalibanError]]
-  implicit def jsoniterCodec[F[_]](implicit ev: IsJsoniterCodec[F]): F[CalibanError]   =
-    caliban.interop.jsoniter.ErrorJsoniter.errorValueCodec.asInstanceOf[F[CalibanError]]
-  implicit def playJsonWrites[F[_]](implicit ev: IsPlayJsonWrites[F]): F[CalibanError] =
-    caliban.interop.play.json.ErrorPlayJson.errorValueWrites.asInstanceOf[F[CalibanError]]
-  implicit def playJsonReads[F[_]](implicit ev: IsPlayJsonReads[F]): F[CalibanError]   =
-    caliban.interop.play.json.ErrorPlayJson.errorValueReads.asInstanceOf[F[CalibanError]]
+  implicit def jsoniterCodec: JsonValueCodec[CalibanError] =
+    caliban.interop.jsoniter.ErrorJsoniter.errorValueCodec
 }

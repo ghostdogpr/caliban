@@ -11,7 +11,6 @@ import org.http4s.server.websocket.WebSocketBuilder2
 import sttp.capabilities.WebSockets
 import sttp.capabilities.fs2.Fs2Streams
 import sttp.capabilities.zio.ZioStreams
-import sttp.tapir.Codec.JsonCodec
 import sttp.tapir.Endpoint
 import sttp.tapir.server.ServerEndpoint
 import sttp.tapir.server.http4s.Http4sServerInterpreter
@@ -36,16 +35,11 @@ object Http4sAdapter {
     Http4sServerInterpreter().toRoutes(endpointsF)
   }
 
-  def makeHttpUploadService[R, E](interpreter: HttpUploadInterpreter[R, E])(implicit
-    requestCodec: JsonCodec[GraphQLRequest],
-    mapCodec: JsonCodec[Map[String, Seq[String]]]
-  ): HttpRoutes[RIO[R, *]] =
+  def makeHttpUploadService[R, E](interpreter: HttpUploadInterpreter[R, E]): HttpRoutes[RIO[R, *]] =
     ZHttp4sServerInterpreter().from(interpreter.serverEndpoint[R, ZioStreams](ZioStreams)).toRoutes
 
   def makeHttpUploadServiceF[F[_]: Async, R, E](interpreter: HttpUploadInterpreter[R, E])(implicit
-    interop: ToEffect[F, R],
-    requestCodec: JsonCodec[GraphQLRequest],
-    mapCodec: JsonCodec[Map[String, Seq[String]]]
+    interop: ToEffect[F, R]
   ): HttpRoutes[F] = {
     val endpoint  = interpreter.serverEndpoint[R, Fs2Streams[F]](Fs2Streams[F])
     val endpointF = convertHttpEndpointToF[F, R](endpoint)

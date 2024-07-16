@@ -18,7 +18,6 @@ import org.http4s.server.middleware.CORS
 import zio.{ Runtime, Unsafe, ZIO }
 
 object ExampleAppF extends IOApp {
-  import sttp.tapir.json.circe._
 
   implicit val zioRuntime: Runtime[ExampleService] =
     Unsafe.unsafe(implicit u => Runtime.unsafe.fromLayer(ExampleService.make(sampleCharacters)))

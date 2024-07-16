@@ -18,7 +18,6 @@ import zio._
 import zio.interop.catz._
 
 object ExampleApp extends CatsApp {
-  import sttp.tapir.json.circe._
 
   // approach 1: using `Endpoint` and providing the logic
   val graphql: GraphQL[Any] =

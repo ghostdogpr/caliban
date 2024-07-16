@@ -1,8 +1,11 @@
 package caliban.interop
 
+import _root_.zio.query.{ URQuery, ZQuery }
+import _root_.zio.{ URIO, ZIO }
 import caliban.introspection.adt._
 import caliban.schema.Step.{ FunctionStep, QueryStep }
 import caliban.schema._
+import caliban.transformers.Transformer
 import caliban.wrappers.Wrapper
 import caliban.{ GraphQL, InputValue }
 import sttp.model.Method
@@ -10,9 +13,6 @@ import sttp.monad.MonadError
 import sttp.tapir.internal._
 import sttp.tapir.server.ServerEndpoint
 import sttp.tapir.{ EndpointIO, EndpointInput, EndpointOutput, PublicEndpoint }
-import _root_.zio.query.{ URQuery, ZQuery }
-import _root_.zio.{ Exit, URIO, ZIO }
-import caliban.transformers.Transformer
 
 package object tapir {
 

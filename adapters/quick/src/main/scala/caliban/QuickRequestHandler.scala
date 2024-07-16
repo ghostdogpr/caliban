@@ -8,7 +8,6 @@ import caliban.uploads.{ FileMeta, GraphQLUploadRequest, Uploads }
 import caliban.wrappers.Caching
 import caliban.ws.Protocol
 import com.github.plokhotnyuk.jsoniter_scala.core._
-import com.github.plokhotnyuk.jsoniter_scala.macros.JsonCodecMaker
 import zio._
 import zio.http.ChannelEvent.UserEvent.HandshakeComplete
 import zio.http._
@@ -24,6 +23,7 @@ final private class QuickRequestHandler[R](
   wsConfig: quick.WebSocketConfig[R]
 ) {
   import QuickRequestHandler._
+  import ValueJsoniter.stringListCodec
 
   def configure(config: ExecutionConfiguration)(implicit trace: Trace): QuickRequestHandler[R] =
     new QuickRequestHandler[R](
@@ -309,6 +309,4 @@ object QuickRequestHandler {
     }
 
   private implicit val responseCodec: JsonValueCodec[ResponseValue] = ValueJsoniter.responseValueCodec
-
-  private implicit val stringListCodec: JsonValueCodec[Map[String, List[String]]] = JsonCodecMaker.make
 }

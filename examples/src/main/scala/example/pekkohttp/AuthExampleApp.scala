@@ -8,7 +8,6 @@ import caliban.interop.tapir.HttpInterpreter
 import caliban.interop.tapir.TapirAdapter.TapirResponse
 import caliban.schema.GenericSchema
 import sttp.model.StatusCode
-import sttp.tapir.json.circe._
 import sttp.tapir.model.ServerRequest
 import zio.{ Runtime, URIO, Unsafe, ZIO, ZLayer }
 

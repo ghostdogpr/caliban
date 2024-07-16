@@ -6,7 +6,6 @@ import caliban.uploads.{ FileMeta, GraphQLUploadRequest, Uploads }
 import sttp.capabilities.Streams
 import sttp.model._
 import sttp.shared.Identity
-import sttp.tapir.Codec.JsonCodec
 import sttp.tapir._
 import sttp.tapir.model.ServerRequest
 import sttp.tapir.server.ServerEndpoint
@@ -28,9 +27,7 @@ sealed trait HttpUploadInterpreter[-R, E] { self =>
   private def parsePath(path: String): List[PathValue] = path.split('.').map(PathValue.parse).toList
 
   def serverEndpoint[R1 <: R, S](streams: Streams[S])(implicit
-    streamConstructor: StreamConstructor[streams.BinaryStream],
-    requestCodec: JsonCodec[GraphQLRequest],
-    mapCodec: JsonCodec[Map[String, Seq[String]]]
+    streamConstructor: StreamConstructor[streams.BinaryStream]
   ): CalibanUploadsEndpoint[R1, streams.BinaryStream, S] = {
     def logic(request: UploadRequest): RIO[R1, Either[TapirResponse, CalibanResponse[streams.BinaryStream]]] = {
       val (parts, serverRequest) = request
@@ -39,12 +36,13 @@ sealed trait HttpUploadInterpreter[-R, E] { self =>
       val io =
         for {
           rawOperations <- ZIO.fromOption(partsMap.get("operations")) orElseFail TapirResponse(StatusCode.BadRequest)
-          request       <- requestCodec.rawDecode(new String(rawOperations.body, StandardCharsets.UTF_8)) match {
-                             case _: DecodeResult.Failure => ZIO.fail(TapirResponse(StatusCode.BadRequest))
-                             case DecodeResult.Value(v)   => ZIO.succeed(v)
-                           }
+          request       <-
+            JsonCodecs.requestCodec.rawDecode(new String(rawOperations.body, StandardCharsets.UTF_8)) match {
+              case _: DecodeResult.Failure => ZIO.fail(TapirResponse(StatusCode.BadRequest))
+              case DecodeResult.Value(v)   => ZIO.succeed(v)
+            }
           rawMap        <- ZIO.fromOption(partsMap.get("map")) orElseFail TapirResponse(StatusCode.BadRequest)
-          map           <- mapCodec.rawDecode(new String(rawMap.body, StandardCharsets.UTF_8)) match {
+          map           <- JsonCodecs.listMapCodec.rawDecode(new String(rawMap.body, StandardCharsets.UTF_8)) match {
                              case _: DecodeResult.Failure => ZIO.fail(TapirResponse(StatusCode.BadRequest))
                              case DecodeResult.Value(v)   => ZIO.succeed(v)
                            }
@@ -83,18 +81,14 @@ sealed trait HttpUploadInterpreter[-R, E] { self =>
   }
 
   def serverEndpointFuture[S](streams: Streams[S])(runtime: Runtime[R])(implicit
-    streamConstructor: StreamConstructor[streams.BinaryStream],
-    requestCodec: JsonCodec[GraphQLRequest],
-    mapCodec: JsonCodec[Map[String, Seq[String]]]
+    streamConstructor: StreamConstructor[streams.BinaryStream]
   ): ServerEndpoint[S, Future] = {
     implicit val r: Runtime[R] = runtime
     convertHttpEndpointToFuture[R, streams.BinaryStream, S, UploadRequest](serverEndpoint(streams))
   }
 
   def serverEndpointIdentity[S](streams: Streams[S])(runtime: Runtime[R])(implicit
-    streamConstructor: StreamConstructor[streams.BinaryStream],
-    requestCodec: JsonCodec[GraphQLRequest],
-    mapCodec: JsonCodec[Map[String, Seq[String]]]
+    streamConstructor: StreamConstructor[streams.BinaryStream]
   ): ServerEndpoint[S, Identity] = {
     implicit val r: Runtime[R] = runtime
     convertHttpEndpointToIdentity[R, streams.BinaryStream, S, UploadRequest](serverEndpoint(streams))
@@ -111,9 +105,7 @@ sealed trait HttpUploadInterpreter[-R, E] { self =>
 }
 
 object HttpUploadInterpreter {
-  private case class Base[R, E](interpreter: GraphQLInterpreter[R, E])(implicit
-    responseValueCodec: JsonCodec[ResponseValue]
-  ) extends HttpUploadInterpreter[R, E] {
+  private case class Base[R, E](interpreter: GraphQLInterpreter[R, E]) extends HttpUploadInterpreter[R, E] {
     def endpoint[S](
       streams: Streams[S]
     ): PublicEndpoint[UploadRequest, TapirResponse, CalibanResponse[streams.BinaryStream], S] =
@@ -172,11 +164,11 @@ object HttpUploadInterpreter {
 
   def apply[R, E](
     interpreter: GraphQLInterpreter[R, E]
-  )(implicit responseValueCodec: JsonCodec[ResponseValue]): HttpUploadInterpreter[R, E] =
+  ): HttpUploadInterpreter[R, E] =
     Base(interpreter)
 
-  def makeHttpUploadEndpoint[S](streams: Streams[S])(implicit
-    responseValueCodec: JsonCodec[ResponseValue]
+  def makeHttpUploadEndpoint[S](
+    streams: Streams[S]
   ): PublicEndpoint[UploadRequest, TapirResponse, CalibanResponse[streams.BinaryStream], S] =
     endpoint.post
       .in(multipartBody)

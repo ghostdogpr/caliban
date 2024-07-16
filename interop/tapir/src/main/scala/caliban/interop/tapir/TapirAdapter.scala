@@ -9,11 +9,11 @@ import sttp.model.sse.ServerSentEvent
 import sttp.model.{ headers => _, _ }
 import sttp.monad.MonadError
 import sttp.shared.Identity
-import sttp.tapir.Codec.JsonCodec
 import sttp.tapir.model.ServerRequest
 import sttp.tapir.server.ServerEndpoint
 import sttp.tapir.ztapir.ZioServerSentEvents
 import sttp.tapir.{ headers, _ }
+import sttp.tapir.json.jsoniter._
 import zio._
 import zio.stream.ZStream
 
@@ -21,6 +21,7 @@ import java.nio.charset.StandardCharsets
 import scala.concurrent.Future
 
 object TapirAdapter {
+  import JsonCodecs.responseCodec
 
   type CalibanPipe   = caliban.ws.CalibanPipe
   type UploadRequest = (Seq[Part[Array[Byte]]], ServerRequest)
@@ -78,15 +79,13 @@ object TapirAdapter {
 
   val errorBody = statusCode.and(stringBody).and(headers).map(responseMapping)
 
-  def outputBody[S](stream: Streams[S])(implicit
-    codec: JsonCodec[ResponseValue]
-  ): EndpointOutput[CalibanBody[stream.BinaryStream]] =
+  def outputBody[S](stream: Streams[S]): EndpointOutput[CalibanBody[stream.BinaryStream]] =
     oneOf[CalibanBody[stream.BinaryStream]](
       oneOfVariantValueMatcher[CalibanBody.Single](customCodecJsonBody[ResponseValue].map(Left(_)) { case Left(value) =>
         value
       }) { case Left(_) => true },
       oneOfVariantValueMatcher[CalibanBody.Single]({
-        stringBodyUtf8AnyFormat(codec.format(GraphqlResponseJson)).map(Left(_)) { case Left(value) => value }
+        stringBodyUtf8AnyFormat(responseCodec.format(GraphqlResponseJson)).map(Left(_)) { case Left(value) => value }
       }) { case Left(_) => true },
       oneOfVariantValueMatcher[CalibanBody.Stream[stream.BinaryStream]](
         streamTextBody(stream)(CodecFormat.Json(), Some(StandardCharsets.UTF_8)).toEndpointIO
@@ -103,8 +102,7 @@ object TapirAdapter {
   )(
     response: GraphQLResponse[E]
   )(implicit
-    streamConstructor: StreamConstructor[BS],
-    responseCodec: JsonCodec[ResponseValue]
+    streamConstructor: StreamConstructor[BS]
   ): (MediaType, StatusCode, Option[String], CalibanBody[BS]) = {
     val accepts        = new HttpUtils.AcceptsGqlEncodings(request.header(HeaderNames.Accept))
     val cacheDirective = response.extensions.flatMap(HttpUtils.computeCacheDirective)
@@ -164,7 +162,7 @@ object TapirAdapter {
   private def encodeMultipartMixedResponse[E, BS](
     resp: GraphQLResponse[E],
     stream: ZStream[Any, Throwable, ResponseValue]
-  )(implicit streamConstructor: StreamConstructor[BS], responseCodec: JsonCodec[ResponseValue]): CalibanBody[BS] = {
+  )(implicit streamConstructor: StreamConstructor[BS]): CalibanBody[BS] = {
     import HttpUtils.DeferMultipart._
 
     val pipeline = HttpUtils.DeferMultipart.createPipeline(resp)
@@ -182,7 +180,7 @@ object TapirAdapter {
 
   private def encodeTextEventStreamResponse[E, BS](
     resp: GraphQLResponse[E]
-  )(implicit streamConstructor: StreamConstructor[BS], responseCodec: JsonCodec[ResponseValue]): CalibanBody[BS] = {
+  )(implicit streamConstructor: StreamConstructor[BS]): CalibanBody[BS] = {
     val response = HttpUtils.ServerSentEvents.transformResponse(
       resp,
       v => ServerSentEvent(Some(responseCodec.encode(v)), Some("next")),
