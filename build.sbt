@@ -523,14 +523,15 @@ lazy val examples = project
     crossScalaVersions                                   := Seq(scala213),
     libraryDependencySchemes += "org.scala-lang.modules" %% "scala-java8-compat" % "always",
     libraryDependencies ++= Seq(
-      "org.typelevel"                         %% "cats-mtl"               % catsMtlVersion,
-      "org.http4s"                            %% "http4s-ember-server"    % http4sVersion,
-      "org.http4s"                            %% "http4s-dsl"             % http4sVersion,
-      "com.softwaremill.sttp.client3"         %% "zio"                    % sttpVersion,
-      "dev.zio"                               %% "zio-http"               % zioHttpVersion,
-      "org.playframework"                     %% "play-pekko-http-server" % playVersion,
-      "com.typesafe.akka"                     %% "akka-actor-typed"       % akkaVersion,
-      "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros"  % jsoniterVersion % Provided
+      "org.typelevel"                 %% "cats-mtl"               % catsMtlVersion,
+      "org.http4s"                    %% "http4s-ember-server"    % http4sVersion,
+      "org.http4s"                    %% "http4s-dsl"             % http4sVersion,
+      "com.softwaremill.sttp.client3" %% "zio"                    % sttpVersion,
+      "io.circe"                      %% "circe-generic"          % circeVersion,
+      "dev.zio"                       %% "zio-http"               % zioHttpVersion,
+      "org.playframework"             %% "play-pekko-http-server" % playVersion,
+      "com.typesafe.akka"             %% "akka-actor-typed"       % akkaVersion,
+      "com.softwaremill.sttp.tapir"   %% "tapir-json-circe"       % tapirVersion
     )
   )
   .dependsOn(

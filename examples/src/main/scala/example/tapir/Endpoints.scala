@@ -1,17 +1,14 @@
 package example.tapir
 
-import com.github.plokhotnyuk.jsoniter_scala.core._
-import com.github.plokhotnyuk.jsoniter_scala.macros._
+import io.circe.generic.auto._
 import sttp.tapir._
 import sttp.tapir.generic.auto._
-import sttp.tapir.json.jsoniter._
+import sttp.tapir.json.circe._
 import zio.{ IO, UIO, ZIO }
 
 object Endpoints {
-  case class Book(title: String, year: Int)
 
-  implicit val bookCodec: JsonValueCodec[Book]           = JsonCodecMaker.make
-  implicit val listBookCodec: JsonValueCodec[List[Book]] = JsonCodecMaker.make
+  case class Book(title: String, year: Int)
 
   var books = List(
     Book("The Sorrows of Young Werther", 1774),
