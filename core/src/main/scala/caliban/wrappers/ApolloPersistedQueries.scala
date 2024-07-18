@@ -146,15 +146,26 @@ object ApolloPersistedQueries {
         case _                              => None
       }
 
-  private def hex(bytes: Array[Byte]): String = {
-    val builder = new mutable.StringBuilder(bytes.length * 2)
-    bytes.foreach(byte => builder.append(f"$byte%02x".toLowerCase))
-    builder.mkString
-  }
+  private val HexArray: Array[Char] = "0123456789abcdef".toCharArray
 
   private def checkHash(hash: String, query: String): Boolean = {
     val sha256 = java.security.MessageDigest.getInstance("SHA-256")
     val digest = sha256.digest(query.getBytes(StandardCharsets.UTF_8))
-    hex(digest) == hash
+    digestMatchesHash(digest, hash)
   }
+
+  private def digestMatchesHash(digest: Array[Byte], hash: String): Boolean = {
+    val chars = hash.toCharArray
+    val size  = digest.length
+    var j     = 0
+    var res   = chars.length == size * 2
+    while (j < size && res) {
+      val v = digest(j) & 0xff
+      if (chars(j * 2) == HexArray(v >>> 4) && chars(j * 2 + 1) == HexArray(v & 0xf)) ()
+      else res = false
+      j += 1
+    }
+    res
+  }
+
 }
