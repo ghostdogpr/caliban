@@ -83,6 +83,6 @@ object CalibanError {
       )
   }
 
-  implicit def jsoniterCodec: JsonValueCodec[CalibanError] =
+  private[caliban] implicit def jsoniterCodec: JsonValueCodec[CalibanError] =
     caliban.interop.jsoniter.ErrorJsoniter.errorValueCodec
 }

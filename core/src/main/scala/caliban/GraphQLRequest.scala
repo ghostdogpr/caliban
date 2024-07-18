@@ -28,7 +28,7 @@ case class GraphQLRequest(
 }
 
 object GraphQLRequest {
-  implicit val jsoniterCodec: JsonValueCodec[GraphQLRequest] = JsonCodecMaker.make
+  private[caliban] implicit val jsoniterCodec: JsonValueCodec[GraphQLRequest] = JsonCodecMaker.make
 
   implicit def tapirSchema[F[_]: IsTapirSchema]: F[GraphQLRequest] =
     caliban.interop.tapir.schema.requestSchema.asInstanceOf[F[GraphQLRequest]]

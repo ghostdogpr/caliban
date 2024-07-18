@@ -55,7 +55,7 @@ object GraphQLResponse {
   implicit def tapirSchema[F[_]: IsTapirSchema, E]: F[GraphQLResponse[E]] =
     caliban.interop.tapir.schema.responseSchema.asInstanceOf[F[GraphQLResponse[E]]]
 
-  implicit def jsoniterCodec[E]: JsonValueCodec[GraphQLResponse[E]] =
+  private[caliban] implicit def jsoniterCodec[E]: JsonValueCodec[GraphQLResponse[E]] =
     caliban.interop.jsoniter.GraphQLResponseJsoniter.graphQLResponseCodec
       .asInstanceOf[JsonValueCodec[GraphQLResponse[E]]]
 }
