@@ -29,16 +29,15 @@ object ValidationSchemaSpec extends ZIOSpecDefault {
     suite("ValidationSchemaSpec")(
       suite("Enum")(
         test("non-empty enum is ok") {
-          Validator
-            .validateEnum(
-              Types.makeEnum(
-                name = Some("nonEmptyEnum"),
-                description = None,
-                values = List(__EnumValue("A", None, true, None, None)),
-                origin = None
-              )
+          val res = Validator.validateType(
+            Types.makeEnum(
+              name = Some("nonEmptyEnum"),
+              description = None,
+              values = List(__EnumValue("A", None, true, None, None)),
+              origin = None
             )
-            .map(_ => assertCompletes)
+          )
+          assert(res)(isRight)
         },
         test("must be non-empty") {
           checkTypeError(
@@ -55,15 +54,14 @@ object ValidationSchemaSpec extends ZIOSpecDefault {
       ),
       suite("Union")(
         test("union containing object types is ok") {
-          Validator
-            .validateUnion(
-              Types.makeUnion(
-                name = Some("GoodUnion"),
-                description = None,
-                subTypes = List(__Type(kind = __TypeKind.OBJECT))
-              )
+          val res = Validator.validateType(
+            Types.makeUnion(
+              name = Some("GoodUnion"),
+              description = None,
+              subTypes = List(__Type(kind = __TypeKind.OBJECT))
             )
-            .map(_ => assertCompletes)
+          )
+          assert(res)(isRight)
         },
         test("must be non-empty") {
           val expectedMessage = "Union EmptyUnion doesn't contain any type."
@@ -300,7 +298,7 @@ object ValidationSchemaSpec extends ZIOSpecDefault {
             graphQL(resolverFieldWithArg).interpreter.exit.map(assert(_)(succeeds(anything)))
           },
           test("fields with additional nullable args are valid") {
-            Validator.validateObject(nullableExtraArgsObject).map(_ => assertCompletes)
+            assert(Validator.validateObject(nullableExtraArgsObject))(isRight)
           },
           test("fields with additional non-nullable args are invalid") {
             checkTypeError(
