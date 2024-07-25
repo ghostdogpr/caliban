@@ -27,23 +27,55 @@ object SchemaLoader {
   case class FromString private[SchemaLoader] (schema: String)   extends SchemaLoader {
     override def load: Task[Document] = ZIO.fromEither(Parser.parseQuery(schema))
   }
+
+  @deprecated("Use FromIntrospectionV2", "2.8.2")
   case class FromIntrospection private[SchemaLoader] (
     url: String,
     headers: Option[List[Options.Header]],
     supportIsRepeatable: Boolean
   ) extends SchemaLoader {
+    private val proxy                 = fromIntrospectionWith(url, headers)(_.supportIsRepeatable(supportIsRepeatable))
+    override def load: Task[Document] = proxy.load
+  }
+
+  case class FromIntrospectionV2 private[SchemaLoader] (
+    url: String,
+    headers: Option[List[Options.Header]],
+    config: IntrospectionClient.Config
+  ) extends SchemaLoader {
     override def load: Task[Document] =
-      IntrospectionClient.introspect(url, headers, supportIsRepeatable).provideLayer(HttpClientZioBackend.layer())
+      IntrospectionClient.introspect(url, headers, config).provideLayer(HttpClientZioBackend.layer())
   }
 
   def fromCaliban[R](api: GraphQL[R]): SchemaLoader = FromCaliban(api)
   def fromDocument(doc: Document): SchemaLoader     = FromDocument(doc)
   def fromFile(path: String): SchemaLoader          = FromFile(path)
   def fromString(schema: String): SchemaLoader      = FromString(schema)
+
+  def fromIntrospection(
+    url: String,
+    headers: Option[List[Options.Header]]
+  ): SchemaLoader =
+    fromIntrospectionWith(url, headers)(identity)
+
+  @deprecated("Use overloaded method providing a config instead")
   def fromIntrospection(
     url: String,
     headers: Option[List[Options.Header]],
     supportIsRepeatable: Boolean = true
   ): SchemaLoader =
-    FromIntrospection(url, headers, supportIsRepeatable)
+    fromIntrospectionWith(url, headers)(_.supportIsRepeatable(supportIsRepeatable))
+
+  def fromIntrospection(
+    url: String,
+    headers: Option[List[Options.Header]],
+    config: IntrospectionClient.Config
+  ): SchemaLoader =
+    FromIntrospectionV2(url, headers, config)
+
+  def fromIntrospectionWith(
+    url: String,
+    headers: Option[List[Options.Header]]
+  )(config: IntrospectionClient.Config => IntrospectionClient.Config): SchemaLoader =
+    fromIntrospection(url, headers, config(IntrospectionClient.Config.default))
 }

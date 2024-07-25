@@ -9,11 +9,8 @@ object Client {
     /**
      * name
      */
-    @deprecated(
-      """foo
-bar""",
-      ""
-    )
+    @deprecated("""foo
+bar""")
     def name: SelectionBuilder[Character, String] = _root_.caliban.client.SelectionBuilder.Field("name", Scalar())
   }
 

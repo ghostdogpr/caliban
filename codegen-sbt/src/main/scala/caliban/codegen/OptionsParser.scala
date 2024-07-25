@@ -23,7 +23,8 @@ object OptionsParser {
     supportIsRepeatable: Option[Boolean],
     addDerives: Option[Boolean],
     envForDerives: Option[String],
-    excludeDeprecated: Option[Boolean]
+    excludeDeprecated: Option[Boolean],
+    supportDeprecatedArgs: Option[Boolean]
   )
 
   private object DescriptorUtils {
@@ -76,7 +77,8 @@ object OptionsParser {
             rawOpts.supportIsRepeatable,
             rawOpts.addDerives,
             rawOpts.envForDerives,
-            rawOpts.excludeDeprecated
+            rawOpts.excludeDeprecated,
+            rawOpts.supportDeprecatedArgs
           )
         }.option
       case _                             => ZIO.none
