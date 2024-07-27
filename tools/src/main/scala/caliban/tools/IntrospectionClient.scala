@@ -20,12 +20,26 @@ object IntrospectionClient {
 
   def introspect(
     uri: String,
+    headers: Option[List[Options.Header]]
+  ): RIO[SttpClient, Document] =
+    introspect(uri, headers, Config.default)
+
+  @deprecated("Use overloaded method that accepts a config instead", "2.8.2")
+  def introspect(
+    uri: String,
     headers: Option[List[Options.Header]],
     supportIsRepeatable: Boolean = true
   ): RIO[SttpClient, Document] =
+    introspect(uri, headers, Config.default.supportIsRepeatable(supportIsRepeatable))
+
+  def introspect(
+    uri: String,
+    headers: Option[List[Options.Header]],
+    config: IntrospectionClient.Config
+  ): RIO[SttpClient, Document] =
     for {
       parsedUri <- ZIO.fromEither(Uri.parse(uri)).mapError(cause => new Exception(s"Invalid URL: $cause"))
-      baseReq    = introspection(supportIsRepeatable).toRequest(parsedUri)
+      baseReq    = introspection(config).toRequest(parsedUri, dropNullInputValues = true)
       req        = headers.map(_.map(h => h.name -> h.value).toMap).fold(baseReq)(baseReq.headers)
       result    <- sendRequest(req)
     } yield result
@@ -55,10 +69,12 @@ object IntrospectionClient {
     name: String,
     description: Option[String],
     `type`: Type,
-    defaultValue: Option[String]
+    defaultValue: Option[String],
+    isDeprecated: Boolean,
+    deprecationReason: Option[String]
   ): InputValueDefinition = {
     val default = defaultValue.flatMap(v => Parser.parseInputValue(v).toOption)
-    InputValueDefinition(description, name, `type`, default, Nil)
+    InputValueDefinition(description, name, `type`, default, directives(isDeprecated, deprecationReason))
   }
 
   private def mapTypeRef(kind: __TypeKind, name: Option[String], of: Option[Type]): Type =
@@ -199,27 +215,39 @@ object IntrospectionClient {
       }).mapN(mapTypeRef _)
     }).mapN(mapTypeRef _)
 
-  private val inputValue: SelectionBuilder[__InputValue, InputValueDefinition] =
-    (
-      __InputValue.name ~
-        __InputValue.description ~
-        __InputValue.`type`(typeRef) ~
-        __InputValue.defaultValue
-    ).mapN(mapInputValue _)
+  private def inputValue(implicit
+    config: Config
+  ): SelectionBuilder[__InputValue, InputValueDefinition] =
+    if (config.supportDeprecatedArgs)
+      (
+        __InputValue.name ~
+          __InputValue.description ~
+          __InputValue.`type`(typeRef) ~
+          __InputValue.defaultValue ~
+          __InputValue.isDeprecated ~
+          __InputValue.deprecationReason
+      ).mapN(mapInputValue _)
+    else
+      (
+        __InputValue.name ~
+          __InputValue.description ~
+          __InputValue.`type`(typeRef) ~
+          __InputValue.defaultValue
+      ).mapN(mapInputValue(_, _, _, _, isDeprecated = false, None))
 
-  private val fullType: SelectionBuilder[__Type, Option[TypeDefinition]] =
+  private def fullType(implicit config: Config): SelectionBuilder[__Type, Option[TypeDefinition]] =
     (__Type.kind ~
       __Type.name ~
       __Type.description ~
       __Type.fields(Some(true)) {
         (__Field.name ~
           __Field.description ~
-          __Field.args(inputValue) ~
+          __Field.args(if (config.supportDeprecatedArgs) Some(true) else None)(inputValue) ~
           __Field.`type`(typeRef) ~
           __Field.isDeprecated ~
           __Field.deprecationReason).mapN(mapField _)
       } ~
-      __Type.inputFields(inputValue) ~
+      __Type.inputFields(if (config.supportDeprecatedArgs) Some(true) else None)(inputValue) ~
       __Type.interfaces(typeRef) ~
       __Type.enumValues(Some(true)) {
         (__EnumValue.name ~
@@ -229,14 +257,20 @@ object IntrospectionClient {
       } ~
       __Type.possibleTypes(typeRef)).mapN(mapType _)
 
-  def introspection(supportIsRepeatable: Boolean): SelectionBuilder[RootQuery, Document] =
+  @deprecated("Use overloaded method that accepts a list of experimental features", "2.8.2")
+  def introspection(supportIsRepeatable: Boolean): SelectionBuilder[RootQuery, Document] = {
+    val cfg = Config.default.supportIsRepeatable(supportIsRepeatable)
+    introspection(cfg)
+  }
+
+  def introspection(implicit config: Config): SelectionBuilder[RootQuery, Document] =
     Query.__schema {
       (__Schema.queryType(__Type.name) ~
         __Schema.mutationType(__Type.name) ~
         __Schema.subscriptionType(__Type.name)).mapN(mapSchema _) ~
         __Schema.types(fullType).map(_.flatten.filterNot(_.name.startsWith("__"))) ~
         __Schema.directives {
-          if (supportIsRepeatable)
+          if (config.supportIsRepeatable)
             (__Directive.name ~
               __Directive.description ~
               __Directive.locations ~
@@ -249,4 +283,26 @@ object IntrospectionClient {
               __Directive.args(inputValue)).mapN(mapDirective(_, _, _, _, isRepeatable = false))
         }
     }.map { case (schema, types, directives) => Document(schema :: types ++ directives, SourceMapper.empty) }
+
+  final class Config(
+    val supportDeprecatedArgs: Boolean = true,
+    val supportIsRepeatable: Boolean = true
+  ) {
+
+    def supportDeprecatedArgs(value: Boolean): Config =
+      new Config(supportDeprecatedArgs = value, supportIsRepeatable = supportIsRepeatable)
+
+    def supportIsRepeatable(value: Boolean): Config =
+      new Config(supportDeprecatedArgs = supportDeprecatedArgs, supportIsRepeatable = value)
+
+    override def toString: String =
+      s"Config(supportDeprecatedArgs = $supportDeprecatedArgs, supportIsRepeatable = $supportIsRepeatable)"
+  }
+
+  object Config {
+    val default: Config = new Config()
+
+    def apply(supportDeprecatedArgs: Boolean, supportIsRepeatable: Boolean): Config =
+      new Config(supportDeprecatedArgs, supportIsRepeatable)
+  }
 }

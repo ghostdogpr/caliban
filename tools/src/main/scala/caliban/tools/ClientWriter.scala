@@ -125,17 +125,7 @@ object ClientWriter {
       }
       val deprecated                                       = field.directives.find(_.name == "deprecated") match {
         case None            => ""
-        case Some(directive) =>
-          val body =
-            directive.arguments.collectFirst { case ("reason", StringValue(reason)) =>
-              reason
-            }.getOrElse("")
-
-          val quotes =
-            if (body.contains("\n")) tripleQuotes
-            else doubleQuotes
-
-          "@deprecated(" + quotes + body + quotes + """, "")""" + "\n"
+        case Some(directive) => writeDeprecated(Directives.deprecationReason(directive :: Nil))
       }
       val fieldType                                        = safeTypeName(getTypeName(field.ofType))
       val isScalar                                         = typesMap
@@ -237,18 +227,19 @@ object ClientWriter {
             writeTypeBuilder(field.ofType, "Obj(innerSelection)")
           )
         }
-      val args                                             = field.args match {
+      val filteredArgs                                     = if (excludeDeprecated) field.args.filterNot(_.isDeprecated) else field.args
+      val args                                             = filteredArgs match {
         case Nil  => ""
         case list => s"(${writeArgumentFields(list)})"
       }
-      val argBuilder                                       = field.args match {
+      val argBuilder                                       = filteredArgs match {
         case Nil  => ""
         case list =>
           s", arguments = List(${list.zipWithIndex.map { case (arg, idx) =>
               s"""Argument("${arg.name}", ${safeName(arg.name)}, "${arg.ofType.toString}")(encoder$idx)"""
             }.mkString(", ")})"
       }
-      val implicits                                        = field.args match {
+      val implicits                                        = filteredArgs match {
         case Nil  => ""
         case list =>
           s"(implicit ${list.zipWithIndex.map { case (arg, idx) =>
@@ -269,7 +260,7 @@ object ClientWriter {
         outputType,
         interfaceTypes.map(_.name),
         unionTypes.map(_.name),
-        field.args,
+        filteredArgs,
         owner
       )
       FieldInfo(
@@ -434,10 +425,10 @@ object ClientWriter {
       s"type $objectName"
     }
 
-    def writeObject(typedef: ObjectTypeDefinition, genView: Boolean, excludeDeprecated: Boolean): String = {
+    def writeObject(typedef: ObjectTypeDefinition, genView: Boolean): String = {
       val allFields =
         if (excludeDeprecated)
-          typedef.fields.filterNot(field => field.directives.find(_.name == "deprecated").isDefined)
+          typedef.fields.filterNot(_.isDeprecated)
         else
           typedef.fields
 
@@ -637,7 +628,8 @@ object ClientWriter {
       typedef: InputObjectTypeDefinition
     ): String = {
       val inputObjectName = safeTypeName(typedef.name)
-      val formattedFields = typedef.fields
+      val fields          = if (excludeDeprecated) typedef.fields.filterNot(_.isDeprecated) else typedef.fields
+      val formattedFields = fields
         .map(f =>
           s""""${f.name}" -> ${writeInputValue(
               f.ofType,
@@ -645,7 +637,7 @@ object ClientWriter {
               inputObjectName
             )}"""
         )
-      s"""final case class $inputObjectName(${writeArgumentFields(typedef.fields)})
+      s"""final case class $inputObjectName(${writeArgumentFields(fields)})
          |object $inputObjectName {
          |  implicit val encoder: ArgEncoder[$inputObjectName] = new ArgEncoder[$inputObjectName] {
          |    override def encode(value: $inputObjectName): __Value =
@@ -762,14 +754,28 @@ object ClientWriter {
 
     def writeArgumentFields(
       args: List[InputValueDefinition]
-    ): String =
-      s"${args.map(arg => s"${safeName(arg.name)} : ${writeType(arg.ofType)}${writeDefaultArgument(arg)}").mkString(", ")}"
+    ): String = {
+      def maybeDeprecated(arg: InputValueDefinition) =
+        if (arg.isDeprecated) writeDeprecated(arg.deprecationReason) else ""
+
+      s"${args.map(arg => s"${maybeDeprecated(arg)}${safeName(arg.name)} : ${writeType(arg.ofType)}${writeDefaultArgument(arg)}").mkString(", ")}"
+    }
 
     def writeDefaultArgument(arg: InputValueDefinition): String =
       arg.ofType match {
         case t if t.nullable => " = None"
         case ListType(_, _)  => " = Nil"
         case _               => ""
+      }
+
+    def writeDeprecated(reason: Option[String]): String =
+      reason match {
+        case None                              =>
+          "@deprecated\n"
+        case Some(body) if body.contains("\n") =>
+          s"@deprecated($tripleQuotes$body$tripleQuotes)\n"
+        case Some(body)                        =>
+          s"@deprecated($doubleQuotes$body$doubleQuotes)\n"
       }
 
     def writeType(t: Type): String = t match {
@@ -826,7 +832,7 @@ object ClientWriter {
         directives = typedef.directives,
         fields = typedef.fields
       )
-      val content     = writeObject(objDef, genView, excludeDeprecated)
+      val content     = writeObject(objDef, genView)
       val fullContent =
         if (splitFiles)
           s"""import caliban.client.FieldBuilder._
@@ -861,7 +867,7 @@ object ClientWriter {
           schemaDef.exists(_.subscription.getOrElse("Subscription") == obj.name)
       )
       .map { typedef =>
-        val content     = writeObject(typedef, genView, excludeDeprecated)
+        val content     = writeObject(typedef, genView)
         val fullContent =
           if (splitFiles)
             s"""import caliban.client.FieldBuilder._
@@ -897,7 +903,7 @@ object ClientWriter {
       .map {
         case typedef if excludeDeprecated =>
           val valuesWithoutDeprecated =
-            typedef.enumValuesDefinition.filterNot(value => value.directives.find(_.name == "deprecated").isDefined)
+            typedef.enumValuesDefinition.filterNot(_.isDeprecated)
 
           typedef.copy(enumValuesDefinition = valuesWithoutDeprecated)
         case typedef                      => typedef

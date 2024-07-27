@@ -19,7 +19,8 @@ final case class Options(
   supportIsRepeatable: Option[Boolean],
   addDerives: Option[Boolean],
   envForDerives: Option[String],
-  excludeDeprecated: Option[Boolean]
+  excludeDeprecated: Option[Boolean],
+  supportDeprecatedArgs: Option[Boolean]
 )
 
 object Options {

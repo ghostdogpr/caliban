@@ -181,6 +181,8 @@ object RemoteSchema {
       name = definition.name,
       description = definition.description,
       `type` = toType(definition.ofType, definitions),
+      isDeprecated = isDeprecated(definition.directives),
+      deprecationReason = deprecationReason(definition.directives),
       defaultValue = definition.defaultValue.map(_.toInputString),
       directives = toDirectives(definition.directives)
     )
@@ -266,8 +268,7 @@ object RemoteSchema {
       case e: EnumTypeDefinition        => toEnumType(e)
       case u: UnionTypeDefinition       => toUnionType(u, definitions)
       case i: InterfaceTypeDefinition   => toInterfaceType(i, definitions)
-      case i: InputObjectTypeDefinition =>
-        toInputObjectType(i, definitions)
+      case i: InputObjectTypeDefinition => toInputObjectType(i, definitions)
     }
 
   private def toDirective(

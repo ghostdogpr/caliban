@@ -218,7 +218,7 @@ lazy val tools = project
       "dev.zio"                       %% "zio-json"            % zioJsonVersion % Test
     )
   )
-  .dependsOn(core, clientJVM)
+  .dependsOn(core, clientJVM, quickAdapter % Test)
 
 lazy val tracing = project
   .in(file("tracing"))
