@@ -150,7 +150,7 @@ object VariablesCoercer {
     context: => String // Careful not to materialize unless we need to fail!
   ): Either[ValidationError, InputValue] =
     typ.kind match {
-      case __TypeKind.NON_NULL                     =>
+      case __TypeKind.NON_NULL =>
         value match {
           case NullValue =>
             failValidation(
