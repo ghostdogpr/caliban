@@ -24,7 +24,7 @@ val playJsonVersion           = "3.0.4"
 val scalafmtVersion           = "3.8.0"
 val sttpVersion               = "3.9.7"
 val tapirVersion              = "1.11.0"
-val zioVersion                = "2.1.6"
+val zioVersion                = "2.1.7"
 val zioInteropCats2Version    = "22.0.0.0"
 val zioInteropCats3Version    = "23.1.0.2"
 val zioInteropReactiveVersion = "2.0.2"
@@ -465,8 +465,10 @@ lazy val client    = crossProject(JSPlatform, JVMPlatform, NativePlatform)
       "com.softwaremill.sttp.client3"        %%% "jsoniter"              % sttpVersion,
       "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-core"   % jsoniterVersion,
       "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros" % jsoniterVersion % Provided,
-      "dev.zio"                              %%% "zio-test"              % zioVersion      % Test,
-      "dev.zio"                              %%% "zio-test-sbt"          % zioVersion      % Test
+      // keep an older zio version because we're still on Native 0.4.x
+      // it's only for tests so no big deal
+      "dev.zio"                              %%% "zio-test"              % "2.1.6"         % Test,
+      "dev.zio"                              %%% "zio-test-sbt"          % "2.1.6"         % Test
     )
   )
 lazy val clientJVM = client.jvm.settings(enableMimaSettingsJVM)
