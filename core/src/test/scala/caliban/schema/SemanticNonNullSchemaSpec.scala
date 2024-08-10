@@ -8,7 +8,7 @@ import zio._
 import zio.test.Assertion._
 import zio.test._
 
-object SemanticNonNullSchema extends SchemaDerivation[Any] {
+object SemanticNonNullSchema extends GenericSchema[Any] {
   override def config = DerivationConfig(enableSemanticNonNull = true)
 }
 

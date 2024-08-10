@@ -44,7 +44,7 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
       },
       test("Auto derivation - custom R") {
         class Env
-        object CustomSchema extends SchemaDerivation[Env]
+        object CustomSchema extends GenericSchema[Env]
         final case class Foo(value: String)
         final case class Bar(foo: Foo) derives CustomSchema.Auto
 
@@ -54,7 +54,7 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
       },
       test("SemiAuto derivation - custom R") {
         class Env
-        object CustomSchema extends SchemaDerivation[Env]
+        object CustomSchema extends GenericSchema[Env]
         final case class Foo(value: String) derives CustomSchema.SemiAuto
         final case class Bar(foo: Foo) derives CustomSchema.SemiAuto
 
@@ -203,7 +203,7 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
           },
           test("custom schema derivation") {
             trait MyService
-            object MySchema extends SchemaDerivation[MyService]
+            object MySchema extends GenericSchema[MyService]
             final case class Foo(value: String) derives MySchema.SemiAuto {
               @GQLField def value2: RIO[MyService, Option[String]] = ZIO.some(value + 2)
             }

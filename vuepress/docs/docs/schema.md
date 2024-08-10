@@ -229,10 +229,10 @@ given Schema[Any, Origin] = Schema.Auto.derived
   <code-block title="Scala 3 (Custom schema)">
 
 ```scala
-import caliban.schema.SchemaDerivation
+import caliban.schema.GenericSchema
 
 trait MyEnv
-object EnvSchema extends SchemaDerivation[MyEnv]
+object EnvSchema extends GenericSchema[MyEnv]
 
 enum Origin derives EnvSchema.Auto {
   case EARTH, MARS, BELT
@@ -537,9 +537,9 @@ val api = graphQL[MyEnv, Queries, Unit, Unit](RootResolver(queries))
 // val api = graphQL(RootResolver(queries)) // it will infer MyEnv thanks to the instance above
 ```
 
-When using the `derives` syntax in Scala 3, you need to create an object extending `caliban.schema.SchemaDerivation[R]` and use the `SemiAuto` method to generate the schema.
+When using the `derives` syntax in Scala 3, you need to create an object extending `caliban.schema.GenericSchema[R]` and use the `SemiAuto` method to generate the schema.
 ```scala
-object customSchema extends SchemaDerivation[MyEnv]
+object customSchema extends GenericSchema[MyEnv]
 case class Queries(test: RIO[MyEnv, List[Int]]) derives customSchema.SemiAuto
 ```
 
@@ -581,9 +581,9 @@ To enable them, you need to declare a custom schema derivation object like this:
   <code-block title="Scala 2" active>
 
 ```scala
-import caliban.schema.SchemaDerivation
+import caliban.schema.GenericSchema
 
-object MySchemaDerivation extends SchemaDerivation[Any] {
+object MySchemaDerivation extends GenericSchema[Any] {
   override def config = DerivationConfig(
     // add your config overrides here
     enableSemanticNonNull = true
@@ -599,9 +599,9 @@ implicit val schemaForMyClass: Schema[Any, MyClass] = MySchemaDerivation.gen
   <code-block title="Scala 3 (with given)">
 
 ```scala
-import caliban.schema.SchemaDerivation
+import caliban.schema.GenericSchema
 
-object MySchemaDerivation extends SchemaDerivation[Any] {
+object MySchemaDerivation extends GenericSchema[Any] {
   override def config = DerivationConfig(
     // add your config overrides here
     enableSemanticNonNull = true

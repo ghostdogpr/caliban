@@ -34,7 +34,7 @@ object SchemaDerivesAutoSpec extends ZIOSpecDefault {
       },
       test("tricky case with R") {
         case class Field(value: ZQuery[Console, Nothing, String])
-        object MySchema extends SchemaDerivation[Console with Clock]
+        object MySchema extends GenericSchema[Console with Clock]
         case class Queries(field: ZQuery[Clock, Nothing, Field]) derives MySchema.Auto
 
         assert(
@@ -75,7 +75,7 @@ object SchemaDerivesAutoSpec extends ZIOSpecDefault {
         )
       },
       test("nested types with explicit schema in companion object") {
-        object consoleSchema extends SchemaDerivation[Console] {
+        object consoleSchema extends GenericSchema[Console] {
           case class A(s: String)
           object A {
             implicit val aSchema: Schema[Console, A] = gen
@@ -291,7 +291,7 @@ object SchemaDerivesAutoSpec extends ZIOSpecDefault {
           },
           test("from GenericSchema[T]") {
             trait Foo
-            object FooSchema extends SchemaDerivation[Foo]
+            object FooSchema extends GenericSchema[Foo]
 
             case class A(a: String, b: Option[Int])
             case class Queries(as: List[A]) derives FooSchema.Auto
@@ -318,7 +318,7 @@ object SchemaDerivesAutoSpec extends ZIOSpecDefault {
           },
           test("from local scope when using a custom schema") {
             trait Foo
-            object FooSchema extends SchemaDerivation[Foo]
+            object FooSchema extends GenericSchema[Foo]
             case class A(a: Int)
 
             given Schema[Any, A] = Schema.customObj[Any, A]("A")(

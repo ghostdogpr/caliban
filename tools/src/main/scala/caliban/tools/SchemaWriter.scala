@@ -30,7 +30,7 @@ object SchemaWriter {
           (
             " derives caliban.schema.Schema.SemiAuto",
             " derives caliban.schema.Schema.SemiAuto, caliban.schema.ArgBuilder",
-            s"object EnvSchema extends caliban.schema.SchemaDerivation[${safeName(env)}]\n\n",
+            s"object EnvSchema extends caliban.schema.GenericSchema[${safeName(env)}]\n\n",
             " derives Operations.EnvSchema.SemiAuto"
           )
         case (true, _)                                         =>

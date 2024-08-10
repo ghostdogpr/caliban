@@ -1,3 +1,5 @@
 package caliban.schema
 
-trait SchemaVersionSpecific
+trait GenericSchema[R] extends SchemaInstances with SchemaDerivation[R]
+
+private[caliban] trait SchemaInstancesVersionSpecific

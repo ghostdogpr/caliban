@@ -20,7 +20,7 @@ object PrintDerived {
   }
 }
 
-trait CommonSchemaDerivation {
+transparent trait CommonSchemaDerivation {
   export DerivationUtils.customizeInputTypeName
 
   case class DerivationConfig(
@@ -133,7 +133,8 @@ trait CommonSchemaDerivation {
     }
 }
 
-trait SchemaDerivation[R] extends CommonSchemaDerivation {
+@deprecatedInheritance("To createa a custom Schema, extend `caliban.schema.GenericSchema` instead", "caliban 2.9.0")
+transparent trait SchemaDerivation[R] extends CommonSchemaDerivation {
   inline def apply[A]: Schema[R, A] = summonInline[Schema[R, A]]
 
   inline def gen[R, A]: Schema[R, A] = derived[R, A]
@@ -142,7 +143,7 @@ trait SchemaDerivation[R] extends CommonSchemaDerivation {
 
   inline def unionType[T]: Schema[R, T] = ${ TypeUnionDerivation.typeUnionSchema[R, T] }
 
-  final lazy val auto = new AutoSchemaDerivation[Any] {}
+  final val auto = AutoSchemaDerivation
 
   final class SemiAuto[A](impl: Schema[R, A]) extends Schema[R, A] {
     export impl.*
@@ -164,11 +165,11 @@ trait SchemaDerivation[R] extends CommonSchemaDerivation {
   }
 }
 
-trait AutoSchemaDerivation[R] extends GenericSchema[R] with LowPriorityDerivedSchema {
+private object AutoSchemaDerivation extends SchemaInstances, SchemaDerivation[Any], LowPriorityDerivedSchema {
   // for cross-compililing with scala 2
   inline def genAll[R, A]: Schema[R, A] = derived[R, A]
 }
 
-private[schema] trait LowPriorityDerivedSchema extends CommonSchemaDerivation {
+private[schema] transparent trait LowPriorityDerivedSchema extends CommonSchemaDerivation {
   inline implicit def genAuto[R, A]: Schema[R, A] = derived[R, A]
 }

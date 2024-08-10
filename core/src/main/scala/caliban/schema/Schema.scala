@@ -2,6 +2,7 @@ package caliban.schema
 
 import caliban.CalibanError.ExecutionError
 import caliban.ResponseValue._
+import caliban.Scala3Annotations._
 import caliban.Value._
 import caliban.execution.Field
 import caliban.introspection.adt._
@@ -156,9 +157,13 @@ trait Schema[-R, T] { self =>
   }
 }
 
-object Schema extends GenericSchema[Any] with SchemaVersionSpecific
+object Schema extends SchemaInstances with SchemaDerivation[Any]
 
-trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
+@transparentTrait
+trait SchemaInstances extends TemporalSchema with SchemaInstancesVersionSpecific {
+
+  private def customizeInputTypeName(name: String): String =
+    if (name.endsWith("Input")) name else s"${name}Input"
 
   /**
    * Creates a scalar schema for a type `A`
@@ -608,6 +613,7 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
     }
 }
 
+@transparentTrait
 trait TemporalSchema {
 
   private[schema] abstract class TemporalSchema[T <: Temporal](

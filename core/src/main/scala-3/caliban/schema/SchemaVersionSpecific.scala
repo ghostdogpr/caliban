@@ -3,7 +3,10 @@ package caliban.schema
 import caliban.introspection.adt.__Field
 import caliban.parsing.adt.Directive
 
-transparent trait SchemaVersionSpecific extends GenericSchema[Any] {
+transparent trait GenericSchema[R] extends SchemaDerivation[R]
+
+private[caliban] transparent trait SchemaInstancesVersionSpecific {
+  self: SchemaInstances =>
 
   /**
    * Scala 3 variant of the `obj` method which improves UX for creating custom object schemas.
@@ -26,7 +29,7 @@ transparent trait SchemaVersionSpecific extends GenericSchema[Any] {
   )(
     fields: FieldAttributes ?=> (__Field, V => Step[R1])*
   ): Schema[R1, V] =
-    obj(name, description, directives) { case given FieldAttributes =>
+    self.obj(name, description, directives) { case given FieldAttributes =>
       fields.toList.map(identity)
     }
 
