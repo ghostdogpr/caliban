@@ -236,7 +236,7 @@ lazy val tracing = project
       "dev.zio"         %% "zio-opentelemetry"         % zioOpenTelemetryVersion,
       "dev.zio"         %% "zio-test"                  % zioVersion % Test,
       "dev.zio"         %% "zio-test-sbt"              % zioVersion % Test,
-      "io.opentelemetry" % "opentelemetry-sdk-testing" % "1.40.0"   % Test
+      "io.opentelemetry" % "opentelemetry-sdk-testing" % "1.41.0"   % Test
     )
   )
   .dependsOn(core, tools)
