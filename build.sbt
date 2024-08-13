@@ -22,11 +22,11 @@ val pekkoHttpVersion          = "1.0.1"
 val playVersion               = "3.0.5"
 val playJsonVersion           = "3.0.4"
 val scalafmtVersion           = "3.8.0"
-val sttpVersion               = "3.9.7"
+val sttpVersion               = "3.9.8"
 val tapirVersion              = "1.11.1"
 val zioVersion                = "2.1.7"
 val zioInteropCats2Version    = "22.0.0.0"
-val zioInteropCats3Version    = "23.1.0.2"
+val zioInteropCats3Version    = "23.1.0.3"
 val zioInteropReactiveVersion = "2.0.2"
 val zioConfigVersion          = "3.0.7"
 val zqueryVersion             = "0.7.4"
@@ -236,7 +236,7 @@ lazy val tracing = project
       "dev.zio"         %% "zio-opentelemetry"         % zioOpenTelemetryVersion,
       "dev.zio"         %% "zio-test"                  % zioVersion % Test,
       "dev.zio"         %% "zio-test-sbt"              % zioVersion % Test,
-      "io.opentelemetry" % "opentelemetry-sdk-testing" % "1.40.0"   % Test
+      "io.opentelemetry" % "opentelemetry-sdk-testing" % "1.41.0"   % Test
     )
   )
   .dependsOn(core, tools)
