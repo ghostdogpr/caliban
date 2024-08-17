@@ -27,6 +27,7 @@ import scala.collection.mutable.ListBuffer
 
 object Validator extends SchemaValidator {
   import ValidationOps._
+  import caliban.syntax._
 
   /**
    * A QueryValidation is a pure program that can access a Context, fail with a ValidationError or succeed with Unit.
@@ -349,12 +350,7 @@ object Validator extends SchemaValidator {
           )
 
           val v2 =
-            if (
-              t match {
-                case Some(t0) => t0._isOneOfInput
-                case _        => false
-              }
-            )
+            if (t.isDefined && t.get._isOneOfInput)
               Some(
                 failWhen(v.variableType.nullable)(
                   s"Variable '${v.name}' cannot be nullable.",
@@ -415,7 +411,7 @@ object Validator extends SchemaValidator {
     val descendantSpreads = collectFragmentSpreads(selectionSets)
     val cycleDetected     = descendantSpreads.exists { s =>
       visited.contains(s.name) || {
-        val f = context.fragments.getOrElse(s.name, null)
+        val f = context.fragments.getOrElseNull(s.name)
         (f ne null) && detectCycles(context, f, visited + s.name, checked)
       }
     }
@@ -472,7 +468,7 @@ object Validator extends SchemaValidator {
       case f: Field                                       =>
         validateField(context, f, currentType)
       case FragmentSpread(name, _)                        =>
-        context.fragments.getOrElse(name, null) match {
+        context.fragments.getOrElseNull(name) match {
           case null                                              =>
             failValidation(
               s"Fragment spread '$name' is not defined.",
@@ -497,7 +493,7 @@ object Validator extends SchemaValidator {
     typeCondition: Option[NamedType],
     selectionSet: List[Selection]
   )(implicit v: ValidatedFragments): Either[ValidationError, Unit] =
-    typeCondition.fold(currentType)(t => context.rootType.types.getOrElse(t.name, null)) match {
+    typeCondition.fold(currentType)(t => context.rootType.types.getOrElseNull(t.name)) match {
       case null         =>
         val typeConditionName = typeCondition.fold("?")(_.name)
         failValidation(
@@ -559,7 +555,7 @@ object Validator extends SchemaValidator {
     val providedArgs     = field.arguments
 
     val v1 = validateAllNonEmpty(fieldArgsNonNull.flatMap { arg =>
-      val arg0 = field.arguments.getOrElse(arg.name, null)
+      val arg0 = field.arguments.getOrElseNull(arg.name)
       val opt1 = (arg.defaultValue, arg0) match {
         case (None, null) | (None, NullValue) =>
           Some(
@@ -653,7 +649,7 @@ object Validator extends SchemaValidator {
           )
         )
       case VariableValue(variableName)                                                 =>
-        context.variableDefinitions.getOrElse(variableName, null) match {
+        context.variableDefinitions.getOrElseNull(variableName) match {
           case null               =>
             failValidation(
               s"Variable '$variableName' is not defined.",
