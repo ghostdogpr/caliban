@@ -350,7 +350,7 @@ object Validator extends SchemaValidator {
           )
 
           val v2 =
-            if (t.isDefined && t.get._isOneOfInput)
+            if (t.exists(_._isOneOfInput))
               Some(
                 failWhen(v.variableType.nullable)(
                   s"Variable '${v.name}' cannot be nullable.",
