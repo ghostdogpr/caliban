@@ -43,24 +43,28 @@ case class Field(
 ) { self =>
   lazy val locationInfo: LocationInfo = _locationInfo()
 
-  private[caliban] val aliasedName: String = alias.getOrElse(name)
+  private[caliban] val aliasedName: String =
+    if (alias.isEmpty) name else alias.get
 
   private[caliban] lazy val allFieldsUniqueNameAndCondition: Boolean = {
-    def inner: Boolean = {
-      val set           = new mutable.HashSet[String]
+    def inner(fields: List[Field]): Boolean = {
       val headCondition = fields.head._condition
-      val _             = set.add(fields.head.aliasedName)
 
-      var remaining = fields.tail
-      var result    = true
-      while ((remaining ne Nil) && result) {
-        val f = remaining.head
-        result = set.add(f.aliasedName) && f._condition == headCondition
-        remaining = remaining.tail
+      val seen = new mutable.HashSet[String]
+      seen.add(fields.head.aliasedName)
+
+      var rem = fields.tail
+      while (rem ne Nil) {
+        val f        = rem.head
+        val continue = seen.add(f.aliasedName) && f._condition == headCondition
+        if (!continue) return false
+        rem = rem.tail
       }
-      result
+      true
     }
-    fields.isEmpty || fields.tail.isEmpty || inner
+
+    val fields0 = fields
+    fields0.isEmpty || fields0.tail.isEmpty || inner(fields0)
   }
 
   def combine(other: Field): Field =
@@ -153,7 +157,10 @@ object Field {
         case F(alias, name, arguments, directives, selectionSet, index) =>
           val selected = innerType.getFieldOrNull(name)
 
-          val schemaDirectives   = if (selected eq null) Nil else selected.directives.getOrElse(Nil)
+          val schemaDirectives =
+            if ((selected eq null) || selected.directives.isEmpty) Nil
+            else selected.directives.get
+
           val resolvedDirectives =
             (directives ::: schemaDirectives).map(resolveDirectiveVariables(variableValues, variableDefinitionsMap))
 

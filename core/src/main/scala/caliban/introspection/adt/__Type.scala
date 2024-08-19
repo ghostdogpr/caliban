@@ -24,6 +24,8 @@ case class __Type(
   @GQLExcluded origin: Option[String] = None,
   isOneOf: Option[Boolean] = None
 ) { self =>
+  import caliban.syntax._
+
   final override lazy val hashCode: Int = super.hashCode()
 
   private[caliban] lazy val typeNameRepr: String = DocumentRenderer.renderTypeName(this)
@@ -144,7 +146,7 @@ case class __Type(
   }
 
   private[caliban] def getFieldOrNull(name: String): __Field =
-    allFieldsMap.getOrElse(name, null)
+    allFieldsMap.getOrElseNull(name)
 
   lazy val innerType: __Type = Types.innerType(this)
 

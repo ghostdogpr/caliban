@@ -10,6 +10,7 @@ import scala.collection.compat._
 import scala.language.experimental.macros
 
 trait CommonArgBuilderDerivation {
+  import caliban.syntax._
 
   type Typeclass[T] = ArgBuilder[T]
 
@@ -53,7 +54,7 @@ trait CommonArgBuilderDerivation {
       ctx.constructMonadic { p =>
         val idx              = p.index
         val (label, default) = params(idx)
-        val field            = fields.getOrElse(label, null)
+        val field            = fields.getOrElseNull(label)
         if (field ne null) p.typeclass.build(field) else default
       }
   }
