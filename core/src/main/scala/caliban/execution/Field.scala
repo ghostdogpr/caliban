@@ -48,9 +48,9 @@ case class Field(
 
   // TODO: Change the name to `allConditionsUnique` in the next minor version
   private[caliban] def allFieldsUniqueNameAndCondition: Boolean =
-    fields.isEmpty || fields.tail.isEmpty || allConditionsUniqueLzy
+    fields.isEmpty || fields.tail.isEmpty || allConditionsUniqueLazy
 
-  private lazy val allConditionsUniqueLzy: Boolean = {
+  private lazy val allConditionsUniqueLazy: Boolean = {
     val headCondition = fields.head._condition
     var rem           = fields.tail
     var res           = true
