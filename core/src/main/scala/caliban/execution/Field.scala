@@ -54,7 +54,8 @@ case class Field(
     val headCondition = fields.head._condition
     var rem           = fields.tail
     var res           = true
-    while ((rem ne Nil) && res) {
+    val nil           = Nil
+    while ((rem ne nil) && res) {
       val f = rem.head
       if (f._condition == headCondition)
         rem = rem.tail
