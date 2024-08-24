@@ -1,11 +1,13 @@
 package caliban.wrappers
 
 import caliban.{ CalibanError, Configurator, GraphQL, GraphQLAspect, InputValue, Value }
-import caliban.execution.{ ExecutionRequest, Feature, Field }
-import caliban.introspection.adt.{ __Directive, __DirectiveLocation, __InputValue }
+import caliban.execution.{ ExecutionRequest, Feature }
+import caliban.introspection.adt.{ __Directive, __DirectiveLocation, __InputValue, __Type }
 import caliban.parsing.SourceMapper
+import caliban.parsing.adt.Selection.{ Field, FragmentSpread }
 import caliban.parsing.adt.{ Directive, Directives, Document, OperationType, Selection, VariableDefinition }
 import caliban.schema.Types
+import caliban.validation.ValidationOps.validateAllDiscard
 import caliban.validation.Validator.QueryValidation
 import caliban.wrappers.Wrapper.ValidationWrapper
 import zio.ZIO
@@ -52,49 +54,67 @@ object IncrementalDelivery {
         case Nil                                                  => false
       }
 
-    if (
-      context.operations.exists(op => op.operationType != OperationType.Query && hasStreamOrDirective(op.selectionSet))
-    ) {
-      Left(
-        CalibanError.ValidationError(
-          "Stream or defer directive was used on a root field in a mutation or subscription",
-          "Defer and stream may not be used on root fields of mutations or subscriptions"
+    validateAllDiscard(context.operations) { op =>
+      if (op.operationType != OperationType.Query && hasStreamOrDirective(op.selectionSet)) {
+        Left(
+          CalibanError.ValidationError(
+            "Stream or defer directive was used on a root field in a mutation or subscription",
+            "Defer and stream may not be used on root fields of mutations or subscriptions"
+          )
         )
-      )
-    } else {
-      Right(())
+      } else {
+        Right(())
+      }
     }
   }
 
   private val appearsOnlyOnLists: QueryValidation = context => {
-    var error: CalibanError.ValidationError = null
-    val iter                                = context.operations.iterator
+    var error: CalibanError.ValidationError            = null
+    val checked: mutable.Set[(String, Option[String])] = mutable.Set.empty
+    val iter                                           = context.operations.iterator
 
-    @tailrec
-    def loop(fields: List[Field]): Boolean = fields match {
-      case field :: rest =>
-        !field.fieldType.isList && field.directives.exists(_.name == Directives.Stream) || loop(field.fields ++ rest)
-      case Nil           =>
-        false
-    }
+    def validateFields(selectionSet: List[Selection], currentType: __Type) =
+      validateAllDiscard(selectionSet) {
+        case f: Field                         =>
+          validateField(f, currentType)
+        case FragmentSpread(name, directives) =>
+          context.fragments.getOrElse(name, null) match {
+            case null                                              => Left(CalibanError.ValidationError(s"Fragment $name not found", ""))
+            case fragment if checked.add((name, currentType.name)) =>
+              validateSpread()
+          }
 
-    while (iter.hasNext && (error eq null)) {
-      val op    = iter.next()
-      val field = Field(
-        op.selectionSet,
-        context.fragments,
-        Map.empty[String, InputValue],
-        List.empty[VariableDefinition],
-        context.rootType.queryType,
-        SourceMapper.empty,
-        Nil,
-        context.rootType
-      )
-
-      if (loop(List(field))) {
-        error = CalibanError.ValidationError("Stream directive was used on a non-list field", "")
       }
-    }
+
+    def validateSpread()
+
+    def validateField(field: Field, currentType: __Type): Either[CalibanError.ValidationError, Unit] = {}
+
+//    @tailrec
+//    def loop(selectionSet: List[Selection], currentType: __Type): Boolean = fields match {
+//      case field :: rest =>
+//        !field.fieldType.isList && field.directives.exists(_.name == Directives.Stream) || loop(field.fields ++ rest)
+//      case Nil           =>
+//        false
+//    }
+//
+//    while (iter.hasNext && (error eq null)) {
+//      val op    = iter.next()
+//      val field = Field(
+//        op.selectionSet,
+//        context.fragments,
+//        Map.empty[String, InputValue],
+//        List.empty[VariableDefinition],
+//        context.rootType.queryType,
+//        SourceMapper.empty,
+//        Nil,
+//        context.rootType
+//      )
+//
+//      if (loop(List(field))) {
+//        error = CalibanError.ValidationError("Stream directive was used on a non-list field", "")
+//      }
+//    }
 
     if (error ne null) Left(error) else Right(())
   }
@@ -131,7 +151,7 @@ object IncrementalDelivery {
     }
 
     if (!allLabelsUnique(context.operations.flatMap(_.selectionSet))) {
-      Left(CalibanError.ValidationError("Stream directive labels must be unique", ""))
+      Left(CalibanError.ValidationError("Stream and defer directive labels must be unique", ""))
     } else {
       Right(())
     }
