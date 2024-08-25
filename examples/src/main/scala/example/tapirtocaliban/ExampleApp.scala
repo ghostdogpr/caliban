@@ -1,6 +1,6 @@
-package example.tapir
+package example.tapirtocaliban
 
-import example.tapir.Endpoints._
+import example.tapirtocaliban.Endpoints._
 import caliban.interop.tapir._
 import caliban.{ GraphQL, Http4sAdapter }
 import caliban.schema.Schema.auto._
