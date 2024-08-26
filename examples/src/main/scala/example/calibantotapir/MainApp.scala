@@ -10,7 +10,7 @@ import sttp.capabilities.zio.ZioStreams
 import sttp.tapir.server.ziohttp._
 import sttp.tapir.server.ServerEndpoint
 import sttp.tapir.swagger.bundle.SwaggerInterpreter
-import example.calibantotapir.tapir.GraphiQLEndpoint
+import example.calibantotapir.tapir.SampleRestEndpoint
 
 object MainApp extends ZIOAppDefault {
   val graphQLToTapir: ZIO[Queries & Mutations, CalibanError, List[ServerEndpoint[ZioStreams, Task]]] =
@@ -40,8 +40,8 @@ object MainApp extends ZIOAppDefault {
   val serve: ZIO[Queries & Mutations & Server, CalibanError, Nothing] =
     for {
       graphqlEndpoints <- graphQLToTapir
-      graphiqlEndpoint  = GraphiQLEndpoint.graphiql
-      all               = documented(graphiqlEndpoint :: graphqlEndpoints)
+      restEndpoint      = SampleRestEndpoint.endpoint
+      all               = documented(restEndpoint :: graphqlEndpoints)
       routes            = ZioHttpInterpreter().toHttp[Any](all)
       server           <- ZIO.service[Server]
       _                <- Server.install(redirectRootToDocs ++ routes)
