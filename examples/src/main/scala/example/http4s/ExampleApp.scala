@@ -33,7 +33,7 @@ object ExampleApp extends ZIOAppDefault {
                            "/ws/graphql"  -> CORS.policy(
                              Http4sAdapter.makeWebSocketService(wsBuilder, WebSocketInterpreter(interpreter))
                            ),
-                           "/graphiql"    -> Kleisli.liftF(StaticFile.fromResource("/graphiql.html", None))
+                           "/graphiql"    -> Http4sAdapter.makeGraphiqlService("/api/graphql")
                          ).orNotFound
                        )
                        .build

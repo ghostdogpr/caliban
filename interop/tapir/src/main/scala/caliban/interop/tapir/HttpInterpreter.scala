@@ -6,8 +6,8 @@ import sttp.capabilities.Streams
 import sttp.model.{ headers => _, _ }
 import sttp.shared.Identity
 import sttp.tapir.Codec.JsonCodec
-import sttp.tapir.model.ServerRequest
 import sttp.tapir._
+import sttp.tapir.model.ServerRequest
 import sttp.tapir.server.ServerEndpoint
 import zio._
 
@@ -213,5 +213,25 @@ object HttpInterpreter {
         .errorOut(errorBody)
 
     postEndpoint :: getEndpoint :: Nil
+  }
+
+  /**
+   * Creates an endpoint that serves the GraphiQL UI from CDN.
+   *
+   * @param apiPath The path at which the API can be introspected.
+   *
+   * @see [[https://github.com/graphql/graphiql/tree/main/examples/graphiql-cdn]]
+   */
+  def makeGraphiqlEndpoint(apiPath: String): Endpoint[Unit, Right[Nothing, String], Nothing, String, Any] = {
+    val apiPath0 = apiPath.split("/").filter(_.nonEmpty).mkString("/", "/", "")
+    infallibleEndpoint.get
+      .in(extractFromRequest(_.pathSegments))
+      .out(htmlBodyUtf8)
+      .mapIn { segments =>
+        val uiPath = segments.mkString("/", "/", "")
+        Right(HttpUtils.graphiqlHtml(apiPath = apiPath0, uiPath = uiPath))
+      }(
+        _.value.split("/").filter(_.nonEmpty).toList
+      )
   }
 }
