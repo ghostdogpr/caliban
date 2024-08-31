@@ -13,6 +13,7 @@ import sttp.capabilities.fs2.Fs2Streams
 import sttp.capabilities.zio.ZioStreams
 import sttp.tapir.Codec.JsonCodec
 import sttp.tapir.Endpoint
+import sttp.tapir.integ.cats.effect.CatsMonadError
 import sttp.tapir.server.ServerEndpoint
 import sttp.tapir.server.http4s.Http4sServerInterpreter
 import sttp.tapir.server.http4s.ztapir.ZHttp4sServerInterpreter
@@ -59,12 +60,12 @@ object Http4sAdapter {
    *
    * @see [[https://github.com/graphql/graphiql/tree/main/examples/graphiql-cdn]]
    */
-  def makeGraphiqlService[F[_]: Async](apiPath: String): HttpRoutes[F] =
+  def makeGraphiqlService[F[_]: Async](apiPath: String): HttpRoutes[F] = {
+    implicit val F: CatsMonadError[F] = new CatsMonadError[F]
     Http4sServerInterpreter().toRoutes(
-      HttpInterpreter
-        .makeGraphiqlEndpoint(apiPath)
-        .serverLogic[F](Async[F].pure)
+      HttpInterpreter.makeGraphiqlEndpoint[F](apiPath)
     )
+  }
 
   def makeWebSocketService[R, R1 <: R, E](
     builder: WebSocketBuilder2[RIO[R, *]],

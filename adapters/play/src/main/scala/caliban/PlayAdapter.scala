@@ -10,6 +10,7 @@ import sttp.capabilities.WebSockets
 import sttp.capabilities.pekko.PekkoStreams
 import sttp.capabilities.pekko.PekkoStreams.Pipe
 import sttp.model.StatusCode
+import sttp.monad.FutureMonad
 import sttp.tapir.Codec.JsonCodec
 import sttp.tapir.PublicEndpoint
 import sttp.tapir.model.ServerRequest
@@ -44,12 +45,10 @@ class PlayAdapter private (private val options: Option[PlayServerOptions]) {
    *
    * @see [[https://github.com/graphql/graphiql/tree/main/examples/graphiql-cdn]]
    */
-  def makeGraphiqlService(apiPath: String)(implicit materializer: Materializer): Routes =
-    playInterpreter.toRoutes(
-      HttpInterpreter
-        .makeGraphiqlEndpoint(apiPath)
-        .serverLogic[Future](Future.successful)
-    )
+  def makeGraphiqlService(apiPath: String)(implicit materializer: Materializer): Routes = {
+    implicit val F: FutureMonad = new FutureMonad()(materializer.executionContext)
+    playInterpreter.toRoutes(HttpInterpreter.makeGraphiqlEndpoint[Future](apiPath))
+  }
 
   def makeWebSocketService[R, E](
     interpreter: WebSocketInterpreter[R, E]

@@ -4,6 +4,7 @@ import caliban._
 import caliban.interop.tapir.TapirAdapter._
 import sttp.capabilities.Streams
 import sttp.model.{ headers => _, _ }
+import sttp.monad.MonadError
 import sttp.shared.Identity
 import sttp.tapir.Codec.JsonCodec
 import sttp.tapir._
@@ -222,16 +223,18 @@ object HttpInterpreter {
    *
    * @see [[https://github.com/graphql/graphiql/tree/main/examples/graphiql-cdn]]
    */
-  def makeGraphiqlEndpoint(apiPath: String): Endpoint[Unit, Right[Nothing, String], Nothing, String, Any] = {
+  def makeGraphiqlEndpoint[F[_]](
+    apiPath: String
+  )(implicit F: MonadError[F]): ServerEndpoint.Full[Unit, Unit, ServerRequest, Nothing, String, Any, F] = {
     val apiPath0 = apiPath.split("/").filter(_.nonEmpty).mkString("/", "/", "")
     infallibleEndpoint.get
-      .in(extractFromRequest(_.pathSegments))
+      .in(extractFromRequest(identity))
       .out(htmlBodyUtf8)
-      .mapIn { segments =>
-        val uiPath = segments.mkString("/", "/", "")
-        Right(HttpUtils.graphiqlHtml(apiPath = apiPath0, uiPath = uiPath))
-      }(
-        _.value.split("/").filter(_.nonEmpty).toList
-      )
+      .serverLogic[F] { req =>
+        val segments = req.pathSegments
+        val uiPath   = segments.mkString("/", "/", "")
+        val entity   = Right(HttpUtils.graphiqlHtml(apiPath = apiPath0, uiPath = uiPath))
+        F.unit(entity)
+      }
   }
 }
