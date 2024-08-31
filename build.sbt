@@ -184,7 +184,7 @@ lazy val core = project
         "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-core"     % jsoniterVersion % Optional,
         "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros"   % jsoniterVersion % Provided,
         "org.playframework"                     %% "play-json"               % playJsonVersion % Optional,
-        "org.apache.commons"                     % "commons-lang3"           % "3.16.0"        % Test
+        "org.apache.commons"                     % "commons-lang3"           % "3.17.0"        % Test
       )
   )
   .dependsOn(macros)
