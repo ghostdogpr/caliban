@@ -53,7 +53,7 @@ object ExampleApp extends CatsApp {
                        .withHttpApp(
                          Router[MyTask](
                            "/api/graphql" -> CORS.policy(Http4sAdapter.makeHttpService(HttpInterpreter(interpreter))),
-                           "/graphiql"    -> Kleisli.liftF(StaticFile.fromResource("/graphiql.html", None))
+                           "/graphiql"    -> Http4sAdapter.makeGraphiqlService("/api/graphql")
                          ).orNotFound
                        )
                        .build

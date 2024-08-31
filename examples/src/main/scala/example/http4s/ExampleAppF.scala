@@ -46,7 +46,7 @@ object ExampleAppF extends IOApp {
                                    .makeWebSocketServiceF[IO, Any, CalibanError](wsBuilder, WebSocketInterpreter(interpreter))
                                ),
                              "/graphiql"    ->
-                               Kleisli.liftF(StaticFile.fromResource("/graphiql.html", None))
+                               Http4sAdapter.makeGraphiqlService("/api/graphql")
                            ).orNotFound
                          )
                          .build

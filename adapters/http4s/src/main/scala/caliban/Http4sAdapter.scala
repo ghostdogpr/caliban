@@ -13,13 +13,14 @@ import sttp.capabilities.fs2.Fs2Streams
 import sttp.capabilities.zio.ZioStreams
 import sttp.tapir.Codec.JsonCodec
 import sttp.tapir.Endpoint
+import sttp.tapir.integ.cats.effect.CatsMonadError
 import sttp.tapir.server.ServerEndpoint
 import sttp.tapir.server.http4s.Http4sServerInterpreter
 import sttp.tapir.server.http4s.ztapir.ZHttp4sServerInterpreter
 import zio._
 import zio.interop.catz.concurrentInstance
-import zio.stream.interop.fs2z._
 import zio.stream.ZStream
+import zio.stream.interop.fs2z._
 
 object Http4sAdapter {
 
@@ -50,6 +51,20 @@ object Http4sAdapter {
     val endpoint  = interpreter.serverEndpoint[R, Fs2Streams[F]](Fs2Streams[F])
     val endpointF = convertHttpEndpointToF[F, R](endpoint)
     Http4sServerInterpreter().toRoutes(endpointF)
+  }
+
+  /**
+   * Creates a route which serves the GraphiQL UI from CDN.
+   *
+   * @param apiPath The path at which the API can be introspected.
+   *
+   * @see [[https://github.com/graphql/graphiql/tree/main/examples/graphiql-cdn]]
+   */
+  def makeGraphiqlService[F[_]: Async](apiPath: String): HttpRoutes[F] = {
+    implicit val F: CatsMonadError[F] = new CatsMonadError[F]
+    Http4sServerInterpreter().toRoutes(
+      HttpInterpreter.makeGraphiqlEndpoint[F](apiPath)
+    )
   }
 
   def makeWebSocketService[R, R1 <: R, E](

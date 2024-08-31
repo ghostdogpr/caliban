@@ -60,17 +60,16 @@ object AuthExampleApp extends ZIOAppDefault {
 
   def run =
     (for {
-      exampleApi     <- ZIO.service[GraphQL[Any]]
-      handlers       <- (exampleApi |+| Authed.api).handlers.map(_ @@ Auth.middleware)
-      graphiqlHandler = GraphiQLHandler.handler(apiPath = "/api/graphql", graphiqlPath = "/graphiql")
-      port           <- Server.install(
-                          Routes(
-                            Method.POST / "api" / "graphql" -> handlers.api,
-                            Method.GET / "graphiql"         -> graphiqlHandler
-                          )
-                        )
-      _              <- ZIO.logInfo(s"Server started on port $port")
-      _              <- ZIO.never
+      exampleApi <- ZIO.service[GraphQL[Any]]
+      handlers   <- (exampleApi |+| Authed.api).handlers.map(_ @@ Auth.middleware)
+      port       <- Server.install(
+                      Routes(
+                        Method.POST / "api" / "graphql" -> handlers.api,
+                        Method.GET / "graphiql"         -> GraphiQLHandler.handler("/api/graphql")
+                      )
+                    )
+      _          <- ZIO.logInfo(s"Server started on port $port")
+      _          <- ZIO.never
     } yield ())
       .provide(
         ExampleService.make(sampleCharacters),
