@@ -38,6 +38,7 @@ lazy val sttp = Seq(
   "com.softwaremill.sttp.client3" %% "zio"  % "3.9.8"
 )
 
+lazy val zioTest = Seq("dev.zio" %% "zio-test" % "2.1.9" % Test)
 // ### App Modules ###
 
 /**
@@ -103,7 +104,7 @@ lazy val posts =
             )
         )
     )
-    .settings(libraryDependencies ++= calibanLib)
+    .settings(libraryDependencies ++= calibanLib ++ zioTest)
 
 lazy val potatoes =
   project
