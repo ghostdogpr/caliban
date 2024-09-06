@@ -53,7 +53,7 @@ jobs:
       - checkout
       - restore_cache:
           key: sbtcache
-      - run: sbt 'set ThisBuild / scalaVersion := "2.12.19"; codegenScriptedScala3'
+      - run: sbt 'set ThisBuild / scalaVersion := "2.12.20"; codegenScriptedScala3'
       - save_cache:
           key: sbtcache
           paths:
