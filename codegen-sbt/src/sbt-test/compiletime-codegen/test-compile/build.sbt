@@ -26,19 +26,20 @@ ThisBuild / crossScalaVersions := allScala
 
 // ### Dependencies ###
 
-lazy val calibanLib: Seq[ModuleID] =
-  sys.props.get("plugin.version") match {
-    case Some(x) => Seq("com.github.ghostdogpr" %% "caliban" % x)
-    case _       => sys.error("""|The system property 'plugin.version' is not defined.
-                           |Specify this property using the scriptedLaunchOpts -D.""".stripMargin)
-  }
+lazy val calibanLib = Seq(
+  "com.github.ghostdogpr" %% "caliban" % Version.pluginVersion,
+  "com.github.ghostdogpr" %% "caliban-tools" % Version.pluginVersion % "compile->compile;test->test"
+)
 
 lazy val sttp = Seq(
   "com.softwaremill.sttp.client3" %% "core" % "3.9.8",
   "com.softwaremill.sttp.client3" %% "zio"  % "3.9.8"
 )
 
-lazy val zioTest = Seq("dev.zio" %% "zio-test" % "2.1.9" % Test)
+lazy val zioTest = Seq(
+  "dev.zio" %% "zio-test" % "2.1.9" % Test,
+  "dev.zio" %% "zio-test-sbt" % "2.1.9" % Test
+)
 // ### App Modules ###
 
 /**
@@ -105,6 +106,7 @@ lazy val posts =
         )
     )
     .settings(libraryDependencies ++= calibanLib ++ zioTest)
+
 
 lazy val potatoes =
   project
