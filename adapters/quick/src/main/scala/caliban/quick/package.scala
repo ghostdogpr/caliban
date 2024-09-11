@@ -62,22 +62,6 @@ package object quick {
         )
       )
 
-    @deprecated("use `routes` instead", "2.6.1")
-    def toApp(
-      apiPath: String,
-      graphiqlPath: Option[String] = None,
-      uploadPath: Option[String] = None,
-      webSocketPath: Option[String] = None
-    )(implicit trace: Trace): IO[CalibanError.ValidationError, HttpApp[R]] =
-      gql.interpreter.map(
-        QuickAdapter(_).toApp(
-          apiPath = apiPath,
-          graphiqlPath = graphiqlPath,
-          uploadPath = uploadPath,
-          webSocketPath = webSocketPath
-        )
-      )
-
     /**
      * Creates a zio-http handler for the GraphQL API
      *

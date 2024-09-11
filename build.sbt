@@ -31,7 +31,7 @@ val zioInteropReactiveVersion = "2.0.2"
 val zioConfigVersion          = "4.0.2"
 val zqueryVersion             = "0.7.5"
 val zioJsonVersion            = "0.7.3"
-val zioHttpVersion            = "3.0.0-RC9"
+val zioHttpVersion            = "3.0.0"
 val zioOpenTelemetryVersion   = "3.0.0-RC21"
 
 Global / onChangedBuildSource := ReloadOnSourceChanges
@@ -746,7 +746,10 @@ lazy val enableMimaSettingsJVM =
   Def.settings(
     mimaFailOnProblem      := enforceMimaCompatibility,
     mimaPreviousArtifacts  := previousStableVersion.value.map(organization.value %% moduleName.value % _).toSet,
-    mimaBinaryIssueFilters := Seq()
+    mimaBinaryIssueFilters := Seq(
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.quick.*"),
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.QuickAdapter.*")
+    )
   )
 
 lazy val enableMimaSettingsJS =
