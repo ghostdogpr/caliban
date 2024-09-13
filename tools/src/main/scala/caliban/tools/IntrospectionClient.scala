@@ -141,6 +141,7 @@ object IntrospectionClient {
         UnionTypeDefinition(
           description,
           name.getOrElse(""),
+          interfaces.map(_.collect { case t: NamedType => t }).getOrElse(Nil),
           Nil,
           possibleTypes.getOrElse(Nil).collect { case NamedType(name, _) =>
             name
