@@ -39,7 +39,7 @@ object ExampleApp extends App {
     } ~ path("ws" / "graphql") {
       adapter.makeWebSocketService(WebSocketInterpreter(interpreter))
     } ~ path("graphiql") {
-      getFromResource("graphiql.html")
+      adapter.makeGraphiqlService("/api/graphql")
     }
 
   val bindingFuture = Http().newServerAt("localhost", 8088).bind(route)

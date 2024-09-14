@@ -1,4 +1,4 @@
-package example.tapir
+package example.tapirtocaliban
 
 import io.circe.generic.auto._
 import sttp.tapir._
@@ -60,7 +60,7 @@ object Endpoints {
 
   def bookAddLogic(book: Book, token: String): IO[String, Unit] =
     if (token != "secret") {
-      ZIO.fail("Unauthorized access!!!11")
+      ZIO.fail("Unauthorized access!!!")
     } else {
       books = book :: books
       ZIO.unit
@@ -68,7 +68,7 @@ object Endpoints {
 
   def bookDeleteLogic(title: String, token: String): IO[String, Unit] =
     if (token != "secret") {
-      ZIO.fail("Unauthorized access!!!11")
+      ZIO.fail("Unauthorized access!!!")
     } else {
       books = books.filterNot(_.title == title)
       ZIO.unit

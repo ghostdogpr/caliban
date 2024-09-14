@@ -13,6 +13,8 @@ import scala.deriving.Mirror
 import scala.util.NotGiven
 
 trait CommonArgBuilderDerivation {
+  import caliban.syntax.*
+
   transparent inline def recurseSum[P, Label <: Tuple, A <: Tuple](
     inline values: List[(String, List[Any], ArgBuilder[Any])] = Nil
   ): List[(String, List[Any], ArgBuilder[Any])] =
@@ -150,7 +152,7 @@ trait CommonArgBuilderDerivation {
       val arr = Array.ofDim[Any](l)
       while (i < l) {
         val (label, default, builder) = params(i)
-        val field                     = fields.getOrElse(label, null)
+        val field                     = fields.getOrElseNull(label)
         val value                     = if (field ne null) builder.build(field) else default
         value match {
           case Right(v) => arr(i) = v

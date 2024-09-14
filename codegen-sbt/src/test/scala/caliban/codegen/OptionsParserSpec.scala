@@ -31,6 +31,7 @@ object OptionsParserSpec extends ZIOSpecDefault {
                 None,
                 None,
                 None,
+                None,
                 None
               )
             )
@@ -61,6 +62,7 @@ object OptionsParserSpec extends ZIOSpecDefault {
                 None,
                 None,
                 None,
+                None,
                 None
               )
             )
@@ -76,6 +78,7 @@ object OptionsParserSpec extends ZIOSpecDefault {
                 Options(
                   "schema",
                   "output",
+                  None,
                   None,
                   None,
                   None,
@@ -141,6 +144,7 @@ object OptionsParserSpec extends ZIOSpecDefault {
                   None,
                   None,
                   None,
+                  None,
                   None
                 )
               )
@@ -160,6 +164,7 @@ object OptionsParserSpec extends ZIOSpecDefault {
                   None,
                   None,
                   Some("GraphqlClient.scala"),
+                  None,
                   None,
                   None,
                   None,
@@ -203,6 +208,7 @@ object OptionsParserSpec extends ZIOSpecDefault {
                   None,
                   None,
                   None,
+                  None,
                   None
                 )
               )
@@ -223,6 +229,7 @@ object OptionsParserSpec extends ZIOSpecDefault {
                   None,
                   None,
                   Some(true),
+                  None,
                   None,
                   None,
                   None,
@@ -265,6 +272,7 @@ object OptionsParserSpec extends ZIOSpecDefault {
                   None,
                   None,
                   None,
+                  None,
                   None
                 )
               )
@@ -287,6 +295,7 @@ object OptionsParserSpec extends ZIOSpecDefault {
                   None,
                   None,
                   Some(Map("Long" -> "scala.Long")),
+                  None,
                   None,
                   None,
                   None,
@@ -327,6 +336,7 @@ object OptionsParserSpec extends ZIOSpecDefault {
                   None,
                   None,
                   None,
+                  None,
                   None
                 )
               )
@@ -351,6 +361,7 @@ object OptionsParserSpec extends ZIOSpecDefault {
                   None,
                   None,
                   Some(true),
+                  None,
                   None,
                   None,
                   None,
@@ -389,6 +400,7 @@ object OptionsParserSpec extends ZIOSpecDefault {
                   None,
                   None,
                   None,
+                  None,
                   None
                 )
               )
@@ -406,6 +418,7 @@ object OptionsParserSpec extends ZIOSpecDefault {
                   "output",
                   Some("fmtPath"),
                   Some(List(Header("aaa", "bbb:ccc"))),
+                  None,
                   None,
                   None,
                   None,
@@ -451,7 +464,40 @@ object OptionsParserSpec extends ZIOSpecDefault {
                   None,
                   None,
                   None,
-                  Some(true)
+                  Some(true),
+                  None
+                )
+              )
+          )
+        }
+      },
+      test("provide supportDeprecatedArgs & supportIsRepeatable") {
+        val input = List("schema", "output", "--supportDeprecatedArgs", "false", "--supportIsRepeatable", "false")
+        OptionsParser.fromArgs(input).map { result =>
+          assertTrue(
+            result ==
+              Some(
+                Options(
+                  "schema",
+                  "output",
+                  None,
+                  None,
+                  None,
+                  None,
+                  None,
+                  None,
+                  None,
+                  None,
+                  None,
+                  None,
+                  None,
+                  None,
+                  None,
+                  Some(false),
+                  None,
+                  None,
+                  None,
+                  Some(false)
                 )
               )
           )

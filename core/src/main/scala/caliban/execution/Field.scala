@@ -43,24 +43,25 @@ case class Field(
 ) { self =>
   lazy val locationInfo: LocationInfo = _locationInfo()
 
-  private[caliban] val aliasedName: String = alias.getOrElse(name)
+  private[caliban] val aliasedName: String =
+    if (alias.isEmpty) name else alias.get
 
-  private[caliban] lazy val allFieldsUniqueNameAndCondition: Boolean = {
-    def inner: Boolean = {
-      val set           = new mutable.HashSet[String]
-      val headCondition = fields.head._condition
-      val _             = set.add(fields.head.aliasedName)
+  // TODO: Change the name to `allConditionsUnique` in the next minor version
+  private[caliban] def allFieldsUniqueNameAndCondition: Boolean =
+    fields.isEmpty || fields.tail.isEmpty || allConditionsUniqueLazy
 
-      var remaining = fields.tail
-      var result    = true
-      while ((remaining ne Nil) && result) {
-        val f = remaining.head
-        result = set.add(f.aliasedName) && f._condition == headCondition
-        remaining = remaining.tail
-      }
-      result
+  private lazy val allConditionsUniqueLazy: Boolean = {
+    val headCondition = fields.head._condition
+    var rem           = fields.tail
+    var res           = true
+    val nil           = Nil
+    while ((rem ne nil) && res) {
+      val f = rem.head
+      if (f._condition == headCondition)
+        rem = rem.tail
+      else res = false
     }
-    fields.isEmpty || fields.tail.isEmpty || inner
+    res
   }
 
   def combine(other: Field): Field =
@@ -153,7 +154,10 @@ object Field {
         case F(alias, name, arguments, directives, selectionSet, index) =>
           val selected = innerType.getFieldOrNull(name)
 
-          val schemaDirectives   = if (selected eq null) Nil else selected.directives.getOrElse(Nil)
+          val schemaDirectives =
+            if ((selected eq null) || selected.directives.isEmpty) Nil
+            else selected.directives.get
+
           val resolvedDirectives =
             (directives ::: schemaDirectives).map(resolveDirectiveVariables(variableValues, variableDefinitionsMap))
 

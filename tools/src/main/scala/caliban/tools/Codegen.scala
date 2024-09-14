@@ -80,7 +80,16 @@ object Codegen {
 
   def generate(arguments: Options, genType: GenType): Task[List[File]] =
     generate(
-      getSchemaLoader(arguments.schemaPath, arguments.headers, arguments.supportIsRepeatable.getOrElse(true)),
+      getSchemaLoader(
+        arguments.schemaPath,
+        arguments.headers, {
+          val default = IntrospectionClient.Config.default
+          IntrospectionClient.Config(
+            supportDeprecatedArgs = arguments.supportDeprecatedArgs.getOrElse(default.supportDeprecatedArgs),
+            supportIsRepeatable = arguments.supportIsRepeatable.getOrElse(default.supportIsRepeatable)
+          )
+        }
+      ),
       arguments,
       genType
     )
@@ -88,9 +97,9 @@ object Codegen {
   private def getSchemaLoader(
     path: String,
     schemaPathHeaders: Option[List[Options.Header]],
-    supportIsRepeatable: Boolean
+    config: IntrospectionClient.Config
   ): SchemaLoader =
-    if (path.startsWith("http")) SchemaLoader.fromIntrospection(path, schemaPathHeaders, supportIsRepeatable)
+    if (path.startsWith("http")) SchemaLoader.fromIntrospection(path, schemaPathHeaders, config)
     else SchemaLoader.fromFile(path)
 
   def getPackageAndObjectName(arguments: Options): (Option[String], String) = {

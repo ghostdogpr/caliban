@@ -15,7 +15,8 @@ trait Config {
     enableFmt: Boolean = true,
     extensibleEnums: Boolean = false,
     supportIsRepeatable: Boolean = true,
-    excludeDeprecated: Boolean = false
+    excludeDeprecated: Boolean = false,
+    supportDeprecatedArgs: Boolean = true
   ) {
     private[caliban] def toCalibanCommonSettings: CalibanCommonSettings =
       CalibanCommonSettings(
@@ -36,7 +37,8 @@ trait Config {
         supportIsRepeatable = Some(supportIsRepeatable),
         addDerives = None,
         envForDerives = None,
-        excludeDeprecated = Some(excludeDeprecated)
+        excludeDeprecated = Some(excludeDeprecated),
+        supportDeprecatedArgs = Some(supportDeprecatedArgs)
       )
 
     private[caliban] def asScalaCode: String = {
@@ -53,7 +55,8 @@ trait Config {
          |  enableFmt = $enableFmt,
          |  extensibleEnums = $extensibleEnums,
          |  supportIsRepeatable = $supportIsRepeatable,
-         |  excludeDeprecated = $excludeDeprecated
+         |  excludeDeprecated = $excludeDeprecated,
+         |  supportDeprecatedArgs = $supportDeprecatedArgs
          |)
       """.stripMargin.trim
     }

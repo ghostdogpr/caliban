@@ -234,7 +234,9 @@ final private class QuickRequestHandler[R](
       .mapConcatChunk(Chunk.fromArray)
   }
 
-  private def encodeTextEventStream(resp: GraphQLResponse[Any])(implicit trace: Trace): UStream[ServerSentEvent] =
+  private def encodeTextEventStream(
+    resp: GraphQLResponse[Any]
+  )(implicit trace: Trace): UStream[ServerSentEvent[String]] =
     ServerSentEvents.transformResponse(
       resp,
       v => ServerSentEvent(writeToString(v), Some("next")),

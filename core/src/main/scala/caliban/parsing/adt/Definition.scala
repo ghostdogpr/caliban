@@ -81,7 +81,11 @@ object Definition {
       def name: String
       def description: Option[String]
       def directives: List[Directive]
+
+      final def isDeprecated: Boolean             = Directives.isDeprecated(directives)
+      final def deprecationReason: Option[String] = Directives.deprecationReason(directives)
     }
+
     object TypeDefinition {
 
       final case class ObjectTypeDefinition(
@@ -142,7 +146,10 @@ object Definition {
         ofType: Type,
         defaultValue: Option[InputValue],
         directives: List[Directive]
-      )
+      ) {
+        def isDeprecated: Boolean             = Directives.isDeprecated(directives)
+        def deprecationReason: Option[String] = Directives.deprecationReason(directives)
+      }
 
       final case class FieldDefinition(
         description: Option[String],
@@ -150,9 +157,19 @@ object Definition {
         args: List[InputValueDefinition],
         ofType: Type,
         directives: List[Directive]
-      )
+      ) {
+        def isDeprecated: Boolean             = Directives.isDeprecated(directives)
+        def deprecationReason: Option[String] = Directives.deprecationReason(directives)
+      }
 
-      final case class EnumValueDefinition(description: Option[String], enumValue: String, directives: List[Directive])
+      final case class EnumValueDefinition(
+        description: Option[String],
+        enumValue: String,
+        directives: List[Directive]
+      ) {
+        def isDeprecated: Boolean             = Directives.isDeprecated(directives)
+        def deprecationReason: Option[String] = Directives.deprecationReason(directives)
+      }
 
     }
 

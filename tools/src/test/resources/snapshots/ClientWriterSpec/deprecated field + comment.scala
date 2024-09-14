@@ -9,9 +9,9 @@ object Client {
     /**
      * name
      */
-    @deprecated("blah", "")
+    @deprecated("blah")
     def name: SelectionBuilder[Character, String]            = _root_.caliban.client.SelectionBuilder.Field("name", Scalar())
-    @deprecated("", "")
+    @deprecated
     def nicknames: SelectionBuilder[Character, List[String]] =
       _root_.caliban.client.SelectionBuilder.Field("nicknames", ListOf(Scalar()))
   }
