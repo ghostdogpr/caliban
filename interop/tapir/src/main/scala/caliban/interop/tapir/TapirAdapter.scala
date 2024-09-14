@@ -9,11 +9,11 @@ import sttp.model.sse.ServerSentEvent
 import sttp.model.{ headers => _, _ }
 import sttp.monad.MonadError
 import sttp.shared.Identity
+import sttp.tapir.json.jsoniter._
 import sttp.tapir.model.ServerRequest
 import sttp.tapir.server.ServerEndpoint
 import sttp.tapir.ztapir.ZioServerSentEvents
 import sttp.tapir.{ headers, _ }
-import sttp.tapir.json.jsoniter._
 import zio._
 import zio.stream.ZStream
 
