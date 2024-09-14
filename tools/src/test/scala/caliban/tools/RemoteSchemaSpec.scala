@@ -4,10 +4,11 @@ import caliban._
 import caliban.introspection.adt._
 import caliban.schema._
 import caliban.schema.Schema.auto._
+import caliban.schema.ArgBuilder.auto._
 import zio._
 import zio.test.Assertion._
 import zio.test._
-import schema.Annotations._
+import caliban.schema.Annotations._
 import caliban.Macros.gqldoc
 import caliban.execution.Feature
 import caliban.transformers.Transformer
@@ -20,6 +21,8 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
   sealed trait UnionType                extends Product with Serializable
   case class UnionValue1(field: String) extends UnionType
 
+  case class Args(@GQLDeprecated("Use nameV2") name: String = "defaultValue", nameV2: String)
+
   case class Object(
     field: Int,
     optionalField: Option[Float],
@@ -29,7 +32,7 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
   )
 
   object Resolvers {
-    def getObject(arg: String = "defaultValue"): Object =
+    def getObject(args: Args): Object =
       Object(
         field = 1,
         optionalField = None,
@@ -39,7 +42,7 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
   }
 
   case class Queries(
-    getObject: String => Object
+    getObject: Args => Object
   )
 
   val queries = Queries(
@@ -47,12 +50,10 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
   )
 
   val api = graphQL(
-    RootResolver(
-      queries
-    )
+    RootResolver(queries)
   )
 
-  def spec = suite("ParserSpec")(
+  def spec = suite("RemoteSchemaSpec")(
     test("is isomorphic") {
       for {
         introspected <- SchemaLoader.fromCaliban(api).load
@@ -60,7 +61,11 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
         remoteAPI    <- ZIO.succeed(fromRemoteSchema(remoteSchema))
         sdl           = api.render
         remoteSDL     = remoteAPI.render
-      } yield assertTrue(remoteSDL == sdl)
+        res          <- SchemaComparison.compare(
+                          SchemaLoader.fromCaliban(api),
+                          SchemaLoader.fromCaliban(remoteAPI)
+                        )
+      } yield assertTrue(res.isEmpty, sdl == remoteSDL)
     },
     test("properly resolves interface types") {
       @GQLInterface

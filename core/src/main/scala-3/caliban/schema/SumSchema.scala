@@ -20,7 +20,7 @@ final private class SumSchema[R, A](
     val (m, s) = _members
     (
       m.sortBy(_._1),
-      s.toVector,
+      s.toArray,
       s.map(s0 => SchemaUtils.isEmptyUnionObject(s0.toType_())).toArray[Boolean]
     )
   }

@@ -11,6 +11,7 @@ import sttp.capabilities.WebSockets
 import sttp.capabilities.akka.AkkaStreams
 import sttp.capabilities.akka.AkkaStreams.Pipe
 import sttp.model.StatusCode
+import sttp.monad.{ FutureMonad, MonadError }
 import sttp.tapir.PublicEndpoint
 import sttp.tapir.model.ServerRequest
 import sttp.tapir.server.ServerEndpoint
@@ -21,6 +22,8 @@ import zio.stream.ZStream
 import scala.concurrent.{ ExecutionContext, Future }
 
 class AkkaHttpAdapter private (private val options: AkkaHttpServerOptions)(implicit ec: ExecutionContext) {
+  private implicit val monadErrorFuture: MonadError[Future] = new FutureMonad
+
   private val akkaInterpreter = AkkaHttpServerInterpreter(options)(ec)
 
   def makeHttpService[R, E](
@@ -53,6 +56,18 @@ class AkkaHttpAdapter private (private val options: AkkaHttpServerOptions)(impli
             ]
           ]
       )
+    )
+
+  /**
+   * Creates a route which serves the GraphiQL UI from CDN.
+   *
+   * @param apiPath The path at which the API can be introspected.
+   *
+   * @see [[https://github.com/graphql/graphiql/tree/main/examples/graphiql-cdn]]
+   */
+  def makeGraphiqlService(apiPath: String): Route =
+    akkaInterpreter.toRoute(
+      HttpInterpreter.makeGraphiqlEndpoint[Future](apiPath)
     )
 
   private implicit def streamConstructor(implicit

@@ -1,6 +1,6 @@
-package example.tapir
+package example.tapirtocaliban
 
-import example.tapir.Endpoints._
+import example.tapirtocaliban.Endpoints._
 import caliban.interop.tapir._
 import caliban.{ GraphQL, Http4sAdapter }
 import caliban.schema.Schema.auto._
@@ -52,7 +52,7 @@ object ExampleApp extends CatsApp {
                        .withHttpApp(
                          Router[MyTask](
                            "/api/graphql" -> CORS.policy(Http4sAdapter.makeHttpService(HttpInterpreter(interpreter))),
-                           "/graphiql"    -> Kleisli.liftF(StaticFile.fromResource("/graphiql.html", None))
+                           "/graphiql"    -> Http4sAdapter.makeGraphiqlService("/api/graphql")
                          ).orNotFound
                        )
                        .build

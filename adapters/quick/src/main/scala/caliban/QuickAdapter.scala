@@ -43,7 +43,7 @@ final class QuickAdapter[R] private (requestHandler: QuickRequestHandler[R]) {
       RoutePattern(Method.GET, apiPath)  -> handlers.api
     )
     val graphiqlRoute = graphiqlPath.toList.map { uiPath =>
-      RoutePattern(Method.GET, uiPath) -> GraphiQLHandler.handler(apiPath, uiPath)
+      RoutePattern(Method.GET, uiPath) -> GraphiQLHandler.handler(apiPath)
     }
     val uploadRoute   = uploadPath.toList.map { uPath =>
       RoutePattern(Method.POST, uPath) -> handlers.upload
@@ -53,15 +53,6 @@ final class QuickAdapter[R] private (requestHandler: QuickRequestHandler[R]) {
     }
     Routes.fromIterable(apiRoutes ::: graphiqlRoute ::: uploadRoute ::: wsRoute)
   }
-
-  @deprecated("Use `routes` instead", "2.6.1")
-  def toApp(
-    apiPath: String,
-    graphiqlPath: Option[String] = None,
-    uploadPath: Option[String] = None,
-    webSocketPath: Option[String] = None
-  ): HttpApp[R] =
-    HttpApp(routes(apiPath, graphiqlPath, uploadPath, webSocketPath))
 
   /**
    * Runs the server using the default zio-http server configuration on the specified port.

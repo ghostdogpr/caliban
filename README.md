@@ -38,6 +38,7 @@ Want to see your company here? [Submit a PR](https://github.com/ghostdogpr/calib
 * [Devsisters](https://www.devsisters.com)
 * [Fugo.ai](https://www.fugo.ai)
 * [LeadIQ](https://leadiq.com)
+* [Norwegian Agency for Shared Services in Education and Research](https://sikt.no/en/home)
 * [Sanjagh.pro](https://sanjagh.pro)
 * [Soundtrack Your Brand](https://www.soundtrackyourbrand.com)
 * [StepZen](https://www.stepzen.com)

@@ -150,8 +150,17 @@ object IntrospectionClient {
         arguments = List(Argument("includeDeprecated", includeDeprecated, "Boolean"))
       )
     def inputFields[A](innerSelection: SelectionBuilder[__InputValue, A]): SelectionBuilder[__Type, Option[List[A]]] =
-      Field("inputFields", OptionOf(ListOf(Obj(innerSelection))))
-    def ofType[A](innerSelection: SelectionBuilder[__Type, A]): SelectionBuilder[__Type, Option[A]]                  =
+      inputFields(None)(innerSelection)
+    def inputFields[A](includeDeprecated: Option[Boolean])(
+      innerSelection: SelectionBuilder[__InputValue, A]
+    ): SelectionBuilder[__Type, Option[List[A]]] =
+      Field(
+        "inputFields",
+        OptionOf(ListOf(Obj(innerSelection))),
+        arguments = List(Argument("includeDeprecated", includeDeprecated, "Boolean"))
+      )
+
+    def ofType[A](innerSelection: SelectionBuilder[__Type, A]): SelectionBuilder[__Type, Option[A]] =
       Field("ofType", OptionOf(Obj(innerSelection)))
   }
 
@@ -160,7 +169,15 @@ object IntrospectionClient {
     def name: SelectionBuilder[__Field, String]                                                        = Field("name", Scalar())
     def description: SelectionBuilder[__Field, Option[String]]                                         = Field("description", OptionOf(Scalar()))
     def args[A](innerSelection: SelectionBuilder[__InputValue, A]): SelectionBuilder[__Field, List[A]] =
-      Field("args", ListOf(Obj(innerSelection)))
+      args(None)(innerSelection)
+    def args[A](
+      includeDeprecated: Option[Boolean]
+    )(innerSelection: SelectionBuilder[__InputValue, A]): SelectionBuilder[__Field, List[A]] =
+      Field(
+        "args",
+        ListOf(Obj(innerSelection)),
+        arguments = List(Argument("includeDeprecated", includeDeprecated, "Boolean"))
+      )
     def `type`[A](innerSelection: SelectionBuilder[__Type, A]): SelectionBuilder[__Field, A]           =
       Field("type", Obj(innerSelection))
     def isDeprecated: SelectionBuilder[__Field, Boolean]                                               = Field("isDeprecated", Scalar())
@@ -173,6 +190,9 @@ object IntrospectionClient {
     def description: SelectionBuilder[__InputValue, Option[String]]                               = Field("description", OptionOf(Scalar()))
     def `type`[A](innerSelection: SelectionBuilder[__Type, A]): SelectionBuilder[__InputValue, A] =
       Field("type", Obj(innerSelection))
+    def isDeprecated: SelectionBuilder[__InputValue, Boolean]                                     = Field("isDeprecated", Scalar())
+    def deprecationReason: SelectionBuilder[__InputValue, Option[String]]                         =
+      Field("deprecationReason", OptionOf(Scalar()))
     def defaultValue: SelectionBuilder[__InputValue, Option[String]]                              = Field("defaultValue", OptionOf(Scalar()))
   }
 

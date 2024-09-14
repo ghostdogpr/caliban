@@ -218,6 +218,15 @@ object ClientWriterSpec extends SnapshotTest {
              }
             """)
       },
+      snapshotTest("input object with deprecated fields") {
+        gen("""
+             input CharacterInput {
+               name: String!
+               nickname: String @deprecated
+               address: String @deprecated(reason: "no longer used")
+             }
+            """)
+      },
       snapshotTest("union") {
         gen("""
              union Role = Captain_ | Pilot
@@ -251,6 +260,26 @@ object ClientWriterSpec extends SnapshotTest {
                name: String! @deprecated(reason: "foo\nbar")
              }
             """)
+      },
+      snapshotTest("deprecated field argument + comment") {
+        gen("""
+             type Query {
+                characters(
+                  first: Int!,
+                  last: Int @deprecated(reason: "foo bar"),
+                  origins: [String] @deprecated
+                ): String
+            }""")
+      },
+      snapshotTest("deprecated field argument + comment newline") {
+        gen("""
+             type Query {
+                characters(
+                  first: Int!,
+                  last: Int @deprecated(reason: "foo\nbar"),
+                  origins: [String] @deprecated
+                ): String
+            }""")
       },
       snapshotTest("default arguments for optional and list arguments") {
         gen("""

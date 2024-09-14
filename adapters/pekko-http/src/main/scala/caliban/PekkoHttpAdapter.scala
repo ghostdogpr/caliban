@@ -11,6 +11,7 @@ import sttp.capabilities.WebSockets
 import sttp.capabilities.pekko.PekkoStreams
 import sttp.capabilities.pekko.PekkoStreams.Pipe
 import sttp.model.StatusCode
+import sttp.monad.{ FutureMonad, MonadError }
 import sttp.tapir.PublicEndpoint
 import sttp.tapir.model.ServerRequest
 import sttp.tapir.server.ServerEndpoint
@@ -21,6 +22,8 @@ import zio.stream.ZStream
 import scala.concurrent.{ ExecutionContext, Future }
 
 class PekkoHttpAdapter private (val options: PekkoHttpServerOptions)(implicit ec: ExecutionContext) {
+  private implicit val monadErrorFuture: MonadError[Future] = new FutureMonad
+
   private val pekkoInterpreter = PekkoHttpServerInterpreter(options)(ec)
 
   def makeHttpService[R, E](
@@ -54,6 +57,16 @@ class PekkoHttpAdapter private (val options: PekkoHttpServerOptions)(implicit ec
           ]
       )
     )
+
+  /**
+   * Creates a route which serves the GraphiQL UI from CDN.
+   *
+   * @param apiPath The path at which the API can be introspected.
+   *
+   * @see [[https://github.com/graphql/graphiql/tree/main/examples/graphiql-cdn]]
+   */
+  def makeGraphiqlService(apiPath: String): Route =
+    pekkoInterpreter.toRoute(HttpInterpreter.makeGraphiqlEndpoint[Future](apiPath))
 
   private implicit def streamConstructor(implicit
     runtime: Runtime[Any],
