@@ -389,9 +389,9 @@ object Executor {
       deferred: AtomicReference[List[Deferred[R]]]
     ): URQuery[R, ResponseValue] = {
 
-      def handleError(error: ExecutionError): UQuery[ResponseValue] = {
+      def handleError(error: ExecutionError): ResponseValue = {
         errors.updateAndGet(error :: _)
-        nullValueQuery
+        NullValue
       }
 
       def wrap(query: ExecutionQuery[ResponseValue], isPure: Boolean, fieldInfo: FieldInfo) = {
@@ -420,7 +420,7 @@ object Executor {
 
       def objectFieldQuery(step: ReducedStep[R], info: FieldInfo, isPure: Boolean = false) = {
         val q = wrap(loop(step), isPure, info)
-        if (info.details.fieldType.isNullable) q.catchAll(handleError) else q
+        if (info.details.fieldType.isNullable) q.fold(handleError, identity) else q
       }
 
       def makeObjectQuery(
@@ -504,7 +504,10 @@ object Executor {
       }
 
       def makeListQuery(steps: List[ReducedStep[R]], areItemsNullable: Boolean): ExecutionQuery[ResponseValue] =
-        collectAll(steps, isTopLevelField = false)(if (areItemsNullable) loop(_).catchAll(handleError) else loop(_))
+        collectAll(steps, isTopLevelField = false)(
+          if (areItemsNullable) loop(_).fold(handleError, identity)
+          else loop(_)
+        )
           .map(ListValue.apply)
 
       def loop(step: ReducedStep[R], isTopLevelField: Boolean = false): ExecutionQuery[ResponseValue] =
@@ -518,7 +521,7 @@ object Executor {
               .environmentWith[R](env =>
                 ResponseValue.StreamValue(
                   stream.mapChunksZIO { chunk =>
-                    collectAll(chunk, isTopLevelField)(loop(_).catchAll(_ => nullValueQuery)).run
+                    collectAll(chunk, isTopLevelField)(loop(_).catchAllZIO(_ => nullValueExit)).run
                   }.provideEnvironment(env)
                 )
               )
@@ -530,7 +533,7 @@ object Executor {
             loop(obj)
         }
 
-      loop(step, isTopLevelField = true).catchAll(handleError)
+      loop(step, isTopLevelField = true).fold(handleError, identity)
     }
   }
 
@@ -546,7 +549,7 @@ object Executor {
       case other                                     => Cause.fail(ExecutionError("Effect failure", path.reverse, locationInfo, other))
     }
 
-  private val nullValueQuery = ZQuery.succeedNow(NullValue)
+  private val nullValueExit = Exit.succeed(NullValue)
 
   // The implicit classes below are for methods that don't exist in Scala 2.12 so we add them as syntax methods instead
   private implicit class EnrichedListOps[+A](private val list: List[A]) extends AnyVal {
