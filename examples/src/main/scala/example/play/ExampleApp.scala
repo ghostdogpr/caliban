@@ -13,8 +13,6 @@ import play.core.server.{ PekkoHttpServer, ServerConfig }
 import zio.{ Runtime, Scope, ZIO, ZIOAppDefault }
 
 object ExampleApp extends ZIOAppDefault {
-  import sttp.tapir.json.play._
-
   implicit val zioRuntime: Runtime[Any] = Runtime.default
 
   override def run: ZIO[Scope, Throwable, Unit] =

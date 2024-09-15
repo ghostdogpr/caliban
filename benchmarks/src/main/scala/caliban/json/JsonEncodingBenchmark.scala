@@ -1,8 +1,6 @@
 package caliban.json
 
 import caliban.Value._
-import caliban.interop.circe.json.GraphQLResponseCirce.{ graphQLResponseEncoder => circeEncoder }
-import caliban.interop.zio.GraphQLResponseZioJson.{ graphQLResponseEncoder => zioEncoder }
 import caliban.{ GraphQLResponse, ResponseValue }
 import com.github.plokhotnyuk.jsoniter_scala.core._
 import org.openjdk.jmh.annotations._
@@ -48,12 +46,6 @@ class JsonEncodingBenchmark {
   private val testData: GraphQLResponse[Any] = GraphQLResponse(mkObject(5, 20), Nil, None)
 
   @Benchmark
-  def circe(): Unit = circeEncoder(testData).noSpaces
-
-  @Benchmark
   def jsoniter(): Unit = writeToString(testData)
-
-  @Benchmark
-  def zio(): Unit = zioEncoder.encodeJson(testData)
 
 }

@@ -4,10 +4,9 @@ import akka.actor.ActorSystem
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.server.Directives._
 import caliban.interop.tapir.{ HttpInterpreter, WebSocketInterpreter }
-import caliban.{ AkkaHttpAdapter, CalibanError, GraphQL, GraphQLInterpreter }
+import caliban.{ AkkaHttpAdapter, GraphQL }
 import example.ExampleData.sampleCharacters
 import example.{ ExampleApi, ExampleService }
-import sttp.tapir.json.circe._
 import zio.{ Runtime, Unsafe, ZIO, ZLayer }
 
 import scala.concurrent.ExecutionContextExecutor

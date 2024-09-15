@@ -2,11 +2,8 @@ package caliban
 
 import caliban.ResponseValue._
 import caliban.Value._
-import caliban.interop.circe._
-import caliban.interop.jsoniter.IsJsoniterCodec
-import caliban.interop.play.{ IsPlayJsonReads, IsPlayJsonWrites }
 import caliban.interop.tapir.IsTapirSchema
-import caliban.interop.zio.IsZIOJsonCodec
+import com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec
 
 import scala.collection.mutable.ListBuffer
 
@@ -55,18 +52,10 @@ case class GraphQLResponse[+E](
 }
 
 object GraphQLResponse {
-  implicit def circeEncoder[F[_]: IsCirceEncoder, E]: F[GraphQLResponse[E]]     =
-    caliban.interop.circe.json.GraphQLResponseCirce.graphQLResponseEncoder.asInstanceOf[F[GraphQLResponse[E]]]
-  implicit def circeDecoder[F[_]: IsCirceDecoder, E]: F[GraphQLResponse[E]]     =
-    caliban.interop.circe.json.GraphQLResponseCirce.graphQLResponseDecoder.asInstanceOf[F[GraphQLResponse[E]]]
-  implicit def zioJsonCodec[F[_]: IsZIOJsonCodec, E]: F[GraphQLResponse[E]]     =
-    caliban.interop.zio.GraphQLResponseZioJson.graphQLResponseCodec.asInstanceOf[F[GraphQLResponse[E]]]
-  implicit def tapirSchema[F[_]: IsTapirSchema, E]: F[GraphQLResponse[E]]       =
+  implicit def tapirSchema[F[_]: IsTapirSchema, E]: F[GraphQLResponse[E]] =
     caliban.interop.tapir.schema.responseSchema.asInstanceOf[F[GraphQLResponse[E]]]
-  implicit def jsoniterCodec[F[_]: IsJsoniterCodec, E]: F[GraphQLResponse[E]]   =
-    caliban.interop.jsoniter.GraphQLResponseJsoniter.graphQLResponseCodec.asInstanceOf[F[GraphQLResponse[E]]]
-  implicit def playJsonWrites[F[_]: IsPlayJsonWrites, E]: F[GraphQLResponse[E]] =
-    caliban.interop.play.json.GraphQLResponsePlayJson.graphQLResponseWrites.asInstanceOf[F[GraphQLResponse[E]]]
-  implicit def playJsonReads[F[_]: IsPlayJsonReads, E]: F[GraphQLResponse[E]]   =
-    caliban.interop.play.json.GraphQLResponsePlayJson.graphQLResponseReads.asInstanceOf[F[GraphQLResponse[E]]]
+
+  private[caliban] implicit def jsoniterCodec[E]: JsonValueCodec[GraphQLResponse[E]] =
+    caliban.interop.jsoniter.GraphQLResponseJsoniter.graphQLResponseCodec
+      .asInstanceOf[JsonValueCodec[GraphQLResponse[E]]]
 }

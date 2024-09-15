@@ -1,6 +1,5 @@
 package caliban.execution
 
-import java.util.UUID
 import caliban.CalibanError.ExecutionError
 import caliban.InputValue.ObjectValue
 import caliban.Macros.gqldoc
@@ -13,6 +12,7 @@ import caliban.schema.Annotations.{ GQLInterface, GQLName, GQLOneOfInput, GQLVal
 import caliban.schema.ArgBuilder.auto._
 import caliban.schema.Schema.auto._
 import caliban.schema._
+import com.github.plokhotnyuk.jsoniter_scala.core._
 import zio._
 import zio.stream.ZStream
 import zio.test._
@@ -174,7 +174,6 @@ object ExecutionSpec extends ZIOSpecDefault {
         }
       },
       test("tolerate missing variables") {
-        import io.circe.syntax._
 
         case class Args(term: String, id: Option[String])
         case class Test(getId: Args => Option[String])
@@ -182,7 +181,8 @@ object ExecutionSpec extends ZIOSpecDefault {
         val query = """query test($term: String!, $id: String) { getId(term: $term, id: $id) }"""
 
         api.interpreter.flatMap(_.execute(query, None, Map("term" -> StringValue("search")))).map { response =>
-          assertTrue(response.asJson.noSpaces == """{"data":{"getId":null}}""")
+          val respStr = writeToString(response)
+          assertTrue(respStr == """{"data":{"getId":null}}""")
         }
       },
       test("default values for variables in directives") {
@@ -203,7 +203,8 @@ object ExecutionSpec extends ZIOSpecDefault {
             |""".stripMargin
 
         api.interpreter.flatMap(_.execute(query, None, Map())).map { response =>
-          assertTrue(response.asJson.noSpaces == """{"data":{"test":{"field1":"1234"}}}""")
+          val resp = writeToString(response)
+          assertTrue(resp == """{"data":{"test":{"field1":"1234"}}}""")
         }
       },
       test("respects variables that are not provided") {
@@ -273,7 +274,8 @@ object ExecutionSpec extends ZIOSpecDefault {
         val query = """query test { character { name } }"""
 
         api.interpreter.flatMap(_.execute(query, None, Map())).map { response =>
-          assertTrue(response.asJson.noSpaces == """{"data":{"character":{"name":"Bob"}}}""")
+          val resp = writeToString(response)
+          assertTrue(resp == """{"data":{"character":{"name":"Bob"}}}""")
         }
       },
       test("field function with input") {
@@ -286,7 +288,8 @@ object ExecutionSpec extends ZIOSpecDefault {
         val query = """query test { character(name: "Bob") { name }}"""
 
         api.interpreter.flatMap(_.execute(query, None, Map())).map { response =>
-          assertTrue(response.asJson.noSpaces == """{"data":{"character":{"name":"Bob"}}}""")
+          val resp = writeToString(response)
+          assertTrue(resp == """{"data":{"character":{"name":"Bob"}}}""")
         }
       },
       test("""input can contain field named "value"""") {
@@ -306,8 +309,9 @@ object ExecutionSpec extends ZIOSpecDefault {
         api.interpreter
           .flatMap(_.execute(query, None, Map("int" -> IntValue(-1), "value" -> StringValue("str value"))))
           .map { response =>
+            val resp = writeToString(response)
             assertTrue(
-              response.asJson.noSpaces ==
+              resp ==
                 """{"data":null,"errors":[{"message":"-1 is negative","locations":[{"line":1,"column":8}],"path":["q"]}]}"""
             )
           }
@@ -416,8 +420,9 @@ object ExecutionSpec extends ZIOSpecDefault {
         for {
           interpreter <- api.interpreter
           result      <- interpreter.mapError(_ => "my custom error").execute(query)
+          resp         = writeToString(result)
         } yield assertTrue(result.errors == List("my custom error")) &&
-          assertTrue(result.asJson.noSpaces == """{"data":null,"errors":[{"message":"my custom error"}]}""")
+          assertTrue(resp == """{"data":null,"errors":[{"message":"my custom error"}]}""")
       },
       test("customErrorEffectSchema") {
         import io.circe.syntax._
@@ -432,8 +437,9 @@ object ExecutionSpec extends ZIOSpecDefault {
         for {
           interpreter <- api.interpreter
           result      <- interpreter.execute(query)
+          resp         = writeToString(result)
         } yield assertTrue(
-          result.asJson.noSpaces == """{"data":{"test":null},"errors":[{"message":"my custom error 1","locations":[{"line":1,"column":9}],"path":["test"]}]}"""
+          resp == """{"data":{"test":null},"errors":[{"message":"my custom error 1","locations":[{"line":1,"column":9}],"path":["test"]}]}"""
         )
       },
       test("merge 2 APIs") {
@@ -615,8 +621,9 @@ object ExecutionSpec extends ZIOSpecDefault {
         }
       },
       test("zio-json scalar") {
-        import caliban.interop.zio.json._
         import zio.json.ast._
+        import caliban.interop.zio.json._
+
         case class JsonArg(value: Json)
         case class Queries(test: JsonArg => Json)
 

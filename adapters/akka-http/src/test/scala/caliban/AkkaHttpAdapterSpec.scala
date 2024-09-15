@@ -5,18 +5,9 @@ import akka.http.scaladsl.Http
 import akka.http.scaladsl.server.Directives._
 import akka.stream.Materializer
 import caliban.interop.tapir.TestData.sampleCharacters
-import caliban.interop.tapir.{
-  FakeAuthorizationInterceptor,
-  HttpInterpreter,
-  HttpUploadInterpreter,
-  TapirAdapterSpec,
-  TestApi,
-  TestService,
-  WebSocketInterpreter
-}
+import caliban.interop.tapir._
 import caliban.uploads.Uploads
 import sttp.client3.UriContext
-import sttp.tapir.json.circe._
 import zio._
 import zio.test._
 
@@ -40,7 +31,7 @@ object AkkaHttpAdapterSpec extends ZIOSpecDefault {
                            HttpInterpreter(interpreter).intercept(FakeAuthorizationInterceptor.bearer[TestService & Uploads])
                          )(runtime, mat)
                      } ~ path("upload" / "graphql") {
-                       adapter.makeHttpUploadService(HttpUploadInterpreter(interpreter))(runtime, mat, implicitly, implicitly)
+                       adapter.makeHttpUploadService(HttpUploadInterpreter(interpreter))(runtime, mat)
                      } ~ path("ws" / "graphql") {
                        adapter.makeWebSocketService(WebSocketInterpreter(interpreter))(runtime, mat)
                      }

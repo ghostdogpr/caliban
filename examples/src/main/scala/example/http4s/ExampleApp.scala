@@ -16,8 +16,6 @@ import zio._
 import zio.interop.catz._
 
 object ExampleApp extends ZIOAppDefault {
-  import sttp.tapir.json.circe._
-
   private implicit val network: Network[Task] = Network.forAsync
 
   override def run: ZIO[Scope, Throwable, Unit] =

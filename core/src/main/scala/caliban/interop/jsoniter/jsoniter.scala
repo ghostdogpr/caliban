@@ -4,17 +4,9 @@ import caliban.Value._
 import caliban._
 import caliban.parsing.adt.LocationInfo
 import com.github.plokhotnyuk.jsoniter_scala.core._
+import com.github.plokhotnyuk.jsoniter_scala.macros._
 
 import scala.collection.immutable.TreeMap
-
-/**
- * This class is an implementation of the pattern described in https://blog.7mind.io/no-more-orphans.html
- * It makes it possible to mark jsoniter dependency as optional and keep Encoders defined in the companion object.
- */
-private[caliban] trait IsJsoniterCodec[F[_]]
-private[caliban] object IsJsoniterCodec {
-  implicit val isJsoniterCodec: IsJsoniterCodec[JsonValueCodec] = null
-}
 
 /**
  *  Implementation of the custom decoders ported from the jsoniter-circe implementation:
@@ -28,6 +20,7 @@ private[caliban] object IsJsoniterCodec {
  *  `maxDepth` wrapper), prefer using one of the other codecs
  */
 private[caliban] object ValueJsoniter {
+  implicit val stringListCodec: JsonValueCodec[Map[String, List[String]]] = JsonCodecMaker.make
 
   private val emptyInputList      = InputValue.ListValue(Nil)
   private val emptyInputObject    = InputValue.ObjectValue(Map.empty)
@@ -237,7 +230,7 @@ private[caliban] object ValueJsoniter {
     } else Value.FloatValue.BigDecimalNumber(in.readBigDecimal(null).bigDecimal)
   }
 
-  implicit val inputValueCodec: JsonValueCodec[InputValue] = new JsonValueCodec[InputValue] {
+  val inputValueCodec: JsonValueCodec[InputValue] = new JsonValueCodec[InputValue] {
     override def decodeValue(in: JsonReader, default: InputValue): InputValue =
       try decodeInputValue(in)
       catch { case _: StackOverflowError => in.decodeError("depth limit exceeded") }
@@ -247,7 +240,7 @@ private[caliban] object ValueJsoniter {
     override def nullValue: InputValue                                        = NullValue
   }
 
-  implicit val responseValueCodec: JsonValueCodec[ResponseValue] = new JsonValueCodec[ResponseValue] {
+  val responseValueCodec: JsonValueCodec[ResponseValue] = new JsonValueCodec[ResponseValue] {
     override def decodeValue(in: JsonReader, default: ResponseValue): ResponseValue =
       try decodeResponseValue(in)
       catch { case _: StackOverflowError => in.decodeError("depth limit exceeded") }
@@ -259,7 +252,6 @@ private[caliban] object ValueJsoniter {
 }
 
 private[caliban] object ErrorJsoniter {
-  import com.github.plokhotnyuk.jsoniter_scala.macros._
 
   private case class ErrorDTO(
     message: String,
@@ -300,7 +292,7 @@ private[caliban] object ErrorJsoniter {
         null.asInstanceOf[ResponseValue.ObjectValue]
     }
 
-  implicit val errorValueCodec: JsonValueCodec[CalibanError] = new JsonValueCodec[CalibanError] {
+  val errorValueCodec: JsonValueCodec[CalibanError] = new JsonValueCodec[CalibanError] {
     private val dtoCodec: JsonValueCodec[ErrorDTO] = JsonCodecMaker.make
 
     override def decodeValue(in: JsonReader, default: CalibanError): CalibanError = {
@@ -321,46 +313,26 @@ private[caliban] object ErrorJsoniter {
 }
 
 private[caliban] object GraphQLResponseJsoniter {
-  import com.github.plokhotnyuk.jsoniter_scala.macros._
-
   private case class GraphQLResponseDTO(data: ResponseValue, errors: Option[List[CalibanError]])
 
-  implicit val graphQLResponseCodec: JsonValueCodec[GraphQLResponse[CalibanError]] =
-    new JsonValueCodec[GraphQLResponse[CalibanError]] {
+  val graphQLResponseCodec: JsonValueCodec[GraphQLResponse[Any]] =
+    new JsonValueCodec[GraphQLResponse[Any]] {
       private val dtoCodec: JsonValueCodec[GraphQLResponseDTO] = JsonCodecMaker.make
 
       override def decodeValue(
         in: JsonReader,
-        default: GraphQLResponse[CalibanError]
-      ): GraphQLResponse[CalibanError] = {
+        default: GraphQLResponse[Any]
+      ): GraphQLResponse[Any] = {
         val resp = dtoCodec.decodeValue(in, null)
-        GraphQLResponse[CalibanError](
+        GraphQLResponse[Any](
           data = resp.data,
           errors = resp.errors.getOrElse(Nil),
           extensions = None
         )
       }
-      override def encodeValue(x: GraphQLResponse[CalibanError], out: JsonWriter): Unit =
+      override def encodeValue(x: GraphQLResponse[Any], out: JsonWriter): Unit =
         ValueJsoniter.responseValueCodec.encodeValue(x.toResponseValue, out)
-      override def nullValue: GraphQLResponse[CalibanError]                             =
-        null.asInstanceOf[GraphQLResponse[CalibanError]]
+      override def nullValue: GraphQLResponse[Any]                             =
+        null.asInstanceOf[GraphQLResponse[Any]]
     }
-}
-
-private[caliban] object GraphQLRequestJsoniter {
-  import com.github.plokhotnyuk.jsoniter_scala.macros._
-
-  implicit val graphQLRequestCodec: JsonValueCodec[GraphQLRequest] = JsonCodecMaker.make
-}
-
-private[caliban] object GraphQLWSInputJsoniter {
-  import com.github.plokhotnyuk.jsoniter_scala.macros._
-
-  implicit val graphQLWSInputCodec: JsonValueCodec[GraphQLWSInput] = JsonCodecMaker.make
-}
-
-private[caliban] object GraphQLWSOutputJsoniter {
-  import com.github.plokhotnyuk.jsoniter_scala.macros._
-
-  implicit val graphQLWSOuputCodec: JsonValueCodec[GraphQLWSOutput] = JsonCodecMaker.make
 }

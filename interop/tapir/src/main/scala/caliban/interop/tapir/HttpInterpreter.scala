@@ -6,7 +6,6 @@ import sttp.capabilities.Streams
 import sttp.model.{ headers => _, _ }
 import sttp.monad.MonadError
 import sttp.shared.Identity
-import sttp.tapir.Codec.JsonCodec
 import sttp.tapir._
 import sttp.tapir.model.ServerRequest
 import sttp.tapir.server.ServerEndpoint
@@ -65,10 +64,7 @@ sealed trait HttpInterpreter[-R, E] { self =>
 }
 
 object HttpInterpreter {
-  private case class Base[R, E](interpreter: GraphQLInterpreter[R, E])(implicit
-    requestCodec: JsonCodec[GraphQLRequest],
-    responseValueCodec: JsonCodec[ResponseValue]
-  ) extends HttpInterpreter[R, E] {
+  private case class Base[R, E](interpreter: GraphQLInterpreter[R, E]) extends HttpInterpreter[R, E] {
     def endpoints[S](
       streams: Streams[S]
     ): List[PublicEndpoint[(GraphQLRequest, ServerRequest), TapirResponse, CalibanResponse[streams.BinaryStream], S]] =
@@ -129,19 +125,15 @@ object HttpInterpreter {
       interpreter.executeRequest(graphQLRequest, serverRequest).provideSome[R1](ZLayer.succeed(serverRequest), layer)
   }
 
-  def apply[R, E](interpreter: GraphQLInterpreter[R, E])(implicit
-    requestCodec: JsonCodec[GraphQLRequest],
-    responseValueCodec: JsonCodec[ResponseValue]
-  ): HttpInterpreter[R, E] =
+  def apply[R, E](interpreter: GraphQLInterpreter[R, E]): HttpInterpreter[R, E] =
     Base(interpreter)
 
-  def makeHttpEndpoints[S](streams: Streams[S])(implicit
-    requestCodec: JsonCodec[GraphQLRequest],
-    responseValueCodec: JsonCodec[ResponseValue]
+  def makeHttpEndpoints[S](
+    streams: Streams[S]
   ): List[PublicEndpoint[(GraphQLRequest, ServerRequest), TapirResponse, CalibanResponse[streams.BinaryStream], S]] = {
     def queryFromQueryParams(queryParams: QueryParams): DecodeResult[GraphQLRequest] =
       for {
-        req <- requestCodec.decode(s"""{"query":"","variables":${queryParams
+        req <- JsonCodecs.requestCodec.decode(s"""{"query":"","variables":${queryParams
                    .get("variables")
                    .getOrElse("null")},"extensions":${queryParams
                    .get("extensions")
@@ -169,10 +161,10 @@ object HttpInterpreter {
                 )
               )
                 DecodeResult.Value(GraphQLRequest(query = Some(body)))
-              else requestCodec.decode(body).flatMap(checkRequest)
+              else JsonCodecs.requestCodec.decode(body).flatMap(checkRequest)
 
             getRequest.map(request => headers.find(isFtv1Header).fold(request)(_ => request.withFederatedTracing))
-          }(request => (Nil, requestCodec.encode(request), QueryParams()))
+          }(request => (Nil, JsonCodecs.requestCodec.encode(request), QueryParams()))
         )
         .in(extractFromRequest(identity))
         .out(header[MediaType](HeaderNames.ContentType))

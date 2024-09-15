@@ -7,6 +7,6 @@ import com.github.plokhotnyuk.jsoniter_scala.macros.JsonCodecMaker
 case class GraphQLWSResponse(`type`: String, id: Option[String], payload: Option[__ObjectValue])
 
 object GraphQLWSResponse {
-  implicit val graphQLWSResponseEncoder: JsonValueCodec[GraphQLWSResponse] =
+  private[caliban] implicit val graphQLWSResponseEncoder: JsonValueCodec[GraphQLWSResponse] =
     JsonCodecMaker.makeCirceLike[GraphQLWSResponse]
 }

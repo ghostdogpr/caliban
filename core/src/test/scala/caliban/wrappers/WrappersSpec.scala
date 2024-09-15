@@ -15,7 +15,7 @@ import caliban.schema.{ ArgBuilder, GenericSchema, Schema }
 import caliban.wrappers.ApolloPersistedQueries.ApolloPersistence
 import caliban.wrappers.Wrapper.{ CombinedWrapper, ExecutionWrapper, FieldWrapper, ValidationWrapper }
 import caliban.wrappers.Wrappers._
-import io.circe.syntax._
+import com.github.plokhotnyuk.jsoniter_scala.core._
 import zio._
 import zio.query.ZQuery
 import zio.test._
@@ -296,7 +296,8 @@ object WrappersSpec extends ZIOSpecDefault {
               interpreter <-
                 (graphQL(RootResolver(Test("ok"))) @@ ApolloPersistedQueries.wrapper).interpreter
               result      <- interpreter.executeRequest(GraphQLRequest(query = Some("{test}")))
-            } yield assertTrue(result.asJson.noSpaces == """{"data":{"test":"ok"}}"""))
+              resp         = writeToString(result)
+            } yield assertTrue(resp == """{"data":{"test":"ok"}}"""))
           },
           test("hash not found") {
             case class Test(test: String)
@@ -311,7 +312,7 @@ object WrappersSpec extends ZIOSpecDefault {
               )
               .map { response =>
                 assertTrue(
-                  response.asJson.noSpaces == """{"data":null,"errors":[{"message":"PersistedQueryNotFound"}]}"""
+                  writeToString(response) == """{"data":null,"errors":[{"message":"PersistedQueryNotFound"}]}"""
                 )
               }
           },
@@ -325,8 +326,8 @@ object WrappersSpec extends ZIOSpecDefault {
               r1          <- interpreter.executeRequest(GraphQLRequest(query = Some("{malicious}"), extensions = extensions))
               r2          <- interpreter.executeRequest(GraphQLRequest(extensions = extensions))
             } yield assertTrue(
-              r1.asJson.noSpaces == """{"data":null,"errors":[{"message":"Provided sha does not match any query"}]}"""
-            ) && assertTrue(r2.asJson.noSpaces == """{"data":null,"errors":[{"message":"PersistedQueryNotFound"}]}"""))
+              writeToString(r1) == """{"data":null,"errors":[{"message":"Provided sha does not match any query"}]}"""
+            ) && assertTrue(writeToString(r2) == """{"data":null,"errors":[{"message":"PersistedQueryNotFound"}]}"""))
           },
           test("hash found") {
             case class Test(test: String)
@@ -335,7 +336,7 @@ object WrappersSpec extends ZIOSpecDefault {
               interpreter <- (graphQL(RootResolver(Test("ok"))) @@ ApolloPersistedQueries.wrapper).interpreter
               _           <- interpreter.executeRequest(GraphQLRequest(query = Some("{test}"), extensions = extensions))
               result      <- interpreter.executeRequest(GraphQLRequest(extensions = extensions))
-            } yield assertTrue(result.asJson.noSpaces == """{"data":{"test":"ok"}}"""))
+            } yield assertTrue(writeToString(result) == """{"data":{"test":"ok"}}"""))
           },
           test("executes first") {
             case class Test(test: String)
@@ -348,7 +349,7 @@ object WrappersSpec extends ZIOSpecDefault {
               _           <- interpreter.executeRequest(GraphQLRequest(query = Some("{test}"), extensions = extensions))
               _           <- shouldFail.set(true)
               result      <- interpreter.executeRequest(GraphQLRequest(extensions = extensions))
-            } yield assertTrue(result.asJson.noSpaces == """{"data":{"test":"ok"}}"""))
+            } yield assertTrue(writeToString(result) == """{"data":{"test":"ok"}}"""))
           },
           test("does not register successful validation if another validation wrapper fails") {
             case class Test(test: String)
@@ -362,8 +363,8 @@ object WrappersSpec extends ZIOSpecDefault {
               second      <- interpreter.executeRequest(GraphQLRequest(extensions = extensions))
             } yield {
               val expected = """{"data":null,"errors":[{"message":"boom"}]}"""
-              assertTrue(first.asJson.noSpaces == expected) && assertTrue(
-                second.asJson.noSpaces == """{"data":null,"errors":[{"message":"PersistedQueryNotFound"}]}"""
+              assertTrue(writeToString(first) == expected) && assertTrue(
+                writeToString(second) == """{"data":null,"errors":[{"message":"PersistedQueryNotFound"}]}"""
               )
             })
           },
@@ -397,12 +398,16 @@ object WrappersSpec extends ZIOSpecDefault {
                 interpreter.executeRequest(GraphQLRequest(variables = Some(invalidTypeVar), extensions = extensions))
               missingVariableTest <-
                 interpreter.executeRequest(GraphQLRequest(variables = Some(missingVar), extensions = extensions))
-            } yield assertTrue(validTest.asJson.noSpaces == """{"data":{"test":"foo"}}""") &&
+            } yield assertTrue(writeToString(validTest) == """{"data":{"test":"foo"}}""") &&
               assertTrue(
-                invalidTypeTest.asJson.noSpaces == """{"data":null,"errors":[{"message":"Variable 'testField' with value 42 cannot be coerced into String."}]}"""
+                writeToString(
+                  invalidTypeTest
+                ) == """{"data":null,"errors":[{"message":"Variable 'testField' with value 42 cannot be coerced into String."}]}"""
               ) &&
               assertTrue(
-                missingVariableTest.asJson.noSpaces == """{"data":null,"errors":[{"message":"Variable 'testField' is null but is specified to be non-null."}]}"""
+                writeToString(
+                  missingVariableTest
+                ) == """{"data":null,"errors":[{"message":"Variable 'testField' is null but is specified to be non-null."}]}"""
               ))
           }
         )
@@ -451,7 +456,7 @@ object WrappersSpec extends ZIOSpecDefault {
         for {
           interpreter <- (gql @@ (maxFields(5).skipForIntrospection |+| maxDepth(1).skipForIntrospection)).interpreter
           result      <- interpreter.executeRequest(GraphQLRequest(query = Some(TestUtils.introspectionQuery)))
-        } yield assertTrue(result.asJson.hcursor.downField("errors").failed)
+        } yield assertTrue(result.errors.isEmpty)
       },
       test("check directives") {
         // setup the annotation
@@ -487,8 +492,8 @@ object WrappersSpec extends ZIOSpecDefault {
           // we don't have the required role, it should fail
           result2     <- interpreter.executeRequest(req).provide(ZLayer.succeed(Context("user")))
         } yield assertTrue(
-          result.asJson.hcursor.downField("errors").failed,
-          result2.asJson.hcursor.downField("errors").succeeded
+          result.errors.isEmpty,
+          result2.errors.nonEmpty
         )
       },
       suite("Empty wrapper")(

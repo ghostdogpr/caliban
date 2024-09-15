@@ -24,7 +24,7 @@ libraryDependencies ++= Seq(
   "io.circe"                      %% "circe-generic"                 % "0.14.6",
   "org.playframework"             %% "play-pekko-http-server"        % "3.0.0",
   "com.typesafe.akka"             %% "akka-actor-typed"              % "2.6.18",
-  "com.softwaremill.sttp.tapir"   %% "tapir-jsoniter-scala"          % "1.9.4"
+  "com.softwaremill.sttp.tapir"   %% "tapir-json-circe"              % "1.9.4"
 )
 ```
 

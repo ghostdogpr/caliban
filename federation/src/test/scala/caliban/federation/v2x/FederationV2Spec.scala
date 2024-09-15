@@ -8,10 +8,11 @@ import caliban.parsing.Parser
 import caliban.parsing.adt.{ Definition, Directive }
 import caliban.schema.Schema.auto._
 import caliban._
+import com.github.plokhotnyuk.jsoniter_scala.core._
+import com.github.plokhotnyuk.jsoniter_scala.circe.JsoniterScalaCodec._
 import io.circe.Json
-import io.circe.parser.decode
 import zio.ZIO
-import zio.test.Assertion.{ hasSameElements, isSome }
+import zio.test.Assertion.hasSameElements
 import zio.test._
 
 object FederationV2Spec extends ZIOSpecDefault {
@@ -224,7 +225,7 @@ object FederationV2Spec extends ZIOSpecDefault {
 
     for {
       interpreter <- f(api).interpreter
-      data        <- interpreter.execute(query).map(resp => decode[Json](resp.data.toString)).absolve
+      data        <- interpreter.execute(query).flatMap(resp => ZIO.attempt(readFromString[Json](resp.data.toString)))
       sdl         <- ZIO.fromEither(data.hcursor.downField("_service").downField("sdl").as[String])
       document    <- ZIO.fromEither(Parser.parseQuery(sdl))
     } yield document.definitions.flatMap {
