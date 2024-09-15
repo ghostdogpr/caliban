@@ -21,11 +21,11 @@ object CharacterService {
   })
 }
 
-object DeferredExecutionSpec extends ZIOSpecDefault {
+object IncrementalDeliverySpec extends ZIOSpecDefault {
 
   import TestDeferredSchema._
 
-  override def spec = suite("Defer Execution")(
+  override def spec = suite("Incremental Delivery")(
     suite("@defer")(
       test("don't defer pure fields") {
 
@@ -329,7 +329,7 @@ object DeferredExecutionSpec extends ZIOSpecDefault {
           errors    = response.errors
         } yield assertTrue(
           errors.size == 1,
-          errors.head.is(_.subtype[ValidationError]).msg == "Stream directive labels must be unique"
+          errors.head.is(_.subtype[ValidationError]).msg == "Stream and defer directive labels must be unique"
         )
       }
     )

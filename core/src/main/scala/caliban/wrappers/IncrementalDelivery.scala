@@ -1,11 +1,10 @@
 package caliban.wrappers
 
 import caliban.execution.{ ExecutionRequest, Feature }
-import caliban.introspection.adt.{ __Directive, __DirectiveLocation, __InputValue, __Type }
+import caliban.introspection.adt.{ __Directive, __Type }
 import caliban.parsing.adt.Definition.ExecutableDefinition.FragmentDefinition
 import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
 import caliban.parsing.adt._
-import caliban.schema.Types
 import caliban.validation.ValidationOps.validateAllDiscard
 import caliban.validation.Validator.{ failValidation, QueryValidation }
 import caliban.wrappers.Wrapper.ValidationWrapper
@@ -17,31 +16,25 @@ import scala.collection.mutable
 
 object IncrementalDelivery {
 
-  private[caliban] val deferDirective = __Directive(
-    Directives.Defer,
-    Some(
-      "Marks a fragment as being optionally deferrable. Allowing the backend to split the query and return non-deferred parts first. This implicitly uses a streaming transport protocol which requires client support."
-    ),
-    Set(__DirectiveLocation.FRAGMENT_SPREAD, __DirectiveLocation.INLINE_FRAGMENT),
-    _ =>
-      List(__InputValue("if", None, () => Types.boolean, None), __InputValue("label", None, () => Types.string, None)),
-    isRepeatable = false
-  )
+  lazy val defer: GraphQLAspect[Nothing, Any]  = aspect(Feature.Defer)
+  lazy val stream: GraphQLAspect[Nothing, Any] = aspect(Feature.Stream)
+  lazy val all: GraphQLAspect[Nothing, Any]    = aspect(Feature.Defer, Feature.Stream)
 
-  private[caliban] val streamDirective = __Directive(
-    Directives.Stream,
-    Some(
-      "Marks a field as being optionally streamable. Allowing the backend to split the returned list value into separate payloads, only returning the first part of the list immediately. This implicitly uses a streaming transport protocol which requires client support."
-    ),
-    Set(__DirectiveLocation.FIELD),
-    _ =>
-      List(
-        __InputValue("if", None, () => Types.boolean, None),
-        __InputValue("initialCount", None, () => Types.int, None),
-        __InputValue("label", None, () => Types.string, None)
-      ),
-    isRepeatable = false
-  )
+  def aspect(feature: Feature, others: Feature*): GraphQLAspect[Nothing, Any] = new GraphQLAspect[Nothing, Any] {
+    private val featureSet    = Set(feature) ++ others
+    private val directiveList = {
+      val directives = List.newBuilder[__Directive]
+      for { f <- featureSet } directives ++= f.directives
+      directives.result()
+    }
+    private val flags         = featureSet.foldLeft(0)(_ | _.mask)
+
+    override def apply[R](gql: GraphQL[R]): GraphQL[R] =
+      gql
+        .enableAll(featureSet)
+        .withAdditionalDirectives(directiveList)
+        .withWrapper(withValidations(flags))
+  }
 
   private val onlyTopLevelQuery: QueryValidation = context => {
     @tailrec
@@ -167,14 +160,14 @@ object IncrementalDelivery {
     }
   }
 
-  private def additionalValidations(features: Set[Feature]) = {
+  private def additionalValidations(features: Feature.Flags) = {
     val streamValidations =
-      if (features(Feature.Stream)) List(appearsOnlyOnLists) else Nil
+      if (Feature.isStreamEnabled(features)) List(appearsOnlyOnLists) else Nil
 
     List(onlyTopLevelQuery, uniqueLabels) ++ streamValidations
   }
 
-  private def withValidations(features: Set[Feature]): Wrapper[Any] = new ValidationWrapper[Any] {
+  private def withValidations(features: Feature.Flags): Wrapper[Any] = new ValidationWrapper[Any] {
     private val validations = additionalValidations(features)
 
     override def wrap[R1 <: Any](
@@ -183,20 +176,6 @@ object IncrementalDelivery {
       Configurator.ref
         .locallyWith(config => config.copy(validations = config.validations ++ validations))(f(doc))
     }
-  }
-
-  def aspect(feature: Feature, others: Feature*): GraphQLAspect[Nothing, Any] = new GraphQLAspect[Nothing, Any] {
-    private val featureSet    = Set(feature) ++ others
-    private val directiveList = List(
-      Some(deferDirective).filter(_ => featureSet(Feature.Defer)),
-      Some(streamDirective).filter(_ => featureSet(Feature.Stream))
-    ).flatten
-
-    override def apply[R](gql: GraphQL[R]): GraphQL[R] =
-      gql
-        .enableAll(featureSet)
-        .withAdditionalDirectives(directiveList)
-        .withWrapper(withValidations(featureSet))
   }
 
 }

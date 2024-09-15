@@ -44,13 +44,13 @@ object Executor {
     transformer: Transformer[R] = Transformer.empty[R]
   )(implicit trace: Trace): URIO[R, GraphQLResponse[CalibanError]] = {
     val wrapPureValues      = fieldWrappers.exists(_.wrapPureValues)
+    val featureFlags        = featureSet.foldLeft(0)(_ | _.mask)
     val stepReducer         =
       new StepReducer[R](
         transformer,
         request.operationType eq OperationType.Subscription,
-        isDeferredEnabled = featureSet(Feature.Defer),
-        isStreamEnabled = featureSet(Feature.Stream),
-        wrapPureValues = wrapPureValues
+        wrapPureValues = wrapPureValues,
+        featureFlags
       )
     val reducedStepExecutor =
       new ReducedStepExecutor[R](
@@ -168,9 +168,8 @@ object Executor {
   private final class StepReducer[R](
     transformer: Transformer[R],
     isSubscription: Boolean,
-    isDeferredEnabled: Boolean,
-    isStreamEnabled: Boolean,
-    wrapPureValues: Boolean
+    wrapPureValues: Boolean,
+    flags: Feature.Flags
   )(implicit trace: Trace) {
 
     def reduceStep(
@@ -192,7 +191,7 @@ object Executor {
 
         val filteredFields    = mergeFields(currentField, objectName)
         val (deferred, eager) =
-          if (isDeferredEnabled) {
+          if (Feature.isDeferEnabled(flags)) {
             filteredFields.partitionMap { f =>
               val entry = reduceField(f)
               f.fragment match {
@@ -292,7 +291,7 @@ object Executor {
           )
         } else {
           currentField match {
-            case IsStream(label, Some(initialCount)) if initialCount > 0 && isStreamEnabled =>
+            case IsStream(label, Some(initialCount)) if initialCount > 0 && Feature.isStreamEnabled(flags) =>
               ReducedStep.QueryStep(
                 ZQuery.fromZIONow(
                   for {
@@ -317,7 +316,7 @@ object Executor {
                   }
                 )
               )
-            case IsStream(label, _) if isStreamEnabled                                      =>
+            case IsStream(label, _) if Feature.isStreamEnabled(flags)                                      =>
               ReducedStep.DeferStreamStep(
                 reduceStep(PureStep(ListValue(Nil)), currentField, arguments, path),
                 ReducedStep.StreamStep(
