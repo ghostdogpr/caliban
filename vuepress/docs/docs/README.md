@@ -112,26 +112,6 @@ If you have any specific server requirements or need to interop with other libra
 "com.github.ghostdogpr" %% "caliban-tracing"    % "2.8.1" // open-telemetry
 ```
 
-Support for JSON encoding / decoding of the inputs and responses for tapir-based adapters is enabled by adding **one** of the following dependencies to your `build.sbt` file:
-
-```scala
-"com.softwaremill.sttp.tapir" %% "tapir-json-circe"     % "1.10.7" // circe
-"com.softwaremill.sttp.tapir" %% "tapir-jsoniter-scala" % "1.10.7" // jsoniter
-"com.softwaremill.sttp.tapir" %% "tapir-json-play"      % "1.10.7" // play-json
-"com.softwaremill.sttp.tapir" %% "tapir-json-zio"       % "1.10.7" // zio-json
-```
-
-And then later in your code (you only need one!):
-
-```scala
-import sttp.tapir.json.circe._
-import sttp.tapir.json.jsoniter._
-import sttp.tapir.json.play._
-import sttp.tapir.json.zio._
-```
-
-For more info on the adapters and the JSON implementations, see [here](adapters.md#json-handling).
-
 ## Where to go next?
 
 The rest of the documentation covers in details how to create [schemas](schema.md), [customize](middleware.md) and [optimize](optimization.md) query processing, [expose](adapters.md) APIs, and much more.

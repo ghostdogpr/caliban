@@ -56,55 +56,6 @@ Want to use something else? Check [make your own adapter section](#make-your-own
 
 Make sure to check the [examples](examples.md) to see the adapters in action.
 
-## Json handling
-
-Caliban comes with JSON encoders and decoders for the following libraries:
-
-- circe
-- jsoniter-scala (JDK 11+ only)
-- play-json
-- zio-json
-
-Since v2.1.0, the adapters are not bound to a specific JSON handler and require the user to add the [corresponding dependency](README.md#interop-with-3rd-party-libraries) in their project and import the implicits in scope when calling the `makeHttpService` / `makeHttpUploadService` / `makeWebSocketService` methods.
-
-Let's say we want to use `http4s` as the server implementation with `zio-json` as the json handler. Defining the http4s route is as simple as:
-
-```scala
-val http4sRoute = {
-  import sttp.tapir.json.zio._
-  Http4sAdapter.makeHttpService(interpreter)
-}
-```
-
-That's it! `http4sRoute` is a valid http4s route ready to serve our API.
-
-If you use another json library, you will need to create encoders and decoders for it (which is very simple, you can simply look at the existing ones).
-The full list of JSON libraries supported by Tapir can be found [here](https://tapir.softwaremill.com/en/latest/endpoint/json.html)
-
-:::tip Known issues: jsoniter-scala
-The `makeHttpUploadService` methods require an implicit of `JsonCodec[Map[String,Seq[String]]]` in scope. Jsoniter does not provide
-codecs for common types by default, which means the user needs to create one. To do so, add the `jsoniter-scala-macros` dependency to your project and create one as:
-
-```scala
-import sttp.tapir.json.jsoniter._
-import com.github.plokhotnyuk.jsoniter_scala.core._
-import com.github.plokhotnyuk.jsoniter_scala.macros._
-
-val http4sRoute = {
-  import sttp.tapir.json.jsoniter._
-  implicit val codec: JsonValueCodec[Map[String, Seq[String]]] = JsonCodecMaker.make
-
-  Http4sAdapter.makeHttpUploadService(interpreter)
-}
-```
-
-::: warning
-To maximize performance, the **jsoniter** codec implementation is stack-recursive. To prevent stack overflow errors, it has a **maximum depth limit of 512**.
-
-If your schema contains recursive types and want to use the jsoniter codecs, make sure to also limit the maximum query depth using
-the [maxDepth wrapper](middleware.md#pre-defined-wrappers).
-:::
-
 ## Make your own adapter
 
 All existing adapters are actually using a common adapter under the hood, called `TapirAdapter`.
@@ -118,7 +69,7 @@ which you can then pass to a tapir interpreter. The returned `ServerEndpoint` us
 ## High-performance `QuickAdapter`
 
 The `QuickAdapter` requires minimal setup and uses [zio-http](https://github.com/zio/zio-http)
-and [jsoniter-scala](https://github.com/plokhotnyuk/jsoniter-scala) without tapir in order to provide the best possible performance.
+without tapir in order to provide the best possible performance.
 
 ### Usage
 

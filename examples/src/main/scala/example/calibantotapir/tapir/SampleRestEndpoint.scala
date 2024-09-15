@@ -1,14 +1,12 @@
 package example.calibantotapir.tapir
 
-import sttp.tapir.ztapir._
-import sttp.tapir.json.jsoniter._
-import zio._
-import sttp.capabilities.zio.ZioStreams
-import io.circe.JsonObject
-import zio.constraintless.Sample
 import com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec
 import com.github.plokhotnyuk.jsoniter_scala.macros.JsonCodecMaker
+import sttp.capabilities.zio.ZioStreams
 import sttp.tapir.Schema
+import sttp.tapir.json.jsoniter._
+import sttp.tapir.ztapir._
+import zio._
 
 object SampleRestEndpoint {
   // NOTE: You can also add the graphiql endpoint in a similar fashion
