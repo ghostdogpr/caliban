@@ -3,28 +3,31 @@ package caliban.interop.tapir
 import caliban.InputValue.ObjectValue
 import caliban.Value.StringValue
 import caliban._
+import com.github.plokhotnyuk.jsoniter_scala.core.{ readFromString, writeToString, JsonValueCodec }
+import com.github.plokhotnyuk.jsoniter_scala.macros.JsonCodecMaker
 import sttp.capabilities.zio.ZioStreams
 import sttp.capabilities.{ Effect, WebSockets }
 import sttp.client3.asynchttpclient.zio.AsyncHttpClientZioBackend
-import sttp.client3.httpclient.zio.SttpClient
 import sttp.client3.impl.zio.ZioServerSentEvents
 import sttp.client3.{ BasicRequestBody, DeserializationException, HttpError, ResponseException, SttpBackend }
 import sttp.model._
 import sttp.model.sse.ServerSentEvent
-import sttp.tapir.Codec.JsonCodec
 import sttp.tapir.client.sttp.SttpClientInterpreter
 import sttp.tapir.client.sttp.ws.zio._
+import sttp.tapir.json.jsoniter._
 import sttp.tapir.model.{ ConnectionInfo, ServerRequest }
 import sttp.tapir.{ AttributeKey, DecodeResult }
-import zio.json._
 import zio.stream.{ ZPipeline, ZSink, ZStream }
 import zio.test.TestAspect.before
 import zio.test._
 import zio.{ test => _, _ }
 
 import scala.language.postfixOps
+import scala.util.Try
 
 object TapirAdapterSpec {
+  private implicit val mapCodec: JsonValueCodec[Map[String, InputValue]] = JsonCodecMaker.make
+
   trait Capabilities extends ZioStreams with WebSockets
 
   case class FakeServerRequest(method: Method, uri: Uri, headers: List[Header] = Nil) extends ServerRequest {
@@ -56,11 +59,6 @@ object TapirAdapterSpec {
     uploadUri: Option[Uri] = None,
     wsUri: Option[Uri] = None,
     sseSupport: Boolean = true
-  )(implicit
-    requestCodec: JsonCodec[GraphQLRequest],
-    responseCodec: JsonCodec[GraphQLResponse[CalibanError]],
-    wsInputCodec: JsonCodec[GraphQLWSInput],
-    wsOutputCodec: JsonCodec[GraphQLWSOutput]
   ): Spec[TestService, Throwable] = suite(label) {
     val httpClient   = new TapirClient(httpUri)
     val uploadClient = uploadUri.map(new TapirClient(_))
@@ -467,14 +465,11 @@ object TapirAdapterSpec {
     before(TestService.reset) @@
     TestAspect.sequential
 
-  private class TapirClient(httpUri: Uri)(implicit
-    requestCodec: JsonCodec[GraphQLRequest],
-    responseCodec: JsonCodec[GraphQLResponse[CalibanError]]
-  ) {
+  private class TapirClient(httpUri: Uri) {
     import sttp.client3._
 
-    implicit def jsonBodySerializer[B](implicit encoder: JsonCodec[B]): BodySerializer[B] =
-      b => StringBody(encoder.encode(b), "UTF-8", MediaType.ApplicationJson)
+    implicit def jsonBodySerializer: BodySerializer[GraphQLRequest] =
+      b => StringBody(JsonCodecs.requestCodec.encode(b), "UTF-8", MediaType.ApplicationJson)
 
     implicit val stringShows: ShowError[String] = (error: String) => error
 
@@ -510,8 +505,8 @@ object TapirAdapterSpec {
               List(
                 request.query.map("query" -> _),
                 request.operationName.map("operationName" -> _),
-                request.variables.map("variables" -> _.toJson),
-                request.extensions.map("extensions" -> _.toJson)
+                request.variables.map("variables" -> writeToString(_)),
+                request.extensions.map("extensions" -> writeToString(_))
               ).flatten
             )
           )
@@ -536,15 +531,13 @@ object TapirAdapterSpec {
         ZPipeline.splitLines >>>
         ZPipeline.map[String, String](_.trim) >>>
         ZPipeline.collect[String, Either[Throwable, ResponseValue]] {
-          case line if line.startsWith("{") =>
-            line.fromJson[ResponseValue].left.map(new Throwable(_))
+          case line if line.startsWith("{") => Try(readFromString[ResponseValue](line)).toEither
         }).absolve >>> ZSink.collectAll[ResponseValue]
 
-    private def asStreamOrSingle(implicit
-      codec: JsonCodec[GraphQLResponse[CalibanError]]
-    ): ResponseAs[Either[ResponseException[String, String], Either[GraphQLResponse[CalibanError], Chunk[
-      ResponseValue
-    ]]], Effect[Task] with ZioStreams] =
+    private def asStreamOrSingle: ResponseAs[
+      Either[ResponseException[String, String], Either[GraphQLResponse[CalibanError], Chunk[ResponseValue]]],
+      Effect[Task] with ZioStreams
+    ] =
       fromMetadata(
         asStringAlways.map(error => Left(HttpError(error, StatusCode.UnprocessableEntity))),
         ConditionalResponseAs(
@@ -558,15 +551,16 @@ object TapirAdapterSpec {
             val mt = MediaType.unsafeParse(ct)
             mt == MediaType.ApplicationJson || mt == MediaType("application", "graphql-response+json")
           },
-          asJsonBody[GraphQLResponse[CalibanError]](codec).mapRight(Left(_))
+          asJsonBody.mapRight(Left(_))
         )
       )
 
-    private def asJsonBody[B: JsonCodec]
-      : ResponseAs[Either[ResponseException[String, String], B], Effect[Task] with ZioStreams] =
+    private def asJsonBody
+      : ResponseAs[Either[ResponseException[String, String], GraphQLResponse[CalibanError]], Effect[Task]
+        with ZioStreams] =
       asString.mapWithMetadata(
         ResponseAs.deserializeRightWithError(
-          implicitly[JsonCodec[B]].decode(_) match {
+          jsoniterCodec[GraphQLResponse[CalibanError]].decode(_) match {
             case _: DecodeResult.Failure => Left("Failed to decode")
             case DecodeResult.Value(v)   => Right(v)
           }

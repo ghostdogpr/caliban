@@ -7,7 +7,6 @@ import caliban.interop.tapir.{ HttpInterpreter, WebSocketInterpreter }
 import caliban.{ GraphQL, PekkoHttpAdapter }
 import example.ExampleData.sampleCharacters
 import example.{ ExampleApi, ExampleService }
-import sttp.tapir.json.circe._
 import zio.{ Runtime, Unsafe, ZIO, ZLayer }
 
 import scala.concurrent.ExecutionContextExecutor

@@ -12,7 +12,6 @@ import sttp.capabilities.akka.AkkaStreams
 import sttp.capabilities.akka.AkkaStreams.Pipe
 import sttp.model.StatusCode
 import sttp.monad.{ FutureMonad, MonadError }
-import sttp.tapir.Codec.JsonCodec
 import sttp.tapir.PublicEndpoint
 import sttp.tapir.model.ServerRequest
 import sttp.tapir.server.ServerEndpoint
@@ -34,9 +33,7 @@ class AkkaHttpAdapter private (private val options: AkkaHttpServerOptions)(impli
 
   def makeHttpUploadService[R, E](interpreter: HttpUploadInterpreter[R, E])(implicit
     runtime: Runtime[R],
-    materializer: Materializer,
-    requestCodec: JsonCodec[GraphQLRequest],
-    mapCodec: JsonCodec[Map[String, Seq[String]]]
+    materializer: Materializer
   ): Route =
     akkaInterpreter.toRoute(interpreter.serverEndpointFuture[AkkaStreams](AkkaStreams)(runtime))
 

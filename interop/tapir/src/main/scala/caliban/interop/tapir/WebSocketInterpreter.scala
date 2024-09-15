@@ -5,7 +5,7 @@ import caliban.interop.tapir.TapirAdapter._
 import caliban.ws.Protocol
 import sttp.capabilities.zio.ZioStreams
 import sttp.model.{ headers => _ }
-import sttp.tapir.Codec.JsonCodec
+import sttp.tapir.json.jsoniter._
 import sttp.tapir._
 import sttp.tapir.model.{ ServerRequest, UnsupportedWebSocketFrameException }
 import sttp.tapir.server.ServerEndpoint
@@ -40,9 +40,6 @@ object WebSocketInterpreter {
     interpreter: GraphQLInterpreter[R, E],
     keepAliveTime: Option[Duration],
     webSocketHooks: ws.WebSocketHooks[R, E]
-  )(implicit
-    inputCodec: JsonCodec[GraphQLWSInput],
-    outputCodec: JsonCodec[GraphQLWSOutput]
   ) extends WebSocketInterpreter[R, E] {
     val endpoint: PublicEndpoint[(ServerRequest, String), TapirResponse, (String, CalibanPipe), ZioWebSockets] =
       makeWebSocketEndpoint
@@ -102,9 +99,6 @@ object WebSocketInterpreter {
     interpreter: GraphQLInterpreter[R, E],
     keepAliveTime: Option[Duration] = None,
     webSocketHooks: ws.WebSocketHooks[R, E] = ws.WebSocketHooks.empty[R, E]
-  )(implicit
-    inputCodec: JsonCodec[GraphQLWSInput],
-    outputCodec: JsonCodec[GraphQLWSOutput]
   ): WebSocketInterpreter[R, E] =
     Base(interpreter, keepAliveTime, webSocketHooks)
 
@@ -126,10 +120,8 @@ object WebSocketInterpreter {
         case Right(value) => WebSocketFrame.text(stringCodec.encode(value))
       }
 
-  def makeWebSocketEndpoint(implicit
-    inputCodec: JsonCodec[GraphQLWSInput],
-    outputCodec: JsonCodec[GraphQLWSOutput]
-  ): PublicEndpoint[(ServerRequest, String), TapirResponse, (String, CalibanPipe), ZioWebSockets] = {
+  def makeWebSocketEndpoint
+    : PublicEndpoint[(ServerRequest, String), TapirResponse, (String, CalibanPipe), ZioWebSockets] = {
     val protocolHeader: EndpointIO.Header[String] = header[String]("sec-websocket-protocol")
     endpoint
       .in(extractFromRequest(identity))

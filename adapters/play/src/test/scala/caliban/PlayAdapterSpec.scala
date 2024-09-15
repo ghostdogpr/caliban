@@ -1,15 +1,7 @@
 package caliban
 
 import caliban.interop.tapir.TestData.sampleCharacters
-import caliban.interop.tapir.{
-  FakeAuthorizationInterceptor,
-  HttpInterpreter,
-  HttpUploadInterpreter,
-  TapirAdapterSpec,
-  TestApi,
-  TestService,
-  WebSocketInterpreter
-}
+import caliban.interop.tapir._
 import caliban.uploads.Uploads
 import org.apache.pekko.actor.ActorSystem
 import org.apache.pekko.stream.Materializer
@@ -24,8 +16,6 @@ import zio.test.{ Live, ZIOSpecDefault }
 import scala.language.postfixOps
 
 object PlayAdapterSpec extends ZIOSpecDefault {
-  import sttp.tapir.json.play._
-
   private val envLayer = TestService.make(sampleCharacters) ++ Uploads.empty
 
   private val apiLayer = envLayer >>> ZLayer.scoped {
@@ -44,7 +34,7 @@ object PlayAdapterSpec extends ZIOSpecDefault {
                            .apply(req)
                        case req @ POST(p"/upload/graphql")                       =>
                          PlayAdapter
-                           .makeHttpUploadService(HttpUploadInterpreter(interpreter))(runtime, mat, implicitly, implicitly)
+                           .makeHttpUploadService(HttpUploadInterpreter(interpreter))(runtime, mat)
                            .apply(req)
                        case req @ GET(p"/ws/graphql")                            =>
                          PlayAdapter.makeWebSocketService(WebSocketInterpreter(interpreter))(runtime, mat).apply(req)

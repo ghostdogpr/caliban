@@ -11,7 +11,6 @@ import sttp.capabilities.pekko.PekkoStreams
 import sttp.capabilities.pekko.PekkoStreams.Pipe
 import sttp.model.StatusCode
 import sttp.monad.FutureMonad
-import sttp.tapir.Codec.JsonCodec
 import sttp.tapir.PublicEndpoint
 import sttp.tapir.model.ServerRequest
 import sttp.tapir.server.ServerEndpoint
@@ -32,9 +31,7 @@ class PlayAdapter private (private val options: Option[PlayServerOptions]) {
 
   def makeHttpUploadService[R, E](interpreter: HttpUploadInterpreter[R, E])(implicit
     runtime: Runtime[R],
-    materializer: Materializer,
-    requestCodec: JsonCodec[GraphQLRequest],
-    mapCodec: JsonCodec[Map[String, Seq[String]]]
+    materializer: Materializer
   ): Routes =
     playInterpreter.toRoutes(interpreter.serverEndpointFuture[PekkoStreams](PekkoStreams)(runtime))
 

@@ -12,7 +12,6 @@ import scala.language.postfixOps
 
 object QuickAdapterSpec extends ZIOSpecDefault {
   import caliban.quick._
-  import sttp.tapir.json.jsoniter._
 
   private val envLayer = TestService.make(sampleCharacters) ++ Uploads.empty
 
