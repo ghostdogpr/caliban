@@ -14,7 +14,7 @@ case class GraphQLRequest(
   operationName: Option[String] = None,
   variables: Option[Map[String, InputValue]] = None,
   extensions: Option[Map[String, InputValue]] = None,
-  isHttpGetRequest: Boolean = false
+  @transient isHttpGetRequest: Boolean = false
 ) { self =>
 
   def withExtension(key: String, value: InputValue): GraphQLRequest =
