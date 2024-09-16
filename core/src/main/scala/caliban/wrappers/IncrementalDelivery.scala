@@ -36,34 +36,37 @@ object IncrementalDelivery {
         .withWrapper(withValidations(flags))
   }
 
-  private val onlyTopLevelQuery: QueryValidation = context => {
-    @tailrec
-    def hasStreamOrDirective(selection: List[Selection]): Boolean =
-      selection match {
-        case Selection.Field(_, _, _, directives, _, _) :: rest   =>
-          directives.exists(d => d.name == Directives.Stream || d.name == Directives.Defer) || hasStreamOrDirective(
-            rest
-          )
-        case Selection.InlineFragment(_, _, selectionSet) :: rest =>
-          hasStreamOrDirective(rest ++ selectionSet)
-        case Selection.FragmentSpread(name, _) :: rest            =>
-          hasStreamOrDirective(rest ++ context.fragments(name).selectionSet)
-        case Nil                                                  => false
-      }
+  private val onlyTopLevelQuery: Feature.Flags => QueryValidation = flags =>
+    context => {
+      def matches(name: String): Boolean =
+        (Feature.isStreamEnabled(flags) && name == Directives.Stream) ||
+          (Feature.isDeferEnabled(flags) && name == Directives.Defer)
 
-    validateAllDiscard(context.operations) { op =>
-      if (op.operationType != OperationType.Query && hasStreamOrDirective(op.selectionSet)) {
-        Left(
-          CalibanError.ValidationError(
-            "Stream or defer directive was used on a root field in a mutation or subscription",
-            "Defer and stream may not be used on root fields of mutations or subscriptions"
+      @tailrec
+      def hasStreamOrDirective(selection: List[Selection]): Boolean =
+        selection match {
+          case Selection.Field(_, _, _, directives, _, _) :: rest   =>
+            directives.exists(d => matches(d.name)) || hasStreamOrDirective(rest)
+          case Selection.InlineFragment(_, _, selectionSet) :: rest =>
+            hasStreamOrDirective(rest ++ selectionSet)
+          case Selection.FragmentSpread(name, _) :: rest            =>
+            hasStreamOrDirective(rest ++ context.fragments(name).selectionSet)
+          case Nil                                                  => false
+        }
+
+      validateAllDiscard(context.operations) { op =>
+        if (op.operationType != OperationType.Query && hasStreamOrDirective(op.selectionSet)) {
+          Left(
+            CalibanError.ValidationError(
+              "Stream or defer directive was used on a root field in a mutation or subscription",
+              "Defer and stream may not be used on root fields of mutations or subscriptions"
+            )
           )
-        )
-      } else {
-        Right(())
+        } else {
+          Right(())
+        }
       }
     }
-  }
 
   private val appearsOnlyOnLists: QueryValidation = context => {
     val checked: mutable.Set[(String, Option[String])] = mutable.Set.empty
@@ -122,49 +125,50 @@ object IncrementalDelivery {
     }
   }
 
-  private val uniqueLabels: QueryValidation = context => {
-    val labels = mutable.Set[String]()
+  private val uniqueLabels: Feature.Flags => QueryValidation = flags =>
+    context => {
+      val labels = mutable.Set[String]()
 
-    def extractLabel(directives: List[Directive], directiveName: String): Option[InputValue] =
-      directives.collectFirst {
-        case d if d.name == directiveName =>
-          d.arguments.get("label")
-      }.flatten
+      def extractLabel(directives: List[Directive], directiveName: String): Option[InputValue] =
+        directives.collectFirst {
+          case d if d.name == directiveName =>
+            d.arguments.get("label")
+        }.flatten
 
-    def isLabelUnique(label: Option[InputValue]): Boolean = label.forall {
-      case Value.StringValue(value) => labels.add(value)
-      case _                        => true
+      def isLabelUnique(label: Option[InputValue]): Boolean = label.forall {
+        case Value.StringValue(value) => labels.add(value)
+        case _                        => true
+      }
+
+      @tailrec
+      def allLabelsUnique(selections: List[Selection]): Boolean = selections match {
+        case Selection.Field(_, _, _, directives, children, _) :: rest if Feature.isStreamEnabled(flags)    =>
+          val label = extractLabel(directives, Directives.Stream)
+
+          isLabelUnique(label) && allLabelsUnique(rest ++ children)
+        case Selection.InlineFragment(_, directives, selectionSet) :: rest if Feature.isDeferEnabled(flags) =>
+          val label = extractLabel(directives, Directives.Defer)
+
+          isLabelUnique(label) && allLabelsUnique(rest ++ selectionSet)
+        case Selection.FragmentSpread(name, directives) :: rest if Feature.isDeferEnabled(flags)            =>
+          val label = extractLabel(directives, Directives.Defer)
+
+          isLabelUnique(label) && allLabelsUnique(rest ++ context.fragments(name).selectionSet)
+        case _                                                                                              => true
+      }
+
+      if (!allLabelsUnique(context.operations.flatMap(_.selectionSet))) {
+        Left(CalibanError.ValidationError("Stream and defer directive labels must be unique", ""))
+      } else {
+        Right(())
+      }
     }
-
-    @tailrec
-    def allLabelsUnique(selections: List[Selection]): Boolean = selections match {
-      case Selection.Field(_, _, _, directives, children, _) :: rest     =>
-        val label = extractLabel(directives, Directives.Stream)
-
-        isLabelUnique(label) && allLabelsUnique(rest ++ children)
-      case Selection.InlineFragment(_, directives, selectionSet) :: rest =>
-        val label = extractLabel(directives, Directives.Defer)
-
-        isLabelUnique(label) && allLabelsUnique(rest ++ selectionSet)
-      case Selection.FragmentSpread(name, directives) :: rest            =>
-        val label = extractLabel(directives, Directives.Defer)
-
-        isLabelUnique(label) && allLabelsUnique(rest ++ context.fragments(name).selectionSet)
-      case Nil                                                           => true
-    }
-
-    if (!allLabelsUnique(context.operations.flatMap(_.selectionSet))) {
-      Left(CalibanError.ValidationError("Stream and defer directive labels must be unique", ""))
-    } else {
-      Right(())
-    }
-  }
 
   private def additionalValidations(features: Feature.Flags) = {
     val streamValidations =
       if (Feature.isStreamEnabled(features)) List(appearsOnlyOnLists) else Nil
 
-    List(onlyTopLevelQuery, uniqueLabels) ++ streamValidations
+    List(onlyTopLevelQuery(features), uniqueLabels(features)) ++ streamValidations
   }
 
   private def withValidations(features: Feature.Flags): Wrapper[Any] = new ValidationWrapper[Any] {

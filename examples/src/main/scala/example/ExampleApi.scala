@@ -2,13 +2,12 @@ package example
 
 import example.ExampleData._
 import caliban._
-import caliban.execution.Feature
 import caliban.schema.Annotations.{ GQLDeprecated, GQLDescription, GQLName }
 import caliban.schema.Schema
 import caliban.schema.ArgBuilder.auto._
 import caliban.schema.Schema.auto._
 import caliban.wrappers.ApolloTracing.apolloTracing
-import caliban.wrappers.{ DeferSupport, IncrementalDelivery }
+import caliban.wrappers.IncrementalDelivery
 import caliban.wrappers.Wrappers._
 import zio._
 import zio.stream.ZStream
