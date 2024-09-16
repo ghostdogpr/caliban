@@ -7,7 +7,7 @@ case class Fragment(name: Option[String], directives: List[Directive]) {}
 
 object Fragment {
   object IsDeferred {
-    def unapply(fragment: Fragment): Option[(Option[String])] =
+    def unapply(fragment: Fragment): Option[Option[String]] =
       fragment.directives.collectFirst {
         case Directive(Directives.Defer, args, _, _) if args.get("if").forall {
               case BooleanValue(v) => v

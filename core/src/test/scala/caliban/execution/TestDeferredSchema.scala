@@ -150,7 +150,7 @@ object TestDeferredSchema extends SchemaDerivation[CharacterService with QuoteSe
       )
     )
 
-  val interpreter = (graphQL(resolver) @@ IncrementalDelivery.aspect(Feature.Defer, Feature.Stream)).interpreter
+  val interpreter = (graphQL(resolver) @@ IncrementalDelivery.all).interpreter
 }
 
 object TestDatasourceDeferredSchema extends GenericSchema[Any] {
@@ -169,5 +169,5 @@ object TestDatasourceDeferredSchema extends GenericSchema[Any] {
     Foo(bar = ZIO.succeed(List(makeBar(1), makeBar(3), makeBar(3))))
   }))
 
-  val interpreter = (graphQL(resolver) @@ IncrementalDelivery.aspect(Feature.Defer)).interpreter
+  val interpreter = (graphQL(resolver) @@ IncrementalDelivery.defer).interpreter
 }

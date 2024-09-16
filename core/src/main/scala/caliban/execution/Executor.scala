@@ -282,7 +282,7 @@ object Executor {
         }
       }
 
-      def reduceStream(stream: ZStream[R, Throwable, Step[R]]) =
+      def reduceStream(stream: ZStream[R, Throwable, Step[R]]): ReducedStep[R] =
         if (isSubscription) {
           ReducedStep.StreamStep(
             stream
@@ -297,10 +297,11 @@ object Executor {
                   for {
                     scope               <- Scope.make
                     initialAndRemaining <-
-                      stream
-                        .mapErrorCause(effectfulExecutionError(path, Some(currentField.locationInfo), _))
-                        .peel(ZSink.take[Step[R]](initialCount))
-                        .provideSomeEnvironment[R](_.add[Scope](scope))
+                      scope.extend[R](
+                        stream
+                          .mapErrorCause(effectfulExecutionError(path, Some(currentField.locationInfo), _))
+                          .peel(ZSink.take[Step[R]](initialCount))
+                      )
                   } yield {
                     val (initial, remaining) = initialAndRemaining
                     ReducedStep.DeferStreamStep(

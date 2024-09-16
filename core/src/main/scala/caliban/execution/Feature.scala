@@ -13,9 +13,9 @@ sealed trait Feature {
 object Feature {
   type Flags = Int
 
-  private def isEnabled(flags: Flags, feature: Feature): Boolean = (flags & feature.mask) != 0
-  def isDeferEnabled(flags: Flags): Boolean                      = isEnabled(flags, Defer)
-  def isStreamEnabled(flags: Flags): Boolean                     = isEnabled(flags, Stream)
+  private def isEnabled(flags: Flags, mask: Int): Boolean = (flags & mask) != 0
+  def isDeferEnabled(flags: Flags): Boolean               = isEnabled(flags, Defer.mask)
+  def isStreamEnabled(flags: Flags): Boolean              = isEnabled(flags, Stream.mask)
 
   case object Defer extends Feature {
     final val index: Int = 0

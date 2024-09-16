@@ -66,6 +66,6 @@ object TestApi extends GenericSchema[TestService with Uploads] {
       timeout(3 seconds) @@           // wrapper that fails slow queries
       printSlowQueries(500 millis) @@ // wrapper that logs slow queries
       apolloTracing() @@              // wrapper for https://github.com/apollographql/apollo-tracing
-      IncrementalDelivery.aspect(Feature.Defer) @@
+      IncrementalDelivery.defer @@
       Caching.extension()
 }
