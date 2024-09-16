@@ -29,25 +29,13 @@ See https://ghostdogpr.github.io/caliban/docs/schema.html for more information.
 )
 trait ArgBuilder[T] { self =>
 
+  private[schema] def firstField: Option[String] = None
+
   /**
    * Builds a value of type `T` from an input [[caliban.InputValue]].
    * Fails with an [[caliban.CalibanError.ExecutionError]] if it was impossible to build the value.
    */
   def build(input: InputValue): Either[ExecutionError, T]
-
-  private[schema] def partial: PartialFunction[InputValue, Either[ExecutionError, T]] =
-    new PartialFunction[InputValue, Either[ExecutionError, T]] {
-      final def isDefinedAt(x: InputValue): Boolean             = build(x).isRight
-      final def apply(x: InputValue): Either[ExecutionError, T] = build(x)
-
-      final override def applyOrElse[A1 <: InputValue, B1 >: Either[ExecutionError, T]](
-        x: A1,
-        default: A1 => B1
-      ): B1 = {
-        val maybeMatch = build(x)
-        if (maybeMatch.isRight) maybeMatch else default(x)
-      }
-    }
 
   /**
    * Builds a value of type `T` from a missing input value.

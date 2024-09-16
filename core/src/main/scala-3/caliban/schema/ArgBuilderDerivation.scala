@@ -105,18 +105,26 @@ trait CommonArgBuilderDerivation {
     traitLabel: String
   ): ArgBuilder[A] = new ArgBuilder[A] {
 
-    override val partial: PartialFunction[InputValue, Either[ExecutionError, A]] = {
-      val xs = _subTypes.map(_._3).asInstanceOf[List[ArgBuilder[A]]]
-
-      val checkSize: PartialFunction[InputValue, Either[ExecutionError, A]] = {
-        case InputValue.ObjectValue(f) if f.size != 1 =>
-          Left(ExecutionError("Exactly one key must be specified for oneOf inputs"))
-      }
-      xs.foldLeft(checkSize)(_ orElse _.partial)
-    }
+    private val builders = _subTypes
+      .map(_._3)
+      .asInstanceOf[List[ArgBuilder[A]]]
+      .flatMap(builder => builder.firstField.map((_, builder)))
+      .toMap
 
     def build(input: InputValue): Either[ExecutionError, A] =
-      partial.applyOrElse(input, (in: InputValue) => Left(inputError(in)))
+      input match {
+        case InputValue.ObjectValue(fields) =>
+          if (fields.size != 1) {
+            Left(ExecutionError("Exactly one key must be specified for oneOf inputs"))
+          } else {
+            val (field, _) = fields.head
+            builders.get(field) match {
+              case None          => Left(ExecutionError(s"Invalid oneOf input key $field for trait $traitLabel"))
+              case Some(builder) => builder.build(input)
+            }
+          }
+        case value                          => Left(ExecutionError(s"Invalid oneOf input $value for trait $traitLabel"))
+      }
 
     private def inputError(input: InputValue) =
       ExecutionError(s"Invalid oneOf input $input for trait $traitLabel")
@@ -134,13 +142,9 @@ trait CommonArgBuilderDerivation {
       (finalLabel, default, builder)
     })
 
-    private val required = params.collect { case (label, default, _) if default.isLeft => label }
+    override private[schema] def firstField: Option[String] = params.headOption.map(_._1)
 
-    override private[schema] val partial: PartialFunction[InputValue, Either[ExecutionError, A]] = {
-      case InputValue.ObjectValue(fields) if required.forall(fields.contains) => fromFields(fields)
-    }
-
-    def build(input: InputValue): Either[ExecutionError, A] =
+    override def build(input: InputValue): Either[ExecutionError, A] =
       input match {
         case InputValue.ObjectValue(fields) => fromFields(fields)
         case value                          => fromValue(value)

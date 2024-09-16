@@ -38,13 +38,9 @@ trait CommonArgBuilderDerivation {
       arr
     }
 
-    private val required = params.collect { case (label, default) if default.isLeft => label }
+    override private[schema] def firstField: Option[String] = params.headOption.map(_._1)
 
-    override private[schema] val partial: PartialFunction[InputValue, Either[ExecutionError, T]] = {
-      case InputValue.ObjectValue(fields) if required.forall(fields.contains) => fromFields(fields)
-    }
-
-    def build(input: InputValue): Either[ExecutionError, T] =
+    override def build(input: InputValue): Either[ExecutionError, T] =
       input match {
         case InputValue.ObjectValue(fields) => fromFields(fields)
         case value                          => ctx.constructMonadic(p => p.typeclass.build(value))
@@ -82,21 +78,25 @@ trait CommonArgBuilderDerivation {
 
   private def makeOneOfBuilder[A](ctx: SealedTrait[ArgBuilder, A]): ArgBuilder[A] = new ArgBuilder[A] {
 
-    private def inputError(input: InputValue) =
-      ExecutionError(s"Invalid oneOf input $input for trait ${ctx.typeName.short}")
-
-    override val partial: PartialFunction[InputValue, Either[ExecutionError, A]] = {
-      val xs = ctx.subtypes.map(_.typeclass).toList.asInstanceOf[List[ArgBuilder[A]]]
-
-      val checkSize: PartialFunction[InputValue, Either[ExecutionError, A]] = {
-        case InputValue.ObjectValue(f) if f.size != 1 =>
-          Left(ExecutionError("Exactly one key must be specified for oneOf inputs"))
-      }
-      xs.foldLeft(checkSize)(_ orElse _.partial)
-    }
+    private val builders = ctx.subtypes
+      .map(_.typeclass.asInstanceOf[ArgBuilder[A]]) // asInstanceOf needed for 2.12
+      .flatMap(builder => builder.firstField.map((_, builder)))
+      .toMap
 
     def build(input: InputValue): Either[ExecutionError, A] =
-      partial.applyOrElse(input, (in: InputValue) => Left(inputError(in)))
+      input match {
+        case InputValue.ObjectValue(fields) =>
+          if (fields.size != 1) {
+            Left(ExecutionError("Exactly one key must be specified for oneOf inputs"))
+          } else {
+            val (field, _) = fields.head
+            builders.get(field) match {
+              case None          => Left(ExecutionError(s"Invalid oneOf input key $field for trait ${ctx.typeName.short}"))
+              case Some(builder) => builder.build(input)
+            }
+          }
+        case value                          => Left(ExecutionError(s"Invalid oneOf input $value for trait ${ctx.typeName.short}"))
+      }
   }
 
 }
