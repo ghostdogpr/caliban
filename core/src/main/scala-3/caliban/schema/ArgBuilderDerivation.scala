@@ -3,7 +3,7 @@ package caliban.schema
 import caliban.CalibanError.ExecutionError
 import caliban.InputValue.{ ListValue, VariableValue }
 import caliban.Value.*
-import caliban.schema.Annotations.{ GQLDefault, GQLName, GQLOneOfInput }
+import caliban.schema.Annotations.{ GQLDefault, GQLName, GQLOneOfInput, GQLValueType }
 import caliban.schema.macros.Macros
 import caliban.{ CalibanError, InputValue }
 import magnolia1.Macro as MagnoliaMacro
@@ -70,9 +70,18 @@ trait CommonArgBuilderDerivation {
       case m: Mirror.ProductOf[A] =>
         makeProductArgBuilder(
           recurseProduct[A, m.MirroredElemLabels, m.MirroredElemTypes](),
-          MagnoliaMacro.paramAnns[A].toMap
+          MagnoliaMacro.paramAnns[A].toMap,
+          isValueClass[A, m.MirroredElemLabels]
         )(m.fromProduct)
     }
+
+  transparent inline private def isValueClass[A, Labels]: Boolean =
+    inline if (MagnoliaMacro.isValueClass[A]) true
+    else
+      inline erasedValue[Labels] match {
+        case _: Tuple1[?] => Macros.hasAnnotation[A, GQLValueType]
+        case _            => false
+      }
 
   private def makeSumArgBuilder[A](
     _subTypes: => List[(String, List[Any], ArgBuilder[Any])],
@@ -124,7 +133,8 @@ trait CommonArgBuilderDerivation {
 
   private def makeProductArgBuilder[A](
     _fields: => List[(String, ArgBuilder[Any])],
-    annotations: Map[String, List[Any]]
+    annotations: Map[String, List[Any]],
+    isValueType: Boolean
   )(fromProduct: Product => A): ArgBuilder[A] = new ArgBuilder[A] {
 
     private val params = Array.from(_fields.map { (label, builder) =>
@@ -143,7 +153,8 @@ trait CommonArgBuilderDerivation {
     def build(input: InputValue): Either[ExecutionError, A] =
       input match {
         case InputValue.ObjectValue(fields) => fromFields(fields)
-        case value                          => fromValue(value)
+        case value if isValueType           => fromValue(value)
+        case _                              => Left(ExecutionError("expected an input object"))
       }
 
     private def fromFields(fields: Map[String, InputValue]): Either[ExecutionError, A] = {

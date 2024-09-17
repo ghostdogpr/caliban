@@ -71,6 +71,16 @@ object ArgBuilderSpec extends ZIOSpecDefault {
         )
       )
     ),
+    suite("derived build")(
+      test("should fail when null is provided for case class with optional fields") {
+        case class Foo(value: Option[String])
+        val ab = ArgBuilder.gen[Foo]
+        assertTrue(
+          ab.build(NullValue).isLeft,
+          ab.build(ObjectValue(Map())).isRight
+        )
+      }
+    ),
     suite("buildMissing")(
       test("works with derived case class ArgBuilders") {
         sealed abstract class Nullable[+T]

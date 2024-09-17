@@ -1505,8 +1505,97 @@ object ExecutionSpec extends ZIOSpecDefault {
         ZIO.foldLeft(cases)(assertCompletes) { case (acc, (query, expected)) =>
           api.interpreter
             .flatMap(_.execute(query, variables = Map("args" -> ObjectValue(Map("intValue" -> IntValue(42))))))
-            .map(response => assertTrue(response.data.toString == expected))
+            .map(response => acc && assertTrue(response.data.toString == expected))
+        }
+      },
+      test("oneOf input with input object with all optional fields") {
+
+        case class AddPet(pet: Pet.Wrapper)
+        case class Queries(addPet: AddPet => Pet)
+
+        val api: GraphQL[Any] = graphQL(
+          RootResolver(
+            Queries(_.pet.pet)
+          )
+        )
+
+        val cases = List(
+          gqldoc("""{
+            addPet(pet: { cat: { name: "a" } }) {
+              __typename
+              ... on Cat { name }
+              ... on Dog { name }
+            }
+          }""") -> """{"addPet":{"__typename":"Cat","name":"a"}}""",
+          gqldoc("""{
+            addPet(pet: { dog: {} }) {
+              __typename
+              ... on Cat { name }
+              ... on Dog { name }
+            }
+          }""") -> """{"addPet":{"__typename":"Dog","name":null}}""",
+          gqldoc("""{
+            addPet(pet: { dog: { name: "b" } }) {
+              __typename
+              ... on Cat { name }
+              ... on Dog { name }
+            }
+          }""") -> """{"addPet":{"__typename":"Dog","name":"b"}}"""
+        )
+
+        ZIO.foldLeft(cases)(assertCompletes) { case (acc, (query, expected)) =>
+          api.interpreter
+            .flatMap(_.execute(query))
+            .map(response => acc && assertTrue(response.data.toString == expected))
         }
       }
     )
+}
+
+// needs to be outside for Scala 2
+sealed trait Pet
+object Pet { parent =>
+
+  @GQLOneOfInput
+  @GQLName("Pet")
+  sealed trait Wrapper {
+    def pet: Pet
+  }
+  object Wrapper       {
+    implicit val argBuilder: ArgBuilder[Wrapper] = ArgBuilder.gen
+    implicit val schema: Schema[Any, Wrapper]    = Schema.gen
+  }
+
+  case class Cat(name: Option[String], numberOfLives: Option[Int]) extends Pet
+  object Cat {
+    @GQLName("Cat")
+    case class Wrapper(cat: Cat) extends parent.Wrapper {
+      override val pet = cat
+    }
+    object Wrapper {
+      implicit val argBuilder: ArgBuilder[Wrapper] = ArgBuilder.gen
+      implicit val schema: Schema[Any, Wrapper]    = Schema.gen
+    }
+
+    implicit val argBuilder: ArgBuilder[Cat] = ArgBuilder.gen
+    implicit val schema: Schema[Any, Cat]    = Schema.gen
+  }
+
+  case class Dog(name: Option[String], wagsTail: Option[Boolean]) extends Pet
+  object Dog {
+    @GQLName("Dog")
+    case class Wrapper(dog: Dog) extends parent.Wrapper {
+      override val pet = dog
+    }
+    object Wrapper {
+      implicit val argBuilder: ArgBuilder[Wrapper] = ArgBuilder.gen
+      implicit val schema: Schema[Any, Wrapper]    = Schema.gen
+    }
+
+    implicit val argBuilder: ArgBuilder[Dog] = ArgBuilder.gen
+    implicit val schema: Schema[Any, Dog]    = Schema.gen
+  }
+
+  implicit val argBuilder: ArgBuilder[Pet] = ArgBuilder.gen
+  implicit val schema: Schema[Any, Pet]    = Schema.gen
 }
