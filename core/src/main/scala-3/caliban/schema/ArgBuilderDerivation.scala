@@ -71,11 +71,11 @@ trait CommonArgBuilderDerivation {
         makeProductArgBuilder(
           recurseProduct[A, m.MirroredElemLabels, m.MirroredElemTypes](),
           MagnoliaMacro.paramAnns[A].toMap,
-          isValueClass[A, m.MirroredElemLabels]
+          isValueType[A, m.MirroredElemLabels]
         )(m.fromProduct)
     }
 
-  transparent inline private def isValueClass[A, Labels]: Boolean =
+  transparent inline private def isValueType[A, Labels]: Boolean =
     inline if (MagnoliaMacro.isValueClass[A]) true
     else
       inline erasedValue[Labels] match {
