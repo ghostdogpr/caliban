@@ -107,6 +107,7 @@ object ArgBuilderSpec extends ZIOSpecDefault {
         case class Arg2(fooString2: String)  extends Foo
         case class Arg3(intValue: Foo1)      extends Foo
         case class Arg4(fooInt2: Foo2)       extends Foo
+        case class Arg5(altString: String)   extends Foo
 
       }
 
@@ -119,6 +120,14 @@ object ArgBuilderSpec extends ZIOSpecDefault {
       implicit val f2Ab: ArgBuilder[Foo.Arg2] = ArgBuilder.gen
       implicit val f3Ab: ArgBuilder[Foo.Arg3] = ArgBuilder.gen
       implicit val f4Ab: ArgBuilder[Foo.Arg4] = ArgBuilder.gen
+      implicit val f5Ab: ArgBuilder[Foo.Arg5] = {
+        case ObjectValue(fields) =>
+          fields.get("altString") match {
+            case Some(StringValue(value)) => Right(Foo.Arg5(value))
+            case _                        => Left(ExecutionError("altString to be provided"))
+          }
+        case _                   => Left(ExecutionError("expected object"))
+      }
       val fooAb: ArgBuilder[Foo]              = ArgBuilder.gen
 
       List(
@@ -145,6 +154,12 @@ object ArgBuilderSpec extends ZIOSpecDefault {
             .map(input => assertTrue(fooAb.build(ObjectValue(input)).isLeft))
             .foldLeft(assertCompletes)(_ && _)
 
+        },
+        test("works with user-defined ArgBuilders") {
+          val input    = Map("altString" -> StringValue("alt-foo"))
+          val expected = Foo.Arg5("alt-foo")
+
+          assertTrue(fooAb.build(ObjectValue(input)) == Right(expected))
         }
       )
     }
