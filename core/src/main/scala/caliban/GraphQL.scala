@@ -311,6 +311,14 @@ trait GraphQL[-R] { self =>
     override protected val transformer: Transformer[R]             = self.transformer
   }
 
+  final def enableAll(features0: Set[Feature]): GraphQL[R] = new GraphQL[R] {
+    override protected val schemaBuilder: RootSchemaBuilder[R]     = self.schemaBuilder
+    override protected val wrappers: List[Wrapper[R]]              = self.wrappers
+    override protected val additionalDirectives: List[__Directive] = self.additionalDirectives
+    override protected val features: Set[Feature]                  = self.features ++ features0
+    override protected val transformer: Transformer[R]             = self.transformer
+  }
+
   /**
    * Transforms the schema using the given transformer.
    * This can be used to rename or filter types, fields and arguments.

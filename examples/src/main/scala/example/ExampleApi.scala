@@ -7,7 +7,7 @@ import caliban.schema.Schema
 import caliban.schema.ArgBuilder.auto._
 import caliban.schema.Schema.auto._
 import caliban.wrappers.ApolloTracing.apolloTracing
-import caliban.wrappers.DeferSupport
+import caliban.wrappers.IncrementalDelivery
 import caliban.wrappers.Wrappers._
 import zio._
 import zio.stream.ZStream
@@ -97,7 +97,7 @@ object ExampleApi {
       printSlowQueries(500 millis) @@ // wrapper that logs slow queries
       printErrors @@                  // wrapper that logs errors
       apolloTracing() @@              // wrapper for https://github.com/apollographql/apollo-tracing
-      DeferSupport.defer              // wrapper that enables @defer directive support
+      IncrementalDelivery.defer       // wrapper that enables @defer directive support
   }
 
   val layer: ZLayer[ExampleService, Nothing, GraphQL[Any]] =

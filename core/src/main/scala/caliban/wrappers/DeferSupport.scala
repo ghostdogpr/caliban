@@ -1,23 +1,13 @@
 package caliban.wrappers
 
+import caliban.GraphQLAspect
 import caliban.execution.Feature
-import caliban.introspection.adt.{ __Directive, __DirectiveLocation, __InputValue }
-import caliban.parsing.adt.Directives
-import caliban.schema.Types
-import caliban.{ GraphQL, GraphQLAspect }
+import caliban.introspection.adt.__Directive
 
 object DeferSupport {
-  private[caliban] val deferDirective = __Directive(
-    Directives.Defer,
-    Some(""),
-    Set(__DirectiveLocation.FRAGMENT_SPREAD, __DirectiveLocation.INLINE_FRAGMENT),
-    _ =>
-      List(__InputValue("if", None, () => Types.boolean, None), __InputValue("label", None, () => Types.string, None)),
-    isRepeatable = false
-  )
+  @deprecated("Use Feature.Defer.directives instead", "2.9.0")
+  private[caliban] val deferDirective: __Directive = Feature.Defer.directives.head
 
-  val defer = new GraphQLAspect[Nothing, Any] {
-    override def apply[R](gql: GraphQL[R]): GraphQL[R] =
-      gql.withAdditionalDirectives(List(deferDirective)).enable(Feature.Defer)
-  }
+  @deprecated("Use IncrementalDelivery.defer instead", "2.9.0")
+  val defer: GraphQLAspect[Nothing, Any] = IncrementalDelivery.defer
 }

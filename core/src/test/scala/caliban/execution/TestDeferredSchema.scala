@@ -2,14 +2,51 @@ package caliban.execution
 
 import caliban.TestUtils.Role.{ Captain, Engineer, Mechanic, Pilot }
 import caliban.TestUtils.{ CaptainShipName, Character, CharacterArgs, Origin, Role }
-import caliban.{ graphQL, RootResolver }
 import caliban.schema.Annotations.GQLName
-import caliban.schema.{ GenericSchema, Schema }
-import caliban.wrappers.DeferSupport
+import caliban.schema.{ GenericSchema, Schema, SchemaDerivation }
+import caliban.wrappers.IncrementalDelivery
+import caliban.{ graphQL, RootResolver }
 import zio.query.{ DataSource, Request, UQuery, ZQuery }
-import zio.{ UIO, URIO, ZIO }
+import zio.stream.ZStream
+import zio.{ UIO, ULayer, URIO, ZIO, ZLayer }
 
-object TestDeferredSchema extends GenericSchema[CharacterService] {
+case class Episode(
+  season: Int,
+  episode: Int,
+  title: String
+)
+
+trait QuoteService {
+  def quotesBy(character: Character): ZStream[Any, Nothing, QuoteService.Quote]
+}
+
+object QuoteService {
+  val test: ULayer[QuoteService] = ZLayer.succeed(new QuoteService {
+    val quoteDB = Map(
+      "Roberta Draper" -> List(
+        Quote(
+          "You just have to believe that what you’re doing really matters, and then the fear can’t control you.",
+          from = Episode(4, 1, "New Terra")
+        ),
+        Quote(
+          "I'm Roberta, you can call me Bobby.",
+          from = Episode(4, 1, "New Terra")
+        )
+      )
+    )
+
+    override def quotesBy(character: Character): ZStream[Any, Nothing, Quote] =
+      ZStream.fromIterable(quoteDB.getOrElse(character.name, Nil))
+
+  })
+
+  case class Quote(
+    line: String,
+    from: Episode
+  )
+}
+
+object TestDeferredSchema extends SchemaDerivation[CharacterService with QuoteService] {
   import auto._
   import caliban.schema.ArgBuilder.auto._
 
@@ -23,17 +60,24 @@ object TestDeferredSchema extends GenericSchema[CharacterService] {
 
   case class ConnectionArgs(by: By)
 
+  case class Quote(
+    line: String,
+    from: Episode,
+    character: UIO[CharacterZIO]
+  )
+
   @GQLName("Character")
   case class CharacterZIO(
     name: String,
     nicknames: UIO[List[UIO[String]]],
     origin: Origin,
     role: Option[Role],
-    connections: ConnectionArgs => URIO[CharacterService, List[CharacterZIO]]
+    connections: ConnectionArgs => URIO[CharacterService with QuoteService, List[CharacterZIO]],
+    quotes: ZStream[CharacterService with QuoteService, Nothing, Quote] = ZStream.empty
   )
 
   case class Query(
-    character: CharacterArgs => URIO[CharacterService, Option[CharacterZIO]]
+    character: CharacterArgs => URIO[CharacterService with QuoteService, Option[CharacterZIO]]
   )
 
   def character2CharacterZIO(ch: Character): CharacterZIO =
@@ -60,11 +104,41 @@ object TestDeferredSchema extends GenericSchema[CharacterService] {
             case Engineer(shipName)                 => maybeShip.contains(shipName)
             case Mechanic(shipName)                 => maybeShip.contains(shipName)
           }).map(_.filter(_ != ch).map(character2CharacterZIO)))
-      }
+      },
+      quotes = ZStream.serviceWithStream[QuoteService](_.quotesBy(ch).map { q =>
+        Quote(
+          q.line,
+          q.from,
+          ZIO.succeed(character2CharacterZIO(ch))
+        )
+      })
     )
 
-  implicit lazy val characterSchema: Schema[CharacterService, CharacterZIO] = genAll[CharacterService, CharacterZIO]
-  implicit val querySchema: Schema[CharacterService, Query]                 = gen[CharacterService, Query]
+  implicit val characterArgsSchema: Schema[CharacterService with QuoteService, CharacterArgs] =
+    genAll[CharacterService with QuoteService, CharacterArgs]
+  implicit val roleSchema: Schema[CharacterService with QuoteService, Role]                   =
+    gen[CharacterService with QuoteService, Role]
+  implicit val originSchema: Schema[CharacterService with QuoteService, Origin]               =
+    gen[CharacterService with QuoteService, Origin]
+  implicit val episodeSchema: Schema[CharacterService with QuoteService, Episode]             =
+    gen[CharacterService with QuoteService, Episode]
+  implicit val quoteSchema: Schema[CharacterService with QuoteService, Quote]                 =
+    gen[CharacterService with QuoteService, Quote]
+  implicit lazy val characterSchema: Schema[CharacterService with QuoteService, CharacterZIO] =
+    obj(
+      "Character"
+    )(implicit fa =>
+      List(
+        field("name")(_.name),
+        field("nicknames")(_.nicknames),
+        field("origin")(_.origin),
+        field("role")(_.role),
+        fieldWithArgs("connections")(_.connections),
+        field("quotes")(_.quotes)
+      )
+    )
+  implicit val querySchema: Schema[CharacterService with QuoteService, Query]                 =
+    genAll[CharacterService with QuoteService, Query]
 
   val resolver =
     RootResolver(
@@ -76,7 +150,7 @@ object TestDeferredSchema extends GenericSchema[CharacterService] {
       )
     )
 
-  val interpreter = (graphQL(resolver) @@ DeferSupport.defer).interpreter
+  val interpreter = (graphQL(resolver) @@ IncrementalDelivery.all).interpreter
 }
 
 object TestDatasourceDeferredSchema extends GenericSchema[Any] {
@@ -95,5 +169,5 @@ object TestDatasourceDeferredSchema extends GenericSchema[Any] {
     Foo(bar = ZIO.succeed(List(makeBar(1), makeBar(3), makeBar(3))))
   }))
 
-  val interpreter = (graphQL(resolver) @@ DeferSupport.defer).interpreter
+  val interpreter = (graphQL(resolver) @@ IncrementalDelivery.defer).interpreter
 }
