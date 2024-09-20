@@ -3,7 +3,7 @@ package caliban.schema
 import caliban.CalibanError.ExecutionError
 import caliban.InputValue
 import caliban.Value._
-import caliban.schema.Annotations.{ GQLDefault, GQLName, GQLOneOfInput }
+import caliban.schema.Annotations.{ GQLDefault, GQLName, GQLOneOfInput, GQLValueType }
 import magnolia1._
 
 import scala.collection.compat._
@@ -27,7 +27,6 @@ trait CommonArgBuilderDerivation {
   }
 
   def join[T](ctx: CaseClass[ArgBuilder, T]): ArgBuilder[T] = new ArgBuilder[T] {
-
     private val params = {
       val arr = Array.ofDim[(String, EitherExecutionError[Any])](ctx.parameters.length)
       ctx.parameters.zipWithIndex.foreach { case (p, i) =>
@@ -40,14 +39,17 @@ trait CommonArgBuilderDerivation {
 
     private val required = params.collect { case (label, default) if default.isLeft => label }
 
+    private val isValueType = DerivationUtils.isValueType(ctx)
+
     override private[schema] val partial: PartialFunction[InputValue, Either[ExecutionError, T]] = {
       case InputValue.ObjectValue(fields) if required.forall(fields.contains) => fromFields(fields)
     }
 
     def build(input: InputValue): Either[ExecutionError, T] =
       input match {
-        case InputValue.ObjectValue(fields) => fromFields(fields)
-        case value                          => ctx.constructMonadic(p => p.typeclass.build(value))
+        case InputValue.ObjectValue(fields) if !isValueType => fromFields(fields)
+        case value if isValueType                           => ctx.constructMonadic(p => p.typeclass.build(value))
+        case _                                              => Left(ExecutionError("Expected an input object"))
       }
 
     private[this] def fromFields(fields: Map[String, InputValue]): Either[ExecutionError, T] =

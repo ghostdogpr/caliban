@@ -1,6 +1,5 @@
 package caliban.schema
 
-import caliban.CalibanError.ValidationError
 import caliban.Value._
 import caliban.introspection.adt._
 import caliban.parsing.adt.{ Directive, Directives }
@@ -59,7 +58,7 @@ trait CommonSchemaDerivation[R] {
         }
       )
 
-    private lazy val _isValueType = (ctx.isValueClass || isValueType(ctx)) && ctx.parameters.nonEmpty
+    private lazy val _isValueType = DerivationUtils.isValueType(ctx)
 
     override def toType(isInput: Boolean, isSubscription: Boolean): __Type = {
       val _ = objectResolver // Initializes lazy val

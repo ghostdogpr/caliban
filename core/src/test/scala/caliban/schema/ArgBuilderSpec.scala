@@ -5,7 +5,7 @@ import caliban.InputValue
 import caliban.InputValue.ObjectValue
 import caliban.schema.ArgBuilder.auto._
 import caliban.Value.{ IntValue, NullValue, StringValue }
-import caliban.schema.Annotations.GQLOneOfInput
+import caliban.schema.Annotations.{ GQLOneOfInput, GQLValueType }
 import zio.test.Assertion._
 import zio.test._
 
@@ -70,6 +70,31 @@ object ArgBuilderSpec extends ZIOSpecDefault {
           isRight(equalTo(ZonedDateTime.ofInstant(Instant.ofEpochMilli(100), ZoneOffset.UTC)))
         )
       )
+    ),
+    suite("derived build")(
+      test("should fail when null is provided for case class with optional fields") {
+        case class Foo(value: Option[String])
+        val ab = ArgBuilder.gen[Foo]
+        assertTrue(
+          ab.build(NullValue).isLeft,
+          // Sanity checks
+          ab.build(ObjectValue(Map())) == Right(Foo(None)),
+          ab.build(ObjectValue(Map("value" -> StringValue("foo")))) == Right(Foo(Some("foo"))),
+          ab.build(ObjectValue(Map("bar" -> StringValue("foo")))) == Right(Foo(None))
+        )
+      },
+      test("should fail when an empty object is provided for GQLValueType case classes") {
+        @GQLValueType
+        case class Foo(value: Option[String])
+        val ab = ArgBuilder.gen[Foo]
+        assertTrue(
+          ab.build(ObjectValue(Map())).isLeft,
+          // Sanity checks
+          ab.build(NullValue) == Right(Foo(None)),
+          ab.build(StringValue("foo")) == Right(Foo(Some("foo"))),
+          ab.build(IntValue(42)).isLeft
+        )
+      }
     ),
     suite("buildMissing")(
       test("works with derived case class ArgBuilders") {
