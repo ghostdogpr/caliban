@@ -118,7 +118,7 @@ trait GraphQL[-R] { self =>
                 (for {
                   doc          <- wrap(parseZIO)(parsingWrappers, request.query.getOrElse(""))
                   coercedVars  <- coerceVariables(doc, request.variables.getOrElse(Map.empty))
-                  executionReq <- wrap(validation(request.operationName, coercedVars))(validationWrappers, doc)
+                  executionReq <- wrap(validation(request, coercedVars))(validationWrappers, doc)
                   result       <- wrap(execution(schemaToExecute(doc), fieldWrappers))(executionWrappers, executionReq)
                 } yield result).catchAll(Executor.fail)
               )(overallWrappers, request)
@@ -138,20 +138,20 @@ trait GraphQL[-R] { self =>
           }
 
         private def validation(
-          operationName: Option[String],
+          req: GraphQLRequest,
           coercedVars: Map[String, InputValue]
         )(doc: Document)(implicit trace: Trace): IO[ValidationError, ExecutionRequest] =
           Configurator.ref.getWith { config =>
             Validator.prepare(
               doc,
               typeToValidate(doc),
-              operationName,
+              req.operationName,
               coercedVars,
               config.skipValidation,
               config.validations
             ) match {
-              case Right(value) => checkHttpMethod(config)(value)
-              case Left(error)  => ZIO.fail(error)
+              case Right(value) => checkHttpMethod(config)(req, value)
+              case Left(error)  => Exit.fail(error)
             }
           }
 
@@ -183,16 +183,15 @@ trait GraphQL[-R] { self =>
         private def schemaToExecute(doc: Document) =
           if (doc.isIntrospection) introspectionRootSchema else schema
 
-        private def checkHttpMethod(cfg: ExecutionConfiguration)(req: ExecutionRequest)(implicit
-          trace: Trace
-        ): IO[ValidationError, ExecutionRequest] =
-          if ((req.operationType eq OperationType.Mutation) && !cfg.allowMutationsOverGetRequests)
-            HttpRequestMethod.getWith {
-              case HttpRequestMethod.GET => ZIO.fail(HttpRequestMethod.MutationOverGetError)
-              case _                     => Exit.succeed(req)
-            }
+        private def checkHttpMethod(
+          cfg: ExecutionConfiguration
+        )(gqlReq: GraphQLRequest, req: ExecutionRequest): IO[ValidationError, ExecutionRequest] =
+          if (
+            req.operationType == OperationType.Mutation &&
+            !cfg.allowMutationsOverGetRequests &&
+            gqlReq.isHttpGetRequest
+          ) Exit.fail(HttpUtils.MutationOverGetError)
           else Exit.succeed(req)
-
       }
     }
 

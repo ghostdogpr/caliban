@@ -734,7 +734,9 @@ lazy val enableMimaSettingsJVM =
     mimaPreviousArtifacts  := previousStableVersion.value.map(organization.value %% moduleName.value % _).toSet,
     mimaBinaryIssueFilters := Seq(
       ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.quick.*"),
-      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.QuickAdapter.*")
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.QuickAdapter.*"),
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.GraphQLRequest.*"),
+      ProblemFilters.exclude[Problem]("caliban.HttpRequestMethod*")
     )
   )
 

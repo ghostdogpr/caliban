@@ -73,16 +73,10 @@ object HttpInterpreter {
     def executeRequest[BS](
       graphQLRequest: GraphQLRequest,
       serverRequest: ServerRequest
-    )(implicit streamConstructor: StreamConstructor[BS]): ZIO[R, TapirResponse, CalibanResponse[BS]] =
-      setRequestMethod(serverRequest)(interpreter.executeRequest(graphQLRequest))
-        .map(buildHttpResponse[E, BS](serverRequest))
-
-    private def setRequestMethod(req: ServerRequest)(exec: URIO[R, GraphQLResponse[E]]): URIO[R, GraphQLResponse[E]] =
-      req.method match {
-        case Method.POST => HttpRequestMethod.setWith(HttpRequestMethod.POST)(exec)
-        case Method.GET  => HttpRequestMethod.setWith(HttpRequestMethod.GET)(exec)
-        case _           => exec
-      }
+    )(implicit streamConstructor: StreamConstructor[BS]): ZIO[R, TapirResponse, CalibanResponse[BS]] = {
+      val req = if (serverRequest.method == Method.GET) graphQLRequest.asHttpGetRequest else graphQLRequest
+      interpreter.executeRequest(req).map(buildHttpResponse[E, BS](serverRequest))
+    }
   }
 
   private case class Prepended[R, E](

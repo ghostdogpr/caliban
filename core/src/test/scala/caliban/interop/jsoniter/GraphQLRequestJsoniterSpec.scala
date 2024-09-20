@@ -47,6 +47,14 @@ object GraphQLRequestJsoniterSpec extends ZIOSpecDefault {
           writeToString(res) ==
             """{"query":"{}","operationName":"op","variables":{"hello":"world","answer":42,"isAwesome":true,"name":null}}"""
         )
+      },
+      test("isHttpGetRequest is ignored when serializing to JSON") {
+        val res = writeToString(GraphQLRequest(isHttpGetRequest = true))
+        assertTrue(res == """{}""")
+      },
+      test("isHttpGetRequest is ignored when deserializing from JSON") {
+        val res = readFromString[GraphQLRequest]("""{"isHttpGetRequest":true}""").isHttpGetRequest
+        assertTrue(!res)
       }
     )
 }

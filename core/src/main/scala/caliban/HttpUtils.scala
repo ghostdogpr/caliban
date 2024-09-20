@@ -1,5 +1,6 @@
 package caliban
 
+import caliban.CalibanError.ValidationError
 import caliban.ResponseValue.{ ObjectValue, StreamValue }
 import caliban.Value.NullValue
 import caliban.wrappers.Caching
@@ -7,6 +8,9 @@ import zio.stream.{ UStream, ZChannel, ZPipeline, ZStream }
 import zio.{ Cause, Chunk, Trace }
 
 private[caliban] object HttpUtils {
+
+  val MutationOverGetError: ValidationError =
+    ValidationError("Mutations are not allowed for GET requests", "")
 
   object DeferMultipart {
     private val Newline        = "\r\n"
