@@ -1,6 +1,5 @@
 package caliban.schema
 
-import caliban.CalibanError.ValidationError
 import caliban.Value._
 import caliban.introspection.adt._
 import caliban.parsing.adt.{ Directive, Directives }
@@ -37,6 +36,12 @@ trait CommonSchemaDerivation[R] {
     if (name.endsWith("Input")) name else s"${name}Input"
 
   type Typeclass[T] = Schema[R, T]
+
+  def isValueType[T](ctx: ReadOnlyCaseClass[Typeclass, T]): Boolean =
+    ctx.annotations.exists {
+      case GQLValueType(_) => true
+      case _               => false
+    }
 
   def isScalarValueType[T](ctx: ReadOnlyCaseClass[Typeclass, T]): Boolean =
     ctx.annotations.exists {
