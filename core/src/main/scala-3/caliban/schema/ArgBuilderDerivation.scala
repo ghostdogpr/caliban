@@ -1,7 +1,6 @@
 package caliban.schema
 
 import caliban.CalibanError.ExecutionError
-import caliban.InputValue.{ ListValue, VariableValue }
 import caliban.Value.*
 import caliban.schema.Annotations.{ GQLDefault, GQLName, GQLOneOfInput, GQLValueType }
 import caliban.schema.macros.Macros
@@ -71,17 +70,9 @@ trait CommonArgBuilderDerivation {
         makeProductArgBuilder(
           recurseProduct[A, m.MirroredElemLabels, m.MirroredElemTypes](),
           MagnoliaMacro.paramAnns[A].toMap,
-          isValueType[A, m.MirroredElemLabels]
+          DerivationUtils.isValueType[A, m.MirroredElemLabels]
         )(m.fromProduct)
     }
-
-  transparent inline private def isValueType[A, Labels]: Boolean =
-    inline if (MagnoliaMacro.isValueClass[A]) true
-    else
-      inline erasedValue[Labels] match {
-        case _: Tuple1[?] => Macros.hasAnnotation[A, GQLValueType]
-        case _            => false
-      }
 
   private def makeSumArgBuilder[A](
     _subTypes: => List[(String, List[Any], ArgBuilder[Any])],
@@ -144,6 +135,8 @@ trait CommonArgBuilderDerivation {
       (finalLabel, default, builder)
     })
 
+    assert(!isValueType || params.length == 1, "value classes must have exactly one field")
+
     private val required = params.collect { case (label, default, _) if default.isLeft => label }
 
     override private[schema] val partial: PartialFunction[InputValue, Either[ExecutionError, A]] = {
@@ -152,9 +145,9 @@ trait CommonArgBuilderDerivation {
 
     def build(input: InputValue): Either[ExecutionError, A] =
       input match {
-        case InputValue.ObjectValue(fields) => fromFields(fields)
-        case value if isValueType           => fromValue(value)
-        case _                              => Left(ExecutionError("expected an input object"))
+        case InputValue.ObjectValue(fields) if !isValueType => fromFields(fields)
+        case value if isValueType                           => fromValue(value)
+        case _                                              => Left(ExecutionError("Expected an input object"))
       }
 
     private def fromFields(fields: Map[String, InputValue]): Either[ExecutionError, A] = {
@@ -174,22 +167,12 @@ trait CommonArgBuilderDerivation {
       Right(fromProduct(Tuple.fromArray(arr)))
     }
 
-    private def fromValue(input: InputValue): Either[ExecutionError, A] = {
-      val l   = params.length
-      val arr = Array.ofDim[Any](l)
-      var i   = 0
-      while (i < l) {
-        val (_, _, builder) = params(i)
-        builder.build(input) match {
-          case Right(v) => arr(i) = v
-          case Left(e)  => return Left(e)
-        }
-        i += 1
-      }
-      Right(fromProduct(Tuple.fromArray(arr)))
-    }
-
+    private def fromValue(input: InputValue): Either[ExecutionError, A] =
+      params(0)._3
+        .build(input)
+        .map(v => fromProduct(Tuple1(v)))
   }
+
 }
 
 trait ArgBuilderDerivation extends CommonArgBuilderDerivation {

@@ -38,12 +38,6 @@ trait CommonSchemaDerivation[R] {
 
   type Typeclass[T] = Schema[R, T]
 
-  def isValueType[T](ctx: ReadOnlyCaseClass[Typeclass, T]): Boolean =
-    ctx.annotations.exists {
-      case GQLValueType(_) => true
-      case _               => false
-    }
-
   def isScalarValueType[T](ctx: ReadOnlyCaseClass[Typeclass, T]): Boolean =
     ctx.annotations.exists {
       case GQLValueType(true) => true
@@ -59,7 +53,7 @@ trait CommonSchemaDerivation[R] {
         }
       )
 
-    private lazy val _isValueType = (ctx.isValueClass || isValueType(ctx)) && ctx.parameters.nonEmpty
+    private lazy val _isValueType = DerivationUtils.isValueType(ctx)
 
     override def toType(isInput: Boolean, isSubscription: Boolean): __Type = {
       val _ = objectResolver // Initializes lazy val

@@ -4,7 +4,10 @@ import caliban.introspection.adt.*
 import caliban.parsing.adt.{ Directive, Directives }
 import caliban.schema.Annotations.*
 import caliban.schema.Types.*
-import magnolia1.TypeInfo
+import caliban.schema.macros.Macros
+import magnolia1.{ Macro as MagnoliaMacro, TypeInfo }
+
+import scala.compiletime.erasedValue
 
 private object DerivationUtils {
 
@@ -43,6 +46,14 @@ private object DerivationUtils {
 
   def getDeprecatedReason(annotations: Seq[Any]): Option[String] =
     annotations.collectFirst { case GQLDeprecated(reason) => reason }
+
+  transparent inline def isValueType[A, Labels]: Boolean =
+    inline if (MagnoliaMacro.isValueClass[A]) true
+    else
+      inline erasedValue[Labels] match {
+        case _: EmptyTuple => false
+        case _             => Macros.hasAnnotation[A, GQLValueType]
+      }
 
   def mkEnum(annotations: List[Any], info: TypeInfo, subTypes: List[(String, __Type, List[Any])]): __Type =
     makeEnum(

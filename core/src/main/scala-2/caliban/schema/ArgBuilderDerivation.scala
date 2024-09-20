@@ -39,8 +39,7 @@ trait CommonArgBuilderDerivation {
 
     private val required = params.collect { case (label, default) if default.isLeft => label }
 
-    private val isValueType =
-      ctx.isValueClass || (ctx.annotations.exists(_.isInstanceOf[GQLValueType]) && params.length == 1)
+    private val isValueType = DerivationUtils.isValueType(ctx)
 
     override private[schema] val partial: PartialFunction[InputValue, Either[ExecutionError, T]] = {
       case InputValue.ObjectValue(fields) if required.forall(fields.contains) => fromFields(fields)
@@ -48,9 +47,9 @@ trait CommonArgBuilderDerivation {
 
     def build(input: InputValue): Either[ExecutionError, T] =
       input match {
-        case InputValue.ObjectValue(fields) => fromFields(fields)
-        case value if isValueType           => ctx.constructMonadic(p => p.typeclass.build(value))
-        case _                              => Left(ExecutionError("expected an input object"))
+        case InputValue.ObjectValue(fields) if !isValueType => fromFields(fields)
+        case value if isValueType                           => ctx.constructMonadic(p => p.typeclass.build(value))
+        case _                                              => Left(ExecutionError("Expected an input object"))
       }
 
     private[this] def fromFields(fields: Map[String, InputValue]): Either[ExecutionError, T] =
