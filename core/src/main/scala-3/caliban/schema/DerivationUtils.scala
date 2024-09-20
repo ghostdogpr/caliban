@@ -48,12 +48,10 @@ private object DerivationUtils {
     annotations.collectFirst { case GQLDeprecated(reason) => reason }
 
   transparent inline def isValueType[A, Labels]: Boolean =
-    inline if (MagnoliaMacro.isValueClass[A]) true
-    else
-      inline erasedValue[Labels] match {
-        case _: EmptyTuple => false
-        case _             => Macros.hasAnnotation[A, GQLValueType]
-      }
+    inline erasedValue[Labels] match {
+      case _: EmptyTuple => false
+      case _             => MagnoliaMacro.isValueClass[A] || Macros.hasAnnotation[A, GQLValueType]
+    }
 
   def mkEnum(annotations: List[Any], info: TypeInfo, subTypes: List[(String, __Type, List[Any])]): __Type =
     makeEnum(
