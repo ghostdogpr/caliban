@@ -25,7 +25,7 @@ import scala.collection.compat._
 import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
 
-object Validator extends SchemaValidator {
+object Validator {
   import ValidationOps._
   import caliban.syntax._
 

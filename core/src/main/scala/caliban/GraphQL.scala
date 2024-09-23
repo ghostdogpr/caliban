@@ -11,7 +11,7 @@ import caliban.parsing.{ Parser, SourceMapper, VariablesCoercer }
 import caliban.rendering.DocumentRenderer
 import caliban.schema._
 import caliban.transformers.Transformer
-import caliban.validation.Validator
+import caliban.validation.{ SchemaValidator, Validator }
 import caliban.wrappers.Wrapper
 import caliban.wrappers.Wrapper._
 import zio.stacktracer.TracingImplicits.disableAutoTrace
@@ -32,7 +32,7 @@ trait GraphQL[-R] { self =>
   protected val transformer: Transformer[R]
 
   private[caliban] def validateRootSchema: Either[ValidationError, RootSchema[R]] =
-    Validator.validateSchema(schemaBuilder)
+    SchemaValidator.validateSchema(schemaBuilder)
 
   /**
    * Returns a string that renders the API types into the GraphQL SDL.
