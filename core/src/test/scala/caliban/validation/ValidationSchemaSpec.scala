@@ -21,7 +21,7 @@ object ValidationSchemaSpec extends ZIOSpecDefault {
 
   def checkTypeError(t: __Type, expectedMessage: String): IO[ValidationError, TestResult] =
     ZIO
-      .fromEither(Validator.validateType(t))
+      .fromEither(SchemaValidator.validateType(t))
       .exit
       .map(assert(_)(fails(hasField("msg", _.msg, equalTo(expectedMessage)))))
 
@@ -29,7 +29,7 @@ object ValidationSchemaSpec extends ZIOSpecDefault {
     suite("ValidationSchemaSpec")(
       suite("Enum")(
         test("non-empty enum is ok") {
-          val res = Validator.validateType(
+          val res = SchemaValidator.validateType(
             Types.makeEnum(
               name = Some("nonEmptyEnum"),
               description = None,
@@ -54,7 +54,7 @@ object ValidationSchemaSpec extends ZIOSpecDefault {
       ),
       suite("Union")(
         test("union containing object types is ok") {
-          val res = Validator.validateType(
+          val res = SchemaValidator.validateType(
             Types.makeUnion(
               name = Some("GoodUnion"),
               description = None,
@@ -298,7 +298,7 @@ object ValidationSchemaSpec extends ZIOSpecDefault {
             graphQL(resolverFieldWithArg).interpreter.exit.map(assert(_)(succeeds(anything)))
           },
           test("fields with additional nullable args are valid") {
-            assert(Validator.validateObject(nullableExtraArgsObject))(isRight)
+            assert(SchemaValidator.validateType(nullableExtraArgsObject))(isRight)
           },
           test("fields with additional non-nullable args are invalid") {
             checkTypeError(

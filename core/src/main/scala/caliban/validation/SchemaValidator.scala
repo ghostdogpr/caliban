@@ -10,12 +10,7 @@ import caliban.schema.{ RootSchema, RootSchemaBuilder, Types }
 import caliban.validation.Utils.isObjectType
 import caliban.validation.ValidationOps._
 
-/*
- * TODO In the next major version:
- *  1. Make `SchemaValidator` an object and remove inheritance from Validator
- *  2. Make all methods private except `validateSchema` and `validateType`
- */
-private[caliban] trait SchemaValidator {
+private[caliban] object SchemaValidator {
 
   /**
    * Verifies that the given schema is valid. Fails with a [[caliban.CalibanError.ValidationError]] otherwise.
@@ -43,7 +38,7 @@ private[caliban] trait SchemaValidator {
         case _                       => unit
       })
 
-  private[caliban] def validateClashingTypes(types: List[__Type]): Either[ValidationError, Unit] = {
+  private def validateClashingTypes(types: List[__Type]): Either[ValidationError, Unit] = {
     val check = types.groupBy(_.name).collectFirst { case (Some(name), v) if v.size > 1 => (name, v) }
     check match {
       case None                 => unit
@@ -108,7 +103,7 @@ private[caliban] trait SchemaValidator {
     }
   }
 
-  private[caliban] def validateEnum(t: __Type): Either[ValidationError, Unit] =
+  private def validateEnum(t: __Type): Either[ValidationError, Unit] =
     t.allEnumValues match {
       case _ :: _ => unit
       case Nil    =>
@@ -118,7 +113,7 @@ private[caliban] trait SchemaValidator {
         )
     }
 
-  private[caliban] def validateUnion(t: __Type): Either[ValidationError, Unit] =
+  private def validateUnion(t: __Type): Either[ValidationError, Unit] =
     t.possibleTypes match {
       case None | Some(Nil)                           =>
         failValidation(
@@ -134,7 +129,7 @@ private[caliban] trait SchemaValidator {
       case _                                          => unit
     }
 
-  private[caliban] def validateInputObject(t: __Type): Either[ValidationError, Unit] = {
+  private def validateInputObject(t: __Type): Either[ValidationError, Unit] = {
     lazy val inputObjectContext = s"""${if (t._isOneOfInput) "OneOf " else ""}InputObject '${t.name.getOrElse("")}'"""
 
     def noDuplicateInputValueName(
@@ -184,7 +179,7 @@ private[caliban] trait SchemaValidator {
     }
   }
 
-  private[caliban] def validateInputValue(
+  private def validateInputValue(
     inputValue: __InputValue,
     errorContext: => String
   ): Either[ValidationError, Unit] = {
@@ -196,7 +191,7 @@ private[caliban] trait SchemaValidator {
     } yield ()
   }
 
-  private[caliban] def validateInterface(t: __Type): Either[ValidationError, Unit] = {
+  private def validateInterface(t: __Type): Either[ValidationError, Unit] = {
     lazy val interfaceContext = s"Interface '${t.name.getOrElse("")}'"
 
     t.allFields match {
@@ -209,7 +204,7 @@ private[caliban] trait SchemaValidator {
     }
   }
 
-  def validateObject(obj: __Type): Either[ValidationError, Unit] = {
+  private def validateObject(obj: __Type): Either[ValidationError, Unit] = {
     lazy val objectContext = s"Object '${obj.name.getOrElse("")}'"
 
     def validateInterfaceFields(obj: __Type) = {
@@ -315,7 +310,7 @@ private[caliban] trait SchemaValidator {
   private def isListField(field: __Field) =
     field._type.kind == __TypeKind.LIST
 
-  private[caliban] def onlyInputType(`type`: __Type, errorContext: => String): Either[ValidationError, Unit] = {
+  private def onlyInputType(`type`: __Type, errorContext: => String): Either[ValidationError, Unit] = {
     // https://spec.graphql.org/June2018/#IsInputType()
     def isInputType(t: __Type): Either[__Type, Unit] = {
       import __TypeKind._
@@ -336,7 +331,7 @@ private[caliban] trait SchemaValidator {
     }
   }
 
-  private[caliban] def validateFields(fields: List[__Field], context: => String): Either[ValidationError, Unit] =
+  private def validateFields(fields: List[__Field], context: => String): Either[ValidationError, Unit] =
     noDuplicateFieldName(fields, context) *>
       validateAllDiscard(fields) { field =>
         lazy val fieldContext = s"Field '${field.name}' of $context"
@@ -347,14 +342,14 @@ private[caliban] trait SchemaValidator {
         } yield ()
       }
 
-  private[caliban] def noDuplicateFieldName(fields: List[__Field], errorContext: => String) = {
+  private def noDuplicateFieldName(fields: List[__Field], errorContext: => String) = {
     val messageBuilder = (f: __Field) => s"$errorContext has repeated fields: ${f.name}"
     def explanatory    =
       "The field must have a unique name within that Interface type; no two fields may share the same name"
     noDuplicateName[__Field](fields, _.name, messageBuilder, explanatory)
   }
 
-  private[caliban] def onlyOutputType(`type`: __Type, errorContext: => String): Either[ValidationError, Unit] = {
+  private def onlyOutputType(`type`: __Type, errorContext: => String): Either[ValidationError, Unit] = {
     // https://spec.graphql.org/June2018/#IsOutputType()
     def isOutputType(t: __Type): Either[__Type, Unit] = {
       import __TypeKind._
@@ -375,7 +370,7 @@ private[caliban] trait SchemaValidator {
     }
   }
 
-  private[caliban] def noDuplicateName[T](
+  private def noDuplicateName[T](
     listOfNamed: List[T],
     nameExtractor: T => String,
     messageBuilder: T => String,
@@ -388,7 +383,7 @@ private[caliban] trait SchemaValidator {
         failValidation(messageBuilder(duplicate), explanatoryText)
       )
 
-  private[caliban] def checkName(name: String, fieldContext: => String): Either[ValidationError, Unit] =
+  private def checkName(name: String, fieldContext: => String): Either[ValidationError, Unit] =
     Parser
       .parseName(name)
       .left
@@ -399,7 +394,7 @@ private[caliban] trait SchemaValidator {
         )
       ) *> doesNotStartWithUnderscore(name, fieldContext)
 
-  private[caliban] def doesNotStartWithUnderscore(
+  private def doesNotStartWithUnderscore(
     name: String,
     errorContext: => String
   ): Either[ValidationError, Unit] =
@@ -408,7 +403,7 @@ private[caliban] trait SchemaValidator {
       """Names can not begin with the characters "__" (two underscores)"""
     )
 
-  private[caliban] def validateRootQuery[R](
+  private def validateRootQuery[R](
     schema: RootSchemaBuilder[R]
   ): Either[ValidationError, RootSchema[R]] =
     schema.query match {
@@ -427,7 +422,7 @@ private[caliban] trait SchemaValidator {
           )
     }
 
-  private[caliban] def validateRootMutation[R](schema: RootSchemaBuilder[R]): Either[ValidationError, Unit] =
+  private def validateRootMutation[R](schema: RootSchemaBuilder[R]): Either[ValidationError, Unit] =
     schema.mutation match {
       case Some(mutation) if mutation.opType.kind != __TypeKind.OBJECT =>
         failValidation(
@@ -437,7 +432,7 @@ private[caliban] trait SchemaValidator {
       case _                                                           => unit
     }
 
-  private[caliban] def validateRootSubscription[R](schema: RootSchemaBuilder[R]): Either[ValidationError, Unit] =
+  private def validateRootSubscription[R](schema: RootSchemaBuilder[R]): Either[ValidationError, Unit] =
     schema.subscription match {
       case Some(subscription) if subscription.opType.kind != __TypeKind.OBJECT =>
         failValidation(
