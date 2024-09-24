@@ -529,12 +529,10 @@ lazy val examples = project
       "org.http4s"                            %% "http4s-ember-server"     % http4sVersion,
       "org.http4s"                            %% "http4s-dsl"              % http4sVersion,
       "com.softwaremill.sttp.client3"         %% "zio"                     % sttpVersion,
-      "io.circe"                              %% "circe-generic"           % circeVersion,
       "dev.zio"                               %% "zio-http"                % zioHttpVersion,
       "org.playframework"                     %% "play-pekko-http-server"  % playVersion,
       "com.typesafe.akka"                     %% "akka-actor-typed"        % akkaVersion,
       "com.softwaremill.sttp.tapir"           %% "tapir-zio-http-server"   % tapirVersion,
-      "com.softwaremill.sttp.tapir"           %% "tapir-json-circe"        % tapirVersion,
       "com.softwaremill.sttp.tapir"           %% "tapir-swagger-ui-bundle" % tapirVersion,
       "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros"   % jsoniterVersion % Provided
     )
@@ -666,11 +664,9 @@ lazy val docs = project
     scalacOptions -= "-Xfatal-warnings",
     scalacOptions += "-Wunused:imports",
     libraryDependencies ++= Seq(
-      "com.softwaremill.sttp.client3" %% "zio"              % sttpVersion,
-      "org.typelevel"                 %% "cats-mtl"         % catsMtlVersion,
-      // TODO: Dependencies below to be removed once the docs have been updated
-      "io.circe"                      %% "circe-generic"    % circeVersion,
-      "com.softwaremill.sttp.tapir"   %% "tapir-json-circe" % tapirVersion
+      "com.softwaremill.sttp.client3"         %% "zio"                   % sttpVersion,
+      "org.typelevel"                         %% "cats-mtl"              % catsMtlVersion,
+      "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros" % jsoniterVersion
     )
   )
   .dependsOn(core, catsInterop, tapirInterop, http4s, tools, quickAdapter)

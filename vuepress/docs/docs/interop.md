@@ -230,12 +230,17 @@ The conversion rules are the following:
 Let's look at an example. Imagine we have the following Tapir endpoint:
 
 ```scala mdoc:silent:reset
-import io.circe.generic.auto._
+import com.github.plokhotnyuk.jsoniter_scala.core._
+import com.github.plokhotnyuk.jsoniter_scala.macros._
 import sttp.tapir._
 import sttp.tapir.generic.auto._
-import sttp.tapir.json.circe._
+import sttp.tapir.json.jsoniter._
 
 case class Book(title: String, year: Int)
+
+object Book {
+  implicit val jsonCodec: JsonValueCodec[Book] = JsonCodecMaker.make
+}
 
 val addBook: PublicEndpoint[(Book, String), Nothing, Unit, Any] =
   infallibleEndpoint

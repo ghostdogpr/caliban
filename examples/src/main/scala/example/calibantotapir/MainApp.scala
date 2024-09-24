@@ -5,7 +5,6 @@ import zio._
 import zio.http._
 import caliban._
 import caliban.interop.tapir._
-import sttp.tapir.json.jsoniter._
 import sttp.capabilities.zio.ZioStreams
 import sttp.tapir.ztapir.RIOMonadError
 import sttp.tapir.server.ziohttp._
