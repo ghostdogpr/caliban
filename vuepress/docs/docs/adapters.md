@@ -76,7 +76,7 @@ without tapir in order to provide the best possible performance.
 In order to use it, just add the following to your `build.sbt` file (no other dependencies required!):
 
 ```scala
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-quick" % "2.8.1"
+libraryDependencies += "com.github.ghostdogpr" %% "caliban-quick" % "2.9.0"
 ```
 
 By adding `import caliban.quick._`, we expose a few convenient extension methods on our `GraphQL` api.
