@@ -8,7 +8,7 @@ You can run these tests using following sbt commandos:
 
 ```sbt
 project codegenSbt
-++2.12.20
+++2.12
 update
 scripted compiletime-codegen/test-compile
 ```

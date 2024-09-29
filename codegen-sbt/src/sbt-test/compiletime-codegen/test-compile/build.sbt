@@ -27,7 +27,7 @@ ThisBuild / crossScalaVersions := allScala
 // ### Dependencies ###
 
 lazy val calibanLib = Seq(
-  "com.github.ghostdogpr" %% "caliban" % Version.pluginVersion,
+  "com.github.ghostdogpr" %% "caliban"       % Version.pluginVersion,
   "com.github.ghostdogpr" %% "caliban-tools" % Version.pluginVersion % "compile->compile;test->test"
 )
 
@@ -37,7 +37,7 @@ lazy val sttp = Seq(
 )
 
 lazy val zioTest = Seq(
-  "dev.zio" %% "zio-test" % "2.1.9" % Test,
+  "dev.zio" %% "zio-test"     % "2.1.9" % Test,
   "dev.zio" %% "zio-test-sbt" % "2.1.9" % Test
 )
 // ### App Modules ###
@@ -106,7 +106,6 @@ lazy val posts =
         )
     )
     .settings(libraryDependencies ++= calibanLib ++ zioTest)
-
 
 lazy val potatoes =
   project
