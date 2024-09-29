@@ -4,7 +4,7 @@ import sbtcrossproject.CrossPlugin.autoImport.{ crossProject, CrossType }
 
 val scala212 = "2.12.20"
 val scala213 = "2.13.15"
-val scala3   = "3.3.3"
+val scala3   = "3.3.4"
 val allScala = Seq(scala212, scala213, scala3)
 
 val akkaVersion               = "2.6.20"

@@ -16,8 +16,10 @@ trait SubscriptionSchemaDerivation {
     inline summonInline[Mirror.ProductOf[A]] match {
       case m: Mirror.ProductOf[A] =>
         checkParams[m.MirroredElemTypes]
-        new SubscriptionSchema[A] {}
+        new ProductSubscriptionSchema[A]
     }
 
   inline given gen[A]: SubscriptionSchema[A] = derived
 }
+
+private final class ProductSubscriptionSchema[A] extends SubscriptionSchema[A]

@@ -5,6 +5,7 @@ import caliban.schema.Annotations.*
 import caliban.schema.macros.Macros
 import magnolia1.Macro as MagnoliaMacro
 
+import scala.annotation.nowarn
 import scala.compiletime.*
 import scala.deriving.Mirror
 import scala.reflect.ClassTag
@@ -157,6 +158,7 @@ trait SchemaDerivation[R] extends CommonSchemaDerivation {
   }
 
   object Auto {
+    @nowarn("msg=anonymous class")
     inline def derived[A]: Auto[A] = new {
       private val impl = Schema.derived[R, A]
       export impl.*
