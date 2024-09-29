@@ -7,6 +7,7 @@ import caliban.schema.macros.Macros
 import caliban.{ CalibanError, InputValue }
 import magnolia1.Macro as MagnoliaMacro
 
+import scala.annotation.nowarn
 import scala.compiletime.*
 import scala.deriving.Mirror
 import scala.util.NotGiven
@@ -183,6 +184,7 @@ trait ArgBuilderDerivation extends CommonArgBuilderDerivation {
   }
 
   object Auto {
+    @nowarn("msg=anonymous class")
     inline def derived[A]: Auto[A] = new {
       private val impl = ArgBuilder.derived[A]
       export impl.*
