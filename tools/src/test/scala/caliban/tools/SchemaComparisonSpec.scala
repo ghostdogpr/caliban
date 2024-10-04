@@ -301,8 +301,8 @@ object SchemaComparisonSpec extends ZIOSpecDefault {
             """
               | extend scalar MyScalar @deprecated
               |""".stripMargin
-          val expected = List(
-            SchemaComparisonChange.DirectiveAdded("deprecated", Target.Type("MyScalar")),
+          val expected        = List(
+            SchemaComparisonChange.DirectiveAdded("deprecated", Target.Type("MyScalar"))
           )
           compareChanges(schema1, schema2, expected)
         },
@@ -319,11 +319,11 @@ object SchemaComparisonSpec extends ZIOSpecDefault {
               |   b: Int
               | }
               |""".stripMargin
-          val expected = List(
+          val expected        = List(
             SchemaComparisonChange.DirectiveDeleted("deprecated", Target.Type("MyType")),
             SchemaComparisonChange.ObjectImplementsDeleted("MyType", "A"),
             SchemaComparisonChange.FieldAdded("MyType", "b"),
-            SchemaComparisonChange.FieldDeleted("MyType", "a"),
+            SchemaComparisonChange.FieldDeleted("MyType", "a")
           )
           compareChanges(schema1, schema2, expected)
         },
@@ -340,10 +340,10 @@ object SchemaComparisonSpec extends ZIOSpecDefault {
               |   b: Int
               | }
               |""".stripMargin
-          val expected = List(
+          val expected        = List(
             SchemaComparisonChange.DirectiveDeleted("deprecated", Target.Type("MyInterface")),
             SchemaComparisonChange.FieldAdded("MyInterface", "b"),
-            SchemaComparisonChange.FieldDeleted("MyInterface", "a"),
+            SchemaComparisonChange.FieldDeleted("MyInterface", "a")
           )
           compareChanges(schema1, schema2, expected)
         },
@@ -356,7 +356,7 @@ object SchemaComparisonSpec extends ZIOSpecDefault {
             """
               | extend union MyUnion = A | C
               |""".stripMargin
-          val expected = List(
+          val expected        = List(
             SchemaComparisonChange.UnionMemberAdded("MyUnion", "C"),
             SchemaComparisonChange.UnionMemberDeleted("MyUnion", "B")
           )
@@ -371,7 +371,7 @@ object SchemaComparisonSpec extends ZIOSpecDefault {
             """
               | extend enum MyEnum { A C }
               |""".stripMargin
-          val expected = List(
+          val expected        = List(
             SchemaComparisonChange.EnumValueAdded("MyEnum", "C"),
             SchemaComparisonChange.EnumValueDeleted("MyEnum", "B")
           )
@@ -390,7 +390,7 @@ object SchemaComparisonSpec extends ZIOSpecDefault {
               |   b: Int
               | }
               |""".stripMargin
-          val expected = List(
+          val expected        = List(
             SchemaComparisonChange.ArgumentAdded("b", Target.Type("MyInput"), true),
             SchemaComparisonChange.ArgumentDeleted("a", Target.Type("MyInput"))
           )
@@ -407,7 +407,7 @@ object SchemaComparisonSpec extends ZIOSpecDefault {
               | extend scalar MyScalarA
               | extend scalar MyScalarC
               |""".stripMargin
-          val expected = List(
+          val expected        = List(
             SchemaComparisonChange.TypeExtensionAdded(name = "MyScalarC"),
             SchemaComparisonChange.TypeExtensionDeleted(name = "MyScalarB")
           )
