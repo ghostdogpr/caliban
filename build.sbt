@@ -13,7 +13,7 @@ val catsMtlVersion            = "1.3.0"
 val circeVersion              = "0.14.10"
 val fs2Version                = "3.11.0"
 val http4sVersion             = "0.23.28"
-val javaTimeVersion           = "2.5.0"
+val javaTimeVersion           = "2.6.0"
 val jsoniterVersion           = "2.30.14"
 val laminextVersion           = "0.17.0"
 val magnoliaScala2Version     = "1.1.10"
@@ -22,7 +22,7 @@ val pekkoHttpVersion          = "1.1.0"
 val playVersion               = "3.0.5"
 val playJsonVersion           = "3.0.4"
 val scalafmtVersion           = "3.8.0"
-val sttpVersion               = "3.9.8"
+val sttpVersion               = "3.10.0"
 val tapirVersion              = "1.11.5"
 val zioVersion                = "2.1.9"
 val zioInteropCats2Version    = "22.0.0.0"
@@ -456,8 +456,8 @@ lazy val client    = crossProject(JSPlatform, JVMPlatform, NativePlatform)
       "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros" % jsoniterVersion % Provided,
       // keep an older zio version because we're still on Native 0.4.x
       // it's only for tests so no big deal
-      "dev.zio"                              %%% "zio-test"              % "2.1.6"         % Test,
-      "dev.zio"                              %%% "zio-test-sbt"          % "2.1.6"         % Test
+      "dev.zio"                              %%% "zio-test"              % zioVersion      % Test,
+      "dev.zio"                              %%% "zio-test-sbt"          % zioVersion      % Test
     )
   )
 lazy val clientJVM = client.jvm.settings(enableMimaSettingsJVM)
@@ -467,7 +467,7 @@ lazy val clientJS  = client.js
     libraryDependencies ++= {
       Seq(
         "org.scala-js"      %%% "scalajs-java-securerandom" % "1.0.0" cross CrossVersion.for3Use2_13,
-        "io.github.cquiroz" %%% "scala-java-time"           % "2.5.0" % Test
+        "io.github.cquiroz" %%% "scala-java-time"           % javaTimeVersion % Test
       )
     }
   )
@@ -477,7 +477,7 @@ lazy val clientJS  = client.js
 lazy val clientNative = client.native
   .settings(
     libraryDependencies ++= Seq(
-      "com.github.lolgab" %%% "scala-native-crypto" % "0.0.4",
+      "com.github.lolgab" %%% "scala-native-crypto" % "0.1.0",
       "io.github.cquiroz" %%% "scala-java-time"     % javaTimeVersion % Test
     ),
     Test / fork := false

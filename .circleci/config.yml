@@ -129,7 +129,7 @@ jobs:
       - restore_cache:
           key: sbtcache
       - run: ./.circleci/install-native-deps.sh
-      - run: sbt ++2.13 clientJS/test clientLaminextJS/Test/fastLinkJS clientNative/Test/nativeLink
+      - run: sbt ++2.13 clientJS/test clientLaminextJS/Test/fastLinkJS clientNative/test
       - save_cache:
           key: sbtcache
           paths:
@@ -145,7 +145,7 @@ jobs:
       - restore_cache:
           key: sbtcache
       - run: ./.circleci/install-native-deps.sh
-      - run: sbt ++3.3 clientJS/test clientLaminextJS/Test/fastLinkJS clientNative/Test/nativeLink
+      - run: sbt ++3.3 clientJS/test clientLaminextJS/Test/fastLinkJS clientNative/test
       - save_cache:
           key: sbtcache
           paths:
