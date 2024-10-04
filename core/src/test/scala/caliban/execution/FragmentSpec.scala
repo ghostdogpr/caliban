@@ -32,6 +32,24 @@ object FragmentSpec extends ZIOSpecDefault {
           res <- int.execute(query)
         } yield assertTrue(res.data.toString == """{"amos":{"name":"Amos Burton"}}""")
       },
+      test("fragment on root query") {
+        val interpreter = graphQL(resolver).interpreter
+        val query       = gqldoc("""
+          {
+            ...amos
+          }
+
+          fragment amos on Query {
+            amos: character(name: "Amos Burton") {
+              name
+            }
+          }
+          """)
+        for {
+          int <- interpreter
+          res <- int.execute(query)
+        } yield assertTrue(res.data.toString == """{"amos":{"name":"Amos Burton"}}""")
+      },
       test("fragment on union") {
         val query = gqldoc("""
                    {
