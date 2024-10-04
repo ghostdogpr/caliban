@@ -1,10 +1,17 @@
 package caliban.tools
 
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
-import caliban.parsing.adt.Definition.TypeSystemDefinition.{DirectiveDefinition, SchemaDefinition, TypeDefinition}
+import caliban.parsing.adt.Definition.TypeSystemDefinition.{ DirectiveDefinition, SchemaDefinition, TypeDefinition }
 import caliban.parsing.adt.Definition.TypeSystemExtension.TypeExtension
-import caliban.parsing.adt.Definition.TypeSystemExtension.TypeExtension.{EnumTypeExtension, InputObjectTypeExtension, InterfaceTypeExtension, ObjectTypeExtension, ScalarTypeExtension, UnionTypeExtension}
-import caliban.parsing.adt.{Directive, Document}
+import caliban.parsing.adt.Definition.TypeSystemExtension.TypeExtension.{
+  EnumTypeExtension,
+  InputObjectTypeExtension,
+  InterfaceTypeExtension,
+  ObjectTypeExtension,
+  ScalarTypeExtension,
+  UnionTypeExtension
+}
+import caliban.parsing.adt.{ Directive, Document }
 import caliban.tools.SchemaComparisonChange._
 import zio.Task
 
@@ -103,7 +110,7 @@ object SchemaComparison {
     target: Target
   ): List[SchemaComparisonChange] = {
     val left         = leftDirectives.map(d => d.name -> d).toMap
-    val right        =  rightDirectives.map(d => d.name -> d).toMap
+    val right        = rightDirectives.map(d => d.name -> d).toMap
     val leftKeys     = left.keySet
     val rightKeys    = right.keySet
     val added        = (rightKeys -- leftKeys).map(DirectiveAdded(_, target)).toList
@@ -137,8 +144,8 @@ object SchemaComparison {
     rightArguments: List[InputValueDefinition],
     target: Target
   ): List[SchemaComparisonChange] = {
-    val left = leftArguments.map(a => a.name -> a).toMap
-    val right = rightArguments.map(a => a.name -> a).toMap
+    val left         = leftArguments.map(a => a.name -> a).toMap
+    val right        = rightArguments.map(a => a.name -> a).toMap
     val leftKeys     = left.keySet
     val rightKeys    = right.keySet
     val added        = (right -- leftKeys).map { case (name, arg) =>
@@ -173,7 +180,7 @@ object SchemaComparison {
     val directiveChanges   = compareAllDirectives(left.directives, right.directives, fieldTarget)
     val ofTypeChanges      =
       if (left.ofType != right.ofType) List(TypeChanged(left.ofType, right.ofType, fieldTarget)) else Nil
-    val argumentChanges = compareArguments(left.args, right.args, fieldTarget)
+    val argumentChanges    = compareArguments(left.args, right.args, fieldTarget)
 
     descriptionChanges ++ directiveChanges ++ ofTypeChanges ++ argumentChanges
   }
@@ -183,7 +190,7 @@ object SchemaComparison {
     leftFields: List[FieldDefinition],
     rightFields: List[FieldDefinition]
   ): List[SchemaComparisonChange] = {
-    val left = leftFields.map(d => d.name -> d).toMap
+    val left  = leftFields.map(d => d.name -> d).toMap
     val right = rightFields.map(d => d.name -> d).toMap
 
     val leftKeys    = left.keySet
@@ -317,12 +324,18 @@ object SchemaComparison {
     left: List[TypeExtension],
     right: List[TypeExtension]
   ): List[SchemaComparisonChange] = {
-    val scalarTypeExtensionChanges = compareTypeExtensionsOfType[ScalarTypeExtension](left, right, _.name, compareScalarTypeExtensions)
-    val objectTypeExtensionChanges = compareTypeExtensionsOfType[ObjectTypeExtension](left, right, _.name, compareObjectTypeExtensions)
-    val interfaceTypeExtensionChanges = compareTypeExtensionsOfType[InterfaceTypeExtension](left, right, _.name, compareInterfaceTypeExtensions)
-    val unionTypeExtensionChanges = compareTypeExtensionsOfType[UnionTypeExtension](left, right, _.name, compareUnionTypeExtensions)
-    val enumTypeExtensionChanges = compareTypeExtensionsOfType[EnumTypeExtension](left, right, _.name, compareEnumTypeExtensions)
-    val inputObjectTypeExtensions = compareTypeExtensionsOfType[InputObjectTypeExtension](left, right, _.name, compareInputObjectTypeExtensions)
+    val scalarTypeExtensionChanges    =
+      compareTypeExtensionsOfType[ScalarTypeExtension](left, right, _.name, compareScalarTypeExtensions)
+    val objectTypeExtensionChanges    =
+      compareTypeExtensionsOfType[ObjectTypeExtension](left, right, _.name, compareObjectTypeExtensions)
+    val interfaceTypeExtensionChanges =
+      compareTypeExtensionsOfType[InterfaceTypeExtension](left, right, _.name, compareInterfaceTypeExtensions)
+    val unionTypeExtensionChanges     =
+      compareTypeExtensionsOfType[UnionTypeExtension](left, right, _.name, compareUnionTypeExtensions)
+    val enumTypeExtensionChanges      =
+      compareTypeExtensionsOfType[EnumTypeExtension](left, right, _.name, compareEnumTypeExtensions)
+    val inputObjectTypeExtensions     =
+      compareTypeExtensionsOfType[InputObjectTypeExtension](left, right, _.name, compareInputObjectTypeExtensions)
     scalarTypeExtensionChanges ++ objectTypeExtensionChanges ++ interfaceTypeExtensionChanges ++ unionTypeExtensionChanges ++ enumTypeExtensionChanges ++ inputObjectTypeExtensions
   }
 
@@ -330,16 +343,19 @@ object SchemaComparison {
     left: List[TypeExtension],
     right: List[TypeExtension],
     name: T => String,
-    comp: (T, T) => List[SchemaComparisonChange]): List[SchemaComparisonChange] =
+    comp: (T, T) => List[SchemaComparisonChange]
+  ): List[SchemaComparisonChange] =
     compareTypeExtensions(
-      left.collect({case ote: T => ote}).map(t => name(t) -> t).toMap,
-      right.collect({case ote: T => ote}).map(t => name(t) -> t).toMap,
-      comp)
+      left.collect { case ote: T => ote }.map(t => name(t) -> t).toMap,
+      right.collect { case ote: T => ote }.map(t => name(t) -> t).toMap,
+      comp
+    )
 
   private def compareTypeExtensions[T](
     left: Map[String, T],
     right: Map[String, T],
-    comp: (T, T) => List[SchemaComparisonChange]): List[SchemaComparisonChange] = {
+    comp: (T, T) => List[SchemaComparisonChange]
+  ): List[SchemaComparisonChange] = {
     val added            = (right.keySet -- left.keySet).map(TypeExtensionAdded.apply).toList
     val deleted          = (left.keySet -- right.keySet).map(TypeExtensionDeleted.apply).toList
     val commonExtensions = left.keySet intersect right.keySet
@@ -350,15 +366,14 @@ object SchemaComparison {
   private def compareScalarTypeExtensions(
     left: ScalarTypeExtension,
     right: ScalarTypeExtension
-  ): List[SchemaComparisonChange] = {
+  ): List[SchemaComparisonChange] =
     compareAllDirectives(left.directives, right.directives, Target.Type(left.name))
-  }
 
   private def compareObjectTypeExtensions(
     left: ObjectTypeExtension,
     right: ObjectTypeExtension
   ): List[SchemaComparisonChange] = {
-    val directiveChanges =  compareAllDirectives(left.directives, right.directives, Target.Type(left.name))
+    val directiveChanges = compareAllDirectives(left.directives, right.directives, Target.Type(left.name))
 
     val leftImplements    = left.implements.toSet
     val rightImplements   = right.implements.toSet
@@ -377,7 +392,7 @@ object SchemaComparison {
     right: InterfaceTypeExtension
   ): List[SchemaComparisonChange] = {
     val directiveChanges = compareAllDirectives(left.directives, right.directives, Target.Type(left.name))
-    val fieldChanges = compareAllFields(left.name, left.fields, right.fields)
+    val fieldChanges     = compareAllFields(left.name, left.fields, right.fields)
     directiveChanges ++ fieldChanges
   }
 
@@ -386,10 +401,10 @@ object SchemaComparison {
     right: UnionTypeExtension
   ): List[SchemaComparisonChange] = {
     val directiveChanges = compareAllDirectives(left.directives, right.directives, Target.Type(left.name))
-    val leftKeys  = left.memberTypes.toSet
-    val rightKeys = right.memberTypes.toSet
-    val added     = (rightKeys -- leftKeys).map(UnionMemberAdded(left.name, _)).toList
-    val deleted   = (leftKeys -- rightKeys).map(UnionMemberDeleted(left.name, _)).toList
+    val leftKeys         = left.memberTypes.toSet
+    val rightKeys        = right.memberTypes.toSet
+    val added            = (rightKeys -- leftKeys).map(UnionMemberAdded(left.name, _)).toList
+    val deleted          = (leftKeys -- rightKeys).map(UnionMemberDeleted(left.name, _)).toList
     added ++ deleted ++ directiveChanges
   }
 
@@ -398,7 +413,7 @@ object SchemaComparison {
     right: EnumTypeExtension
   ): List[SchemaComparisonChange] = {
     val directiveChanges = compareAllDirectives(left.directives, right.directives, Target.Type(left.name))
-    val enumChanges = compareAllEnumValues(left.name, left.enumValuesDefinition, right.enumValuesDefinition)
+    val enumChanges      = compareAllEnumValues(left.name, left.enumValuesDefinition, right.enumValuesDefinition)
     directiveChanges ++ enumChanges
   }
 
@@ -406,9 +421,9 @@ object SchemaComparison {
     left: InputObjectTypeExtension,
     right: InputObjectTypeExtension
   ): List[SchemaComparisonChange] = {
-    val targetType = Target.Type(left.name)
+    val targetType       = Target.Type(left.name)
     val directiveChanges = compareAllDirectives(left.directives, right.directives, targetType)
-    val argumentChanges = compareArguments(left.fields, right.fields, targetType)
+    val argumentChanges  = compareArguments(left.fields, right.fields, targetType)
     directiveChanges ++ argumentChanges
   }
 }
