@@ -450,14 +450,12 @@ lazy val client    = crossProject(JSPlatform, JVMPlatform, NativePlatform)
   .disablePlugins(AssemblyPlugin)
   .settings(
     libraryDependencies ++= Seq(
-      "com.softwaremill.sttp.client3"        %%% "core"                  % sttpVersion,
-      "com.softwaremill.sttp.client3"        %%% "jsoniter"              % sttpVersion,
-      "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-core"   % jsoniterVersion,
-      "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros" % jsoniterVersion % Provided,
-      // keep an older zio version because we're still on Native 0.4.x
-      // it's only for tests so no big deal
-      "dev.zio"                              %%% "zio-test"              % zioVersion      % Test,
-      "dev.zio"                              %%% "zio-test-sbt"          % zioVersion      % Test
+      "com.softwaremill.sttp.client3"         %%% "core"                  % sttpVersion,
+      "com.softwaremill.sttp.client3"         %%% "jsoniter"              % sttpVersion,
+      "com.github.plokhotnyuk.jsoniter-scala" %%% "jsoniter-scala-core"   % jsoniterVersion,
+      "com.github.plokhotnyuk.jsoniter-scala" %%% "jsoniter-scala-macros" % jsoniterVersion % Provided,
+      "dev.zio"                               %%% "zio-test"              % zioVersion      % Test,
+      "dev.zio"                               %%% "zio-test-sbt"          % zioVersion      % Test
     )
   )
 lazy val clientJVM = client.jvm.settings(enableMimaSettingsJVM)
