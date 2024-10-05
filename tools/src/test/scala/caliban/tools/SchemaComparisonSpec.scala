@@ -6,6 +6,7 @@ import caliban.schema.Annotations.GQLDeprecated
 import caliban.schema.Schema.auto._
 import caliban.schema.ArgBuilder.auto._
 import caliban.tools.SchemaComparison.compareDocuments
+import caliban.tools.SchemaComparisonChange.Target
 import zio.ZIO
 import zio.test.Assertion._
 import zio.test._
@@ -287,6 +288,129 @@ object SchemaComparisonSpec extends ZIOSpecDefault {
             SchemaComparisonChange.ObjectImplementsDeleted("C", "A")
           )
 
+          compareChanges(schema1, schema2, expected)
+        }
+      ),
+      suite("type extensions")(
+        test("scala extensions") {
+          val schema1: String =
+            """
+              | extend scalar MyScalar
+              |""".stripMargin
+          val schema2: String =
+            """
+              | extend scalar MyScalar @deprecated
+              |""".stripMargin
+          val expected        = List(
+            SchemaComparisonChange.DirectiveAdded("deprecated", Target.Type("MyScalar"))
+          )
+          compareChanges(schema1, schema2, expected)
+        },
+        test("object type extensions") {
+          val schema1: String =
+            """
+              | extend type MyType implements A @deprecated(reason: "abandoned") {
+              |   a: Int
+              | }
+              |""".stripMargin
+          val schema2: String =
+            """
+              | extend type MyType {
+              |   b: Int
+              | }
+              |""".stripMargin
+          val expected        = List(
+            SchemaComparisonChange.DirectiveDeleted("deprecated", Target.Type("MyType")),
+            SchemaComparisonChange.ObjectImplementsDeleted("MyType", "A"),
+            SchemaComparisonChange.FieldAdded("MyType", "b"),
+            SchemaComparisonChange.FieldDeleted("MyType", "a")
+          )
+          compareChanges(schema1, schema2, expected)
+        },
+        test("interface type extensions") {
+          val schema1: String =
+            """
+              | extend interface MyInterface @deprecated(reason: "abandoned") {
+              |   a: Int
+              | }
+              |""".stripMargin
+          val schema2: String =
+            """
+              | extend interface MyInterface {
+              |   b: Int
+              | }
+              |""".stripMargin
+          val expected        = List(
+            SchemaComparisonChange.DirectiveDeleted("deprecated", Target.Type("MyInterface")),
+            SchemaComparisonChange.FieldAdded("MyInterface", "b"),
+            SchemaComparisonChange.FieldDeleted("MyInterface", "a")
+          )
+          compareChanges(schema1, schema2, expected)
+        },
+        test("union type extensions") {
+          val schema1: String =
+            """
+              | extend union MyUnion = A | B
+              |""".stripMargin
+          val schema2: String =
+            """
+              | extend union MyUnion = A | C
+              |""".stripMargin
+          val expected        = List(
+            SchemaComparisonChange.UnionMemberAdded("MyUnion", "C"),
+            SchemaComparisonChange.UnionMemberDeleted("MyUnion", "B")
+          )
+          compareChanges(schema1, schema2, expected)
+        },
+        test("enum type extensions") {
+          val schema1: String =
+            """
+              | extend enum MyEnum { A B }
+              |""".stripMargin
+          val schema2: String =
+            """
+              | extend enum MyEnum { A C }
+              |""".stripMargin
+          val expected        = List(
+            SchemaComparisonChange.EnumValueAdded("MyEnum", "C"),
+            SchemaComparisonChange.EnumValueDeleted("MyEnum", "B")
+          )
+          compareChanges(schema1, schema2, expected)
+        },
+        test("input type extensions") {
+          val schema1: String =
+            """
+              | extend input MyInput {
+              |   a: Int
+              | }
+              |""".stripMargin
+          val schema2: String =
+            """
+              | extend input MyInput {
+              |   b: Int
+              | }
+              |""".stripMargin
+          val expected        = List(
+            SchemaComparisonChange.ArgumentAdded("b", Target.Type("MyInput"), true),
+            SchemaComparisonChange.ArgumentDeleted("a", Target.Type("MyInput"))
+          )
+          compareChanges(schema1, schema2, expected)
+        },
+        test("type extensions added and deleted") {
+          val schema1: String =
+            """
+              | extend scalar MyScalarA
+              | extend scalar MyScalarB
+              |""".stripMargin
+          val schema2: String =
+            """
+              | extend scalar MyScalarA
+              | extend scalar MyScalarC
+              |""".stripMargin
+          val expected        = List(
+            SchemaComparisonChange.TypeExtensionAdded(name = "MyScalarC"),
+            SchemaComparisonChange.TypeExtensionDeleted(name = "MyScalarB")
+          )
           compareChanges(schema1, schema2, expected)
         }
       )

@@ -152,6 +152,14 @@ object SchemaComparisonChange {
     override def breaking: Boolean = true
   }
 
+  case class TypeExtensionAdded(name: String) extends SchemaComparisonChange {
+    override def toString: String = s"Type extension '$name' was added."
+  }
+
+  case class TypeExtensionDeleted(name: String) extends SchemaComparisonChange {
+    override def toString: String = s"Type extension '$name' was deleted."
+  }
+
   sealed trait Target
   object Target {
     case class Directive(name: String)                    extends Target {
