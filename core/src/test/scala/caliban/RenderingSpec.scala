@@ -128,6 +128,15 @@ object RenderingSpec extends ZIOSpecDefault {
         val renderedType = graphQL(resolver, schemaDirectives = List(SchemaDirectives.Link)).render.trim
         assertTrue(renderedType.startsWith("extend schema"))
       },
+      test("it should render a schema extension with a subscription and mutation but no directives") {
+        val resolver     = RootResolver(
+          Option.empty[Unit],
+          Some(MutationIO(_ => ZIO.unit)),
+          Some(SubscriptionIO(ZStream.empty))
+        )
+        val renderedType = graphQL(resolver).render.trim
+        assertTrue(renderedType.startsWith("extend schema"))
+      },
       test("it should render object arguments in type directives") {
         val testType     = __Type(
           __TypeKind.OBJECT,
