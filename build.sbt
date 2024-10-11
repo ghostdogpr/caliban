@@ -1,6 +1,8 @@
 import com.typesafe.tools.mima.core.*
 import org.scalajs.linker.interface.ModuleSplitStyle
 import sbtcrossproject.CrossPlugin.autoImport.{ crossProject, CrossType }
+import sbt.*
+import Keys.*
 
 val scala212 = "2.12.20"
 val scala213 = "2.13.15"
@@ -215,7 +217,24 @@ lazy val tools = project
       "dev.zio"                       %% "zio-test"            % zioVersion     % Test,
       "dev.zio"                       %% "zio-test-sbt"        % zioVersion     % Test,
       "dev.zio"                       %% "zio-json"            % zioJsonVersion % Test
-    )
+    ),
+    Test / publishArtifact := true,
+
+    // Include test artifact for publishLocal
+    publishLocalConfiguration := {
+      val config        = publishLocalConfiguration.value
+      val testArtifacts = (Test / packagedArtifacts).value
+      config.withArtifacts(config.artifacts ++ testArtifacts).withOverwrite(true)
+    },
+    // Exclude test artifact from publish
+    publishConfiguration      := {
+      val config = publishConfiguration.value
+      config
+        .withArtifacts(config.artifacts.filterNot { case (artifact, _) =>
+          artifact.configurations.exists(_.name == "test")
+        })
+        .withOverwrite(true)
+    }
   )
   .dependsOn(core, clientJVM, quickAdapter % Test)
 
@@ -266,18 +285,25 @@ lazy val codegenSbt = project
   .settings(
     scriptedLaunchOpts   := {
       scriptedLaunchOpts.value ++
-        Seq("-Xmx1024M", "-Xss4M", "-Dplugin.version=" + version.value)
+        Seq(
+          "-Xmx1024M",
+          "-Xss4M",
+          "-Dplugin.version=" + version.value,
+          s"-Dproject.dir=${baseDirectory.value.getAbsolutePath}"
+        )
     },
     scriptedBufferLog    := false,
-    scriptedDependencies := {
-      (macros / publishLocal).value
-      (core / publishLocal).value
-      (clientJVM / publishLocal).value
-      (tools / publishLocal).value
-      publishLocal.value
-    }
+    scriptedDependencies := scriptedDependencies
+      .dependsOn(
+        macros / publishLocal,
+        core / publishLocal,
+        clientJVM / publishLocal,
+        tools / publishLocal,
+        publishLocal
+      )
+      .value
   )
-  .dependsOn(tools)
+  .dependsOn(tools % "compile->compile;test->test")
 
 lazy val catsInterop = project
   .in(file("interop/cats"))
