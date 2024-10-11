@@ -117,9 +117,15 @@ object Parsers extends SelectionParsers {
     }
 
   def unionTypeDefinition(implicit ev: P[Any]): P[UnionTypeDefinition] =
-    (stringValue.? ~ "union" ~/ name ~ directives.? ~ "=" ~ ("|".? ~ namedType) ~ ("|" ~ namedType).rep).map {
-      case (description, name, directives, m, ms) =>
-        UnionTypeDefinition(description.map(_.value), name, directives.getOrElse(Nil), (m :: ms.toList).map(_.name))
+    (stringValue.? ~ "union" ~/ name ~ implements.? ~ directives.? ~ "=" ~ ("|".? ~ namedType) ~ ("|" ~ namedType).rep).map {
+      case (description, name, implements, directives, m, ms) =>
+        UnionTypeDefinition(
+          description.map(_.value),
+          name,
+          implements.getOrElse(Nil),
+          directives.getOrElse(Nil),
+          (m :: ms.toList).map(_.name)
+        )
     }
 
   def scalarTypeDefinition(implicit ev: P[Any]): P[ScalarTypeDefinition] =

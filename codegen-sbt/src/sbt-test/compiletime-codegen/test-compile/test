@@ -201,3 +201,5 @@ $ exists modules/potatoes-clients/src/main/scala/poc/caliban/client/generated/po
 -$ newer modules/posts/target/ctCalibanServer/touch modules/posts/target/ctCalibanServer/touch_old
 # TODO: This should be newer, sadly I don't find how to make it work.
 -$ newer modules/posts-clients/target/scala-2.12/src_managed/main/poc/caliban/client/generated/posts/CalibanClient.scala modules/posts-clients/tmp/CalibanClient.scala.old
+
+> reload; test

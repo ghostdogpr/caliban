@@ -29,7 +29,7 @@ object DocumentRenderer extends Renderer[Document] {
 
   private implicit val typeOrdering: Ordering[TypeDefinition] = Ordering.by {
     case TypeDefinition.ScalarTypeDefinition(_, name, _)          => (0, name)
-    case TypeDefinition.UnionTypeDefinition(_, name, _, _)        => (1, name)
+    case TypeDefinition.UnionTypeDefinition(_, name, _, _, _)     => (1, name)
     case TypeDefinition.EnumTypeDefinition(_, name, _, _)         => (2, name)
     case TypeDefinition.InputObjectTypeDefinition(_, name, _, _)  => (3, name)
     case TypeDefinition.InterfaceTypeDefinition(_, name, _, _, _) => (4, name)
@@ -403,7 +403,7 @@ object DocumentRenderer extends Renderer[Document] {
 
     override def unsafeRender(value: UnionTypeDefinition, indent: Option[Int], writer: StringBuilder): Unit =
       value match {
-        case UnionTypeDefinition(description, name, directives, members) =>
+        case UnionTypeDefinition(description, name, _, directives, members) =>
           newlineOrSpace(indent, writer)
           newlineOrEmpty(indent, writer)
           descriptionRenderer.unsafeRender(description, indent, writer)
