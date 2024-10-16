@@ -328,7 +328,7 @@ object DocumentRenderer extends Renderer[Document] {
         case SchemaDefinition(directives, query, mutation, subscription, description) =>
           val hasTypes    = query.nonEmpty || mutation.nonEmpty || subscription.nonEmpty
           val isExtension =
-            (!hasTypes && directives.nonEmpty) || query.isEmpty && (mutation.nonEmpty || subscription.nonEmpty)
+            (!hasTypes && directives.nonEmpty) || (query.isEmpty && (mutation.nonEmpty || subscription.nonEmpty))
           var first       = true
 
           def renderOp(name: String, op: Option[String]): Unit =
