@@ -150,7 +150,7 @@ object SelectionBuilderSpec extends ZIOSpecDefault {
           assertTrue(variables("value") == ((__StringValue("what's up"), "String!")))
         },
         test("query name") {
-          val query = Queries.character("Amos Burton")(Character.name) toGraphQL (queryName = Some("GetCharacter"))
+          val query = Queries.character("Amos Burton")(Character.name).toGraphQL(queryName = Some("GetCharacter"))
           assertTrue(query.query == """query GetCharacter {character(name:"Amos Burton"){name}}""")
         },
         test("pure fields") {
