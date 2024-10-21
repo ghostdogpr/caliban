@@ -26,18 +26,17 @@ ThisBuild / crossScalaVersions := allScala
 
 // ### Dependencies ###
 
-lazy val calibanLib: Seq[ModuleID] =
-  sys.props.get("plugin.version") match {
-    case Some(x) => Seq("com.github.ghostdogpr" %% "caliban" % x)
-    case _       => sys.error("""|The system property 'plugin.version' is not defined.
-                           |Specify this property using the scriptedLaunchOpts -D.""".stripMargin)
-  }
+lazy val calibanLib = Seq("com.github.ghostdogpr" %% "caliban" %  Version.pluginVersion)
 
 lazy val sttp = Seq(
   "com.softwaremill.sttp.client3" %% "core" % "3.10.1",
   "com.softwaremill.sttp.client3" %% "zio"  % "3.10.1"
 )
 
+lazy val zioTest = Seq(
+  "dev.zio" %% "zio-test" % "2.1.9" % Test,
+  "dev.zio" %% "zio-test-sbt" % "2.1.9" % Test
+)
 // ### App Modules ###
 
 /**
@@ -53,8 +52,10 @@ lazy val root =
       potatoes,
       clients,
       postsClients,
-      potatoesClients
+      potatoesClients,
+      logrocket
     )
+    .settings(testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"))
     .settings(
       // Additional scripted tests commands
       InputKey[Unit]("copy-file-with-options") := {
@@ -145,3 +146,9 @@ lazy val potatoesClients =
     .settings(
       Compile / ctCalibanClient / ctCalibanClientsSettings := Seq(potatoes)
     )
+
+lazy val logrocket =
+  project
+    .in(file("modules/logrocket"))
+    .settings(libraryDependencies ++= calibanLib ++ zioTest)
+    .settings(testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"))

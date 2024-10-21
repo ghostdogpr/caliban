@@ -129,6 +129,7 @@ object Definition {
       final case class UnionTypeDefinition(
         description: Option[String],
         name: String,
+        implements: List[NamedType],
         directives: List[Directive],
         memberTypes: List[String]
       ) extends TypeDefinition {

@@ -96,6 +96,7 @@ case class __Type(
           UnionTypeDefinition(
             description,
             name.getOrElse(""),
+            interfaces().getOrElse(Nil).map(t => NamedType(t.name.getOrElse(""), nonNull = false)),
             directives.getOrElse(Nil),
             possibleTypes.getOrElse(Nil).flatMap(_.name)
           )

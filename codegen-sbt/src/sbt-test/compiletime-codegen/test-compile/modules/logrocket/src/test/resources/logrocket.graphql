@@ -1,0 +1,44 @@
+schema {
+  query: Query
+  mutation: Mutation
+}
+
+union UserRegisterResult = CountryBlockedError | UserRegisterInvalidInputError | UserRegisterResultSuccess
+
+interface Error {
+  message: String!
+}
+
+input UserRegisterInput {
+  login: String!
+  email: String!
+  password: String!
+}
+
+type CountryBlockedError implements Error {
+  message: String!
+}
+
+type Mutation {
+  userRegister(input: UserRegisterInput!): UserRegisterResult!
+}
+
+type Query {
+  _empty: String
+}
+
+type User {
+  id: String!
+  login: String!
+}
+
+type UserRegisterInvalidInputError implements Error {
+  message: String!
+  loginErrorMessage: String
+  emailErrorMessage: String
+  passwordErrorMessage: String
+}
+
+type UserRegisterResultSuccess {
+  user: User!
+}
