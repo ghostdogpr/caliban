@@ -5,6 +5,7 @@ import io.opentelemetry.sdk.testing.exporter.InMemorySpanExporter
 import io.opentelemetry.sdk.trace.SdkTracerProvider
 import io.opentelemetry.sdk.trace.`export`.SimpleSpanProcessor
 import zio._
+import zio.telemetry.opentelemetry.OpenTelemetry
 import zio.telemetry.opentelemetry.context.ContextStorage
 import zio.telemetry.opentelemetry.tracing.Tracing
 
@@ -22,10 +23,10 @@ object TracingMock {
   val inMemoryTracerLayer: ULayer[InMemorySpanExporter with Tracer with ContextStorage] =
     ZLayer.fromZIOEnvironment(inMemoryTracer.map { case (inMemorySpanExporter, tracer) =>
       ZEnvironment(inMemorySpanExporter).add(tracer)
-    }) ++ ContextStorage.fiberRef
+    }) ++ OpenTelemetry.contextZIO
 
   val layer: ULayer[Tracing with InMemorySpanExporter with Tracer] =
-    inMemoryTracerLayer >>> (Tracing.live ++ inMemoryTracerLayer)
+    inMemoryTracerLayer >>> (Tracing.live() ++ inMemoryTracerLayer)
 
   def getFinishedSpans =
     ZIO
