@@ -1,0 +1,54 @@
+schema {
+  query: Query
+  mutation: Mutation
+  subscription: Subscription
+}
+scalar Unit
+
+input AuthorNameInput {
+  name: String!
+}
+
+input PostContentInput {
+  content: String!
+}
+
+input PostTitleInput {
+  title: String!
+}
+
+type AuthorName {
+  name: String!
+}
+
+type Mutation {
+  createPost(authorName: AuthorNameInput!, title: PostTitleInput!, content: PostContentInput!): Post
+  deletePost(id: ID!): Unit
+}
+
+type Post {
+  id: PostId!
+  author: AuthorName!
+  title: PostTitle!
+  content: PostContent!
+}
+
+type PostContent {
+  content: String!
+}
+
+type PostId {
+  id: ID!
+}
+
+type PostTitle {
+  title: String!
+}
+
+type Query {
+  postById(id: ID!): Post
+}
+
+type Subscription {
+  allPostsByAuthor(name: String!): Post
+}
