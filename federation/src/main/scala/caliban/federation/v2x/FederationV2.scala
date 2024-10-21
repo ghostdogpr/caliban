@@ -10,6 +10,7 @@ class FederationV2(extensions: List[Extension])
 object FederationV2 {
 
   val federationV2Url = "https://specs.apollo.dev/federation"
+  val connectUrl      = "https://specs.apollo.dev/connect"
 
   def DefaultDirectives: List[Import] = List(
     Import("@key"),
@@ -60,6 +61,21 @@ object FederationV2 {
   private[v2x] val v2_8 = Link(
     url = s"$federationV2Url/v2.8",
     `import` = v2_7.`import` :+ Import("@context") :+ Import("@fromContext")
+  )
+
+  private[v2x] val v2_9 = Link(
+    url = s"$federationV2Url/v2.9",
+    `import` = v2_8.`import` :+ Import("@cost") :+ Import("@listSize")
+  )
+
+  private[v2x] val v2_10 = Link(
+    url = s"$federationV2Url/v2.10",
+    `import` = v2_9.`import`
+  )
+
+  val connect: Link = Link(
+    url = s"$connectUrl/v0.1",
+    `import` = List(Import("@connect"), Import("@source"))
   )
 
 }

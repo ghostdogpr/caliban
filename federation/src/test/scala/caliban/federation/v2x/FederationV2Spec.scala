@@ -207,6 +207,31 @@ object FederationV2Spec extends ZIOSpecDefault {
                 .contains(StringValue("_FieldSet"))
             )
           )
+      },
+      test("connect spec includes the correct directives") {
+        import caliban.federation.v2_10._
+        makeSchemaDirectives(federated(_)).map { schemaDirectives =>
+          val linkDirectives   = schemaDirectives.filter(_.name == "link")
+          val connectDirective = linkDirectives
+            .find(_.arguments.get("url").exists {
+              case StringValue(value) => value.startsWith("https://specs.apollo.dev/connect")
+              case _                  => false
+            })
+
+          assertTrue(
+            connectDirective.get == Directive(
+              "link",
+              Map(
+                "url"    -> StringValue("https://specs.apollo.dev/connect/v0.1"),
+                "import" -> ListValue(
+                  StringValue("@connect") ::
+                    StringValue("@source") :: Nil
+                )
+              )
+            )
+          )
+        }
+
       }
     )
 
