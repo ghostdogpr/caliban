@@ -17,6 +17,7 @@ import caliban.schema.Annotations.GQLOneOfInput
 import caliban.schema.Schema.auto._
 import caliban.schema.ArgBuilder.auto._
 import caliban.schema.{ ArgBuilder, Schema }
+import zio.stream.ZStream
 import zio.{ IO, ZIO }
 import zio.test.Assertion._
 import zio.test._
@@ -101,13 +102,40 @@ object RenderingSpec extends ZIOSpecDefault {
         assertTrue(graphQL(InvalidSchemas.resolverEmpty).render.trim == "")
       },
       test(
-        "it should render a schema extension with schema directives even if no queries, mutations, or subscription"
+        "it should render a schema extension with directives only"
       ) {
         val renderedType =
           graphQL(InvalidSchemas.resolverEmpty, schemaDirectives = List(SchemaDirectives.Link)).render.trim
         assertTrue(
           renderedType == """extend schema @link(url: "https://example.com", import: ["@key", {name: "@provides", as: "@self"}])"""
         )
+      },
+      test("it should render a schema extension with directives and a mutation") {
+        val resolver     = RootResolver(
+          Option.empty[Unit],
+          Some(MutationIO(_ => ZIO.unit)),
+          Option.empty[Unit]
+        )
+        val renderedType = graphQL(resolver, schemaDirectives = List(SchemaDirectives.Link)).render.trim
+        assertTrue(renderedType.startsWith("extend schema"))
+      },
+      test("it should render a schema extension with directives and a subscription") {
+        val resolver     = RootResolver(
+          Option.empty[Unit],
+          Option.empty[Unit],
+          Some(SubscriptionIO(ZStream.empty))
+        )
+        val renderedType = graphQL(resolver, schemaDirectives = List(SchemaDirectives.Link)).render.trim
+        assertTrue(renderedType.startsWith("extend schema"))
+      },
+      test("it should render a schema extension with a subscription and mutation but no directives") {
+        val resolver     = RootResolver(
+          Option.empty[Unit],
+          Some(MutationIO(_ => ZIO.unit)),
+          Some(SubscriptionIO(ZStream.empty))
+        )
+        val renderedType = graphQL(resolver).render.trim
+        assertTrue(renderedType.startsWith("extend schema"))
       },
       test("it should render object arguments in type directives") {
         val testType     = __Type(
