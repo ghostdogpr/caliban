@@ -264,7 +264,7 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
 
                   Def.task {
                     clientsSettings
-                      .flatTraverseT[File] { serverProject: Project =>
+                      .flatTraverseT[File] { (serverProject: Project) =>
                         Def.taskDyn {
                           val _ = ensureCompiled(serverProject).value
 
@@ -418,7 +418,7 @@ private[caliban] object Functions {
       val sourceManagedValue: File = sourceManaged.value
 
       cachedGenerateSources(trackedSettings.value) { () =>
-        FilesInfo.exists((sourceManagedValue ** "*.scala").get.toSet).asInstanceOf[FilesInfo[PlainFileInfo]]
+        FilesInfo.exists((sourceManagedValue ** "*.scala").get().toSet).asInstanceOf[FilesInfo[PlainFileInfo]]
       }
     }
 }

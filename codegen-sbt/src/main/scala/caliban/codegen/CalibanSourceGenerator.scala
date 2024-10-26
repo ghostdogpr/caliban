@@ -141,7 +141,7 @@ object CalibanSourceGenerator {
       )
 
     cachedGenerateSources(inputs)(() =>
-      FilesInfo.exists((sourceManaged ** "*.scala").get.toSet).asInstanceOf[FilesInfo[PlainFileInfo]]
+      FilesInfo.exists((sourceManaged ** "*.scala").get().toSet).asInstanceOf[FilesInfo[PlainFileInfo]]
     )
   }
 }

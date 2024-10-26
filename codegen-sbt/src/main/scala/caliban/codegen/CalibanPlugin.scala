@@ -26,10 +26,10 @@ object CalibanPlugin extends AutoPlugin {
 
   lazy val calibanScopedSettings = inTask(caliban)(
     Seq(
-      sources          := (calibanSources.value ** "*.graphql").get.sorted,
+      sources          := (calibanSources.value ** "*.graphql").get().sorted,
       clean            := {
         val sourceDir = sourceManaged.value
-        IO.delete((sourceDir ** "*").get)
+        IO.delete((sourceDir ** "*").get())
         IO.createDirectory(sourceDir)
       },
       calibanGenerator := CalibanSourceGenerator(
