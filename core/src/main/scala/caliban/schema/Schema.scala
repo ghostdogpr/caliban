@@ -14,7 +14,7 @@ import caliban.{ InputValue, ResponseValue }
 import zio.query.ZQuery
 import zio.stacktracer.TracingImplicits.disableAutoTrace
 import zio.stream.ZStream
-import zio.{ Chunk, Trace, URIO, ZIO }
+import zio.{ Chunk, NonEmptyChunk, Trace, URIO, ZIO }
 
 import java.time._
 import java.time.format.DateTimeFormatter
@@ -379,6 +379,8 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
     listSchema[R0, A].contramap(_.toList)
   implicit def chunkSchema[R0, A](implicit ev: Schema[R0, A]): Schema[R0, Chunk[A]]                                    =
     listSchema[R0, A].contramap(_.toList)
+  implicit def nonEmptyChunkSchema[R0, A](implicit ev: Schema[R0, A]): Schema[R0, NonEmptyChunk[A]]                    =
+    chunkSchema[R0, A].contramap(_.toChunk)
   implicit def functionUnitSchema[R0, A](implicit ev: Schema[R0, A]): Schema[R0, () => A]                              =
     new Schema[R0, () => A] {
       override def nullable: Boolean                                         = ev.nullable
