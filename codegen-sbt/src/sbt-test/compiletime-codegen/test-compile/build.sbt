@@ -32,8 +32,8 @@ lazy val calibanLib = Seq(
 )
 
 lazy val sttp = Seq(
-  "com.softwaremill.sttp.client3" %% "core" % "3.10.3",
-  "com.softwaremill.sttp.client3" %% "zio"  % "3.10.3"
+  "com.softwaremill.sttp.client3" %% "core" % "3.10.1",
+  "com.softwaremill.sttp.client3" %% "zio"  % "3.10.1"
 )
 
 lazy val zioTest = Seq(
