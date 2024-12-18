@@ -15,7 +15,24 @@ import zio.ZIO
 import zio.test.Assertion.hasSameElements
 import zio.test._
 
+import java.util.UUID
+
 object FederationV2Spec extends ZIOSpecDefault {
+  object SchemaWithEntity {
+    import caliban.federation.v2_3._
+
+    @GQLKey("id")
+    @GQLShareable
+    case class Entity(
+      id: UUID
+    )
+
+    case class Query(
+      hello: String,
+      entity: Entity
+    )
+  }
+
   override def spec =
     suite("FederationV2Spec")(
       test("includes schema directives - v2.0") {
@@ -231,6 +248,23 @@ object FederationV2Spec extends ZIOSpecDefault {
             )
           )
         }
+
+      },
+      test("renderer renders the schema including the extensions") {
+        import caliban.federation.v2_3._
+        import SchemaWithEntity.{ Query, Entity }
+
+        val api = graphQL(
+          RootResolver(
+            Query(hello = "Hello World!", entity = Entity(UUID.randomUUID()))
+          )
+        )
+
+        assertTrue(
+          renderer.renderCompact(
+            api
+          ) == """schema@link(url:"https://specs.apollo.dev/federation/v2.3",import:["@key","@requires","@provides","@external","@shareable","@tag","@inaccessible","@override","@extends","@composeDirective","@interfaceObject"]){query:Query}type Entity@key(fields:"id")@shareable{id:ID!}type Query{hello:String! entity:Entity!}"""
+        )
 
       }
     )

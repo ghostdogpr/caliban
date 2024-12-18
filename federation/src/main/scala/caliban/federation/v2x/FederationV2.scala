@@ -1,11 +1,26 @@
 package caliban.federation.v2x
 
+import caliban.GraphQL
 import caliban.federation.{ FederationDirectives, FederationSupport }
+import caliban.rendering.{ DocumentRenderer, Renderer }
 
 class FederationV2(extensions: List[Extension])
     extends FederationSupport(Nil, extensions.map(_.toDirective))
     with FederationDirectives
-    with FederationDirectivesV2
+    with FederationDirectivesV2 {
+
+  /**
+   * Constructs a renderer that can render a GraphQL schema with federation directives.
+   *
+   * This is useful if you need to render the schema to a string or file in CI or for debugging purposes.
+   *
+   * @note Make sure to use this renderer on the graph _before_ apply the federation aspect, otherwise it will include
+   *       the federation specific fields as well.
+   */
+  lazy val renderer: Renderer[GraphQL[_]] = DocumentRenderer.contramap[GraphQL[_]] {
+    _.withSchemaDirectives(extensions.map(_.toDirective)).toDocument
+  }
+}
 
 object FederationV2 {
 

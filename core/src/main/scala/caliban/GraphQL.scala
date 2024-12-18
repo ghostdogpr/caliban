@@ -8,7 +8,7 @@ import caliban.introspection.adt._
 import caliban.parsing.adt.Definition.TypeSystemDefinition.SchemaDefinition
 import caliban.parsing.adt.{ Directive, Document, OperationType }
 import caliban.parsing.{ Parser, SourceMapper, VariablesCoercer }
-import caliban.rendering.DocumentRenderer
+import caliban.rendering.{ DocumentRenderer, Renderer }
 import caliban.schema._
 import caliban.transformers.Transformer
 import caliban.validation.{ SchemaValidator, Validator }
@@ -37,7 +37,14 @@ trait GraphQL[-R] { self =>
   /**
    * Returns a string that renders the API types into the GraphQL SDL.
    */
-  final def render: String = DocumentRenderer.render(toDocument)
+  final def render: String =
+    renderWith(DocumentRenderer)
+
+  /**
+   * Returns a string that renders types into the GraphQL SDL using the provided renderer.
+   */
+  final def renderWith(renderer: Renderer[Document]): String =
+    renderer.render(toDocument)
 
   /**
    * Converts the schema to a Document.
