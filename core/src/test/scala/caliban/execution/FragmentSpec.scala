@@ -50,6 +50,33 @@ object FragmentSpec extends ZIOSpecDefault {
           res <- int.execute(query)
         } yield assertTrue(res.data.toString == """{"amos":{"name":"Amos Burton"}}""")
       },
+      test("fragment with inner and outer") {
+        val interpreter = graphQL(caliban.FragmentSchema.resolverFooBar).interpreter
+        val query       = gqldoc("""
+           query {
+             bar {
+               ...Outer
+             }
+           }
+           fragment Outer on Bar {
+             baz {
+               foo {
+                id
+               }
+               ...Inner
+             }
+           }
+           fragment Inner on Baz {
+             foo {
+               id
+            }
+           }
+           """)
+        for {
+          int <- interpreter
+          res <- int.execute(query)
+        } yield assertTrue(res.errors.isEmpty)
+      },
       test("fragment on union") {
         val query = gqldoc("""
                    {

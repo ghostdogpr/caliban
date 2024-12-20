@@ -21,7 +21,7 @@ object FragmentValidator {
     val parentsCache = mutable.Map.empty[Int, Chunk[String]]
     val groupsCache  = mutable.Map.empty[Int, Chunk[Set[SelectedField]]]
 
-    def sameResponseShapeByName(set: Iterable[Selection]): Chunk[String] = {
+    def sameResponseShapeByName(set: Iterable[Selection], parentType: __Type): Chunk[String] = {
       val keyHash = MurmurHash3.unorderedHash(set)
       shapeCache.get(keyHash) match {
         case Some(value) => value
@@ -35,7 +35,7 @@ object FragmentValidator {
                       .getOrElse("")}.${f2.fieldDef.name}. Try using an alias."
                 )
               } else
-                sameResponseShapeByName(f1.selection.selectionSet ::: f2.selection.selectionSet)
+                sameResponseShapeByName(f1.selection.selectionSet ::: f2.selection.selectionSet, f1.fieldDef._type)
             }
           })
           shapeCache.update(keyHash, res)
@@ -120,7 +120,7 @@ object FragmentValidator {
       }
     }
 
-    val conflicts = sameResponseShapeByName(selectionSet) ++ sameForCommonParentsByName(selectionSet)
+    val conflicts = sameResponseShapeByName(selectionSet, parentType) ++ sameForCommonParentsByName(selectionSet)
     if (conflicts.nonEmpty) {
       Left(ValidationError(conflicts.head, ""))
     } else {
