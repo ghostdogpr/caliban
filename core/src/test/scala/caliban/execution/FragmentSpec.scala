@@ -8,6 +8,7 @@ import caliban.Value.StringValue
 import caliban.schema.Annotations.GQLDefault
 import caliban.schema.Schema.auto._
 import caliban.schema.ArgBuilder.auto._
+import caliban.schema.Schema
 import zio.test.Assertion._
 import zio.test._
 
@@ -51,7 +52,9 @@ object FragmentSpec extends ZIOSpecDefault {
         } yield assertTrue(res.data.toString == """{"amos":{"name":"Amos Burton"}}""")
       },
       test("fragment with inner and outer") {
-        val interpreter = graphQL(caliban.FragmentSchema.resolverFooBar).interpreter
+        implicit lazy val bazSchema: Schema[Any, FragmentSchema.Baz] = Schema.gen
+
+        val interpreter = graphQL(FragmentSchema.resolverFooBar).interpreter
         val query       = gqldoc("""
            query {
              bar {
