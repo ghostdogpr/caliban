@@ -132,8 +132,8 @@ object Validator {
     val (operations, fragments) = collectDefinitions(document)
     validateFragments(fragments).flatMap { fragmentMap =>
       val buf     = ListBuffer.empty[Selection]
-      operations.foreach(op => collectSelectionSets(buf)(op.selectionSet))
-      fragments.foreach(f => collectSelectionSets(buf)(f.selectionSet))
+      operations.foreachOne(op => collectSelectionSets(buf)(op.selectionSet))
+      fragments.foreachOne(f => collectSelectionSets(buf)(f.selectionSet))
       val context = Context(document, rootType, operations, fragmentMap, buf.result(), variables)
       try
         validateAllDiscard(validations)(_.apply(context)).as(fragmentMap)
@@ -162,46 +162,46 @@ object Validator {
 
     def collectValues(selectionSet: List[Selection]): Unit = {
       // ugly mutable code but it's worth it for the speed ;)
-      def add(args: Map[String, InputValue]): Unit = {
-        if (args.nonEmpty) allValues addAll args.values
-        ()
-      }
+      def add(args: Map[String, InputValue]): Unit =
+        if (!args.isEmpty) allValues.addAll(args.values)
 
-      def collectDirectives(d: List[Directive]) =
-        if (d.nonEmpty) d.foreach(d => add(d.arguments))
+      def collectDirectives(d: List[Directive]): Unit =
+        d.foreachOne(d => add(d.arguments))
 
-      selectionSet.foreach {
-        case Field(_, _, arguments, directives, selectionSet, _) =>
-          add(arguments)
-          collectDirectives(directives)
-          if (selectionSet.nonEmpty) collectValues(selectionSet)
-        case FragmentSpread(name, directives)                    =>
+      selectionSet.foreachOne {
+        case f: Field          =>
+          add(f.arguments)
+          collectDirectives(f.directives)
+          val set = f.selectionSet
+          if (set ne Nil) collectValues(set)
+        case f: FragmentSpread =>
+          val name = f.name
           if (seen.add(name)) {
-            collectDirectives(directives)
-            context.fragments
-              .get(name)
-              .foreach { f =>
-                collectDirectives(f.directives)
-                val set = f.selectionSet
-                if (set.nonEmpty) collectValues(set)
-              }
+            collectDirectives(f.directives)
+            val f0 = context.fragments.getOrElseNull(name)
+            if (f0 ne null) {
+              collectDirectives(f0.directives)
+              val set = f0.selectionSet
+              if (set ne Nil) collectValues(set)
+            }
           }
-        case InlineFragment(_, directives, selectionSet)         =>
-          collectDirectives(directives)
-          if (selectionSet.nonEmpty) collectValues(selectionSet)
+        case f: InlineFragment =>
+          collectDirectives(f.dirs)
+          val set = f.selectionSet
+          if (set ne Nil) collectValues(set)
       }
     }
 
     def collectVariableValues(values: Iterable[InputValue]): Unit =
       values.foreach {
-        case InputValue.ListValue(values)   => collectVariableValues(values)
-        case InputValue.ObjectValue(fields) => collectVariableValues(fields.values)
-        case v: VariableValue               => variables.add(v.name)
-        case _                              => ()
+        case v: InputValue.ListValue   => collectVariableValues(v.values)
+        case v: InputValue.ObjectValue => collectVariableValues(v.fields.values)
+        case v: VariableValue          => variables.add(v.name)
+        case _                         => ()
       }
 
     collectValues(selectionSet)
-    collectVariableValues(allValues)
+    if (!allValues.isEmpty) collectVariableValues(allValues)
     variables
   }
 
@@ -209,9 +209,9 @@ object Validator {
     buffer: ListBuffer[Selection] = ListBuffer.empty
   )(selectionSet: List[Selection]): ListBuffer[Selection] = {
     def loop(selectionSet: List[Selection]): Unit =
-      if (selectionSet.nonEmpty) {
+      if (selectionSet ne Nil) {
         buffer addAll selectionSet
-        selectionSet.foreach {
+        selectionSet.foreachOne {
           case f: Field          => loop(f.selectionSet)
           case f: InlineFragment => loop(f.selectionSet)
           case _: FragmentSpread => ()
@@ -225,26 +225,35 @@ object Validator {
     context: Context
   ): Either[ValidationError, List[(Directive, __DirectiveLocation)]] = {
     val directiveDefinitions = context.document.directiveDefinitions.groupBy(_.name)
+    val ops                  = context.operations
     for {
-      _                   <- validateAllDiscard(context.operations)(op => checkDirectivesUniqueness(op.directives, directiveDefinitions))
-      fragmentDirectives   = context.fragments.values.toList.map(_.directives)
-      _                   <- validateAllDiscard(fragmentDirectives)(checkDirectivesUniqueness(_, directiveDefinitions))
+      _                   <- validateAllDiscard(ops)(op => checkDirectivesUniqueness(op.directives, directiveDefinitions))
+      fragmentDirs         = {
+        val fr = context.fragments
+        if (fr.isEmpty) Nil else fr.values.toList.map(_.directives)
+      }
+      _                   <- validateAllDiscard(fragmentDirs)(checkDirectivesUniqueness(_, directiveDefinitions))
       selectionDirectives <- collectDirectives(context.selectionSets, directiveDefinitions)
     } yield {
       val all = ListBuffer.empty[(Directive, __DirectiveLocation)]
-      context.operations.foreach { op =>
-        val location = op.operationType match {
-          case OperationType.Query        => __DirectiveLocation.QUERY
-          case OperationType.Mutation     => __DirectiveLocation.MUTATION
-          case OperationType.Subscription => __DirectiveLocation.SUBSCRIPTION
+      ops.foreachOne { op =>
+        val dirs = op.directives
+        if (dirs ne Nil) {
+          val location = op.operationType match {
+            case OperationType.Query        => __DirectiveLocation.QUERY
+            case OperationType.Mutation     => __DirectiveLocation.MUTATION
+            case OperationType.Subscription => __DirectiveLocation.SUBSCRIPTION
+          }
+          dirs.foreachOne(v => all.addOne((v, location)))
         }
-        op.directives.foreach(v => all.addOne((v, location)))
       }
-      fragmentDirectives.foreach(_.foreach(v => all.addOne((v, __DirectiveLocation.FRAGMENT_DEFINITION))))
-      all.addAll(selectionDirectives)
-      all.result()
+      fragmentDirs.foreachOne(_.foreachOne(v => all.addOne((v, __DirectiveLocation.FRAGMENT_DEFINITION))))
+      if (selectionDirectives ne Nil) all.addAll(selectionDirectives)
+      if (all.isEmpty) Nil else all.result()
     }
   }
+
+  private val RightNil = Right(Nil)
 
   private def collectDirectives(
     selectionSet: List[Selection],
@@ -253,23 +262,28 @@ object Validator {
     val builder = ListBuffer.empty[List[(Directive, __DirectiveLocation)]]
 
     def loop(selectionSet: List[Selection]): Unit =
-      selectionSet.foreach {
-        case Field(_, _, _, directives, selectionSet, _) =>
-          if (directives.nonEmpty)
-            builder addOne directives.map((_, __DirectiveLocation.FIELD))
-          loop(selectionSet)
-        case FragmentSpread(_, directives)               =>
-          if (directives.nonEmpty)
-            builder addOne directives.map((_, __DirectiveLocation.FRAGMENT_SPREAD))
-        case InlineFragment(_, directives, selectionSet) =>
-          if (directives.nonEmpty)
-            builder addOne directives.map((_, __DirectiveLocation.INLINE_FRAGMENT))
-          loop(selectionSet)
+      selectionSet.foreachOne {
+        case f: Field          =>
+          val directives = f.directives
+          if (directives ne Nil) builder addOne directives.map((_, __DirectiveLocation.FIELD))
+          loop(f.selectionSet)
+        case f: FragmentSpread =>
+          val directives = f.directives
+          if (directives ne Nil) builder addOne directives.map((_, __DirectiveLocation.FRAGMENT_SPREAD))
+        case f: InlineFragment =>
+          val directives = f.dirs
+          if (directives ne Nil) builder addOne directives.map((_, __DirectiveLocation.INLINE_FRAGMENT))
+          loop(f.selectionSet)
       }
+
     loop(selectionSet)
-    val directiveLists                            = builder.result()
-    validateAllDiscard(directiveLists)(list => checkDirectivesUniqueness(list.map(_._1), directiveDefinitions))
-      .as(directiveLists.flatten)
+    if (builder.isEmpty) {
+      RightNil
+    } else {
+      val directiveLists = builder.result()
+      validateAllDiscard(directiveLists)(list => checkDirectivesUniqueness(list.map(_._1), directiveDefinitions))
+        .as(directiveLists.flatten)
+    }
   }
 
   private def checkDirectivesUniqueness(
@@ -454,7 +468,7 @@ object Validator {
     currentType: __Type
   ): Either[ValidationError, Unit] = {
     val v1 = validateFields(context, selectionSet, currentType)(mutable.HashSet.empty)
-    if (context.fragments.nonEmpty || containsFragments(selectionSet))
+    if (!context.fragments.isEmpty || containsFragments(selectionSet))
       v1 *> FragmentValidator.findConflictsWithinSelectionSet(context, context.rootType.queryType, selectionSet)
     else v1
   }
@@ -465,9 +479,10 @@ object Validator {
     currentType: __Type
   )(implicit checked: ValidatedFragments): Either[ValidationError, Unit] = {
     val v1 = validateAllDiscard(selectionSet) {
-      case f: Field                                       =>
+      case f: Field          =>
         validateField(context, f, currentType)
-      case FragmentSpread(name, _)                        =>
+      case f: FragmentSpread =>
+        val name = f.name
         context.fragments.getOrElseNull(name) match {
           case null                                              =>
             failValidation(
@@ -479,10 +494,10 @@ object Validator {
           case _                                                 =>
             unit
         }
-      case InlineFragment(typeCondition, _, selectionSet) =>
-        validateSpread(context, None, currentType, typeCondition, selectionSet)
+      case f: InlineFragment =>
+        validateSpread(context, None, currentType, f.typeCondition, f.selectionSet)
     }
-    val v2 = validateLeafFieldSelection(currentType, selectionSet.nonEmpty)
+    val v2 = validateLeafFieldSelection(currentType, selectionSet ne Nil)
     v2.fold(v1)(v1 *> _)
   }
 
@@ -776,7 +791,7 @@ object Validator {
     val operations    = context.operations
     val names         = operations.flatMap(_.name).groupBy(identity)
     val repeatedNames = names.collect { case (name, items) if items.length > 1 => name }
-    failWhen(repeatedNames.nonEmpty)(
+    failWhen(!repeatedNames.isEmpty)(
       s"Multiple operations have the same name: ${repeatedNames.mkString(", ")}.",
       "Each named operation definition must be unique within a document when referred to by its name."
     )
@@ -785,7 +800,7 @@ object Validator {
   def validateLoneAnonymousOperation(context: Context): Either[ValidationError, Unit] = {
     val operations = context.operations
     val anonymous  = operations.filter(_.name.isEmpty)
-    failWhen(operations.length > 1 && anonymous.nonEmpty)(
+    failWhen(operations.length > 1 && (anonymous ne Nil))(
       "Found both anonymous and named operations.",
       "GraphQL allows a short‐hand form for defining query operations when only that one operation exists in the document."
     )

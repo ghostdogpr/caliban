@@ -138,7 +138,9 @@ object Field {
     rootType: RootType
   ): Field = {
     val memoizedFragments      = new mutable.HashMap[String, List[(Field, Option[String])]]()
-    val variableDefinitionsMap = variableDefinitions.map(v => v.name -> v).toMap
+    val variableDefinitionsMap =
+      if (variableDefinitions eq Nil) Map.empty[String, VariableDefinition]
+      else variableDefinitions.map(v => v.name -> v).toMap
 
     def loop(
       selectionSet: List[Selection],
