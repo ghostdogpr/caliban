@@ -189,8 +189,8 @@ object Executor {
           (aliasedName, field, fieldInfo(f, aliasedName, path, f.directives))
         }
 
-        val filteredFields    = mergeFields(currentField, objectName)
-        val (deferred, eager) =
+        val filteredFields = mergeFields(currentField, objectName)
+        val t              =
           if (Feature.isDeferEnabled(flags)) {
             filteredFields.partitionMap { f =>
               val entry = reduceField(f)
@@ -203,14 +203,14 @@ object Executor {
             }
           } else (Nil, filteredFields.map(reduceField))
 
-        val eagerReduced = reduceObject(eager)
-        deferred match {
+        val eagerReduced = reduceObject(t._2)
+        t._1 match {
           case Nil => eagerReduced
           case d   =>
             DeferStep(
               eagerReduced,
               d.groupBy(_._1).toList.map { case (label, labelAndFields) =>
-                val (_, fields) = labelAndFields.unzip
+                val fields = labelAndFields.map(_._2)
                 reduceObject(fields) -> label
               },
               path
@@ -419,10 +419,7 @@ object Executor {
       }
 
       if (hasQueries || wrapPureValues) ReducedStep.ObjectStep(items, hasPures, !hasQueries)
-      else
-        PureStep(
-          ObjectValue(items.asInstanceOf[List[(String, PureStep, FieldInfo)]].map { case (k, v, _) => (k, v.value) })
-        )
+      else PureStep(ObjectValue(items.asInstanceOf[List[(String, PureStep, FieldInfo)]].map(t => (t._1, t._2.value))))
     }
   }
 
@@ -506,7 +503,7 @@ object Executor {
             var resps   = results
             var names   = steps
             while (resps ne nil) {
-              val (name, _, _) = names.head
+              val name = names.head._1
               builder addOne ((name, resps.head))
               resps = resps.tail
               names = names.tail
@@ -515,11 +512,16 @@ object Executor {
           }
 
           steps match {
-            case (name, step, info) :: Nil =>
+            case t :: Nil =>
+              val name = t._1
+              val step = t._2
+              val info = t._3
               // Shortcut for single field queries
               objectFieldQuery(step, info, wrapPureValues && step.isPure).map(v => ObjectValue((name, v) :: Nil))
-            case steps                     =>
-              collectAll(steps, isTopLevelField) { case (_, step, info) =>
+            case steps    =>
+              collectAll(steps, isTopLevelField) { t =>
+                val step = t._2
+                val info = t._3
                 // Only way we could have ended with pure fields here is if we wrap pure values, so we check that first as it's cheaper
                 objectFieldQuery(step, info, wrapPureValues && step.isPure)
               }.map(combineQueryResults)
@@ -555,8 +557,10 @@ object Executor {
           var resolved: List[ResponseValue]                      = nil
           var remaining                                          = steps
           while (remaining ne nil) {
-            val t @ (name, step, _) = remaining.head
-            val value               = step match {
+            val t     = remaining.head
+            val name  = t._1
+            val step  = t._2
+            val value = step match {
               case PureStep(value) => value
               case _               =>
                 queries = t :: queries
@@ -566,7 +570,7 @@ object Executor {
             names = name :: names
             remaining = remaining.tail
           }
-          collectAll(queries, isTopLevelField) { case (_, s, i) => objectFieldQuery(s, i) }
+          collectAll(queries, isTopLevelField)(t => objectFieldQuery(t._2, t._3))
             .map(combineResults(names, resolved))
         }
 

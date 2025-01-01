@@ -59,9 +59,9 @@ private[caliban] object ValueJsoniter {
     out.writeObjectStart()
     val iter = m.iterator
     while (iter.hasNext) {
-      val (k, v) = iter.next()
-      out.writeNonEscapedAsciiKey(k)
-      encodeInputValue(v, out)
+      val kv = iter.next()
+      out.writeNonEscapedAsciiKey(kv._1)
+      encodeInputValue(kv._2, out)
     }
     out.writeObjectEnd()
   }
@@ -108,10 +108,10 @@ private[caliban] object ValueJsoniter {
     out.writeObjectStart()
     var remaining = l
     while (remaining ne Nil) {
-      val (k, v) = remaining.head
+      val kv = remaining.head
       remaining = remaining.tail
-      out.writeNonEscapedAsciiKey(k)
-      encodeResponseValue(v, out)
+      out.writeNonEscapedAsciiKey(kv._1)
+      encodeResponseValue(kv._2, out)
     }
     out.writeObjectEnd()
   }
