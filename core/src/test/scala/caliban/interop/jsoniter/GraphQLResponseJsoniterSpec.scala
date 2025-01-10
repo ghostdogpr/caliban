@@ -94,6 +94,10 @@ object GraphQLResponseJsoniterSpec extends ZIOSpecDefault {
             )
           )
         )
+      },
+      test("should correctly write keys containing UTF-8") {
+        val response = GraphQLResponse(ObjectValue(List("utf8〜key" -> StringValue("any"))), Nil)
+        assertTrue(writeToString(response) == """{"data":{"utf8〜key":"any"}}""")
       }
     )
 }
