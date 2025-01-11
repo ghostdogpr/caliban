@@ -24,7 +24,7 @@ val playJsonVersion           = "3.0.4"
 val scalafmtVersion           = "3.8.0"
 val sttpVersion               = "3.10.1"
 val tapirVersion              = "1.11.11"
-val zioVersion                = "2.1.14"
+val zioVersion                = "2.1.13"
 val zioInteropCats2Version    = "22.0.0.0"
 val zioInteropCats3Version    = "23.1.0.3"
 val zioInteropReactiveVersion = "2.0.2"
@@ -38,7 +38,7 @@ Global / onChangedBuildSource := ReloadOnSourceChanges
 
 inThisBuild(
   List(
-    scalaVersion             := scala213,
+    scalaVersion             := scala3,
     crossScalaVersions       := allScala,
     organization             := "com.github.ghostdogpr",
     homepage                 := Some(url("https://github.com/ghostdogpr/caliban")),
