@@ -69,7 +69,8 @@ trait GraphQL[-R] { self =>
         schemaBuilder.mutation.flatMap(_.opType.name),
         schemaBuilder.subscription.flatMap(_.opType.name),
         schemaBuilder.schemaDescription
-      ) :: schemaBuilder.types.flatMap(_.toTypeDefinition) ++ additionalDirectives.map(_.toDirectiveDefinition),
+      ) :: schemaBuilder.types.map(transformer.typeVisitor.visit).flatMap(_.toTypeDefinition) ++ additionalDirectives
+        .map(_.toDirectiveDefinition),
       SourceMapper.empty
     )
 

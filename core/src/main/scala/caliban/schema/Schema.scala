@@ -160,6 +160,14 @@ trait Schema[-R, T] { self =>
       if (renameTypename) loop(step) else step
     }
   }
+
+  def mapType(f: __Type => __Type): Schema[R, T] = new Schema[R, T] {
+    override def nullable: Boolean                                         = self.nullable
+    override def canFail: Boolean                                          = self.canFail
+    override def arguments: List[__InputValue]                             = self.arguments
+    override def toType(isInput: Boolean, isSubscription: Boolean): __Type = f(self.toType_(isInput, isSubscription))
+    override def resolve(value: T): Step[R]                                = self.resolve(value)
+  }
 }
 
 object Schema extends GenericSchema[Any] with SchemaVersionSpecific
