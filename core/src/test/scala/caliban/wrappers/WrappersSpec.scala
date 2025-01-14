@@ -268,17 +268,16 @@ object WrappersSpec extends ZIOSpecDefault {
           }
         )
       },
-      suite("Apollo Persisted Queries")({
+      suite("Apollo Persisted Queries") {
         def mockWrapper[R](fail: Ref[Boolean]): ValidationWrapper[R] = new ValidationWrapper[R] {
           override def wrap[R1 <: R](
             f: Document => ZIO[R1, ValidationError, ExecutionRequest]
           ): Document => ZIO[R1, ValidationError, ExecutionRequest] =
             (doc: Document) =>
-              f(doc) <* {
+              f(doc) <*
                 ZIO.unlessZIO(Configurator.skipValidation) {
                   ZIO.whenZIO(fail.get)(ZIO.fail(ValidationError("boom", "boom")))
                 }
-              }
         }
 
         val extensions = Some(
@@ -411,7 +410,7 @@ object WrappersSpec extends ZIOSpecDefault {
               ))
           }
         )
-      }),
+      },
       test("custom query directive") {
         val customWrapper        = new ExecutionWrapper[Any] {
           def wrap[R1 <: Any](

@@ -84,9 +84,9 @@ object TapirAdapter {
       oneOfVariantValueMatcher[CalibanBody.Single](customCodecJsonBody[ResponseValue].map(Left(_)) { case Left(value) =>
         value
       }) { case Left(_) => true },
-      oneOfVariantValueMatcher[CalibanBody.Single]({
+      oneOfVariantValueMatcher[CalibanBody.Single](
         stringBodyUtf8AnyFormat(responseCodec.format(GraphqlResponseJson)).map(Left(_)) { case Left(value) => value }
-      }) { case Left(_) => true },
+      ) { case Left(_) => true },
       oneOfVariantValueMatcher[CalibanBody.Stream[stream.BinaryStream]](
         streamTextBody(stream)(CodecFormat.Json(), Some(StandardCharsets.UTF_8)).toEndpointIO
           .map(Right(_)) { case Right(value) => value }

@@ -70,10 +70,10 @@ object Protocol {
                            ZStream.scoped(
                              input.runForeach {
                                case GraphQLWSInput(Ops.ConnectionInit, id, payload)  =>
-                                 val before     = ZIO.whenCase((webSocketHooks.beforeInit, payload)) {
-                                   case (Some(beforeInit), Some(payload)) =>
+                                 val before     =
+                                   ZIO.whenCase((webSocketHooks.beforeInit, payload)) { case (Some(beforeInit), Some(payload)) =>
                                      beforeInit(payload).orElse(output.offer(Left(GraphQLWSClose(4403, "Forbidden"))))
-                                 }
+                                   }
                                  val ackPayload = webSocketHooks.onAck.fold[URIO[R, Option[ResponseValue]]](ZIO.none)(_.option)
                                  val response   =
                                    ack.set(true) *> ackPayload.flatMap(payload => output.offer(Right(connectionAck(payload))))

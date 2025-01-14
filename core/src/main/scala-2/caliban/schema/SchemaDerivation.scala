@@ -67,8 +67,10 @@ trait CommonSchemaDerivation[R] {
         else ctx.parameters.head.typeclass.toType_(isInput, isSubscription)
       } else if (isInput) {
         lazy val tpe: __Type = makeInputObject(
-          Some(ctx.annotations.collectFirst { case GQLInputName(suffix) => suffix }
-            .getOrElse(customizeInputTypeName(getName(ctx)))),
+          Some(
+            ctx.annotations.collectFirst { case GQLInputName(suffix) => suffix }
+              .getOrElse(customizeInputTypeName(getName(ctx)))
+          ),
           getDescription(ctx),
           ctx.parameters
             .map(p =>
@@ -194,8 +196,10 @@ trait CommonSchemaDerivation[R] {
         )
       } else if (isOneOfInput && isInput) {
         makeInputObject(
-          Some(ctx.annotations.collectFirst { case GQLInputName(suffix) => suffix }
-            .getOrElse(customizeInputTypeName(getName(ctx)))),
+          Some(
+            ctx.annotations.collectFirst { case GQLInputName(suffix) => suffix }
+              .getOrElse(customizeInputTypeName(getName(ctx)))
+          ),
           getDescription(ctx),
           ctx.subtypes.toList.flatMap { p =>
             val pTpe = p.typeclass.toType_(isInput = true)

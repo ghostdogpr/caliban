@@ -14,9 +14,8 @@ object CalibanPlugin extends AutoPlugin {
   lazy val baseSettings = Seq(
     caliban                    := (caliban / calibanGenerator).value,
     calibanVersion             := BuildInfo.version,
-    (caliban / sourceManaged)  := {
-      sourceManaged.value / "caliban-codegen-sbt"
-    },
+    (caliban / sourceManaged)  :=
+      sourceManaged.value / "caliban-codegen-sbt",
     (caliban / calibanSources) := {
       if (Seq(Compile, Test).contains(configuration.value)) sourceDirectory.value / "graphql"
       else sourceDirectory.value / "main" / "graphql"

@@ -169,7 +169,9 @@ object ClientWriter {
             (
               s"[$typeLetter]",
               s"(${unionTypes
-                  .map(t => s"""${safeTypeName(s"on${t.name}")}: scala.Option[SelectionBuilder[${safeTypeName(t.name)}, $typeLetter]] = None""")
+                  .map(t =>
+                    s"""${safeTypeName(s"on${t.name}")}: scala.Option[SelectionBuilder[${safeTypeName(t.name)}, $typeLetter]] = None"""
+                  )
                   .mkString(", ")})",
               s"${writeType(field.ofType).replace(fieldType, s"scala.Option[$typeLetter]")}",
               writeTypeBuilder(
@@ -200,7 +202,9 @@ object ClientWriter {
             (
               s"[$typeLetter]",
               s"(${interfaceTypes
-                  .map(t => s"""${safeTypeName(s"on${t.name}")}: scala.Option[SelectionBuilder[${safeTypeName(t.name)}, $typeLetter]] = None""")
+                  .map(t =>
+                    s"""${safeTypeName(s"on${t.name}")}: scala.Option[SelectionBuilder[${safeTypeName(t.name)}, $typeLetter]] = None"""
+                  )
                   .mkString(", ")})",
               s"${writeType(field.ofType).replace(fieldType, s"""scala.Option[$typeLetter]""")}",
               writeTypeBuilder(

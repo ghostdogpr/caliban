@@ -163,7 +163,9 @@ object Wrapper {
   private val emptyWrappers =
     Exit.succeed((Nil, Nil, Nil, Nil, Nil, Nil))
 
-  private[caliban] def decompose[R](wrappers: List[Wrapper[R]])(implicit trace: Trace): URIO[
+  private[caliban] def decompose[R](wrappers: List[Wrapper[R]])(implicit
+    trace: Trace
+  ): URIO[
     R,
     (
       List[OverallWrapper[R]],
