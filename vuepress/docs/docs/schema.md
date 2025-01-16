@@ -745,7 +745,7 @@ For that, simply use the `GraphQL#transform` method and provide one of the possi
 
 In the following example, we can expose 2 different APIs created from the same schema: the v1 API will not expose the `nicknames` field of the `Character` type.
 ```scala
-case class Beta() extends GQLDirective("beta")
+case class Beta() extends GQLDirective(Directive("beta"))
 case class Queries(character: Character)
 
 case class Character(
