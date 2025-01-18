@@ -63,11 +63,11 @@ case class RemoteSchemaResolver(schema: __Schema, typeMap: Map[String, __Type]) 
 object RemoteSchemaResolver {
   def fromSchema(schema: __Schema): RemoteSchemaResolver = {
     val typeMap = schema.types
-      .collect({ t =>
+      .collect(t =>
         t.name match {
           case Some(name) => name -> t
         }
-      })
+      )
       .toMap
 
     RemoteSchemaResolver(schema, typeMap)

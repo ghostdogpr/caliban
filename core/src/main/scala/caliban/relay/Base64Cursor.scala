@@ -21,7 +21,7 @@ object Base64Cursor {
       encoder.encodeToString(s"$prefix${a.value}".getBytes("UTF-8"))
 
     def decode(raw: String): Either[String, Base64Cursor] =
-      Try({
+      Try {
         val bytes = decoder.decode(raw)
         val s     = new String(bytes, "UTF-8")
         if (s.startsWith(prefix)) {
@@ -29,7 +29,7 @@ object Base64Cursor {
         } else {
           throw new Throwable("invalid cursor")
         }
-      }).toEither.left.map(_.getMessage())
+      }.toEither.left.map(_.getMessage())
 
     def value(cursor: Base64Cursor): Int = cursor.value
   }
