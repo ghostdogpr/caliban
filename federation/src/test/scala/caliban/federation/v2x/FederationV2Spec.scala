@@ -261,7 +261,7 @@ object FederationV2Spec extends ZIOSpecDefault {
         )
 
         assertTrue(
-          renderer.renderCompact(
+          renderFederatedCompact(
             api
           ) == """schema@link(url:"https://specs.apollo.dev/federation/v2.3",import:["@key","@requires","@provides","@external","@shareable","@tag","@inaccessible","@override","@extends","@composeDirective","@interfaceObject"]){query:Query}type Entity@key(fields:"id")@shareable{id:ID!}type Query{hello:String! entity:Entity!}"""
         )
