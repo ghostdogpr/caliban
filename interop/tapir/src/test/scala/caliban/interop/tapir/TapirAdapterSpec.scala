@@ -568,9 +568,9 @@ object TapirAdapterSpec {
         )
       )
 
-    private def asJsonBody
-      : ResponseAs[Either[ResponseException[String, String], GraphQLResponse[CalibanError]], Effect[Task]
-        with ZioStreams] =
+    private def asJsonBody: ResponseAs[Either[ResponseException[String, String], GraphQLResponse[CalibanError]], Effect[
+      Task
+    ] with ZioStreams] =
       asString.mapWithMetadata(
         ResponseAs.deserializeRightWithError(
           jsoniterCodec[GraphQLResponse[CalibanError]].decode(_) match {

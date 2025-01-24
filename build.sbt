@@ -264,10 +264,9 @@ lazy val codegenSbt = project
   )
   .enablePlugins(SbtPlugin)
   .settings(
-    scriptedLaunchOpts   := {
+    scriptedLaunchOpts   :=
       scriptedLaunchOpts.value ++
-        Seq("-Xmx1024M", "-Xss4M", "-Dplugin.version=" + version.value)
-    },
+        Seq("-Xmx1024M", "-Xss4M", "-Dplugin.version=" + version.value),
     scriptedBufferLog    := false,
     scriptedDependencies := {
       (macros / publishLocal).value
@@ -462,12 +461,11 @@ lazy val clientJVM = client.jvm.settings(enableMimaSettingsJVM)
 lazy val clientJS  = client.js
   .settings(enableMimaSettingsJS)
   .settings(
-    libraryDependencies ++= {
+    libraryDependencies ++=
       Seq(
         "org.scala-js"      %%% "scalajs-java-securerandom" % "1.0.0" cross CrossVersion.for3Use2_13,
         "io.github.cquiroz" %%% "scala-java-time"           % javaTimeVersion % Test
       )
-    }
   )
   .settings(scalaVersion := scala213)
   .settings(crossScalaVersions := allScala)
@@ -569,9 +567,8 @@ lazy val apolloCompatibility =
     .settings(
       assembly / assemblyJarName       := s"apollo-subgraph-compatibility.jar",
       assembly / mainClass             := Some("Main"),
-      assembly / assemblyOutputPath    := {
-        (assembly / baseDirectory).value / "target" / (assembly / assemblyJarName).value
-      },
+      assembly / assemblyOutputPath    :=
+        (assembly / baseDirectory).value / "target" / (assembly / assemblyJarName).value,
       assembly / test                  := {},
       assembly / assemblyMergeStrategy := {
         case x if Assembly.isConfigFile(x)       => MergeStrategy.concat
