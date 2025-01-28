@@ -8,8 +8,9 @@ val scala3   = "3.3.4"
 val allScala = Seq(scala212, scala213, scala3)
 
 val akkaVersion               = "2.6.20"
+val akkaHttpVersion           = "10.2.10"
 val catsEffect3Version        = "3.5.7"
-val catsMtlVersion            = "1.3.0"
+val catsMtlVersion            = "1.5.0"
 val circeVersion              = "0.14.10"
 val fs2Version                = "3.11.0"
 val http4sVersion             = "0.23.30"
@@ -21,7 +22,7 @@ val magnoliaScala3Version     = "1.3.9"
 val pekkoHttpVersion          = "1.1.0"
 val playVersion               = "3.0.6"
 val playJsonVersion           = "3.0.4"
-val scalafmtVersion           = "3.8.0"
+val scalafmtVersion           = "3.8.6"
 val sttpVersion               = "3.10.2"
 val tapirVersion              = "1.11.13"
 val zioVersion                = "2.1.14"
@@ -30,7 +31,7 @@ val zioInteropCats3Version    = "23.1.0.3"
 val zioInteropReactiveVersion = "2.0.2"
 val zioConfigVersion          = "4.0.3"
 val zqueryVersion             = "0.7.6"
-val zioJsonVersion            = "0.7.6"
+val zioJsonVersion            = "0.7.9"
 val zioHttpVersion            = "3.0.1"
 val zioOpenTelemetryVersion   = "3.1.1"
 
@@ -171,7 +172,7 @@ lazy val core = project
     libraryDependencies ++=
       Seq(
         "com.lihaoyi"                           %% "fastparse"               % "3.1.1",
-        "org.scala-lang.modules"                %% "scala-collection-compat" % "2.12.0",
+        "org.scala-lang.modules"                %% "scala-collection-compat" % "2.13.0",
         "dev.zio"                               %% "zio"                     % zioVersion,
         "dev.zio"                               %% "zio-streams"             % zioVersion,
         "dev.zio"                               %% "zio-query"               % zqueryVersion,
@@ -376,8 +377,7 @@ lazy val quickAdapter = project
   .disablePlugins(AssemblyPlugin)
   .settings(
     libraryDependencies ++= Seq(
-      "dev.zio"                               %% "zio-http"            % zioHttpVersion,
-      "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-core" % jsoniterVersion
+      "dev.zio" %% "zio-http" % zioHttpVersion
     )
   )
   .dependsOn(core, tapirInterop % "test->test")
@@ -393,7 +393,7 @@ lazy val akkaHttp = project
     ideSkipProject := (scalaVersion.value == scala3),
     crossScalaVersions -= scala3,
     libraryDependencies ++= Seq(
-      "com.typesafe.akka"           %% "akka-http"                  % "10.2.10",
+      "com.typesafe.akka"           %% "akka-http"                  % akkaHttpVersion,
       "com.typesafe.akka"           %% "akka-serialization-jackson" % akkaVersion,
       "com.softwaremill.sttp.tapir" %% "tapir-akka-http-server"     % tapirVersion,
       compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.3").cross(CrossVersion.full))
@@ -499,12 +499,11 @@ lazy val clientLaminext = crossProject(JSPlatform)
     Test / scalaJSUseMainModuleInitializer := true,
     Test / scalaJSUseTestModuleInitializer := false,
     libraryDependencies ++= Seq(
-      "io.laminext"                           %%% "core"                % laminextVersion,
-      "io.laminext"                           %%% "fetch"               % laminextVersion,
-      "io.laminext"                           %%% "websocket"           % laminextVersion,
-      "com.github.plokhotnyuk.jsoniter-scala" %%% "jsoniter-scala-core" % jsoniterVersion,
-      "dev.zio"                               %%% "zio-test"            % zioVersion % Test,
-      "dev.zio"                               %%% "zio-test-sbt"        % zioVersion % Test
+      "io.laminext" %%% "core"         % laminextVersion,
+      "io.laminext" %%% "fetch"        % laminextVersion,
+      "io.laminext" %%% "websocket"    % laminextVersion,
+      "dev.zio"     %%% "zio-test"     % zioVersion % Test,
+      "dev.zio"     %%% "zio-test-sbt" % zioVersion % Test
     )
   )
 
@@ -518,10 +517,9 @@ lazy val examples = project
     run / connectInput := true
   )
   .settings(
-    skip                                                 := (scalaVersion.value != scala213),
-    ideSkipProject                                       := (scalaVersion.value != scala213),
-    crossScalaVersions                                   := Seq(scala213),
-    libraryDependencySchemes += "org.scala-lang.modules" %% "scala-java8-compat" % "always",
+    skip               := (scalaVersion.value != scala213),
+    ideSkipProject     := (scalaVersion.value != scala213),
+    crossScalaVersions := Seq(scala213),
     libraryDependencies ++= Seq(
       "org.typelevel"                         %% "cats-mtl"                % catsMtlVersion,
       "org.http4s"                            %% "http4s-ember-server"     % http4sVersion,
@@ -561,10 +559,9 @@ lazy val apolloCompatibility =
       run / connectInput := true
     )
     .settings(
-      skip                                                 := (scalaVersion.value == scala212),
-      ideSkipProject                                       := (scalaVersion.value == scala212),
-      crossScalaVersions                                   := Seq(scala213, scala3),
-      libraryDependencySchemes += "org.scala-lang.modules" %% "scala-java8-compat" % "always"
+      skip               := (scalaVersion.value == scala212),
+      ideSkipProject     := (scalaVersion.value == scala212),
+      crossScalaVersions := Seq(scala213, scala3)
     )
     .settings(
       assembly / assemblyJarName       := s"apollo-subgraph-compatibility.jar",
@@ -614,14 +611,12 @@ lazy val benchmarks = project
       "org.typelevel" %% "cats-parse" % VersionScheme.Always
     ),
     libraryDependencies ++= Seq(
-      "org.sangria-graphql"                   %% "sangria"             % "4.1.0",
-      "org.sangria-graphql"                   %% "sangria-circe"       % "1.3.2",
-      "org.typelevel"                         %% "grackle-core"        % "0.19.1",
-      "org.typelevel"                         %% "grackle-generic"     % "0.19.1",
-      "io.github.valdemargr"                  %% "gql-server"          % "0.3.5",
-      "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-core" % jsoniterVersion,
-      "dev.zio"                               %% "zio-test"            % zioVersion % Test,
-      "dev.zio"                               %% "zio-test-sbt"        % zioVersion % Test
+      "org.sangria-graphql"  %% "sangria"         % "4.2.5",
+      "org.sangria-graphql"  %% "sangria-circe"   % "1.3.2",
+      "org.typelevel"        %% "grackle-generic" % "0.23.0",
+      "io.github.valdemargr" %% "gql-server"      % "0.4.1",
+      "dev.zio"              %% "zio-test"        % zioVersion % Test,
+      "dev.zio"              %% "zio-test-sbt"    % zioVersion % Test
     )
   )
 
