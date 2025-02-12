@@ -8,6 +8,7 @@ on:
       - apollo-compatibility/**
       - federation/**
       - adapters/quick/**
+      - .github/workflows/compatibility.yaml
 
 jobs:
   compatibility:
@@ -23,6 +24,7 @@ jobs:
           java-version: 17
           distribution: 'adopt'
           cache: 'sbt'
+      - uses: sbt/setup-sbt@v1
       - name: Cache scala dependencies
         uses: coursier/cache-action@v6
       - name: Run assembly
