@@ -298,24 +298,24 @@ object SchemaWriter {
          |}""".stripMargin
     }
 
-    def replaceNameOfInnertype(name: String, ftype: Type): Type =
+    def replaceNameOfInnerType(name: String, ftype: Type): Type =
       ftype match {
         case NamedType(_, nt)  => NamedType(name, nt)
-        case ListType(nt, opt) => ListType(replaceNameOfInnertype(name, nt), opt)
+        case ListType(nt, opt) => ListType(replaceNameOfInnerType(name, nt), opt)
       }
 
     def resolveNewTypeFieldDef(field: FieldDefinition): Option[FieldDefinition] =
       if (Directives.isNewType(field.directives)) {
         Directives
           .newTypeName(field.directives)
-          .map(name => field.copy(ofType = replaceNameOfInnertype(name, field.ofType)))
+          .map(name => field.copy(ofType = replaceNameOfInnerType(name, field.ofType)))
       } else None
 
     def resolveNewTypeInputDef(field: InputValueDefinition): Option[InputValueDefinition] =
       if (Directives.isNewType(field.directives)) {
         Directives
           .newTypeName(field.directives)
-          .map(name => field.copy(ofType = replaceNameOfInnertype(name, field.ofType)))
+          .map(name => field.copy(ofType = replaceNameOfInnerType(name, field.ofType)))
       } else None
 
     def argsName(field: FieldDefinition, od: TypeDefinition): String =
