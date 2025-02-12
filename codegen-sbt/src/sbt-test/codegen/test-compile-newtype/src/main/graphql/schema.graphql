@@ -24,8 +24,8 @@ type Foo {
     IDs : [ID!]!
     allIDs : [ID!]! @newtype(name: "InnerId")
     allIDsOpt: [ID]! @newtype(name: "InnerOptId")
-    mapbeAllIDs: [ID!] @newtype(name: "MaybeInnerId")
-    mapbeAllIDsOpt: [ID] @newtype(name: "MaybeInnerIdOpt")
+    maybeAllIDs: [ID!] @newtype(name: "MaybeInnerId")
+    maybeAllIDsOpt: [ID] @newtype(name: "MaybeInnerIdOpt")
     getLazyFoo : FooLazy @lazy
 }
 

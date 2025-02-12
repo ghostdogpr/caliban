@@ -492,7 +492,7 @@ object SchemaWriterSpec extends SnapshotTest {
           | getFoo(
           |   id: ID! @$NewtypeDirective(name: "CustomId"),
           |   maybeId : ID @$NewtypeDirective(name: "ACustomIdOpt")
-          |   mapbeAllIDsOpt: [ID] @$NewtypeDirective(name: "AMaybeInnerIdOpt")
+          |   maybeAllIDsOpt: [ID] @$NewtypeDirective(name: "AMaybeInnerIdOpt")
           | ): Foo
           |}
           |
@@ -509,14 +509,14 @@ object SchemaWriterSpec extends SnapshotTest {
           |  IDs : [ID!]!
           |  allIDs : [ID!]! @$NewtypeDirective(name: "InnerId")
           |  allIDsOpt: [ID]! @$NewtypeDirective(name: "InnerOptId")
-          |  mapbeAllIDs: [ID!] @$NewtypeDirective(name: "MaybeInnerId")
-          |  mapbeAllIDsOpt: [ID] @$NewtypeDirective(name: "MaybeInnerIdOpt")
+          |  maybeAllIDs: [ID!] @$NewtypeDirective(name: "MaybeInnerId")
+          |  maybeAllIDsOpt: [ID] @$NewtypeDirective(name: "MaybeInnerIdOpt")
           |}
           |
           |input FooInput {
           |  id : ID! @$NewtypeDirective(name: "CustomId")
           |  allIDs : [ID!]! @$NewtypeDirective(name: "IInnerId")
-          |  mapbeAllIDsOpt: [ID] @$NewtypeDirective(name: "IMaybeInnerIdOpt")
+          |  maybeAllIDsOpt: [ID] @$NewtypeDirective(name: "IMaybeInnerIdOpt")
           |}
           |
           |""",
