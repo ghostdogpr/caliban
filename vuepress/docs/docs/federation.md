@@ -119,7 +119,7 @@ by using `caliban.federation.v2_x` where `x` is the minor version of the specifi
 | Directive    | Caliban Type | Version | Caliban package
 --------------| --------------|---------| ---------------
 | `@shareable` | `@GQLShareable` | v2.0    | `caliban.federation.v2_0`
-| `@inaccessable` | `@GQLInaccessible` | v2.0    | `caliban.federation.v2_0`
+| `@inaccessible` | `@GQLInaccessible` | v2.0    | `caliban.federation.v2_0`
 | `@override`  | `@GQLOverride` | v2.0    | `caliban.federation.v2_0`
 | `@tag`       | `@GQLTag` | v2.0    | `caliban.federation.v2_0`
 | `@composeDirective` | `ComposeDirective` | v2.1    | `caliban.federation.v2_1`
