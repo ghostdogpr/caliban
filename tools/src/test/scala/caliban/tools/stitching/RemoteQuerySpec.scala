@@ -120,7 +120,7 @@ object RemoteQuerySpec extends ZIOSpecDefault {
         actual == """query{union(value:"{\"foo\": \"\\n\"}"){...on Interface{id}}}"""
       )
     },
-    test("correctly renders a query for a field of json escaped escaped quote") {
+    test("correctly renders a query for a field of json double escaped quote") {
       val query = gqldoc("""{
                union(value: "{\"foo\": \"\\\"\"}") { ...on Interface { id } }
              }""")
