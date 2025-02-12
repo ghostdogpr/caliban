@@ -36,7 +36,7 @@ module.exports = {
             link: '/about/'
           },
           {
-            text: 'Github',
+            text: 'GitHub',
             link: 'https://github.com/ghostdogpr/caliban'
           },
           {

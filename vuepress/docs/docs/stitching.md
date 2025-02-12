@@ -16,7 +16,7 @@ In order to use stitching, add `caliban-tools` to your dependencies:
 
 ## Stitching in Action
 
-Let's start out by defining our API. We'll have `AppUser` profiles, that has a linked `featuredRepository`. For the `featuredRepository`, we want to leverage [Github's GraphQL API](https://docs.github.com/en/graphql).
+Let's start out by defining our API. We'll have `AppUser` profiles, that has a linked `featuredRepository`. For the `featuredRepository`, we want to leverage [GitHub's GraphQL API](https://docs.github.com/en/graphql).
 
 ```scala mdoc:silent
 import caliban._
@@ -52,14 +52,14 @@ object StitchingExample extends GenericSchema[Any] {
 }
 ```
 
-Now let's integrate with the Github API!
+Now let's integrate with the GitHub API!
 
 In order to do this we're going to do a couple of things:
 
-1. Load the introspection schema from Github's API
+1. Load the introspection schema from GitHub's API
 1. Parse the introspected schema into a `caliban.introspection.adt.__Schema`
-1. Use the parsed schema to generate an `implicit Schema[R, A]` for the entities we're stitching. This effectively replaces our own schema with one from Github.
-1. Teach our implicit schema how to map our local resolver to a query that can be resolved remotely by calling Github's API.
+1. Use the parsed schema to generate an `implicit Schema[R, A]` for the entities we're stitching. This effectively replaces our own schema with one from GitHub.
+1. Teach our implicit schema how to map our local resolver to a query that can be resolved remotely by calling GitHub's API.
 
 
 ```scala
@@ -80,10 +80,10 @@ In order to do this we're going to do a couple of things:
         .remoteResolver("Repository")(
           // 4
           // Here we need to translate our local `Repository` case class into
-          // a top-level query which can be issued towards Github's API.
+          // a top-level query which can be issued towards GitHub's API.
           // We do this by accepting a `caliban.execution.Field`, representing
           // all the selected fields for a repository and map that to the
-          // top-level `repository` query in the Github API.
+          // top-level `repository` query in the GitHub API.
           // This means the final query will end up looking something like this:
           // query {
           //   repository(owner: r.args.owner, name: r.args.name) {
@@ -104,7 +104,7 @@ In order to do this we're going to do a couple of things:
   }
 ```
 
-However, when running this we will experience failing requests due to `401 Unauthorized`. This is because all queries to Github's API requires authorization to be provided. In order to fix this, we need to add authorization to both the introspection query as well as our remote resolver. We also need a config module that can provide us with a Github token based on the value of `GITHUB_TOKEN` in our environment.
+However, when running this we will experience failing requests due to `401 Unauthorized`. This is because all queries to GitHub's API requires authorization to be provided. In order to fix this, we need to add authorization to both the introspection query as well as our remote resolver. We also need a config module that can provide us with a GitHub token based on the value of `GITHUB_TOKEN` in our environment.
 
 ```scala
 case class Configuration(githubToken: String)
@@ -175,7 +175,7 @@ implicit val githubProfileSchema: Schema[Any, Repository] =
   .provide(sttpClient ++ config)
 ```
 
-All that's left to do is to hook up to an HTTP server and configure a Github API token. And now you have an API that can handle queries such as these:
+All that's left to do is to hook up to an HTTP server and configure a GitHub API token. And now you have an API that can handle queries such as these:
 
 
 ```graphql
