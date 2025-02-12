@@ -14,7 +14,7 @@ import scala.collection.immutable.TreeMap
  *  https://github.com/plokhotnyuk/jsoniter-scala/blob/master/jsoniter-scala-circe/shared/src/main/scala/io/circe/JsoniterScalaCodec.scala
  *
  *  NOTE: The encoders / decoders rely on a stack-recursive implementation. To prevent stack-overflow errors,
- *  the maximum recursion depth is limited to 512. For most usecases, this should be far more than enough.
+ *  the maximum recursion depth is limited to 512. For most use cases, this should be far more than enough.
  *
  *  If your schema allows for infinite recursion and it's not possible to limit the max depth below 512 (using the
  *  `maxDepth` wrapper), prefer using one of the other codecs
