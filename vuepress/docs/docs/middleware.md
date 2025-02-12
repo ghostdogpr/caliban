@@ -60,8 +60,8 @@ val api = graphQL(...) @@ wrapper
 
 
 Caliban comes with a few pre-made wrappers in `caliban.wrappers.Wrappers`:
-- `maxDepth` returns a wrapper that fails queries whose depth is higher than a given value
-- `maxFields` returns a wrapper that fails queries whose number of fields is higher than a given value
+- `maxDepth` returns a wrapper that fails queries whose depth is greater than a given value
+- `maxFields` returns a wrapper that fails queries whose number of fields is greater than a given value
 - `maxCost` returns a wrapper that fails queries when the estimated cost of execution exceeds a given value
 - `queryCost` returns a wrapper which adds an extension field that includes the cost of executing the query
 - `timeout` returns a wrapper that fails queries taking more than a specified time
