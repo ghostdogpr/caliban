@@ -400,7 +400,7 @@ private[caliban] object SchemaValidator {
   ): Either[ValidationError, Unit] =
     failWhen(name.startsWith("__"))(
       s"$errorContext can't start with '__'",
-      """Names can not begin with the characters "__" (two underscores)"""
+      """Names cannot begin with the characters "__" (two underscores)"""
     )
 
   private def validateRootQuery[R](
