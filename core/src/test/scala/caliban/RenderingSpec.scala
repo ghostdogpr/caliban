@@ -12,11 +12,11 @@ import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition.{
 }
 import caliban.parsing.adt.Definition.{ TypeSystemDefinition, TypeSystemExtension }
 import caliban.parsing.adt.{ Definition, Directive }
-import caliban.rendering.DocumentRenderer
+import caliban.rendering.{ DocumentRenderer, ValueRenderer }
 import caliban.schema.Annotations.GQLOneOfInput
 import caliban.schema.Schema.auto._
 import caliban.schema.ArgBuilder.auto._
-import caliban.schema.{ ArgBuilder, Schema }
+import caliban.schema.{ ArgBuilder, PureStep, Schema }
 import zio.stream.ZStream
 import zio.{ IO, ZIO }
 import zio.test.Assertion._
@@ -268,6 +268,19 @@ object RenderingSpec extends ZIOSpecDefault {
             assertTrue(graphQL(resolver).render == expected("fooInput"))
           }
         )
+      },
+      test("issue #2544 - render escaped strings in responsevalue keys") {
+        val jsonStr = """{
+                        |  "key\"key": "value"
+                        |}""".stripMargin
+
+        val result = zio.json.ast.Json.decoder.decodeJson(jsonStr).map { json =>
+          val step          = caliban.interop.zio.json.jsonSchema.resolve(json)
+          val responseValue = step.asInstanceOf[PureStep].value
+          ValueRenderer.responseValueRenderer.renderCompact(responseValue)
+        }
+
+        assertTrue(result == Right("""{"key\"key":"value"}"""))
       }
     )
 

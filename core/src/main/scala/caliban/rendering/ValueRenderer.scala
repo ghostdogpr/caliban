@@ -108,7 +108,7 @@ object ValueRenderer {
           if (indent.nonEmpty) write += ' '
         }
         write += '"'
-        write ++= field._1
+        Renderer.escapedString.unsafeRender(field._1, indent, write)
         write += '"'
         write += ':'
         if (indent.nonEmpty) write += ' '
