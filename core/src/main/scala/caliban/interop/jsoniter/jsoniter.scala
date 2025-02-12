@@ -134,7 +134,7 @@ private[caliban] object ValueJsoniter {
         else {
           in.rollbackToken()
           /*
-            Using a TreeMap to prevent DoS explotation of the HashMap keys in Scala 2.12. We could potentially make
+            Using a TreeMap to prevent DoS exploitation of the HashMap keys in Scala 2.12. We could potentially make
             this Scala version specific, but might be unnecessary given the Input objects are most of the time very
             small (extensions and variables). More info see: https://github.com/scala/bug/issues/11203
            */
