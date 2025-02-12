@@ -182,7 +182,7 @@ object IntrospectionSpec extends ZIOSpecDefault {
           assertTrue(response == """{"__type":{"name":"Captain"}}""")
         }
       },
-      test("introspect non-existent type") {
+      test("introspect nonexistent type") {
         val interpreter = graphQL(resolverIO).interpreter
         val query       = gqldoc("""
               query {
