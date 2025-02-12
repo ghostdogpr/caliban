@@ -17,7 +17,7 @@ To use, add the following dependency to your `build.sbt` file:
 Federation allows graphs to become part of a larger graph without having to share models or create brittle
 schema stitching code at the gateway level.
 
-You can read more about federation and why it may be useful [here](https://www.apollographql.com/docs/apollo-server/federation/introduction/).
+You can read more about federation and why it may be useful in [Introduction to Apollo Federation](https://www.apollographql.com/docs/graphos/schema-design/federated-schemas/federation).
 
 Federation creates a wrapper over your existing schema so that it can add the necessary hooks to support
 interaction with the gateway.
