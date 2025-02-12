@@ -232,7 +232,7 @@ object TapirAdapterSpec {
               test("Returns 400 status code on validation errors") {
                 def test_(method: String) =
                   for {
-                    resp  <- runHttpRequest(method, acceptHeader, query = "{characterss { name }}")
+                    resp  <- runHttpRequest(method, acceptHeader, query = "{characters_ { name }}")
                     error <-
                       resp.body.fold(ZIO.succeed(_), v => ZIO.fail(new Throwable(s"expected request to fail: $v")))
                   } yield assertTrue(
