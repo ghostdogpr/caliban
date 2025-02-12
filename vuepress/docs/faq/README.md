@@ -51,7 +51,7 @@ Unfortunately, it is not supported by the GraphQL spec. See [https://github.com/
 
 ### How to deal with recursive types?
 
-Recursive types can be a little tricky. This is not a silver bullet but usually the trick is to add an `implicit lazy val` instance of `Schema` for the type that is recursive. See [here](https://github.com/ghostdogpr/caliban/blob/master/examples/src/main/scala/example/optimizations/NaiveTest.scala#L82) for an example.
+Recursive types can be a little tricky. This is not a silver bullet but usually the trick is to add an `implicit lazy val` instance of `Schema` for the type that is recursive. See [`implicit val sizeArgsSchema`](https://github.com/ghostdogpr/caliban/blob/master/examples/src/f198bd589fa94608096ce4db9ccaa66d2eede168/scala/example/optimizations/NaiveTest.scala#L82) for an example.
 
 ### I'm getting a "Method too large" compiler error.
 
