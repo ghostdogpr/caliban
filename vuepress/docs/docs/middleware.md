@@ -227,7 +227,7 @@ val apiWithCost = api @@
 In the above example we have provided a couple different examples. For instance, we can add the directive to both types and 
 to fields. In this case the field resolver will override the type cost, however if there is no field cost then the type cost will be used.
 We may also specify a "multipliers" argument when using arguments. This will match the argument names and use numeric argument values to multiply the base value.
-In the above case this means that a query that specifies a `limit` of `10` for the `spokenLines` field will have the base field cost multipled by 10 resulting in a total cost
+In the above case this means that a query that specifies a `limit` of `10` for the `spokenLines` field will have the base field cost multiplied by 10 resulting in a total cost
 of execution of `1000`
 
 ## OpenTelemetry Tracing
