@@ -242,7 +242,7 @@ object TapirAdapterSpec {
                   )
                 test_("GET") && test_("POST")
               },
-              test("Returns 400 status code on variable coersion errors") {
+              test("Returns 400 status code on variable coercion errors") {
                 def test_(method: String) =
                   for {
                     resp  <- runHttpRequest(method, acceptHeader, query = "{character(name: 42) { name }}")
