@@ -14,7 +14,7 @@ import scala.collection.immutable.TreeMap
  *  https://github.com/plokhotnyuk/jsoniter-scala/blob/master/jsoniter-scala-circe/shared/src/main/scala/io/circe/JsoniterScalaCodec.scala
  *
  *  NOTE: The encoders / decoders rely on a stack-recursive implementation. To prevent stack-overflow errors,
- *  the maximum recursion depth is limited to 512. For most usecases, this should be far more than enough.
+ *  the maximum recursion depth is limited to 512. For most use cases, this should be far more than enough.
  *
  *  If your schema allows for infinite recursion and it's not possible to limit the max depth below 512 (using the
  *  `maxDepth` wrapper), prefer using one of the other codecs
@@ -134,7 +134,7 @@ private[caliban] object ValueJsoniter {
         else {
           in.rollbackToken()
           /*
-            Using a TreeMap to prevent DoS explotation of the HashMap keys in Scala 2.12. We could potentially make
+            Using a TreeMap to prevent DoS exploitation of the HashMap keys in Scala 2.12. We could potentially make
             this Scala version specific, but might be unnecessary given the Input objects are most of the time very
             small (extensions and variables). More info see: https://github.com/scala/bug/issues/11203
            */

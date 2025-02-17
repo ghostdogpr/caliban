@@ -35,7 +35,7 @@ val api = api1 |+| api2
 
 ### How to deal with authentication/authorization?
 
-This is typically handled with the help of ZIO environment. You can make your field require an `Auth` service by returning a `ZIO[Auth, E, A]`. Then, in your resolver, access the `Auth` service to check you have the appropriate permissions. You can inject the authentication information using a middleware in your HTTP server library. Check [here](https://github.com/search?q=repo%3Aghostdogpr%2Fcaliban+AuthExampleApp+language%3AScala&type=code&l=Scala) for a list of examples with different adapters.
+This is typically handled with the help of ZIO environment. You can make your field require an `Auth` service by returning a `ZIO[Auth, E, A]`. Then, in your resolver, access the `Auth` service to check you have the appropriate permissions. You can inject the authentication information using a middleware in your HTTP server library. Look at the [AuthExampleApp scala apps](https://github.com/search?q=repo%3Aghostdogpr%2Fcaliban+AuthExampleApp+language%3AScala&type=code&l=Scala) for a list of examples with different adapters.
 
 ### I have 2 case classes with the same name (different packages). How to avoid conflicts?
  
@@ -51,7 +51,7 @@ Unfortunately, it is not supported by the GraphQL spec. See [https://github.com/
 
 ### How to deal with recursive types?
 
-Recursive types can be a little tricky. This is not a silver bullet but usually the trick is to add an `implicit lazy val` instance of `Schema` for the type that is recursive. See [here](https://github.com/ghostdogpr/caliban/blob/master/examples/src/main/scala/example/optimizations/NaiveTest.scala#L82) for an example.
+Recursive types can be a little tricky. This is not a silver bullet but usually the trick is to add an `implicit lazy val` instance of `Schema` for the type that is recursive. See [`implicit val sizeArgsSchema`](https://github.com/ghostdogpr/caliban/blob/master/examples/src/f198bd589fa94608096ce4db9ccaa66d2eede168/scala/example/optimizations/NaiveTest.scala#L82) for an example.
 
 ### I'm getting a "Method too large" compiler error.
 

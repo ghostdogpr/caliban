@@ -174,17 +174,17 @@ object Grackle extends GenericMapping[IO] {
   }
   implicit val roleEncoder: Encoder[Role]                = Encoder.encodeString.contramap(_.toString)
 
-  implicit val captainCursorBuiler: CursorBuilder[Role.Captain]   =
+  implicit val captainCursorBuilder: CursorBuilder[Role.Captain]   =
     deriveObjectCursorBuilder[Role.Captain](CaptainType)
-  implicit val pilotCursorBuiler: CursorBuilder[Role.Pilot]       =
+  implicit val pilotCursorBuilder: CursorBuilder[Role.Pilot]       =
     deriveObjectCursorBuilder[Role.Pilot](PilotType)
-  implicit val engineerCursorBuiler: CursorBuilder[Role.Engineer] =
+  implicit val engineerCursorBuilder: CursorBuilder[Role.Engineer] =
     deriveObjectCursorBuilder[Role.Engineer](EngineerType)
-  implicit val mechanicCursorBuiler: CursorBuilder[Role.Mechanic] =
+  implicit val mechanicCursorBuilder: CursorBuilder[Role.Mechanic] =
     deriveObjectCursorBuilder[Role.Mechanic](MechanicType)
-  implicit val roleCursorBuilder: CursorBuilder[Role]             =
+  implicit val roleCursorBuilder: CursorBuilder[Role]              =
     CursorBuilder.deriveLeafCursorBuilder[Role](RoleType)
-  implicit val characterCursorBuiler: CursorBuilder[Character]    =
+  implicit val characterCursorBuilder: CursorBuilder[Character]    =
     deriveObjectCursorBuilder[Character](CharacterType)
 
   val typeMappings =

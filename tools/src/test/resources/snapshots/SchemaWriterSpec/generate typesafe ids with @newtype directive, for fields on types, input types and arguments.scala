@@ -10,7 +10,7 @@ object Types {
   final case class QueryGetFooArgs(
     id: CustomId,
     maybeId: scala.Option[ACustomIdOpt],
-    mapbeAllIDsOpt: scala.Option[List[scala.Option[AMaybeInnerIdOpt]]]
+    maybeAllIDsOpt: scala.Option[List[scala.Option[AMaybeInnerIdOpt]]]
   )
   final case class MutationUpdateFooArgs(foo: FooInput)
   case class ACustomIdOpt(value: String) extends AnyVal
@@ -95,9 +95,9 @@ object Types {
     @GQLDirective(Directive("newtype", Map("name" -> StringValue("InnerOptId"))))
     allIDsOpt: List[scala.Option[InnerOptId]],
     @GQLDirective(Directive("newtype", Map("name" -> StringValue("MaybeInnerId"))))
-    mapbeAllIDs: scala.Option[List[MaybeInnerId]],
+    maybeAllIDs: scala.Option[List[MaybeInnerId]],
     @GQLDirective(Directive("newtype", Map("name" -> StringValue("MaybeInnerIdOpt"))))
-    mapbeAllIDsOpt: scala.Option[List[scala.Option[MaybeInnerIdOpt]]]
+    maybeAllIDsOpt: scala.Option[List[scala.Option[MaybeInnerIdOpt]]]
   )
   final case class FooInput(
     @GQLDirective(Directive("newtype", Map("name" -> StringValue("CustomId"))))
@@ -105,7 +105,7 @@ object Types {
     @GQLDirective(Directive("newtype", Map("name" -> StringValue("IInnerId"))))
     allIDs: List[IInnerId],
     @GQLDirective(Directive("newtype", Map("name" -> StringValue("IMaybeInnerIdOpt"))))
-    mapbeAllIDsOpt: scala.Option[List[scala.Option[IMaybeInnerIdOpt]]]
+    maybeAllIDsOpt: scala.Option[List[scala.Option[IMaybeInnerIdOpt]]]
   )
 
 }

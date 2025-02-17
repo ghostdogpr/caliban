@@ -60,8 +60,8 @@ val api = graphQL(...) @@ wrapper
 
 
 Caliban comes with a few pre-made wrappers in `caliban.wrappers.Wrappers`:
-- `maxDepth` returns a wrapper that fails queries whose depth is higher than a given value
-- `maxFields` returns a wrapper that fails queries whose number of fields is higher than a given value
+- `maxDepth` returns a wrapper that fails queries whose depth is greater than a given value
+- `maxFields` returns a wrapper that fails queries whose number of fields is greater than a given value
 - `maxCost` returns a wrapper that fails queries when the estimated cost of execution exceeds a given value
 - `queryCost` returns a wrapper which adds an extension field that includes the cost of executing the query
 - `timeout` returns a wrapper that fails queries taking more than a specified time
@@ -113,7 +113,7 @@ val i4: GraphQLInterpreter[MyEnv, CalibanError] =
 
 ## Customizing error responses
 
-During various phases of executing a query, an error may occur. Caliban renders the different instances of `CalibanError` to a GraphQL spec compliant response. As a user, you will most likely encounter `ExecutionError` at some point because this will encapsulate the errors in the error channel of your effects. For Caliban to be able to render some basic message about the error that occured during query execution, it is important that your error extends `Throwable`.
+During various phases of executing a query, an error may occur. Caliban renders the different instances of `CalibanError` to a GraphQL spec compliant response. As a user, you will most likely encounter `ExecutionError` at some point because this will encapsulate the errors in the error channel of your effects. For Caliban to be able to render some basic message about the error that occurred during query execution, it is important that your error extends `Throwable`.
 
 For more meaningful error handling, GraphQL spec allows for an [`extension`](http://spec.graphql.org/June2018/#example-fce18) object in the error response. This object may include, for instance, `code` information to model enum-like error codes that can be handled by a front-end. In order to generate this information, one can use the `mapError` function on a `GraphQLInterpreter`. An example is provided below in which we map a custom domain error within an `ExecutionError` to a meaningful error code.
 
@@ -227,7 +227,7 @@ val apiWithCost = api @@
 In the above example we have provided a couple different examples. For instance, we can add the directive to both types and 
 to fields. In this case the field resolver will override the type cost, however if there is no field cost then the type cost will be used.
 We may also specify a "multipliers" argument when using arguments. This will match the argument names and use numeric argument values to multiply the base value.
-In the above case this means that a query that specifies a `limit` of `10` for the `spokenLines` field will have the base field cost multipled by 10 resulting in a total cost
+In the above case this means that a query that specifies a `limit` of `10` for the `spokenLines` field will have the base field cost multiplied by 10 resulting in a total cost
 of execution of `1000`
 
 ## OpenTelemetry Tracing
