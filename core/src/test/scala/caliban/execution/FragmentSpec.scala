@@ -200,6 +200,48 @@ object FragmentSpec extends ZIOSpecDefault {
           isSome(anything)
         )
       },
+      test("nested fragment selection on the same type") {
+        import caliban.schema.Schema.auto._
+
+        case class A(valueA: String, valueC: String)
+        case class B(valueB: String)
+        case class Foo(a: A, b: B)
+        case class Query(foo: Foo)
+
+        val api = graphQL(RootResolver(Query(Foo(A("a", "c"), B("b")))))
+
+        val q = gqldoc("""
+            fragment FragA on Query {
+              foo {
+                a {
+                  valueA
+                  valueC
+                }
+              }
+            }
+
+            fragment FragB on Query {
+              foo {
+                a {
+                  valueA
+                }
+                b {
+                  valueB
+                }
+              }
+            }
+
+            query {
+              ...FragA
+              ...FragB
+            }
+            """)
+
+        api.interpreterUnsafe.execute(q).map { res =>
+          val d = res.data.toString
+          assertTrue(d == """{"foo":{"a":{"valueA":"a","valueC":"c"},"b":{"valueB":"b"}}}""")
+        }
+      },
       suite("spec examples")(
         suite("simple fields")(
           test("merge identical fields") {
