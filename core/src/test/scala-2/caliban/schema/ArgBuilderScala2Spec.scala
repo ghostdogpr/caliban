@@ -8,14 +8,24 @@ import zio.test._
 import java.util.UUID
 
 object ArgBuilderScala2Spec extends ZIOSpecDefault {
+
+  case class RecursionTest(
+    id: String,
+    next: Option[RecursionTest]
+  )
+  
   def spec = suite("ArgBuilderScala2")(
-    suite("AnyVal") {
+    suite("AnyVal")(
       test("ArgBuilder that extends AnyVal") {
         val id    = UUID.randomUUID()
         val value = ArgBuilder[UUIDId].build(StringValue(id.toString))
         assert(value)(isRight(equalTo(UUIDId(id))))
+      },
+      test("recursion") {
+        val argBuilder: ArgBuilder[RecursionTest] = ArgBuilder.gen
+        assert(argBuilder)(Assertion.anything)
       }
-    }
+    )
   )
 
   trait Ids[T] extends Any {

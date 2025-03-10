@@ -27,7 +27,7 @@ trait CommonArgBuilderDerivation {
   }
 
   def join[T](ctx: CaseClass[ArgBuilder, T]): ArgBuilder[T] = new ArgBuilder[T] {
-    private val params = {
+    private lazy val params = {
       val arr = Array.ofDim[(String, EitherExecutionError[Any])](ctx.parameters.length)
       ctx.parameters.zipWithIndex.foreach { case (p, i) =>
         val label   = p.annotations.collectFirst { case GQLName(name) => name }.getOrElse(p.label)
@@ -37,7 +37,7 @@ trait CommonArgBuilderDerivation {
       arr
     }
 
-    private val required = params.collect { case (label, default) if default.isLeft => label }
+    private lazy val required = params.collect { case (label, default) if default.isLeft => label }
 
     private val isValueType = DerivationUtils.isValueType(ctx)
 
