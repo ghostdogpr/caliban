@@ -129,7 +129,7 @@ trait CommonArgBuilderDerivation {
     isValueType: Boolean
   )(fromProduct: Product => A): ArgBuilder[A] = new ArgBuilder[A] {
 
-    private val params = Array.from(_fields.map { (label, builder) =>
+    private lazy val params = Array.from(_fields.map { (label, builder) =>
       val labelList  = annotations.get(label)
       val default    = builder.buildMissing(labelList.flatMap(_.collectFirst { case GQLDefault(v) => v }))
       val finalLabel = labelList.flatMap(_.collectFirst { case GQLName(name) => name }).getOrElse(label)
@@ -138,7 +138,7 @@ trait CommonArgBuilderDerivation {
 
     assert(!isValueType || params.length == 1, "value classes must have exactly one field")
 
-    private val required = params.collect { case (label, default, _) if default.isLeft => label }
+    private lazy val required = params.collect { case (label, default, _) if default.isLeft => label }
 
     override private[schema] val partial: PartialFunction[InputValue, Either[ExecutionError, A]] = {
       case InputValue.ObjectValue(fields) if required.forall(fields.contains) => fromFields(fields)
