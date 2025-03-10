@@ -23,7 +23,7 @@ object ArgBuilderScala2Spec extends ZIOSpecDefault {
       }
     ),
     suite("Recursion")(
-      test("recursion") {
+      test("Should support recursion") {
         val argBuilder: ArgBuilder[RecursionTest] = ArgBuilder.gen
         assert(argBuilder)(Assertion.anything)
       }
