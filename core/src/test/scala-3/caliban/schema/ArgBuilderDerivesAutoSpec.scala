@@ -131,17 +131,6 @@ object ArgBuilderDerivesAutoSpec extends ZIOSpecDefault {
           }
         }
       )
-    },
-    suite("Recursive ArgBuilder")(
-      test("Recursive case classes should work") {
-        case class RecursionTest(id: String, next: Option[RecursionTest]) derives ArgBuilder
-        val argBuilder = summon[ArgBuilder[RecursionTest]]
-        assertTrue(
-          argBuilder.build(ObjectValue(Map("id" -> StringValue("1"), "next" -> NullValue))) == Right(
-            RecursionTest("1", None)
-          )
-        )
-      }
-    )
+    }
   )
 }

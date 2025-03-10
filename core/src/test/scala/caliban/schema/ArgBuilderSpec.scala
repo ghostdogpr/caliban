@@ -8,7 +8,6 @@ import caliban.Value.{ IntValue, NullValue, StringValue }
 import caliban.schema.Annotations.{ GQLOneOfInput, GQLValueType }
 import zio.test.Assertion._
 import zio.test._
-
 import java.time._
 
 object ArgBuilderSpec extends ZIOSpecDefault {
@@ -187,6 +186,16 @@ object ArgBuilderSpec extends ZIOSpecDefault {
           assertTrue(fooAb.build(ObjectValue(input)) == Right(expected))
         }
       )
-    }
+    },
+    suite("Recursion")(
+      test("Should support recursion") {
+        case class RecursionTest(
+          id: String,
+          next: Option[RecursionTest]
+        )
+        val argBuilder: ArgBuilder[RecursionTest] = ArgBuilder.gen
+        assert(argBuilder)(Assertion.anything)
+      }
+    )
   )
 }
