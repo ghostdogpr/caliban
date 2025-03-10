@@ -10,13 +10,13 @@ import java.util.UUID
 object ArgBuilderScala2Spec extends ZIOSpecDefault {
 
   def spec = suite("ArgBuilderScala2")(
-    suite("AnyVal")(
+    suite("AnyVal") {
       test("ArgBuilder that extends AnyVal") {
         val id    = UUID.randomUUID()
         val value = ArgBuilder[UUIDId].build(StringValue(id.toString))
         assert(value)(isRight(equalTo(UUIDId(id))))
       }
-    )
+    }
   )
 
   trait Ids[T] extends Any {
