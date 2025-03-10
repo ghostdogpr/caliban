@@ -13,14 +13,16 @@ object ArgBuilderScala2Spec extends ZIOSpecDefault {
     id: String,
     next: Option[RecursionTest]
   )
-  
+
   def spec = suite("ArgBuilderScala2")(
     suite("AnyVal")(
       test("ArgBuilder that extends AnyVal") {
         val id    = UUID.randomUUID()
         val value = ArgBuilder[UUIDId].build(StringValue(id.toString))
         assert(value)(isRight(equalTo(UUIDId(id))))
-      },
+      }
+    ),
+    suite("Recursion")(
       test("recursion") {
         val argBuilder: ArgBuilder[RecursionTest] = ArgBuilder.gen
         assert(argBuilder)(Assertion.anything)
