@@ -193,7 +193,7 @@ object ArgBuilderSpec extends ZIOSpecDefault {
           id: String,
           next: Option[RecursionTest]
         )
-        val argBuilder: ArgBuilder[RecursionTest] = ArgBuilder.gen
+        implicit lazy val argBuilder: ArgBuilder[RecursionTest] = ArgBuilder.gen
         assert(argBuilder)(Assertion.anything)
       }
     )
