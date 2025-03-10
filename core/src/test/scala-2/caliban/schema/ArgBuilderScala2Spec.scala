@@ -8,7 +8,6 @@ import zio.test._
 import java.util.UUID
 
 object ArgBuilderScala2Spec extends ZIOSpecDefault {
-
   def spec = suite("ArgBuilderScala2")(
     suite("AnyVal") {
       test("ArgBuilder that extends AnyVal") {
