@@ -65,9 +65,10 @@ object Codegen {
                                   }
       formatted                <- if (enableFmt) Formatter.format(code, arguments.fmtPath) else ZIO.succeed(code)
       paths                    <- ZIO.foreach(formatted) { case (objectName, objectCode) =>
+                                    val f    = new File(arguments.toPath)
                                     val file =
-                                      if (splitFiles) new File(new File(arguments.toPath).getParentFile(), s"$objectName.scala")
-                                      else new File(arguments.toPath)
+                                      if (splitFiles) new File(if (f.isDirectory) f else f.getParentFile, s"$objectName.scala")
+                                      else f
 
                                     ZIO.blocking(
                                       ZIO
