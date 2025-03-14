@@ -70,7 +70,7 @@ final class QuickAdapter[R] private (requestHandler: QuickRequestHandler[R]) {
     graphiqlPath: Option[String] = None,
     uploadPath: Option[String] = None,
     webSocketPath: Option[String] = None
-  )(implicit trace: Trace, tag: Tag[R]): RIO[R, Nothing] =
+  )(implicit trace: Trace, tag: Tag[R], hasNoScope: HasNoScope[R]): RIO[R, Nothing] =
     Server
       .serve[R](routes(apiPath, graphiqlPath = graphiqlPath, uploadPath = uploadPath, webSocketPath = webSocketPath))
       .provideSomeLayer[R](
