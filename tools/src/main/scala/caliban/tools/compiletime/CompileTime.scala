@@ -21,7 +21,7 @@ object CompileTime {
               toPath = {
                 val dir = Utils.toPathDir(baseDir, settings.packageName)
 
-                s"$dir/${settings.clientName}.scala"
+                if (settings.splitFiles) dir else s"$dir/${settings.clientName}.scala"
               }
             ),
             GenType.Client

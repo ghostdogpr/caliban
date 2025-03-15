@@ -31,7 +31,7 @@ $ exec sh verify.sh StarshipView ./src/main/scala/genview/client/ClientNameUniqu
 > calibanGenClient project/schema-to-check-name-uniqueness.graphql src/main/scala/genview/client/ClientNameUniqueness.scala --packageName genview.client --genView true --enableFmt false
 -> scalafmtCheck
 
-> calibanGenClient project/gitlab-schema.graphql src/main/scala/genview/client/ClientGitLab.scala --packageName genview.client --genView true --splitFiles true --enableFmt false
+> calibanGenClient project/gitlab-schema.graphql src/main/scala/genview/client/ --packageName genview.client --genView true --splitFiles true --enableFmt false
 $ exists src/main/scala/genview/client/package.scala
 $ exec sh verify.sh ProjectID ./src/main/scala/genview/client/package.scala
 $ exists src/main/scala/genview/client/Project.scala
