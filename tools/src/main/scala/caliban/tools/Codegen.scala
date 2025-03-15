@@ -65,16 +65,25 @@ object Codegen {
                                   }
       formatted                <- if (enableFmt) Formatter.format(code, arguments.fmtPath) else ZIO.succeed(code)
       paths                    <- ZIO.foreach(formatted) { case (objectName, objectCode) =>
-                                    val f    = new File(arguments.toPath)
-                                    val file =
-                                      if (splitFiles) new File(if (f.isDirectory) f else f.getParentFile, s"$objectName.scala")
+                                    ZIO.attemptBlocking {
+                                      val f = new File(arguments.toPath)
+                                      if (splitFiles)
+                                        new File(
+                                          if (f.isDirectory) f    // directory exists => use it
+                                          else if (!f.exists()) { // directory does not exist => create it
+                                            f.mkdirs()
+                                            f
+                                          } else f.getParentFile, // file exists => use its parent
+                                          s"$objectName.scala"
+                                        )
                                       else f
-
-                                    ZIO.blocking(
-                                      ZIO
-                                        .attempt(new PrintWriter(file))
-                                        .acquireReleaseWithAuto(pw => ZIO.attempt(pw.print(objectCode)))
-                                        .as(file)
+                                    }.flatMap(file =>
+                                      ZIO.blocking(
+                                        ZIO
+                                          .attempt(new PrintWriter(file))
+                                          .acquireReleaseWithAuto(pw => ZIO.attempt(pw.print(objectCode)))
+                                          .as(file)
+                                      )
                                     )
                                   }
     } yield paths
