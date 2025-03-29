@@ -65,9 +65,9 @@ class AkkaHttpAdapter private (private val options: AkkaHttpServerOptions)(impli
    *
    * @see [[https://github.com/graphql/graphiql/tree/main/examples/graphiql-cdn]]
    */
-  def makeGraphiqlService(apiPath: String): Route =
+  def makeGraphiqlService(apiPath: String, wsPath: Option[String]): Route =
     akkaInterpreter.toRoute(
-      HttpInterpreter.makeGraphiqlEndpoint[Future](apiPath)
+      HttpInterpreter.makeGraphiqlEndpoint[Future](apiPath, wsPath)
     )
 
   private implicit def streamConstructor(implicit

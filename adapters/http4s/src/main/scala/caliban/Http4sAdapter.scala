@@ -54,10 +54,10 @@ object Http4sAdapter {
    *
    * @see [[https://github.com/graphql/graphiql/tree/main/examples/graphiql-cdn]]
    */
-  def makeGraphiqlService[F[_]: Async](apiPath: String): HttpRoutes[F] = {
+  def makeGraphiqlService[F[_]: Async](apiPath: String, wsPath: Option[String]): HttpRoutes[F] = {
     implicit val F: CatsMonadError[F] = new CatsMonadError[F]
     Http4sServerInterpreter().toRoutes(
-      HttpInterpreter.makeGraphiqlEndpoint[F](apiPath)
+      HttpInterpreter.makeGraphiqlEndpoint[F](apiPath, wsPath)
     )
   }
 

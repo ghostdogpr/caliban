@@ -43,7 +43,7 @@ final class QuickAdapter[R] private (requestHandler: QuickRequestHandler[R]) {
       RoutePattern(Method.GET, apiPath)  -> handlers.api
     )
     val graphiqlRoute = graphiqlPath.toList.map { uiPath =>
-      RoutePattern(Method.GET, uiPath) -> GraphiQLHandler.handler(apiPath)
+      RoutePattern(Method.GET, uiPath) -> GraphiQLHandler.handler(apiPath, webSocketPath)
     }
     val uploadRoute   = uploadPath.toList.map { uPath =>
       RoutePattern(Method.POST, uPath) -> handlers.upload

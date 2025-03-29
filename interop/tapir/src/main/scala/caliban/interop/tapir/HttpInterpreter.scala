@@ -210,7 +210,8 @@ object HttpInterpreter {
    * @see [[https://github.com/graphql/graphiql/tree/main/examples/graphiql-cdn]]
    */
   def makeGraphiqlEndpoint[F[_]](
-    apiPath: String
+    apiPath: String,
+    wsPath: Option[String]
   )(implicit F: MonadError[F]): ServerEndpoint.Full[Unit, Unit, ServerRequest, Nothing, String, Any, F] = {
     val apiPath0 = apiPath.split("/").filter(_.nonEmpty).mkString("/", "/", "")
     infallibleEndpoint.get
@@ -219,7 +220,7 @@ object HttpInterpreter {
       .serverLogic[F] { req =>
         val segments = req.pathSegments
         val uiPath   = segments.mkString("/", "/", "")
-        val entity   = Right(HttpUtils.graphiqlHtml(apiPath = apiPath0, uiPath = uiPath))
+        val entity   = Right(HttpUtils.graphiqlHtml(apiPath = apiPath0, uiPath = uiPath, wsPath = wsPath))
         F.unit(entity)
       }
   }

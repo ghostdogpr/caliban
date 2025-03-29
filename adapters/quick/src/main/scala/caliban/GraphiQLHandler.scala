@@ -14,13 +14,13 @@ object GraphiQLHandler {
    *
    * @see [[https://github.com/graphql/graphiql/tree/main/examples/graphiql-cdn]]
    */
-  def handler(apiPath: String): RequestHandler[Any, Nothing] = {
+  def handler(apiPath: String, wsPath: Option[String]): RequestHandler[Any, Nothing] = {
     val headers = Headers(Header.ContentType(MediaType.text.html).untyped)
     zio.http.handler { (req: Request) =>
       Response(
         Status.Ok,
         headers,
-        Body.fromString(html(apiPath, req.path.encode))
+        Body.fromString(wsPath.fold(html(apiPath, req.path.encode))(html(apiPath, req.path.encode, _)))
       )
     }
   }
@@ -33,5 +33,6 @@ object GraphiQLHandler {
       Body.fromString(html(apiPath, graphiqlPath))
     ).toHandler
 
-  def html(apiPath: String, uiPath: String): String = HttpUtils.graphiqlHtml(apiPath, uiPath)
+  def html(apiPath: String, uiPath: String): String = HttpUtils.graphiqlHtml(apiPath, uiPath, None)
+  def html(apiPath: String, uiPath: String, wsPath: String): String = HttpUtils.graphiqlHtml(apiPath, uiPath, Some(wsPath))
 }

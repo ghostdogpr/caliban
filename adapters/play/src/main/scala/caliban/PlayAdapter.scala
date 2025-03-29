@@ -42,9 +42,9 @@ class PlayAdapter private (private val options: Option[PlayServerOptions]) {
    *
    * @see [[https://github.com/graphql/graphiql/tree/main/examples/graphiql-cdn]]
    */
-  def makeGraphiqlService(apiPath: String)(implicit materializer: Materializer): Routes = {
+  def makeGraphiqlService(apiPath: String, wsPath: Option[String])(implicit materializer: Materializer): Routes = {
     implicit val F: FutureMonad = new FutureMonad()(materializer.executionContext)
-    playInterpreter.toRoutes(HttpInterpreter.makeGraphiqlEndpoint[Future](apiPath))
+    playInterpreter.toRoutes(HttpInterpreter.makeGraphiqlEndpoint[Future](apiPath, wsPath))
   }
 
   def makeWebSocketService[R, E](
