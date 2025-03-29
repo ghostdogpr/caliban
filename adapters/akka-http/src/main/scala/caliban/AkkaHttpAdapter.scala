@@ -67,7 +67,7 @@ class AkkaHttpAdapter private (private val options: AkkaHttpServerOptions)(impli
    */
   def makeGraphiqlService(apiPath: String): Route =
     akkaInterpreter.toRoute(
-      HttpInterpreter.makeGraphiqlEndpoint[Future](apiPath, None)
+      HttpInterpreter.makeGraphiqlEndpoint[Future](apiPath)
     )
 
   /**
@@ -80,7 +80,7 @@ class AkkaHttpAdapter private (private val options: AkkaHttpServerOptions)(impli
    */
   def makeGraphiqlService(apiPath: String, wsPath: String): Route =
     akkaInterpreter.toRoute(
-      HttpInterpreter.makeGraphiqlEndpoint[Future](apiPath, Some(wsPath))
+      HttpInterpreter.makeGraphiqlEndpoint[Future](apiPath, wsPath)
     )
 
   private implicit def streamConstructor(implicit

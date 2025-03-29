@@ -57,7 +57,7 @@ object Http4sAdapter {
   def makeGraphiqlService[F[_]: Async](apiPath: String): HttpRoutes[F] = {
     implicit val F: CatsMonadError[F] = new CatsMonadError[F]
     Http4sServerInterpreter().toRoutes(
-      HttpInterpreter.makeGraphiqlEndpoint[F](apiPath, None)
+      HttpInterpreter.makeGraphiqlEndpoint[F](apiPath)
     )
   }
 
@@ -72,7 +72,7 @@ object Http4sAdapter {
   def makeGraphiqlService[F[_]: Async](apiPath: String, wsPath: String): HttpRoutes[F] = {
     implicit val F: CatsMonadError[F] = new CatsMonadError[F]
     Http4sServerInterpreter().toRoutes(
-      HttpInterpreter.makeGraphiqlEndpoint[F](apiPath, Some(wsPath))
+      HttpInterpreter.makeGraphiqlEndpoint[F](apiPath, wsPath)
     )
   }
 

@@ -35,7 +35,7 @@ object MainApp extends ZIOAppDefault {
                            .map(_.prependSecurityIn(graphqlApiPath))
       // NOTE: We make GraphiQL point to the api path hosted on /graphql and we mount the GraphiQL UI on /graphiql
       graphiqlEndpoint = HttpInterpreter
-                           .makeGraphiqlEndpoint[Task](apiPath = graphqlApiPath, wsPath = None)
+                           .makeGraphiqlEndpoint[Task](apiPath = graphqlApiPath)
                            .prependSecurityIn("graphiql")
       endpoints        = graphiqlEndpoint :: graphqlEndpoints
     } yield endpoints

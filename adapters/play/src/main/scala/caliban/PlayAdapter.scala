@@ -44,7 +44,7 @@ class PlayAdapter private (private val options: Option[PlayServerOptions]) {
    */
   def makeGraphiqlService(apiPath: String)(implicit materializer: Materializer): Routes = {
     implicit val F: FutureMonad = new FutureMonad()(materializer.executionContext)
-    playInterpreter.toRoutes(HttpInterpreter.makeGraphiqlEndpoint[Future](apiPath, None))
+    playInterpreter.toRoutes(HttpInterpreter.makeGraphiqlEndpoint[Future](apiPath))
   }
 
   /**
@@ -57,7 +57,7 @@ class PlayAdapter private (private val options: Option[PlayServerOptions]) {
    */
   def makeGraphiqlService(apiPath: String, wsPath: String)(implicit materializer: Materializer): Routes = {
     implicit val F: FutureMonad = new FutureMonad()(materializer.executionContext)
-    playInterpreter.toRoutes(HttpInterpreter.makeGraphiqlEndpoint[Future](apiPath, Some(wsPath)))
+    playInterpreter.toRoutes(HttpInterpreter.makeGraphiqlEndpoint[Future](apiPath, wsPath))
   }
 
   def makeWebSocketService[R, E](
