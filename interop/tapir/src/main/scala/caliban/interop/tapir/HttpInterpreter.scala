@@ -206,6 +206,7 @@ object HttpInterpreter {
    * Creates an endpoint that serves the GraphiQL UI from CDN.
    *
    * @param apiPath The path at which the API can be introspected.
+   * @param wsPath The path at which the WS subscription can be introspected.
    *
    * @see [[https://github.com/graphql/graphiql/tree/main/examples/graphiql-cdn]]
    */

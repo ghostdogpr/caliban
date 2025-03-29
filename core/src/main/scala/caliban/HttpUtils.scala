@@ -134,7 +134,7 @@ private[caliban] object HttpUtils {
        |      const fetcher = GraphiQL.createFetcher({
        |        url: window.location.href.replace("$uiPath", "$apiPath"),
        |        ${wsPath.fold("") { wsPath =>
-        s"subscriptionUrl: window.location.href.replace(\"$uiPath\", \"$wsPath\").replace(\"https:\",\"wss:\").replace(\"http:\",\"ws:\")"
+        s"subscriptionUrl: window.location.href.replace(\'$uiPath\', \'$wsPath\').replace(\'https:\',\'wss:\').replace(\'http:\',\'ws:\')"
       }}
        |      });
        |      const explorerPlugin = GraphiQLPluginExplorer.explorerPlugin();
