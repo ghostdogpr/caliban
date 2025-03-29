@@ -62,12 +62,22 @@ class PekkoHttpAdapter private (val options: PekkoHttpServerOptions)(implicit ec
    * Creates a route which serves the GraphiQL UI from CDN.
    *
    * @param apiPath The path at which the API can be introspected.
+   *
+   * @see [[https://github.com/graphql/graphiql/tree/main/examples/graphiql-cdn]]
+   */
+  def makeGraphiqlService(apiPath: String): Route =
+    pekkoInterpreter.toRoute(HttpInterpreter.makeGraphiqlEndpoint[Future](apiPath, None))
+
+  /**
+   * Creates a route which serves the GraphiQL UI from CDN.
+   *
+   * @param apiPath The path at which the API can be introspected.
    * @param wsPath The path at which the WS subscription can be introspected.
    *
    * @see [[https://github.com/graphql/graphiql/tree/main/examples/graphiql-cdn]]
    */
-  def makeGraphiqlService(apiPath: String, wsPath: Option[String]): Route =
-    pekkoInterpreter.toRoute(HttpInterpreter.makeGraphiqlEndpoint[Future](apiPath, wsPath))
+  def makeGraphiqlService(apiPath: String, wsPath: String): Route =
+    pekkoInterpreter.toRoute(HttpInterpreter.makeGraphiqlEndpoint[Future](apiPath, Some(wsPath)))
 
   private implicit def streamConstructor(implicit
     runtime: Runtime[Any],

@@ -39,13 +39,25 @@ class PlayAdapter private (private val options: Option[PlayServerOptions]) {
    * Creates a route which serves the GraphiQL UI from CDN.
    *
    * @param apiPath The path at which the API can be introspected.
+   *
+   * @see [[https://github.com/graphql/graphiql/tree/main/examples/graphiql-cdn]]
+   */
+  def makeGraphiqlService(apiPath: String)(implicit materializer: Materializer): Routes = {
+    implicit val F: FutureMonad = new FutureMonad()(materializer.executionContext)
+    playInterpreter.toRoutes(HttpInterpreter.makeGraphiqlEndpoint[Future](apiPath, None))
+  }
+
+  /**
+   * Creates a route which serves the GraphiQL UI from CDN.
+   *
+   * @param apiPath The path at which the API can be introspected.
    * @param wsPath The path at which the WS subscription can be introspected.
    *
    * @see [[https://github.com/graphql/graphiql/tree/main/examples/graphiql-cdn]]
    */
-  def makeGraphiqlService(apiPath: String, wsPath: Option[String])(implicit materializer: Materializer): Routes = {
+  def makeGraphiqlService(apiPath: String, wsPath: String)(implicit materializer: Materializer): Routes = {
     implicit val F: FutureMonad = new FutureMonad()(materializer.executionContext)
-    playInterpreter.toRoutes(HttpInterpreter.makeGraphiqlEndpoint[Future](apiPath, wsPath))
+    playInterpreter.toRoutes(HttpInterpreter.makeGraphiqlEndpoint[Future](apiPath, Some(wsPath)))
   }
 
   def makeWebSocketService[R, E](

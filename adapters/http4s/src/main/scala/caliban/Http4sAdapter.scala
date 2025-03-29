@@ -51,14 +51,28 @@ object Http4sAdapter {
    * Creates a route which serves the GraphiQL UI from CDN.
    *
    * @param apiPath The path at which the API can be introspected.
+   *
+   * @see [[https://github.com/graphql/graphiql/tree/main/examples/graphiql-cdn]]
+   */
+  def makeGraphiqlService[F[_]: Async](apiPath: String): HttpRoutes[F] = {
+    implicit val F: CatsMonadError[F] = new CatsMonadError[F]
+    Http4sServerInterpreter().toRoutes(
+      HttpInterpreter.makeGraphiqlEndpoint[F](apiPath, None)
+    )
+  }
+
+  /**
+   * Creates a route which serves the GraphiQL UI from CDN.
+   *
+   * @param apiPath The path at which the API can be introspected.
    * @param wsPath The path at which the WS subscription can be introspected.
    *
    * @see [[https://github.com/graphql/graphiql/tree/main/examples/graphiql-cdn]]
    */
-  def makeGraphiqlService[F[_]: Async](apiPath: String, wsPath: Option[String]): HttpRoutes[F] = {
+  def makeGraphiqlService[F[_]: Async](apiPath: String, wsPath: String): HttpRoutes[F] = {
     implicit val F: CatsMonadError[F] = new CatsMonadError[F]
     Http4sServerInterpreter().toRoutes(
-      HttpInterpreter.makeGraphiqlEndpoint[F](apiPath, wsPath)
+      HttpInterpreter.makeGraphiqlEndpoint[F](apiPath, Some(wsPath))
     )
   }
 

@@ -50,7 +50,7 @@ object AuthExampleApp extends App {
         HttpInterpreter(interpreter).configure(Configurator.setEnableIntrospection(false)).intercept(auth)
       )
     } ~ path("graphiql") {
-      adapter.makeGraphiqlService("/api/graphql", None)
+      adapter.makeGraphiqlService("/api/graphql")
     }
 
   val bindingFuture = Http().newServerAt("localhost", 8088).bind(route)

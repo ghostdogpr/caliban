@@ -62,13 +62,25 @@ class AkkaHttpAdapter private (private val options: AkkaHttpServerOptions)(impli
    * Creates a route which serves the GraphiQL UI from CDN.
    *
    * @param apiPath The path at which the API can be introspected.
+   *
+   * @see [[https://github.com/graphql/graphiql/tree/main/examples/graphiql-cdn]]
+   */
+  def makeGraphiqlService(apiPath: String): Route =
+    akkaInterpreter.toRoute(
+      HttpInterpreter.makeGraphiqlEndpoint[Future](apiPath, None)
+    )
+
+  /**
+   * Creates a route which serves the GraphiQL UI from CDN.
+   *
+   * @param apiPath The path at which the API can be introspected.
    * @param wsPath The path at which the WS subscription can be introspected.
    *
    * @see [[https://github.com/graphql/graphiql/tree/main/examples/graphiql-cdn]]
    */
-  def makeGraphiqlService(apiPath: String, wsPath: Option[String]): Route =
+  def makeGraphiqlService(apiPath: String, wsPath: String): Route =
     akkaInterpreter.toRoute(
-      HttpInterpreter.makeGraphiqlEndpoint[Future](apiPath, wsPath)
+      HttpInterpreter.makeGraphiqlEndpoint[Future](apiPath, Some(wsPath))
     )
 
   private implicit def streamConstructor(implicit
