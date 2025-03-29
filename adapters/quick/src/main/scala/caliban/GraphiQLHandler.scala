@@ -18,10 +18,30 @@ object GraphiQLHandler {
   def handler(apiPath: String, wsPath: Option[String]): RequestHandler[Any, Nothing] = {
     val headers = Headers(Header.ContentType(MediaType.text.html).untyped)
     zio.http.handler { (req: Request) =>
+      val body = wsPath.fold(html(apiPath, req.path.encode))(html(apiPath, req.path.encode, _))
       Response(
         Status.Ok,
         headers,
-        Body.fromString(html(apiPath, req.path.encode, wsPath))
+        Body.fromString(body)
+      )
+    }
+  }
+
+  /**
+   * Creates a handler which serves the GraphiQL UI from CDN.
+   *
+   * @param apiPath The path at which the API can be introspected.
+   *
+   * @see [[https://github.com/graphql/graphiql/tree/main/examples/graphiql-cdn]]
+   */
+  @deprecated("Use overloaded method also providing optional graphql subscription param", since = "2.10.1")
+  def handler(apiPath: String): RequestHandler[Any, Nothing] = {
+    val headers = Headers(Header.ContentType(MediaType.text.html).untyped)
+    zio.http.handler { (req: Request) =>
+      Response(
+        Status.Ok,
+        headers,
+        Body.fromString(html(apiPath, req.path.encode))
       )
     }
   }
@@ -31,9 +51,12 @@ object GraphiQLHandler {
     Response(
       Status.Ok,
       Headers(Header.ContentType(MediaType.text.html).untyped),
-      Body.fromString(html(apiPath, graphiqlPath, wsPath = None))
+      Body.fromString(html(apiPath, graphiqlPath))
     ).toHandler
 
-  def html(apiPath: String, uiPath: String, wsPath: Option[String]): String =
-    HttpUtils.graphiqlHtml(apiPath, uiPath, wsPath)
+  def html(apiPath: String, uiPath: String): String =
+    HttpUtils.graphiqlHtml(apiPath, uiPath, wsPath = None)
+
+  def html(apiPath: String, uiPath: String, wsPath: String): String =
+    HttpUtils.graphiqlHtml(apiPath, uiPath, Some(wsPath))
 }
