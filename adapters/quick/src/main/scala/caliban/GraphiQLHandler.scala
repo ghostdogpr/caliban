@@ -20,7 +20,7 @@ object GraphiQLHandler {
       Response(
         Status.Ok,
         headers,
-        Body.fromString(wsPath.fold(html(apiPath, req.path.encode))(html(apiPath, req.path.encode, _)))
+        Body.fromString(html(apiPath, req.path.encode, wsPath))
       )
     }
   }
@@ -30,9 +30,9 @@ object GraphiQLHandler {
     Response(
       Status.Ok,
       Headers(Header.ContentType(MediaType.text.html).untyped),
-      Body.fromString(html(apiPath, graphiqlPath))
+      Body.fromString(html(apiPath, graphiqlPath, wsPath = None))
     ).toHandler
 
-  def html(apiPath: String, uiPath: String): String = HttpUtils.graphiqlHtml(apiPath, uiPath, None)
-  def html(apiPath: String, uiPath: String, wsPath: String): String = HttpUtils.graphiqlHtml(apiPath, uiPath, Some(wsPath))
+  def html(apiPath: String, uiPath: String, wsPath: Option[String]): String =
+    HttpUtils.graphiqlHtml(apiPath, uiPath, wsPath)
 }
