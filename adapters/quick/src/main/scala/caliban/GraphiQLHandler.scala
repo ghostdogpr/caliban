@@ -35,16 +35,7 @@ object GraphiQLHandler {
    * @see [[https://github.com/graphql/graphiql/tree/main/examples/graphiql-cdn]]
    */
   @deprecated("Use overloaded method also providing optional graphql subscription param", since = "2.10.1")
-  def handler(apiPath: String): RequestHandler[Any, Nothing] = {
-    val headers = Headers(Header.ContentType(MediaType.text.html).untyped)
-    zio.http.handler { (req: Request) =>
-      Response(
-        Status.Ok,
-        headers,
-        Body.fromString(html(apiPath, req.path.encode))
-      )
-    }
-  }
+  def handler(apiPath: String): RequestHandler[Any, Nothing] = handler(apiPath, wsPath = None)
 
   @deprecated("Use overloaded method without providing the graphiqlPath param", since = "2.8.2")
   def handler(apiPath: String, graphiqlPath: String): RequestHandler[Any, Nothing] =
