@@ -128,8 +128,6 @@ private[caliban] object HttpUtils {
        |  <body>
        |    <div id="graphiql">Loading...</div>
        |    <script>
-       |      console.log("window.location.href=")
-       |      console.log(window.location.href)
        |      const root = ReactDOM.createRoot(document.getElementById('graphiql'));
        |      const fetcher = GraphiQL.createFetcher({
        |        url: window.location.href.replace("$uiPath", "$apiPath"),
