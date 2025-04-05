@@ -400,7 +400,12 @@ object ValidationSpec extends ZIOSpecDefault {
 
         case class IntObj(intValue: Int)
         case class Bar(foo2: Foo => String)
-        case class Queries(foo: Foo.Wrapper => String, fooUnwrapped: Foo => String, bar: Bar)
+        case class Queries(
+          foo: Foo.Wrapper => String,
+          foos: List[Foo.Wrapper] => String,
+          fooUnwrapped: Foo => String,
+          bar: Bar
+        )
 
         implicit val intObjAb: ArgBuilder[IntObj]           = ArgBuilder.gen
         implicit val fooStringAb: ArgBuilder[Foo.FooString] = ArgBuilder.gen
@@ -409,17 +414,23 @@ object ValidationSpec extends ZIOSpecDefault {
         implicit val barSchema: Schema[Any, Bar]            = Schema.gen
         implicit val schema: Schema[Any, Queries]           = Schema.gen
 
-        val api: GraphQL[Any] = graphQL(RootResolver(Queries(_.fooInput.toString, _.toString, Bar(_.toString))))
+        val api: GraphQL[Any] = graphQL(
+          RootResolver(
+            Queries(_.fooInput.toString, _.map(_.fooInput.toString).mkString(","), _.toString, Bar(_.toString))
+          )
+        )
 
-        def argumentsQuery(arg1: ObjectValue, arg2: ObjectValue, arg3: ObjectValue) =
+        def argumentsQuery(arg1: ObjectValue, arg2: ObjectValue, arg3: ObjectValue, arg4: ObjectValue) =
           s"""
              |{
              |  foo(fooInput: ${arg1.toInputString})
              |
-             |  fooUnwrapped(value: ${arg2.toInputString})
+             |  foos(value: [{ fooInput: ${arg2.toInputString} }])
+             |
+             |  fooUnwrapped(value: ${arg3.toInputString})
              |
              |  bar {
-             |    foo2(value: ${arg3.toInputString} )
+             |    foo2(value: ${arg4.toInputString} )
              |  }
              |}
              |""".stripMargin
@@ -453,7 +464,7 @@ object ValidationSpec extends ZIOSpecDefault {
 
         List(
           test("valid field arguments") {
-            val cases = validInputs.map(v => argumentsQuery(v, v, v))
+            val cases = validInputs.map(v => argumentsQuery(v, v, v, v))
             ZIO.foldLeft(cases)(assertCompletes) { case (acc, query) =>
               api.interpreter
                 .flatMap(_.execute(query))
@@ -472,9 +483,10 @@ object ValidationSpec extends ZIOSpecDefault {
               invalid <- invalidInputs
               valid    = validInputs.head
               _case   <- List(
-                           argumentsQuery(invalid, valid, valid),
-                           argumentsQuery(valid, invalid, valid),
-                           argumentsQuery(valid, valid, invalid)
+                           argumentsQuery(invalid, valid, valid, valid),
+                           argumentsQuery(valid, invalid, valid, valid),
+                           argumentsQuery(valid, valid, invalid, valid),
+                           argumentsQuery(valid, valid, valid, invalid)
                          )
             } yield _case
 
