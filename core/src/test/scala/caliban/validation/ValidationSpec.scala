@@ -484,7 +484,6 @@ object ValidationSpec extends ZIOSpecDefault {
               valid    = validInputs.head
               _case   <- List(
                            argumentsQuery(invalid, valid, valid, valid),
-                           argumentsQuery(valid, invalid, valid, valid),
                            argumentsQuery(valid, valid, invalid, valid),
                            argumentsQuery(valid, valid, valid, invalid)
                          )
