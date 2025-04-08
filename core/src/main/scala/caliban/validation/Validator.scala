@@ -665,7 +665,7 @@ object Validator {
     }
   } *> ValueValidator.validateInputTypes(inputValue, argValue, context, errorContext)
 
-  private def validateOneOfInputValue(
+  private[validation] def validateOneOfInputValue(
     inputValue: InputValue,
     errorContext: => String
   ): Either[ValidationError, Unit] = {

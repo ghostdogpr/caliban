@@ -76,31 +76,20 @@ private object ValueValidator {
                 validateType(inputType.ofType.getOrElse(inputType), other, context, s"List item in $errorContext")
             }
 
+          case INPUT_OBJECT if inputType._isOneOfInput =>
+            Validator.validateOneOfInputValue(argValue, errorContext)
+
           case INPUT_OBJECT =>
             argValue match {
               case ObjectValue(fields) =>
-                if (inputType._isOneOfInput && fields.size != 1) {
-                  failValidation(
-                    s"$errorContext is not a valid OneOf Input Object",
-                    "OneOf Input Object arguments must specify exactly one non-null key"
-                  )
-                } else if (
-                  inputType._isOneOfInput && fields.size == 1 && fields.headOption.map(_._2).contains(NullValue)
-                ) {
-                  failValidation(
-                    s"$errorContext is not a valid OneOf Input Object",
-                    "OneOf Input Object arguments must specify exactly one non-null key"
-                  )
-                } else {
-                  validateAllDiscard(inputType.allInputFields) { f =>
-                    fields.collectFirst { case (name, fieldValue) if name == f.name => fieldValue } match {
-                      case Some(value)                    =>
-                        validateType(f._type, value, context, s"Field ${f.name} in $errorContext")
-                      case None if f.defaultValue.isEmpty =>
-                        validateType(f._type, NullValue, context, s"Field ${f.name} in $errorContext")
-                      case _                              =>
-                        unit
-                    }
+                validateAllDiscard(inputType.allInputFields) { f =>
+                  fields.collectFirst { case (name, fieldValue) if name == f.name => fieldValue } match {
+                    case Some(value)                    =>
+                      validateType(f._type, value, context, s"Field ${f.name} in $errorContext")
+                    case None if f.defaultValue.isEmpty =>
+                      validateType(f._type, NullValue, context, s"Field ${f.name} in $errorContext")
+                    case _                              =>
+                      unit
                   }
                 }
               case NullValue           =>
