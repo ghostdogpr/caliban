@@ -1,10 +1,10 @@
 package caliban.tools
 
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
-import caliban.parsing.adt.Definition.TypeSystemDefinition.{AggregationTypeDefinition, TypeDefinition}
-import caliban.parsing.adt.Directives.{LazyDirective, NewtypeDirective}
-import caliban.parsing.adt.Type.{ListType, NamedType}
-import caliban.parsing.adt.{Directive, Directives, Document, Type}
+import caliban.parsing.adt.Definition.TypeSystemDefinition.{ AggregationTypeDefinition, TypeDefinition }
+import caliban.parsing.adt.Directives.{ LazyDirective, NewtypeDirective }
+import caliban.parsing.adt.Type.{ ListType, NamedType }
+import caliban.parsing.adt.{ Directive, Directives, Document, Type }
 
 import scala.annotation.tailrec
 import scala.collection.compat._
