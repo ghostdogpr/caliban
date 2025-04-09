@@ -9,13 +9,13 @@ val allScala = Seq(scala212, scala213, scala3)
 
 val akkaVersion               = "2.6.20"
 val akkaHttpVersion           = "10.2.10"
-val catsEffect3Version        = "3.6.0"
+val catsEffect3Version        = "3.6.1"
 val catsMtlVersion            = "1.5.0"
 val circeVersion              = "0.14.12"
 val fs2Version                = "3.12.0"
 val http4sVersion             = "0.23.30"
 val javaTimeVersion           = "2.6.0"
-val jsoniterVersion           = "2.33.3"
+val jsoniterVersion           = "2.34.0"
 val laminextVersion           = "0.17.0"
 val magnoliaScala2Version     = "1.1.10"
 val magnoliaScala3Version     = "1.3.16"
@@ -25,7 +25,7 @@ val playJsonVersion           = "3.0.4"
 val scalafmtVersion           = "3.8.0"
 val sttpVersion               = "3.10.3"
 val tapirVersion              = "1.11.23"
-val zioVersion                = "2.1.16"
+val zioVersion                = "2.1.17"
 val zioInteropCats2Version    = "22.0.0.0"
 val zioInteropCats3Version    = "23.1.0.5"
 val zioInteropReactiveVersion = "2.0.2"
@@ -236,7 +236,7 @@ lazy val tracing = project
       "dev.zio"         %% "zio-opentelemetry"         % zioOpenTelemetryVersion,
       "dev.zio"         %% "zio-test"                  % zioVersion % Test,
       "dev.zio"         %% "zio-test-sbt"              % zioVersion % Test,
-      "io.opentelemetry" % "opentelemetry-sdk-testing" % "1.48.0"   % Test
+      "io.opentelemetry" % "opentelemetry-sdk-testing" % "1.49.0"   % Test
     )
   )
   .dependsOn(core, tools)
