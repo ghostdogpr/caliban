@@ -202,10 +202,13 @@ object ArgBuilderSpec extends ZIOSpecDefault {
         assert(argBuilder)(Assertion.anything)
       }
     ),
-    suite("Either")(
-      test("should support non-mandatory fields") {
+    suite("Optional input")(
+      test("should support optional input fields") {
+        implicit val missingBuilder: ArgBuilder[Either[Unit, Int]] = ArgBuilder.missingInput(Left(()), Right(_))
+        implicit val missingSchema: Schema[Any, Either[Unit, Int]] =
+          Schema.optionalInputSchema(f => (m, p) => f.fold(_ => m, p))
         case class Foo(@GQLDefault("undefined") value: Either[Unit, Int])
-        val ab = ArgBuilder.gen[Foo]
+        val ab                                                     = ArgBuilder.gen[Foo]
         assertTrue(
           ab.build(ObjectValue(Map())) == Right(Foo(Left(()))),
           ab.build(ObjectValue(Map("value" -> IntValue(42)))) == Right(Foo(Right(42)))

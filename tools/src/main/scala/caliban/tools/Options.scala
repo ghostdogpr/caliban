@@ -21,7 +21,7 @@ final case class Options(
   envForDerives: Option[String],
   excludeDeprecated: Option[Boolean],
   supportDeprecatedArgs: Option[Boolean],
-  partialMutations: Option[Boolean]
+  missingInputEffect: Option[String]
 )
 
 object Options {

@@ -4,6 +4,7 @@ import caliban._
 import caliban.Macros.gqldoc
 import caliban.RootResolver
 import caliban.schema.Annotations.{ GQLDefault, GQLInputName }
+import caliban.schema.{ ArgBuilder, Schema, Step }
 import caliban.schema.Schema.auto._
 import caliban.schema.ArgBuilder.auto._
 import zio.test.Assertion._
@@ -119,7 +120,7 @@ object DefaultValueSpec extends ZIOSpecDefault {
           val gql = graphQL(RootResolver(Query(v => v.nested.field)))
           gql.interpreter.map(i => assert(i)(anything))
         },
-        test("valid non-mandatory field validation") {
+        test("valid optional input field validation") {
           case class TestInput(@GQLDefault("undefined") c: Either[Unit, COLOR])
           case class TestQuery(c: COLOR)
           case class Query(test: TestQuery => COLOR)
@@ -182,10 +183,14 @@ object DefaultValueSpec extends ZIOSpecDefault {
           isSome(isSubtype[CalibanError.ValidationError](anything))
         )
       },
-      test("not passing non-mandatory field for mutation is valid") {
+      test("not passing optional input field for mutation is valid") {
+        implicit val missingBuilder: ArgBuilder[Either[Unit, String]] = ArgBuilder.missingInput(Left(()), Right(_))
+        implicit val missingSchema: Schema[Any, Either[Unit, String]] =
+          Schema.optionalInputSchema(f => (m, p) => f.fold(_ => m, p))
         case class TestInput(@GQLDefault("undefined") string: Either[Unit, String], mandatory: Boolean)
         case class Mutation(test: TestInput => String)
         case class Query(test: TestInput => String)
+
         val qgl   = graphQL(RootResolver(Query(_ => "foo"), Mutation(_.string.fold(_ => "bar", identity))))
         val query =
           """mutation {
@@ -196,10 +201,14 @@ object DefaultValueSpec extends ZIOSpecDefault {
           res <- int.execute(query)
         } yield assertTrue(res.errors.isEmpty && res.data.toString == """{"test":"bar"}""")
       },
-      test("passing non-mandatory field for mutation is valid") {
+      test("passing optional input field for mutation is valid") {
+        implicit val missingBuilder: ArgBuilder[Either[Unit, String]] = ArgBuilder.missingInput(Left(()), Right(_))
+        implicit val missingSchema: Schema[Any, Either[Unit, String]] =
+          Schema.optionalInputSchema(f => (m, p) => f.fold(_ => m, p))
         case class TestInput(@GQLDefault("undefined") string: Either[Unit, String], mandatory: Boolean)
         case class Mutation(test: TestInput => String)
         case class Query(test: TestInput => String)
+
         val qgl   = graphQL(RootResolver(Query(_ => "foo"), Mutation(_.string.fold(_ => "bar", identity))))
         val query =
           """mutation {
@@ -210,12 +219,55 @@ object DefaultValueSpec extends ZIOSpecDefault {
           res <- int.execute(query)
         } yield assertTrue(res.errors.isEmpty && res.data.toString == """{"test":"foo"}""")
       },
-      test("it should render non-mandatory fields in the SDL") {
+      test("passing explicit 'null' to optional non nullable input field for mutation is invalid") {
+        implicit val missingBuilder: ArgBuilder[Either[Unit, String]] = ArgBuilder.missingInput(Left(()), Right(_))
+        implicit val missingSchema: Schema[Any, Either[Unit, String]] =
+          Schema.optionalInputSchema(f => (m, p) => f.fold(_ => m, p))
+        case class TestInput(@GQLDefault("undefined") string: Either[Unit, String], mandatory: Boolean)
+        case class Mutation(test: TestInput => String)
+        case class Query(test: TestInput => String)
+
+        val qgl   = graphQL(RootResolver(Query(_ => "foo"), Mutation(_.string.fold(_ => "bar", identity))))
+        val query =
+          """mutation {
+            |  test(mandatory: true, string: null)
+            |}""".stripMargin
+
+        for {
+          int <- qgl.interpreter
+          res <- int.execute(query)
+        } yield assert(res.errors.headOption)(
+          isSome(isSubtype[CalibanError.ValidationError](anything))
+        )
+      },
+      test("passing 'null' in optional nullable input field for mutation is valid") {
+        case class TestInput(@GQLDefault("undefined") string: Either[Unit, Option[String]], mandatory: Boolean)
+        implicit val missingBuilder: ArgBuilder[Either[Unit, Option[String]]] =
+          ArgBuilder.missingInput(Left(()), Right(_))
+        implicit val missingSchema: Schema[Any, Either[Unit, Option[String]]] =
+          Schema.optionalInputSchema(f => (m, p) => f.fold(_ => m, p))
+        case class Mutation(test: TestInput => String)
+        case class Query(test: TestInput => String)
+
+        val qgl   = graphQL(RootResolver(Query(_ => "foo"), Mutation(_.string.fold(_ => "bar", _.fold("baz")(identity)))))
+        val query =
+          """mutation {
+            |  test(mandatory: true, string: null)
+            |}""".stripMargin
+        for {
+          int <- qgl.interpreter
+          res <- int.execute(query)
+        } yield assertTrue(res.errors.isEmpty && res.data.toString == """{"test":"baz"}""")
+      },
+      test("it should render optional input fields in the SDL") {
+        implicit val missingBuilder: ArgBuilder[Either[Unit, String]] = ArgBuilder.missingInput(Left(()), Right(_))
+        implicit val missingSchema: Schema[Any, Either[Unit, String]] =
+          Schema.optionalInputSchema(f => (m, p) => f.fold(_ => m, p))
         case class MutationInput(@GQLDefault("undefined") string: Either[Unit, String], mandatory: Boolean)
         case class Mutation(test: MutationInput => String)
         case class QueryInput(intValue: Int)
         case class Query(test: QueryInput => Int)
-        val rendered =
+        val rendered                                                  =
           graphQL(RootResolver(Query(_.intValue), Mutation(_.string.fold(_ => "bar", identity)))).render.trim
 
         assertTrue(

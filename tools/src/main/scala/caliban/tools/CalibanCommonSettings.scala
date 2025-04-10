@@ -22,7 +22,7 @@ final case class CalibanCommonSettings(
   envForDerives: Option[String],
   excludeDeprecated: Option[Boolean],
   supportDeprecatedArgs: Option[Boolean],
-  partialMutations: Option[Boolean]
+  missingInputEffect: Option[String]
 ) {
 
   private[caliban] def toOptions(schemaPath: String, toPath: String): Options =
@@ -47,7 +47,7 @@ final case class CalibanCommonSettings(
       envForDerives = envForDerives,
       excludeDeprecated = excludeDeprecated,
       supportDeprecatedArgs = supportDeprecatedArgs,
-      partialMutations = partialMutations
+      missingInputEffect = missingInputEffect
     )
 
   private[caliban] def combine(r: => CalibanCommonSettings): CalibanCommonSettings =
@@ -71,7 +71,7 @@ final case class CalibanCommonSettings(
       envForDerives = r.envForDerives.orElse(this.envForDerives),
       excludeDeprecated = r.excludeDeprecated.orElse(this.excludeDeprecated),
       supportDeprecatedArgs = r.supportDeprecatedArgs.orElse(this.supportDeprecatedArgs),
-      partialMutations = r.partialMutations.orElse(this.partialMutations)
+      missingInputEffect = r.missingInputEffect.orElse(this.missingInputEffect)
     )
 
   def clientName(value: String): CalibanCommonSettings                         = this.copy(clientName = Some(value))
@@ -98,7 +98,7 @@ final case class CalibanCommonSettings(
   def excludeDeprecated(value: Boolean): CalibanCommonSettings                 = this.copy(excludeDeprecated = Some(value))
   def supportDeprecatedArgs(value: Boolean): CalibanCommonSettings             =
     this.copy(supportDeprecatedArgs = Some(value))
-  def partialMutations(value: Boolean): CalibanCommonSettings                  = this.copy(partialMutations = Some(value))
+  def missingInputEffect(value: String): CalibanCommonSettings                 = this.copy(missingInputEffect = Some(value))
 }
 
 object CalibanCommonSettings {
@@ -123,6 +123,6 @@ object CalibanCommonSettings {
       envForDerives = None,
       excludeDeprecated = None,
       supportDeprecatedArgs = None,
-      partialMutations = None
+      missingInputEffect = None
     )
 }

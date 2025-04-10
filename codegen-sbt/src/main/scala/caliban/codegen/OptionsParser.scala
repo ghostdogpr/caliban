@@ -25,7 +25,7 @@ object OptionsParser {
     envForDerives: Option[String],
     excludeDeprecated: Option[Boolean],
     supportDeprecatedArgs: Option[Boolean],
-    partialMutations: Option[Boolean]
+    missingInputEffect: Option[String]
   )
 
   private object RawOptions {
@@ -75,7 +75,7 @@ object OptionsParser {
                   rawOpts.envForDerives,
                   rawOpts.excludeDeprecated,
                   rawOpts.supportDeprecatedArgs,
-                  rawOpts.partialMutations
+                  rawOpts.missingInputEffect
                 )
               }
               .option

@@ -21,7 +21,7 @@ object SchemaWriter {
     preserveInputNames: Boolean = false,
     addDerives: Boolean = false,
     envForDerives: Option[String] = None,
-    partialMutations: Boolean = false
+    missingInputEffect: Option[String] = None
   ): String = {
 
     val (derivesSchema, derivesSchemaAndArgBuilder, envSchemaDerivation, derivesEnvSchema) =
@@ -262,10 +262,9 @@ object SchemaWriter {
       val GQLNewTypeInputDirective = writeGQLNewTypeDirective(value.directives)
 
       val inputDef    = resolveNewTypeInputDef(value).getOrElse(value)
-      val missing     = if (partialMutations) escapeAndWrap("undefined", "GQLDefault") else ""
-      val writtenType =
-        if (partialMutations) s"scala.Either[Unit, ${writeType(inputDef.ofType)}]"
-        else writeType(inputDef.ofType)
+      val missing     = if (missingInputEffect.isDefined) escapeAndWrap("undefined", "GQLDefault") else ""
+      val tpe         = writeType(inputDef.ofType)
+      val writtenType = missingInputEffect.fold(tpe)(_.replace("*", tpe))
 
       s"""$GQLNewTypeInputDirective${writeInputAnnotations(inputDef)}$missing${safeName(
           inputDef.name

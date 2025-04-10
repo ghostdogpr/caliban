@@ -99,6 +99,11 @@ trait ArgBuilder[T] { self =>
 object ArgBuilder extends ArgBuilderInstances {
   def apply[T](implicit ev: ArgBuilder[T]): ArgBuilder[T] = ev
 
+  def missingInput[A, F[_]](onMissing: F[A], provided: A => F[A])(implicit ev: ArgBuilder[A]): ArgBuilder[F[A]] = {
+    case InputValue.UndefinedValue => Right(onMissing)
+    case value                     => ev.build(value).map(provided)
+  }
+
   object auto extends AutoArgBuilderDerivation
 }
 
@@ -196,11 +201,11 @@ trait ArgBuilderInstances extends ArgBuilderDerivation {
   implicit lazy val zonedDateTime: ArgBuilder[ZonedDateTime]   = TemporalDecoder("ZonedDateTime")(ZonedDateTime.parse)
   implicit lazy val offsetDateTime: ArgBuilder[OffsetDateTime] = TemporalDecoder("OffsetDateTime")(OffsetDateTime.parse)
 
-  implicit def option[A](implicit ev: ArgBuilder[A]): ArgBuilder[Option[A]]       = {
+  implicit def option[A](implicit ev: ArgBuilder[A]): ArgBuilder[Option[A]] = {
     case NullValue => Right(None)
     case value     => ev.build(value).map(Some(_))
   }
-  implicit def list[A](implicit ev: ArgBuilder[A]): ArgBuilder[List[A]]           = {
+  implicit def list[A](implicit ev: ArgBuilder[A]): ArgBuilder[List[A]]     = {
     case InputValue.ListValue(items) =>
       items
         .foldLeft[Either[ExecutionError, List[A]]](Right(Nil)) {
@@ -213,10 +218,6 @@ trait ArgBuilderInstances extends ArgBuilderDerivation {
         }
         .map(_.reverse)
     case other                       => ev.build(other).map(List(_))
-  }
-  implicit def either[A](implicit ev: ArgBuilder[A]): ArgBuilder[Either[Unit, A]] = {
-    case InputValue.UndefinedValue => Right(Left(()))
-    case value                     => ev.build(value).map(Right(_))
   }
 
   implicit def seq[A](implicit ev: ArgBuilder[A]): ArgBuilder[Seq[A]]       = list[A].map(_.toSeq)

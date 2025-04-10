@@ -79,7 +79,7 @@ private object ValueValidator {
           case INPUT_OBJECT if inputType._isOneOfInput =>
             Validator.validateOneOfInputValue(argValue, errorContext)
 
-          case INPUT_OBJECT =>
+          case INPUT_OBJECT   =>
             argValue match {
               case ObjectValue(fields)        =>
                 validateAllDiscard(inputType.allInputFields) { f =>
@@ -100,7 +100,7 @@ private object ValueValidator {
                   "Input field was supposed to be an input object."
                 )
             }
-          case ENUM         =>
+          case ENUM           =>
             argValue match {
               case EnumValue(value)           =>
                 validateEnum(value, inputType, errorContext)
@@ -112,8 +112,22 @@ private object ValueValidator {
                   "Input field was supposed to be an enum value."
                 )
             }
-          case SCALAR       => validateScalar(inputType, argValue, errorContext)
-          case _            =>
+          case SCALAR         => validateScalar(inputType, argValue, errorContext)
+          case OPTIONAL_INPUT =>
+            argValue match {
+              case UndefinedValue => unit
+              case _              =>
+                inputType.ofType match {
+                  case Some(ofType) =>
+                    validateType(ofType, argValue, context, errorContext)
+                  case None         =>
+                    failValidation(
+                      s"$errorContext has invalid type: $argValue",
+                      "Input field was supposed to be an optional input."
+                    )
+                }
+            }
+          case _              =>
             failValidation(
               s"$errorContext has invalid type $inputType",
               "Input value is invalid, should be a scalar, list or input object."

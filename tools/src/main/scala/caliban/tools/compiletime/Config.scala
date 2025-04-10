@@ -39,7 +39,7 @@ trait Config {
         envForDerives = None,
         excludeDeprecated = Some(excludeDeprecated),
         supportDeprecatedArgs = Some(supportDeprecatedArgs),
-        partialMutations = None
+        missingInputEffect = None
       )
 
     private[caliban] def asScalaCode: String = {

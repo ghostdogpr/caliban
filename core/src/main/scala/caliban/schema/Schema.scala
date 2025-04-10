@@ -355,7 +355,7 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
   implicit val base64CursorSchema: Schema[Any, Base64Cursor] =
     Schema.stringSchema.contramap(Cursor[Base64Cursor].encode)
 
-  implicit def optionSchema[R0, A](implicit ev: Schema[R0, A]): Schema[R0, Option[A]]               = new Schema[R0, Option[A]] {
+  implicit def optionSchema[R0, A](implicit ev: Schema[R0, A]): Schema[R0, Option[A]]                                  = new Schema[R0, Option[A]] {
     override def nullable: Boolean                                         = true
     override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType_(isInput, isSubscription)
 
@@ -365,7 +365,7 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
         case None        => NullStep
       }
   }
-  implicit def listSchema[R0, A](implicit ev: Schema[R0, A]): Schema[R0, List[A]]                   = new Schema[R0, List[A]] {
+  implicit def listSchema[R0, A](implicit ev: Schema[R0, A]): Schema[R0, List[A]]                                      = new Schema[R0, List[A]] {
     override def toType(isInput: Boolean, isSubscription: Boolean): __Type = {
       val t = ev.toType_(isInput, isSubscription)
       (if (ev.nullable || ev.canFail) t else t.nonNull).list
@@ -373,22 +373,22 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
 
     override def resolve(value: List[A]): Step[R0] = ListStep(value.map(ev.resolve))
   }
-  implicit def setSchema[R0, A](implicit ev: Schema[R0, A]): Schema[R0, Set[A]]                     = listSchema[R0, A].contramap(_.toList)
-  implicit def seqSchema[R0, A](implicit ev: Schema[R0, A]): Schema[R0, Seq[A]]                     = listSchema[R0, A].contramap(_.toList)
-  implicit def vectorSchema[R0, A](implicit ev: Schema[R0, A]): Schema[R0, Vector[A]]               =
+  implicit def setSchema[R0, A](implicit ev: Schema[R0, A]): Schema[R0, Set[A]]                                        = listSchema[R0, A].contramap(_.toList)
+  implicit def seqSchema[R0, A](implicit ev: Schema[R0, A]): Schema[R0, Seq[A]]                                        = listSchema[R0, A].contramap(_.toList)
+  implicit def vectorSchema[R0, A](implicit ev: Schema[R0, A]): Schema[R0, Vector[A]]                                  =
     listSchema[R0, A].contramap(_.toList)
-  implicit def chunkSchema[R0, A](implicit ev: Schema[R0, A]): Schema[R0, Chunk[A]]                 =
+  implicit def chunkSchema[R0, A](implicit ev: Schema[R0, A]): Schema[R0, Chunk[A]]                                    =
     listSchema[R0, A].contramap(_.toList)
-  implicit def nonEmptyChunkSchema[R0, A](implicit ev: Schema[R0, A]): Schema[R0, NonEmptyChunk[A]] =
+  implicit def nonEmptyChunkSchema[R0, A](implicit ev: Schema[R0, A]): Schema[R0, NonEmptyChunk[A]]                    =
     chunkSchema[R0, A].contramap(_.toChunk)
-  implicit def functionUnitSchema[R0, A](implicit ev: Schema[R0, A]): Schema[R0, () => A]           =
+  implicit def functionUnitSchema[R0, A](implicit ev: Schema[R0, A]): Schema[R0, () => A]                              =
     new Schema[R0, () => A] {
       override def nullable: Boolean                                         = ev.nullable
       override def canFail: Boolean                                          = ev.canFail
       override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType_(isInput, isSubscription)
       override def resolve(value: () => A): Step[R0]                         = FunctionStep(_ => ev.resolve(value()))
     }
-  implicit def metadataFunctionSchema[R0, A](implicit ev: Schema[R0, A]): Schema[R0, Field => A]    =
+  implicit def metadataFunctionSchema[R0, A](implicit ev: Schema[R0, A]): Schema[R0, Field => A]                       =
     new Schema[R0, Field => A] {
       override def arguments: List[__InputValue]                             = ev.arguments
       override def nullable: Boolean                                         = ev.nullable
@@ -397,11 +397,24 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
       override def resolve(value: Field => A): Step[R0]                      = MetadataFunctionStep(field => ev.resolve(value(field)))
     }
 
-  implicit def undefinedSchema[R, A](implicit ev: Schema[R, A]): Schema[R, Either[Unit, A]]                            =
-    new Schema[R, Either[Unit, A]] {
-      def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType_(isInput, isSubscription)
+  def optionalInputSchema[A, F[_]](
+    fold: F[A] => (Step[R], A => Step[R]) => Step[R]
+  )(implicit ev: Schema[R, A]): Schema[R, F[A]] =
+    new Schema[R, F[A]] {
 
-      def resolve(value: Either[Unit, A]): Step[R] = value.fold(_ => Step.NullStep, ev.resolve)
+      override def nullable: Boolean = ev.nullable
+
+      def toType(isInput: Boolean, isSubscription: Boolean): __Type = {
+        val inner = ev.toType_(isInput, isSubscription)
+        __Type(
+          kind = __TypeKind.OPTIONAL_INPUT,
+          name = inner.name,
+          ofType = Some(if (ev.nullable) inner else inner.nonNull),
+          origin = inner.origin
+        )
+      }
+
+      def resolve(value: F[A]): Step[R] = fold(value)(Step.NullStep, ev.resolve)
     }
 
   implicit def eitherSchema[RA, RB, A, B](implicit

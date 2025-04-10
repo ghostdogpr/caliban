@@ -581,13 +581,17 @@ object Validator {
             )
           )
         case (Some(_), NullValue)             =>
-          Some(
-            failValidation(
-              s"Required argument '${arg.name}' is null on '${field.name}' of type '${currentType.name
-                  .getOrElse("")}'.",
-              "Arguments can be required. An argument is required if the argument type is non‐null and does not have a default value. Otherwise, the argument is optional."
-            )
-          )
+          arg._type.ofType match {
+            case Some(value) if value.kind == __TypeKind.OPTIONAL_INPUT && value.ofType.exists(_.isNullable) => None
+            case _                                                                                           =>
+              Some(
+                failValidation(
+                  s"Required argument '${arg.name}' is null on '${field.name}' of type '${currentType.name
+                      .getOrElse("")}'.",
+                  "Arguments can be required. An argument is required if the argument type is non‐null and does not have a default value. Otherwise, the argument is optional."
+                )
+              )
+          }
         case _                                => None
       }
     })(identity)

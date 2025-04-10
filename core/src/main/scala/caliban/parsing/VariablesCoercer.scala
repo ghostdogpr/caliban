@@ -153,10 +153,14 @@ object VariablesCoercer {
       case __TypeKind.NON_NULL                     =>
         value match {
           case NullValue =>
-            failValidation(
-              s"$context $value is null, should be ${typ.toType(true)}",
-              "Arguments can be required. An argument is required if the argument type is non‐null and does not have a default value. Otherwise, the argument is optional."
-            )
+            typ.ofType match {
+              case Some(innerType) => coerceValues(value, innerType, context)
+              case _               =>
+                failValidation(
+                  s"$context $value is null, should be ${typ.toType(true)}",
+                  "Arguments can be required. An argument is required if the argument type is non‐null and does not have a default value. Otherwise, the argument is optional."
+                )
+            }
           case _         =>
             typ.ofType match {
               case Some(innerType) => coerceValues(value, innerType, context)
