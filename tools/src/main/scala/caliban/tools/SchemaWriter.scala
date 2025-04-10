@@ -21,7 +21,8 @@ object SchemaWriter {
     isEffectTypeAbstract: Boolean = false,
     preserveInputNames: Boolean = false,
     addDerives: Boolean = false,
-    envForDerives: Option[String] = None
+    envForDerives: Option[String] = None,
+    partialMutations: Boolean = false
   ): String = {
 
     val (derivesSchema, derivesSchemaAndArgBuilder, envSchemaDerivation, derivesEnvSchema) =
@@ -261,11 +262,15 @@ object SchemaWriter {
     def writeInputValue(value: InputValueDefinition): String = {
       val GQLNewTypeInputDirective = writeGQLNewTypeDirective(value.directives)
 
-      val inputDef = resolveNewTypeInputDef(value).getOrElse(value)
+      val inputDef    = resolveNewTypeInputDef(value).getOrElse(value)
+      val missing     = if (partialMutations) escapeAndWrap("undefined", "GQLDefault") else ""
+      val writtenType =
+        if (partialMutations) s"scala.Either[Unit, ${writeType(inputDef.ofType)}]"
+        else writeType(inputDef.ofType)
 
-      s"""$GQLNewTypeInputDirective${writeInputAnnotations(inputDef)}${safeName(inputDef.name)} : ${writeType(
-          inputDef.ofType
-        )}"""
+      s"""$GQLNewTypeInputDirective${writeInputAnnotations(inputDef)}$missing${safeName(
+          inputDef.name
+        )} : $writtenType"""
     }
 
     def writeArguments(field: FieldDefinition, of: TypeDefinition): String = {

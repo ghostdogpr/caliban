@@ -50,6 +50,7 @@ calibanGenSchema project/schema.graphql src/main/MyAPI.scala --addDerives true
 - `preserveInputNames`: Disables the default behavior of appending `Input` to the type name of input types in the derived schema.
 - `addDerives`: Adds `derives` clauses for type class instance derivation in Scala 3.
 - `envForDerives`: Specifies the type alias for your ZIO Environment when using `derives` and a ZIO Environment other than `Any`.
+- `partialMutations`: All fields of input types for mutations are not mandatory. Each field has type `scala.Either[Unit, T]`, where `Left(())` means the field is missing and not intended to be updated. This allows to distinguish the cases when the field is not passed and when the field is passed with `null` value (`None` in scala).
 
 ## Lazy evaluation
 

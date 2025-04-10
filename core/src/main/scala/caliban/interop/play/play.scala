@@ -52,8 +52,14 @@ object json {
     case value: Value                   => valueWrites.writes(value)
     case InputValue.ListValue(values)   => JsArray(values.map(inputValueWrites.writes))
     case InputValue.ObjectValue(fields) =>
-      JsObject(fields.map { case (k, v) => k -> inputValueWrites.writes(v) })
+      JsObject(fields.filter {
+        case (_, InputValue.UndefinedValue) => false
+        case _                              => true
+      }.map { case (k, v) =>
+        k -> inputValueWrites.writes(v)
+      })
     case InputValue.VariableValue(name) => JsString(name)
+    case InputValue.UndefinedValue      => JsNull
   }
 
   private def jsonToResponseValue(json: JsValue): ResponseValue =

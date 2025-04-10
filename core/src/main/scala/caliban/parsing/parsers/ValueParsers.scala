@@ -12,6 +12,8 @@ private[caliban] trait ValueParsers extends NumberParsers {
   def booleanValue(implicit ev: P[Any]): P[BooleanValue] =
     StringIn("true", "false").!.map(v => BooleanValue(v.toBoolean))
 
+  def undefinedValue(implicit ev: P[Any]): P[InputValue] = LiteralStr("undefined").map(_ => UndefinedValue)
+
   def nullValue(implicit ev: P[Any]): P[InputValue] = LiteralStr("null").map(_ => NullValue)
   def enumValue(implicit ev: P[Any]): P[InputValue] = name.map(EnumValue.apply)
   def listValue(implicit ev: P[Any]): P[ListValue]  = ("[" ~/ value.rep ~ "]").map(values => ListValue(values.toList))
@@ -23,6 +25,6 @@ private[caliban] trait ValueParsers extends NumberParsers {
   def variableValue(implicit ev: P[Any]): P[VariableValue] = ("$" ~/ name).map(VariableValue.apply)
 
   def value(implicit ev: P[Any]): P[InputValue] =
-    floatValue | intValue | booleanValue | stringValue | nullValue | enumValue | listValue | objectValue | variableValue
+    floatValue | intValue | booleanValue | stringValue | nullValue | undefinedValue | enumValue | listValue | objectValue | variableValue
 
 }

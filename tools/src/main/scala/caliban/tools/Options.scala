@@ -20,7 +20,8 @@ final case class Options(
   addDerives: Option[Boolean],
   envForDerives: Option[String],
   excludeDeprecated: Option[Boolean],
-  supportDeprecatedArgs: Option[Boolean]
+  supportDeprecatedArgs: Option[Boolean],
+  partialMutations: Option[Boolean]
 )
 
 object Options {

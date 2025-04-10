@@ -17,20 +17,20 @@ object json {
 
   private val inputValueEncoder: Encoder[InputValue]         = Encoder
     .instance[InputValue] {
-      case NullValue                          => Json.Null
-      case IntValue.IntNumber(value)          => Json.fromInt(value)
-      case IntValue.LongNumber(value)         => Json.fromLong(value)
-      case IntValue.BigIntNumber(value)       => Json.fromBigInt(value)
-      case FloatValue.FloatNumber(value)      => Json.fromFloatOrNull(value)
-      case FloatValue.DoubleNumber(value)     => Json.fromDoubleOrNull(value)
-      case FloatValue.BigDecimalNumber(value) => Json.fromBigDecimal(value)
-      case StringValue(value)                 => Json.fromString(value)
-      case BooleanValue(value)                => Json.fromBoolean(value)
-      case EnumValue(value)                   => Json.fromString(value)
-      case InputValue.ListValue(values)       => Json.arr(values.map(inputValueEncoder.apply): _*)
-      case InputValue.ObjectValue(fields)     =>
+      case NullValue | InputValue.UndefinedValue => Json.Null
+      case IntValue.IntNumber(value)             => Json.fromInt(value)
+      case IntValue.LongNumber(value)            => Json.fromLong(value)
+      case IntValue.BigIntNumber(value)          => Json.fromBigInt(value)
+      case FloatValue.FloatNumber(value)         => Json.fromFloatOrNull(value)
+      case FloatValue.DoubleNumber(value)        => Json.fromDoubleOrNull(value)
+      case FloatValue.BigDecimalNumber(value)    => Json.fromBigDecimal(value)
+      case StringValue(value)                    => Json.fromString(value)
+      case BooleanValue(value)                   => Json.fromBoolean(value)
+      case EnumValue(value)                      => Json.fromString(value)
+      case InputValue.ListValue(values)          => Json.arr(values.map(inputValueEncoder.apply): _*)
+      case InputValue.ObjectValue(fields)        =>
         Json.obj(fields.map { case (k, v) => k -> inputValueEncoder.apply(v) }.toList: _*)
-      case InputValue.VariableValue(name)     => Json.fromString(name)
+      case InputValue.VariableValue(name)        => Json.fromString(name)
     }
   private def jsonToResponseValue(json: Json): ResponseValue =
     json.fold(

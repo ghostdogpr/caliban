@@ -3,7 +3,7 @@ package caliban.execution
 import caliban._
 import caliban.Macros.gqldoc
 import caliban.RootResolver
-import caliban.schema.Annotations.GQLDefault
+import caliban.schema.Annotations.{ GQLDefault, GQLInputName }
 import caliban.schema.Schema.auto._
 import caliban.schema.ArgBuilder.auto._
 import zio.test.Assertion._
@@ -48,6 +48,13 @@ object DefaultValueSpec extends ZIOSpecDefault {
           case class TestInput(@GQLDefault("1") b: Boolean)
           case class Query(test: TestInput => Boolean)
           val gql = graphQL(RootResolver(Query(i => i.b)))
+          gql.interpreter.exit.map(e => assert(e)(fails(isSubtype[CalibanError.ValidationError](anything))))
+        },
+        test("invalid undefined validation") {
+          case class TestInput(@GQLDefault("undefined") c: Boolean)
+          case class Query()
+          case class Mutations(test: TestInput => Boolean)
+          val gql = graphQL(RootResolver(Query(), Mutations(i => i.c)))
           gql.interpreter.exit.map(e => assert(e)(fails(isSubtype[CalibanError.ValidationError](anything))))
         },
         test("valid enum validation") {
@@ -111,6 +118,14 @@ object DefaultValueSpec extends ZIOSpecDefault {
           case class Query(test: TestInput => String)
           val gql = graphQL(RootResolver(Query(v => v.nested.field)))
           gql.interpreter.map(i => assert(i)(anything))
+        },
+        test("valid non-mandatory field validation") {
+          case class TestInput(@GQLDefault("undefined") c: Either[Unit, COLOR])
+          case class TestQuery(c: COLOR)
+          case class Query(test: TestQuery => COLOR)
+          case class Mutations(test: TestInput => Boolean)
+          val gql = graphQL(RootResolver(Query(_.c), Mutations(i => i.c.fold(_ => false, _ => true))))
+          gql.interpreter.map(i => assert(i)(anything))
         }
       ),
       test("field default values") {
@@ -165,6 +180,58 @@ object DefaultValueSpec extends ZIOSpecDefault {
           res <- int.execute(query)
         } yield assert(res.errors.headOption)(
           isSome(isSubtype[CalibanError.ValidationError](anything))
+        )
+      },
+      test("not passing non-mandatory field for mutation is valid") {
+        case class TestInput(@GQLDefault("undefined") string: Either[Unit, String], mandatory: Boolean)
+        case class Mutation(test: TestInput => String)
+        case class Query(test: TestInput => String)
+        val qgl   = graphQL(RootResolver(Query(_ => "foo"), Mutation(_.string.fold(_ => "bar", identity))))
+        val query =
+          """mutation {
+            |  test(mandatory: true)
+            |}""".stripMargin
+        for {
+          int <- qgl.interpreter
+          res <- int.execute(query)
+        } yield assertTrue(res.errors.isEmpty && res.data.toString == """{"test":"bar"}""")
+      },
+      test("passing non-mandatory field for mutation is valid") {
+        case class TestInput(@GQLDefault("undefined") string: Either[Unit, String], mandatory: Boolean)
+        case class Mutation(test: TestInput => String)
+        case class Query(test: TestInput => String)
+        val qgl   = graphQL(RootResolver(Query(_ => "foo"), Mutation(_.string.fold(_ => "bar", identity))))
+        val query =
+          """mutation {
+            |  test(mandatory: true, string: "foo")
+            |}""".stripMargin
+        for {
+          int <- qgl.interpreter
+          res <- int.execute(query)
+        } yield assertTrue(res.errors.isEmpty && res.data.toString == """{"test":"foo"}""")
+      },
+      test("it should render non-mandatory fields in the SDL") {
+        case class MutationInput(@GQLDefault("undefined") string: Either[Unit, String], mandatory: Boolean)
+        case class Mutation(test: MutationInput => String)
+        case class QueryInput(intValue: Int)
+        case class Query(test: QueryInput => Int)
+        val rendered =
+          graphQL(RootResolver(Query(_.intValue), Mutation(_.string.fold(_ => "bar", identity)))).render.trim
+
+        assertTrue(
+          rendered ==
+            """|schema {
+               |  query: Query
+               |  mutation: Mutation
+               |}
+               |
+               |type Mutation {
+               |  test(string: String!, mandatory: Boolean!): String!
+               |}
+               |
+               |type Query {
+               |  test(intValue: Int!): Int!
+               |}""".stripMargin.trim
         )
       },
       test("it should render default values in the SDL") {

@@ -35,6 +35,7 @@ object Codegen {
       enableFmt                 = arguments.enableFmt.getOrElse(true)
       extensibleEnums           = arguments.extensibleEnums.getOrElse(false)
       excludeDeprecated         = arguments.excludeDeprecated.getOrElse(false)
+      partialMutations          = arguments.partialMutations.getOrElse(false)
       code                      = genType match {
                                     case GenType.Schema =>
                                       List(
@@ -47,7 +48,8 @@ object Codegen {
                                           abstractEffectType,
                                           preserveInputNames,
                                           addDerives,
-                                          envForDerives
+                                          envForDerives,
+                                          partialMutations
                                         )
                                       )
                                     case GenType.Client =>

@@ -24,6 +24,7 @@ object ValueRenderer {
         case Value.EnumValue(value)         => Renderer.escapedString.unsafeRender(value, indent, write)
         case Value.BooleanValue(value)      => write append value
         case Value.NullValue                => write ++= "null"
+        case InputValue.UndefinedValue      => ()
         case IntNumber(value)               => write append value
         case LongNumber(value)              => write append value
         case BigIntNumber(value)            => write append value
@@ -41,12 +42,18 @@ object ValueRenderer {
         Renderer.char(',') ++ Renderer.spaceOrEmpty,
         Renderer.char(':') ++ Renderer.spaceOrEmpty
       )
-      .contramap[InputValue.ObjectValue](_.fields) ++ Renderer.char('}')
+      .contramap[InputValue.ObjectValue](_.fields.filter {
+        case (_, InputValue.UndefinedValue) => false
+        case _                              => true
+      }) ++ Renderer.char('}')
 
   lazy val inputListValueRenderer: Renderer[InputValue.ListValue] =
     Renderer.char('[') ++ inputValueRenderer
       .list(Renderer.char(',') ++ Renderer.spaceOrEmpty)
-      .contramap[InputValue.ListValue](_.values) ++ Renderer.char(']')
+      .contramap[InputValue.ListValue](_.values.filter {
+        case InputValue.UndefinedValue => false
+        case _                         => true
+      }) ++ Renderer.char(']')
 
   lazy val enumInputValueRenderer: Renderer[Value.EnumValue] = new Renderer[Value.EnumValue] {
     override protected[caliban] def unsafeRender(

@@ -32,6 +32,7 @@ object OptionsParserSpec extends ZIOSpecDefault {
                 None,
                 None,
                 None,
+                None,
                 None
               )
             )
@@ -63,6 +64,7 @@ object OptionsParserSpec extends ZIOSpecDefault {
                 None,
                 None,
                 None,
+                None,
                 None
               )
             )
@@ -78,6 +80,7 @@ object OptionsParserSpec extends ZIOSpecDefault {
                 Options(
                   "schema",
                   "output",
+                  None,
                   None,
                   None,
                   None,
@@ -145,6 +148,7 @@ object OptionsParserSpec extends ZIOSpecDefault {
                   None,
                   None,
                   None,
+                  None,
                   None
                 )
               )
@@ -164,6 +168,7 @@ object OptionsParserSpec extends ZIOSpecDefault {
                   None,
                   None,
                   Some("GraphqlClient.scala"),
+                  None,
                   None,
                   None,
                   None,
@@ -209,6 +214,7 @@ object OptionsParserSpec extends ZIOSpecDefault {
                   None,
                   None,
                   None,
+                  None,
                   None
                 )
               )
@@ -229,6 +235,7 @@ object OptionsParserSpec extends ZIOSpecDefault {
                   None,
                   None,
                   Some(true),
+                  None,
                   None,
                   None,
                   None,
@@ -273,6 +280,7 @@ object OptionsParserSpec extends ZIOSpecDefault {
                   None,
                   None,
                   None,
+                  None,
                   None
                 )
               )
@@ -295,6 +303,7 @@ object OptionsParserSpec extends ZIOSpecDefault {
                   None,
                   None,
                   Some(Map("Long" -> "scala.Long")),
+                  None,
                   None,
                   None,
                   None,
@@ -337,6 +346,7 @@ object OptionsParserSpec extends ZIOSpecDefault {
                   None,
                   None,
                   None,
+                  None,
                   None
                 )
               )
@@ -361,6 +371,7 @@ object OptionsParserSpec extends ZIOSpecDefault {
                   None,
                   None,
                   Some(true),
+                  None,
                   None,
                   None,
                   None,
@@ -401,6 +412,7 @@ object OptionsParserSpec extends ZIOSpecDefault {
                   None,
                   None,
                   None,
+                  None,
                   None
                 )
               )
@@ -418,6 +430,7 @@ object OptionsParserSpec extends ZIOSpecDefault {
                   "output",
                   Some("fmtPath"),
                   Some(List(Header("aaa", "bbb:ccc"))),
+                  None,
                   None,
                   None,
                   None,
@@ -465,6 +478,7 @@ object OptionsParserSpec extends ZIOSpecDefault {
                   None,
                   None,
                   Some(true),
+                  None,
                   None
                 )
               )
@@ -497,7 +511,41 @@ object OptionsParserSpec extends ZIOSpecDefault {
                   None,
                   None,
                   None,
-                  Some(false)
+                  Some(false),
+                  None
+                )
+              )
+          )
+        }
+      },
+      test("provide partialMutations") {
+        val input = List("schema", "output", "--partialMutations", "true")
+        OptionsParser.fromArgs(input).map { result =>
+          assertTrue(
+            result ==
+              Some(
+                Options(
+                  "schema",
+                  "output",
+                  None,
+                  None,
+                  None,
+                  None,
+                  None,
+                  None,
+                  None,
+                  None,
+                  None,
+                  None,
+                  None,
+                  None,
+                  None,
+                  None,
+                  None,
+                  None,
+                  None,
+                  None,
+                  Some(true)
                 )
               )
           )
