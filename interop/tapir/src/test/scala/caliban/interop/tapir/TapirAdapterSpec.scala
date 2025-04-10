@@ -573,7 +573,7 @@ object TapirAdapterSpec {
               asStream(ZioStreams)(readMultipartResponse)
                 .map(
                   _.map(Right(_)).left.map(s =>
-                    UnexpectedStatusCode(s, ResponseMetadata(StatusCode.UnprocessableEntity, "", Seq.empty))
+                    UnexpectedStatusCode(s, ResponseMetadata(StatusCode.UnprocessableEntity, "", Nil))
                   )
                 )
             ),
@@ -586,9 +586,7 @@ object TapirAdapterSpec {
             )
           ).map(_.map(_.delegate)),
           asStringAlways
-            .map(error =>
-              Left(UnexpectedStatusCode(error, ResponseMetadata(StatusCode.UnprocessableEntity, "", Seq.empty)))
-            )
+            .map(error => Left(UnexpectedStatusCode(error, ResponseMetadata(StatusCode.UnprocessableEntity, "", Nil))))
             .delegate
         )
       )
@@ -602,7 +600,7 @@ object TapirAdapterSpec {
                 ResponseException.DeserializationException(
                   "Failed to decode",
                   new Exception(f.toString),
-                  ResponseMetadata(StatusCode.UnprocessableEntity, "", Seq.empty)
+                  ResponseMetadata(StatusCode.UnprocessableEntity, "", Nil)
                 )
               )
             case DecodeResult.Value(v)   => Right(v)
