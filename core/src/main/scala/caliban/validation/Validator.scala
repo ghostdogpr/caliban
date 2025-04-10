@@ -571,7 +571,7 @@ object Validator {
 
     val v1 = validateAllNonEmpty(fieldArgsNonNull.flatMap { arg =>
       val arg0 = field.arguments.getOrElseNull(arg.name)
-      val opt1 = (arg.defaultValue, arg0) match {
+      (arg.defaultValue, arg0) match {
         case (None, null) | (None, NullValue) =>
           Some(
             failValidation(
@@ -590,17 +590,6 @@ object Validator {
           )
         case _                                => None
       }
-      val opt2 =
-        if (arg._type.innerType._isOneOfInput)
-          Some(
-            validateOneOfInputValue(
-              if (arg0 eq null) NullValue else arg0,
-              s"Argument '${arg.name}' on field '${field.name}'"
-            )
-          )
-        else None
-
-      combineOptionalValidations(opt1, opt2)
     })(identity)
 
     val v2 =
@@ -676,7 +665,7 @@ object Validator {
     }
   } *> ValueValidator.validateInputTypes(inputValue, argValue, context, errorContext)
 
-  private def validateOneOfInputValue(
+  private[validation] def validateOneOfInputValue(
     inputValue: InputValue,
     errorContext: => String
   ): Either[ValidationError, Unit] = {

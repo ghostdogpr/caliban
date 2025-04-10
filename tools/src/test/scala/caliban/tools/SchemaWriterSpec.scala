@@ -1,7 +1,7 @@
 package caliban.tools
 
 import caliban.parsing.Parser
-import caliban.parsing.adt.Directives.NewtypeDirective
+import caliban.parsing.adt.Directives.{ NewtypeDirective, OneOf }
 import zio.{ Task, ZIO }
 import zio.test._
 
@@ -521,6 +521,19 @@ object SchemaWriterSpec extends SnapshotTest {
           |
           |""",
         scalarMappings = Map("ID" -> "String")
+      )
+    ),
+    snapshotTest("add derives also to traits for @oneOf input types")(
+      gen(
+        s"""
+           |directive @$OneOf on INPUT_OBJECT
+           |
+           |input FooInput @oneOf{
+           |  optionA: String
+           |  optionB: Int
+           |}
+           |""",
+        addDerives = true
       )
     )
   )

@@ -1548,6 +1548,36 @@ object ExecutionSpec extends ZIOSpecDefault {
             .flatMap(_.execute(query))
             .map(response => acc && assertTrue(response.data.toString == expected))
         }
+      },
+      test("oneOf input inside list") {
+
+        case class AddPets(pets: List[Pet.Wrapper])
+        case class Queries(addPets: AddPets => List[Pet])
+
+        val api: GraphQL[Any] = graphQL(
+          RootResolver(
+            Queries(_.pets.map(_.pet))
+          )
+        )
+
+        val cases = List(
+          gqldoc("""{
+            addPets(pets: [
+              { cat: { name: "a" } },
+              { dog: { name: "b" } }
+            ]) {
+              __typename
+              ... on Cat { name }
+              ... on Dog { name }
+            }
+          }""") -> """{"addPets":[{"__typename":"Cat","name":"a"},{"__typename":"Dog","name":"b"}]}"""
+        )
+
+        ZIO.foldLeft(cases)(assertCompletes) { case (acc, (query, expected)) =>
+          api.interpreter
+            .flatMap(_.execute(query))
+            .map(response => acc && assertTrue(response.data.toString == expected))
+        }
       }
     )
 }
