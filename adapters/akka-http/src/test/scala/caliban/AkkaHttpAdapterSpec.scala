@@ -7,7 +7,7 @@ import akka.stream.Materializer
 import caliban.interop.tapir.TestData.sampleCharacters
 import caliban.interop.tapir._
 import caliban.uploads.Uploads
-import sttp.client3.UriContext
+import sttp.client4.UriContext
 import zio._
 import zio.test._
 

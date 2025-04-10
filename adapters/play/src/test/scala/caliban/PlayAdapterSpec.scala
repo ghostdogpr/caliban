@@ -9,7 +9,7 @@ import play.api.Mode
 import play.api.routing._
 import play.api.routing.sird._
 import play.core.server.{ PekkoHttpServer, ServerConfig }
-import sttp.client3.UriContext
+import sttp.client4.UriContext
 import zio._
 import zio.test.{ Live, ZIOSpecDefault }
 

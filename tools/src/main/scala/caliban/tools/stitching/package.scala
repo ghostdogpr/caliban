@@ -2,8 +2,8 @@ package caliban.tools
 
 import caliban.{ CalibanError, ResponseValue }
 
-import sttp.client3._
+import sttp.client4._
 
 package object stitching {
-  type HttpRequest = RequestT[Identity, Either[CalibanError.ExecutionError, ResponseValue], Any]
+  type HttpRequest = Request[Either[CalibanError.ExecutionError, ResponseValue]]
 }

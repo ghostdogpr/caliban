@@ -7,8 +7,8 @@ import caliban.client.Selection.Directive
 import caliban.client.__Value.__ObjectValue
 import com.github.plokhotnyuk.jsoniter_scala.core._
 
-import sttp.client3._
-import sttp.client3.jsoniter._
+import sttp.client4._
+import sttp.client4.jsoniter._
 import sttp.model.Uri
 import scala.collection.immutable.{ Map => SMap }
 import scala.util.control.NonFatal
@@ -129,7 +129,7 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
     useVariables: Boolean = false,
     queryName: Option[String] = None,
     dropNullInputValues: Boolean = false
-  )(implicit ev: IsOperation[Origin1]): Request[Either[CalibanClientError, A1], Any] =
+  )(implicit ev: IsOperation[Origin1]): Request[Either[CalibanClientError, A1]] =
     toRequestWith[A1, Origin1](uri, useVariables, queryName, dropNullInputValues)((res, _, _) => res)(ev)
 
   /**
@@ -148,10 +148,10 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
     dropNullInputValues: Boolean = false
   )(
     mapResponse: (A, List[GraphQLResponseError], Option[__ObjectValue]) => B
-  )(implicit ev: IsOperation[Origin1]): Request[Either[CalibanClientError, B], Any] =
+  )(implicit ev: IsOperation[Origin1]): Request[Either[CalibanClientError, B]] =
     basicRequest
       .post(uri)
-      .body(toGraphQL(useVariables, queryName, dropNullInputValues))
+      .body(asJson(toGraphQL(useVariables, queryName, dropNullInputValues)))
       .mapResponse(
         _.left
           .map(CommunicationError(_))

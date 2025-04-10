@@ -2,8 +2,7 @@ package caliban.reporting
 
 import caliban.client.CalibanClientError.CommunicationError
 import caliban.reporting.ReportingError.{ ClientError, RetryableError }
-import sttp.client3.SttpBackend
-import sttp.client3.UriContext
+import sttp.client4.{ Backend, UriContext }
 import zio._
 
 trait SchemaReporter {
@@ -12,8 +11,8 @@ trait SchemaReporter {
 
 object SchemaReporter {
 
-  def make(accessToken: String): ZIO[SttpClient, Nothing, SchemaReporter] = for {
-    client <- ZIO.service[SttpClient]
+  def make(accessToken: String): ZIO[Backend[Task], Nothing, SchemaReporter] = for {
+    client <- ZIO.service[Backend[Task]]
   } yield new SchemaReporter {
     import caliban.reporting.client.{ Mutation, ReportSchemaError, ReportSchemaResponse, SchemaReport }
 
@@ -77,19 +76,19 @@ object SchemaReporter {
 
   def fromConfig[R: Tag](
     f: R => String
-  ): ZLayer[R with SttpClient, Nothing, SchemaReporter] =
+  ): ZLayer[R with Backend[Task], Nothing, SchemaReporter] =
     fromConfigZIO[R, Nothing]((r: R) => ZIO.succeed(f(r)))
 
   def fromConfigZIO[R: Tag, E](
     f: R => IO[E, String]
-  ): ZLayer[SttpClient with R, E, SchemaReporter] = ZLayer {
+  ): ZLayer[Backend[Task] with R, E, SchemaReporter] = ZLayer {
     for {
       accessToken <- ZIO.serviceWithZIO[R](f)
       reporter    <- make(accessToken)
     } yield reporter
   }
 
-  def fromDefaultConfig: ZLayer[SttpClient with System, Throwable, SchemaReporter] =
+  def fromDefaultConfig: ZLayer[Backend[Task] with System, Throwable, SchemaReporter] =
     fromConfigZIO[System, Throwable](
       _.env("APOLLO_KEY")
         .someOrFail(

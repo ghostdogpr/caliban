@@ -2,10 +2,8 @@ package example.client
 
 import example.client.Client._
 import caliban.client.CalibanClientError
-import sttp.capabilities.WebSockets
-import sttp.capabilities.zio.ZioStreams
-import sttp.client3._
-import sttp.client3.httpclient.zio.HttpClientZioBackend
+import sttp.client4._
+import sttp.client4.httpclient.zio.HttpClientZioBackend
 import zio.Console.printLine
 import zio._
 
@@ -50,10 +48,10 @@ object ExampleApp extends ZIOAppDefault {
     val mutation  = Mutations.deleteCharacter("James Holden")
 
     def sendRequest[T](
-      req: Request[Either[CalibanClientError, T], Any]
-    ): RIO[SttpBackend[Task, ZioStreams with WebSockets], T] =
+      req: Request[Either[CalibanClientError, T]]
+    ): RIO[Backend[Task], T] =
       ZIO
-        .serviceWithZIO[SttpBackend[Task, ZioStreams with WebSockets]](req.send(_))
+        .serviceWithZIO[Backend[Task]](req.send(_))
         .map(_.body)
         .absolve
         .tap(res => printLine(s"Result: $res"))

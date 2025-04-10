@@ -3,7 +3,7 @@ package caliban.tools
 import caliban._
 import caliban.parsing.Parser
 import caliban.parsing.adt.Document
-import sttp.client3.httpclient.zio.HttpClientZioBackend
+import sttp.client4.httpclient.zio.HttpClientZioBackend
 import zio.{ Task, ZIO }
 
 trait SchemaLoader {

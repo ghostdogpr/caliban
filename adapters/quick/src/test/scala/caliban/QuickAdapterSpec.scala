@@ -3,7 +3,7 @@ package caliban
 import caliban.interop.tapir.TestData.sampleCharacters
 import caliban.interop.tapir.{ TapirAdapterSpec, TestApi, TestService }
 import caliban.uploads.Uploads
-import sttp.client3.UriContext
+import sttp.client4.UriContext
 import zio._
 import zio.http._
 import zio.test.{ Live, ZIOSpecDefault }

@@ -3,18 +3,20 @@ package caliban.interop.tapir
 import caliban.InputValue.ObjectValue
 import caliban.Value.StringValue
 import caliban._
+import caliban.interop.tapir.MaxCharBufSizeJsonJsoniter._
+import caliban.interop.tapir.TapirAdapter.CalibanPipe
 import com.github.plokhotnyuk.jsoniter_scala.core.{ readFromString, writeToString, JsonValueCodec, ReaderConfig }
 import com.github.plokhotnyuk.jsoniter_scala.macros.JsonCodecMaker
+import sttp.capabilities.Effect
 import sttp.capabilities.zio.ZioStreams
-import sttp.capabilities.{ Effect, WebSockets }
-import sttp.client3.asynchttpclient.zio.AsyncHttpClientZioBackend
-import sttp.client3.impl.zio.ZioServerSentEvents
-import sttp.client3.{ BasicRequestBody, DeserializationException, HttpError, ResponseException, SttpBackend }
+import sttp.client4.ResponseException.{ DeserializationException, UnexpectedStatusCode }
+import sttp.client4.httpclient.zio.HttpClientZioBackend
+import sttp.client4.impl.zio.ZioServerSentEvents
+import sttp.client4.{ BasicBodyPart, ResponseException, WebSocketRequest, WebSocketStreamBackend }
 import sttp.model._
 import sttp.model.sse.ServerSentEvent
-import sttp.tapir.client.sttp.SttpClientInterpreter
-import sttp.tapir.client.sttp.ws.zio._
-import MaxCharBufSizeJsonJsoniter._
+import sttp.tapir.client.sttp4.ws.WebSocketSttpClientInterpreter
+import sttp.tapir.client.sttp4.ws.zio._
 import sttp.tapir.model.{ ConnectionInfo, ServerRequest }
 import sttp.tapir.{ AttributeKey, DecodeResult }
 import zio.stream.{ ZPipeline, ZSink, ZStream }
@@ -28,7 +30,7 @@ import scala.util.Try
 object TapirAdapterSpec {
   private implicit val mapCodec: JsonValueCodec[Map[String, InputValue]] = JsonCodecMaker.make
 
-  trait Capabilities extends ZioStreams with WebSockets
+  type Backend = WebSocketStreamBackend[Task, ZioStreams & Effect[Task]]
 
   case class FakeServerRequest(method: Method, uri: Uri, headers: List[Header] = Nil) extends ServerRequest {
     override def protocol: String = "http"
@@ -48,9 +50,9 @@ object TapirAdapterSpec {
     override def withUnderlying(underlying: Any): ServerRequest = this
   }
 
-  private def customError: CustomAssertion[ResponseException[String, String], String] = CustomAssertion.make {
-    case HttpError(body, _)                 => Right(body)
-    case DeserializationException(_, error) => Right(error)
+  private def customError: CustomAssertion[ResponseException[String], String] = CustomAssertion.make {
+    case UnexpectedStatusCode(body, _)         => Right(body)
+    case DeserializationException(_, error, _) => Right(error.toString)
   }
 
   def makeSuite(
@@ -65,10 +67,14 @@ object TapirAdapterSpec {
     val run          = (request: GraphQLRequest) => httpClient.runPost(request)
     val runSSE       = (request: GraphQLRequest) => httpClient.runPostStreaming(request)
     val runGet       = (request: GraphQLRequest) => httpClient.runGet(request)
-    val runUpload    = uploadClient.map(client => (request: List[Part[BasicRequestBody]]) => client.runUpload(request))
-    val runWS        = wsUri.map(wsUri =>
-      SttpClientInterpreter()
-        .toRequestThrowDecodeFailures(WebSocketInterpreter.makeWebSocketEndpoint, Some(wsUri))
+    val runUpload    = uploadClient.map(client => (request: List[Part[BasicBodyPart]]) => client.runUpload(request))
+    val runWS: Option[
+      ((ServerRequest, String)) => WebSocketRequest[Task, Either[TapirAdapter.TapirResponse, (String, CalibanPipe)]]
+    ] = wsUri.map(wsUri =>
+      WebSocketSttpClientInterpreter().toRequestThrowDecodeFailures(
+        WebSocketInterpreter.makeWebSocketEndpoint,
+        Some(wsUri)
+      )
     )
 
     val acceptApplicationJson = Header.accept("application/json")
@@ -85,23 +91,19 @@ object TapirAdapterSpec {
                   case "GET"  => ZIO.succeed(runGet)
                   case _      => ZIO.fail(new RuntimeException(s"Unsupported test method $method"))
                 }
-        res  <- ZIO.serviceWithZIO[SttpBackend[Task, Capabilities]] {
+        res  <- ZIO.serviceWithZIO[Backend] {
                   _run(GraphQLRequest(Some(query)))
-                    .header(acceptHeader, replaceExisting = true)
+                    .header(acceptHeader)
                     .send(_)
                 }
       } yield res
 
-    def runSSERequest(
-      method: String,
-      acceptHeader: Header = acceptTextEventStream,
-      query: String = "{ characters { name }  }"
-    ) =
+    def runSSERequest(acceptHeader: Header = acceptTextEventStream, query: String = "{ characters { name }  }") =
       for {
         res    <- ZIO
-                    .serviceWithZIO[SttpBackend[Task, Capabilities]] {
+                    .serviceWithZIO[Backend] {
                       runSSE(GraphQLRequest(Some(query)))
-                        .header(acceptHeader, replaceExisting = true)
+                        .header(acceptHeader)
                         .send(_)
                     }
         stream <- ZIO.fromEither(res.body).orElseFail(new Throwable("Failed to parse result"))
@@ -121,14 +123,14 @@ object TapirAdapterSpec {
           """{"characters":[{"name":"James Holden"},{"name":"Naomi Nagata"},{"name":"Amos Burton"},{"name":"Alex Kamal"},{"name":"Chrisjen Avasarala"},{"name":"Josephus Miller"},{"name":"Roberta Draper"}]}"""
       )
 
-    val tests: List[Option[Spec[SttpBackend[Task, Capabilities], Throwable]]] = List(
+    val tests: List[Option[Spec[Backend, Throwable]]] = List(
       Some(
         suite("http")(
           test("test POST http endpoint")(testHttpEndpoint("POST")),
           test("test GET http endpoint")(testHttpEndpoint("GET")),
           test("test interceptor failure") {
             for {
-              res      <- ZIO.serviceWithZIO[SttpBackend[Task, Capabilities]](
+              res      <- ZIO.serviceWithZIO[Backend](
                             run(GraphQLRequest(Some("{ characters { name }  }"))).header("X-Invalid", "1").send(_)
                           )
               response <- ZIO.fromEither(res.body).flip.orElseFail(new Throwable("Failed to parse result"))
@@ -140,13 +142,13 @@ object TapirAdapterSpec {
           test("lower-case content-type header") {
             val q = "{ characters { name }  }"
             val r = run(GraphQLRequest())
-              .header(Header("content-type", "application/graphql; charset=utf-8"), replaceExisting = true)
+              .header(Header("content-type", "application/graphql; charset=utf-8"))
               .body(q)
               // if we don't set content-length here it gets incorrectly set to 70 rather than 24.
               .contentLength(q.length)
 
             for {
-              res  <- ZIO.serviceWithZIO[SttpBackend[Task, Capabilities]](r.send(_))
+              res  <- ZIO.serviceWithZIO[Backend](r.send(_))
               body <- ZIO.fromEither(res.body).orElseFail(new Throwable(s"Failed to parse result: $res"))
             } yield assertTrue(
               body.is(_.left).data.toString ==
@@ -156,13 +158,13 @@ object TapirAdapterSpec {
           test("don't defer pure values") {
             val q = """{ characters { ... on Character @defer(label: "character") { name nicknames } } }"""
             val r = run(GraphQLRequest())
-              .header(Header("content-type", "application/graphql; charset=utf-8"), replaceExisting = true)
+              .header(Header("content-type", "application/graphql; charset=utf-8"))
               .body(q)
               // if we don't set content-length here it gets incorrectly set to 70 rather than 24.
               .contentLength(q.length)
 
             for {
-              res  <- ZIO.serviceWithZIO[SttpBackend[Task, Capabilities]](r.send(_))
+              res  <- ZIO.serviceWithZIO[Backend](r.send(_))
               body <- ZIO.fromEither(res.body).orElseFail(new Throwable(s"Failed to parse result: $res"))
             } yield assertTrue(body.isLeft)
           },
@@ -170,12 +172,12 @@ object TapirAdapterSpec {
             val q =
               """{ characters { ... on Character @defer(label: "character") { name  ... @defer(label: "nicknames") { labels }  } } }"""
             val r = run(GraphQLRequest())
-              .header(Header("content-type", "application/graphql; charset=utf-8"), replaceExisting = true)
+              .header(Header("content-type", "application/graphql; charset=utf-8"))
               .body(q)
               .contentLength(q.length)
 
             for {
-              res  <- ZIO.serviceWithZIO[SttpBackend[Task, Capabilities]](r.send(_))
+              res  <- ZIO.serviceWithZIO[Backend](r.send(_))
               body <-
                 ZIO.fromEither(res.body).mapError(e => new Throwable(s"Failed to parse result: $res, ${e.getMessage}"))
             } yield assertTrue(body.isRight, body.toOption.exists(_.size == 9))
@@ -185,12 +187,12 @@ object TapirAdapterSpec {
               """{ characters { name } }"""
 
             val r = run(GraphQLRequest())
-              .header(Header("content-type", "application/graphql; charset=utf-8"), replaceExisting = true)
+              .header(Header("content-type", "application/graphql; charset=utf-8"))
               .body(q)
               .contentLength(q.length)
 
             for {
-              backend    <- ZIO.service[SttpBackend[Task, Capabilities]]
+              backend    <- ZIO.service[Backend]
               res        <- backend.send(r)
               cacheHeader = res.headers.collectFirst { case h if h.is("Cache-Control") => h }
             } yield assertTrue(cacheHeader.get == Header("cache-control", "max-age=10, public"))
@@ -259,12 +261,16 @@ object TapirAdapterSpec {
           },
           test("returns 400 status code on invalid GET requests") {
             ZIO
-              .serviceWithZIO[SttpBackend[Task, Capabilities]](runGet(GraphQLRequest(None)).send(_))
+              .serviceWithZIO[Backend](
+                runGet(GraphQLRequest(None)).send(_)
+              )
               .map(r => assertTrue(r.code.code == 400))
           },
           test("returns 400 status code on invalid POST requests") {
             ZIO
-              .serviceWithZIO[SttpBackend[Task, Capabilities]](run(GraphQLRequest(None)).send(_))
+              .serviceWithZIO[Backend](
+                run(GraphQLRequest(None)).send(_)
+              )
               .map(r => assertTrue(r.code.code == 400))
           },
           test("returns 400 for mutations over GET methods") {
@@ -287,7 +293,6 @@ object TapirAdapterSpec {
           test("TextEventStream") {
             for {
               res   <- runSSERequest(
-                         Method.POST.method,
                          acceptTextEventStream,
                          "subscription { characterDeleted }"
                        )
@@ -311,15 +316,16 @@ object TapirAdapterSpec {
             val query =
               """{ "query": "mutation ($files: [Upload!]!) { uploadFiles(files: $files) { hash, filename, mimetype } }", "variables": { "files": [null, null] }}"""
 
-            val parts: List[Part[BasicRequestBody]] = List(
-              sttp.client3.multipart("operations", query.getBytes).contentType(MediaType.ApplicationJson),
-              sttp.client3.multipart("map", """{ "0": ["variables.files.0"], "1":  ["variables.files.1"]}""".getBytes),
-              sttp.client3.multipart("0", """image""".getBytes).contentType(MediaType.ImagePng).fileName("a.png"),
-              sttp.client3.multipart("1", """text""".getBytes).contentType(MediaType.TextPlain).fileName("a.txt")
+            val parts: List[Part[BasicBodyPart]] = List(
+              sttp.client4.multipart("operations", query.getBytes).contentType(MediaType.ApplicationJson),
+              sttp.client4.multipart("map", """{ "0": ["variables.files.0"], "1":  ["variables.files.1"]}""".getBytes),
+              sttp.client4.multipart("0", """image""".getBytes).contentType(MediaType.ImagePng).fileName("a.png"),
+              sttp.client4.multipart("1", """text""".getBytes).contentType(MediaType.TextPlain).fileName("a.txt")
             )
 
             for {
-              res  <- ZIO.serviceWithZIO[SttpBackend[Task, Capabilities]](runUpload(parts).send(_))
+              res  <-
+                ZIO.serviceWithZIO[Backend](runUpload(parts).send(_))
               body <- ZIO.fromEither(res.body).orElseFail(new Throwable("Failed to parse result"))
             } yield assertTrue(
               body.is(_.left).data.toString ==
@@ -331,17 +337,18 @@ object TapirAdapterSpec {
               """{ "query": "mutation ($uploadedDocuments: [UploadedDocumentInput!]!) { uploadFilesWithExtraFields(uploadedDocuments: $uploadedDocuments) { someField1, someField2} }", "variables": { "uploadedDocuments": [{"file": null, "someField1": 1, "someField2": 2}, {"file": null, "someField1": 3}] }}"""
 
             val parts = List(
-              sttp.client3.multipart("operations", query.getBytes).contentType(MediaType.ApplicationJson),
-              sttp.client3.multipart(
+              sttp.client4.multipart("operations", query.getBytes).contentType(MediaType.ApplicationJson),
+              sttp.client4.multipart(
                 "map",
                 """{ "0": ["variables.uploadedDocuments.0.file"], "1":  ["variables.uploadedDocuments.1.file"]}""".getBytes
               ),
-              sttp.client3.multipart("0", """image""".getBytes).contentType(MediaType.ImagePng).fileName("a.png"),
-              sttp.client3.multipart("1", """text""".getBytes).contentType(MediaType.TextPlain).fileName("a.txt")
+              sttp.client4.multipart("0", """image""".getBytes).contentType(MediaType.ImagePng).fileName("a.png"),
+              sttp.client4.multipart("1", """text""".getBytes).contentType(MediaType.TextPlain).fileName("a.txt")
             )
 
             for {
-              res  <- ZIO.serviceWithZIO[SttpBackend[Task, Capabilities]](runUpload(parts).send(_))
+              res  <-
+                ZIO.serviceWithZIO[Backend](runUpload(parts).send(_))
               body <- ZIO.fromEither(res.body).orElseFail(new Throwable("Failed to parse result"))
             } yield assertTrue(
               body.is(_.left).data.toString ==
@@ -356,7 +363,7 @@ object TapirAdapterSpec {
             import caliban.ws.Protocol.Legacy.Ops
             val io =
               for {
-                res         <- ZIO.serviceWithZIO[SttpBackend[Task, Capabilities]](
+                res         <- ZIO.serviceWithZIO[Backend](
                                  runWS(
                                    FakeServerRequest(
                                      Method.GET,
@@ -380,7 +387,7 @@ object TapirAdapterSpec {
                                )
                 sendDelete   = Live.live {
                                  ZIO
-                                   .serviceWithZIO[SttpBackend[Task, Capabilities]](
+                                   .serviceWithZIO[Backend](
                                      run(
                                        GraphQLRequest(Some("""mutation{ deleteCharacter(name: "Amos Burton") }"""))
                                      ).send(_)
@@ -411,7 +418,7 @@ object TapirAdapterSpec {
             import caliban.ws.Protocol.GraphQLWS.Ops
             val io =
               for {
-                res         <- ZIO.serviceWithZIO[SttpBackend[Task, Capabilities]](
+                res         <- ZIO.serviceWithZIO[Backend](
                                  runWS(
                                    FakeServerRequest(
                                      Method.GET,
@@ -435,7 +442,7 @@ object TapirAdapterSpec {
                                )
                 sendDelete   = Live.live {
                                  ZIO
-                                   .serviceWithZIO[SttpBackend[Task, Capabilities]](
+                                   .serviceWithZIO[Backend](
                                      run(
                                        GraphQLRequest(Some("""mutation{ deleteCharacter(name: "Amos Burton") }"""))
                                      ).send(_)
@@ -472,45 +479,51 @@ object TapirAdapterSpec {
     ZIO.succeed(tests.flatten)
   }.provideLayerShared(
     ZLayer.scoped(
-      AsyncHttpClientZioBackend.scoped().asInstanceOf[ZIO[Scope, Throwable, SttpBackend[Task, Capabilities]]]
+      HttpClientZioBackend
+        .scoped()
+        .asInstanceOf[ZIO[Scope, Throwable, Backend]]
     )
   ) @@
     before(TestService.reset) @@
     TestAspect.sequential
 
   private class TapirClient(httpUri: Uri) {
-    import sttp.client3._
+    import sttp.client4._
 
-    implicit def jsonBodySerializer: BodySerializer[GraphQLRequest] =
-      b => StringBody(JsonCodecs.requestCodec.encode(b), "UTF-8", MediaType.ApplicationJson)
+    def toJson(req: GraphQLRequest): StringBody =
+      StringBody(JsonCodecs.requestCodec.encode(req), "UTF-8", MediaType.ApplicationJson)
 
-    implicit val stringShows: ShowError[String] = (error: String) => error
-
-    def runPost(request: GraphQLRequest): Request[Either[ResponseException[String, String], Either[GraphQLResponse[
-      CalibanError
-    ], Chunk[ResponseValue]]], Effect[Task] with ZioStreams] =
+    def runPost(
+      request: GraphQLRequest
+    ): StreamRequest[
+      Either[ResponseException[String], Either[GraphQLResponse[CalibanError], Chunk[ResponseValue]]],
+      ZioStreams & Effect[Task]
+    ] =
       basicRequest
         .post(httpUri)
-        .body(request)
+        .body(toJson(request))
         .response(asStreamOrSingle)
 
     def runPostStreaming(
       request: GraphQLRequest
-    ): RequestT[Identity, Either[String, ZStream[Any, Throwable, ServerSentEvent]], ZioStreams] = {
+    ): StreamRequest[Either[String, ZStream[Any, Throwable, ServerSentEvent]], ZioStreams] = {
       val req = basicRequest
         .post(httpUri)
-        .body(request)
+        .body(toJson(request))
         .contentType(MediaType.TextEventStream)
         .header(Header.accept(MediaType.TextEventStream))
 
       req
         .response(asStreamUnsafe(ZioStreams))
-        .mapResponseRight(ZioServerSentEvents.parse(_))
+        .mapResponse(_.map(ZioServerSentEvents.parse(_)))
     }
 
-    def runGet(request: GraphQLRequest): Request[Either[ResponseException[String, String], Either[GraphQLResponse[
-      CalibanError
-    ], Chunk[ResponseValue]]], Effect[Task] with ZioStreams] =
+    def runGet(
+      request: GraphQLRequest
+    ): StreamRequest[
+      Either[ResponseException[String], Either[GraphQLResponse[CalibanError], Chunk[ResponseValue]]],
+      ZioStreams & Effect[Task]
+    ] =
       basicRequest
         .get(
           httpUri.addParams(
@@ -527,10 +540,11 @@ object TapirAdapterSpec {
         .response(asStreamOrSingle)
 
     def runUpload(
-      request: List[Part[BasicRequestBody]]
-    ): Request[Either[ResponseException[String, String], Either[GraphQLResponse[CalibanError], Chunk[
-      ResponseValue
-    ]]], Effect[Task] with ZioStreams] =
+      request: List[Part[BasicBodyPart]]
+    ): StreamRequest[
+      Either[ResponseException[String], Either[GraphQLResponse[CalibanError], Chunk[ResponseValue]]],
+      ZioStreams & Effect[Task]
+    ] =
       basicRequest
         .post(httpUri)
         .response(asStreamOrSingle)
@@ -547,34 +561,50 @@ object TapirAdapterSpec {
           case line if line.startsWith("{") => Try(readFromString[ResponseValue](line)).toEither
         }).absolve >>> ZSink.collectAll[ResponseValue]
 
-    private def asStreamOrSingle: ResponseAs[
-      Either[ResponseException[String, String], Either[GraphQLResponse[CalibanError], Chunk[ResponseValue]]],
-      Effect[Task] with ZioStreams
+    private def asStreamOrSingle: StreamResponseAs[
+      Either[ResponseException[String], Either[GraphQLResponse[CalibanError], Chunk[ResponseValue]]],
+      ZioStreams & Effect[Task]
     ] =
-      fromMetadata(
-        asStringAlways.map(error => Left(HttpError(error, StatusCode.UnprocessableEntity))),
-        ConditionalResponseAs(
-          _.contentType.exists(_.startsWith("multipart/mixed")),
-          asStream(ZioStreams)(readMultipartResponse)
-            .mapRight(Right(_))
-            .mapLeft(s => HttpError(s, StatusCode.UnprocessableEntity))
-        ),
-        ConditionalResponseAs(
-          _.contentType.exists { ct =>
-            val mt = MediaType.unsafeParse(ct)
-            mt == MediaType.ApplicationJson || mt == MediaType("application", "graphql-response+json")
-          },
-          asJsonBody.mapRight(Left(_))
+      StreamResponseAs(
+        ResponseAsFromMetadata(
+          List(
+            ConditionalResponseAs(
+              _.contentType.exists(_.startsWith("multipart/mixed")),
+              asStream(ZioStreams)(readMultipartResponse)
+                .map(
+                  _.map(Right(_)).left.map(s =>
+                    UnexpectedStatusCode(s, ResponseMetadata(StatusCode.UnprocessableEntity, "", Seq.empty))
+                  )
+                )
+            ),
+            ConditionalResponseAs(
+              _.contentType.exists { ct =>
+                val mt = MediaType.unsafeParse(ct)
+                mt == MediaType.ApplicationJson || mt == MediaType("application", "graphql-response+json")
+              },
+              asJsonBody.map(_.map(Left(_)))
+            )
+          ).map(_.map(_.delegate)),
+          asStringAlways
+            .map(error =>
+              Left(UnexpectedStatusCode(error, ResponseMetadata(StatusCode.UnprocessableEntity, "", Seq.empty)))
+            )
+            .delegate
         )
       )
 
-    private def asJsonBody
-      : ResponseAs[Either[ResponseException[String, String], GraphQLResponse[CalibanError]], Effect[Task]
-        with ZioStreams] =
+    private def asJsonBody: ResponseAs[Either[ResponseException[String], GraphQLResponse[CalibanError]]] =
       asString.mapWithMetadata(
         ResponseAs.deserializeRightWithError(
           jsoniterCodec[GraphQLResponse[CalibanError]].decode(_) match {
-            case _: DecodeResult.Failure => Left("Failed to decode")
+            case f: DecodeResult.Failure =>
+              Left(
+                ResponseException.DeserializationException(
+                  "Failed to decode",
+                  new Exception(f.toString),
+                  ResponseMetadata(StatusCode.UnprocessableEntity, "", Seq.empty)
+                )
+              )
             case DecodeResult.Value(v)   => Right(v)
           }
         )

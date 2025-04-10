@@ -12,16 +12,16 @@ import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
 import caliban.parsing.adt.Definition.TypeSystemDefinition.{ DirectiveDefinition, SchemaDefinition, TypeDefinition }
 import caliban.parsing.adt.Type.{ ListType, NamedType }
 import caliban.parsing.adt.{ Directive, Document, Type }
-import sttp.client3._
+import sttp.client4._
 import sttp.model.Uri
-import zio.{ RIO, ZIO }
+import zio.{ RIO, Task, ZIO }
 
 object IntrospectionClient {
 
   def introspect(
     uri: String,
     headers: Option[List[Options.Header]]
-  ): RIO[SttpClient, Document] =
+  ): RIO[Backend[Task], Document] =
     introspect(uri, headers, Config.default)
 
   @deprecated("Use overloaded method that accepts a config instead", "2.8.2")
@@ -29,14 +29,14 @@ object IntrospectionClient {
     uri: String,
     headers: Option[List[Options.Header]],
     supportIsRepeatable: Boolean = true
-  ): RIO[SttpClient, Document] =
+  ): RIO[Backend[Task], Document] =
     introspect(uri, headers, Config.default.supportIsRepeatable(supportIsRepeatable))
 
   def introspect(
     uri: String,
     headers: Option[List[Options.Header]],
     config: IntrospectionClient.Config
-  ): RIO[SttpClient, Document] =
+  ): RIO[Backend[Task], Document] =
     for {
       parsedUri <- ZIO.fromEither(Uri.parse(uri)).mapError(cause => new Exception(s"Invalid URL: $cause"))
       baseReq    = introspection(config).toRequest(parsedUri, dropNullInputValues = true)
@@ -44,8 +44,8 @@ object IntrospectionClient {
       result    <- sendRequest(req)
     } yield result
 
-  private def sendRequest[T](req: Request[Either[CalibanClientError, T], Any]): RIO[SttpClient, T] =
-    ZIO.serviceWithZIO[SttpClient](_.send(req)).map(_.body).absolve
+  private def sendRequest[T](req: Request[Either[CalibanClientError, T]]): RIO[Backend[Task], T] =
+    ZIO.serviceWithZIO[Backend[Task]](_.send(req)).map(_.body).absolve
 
   private def directives(isDeprecated: Boolean, deprecationReason: Option[String]): List[Directive] =
     if (isDeprecated)

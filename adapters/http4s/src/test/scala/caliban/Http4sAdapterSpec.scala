@@ -8,7 +8,7 @@ import fs2.io.net.Network
 import org.http4s.ember.server.EmberServerBuilder
 import org.http4s.server.Router
 import org.http4s.server.middleware.CORS
-import sttp.client3.UriContext
+import sttp.client4.UriContext
 import zio._
 import zio.interop.catz._
 import zio.test.{ Live, ZIOSpecDefault }

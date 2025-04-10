@@ -7,7 +7,7 @@ import org.apache.pekko.actor.ActorSystem
 import org.apache.pekko.http.scaladsl.Http
 import org.apache.pekko.http.scaladsl.server.Directives._
 import org.apache.pekko.stream.Materializer
-import sttp.client3.UriContext
+import sttp.client4.UriContext
 import zio._
 import zio.test._
 
