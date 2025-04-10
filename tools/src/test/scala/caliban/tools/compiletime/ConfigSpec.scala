@@ -47,7 +47,8 @@ object ConfigSpec extends ZIOSpecDefault {
               addDerives = None,
               envForDerives = None,
               excludeDeprecated = Some(true),
-              supportDeprecatedArgs = Some(true)
+              supportDeprecatedArgs = Some(true),
+              partialMutations = None
             )
         )
       )

@@ -269,6 +269,7 @@ object Field {
   ): Map[String, InputValue] = {
     def resolveVariable(value: InputValue): Option[InputValue] =
       value match {
+        case InputValue.UndefinedValue      => None
         case InputValue.VariableValue(name) =>
           for {
             definition <- variableDefinitions.get(name)

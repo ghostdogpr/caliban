@@ -638,11 +638,13 @@ object DocumentRenderer extends Renderer[Document] {
 
   private lazy val defaultValueRenderer: Renderer[Option[InputValue]] = new Renderer[Option[InputValue]] {
     override def unsafeRender(value: Option[InputValue], indent: Option[Int], writer: StringBuilder): Unit =
-      value.foreach { value =>
-        spaceOrEmpty(indent, writer)
-        writer append '='
-        spaceOrEmpty(indent, writer)
-        ValueRenderer.inputValueRenderer.unsafeRender(value, indent, writer)
+      value.foreach {
+        case InputValue.UndefinedValue => ()
+        case value                     =>
+          spaceOrEmpty(indent, writer)
+          writer append '='
+          spaceOrEmpty(indent, writer)
+          ValueRenderer.inputValueRenderer.unsafeRender(value, indent, writer)
       }
   }
 

@@ -38,7 +38,8 @@ trait Config {
         addDerives = None,
         envForDerives = None,
         excludeDeprecated = Some(excludeDeprecated),
-        supportDeprecatedArgs = Some(supportDeprecatedArgs)
+        supportDeprecatedArgs = Some(supportDeprecatedArgs),
+        partialMutations = None
       )
 
     private[caliban] def asScalaCode: String = {
