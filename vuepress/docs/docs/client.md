@@ -149,13 +149,13 @@ You can then simply run the `sttp` request with the backend of your choice. See 
 
 Here is an example using the `AsyncHttpClient` backend for `ZIO`:
 ```scala
-import sttp.client3._
-import sttp.client3.asynchttpclient.zio.AsyncHttpClientZioBackend
+import sttp.client4._
+import sttp.client4.httpclient.zio.HttpClientZioBackend
 
-AsyncHttpClientZioBackend().flatMap { implicit backend =>
+HttpClientZioBackend.layer().flatMap { backend =>
   val serverUrl = uri"http://localhost:8088/api/graphql"
   val result: Task[List[CharacterView]] =
-    query.toRequest(serverUrl).send().map(_.body).absolve
+    query.toRequest(serverUrl).send(backend).map(_.body).absolve
   ...
 }
 ```

@@ -10,7 +10,7 @@ trait PostClient {
 }
 
 final class PostClientLive(backend: Backend[Task]) extends PostClient {
-  import sttp.client3._
+  import sttp.client4._
 
   private val serverUrl = uri"http://localhost:8088/api/graphql"
 

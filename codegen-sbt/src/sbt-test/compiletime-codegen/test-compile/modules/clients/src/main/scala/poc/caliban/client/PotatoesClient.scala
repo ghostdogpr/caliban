@@ -9,7 +9,7 @@ trait PotatoesClient {
 }
 
 final class PotatoesClientLive(backend: Backend[Task]) extends PotatoesClient {
-  import sttp.client3._
+  import sttp.client4._
 
   private val serverUrl = uri"http://localhost:8088/api/graphql"
 

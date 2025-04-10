@@ -20,7 +20,7 @@ libraryDependencies ++= Seq(
   "com.github.ghostdogpr"                 %% "caliban-tools"                 % calibanVersion,
   "org.http4s"                            %% "http4s-ember-server"           % "0.23.23",
   "org.http4s"                            %% "http4s-dsl"                    % "0.23.23",
-  "com.softwaremill.sttp.client3"         %% "zio"                           % "3.9.0",
+  "com.softwaremill.sttp.client4"         %% "zio"                           % "4.0.0",
   "org.playframework"                     %% "play-pekko-http-server"        % "3.0.0",
   "com.typesafe.akka"                     %% "akka-actor-typed"              % "2.6.18",
   "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros"         % "2.30.9" % Provided
