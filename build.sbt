@@ -23,7 +23,7 @@ val pekkoHttpVersion          = "1.1.0"
 val playVersion               = "3.0.7"
 val playJsonVersion           = "3.0.4"
 val scalafmtVersion           = "3.8.0"
-val sttpVersion               = "4.0.0"
+val sttpVersion               = "4.0.1"
 val tapirVersion              = "1.11.23"
 val zioVersion                = "2.1.17"
 val zioInteropCats2Version    = "22.0.0.0"
@@ -87,7 +87,7 @@ lazy val allProjects: Seq[ProjectReference] =
     tapirInterop,
     clientJVM,
     clientJS,
-//    clientNative,
+    clientNative,
     clientLaminext,
     tools,
     codegenSbt,
@@ -112,7 +112,7 @@ lazy val rootJVM212 = project
     ideSkipProject     := true
   )
   .aggregate({
-    val excluded: Set[ProjectReference] = Set(clientJS, /*clientNative,*/ clientLaminext, play, apolloCompatibility)
+    val excluded: Set[ProjectReference] = Set(clientJS, clientNative, clientLaminext, play, apolloCompatibility)
     allProjects.filterNot(excluded.contains)
   } *)
 
@@ -124,7 +124,7 @@ lazy val rootJVM213 = project
     ideSkipProject     := true
   )
   .aggregate({
-    val excluded: Set[ProjectReference] = Set(clientJS, /*clientNative,*/ clientLaminext, codegenSbt)
+    val excluded: Set[ProjectReference] = Set(clientJS, clientNative, clientLaminext, codegenSbt)
     allProjects.filterNot(excluded.contains)
   } *)
 
@@ -137,7 +137,7 @@ lazy val rootJVM3 = project
   )
   .aggregate({
     val excluded: Set[ProjectReference] =
-      Set(clientJS, /*clientNative,*/ clientLaminext, codegenSbt, akkaHttp)
+      Set(clientJS, clientNative, clientLaminext, codegenSbt, akkaHttp)
     allProjects.filterNot(excluded.contains)
   } *)
 
@@ -442,7 +442,7 @@ lazy val play = project
   )
   .dependsOn(core, tapirInterop % "compile->compile;test->test")
 
-lazy val client    = crossProject(JSPlatform, JVMPlatform /*, NativePlatform*/ )
+lazy val client    = crossProject(JSPlatform, JVMPlatform, NativePlatform)
   .crossType(CrossType.Pure)
   .in(file("client"))
   .settings(name := "caliban-client")
@@ -472,14 +472,14 @@ lazy val clientJS  = client.js
   .settings(scalaVersion := scala213)
   .settings(crossScalaVersions := allScala)
 
-//lazy val clientNative = client.native
-//  .settings(
-//    libraryDependencies ++= Seq(
-//      "com.github.lolgab" %%% "scala-native-crypto" % "0.2.0",
-//      "io.github.cquiroz" %%% "scala-java-time"     % javaTimeVersion % Test
-//    ),
-//    Test / fork := false
-//  )
+lazy val clientNative = client.native
+  .settings(
+    libraryDependencies ++= Seq(
+      "com.github.lolgab" %%% "scala-native-crypto" % "0.2.0",
+      "io.github.cquiroz" %%% "scala-java-time"     % javaTimeVersion % Test
+    ),
+    Test / fork := false
+  )
 
 lazy val clientLaminext = crossProject(JSPlatform)
   .crossType(CrossType.Pure)
