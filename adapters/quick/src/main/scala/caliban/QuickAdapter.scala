@@ -20,10 +20,6 @@ final class QuickAdapter[R] private (requestHandler: QuickRequestHandler[R]) {
     webSocket = Handler.fromFunctionZIO[Request](requestHandler.handleWebSocketRequest)
   )
 
-  @deprecated("Use `handlers` instead", "2.5.0")
-  lazy val handler: RequestHandler[R, Nothing] =
-    Handler.fromFunctionZIO[Request](requestHandler.handleHttpRequest)
-
   /**
    * Converts this adapter to a `Routes` serving the GraphQL API at the specified path.
    *

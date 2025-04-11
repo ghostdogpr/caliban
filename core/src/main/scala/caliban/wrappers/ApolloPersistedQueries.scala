@@ -11,7 +11,6 @@ import zio._
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicReference
-import scala.collection.mutable
 
 object ApolloPersistedQueries {
 
@@ -109,10 +108,6 @@ object ApolloPersistedQueries {
             case None       => process(request)
           }
     }
-
-  @deprecated("Use `wrapper` instead and pass the cache explicitly", "2.9.0")
-  val apolloPersistedQueries: EffectfulWrapper[ApolloPersistence] =
-    EffectfulWrapper(ZIO.serviceWith[ApolloPersistence](wrapper))
 
   /**
    * Returns a wrapper that persists and retrieves queries based on a hash

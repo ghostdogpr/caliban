@@ -30,12 +30,6 @@ object MonixInterop {
   )(query: String)(implicit runtime: Runtime[Any]): MonixTask[Unit] =
     graphQL.check(query).toMonixTask
 
-  @deprecated("Use interpreterMonix instead")
-  def interpreterAsync[R](
-    graphQL: GraphQL[R]
-  )(implicit runtime: Runtime[Any]): MonixTask[GraphQLInterpreter[R, CalibanError]] =
-    interpreterMonix(graphQL)
-
   def interpreterMonix[R](
     graphQL: GraphQL[R]
   ): MonixTask[GraphQLInterpreter[R, CalibanError]] =

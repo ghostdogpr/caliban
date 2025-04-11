@@ -71,10 +71,6 @@ package object quick {
     def handlers(implicit trace: Trace): IO[CalibanError.ValidationError, QuickHandlers[R]] =
       gql.interpreter.map(QuickAdapter(_).handlers)
 
-    @deprecated("Use handlers instead", "2.5.0")
-    def handler(implicit trace: Trace): IO[CalibanError.ValidationError, RequestHandler[R, Nothing]] =
-      gql.interpreter.map(QuickAdapter(_).handler)
-
     /**
      * Creates a zio-http handler for the GraphQL API, allowing to configure the GraphQL request execution
      */
@@ -82,12 +78,6 @@ package object quick {
       trace: Trace
     ): IO[CalibanError.ValidationError, QuickHandlers[R]] =
       gql.interpreter.map(QuickAdapter(_).configure(config).handlers)
-
-    @deprecated("Use handlersConfigured instead", "2.5.0")
-    def handlerConfigured(config: ExecutionConfiguration)(implicit
-      trace: Trace
-    ): IO[CalibanError.ValidationError, RequestHandler[R, Response]] =
-      gql.interpreter.map(QuickAdapter(_).configure(config).handler)
 
     /**
      * Unsafe API which allows running the server impurely

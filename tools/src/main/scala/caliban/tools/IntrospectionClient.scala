@@ -24,14 +24,6 @@ object IntrospectionClient {
   ): RIO[Backend[Task], Document] =
     introspect(uri, headers, Config.default)
 
-  @deprecated("Use overloaded method that accepts a config instead", "2.8.2")
-  def introspect(
-    uri: String,
-    headers: Option[List[Options.Header]],
-    supportIsRepeatable: Boolean = true
-  ): RIO[Backend[Task], Document] =
-    introspect(uri, headers, Config.default.supportIsRepeatable(supportIsRepeatable))
-
   def introspect(
     uri: String,
     headers: Option[List[Options.Header]],
@@ -256,12 +248,6 @@ object IntrospectionClient {
           __EnumValue.deprecationReason).mapN(mapEnumValue _)
       } ~
       __Type.possibleTypes(typeRef)).mapN(mapType _)
-
-  @deprecated("Use overloaded method that accepts a list of experimental features", "2.8.2")
-  def introspection(supportIsRepeatable: Boolean): SelectionBuilder[RootQuery, Document] = {
-    val cfg = Config.default.supportIsRepeatable(supportIsRepeatable)
-    introspection(cfg)
-  }
 
   def introspection(implicit config: Config): SelectionBuilder[RootQuery, Document] =
     Query.__schema {

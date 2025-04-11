@@ -176,12 +176,6 @@ object CatsInterop {
   )(query: String)(implicit interop: ToEffect[F, Any]): F[Unit] =
     interop.toEffect(graphQL.check(query))
 
-  @deprecated("use interpreterF instead")
-  def interpreterAsync[F[_], R](
-    graphQL: GraphQL[R]
-  )(implicit interop: ToEffect[F, Any]): F[GraphQLInterpreter[R, CalibanError]] =
-    interop.toEffect(graphQL.interpreter)
-
   def interpreterF[F[_]: ApplicativeThrow, R](graphQL: GraphQL[R]): F[GraphQLInterpreter[R, CalibanError]] =
     ApplicativeThrow[F].fromEither(graphQL.interpreterEither)
 

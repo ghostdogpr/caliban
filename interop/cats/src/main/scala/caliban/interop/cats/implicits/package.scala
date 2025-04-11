@@ -1,6 +1,5 @@
 package caliban.interop.cats
 
-import caliban.execution.QueryExecution
 import caliban.schema.Schema
 import caliban.{ CalibanError, GraphQL, GraphQLInterpreter, GraphQLResponse, InputValue }
 import cats.ApplicativeThrow
@@ -26,10 +25,6 @@ package object implicits {
   }
 
   implicit class CatsEffectGraphQL[R](private val underlying: GraphQL[R]) extends AnyVal {
-    @deprecated("Use interpreterF instead")
-    def interpreterAsync[F[_]](implicit interop: ToEffect[F, Any]): F[GraphQLInterpreter[R, CalibanError]] =
-      CatsInterop.interpreterAsync[F, R](underlying)
-
     def interpreterF[F[_]: ApplicativeThrow]: F[GraphQLInterpreter[R, CalibanError]] =
       CatsInterop.interpreterF[F, R](underlying)
   }

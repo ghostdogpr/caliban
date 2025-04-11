@@ -80,7 +80,6 @@ lazy val allProjects: Seq[ProjectReference] =
     akkaHttp,
     pekkoHttp,
     play,
-    zioHttp,
     quickAdapter,
     catsInterop,
     monixInterop,
@@ -361,14 +360,6 @@ lazy val http4s = project
   )
   .dependsOn(core % "compile->compile;test->test", tapirInterop % "compile->compile;test->test", catsInterop)
 
-lazy val zioHttp = project
-  .in(file("adapters/zio-http"))
-  .settings(name := "caliban-zio-http")
-  .settings(commonSettings)
-  .settings(enableMimaSettingsJVM)
-  .disablePlugins(AssemblyPlugin)
-  .dependsOn(core, quickAdapter)
-
 lazy val quickAdapter = project
   .in(file("adapters/quick"))
   .settings(name := "caliban-quick")
@@ -544,7 +535,6 @@ lazy val examples = project
     tapirInterop,
     clientJVM,
     federation,
-    zioHttp,
     tools
   )
 

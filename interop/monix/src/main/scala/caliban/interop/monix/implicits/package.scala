@@ -23,10 +23,6 @@ package object implicits {
   }
 
   implicit class MonixGraphQL[R, E](underlying: GraphQL[R]) {
-    @deprecated("use interpreterMonix instead")
-    def interpreterAsync(implicit runtime: Runtime[Any]): Task[GraphQLInterpreter[R, CalibanError]] =
-      MonixInterop.interpreterAsync(underlying)
-
     def interpreterMonix: Task[GraphQLInterpreter[R, CalibanError]] =
       MonixInterop.interpreterMonix(underlying)
   }

@@ -23,8 +23,8 @@ object OptionalSpec extends ZIOSpecDefault {
 
       implicit def wrapperSchema[A](implicit ev: Schema[Any, A]): Schema[Any, Wrapper[A]] =
         new Schema[Any, Wrapper[A]] {
-          @annotation.nowarn
-          override def optional                                 = ev.optional
+          override def canFail: Boolean                         = ev.canFail
+          override def nullable: Boolean                        = ev.nullable
           def toType(isInput: Boolean, isSubscription: Boolean) = ev.toType_(isInput, isSubscription)
           def resolve(value: Wrapper[A]): Step[Any]             =
             ev.resolve(value.value)

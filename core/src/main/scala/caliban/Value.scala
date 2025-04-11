@@ -140,9 +140,6 @@ object Value {
     def apply(v: Long): IntValue   = LongNumber(v)
     def apply(v: BigInt): IntValue = BigIntNumber(v)
 
-    @deprecated("Use `fromStringUnsafe` instead", "2.5.0")
-    def apply(s: String): IntValue = fromStringUnsafe(s)
-
     @throws[NumberFormatException]("if the string is not a valid representation of an integer")
     def fromStringUnsafe(s: String): IntValue =
       try {
@@ -179,9 +176,6 @@ object Value {
     def apply(v: Float): FloatValue      = FloatNumber(v)
     def apply(v: Double): FloatValue     = DoubleNumber(v)
     def apply(v: BigDecimal): FloatValue = BigDecimalNumber(v)
-
-    @deprecated("Use `fromStringUnsafe` instead", "2.6.0")
-    def apply(s: String): FloatValue = fromStringUnsafe(s)
 
     @throws[NumberFormatException]("if the string is not a valid representation of a float")
     def fromStringUnsafe(s: String): FloatValue =
