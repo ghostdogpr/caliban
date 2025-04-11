@@ -48,7 +48,7 @@ object ExampleCatsInterop extends IOApp {
       val api = graphQL(RootResolver(queries))
 
       for {
-        interpreter <- api.interpreterAsync[IO]
+        interpreter <- api.interpreterF[IO]
         result      <- interpreter.executeAsync[IO](query)
         _           <- IO(println(result.data))
       } yield ExitCode.Success
@@ -141,7 +141,7 @@ object Simple extends IOApp {
       }
 
       for {
-        interpreter <- api.interpreterAsync[F]
+        interpreter <- api.interpreterF[F]
         result      <- interpreter.executeAsync[F](query)
         _           <- logger.info(result.data.toString)
       } yield ExitCode.Success
