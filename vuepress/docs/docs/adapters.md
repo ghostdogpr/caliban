@@ -110,7 +110,7 @@ for {
     // Alternatively, without imported syntax:
     handlers2 <- api.interpreter.map(QuickAdapter(_).handlers)
     // Creates a handler which serves the GraphiQL API from CDN
-    graphiql = GraphiQLHandler.handler(apiPath = "/api/graphql", graphiqlPath = "/graphiql")
+    graphiql = GraphiQLHandler.handler(apiPath = "/api/graphql", wsPath = None)
     app = Routes(
             Method.ANY / "api" / "graphql"     -> handlers.api,
             Method.GET / "graphiql"            -> graphiql,
