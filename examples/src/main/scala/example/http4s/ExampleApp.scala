@@ -31,7 +31,7 @@ object ExampleApp extends ZIOAppDefault {
                            "/ws/graphql"  -> CORS.policy(
                              Http4sAdapter.makeWebSocketService(wsBuilder, WebSocketInterpreter(interpreter))
                            ),
-                           "/graphiql"    -> Http4sAdapter.makeGraphiqlService("/api/graphql")
+                           "/graphiql"    -> Http4sAdapter.makeGraphiqlService("/api/graphql", "/ws/graphql")
                          ).orNotFound
                        )
                        .build

@@ -45,7 +45,7 @@ object ExampleAppF extends IOApp {
                                    .makeWebSocketServiceF[IO, Any, CalibanError](wsBuilder, WebSocketInterpreter(interpreter))
                                ),
                              "/graphiql"    ->
-                               Http4sAdapter.makeGraphiqlService("/api/graphql")
+                               Http4sAdapter.makeGraphiqlService("/api/graphql", "/ws/graphql")
                            ).orNotFound
                          )
                          .build

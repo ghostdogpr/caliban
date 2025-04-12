@@ -211,6 +211,26 @@ object HttpInterpreter {
    */
   def makeGraphiqlEndpoint[F[_]](
     apiPath: String
+  )(implicit F: MonadError[F]): ServerEndpoint.Full[Unit, Unit, ServerRequest, Nothing, String, Any, F] =
+    makeGraphiqlEndpointInner(apiPath, wsPath = None)
+
+  /**
+   * Creates an endpoint that serves the GraphiQL UI from CDN.
+   *
+   * @param apiPath The path at which the API can be introspected.
+   * @param wsPath The path at which the WS subscription can be introspected.
+   *
+   * @see [[https://github.com/graphql/graphiql/tree/main/examples/graphiql-cdn]]
+   */
+  def makeGraphiqlEndpoint[F[_]](
+    apiPath: String,
+    wsPath: String
+  )(implicit F: MonadError[F]): ServerEndpoint.Full[Unit, Unit, ServerRequest, Nothing, String, Any, F] =
+    makeGraphiqlEndpointInner(apiPath, Some(wsPath))
+
+  private def makeGraphiqlEndpointInner[F[_]](
+    apiPath: String,
+    wsPath: Option[String]
   )(implicit F: MonadError[F]): ServerEndpoint.Full[Unit, Unit, ServerRequest, Nothing, String, Any, F] = {
     val apiPath0 = apiPath.split("/").filter(_.nonEmpty).mkString("/", "/", "")
     infallibleEndpoint.get
@@ -219,7 +239,7 @@ object HttpInterpreter {
       .serverLogic[F] { req =>
         val segments = req.pathSegments
         val uiPath   = segments.mkString("/", "/", "")
-        val entity   = Right(HttpUtils.graphiqlHtml(apiPath = apiPath0, uiPath = uiPath))
+        val entity   = Right(HttpUtils.graphiqlHtml(apiPath = apiPath0, uiPath = uiPath, wsPath = wsPath))
         F.unit(entity)
       }
   }

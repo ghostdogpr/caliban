@@ -1,8 +1,7 @@
 package caliban.tools
 
-import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition
-import caliban.parsing.adt.Definition.TypeSystemDefinition.AggregationTypeDefinition
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
+import caliban.parsing.adt.Definition.TypeSystemDefinition.{ AggregationTypeDefinition, TypeDefinition }
 import caliban.parsing.adt.Directives.{ LazyDirective, NewtypeDirective }
 import caliban.parsing.adt.Type.{ ListType, NamedType }
 import caliban.parsing.adt.{ Directive, Directives, Document, Type }
@@ -168,7 +167,7 @@ object SchemaWriter {
       s"""
           $maybeAnnotation${writeTypeAnnotations(
           typedef
-        )}@GQLOneOfInput\nsealed trait $name extends scala.Product with scala.Serializable
+        )}@GQLOneOfInput\nsealed trait $name extends scala.Product with scala.Serializable$derivesSchemaAndArgBuilder
           object $name {
             ${typedef.fields.map(writeOneOfInputField(_, name)).mkString("\n")}
           }

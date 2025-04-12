@@ -76,6 +76,9 @@ private object ValueValidator {
                 validateType(inputType.ofType.getOrElse(inputType), other, context, s"List item in $errorContext")
             }
 
+          case INPUT_OBJECT if inputType._isOneOfInput =>
+            Validator.validateOneOfInputValue(argValue, errorContext)
+
           case INPUT_OBJECT =>
             argValue match {
               case ObjectValue(fields) =>

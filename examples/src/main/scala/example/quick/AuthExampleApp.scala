@@ -65,7 +65,8 @@ object AuthExampleApp extends ZIOAppDefault {
       port       <- Server.install(
                       Routes(
                         Method.POST / "api" / "graphql" -> handlers.api,
-                        Method.GET / "graphiql"         -> GraphiQLHandler.handler("/api/graphql")
+                        Method.ANY / "graphql" / "ws"   -> handlers.webSocket,
+                        Method.GET / "graphiql"         -> GraphiQLHandler.handler("/api/graphql", Some("/graphql/ws"))
                       )
                     )
       _          <- ZIO.logInfo(s"Server started on port $port")

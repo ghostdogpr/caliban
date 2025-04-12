@@ -84,7 +84,7 @@ private[caliban] object HttpUtils {
     def serverSentEvents: Boolean = length >= 17 && header.contains("text/event-stream")
   }
 
-  def graphiqlHtml(apiPath: String, uiPath: String): String =
+  def graphiqlHtml(apiPath: String, uiPath: String, wsPath: Option[String]): String =
     s"""<!doctype html>
        |<html lang="en">
        |  <head>
@@ -130,7 +130,10 @@ private[caliban] object HttpUtils {
        |    <script>
        |      const root = ReactDOM.createRoot(document.getElementById('graphiql'));
        |      const fetcher = GraphiQL.createFetcher({
-       |        url: window.location.href.replace("$uiPath", "$apiPath")
+       |        url: window.location.href.replace("$uiPath", "$apiPath"),
+       |        ${wsPath.fold("") { wsPath =>
+        s"subscriptionUrl: window.location.href.replace(\'$uiPath\', \'$wsPath\').replace(\'https:\',\'wss:\').replace(\'http:\',\'ws:\')"
+      }}
        |      });
        |      const explorerPlugin = GraphiQLPluginExplorer.explorerPlugin();
        |      root.render(

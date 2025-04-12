@@ -35,7 +35,7 @@ object ExampleApp extends ZIOAppDefault {
                              case req @ GET(p"/ws/graphql")   =>
                                PlayAdapter.makeWebSocketService(WebSocketInterpreter(interpreter)).apply(req)
                              case req @ GET(p"/graphiql")     =>
-                               PlayAdapter.makeGraphiqlService("/api/graphql").apply(req)
+                               PlayAdapter.makeGraphiqlService("/api/graphql", "/ws/graphql").apply(req)
                            }.routes
                          }
                        )
