@@ -12,13 +12,15 @@ trait SnapshotTest extends ZIOSpecDefault {
   def testName: String
 
   def snapshotTest(
-    label0: String
+    label0: String,
+    fileExtension: String = ".scala"
   )(str: Task[String])(implicit sourceLocation: SourceLocation, trace: Trace): Spec[Any, Throwable] = {
     val label = label0.replace('/', '_').replace("'", "")
     zio.test.test[Task[TestResult]](label) {
       str.map { str =>
         val isCi = SnapshotTest.isCi
-        val path = SnapshotTest.projectRoot.resolve(s"tools/src/test/resources/snapshots/$testName/${label + ".scala"}")
+        val path =
+          SnapshotTest.projectRoot.resolve(s"tools/src/test/resources/snapshots/$testName/${label + fileExtension}")
 
         def write(): TestResult = {
           Files.createDirectories(path.getParent)
