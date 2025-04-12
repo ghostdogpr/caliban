@@ -31,8 +31,9 @@ object Type {
   case class ListType(ofType: Type, nonNull: Boolean)  extends Type
 
   /**
-   * Returns the inner type of a type. For example, the inner type of `[[User]]` is `User`.
-   * For another example, the inner type of `User!` is `User`.
+   * Returns the inner type name of a type. It recursively goes down outer type
+   * until it finds a named type. For example, the inner type of `[User]` is `"User"`.
+   * For another example, the inner type of `User!` is `"User"`.
    */
   @tailrec
   def innerType(t: Type): String = t match {
