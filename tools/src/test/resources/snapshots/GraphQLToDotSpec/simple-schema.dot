@@ -1,0 +1,133 @@
+digraph erd {
+  rankdir = "LR";
+  node [
+    fontsize = "16"
+    shape = "plaintext"
+  ];
+  edge [
+  ];
+    "Root" [
+      label=<
+        <TABLE
+          COLOR="black"
+          BORDER="0"
+          CELLBORDER="1"
+          CELLSPACING="0"
+        >
+            <TR>
+              <TD PORT="__title"><FONT COLOR="black"><B>Root</B></FONT></TD>
+            </TR>
+            <TR>
+              <TD ALIGN="LEFT" PORT="accountport"><FONT COLOR="black">account(id: String!): Account</FONT></TD>
+            </TR>
+            <TR>
+              <TD ALIGN="LEFT" PORT="allAccountsport"><FONT COLOR="black">allAccounts: [Account!]!</FONT></TD>
+            </TR>
+            <TR>
+              <TD ALIGN="LEFT" PORT="searchport"><FONT COLOR="black">search(input: SearchInput!): [Account!]!</FONT></TD>
+            </TR>
+        </TABLE>
+      >
+    ]
+    "Account" [
+      label=<
+        <TABLE
+          COLOR="black"
+          BORDER="0"
+          CELLBORDER="1"
+          CELLSPACING="0"
+        >
+            <TR>
+              <TD PORT="__title"><FONT COLOR="black"><B>Account</B></FONT></TD>
+            </TR>
+            <TR>
+              <TD ALIGN="LEFT" PORT="idport"><FONT COLOR="black">id: String!</FONT></TD>
+            </TR>
+            <TR>
+              <TD ALIGN="LEFT" PORT="emailport"><FONT COLOR="black">email: String</FONT></TD>
+            </TR>
+            <TR>
+              <TD ALIGN="LEFT" PORT="statusport"><FONT COLOR="black">status: Status!</FONT></TD>
+            </TR>
+        </TABLE>
+      >
+    ]
+    "Node" [
+      label=<
+        <TABLE
+          COLOR="black"
+          BORDER="0"
+          CELLBORDER="1"
+          CELLSPACING="0"
+        >
+            <TR>
+              <TD PORT="__title"><FONT COLOR="black">&laquo;interface&raquo;<BR/><B>Node</B></FONT></TD>
+            </TR>
+            <TR>
+              <TD ALIGN="LEFT" PORT="idport"><FONT COLOR="black">id: String!</FONT></TD>
+            </TR>
+        </TABLE>
+      >
+    ]
+    "Statusable" [
+      label=<
+        <TABLE
+          COLOR="black"
+          BORDER="0"
+          CELLBORDER="1"
+          CELLSPACING="0"
+        >
+            <TR>
+              <TD PORT="__title"><FONT COLOR="black">&laquo;interface&raquo;<BR/><B>Statusable</B></FONT></TD>
+            </TR>
+            <TR>
+              <TD ALIGN="LEFT" PORT="statusport"><FONT COLOR="black">status: Status!</FONT></TD>
+            </TR>
+        </TABLE>
+      >
+    ]
+    "SearchInput" [
+      label=<
+        <TABLE
+          COLOR="black"
+          BORDER="0"
+          CELLBORDER="1"
+          CELLSPACING="0"
+        >
+            <TR>
+              <TD PORT="__title"><FONT COLOR="black">&laquo;input&raquo;<BR/><B>SearchInput</B></FONT></TD>
+            </TR>
+            <TR>
+              <TD ALIGN="LEFT" PORT="textport"><FONT COLOR="black">text: String!</FONT></TD>
+            </TR>
+        </TABLE>
+      >
+    ]
+    "Status" [
+      label=<
+        <TABLE
+          COLOR="black"
+          BORDER="0"
+          CELLBORDER="1"
+          CELLSPACING="0"
+        >
+            <TR>
+              <TD PORT="__title"><FONT COLOR="black">&laquo;enumeration&raquo;<BR/><B>Status</B></FONT></TD>
+            </TR>
+            <TR>
+              <TD ALIGN="LEFT" PORT="ACTIVEport"><FONT COLOR="black">ACTIVE</FONT></TD>
+            </TR>
+            <TR>
+              <TD ALIGN="LEFT" PORT="INACTIVEport"><FONT COLOR="black">INACTIVE</FONT></TD>
+            </TR>
+        </TABLE>
+      >
+    ]
+    "Root":accountport -> "Account";
+    "Root":allAccountsport -> "Account";
+    "Root":searchport -> "Account";
+    "SearchInput" -> "Root":searchport;
+    "Account":statusport -> "Status";
+    "Account":__title -> "Node":__title;
+}
+
