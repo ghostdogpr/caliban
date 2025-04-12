@@ -1,5 +1,7 @@
 digraph erd {
-  rankdir = "LR";
+  graph [
+    rankdir = "LR";
+  ];
   node [
     fontsize = "16"
     shape = "plaintext"

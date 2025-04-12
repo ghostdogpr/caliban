@@ -21,7 +21,9 @@ object GraphQLToDot extends DotInstanceSyntax {
     val relations  = Relations.fromTypes(document.typeDefinitions).map(_.toDot())
     val dotfile    = s"""
                      |digraph erd {
-                     |  rankdir = "LR";
+                     |  graph [
+                     |    rankdir = "LR";
+                     |  ];
                      |  node [
                      |    fontsize = "16"
                      |    shape = "plaintext"
