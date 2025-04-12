@@ -17,9 +17,6 @@ object GraphQLToDotSpec extends SnapshotTest {
             interface Node {
               id: String!
             }
-            interface Statusable {
-              status: Status!
-            }
 
             enum Status {
               ACTIVE

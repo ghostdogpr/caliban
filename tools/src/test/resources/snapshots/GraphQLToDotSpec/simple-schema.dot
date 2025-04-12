@@ -69,23 +69,6 @@ digraph erd {
         </TABLE>
       >
     ]
-    "Statusable" [
-      label=<
-        <TABLE
-          COLOR="black"
-          BORDER="0"
-          CELLBORDER="1"
-          CELLSPACING="0"
-        >
-            <TR>
-              <TD PORT="__title"><FONT COLOR="black">&laquo;interface&raquo;<BR/><B>Statusable</B></FONT></TD>
-            </TR>
-            <TR>
-              <TD ALIGN="LEFT" PORT="statusport"><FONT COLOR="black">status: Status!</FONT></TD>
-            </TR>
-        </TABLE>
-      >
-    ]
     "SearchInput" [
       label=<
         <TABLE
