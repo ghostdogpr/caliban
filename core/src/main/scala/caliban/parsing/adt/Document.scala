@@ -6,6 +6,7 @@ import caliban.parsing.adt.Definition.ExecutableDefinition.{ FragmentDefinition,
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
 import caliban.parsing.adt.Definition.TypeSystemDefinition.{ DirectiveDefinition, SchemaDefinition, TypeDefinition }
 import caliban.parsing.adt.OperationType.{ Mutation, Query, Subscription }
+import caliban.parsing.adt.Definition.TypeSystemDefinition.AggregationTypeDefinition
 
 case class Document(definitions: List[Definition], sourceMapper: SourceMapper) {
 
@@ -39,9 +40,10 @@ case class Document(definitions: List[Definition], sourceMapper: SourceMapper) {
     definitions.collect { case od: OperationDefinition if od.operationType == Mutation => od }
   @transient lazy val subscriptionDefinitions: List[OperationDefinition]          =
     definitions.collect { case od: OperationDefinition if od.operationType == Subscription => od }
-
-  def objectTypeDefinition(name: String): Option[ObjectTypeDefinition]       =
+  @transient lazy val aggregationTypeDefinitions: List[AggregationTypeDefinition] =
+    definitions.collect { case agg: AggregationTypeDefinition => agg }
+  def objectTypeDefinition(name: String): Option[ObjectTypeDefinition]            =
     objectTypeDefinitions.find(t => t.name == name)
-  def interfaceTypeDefinition(name: String): Option[InterfaceTypeDefinition] =
+  def interfaceTypeDefinition(name: String): Option[InterfaceTypeDefinition]      =
     interfaceTypeDefinitions.find(t => t.name == name)
 }
