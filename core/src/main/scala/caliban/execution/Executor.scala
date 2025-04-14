@@ -9,6 +9,7 @@ import caliban.parsing.adt._
 import caliban.schema.ReducedStep.DeferStep
 import caliban.schema.Step.{ PureStep => _, _ }
 import caliban.schema.{ PureStep, ReducedStep, Step, Types }
+import caliban.syntax._
 import caliban.transformers.Transformer
 import caliban.wrappers.Wrapper.FieldWrapper
 import zio._
@@ -628,26 +629,6 @@ object Executor {
     }
 
   private val nullValueExit = Exit.succeed(NullValue)
-
-  // The implicit classes below are for methods that don't exist in Scala 2.12 so we add them as syntax methods instead
-  private implicit class EnrichedListOps[+A](private val list: List[A]) extends AnyVal {
-    def partitionMap[A1, A2](f: A => Either[A1, A2]): (List[A1], List[A2]) = {
-      val l = List.newBuilder[A1]
-      val r = List.newBuilder[A2]
-      list.foreach { x =>
-        f(x) match {
-          case Left(x1)  => l += x1
-          case Right(x2) => r += x2
-        }
-      }
-      (l.result(), r.result())
-    }
-  }
-
-  private implicit class EnrichedListBufferOps[A](private val lb: ListBuffer[A]) extends AnyVal {
-    def mapInPlace[B](f: A => B): ListBuffer[B] = lb.map(f)
-    def addOne(value: A): ListBuffer[A]         = lb += value
-  }
 
   private implicit class EnrichedVectorBuilderOps[A](private val lb: VectorBuilder[A]) extends AnyVal {
     def addOne(value: A): VectorBuilder[A] = lb += value
