@@ -38,12 +38,13 @@ private[federation] object FederationHelpers {
   implicit val anySchema: Schema[Any, _Any] =
     Schema.scalarSchema("_Any", None, None, None, _ => NullValue)
 
-  val anyArgBuilder: ArgBuilder[_Any] = { case v @ InputValue.ObjectValue(fields) =>
-    fields.getOrElseNull("__typename") match {
-      case StringValue(__typename) => Right(_Any(__typename, v))
-      case null                    => Left(ExecutionError("_Any must contain a __typename value"))
-      case other                   => Left(ExecutionError(s"Can't build a _Any from input $other"))
-    }
+  val anyArgBuilder: ArgBuilder[_Any] = {
+    case v @ InputValue.ObjectValue(fields) =>
+      fields.getOrElseNull("__typename") match {
+        case StringValue(__typename) => Right(_Any(__typename, v))
+        case _                       => Left(ExecutionError("_Any must contain a __typename value"))
+      }
+    case other                              => Left(ExecutionError(s"Can't build a _Any from input $other"))
   }
 
   case class RepresentationsArgs(representations: List[_Any])
