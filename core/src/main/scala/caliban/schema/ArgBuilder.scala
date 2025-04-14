@@ -104,11 +104,7 @@ object ArgBuilder extends ArgBuilderInstances {
       override def buildMissing(default: Option[String]): Either[ExecutionError, F[A]] =
         Right(onMissing)
 
-      /**
-       * Builds a value of type `T` from an input [[caliban.InputValue]].
-       * Fails with an [[caliban.CalibanError.ExecutionError]] if it was impossible to build the value.
-       */
-      override def build(input: InputValue): Either[ExecutionError, F[A]] = ev.build(input).map(provided)
+      def build(input: InputValue): Either[ExecutionError, F[A]] = ev.build(input).map(provided)
     }
 
   object auto extends AutoArgBuilderDerivation

@@ -518,7 +518,7 @@ object OptionsParserSpec extends ZIOSpecDefault {
           )
         }
       },
-      test("provide partialMutations") {
+      test("provide missingInputEffect") {
         val input = List("schema", "output", "--missingInputEffect", "F[*]")
         OptionsParser.fromArgs(input).map { result =>
           assertTrue(
