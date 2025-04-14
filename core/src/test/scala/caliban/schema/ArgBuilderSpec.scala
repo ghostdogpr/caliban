@@ -5,7 +5,7 @@ import caliban.InputValue
 import caliban.InputValue.ObjectValue
 import caliban.schema.ArgBuilder.auto._
 import caliban.Value.{ IntValue, NullValue, StringValue }
-import caliban.schema.Annotations.{ GQLDefault, GQLOneOfInput, GQLValueType }
+import caliban.schema.Annotations.{ GQLOneOfInput, GQLOptional, GQLValueType }
 import zio.test.Assertion._
 import zio.test._
 
@@ -129,14 +129,10 @@ object ArgBuilderSpec extends ZIOSpecDefault {
 
       object Foo {
         case class Arg1(stringValue: String) extends Foo
-
-        case class Arg2(fooString2: String) extends Foo
-
-        case class Arg3(intValue: Foo1) extends Foo
-
-        case class Arg4(fooInt2: Foo2) extends Foo
-
-        case class Arg5(altString: String) extends Foo
+        case class Arg2(fooString2: String)  extends Foo
+        case class Arg3(intValue: Foo1)      extends Foo
+        case class Arg4(fooInt2: Foo2)       extends Foo
+        case class Arg5(altString: String)   extends Foo
 
       }
 
@@ -207,8 +203,9 @@ object ArgBuilderSpec extends ZIOSpecDefault {
         implicit val missingBuilder: ArgBuilder[Either[Unit, Int]] = ArgBuilder.missingInput(Left(()), Right(_))
         implicit val missingSchema: Schema[Any, Either[Unit, Int]] =
           Schema.optionalInputSchema(f => (m, p) => f.fold(_ => m, p))
-        case class Foo(@GQLDefault("undefined") value: Either[Unit, Int])
-        val ab                                                     = ArgBuilder.gen[Foo]
+        case class Foo(@GQLOptional value: Either[Unit, Int])
+
+        val ab = ArgBuilder.gen[Foo]
         assertTrue(
           ab.build(ObjectValue(Map())) == Right(Foo(Left(()))),
           ab.build(ObjectValue(Map("value" -> IntValue(42)))) == Right(Foo(Right(42)))

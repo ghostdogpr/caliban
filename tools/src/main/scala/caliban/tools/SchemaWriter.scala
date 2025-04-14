@@ -262,7 +262,7 @@ object SchemaWriter {
       val GQLNewTypeInputDirective = writeGQLNewTypeDirective(value.directives)
 
       val inputDef    = resolveNewTypeInputDef(value).getOrElse(value)
-      val missing     = if (missingInputEffect.isDefined) escapeAndWrap("undefined", "GQLDefault") else ""
+      val missing     = if (missingInputEffect.isDefined) "@GQLOptional\n" else ""
       val tpe         = writeType(inputDef.ofType)
       val writtenType = missingInputEffect.fold(tpe)(_.replace("*", tpe))
 

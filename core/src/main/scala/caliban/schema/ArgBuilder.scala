@@ -99,10 +99,17 @@ trait ArgBuilder[T] { self =>
 object ArgBuilder extends ArgBuilderInstances {
   def apply[T](implicit ev: ArgBuilder[T]): ArgBuilder[T] = ev
 
-  def missingInput[A, F[_]](onMissing: F[A], provided: A => F[A])(implicit ev: ArgBuilder[A]): ArgBuilder[F[A]] = {
-    case InputValue.UndefinedValue => Right(onMissing)
-    case value                     => ev.build(value).map(provided)
-  }
+  def missingInput[A, F[_]](onMissing: F[A], provided: A => F[A])(implicit ev: ArgBuilder[A]): ArgBuilder[F[A]] =
+    new ArgBuilder[F[A]] {
+      override def buildMissing(default: Option[String]): Either[ExecutionError, F[A]] =
+        Right(onMissing)
+
+      /**
+       * Builds a value of type `T` from an input [[caliban.InputValue]].
+       * Fails with an [[caliban.CalibanError.ExecutionError]] if it was impossible to build the value.
+       */
+      override def build(input: InputValue): Either[ExecutionError, F[A]] = ev.build(input).map(provided)
+    }
 
   object auto extends AutoArgBuilderDerivation
 }

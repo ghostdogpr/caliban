@@ -73,16 +73,17 @@ trait CommonSchemaDerivation[R] {
           ctx.parameters
             .map(p =>
               __InputValue(
-                getName(p),
-                getDescription(p),
-                () =>
+                name = getName(p),
+                description = getDescription(p),
+                `type` = () =>
                   if (p.typeclass.optional) p.typeclass.toType_(isInput, isSubscription)
                   else p.typeclass.toType_(isInput, isSubscription).nonNull,
-                p.annotations.collectFirst { case GQLDefault(v) => v },
-                p.annotations.collectFirst { case GQLDeprecated(_) => () }.isDefined,
-                p.annotations.collectFirst { case GQLDeprecated(reason) => reason },
-                Some(p.annotations.collect { case GQLDirective(dir) => dir }.toList).filter(_.nonEmpty),
-                () => Some(tpe)
+                defaultValue = p.annotations.collectFirst { case GQLDefault(v) => v },
+                isOptional = p.annotations.collectFirst { case GQLOptional() => () }.isDefined,
+                isDeprecated = p.annotations.collectFirst { case GQLDeprecated(_) => () }.isDefined,
+                deprecationReason = p.annotations.collectFirst { case GQLDeprecated(reason) => reason },
+                directives = Some(p.annotations.collect { case GQLDirective(dir) => dir }.toList).filter(_.nonEmpty),
+                parentType = () => Some(tpe)
               )
             )
             .toList,

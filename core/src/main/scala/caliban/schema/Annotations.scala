@@ -58,6 +58,11 @@ object Annotations extends AnnotationsVersionSpecific {
   case class GQLDefault(value: String) extends StaticAnnotation
 
   /**
+   * Annotation to specify the field can be omitted in inputs
+   */
+  case class GQLOptional() extends StaticAnnotation
+
+  /**
    * Annotation that can be applied to force a field to be derived as nullable
    */
   case class GQLNullable() extends StaticAnnotation

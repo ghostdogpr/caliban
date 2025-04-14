@@ -13,9 +13,6 @@ sealed trait InputValue extends Serializable { self =>
   def toInputString: String = ValueRenderer.inputValueRenderer.renderCompact(self)
 }
 object InputValue {
-  case object UndefinedValue                              extends InputValue {
-    override def toString: String = "undefined"
-  }
   case class ListValue(values: List[InputValue])          extends InputValue {
     override def toString: String      = values.mkString("[", ",", "]")
     override def toInputString: String = ValueRenderer.inputListValueRenderer.render(this)

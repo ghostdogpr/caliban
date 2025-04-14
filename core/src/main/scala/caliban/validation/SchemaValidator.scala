@@ -315,9 +315,9 @@ private[caliban] object SchemaValidator {
     def isInputType(t: __Type): Either[__Type, Unit] = {
       import __TypeKind._
       t.kind match {
-        case LIST | NON_NULL                               => t.ofType.fold[Either[__Type, Unit]](Left(t))(isInputType)
-        case SCALAR | ENUM | INPUT_OBJECT | OPTIONAL_INPUT => Right(())
-        case _                                             => Left(t)
+        case LIST | NON_NULL              => t.ofType.fold[Either[__Type, Unit]](Left(t))(isInputType)
+        case SCALAR | ENUM | INPUT_OBJECT => Right(())
+        case _                            => Left(t)
       }
     }
 

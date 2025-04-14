@@ -65,13 +65,13 @@ private object ValueValidator {
             }
           case LIST     =>
             argValue match {
-              case ListValue(values)          =>
+              case ListValue(values) =>
                 validateAllDiscard(values)(v =>
                   validateType(inputType.ofType.getOrElse(inputType), v, context, s"List item in $errorContext")
                 )
-              case NullValue | UndefinedValue =>
+              case NullValue         =>
                 unit
-              case other                      =>
+              case other             =>
                 // handle item as the first item in the list
                 validateType(inputType.ofType.getOrElse(inputType), other, context, s"List item in $errorContext")
             }
@@ -79,9 +79,9 @@ private object ValueValidator {
           case INPUT_OBJECT if inputType._isOneOfInput =>
             Validator.validateOneOfInputValue(argValue, errorContext)
 
-          case INPUT_OBJECT   =>
+          case INPUT_OBJECT =>
             argValue match {
-              case ObjectValue(fields)        =>
+              case ObjectValue(fields) =>
                 validateAllDiscard(inputType.allInputFields) { f =>
                   fields.collectFirst { case (name, fieldValue) if name == f.name => fieldValue } match {
                     case Some(value)                    =>
@@ -92,42 +92,28 @@ private object ValueValidator {
                       unit
                   }
                 }
-              case NullValue | UndefinedValue =>
+              case NullValue           =>
                 unit
-              case _                          =>
+              case _                   =>
                 failValidation(
                   s"$errorContext has invalid type: $argValue",
                   "Input field was supposed to be an input object."
                 )
             }
-          case ENUM           =>
+          case ENUM         =>
             argValue match {
-              case EnumValue(value)           =>
+              case EnumValue(value) =>
                 validateEnum(value, inputType, errorContext)
-              case NullValue | UndefinedValue =>
+              case NullValue        =>
                 unit
-              case _                          =>
+              case _                =>
                 failValidation(
                   s"$errorContext has invalid type: $argValue",
                   "Input field was supposed to be an enum value."
                 )
             }
-          case SCALAR         => validateScalar(inputType, argValue, errorContext)
-          case OPTIONAL_INPUT =>
-            argValue match {
-              case UndefinedValue => unit
-              case _              =>
-                inputType.ofType match {
-                  case Some(ofType) =>
-                    validateType(ofType, argValue, context, errorContext)
-                  case None         =>
-                    failValidation(
-                      s"$errorContext has invalid type: $argValue",
-                      "Input field was supposed to be an optional input."
-                    )
-                }
-            }
-          case _              =>
+          case SCALAR       => validateScalar(inputType, argValue, errorContext)
+          case _            =>
             failValidation(
               s"$errorContext has invalid type $inputType",
               "Input value is invalid, should be a scalar, list or input object."
@@ -158,28 +144,28 @@ private object ValueValidator {
     inputType.name.getOrElse("") match {
       case "String"  =>
         argValue match {
-          case _: StringValue | NullValue | UndefinedValue => unit
-          case t                                           => failValidation(s"$errorContext has invalid type $t", "Expected 'String'")
+          case _: StringValue | NullValue => unit
+          case t                          => failValidation(s"$errorContext has invalid type $t", "Expected 'String'")
         }
       case "ID"      =>
         argValue match {
-          case _: StringValue | NullValue | UndefinedValue => unit
-          case t                                           => failValidation(s"$errorContext has invalid type $t", "Expected 'ID'")
+          case _: StringValue | NullValue => unit
+          case t                          => failValidation(s"$errorContext has invalid type $t", "Expected 'ID'")
         }
       case "Int"     =>
         argValue match {
-          case _: Value.IntValue | NullValue | UndefinedValue => unit
-          case t                                              => failValidation(s"$errorContext has invalid type $t", "Expected 'Int'")
+          case _: Value.IntValue | NullValue => unit
+          case t                             => failValidation(s"$errorContext has invalid type $t", "Expected 'Int'")
         }
       case "Float"   =>
         argValue match {
-          case _: Value.FloatValue | _: Value.IntValue | NullValue | UndefinedValue => unit
-          case t                                                                    => failValidation(s"$errorContext has invalid type $t", "Expected 'Float'")
+          case _: Value.FloatValue | _: Value.IntValue | NullValue => unit
+          case t                                                   => failValidation(s"$errorContext has invalid type $t", "Expected 'Float'")
         }
       case "Boolean" =>
         argValue match {
-          case _: BooleanValue | NullValue | UndefinedValue => unit
-          case t                                            => failValidation(s"$errorContext has invalid type $t", "Expected 'Boolean'")
+          case _: BooleanValue | NullValue => unit
+          case t                           => failValidation(s"$errorContext has invalid type $t", "Expected 'Boolean'")
         }
       // We can't really validate custom scalars here (since we can't summon a correct ArgBuilder instance), so just pass them along
       case _         => unit

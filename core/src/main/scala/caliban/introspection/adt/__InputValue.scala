@@ -13,6 +13,7 @@ case class __InputValue(
   description: Option[String],
   `type`: () => __Type,
   defaultValue: Option[String],
+  isOptional: Boolean = false,
   isDeprecated: Boolean = false,
   deprecationReason: Option[String] = None,
   @GQLExcluded directives: Option[List[Directive]] = None,

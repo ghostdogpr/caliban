@@ -20,20 +20,17 @@ object json {
 
   private def fromInputValue(input: InputValue): Json =
     input match {
-      case InputValue.ListValue(values)                =>
+      case InputValue.ListValue(values)   =>
         Json.Arr(Chunk.fromIterable(values.map(fromInputValue)))
-      case InputValue.ObjectValue(fields)              =>
-        Json.Obj(Chunk.fromIterable(fields.filter {
-          case (_, InputValue.UndefinedValue) => false
-          case _                              => true
-        }.map { case (k, v) => k -> fromInputValue(v) }))
-      case InputValue.VariableValue(name)              => Json.Str(name)
-      case EnumValue(value)                            => Json.Str(value)
-      case BooleanValue(value)                         => Json.Bool(value)
-      case StringValue(value)                          => Json.Str(value)
-      case x: IntValue                                 => Json.Num(BigDecimal(x.toBigInt))
-      case x: FloatValue                               => Json.Num(x.toBigDecimal)
-      case Value.NullValue | InputValue.UndefinedValue => Json.Null
+      case InputValue.ObjectValue(fields) =>
+        Json.Obj(Chunk.fromIterable(fields.map { case (k, v) => k -> fromInputValue(v) }))
+      case InputValue.VariableValue(name) => Json.Str(name)
+      case EnumValue(value)               => Json.Str(value)
+      case BooleanValue(value)            => Json.Bool(value)
+      case StringValue(value)             => Json.Str(value)
+      case x: IntValue                    => Json.Num(BigDecimal(x.toBigInt))
+      case x: FloatValue                  => Json.Num(x.toBigDecimal)
+      case Value.NullValue                => Json.Null
     }
 
   private def toResponseValue(input: Json): ResponseValue =

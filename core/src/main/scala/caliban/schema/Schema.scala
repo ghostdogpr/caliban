@@ -404,15 +404,7 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
 
       override def nullable: Boolean = ev.nullable
 
-      def toType(isInput: Boolean, isSubscription: Boolean): __Type = {
-        val inner = ev.toType_(isInput, isSubscription)
-        __Type(
-          kind = __TypeKind.OPTIONAL_INPUT,
-          name = inner.name,
-          ofType = Some(if (ev.nullable) inner else inner.nonNull),
-          origin = inner.origin
-        )
-      }
+      def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType_(isInput, isSubscription)
 
       def resolve(value: F[A]): Step[R] = fold(value)(Step.NullStep, ev.resolve)
     }

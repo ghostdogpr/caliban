@@ -3,8 +3,7 @@ package caliban.execution
 import caliban._
 import caliban.Macros.gqldoc
 import caliban.RootResolver
-import caliban.schema.Annotations.{ GQLDefault, GQLInputName }
-import caliban.schema.{ ArgBuilder, Schema, Step }
+import caliban.schema.Annotations.GQLDefault
 import caliban.schema.Schema.auto._
 import caliban.schema.ArgBuilder.auto._
 import zio.test.Assertion._
@@ -49,13 +48,6 @@ object DefaultValueSpec extends ZIOSpecDefault {
           case class TestInput(@GQLDefault("1") b: Boolean)
           case class Query(test: TestInput => Boolean)
           val gql = graphQL(RootResolver(Query(i => i.b)))
-          gql.interpreter.exit.map(e => assert(e)(fails(isSubtype[CalibanError.ValidationError](anything))))
-        },
-        test("invalid undefined validation") {
-          case class TestInput(@GQLDefault("undefined") c: Boolean)
-          case class Query()
-          case class Mutations(test: TestInput => Boolean)
-          val gql = graphQL(RootResolver(Query(), Mutations(i => i.c)))
           gql.interpreter.exit.map(e => assert(e)(fails(isSubtype[CalibanError.ValidationError](anything))))
         },
         test("valid enum validation") {
@@ -119,14 +111,6 @@ object DefaultValueSpec extends ZIOSpecDefault {
           case class Query(test: TestInput => String)
           val gql = graphQL(RootResolver(Query(v => v.nested.field)))
           gql.interpreter.map(i => assert(i)(anything))
-        },
-        test("valid optional input field validation") {
-          case class TestInput(@GQLDefault("undefined") c: Either[Unit, COLOR])
-          case class TestQuery(c: COLOR)
-          case class Query(test: TestQuery => COLOR)
-          case class Mutations(test: TestInput => Boolean)
-          val gql = graphQL(RootResolver(Query(_.c), Mutations(i => i.c.fold(_ => false, _ => true))))
-          gql.interpreter.map(i => assert(i)(anything))
         }
       ),
       test("field default values") {
@@ -181,109 +165,6 @@ object DefaultValueSpec extends ZIOSpecDefault {
           res <- int.execute(query)
         } yield assert(res.errors.headOption)(
           isSome(isSubtype[CalibanError.ValidationError](anything))
-        )
-      },
-      test("not passing optional input field for mutation is valid") {
-        implicit val missingBuilder: ArgBuilder[Either[Unit, String]] = ArgBuilder.missingInput(Left(()), Right(_))
-        implicit val missingSchema: Schema[Any, Either[Unit, String]] =
-          Schema.optionalInputSchema(f => (m, p) => f.fold(_ => m, p))
-        case class TestInput(@GQLDefault("undefined") string: Either[Unit, String], mandatory: Boolean)
-        case class Mutation(test: TestInput => String)
-        case class Query(test: TestInput => String)
-
-        val qgl   = graphQL(RootResolver(Query(_ => "foo"), Mutation(_.string.fold(_ => "bar", identity))))
-        val query =
-          """mutation {
-            |  test(mandatory: true)
-            |}""".stripMargin
-        for {
-          int <- qgl.interpreter
-          res <- int.execute(query)
-        } yield assertTrue(res.errors.isEmpty && res.data.toString == """{"test":"bar"}""")
-      },
-      test("passing optional input field for mutation is valid") {
-        implicit val missingBuilder: ArgBuilder[Either[Unit, String]] = ArgBuilder.missingInput(Left(()), Right(_))
-        implicit val missingSchema: Schema[Any, Either[Unit, String]] =
-          Schema.optionalInputSchema(f => (m, p) => f.fold(_ => m, p))
-        case class TestInput(@GQLDefault("undefined") string: Either[Unit, String], mandatory: Boolean)
-        case class Mutation(test: TestInput => String)
-        case class Query(test: TestInput => String)
-
-        val qgl   = graphQL(RootResolver(Query(_ => "foo"), Mutation(_.string.fold(_ => "bar", identity))))
-        val query =
-          """mutation {
-            |  test(mandatory: true, string: "foo")
-            |}""".stripMargin
-        for {
-          int <- qgl.interpreter
-          res <- int.execute(query)
-        } yield assertTrue(res.errors.isEmpty && res.data.toString == """{"test":"foo"}""")
-      },
-      test("passing explicit 'null' to optional non nullable input field for mutation is invalid") {
-        implicit val missingBuilder: ArgBuilder[Either[Unit, String]] = ArgBuilder.missingInput(Left(()), Right(_))
-        implicit val missingSchema: Schema[Any, Either[Unit, String]] =
-          Schema.optionalInputSchema(f => (m, p) => f.fold(_ => m, p))
-        case class TestInput(@GQLDefault("undefined") string: Either[Unit, String], mandatory: Boolean)
-        case class Mutation(test: TestInput => String)
-        case class Query(test: TestInput => String)
-
-        val qgl   = graphQL(RootResolver(Query(_ => "foo"), Mutation(_.string.fold(_ => "bar", identity))))
-        val query =
-          """mutation {
-            |  test(mandatory: true, string: null)
-            |}""".stripMargin
-
-        for {
-          int <- qgl.interpreter
-          res <- int.execute(query)
-        } yield assert(res.errors.headOption)(
-          isSome(isSubtype[CalibanError.ValidationError](anything))
-        )
-      },
-      test("passing 'null' in optional nullable input field for mutation is valid") {
-        case class TestInput(@GQLDefault("undefined") string: Either[Unit, Option[String]], mandatory: Boolean)
-        implicit val missingBuilder: ArgBuilder[Either[Unit, Option[String]]] =
-          ArgBuilder.missingInput(Left(()), Right(_))
-        implicit val missingSchema: Schema[Any, Either[Unit, Option[String]]] =
-          Schema.optionalInputSchema(f => (m, p) => f.fold(_ => m, p))
-        case class Mutation(test: TestInput => String)
-        case class Query(test: TestInput => String)
-
-        val qgl   = graphQL(RootResolver(Query(_ => "foo"), Mutation(_.string.fold(_ => "bar", _.fold("baz")(identity)))))
-        val query =
-          """mutation {
-            |  test(mandatory: true, string: null)
-            |}""".stripMargin
-        for {
-          int <- qgl.interpreter
-          res <- int.execute(query)
-        } yield assertTrue(res.errors.isEmpty && res.data.toString == """{"test":"baz"}""")
-      },
-      test("it should render optional input fields in the SDL") {
-        implicit val missingBuilder: ArgBuilder[Either[Unit, String]] = ArgBuilder.missingInput(Left(()), Right(_))
-        implicit val missingSchema: Schema[Any, Either[Unit, String]] =
-          Schema.optionalInputSchema(f => (m, p) => f.fold(_ => m, p))
-        case class MutationInput(@GQLDefault("undefined") string: Either[Unit, String], mandatory: Boolean)
-        case class Mutation(test: MutationInput => String)
-        case class QueryInput(intValue: Int)
-        case class Query(test: QueryInput => Int)
-        val rendered                                                  =
-          graphQL(RootResolver(Query(_.intValue), Mutation(_.string.fold(_ => "bar", identity)))).render.trim
-
-        assertTrue(
-          rendered ==
-            """|schema {
-               |  query: Query
-               |  mutation: Mutation
-               |}
-               |
-               |type Mutation {
-               |  test(string: String!, mandatory: Boolean!): String!
-               |}
-               |
-               |type Query {
-               |  test(intValue: Int!): Int!
-               |}""".stripMargin.trim
         )
       },
       test("it should render default values in the SDL") {
@@ -344,7 +225,7 @@ object DefaultValueSpec extends ZIOSpecDefault {
         interpreter.flatMap(_.execute(introspectionQuery)).map(_.data.toString).map { response =>
           assertTrue(
             response ==
-              """{"__schema":{"queryType":{"name":"Query"},"mutationType":null,"subscriptionType":null,"types":[{"kind":"SCALAR","name":"Boolean","fields":null,"inputFields":null},{"kind":"SCALAR","name":"Float","fields":null,"inputFields":null},{"kind":"SCALAR","name":"Int","fields":null,"inputFields":null},{"kind":"OBJECT","name":"Query","fields":[{"name":"testDefault","description":null,"args":[{"name":"intValue","description":null,"defaultValue":"1"}]}],"inputFields":null},{"kind":"SCALAR","name":"String","fields":null,"inputFields":null},{"kind":"OBJECT","name":"__Directive","fields":[{"name":"name","description":null,"args":[]},{"name":"description","description":null,"args":[]},{"name":"locations","description":null,"args":[]},{"name":"args","description":null,"args":[{"name":"includeDeprecated","description":null,"defaultValue":null}]},{"name":"isRepeatable","description":null,"args":[]}],"inputFields":null},{"kind":"ENUM","name":"__DirectiveLocation","fields":null,"inputFields":null},{"kind":"OBJECT","name":"__EnumValue","fields":[{"name":"name","description":null,"args":[]},{"name":"description","description":null,"args":[]},{"name":"isDeprecated","description":null,"args":[]},{"name":"deprecationReason","description":null,"args":[]}],"inputFields":null},{"kind":"OBJECT","name":"__Field","fields":[{"name":"name","description":null,"args":[]},{"name":"description","description":null,"args":[]},{"name":"args","description":null,"args":[{"name":"includeDeprecated","description":null,"defaultValue":null}]},{"name":"type","description":null,"args":[]},{"name":"isDeprecated","description":null,"args":[]},{"name":"deprecationReason","description":null,"args":[]}],"inputFields":null},{"kind":"OBJECT","name":"__InputValue","fields":[{"name":"name","description":null,"args":[]},{"name":"description","description":null,"args":[]},{"name":"type","description":null,"args":[]},{"name":"defaultValue","description":null,"args":[]},{"name":"isDeprecated","description":null,"args":[]},{"name":"deprecationReason","description":null,"args":[]}],"inputFields":null},{"kind":"OBJECT","name":"__Schema","fields":[{"name":"description","description":null,"args":[]},{"name":"queryType","description":null,"args":[]},{"name":"mutationType","description":null,"args":[]},{"name":"subscriptionType","description":null,"args":[]},{"name":"types","description":null,"args":[]},{"name":"directives","description":null,"args":[]}],"inputFields":null},{"kind":"OBJECT","name":"__Type","fields":[{"name":"kind","description":null,"args":[]},{"name":"name","description":null,"args":[]},{"name":"description","description":null,"args":[]},{"name":"fields","description":null,"args":[{"name":"includeDeprecated","description":null,"defaultValue":null}]},{"name":"interfaces","description":null,"args":[]},{"name":"possibleTypes","description":null,"args":[]},{"name":"enumValues","description":null,"args":[{"name":"includeDeprecated","description":null,"defaultValue":null}]},{"name":"inputFields","description":null,"args":[{"name":"includeDeprecated","description":null,"defaultValue":null}]},{"name":"ofType","description":null,"args":[]},{"name":"specifiedBy","description":null,"args":[]},{"name":"isOneOf","description":null,"args":[]}],"inputFields":null},{"kind":"ENUM","name":"__TypeKind","fields":null,"inputFields":null}]}}"""
+              """{"__schema":{"queryType":{"name":"Query"},"mutationType":null,"subscriptionType":null,"types":[{"kind":"SCALAR","name":"Boolean","fields":null,"inputFields":null},{"kind":"SCALAR","name":"Float","fields":null,"inputFields":null},{"kind":"SCALAR","name":"Int","fields":null,"inputFields":null},{"kind":"OBJECT","name":"Query","fields":[{"name":"testDefault","description":null,"args":[{"name":"intValue","description":null,"defaultValue":"1"}]}],"inputFields":null},{"kind":"SCALAR","name":"String","fields":null,"inputFields":null},{"kind":"OBJECT","name":"__Directive","fields":[{"name":"name","description":null,"args":[]},{"name":"description","description":null,"args":[]},{"name":"locations","description":null,"args":[]},{"name":"args","description":null,"args":[{"name":"includeDeprecated","description":null,"defaultValue":null}]},{"name":"isRepeatable","description":null,"args":[]}],"inputFields":null},{"kind":"ENUM","name":"__DirectiveLocation","fields":null,"inputFields":null},{"kind":"OBJECT","name":"__EnumValue","fields":[{"name":"name","description":null,"args":[]},{"name":"description","description":null,"args":[]},{"name":"isDeprecated","description":null,"args":[]},{"name":"deprecationReason","description":null,"args":[]}],"inputFields":null},{"kind":"OBJECT","name":"__Field","fields":[{"name":"name","description":null,"args":[]},{"name":"description","description":null,"args":[]},{"name":"args","description":null,"args":[{"name":"includeDeprecated","description":null,"defaultValue":null}]},{"name":"type","description":null,"args":[]},{"name":"isDeprecated","description":null,"args":[]},{"name":"deprecationReason","description":null,"args":[]}],"inputFields":null},{"kind":"OBJECT","name":"__InputValue","fields":[{"name":"name","description":null,"args":[]},{"name":"description","description":null,"args":[]},{"name":"type","description":null,"args":[]},{"name":"defaultValue","description":null,"args":[]},{"name":"isOptional","description":null,"args":[]},{"name":"isDeprecated","description":null,"args":[]},{"name":"deprecationReason","description":null,"args":[]}],"inputFields":null},{"kind":"OBJECT","name":"__Schema","fields":[{"name":"description","description":null,"args":[]},{"name":"queryType","description":null,"args":[]},{"name":"mutationType","description":null,"args":[]},{"name":"subscriptionType","description":null,"args":[]},{"name":"types","description":null,"args":[]},{"name":"directives","description":null,"args":[]}],"inputFields":null},{"kind":"OBJECT","name":"__Type","fields":[{"name":"kind","description":null,"args":[]},{"name":"name","description":null,"args":[]},{"name":"description","description":null,"args":[]},{"name":"fields","description":null,"args":[{"name":"includeDeprecated","description":null,"defaultValue":null}]},{"name":"interfaces","description":null,"args":[]},{"name":"possibleTypes","description":null,"args":[]},{"name":"enumValues","description":null,"args":[{"name":"includeDeprecated","description":null,"defaultValue":null}]},{"name":"inputFields","description":null,"args":[{"name":"includeDeprecated","description":null,"defaultValue":null}]},{"name":"ofType","description":null,"args":[]},{"name":"specifiedBy","description":null,"args":[]},{"name":"isOneOf","description":null,"args":[]}],"inputFields":null},{"kind":"ENUM","name":"__TypeKind","fields":null,"inputFields":null}]}}"""
           )
         }
       }

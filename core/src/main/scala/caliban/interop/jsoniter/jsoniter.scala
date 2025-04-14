@@ -33,7 +33,6 @@ private[caliban] object ValueJsoniter {
     case v: BooleanValue                => out.writeVal(v.value)
     case v: IntValue.IntNumber          => out.writeVal(v.value)
     case NullValue                      => out.writeNull()
-    case InputValue.UndefinedValue      => ()
     case v: EnumValue                   => out.writeVal(v.value)
     case v: InputValue.ObjectValue      => writeInputObject(v.fields, out)
     case v: InputValue.ListValue        => writeInputArray(v.values, out)
@@ -61,13 +60,8 @@ private[caliban] object ValueJsoniter {
     val iter = m.iterator
     while (iter.hasNext) {
       val kv = iter.next()
-      kv._2 match {
-        case InputValue.UndefinedValue =>
-        // Ignore undefined values
-        case _                         =>
-          out.writeKey(kv._1)
-          encodeInputValue(kv._2, out)
-      }
+      out.writeKey(kv._1)
+      encodeInputValue(kv._2, out)
     }
     out.writeObjectEnd()
   }
