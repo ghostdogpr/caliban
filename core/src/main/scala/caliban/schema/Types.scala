@@ -68,18 +68,20 @@ object Types {
     `type`: () => __Type,
     isDeprecated: Boolean = false,
     deprecationReason: Option[String] = None,
-    directives: Option[List[Directive]] = None
+    directives: Option[List[Directive]] = None,
+    isOptional: Boolean = false
   ): __Field =
     __Field(
-      name,
-      description,
-      args =>
+      name = name,
+      description = description,
+      args = args =>
         if (args.includeDeprecated.getOrElse(false)) arguments
         else arguments.filter(!_.isDeprecated),
-      `type`,
-      isDeprecated,
-      deprecationReason,
-      directives
+      `type` = `type`,
+      isOptional = isOptional,
+      isDeprecated = isDeprecated,
+      deprecationReason = deprecationReason,
+      directives = directives
     )
 
   def makeInputObject(

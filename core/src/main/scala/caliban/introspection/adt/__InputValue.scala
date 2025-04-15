@@ -13,9 +13,9 @@ case class __InputValue(
   description: Option[String],
   `type`: () => __Type,
   defaultValue: Option[String],
-  isOptional: Boolean = false,
   isDeprecated: Boolean = false,
   deprecationReason: Option[String] = None,
+  @GQLExcluded isOptional: Boolean = false,
   @GQLExcluded directives: Option[List[Directive]] = None,
   @GQLExcluded parentType: () => Option[__Type] = () => None
 ) {

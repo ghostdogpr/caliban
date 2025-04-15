@@ -44,6 +44,12 @@ private object DerivationUtils {
   def getDefaultValue(annotations: Seq[Any]): Option[String] =
     annotations.collectFirst { case GQLDefault(v) => v }
 
+  def isOptional(annotations: Seq[Any]): Boolean =
+    annotations.exists {
+      case GQLOptional() => true
+      case _             => false
+    }
+
   def getDeprecatedReason(annotations: Seq[Any]): Option[String] =
     annotations.collectFirst { case GQLDeprecated(reason) => reason }
 
@@ -119,6 +125,7 @@ private object DerivationUtils {
             if (schema.optional) schema.toType_(isInput, isSubscription)
             else schema.toType_(isInput, isSubscription).nonNull,
           defaultValue = getDefaultValue(fieldAnnotations),
+          isOptional = isOptional(fieldAnnotations),
           isDeprecated = deprecationReason.isDefined,
           deprecationReason = deprecationReason,
           directives = Some(getDirectives(fieldAnnotations)).filter(_.nonEmpty),
@@ -172,15 +179,16 @@ private object DerivationUtils {
         else (false, false)
       }
       Types.makeField(
-        name,
-        getDescription(fieldAnnotations),
-        schema.arguments,
-        () =>
+        name = name,
+        description = getDescription(fieldAnnotations),
+        arguments = schema.arguments,
+        `type` = () =>
           if (isNullable) schema.toType_(isInput, isSubscription)
           else schema.toType_(isInput, isSubscription).nonNull,
-        deprecatedReason.isDefined,
-        deprecatedReason,
-        Option(
+        isOptional = isOptional(fieldAnnotations),
+        isDeprecated = deprecatedReason.isDefined,
+        deprecationReason = deprecatedReason,
+        directives = Option(
           getDirectives(fieldAnnotations) ++ {
             if (enableSemanticNonNull && isSemanticNonNull) Some(SchemaUtils.SemanticNonNull)
             else None

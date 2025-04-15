@@ -572,7 +572,8 @@ object Validator {
     val v1 = validateAllNonEmpty(fieldArgsNonNull.flatMap { arg =>
       val arg0 = field.arguments.getOrElseNull(arg.name)
       (arg.defaultValue, arg0) match {
-        case (None, null) | (None, NullValue) if !arg.isOptional =>
+        case (_, null) if arg.isOptional      => None
+        case (None, null) | (None, NullValue) =>
           Some(
             failValidation(
               s"Required argument '${arg.name}' is null or missing on field '${field.name}' of type '${currentType.name
@@ -580,7 +581,7 @@ object Validator {
               "Arguments can be required. An argument is required if the argument type is non‐null and does not have a default value. Otherwise, the argument is optional."
             )
           )
-        case (Some(_), NullValue)                                =>
+        case (Some(_), NullValue)             =>
           Some(
             failValidation(
               s"Required argument '${arg.name}' is null on '${field.name}' of type '${currentType.name
@@ -588,7 +589,7 @@ object Validator {
               "Arguments can be required. An argument is required if the argument type is non‐null and does not have a default value. Otherwise, the argument is optional."
             )
           )
-        case _                                                   => None
+        case _                                => None
       }
     })(identity)
 

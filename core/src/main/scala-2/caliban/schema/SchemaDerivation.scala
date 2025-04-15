@@ -108,15 +108,16 @@ trait CommonSchemaDerivation[R] {
                 else (false, false)
               }
               Types.makeField(
-                getName(p),
-                getDescription(p),
-                p.typeclass.arguments,
-                () =>
+                name = getName(p),
+                description = getDescription(p),
+                arguments = p.typeclass.arguments,
+                `type` = () =>
                   if (isNullable) p.typeclass.toType_(isInput, isSubscription)
                   else p.typeclass.toType_(isInput, isSubscription).nonNull,
-                p.annotations.collectFirst { case GQLDeprecated(_) => () }.isDefined,
-                p.annotations.collectFirst { case GQLDeprecated(reason) => reason },
-                Option(
+                isOptional = p.annotations.collectFirst { case GQLOptional() => () }.isDefined,
+                isDeprecated = p.annotations.collectFirst { case GQLDeprecated(_) => () }.isDefined,
+                deprecationReason = p.annotations.collectFirst { case GQLDeprecated(reason) => reason },
+                directives = Option(
                   p.annotations.collect { case GQLDirective(dir) => dir }.toList ++ {
                     if (config.enableSemanticNonNull && isSemanticNonNull)
                       Some(SchemaUtils.SemanticNonNull)

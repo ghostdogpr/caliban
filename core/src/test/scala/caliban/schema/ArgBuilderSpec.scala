@@ -8,7 +8,6 @@ import caliban.Value.{ IntValue, NullValue, StringValue }
 import caliban.schema.Annotations.{ GQLOneOfInput, GQLOptional, GQLValueType }
 import zio.test.Assertion._
 import zio.test._
-
 import java.time._
 
 object ArgBuilderSpec extends ZIOSpecDefault {
