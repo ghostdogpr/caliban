@@ -11,14 +11,15 @@ import scala.collection.mutable.ListBuffer
 private[federation] object FederationHelpers {
   import caliban.syntax._
 
-  private def traverseEither[A, B](list: List[Either[A, B]]): Either[A, List[B]] = {
-    val result = ListBuffer.empty[B]
+  private def buildInputsAsAny(list: List[InputValue]): Either[ExecutionError, List[_Any]] = {
+    val nil    = Nil
+    val result = ListBuffer.empty[_Any]
     var rem    = list
 
-    while (rem ne Nil) {
-      rem.head match {
+    while (rem ne nil) {
+      anyArgBuilder.build(rem.head) match {
         case Right(value) => result addOne value
-        case l            => return l.asInstanceOf[Either[A, List[B]]]
+        case l            => return l.asInstanceOf[Either[ExecutionError, List[_Any]]]
       }
       rem = rem.tail
     }
@@ -52,9 +53,8 @@ private[federation] object FederationHelpers {
   implicit val representationsArgBuilder: ArgBuilder[RepresentationsArgs] = {
     case InputValue.ObjectValue(fields) =>
       fields.getOrElseNull("representations") match {
-        case InputValue.ListValue(values) =>
-          traverseEither(values.map(anyArgBuilder.build)).map(RepresentationsArgs.apply)
-        case null                         => Left(ExecutionError("_Any must contain a __typename value"))
+        case InputValue.ListValue(values) => buildInputsAsAny(values).map(RepresentationsArgs.apply)
+        case null                         => Left(ExecutionError("RepresentationsArgs must contain a representations value"))
         case other                        => Left(ExecutionError(s"Can't build a representations from input $other"))
       }
     case other                          => Left(ExecutionError(s"Can't build a representations from input $other"))

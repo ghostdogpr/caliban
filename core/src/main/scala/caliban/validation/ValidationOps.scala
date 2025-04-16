@@ -17,8 +17,9 @@ private[caliban] object ValidationOps {
   def validateAllDiscard[A](
     in: List[A]
   )(f: A => Either[ValidationError, Unit]): Either[ValidationError, Unit] = {
+    val nil = Nil
     var rem = in
-    while (rem ne Nil) {
+    while (rem ne nil) {
       val res = f(rem.head)
       if (res.isLeft) return res
       else rem = rem.tail
@@ -58,10 +59,11 @@ private[caliban] object ValidationOps {
   def validateAll[A, B](
     in: List[A]
   )(f: A => Either[ValidationError, B]): Either[ValidationError, List[B]] = {
+    val nil     = Nil
     var rem     = in
     val builder = ListBuffer.empty[B]
 
-    while (rem ne Nil) {
+    while (rem ne nil) {
       f(rem.head) match {
         case Right(v) => builder.addOne(v)
         case left     => return left.asInstanceOf[Either[ValidationError, List[B]]]
@@ -83,10 +85,10 @@ private[caliban] object ValidationOps {
         case _                                   => other
       }
 
-    def as[B](a: B): Either[E, B] =
+    def as[B](b: B): Either[E, B] =
       (self: @unchecked) match {
         case l: Left[E @unchecked, B @unchecked] => l
-        case _                                   => Right(a)
+        case _                                   => Right(b)
       }
 
     def unit: Either[E, Unit] =
