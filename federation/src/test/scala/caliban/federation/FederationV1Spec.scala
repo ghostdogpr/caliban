@@ -23,13 +23,13 @@ object FederationV1Spec extends ZIOSpecDefault {
   case class OrphanArgs(name: String)
 
   val entityResolver =
-    EntityResolver[Any, CharacterArgs, Character] { args =>
+    EntityResolver.from[CharacterArgs] { args =>
       val res = characters.find(_.name == args.name)
       if (res.isDefined) ZQuery.succeed(res) else ZQuery.fail(CalibanError.ExecutionError("not found"))
     }
 
   val orphanResolver =
-    EntityResolver[Any, OrphanArgs, Orphan](args =>
+    EntityResolver.from[OrphanArgs](args =>
       ZQuery.succeed(characters.find(_.name == args.name).map(c => Orphan(c.name, c.nicknames, OrphanChild("abc"))))
     )
 

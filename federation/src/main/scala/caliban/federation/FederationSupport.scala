@@ -3,7 +3,6 @@ package caliban.federation
 import caliban._
 import caliban.introspection.adt._
 import caliban.parsing.adt.Directive
-import caliban.schema.Step.QueryStep
 import caliban.schema._
 import zio.query.ZQuery
 
@@ -82,7 +81,7 @@ abstract class FederationSupport(
       override def resolve(value: _Entity): Step[R] =
         _entityMap
           .get(value.__typename)
-          .fold[Step[R]](Step.NullStep)(resolver => QueryStep(resolver.resolve(value.value)))
+          .fold[Step[R]](Step.NullStep)(_.resolve(value.value))
 
     }
 
