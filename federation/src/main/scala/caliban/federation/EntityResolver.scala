@@ -22,25 +22,50 @@ object EntityResolver {
   )(implicit schema: Schema[R, T]): EntityResolver[R] =
     new EntityResolver[R] {
       override def resolve(value: InputValue): Step[R] =
-        QueryStep(
-          ZQuery.fromEither(implicitly[ArgBuilder[A]].build(value)).flatMap { arg =>
-            resolver(arg).map(_.fold[Step[R]](Step.NullStep)(schema.resolve))
-          }
-        )
+        ArgBuilder[A].build(value) match {
+          case Right(arg)  =>
+            val q = resolver(arg).map {
+              case Some(value) => schema.resolve(value)
+              case _           => Step.NullStep
+            }
+            Step.QueryStep(q)
+          case Left(error) => Step.FailureStep(error)
+        }
 
       override def toType: __Type = schema.toType_()
     }
 
-  def fromFunction[A: ArgBuilder, T](
+  def fromEither[A: ArgBuilder, T](
+    resolver: A => Either[CalibanError, Option[T]]
+  )(implicit schema: Schema[Any, T]): EntityResolver[Any] =
+    new EntityResolver[Any] {
+      override def resolve(value: InputValue): Step[Any] =
+        ArgBuilder[A].build(value) match {
+          case Right(arg)  =>
+            val q = resolver(arg).map {
+              case Some(value) => schema.resolve(value)
+              case _           => Step.NullStep
+            }
+            Step.QueryStep(ZQuery.fromEither(q))
+          case Left(error) => Step.FailureStep(error)
+        }
+
+      override def toType: __Type = schema.toType_()
+    }
+
+  def fromOption[A: ArgBuilder, T](
     resolver: A => Option[T]
   )(implicit schema: Schema[Any, T]): EntityResolver[Any] =
     new EntityResolver[Any] {
       override def resolve(value: InputValue): Step[Any] =
-        QueryStep(
-          ZQuery.fromEither(implicitly[ArgBuilder[A]].build(value)).map { arg =>
-            resolver(arg).fold[Step[Any]](Step.NullStep)(schema.resolve)
-          }
-        )
+        ArgBuilder[A].build(value) match {
+          case Right(arg)  =>
+            resolver(arg) match {
+              case Some(value) => schema.resolve(value)
+              case _           => Step.NullStep
+            }
+          case Left(error) => Step.FailureStep(error)
+        }
 
       override def toType: __Type = schema.toType_()
     }
@@ -50,16 +75,23 @@ object EntityResolver {
   )(implicit schema: Schema[R, T]): EntityResolver[R] =
     new EntityResolver[R] {
       override def resolve(value: InputValue): Step[R] =
-        QueryStep(
-          ZQuery.fromZIO(
-            ZIO.fromEither(implicitly[ArgBuilder[A]].build(value)).flatMap { arg =>
-              resolver(arg).map(_.fold[Step[R]](Step.NullStep)(schema.resolve))
+        ArgBuilder[A].build(value) match {
+          case Right(arg)  =>
+            val q = resolver(arg).map {
+              case Some(value) => schema.resolve(value)
+              case _           => Step.NullStep
             }
-          )
-        )
+            Step.QueryStep(ZQuery.fromZIONow(q))
+          case Left(error) => Step.FailureStep(error)
+        }
 
       override def toType: __Type = schema.toType_()
     }
+
+  def fromQuery[R, A: ArgBuilder, T](
+    resolver: A => ZQuery[R, CalibanError, Option[T]]
+  )(implicit schema: Schema[R, T]): EntityResolver[R] =
+    apply(resolver)
 
   def from[A]: EntityResolverPartiallyApplied[A] =
     new EntityResolverPartiallyApplied
@@ -73,11 +105,16 @@ object EntityResolver {
     )(implicit schema: Schema[R, T], argBuilder: ArgBuilder[A]): EntityResolver[R] =
       new EntityResolver[R] {
         override def resolve(value: InputValue): Step[R] =
-          QueryStep(ZQuery.fromEither(argBuilder.build(value)).map { arg =>
-            Step.MetadataFunctionStep(field =>
-              Step.QueryStep(resolver(field)(arg).map(_.fold[Step[R]](Step.NullStep)(schema.resolve)))
-            )
-          })
+          ArgBuilder[A].build(value) match {
+            case Right(arg)  =>
+              val q = (field: Field) =>
+                resolver(field)(arg).map {
+                  case Some(value) => schema.resolve(value)
+                  case _           => Step.NullStep
+                }
+              Step.MetadataFunctionStep(field => Step.QueryStep(q(field)))
+            case Left(error) => Step.FailureStep(error)
+          }
 
         override def toType: __Type = schema.toType_()
       }

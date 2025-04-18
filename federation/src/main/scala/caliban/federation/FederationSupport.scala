@@ -80,9 +80,10 @@ abstract class FederationSupport(
        */
       override def resolve(value: _Entity): Step[R] =
         _entityMap
-          .get(value.__typename)
-          .fold[Step[R]](Step.NullStep)(_.resolve(value.value))
-
+          .getOrElse(value.__typename, null) match {
+          case null     => Step.NullStep
+          case resolver => resolver.resolve(value.value)
+        }
     }
 
     case class Query(
