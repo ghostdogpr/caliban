@@ -78,9 +78,7 @@ object FederationV1Spec extends ZIOSpecDefault {
 
       interpreter.flatMap(_.execute(query)).map { response =>
         assertTrue(
-          response.data.toString == """{"_entities":[{"__typename":"Character","name":"Amos Burton"},null]}"""
-        ) &&
-        assertTrue(
+          response.data.toString == """{"_entities":[{"__typename":"Character","name":"Amos Burton"},null]}""",
           response.errors.toString == """List(Execution Error: not found )"""
         )
       }
@@ -144,7 +142,8 @@ object FederationV1Spec extends ZIOSpecDefault {
         interpreter.flatMap(_.execute(query, variables = Map("withNicknames" -> BooleanValue(withNicknames))))
 
       runQuery(true).zipWith(runQuery(false)) { (bad, good) =>
-        assertTrue(bad.errors.map(_.msg) == List("AAAAAAHHHHH")) && assertTrue(
+        assertTrue(
+          bad.errors.map(_.msg) == List("AAAAAAHHHHH"),
           good.data == ObjectValue(
             List("_entities" -> ListValue(List(ObjectValue(List("name" -> StringValue("Amos Burton"))))))
           )

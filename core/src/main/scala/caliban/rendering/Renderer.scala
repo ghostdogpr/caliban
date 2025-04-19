@@ -30,6 +30,14 @@ trait Renderer[-A] { self =>
   }
 
   /**
+   * Returns a new renderer that will only render in compact format
+   */
+  def compact: Renderer[A] = new Renderer[A] {
+    override protected[caliban] def unsafeRender(value: A, indent: Option[Int], write: StringBuilder): Unit =
+      self.unsafeRender(value, None, write)
+  }
+
+  /**
    * Contramaps the input of this renderer with the given function producing a renderer that now operates on type B
    */
   def contramap[B](f: B => A): Renderer[B] = new Renderer[B] {

@@ -2,7 +2,6 @@ package caliban.federation.v2x
 
 import caliban.GraphQL
 import caliban.federation.{ FederationDirectives, FederationSupport }
-import caliban.rendering.{ DocumentRenderer, Renderer }
 
 class FederationV2(extensions: List[Extension])
     extends FederationSupport(Nil, extensions.map(_.toDirective))
@@ -10,36 +9,14 @@ class FederationV2(extensions: List[Extension])
     with FederationDirectivesV2 {
 
   /**
-   * Constructs a renderer that can render a GraphQL schema with federation directives.
+   * Extends a GraphQL schema with federation directives. Useful in specific cases, for instance if you
+   * want to render the schema with federation directives for schema check or debugging purposes
    *
-   * This is useful if you need to render the schema to a string or file in CI or for debugging purposes.
-   *
-   * @note Make sure to use this renderer on the graph _before_ apply the federation aspect, otherwise it will include
-   *       the federation specific fields as well.
-   *
-   * @see [[renderFederatedCompact]] when you want to render a compact version of the schema.
+   * @note This method should be used on the "base" api, that is, before @@ federated is used to avoid including the
+   *       gateway specific additions.
    */
-  def renderFederated[R](graphql: GraphQL[R]): String =
-    renderer[R].render(graphql)
-
-  /**
-   * Constructs a renderer that can render a GraphQL schema with federation directives in a compact format.
-   *
-   * This is useful if you need to render the schema to a string or file in CI or for debugging purposes.
-   *
-   * @note Make sure to use this renderer on the graph _before_ apply the federation aspect, otherwise it will include
-   *       the federation specific fields as well.
-   *
-   * @see [[renderFederated]] when you want to render the schema in pretty form.
-   */
-  def renderFederatedCompact[R](graphql: GraphQL[R]): String =
-    renderer[R].renderCompact(graphql)
-
-  private def renderer[R]: Renderer[GraphQL[R]] =
-    DocumentRenderer
-      .contramap[GraphQL[_]] {
-        _.withSchemaDirectives(extensions.map(_.toDirective)).toDocument
-      }
+  def extend[R](graphql: GraphQL[R]): GraphQL[R] =
+    graphql.withSchemaDirectives(extensions.map(_.toDirective))
 }
 
 object FederationV2 {

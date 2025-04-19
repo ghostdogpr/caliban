@@ -1,7 +1,6 @@
 package caliban.federation
 
-import caliban.InputValue
-import caliban.Value.{ BooleanValue, StringValue }
+import caliban.Value.StringValue
 import caliban.parsing.adt.Directive
 import caliban.schema.Annotations.GQLDirective
 
@@ -27,17 +26,4 @@ trait FederationDirectives {
   case class GQLExternal() extends GQLDirective(External)
 
   val External = Directive("external")
-
-  case class GQLKey(fields: String, resolvable: Boolean = true) extends GQLDirective(Key(fields, resolvable))
-
-  object Key {
-    def apply(fields: String, resolvable: Boolean = true, name: String = "key"): Directive = {
-      val args: List[(String, InputValue)] = List(
-        Some("fields" -> StringValue(fields)),
-        (if (resolvable) None else Some("resolvable" -> BooleanValue(resolvable)))
-      ).flatten
-
-      Directive(name, args.toMap)
-    }
-  }
 }

@@ -15,8 +15,6 @@ import zio.ZIO
 import zio.test.Assertion.hasSameElements
 import zio.test._
 
-import java.util.UUID
-
 object FederationV2Spec extends ZIOSpecDefault {
 
   override def spec =
@@ -239,27 +237,10 @@ object FederationV2Spec extends ZIOSpecDefault {
       test("renderer renders the schema including the extensions") {
         import caliban.federation.v2_3._
 
-        @GQLKey("id")
-        @GQLShareable
-        case class User(
-          id: UUID
-        )
-
-        case class Query(
-          hello: String,
-          user: User
-        )
-
-        val api = graphQL(
-          RootResolver(
-            Query(hello = "Hello World!", user = User(UUID.randomUUID()))
-          )
-        )
-
         assertTrue(
-          renderFederatedCompact(
-            api
-          ) == """schema@link(url:"https://specs.apollo.dev/federation/v2.3",import:["@key","@requires","@provides","@external","@shareable","@tag","@inaccessible","@override","@extends","@composeDirective","@interfaceObject"]){query:Query}type Query{hello:String! user:User!}type User@key(fields:"id")@shareable{id:ID!}"""
+          extend(
+            Fixture.api
+          ).renderCompact == """schema@link(url:"https://specs.apollo.dev/federation/v2.3",import:["@key","@requires","@provides","@external","@shareable","@tag","@inaccessible","@override","@extends","@composeDirective","@interfaceObject"]){query:Query}type Query{hello:String! user:User!}type User@key(fields:"id")@shareable{id:ID!}"""
         )
 
       }

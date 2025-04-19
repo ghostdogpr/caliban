@@ -40,6 +40,9 @@ trait GraphQL[-R] { self =>
   final def render: String =
     renderWith(DocumentRenderer)
 
+  final def renderCompact: String =
+    renderWith(DocumentRenderer.compact)
+
   /**
    * Returns a string that renders types into the GraphQL SDL using the provided renderer.
    */
