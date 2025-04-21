@@ -219,6 +219,13 @@ object RenderingSpec extends ZIOSpecDefault {
           rendered == """schema{query:Query} "Description of custom scalar emphasizing proper captain ship names" scalar CaptainShipName@specifiedBy(url:"http://someUrl")@tag union Role@uniondirective=Captain|Engineer|Mechanic|Pilot enum Origin@enumdirective{BELT,EARTH,MARS,MOON@deprecated(reason:"Use: EARTH | MARS | BELT")} input CharacterInput@inputobjdirective{name:String!@external nicknames:[String!]!@required origin:Origin!}interface Human{name:String!@external}type Captain{shipName:CaptainShipName!}type Character implements Human@key(name:"name"){name:String!@external nicknames:[String!]!@required origin:Origin! role:Role}type Engineer{shipName:String!}type Mechanic{shipName:String!}type Narrator implements Human{name:String!}type Pilot{shipName:String!}"Queries" type Query{"Return all characters from a given origin" characters(origin:Origin):[Character!]! character(name:String!):Character@deprecated(reason:"Use `characters`") charactersIn(names:[String!]!@lowercase):[Character!]! exists(character:CharacterInput!):Boolean! human:Human!}"""
         )
       },
+      test("it should render compact unconditionally with compact") {
+        val rendered = graphQL(resolver).renderWith(DocumentRenderer.compact)
+
+        assertTrue(
+          rendered == """schema{query:Query} "Description of custom scalar emphasizing proper captain ship names" scalar CaptainShipName@specifiedBy(url:"http://someUrl")@tag union Role@uniondirective=Captain|Engineer|Mechanic|Pilot enum Origin@enumdirective{BELT,EARTH,MARS,MOON@deprecated(reason:"Use: EARTH | MARS | BELT")} input CharacterInput@inputobjdirective{name:String!@external nicknames:[String!]!@required origin:Origin!}interface Human{name:String!@external}type Captain{shipName:CaptainShipName!}type Character implements Human@key(name:"name"){name:String!@external nicknames:[String!]!@required origin:Origin! role:Role}type Engineer{shipName:String!}type Mechanic{shipName:String!}type Narrator implements Human{name:String!}type Pilot{shipName:String!}"Queries" type Query{"Return all characters from a given origin" characters(origin:Origin):[Character!]! character(name:String!):Character@deprecated(reason:"Use `characters`") charactersIn(names:[String!]!@lowercase):[Character!]! exists(character:CharacterInput!):Boolean! human:Human!}"""
+        )
+      },
       suite("round-trip")(
         test("kitchen sink")(roundTrip("document-tests/kitchen-sink.graphql")),
         test("kitchen sink with query")(roundTrip("document-tests/kitchen-sink-query.graphql")),

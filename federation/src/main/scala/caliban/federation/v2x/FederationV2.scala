@@ -2,6 +2,7 @@ package caliban.federation.v2x
 
 import caliban.GraphQL
 import caliban.federation.{ FederationDirectives, FederationSupport }
+import caliban.rendering.{ DocumentRenderer, Renderer }
 
 class FederationV2(extensions: List[Extension])
     extends FederationSupport(Nil, extensions.map(_.toDirective))
@@ -17,6 +18,9 @@ class FederationV2(extensions: List[Extension])
    */
   def extend[R](graphql: GraphQL[R]): GraphQL[R] =
     graphql.withSchemaDirectives(extensions.map(_.toDirective))
+
+  lazy val federationRenderer: Renderer[GraphQL[Any]] =
+    DocumentRenderer.contramap(extend[Any](_).toDocument)
 }
 
 object FederationV2 {

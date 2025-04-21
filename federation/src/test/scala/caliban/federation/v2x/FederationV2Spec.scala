@@ -237,11 +237,11 @@ object FederationV2Spec extends ZIOSpecDefault {
       test("renderer renders the schema including the extensions") {
         import caliban.federation.v2_3._
 
-        assertTrue(
-          extend(
-            Fixture.api
-          ).renderCompact == """schema@link(url:"https://specs.apollo.dev/federation/v2.3",import:["@key","@requires","@provides","@external","@shareable","@tag","@inaccessible","@override","@extends","@composeDirective","@interfaceObject"]){query:Query}type Query{hello:String! user:User!}type User@key(fields:"id")@shareable{id:ID!}"""
-        )
+        val actual   = federationRenderer.compact.render(Fixture.api)
+        val expected =
+          """schema@link(url:"https://specs.apollo.dev/federation/v2.3",import:["@key","@requires","@provides","@external","@shareable","@tag","@inaccessible","@override","@extends","@composeDirective","@interfaceObject"]){query:Query}type Query{hello:String! user:User!}type User@key(fields:"id")@shareable{id:ID!}"""
+
+        assertTrue(actual == expected)
 
       }
     )
