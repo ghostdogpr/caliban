@@ -4,6 +4,7 @@ import caliban.CalibanError.ExecutionError
 import caliban.InputValue
 import caliban.Value._
 import caliban.parsing.Parser
+import caliban.syntax._
 import caliban.uploads.Upload
 import zio.Chunk
 
