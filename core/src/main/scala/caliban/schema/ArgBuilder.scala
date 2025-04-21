@@ -12,6 +12,7 @@ import java.time.format.DateTimeFormatter
 import java.time.temporal.Temporal
 import java.util.UUID
 import scala.annotation.implicitNotFound
+import scala.collection.mutable.ListBuffer
 import scala.util.Try
 import scala.util.control.{ NoStackTrace, NonFatal }
 
@@ -139,7 +140,10 @@ trait ArgBuilderInstances extends ArgBuilderDerivation {
   }
   implicit lazy val uuid: ArgBuilder[UUID]             = {
     case StringValue(value) =>
-      Try(UUID.fromString(value)).fold(_ => Left(InvalidInputArgument("UUID", value)), Right(_))
+      try Right(UUID.fromString(value))
+      catch {
+        case NonFatal(_) => Left(InvalidInputArgument("UUID", value))
+      }
     case other              => Left(InvalidInputArgument("UUID", other))
   }
   implicit lazy val boolean: ArgBuilder[Boolean]       = {
@@ -201,17 +205,7 @@ trait ArgBuilderInstances extends ArgBuilderDerivation {
     case value     => ev.build(value).map(Some(_))
   }
   implicit def list[A](implicit ev: ArgBuilder[A]): ArgBuilder[List[A]]     = {
-    case InputValue.ListValue(items) =>
-      items
-        .foldLeft[Either[ExecutionError, List[A]]](Right(Nil)) {
-          case (res @ Left(_), _)  => res
-          case (Right(res), value) =>
-            ev.build(value) match {
-              case Left(error)  => Left(error)
-              case Right(value) => Right(value :: res)
-            }
-        }
-        .map(_.reverse)
+    case InputValue.ListValue(items) => traverseInputList[A](items)
     case other                       => ev.build(other).map(List(_))
   }
 
@@ -223,6 +217,24 @@ trait ArgBuilderInstances extends ArgBuilderDerivation {
   implicit lazy val upload: ArgBuilder[Upload] = {
     case StringValue(v) => Right(Upload(v))
     case other          => Left(InvalidInputArgument("Upload", other))
+  }
+
+  private[caliban] def traverseInputList[A](
+    inputs: List[InputValue]
+  )(implicit ev: ArgBuilder[A]): Either[ExecutionError, List[A]] = {
+    val nil    = Nil
+    val result = ListBuffer.empty[A]
+    var rem    = inputs
+
+    while (rem ne nil) {
+      ev.build(rem.head) match {
+        case Right(value) => result addOne value
+        case l            => return l.asInstanceOf[Either[ExecutionError, List[A]]]
+      }
+      rem = rem.tail
+    }
+
+    Right(result.result())
   }
 }
 
