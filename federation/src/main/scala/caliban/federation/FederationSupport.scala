@@ -16,7 +16,7 @@ abstract class FederationSupport(
   // This is a bit of a hack to determine if we are using the v1 version of the federation spec
   // All of the v2 directives come through schema directives while the v1 is through the supported directives field instead
   private val isV1       = supportedDirectives.nonEmpty && schemaDirectives.isEmpty
-  private val extraTypes = if (isV1) List(fieldSetSchema.toType_()) else Nil
+  private val extraTypes = if (isV1) List(FieldSet.schema.toType_()) else Nil
 
   /**
    * Accepts a GraphQL and returns a GraphQL with the minimum settings to support federation. This variant does not
