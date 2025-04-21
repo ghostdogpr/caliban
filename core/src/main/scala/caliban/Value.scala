@@ -13,17 +13,17 @@ sealed trait InputValue extends Serializable { self =>
   def toInputString: String = ValueRenderer.inputValueRenderer.renderCompact(self)
 }
 object InputValue {
-  case class ListValue(values: List[InputValue])          extends InputValue {
+  final case class ListValue(values: List[InputValue])          extends InputValue {
     override def toString: String      = values.mkString("[", ",", "]")
     override def toInputString: String = ValueRenderer.inputListValueRenderer.render(this)
   }
-  case class ObjectValue(fields: Map[String, InputValue]) extends InputValue {
+  final case class ObjectValue(fields: Map[String, InputValue]) extends InputValue {
     override def toString: String =
       fields.map { case (name, value) => s""""$name":${value.toString}""" }.mkString("{", ",", "}")
 
     override def toInputString: String = ValueRenderer.inputObjectValueRenderer.render(this)
   }
-  case class VariableValue(name: String)                  extends InputValue {
+  final case class VariableValue(name: String)                  extends InputValue {
     override def toString: String = s"$$$name"
   }
 
@@ -84,10 +84,10 @@ object ResponseValue {
     loop(path, value)
   }
 
-  case class ListValue(values: List[ResponseValue])                extends ResponseValue {
+  final case class ListValue(values: List[ResponseValue])                extends ResponseValue {
     override def toString: String = ValueRenderer.responseListValueRenderer.renderCompact(this)
   }
-  case class ObjectValue(fields: List[(String, ResponseValue)])    extends ResponseValue {
+  final case class ObjectValue(fields: List[(String, ResponseValue)])    extends ResponseValue {
     override def toString: String =
       ValueRenderer.responseObjectValueRenderer.renderCompact(this)
 
@@ -98,7 +98,7 @@ object ResponseValue {
         case _              => false
       }
   }
-  case class StreamValue(stream: Stream[Throwable, ResponseValue]) extends ResponseValue {
+  final case class StreamValue(stream: Stream[Throwable, ResponseValue]) extends ResponseValue {
     override def toString: String = "<stream>"
   }
 
@@ -111,26 +111,26 @@ object ResponseValue {
 
 sealed trait Value extends InputValue with ResponseValue
 object Value {
-  case object NullValue                   extends Value                {
+  case object NullValue                         extends Value                {
     override def toString: String = "null"
   }
-  sealed trait IntValue                   extends Value                {
+  sealed trait IntValue                         extends Value                {
     def toInt: Int
     def toLong: Long
     def toBigInt: BigInt
   }
-  sealed trait FloatValue                 extends Value                {
+  sealed trait FloatValue                       extends Value                {
     def toFloat: Float
     def toDouble: Double
     def toBigDecimal: BigDecimal
   }
-  case class StringValue(value: String)   extends Value with PathValue {
+  final case class StringValue(value: String)   extends Value with PathValue {
     override def toString: String = s""""${value.replace("\"", "\\\"").replace("\n", "\\n")}""""
   }
-  case class BooleanValue(value: Boolean) extends Value                {
+  final case class BooleanValue(value: Boolean) extends Value                {
     override def toString: String = if (value) "true" else "false"
   }
-  case class EnumValue(value: String)     extends Value                {
+  final case class EnumValue(value: String)     extends Value                {
     override def toString: String      = s""""${value.replace("\"", "\\\"")}""""
     override def toInputString: String = ValueRenderer.enumInputValueRenderer.render(this)
   }

@@ -5,10 +5,11 @@ import caliban._
 import caliban.execution.{ ExecutionRequest, FieldInfo }
 import caliban.introspection.adt.__Introspection
 import caliban.parsing.adt.Document
+import caliban.syntax._
 import caliban.wrappers.Wrapper.CombinedWrapper
 import zio.query.ZQuery
-import zio.{ Exit, Trace, URIO, ZIO }
 import zio.stacktracer.TracingImplicits.disableAutoTrace
+import zio.{ Exit, Trace, URIO, ZIO }
 
 import scala.annotation.tailrec
 import scala.collection.mutable.ListBuffer
@@ -27,7 +28,7 @@ import scala.collection.mutable.ListBuffer
  * Implementations can control the order at which this wrapper is executed by overriding the `priority` value.
  * Setting a higher `priority` value will be executed first.
  */
-sealed trait Wrapper[-R] extends GraphQLAspect[Nothing, R] { self =>
+sealed abstract class Wrapper[-R] extends GraphQLAspect[Nothing, R] { self =>
   val priority: Int = 0
 
   def |+|[R1 <: R](that: Wrapper[R1]): Wrapper[R1] = that match {
@@ -62,7 +63,7 @@ object Wrapper {
    */
   def suspend[R](wrapper: => Wrapper[R]): Wrapper[R] = SuspendedWrapper[R](() => wrapper)
 
-  sealed trait SimpleWrapper[-R, E, A, Info] extends Wrapper[R] {
+  sealed abstract class SimpleWrapper[-R, E, A, Info] extends Wrapper[R] {
     def wrap[R1 <: R](f: Info => ZIO[R1, E, A]): Info => ZIO[R1, E, A]
   }
 
@@ -70,19 +71,19 @@ object Wrapper {
    * Wrapper for the whole query processing.
    * Wraps a function from a request `GraphQLRequest` to a `URIO[R, GraphQLResponse[CalibanError]]`.
    */
-  trait OverallWrapper[-R] extends SimpleWrapper[R, Nothing, GraphQLResponse[CalibanError], GraphQLRequest]
+  abstract class OverallWrapper[-R] extends SimpleWrapper[R, Nothing, GraphQLResponse[CalibanError], GraphQLRequest]
 
   /**
    * Wrapper for the query parsing stage.
    * Wraps a function from a query `String` to a `ZIO[R, ParsingError, Document]`.
    */
-  trait ParsingWrapper[-R] extends SimpleWrapper[R, ParsingError, Document, String]
+  abstract class ParsingWrapper[-R] extends SimpleWrapper[R, ParsingError, Document, String]
 
   /**
    * Wrapper for the query validation stage.
    * Wraps a function from a `Document` to a `ZIO[R, ValidationError, ExecutionRequest]`.
    */
-  trait ValidationWrapper[-R] extends SimpleWrapper[R, ValidationError, ExecutionRequest, Document] { self =>
+  abstract class ValidationWrapper[-R] extends SimpleWrapper[R, ValidationError, ExecutionRequest, Document] { self =>
 
     /**
      * Returns a new wrapper which skips the [[wrap]] function if the query is an introspection query.
@@ -103,7 +104,7 @@ object Wrapper {
    * Wrapper for the query execution stage.
    * Wraps a function from an `ExecutionRequest` to a `URIO[R, GraphQLResponse[CalibanError]]`.
    */
-  trait ExecutionWrapper[-R] extends SimpleWrapper[R, Nothing, GraphQLResponse[CalibanError], ExecutionRequest]
+  abstract class ExecutionWrapper[-R] extends SimpleWrapper[R, Nothing, GraphQLResponse[CalibanError], ExecutionRequest]
 
   /**
    * Wrapper for each individual field.
@@ -124,7 +125,7 @@ object Wrapper {
    * Takes a function from a `ZIO[R, ExecutionError, __Introspection]` and that returns a
    * `ZIO[R, ExecutionError, __Introspection]`.
    */
-  trait IntrospectionWrapper[-R] extends Wrapper[R] {
+  abstract class IntrospectionWrapper[-R] extends Wrapper[R] {
     def wrap[R1 <: R](effect: ZIO[R1, ExecutionError, __Introspection]): ZIO[R1, ExecutionError, __Introspection]
   }
 
@@ -132,7 +133,7 @@ object Wrapper {
    * Wrapper that combines multiple wrappers.
    * @param wrappers a list of wrappers
    */
-  case class CombinedWrapper[-R](wrappers: List[Wrapper[R]]) extends Wrapper[R] {
+  final case class CombinedWrapper[-R](wrappers: List[Wrapper[R]]) extends Wrapper[R] {
     override def |+|[R1 <: R](that: Wrapper[R1]): Wrapper[R1] = that match {
       case CombinedWrapper(other) => copy(wrappers = wrappers ++ other)
       case other                  => copy(wrappers = wrappers :+ other)
@@ -144,9 +145,9 @@ object Wrapper {
    * A wrapper that requires an effect to be built. The effect will be run for each query.
    * @param wrapper an effect that builds a wrapper
    */
-  case class EffectfulWrapper[-R](wrapper: URIO[R, Wrapper[R]]) extends Wrapper[R]
+  final case class EffectfulWrapper[-R](wrapper: URIO[R, Wrapper[R]]) extends Wrapper[R]
 
-  private case class SuspendedWrapper[-R](wrapper: () => Wrapper[R]) extends Wrapper[R]
+  private final case class SuspendedWrapper[-R](wrapper: () => Wrapper[R]) extends Wrapper[R]
 
   private[caliban] def wrap[R1 >: R, R, E, A, Info](
     process: Info => ZIO[R1, E, A]
@@ -185,12 +186,12 @@ object Wrapper {
         val i = ListBuffer.empty[IntrospectionWrapper[R]]
 
         def loop(wrapper: Wrapper[R]): Option[URIO[R, Unit]] = wrapper match {
-          case wrapper: OverallWrapper[R]       => o append wrapper; None
-          case wrapper: ParsingWrapper[R]       => p append wrapper; None
-          case wrapper: ValidationWrapper[R]    => v append wrapper; None
-          case wrapper: ExecutionWrapper[R]     => e append wrapper; None
-          case wrapper: FieldWrapper[R]         => f append wrapper; None
-          case wrapper: IntrospectionWrapper[R] => i append wrapper; None
+          case wrapper: OverallWrapper[R]       => o addOne wrapper; None
+          case wrapper: ParsingWrapper[R]       => p addOne wrapper; None
+          case wrapper: ValidationWrapper[R]    => v addOne wrapper; None
+          case wrapper: ExecutionWrapper[R]     => e addOne wrapper; None
+          case wrapper: FieldWrapper[R]         => f addOne wrapper; None
+          case wrapper: IntrospectionWrapper[R] => i addOne wrapper; None
           case SuspendedWrapper(f)              => loop(f())
           case CombinedWrapper(wrappers)        =>
             wrappers.flatMap(loop) match {
@@ -200,8 +201,8 @@ object Wrapper {
           case EffectfulWrapper(wrapper)        =>
             Some(wrapper.flatMap {
               loop(_) match {
-                case None    => Exit.unit
                 case Some(w) => w
+                case _       => Exit.unit
               }
             })
           case Wrapper.Empty                    => None

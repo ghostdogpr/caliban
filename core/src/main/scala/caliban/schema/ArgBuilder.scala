@@ -27,7 +27,7 @@ Derivation requires that you have a Schema for any other type nested inside ${T}
 See https://ghostdogpr.github.io/caliban/docs/schema.html for more information.
 """
 )
-trait ArgBuilder[T] { self =>
+abstract class ArgBuilder[T] { self =>
 
   /**
    * Builds a value of type `T` from an input [[caliban.InputValue]].
@@ -69,20 +69,21 @@ trait ArgBuilder[T] { self =>
    * Builds a new `ArgBuilder` of `A` from an existing `ArgBuilder` of `T` and a function from `T` to `A`.
    * @param f a function from `T` to `A`.
    */
-  def map[A](f: T => A): ArgBuilder[A] = (input: InputValue) => self.build(input).map(f)
+  final def map[A](f: T => A): ArgBuilder[A] = (input: InputValue) => self.build(input).map(f)
 
   /**
    * Builds a new `ArgBuilder` of A from an existing `ArgBuilder` of `T` and a function from `T` to `Either[ExecutionError, A]`.
    * @param f a function from `T` to Either[ExecutionError, A]
    */
-  def flatMap[A](f: T => Either[ExecutionError, A]): ArgBuilder[A] = (input: InputValue) => self.build(input).flatMap(f)
+  final def flatMap[A](f: T => Either[ExecutionError, A]): ArgBuilder[A] = (input: InputValue) =>
+    self.build(input).flatMap(f)
 
   /**
    * Builds a new `ArgBuilder` of T from two `ArgBuilders` of `T` where the second `ArgBuilder` is a fallback if the first one fails
    * In the case that both fail, the error from the second will be returned
    * @param fallback The alternative `ArgBuilder` if this one fails
    */
-  def orElse(fallback: ArgBuilder[T]): ArgBuilder[T] =
+  final def orElse(fallback: ArgBuilder[T]): ArgBuilder[T] =
     (input: InputValue) =>
       self.build(input) match {
         case Left(_) => fallback.build(input)
@@ -92,7 +93,7 @@ trait ArgBuilder[T] { self =>
   /**
    * @see [[orElse]]
    */
-  def ||(fallback: ArgBuilder[T]): ArgBuilder[T] =
+  final def ||(fallback: ArgBuilder[T]): ArgBuilder[T] =
     orElse(fallback)
 }
 
