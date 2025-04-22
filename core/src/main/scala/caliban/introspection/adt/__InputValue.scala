@@ -15,9 +15,9 @@ case class __InputValue(
   defaultValue: Option[String],
   isDeprecated: Boolean = false,
   deprecationReason: Option[String] = None,
-  @GQLExcluded isOptional: Boolean = false,
   @GQLExcluded directives: Option[List[Directive]] = None,
-  @GQLExcluded parentType: () => Option[__Type] = () => None
+  @GQLExcluded parentType: () => Option[__Type] = () => None,
+  @GQLExcluded isOptional: Boolean = false
 ) {
   def toInputValueDefinition: InputValueDefinition = {
     val default       = defaultValue.flatMap(v => Parser.parseInputValue(v).toOption)
