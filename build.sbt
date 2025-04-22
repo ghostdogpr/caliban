@@ -15,7 +15,7 @@ val circeVersion              = "0.14.12"
 val fs2Version                = "3.12.0"
 val http4sVersion             = "0.23.30"
 val javaTimeVersion           = "2.6.0"
-val jsoniterVersion           = "2.34.1"
+val jsoniterVersion           = "2.35.0"
 val laminextVersion           = "0.17.0"
 val magnoliaScala2Version     = "1.1.10"
 val magnoliaScala3Version     = "1.3.16"
@@ -33,7 +33,7 @@ val zioConfigVersion          = "4.0.4"
 val zqueryVersion             = "0.7.7"
 val zioJsonVersion            = "0.7.42"
 val zioHttpVersion            = "3.2.0"
-val zioOpenTelemetryVersion   = "3.1.3"
+val zioOpenTelemetryVersion   = "3.1.4"
 
 Global / onChangedBuildSource := ReloadOnSourceChanges
 
