@@ -3,6 +3,7 @@ package caliban.relay
 import caliban.CalibanError.ExecutionError
 import caliban.execution.Field
 import caliban.introspection.adt.{ __Field, __Type, __TypeKind, TypeVisitor }
+import caliban.schema.Step.NullStep
 import caliban.schema.{ ArgBuilder, GenericSchema, Schema, Step }
 import caliban.transformers.Transformer
 import caliban.{ graphQL, GraphQL, GraphQLAspect, RootResolver }
@@ -10,6 +11,9 @@ import zio.NonEmptyChunk
 import zio.query.ZQuery
 
 object RelaySupport {
+
+  def withGlobalIdentifiers[ID]: WithGlobalIdentifiers[ID] =
+    WithGlobalIdentifiers()
 
   def globalIdentifiers[R, ID: ArgBuilder](
     original: GraphQL[R],
@@ -39,14 +43,15 @@ object RelaySupport {
         )
     )
 
-    implicit val nodeSchema: Schema[R, Identifier[ID]] = new Schema[R, Identifier[ID]] {
-      override val nullable: Boolean                                         = true
-      override def toType(isInput: Boolean, isSubscription: Boolean): __Type = nodeType
+    implicit val nodeSchema: Schema[R, Node[ID]] = new Schema[R, Node[ID]] {
+      override final val nullable: Boolean                                         = true
+      override final def toType(isInput: Boolean, isSubscription: Boolean): __Type = nodeType
 
-      override def resolve(value: Identifier[ID]): Step[R] =
-        _typeMap
-          .get(value.typename)
-          .fold[Step[R]](Step.NullStep)(resolver => resolver.resolve(value.id))
+      override final def resolve(value: Node[ID]): Step[R] =
+        _typeMap.getOrElse(value.__typename, null) match {
+          case null     => NullStep
+          case resolver => resolver.resolve(value.id)
+        }
     }
 
     val transformer = new Transformer[Any] {
@@ -68,7 +73,7 @@ object RelaySupport {
     }
 
     case class Query(
-      node: NodeArgs[ID] => ZQuery[Any, ExecutionError, Identifier[ID]]
+      node: NodeArgs[ID] => ZQuery[Any, ExecutionError, Node[ID]]
     )
 
     implicit val querySchema: Schema[R, Query] = genericSchema.gen[R, Query]
@@ -79,21 +84,18 @@ object RelaySupport {
           args =>
             typeResolver.resolve(args.id) match {
               case Left(error)     => ZQuery.fail(error)
-              case Right(typename) => ZQuery.succeed(Identifier(typename, args.id))
+              case Right(typename) => ZQuery.succeed(Node(typename, args.id))
             }
         )
       )
     )).transform(transformer)
   }
 
-  def withGlobalIdentifiers[ID]: WithGlobalIdentifiers[ID] =
-    WithGlobalIdentifiers()
-
-  private case class Identifier[A](typename: String, id: A)
+  private case class Node[A](__typename: String, id: A)
 
   private case class NodeArgs[ID](id: ID)
 
-  case class WithGlobalIdentifiers[ID](dummy: Boolean = false) extends AnyVal {
+  final case class WithGlobalIdentifiers[ID](dummy: Boolean = false) extends AnyVal {
     def apply[R](resolver: NodeResolver[R, ID], rest: NodeResolver[R, ID]*)(implicit
       argBuilder: ArgBuilder[ID],
       schema: Schema[Any, ID],

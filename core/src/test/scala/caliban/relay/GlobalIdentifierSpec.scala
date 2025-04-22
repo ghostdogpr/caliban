@@ -80,7 +80,7 @@ object GlobalIdentifierSpec extends ZIOSpecDefault {
   val spec = suite("GlobalIdentifierSpec")(
     test("augment schema with node field") {
       val augmented = api @@
-        RelaySupport.withGlobalIdentifiers[ID](shipResolver, characterResolver)
+        RelaySupport.withGlobalIdentifiers(shipResolver, characterResolver)
 
       assertTrue(
         DocumentRenderer.renderCompact(
@@ -100,6 +100,9 @@ object GlobalIdentifierSpec extends ZIOSpecDefault {
           | ship: node(id:"Ship:3"){
           |   id,...on Ship{purpose}
           | }
+          | missing: node(id:"Ship:5"){
+          |  id,...on Ship{purpose}
+          | }
           |}""".stripMargin
 
       val result = augmented.interpreterUnsafe.execute(query)
@@ -114,7 +117,8 @@ object GlobalIdentifierSpec extends ZIOSpecDefault {
                 ),
                 "ship"      -> ResponseValue.ObjectValue(
                   List("id" -> Value.StringValue("Ship:3"), "purpose" -> Value.StringValue("Generation Ship"))
-                )
+                ),
+                "missing"   -> Value.NullValue
               )
             ),
             errors = Nil
