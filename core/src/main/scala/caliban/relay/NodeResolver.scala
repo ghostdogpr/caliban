@@ -7,6 +7,11 @@ import caliban.schema.Step.{ MetadataFunctionStep, QueryStep }
 import caliban.schema.{ Schema, Step }
 import zio.query.ZQuery
 
+/**
+ * A resolver which is used when attempting to materialize different implementations of the `Node` interface
+ * @tparam R
+ * @tparam ID
+ */
 trait NodeResolver[-R, ID] {
   def resolve(id: ID): Step[R]
   def toType: __Type
@@ -18,7 +23,7 @@ object NodeResolver {
 
   def fromMetadata[ID]: FromMetadataPartiallyApplied[ID] = new FromMetadataPartiallyApplied[ID]
 
-  def fromOption[R, ID, T <: Node[ID]](
+  def fromOption[R, ID, T](
     resolver: ID => Option[T]
   )(implicit schema: Schema[R, T]): NodeResolver[R, ID] =
     new NodeResolver[R, ID] {
@@ -31,7 +36,7 @@ object NodeResolver {
       override def toType: __Type = schema.toType_()
     }
 
-  def fromEither[R, ID, T <: Node[ID]](
+  def fromEither[R, ID, T](
     resolver: ID => Either[CalibanError, Option[T]]
   )(implicit schema: Schema[R, T]): NodeResolver[R, ID] =
     new NodeResolver[R, ID] {
@@ -45,7 +50,7 @@ object NodeResolver {
       override def toType: __Type = schema.toType_()
     }
 
-  def fromZIO[R, ID, T <: Node[ID]](
+  def fromZIO[R, ID, T](
     resolver: ID => ZQuery[R, CalibanError, Option[T]]
   )(implicit schema: Schema[R, T]): NodeResolver[R, ID] =
     new NodeResolver[R, ID] {
@@ -55,7 +60,7 @@ object NodeResolver {
       override def toType: __Type = schema.toType_()
     }
 
-  def fromQuery[R, ID, T <: Node[ID]](
+  def fromQuery[R, ID, T](
     resolver: ID => ZQuery[R, CalibanError, Option[T]]
   )(implicit schema: Schema[R, T]): NodeResolver[R, ID] =
     new NodeResolver[R, ID] {
@@ -66,7 +71,7 @@ object NodeResolver {
     }
 
   final class FromPartiallyApplied[ID](val dummy: Boolean = false) {
-    def apply[R, T <: Node[ID]](
+    def apply[R, T](
       resolver: ID => ZQuery[R, CalibanError, Option[T]]
     )(implicit schema: Schema[R, T]): NodeResolver[R, ID] = new NodeResolver[R, ID] {
       override def resolve(id: ID): Step[R] =
@@ -77,7 +82,7 @@ object NodeResolver {
   }
 
   final class FromMetadataPartiallyApplied[ID](val dummy: Boolean = false) {
-    def apply[R, T <: Node[ID]](
+    def apply[R, T](
       resolver: Field => ID => ZQuery[R, CalibanError, Option[T]]
     )(implicit schema: Schema[R, T]): NodeResolver[R, ID] = new NodeResolver[R, ID] {
       override def resolve(id: ID): Step[R] =

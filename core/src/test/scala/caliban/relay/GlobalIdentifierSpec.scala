@@ -39,8 +39,8 @@ object GlobalIdentifierSpec extends ZIOSpecDefault {
       }
   }
 
-  case class Ship(id: ID, name: String, purpose: String) extends Node[ID]
-  case class Character(id: ID, name: String)             extends Node[ID]
+  case class Ship(id: ID, name: String, purpose: String)
+  case class Character(id: ID, name: String)
   case class Query(
     characters: List[Character],
     ships: List[Ship]

@@ -75,7 +75,13 @@ object RelaySupport {
 
     (original |+| graphQL[R, Query, Unit, Unit](
       RootResolver(
-        Query(node = args => ZQuery.fromEither(typeResolver.resolve(args.id)).map(Identifier(_, args.id)))
+        Query(node =
+          args =>
+            typeResolver.resolve(args.id) match {
+              case Left(error)     => ZQuery.fail(error)
+              case Right(typename) => ZQuery.succeed(Identifier(typename, args.id))
+            }
+        )
       )
     )).transform(transformer)
   }
