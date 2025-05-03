@@ -11,20 +11,20 @@ import caliban.wrappers.Wrapper.ExecutionWrapper
 import caliban.{ CalibanError, GraphQLResponse, InputValue, Value }
 import io.opentelemetry.api.trace.SpanKind
 import zio._
-import zio.telemetry.opentelemetry.tracing.Tracing
+import zio.telemetry.opentelemetry.trace.Tracer
 
 object SchemaTracer {
-  val wrapper: ExecutionWrapper[Tracing] = new ExecutionWrapper[Tracing] {
-    def wrap[R <: Tracing](
-      f: ExecutionRequest => ZIO[R, Nothing, GraphQLResponse[CalibanError]]
-    ): ExecutionRequest => ZIO[R, Nothing, GraphQLResponse[CalibanError]] =
+  val wrapper: ExecutionWrapper[Tracer] = new ExecutionWrapper[Tracer] {
+    def wrap[R <: Tracer](
+                           f: ExecutionRequest => ZIO[R, Nothing, GraphQLResponse[CalibanError]]
+                         ): ExecutionRequest => ZIO[R, Nothing, GraphQLResponse[CalibanError]] =
       request => {
         val parentField = request.field.fields.head.name
 
         // skip introspection queries
         if (parentField == "__schema") f(request)
         else
-          ZIO.serviceWithZIO[Tracing](tracer =>
+          ZIO.serviceWithZIO[Tracer] { tracer =>
             tracer.span(
               spanName(request),
               SpanKind.INTERNAL
@@ -33,7 +33,7 @@ object SchemaTracer {
                 tracer.setAttribute(k, v)
               } *> f(request)
             }
-          )
+          }
       }
   }
 
@@ -52,8 +52,8 @@ object SchemaTracer {
   }
 
   private def attributes[T, R](
-    field: Field
-  ) = List("document" -> graphQLQuery(field))
+                                field: Field
+                              ) = List("document" -> graphQLQuery(field))
 
   private def graphQLQuery(field: Field): String =
     RemoteQuery.apply(maskField(field)).toGraphQLRequest.query.getOrElse("")
