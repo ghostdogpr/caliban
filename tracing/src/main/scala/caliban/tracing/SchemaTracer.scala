@@ -4,11 +4,11 @@ import caliban.InputValue.ObjectValue
 import caliban.Value.FloatValue.FloatNumber
 import caliban.Value.IntValue.IntNumber
 import caliban.Value.StringValue
-import caliban.execution.{ ExecutionRequest, Field }
+import caliban.execution.{ExecutionRequest, Field}
 import caliban.parsing.adt.OperationType
 import caliban.tools.stitching.RemoteQuery
 import caliban.wrappers.Wrapper.ExecutionWrapper
-import caliban.{ CalibanError, GraphQLResponse, InputValue, Value }
+import caliban.{CalibanError, GraphQLResponse, InputValue, Value}
 import io.opentelemetry.api.trace.SpanKind
 import zio._
 import zio.telemetry.opentelemetry.trace.Tracer
@@ -16,8 +16,8 @@ import zio.telemetry.opentelemetry.trace.Tracer
 object SchemaTracer {
   val wrapper: ExecutionWrapper[Tracer] = new ExecutionWrapper[Tracer] {
     def wrap[R <: Tracer](
-      f: ExecutionRequest => ZIO[R, Nothing, GraphQLResponse[CalibanError]]
-    ): ExecutionRequest => ZIO[R, Nothing, GraphQLResponse[CalibanError]] =
+                           f: ExecutionRequest => ZIO[R, Nothing, GraphQLResponse[CalibanError]]
+                         ): ExecutionRequest => ZIO[R, Nothing, GraphQLResponse[CalibanError]] =
       request => {
         val parentField = request.field.fields.head.name
 
@@ -39,8 +39,8 @@ object SchemaTracer {
 
   private def spanName(request: ExecutionRequest): String = {
     val operationTypeString = request.operationType match {
-      case OperationType.Query        => "query"
-      case OperationType.Mutation     => "mutation"
+      case OperationType.Query => "query"
+      case OperationType.Mutation => "mutation"
       case OperationType.Subscription => "subscription"
     }
 
@@ -52,8 +52,8 @@ object SchemaTracer {
   }
 
   private def attributes[T, R](
-    field: Field
-  ) = List("document" -> graphQLQuery(field))
+                                field: Field
+                              ) = List("document" -> graphQLQuery(field))
 
   private def graphQLQuery(field: Field): String =
     RemoteQuery.apply(maskField(field)).toGraphQLRequest.query.getOrElse("")
@@ -61,11 +61,11 @@ object SchemaTracer {
   private def maskArguments(args: Map[String, InputValue]): Map[String, InputValue] =
     args.map { case (k, v) =>
       val v1 = v match {
-        case _: ObjectValue      => ObjectValue(Map.empty)
-        case _: StringValue      => StringValue("")
-        case _: Value.IntValue   => IntNumber(0)
+        case _: ObjectValue => ObjectValue(Map.empty)
+        case _: StringValue => StringValue("")
+        case _: Value.IntValue => IntNumber(0)
         case _: Value.FloatValue => FloatNumber(0f)
-        case x                   => x
+        case x => x
       }
       (k, v1)
     }.toMap
