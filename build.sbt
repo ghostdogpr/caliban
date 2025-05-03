@@ -710,7 +710,7 @@ lazy val commonSettings = Def.settings(
         "-Ykind-projector",
         "-no-indent",
         "-rewrite",
-        "-source 3.4-migration"
+        "-source:3.4-migration"
       )
     case _            => Nil
   })
