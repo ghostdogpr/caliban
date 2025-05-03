@@ -675,8 +675,8 @@ lazy val commonSettings = Def.settings(
     "-language:existentials",
     "-unchecked",
     "-release",
-    "11",
- ) ++ (CrossVersion.partialVersion(scalaVersion.value) match {
+    "11"
+  ) ++ (CrossVersion.partialVersion(scalaVersion.value) match {
     case Some((2, 12)) =>
       Seq(
         "-Xsource:2.13",
@@ -711,7 +711,7 @@ lazy val commonSettings = Def.settings(
         "-no-indent",
         "-rewrite",
         "-source 3.4-migration"
-  )
+      )
     case _            => Nil
   })
 )

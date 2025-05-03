@@ -16,8 +16,8 @@ import zio.telemetry.opentelemetry.trace.Tracer
 object SchemaTracer {
   val wrapper: ExecutionWrapper[Tracer] = new ExecutionWrapper[Tracer] {
     def wrap[R <: Tracer](
-                           f: ExecutionRequest => ZIO[R, Nothing, GraphQLResponse[CalibanError]]
-                         ): ExecutionRequest => ZIO[R, Nothing, GraphQLResponse[CalibanError]] =
+      f: ExecutionRequest => ZIO[R, Nothing, GraphQLResponse[CalibanError]]
+    ): ExecutionRequest => ZIO[R, Nothing, GraphQLResponse[CalibanError]] =
       request => {
         val parentField = request.field.fields.head.name
 
@@ -52,8 +52,8 @@ object SchemaTracer {
   }
 
   private def attributes[T, R](
-                                field: Field
-                              ) = List("document" -> graphQLQuery(field))
+    field: Field
+  ) = List("document" -> graphQLQuery(field))
 
   private def graphQLQuery(field: Field): String =
     RemoteQuery.apply(maskField(field)).toGraphQLRequest.query.getOrElse("")
