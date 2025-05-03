@@ -4,7 +4,7 @@ import sbtcrossproject.CrossPlugin.autoImport.{ crossProject, CrossType }
 
 val scala212 = "2.12.20"
 val scala213 = "2.13.16"
-val scala3   = "3.3.5"
+val scala3   = "3.6.4"
 val allScala = Seq(scala212, scala213, scala3)
 
 val akkaVersion               = "2.6.20"
@@ -33,7 +33,7 @@ val zioConfigVersion          = "4.0.4"
 val zqueryVersion             = "0.7.7"
 val zioJsonVersion            = "0.7.41"
 val zioHttpVersion            = "3.2.0"
-val zioOpenTelemetryVersion   = "3.1.3"
+val zioOpenTelemetryVersion   = "4.0.0-RC1"
 
 Global / onChangedBuildSource := ReloadOnSourceChanges
 
@@ -664,10 +664,9 @@ lazy val commonSettings = Def.settings(
     "-language:higherKinds",
     "-language:existentials",
     "-unchecked",
-    "-Xfatal-warnings",
     "-release",
-    "11"
-  ) ++ (CrossVersion.partialVersion(scalaVersion.value) match {
+    "11",
+ ) ++ (CrossVersion.partialVersion(scalaVersion.value) match {
     case Some((2, 12)) =>
       Seq(
         "-Xsource:2.13",
@@ -699,8 +698,10 @@ lazy val commonSettings = Def.settings(
       Seq(
         "-explain-types",
         "-Ykind-projector",
-        "-no-indent"
-      )
+        "-no-indent",
+        "-rewrite",
+        "-source 3.4-migration"
+  )
     case _            => Nil
   })
 )

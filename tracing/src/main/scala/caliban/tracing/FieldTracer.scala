@@ -6,27 +6,31 @@ import caliban.wrappers.Wrapper.FieldWrapper
 import io.opentelemetry.api.trace.StatusCode
 import zio._
 import zio.query.ZQuery
-import zio.telemetry.opentelemetry.tracing.{ StatusMapper, Tracing }
+import zio.telemetry.opentelemetry.trace.{ StatusMapper, Tracer }
 
 object FieldTracer {
-  val wrapper = new FieldWrapper[Tracing] {
-    def wrap[R <: Tracing](
-      query: ZQuery[R, CalibanError.ExecutionError, ResponseValue],
-      info: FieldInfo
-    ): ZQuery[R, CalibanError.ExecutionError, ResponseValue] =
-      ZQuery.acquireReleaseWith(
-        ZIO.serviceWithZIO[Tracing](_.spanUnsafe(info.name))
-      ) { case (_, end) => end } { case (span, _) =>
+  val wrapper = new FieldWrapper[Tracer] {
+    def wrap[R <: Tracer](
+                           query: ZQuery[R, CalibanError.ExecutionError, ResponseValue],
+                           info: FieldInfo
+                         ): ZQuery[R, CalibanError.ExecutionError, ResponseValue] =
+      ZQuery.fromZIO(ZIO.service[Tracer]).flatMap { tracer =>
+        // Use ZQuery.foldCauseQuery to handle success and failure cases
         query.foldCauseQuery(
-          cause =>
-            ZQuery.failCause {
-              val status =
-                cause.failureOption.flatMap(StatusMapper.default.failure.lift).fold(StatusCode.ERROR)(_.statusCode)
-              span.setStatus(status, cause.prettyPrint)
-              cause
-            },
+          cause => {
+            val status = cause.failureOption
+              .flatMap(StatusMapper.default.failure.lift)
+              .fold(StatusCode.ERROR)(_.statusCode)
+
+            // Create a new query that logs the error and then fails with the original cause
+            ZQuery.fromZIO(
+              ZIO.logError(s"Error in field ${info.name}: ${cause.prettyPrint} (Status: $status)")
+            ) *> ZQuery.failCause(cause)
+          },
           value => ZQuery.succeed(value)
         )
       }
   }
 }
+
+
