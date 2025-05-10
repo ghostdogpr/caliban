@@ -6,7 +6,7 @@ import caliban.Value.IntValue.IntNumber
 import caliban.Value.StringValue
 import caliban.execution.{ ExecutionRequest, Field }
 import caliban.parsing.adt.OperationType
-import caliban.tools.stitching.RemoteQuery
+import caliban.RemoteQuery
 import caliban.wrappers.Wrapper.ExecutionWrapper
 import caliban.{ CalibanError, GraphQLResponse, InputValue, Value }
 import io.opentelemetry.api.trace.SpanKind

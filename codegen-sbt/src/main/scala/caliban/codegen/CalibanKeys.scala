@@ -1,6 +1,5 @@
 package caliban.codegen
 
-import caliban.tools.CalibanCommonSettings
 import sbt._
 
 import java.net.URL

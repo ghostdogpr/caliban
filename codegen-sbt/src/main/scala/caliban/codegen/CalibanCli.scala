@@ -1,7 +1,7 @@
 package caliban.codegen
 
-import caliban.tools.Codegen.GenType
 import caliban.tools.*
+import caliban.codegen.Codegen.GenType
 import sbt.Keys.commands
 import sbt.{ Command, State }
 import zio.Console.printLine

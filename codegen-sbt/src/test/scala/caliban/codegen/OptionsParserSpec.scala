@@ -1,7 +1,6 @@
 package caliban.codegen
 
-import caliban.tools.Options
-import caliban.tools.Options.Header
+import sttp.model.Header
 import zio.test.*
 
 object OptionsParserSpec extends ZIOSpecDefault {

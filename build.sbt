@@ -90,8 +90,10 @@ lazy val allProjects: Seq[ProjectReference] =
     clientNative,
     clientLaminext,
     tools,
+    codegen,
     codegenSbt,
     federation,
+    stitching,
     reporting,
     tracing,
     apolloCompatibility
@@ -202,20 +204,41 @@ lazy val tools = project
   .disablePlugins(AssemblyPlugin)
   .settings(
     buildInfoKeys    := Seq[BuildInfoKey](
-      "scalaPartialVersion" -> CrossVersion.partialVersion(scalaVersion.value),
-      "scalafmtVersion"     -> scalafmtVersion
+      "scalaPartialVersion" -> CrossVersion.partialVersion(scalaVersion.value)
     ),
     buildInfoPackage := "caliban.tools",
     buildInfoObject  := "BuildInfo"
   )
   .settings(
     libraryDependencies ++= Seq(
-      "org.scalameta"                  % "scalafmt-interfaces" % scalafmtVersion,
-      "io.get-coursier"                % "interface"           % "1.0.28",
-      "com.softwaremill.sttp.client4" %% "zio"                 % sttpVersion,
-      "dev.zio"                       %% "zio-test"            % zioVersion     % Test,
-      "dev.zio"                       %% "zio-test-sbt"        % zioVersion     % Test,
-      "dev.zio"                       %% "zio-json"            % zioJsonVersion % Test
+      "com.softwaremill.sttp.client4" %% "zio"          % sttpVersion,
+      "dev.zio"                       %% "zio-test"     % zioVersion % Test,
+      "dev.zio"                       %% "zio-test-sbt" % zioVersion % Test
+    )
+  )
+  .dependsOn(core, clientJVM, quickAdapter % Test)
+
+lazy val codegen = project
+  .in(file("codegen"))
+  .enablePlugins(BuildInfoPlugin)
+  .settings(name := "caliban-codegen")
+  .settings(commonSettings)
+  .settings(enableMimaSettingsJVM)
+  .disablePlugins(AssemblyPlugin)
+  .settings(
+    buildInfoKeys    := Seq[BuildInfoKey](
+      "scalaPartialVersion" -> CrossVersion.partialVersion(scalaVersion.value),
+      "scalafmtVersion"     -> scalafmtVersion
+    ),
+    buildInfoPackage := "caliban.codegen",
+    buildInfoObject  := "BuildInfo"
+  )
+  .settings(
+    libraryDependencies ++= Seq(
+      "org.scalameta"   % "scalafmt-interfaces" % scalafmtVersion,
+      "io.get-coursier" % "interface"           % "1.0.28",
+      "dev.zio"        %% "zio-test"            % zioVersion % Test,
+      "dev.zio"        %% "zio-test-sbt"        % zioVersion % Test
     ),
     Test / publishArtifact := true,
 
@@ -235,7 +258,23 @@ lazy val tools = project
         .withOverwrite(true)
     }
   )
-  .dependsOn(core, clientJVM, quickAdapter % Test)
+  .dependsOn(core, tools)
+
+lazy val stitching = project
+  .in(file("stitching"))
+  .settings(name := "caliban-stitching")
+  .settings(commonSettings)
+  .settings(enableMimaSettingsJVM)
+  .disablePlugins(AssemblyPlugin)
+  .settings(
+    libraryDependencies ++= Seq(
+      "dev.zio" %% "zio"          % zioVersion,
+      "dev.zio" %% "zio-test"     % zioVersion     % Test,
+      "dev.zio" %% "zio-test-sbt" % zioVersion     % Test,
+      "dev.zio" %% "zio-json"     % zioJsonVersion % Test
+    )
+  )
+  .dependsOn(core, tools)
 
 lazy val tracing = project
   .in(file("tracing"))
@@ -256,7 +295,7 @@ lazy val tracing = project
       "io.opentelemetry" % "opentelemetry-sdk-testing" % "1.51.0"   % Test
     )
   )
-  .dependsOn(core, tools)
+  .dependsOn(core)
 
 lazy val codegenSbt = project
   .in(file("codegen-sbt"))
@@ -299,12 +338,12 @@ lazy val codegenSbt = project
         macros / publishLocal,
         core / publishLocal,
         clientJVM / publishLocal,
-        tools / publishLocal,
+        codegen / publishLocal,
         publishLocal
       )
       .value
   )
-  .dependsOn(tools % "compile->compile;test->test")
+  .dependsOn(codegen % "compile->compile;test->test")
 
 lazy val catsInterop = project
   .in(file("interop/cats"))
@@ -562,7 +601,8 @@ lazy val examples = project
     tapirInterop,
     clientJVM,
     federation,
-    tools
+    tools,
+    stitching
   )
 
 lazy val apolloCompatibility =

@@ -13,26 +13,26 @@ import caliban.parsing.adt.Definition.TypeSystemDefinition.{ DirectiveDefinition
 import caliban.parsing.adt.Type.{ ListType, NamedType }
 import caliban.parsing.adt.{ Directive, Document, Type }
 import sttp.client4._
-import sttp.model.Uri
+import sttp.model.{ Header, Uri }
 import zio.{ RIO, Task, ZIO }
 
 object IntrospectionClient {
 
   def introspect(
     uri: String,
-    headers: Option[List[Options.Header]]
+    headers: Option[List[Header]]
   ): RIO[Backend[Task], Document] =
     introspect(uri, headers, Config.default)
 
   def introspect(
     uri: String,
-    headers: Option[List[Options.Header]],
+    headers: Option[List[Header]],
     config: IntrospectionClient.Config
   ): RIO[Backend[Task], Document] =
     for {
       parsedUri <- ZIO.fromEither(Uri.parse(uri)).mapError(cause => new Exception(s"Invalid URL: $cause"))
       baseReq    = introspection(config).toRequest(parsedUri, dropNullInputValues = true)
-      req        = headers.map(_.map(h => h.name -> h.value).toMap).fold(baseReq)(baseReq.headers)
+      req        = headers.foldLeft(baseReq)(_.withHeaders(_))
       result    <- sendRequest(req)
     } yield result
 

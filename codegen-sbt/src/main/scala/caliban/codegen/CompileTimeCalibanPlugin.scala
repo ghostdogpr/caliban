@@ -1,7 +1,7 @@
 package caliban.codegen
 
 import caliban.codegen.CalibanSourceGenerator.TrackedSettings
-import caliban.tools.compiletime.Utils
+import caliban.codegen.compiletime.Utils
 import sbt.Keys._
 import sbt.io.IO.defaultCharset
 import sbt.{ Compile, Def, Project, _ }
@@ -12,7 +12,7 @@ object CompileTimeCalibanServerPlugin extends AutoPlugin {
   override def requires = plugins.JvmPlugin
   override def trigger  = noTrigger
 
-  object autoImport extends caliban.tools.compiletime.Config {
+  object autoImport extends caliban.codegen.compiletime.Config {
 
     /* ## Tasks and settings namespace
      *
@@ -80,8 +80,8 @@ object CompileTimeCalibanServerPlugin extends AutoPlugin {
                     s"""
                        |package $generatorPackage
                        |
-                       |import caliban.tools.compiletime.CompileTime
-                       |import caliban.tools.compiletime.Config.ClientGenerationSettings
+                       |import caliban.codegen.compiletime.CompileTime
+                       |import caliban.codegen.compiletime.Config.ClientGenerationSettings
                        |
                        |private[generator] object $generatorName {
                        |  def main(args: Array[String]): Unit = {
