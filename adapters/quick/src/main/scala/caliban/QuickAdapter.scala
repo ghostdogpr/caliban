@@ -7,7 +7,7 @@ import zio.http.netty.NettyConfig
 import zio.http.netty.NettyConfig.LeakDetectionLevel
 import zio.stacktracer.TracingImplicits.disableAutoTrace
 
-final class QuickAdapter[R] private (requestHandler: QuickRequestHandler[R]) {
+final class QuickAdapter[R] private (requestHandler: QuickRequestHandler[R], forwardUploadRequest: Boolean) {
 
   private implicit val trace: Trace = Trace.empty
 
@@ -15,14 +15,14 @@ final class QuickAdapter[R] private (requestHandler: QuickRequestHandler[R]) {
    * Converts this adapter to a [[QuickHandlers]] which contains [[zio.http.RequestHandler]]s for manually constructing zio-http routes
    */
   val handlers: QuickHandlers[R] = QuickHandlers(
-    api = Handler.fromFunctionZIO[Request](requestHandler.handleHttpRequest),
+    api = Handler.fromFunctionZIO[Request](requestHandler.handleHttpRequest(forwardUploadRequest)),
     upload = Handler.fromFunctionZIO[Request](requestHandler.handleUploadRequest),
     webSocket = Handler.fromFunctionZIO[Request](requestHandler.handleWebSocketRequest)
   )
 
   @deprecated("Use `handlers` instead", "2.5.0")
   lazy val handler: RequestHandler[R, Nothing] =
-    Handler.fromFunctionZIO[Request](requestHandler.handleHttpRequest)
+    Handler.fromFunctionZIO[Request](requestHandler.handleHttpRequest(forwardUploadRequest))
 
   /**
    * Converts this adapter to a `Routes` serving the GraphQL API at the specified path.
@@ -80,21 +80,21 @@ final class QuickAdapter[R] private (requestHandler: QuickRequestHandler[R]) {
       )
 
   def configure(config: ExecutionConfiguration)(implicit trace: Trace): QuickAdapter[R] =
-    new QuickAdapter(requestHandler.configure(config))
+    new QuickAdapter(requestHandler.configure(config), forwardUploadRequest)
 
   def configure[R1](configurator: QuickAdapter.Configurator[R1])(implicit trace: Trace): QuickAdapter[R & R1] =
-    new QuickAdapter(requestHandler.configure[R1](configurator))
+    new QuickAdapter(requestHandler.configure[R1](configurator), forwardUploadRequest)
 
   def configureWebSocket[R1](config: quick.WebSocketConfig[R1]): QuickAdapter[R & R1] =
-    new QuickAdapter(requestHandler.configureWebSocket(config))
+    new QuickAdapter(requestHandler.configureWebSocket(config), forwardUploadRequest)
 
 }
 
 object QuickAdapter {
   type Configurator[-R] = URIO[R & Scope, Unit]
 
-  def apply[R](interpreter: GraphQLInterpreter[R, Any]): QuickAdapter[R] =
-    new QuickAdapter(new QuickRequestHandler(interpreter, quick.WebSocketConfig.default))
+  def apply[R](interpreter: GraphQLInterpreter[R, Any], forwardUploadRequest: Boolean = false): QuickAdapter[R] =
+    new QuickAdapter(new QuickRequestHandler(interpreter, quick.WebSocketConfig.default), forwardUploadRequest)
 
   def handlers[R](implicit tag: Tag[R], trace: Trace): URIO[QuickAdapter[R], QuickHandlers[R]] =
     ZIO.serviceWith(_.handlers)
