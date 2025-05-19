@@ -215,18 +215,18 @@ trait ArgBuilderInstances extends ArgBuilderDerivation {
     case other                       => ev.build(other).map(List(_))
   }
 
-  implicit def map[V](implicit ev: ArgBuilder[V]): ArgBuilder[Map[String, V]] = {
+  implicit def map[K, V](implicit keyEv: ArgBuilder[K], valueEv: ArgBuilder[V]): ArgBuilder[Map[K, V]] = {
     case InputValue.ListValue(kvs) =>
       kvs
-        .foldLeft[Either[ExecutionError, Map[String, V]]](Right(Map.empty)) {
+        .foldLeft[Either[ExecutionError, Map[K, V]]](Right(Map.empty)) {
           case (res @ Left(_), _)                       => res
           case (Right(res), InputValue.ObjectValue(kv)) =>
             for {
-              key   <- if (kv.contains("key")) { string.build(kv("key")) }
+              key   <- if (kv.contains("key")) { keyEv.build(kv("key")) }
                        else { Left(InvalidInputArgument("key", kv)) }
               value <-
                 if (kv.contains("value")) {
-                  ev.build(kv("value"))
+                  valueEv.build(kv("value"))
                 } else {
                   Left(InvalidInputArgument("value", kv))
                 }
