@@ -215,6 +215,27 @@ trait ArgBuilderInstances extends ArgBuilderDerivation {
     case other                       => ev.build(other).map(List(_))
   }
 
+  implicit def map[V](implicit ev: ArgBuilder[V]): ArgBuilder[Map[String, V]] = {
+    case InputValue.ListValue(kvs) =>
+      kvs
+        .foldLeft[Either[ExecutionError, Map[String, V]]](Right(Map.empty)) {
+          case (res @ Left(_), _)                       => res
+          case (Right(res), InputValue.ObjectValue(kv)) =>
+            for {
+              key   <- if (kv.contains("key")) { string.build(kv("key")) }
+                       else { Left(InvalidInputArgument("key", kv)) }
+              value <-
+                if (kv.contains("value")) {
+                  ev.build(kv("value"))
+                } else {
+                  Left(InvalidInputArgument("value", kv))
+                }
+            } yield res + (key -> value)
+          case _                                        => Left(InvalidInputArgument("key-value pair", kvs))
+        }
+    case other                     => Left(InvalidInputArgument("Map", other))
+  }
+
   implicit def seq[A](implicit ev: ArgBuilder[A]): ArgBuilder[Seq[A]]       = list[A].map(_.toSeq)
   implicit def set[A](implicit ev: ArgBuilder[A]): ArgBuilder[Set[A]]       = list[A].map(_.toSet)
   implicit def vector[A](implicit ev: ArgBuilder[A]): ArgBuilder[Vector[A]] = list[A].map(_.toVector)
