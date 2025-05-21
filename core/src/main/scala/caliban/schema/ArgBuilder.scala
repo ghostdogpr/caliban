@@ -11,8 +11,6 @@ import java.time.format.DateTimeFormatter
 import java.time.temporal.Temporal
 import java.util.UUID
 import scala.annotation.implicitNotFound
-import scala.collection.immutable.VectorMap
-import scala.collection.mutable
 import scala.util.Try
 import scala.util.control.{ NoStackTrace, NonFatal }
 
@@ -219,7 +217,7 @@ trait ArgBuilderInstances extends ArgBuilderDerivation {
   implicit def map[K, V](implicit keyEv: ArgBuilder[K], valueEv: ArgBuilder[V]): ArgBuilder[Map[K, V]] = {
     case InputValue.ListValue(kvs) =>
       kvs.iterator
-        .foldLeft[Either[ExecutionError, mutable.Builder[(K, V), VectorMap[K, V]]]](Right(VectorMap.newBuilder[K, V])) {
+        .foldLeft[Either[ExecutionError, Map[K, V]]](Right(Map.empty)) {
           case (res @ Left(_), _)                       => res
           case (Right(res), InputValue.ObjectValue(kv)) =>
             for {
@@ -231,10 +229,9 @@ trait ArgBuilderInstances extends ArgBuilderDerivation {
                 } else {
                   Left(InvalidInputArgument("value", kv))
                 }
-            } yield res.addOne((key, value))
+            } yield res.updated(key, value)
           case _                                        => Left(InvalidInputArgument("key-value pair", kvs))
         }
-        .map(_.result())
     case other                     => Left(InvalidInputArgument("Map", other))
   }
 
