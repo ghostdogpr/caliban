@@ -1,0 +1,13 @@
+$ exec echo compiling for the first time
+> compile
+
+$ exists target/scala-2.12/src_managed/main/caliban-codegen-sbt/caliban/Client/package.scala
+$ exists target/scala-2.12/src_managed/main/caliban-codegen-sbt/caliban/Client/Character.scala
+$ exists target/scala-2.12/src_managed/main/caliban-codegen-sbt/caliban/Client/Canterbury.scala
+
+$ exec echo compiling second time
+> compile
+
+$ exists target/scala-2.12/src_managed/main/caliban-codegen-sbt/caliban/Client/package.scala
+$ exists target/scala-2.12/src_managed/main/caliban-codegen-sbt/caliban/Client/Character.scala
+$ exists target/scala-2.12/src_managed/main/caliban-codegen-sbt/caliban/Client/Canterbury.scala
