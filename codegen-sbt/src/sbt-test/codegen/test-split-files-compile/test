@@ -1,0 +1,4 @@
+$ exec echo compiling for the first time
+> compile
+$ exec echo compiling second time
+> compile
