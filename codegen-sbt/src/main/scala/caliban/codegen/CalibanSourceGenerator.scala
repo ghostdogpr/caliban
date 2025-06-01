@@ -40,7 +40,7 @@ object CalibanSourceGenerator {
       }
       val interimPath  = managedRoot.toPath.resolve(relativePath)
       val clientName   = settings.clientName.getOrElse(interimPath.getFileName.toString.stripSuffix(".graphql"))
-      val scalaName    = clientName + ".scala"
+      val scalaName    = if (settings.splitFiles.contains(true)) clientName else clientName + ".scala"
       interimPath.getParent.resolve(scalaName).toFile
   }
 
