@@ -1,4 +1,9 @@
 $ exec echo compiling for the first time
 > compile
+
+$ exists target/scala-2.12/src_managed/main/caliban-codegen-sbt/caliban/Client.scala/package.scala
+$ exists target/scala-2.12/src_managed/main/caliban-codegen-sbt/caliban/Client.scala/Character.scala
+$ exists target/scala-2.12/src_managed/main/caliban-codegen-sbt/caliban/Client.scala/Canterbury.scala
+
 $ exec echo compiling second time
 > compile
