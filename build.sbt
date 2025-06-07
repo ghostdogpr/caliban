@@ -17,7 +17,7 @@ val circeVersion              = "0.14.13"
 val fs2Version                = "3.12.0"
 val http4sVersion             = "0.23.30"
 val javaTimeVersion           = "2.6.0"
-val jsoniterVersion           = "2.36.2"
+val jsoniterVersion           = "2.36.3"
 val laminextVersion           = "0.17.0"
 val magnoliaScala2Version     = "1.1.10"
 val magnoliaScala3Version     = "1.3.18"
@@ -254,7 +254,7 @@ lazy val tracing = project
       "dev.zio"         %% "zio-opentelemetry"         % zioOpenTelemetryVersion,
       "dev.zio"         %% "zio-test"                  % zioVersion % Test,
       "dev.zio"         %% "zio-test-sbt"              % zioVersion % Test,
-      "io.opentelemetry" % "opentelemetry-sdk-testing" % "1.50.0"   % Test
+      "io.opentelemetry" % "opentelemetry-sdk-testing" % "1.51.0"   % Test
     )
   )
   .dependsOn(core, tools)
