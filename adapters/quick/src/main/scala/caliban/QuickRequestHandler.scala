@@ -46,9 +46,8 @@ final private class QuickRequestHandler[R](
     trace: Trace
   ): URIO[R, Response] =
     if (
-      forwardUploadRequests && request.headers.exists(
-        _.renderedValue.contains(MediaType.multipart.`form-data`.fullType)
-      )
+      forwardUploadRequests &&
+      request.body.mediaType.exists(MediaType.multipart.`form-data`.matches(_, ignoreParameters = true))
     ) {
       handleUploadRequest(request)
     } else {
