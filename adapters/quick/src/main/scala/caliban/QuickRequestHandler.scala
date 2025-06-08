@@ -42,13 +42,10 @@ final private class QuickRequestHandler[R](
   def configureWebSocket[R1](config: quick.WebSocketConfig[R1]): QuickRequestHandler[R & R1] =
     new QuickRequestHandler[R & R1](interpreter, config)
 
-  def handleHttpRequest(forwardUploadRequests: Boolean = false)(request: Request)(implicit
+  def handleHttpRequest(request: Request)(implicit
     trace: Trace
   ): URIO[R, Response] =
-    if (
-      forwardUploadRequests &&
-      request.body.mediaType.exists(MediaType.multipart.`form-data`.matches(_, ignoreParameters = true))
-    ) {
+    if (request.body.mediaType.exists(MediaType.multipart.`form-data`.matches(_, ignoreParameters = true))) {
       handleUploadRequest(request)
     } else {
       ZIO.suspendSucceed {
