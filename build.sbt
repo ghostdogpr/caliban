@@ -33,7 +33,7 @@ val zioInteropCats3Version    = "23.1.0.5"
 val zioInteropReactiveVersion = "2.0.2"
 val zioConfigVersion          = "4.0.4"
 val zqueryVersion             = "0.7.7"
-val zioJsonVersion            = "0.7.43"
+val zioJsonVersion            = "0.7.44"
 val zioHttpVersion            = "3.3.3"
 val zioOpenTelemetryVersion   = "3.1.5"
 
