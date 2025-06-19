@@ -502,7 +502,7 @@ lazy val clientJS  = client.js
 lazy val clientNative = client.native
   .settings(
     libraryDependencies ++= Seq(
-      "com.github.lolgab" %%% "scala-native-crypto" % "0.2.0",
+      "com.github.lolgab" %%% "scala-native-crypto" % "0.2.1",
       "io.github.cquiroz" %%% "scala-java-time"     % javaTimeVersion % Test
     ),
     Test / fork := false
