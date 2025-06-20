@@ -2,8 +2,6 @@ package caliban.codegen
 
 import SnapshotTest.GitLock
 import zio.internal.stacktracer.SourceLocation
-import zio.prelude._
-import zio.test.Assertion.equalTo
 import zio.test.{ assert, assertNever, assertTrue, Assertion, Spec, TestResult, ZIOSpecDefault }
 import zio.{ Task, Trace }
 
