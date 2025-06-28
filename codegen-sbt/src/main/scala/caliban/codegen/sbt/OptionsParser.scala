@@ -1,4 +1,4 @@
-package caliban.codegen
+package caliban.codegen.sbt
 
 import zio.config.magnolia.DeriveConfig
 import zio.{ Config, ConfigProvider, UIO, ZIO }

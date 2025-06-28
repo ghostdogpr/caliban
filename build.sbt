@@ -226,12 +226,29 @@ lazy val codegen = project
   .settings(enableMimaSettingsJVM)
   .disablePlugins(AssemblyPlugin)
   .settings(
-    buildInfoKeys    := Seq[BuildInfoKey](
+    buildInfoKeys          := Seq[BuildInfoKey](
       "scalaPartialVersion" -> CrossVersion.partialVersion(scalaVersion.value),
       "scalafmtVersion"     -> scalafmtVersion
     ),
-    buildInfoPackage := "caliban.codegen",
-    buildInfoObject  := "BuildInfo"
+    buildInfoPackage       := "caliban.codegen",
+    buildInfoObject        := "BuildInfo",
+    Test / publishArtifact := true,
+
+    // Include test artifact for publishLocal
+    publishLocalConfiguration := {
+      val config        = publishLocalConfiguration.value
+      val testArtifacts = (Test / packagedArtifacts).value
+      config.withArtifacts(config.artifacts ++ testArtifacts).withOverwrite(true)
+    },
+    // Exclude test artifact from publish
+    publishConfiguration      := {
+      val config = publishConfiguration.value
+      config
+        .withArtifacts(config.artifacts.filterNot { case (artifact, _) =>
+          artifact.configurations.exists(_.name == "test")
+        })
+        .withOverwrite(true)
+    }
   )
   .settings(
     libraryDependencies ++= Seq(
@@ -307,7 +324,7 @@ lazy val codegenSbt = project
     skip             := (scalaVersion.value != scala212),
     ideSkipProject   := (scalaVersion.value != scala212),
     buildInfoKeys    := Seq[BuildInfoKey](version),
-    buildInfoPackage := "caliban.codegen",
+    buildInfoPackage := "caliban.codegen.sbt",
     buildInfoObject  := "BuildInfo"
   )
   .settings(
@@ -339,11 +356,12 @@ lazy val codegenSbt = project
         core / publishLocal,
         clientJVM / publishLocal,
         codegen / publishLocal,
+        tools / publishLocal,
         publishLocal
       )
       .value
   )
-  .dependsOn(codegen % "compile->compile;test->test")
+  .dependsOn(codegen % "compile->compile;test->test", tools)
 
 lazy val catsInterop = project
   .in(file("interop/cats"))

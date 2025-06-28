@@ -1,4 +1,4 @@
-package caliban.codegen
+package caliban.codegen.sbt
 
 import sbt._
 
