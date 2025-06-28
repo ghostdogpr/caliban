@@ -768,15 +768,19 @@ object ClientWriter {
         case _               => ""
       }
 
-    def writeDeprecated(reason: Option[String]): String =
+    def writeDeprecated(reason: Option[String]): String = {
+      def escapeDoubleQuotes(input: String): String =
+        input.replace("\"", "\\\"")
+
       reason match {
         case None                              =>
           "@deprecated\n"
         case Some(body) if body.contains("\n") =>
-          s"@deprecated($tripleQuotes$body$tripleQuotes)\n"
+          s"@deprecated($tripleQuotes${escapeDoubleQuotes(body)}$tripleQuotes)\n"
         case Some(body)                        =>
-          s"@deprecated($doubleQuotes$body$doubleQuotes)\n"
+          s"@deprecated($doubleQuotes${escapeDoubleQuotes(body)}$doubleQuotes)\n"
       }
+    }
 
     def writeType(t: Type): String = t match {
       case NamedType(name, true)   => safeTypeName(name)

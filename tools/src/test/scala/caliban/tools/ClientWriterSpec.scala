@@ -449,6 +449,24 @@ object ClientWriterSpec extends SnapshotTest {
                maybeMaybeOptionList: [Option]
              }
             """)
+      },
+      test("deprecation reason with quotes should be properly escaped") {
+        val schema = """
+             type Character {
+               name: String! @deprecated(reason: "The non-SKU sharing fulfillment services are now deprecated. As of API version \"2025-10\" this argument will return an error if set to false.")
+             }
+            """
+
+        gen(schema).map { result =>
+          // The generated code should contain escaped quotes
+          assertTrue(result.contains("\\\"2025-10\\\""))
+          // The generated code should not contain unescaped quotes that would break Scala syntax
+          assertTrue(
+            !result.contains(
+              "@deprecated(\"The non-SKU sharing fulfillment services are now deprecated. As of API version \"2025-10\" this argument will return an error if set to false.\")"
+            )
+          )
+        }
       }
     ) @@ TestAspect.parallelN(4)
 }
