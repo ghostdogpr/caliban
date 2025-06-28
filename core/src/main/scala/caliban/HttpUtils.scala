@@ -85,66 +85,84 @@ private[caliban] object HttpUtils {
   }
 
   def graphiqlHtml(apiPath: String, uiPath: String, wsPath: Option[String]): String =
-    s"""<!doctype html>
-       |<html lang="en">
-       |  <head>
-       |    <title>GraphiQL</title>
-       |    <style>
-       |      body {
-       |        height: 100%;
-       |        margin: 0;
-       |        width: 100%;
-       |        overflow: hidden;
-       |      }
-       |
-       |      #graphiql {
-       |        height: 100vh;
-       |      }
-       |    </style>
-       |    <script
-       |      crossorigin
-       |      src="https://unpkg.com/react@18/umd/react.production.min.js"
-       |    ></script>
-       |    <script
-       |      crossorigin
-       |      src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"
-       |    ></script>
-       |    <script
-       |      src="https://unpkg.com/graphiql/graphiql.min.js"
-       |      type="application/javascript"
-       |    ></script>
-       |    <link rel="stylesheet" href="https://unpkg.com/graphiql/graphiql.min.css" />
-       |    <script
-       |      src="https://unpkg.com/@graphiql/plugin-explorer/dist/index.umd.js"
-       |      crossorigin
-       |    ></script>
-       |
-       |    <link
-       |      rel="stylesheet"
-       |      href="https://unpkg.com/@graphiql/plugin-explorer/dist/style.css"
-       |    />
-       |  </head>
-       |
-       |  <body>
-       |    <div id="graphiql">Loading...</div>
-       |    <script>
-       |      const root = ReactDOM.createRoot(document.getElementById('graphiql'));
-       |      const fetcher = GraphiQL.createFetcher({
-       |        url: window.location.href.replace("$uiPath", "$apiPath"),
-       |        ${wsPath.fold("") { wsPath =>
-        s"subscriptionUrl: window.location.href.replace(\'$uiPath\', \'$wsPath\').replace(\'https:\',\'wss:\').replace(\'http:\',\'ws:\')"
-      }}
-       |      });
-       |      const explorerPlugin = GraphiQLPluginExplorer.explorerPlugin();
-       |      root.render(
-       |        React.createElement(GraphiQL, {
-       |          fetcher,
-       |          defaultEditorToolsVisibility: true,
-       |          plugins: [explorerPlugin],
-       |        }),
-       |      );
-       |    </script>
-       |  </body>
-       |</html>
-       |""".stripMargin
+    s"""|<!doctype html>
+        |<html lang="en">
+        |  <head>
+        |    <title>GraphiQL</title>
+        |    <style>
+        |      body {
+        |        height: 100%;
+        |        margin: 0;
+        |        width: 100%;
+        |        overflow: hidden;
+        |      }
+        |
+        |      #graphiql {
+        |        height: 100vh;
+        |      }
+        |    </style>
+        |    <link rel="stylesheet" href="https://esm.sh/graphiql/dist/style.css" />
+        |    <script type="importmap">
+        |        {
+        |            "imports": {
+        |                "react": "https://esm.sh/react@19.1.0",
+        |                "react/jsx-runtime": "https://esm.sh/react@19.1.0/jsx-runtime",
+        |                "react-dom": "https://esm.sh/react-dom@19.1.0",
+        |                "react-dom/client": "https://esm.sh/react-dom@19.1.0/client",
+        |                "graphiql": "https://esm.sh/graphiql?standalone&external=react,react-dom,@graphiql/react,graphql",
+        |                "@graphiql/react": "https://esm.sh/@graphiql/react?standalone&external=react,react-dom,graphql",
+        |                "@graphiql/toolkit": "https://esm.sh/@graphiql/toolkit?standalone&external=graphql",
+        |                "graphql": "https://esm.sh/graphql@16.11.0",
+        |                "regenerator-runtime/runtime": "https://esm.sh/regenerator-runtime/runtime"
+        |            }
+        |        }
+        |    </script>
+        |</head>
+        |
+        |<body>
+        |    <div id="graphiql">Loading...</div>
+        |    <script type="module">
+        |        import React from 'react';
+        |        import ReactDOM from 'react-dom/client';
+        |        import { GraphiQL, HISTORY_PLUGIN } from 'graphiql';
+        |        import { createGraphiQLFetcher } from '@graphiql/toolkit';
+        |        import 'regenerator-runtime/runtime';
+        |        import createJSONWorker from 'https://esm.sh/monaco-editor/esm/vs/language/json/json.worker.js?worker';
+        |        import createGraphQLWorker from 'https://esm.sh/monaco-graphql/esm/graphql.worker.js?worker';
+        |        import createEditorWorker from 'https://esm.sh/monaco-editor/esm/vs/editor/editor.worker.js?worker';
+        |
+        |        globalThis.MonacoEnvironment = {
+        |            getWorker(_workerId, label) {
+        |                console.info('MonacoEnvironment.getWorker', { label });
+        |                switch (label) {
+        |                    case 'json':
+        |                        return createJSONWorker();
+        |                    case 'graphql':
+        |                        return createGraphQLWorker();
+        |                }
+        |                return createEditorWorker();
+        |            },
+        |        };
+        |
+        |        const fetcher = createGraphiQLFetcher({
+        |            url: window.location.href.replace("$uiPath", "$apiPath"),
+        |        ${wsPath.fold("") { wsPath =>
+         s"subscriptionUrl: window.location.href.replace(\'$uiPath\', \'$wsPath\').replace(\'https:\',\'wss:\').replace(\'http:\',\'ws:\')"
+       }}
+        |        });
+        |        const plugins = [HISTORY_PLUGIN];
+        |
+        |        function App() {
+        |            return React.createElement(GraphiQL, {
+        |                fetcher,
+        |                plugins,
+        |                defaultEditorToolsVisibility: true,
+        |            });
+        |        }
+        |        const root = ReactDOM.createRoot(document.getElementById('graphiql'));
+        |        root.render(React.createElement(App));
+        |    </script>
+        |  </body>
+        |</html>
+        |""".stripMargin
 }
