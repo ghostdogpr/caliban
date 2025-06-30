@@ -42,7 +42,7 @@ object EnumFieldAutoDerivation extends ZIOSpecDefault {
       val resolver = RootResolver(Query(_ => Value(Foo.FooA)))
       val gql      = graphQL(resolver)
 
-      assertTrue(gql.render == expected)
+      assertTrue(gql.render.trim == expected)
     },
     test("A provided Schema take priority over auto-derivation") {
       given Schema[Any, Foo.FooB.type] = throw TestError

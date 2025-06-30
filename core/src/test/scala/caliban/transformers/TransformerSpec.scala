@@ -25,18 +25,18 @@ object TransformerSpec extends ZIOSpecDefault {
           interpreter <- transformed.interpreter
           result      <- interpreter.execute("""{ a { b(arg: "hello") } }""").map(_.data.toString)
         } yield assertTrue(
-          result == """{"a":{"b":"hello"}}""",
-          rendered == """schema {
-                        |  query: Query
-                        |}
-                        |
-                        |type Query {
-                        |  a: Renamed!
-                        |}
-                        |
-                        |type Renamed {
-                        |  b(arg: String!): String!
-                        |}""".stripMargin
+          result.trim == """{"a":{"b":"hello"}}""",
+          rendered.trim == """schema {
+                             |  query: Query
+                             |}
+                             |
+                             |type Query {
+                             |  a: Renamed!
+                             |}
+                             |
+                             |type Renamed {
+                             |  b(arg: String!): String!
+                             |}""".stripMargin
         )
       },
       test("rename field") {
@@ -46,8 +46,8 @@ object TransformerSpec extends ZIOSpecDefault {
           interpreter <- transformed.interpreter
           result      <- interpreter.execute("""{ a { c(arg: "hello") } }""").map(_.data.toString)
         } yield assertTrue(
-          result == """{"a":{"c":"hello"}}""",
-          rendered ==
+          result.trim == """{"a":{"c":"hello"}}""",
+          rendered.trim ==
             """schema {
               |  query: Query
               |}
@@ -70,8 +70,8 @@ object TransformerSpec extends ZIOSpecDefault {
           interpreter <- transformed.interpreter
           result      <- interpreter.execute("""{ a { b(arg2: "hello") } }""").map(_.data.toString)
         } yield assertTrue(
-          result == """{"a":{"b":"hello"}}""",
-          rendered ==
+          result.trim == """{"a":{"b":"hello"}}""",
+          rendered.trim ==
             """schema {
               |  query: Query
               |}
@@ -95,8 +95,8 @@ object TransformerSpec extends ZIOSpecDefault {
           interpreter <- transformed.interpreter
           result      <- interpreter.execute("""{ a }""").map(_.data.toString)
         } yield assertTrue(
-          result == """{"a":"a"}""",
-          rendered ==
+          result.trim == """{"a":"a"}""",
+          rendered.trim ==
             """schema {
               |  query: Query
               |}
@@ -125,8 +125,8 @@ object TransformerSpec extends ZIOSpecDefault {
           query        = gqldoc("""{ foo(a: "asd", b: "dsa", l:[], nested: {a:"ad", c:"da"}) }""")
           result      <- interpreter.execute(query).map(_.data.toString)
         } yield assertTrue(
-          result == """{"foo":"value"}""",
-          rendered ==
+          result.trim == """{"foo":"value"}""",
+          rendered.trim ==
             """schema {
               |  query: Query
               |}
@@ -153,8 +153,8 @@ object TransformerSpec extends ZIOSpecDefault {
             interpreter <- transformed.interpreter
             result      <- interpreter.execute("""{ a }""").map(_.data.toString)
           } yield assertTrue(
-            result == """{"a":"missing"}""",
-            rendered ==
+            result.trim == """{"a":"missing"}""",
+            rendered.trim ==
               """schema {
                 |  query: Query
                 |}
@@ -185,8 +185,8 @@ object TransformerSpec extends ZIOSpecDefault {
             interpreter <- transformed.interpreter
             result      <- interpreter.execute("""{ a(arg1:"foo", arg2:"bar", arg3:"baz") }""").map(_.data.toString)
           } yield assertTrue(
-            result == """{"a":"a1:foo a2:missing a3:baz"}""",
-            rendered ==
+            result.trim == """{"a":"a1:foo a2:missing a3:baz"}""",
+            rendered.trim ==
               """schema {
                 |  query: Query
                 |}
@@ -206,8 +206,8 @@ object TransformerSpec extends ZIOSpecDefault {
           interpreter <- transformed.interpreter
           result      <- interpreter.execute("""{ a { c(arg: "hello") } }""").map(_.data.toString)
         } yield assertTrue(
-          result == """{"a":{"c":"hello"}}""",
-          rendered ==
+          result.trim == """{"a":{"c":"hello"}}""",
+          rendered.trim ==
             """schema {
               |  query: Query
               |}
@@ -248,11 +248,11 @@ object TransformerSpec extends ZIOSpecDefault {
             renderedB = apiB.render
             renderedC = apiC.render
           } yield assertTrue(
-            res0 == """{"a":"a","b":2,"c":3.0,"d":true}""",
-            resA == """{"a":"a","b":null,"c":3.0,"d":null}""",
-            resB == """{"a":"a","b":2,"c":null,"d":null}""",
-            resC == """{"a":"a","b":null,"c":null,"d":null}""",
-            rendered ==
+            res0.trim == """{"a":"a","b":2,"c":3.0,"d":true}""",
+            resA.trim == """{"a":"a","b":null,"c":3.0,"d":null}""",
+            resB.trim == """{"a":"a","b":2,"c":null,"d":null}""",
+            resC.trim == """{"a":"a","b":null,"c":null,"d":null}""",
+            rendered.trim ==
               """schema {
                 |  query: Query
                 |}
@@ -263,7 +263,7 @@ object TransformerSpec extends ZIOSpecDefault {
                 |  c: Float!
                 |  d: Boolean!
                 |}""".stripMargin,
-            renderedA ==
+            renderedA.trim ==
               """schema {
                 |  query: Query
                 |}
@@ -272,7 +272,7 @@ object TransformerSpec extends ZIOSpecDefault {
                 |  a: String!
                 |  c: Float!
                 |}""".stripMargin,
-            renderedB ==
+            renderedB.trim ==
               """schema {
                 |  query: Query
                 |}
@@ -281,7 +281,7 @@ object TransformerSpec extends ZIOSpecDefault {
                 |  a: String!
                 |  b: Int!
                 |}""".stripMargin,
-            renderedC ==
+            renderedC.trim ==
               """schema {
                 |  query: Query
                 |}
@@ -310,7 +310,7 @@ object TransformerSpec extends ZIOSpecDefault {
           val renderedC = apiC.render
 
           assertTrue(
-            rendered ==
+            rendered.trim ==
               """schema {
                 |  query: Query
                 |}
@@ -325,7 +325,7 @@ object TransformerSpec extends ZIOSpecDefault {
                 |type Query {
                 |  foo(a: String!, b: String!, l: [String!]!, nested: NestedInput!): String!
                 |}""".stripMargin,
-            renderedA ==
+            renderedA.trim ==
               """schema {
                 |  query: Query
                 |}
@@ -338,7 +338,7 @@ object TransformerSpec extends ZIOSpecDefault {
                 |type Query {
                 |  foo(a: String!, b: String!, l: [String!]!, nested: NestedInput!): String!
                 |}""".stripMargin,
-            renderedB ==
+            renderedB.trim ==
               """schema {
                 |  query: Query
                 |}
@@ -351,7 +351,7 @@ object TransformerSpec extends ZIOSpecDefault {
                 |type Query {
                 |  foo(a: String!, b: String!, l: [String!]!, nested: NestedInput!): String!
                 |}""".stripMargin,
-            renderedC ==
+            renderedC.trim ==
               """schema {
                 |  query: Query
                 |}

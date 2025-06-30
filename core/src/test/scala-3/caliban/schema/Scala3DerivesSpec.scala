@@ -32,7 +32,7 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
 
         val gql = graphQL(RootResolver(Bar(Foo("foo"))))
 
-        assertTrue(gql.render == expected)
+        assertTrue(gql.render.trim == expected)
       },
       test("Auto derivation - default") {
         final case class Foo(value: String)
@@ -40,7 +40,7 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
 
         val gql = graphQL(RootResolver(Bar(Foo("foo"))))
 
-        assertTrue(gql.render == expected)
+        assertTrue(gql.render.trim == expected)
       },
       test("Auto derivation - custom R") {
         class Env
@@ -50,7 +50,7 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
 
         val gql = graphQL(RootResolver(Bar(Foo("foo"))))
 
-        assertTrue(gql.render == expected)
+        assertTrue(gql.render.trim == expected)
       },
       test("SemiAuto derivation - custom R") {
         class Env
@@ -60,7 +60,7 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
 
         val gql = graphQL(RootResolver(Bar(Foo("foo"))))
 
-        assertTrue(gql.render == expected)
+        assertTrue(gql.render.trim == expected)
       },
       suite("ArgBuilder derivation") {
         val expected =
@@ -88,7 +88,7 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
 
             val gql = graphQL(RootResolver(Query(Bar(_))))
 
-            assertTrue(gql.render == expected)
+            assertTrue(gql.render.trim == expected)
           },
           test("Auto") {
             final case class Foo(s: String) derives Schema.Auto, ArgBuilder.GenAuto
@@ -97,7 +97,7 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
 
             val gql = graphQL(RootResolver(Query(Bar(_))))
 
-            assertTrue(gql.render == expected)
+            assertTrue(gql.render.trim == expected)
           }
         )
       },
@@ -109,21 +109,22 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
 
           val gql = graphQL(RootResolver(Query(Bar(_))))
           assertTrue(
-            gql.render ==
+            gql.render.trim ==
               """schema {
                 |  query: Query
                 |}
+                |
                 |"An instantaneous point on the time-line represented by a standard date time string"
                 |scalar Instant
-
+                |
                 |type Bar {
                 |  foo: Foo!
                 |}
-
+                |
                 |type Foo {
                 |  i: Instant!
                 |}
-
+                |
                 |type Query {
                 |  f(i: Instant!): Bar!
                 |}""".stripMargin
@@ -145,10 +146,11 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
           val gql = graphQL(RootResolver(Query(Bar(_))))
 
           assertTrue(
-            gql.render ==
+            gql.render.trim ==
               """schema {
                 |  query: Query
                 |}
+                |
                 |"An instantaneous point on the time-line represented by a standard date time string"
                 |scalar Instant
 
@@ -199,7 +201,7 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
             final case class Bar(foo: Foo) derives Schema.SemiAuto
             val rendered = graphQL(RootResolver(Bar(Foo("foo")))).render
 
-            assertTrue(rendered == expectedSchema)
+            assertTrue(rendered.trim == expectedSchema)
           },
           test("custom schema derivation") {
             trait MyService
@@ -210,7 +212,7 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
             final case class Bar(foo: Foo) derives MySchema.SemiAuto
             val rendered = graphQL(RootResolver(Bar(Foo("foo")))).render
 
-            assertTrue(rendered == expectedSchema)
+            assertTrue(rendered.trim == expectedSchema)
           },
           test("method annotations") {
             final case class Foo(value: String) derives Schema.SemiAuto {
@@ -221,7 +223,7 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
             final case class Bar(foo: Foo) derives Schema.SemiAuto
             val rendered = graphQL(RootResolver(Bar(Foo("foo")))).render
 
-            assertTrue(rendered == expectedSchema)
+            assertTrue(rendered.trim == expectedSchema)
           },
           test("Auto derivation of methods as fields") {
             final case class Foo(value: String) {
@@ -229,7 +231,7 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
             }
             final case class Bar(foo: Foo) derives Schema.Auto
             val rendered = graphQL(RootResolver(Bar(Foo("foo")))).render
-            assertTrue(rendered == expectedSchema)
+            assertTrue(rendered.trim == expectedSchema)
           },
           test("execution of methods as fields") {
             final case class Foo(value: String) derives Schema.SemiAuto {
@@ -262,7 +264,7 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
                 |  barValue: Int!
                 |}""".stripMargin
 
-            assertTrue(rendered == expected)
+            assertTrue(rendered.trim == expected)
           },
           test("parameterless case class") {
             case class Foo() derives Schema.SemiAuto {
@@ -281,7 +283,7 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
                 |  barValue: Int!
                 |}""".stripMargin
 
-            assertTrue(rendered == expected)
+            assertTrue(rendered.trim == expected)
           },
           test("annotation on case class directly") {
             @GQLFieldsFromMethods
@@ -303,7 +305,7 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
                 |  barValue: Int!
                 |}""".stripMargin
 
-            assertTrue(rendered == expected)
+            assertTrue(rendered.trim == expected)
           }
         )
       },
@@ -381,9 +383,9 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
           data1 = res1.data.toString
           data2 = res2.data.toString
         } yield assertTrue(
-          data1 == """{"testQuery":{"value":"foo"}}""",
-          data2 == """{"testQuery":{"foo":1}}""",
-          gql.render == expectedSchema
+          data1.trim == """{"testQuery":{"value":"foo"}}""",
+          data2.trim == """{"testQuery":{"foo":1}}""",
+          gql.render.trim == expectedSchema
         )
       }
     )

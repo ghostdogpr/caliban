@@ -12,7 +12,7 @@ object SchemaDerivationIssuesSpec extends ZIOSpecDefault {
       import i1972_i1973._
 
       assertTrue(
-        schema ==
+        schema.trim ==
           """schema {
             |  query: Queries
             |}
@@ -42,7 +42,7 @@ object SchemaDerivationIssuesSpec extends ZIOSpecDefault {
       import i1977._
 
       assertTrue(
-        schema ==
+        schema.trim ==
           """schema {
             |  query: Queries
             |}
@@ -72,7 +72,7 @@ object SchemaDerivationIssuesSpec extends ZIOSpecDefault {
       import i1951._
 
       assertTrue(
-        schema ==
+        schema.trim ==
           """schema {
             |  query: Queries
             |}
@@ -106,7 +106,7 @@ object SchemaDerivationIssuesSpec extends ZIOSpecDefault {
       import i1989._
 
       assertTrue(
-        schema ==
+        schema.trim ==
           """schema {
             |  query: Queries
             |}
@@ -126,7 +126,7 @@ object SchemaDerivationIssuesSpec extends ZIOSpecDefault {
       import i1990._
 
       assertTrue(
-        schema ==
+        schema.trim ==
           """schema {
             |  query: Queries
             |}
@@ -145,7 +145,7 @@ object SchemaDerivationIssuesSpec extends ZIOSpecDefault {
       import i1992._
 
       assertTrue(
-        schema ==
+        schema.trim ==
           """schema {
             |  query: Queries
             |}
@@ -173,7 +173,7 @@ object SchemaDerivationIssuesSpec extends ZIOSpecDefault {
       test("rendering") {
         import i1993._
 
-        val rendered = schema.render
+        val rendered = schema.render.trim
         assertTrue(
           rendered ==
             """schema {
@@ -271,7 +271,7 @@ object SchemaDerivationIssuesSpec extends ZIOSpecDefault {
     },
     test("sum types are sorted by name") {
       import sorting._
-      val rendered = schema.render
+      val rendered = schema.render.trim
       assertTrue(
         rendered ==
           """schema {

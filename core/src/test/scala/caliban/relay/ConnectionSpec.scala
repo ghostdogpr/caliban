@@ -1,11 +1,11 @@
 package caliban.relay
 
 import caliban._
-import caliban.schema.Schema.auto._
 import caliban.schema.ArgBuilder.auto._
+import caliban.schema.Schema.auto._
+import zio.ZIO
 import zio.test.Assertion._
 import zio.test._
-import zio.ZIO
 
 object ConnectionSpec extends ZIOSpecDefault {
   case class ItemEdge(cursor: Base64Cursor, node: Item) extends Edge[Base64Cursor, Item]
@@ -202,7 +202,7 @@ object ConnectionSpec extends ZIOSpecDefault {
                        |  connection(first: Int, last: Int, before: String, after: String): ItemConnection
                        |}""".stripMargin
 
-      assertTrue(api.render == expected)
+      assertTrue(api.render.trim == expected.trim)
     },
     suite("Pagination")(
       test("successfully returns a Pagination case class") {

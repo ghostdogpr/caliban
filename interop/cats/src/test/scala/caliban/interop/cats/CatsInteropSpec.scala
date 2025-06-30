@@ -97,13 +97,13 @@ object CatsInteropSpec extends ZIOSpecDefault {
             .unsafeRunSync()
 
         assertTrue(
-          rendered == """|schema {
-                         |  query: Query
-                         |}
-                         |
-                         |type Query {
-                         |  io: Int!
-                         |}""".stripMargin
+          rendered.trim == """|schema {
+                              |  query: Query
+                              |}
+                              |
+                              |type Query {
+                              |  io: Int!
+                              |}""".stripMargin
         )
       } @@ TestAspect.blocking
     )

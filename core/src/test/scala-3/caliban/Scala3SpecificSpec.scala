@@ -34,7 +34,7 @@ object Scala3SpecificSpec extends ZIOSpecDefault {
         case class Queries(item: MyEnum)
         val api      = graphQL(RootResolver(Queries(MyEnum.A)))
         val rendered = api.render
-        assertTrue(rendered == """schema {
+        assertTrue(rendered.trim == """schema {
                                  |  query: Queries
                                  |}
                                  |

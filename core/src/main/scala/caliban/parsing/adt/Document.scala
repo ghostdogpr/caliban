@@ -5,6 +5,7 @@ import caliban.parsing.SourceMapper
 import caliban.parsing.adt.Definition.ExecutableDefinition.{ FragmentDefinition, OperationDefinition }
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
 import caliban.parsing.adt.Definition.TypeSystemDefinition.{ DirectiveDefinition, SchemaDefinition, TypeDefinition }
+import caliban.parsing.adt.Definition.TypeSystemExtension
 import caliban.parsing.adt.OperationType.{ Mutation, Query, Subscription }
 
 case class Document(definitions: List[Definition], sourceMapper: SourceMapper) {
@@ -15,6 +16,8 @@ case class Document(definitions: List[Definition], sourceMapper: SourceMapper) {
     definitions.collect { case dd: DirectiveDefinition => dd }
   @transient lazy val typeDefinitions: List[TypeDefinition]                       =
     definitions.collect { case td: TypeDefinition => td }
+  @transient lazy val typeExtensions: List[TypeSystemExtension]                   =
+    definitions.collect { case te: TypeSystemExtension => te }
   @transient lazy val objectTypeDefinitions: List[ObjectTypeDefinition]           =
     definitions.collect { case td: ObjectTypeDefinition => td }
   @transient lazy val inputObjectTypeDefinitions: List[InputObjectTypeDefinition] =

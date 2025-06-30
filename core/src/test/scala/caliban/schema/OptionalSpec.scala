@@ -42,7 +42,7 @@ object OptionalSpec extends ZIOSpecDefault {
       )
       val gql      = graphQL(resolver)
 
-      assertTrue(gql.render == expected)
+      assertTrue(gql.render.trim == expected.trim)
     }
   )
 

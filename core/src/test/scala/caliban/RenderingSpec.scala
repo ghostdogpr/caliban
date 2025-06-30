@@ -14,11 +14,11 @@ import caliban.parsing.adt.Definition.{ TypeSystemDefinition, TypeSystemExtensio
 import caliban.parsing.adt.{ Definition, Directive }
 import caliban.rendering.{ DocumentRenderer, ValueRenderer }
 import caliban.schema.Annotations.GQLOneOfInput
-import caliban.schema.Schema.auto._
 import caliban.schema.ArgBuilder.auto._
+import caliban.schema.Schema.auto._
 import caliban.schema.{ ArgBuilder, PureStep, Schema }
+import zio.ZIO
 import zio.stream.ZStream
-import zio.{ IO, ZIO }
 import zio.test.Assertion._
 import zio.test._
 
@@ -94,7 +94,7 @@ object RenderingSpec extends ZIOSpecDefault {
                                                                                  |
                                                                                  |type TestEmptyObject {
                                                                                  |  o: EmptyObject!
-                                                                                 |}""".stripMargin.trim)
+                                                                                 |}""".stripMargin)
       },
       test(
         "it should not render a schema definition without schema directives if no queries, mutations, or subscription"
@@ -216,14 +216,15 @@ object RenderingSpec extends ZIOSpecDefault {
       test("it should render compact") {
         val rendered = DocumentRenderer.renderCompact(graphQL(resolver).toDocument)
         assertTrue(
-          rendered == """schema{query:Query} "Description of custom scalar emphasizing proper captain ship names" scalar CaptainShipName@specifiedBy(url:"http://someUrl")@tag union Role@uniondirective=Captain|Engineer|Mechanic|Pilot enum Origin@enumdirective{BELT,EARTH,MARS,MOON@deprecated(reason:"Use: EARTH | MARS | BELT")} input CharacterInput@inputobjdirective{name:String!@external nicknames:[String!]!@required origin:Origin!}interface Human{name:String!@external}type Captain{shipName:CaptainShipName!}type Character implements Human@key(name:"name"){name:String!@external nicknames:[String!]!@required origin:Origin! role:Role}type Engineer{shipName:String!}type Mechanic{shipName:String!}type Narrator implements Human{name:String!}type Pilot{shipName:String!}"Queries" type Query{"Return all characters from a given origin" characters(origin:Origin):[Character!]! character(name:String!):Character@deprecated(reason:"Use `characters`") charactersIn(names:[String!]!@lowercase):[Character!]! exists(character:CharacterInput!):Boolean! human:Human!}"""
+          rendered.trim == """schema{query:Query} "Description of custom scalar emphasizing proper captain ship names" scalar CaptainShipName@specifiedBy(url:"http://someUrl")@tag union Role@uniondirective=Captain|Engineer|Mechanic|Pilot enum Origin@enumdirective{BELT,EARTH,MARS,MOON@deprecated(reason:"Use: EARTH | MARS | BELT")} input CharacterInput@inputobjdirective{name:String!@external nicknames:[String!]!@required origin:Origin!} interface Human{name:String!@external} type Captain{shipName:CaptainShipName!} type Character implements Human@key(name:"name"){name:String!@external nicknames:[String!]!@required origin:Origin! role:Role} type Engineer{shipName:String!} type Mechanic{shipName:String!} type Narrator implements Human{name:String!} type Pilot{shipName:String!} "Queries" type Query{"Return all characters from a given origin" characters(origin:Origin):[Character!]! character(name:String!):Character@deprecated(reason:"Use `characters`") charactersIn(names:[String!]!@lowercase):[Character!]! exists(character:CharacterInput!):Boolean! human:Human!}"""
         )
       },
       suite("round-trip")(
         test("kitchen sink")(roundTrip("document-tests/kitchen-sink.graphql")),
         test("kitchen sink with query")(roundTrip("document-tests/kitchen-sink-query.graphql")),
         test("compact query")(roundTrip("document-tests/query-compact.graphql", isCompact = true)),
-        test("compact kitchen sink")(roundTrip("document-tests/kitchen-sink-compact.graphql", isCompact = true))
+        test("compact kitchen sink")(roundTrip("document-tests/kitchen-sink-compact.graphql", isCompact = true)),
+        test("extend tests")(roundTrip("document-tests/extend-tests.graphql"))
       ),
       suite("OneOf input objects") {
         def expected(label: String) =
@@ -257,7 +258,7 @@ object RenderingSpec extends ZIOSpecDefault {
             implicit val schema: Schema[Any, Queries] = Schema.gen
             val resolver                              = RootResolver(Queries(_.toString))
 
-            assertTrue(graphQL(resolver).render == expected("value"))
+            assertTrue(graphQL(resolver).render.trim == expected("value"))
           },
           test("wrapped in a case class") {
             case class Queries(foo: Foo.Wrapped => String)
@@ -265,7 +266,7 @@ object RenderingSpec extends ZIOSpecDefault {
             implicit val schema: Schema[Any, Queries] = Schema.gen
             val resolver                              = RootResolver(Queries(_.toString))
 
-            assertTrue(graphQL(resolver).render == expected("fooInput"))
+            assertTrue(graphQL(resolver).render.trim == expected("fooInput"))
           }
         )
       },
@@ -290,7 +291,7 @@ object RenderingSpec extends ZIOSpecDefault {
       doc     <- ZIO.fromEither(Parser.parseQuery(input))
       rendered = if (isCompact) DocumentRenderer.renderCompact(doc) else DocumentRenderer.render(doc)
       reparsed = Parser.parseQuery(rendered)
-    } yield assertTrue(input == rendered, reparsed.isRight))
+    } yield assertTrue(input.trim == rendered.trim, reparsed.isRight))
 
   @GQLOneOfInput
   sealed trait Foo

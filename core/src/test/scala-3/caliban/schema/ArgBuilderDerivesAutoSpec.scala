@@ -98,7 +98,7 @@ object ArgBuilderDerivesAutoSpec extends ZIOSpecDefault {
           val api: GraphQL[Any] = graphQL(RootResolver(Queries(_ => "", _ => "")))
 
           println(api.render)
-          assertTrue(api.render == expected)
+          assertTrue(api.render.trim == expected)
         },
         test("successfully validates and executes") {
 

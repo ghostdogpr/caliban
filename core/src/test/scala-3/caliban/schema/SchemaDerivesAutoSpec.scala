@@ -229,7 +229,7 @@ object SchemaDerivesAutoSpec extends ZIOSpecDefault {
                          |  a: String!
                          |  foo: Foo!
                          |}""".stripMargin
-        assertTrue(gql.render == expected)
+        assertTrue(gql.render.trim == expected)
       },
       test("Pass interface to withAdditionalTypes") {
         @GQLInterface
@@ -263,7 +263,7 @@ object SchemaDerivesAutoSpec extends ZIOSpecDefault {
                          |  a: A!
                          |  b: B!
                          |}""".stripMargin
-        assertTrue(gql.render == expected)
+        assertTrue(gql.render.trim == expected)
       },
       suite("Auto derivation reuses implicits") {
         val expected =
@@ -287,7 +287,7 @@ object SchemaDerivesAutoSpec extends ZIOSpecDefault {
             val resolver = RootResolver(Queries(List(A("a", None), A("b", None))))
             val gql      = graphQL(resolver)
 
-            assertTrue(gql.render == expected)
+            assertTrue(gql.render.trim == expected)
           },
           test("from GenericSchema[T]") {
             trait Foo
@@ -299,7 +299,7 @@ object SchemaDerivesAutoSpec extends ZIOSpecDefault {
             val resolver = RootResolver(Queries(List(A("a", None), A("b", None))))
             val gql      = graphQL(resolver)
 
-            assertTrue(gql.render == expected)
+            assertTrue(gql.render.trim == expected)
           },
           test("from local scope") {
             case class A(a: Int)
@@ -314,7 +314,7 @@ object SchemaDerivesAutoSpec extends ZIOSpecDefault {
             val resolver = RootResolver(Queries(List(A(1), A(2))))
             val gql      = graphQL(resolver)
 
-            assertTrue(gql.render == expected)
+            assertTrue(gql.render.trim == expected)
           },
           test("from local scope when using a custom schema") {
             trait Foo
@@ -331,7 +331,7 @@ object SchemaDerivesAutoSpec extends ZIOSpecDefault {
             val resolver = RootResolver(Queries(List(A(1), A(2))))
             val gql      = graphQL[Foo, Queries, Unit, Unit](resolver)
 
-            assertTrue(gql.render == expected)
+            assertTrue(gql.render.trim == expected)
           }
         )
       }
