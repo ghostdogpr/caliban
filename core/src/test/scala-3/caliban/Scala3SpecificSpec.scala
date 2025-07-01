@@ -35,18 +35,18 @@ object Scala3SpecificSpec extends ZIOSpecDefault {
         val api      = graphQL(RootResolver(Queries(MyEnum.A)))
         val rendered = api.render
         assertTrue(rendered.trim == """schema {
-                                 |  query: Queries
-                                 |}
-                                 |
-                                 |enum FooEnum {
-                                 |  A
-                                 |  B
-                                 |  C
-                                 |}
-                                 |
-                                 |type Queries {
-                                 |  item: FooEnum!
-                                 |}""".stripMargin)
+                                      |  query: Queries
+                                      |}
+                                      |
+                                      |enum FooEnum {
+                                      |  A
+                                      |  B
+                                      |  C
+                                      |}
+                                      |
+                                      |type Queries {
+                                      |  item: FooEnum!
+                                      |}""".stripMargin)
       },
       test("Scala 3 enum") {
         case class Queries(item: MyEnum)
