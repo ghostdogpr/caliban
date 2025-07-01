@@ -3,6 +3,7 @@ schema {
   mutation: Mutation
   subscription: Subscription
 }
+
 scalar Unit
 
 input AuthorNameInput {
