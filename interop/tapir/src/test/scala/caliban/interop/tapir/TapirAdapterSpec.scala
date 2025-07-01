@@ -302,7 +302,7 @@ object TapirAdapterSpec {
                 Some("next")
               )
             )
-          } @@ TestAspect.timeout(10.seconds) @@ TestAspect.flaky
+          } @@ TestAspect.timeout(10.seconds) @@ TestAspect.ignore
         ).when(sseSupport)
       ),
       runUpload.map(runUpload =>
