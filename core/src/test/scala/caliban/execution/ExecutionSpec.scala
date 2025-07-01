@@ -1526,27 +1526,92 @@ object ExecutionSpec extends ZIOSpecDefault {
               ... on Cat { name }
               ... on Dog { name }
             }
-          }""") -> """{"addPet":{"__typename":"Cat","name":"a"}}""",
+          }""") -> Right("""{"addPet":{"__typename":"Cat","name":"a"}}"""),
           gqldoc("""{
             addPet(pet: { dog: {} }) {
               __typename
               ... on Cat { name }
               ... on Dog { name }
             }
-          }""") -> """{"addPet":{"__typename":"Dog","name":null}}""",
+          }""") -> Right("""{"addPet":{"__typename":"Dog","name":null}}"""),
           gqldoc("""{
             addPet(pet: { dog: { name: "b" } }) {
               __typename
               ... on Cat { name }
               ... on Dog { name }
             }
-          }""") -> """{"addPet":{"__typename":"Dog","name":"b"}}"""
+          }""") -> Right("""{"addPet":{"__typename":"Dog","name":"b"}}"""),
+          gqldoc("""{
+            addPet(pet: null) {
+              __typename
+              ... on Cat { name }
+              ... on Dog { name }
+            }
+          }""") -> Left("Invalid oneOf input null for trait Wrapper"),
+          gqldoc("""{
+            addPet(pet: { cat: { name: "a" }, dog: { name: "b" } }) {
+              __typename
+              ... on Cat { name }
+              ... on Dog { name }
+            }
+          }""") -> Left("Exactly one key must be specified for oneOf inputs")
         )
 
         ZIO.foldLeft(cases)(assertCompletes) { case (acc, (query, expected)) =>
           api.interpreter
-            .flatMap(_.execute(query))
-            .map(response => acc && assertTrue(response.data.toString == expected))
+            .flatMap(i => ZIO.scoped(Configurator.setSkipValidation(true) *> i.execute(query)))
+            .map(response =>
+              acc && expected.fold(
+                msg => assertTrue(response.errors.exists(_.msg.contains(msg))),
+                data => assertTrue(response.data.toString == data)
+              )
+            )
+        }
+      },
+      test("oneOf input optional") {
+
+        case class AddPetOpt(pet: Option[Pet.Wrapper])
+        case class Queries(addPetOpt: AddPetOpt => Option[Pet])
+
+        val api: GraphQL[Any] = graphQL(
+          RootResolver(
+            Queries(_.pet.map(_.pet))
+          )
+        )
+
+        val cases = List(
+          gqldoc("""{
+            addPetOpt(pet: null) {
+              __typename
+              ... on Cat { name }
+              ... on Dog { name }
+            }
+          }""") -> Right("""{"addPetOpt":null}"""),
+          gqldoc("""{
+            addPetOpt(pet: { cat: { name: "a" } }) {
+              __typename
+              ... on Cat { name }
+              ... on Dog { name }
+            }
+          }""") -> Right("""{"addPetOpt":{"__typename":"Cat","name":"a"}}"""),
+          gqldoc("""{
+            addPetOpt(pet: { cat: { name: "a" }, dog: { name: "b" } }) {
+              __typename
+              ... on Cat { name }
+              ... on Dog { name }
+            }
+          }""") -> Left("Exactly one key must be specified for oneOf inputs")
+        )
+
+        ZIO.foldLeft(cases)(assertCompletes) { case (acc, (query, expected)) =>
+          api.interpreter
+            .flatMap(i => ZIO.scoped(Configurator.setSkipValidation(true) *> i.execute(query)))
+            .map(response =>
+              acc && expected.fold(
+                msg => assertTrue(response.errors.exists(_.msg.contains(msg))),
+                data => assertTrue(response.data.toString == data)
+              )
+            )
         }
       },
       test("oneOf input inside list") {
@@ -1570,13 +1635,35 @@ object ExecutionSpec extends ZIOSpecDefault {
               ... on Cat { name }
               ... on Dog { name }
             }
-          }""") -> """{"addPets":[{"__typename":"Cat","name":"a"},{"__typename":"Dog","name":"b"}]}"""
+          }""") -> Right("""{"addPets":[{"__typename":"Cat","name":"a"},{"__typename":"Dog","name":"b"}]}"""),
+          gqldoc("""{
+            addPets(pets: [
+              { cat: { name: "a" }, dog: { name: "a" } },
+              { dog: { name: "b" } }
+            ]) {
+              __typename
+              ... on Cat { name }
+              ... on Dog { name }
+            }
+          }""") -> Left("Exactly one key must be specified for oneOf inputs"),
+          gqldoc("""{
+            addPets(pets: null) {
+              __typename
+              ... on Cat { name }
+              ... on Dog { name }
+            }
+          }""") -> Left("Invalid oneOf input null for trait Wrapper")
         )
 
         ZIO.foldLeft(cases)(assertCompletes) { case (acc, (query, expected)) =>
           api.interpreter
-            .flatMap(_.execute(query))
-            .map(response => acc && assertTrue(response.data.toString == expected))
+            .flatMap(i => ZIO.scoped(Configurator.setSkipValidation(true) *> i.execute(query)))
+            .map(response =>
+              acc && expected.fold(
+                msg => assertTrue(response.errors.exists(_.msg.contains(msg))),
+                data => assertTrue(response.data.toString == data)
+              )
+            )
         }
       }
     )
