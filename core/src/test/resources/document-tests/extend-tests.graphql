@@ -3,6 +3,8 @@ schema {
   mutation: Mutation
 }
 
+scalar Foo
+
 "Union with directive"
 union SearchResult @auth(requires: USER) = Human | Droid
 
@@ -34,6 +36,8 @@ type Human implements Character @auth(requires: USER) {
 extend schema {
   subscription: Subscription
 }
+
+extend scalar Foo @auth(requires: USER)
 
 extend union SearchResult = Starship | Planet | Vehicle
 

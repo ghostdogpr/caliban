@@ -466,7 +466,7 @@ object DocumentRenderer extends Renderer[Document] {
         case t: TypeExtension.EnumTypeExtension        => enumTypeExtensionRenderer.unsafeRender(t, indent, writer)
         case t: TypeExtension.InputObjectTypeExtension => inputObjectExtensionRenderer.unsafeRender(t, indent, writer)
         case t: TypeExtension.InterfaceTypeExtension   => interfaceTypeExtensionRenderer.unsafeRender(t, indent, writer)
-        case t: TypeExtension.ScalarTypeExtension      => () // Scalar can't be extended
+        case t: TypeExtension.ScalarTypeExtension      => scalarExtensionRenderer.unsafeRender(t, indent, writer)
         case t: TypeExtension.ObjectTypeExtension      => objectTypeExtensionRenderer.unsafeRender(t, indent, writer)
         case t: TypeExtension.UnionTypeExtension       => unionTypeExtensionRenderer.unsafeRender(t, indent, writer)
       }
@@ -543,17 +543,49 @@ object DocumentRenderer extends Renderer[Document] {
       }
     }
 
-  private lazy val scalarRenderer: Renderer[ScalarTypeDefinition] = new Renderer[ScalarTypeDefinition] {
+  private trait scalarOps {
+    def unsafeRenderImpl(
+      theType: String,
+      name: String,
+      description: Option[String],
+      directives: List[Directive],
+      indent: Option[Int],
+      write: StringBuilder
+    ) = {
+      newlineOrSpace(indent, write)
+      descriptionRenderer.unsafeRender(description, indent, write)
+      write append theType
+      write append ' '
+      write append name
+      directivesRenderer.unsafeRender(directives, indent, write)
+      newlineOrEmpty(indent, write)
+    }
+  }
+  private lazy val scalarExtensionRenderer: Renderer[TypeExtension.ScalarTypeExtension] =
+    new Renderer[TypeExtension.ScalarTypeExtension] with scalarOps {
+      override def unsafeRender(
+        extension: TypeExtension.ScalarTypeExtension,
+        indent: Option[Int],
+        write: StringBuilder
+      ): Unit = {
+        import extension._
+        unsafeRenderImpl(
+          "extend scalar",
+          name,
+          None,
+          directives,
+          indent,
+          write
+        )
+      }
+    }
+
+  private lazy val scalarRenderer: Renderer[ScalarTypeDefinition] = new Renderer[ScalarTypeDefinition] with scalarOps {
     override def unsafeRender(value: ScalarTypeDefinition, indent: Option[Int], write: StringBuilder): Unit =
       value match {
         case ScalarTypeDefinition(description, name, directives) =>
           if (!isBuiltinScalar(name)) {
-            newlineOrSpace(indent, write)
-            descriptionRenderer.unsafeRender(description, indent, write)
-            write append "scalar "
-            write append name
-            directivesRenderer.unsafeRender(directives, indent, write)
-            newlineOrEmpty(indent, write)
+            unsafeRenderImpl("scalar", name, description, directives, indent, write)
           }
       }
   }
