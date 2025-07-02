@@ -2,10 +2,8 @@ package caliban.client
 
 import java.time._
 import scala.util.Try
-import caliban.client.ScalarDecoder
-import caliban.client.ArgEncoder
-import caliban.client.__Value._
-import caliban.client.CalibanClientError.DecodingError
+import __Value._
+import CalibanClientError.DecodingError
 
 object CalibanClientTimeSupport {
 

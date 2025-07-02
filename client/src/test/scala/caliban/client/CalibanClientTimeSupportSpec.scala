@@ -1,14 +1,12 @@
 package caliban.client
 
-import caliban.client.CalibanClientError.DecodingError
-import caliban.client.__Value
-import caliban.client.__Value.__StringValue
+import CalibanClientError.DecodingError
 import zio.test._
 import java.time._
+import __Value._
 
 object CalibanClientTimeSupportSpec extends ZIOSpecDefault {
 
-  // Import all the implicit encoders and decoders from your support object
   import CalibanClientTimeSupport._
 
   override def spec =
