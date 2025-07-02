@@ -75,7 +75,9 @@ object CalibanClientTimeSupportSpec extends ZIOSpecDefault {
         test("decodes a valid string to an OffsetDateTime") {
           val value = __StringValue("2023-01-15T10:30:00-05:00")
           assertTrue(
-            offsetDateTimeDecoder.decode(value) == Right(OffsetDateTime.of(2023, 1, 15, 10, 30, 0, 0, ZoneOffset.ofHours(-5)))
+            offsetDateTimeDecoder.decode(value) == Right(
+              OffsetDateTime.of(2023, 1, 15, 10, 30, 0, 0, ZoneOffset.ofHours(-5))
+            )
           )
         }
       ),
@@ -87,7 +89,9 @@ object CalibanClientTimeSupportSpec extends ZIOSpecDefault {
         test("decodes a valid string to a ZonedDateTime") {
           val value = __StringValue("2023-01-15T10:30:00+01:00[Europe/Paris]")
           assertTrue(
-            zonedDateTimeDecoder.decode(value) == Right(ZonedDateTime.of(2023, 1, 15, 10, 30, 0, 0, ZoneId.of("Europe/Paris")))
+            zonedDateTimeDecoder.decode(value) == Right(
+              ZonedDateTime.of(2023, 1, 15, 10, 30, 0, 0, ZoneId.of("Europe/Paris"))
+            )
           )
         }
       ),
@@ -96,17 +100,25 @@ object CalibanClientTimeSupportSpec extends ZIOSpecDefault {
           val value = __Value.__NumberValue(123)
           assert(localDateDecoder.decode(value)) {
             Assertion.isLeft(
-              Assertion.hasField("message", (e: DecodingError) => e.getMessage, Assertion.equalTo("Decoding Error: Can't build LocalDate from input 123"))
+              Assertion.hasField(
+                "message",
+                (e: DecodingError) => e.getMessage,
+                Assertion.equalTo("Decoding Error: Can't build LocalDate from input 123")
+              )
             )
           }
         },
         test("fails to decode with a clear error message for invalid format") {
-           val value = __StringValue("invalid-date")
-           assert(localDateDecoder.decode(value)) {
-             Assertion.isLeft(
-               Assertion.hasField("message", (e: DecodingError) => e.getMessage, Assertion.startsWithString("Decoding Error: Can't build LocalDate from input invalid-date"))
-             )
-           }
+          val value = __StringValue("invalid-date")
+          assert(localDateDecoder.decode(value)) {
+            Assertion.isLeft(
+              Assertion.hasField(
+                "message",
+                (e: DecodingError) => e.getMessage,
+                Assertion.startsWithString("Decoding Error: Can't build LocalDate from input invalid-date")
+              )
+            )
+          }
         }
       )
     )
