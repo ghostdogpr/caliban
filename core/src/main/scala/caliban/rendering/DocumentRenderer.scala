@@ -98,6 +98,7 @@ object DocumentRenderer extends Renderer[Document] {
 
       override def unsafeRender(description: Option[String], indent: Option[Int], writer: StringBuilder): Unit =
         description.foreach {
+          case value if value.isBlank        => ()
           case value if value.contains('\n') =>
             def valueEscaped(): Unit = unsafeFastEscapeQuote(value, writer)
 
