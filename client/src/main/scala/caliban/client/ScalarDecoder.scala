@@ -5,6 +5,7 @@ import java.util.UUID
 import caliban.client.CalibanClientError.DecodingError
 import caliban.client.__Value._
 
+import java.time.format.DateTimeFormatter
 import java.time.{ Instant, LocalDate, LocalDateTime, LocalTime, OffsetDateTime, OffsetTime, ZonedDateTime }
 import scala.annotation.implicitNotFound
 
@@ -85,7 +86,7 @@ object ScalarDecoder {
 
   implicit val json: ScalarDecoder[__Value] = value => Right(value)
 
-  // Helper for temporal decoders
+  // Helpers for temporal decoders
   def temporalDecoder[A](name: String)(parse: String => A): ScalarDecoder[A] = {
     case __StringValue(value) =>
       Try(parse(value)).toEither.left.map { e =>
@@ -95,6 +96,11 @@ object ScalarDecoder {
       }
     case other                => Left(DecodingError(s"Can't build $name from input $other"))
   }
+
+  def temporalDecoder[A](name: String, formatter: DateTimeFormatter)(
+    parse: (String, DateTimeFormatter) => A
+  ): ScalarDecoder[A] =
+    temporalDecoder(name)(s => parse(s, formatter))
 
   // Time decoders
   implicit val instant: ScalarDecoder[Instant]               = temporalDecoder("Instant")(Instant.parse)

@@ -132,15 +132,15 @@ object CalibanClientTimeSupportSpec extends ZIOSpecDefault {
           val date            = LocalDate.of(2025, 7, 26)
           val dateAsString    = "26-07-2025"
 
-          // 1. Define local implicits using the now-public helper functions.
-          // These will take priority over the default implicits in the companion objects.
+          // 1. Define local implicits using the NEW, more convenient helper functions.
           implicit val customEncoder: ArgEncoder[LocalDate] =
-            ArgEncoder.temporalEncoder(d => d.format(customFormatter))
+            ArgEncoder.temporalEncoder(customFormatter)
 
+          // Pass the standard LocalDate.parse method reference, which matches the expected signature.
           implicit val customDecoder: ScalarDecoder[LocalDate] =
-            ScalarDecoder.temporalDecoder("LocalDate")(s => LocalDate.parse(s, customFormatter))
+            ScalarDecoder.temporalDecoder("LocalDate", customFormatter)(LocalDate.parse)
 
-          // 2. Test the custom encoder
+          // 2. Test the custom encoder and decoder
           val encoded = encode(date)
           val decoded = decode[LocalDate](__StringValue(dateAsString))
 
