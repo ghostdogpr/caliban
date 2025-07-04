@@ -30,6 +30,9 @@ case class __Type(
 
   private[caliban] lazy val typeNameRepr: String = DocumentRenderer.renderTypeName(this)
 
+  private[caliban] lazy val implements: Set[String] =
+    self.interfaces().getOrElse(Nil).flatMap(_.name).toSet
+
   def |+|(that: __Type): __Type = __Type(
     kind,
     (name ++ that.name).reduceOption((_, b) => b),
@@ -233,6 +236,18 @@ object TypeVisitor {
   object directives  extends ListVisitorConstructors[Directive]    {
     val set: __Type => (List[Directive] => List[Directive]) => __Type =
       t => f => t.copy(directives = t.directives.map(f))
+  }
+  object interfaces  extends ListVisitorConstructors[__Type]       {
+    val set: __Type => (List[__Type] => List[__Type]) => __Type =
+      t =>
+        f =>
+          t.copy(interfaces =
+            () =>
+              t.interfaces() match {
+                case Some(interfaces) => Some(f(interfaces))
+                case None             => Some(f(Nil)).filter(_.nonEmpty)
+              }
+          )
   }
 }
 

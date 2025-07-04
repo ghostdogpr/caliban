@@ -76,8 +76,7 @@ trait Schema[-R, T] { self =>
    * Defines if the type can resolve to null or not.
    * It is true if the type is nullable or if it can fail.
    */
-  @deprecatedOverriding("this method will be made final. Override canFail and nullable instead", "2.7.0")
-  def optional: Boolean = canFail || nullable
+  final def optional: Boolean = canFail || nullable
 
   /**
    * Defines if the underlying type represents a nullable value. Should be false except for `Option`.
@@ -121,30 +120,37 @@ trait Schema[-R, T] { self =>
     override def toType(isInput: Boolean, isSubscription: Boolean): __Type = {
       val tpe     = self.toType_(isInput, isSubscription)
       val newName = if (isInput) inputName.getOrElse(Schema.customizeInputTypeName(name)) else name
-      val newTpe  = tpe.copy(name = Some(newName))
 
-      tpe.kind match {
-        case __TypeKind.INTERFACE =>
-          val pt = tpe.possibleTypes.map(_.map { t0 =>
-            val newInterfaces = t0
-              .interfaces()
-              .map(_.map(t1 => if (t1.name == tpe.name && t1.name.isDefined) t1.copy(name = Some(newName)) else t1))
-            t0.copy(interfaces = () => newInterfaces)
-          })
-          newTpe.copy(possibleTypes = pt)
-        case _                    => newTpe
+      if (tpe.name.contains(newName)) tpe
+      else {
+        val newTpe = tpe.copy(name = Some(newName))
+
+        tpe.kind match {
+          case __TypeKind.INTERFACE =>
+            val pt = tpe.possibleTypes.map(_.map { t0 =>
+              val newInterfaces = t0
+                .interfaces()
+                .map(_.map(t1 => if (t1.name == tpe.name && t1.name.isDefined) t1.copy(name = Some(newName)) else t1))
+              t0.copy(interfaces = () => newInterfaces)
+            })
+            newTpe.copy(possibleTypes = pt)
+          case _                    => newTpe
+        }
       }
     }
 
-    private lazy val renameTypename: Boolean = self.toType_().kind match {
-      case __TypeKind.UNION | __TypeKind.ENUM | __TypeKind.INTERFACE => false
-      case _                                                         => true
+    private lazy val renameTypename: Boolean = {
+      val tpe = self.toType_()
+      tpe.kind match {
+        case __TypeKind.UNION | __TypeKind.ENUM | __TypeKind.INTERFACE => false
+        case _                                                         => !tpe.name.contains(name)
+      }
     }
 
     override def resolve(value: T): Step[R] = {
       def loop(step: Step[R]): Step[R] = step match {
         case ObjectStep(_, fields)   => ObjectStep(name, fields)
-        case PureStep(EnumValue(_))  => PureStep(EnumValue(name))
+        case PureStep(_: EnumValue)  => PureStep(EnumValue(name))
         case MetadataFunctionStep(s) => MetadataFunctionStep(field => loop(s(field)))
         case FunctionStep(s)         => FunctionStep(args => loop(s(args)))
         case other                   => other
@@ -153,6 +159,14 @@ trait Schema[-R, T] { self =>
       val step = self.resolve(value)
       if (renameTypename) loop(step) else step
     }
+  }
+
+  def mapType(f: __Type => __Type): Schema[R, T] = new Schema[R, T] {
+    override def nullable: Boolean                                         = self.nullable
+    override def canFail: Boolean                                          = self.canFail
+    override def arguments: List[__InputValue]                             = self.arguments
+    override def toType(isInput: Boolean, isSubscription: Boolean): __Type = f(self.toType_(isInput, isSubscription))
+    override def resolve(value: T): Step[R]                                = self.resolve(value)
   }
 }
 
