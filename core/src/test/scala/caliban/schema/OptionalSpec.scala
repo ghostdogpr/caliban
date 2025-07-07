@@ -1,7 +1,7 @@
 package caliban.schema
 
 import caliban.{ graphQL, RootResolver }
-import caliban.introspection.adt.__Type 
+import caliban.introspection.adt.__Type
 import zio._
 import zio.test._
 
