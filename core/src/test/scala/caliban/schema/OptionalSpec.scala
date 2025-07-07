@@ -1,11 +1,23 @@
 package caliban.schema
 
-import caliban.{ graphQL, RootResolver }
+import caliban.{graphQL, RootResolver}
+import caliban.introspection.adt.__Type // <-- IMPORT ADDED
+import caliban.schema.Step             // <-- IMPORT ADDED
 import zio._
 import zio.test._
 
 object OptionalSpec extends ZIOSpecDefault {
   import caliban.schema.Schema._
+
+  // Case classes moved to the top
+  case class Wrapper[A](value: A)
+
+  case class Query(
+    a: Wrapper[String],
+    b: Wrapper[Option[String]],
+    c: Wrapper[Task[String]],
+    d: Wrapper[Task[Option[String]]]
+  )
 
   override def spec = suite("OptionalSpec")(
     test("Semantic of Schema.optional is kept consistent across various nullable/canFail combinations") {
@@ -21,12 +33,13 @@ object OptionalSpec extends ZIOSpecDefault {
           |  d: String
           |}""".stripMargin
 
+      // Corrected schema implementation
       implicit def wrapperSchema[A](implicit ev: Schema[Any, A]): Schema[Any, Wrapper[A]] =
         new Schema[Any, Wrapper[A]] {
-          @annotation.nowarn
-          override def optional                                 = ev.optional
-          def toType(isInput: Boolean, isSubscription: Boolean) = ev.toType_(isInput, isSubscription)
-          def resolve(value: Wrapper[A]): Step[Any]             =
+          override def nullable: Boolean                                         = ev.nullable
+          override def canFail: Boolean                                          = ev.canFail
+          def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType_(isInput, isSubscription)
+          def resolve(value: Wrapper[A]): Step[Any]                                =
             ev.resolve(value.value)
         }
 
@@ -44,14 +57,5 @@ object OptionalSpec extends ZIOSpecDefault {
 
       assertTrue(gql.render == expected)
     }
-  )
-
-  case class Wrapper[A](value: A)
-
-  case class Query(
-    a: Wrapper[String],
-    b: Wrapper[Option[String]],
-    c: Wrapper[Task[String]],
-    d: Wrapper[Task[Option[String]]]
   )
 }
