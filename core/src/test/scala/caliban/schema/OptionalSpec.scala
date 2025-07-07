@@ -1,8 +1,8 @@
 package caliban.schema
 
-import caliban.{graphQL, RootResolver}
+import caliban.{ graphQL, RootResolver }
 import caliban.introspection.adt.__Type // <-- IMPORT ADDED
-import caliban.schema.Step             // <-- IMPORT ADDED
+import caliban.schema.Step              // <-- IMPORT ADDED
 import zio._
 import zio.test._
 
@@ -36,10 +36,10 @@ object OptionalSpec extends ZIOSpecDefault {
       // Corrected schema implementation
       implicit def wrapperSchema[A](implicit ev: Schema[Any, A]): Schema[Any, Wrapper[A]] =
         new Schema[Any, Wrapper[A]] {
-          override def nullable: Boolean                                         = ev.nullable
-          override def canFail: Boolean                                          = ev.canFail
+          override def nullable: Boolean                                = ev.nullable
+          override def canFail: Boolean                                 = ev.canFail
           def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType_(isInput, isSubscription)
-          def resolve(value: Wrapper[A]): Step[Any]                                =
+          def resolve(value: Wrapper[A]): Step[Any]                     =
             ev.resolve(value.value)
         }
 
