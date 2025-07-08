@@ -7,13 +7,15 @@ import caliban.parsing.adt.{ Document, Selection, VariableDefinition }
 import caliban.parsing.adt.Selection.Field
 import caliban.schema.{ RootType, Types }
 
+import scala.util.hashing.MurmurHash3
+
 package object validation {
   case class SelectedField(
     parentType: __Type,
     selection: Field,
     fieldDef: __Field
   ) {
-    final override lazy val hashCode: Int = super.hashCode()
+    @transient final override lazy val hashCode: Int = MurmurHash3.productHash(this)
   }
 
   type FieldMap = Map[String, Set[SelectedField]]
