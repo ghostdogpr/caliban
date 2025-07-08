@@ -7,7 +7,7 @@ import scala.util.hashing.MurmurHash3
 
 sealed trait Selection extends Serializable {
   // TODO: Kept for binary compatibility
-  @transient override def hashCode: Int = super.hashCode()
+  @transient override lazy val hashCode: Int = super.hashCode()
 }
 
 object Selection {
