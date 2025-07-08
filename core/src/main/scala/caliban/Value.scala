@@ -1,5 +1,6 @@
 package caliban
 
+import caliban.Scala3Annotations.threadUnsafe
 import caliban.Value.StringValue
 import caliban.interop.tapir.IsTapirSchema
 import caliban.rendering.ValueRenderer
@@ -91,8 +92,10 @@ object ResponseValue {
     override def toString: String =
       ValueRenderer.responseObjectValueRenderer.renderCompact(this)
 
-    @transient override lazy val hashCode: Int = MurmurHash3.unorderedHash(fields)
-    override def equals(other: Any): Boolean   =
+    @transient @threadUnsafe
+    override lazy val hashCode: Int = MurmurHash3.unorderedHash(fields)
+
+    override def equals(other: Any): Boolean =
       other match {
         case o: ObjectValue => o.hashCode == hashCode
         case _              => false

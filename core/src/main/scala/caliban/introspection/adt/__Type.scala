@@ -1,5 +1,6 @@
 package caliban.introspection.adt
 
+import caliban.Scala3Annotations.threadUnsafe
 import caliban.Value.StringValue
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
@@ -28,7 +29,8 @@ case class __Type(
 ) { self =>
   import caliban.syntax._
 
-  @transient final override lazy val hashCode: Int = MurmurHash3.productHash(self)
+  @transient @threadUnsafe
+  final override lazy val hashCode: Int = MurmurHash3.productHash(self)
 
   private[caliban] lazy val typeNameRepr: String = DocumentRenderer.renderTypeName(this)
 

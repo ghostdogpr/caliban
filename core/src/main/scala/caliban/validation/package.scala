@@ -1,5 +1,6 @@
 package caliban
 
+import caliban.Scala3Annotations.threadUnsafe
 import caliban.parsing.adt.Definition.ExecutableDefinition.{ FragmentDefinition, OperationDefinition }
 import caliban.introspection.adt.{ __Field, __Type }
 import caliban.parsing.SourceMapper
@@ -15,7 +16,8 @@ package object validation {
     selection: Field,
     fieldDef: __Field
   ) {
-    @transient final override lazy val hashCode: Int = MurmurHash3.productHash(this)
+    @transient @threadUnsafe
+    final override lazy val hashCode: Int = MurmurHash3.productHash(this)
   }
 
   type FieldMap = Map[String, Set[SelectedField]]
