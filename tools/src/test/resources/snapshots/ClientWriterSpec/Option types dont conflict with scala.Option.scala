@@ -25,23 +25,20 @@ object Client {
       encoder0: ArgEncoder[UUID]
     ): SelectionBuilder[_root_.caliban.client.Operations.RootQuery, scala.Option[A]] =
       _root_.caliban.client.SelectionBuilder
-        .Field("maybeOption", OptionOf(Obj(innerSelection)), arguments = List(Argument("id", id, "UUID!")(encoder0)))
+        .Field("maybeOption", OptionOf(Obj(innerSelection)), arguments = List(Argument("id", id, "UUID!")))
     def someOption[A](id: UUID)(innerSelection: SelectionBuilder[Option, A])(implicit
       encoder0: ArgEncoder[UUID]
     ): SelectionBuilder[_root_.caliban.client.Operations.RootQuery, A] = _root_.caliban.client.SelectionBuilder
-      .Field("someOption", Obj(innerSelection), arguments = List(Argument("id", id, "UUID!")(encoder0)))
+      .Field("someOption", Obj(innerSelection), arguments = List(Argument("id", id, "UUID!")))
     def maybeOptionList[A](id: UUID)(innerSelection: SelectionBuilder[Option, A])(implicit
       encoder0: ArgEncoder[UUID]
     ): SelectionBuilder[_root_.caliban.client.Operations.RootQuery, scala.Option[List[A]]] =
-      _root_.caliban.client.SelectionBuilder.Field(
-        "maybeOptionList",
-        OptionOf(ListOf(Obj(innerSelection))),
-        arguments = List(Argument("id", id, "UUID!")(encoder0))
-      )
+      _root_.caliban.client.SelectionBuilder
+        .Field("maybeOptionList", OptionOf(ListOf(Obj(innerSelection))), arguments = List(Argument("id", id, "UUID!")))
     def someOptionList[A](id: UUID)(innerSelection: SelectionBuilder[Option, A])(implicit
       encoder0: ArgEncoder[UUID]
     ): SelectionBuilder[_root_.caliban.client.Operations.RootQuery, List[A]] = _root_.caliban.client.SelectionBuilder
-      .Field("someOptionList", ListOf(Obj(innerSelection)), arguments = List(Argument("id", id, "UUID!")(encoder0)))
+      .Field("someOptionList", ListOf(Obj(innerSelection)), arguments = List(Argument("id", id, "UUID!")))
     def maybeMaybeOptionList[A](
       innerSelection: SelectionBuilder[Option, A]
     ): SelectionBuilder[_root_.caliban.client.Operations.RootQuery, scala.Option[List[scala.Option[A]]]] =

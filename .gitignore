@@ -22,3 +22,4 @@ package-lock.json
 node_modules/
 .DS_Store
 project/project/metals.sbt
+.cursor/mcp.json

@@ -21,9 +21,9 @@ bar""")
         "characters",
         OptionOf(Scalar()),
         arguments = List(
-          Argument("first", first, "Int!")(encoder0),
-          Argument("last", last, "Int")(encoder1),
-          Argument("origins", origins, "[String]")(encoder2)
+          Argument("first", first, "Int!"),
+          Argument("last", last, "Int"),
+          Argument("origins", origins, "[String]")
         )
       )
   }

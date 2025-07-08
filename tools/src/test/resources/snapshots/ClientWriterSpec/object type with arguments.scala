@@ -8,7 +8,7 @@ object Client {
     def character[A](name: String)(innerSelection: SelectionBuilder[Character, A])(implicit
       encoder0: ArgEncoder[String]
     ): SelectionBuilder[Q, scala.Option[A]] = _root_.caliban.client.SelectionBuilder
-      .Field("character", OptionOf(Obj(innerSelection)), arguments = List(Argument("name", name, "String!")(encoder0)))
+      .Field("character", OptionOf(Obj(innerSelection)), arguments = List(Argument("name", name, "String!")))
   }
 
   type Character

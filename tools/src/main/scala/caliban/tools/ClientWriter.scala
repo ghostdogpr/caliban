@@ -1,6 +1,5 @@
 package caliban.tools
 
-import caliban.Value.StringValue
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
 import caliban.parsing.adt.Type.{ ListType, NamedType }
@@ -235,16 +234,20 @@ object ClientWriter {
       val argBuilder                                       = filteredArgs match {
         case Nil  => ""
         case list =>
-          s", arguments = List(${list.zipWithIndex.map { case (arg, idx) =>
-              s"""Argument("${arg.name}", ${safeName(arg.name)}, "${arg.ofType.toString}")(encoder$idx)"""
+          s", arguments = List(${list.map { arg =>
+              s"""Argument("${arg.name}", ${safeName(arg.name)}, "${arg.ofType.toString}")"""
             }.mkString(", ")})"
       }
       val implicits                                        = filteredArgs match {
         case Nil  => ""
         case list =>
-          s"(implicit ${list.zipWithIndex.map { case (arg, idx) =>
-              s"""encoder$idx: ArgEncoder[${writeType(arg.ofType)}]"""
-            }.mkString(", ")})"
+          s"(implicit ${list
+              .distinctBy(_.ofType)
+              .zipWithIndex
+              .map { case (arg, idx) =>
+                s"""encoder$idx: ArgEncoder[${writeType(arg.ofType)}]"""
+              }
+              .mkString(", ")})"
       }
 
       val name          =
