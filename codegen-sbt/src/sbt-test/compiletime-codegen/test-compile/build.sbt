@@ -20,7 +20,6 @@ ThisBuild / licenses           := List("Apache-2.0" -> url("http://www.apache.or
 ThisBuild / version            := "0.0.1"
 ThisBuild / scalaVersion       := scalaDefaultVersion
 ThisBuild / resolvers += Resolver.mavenLocal
-ThisBuild / resolvers += Resolver.sonatypeRepo("snapshots")
 ThisBuild / scalacOptions ++= Seq("-Xfatal-warnings", "-feature")
 ThisBuild / crossScalaVersions := allScala
 

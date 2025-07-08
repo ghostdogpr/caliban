@@ -1,13 +1,10 @@
 # Caliban
 
 [![Release Artifacts][Badge-SonatypeReleases]][Link-SonatypeReleases]
-[![Snapshot Artifacts][Badge-SonatypeSnapshots]][Link-SonatypeSnapshots]
 [![Badge-Discord]][Link-Discord]
 
-[Link-SonatypeReleases]: https://oss.sonatype.org/content/repositories/releases/com/github/ghostdogpr/caliban_2.12/ "Sonatype Releases"
-[Badge-SonatypeReleases]: https://img.shields.io/nexus/r/https/oss.sonatype.org/com.github.ghostdogpr/caliban_2.12.svg "Sonatype Releases"
-[Link-SonatypeSnapshots]: https://oss.sonatype.org/content/repositories/snapshots/com/github/ghostdogpr/caliban_2.12/ "Sonatype Snapshots"
-[Badge-SonatypeSnapshots]: https://img.shields.io/nexus/s/https/oss.sonatype.org/com.github.ghostdogpr/caliban_2.12.svg "Sonatype Snapshots"
+[Link-SonatypeReleases]: https://central.sonatype.com/artifact/com.github.ghostdogpr/caliban_3 "Sonatype Releases"
+[Badge-SonatypeReleases]: https://img.shields.io/maven-central/v/com.github.ghostdogpr/caliban_3 "Sonatype Releases"
 [Link-Discord]: https://discord.gg/2ccFBr4 "Discord"
 [Badge-Discord]: https://img.shields.io/discord/629491597070827530?logo=discord "chat on discord"
 

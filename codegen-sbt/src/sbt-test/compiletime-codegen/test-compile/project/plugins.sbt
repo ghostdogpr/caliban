@@ -1,7 +1,6 @@
 import sbt.librarymanagement.Resolver
 
 resolvers += Resolver.mavenLocal
-resolvers += Resolver.sonatypeRepo("snapshots")
 
 sys.props.get("plugin.version") match {
   case Some(x) => addSbtPlugin("com.github.ghostdogpr" % "caliban-codegen-sbt" % x)
