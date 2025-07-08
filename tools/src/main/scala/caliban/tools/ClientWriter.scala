@@ -6,6 +6,7 @@ import caliban.parsing.adt.Type.{ ListType, NamedType }
 import caliban.parsing.adt.{ Directives, Document, Type }
 
 import scala.annotation.tailrec
+import scala.collection.compat._
 
 object ClientWriter {
 
