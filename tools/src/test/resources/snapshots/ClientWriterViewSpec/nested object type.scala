@@ -33,7 +33,7 @@ object Client {
     def nicknames(arg: scala.Option[Int] = None)(implicit
       encoder0: ArgEncoder[scala.Option[Int]]
     ): SelectionBuilder[Character, List[String]] = _root_.caliban.client.SelectionBuilder
-      .Field("nicknames", ListOf(Scalar()), arguments = List(Argument("arg", arg, "Int")(encoder0)))
+      .Field("nicknames", ListOf(Scalar()), arguments = List(Argument("arg", arg, "Int")))
   }
 
   type User
@@ -51,7 +51,7 @@ object Client {
     def characters[A](name: String)(
       innerSelection: SelectionBuilder[Character, A]
     )(implicit encoder0: ArgEncoder[String]): SelectionBuilder[User, List[A]] = _root_.caliban.client.SelectionBuilder
-      .Field("characters", ListOf(Obj(innerSelection)), arguments = List(Argument("name", name, "String!")(encoder0)))
+      .Field("characters", ListOf(Obj(innerSelection)), arguments = List(Argument("name", name, "String!")))
   }
 
 }

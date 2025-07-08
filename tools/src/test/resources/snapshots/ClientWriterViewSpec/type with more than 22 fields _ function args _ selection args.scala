@@ -479,73 +479,73 @@ object Client {
 
     def character1(name: String)(implicit encoder0: ArgEncoder[String]): SelectionBuilder[User, String]  =
       _root_.caliban.client.SelectionBuilder
-        .Field("character1", Scalar(), arguments = List(Argument("name", name, "String!")(encoder0)))
+        .Field("character1", Scalar(), arguments = List(Argument("name", name, "String!")))
     def character2(name: String)(implicit encoder0: ArgEncoder[String]): SelectionBuilder[User, String]  =
       _root_.caliban.client.SelectionBuilder
-        .Field("character2", Scalar(), arguments = List(Argument("name", name, "String!")(encoder0)))
+        .Field("character2", Scalar(), arguments = List(Argument("name", name, "String!")))
     def character3(name: String)(implicit encoder0: ArgEncoder[String]): SelectionBuilder[User, String]  =
       _root_.caliban.client.SelectionBuilder
-        .Field("character3", Scalar(), arguments = List(Argument("name", name, "String!")(encoder0)))
+        .Field("character3", Scalar(), arguments = List(Argument("name", name, "String!")))
     def character4(name: String)(implicit encoder0: ArgEncoder[String]): SelectionBuilder[User, String]  =
       _root_.caliban.client.SelectionBuilder
-        .Field("character4", Scalar(), arguments = List(Argument("name", name, "String!")(encoder0)))
+        .Field("character4", Scalar(), arguments = List(Argument("name", name, "String!")))
     def character5(name: String)(implicit encoder0: ArgEncoder[String]): SelectionBuilder[User, String]  =
       _root_.caliban.client.SelectionBuilder
-        .Field("character5", Scalar(), arguments = List(Argument("name", name, "String!")(encoder0)))
+        .Field("character5", Scalar(), arguments = List(Argument("name", name, "String!")))
     def character6(name: String)(implicit encoder0: ArgEncoder[String]): SelectionBuilder[User, String]  =
       _root_.caliban.client.SelectionBuilder
-        .Field("character6", Scalar(), arguments = List(Argument("name", name, "String!")(encoder0)))
+        .Field("character6", Scalar(), arguments = List(Argument("name", name, "String!")))
     def character7(name: String)(implicit encoder0: ArgEncoder[String]): SelectionBuilder[User, String]  =
       _root_.caliban.client.SelectionBuilder
-        .Field("character7", Scalar(), arguments = List(Argument("name", name, "String!")(encoder0)))
+        .Field("character7", Scalar(), arguments = List(Argument("name", name, "String!")))
     def character8(name: String)(implicit encoder0: ArgEncoder[String]): SelectionBuilder[User, String]  =
       _root_.caliban.client.SelectionBuilder
-        .Field("character8", Scalar(), arguments = List(Argument("name", name, "String!")(encoder0)))
+        .Field("character8", Scalar(), arguments = List(Argument("name", name, "String!")))
     def character9(name: String)(implicit encoder0: ArgEncoder[String]): SelectionBuilder[User, String]  =
       _root_.caliban.client.SelectionBuilder
-        .Field("character9", Scalar(), arguments = List(Argument("name", name, "String!")(encoder0)))
+        .Field("character9", Scalar(), arguments = List(Argument("name", name, "String!")))
     def character10(name: String)(implicit encoder0: ArgEncoder[String]): SelectionBuilder[User, String] =
       _root_.caliban.client.SelectionBuilder
-        .Field("character10", Scalar(), arguments = List(Argument("name", name, "String!")(encoder0)))
+        .Field("character10", Scalar(), arguments = List(Argument("name", name, "String!")))
     def character11(name: String)(implicit encoder0: ArgEncoder[String]): SelectionBuilder[User, String] =
       _root_.caliban.client.SelectionBuilder
-        .Field("character11", Scalar(), arguments = List(Argument("name", name, "String!")(encoder0)))
+        .Field("character11", Scalar(), arguments = List(Argument("name", name, "String!")))
     def character12(name: String)(implicit encoder0: ArgEncoder[String]): SelectionBuilder[User, String] =
       _root_.caliban.client.SelectionBuilder
-        .Field("character12", Scalar(), arguments = List(Argument("name", name, "String!")(encoder0)))
+        .Field("character12", Scalar(), arguments = List(Argument("name", name, "String!")))
     def character13(name: String)(implicit encoder0: ArgEncoder[String]): SelectionBuilder[User, String] =
       _root_.caliban.client.SelectionBuilder
-        .Field("character13", Scalar(), arguments = List(Argument("name", name, "String!")(encoder0)))
+        .Field("character13", Scalar(), arguments = List(Argument("name", name, "String!")))
     def character14(name: String)(implicit encoder0: ArgEncoder[String]): SelectionBuilder[User, String] =
       _root_.caliban.client.SelectionBuilder
-        .Field("character14", Scalar(), arguments = List(Argument("name", name, "String!")(encoder0)))
+        .Field("character14", Scalar(), arguments = List(Argument("name", name, "String!")))
     def character15(name: String)(implicit encoder0: ArgEncoder[String]): SelectionBuilder[User, String] =
       _root_.caliban.client.SelectionBuilder
-        .Field("character15", Scalar(), arguments = List(Argument("name", name, "String!")(encoder0)))
+        .Field("character15", Scalar(), arguments = List(Argument("name", name, "String!")))
     def character16(name: String)(implicit encoder0: ArgEncoder[String]): SelectionBuilder[User, String] =
       _root_.caliban.client.SelectionBuilder
-        .Field("character16", Scalar(), arguments = List(Argument("name", name, "String!")(encoder0)))
+        .Field("character16", Scalar(), arguments = List(Argument("name", name, "String!")))
     def character17(name: String)(implicit encoder0: ArgEncoder[String]): SelectionBuilder[User, String] =
       _root_.caliban.client.SelectionBuilder
-        .Field("character17", Scalar(), arguments = List(Argument("name", name, "String!")(encoder0)))
+        .Field("character17", Scalar(), arguments = List(Argument("name", name, "String!")))
     def character18(name: String)(implicit encoder0: ArgEncoder[String]): SelectionBuilder[User, String] =
       _root_.caliban.client.SelectionBuilder
-        .Field("character18", Scalar(), arguments = List(Argument("name", name, "String!")(encoder0)))
+        .Field("character18", Scalar(), arguments = List(Argument("name", name, "String!")))
     def character19(name: String)(implicit encoder0: ArgEncoder[String]): SelectionBuilder[User, String] =
       _root_.caliban.client.SelectionBuilder
-        .Field("character19", Scalar(), arguments = List(Argument("name", name, "String!")(encoder0)))
+        .Field("character19", Scalar(), arguments = List(Argument("name", name, "String!")))
     def character20(name: String)(implicit encoder0: ArgEncoder[String]): SelectionBuilder[User, String] =
       _root_.caliban.client.SelectionBuilder
-        .Field("character20", Scalar(), arguments = List(Argument("name", name, "String!")(encoder0)))
+        .Field("character20", Scalar(), arguments = List(Argument("name", name, "String!")))
     def character21(name: String)(implicit encoder0: ArgEncoder[String]): SelectionBuilder[User, String] =
       _root_.caliban.client.SelectionBuilder
-        .Field("character21", Scalar(), arguments = List(Argument("name", name, "String!")(encoder0)))
+        .Field("character21", Scalar(), arguments = List(Argument("name", name, "String!")))
     def character22(name: String)(implicit encoder0: ArgEncoder[String]): SelectionBuilder[User, String] =
       _root_.caliban.client.SelectionBuilder
-        .Field("character22", Scalar(), arguments = List(Argument("name", name, "String!")(encoder0)))
+        .Field("character22", Scalar(), arguments = List(Argument("name", name, "String!")))
     def character23(name: String)(implicit encoder0: ArgEncoder[String]): SelectionBuilder[User, String] =
       _root_.caliban.client.SelectionBuilder
-        .Field("character23", Scalar(), arguments = List(Argument("name", name, "String!")(encoder0)))
+        .Field("character23", Scalar(), arguments = List(Argument("name", name, "String!")))
   }
 
 }

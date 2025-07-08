@@ -21,7 +21,7 @@ object Client {
     def friends[A](filter: scala.Option[String] = None)(innerSelection: SelectionBuilder[Character, A])(implicit
       encoder0: ArgEncoder[scala.Option[String]]
     ): SelectionBuilder[Character, List[A]] = _root_.caliban.client.SelectionBuilder
-      .Field("friends", ListOf(Obj(innerSelection)), arguments = List(Argument("filter", filter, "String")(encoder0)))
+      .Field("friends", ListOf(Obj(innerSelection)), arguments = List(Argument("filter", filter, "String")))
   }
 
 }

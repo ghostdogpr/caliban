@@ -51,7 +51,7 @@ object Client {
       _root_.caliban.client.SelectionBuilder.Field(
         "node",
         OptionOf(ChoiceOf(Map("NodeA" -> Obj(onNodeA), "NodeB" -> Obj(onNodeB)))),
-        arguments = List(Argument("id", id, "ID!")(encoder0))
+        arguments = List(Argument("id", id, "ID!"))
       )
     def nodeOption[A](id: String)(
       onNodeA: scala.Option[SelectionBuilder[NodeA, A]] = None,
@@ -69,7 +69,7 @@ object Client {
             )
           )
         ),
-        arguments = List(Argument("id", id, "ID!")(encoder0))
+        arguments = List(Argument("id", id, "ID!"))
       )
   }
 
@@ -85,7 +85,7 @@ object Client {
       _root_.caliban.client.SelectionBuilder.Field(
         "updateNode",
         OptionOf(ChoiceOf(Map("NodeA" -> Obj(onNodeA), "NodeB" -> Obj(onNodeB)))),
-        arguments = List(Argument("id", id, "ID!")(encoder0), Argument("name", name, "String")(encoder1))
+        arguments = List(Argument("id", id, "ID!"), Argument("name", name, "String"))
       )
     def updateNodeOption[A](id: String, name: scala.Option[String] = None)(
       onNodeA: scala.Option[SelectionBuilder[NodeA, A]] = None,
@@ -104,7 +104,7 @@ object Client {
             )
           )
         ),
-        arguments = List(Argument("id", id, "ID!")(encoder0), Argument("name", name, "String")(encoder1))
+        arguments = List(Argument("id", id, "ID!"), Argument("name", name, "String"))
       )
   }
 
@@ -116,7 +116,7 @@ object Client {
       _root_.caliban.client.SelectionBuilder.Field(
         "node",
         OptionOf(ChoiceOf(Map("NodeA" -> Obj(onNodeA), "NodeB" -> Obj(onNodeB)))),
-        arguments = List(Argument("id", id, "ID!")(encoder0))
+        arguments = List(Argument("id", id, "ID!"))
       )
     def nodeOption[A](id: String)(
       onNodeA: scala.Option[SelectionBuilder[NodeA, A]] = None,
@@ -134,7 +134,7 @@ object Client {
             )
           )
         ),
-        arguments = List(Argument("id", id, "ID!")(encoder0))
+        arguments = List(Argument("id", id, "ID!"))
       )
   }
 
