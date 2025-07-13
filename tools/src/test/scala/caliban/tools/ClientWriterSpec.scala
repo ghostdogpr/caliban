@@ -125,7 +125,12 @@ object ClientWriterSpec extends SnapshotTest {
              scalar PredefString
              scalar ScalaPredefString
             """,
-          scalarMappings = Map("MyInt" -> "Int", "ScalaInt" -> "scala.Int", "PredefString" -> "Predef.String", "ScalaPredefString" -> "scala.Predef.String")
+          scalarMappings = Map(
+            "MyInt"             -> "Int",
+            "ScalaInt"          -> "scala.Int",
+            "PredefString"      -> "Predef.String",
+            "ScalaPredefString" -> "scala.Predef.String"
+          )
         )
       },
       snapshotTest("schema") {

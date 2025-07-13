@@ -254,7 +254,7 @@ object ClientWriter {
           s"(implicit ${list.distinctBy {
               case value if isTypeScalar(value.ofType) =>
                 val rawScalar = getTypeName(value.ofType)
-                val scalar = safeTypeName(rawScalar)
+                val scalar    = safeTypeName(rawScalar)
                 val scalaType = if (isScalarSupported(scalar) || scalarMappingsWithDefaults.contains(rawScalar)) {
                   KnownPackagePrefix.replaceFirstIn(scalar, "")
                 } else {
