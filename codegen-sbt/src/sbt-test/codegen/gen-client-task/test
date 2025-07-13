@@ -39,6 +39,6 @@ $ exec sh verify.sh ProjectView ./src/main/scala/genview/client/Project.scala
 $ exec sh verify.sh ProjectViewArgs ./src/main/scala/genview/client/Project.scala
 $ exec sh verify.sh ProjectViewSelectionArgs ./src/main/scala/genview/client/Project.scala
 
-> calibanGenClient project/duplicate-scalar-implicit.graphql src/main/scala/client/DuplicateScalarImplicit.scala --packageName client
+> calibanGenClient project/duplicate-scalar-implicit.graphql src/main/scala/client/DuplicateScalarImplicit.scala --packageName client --scalarMappings MyString:String,PredefString:Predef.String,ScalaPredefString:scala.Predef.String
 $ exists src/main/scala/client/DuplicateScalarImplicit.scala
 > compile
