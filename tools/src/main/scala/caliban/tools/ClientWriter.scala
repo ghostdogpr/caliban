@@ -242,12 +242,13 @@ object ClientWriter {
       val implicits                                        = filteredArgs match {
         case Nil  => ""
         case list =>
-          s"(implicit ${list
-              .distinctBy(value => writeType(value.ofType))
-              .zipWithIndex
-              .map { case (arg, idx) =>
-                s"""encoder$idx: ArgEncoder[${writeType(arg.ofType)}]"""
-              }
+          s"(implicit ${list.distinctBy {
+              case value if isScalar && !isScalarSupported(value.name) =>
+                writeType(Type.NamedType("String", value.ofType.nonNull))
+              case value                                               => writeType(value.ofType)
+            }.zipWithIndex.map { case (arg, idx) =>
+              s"""encoder$idx: ArgEncoder[${writeType(arg.ofType)}]"""
+            }
               .mkString(", ")})"
       }
 
