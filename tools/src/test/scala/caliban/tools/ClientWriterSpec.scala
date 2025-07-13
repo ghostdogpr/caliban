@@ -133,6 +133,32 @@ object ClientWriterSpec extends SnapshotTest {
           )
         )
       },
+      snapshotTest("generates a single ArgEncoder when given two Int types") {
+        gen(
+          """
+             type PriceRuleCustomerSelection {
+               customers(int: Int, myInt: MyInt): String
+             }
+             scalar MyInt
+            """,
+          scalarMappings = Map(
+            "MyInt" -> "scala.Int"
+          )
+        )
+      },
+      snapshotTest("generates two ArgEncoders when given two different types") {
+        gen(
+          """
+             type PriceRuleCustomerSelection {
+               customers(str: String, myInt: MyInt): String
+             }
+             scalar MyInt
+            """,
+          scalarMappings = Map(
+            "MyInt" -> "scala.Int"
+          )
+        )
+      },
       snapshotTest("schema") {
         gen("""
              schema {
