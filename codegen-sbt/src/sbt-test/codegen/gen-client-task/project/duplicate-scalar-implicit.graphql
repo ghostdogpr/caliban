@@ -1,0 +1,5 @@
+type PriceRuleCustomerSelection {
+  customers(after: String, savedSearchId: ID): String
+}
+
+scalar ID
