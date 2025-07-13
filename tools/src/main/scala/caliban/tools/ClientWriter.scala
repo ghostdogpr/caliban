@@ -112,6 +112,20 @@ object ClientWriter {
       s"""$description${deprecated}def $safeName$typeParam$args$innerSelection$implicits: SelectionBuilder[$typeName, $outputType] = _root_.caliban.client.SelectionBuilder.Field("$name", $builder$argBuilder)"""
     }
 
+    def getSafeTypeName(t: Type): String = safeTypeName(getTypeName(t))
+
+    def isTypeScalar(t: Type) = {
+      val typeName = getSafeTypeName(t)
+      typesMap
+        .get(typeName)
+        .collect {
+          case _: ScalarTypeDefinition => true
+          case _: EnumTypeDefinition   => true
+          case _                       => false
+        }
+        .getOrElse(true)
+    }
+
     def collectFieldInfo(
       field: FieldDefinition,
       typeName: String,
@@ -127,15 +141,8 @@ object ClientWriter {
         case None            => ""
         case Some(directive) => writeDeprecated(Directives.deprecationReason(directive :: Nil))
       }
-      val fieldType                                        = safeTypeName(getTypeName(field.ofType))
-      val isScalar                                         = typesMap
-        .get(fieldType)
-        .collect {
-          case _: ScalarTypeDefinition => true
-          case _: EnumTypeDefinition   => true
-          case _                       => false
-        }
-        .getOrElse(true)
+      val fieldType                                        = getSafeTypeName(field.ofType)
+      val isScalar                                         = isTypeScalar(field.ofType)
       val unionTypes                                       = typesMap
         .get(fieldType)
         .collect { case UnionTypeDefinition(_, _, _, memberTypes) =>
@@ -242,10 +249,13 @@ object ClientWriter {
       val implicits                                        = filteredArgs match {
         case Nil  => ""
         case list =>
+          // when generating implicits, we have to be careful to not generate duplicates for any scalar types
+          // otherwise, we'll get compilation errors due to multiple available implicits
           s"(implicit ${list.distinctBy {
-              case value if isScalar && !isScalarSupported(value.name) =>
-                writeType(Type.NamedType("String", value.ofType.nonNull))
-              case value                                               => writeType(value.ofType)
+              case value if isTypeScalar(value.ofType) && !isScalarSupported(getSafeTypeName(value.ofType)) =>
+                writeType(typeAsString(value.ofType))
+              case value                                                                                    =>
+                writeType(value.ofType)
             }.zipWithIndex.map { case (arg, idx) =>
               s"""encoder$idx: ArgEncoder[${writeType(arg.ofType)}]"""
             }
@@ -792,6 +802,13 @@ object ClientWriter {
       case NamedType(name, false)  => s"scala.Option[${safeTypeName(name)}]"
       case ListType(ofType, true)  => s"List[${writeType(ofType)}]"
       case ListType(ofType, false) => s"scala.Option[List[${writeType(ofType)}]]"
+    }
+
+    // recursively transform this type's underlying type to a String
+    // this is useful for getting the "real" type of unsupported scalars
+    def typeAsString(t: Type): Type = t match {
+      case nt: NamedType => nt.copy(name = "String")
+      case lt: ListType  => lt.copy(ofType = typeAsString(lt.ofType))
     }
 
     def safeFieldTypeReplace(writtenType: String, fieldType: String, typeLetter: String): String =
