@@ -112,6 +112,14 @@ object ClientWriterSpec extends SnapshotTest {
              }
             """)
       },
+      snapshotTest("implicit encoders for String and scalar") {
+        gen("""
+             type PriceRuleCustomerSelection {
+               customers(after: String, savedSearchId: ID): String
+             }
+             scalar ID
+            """)
+      },
       snapshotTest("schema") {
         gen("""
              schema {

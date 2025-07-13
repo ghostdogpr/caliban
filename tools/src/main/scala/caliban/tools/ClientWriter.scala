@@ -243,7 +243,7 @@ object ClientWriter {
         case Nil  => ""
         case list =>
           s"(implicit ${list
-              .distinctBy(_.ofType)
+              .distinctBy(value => writeType(value.ofType))
               .zipWithIndex
               .map { case (arg, idx) =>
                 s"""encoder$idx: ArgEncoder[${writeType(arg.ofType)}]"""
