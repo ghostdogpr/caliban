@@ -113,8 +113,7 @@ object ClientWriterSpec extends SnapshotTest {
             """)
       },
       snapshotTest("implicit encoders for String and scalar") {
-        gen(
-          """
+        gen("""
              type PriceRuleCustomerSelection {
                customers(after: String, savedSearchId: ID): String
              }
