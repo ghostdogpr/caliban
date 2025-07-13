@@ -113,13 +113,20 @@ object ClientWriterSpec extends SnapshotTest {
             """)
       },
       snapshotTest("implicit encoders for String and scalar") {
-        gen("""
+        gen(
+          """
              type PriceRuleCustomerSelection {
-               customers(after: String, savedSearchId: ID, time: Time): String
+               customers(after: String, savedSearchId: ID, time: Time, int: Int, myInt: MyInt, scalaInt: ScalaInt, predefInt: PredefString, scalaPredefString: ScalaPredefString): String
              }
              scalar ID
              scalar Time
-            """)
+             scalar MyInt
+             scalar ScalaInt
+             scalar PredefString
+             scalar ScalaPredefString
+            """,
+          scalarMappings = Map("MyInt" -> "Int", "ScalaInt" -> "scala.Int", "PredefString" -> "Predef.String", "ScalaPredefString" -> "scala.Predef.String")
+        )
       },
       snapshotTest("schema") {
         gen("""

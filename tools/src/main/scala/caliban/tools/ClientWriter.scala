@@ -252,9 +252,14 @@ object ClientWriter {
           // when generating implicits, we have to be careful to not generate duplicates for any scalar types
           // otherwise, we'll get compilation errors due to multiple available implicits
           s"(implicit ${list.distinctBy {
-              case value if isTypeScalar(value.ofType) && !isScalarSupported(getSafeTypeName(value.ofType)) =>
-                writeType(typeAsString(value.ofType))
-              case value                                                                                    =>
+              case value if isTypeScalar(value.ofType) =>
+                val scalar = getSafeTypeName(value.ofType)
+                scalarMappingsWithDefaults.get(scalar) match {
+                  case Some(scalarScalaType)                      => writeType(typeAsOtherType(value.ofType, scalarScalaType))
+                  case None if !supportedScalars.contains(scalar) => writeType(typeAsOtherType(value.ofType, "String"))
+                  case None                                       => writeType(value.ofType)
+                }
+              case value                               =>
                 writeType(value.ofType)
             }.zipWithIndex.map { case (arg, idx) =>
               s"""encoder$idx: ArgEncoder[${writeType(arg.ofType)}]"""
@@ -805,10 +810,10 @@ object ClientWriter {
     }
 
     // recursively transform this type's underlying type to a String
-    // this is useful for getting the "real" type of unsupported scalars
-    def typeAsString(t: Type): Type = t match {
-      case nt: NamedType => nt.copy(name = "String")
-      case lt: ListType  => lt.copy(ofType = typeAsString(lt.ofType))
+    // this is useful for getting the "real" type of unsupported scalars ("String") or getting the type of supported ones
+    def typeAsOtherType(t: Type, rewriteAs: String): Type = t match {
+      case nt: NamedType => nt.copy(name = rewriteAs)
+      case lt: ListType  => lt.copy(ofType = typeAsOtherType(lt.ofType, rewriteAs))
     }
 
     def safeFieldTypeReplace(writtenType: String, fieldType: String, typeLetter: String): String =
