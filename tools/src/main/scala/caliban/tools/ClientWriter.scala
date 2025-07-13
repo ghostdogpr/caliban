@@ -12,6 +12,8 @@ object ClientWriter {
 
   private val MaxTupleLength = 22
 
+  private val KnownPackagePrefix = """(scala\.Predef\.)|(scala\.)|(Predef\.)""".r
+
   def write(
     schema: Document,
     objectName: String = "Client",
@@ -112,10 +114,8 @@ object ClientWriter {
       s"""$description${deprecated}def $safeName$typeParam$args$innerSelection$implicits: SelectionBuilder[$typeName, $outputType] = _root_.caliban.client.SelectionBuilder.Field("$name", $builder$argBuilder)"""
     }
 
-    def getSafeTypeName(t: Type): String = safeTypeName(getTypeName(t))
-
     def isTypeScalar(t: Type) = {
-      val typeName = getSafeTypeName(t)
+      val typeName = safeTypeName(getTypeName(t))
       typesMap
         .get(typeName)
         .collect {
@@ -141,7 +141,7 @@ object ClientWriter {
         case None            => ""
         case Some(directive) => writeDeprecated(Directives.deprecationReason(directive :: Nil))
       }
-      val fieldType                                        = getSafeTypeName(field.ofType)
+      val fieldType                                        = safeTypeName(getTypeName(field.ofType))
       val isScalar                                         = isTypeScalar(field.ofType)
       val unionTypes                                       = typesMap
         .get(fieldType)
@@ -253,12 +253,14 @@ object ClientWriter {
           // otherwise, we'll get compilation errors due to multiple available implicits
           s"(implicit ${list.distinctBy {
               case value if isTypeScalar(value.ofType) =>
-                val scalar = getSafeTypeName(value.ofType)
-                scalarMappingsWithDefaults.get(scalar) match {
-                  case Some(scalarScalaType)                      => writeType(typeAsOtherType(value.ofType, scalarScalaType))
-                  case None if !supportedScalars.contains(scalar) => writeType(typeAsOtherType(value.ofType, "String"))
-                  case None                                       => writeType(value.ofType)
+                val rawScalar = getTypeName(value.ofType)
+                val scalar = safeTypeName(rawScalar)
+                val scalaType = if (isScalarSupported(scalar) || scalarMappingsWithDefaults.contains(rawScalar)) {
+                  KnownPackagePrefix.replaceFirstIn(scalar, "")
+                } else {
+                  "String"
                 }
+                writeType(typeAsOtherType(value.ofType, scalaType))
               case value                               =>
                 writeType(value.ofType)
             }.zipWithIndex.map { case (arg, idx) =>
