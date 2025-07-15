@@ -13,7 +13,7 @@ addSbtPlugin("org.scalameta"      % "sbt-mdoc"                      % "2.7.2")
 addSbtPlugin("com.typesafe"       % "sbt-mima-plugin"               % "1.1.4")
 addSbtPlugin("com.eed3si9n"       % "sbt-assembly"                  % "2.3.1")
 
-addSbtPlugin("org.jetbrains.scala" % "sbt-ide-settings" % "1.1.2")
+addSbtPlugin("org.jetbrains.scala" % "sbt-ide-settings" % "1.1.3")
 
 libraryDependencies += "com.thesamet.scalapb" %% "compilerplugin" % "0.11.19"
 addDependencyTreePlugin
