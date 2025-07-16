@@ -93,12 +93,13 @@ object ArgBuilderDerivesAutoSpec extends ZIOSpecDefault {
               |type Queries {
               |  foo(fooInput: FooInput!): String!
               |  fooUnwrapped(value: FooInput!): String!
-              |}""".stripMargin
+              |}
+              |""".stripMargin
 
           val api: GraphQL[Any] = graphQL(RootResolver(Queries(_ => "", _ => "")))
 
           println(api.render)
-          assertTrue(api.render.trim == expected)
+          assertTrue(api.render == expected)
         },
         test("successfully validates and executes") {
 

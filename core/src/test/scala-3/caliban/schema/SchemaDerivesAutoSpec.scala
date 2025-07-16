@@ -228,8 +228,9 @@ object SchemaDerivesAutoSpec extends ZIOSpecDefault {
                          |type QueryType {
                          |  a: String!
                          |  foo: Foo!
-                         |}""".stripMargin
-        assertTrue(gql.render.trim == expected)
+                         |}
+                         |""".stripMargin
+        assertTrue(gql.render == expected)
       },
       test("Pass interface to withAdditionalTypes") {
         @GQLInterface
@@ -262,8 +263,9 @@ object SchemaDerivesAutoSpec extends ZIOSpecDefault {
                          |type Query {
                          |  a: A!
                          |  b: B!
-                         |}""".stripMargin
-        assertTrue(gql.render.trim == expected)
+                         |}
+                         |""".stripMargin
+        assertTrue(gql.render == expected)
       },
       suite("Auto derivation reuses implicits") {
         val expected =
@@ -278,7 +280,8 @@ object SchemaDerivesAutoSpec extends ZIOSpecDefault {
 
             |type Queries {
             |  as: [A!]!
-            |}""".stripMargin
+            |}
+            |""".stripMargin
         List(
           test("from GenericSchema[Any]") {
             case class A(a: String, b: Option[Int])
@@ -287,7 +290,7 @@ object SchemaDerivesAutoSpec extends ZIOSpecDefault {
             val resolver = RootResolver(Queries(List(A("a", None), A("b", None))))
             val gql      = graphQL(resolver)
 
-            assertTrue(gql.render.trim == expected)
+            assertTrue(gql.render == expected)
           },
           test("from GenericSchema[T]") {
             trait Foo
@@ -299,7 +302,7 @@ object SchemaDerivesAutoSpec extends ZIOSpecDefault {
             val resolver = RootResolver(Queries(List(A("a", None), A("b", None))))
             val gql      = graphQL(resolver)
 
-            assertTrue(gql.render.trim == expected)
+            assertTrue(gql.render == expected)
           },
           test("from local scope") {
             case class A(a: Int)
@@ -314,7 +317,7 @@ object SchemaDerivesAutoSpec extends ZIOSpecDefault {
             val resolver = RootResolver(Queries(List(A(1), A(2))))
             val gql      = graphQL(resolver)
 
-            assertTrue(gql.render.trim == expected)
+            assertTrue(gql.render == expected)
           },
           test("from local scope when using a custom schema") {
             trait Foo
@@ -331,7 +334,7 @@ object SchemaDerivesAutoSpec extends ZIOSpecDefault {
             val resolver = RootResolver(Queries(List(A(1), A(2))))
             val gql      = graphQL[Foo, Queries, Unit, Unit](resolver)
 
-            assertTrue(gql.render.trim == expected)
+            assertTrue(gql.render == expected)
           }
         )
       }

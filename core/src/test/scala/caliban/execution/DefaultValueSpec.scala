@@ -180,7 +180,7 @@ object DefaultValueSpec extends ZIOSpecDefault {
                |
                |type Query {
                |  testDefault(intValue: Int! = 1): Int!
-               |}""".stripMargin
+               |}""".stripMargin.trim
         )
       },
       test("it renders in introspection") {

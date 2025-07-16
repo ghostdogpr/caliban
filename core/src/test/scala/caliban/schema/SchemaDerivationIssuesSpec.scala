@@ -12,7 +12,7 @@ object SchemaDerivationIssuesSpec extends ZIOSpecDefault {
       import i1972_i1973._
 
       assertTrue(
-        schema.trim ==
+        schema ==
           """schema {
             |  query: Queries
             |}
@@ -35,14 +35,15 @@ object SchemaDerivationIssuesSpec extends ZIOSpecDefault {
             |
             |type Queries {
             |  param: ASTParameter!
-            |}""".stripMargin
+            |}
+            |""".stripMargin
       )
     },
     test("i1977") {
       import i1977._
 
       assertTrue(
-        schema.trim ==
+        schema ==
           """schema {
             |  query: Queries
             |}
@@ -65,14 +66,15 @@ object SchemaDerivationIssuesSpec extends ZIOSpecDefault {
             |
             |type Queries {
             |  param: ASTParameter!
-            |}""".stripMargin
+            |}
+            |""".stripMargin
       )
     },
     test("i1951") {
       import i1951._
 
       assertTrue(
-        schema.trim ==
+        schema ==
           """schema {
             |  query: Queries
             |}
@@ -99,14 +101,15 @@ object SchemaDerivationIssuesSpec extends ZIOSpecDefault {
             |
             |type Queries {
             |  param: MyInterface!
-            |}""".stripMargin
+            |}
+            |""".stripMargin
       )
     },
     test("i1989") {
       import i1989._
 
       assertTrue(
-        schema.trim ==
+        schema ==
           """schema {
             |  query: Queries
             |}
@@ -119,14 +122,15 @@ object SchemaDerivationIssuesSpec extends ZIOSpecDefault {
             |
             |type Queries {
             |  level: Level1!
-            |}""".stripMargin
+            |}
+            |""".stripMargin
       )
     },
     test("i1990") {
       import i1990._
 
       assertTrue(
-        schema.trim ==
+        schema ==
           """schema {
             |  query: Queries
             |}
@@ -138,14 +142,15 @@ object SchemaDerivationIssuesSpec extends ZIOSpecDefault {
             |
             |type Queries {
             |  op: PrefixOperator!
-            |}""".stripMargin
+            |}
+            |""".stripMargin
       )
     },
     test("i992") {
       import i1992._
 
       assertTrue(
-        schema.trim ==
+        schema ==
           """schema {
             |  query: Queries
             |}
@@ -166,14 +171,15 @@ object SchemaDerivationIssuesSpec extends ZIOSpecDefault {
             |
             |type Queries {
             |  p: Parent!
-            |}""".stripMargin
+            |}
+            |""".stripMargin
       )
     },
     suite("i1993")(
       test("rendering") {
         import i1993._
 
-        val rendered = schema.render.trim
+        val rendered = schema.render
         assertTrue(
           rendered ==
             """schema {
@@ -190,7 +196,8 @@ object SchemaDerivationIssuesSpec extends ZIOSpecDefault {
               |  e1: Enum1!
               |  e2: Enum1!
               |  e3: Enum1!
-              |}""".stripMargin
+              |}
+              |""".stripMargin
         )
       },
       test("execution") {
@@ -271,7 +278,7 @@ object SchemaDerivationIssuesSpec extends ZIOSpecDefault {
     },
     test("sum types are sorted by name") {
       import sorting._
-      val rendered = schema.render.trim
+      val rendered = schema.render
       assertTrue(
         rendered ==
           """schema {
@@ -326,7 +333,8 @@ object SchemaDerivationIssuesSpec extends ZIOSpecDefault {
             |type Z {
             |  "Fake field because GraphQL does not support empty objects. Do not query, use __typename instead."
             |  _: Boolean
-            |}""".stripMargin
+            |}
+            |""".stripMargin
       )
     }
   )

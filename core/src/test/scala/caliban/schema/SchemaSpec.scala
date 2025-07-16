@@ -2,7 +2,7 @@ package caliban.schema
 
 import caliban.Value.StringValue
 import caliban._
-import caliban.introspection.adt.{ __DeprecatedArgs, __Type, __TypeKind }
+import caliban.introspection.adt.{__DeprecatedArgs, __Type, __TypeKind}
 import caliban.parsing.adt.Directive
 import caliban.schema.Annotations._
 import caliban.schema.ArgBuilder.auto._
@@ -220,8 +220,9 @@ object SchemaSpec extends ZIOSpecDefault {
                          |type QueryType {
                          |  a: String!
                          |  foo: Foo!
-                         |}""".stripMargin
-        assertTrue(gql.render.trim == expected)
+                         |}
+                         |""".stripMargin
+        assertTrue(gql.render == expected)
       },
       test("Pass interface to withAdditionalTypes") {
         @GQLInterface
@@ -254,8 +255,9 @@ object SchemaSpec extends ZIOSpecDefault {
                          |type Query {
                          |  a: A!
                          |  b: B!
-                         |}""".stripMargin
-        assertTrue(gql.render.trim == expected)
+                         |}
+                         |""".stripMargin
+        assertTrue(gql.render == expected)
       },
       test("enum supported directives") {
         sealed trait MyEnum
@@ -313,8 +315,9 @@ object SchemaSpec extends ZIOSpecDefault {
                          |
                          |type Mutation {
                          |  mutBox(value: Int!): Box!
-                         |}""".stripMargin
-        assertTrue(caliban.renderSchemaWith[Env, EnvironmentSchema, Mutation, Unit]().trim == expected)
+                         |}
+                         |""".stripMargin
+        assertTrue(caliban.renderSchemaWith[Env, EnvironmentSchema, Mutation, Unit]() == expected)
       },
       test("custom enum schema") {
 
@@ -325,7 +328,7 @@ object SchemaSpec extends ZIOSpecDefault {
 
         val gql = graphQL(RootResolver(Query(EnumLikeUnion.A)))
         assertTrue(
-          gql.render.trim ==
+          gql.render ==
             """schema {
               |  query: Query
               |}
@@ -337,7 +340,8 @@ object SchemaSpec extends ZIOSpecDefault {
               |
               |type Query {
               |  myEnum: Foo!
-              |}""".stripMargin
+              |}
+              |""".stripMargin
         )
       },
       test("nested interfaces") {
@@ -347,47 +351,48 @@ object SchemaSpec extends ZIOSpecDefault {
         val schema = graphQL(RootResolver(Query(v, v, v))).render
 
         assertTrue(
-          schema.trim == """schema {
-                           |  query: Query
-                           |}
-                           |
-                           |interface Mid1 {
-                           |  b: String!
-                           |  c: String!
-                           |}
-                           |
-                           |interface Mid2 {
-                           |  b: String!
-                           |  d: String!
-                           |}
-                           |
-                           |interface NestedInterface {
-                           |  b: String!
-                           |}
-                           |
-                           |type FooA implements NestedInterface & Mid1 {
-                           |  a: String!
-                           |  b: String!
-                           |  c: String!
-                           |}
-                           |
-                           |type FooB implements NestedInterface & Mid1 & Mid2 {
-                           |  b: String!
-                           |  c: String!
-                           |  d: String!
-                           |}
-                           |
-                           |type FooC implements NestedInterface & Mid2 {
-                           |  b: String!
-                           |  d: String!
-                           |  e: String!
-                           |}
-                           |
-                           |type Query {
-                           |  top: NestedInterface!
-                           |  mid1: Mid1!
-                           |  mid2: Mid2!
-                           |}""".stripMargin
+          schema == """schema {
+                      |  query: Query
+                      |}
+                      |
+                      |interface Mid1 {
+                      |  b: String!
+                      |  c: String!
+                      |}
+                      |
+                      |interface Mid2 {
+                      |  b: String!
+                      |  d: String!
+                      |}
+                      |
+                      |interface NestedInterface {
+                      |  b: String!
+                      |}
+                      |
+                      |type FooA implements NestedInterface & Mid1 {
+                      |  a: String!
+                      |  b: String!
+                      |  c: String!
+                      |}
+                      |
+                      |type FooB implements NestedInterface & Mid1 & Mid2 {
+                      |  b: String!
+                      |  c: String!
+                      |  d: String!
+                      |}
+                      |
+                      |type FooC implements NestedInterface & Mid2 {
+                      |  b: String!
+                      |  d: String!
+                      |  e: String!
+                      |}
+                      |
+                      |type Query {
+                      |  top: NestedInterface!
+                      |  mid1: Mid1!
+                      |  mid2: Mid2!
+                      |}
+                      |""".stripMargin
         )
       },
       test("annotations on leaf classes of OneOfInput are added to the input object fields") {
@@ -395,19 +400,20 @@ object SchemaSpec extends ZIOSpecDefault {
 
         val schema = graphQL(RootResolver(Query(_.toString))).render
         assertTrue(
-          schema.trim == """schema {
-                           |  query: Query
-                           |}
-                           |
-                           |input MyOneOfInput @oneOf {
-                           |  "foo input"
-                           |  a: Int
-                           |  b: String @barDirective
-                           |}
-                           |
-                           |type Query {
-                           |  value(value: MyOneOfInput!): String!
-                           |}""".stripMargin
+          schema == """schema {
+                      |  query: Query
+                      |}
+                      |
+                      |input MyOneOfInput @oneOf {
+                      |  "foo input"
+                      |  a: Int
+                      |  b: String @barDirective
+                      |}
+                      |
+                      |type Query {
+                      |  value(value: MyOneOfInput!): String!
+                      |}
+                      |""".stripMargin
         )
       }
     )

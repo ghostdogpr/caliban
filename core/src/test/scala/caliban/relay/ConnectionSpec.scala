@@ -200,9 +200,10 @@ object ConnectionSpec extends ZIOSpecDefault {
                        |
                        |type Query {
                        |  connection(first: Int, last: Int, before: String, after: String): ItemConnection
-                       |}""".stripMargin
+                       |}
+                       |""".stripMargin
 
-      assertTrue(api.render.trim == expected.trim)
+      assertTrue(api.render == expected)
     },
     suite("Pagination")(
       test("successfully returns a Pagination case class") {

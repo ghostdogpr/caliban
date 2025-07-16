@@ -19,7 +19,8 @@ object OptionalSpec extends ZIOSpecDefault {
           |  b: String
           |  c: String
           |  d: String
-          |}""".stripMargin
+          |}
+          |""".stripMargin
 
       implicit def wrapperSchema[A](implicit ev: Schema[Any, A]): Schema[Any, Wrapper[A]] =
         new Schema[Any, Wrapper[A]] {
@@ -42,7 +43,7 @@ object OptionalSpec extends ZIOSpecDefault {
       )
       val gql      = graphQL(resolver)
 
-      assertTrue(gql.render.trim == expected.trim)
+      assertTrue(gql.render == expected)
     }
   )
 
