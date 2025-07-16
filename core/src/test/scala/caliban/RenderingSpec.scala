@@ -2,17 +2,21 @@ package caliban
 
 import caliban.CalibanError.ParsingError
 import caliban.TestUtils._
-import caliban.introspection.adt.{__Type, __TypeKind}
+import caliban.introspection.adt.{ __Type, __TypeKind }
 import caliban.parsing.Parser
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition
-import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition.{EnumValueDefinition, FieldDefinition, InputValueDefinition}
-import caliban.parsing.adt.Definition.{TypeSystemDefinition, TypeSystemExtension}
-import caliban.parsing.adt.{Definition, Directive}
-import caliban.rendering.{DocumentRenderer, ValueRenderer}
+import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition.{
+  EnumValueDefinition,
+  FieldDefinition,
+  InputValueDefinition
+}
+import caliban.parsing.adt.Definition.{ TypeSystemDefinition, TypeSystemExtension }
+import caliban.parsing.adt.{ Definition, Directive }
+import caliban.rendering.{ DocumentRenderer, ValueRenderer }
 import caliban.schema.Annotations.GQLOneOfInput
 import caliban.schema.ArgBuilder.auto._
 import caliban.schema.Schema.auto._
-import caliban.schema.{ArgBuilder, PureStep, Schema}
+import caliban.schema.{ ArgBuilder, PureStep, Schema }
 import zio.ZIO
 import zio.stream.ZStream
 import zio.test.Assertion._
