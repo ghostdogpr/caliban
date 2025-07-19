@@ -403,7 +403,7 @@ object ValidationSpec extends ZIOSpecDefault {
         case class Bar(foo2: Foo => String)
         case class Queries(
           foo: Foo.Wrapper => String,
-          foos: List[Foo.Wrapper] => String,
+          foos: List[Foo] => String,
           fooOpt: Foo.WrapperOpt => Option[String],
           fooUnwrapped: Foo => String,
           bar: Bar
@@ -420,7 +420,7 @@ object ValidationSpec extends ZIOSpecDefault {
           RootResolver(
             Queries(
               _.fooInput.toString,
-              _.map(_.fooInput.toString).mkString(","),
+              _.map(_.toString).mkString(","),
               _.fooInput.map(_.toString),
               _.toString,
               Bar(_.toString)
@@ -439,7 +439,7 @@ object ValidationSpec extends ZIOSpecDefault {
              |{
              |  foo(fooInput: ${arg1.toInputString})
              |
-             |  foos(value: [{ fooInput: ${arg2.toInputString} }])
+             |  foos(value: [${arg2.toInputString}])
              |
              |  fooOpt(fooInput: null)
              |
@@ -455,13 +455,19 @@ object ValidationSpec extends ZIOSpecDefault {
 
         val variablesQuery =
           """
-            |query Foo($args1: FooInput!, $args2: FooInput!, $args3: FooInput!){
+            |query Foo($args1: FooInput!, $args2: [FooInput!]!, $args3: FooInput!, $args4: FooInput!, $args5: FooInput!) {
             |  foo(fooInput: $args1)
             |
-            |  fooUnwrapped(value: $args2)
+            |  foos(value: $args2)
+            |
+            |  fooOpt(fooInput: null)
+            |
+            |  fooOptSome: fooOpt(fooInput: $args3)
+            |
+            |  fooUnwrapped(value: $args4)
             |
             |  bar {
-            |    foo2(value: $args3 )
+            |    foo2(value: $args5)
             |  }
             |}
             |""".stripMargin
@@ -478,7 +484,15 @@ object ValidationSpec extends ZIOSpecDefault {
           Map("fooString" -> StringValue("foo"), "fooInt" -> ObjectValue(Map("intValue" -> IntValue(42))))
         ).map(ObjectValue(_))
 
-        val validVariablesCases = validInputs.map(arg => Map("args1" -> arg, "args2" -> arg, "args3" -> arg))
+        val validVariablesCases = validInputs.map { arg =>
+          Map(
+            "args1" -> arg,
+            "args2" -> InputValue.ListValue(List(arg)),
+            "args3" -> arg,
+            "args4" -> arg,
+            "args5" -> arg
+          )
+        }
 
         List(
           test("valid field arguments") {
@@ -542,24 +556,32 @@ object ValidationSpec extends ZIOSpecDefault {
             }
           },
           test("OneOf variables cannot be nullable") {
-            val variablesQuery =
+            val cases = List(
               """
                 |query Foo($args1: FooInput){
                 |  foo(fooInput: $args1)
                 |}
+                |""".stripMargin,
+              """
+                |query Foos($args1: FooInput){
+                |  foos(value: [$args1])
+                |}
                 |""".stripMargin
+            )
 
-            api.interpreter
-              .flatMap(_.execute(variablesQuery, variables = Map("args1" -> validInputs.head)))
-              .map(resp =>
-                assertTrue(
-                  resp.errors.nonEmpty,
-                  resp.errors.forall {
-                    case ValidationError("Variable 'args1' cannot be nullable.", _, _, _) => true
-                    case _                                                                => false
-                  }
+            ZIO.foldLeft(cases)(assertCompletes) { case (acc, variablesQuery) =>
+              api.interpreter
+                .flatMap(_.execute(variablesQuery, variables = Map("args1" -> validInputs.head)))
+                .map(resp =>
+                  acc && assertTrue(
+                    resp.errors.nonEmpty,
+                    resp.errors.forall {
+                      case ValidationError("Variable 'args1' cannot be nullable.", _, _, _) => true
+                      case _                                                                => false
+                    }
+                  )
                 )
-              )
+            }
           },
           test("schema is valid") {
             api.validateRootSchema.map(_ => assertCompletes)
