@@ -104,14 +104,15 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
     queryName: Option[String] = None,
     dropNullInputValues: Boolean = false
   )(implicit ev: IsOperation[Origin1]): GraphQLRequest = {
-    val (fields, variables) =
+    val (fields, fragments, variables) =
       SelectionBuilder.toGraphQL(toSelectionSet, useVariables, dropNullInputValues)
-    val variableDef         =
+    val variableDef                    =
       if (variables.nonEmpty)
         s"(${variables.map { case (name, (_, typeName)) => s"$$$name: $typeName" }.mkString(",")})"
       else ""
-    val nameDef             = queryName.fold("")(name => s" $name ")
-    val operation           = s"${ev.operationName}$nameDef$variableDef{$fields}"
+    val nameDef                        = queryName.fold("")(name => s" $name ")
+    val fragmentDef                    = fragments.distinct.reverse.mkString(" ")
+    val operation                      = s"${ev.operationName}$nameDef$variableDef{$fields}$fragmentDef"
     GraphQLRequest(operation, variables.map { case (k, (v, _)) => k -> v })
   }
 
@@ -343,8 +344,15 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
 
 object SelectionBuilder {
 
-  val __typename: SelectionBuilder[Any, String] = Field("__typename", Scalar[String]())
-  def pure[A](a: A): SelectionBuilder[Any, A]   = Pure(a)
+  val __typename: SelectionBuilder[Any, String]                                                        = Field("__typename", Scalar[String]())
+  def pure[A](a: A): SelectionBuilder[Any, A]                                                          = Pure(a)
+  def fragment[Origin, A](on: String)(inner: SelectionBuilder[Origin, A]): SelectionBuilder[Origin, A] =
+    FragmentSpread(None, on, inner)
+
+  def fragment[Origin, A](name: String, on: String)(
+    inner: SelectionBuilder[Origin, A]
+  ): SelectionBuilder[Origin, A] =
+    FragmentSpread(Some(name), on, inner)
 
   case class Field[Origin, A](
     name: String,
@@ -398,6 +406,26 @@ object SelectionBuilder {
     override def withAlias(alias: String): SelectionBuilder[Any, A] = self
   }
 
+  case class FragmentSpread[Origin, A](
+    name: Option[String],
+    on: String,
+    selection: SelectionBuilder[Origin, A],
+    directives: List[Directive] = Nil
+  ) extends SelectionBuilder[Origin, A] {
+    self =>
+    override private[caliban] def toSelectionSet: List[Selection] =
+      List(Selection.FragmentSpread(name, on, selection.toSelectionSet, directives))
+
+    private[caliban] def fromGraphQL(value: __Value): Either[DecodingError, A] =
+      selection.fromGraphQL(value)
+
+    def withDirective(directive: Directive): SelectionBuilder[Origin, A] =
+      self.copy(directives = directive :: directives)
+
+    def withAlias(alias: String): SelectionBuilder[Origin, A] =
+      copy(name = Some(alias))
+  }
+
   def combineAll[Origin, A](
     head: SelectionBuilder[Origin, A],
     tail: SelectionBuilder[Origin, A]*
@@ -413,48 +441,65 @@ object SelectionBuilder {
     useVariables: Boolean,
     dropNullInputValues: Boolean = false,
     variables: SMap[String, (__Value, String)] = SMap()
-  ): (String, SMap[String, (__Value, String)]) = {
-    val fieldNames            = fields.collect { case f: Selection.Field => f }.groupBy(_.name).map { case (k, v) => k -> v.size }
-    val (fields2, variables2) = fields
-      .foldLeft((List.empty[String], variables)) {
-        case ((fields, variables), Selection.InlineFragment(onType, selection)) =>
-          val (f, v) = toGraphQL(selection, useVariables, dropNullInputValues, variables)
-          (s"... on $onType{$f}" :: fields, v)
+  ): (String, List[String], SMap[String, (__Value, String)]) = {
+    def loop(
+      fields: List[Selection],
+      variables: SMap[String, (__Value, String)]
+    ): (String, List[String], SMap[String, (__Value, String)]) = {
+      val fieldNames =
+        fields.collect { case f: Selection.Field => f }.groupBy(_.name).map { case (k, v) => k -> v.size }
 
-        case ((fields, variables), Selection.Field(alias, name, arguments, directives, selection, code)) =>
-          // format arguments
-          val (args, variables2) = arguments
-            .foldLeft((List.empty[String], variables)) { case ((args, variables), a) =>
-              val (a2, v2) = a.toGraphQL(useVariables, dropNullInputValues, variables)
-              (a2 :: args, v2)
+      val (fragments, fragmentVariables)    =
+        fields.collect { case f: Selection.FragmentSpread => f }.distinct.foldLeft((List.empty[String], variables)) {
+          case ((fragments, variables), fs @ Selection.FragmentSpread(_, _, _, _)) =>
+            val (frags, variables2) = fs.toGraphQL(useVariables, dropNullInputValues, variables)
+            (frags ++ fragments, variables2)
+        }
+      val (fields2, fragments2, variables2) = fields
+        .foldLeft((List.empty[String], fragments, variables)) {
+          case ((fields, fragments, variables), Selection.InlineFragment(onType, selection))       =>
+            val (f, frags, v) = loop(selection, variables)
+            (s"... on $onType{$f}" :: fields, frags ++ fragments, v)
+          case ((fields, fragments, variables), fs @ Selection.FragmentSpread(name, _, _, _)) =>
+            (s"...${name.getOrElse("f" + math.abs(fs.hashCode))}" :: fields, fragments, variables)
+
+          case ((fields, fragments, variables), Selection.Field(alias, name, arguments, directives, selection, code)) =>
+            // format arguments
+            val (args, variables2) = arguments
+              .foldLeft((List.empty[String], variables)) { case ((args, variables), a) =>
+                val (a2, v2) = a.toGraphQL(useVariables, dropNullInputValues, variables)
+                (a2 :: args, v2)
+              }
+            val argString          = args.filterNot(_.isEmpty).reverse.mkString(",") match {
+              case ""   => ""
+              case args => s"($args)"
             }
-          val argString          = args.filterNot(_.isEmpty).reverse.mkString(",") match {
-            case ""   => ""
-            case args => s"($args)"
-          }
 
-          // format directives
-          val (dirs, variables3) = directives
-            .foldLeft((List.empty[String], variables2)) { case ((dirs, variables), d) =>
-              val (d2, v2) = d.toGraphQL(useVariables, dropNullInputValues, variables)
-              (d2 :: dirs, v2)
+            // format directives
+            val (dirs, variables3) = directives
+              .foldLeft((List.empty[String], variables2)) { case ((dirs, variables), d) =>
+                val (d2, v2) = d.toGraphQL(useVariables, dropNullInputValues, variables)
+                (d2 :: dirs, v2)
+              }
+            val dirString          = dirs.reverse.mkString(" ") match {
+              case ""   => ""
+              case dirs => s" $dirs"
             }
-          val dirString          = dirs.reverse.mkString(" ") match {
-            case ""   => ""
-            case dirs => s" $dirs"
-          }
 
-          // format aliases
-          val aliasString = (if (fieldNames.get(alias.getOrElse(name)).exists(_ > 1))
-                               Some(alias.getOrElse(name) + math.abs(code))
-                             else alias).fold("")(_ + ":")
+            // format aliases
+            val aliasString = (if (fieldNames.get(alias.getOrElse(name)).exists(_ > 1))
+                                 Some(alias.getOrElse(name) + math.abs(code))
+                               else alias).fold("")(_ + ":")
 
-          // format selection
-          val (sel, variables4) = toGraphQL(selection, useVariables, dropNullInputValues, variables3)
-          val selString         = if (sel.nonEmpty) s"{$sel}" else ""
+            // format selection
+            val (sel, frags, variables4) = toGraphQL(selection, useVariables, dropNullInputValues, variables3)
+            val selString                = if (sel.nonEmpty) s"{$sel}" else ""
 
-          (s"$aliasString$name$argString$dirString$selString" :: fields, variables4)
-      }
-    (fields2.reverse.mkString(" "), variables2)
+            (s"$aliasString$name$argString$dirString$selString" :: fields, frags ++ fragments, variables4)
+        }
+      (fields2.reverse.mkString(" "), fragments2, fragmentVariables ++ variables2)
+    }
+
+    loop(fields, variables)
   }
 }
