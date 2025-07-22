@@ -4,13 +4,13 @@ import caliban._
 import caliban.tools.Codegen.GenType
 import caliban.tools.compiletime.Config.ClientGenerationSettings
 import caliban.tools.{ Codegen, SchemaLoader }
-import zio.{ ExitCode, UIO, ZIO }
+import zio.{ Task, ZIO }
 
 object CompileTime {
 
   def generateClient[R](
     args: List[String]
-  )(api: GraphQL[R], settings: ClientGenerationSettings): UIO[ExitCode] =
+  )(api: GraphQL[R], settings: ClientGenerationSettings): Task[Unit] =
     args match {
       case baseDir :: Nil =>
         Codegen
@@ -26,11 +26,10 @@ object CompileTime {
             ),
             GenType.Client
           )
-          .exitCode
+          .unit
       case _              =>
         ZIO
           .fail(new RuntimeException(s"`CompileTime.generateClient` was called with invalid arguments: $args"))
-          .exitCode
     }
 
 }
