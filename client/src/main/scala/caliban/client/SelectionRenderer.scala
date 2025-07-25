@@ -1,133 +1,60 @@
 package caliban.client
 
+import caliban.client.Renderer.{ list, set }
 import caliban.client.Selection.Directive
+
 import caliban.client.__Value.__NullValue
 
 import scala.annotation.tailrec
 
-trait SelectionRenderer[-A, S] { self =>
-  type State = S
+private[client] case class RequestOptions(
+  useVariables: Boolean,
+  dropNullInputValues: Boolean,
+  operationName: String,
+  queryName: Option[String]
+)
 
-  def render(a: A, state0: State, options: SelectionRenderer.Options): (String, State) = {
-    val sb     = new StringBuilder()
-    val state1 = unsafeRender(a, state0, sb, options)
-    (sb.toString, state1)
+private[client] object RequestRenderer
+    extends Renderer[List[Selection], Map[String, (__Value, String)], RequestOptions] {
+  import caliban.client.SelectionRenderer.{ selections, variablesRenderer }
+  override def unsafeRender(a: List[Selection], state: State, writer: StringBuilder, options: RequestOptions): State = {
+    val state0       = SelectionRenderer.RenderState(state, Set.empty)
+    val inner        = new StringBuilder()
+    val innerOptions = SelectionRenderer.Options(
+      useVariables = options.useVariables,
+      dropNullInputValues = options.dropNullInputValues
+    )
+
+    writer.append(options.operationName)
+    options.queryName.foreach { queryName =>
+      writer.append(' ')
+      writer.append(queryName)
+      writer.append(' ')
+    }
+    val state1 = selections.unsafeRender(a, state0, inner, innerOptions)
+    val state2 = SelectionRenderer.fragments.unsafeRender(state1.fragments, state1, inner, innerOptions)
+
+    variablesRenderer.unsafeRender(state2.variables, (), writer, innerOptions)
+    writer.append(inner)
+    state2.variables
   }
-
-  def unsafeRender(
-    a: A,
-    state: State,
-    writer: StringBuilder,
-    options: SelectionRenderer.Options
-  ): State
-
 }
 
-object SelectionRenderer {
+private[client] object SelectionRenderer {
+  type SelectionRenderer[-A] = Renderer[A, RenderState, Options]
+
   case class Options(
     useVariables: Boolean,
-    dropNullInputValues: Boolean,
-    operationName: String,
-    queryName: Option[String],
-    indent: Option[Int]
+    dropNullInputValues: Boolean
   )
 
-  case class SelectionState(
+  case class RenderState(
     variables: Map[String, (__Value, String)],
     fragments: Set[Selection.FragmentSpread]
   )
 
-  def empty[S]: SelectionRenderer[Any, S] =
-    Empty.asInstanceOf[SelectionRenderer[Any, S]]
-
-  private case object Empty extends SelectionRenderer[Any, Any] {
-    override def unsafeRender(a: Any, state: Any, writer: StringBuilder, options: Options): Any =
-      state
-  }
-
-  lazy val requestRenderer: SelectionRenderer[List[Selection], Map[String, (__Value, String)]] =
-    new SelectionRenderer[List[Selection], Map[String, (__Value, String)]] {
-      override def unsafeRender(a: List[Selection], state: State, writer: StringBuilder, options: Options): State = {
-        val state0 = SelectionRenderer.SelectionState(state, Set.empty)
-        val inner  = new StringBuilder()
-
-        writer.append(options.operationName)
-        options.queryName.foreach { queryName =>
-          writer.append(' ')
-          writer.append(queryName)
-          writer.append(' ')
-        }
-        val state1 = SelectionRenderer.selectionsRenderer.unsafeRender(a, state0, inner, options)
-        val state2 = SelectionRenderer.fragmentsRenderer.unsafeRender(state1.fragments, state1, inner, options)
-
-        SelectionRenderer.variablesRenderer.unsafeRender(state2.variables, (), writer, options)
-        writer.append(inner)
-        state2.variables
-      }
-    }
-
-  def list[A, S](renderer: SelectionRenderer[A, S], separator: Char): SelectionRenderer[List[A], S] =
-    new SelectionRenderer[List[A], S] {
-      override def unsafeRender(a: List[A], state0: S, writer: StringBuilder, options: Options): S = {
-        @tailrec
-        def loop(remaining: List[A], state: S, first: Boolean): S = remaining match {
-          case Nil          => state
-          case head :: tail =>
-            if (!first) writer.append(separator)
-            val s0 = renderer.unsafeRender(head, state, writer, options)
-            loop(tail, s0, first = false)
-        }
-
-        loop(a, state0, first = true)
-      }
-    }
-
-  def set[A, S](renderer: SelectionRenderer[A, S], separator: Char): SelectionRenderer[Set[A], S] =
-    new SelectionRenderer[Set[A], S] {
-      override def unsafeRender(a: Set[A], state0: S, writer: StringBuilder, options: Options): S = {
-        @tailrec
-        def loop(remaining: List[A], state: S, first: Boolean): S = remaining match {
-          case Nil          => state
-          case head :: tail =>
-            if (!first) writer.append(separator)
-            val s0 = renderer.unsafeRender(head, state, writer, options)
-            loop(tail, s0, first = false)
-        }
-
-        loop(a.toList, state0, first = true)
-      }
-    }
-
-  private lazy val variablesRenderer: SelectionRenderer[Map[String, (__Value, String)], Unit] =
-    new SelectionRenderer[Map[String, (__Value, String)], Unit] {
-      private val listRenderer: SelectionRenderer[List[(String, String)], Unit] =
-        list(variableRenderer, ',')
-      override def unsafeRender(
-        a: Map[String, (__Value, String)],
-        state: Unit,
-        writer: StringBuilder,
-        options: Options
-      ): Unit =
-        if (a.nonEmpty) {
-          writer.append('(')
-          listRenderer.unsafeRender(a.map(kv => kv._1 -> kv._2._2).toList, state, writer, options)
-          writer.append(')')
-        }
-    }
-
-  private lazy val variableRenderer: SelectionRenderer[(String, String), Unit] =
-    new SelectionRenderer[(String, String), Unit] {
-      override def unsafeRender(a: (String, String), state: Unit, writer: StringBuilder, options: Options): Unit = {
-        writer.append('$')
-        writer.append(a._1)
-        writer.append(": ")
-        writer.append(a._2)
-        ()
-      }
-    }
-
-  lazy val selectionsRenderer: SelectionRenderer[List[Selection], SelectionState] =
-    new SelectionRenderer[List[Selection], SelectionState] {
+  lazy val selections: SelectionRenderer[List[Selection]] =
+    new SelectionRenderer[List[Selection]] {
       override def unsafeRender(
         a: List[Selection],
         state: State,
@@ -136,12 +63,12 @@ object SelectionRenderer {
       ): State = {
         @tailrec
         def loop(
-          selections: List[Selection],
+          sel: List[Selection],
           state0: State,
           names: Set[String],
           first: Boolean = false
         ): State =
-          selections match {
+          sel match {
             case Nil                                    => state0
             case (f: Selection.Field) :: rest           =>
               if (!first) writer.append(' ')
@@ -162,13 +89,12 @@ object SelectionRenderer {
                 }
               }
               val bodyWriter = new StringBuilder()
-              var state1     = selectionsRenderer.unsafeRender(f.selectionSet, state0, bodyWriter, options)
+              var state1     = selections.unsafeRender(f.selectionSet, state0, bodyWriter, options)
               if (f.arguments.nonEmpty) {
-                writer.append('(')
                 state1 = argumentsRenderer.unsafeRender(f.arguments, state1, writer, options)
-                writer.append(')')
               }
               if (f.directives.nonEmpty) {
+                writer.append(' ')
                 state1 = directivesRenderer.unsafeRender(f.directives, state1, writer, options)
               }
               writer.append(bodyWriter)
@@ -201,8 +127,39 @@ object SelectionRenderer {
       }
     }
 
-  private lazy val inlineFragmentRenderer: SelectionRenderer[Selection.InlineFragment, SelectionState] =
-    new SelectionRenderer[Selection.InlineFragment, SelectionState] {
+  lazy val fragments: SelectionRenderer[Set[Selection.FragmentSpread]] =
+    set(fragmentDefinitionRenderer, ' ')
+
+  lazy val variablesRenderer: Renderer[Map[String, (__Value, String)], Unit, Options] =
+    new Renderer[Map[String, (__Value, String)], Unit, Options] {
+      private val listRenderer: Renderer[List[(String, String)], Unit, Options] =
+        list(variableRenderer, ',')
+      override def unsafeRender(
+        a: Map[String, (__Value, String)],
+        state: Unit,
+        writer: StringBuilder,
+        options: Options
+      ): Unit =
+        if (a.nonEmpty) {
+          writer.append('(')
+          listRenderer.unsafeRender(a.map(kv => kv._1 -> kv._2._2).toList, state, writer, options)
+          writer.append(')')
+        }
+    }
+
+  private lazy val variableRenderer: Renderer[(String, String), Unit, Options] =
+    new Renderer[(String, String), Unit, Options] {
+      override def unsafeRender(a: (String, String), state: Unit, writer: StringBuilder, options: Options): Unit = {
+        writer.append('$')
+        writer.append(a._1)
+        writer.append(": ")
+        writer.append(a._2)
+        ()
+      }
+    }
+
+  private lazy val inlineFragmentRenderer: SelectionRenderer[Selection.InlineFragment] =
+    new SelectionRenderer[Selection.InlineFragment] {
       override def unsafeRender(
         a: Selection.InlineFragment,
         state: State,
@@ -211,15 +168,12 @@ object SelectionRenderer {
       ): State = {
         writer.append("... on ")
         writer.append(a.onType)
-        selectionsRenderer.unsafeRender(a.selectionSet, state, writer, options)
+        selections.unsafeRender(a.selectionSet, state, writer, options)
       }
     }
 
-  private lazy val fragmentsRenderer: SelectionRenderer[Set[Selection.FragmentSpread], SelectionState] =
-    set(fragmentDefinitionRenderer, ' ')
-
-  private lazy val fragmentDefinitionRenderer: SelectionRenderer[Selection.FragmentSpread, SelectionState] =
-    new SelectionRenderer[Selection.FragmentSpread, SelectionState] {
+  private lazy val fragmentDefinitionRenderer: SelectionRenderer[Selection.FragmentSpread] =
+    new SelectionRenderer[Selection.FragmentSpread] {
       override def unsafeRender(
         a: Selection.FragmentSpread,
         state0: State,
@@ -231,18 +185,18 @@ object SelectionRenderer {
         writer.append(a.name.getOrElse("f" + math.abs(a.code)))
         writer.append(" on ")
         writer.append(a.on)
-        val state1       = selectionsRenderer.unsafeRender(a.selectionSet, state0, writer, options)
+        val state1       = selections.unsafeRender(a.selectionSet, state0, writer, options)
         val newFragments = state1.fragments -- state0.fragments
         if (newFragments.nonEmpty) {
           writer.append(' ')
-          fragmentsRenderer.unsafeRender(newFragments, state1, writer, options)
+          fragments.unsafeRender(newFragments, state1, writer, options)
         } else
           state1
       }
     }
 
-  private lazy val fragmentSpreadInlineRenderer: SelectionRenderer[Selection.FragmentSpread, SelectionState] =
-    new SelectionRenderer[Selection.FragmentSpread, SelectionState] {
+  private lazy val fragmentSpreadInlineRenderer: SelectionRenderer[Selection.FragmentSpread] =
+    new SelectionRenderer[Selection.FragmentSpread] {
       override def unsafeRender(
         a: Selection.FragmentSpread,
         state: State,
@@ -257,42 +211,54 @@ object SelectionRenderer {
       }
     }
 
-  private lazy val argumentsRenderer: SelectionRenderer[List[Argument[_]], SelectionState] =
-    list(argumentRenderer, ' ')
-
-  private lazy val argumentRenderer: SelectionRenderer[Argument[_], SelectionState] =
-    new SelectionRenderer[Argument[_], SelectionState] {
+  private lazy val argumentsRenderer: SelectionRenderer[List[Argument[_]]] =
+    new SelectionRenderer[List[Argument[_]]] {
       override def unsafeRender(
-        a: Argument[_],
-        state: State,
+        a: List[Argument[_]],
+        state0: State,
         writer: StringBuilder,
         options: Options
-      ): State =
-        a.encodeRaw match {
-          case `__NullValue` => state
-          case v             =>
-            val value = if (options.dropNullInputValues) v.dropNullValues else v
-            if (options.useVariables) {
-              val variableName = Argument.generateVariableName(a.name, value, state.variables)
-              writer.append(a.name)
-              writer.append(':')
-              writer.append('$')
-              writer.append(variableName)
-              state.copy(variables = state.variables.updated(variableName, (value, a.typeInfo)))
-            } else {
-              writer.append(a.name)
-              writer.append(':')
-              writer.append(value.toString)
+      ): State = {
+        @tailrec
+        def loop(args: List[Argument[_]], state: State, first: Boolean): State =
+          args match {
+            case Nil       =>
+              if (first) writer.append(')')
               state
-            }
-        }
+            case a :: rest =>
+              a.encodeRaw match {
+                case `__NullValue` => loop(rest, state, first)
+                case v             =>
+                  if (first) writer.append(',')
+                  else writer.append('(')
+                  val value = if (options.dropNullInputValues) v.dropNullValues else v
+                  if (options.useVariables) {
+                    val variableName = Argument.generateVariableName(a.name, value, state.variables)
+                    writer.append(a.name)
+                    writer.append(':')
+                    writer.append('$')
+                    writer.append(variableName)
+                    val state1       = state.copy(variables = state.variables.updated(variableName, (value, a.typeInfo)))
+                    loop(rest, state1, first = true)
+                  } else {
+                    writer.append(a.name)
+                    writer.append(':')
+                    writer.append(value.toString)
+                    loop(rest, state, first = true)
+                  }
+              }
+
+          }
+
+        loop(a, state0, first = false)
+      }
     }
 
   private lazy val directivesRenderer =
     list(directiveRenderer, ' ')
 
-  private lazy val directiveRenderer: SelectionRenderer[Directive, SelectionState] =
-    new SelectionRenderer[Directive, SelectionState] {
+  private lazy val directiveRenderer: SelectionRenderer[Directive] =
+    new SelectionRenderer[Directive] {
       override def unsafeRender(
         a: Directive,
         state0: State,
@@ -302,9 +268,7 @@ object SelectionRenderer {
         writer.append('@')
         writer.append(a.name)
         if (a.arguments.nonEmpty) {
-          writer.append('(')
           val state = argumentsRenderer.unsafeRender(a.arguments, state0, writer, options)
-          writer.append(')')
           state
         } else state0
       }

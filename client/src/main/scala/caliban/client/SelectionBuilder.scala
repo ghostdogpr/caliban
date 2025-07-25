@@ -104,14 +104,13 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
     queryName: Option[String] = None,
     dropNullInputValues: Boolean = false
   )(implicit ev: IsOperation[Origin1]): GraphQLRequest = {
-    val options                = SelectionRenderer.Options(
+    val options                = caliban.client.RequestOptions(
       useVariables = useVariables,
       dropNullInputValues = dropNullInputValues,
       queryName = queryName,
-      operationName = ev.operationName,
-      indent = None
+      operationName = ev.operationName
     )
-    val (operation, variables) = SelectionRenderer.requestRenderer.render(toSelectionSet, Map.empty, options)
+    val (operation, variables) = RequestRenderer.render(toSelectionSet, Map.empty, options)
     GraphQLRequest(operation, variables.map { case (k, (v, _)) => k -> v })
   }
 
@@ -440,65 +439,16 @@ object SelectionBuilder {
     useVariables: Boolean,
     dropNullInputValues: Boolean = false,
     variables: SMap[String, (__Value, String)] = SMap()
-  ): (String, List[String], SMap[String, (__Value, String)]) = {
-    def loop(
-      fields: List[Selection],
-      variables: SMap[String, (__Value, String)]
-    ): (String, List[String], SMap[String, (__Value, String)]) = {
-      val fieldNames =
-        fields.collect { case f: Selection.Field => f }.groupBy(_.name).map { case (k, v) => k -> v.size }
+  ): (String, SMap[String, (__Value, String)]) = {
+    val (query, state) = SelectionRenderer.selections.render(
+      fields,
+      SelectionRenderer.RenderState(variables, Set.empty),
+      SelectionRenderer.Options(
+        useVariables = useVariables,
+        dropNullInputValues = dropNullInputValues
+      )
+    )
 
-      val (fragments, fragmentVariables)    =
-        fields.collect { case f: Selection.FragmentSpread => f }.distinct.foldLeft((List.empty[String], variables)) {
-          case ((fragments, variables), fs @ Selection.FragmentSpread(_, _, _, _)) =>
-            val (frags, variables2) = fs.toGraphQL(useVariables, dropNullInputValues, variables)
-            (frags ++ fragments, variables2)
-        }
-      val (fields2, fragments2, variables2) = fields
-        .foldLeft((List.empty[String], fragments, variables)) {
-          case ((fields, fragments, variables), Selection.InlineFragment(onType, selection))  =>
-            val (f, frags, v) = loop(selection, variables)
-            (s"... on $onType{$f}" :: fields, frags ++ fragments, v)
-          case ((fields, fragments, variables), fs @ Selection.FragmentSpread(name, _, _, _)) =>
-            (s"...${name.getOrElse("f" + math.abs(fs.hashCode))}" :: fields, fragments, variables)
-
-          case ((fields, fragments, variables), Selection.Field(alias, name, arguments, directives, selection, code)) =>
-            // format arguments
-            val (args, variables2) = arguments
-              .foldLeft((List.empty[String], variables)) { case ((args, variables), a) =>
-                val (a2, v2) = a.toGraphQL(useVariables, dropNullInputValues, variables)
-                (a2 :: args, v2)
-              }
-            val argString          = args.filterNot(_.isEmpty).reverse.mkString(",") match {
-              case ""   => ""
-              case args => s"($args)"
-            }
-
-            // format directives
-            val (dirs, variables3) = directives
-              .foldLeft((List.empty[String], variables2)) { case ((dirs, variables), d) =>
-                val (d2, v2) = d.toGraphQL(useVariables, dropNullInputValues, variables)
-                (d2 :: dirs, v2)
-              }
-            val dirString          = dirs.reverse.mkString(" ") match {
-              case ""   => ""
-              case dirs => s" $dirs"
-            }
-
-            // format aliases
-            val aliasString = (if (fieldNames.get(alias.getOrElse(name)).exists(_ > 1))
-                                 Some(alias.getOrElse(name) + math.abs(code))
-                               else alias).fold("")(_ + ":")
-
-            // format selection
-            val (sel, frags, variables4) = loop(selection, variables3)
-            val selString                = if (sel.nonEmpty) s"{$sel}" else ""
-
-            (s"$aliasString$name$argString$dirString$selString" :: fields, frags ++ fragments, variables4)
-        }
-      (fields2.reverse.mkString(" "), fragments2, fragmentVariables ++ variables2)
-    }
-
-    loop(fields, variables)
+    (query, state.variables)
   }
 }
