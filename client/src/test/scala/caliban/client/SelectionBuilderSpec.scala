@@ -212,7 +212,7 @@ object SelectionBuilderSpec extends ZIOSpecDefault {
 
           val query = Queries.character("Amos Burton")(characterFragment).toGraphQL()
           assertTrue(
-            query.query == """query{character(name:"Amos Burton"){...CF}}fragment CaptainFrag on Captain{shipName} fragment Inner on Character{role{__typename ... on Captain{...CaptainFrag}}} fragment CF on Character{name ...Inner}"""
+            query.query == """query{character(name:"Amos Burton"){...CF}}fragment CF on Character{name ...Inner} fragment Inner on Character{role{__typename ... on Captain{...CaptainFrag}}} fragment CaptainFrag on Captain{shipName}"""
           )
         },
         test("fragments with variable references") {
@@ -221,14 +221,16 @@ object SelectionBuilderSpec extends ZIOSpecDefault {
               Character.roleOption(onCaptain = Some(Role.Captain.shipName))
           )
 
-          val query = SelectionBuilder.fragment("QueryFrag", "Query")(Queries.character("Amos Burton")(characterFragment))
+          val query = SelectionBuilder
+            .fragment("QueryFrag", "Query")(Queries.character("Amos Burton")(characterFragment))
             .toGraphQL(
               queryName = Some("GetCharacter"),
               useVariables = true
             )
 
           assertTrue(
-            query.query == """query GetCharacter ($name: String!){...QueryFrag}fragment CF on Character{name role{__typename ... on Captain{shipName}}} fragment QueryFrag on Query{character(name:$name){...CF}}"""
+            query.query == """query GetCharacter ($name: String!){...QueryFrag}fragment QueryFrag on Query{character(name:$name){...CF}} fragment CF on Character{name role{__typename ... on Captain{shipName}}}""",
+            query.variables == Map("name" -> __Value.__StringValue("Amos Burton"))
           )
         },
         test("fragments with directives") {

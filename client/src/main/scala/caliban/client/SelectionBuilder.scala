@@ -104,15 +104,14 @@ sealed trait SelectionBuilder[-Origin, +A] { self =>
     queryName: Option[String] = None,
     dropNullInputValues: Boolean = false
   )(implicit ev: IsOperation[Origin1]): GraphQLRequest = {
-    val (fields, fragments, variables) =
-      SelectionBuilder.toGraphQL(toSelectionSet, useVariables, dropNullInputValues)
-    val variableDef                    =
-      if (variables.nonEmpty)
-        s"(${variables.map { case (name, (_, typeName)) => s"$$$name: $typeName" }.mkString(",")})"
-      else ""
-    val nameDef                        = queryName.fold("")(name => s" $name ")
-    val fragmentDef                    = fragments.distinct.reverse.mkString(" ")
-    val operation                      = s"${ev.operationName}$nameDef$variableDef{$fields}$fragmentDef"
+    val options                = SelectionRenderer.Options(
+      useVariables = useVariables,
+      dropNullInputValues = dropNullInputValues,
+      queryName = queryName,
+      operationName = ev.operationName,
+      indent = None
+    )
+    val (operation, variables) = SelectionRenderer.requestRenderer.render(toSelectionSet, Map.empty, options)
     GraphQLRequest(operation, variables.map { case (k, (v, _)) => k -> v })
   }
 
@@ -436,7 +435,7 @@ object SelectionBuilder {
       }
       .map(_.reverse)
 
-  def toGraphQL(
+  private[client] def toGraphQL(
     fields: List[Selection],
     useVariables: Boolean,
     dropNullInputValues: Boolean = false,
@@ -457,7 +456,7 @@ object SelectionBuilder {
         }
       val (fields2, fragments2, variables2) = fields
         .foldLeft((List.empty[String], fragments, variables)) {
-          case ((fields, fragments, variables), Selection.InlineFragment(onType, selection))       =>
+          case ((fields, fragments, variables), Selection.InlineFragment(onType, selection))  =>
             val (f, frags, v) = loop(selection, variables)
             (s"... on $onType{$f}" :: fields, frags ++ fragments, v)
           case ((fields, fragments, variables), fs @ Selection.FragmentSpread(name, _, _, _)) =>
@@ -492,7 +491,7 @@ object SelectionBuilder {
                                else alias).fold("")(_ + ":")
 
             // format selection
-            val (sel, frags, variables4) = toGraphQL(selection, useVariables, dropNullInputValues, variables3)
+            val (sel, frags, variables4) = loop(selection, variables3)
             val selString                = if (sel.nonEmpty) s"{$sel}" else ""
 
             (s"$aliasString$name$argString$dirString$selString" :: fields, frags ++ fragments, variables4)

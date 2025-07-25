@@ -23,6 +23,9 @@ case class Argument[+A](name: String, value: A, typeInfo: String)(implicit encod
           (s"$name:${value.toString}", variables)
         }
     }
+
+  def encodeRaw: __Value =
+    encoder.encode(value)
 }
 
 object Argument {
