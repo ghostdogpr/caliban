@@ -1,6 +1,7 @@
 package caliban.codegen.sbt
 
 import _root_.caliban.tools._
+import caliban.codegen.CalibanCommonSettings
 import sbt._
 import sjsonnew.IsoLList
 

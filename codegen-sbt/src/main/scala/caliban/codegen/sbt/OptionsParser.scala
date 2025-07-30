@@ -4,6 +4,7 @@ import zio.config.magnolia.DeriveConfig
 import zio.{ Config, ConfigProvider, UIO, ZIO }
 import scala.annotation.tailrec
 import sttp.model.Header
+import caliban.codegen.Options
 
 object OptionsParser {
   final private case class RawOptions(

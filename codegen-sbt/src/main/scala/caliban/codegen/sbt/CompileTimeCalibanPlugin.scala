@@ -1,6 +1,6 @@
 package caliban.codegen.sbt
 
-import caliban.codegen.CalibanSourceGenerator.TrackedSettings
+import caliban.codegen.sbt.CalibanSourceGenerator.TrackedSettings
 import caliban.codegen.compiletime.Utils
 import sbt.Keys._
 import sbt.io.IO.defaultCharset
@@ -138,7 +138,7 @@ object CompileTimeCalibanServerPlugin extends AutoPlugin {
                   Def.task {
                     TrackedSettings(
                       List(
-                        caliban.codegen.BuildInfo.version,
+                        caliban.codegen.sbt.BuildInfo.version,
                         zio.BuildInfo.version,
                         pluginSettings.mkString
                       )
@@ -154,7 +154,7 @@ object CompileTimeCalibanServerPlugin extends AutoPlugin {
 
   override lazy val projectSettings: Seq[Def.Setting[_]] =
     Seq(
-      libraryDependencies += "com.github.ghostdogpr" %% "caliban-tools" % caliban.codegen.BuildInfo.version % Compile,
+      libraryDependencies += "com.github.ghostdogpr" %% "caliban-codegen" % caliban.codegen.sbt.BuildInfo.version % Compile,
       (Compile / sourceGenerators) += Compile / ctCalibanServer / ctCalibanServerGenerate
     ) ++ inConfig(Compile)(pluginSettings) ++ inConfig(Test)(pluginSettings)
 }

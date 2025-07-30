@@ -2,6 +2,7 @@ package caliban.codegen.sbt
 
 import caliban.tools.*
 import caliban.codegen.Codegen.GenType
+import caliban.codegen.{ CalibanCommonSettings, Codegen }
 import sbt.Keys.commands
 import sbt.{ Command, State }
 import zio.Console.printLine
