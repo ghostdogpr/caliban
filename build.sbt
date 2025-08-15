@@ -34,7 +34,7 @@ val zioInteropReactiveVersion = "2.0.2"
 val zioConfigVersion          = "4.0.4"
 val zqueryVersion             = "0.7.7"
 val zioJsonVersion            = "0.7.44"
-val zioHttpVersion            = "3.3.3"
+val zioHttpVersion            = "3.4.0"
 val zioOpenTelemetryVersion   = "3.1.7"
 
 Global / onChangedBuildSource := ReloadOnSourceChanges
@@ -62,7 +62,8 @@ inThisBuild(
       )
     ),
     versionScheme            := Some("pvp"),
-    ConsoleHelper.welcomeMessage(scala212, scala213, scala3)
+    ConsoleHelper.welcomeMessage(scala212, scala213, scala3),
+    resolvers += Resolver.sonatypeCentralSnapshots
   )
 )
 
@@ -703,7 +704,7 @@ lazy val commonSettings = Def.settings(
     "-unchecked",
     "-Xfatal-warnings",
     "-release",
-    "11"
+    "17"
   ) ++ (CrossVersion.partialVersion(scalaVersion.value) match {
     case Some((2, 12)) =>
       Seq(

@@ -2,7 +2,7 @@ version: 2.1
 jobs:
   lint:
     docker:
-      - image: cimg/openjdk:11.0-node
+      - image: cimg/openjdk:17.0-node
     resource_class: large
     steps:
       - checkout
@@ -17,7 +17,7 @@ jobs:
             - "~/.m2"
   test212_jdk:
     docker:
-      - image: cimg/openjdk:11.0-node
+      - image: cimg/openjdk:17.0-node
     resource_class: large
     steps:
       - checkout
@@ -32,7 +32,7 @@ jobs:
             - "~/.m2"
   scripted212_jdk:
     docker:
-      - image: cimg/openjdk:11.0-node
+      - image: cimg/openjdk:17.0-node
     resource_class: large
     steps:
       - checkout
@@ -47,7 +47,7 @@ jobs:
             - "~/.m2"
   scripted3_jdk:
     docker:
-      - image: cimg/openjdk:11.0-node
+      - image: cimg/openjdk:17.0-node
     resource_class: large
     steps:
       - checkout
@@ -62,7 +62,7 @@ jobs:
             - "~/.m2"
   test213_jdk:
     docker:
-      - image: cimg/openjdk:11.0-node
+      - image: cimg/openjdk:17.0-node
     resource_class: large
     steps:
       - checkout
@@ -92,7 +92,7 @@ jobs:
             - "~/.m2"
   test3_jdk:
     docker:
-      - image: cimg/openjdk:11.0-node
+      - image: cimg/openjdk:17.0-node
     resource_class: large
     steps:
       - checkout
@@ -122,7 +122,7 @@ jobs:
             - "~/.m2"
   test213_js_native:
     docker:
-      - image: cimg/openjdk:11.0-node
+      - image: cimg/openjdk:17.0-node
     resource_class: large
     steps:
       - checkout
@@ -138,7 +138,7 @@ jobs:
             - "~/.m2"
   test3_js_native:
     docker:
-      - image: cimg/openjdk:11.0-node
+      - image: cimg/openjdk:17.0-node
     resource_class: large
     steps:
       - checkout
@@ -154,7 +154,7 @@ jobs:
             - "~/.m2"
   test213_docs:
     docker:
-      - image: cimg/openjdk:11.0-node
+      - image: cimg/openjdk:17.0-node
     resource_class: large
     steps:
       - checkout
@@ -171,7 +171,7 @@ jobs:
             - "~/.m2"
   test_mima:
     docker:
-      - image: cimg/openjdk:11.0-node
+      - image: cimg/openjdk:17.0-node
     resource_class: large
     steps:
       - checkout
@@ -187,7 +187,7 @@ jobs:
             - "~/.m2"
   release:
     docker:
-      - image: cimg/openjdk:11.0-node
+      - image: cimg/openjdk:17.0-node
     resource_class: large
     steps:
       - checkout
