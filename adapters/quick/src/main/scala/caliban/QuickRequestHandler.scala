@@ -20,7 +20,8 @@ import scala.util.control.NonFatal
 
 final private class QuickRequestHandler[R](
   interpreter: GraphQLInterpreter[R, Any],
-  wsConfig: quick.WebSocketConfig[R]
+  wsConfig: quick.WebSocketConfig[R],
+  sseConfig: quick.SseConfig
 ) {
   import QuickRequestHandler._
   import ValueJsoniter.stringListCodec
@@ -28,7 +29,8 @@ final private class QuickRequestHandler[R](
   def configure(config: ExecutionConfiguration)(implicit trace: Trace): QuickRequestHandler[R] =
     new QuickRequestHandler[R](
       interpreter.wrapExecutionWith[R, Any](Configurator.ref.locally(config)(_)),
-      wsConfig
+      wsConfig,
+      sseConfig
     )
 
   def configure[R1](configurator: QuickAdapter.Configurator[R1])(implicit
@@ -36,11 +38,15 @@ final private class QuickRequestHandler[R](
   ): QuickRequestHandler[R & R1] =
     new QuickRequestHandler[R & R1](
       interpreter.wrapExecutionWith[R & R1, Any](exec => ZIO.scoped[R1 & R](configurator *> exec)),
-      wsConfig
+      wsConfig,
+      sseConfig
     )
 
   def configureWebSocket[R1](config: quick.WebSocketConfig[R1]): QuickRequestHandler[R & R1] =
-    new QuickRequestHandler[R & R1](interpreter, config)
+    new QuickRequestHandler[R & R1](interpreter, config, sseConfig)
+
+  def configureSse(config: quick.SseConfig): QuickRequestHandler[R] =
+    new QuickRequestHandler[R](interpreter, wsConfig, config)
 
   def handleHttpRequest(request: Request)(implicit
     trace: Trace
@@ -248,7 +254,8 @@ final private class QuickRequestHandler[R](
     ServerSentEvents.transformResponse(
       resp,
       v => ServerSentEvent(writeToString(v), Some("next")),
-      CompleteSse
+      CompleteSse,
+      sseConfig.heartbeatInterval.map(d => ZStream.succeed(ServerSentEvent.heartbeat).repeat(Schedule.fixed(d)))
     )
 
   private def isFtv1Request(req: Request) =

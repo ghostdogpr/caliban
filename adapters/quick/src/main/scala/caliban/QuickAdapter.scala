@@ -6,6 +6,7 @@ import zio.http._
 import zio.http.netty.NettyConfig
 import zio.http.netty.NettyConfig.LeakDetectionLevel
 import zio.stacktracer.TracingImplicits.disableAutoTrace
+import zio.stream.ZStream
 
 final class QuickAdapter[R] private (requestHandler: QuickRequestHandler[R]) {
 
@@ -90,7 +91,7 @@ object QuickAdapter {
   type Configurator[-R] = URIO[R & Scope, Unit]
 
   def apply[R](interpreter: GraphQLInterpreter[R, Any]): QuickAdapter[R] =
-    new QuickAdapter(new QuickRequestHandler(interpreter, quick.WebSocketConfig.default))
+    new QuickAdapter(new QuickRequestHandler(interpreter, quick.WebSocketConfig.default, quick.SseConfig.default))
 
   def handlers[R](implicit tag: Tag[R], trace: Trace): URIO[QuickAdapter[R], QuickHandlers[R]] =
     ZIO.serviceWith(_.handlers)
