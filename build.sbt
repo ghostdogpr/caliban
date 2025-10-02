@@ -13,7 +13,7 @@ val akkaVersion               = "2.6.20"
 val akkaHttpVersion           = "10.2.10"
 val catsEffect3Version        = "3.6.3"
 val catsMtlVersion            = "1.5.0"
-val circeVersion              = "0.14.14"
+val circeVersion              = "0.14.15"
 val fs2Version                = "3.12.2"
 val http4sVersion             = "0.23.32"
 val javaTimeVersion           = "2.6.0"
@@ -317,7 +317,7 @@ lazy val catsInterop = project
   .settings(
     libraryDependencies ++= {
       if (scalaVersion.value == scala3) Seq()
-      else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.3").cross(CrossVersion.full)))
+      else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.4").cross(CrossVersion.full)))
     } ++ Seq(
       "org.typelevel" %% "cats-effect"      % catsEffect3Version,
       "co.fs2"        %% "fs2-core"         % fs2Version,
@@ -352,7 +352,7 @@ lazy val tapirInterop = project
   .settings(
     libraryDependencies ++= {
       if (scalaVersion.value == scala3) Seq()
-      else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.3").cross(CrossVersion.full)))
+      else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.4").cross(CrossVersion.full)))
     } ++
       Seq(
         "com.softwaremill.sttp.tapir"           %% "tapir-core"                    % tapirVersion,
@@ -376,7 +376,7 @@ lazy val http4s = project
   .settings(
     libraryDependencies ++= {
       if (scalaVersion.value == scala3) Seq()
-      else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.3").cross(CrossVersion.full)))
+      else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.4").cross(CrossVersion.full)))
     } ++
       Seq(
         "dev.zio"                     %% "zio-interop-cats"        % zioInteropCats3Version,
@@ -424,7 +424,7 @@ lazy val akkaHttp = project
       "com.typesafe.akka"           %% "akka-http"                  % akkaHttpVersion,
       "com.typesafe.akka"           %% "akka-serialization-jackson" % akkaVersion,
       "com.softwaremill.sttp.tapir" %% "tapir-akka-http-server"     % tapirVersion,
-      compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.3").cross(CrossVersion.full))
+      compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.4").cross(CrossVersion.full))
     )
   )
   .dependsOn(core, tapirInterop % "compile->compile;test->test")
@@ -438,7 +438,7 @@ lazy val pekkoHttp = project
   .settings(
     libraryDependencies ++= {
       if (scalaVersion.value == scala3) Seq()
-      else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.3").cross(CrossVersion.full)))
+      else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.4").cross(CrossVersion.full)))
     } ++ Seq(
       "org.apache.pekko"            %% "pekko-http"              % pekkoHttpVersion,
       "com.softwaremill.sttp.tapir" %% "tapir-pekko-http-server" % tapirVersion
@@ -458,7 +458,7 @@ lazy val play = project
     crossScalaVersions -= scala212,
     libraryDependencies ++= {
       if (scalaVersion.value == scala3) Seq()
-      else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.3").cross(CrossVersion.full)))
+      else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.4").cross(CrossVersion.full)))
     },
     libraryDependencies ++= Seq(
       "org.playframework"           %% "play"                   % playVersion,
