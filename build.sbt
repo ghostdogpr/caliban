@@ -6,8 +6,9 @@ import Keys.*
 
 val scala212 = "2.12.20"
 val scala213 = "2.13.18"
-val scala3   = "3.3.7"
-val allScala = Seq(scala212, scala213, scala3)
+val scala33  = "3.3.7"
+val scala37  = "3.7.4"
+val allScala = Seq(scala212, scala213, scala33)
 
 val akkaVersion               = "2.6.20"
 val akkaHttpVersion           = "10.2.10"
@@ -62,7 +63,7 @@ inThisBuild(
       )
     ),
     versionScheme            := Some("pvp"),
-    ConsoleHelper.welcomeMessage(scala212, scala213, scala3),
+    ConsoleHelper.welcomeMessage(scala212, scala213, scala33),
     resolvers += Resolver.sonatypeCentralSnapshots
   )
 )
@@ -152,7 +153,7 @@ lazy val macros = project
   .disablePlugins(AssemblyPlugin)
   .settings(
     libraryDependencies ++= {
-      if (scalaVersion.value == scala3) {
+      if (scalaVersion.value == scala33) {
         Seq(
           "com.softwaremill.magnolia1_3" %% "magnolia" % magnoliaScala3Version
         )
@@ -291,15 +292,19 @@ lazy val codegenSbt = project
   .enablePlugins(BuildInfoPlugin)
   .disablePlugins(AssemblyPlugin)
   .settings(
-    skip             := (scalaVersion.value != scala212),
-    ideSkipProject   := (scalaVersion.value != scala212),
+    skip             := !crossScalaVersions.value.contains(scalaVersion.value),
+    ideSkipProject   := !crossScalaVersions.value.contains(scalaVersion.value),
     buildInfoKeys    := Seq[BuildInfoKey](version),
     buildInfoPackage := "caliban.codegen.sbt",
     buildInfoObject  := "BuildInfo"
   )
   .settings(
-    sbtPlugin          := true,
-    crossScalaVersions := Seq(scala212),
+    sbtPlugin                     := true,
+    crossScalaVersions            := Seq(scala212, scala37),
+    pluginCrossBuild / sbtVersion := (scalaBinaryVersion.value match {
+      case "2.12" => sbtVersion.value
+      case _      => "2.0.0-RC7"
+    }),
     libraryDependencies ++= Seq(
       "dev.zio" %% "zio-config"          % zioConfigVersion,
       "dev.zio" %% "zio-config-magnolia" % zioConfigVersion,
@@ -341,7 +346,7 @@ lazy val catsInterop = project
   .disablePlugins(AssemblyPlugin)
   .settings(
     libraryDependencies ++= {
-      if (scalaVersion.value == scala3) Seq()
+      if (scalaVersion.value == scala33) Seq()
       else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.4").cross(CrossVersion.full)))
     } ++ Seq(
       "org.typelevel" %% "cats-effect"      % catsEffect3Version,
@@ -376,7 +381,7 @@ lazy val tapirInterop = project
   .disablePlugins(AssemblyPlugin)
   .settings(
     libraryDependencies ++= {
-      if (scalaVersion.value == scala3) Seq()
+      if (scalaVersion.value == scala33) Seq()
       else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.4").cross(CrossVersion.full)))
     } ++
       Seq(
@@ -400,7 +405,7 @@ lazy val http4s = project
   .disablePlugins(AssemblyPlugin)
   .settings(
     libraryDependencies ++= {
-      if (scalaVersion.value == scala3) Seq()
+      if (scalaVersion.value == scala33) Seq()
       else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.4").cross(CrossVersion.full)))
     } ++
       Seq(
@@ -434,9 +439,9 @@ lazy val akkaHttp = project
   .settings(enableMimaSettingsJVM)
   .disablePlugins(AssemblyPlugin)
   .settings(
-    skip           := (scalaVersion.value == scala3),
-    ideSkipProject := (scalaVersion.value == scala3),
-    crossScalaVersions -= scala3,
+    skip           := (scalaVersion.value == scala33),
+    ideSkipProject := (scalaVersion.value == scala33),
+    crossScalaVersions -= scala33,
     libraryDependencies ++= Seq(
       "com.typesafe.akka"           %% "akka-http"                  % akkaHttpVersion,
       "com.typesafe.akka"           %% "akka-serialization-jackson" % akkaVersion,
@@ -454,7 +459,7 @@ lazy val pekkoHttp = project
   .disablePlugins(AssemblyPlugin)
   .settings(
     libraryDependencies ++= {
-      if (scalaVersion.value == scala3) Seq()
+      if (scalaVersion.value == scala33) Seq()
       else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.4").cross(CrossVersion.full)))
     } ++ Seq(
       "org.apache.pekko"            %% "pekko-http"              % pekkoHttpVersion,
@@ -474,7 +479,7 @@ lazy val play = project
     ideSkipProject := (scalaVersion.value == scala212),
     crossScalaVersions -= scala212,
     libraryDependencies ++= {
-      if (scalaVersion.value == scala3) Seq()
+      if (scalaVersion.value == scala33) Seq()
       else Seq(compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.4").cross(CrossVersion.full)))
     },
     libraryDependencies ++= Seq(
@@ -531,7 +536,7 @@ lazy val clientLaminext = crossProject(JSPlatform)
   .js
   .in(file("client-laminext"))
   .settings(scalaVersion := scala213)
-  .settings(crossScalaVersions := Seq(scala213, scala3))
+  .settings(crossScalaVersions := Seq(scala213, scala33))
   .settings(name := "caliban-client-laminext")
   .settings(commonSettings)
   .settings(enableMimaSettingsJS)
@@ -606,7 +611,7 @@ lazy val apolloCompatibility =
     .settings(
       skip               := (scalaVersion.value == scala212),
       ideSkipProject     := (scalaVersion.value == scala212),
-      crossScalaVersions := Seq(scala213, scala3)
+      crossScalaVersions := Seq(scala213, scala33)
     )
     .settings(
       assembly / assemblyJarName       := s"apollo-subgraph-compatibility.jar",
@@ -647,7 +652,7 @@ lazy val benchmarks = project
     skip               := (scalaVersion.value == scala212),
     ideSkipProject     := (scalaVersion.value == scala212),
     publish / skip     := true,
-    crossScalaVersions := Seq(scala213, scala3)
+    crossScalaVersions := Seq(scala213, scala33)
   )
   .dependsOn(core % "compile->compile")
   .enablePlugins(JmhPlugin)
@@ -693,8 +698,8 @@ lazy val docs = project
   .settings(commonSettings)
   .disablePlugins(AssemblyPlugin)
   .settings(
-    skip               := (scalaVersion.value == scala3),
-    ideSkipProject     := (scalaVersion.value == scala3),
+    skip               := (scalaVersion.value == scala33),
+    ideSkipProject     := (scalaVersion.value == scala33),
     crossScalaVersions := Seq(scala212, scala213),
     name               := "caliban-docs",
     mdocIn             := (ThisBuild / baseDirectory).value / "vuepress" / "docs",
@@ -750,13 +755,13 @@ lazy val commonSettings = Def.settings(
         "-explaintypes"
       )
 
-    case Some((3, _)) =>
+    case Some((3, minor)) =>
       Seq(
         "-explain-types",
-        "-Ykind-projector",
+        s"-${if (minor >= 5) "X" else "Y"}kind-projector",
         "-no-indent"
       )
-    case _            => Nil
+    case _                => Nil
   })
 )
 

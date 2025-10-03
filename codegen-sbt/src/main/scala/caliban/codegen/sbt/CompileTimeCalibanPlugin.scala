@@ -4,7 +4,9 @@ import caliban.codegen.sbt.CalibanSourceGenerator.TrackedSettings
 import caliban.codegen.compiletime.Utils
 import _root_.sbt.Keys._
 import _root_.sbt.io.IO.defaultCharset
-import _root_.sbt.{ Compile, Def, Project, _ }
+import _root_.sbt.{ *, given }
+import _root_.sbt.Project.inTask
+import scala.language.implicitConversions
 
 import java.io.File
 
@@ -85,7 +87,7 @@ object CompileTimeCalibanServerPlugin extends AutoPlugin {
                        |
                        |private[generator] object $generatorName {
                        |  def main(args: Array[String]): Unit = {
-                       |    val _  = zio.Unsafe.unsafe { 
+                       |    val _  = zio.Unsafe.unsafe {
                        |      implicit u => zio.Runtime.default.unsafe.run(
                        |        CompileTime.generateClient(args.toList)(
                        |          $ref,
@@ -152,7 +154,7 @@ object CompileTimeCalibanServerPlugin extends AutoPlugin {
       )
     )
 
-  override lazy val projectSettings: Seq[Def.Setting[_]] =
+  override lazy val projectSettings: Seq[Def.Setting[?]] =
     Seq(
       libraryDependencies += "com.github.ghostdogpr" %% "caliban-codegen" % caliban.codegen.sbt.BuildInfo.version % Compile,
       (Compile / sourceGenerators) += Compile / ctCalibanServer / ctCalibanServerGenerate
@@ -167,7 +169,7 @@ object CompileTimeCalibanServerPlugin extends AutoPlugin {
  *  - https://www.scala-sbt.org/1.x/docs/Plugins.html
  *  - https://www.scala-sbt.org/1.x/docs/Plugins-Best-Practices.html
  */
-object CompileTimeCalibanClientPlugin extends AutoPlugin {
+object CompileTimeCalibanClientPlugin extends AutoPlugin with CompileTimeCalibanClientPluginCompat {
   override def requires = plugins.JvmPlugin
   override def trigger  = noTrigger
 
@@ -296,10 +298,10 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
 
                                   Def
                                     .task[Set[File]](listGeneratedClientsFiles)
-                                    .flatMap { beforeGenDirFiles =>
+                                    .flatMapTask { beforeGenDirFiles =>
                                       (serverProject / runMain)
                                         .toTask(s" $generatorRef $baseDirValue")
-                                        .taskValue
+                                        .maybeTaskValue
                                         .map { _ =>
                                           sbt.IO.delete(generatorFile)
 
@@ -356,7 +358,7 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
       )
     )
 
-  override lazy val projectSettings: Seq[Def.Setting[_]] =
+  override lazy val projectSettings: Seq[Def.Setting[?]] =
     Seq(
       libraryDependencies += "com.github.ghostdogpr" %% "caliban-client" % BuildInfo.version,
       (Compile / sourceGenerators) += Compile / ctCalibanClient / ctCalibanClientGenerate

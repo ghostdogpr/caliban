@@ -15,8 +15,8 @@ sealed trait CalibanSettings {
   final def packageName(name: String): Self                       = withSettings(_.packageName(name))
   final def genView(value: Boolean): Self                         = withSettings(_.genView(value))
   final def scalarMapping(mapping: (String, String)*): Self       =
-    withSettings(_.scalarMappings(mapping: _*))
-  final def imports(values: String*): Self                        = withSettings(_.imports(values: _*))
+    withSettings(_.scalarMappings(mapping *))
+  final def imports(values: String*): Self                        = withSettings(_.imports(values *))
   final def splitFiles(value: Boolean): Self                      = withSettings(_.splitFiles(value))
   final def enableFmt(value: Boolean): Self                       = withSettings(_.enableFmt(value))
   final def extensibleEnums(value: Boolean): Self                 = withSettings(_.extensibleEnums(value))
@@ -43,5 +43,5 @@ final case class CalibanUrlSettings(url: URL, settings: CalibanCommonSettings) e
   def withSettings(f: CalibanCommonSettings => CalibanCommonSettings): Self =
     this.copy(settings = f(settings))
 
-  def headers(values: (String, String)*): CalibanUrlSettings = this.copy(settings = this.settings.headers(values: _*))
+  def headers(values: (String, String)*): CalibanUrlSettings = this.copy(settings = this.settings.headers(values *))
 }

@@ -30,7 +30,7 @@ jobs:
             - "~/.ivy2/cache"
             - "~/.sbt"
             - "~/.m2"
-  scripted212_jdk:
+  scripted212_sbt1_jdk:
     docker:
       - image: cimg/openjdk:17.0-node
     resource_class: large
@@ -45,7 +45,7 @@ jobs:
             - "~/.ivy2/cache"
             - "~/.sbt"
             - "~/.m2"
-  scripted3_jdk:
+  scripted3_sbt1_jdk:
     docker:
       - image: cimg/openjdk:17.0-node
     resource_class: large
@@ -90,7 +90,7 @@ jobs:
             - "~/.ivy2/cache"
             - "~/.sbt"
             - "~/.m2"
-  test3_jdk:
+  test33_jdk:
     docker:
       - image: cimg/openjdk:17.0-node
     resource_class: large
@@ -105,7 +105,7 @@ jobs:
             - "~/.ivy2/cache"
             - "~/.sbt"
             - "~/.m2"
-  test3_jdk21:
+  test33_jdk21:
     docker:
       - image: cimg/openjdk:21.0-node
     resource_class: large
@@ -114,6 +114,36 @@ jobs:
       - restore_cache:
           key: sbtcache
       - run: sbt ++3.3 rootJVM3/test benchmarks/test
+      - save_cache:
+          key: sbtcache
+          paths:
+            - "~/.ivy2/cache"
+            - "~/.sbt"
+            - "~/.m2"
+  test37_jdk:
+    docker:
+      - image: cimg/openjdk:17.0-node
+    resource_class: large
+    steps:
+      - checkout
+      - restore_cache:
+          key: sbtcache
+      - run: sbt ++3.7 codegenSbt/test
+      - save_cache:
+          key: sbtcache
+          paths:
+            - "~/.ivy2/cache"
+            - "~/.sbt"
+            - "~/.m2"
+  scripted3_sbt2_jdk:
+    docker:
+      - image: cimg/openjdk:17.0-node
+    resource_class: large
+    steps:
+      - checkout
+      - restore_cache:
+          key: sbtcache
+      - run: sbt 'set ThisBuild / scalaVersion := "3.7.4"; codegenScriptedScala3'
       - save_cache:
           key: sbtcache
           paths:
@@ -136,7 +166,7 @@ jobs:
             - "~/.ivy2/cache"
             - "~/.sbt"
             - "~/.m2"
-  test3_js_native:
+  test33_js_native:
     docker:
       - image: cimg/openjdk:17.0-node
     resource_class: large
@@ -238,13 +268,13 @@ workflows:
           filters:
             tags:
               only: /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/
-      - scripted212_jdk:
+      - scripted212_sbt1_jdk:
           requires:
             - lint
           filters:
             tags:
               only: /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/
-      - scripted3_jdk:
+      - scripted3_sbt1_jdk:
           requires:
             - lint
           filters:
@@ -256,7 +286,7 @@ workflows:
           filters:
             tags:
               only: /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/
-      - test3_js_native:
+      - test33_js_native:
           requires:
             - lint
           filters:
@@ -283,19 +313,31 @@ workflows:
           filters:
             tags:
               only: /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/
-      - test3_jdk:
+      - test33_jdk:
           requires:
             - lint
           filters:
             tags:
               only: /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/
-      - test3_jdk21:
+      - test33_jdk21:
           requires:
             - lint
           filters:
             branches:
               only:
                 - series/3.x
+            tags:
+              only: /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/
+      - test37_jdk:
+          requires:
+            - lint
+          filters:
+            tags:
+              only: /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/
+      - scripted3_sbt2_jdk:
+          requires:
+            - lint
+          filters:
             tags:
               only: /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/
       - test_mima:
@@ -308,15 +350,17 @@ workflows:
           context: Sonatype
           requires:
             - test212_jdk
-            - scripted212_jdk
-            - scripted3_jdk
+            - scripted212_sbt1_jdk
+            - scripted3_sbt1_jdk
             - test213_jdk
             - test213_jdk21
             - test213_js_native
             - test213_docs
-            - test3_jdk
-            - test3_jdk21
-            - test3_js_native
+            - test33_jdk
+            - test33_jdk21
+            - test33_js_native
+            - test37_jdk
+            - scripted3_sbt2_jdk
             - test_mima
           filters:
             branches:

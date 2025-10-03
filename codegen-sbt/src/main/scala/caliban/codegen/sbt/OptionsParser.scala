@@ -2,7 +2,7 @@ package caliban.codegen.sbt
 
 import caliban.codegen.Options
 import caliban.tools.Header
-import zio.config.magnolia.DeriveConfig
+import zio.config.magnolia.deriveConfig
 import zio.{ Config, ConfigProvider, UIO, ZIO }
 import scala.annotation.tailrec
 
@@ -29,7 +29,7 @@ object OptionsParser {
   )
 
   private object RawOptions {
-    val config: Config[RawOptions] = DeriveConfig.deriveConfig[RawOptions]
+    val config: Config[RawOptions] = deriveConfig[RawOptions]
   }
 
   def fromArgs(args: List[String]): UIO[Option[Options]] =

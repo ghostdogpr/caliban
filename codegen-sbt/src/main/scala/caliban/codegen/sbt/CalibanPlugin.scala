@@ -2,6 +2,7 @@ package caliban.codegen.sbt
 
 import _root_.sbt.Keys._
 import _root_.sbt._
+import _root_.sbt.Project.inTask
 import java.nio.file.Paths
 
 object CalibanPlugin extends AutoPlugin {
@@ -45,7 +46,7 @@ object CalibanPlugin extends AutoPlugin {
 
   lazy val allSettings = baseSettings ++ calibanScopedSettings
 
-  override lazy val projectSettings: Seq[Def.Setting[_]] =
+  override lazy val projectSettings: Seq[Def.Setting[?]] =
     CalibanCli.projectSettings ++ inConfig(Compile)(allSettings) ++ inConfig(Test)(allSettings) ++ Seq(
       Compile / sourceGenerators += (Compile / caliban).taskValue,
       Test / sourceGenerators += (Test / caliban).taskValue
