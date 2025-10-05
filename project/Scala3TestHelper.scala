@@ -7,21 +7,7 @@ object Scala3TestPlugin extends AutoPlugin {
 
   override def trigger = allRequirements
 
-  object autoImport {
-    lazy val changeScalaVersionInTest = inputKey[Unit]("change scala version in test directory for codegen-sbt")
-  }
-
-  import autoImport._
-
-  def changeScalaVersionInTestImpl: Def.Initialize[InputTask[Unit]] = Def.inputTask {
-    val Seq(originalVersion, newVersion) = Def.spaceDelimited().parsed
-    val testFile                         = baseDirectory.value / "src/sbt-test/compiletime-codegen/test-compile/test"
-    val content                          = IO.read(testFile)
-    IO.write(testFile, content.replace(originalVersion, newVersion))
-  }
-
   override lazy val projectSettings = Seq(
-    changeScalaVersionInTest := changeScalaVersionInTestImpl.evaluated, // changeScalaVersionInTestImpl,
     commands ++= Seq(codegenScriptedScala3)
   )
 
@@ -39,8 +25,7 @@ object Scala3TestPlugin extends AutoPlugin {
     val newState            = Command.process(
       s"""set ThisBuild / version := "${scala3TestPluginVersion}";""" +
         s"set ThisBuild / crossScalaVersions := Seq(${scalaVersionsToTest}); +publishLocal;" +
-        s"codegenSbt/changeScalaVersionInTest ${scala212Text} ${scala3VersionText};" +
-        s"codegenSbt/scripted; codegenSbt/changeScalaVersionInTest ${scala3VersionText} ${scala212Text}",
+        "codegenSbt/scripted",
       state,
       msg => throw new Exception("Error while parsing SBT command: " + msg)
     )
