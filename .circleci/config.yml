@@ -135,6 +135,21 @@ jobs:
             - "~/.ivy2/cache"
             - "~/.sbt"
             - "~/.m2"
+  scripted3_sbt2_jdk:
+    docker:
+      - image: cimg/openjdk:17.0-node
+    resource_class: large
+    steps:
+      - checkout
+      - restore_cache:
+          key: sbtcache
+      - run: sbt ++3.7 codegenSbt/scripted
+      - save_cache:
+          key: sbtcache
+          paths:
+            - "~/.ivy2/cache"
+            - "~/.sbt"
+            - "~/.m2"
   test213_js_native:
     docker:
       - image: cimg/openjdk:17.0-node
@@ -319,6 +334,12 @@ workflows:
           filters:
             tags:
               only: /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/
+      - scripted3_sbt2_jdk:
+          requires:
+            - lint
+          filters:
+            tags:
+              only: /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/
       - test_mima:
           requires:
             - lint
@@ -339,6 +360,7 @@ workflows:
             - test33_jdk21
             - test33_js_native
             - test37_jdk
+            - scripted3_sbt2_jdk
             - test_mima
           filters:
             branches:
