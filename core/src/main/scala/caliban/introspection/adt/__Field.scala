@@ -16,7 +16,7 @@ case class __Field(
   deprecationReason: Option[String] = None,
   @GQLExcluded directives: Option[List[Directive]] = None
 ) {
-  final override lazy val hashCode: Int = MurmurHash3.productHash(this)
+  final override lazy val hashCode: Int = MurmurHash3.caseClassHash(this)
 
   def toFieldDefinition: FieldDefinition = {
     val allDirectives = (if (isDeprecated)

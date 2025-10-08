@@ -20,11 +20,11 @@ object Selection {
     selectionSet: List[Selection],
     index: Int
   ) extends Selection {
-    @transient final override lazy val hashCode: Int = MurmurHash3.productHash(this)
+    @transient final override lazy val hashCode: Int = MurmurHash3.caseClassHash(this)
   }
 
   case class FragmentSpread(name: String, directives: List[Directive]) extends Selection {
-    @transient final override lazy val hashCode: Int = MurmurHash3.productHash(this)
+    @transient final override lazy val hashCode: Int = MurmurHash3.caseClassHash(this)
   }
 
   case class InlineFragment(
@@ -32,7 +32,7 @@ object Selection {
     dirs: List[Directive],
     selectionSet: List[Selection]
   ) extends Selection {
-    @transient final override lazy val hashCode: Int = MurmurHash3.productHash(this)
+    @transient final override lazy val hashCode: Int = MurmurHash3.caseClassHash(this)
   }
 
 }

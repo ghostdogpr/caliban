@@ -15,7 +15,7 @@ package object validation {
     selection: Field,
     fieldDef: __Field
   ) {
-    @transient final override lazy val hashCode: Int = MurmurHash3.productHash(this)
+    @transient final override lazy val hashCode: Int = MurmurHash3.caseClassHash(this)
   }
 
   type FieldMap = Map[String, Set[SelectedField]]

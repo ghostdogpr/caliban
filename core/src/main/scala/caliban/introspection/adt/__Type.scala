@@ -28,7 +28,7 @@ case class __Type(
 ) { self =>
   import caliban.syntax._
 
-  @transient final override lazy val hashCode: Int = MurmurHash3.productHash(self)
+  @transient final override lazy val hashCode: Int = MurmurHash3.caseClassHash(self)
 
   private[caliban] lazy val typeNameRepr: String = DocumentRenderer.renderTypeName(this)
 
