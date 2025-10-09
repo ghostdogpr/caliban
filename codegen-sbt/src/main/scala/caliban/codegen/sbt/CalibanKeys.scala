@@ -6,6 +6,7 @@ import _root_.sbt._
 import java.net.URL
 
 trait CalibanKeys {
+  @transient
   lazy val caliban          = taskKey[Seq[File]]("Generate GraphQL sources using caliban-codegen-sbt")
   @transient
   lazy val calibanGenerator = taskKey[Seq[File]]("Generate GraphQL sources using caliban-codegen-sbt")
