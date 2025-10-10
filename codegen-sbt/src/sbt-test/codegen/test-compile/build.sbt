@@ -1,5 +1,4 @@
 import _root_.caliban.codegen.Codegen
-import scala.sys.process._
 
 lazy val root = project
   .in(file("."))
@@ -29,26 +28,5 @@ lazy val root = project
       calibanSetting(file("src/main/graphql/genview/schema.graphql"))(
         _.clientName("Client").packageName("genview").genView(true)
       )
-    ),
-    TaskKey[Unit]("check") := {
-      def exists(file: File): Unit =
-        if (!file.exists()) throw new MessageOnlyException(s"File does not exist: $file")
-
-      def verify(str: String, file: File): Unit = {
-        val cmd = Seq("sh", (baseDirectory.value / "verify.sh").toString, str, file.toString)
-        val code = cmd.!
-        if (code != 0) throw new MessageOnlyException(s"Verification script failed: ${cmd.mkString(" ")}")
-      }
-
-      val generatedDir = (caliban / sourceManaged).value / "main" / "caliban-codegen-sbt"
-      val genviewClient = generatedDir / "genview" / "Client.scala"
-
-      exists(generatedDir / "caliban" / "Client.scala")
-      exists(genviewClient)
-      exists(generatedDir / "caliban" / "schema.scala")
-
-      verify("CharacterView", genviewClient)
-      verify("OptionView", genviewClient)
-      verify("CharacterOneOfInput", genviewClient)
-    }
+    )
   )

@@ -1,2 +1,7 @@
 > compile
-> check
+
+$ exists target/**/src_managed/**/caliban-codegen-sbt/graphql/GeneratedAPI.scala
+$ exec bash verify.sh Foo target/**/src_managed/**/caliban-codegen-sbt/graphql/GeneratedAPI.scala
+$ exec bash verify.sh FooInput target/**/src_managed/**/caliban-codegen-sbt/graphql/GeneratedAPI.scala
+$ exec bash verify.sh CustomId target/**/src_managed/**/caliban-codegen-sbt/graphql/GeneratedAPI.scala
+$ exec bash verify.sh FooLazy target/**/src_managed/**/caliban-codegen-sbt/graphql/GeneratedAPI.scala

@@ -1,2 +1,8 @@
 > compile
-> check
+
+$ exists target/**/src_managed/**/caliban-codegen-sbt/caliban/Client.scala
+$ exists target/**/src_managed/**/caliban-codegen-sbt/genview/Client.scala
+$ exists target/**/src_managed/**/caliban-codegen-sbt/caliban/schema.scala
+$ exec bash verify.sh CharacterView target/**/src_managed/**/caliban-codegen-sbt/genview/Client.scala
+$ exec bash verify.sh OptionView target/**/src_managed/**/caliban-codegen-sbt/genview/Client.scala
+$ exec bash verify.sh CharacterOneOfInput target/**/src_managed/**/caliban-codegen-sbt/genview/Client.scala

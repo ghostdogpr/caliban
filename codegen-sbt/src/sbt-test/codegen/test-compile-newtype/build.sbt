@@ -1,5 +1,4 @@
 import _root_.caliban.codegen.Codegen
-import scala.sys.process._
 
 lazy val base = project
   .in(file("modules/base"))
@@ -42,24 +41,6 @@ lazy val root = project
             )
           )
       }
-    },
-    TaskKey[Unit]("check") := {
-      def exists(file: File): Unit =
-        if (!file.exists()) throw new MessageOnlyException(s"File does not exist: $file")
-
-      def verify(str: String, file: File): Unit = {
-        val cmd = Seq("sh", (baseDirectory.value / "verify.sh").toString, str, file.toString)
-        val code = cmd.!
-        if (code != 0) throw new MessageOnlyException(s"Verification script failed: ${cmd.mkString(" ")}")
-      }
-
-      val generatedFile = (caliban / sourceManaged).value / "main" / "caliban-codegen-sbt" / "graphql" / "GeneratedAPI.scala"
-
-      exists(generatedFile)
-      verify("Foo", generatedFile)
-      verify("FooInput", generatedFile)
-      verify("CustomId", generatedFile)
-      verify("FooLazy", generatedFile)
     }
   )
   .dependsOn(base)

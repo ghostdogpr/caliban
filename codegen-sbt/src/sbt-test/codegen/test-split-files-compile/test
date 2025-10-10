@@ -1,7 +1,11 @@
 $ exec echo compiling for the first time
 > compile
-> check
+$ exists target/**/src_managed/**/caliban-codegen-sbt/caliban/package.scala
+$ exists target/**/src_managed/**/caliban-codegen-sbt/caliban/Character.scala
+$ exists target/**/src_managed/**/caliban-codegen-sbt/caliban/Canterbury.scala
 
 $ exec echo compiling second time
 > compile
-> check
+$ exists target/**/src_managed/**/caliban-codegen-sbt/caliban/package.scala
+$ exists target/**/src_managed/**/caliban-codegen-sbt/caliban/Character.scala
+$ exists target/**/src_managed/**/caliban-codegen-sbt/caliban/Canterbury.scala
