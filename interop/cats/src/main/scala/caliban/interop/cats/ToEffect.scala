@@ -13,6 +13,19 @@ import scala.concurrent.Future
  *
  * @tparam F the higher-kinded type of a polymorphic effect
  * @tparam R the type of ZIO environment
+ * @define contextualConversion
+ *         Contextual conversion from [[zio.RIO]] to a polymorphic effect `F`.
+ *
+ *         An environment of type `R` is injected into the effect `F` via `injector`.
+ *         The execution of `RIO[R, A]` relies on the environment `R` taken from the parent `F` context via `askEnv`.
+ *
+ *         @see See [[InjectEnv]] for more details about injection.
+ *
+ * @define injectorParam injects the given environment of type `R` into the effect `F`
+ *
+ * @define fParam the higher-kinded type of a polymorphic effect
+ *
+ * @define rParam the type of ZIO environment
  */
 @annotation.implicitNotFound("""
 Could not find `ToEffect` for effect ${F} and environment ${R}. `ToEffect` can be one of the following:
@@ -44,21 +57,6 @@ trait ToEffect[F[_], R] {
     }
 }
 
-/**
- * @define contextualConversion
- *         Contextual conversion from [[zio.RIO]] to a polymorphic effect `F`.
- *
- *         An environment of type `R` is injected into the effect `F` via `injector`.
- *         The execution of `RIO[R, A]` relies on the environment `R` taken from the parent `F` context via `askEnv`.
- *
- *         @see See [[InjectEnv]] for more details about injection.
- *
- * @define injectorParam injects the given environment of type `R` into the effect `F`
- *
- * @define fParam the higher-kinded type of a polymorphic effect
- *
- * @define rParam the type of ZIO environment
- */
 object ToEffect {
 
   /**
