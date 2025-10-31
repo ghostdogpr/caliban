@@ -6,7 +6,7 @@ import Keys.*
 
 val scala212 = "2.12.20"
 val scala213 = "2.13.17"
-val scala3   = "3.3.6"
+val scala3   = "3.3.7"
 val allScala = Seq(scala212, scala213, scala3)
 
 val akkaVersion               = "2.6.20"
@@ -23,11 +23,11 @@ val magnoliaScala2Version     = "1.1.10"
 val magnoliaScala3Version     = "1.3.18"
 val pekkoHttpVersion          = "1.2.0"
 val playVersion               = "3.0.9"
-val playJsonVersion           = "3.0.5"
+val playJsonVersion           = "3.0.6"
 val scalafmtVersion           = "3.8.0"
 val sttpVersion               = "3.10.3"
-val tapirVersion              = "1.11.48"
-val zioVersion                = "2.1.21"
+val tapirVersion              = "1.12.0"
+val zioVersion                = "2.1.22"
 val zioInteropCats2Version    = "22.0.0.0"
 val zioInteropCats3Version    = "23.1.0.5"
 val zioInteropReactiveVersion = "2.0.2"
@@ -255,7 +255,7 @@ lazy val tracing = project
       "dev.zio"         %% "zio-opentelemetry"         % zioOpenTelemetryVersion,
       "dev.zio"         %% "zio-test"                  % zioVersion % Test,
       "dev.zio"         %% "zio-test-sbt"              % zioVersion % Test,
-      "io.opentelemetry" % "opentelemetry-sdk-testing" % "1.54.1"   % Test
+      "io.opentelemetry" % "opentelemetry-sdk-testing" % "1.55.0"   % Test
     )
   )
   .dependsOn(core, tools)
