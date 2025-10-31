@@ -9,21 +9,6 @@ import zio.{ RIO, Tag, ZEnvironment, ZIO }
  *
  * @tparam F the higher-kinded type of a polymorphic effect
  * @tparam R the type of ZIO environment
- * @define contextualConversion
- *         Contextual conversion from a polymorphic effect `F` to [[zio.RIO]].
- *
- *         An environment of type `R` is injected into the effect `F` via `injector`.
- *         The execution of `RIO[R, A]` relies on the environment `R` modified by [[InjectEnv.modify]].
- *
- *         @see See [[InjectEnv]] for more details about injection.
- *
- * @define dispatcherParam the instance of [[cats.effect.std.Dispatcher]]. Required in order to perform the conversion
- *
- * @define injectorParam injects the given environment of type `R` into the effect `F`
- *
- * @define fParam the higher-kinded type of a polymorphic effect
- *
- * @define rParam the type of ZIO environment
  */
 @annotation.implicitNotFound("""
 Could not find `FromEffect` for effect ${F} and environment ${R}. `FromEffect` can be one of the following:
@@ -76,12 +61,17 @@ object FromEffect {
   def apply[F[_], R](implicit ev: FromEffect[F, R]): FromEffect[F, R] = ev
 
   /**
-   * $contextualConversion
+   * Contextual conversion from a polymorphic effect `F` to [[zio.RIO]].
    *
-   * @param dispatcher $dispatcherParam
-   * @param injector $injectorParam
-   * @tparam F $fParam
-   * @tparam R $rParam
+   * An environment of type `R` is injected into the effect `F` via `injector`.
+   * The execution of `RIO[R, A]` relies on the environment `R` modified by [[InjectEnv.modify]].
+   *
+   * @see See [[InjectEnv]] for more details about injection.
+   *
+   * @param dispatcher the instance of [[cats.effect.std.Dispatcher]]. Required in order to perform the conversion
+   * @param injector injects the given environment of type `R` into the effect `F`
+   * @tparam F the higher-kinded type of a polymorphic effect
+   * @tparam R the type of ZIO environment
    */
   def contextual[F[_], R: Tag](dispatcher: Dispatcher[F])(implicit
     injector: InjectEnv[F, R]
@@ -89,12 +79,17 @@ object FromEffect {
     contextual(forDispatcher[F, R](dispatcher))
 
   /**
-   * $contextualConversion
+   * Contextual conversion from a polymorphic effect `F` to [[zio.RIO]].
+   *
+   * An environment of type `R` is injected into the effect `F` via `injector`.
+   * The execution of `RIO[R, A]` relies on the environment `R` modified by [[InjectEnv.modify]].
+   *
+   * @see See [[InjectEnv]] for more details about injection.
    *
    * @param from the underlying conversion from `F` to [[zio.RIO]]
-   * @param injector $injectorParam
-   * @tparam F $fParam
-   * @tparam R $rParam
+   * @param injector injects the given environment of type `R` into the effect `F`
+   * @tparam F the higher-kinded type of a polymorphic effect
+   * @tparam R the type of ZIO environment
    */
   def contextual[F[_], R: Tag](
     from: FromEffect[F, R]
@@ -109,9 +104,9 @@ object FromEffect {
    *
    * Identical to what [[https://github.com/zio/interop-cats]] offers.
    *
-   * @param dispatcher $dispatcherParam
-   * @tparam F $fParam
-   * @tparam R $rParam
+   * @param dispatcher the instance of [[cats.effect.std.Dispatcher]]. Required in order to perform the conversion
+   * @tparam F the higher-kinded type of a polymorphic effect
+   * @tparam R the type of ZIO environment
    */
   implicit def forDispatcher[F[_], R](implicit dispatcher: Dispatcher[F]): FromEffect[F, R] =
     new FromEffect[F, R] {
