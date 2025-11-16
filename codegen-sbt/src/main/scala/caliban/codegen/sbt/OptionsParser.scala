@@ -1,6 +1,7 @@
 package caliban.codegen.sbt
 
-import caliban.tools.Options
+import caliban.codegen.Options
+import caliban.tools.Header
 import zio.config.magnolia.DeriveConfig
 import zio.{ Config, ConfigProvider, UIO, ZIO }
 import scala.annotation.tailrec
@@ -46,7 +47,7 @@ object OptionsParser {
                   rawOpts.headers.map {
                     _.flatMap { rawHeader =>
                       rawHeader.split(":").toList match {
-                        case name :: values if values.nonEmpty => Some(Options.Header(name, values.mkString(":")))
+                        case name :: values if values.nonEmpty => Some(Header(name, values.mkString(":")))
                         case _                                 => None
                       }
                     }

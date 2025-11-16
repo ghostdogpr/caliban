@@ -1,7 +1,7 @@
 package caliban.codegen.sbt
 
-import sbt.Keys._
-import sbt._
+import _root_.sbt.Keys._
+import _root_.sbt._
 import java.nio.file.Paths
 
 object CalibanPlugin extends AutoPlugin {

@@ -294,7 +294,7 @@ lazy val codegenSbt = project
     skip             := (scalaVersion.value != scala212),
     ideSkipProject   := (scalaVersion.value != scala212),
     buildInfoKeys    := Seq[BuildInfoKey](version),
-    buildInfoPackage := "caliban.codegen",
+    buildInfoPackage := "caliban.codegen.sbt",
     buildInfoObject  := "BuildInfo"
   )
   .settings(

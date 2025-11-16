@@ -1,10 +1,10 @@
 package caliban.codegen.sbt
 
-import caliban.codegen.CalibanSourceGenerator.TrackedSettings
-import caliban.tools.compiletime.Utils
-import sbt.Keys._
-import sbt.io.IO.defaultCharset
-import sbt.{ Compile, Def, Project, _ }
+import caliban.codegen.sbt.CalibanSourceGenerator.TrackedSettings
+import caliban.codegen.compiletime.Utils
+import _root_.sbt.Keys._
+import _root_.sbt.io.IO.defaultCharset
+import _root_.sbt.{ Compile, Def, Project, _ }
 
 import java.io.File
 
@@ -12,7 +12,7 @@ object CompileTimeCalibanServerPlugin extends AutoPlugin {
   override def requires = plugins.JvmPlugin
   override def trigger  = noTrigger
 
-  object autoImport extends caliban.tools.compiletime.Config {
+  object autoImport extends caliban.codegen.compiletime.Config {
 
     /* ## Tasks and settings namespace
      *

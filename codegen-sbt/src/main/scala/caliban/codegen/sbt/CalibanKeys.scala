@@ -1,7 +1,7 @@
 package caliban.codegen.sbt
 
-import caliban.tools.CalibanCommonSettings
-import sbt._
+import caliban.codegen.CalibanCommonSettings
+import _root_.sbt._
 
 import java.net.URL
 

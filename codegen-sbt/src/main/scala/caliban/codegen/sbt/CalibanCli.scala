@@ -1,9 +1,10 @@
 package caliban.codegen.sbt
 
 import caliban.codegen.Codegen.GenType
+import caliban.codegen.*
 import caliban.tools.*
-import sbt.Keys.commands
-import sbt.{ Command, State }
+import _root_.sbt.Keys.commands
+import _root_.sbt.{ Command, State }
 import zio.Console.printLine
 import zio.{ Runtime, Task, Unsafe }
 

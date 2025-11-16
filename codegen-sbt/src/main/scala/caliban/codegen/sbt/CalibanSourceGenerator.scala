@@ -1,7 +1,7 @@
 package caliban.codegen.sbt
 
-import _root_.caliban.tools._
-import sbt._
+import _root_.caliban.codegen._
+import _root_.sbt._
 import sjsonnew.IsoLList
 
 import java.io.File
@@ -71,7 +71,7 @@ object CalibanSourceGenerator {
     fileSettings: Seq[CalibanFileSettings],
     urlSettings: Seq[CalibanUrlSettings]
   ): List[File] = {
-    import sbt.util.CacheImplicits._
+    import _root_.sbt.util.CacheImplicits._
 
     def generateSources: List[File] = {
       def generateFileSource(
@@ -80,7 +80,7 @@ object CalibanSourceGenerator {
       ): IO[Option[Throwable], List[File]] =
         for {
           generatedSource <- ZIO.succeed(transformFile(sourceRoot, sourceManaged, settings)(graphql))
-          _               <- ZIO.attemptBlockingIO(sbt.IO.createDirectory(generatedSource.toPath.getParent.toFile)).asSomeError
+          _               <- ZIO.attemptBlockingIO(_root_.sbt.IO.createDirectory(generatedSource.toPath.getParent.toFile)).asSomeError
           opts            <- ZIO.fromOption(Some(settings.toOptions(graphql.toString, generatedSource.toString)))
           files           <- Codegen.generate(opts, settings.genType).asSomeError
         } yield files
@@ -94,7 +94,7 @@ object CalibanSourceGenerator {
             ZIO.succeed(
               transformFile(sourceRoot, sourceManaged, settings)(new java.io.File(graphql.getPath.stripPrefix("/")))
             )
-          _               <- ZIO.attemptBlockingIO(sbt.IO.createDirectory(generatedSource.toPath.getParent.toFile)).asSomeError
+          _               <- ZIO.attemptBlockingIO(_root_.sbt.IO.createDirectory(generatedSource.toPath.getParent.toFile)).asSomeError
           opts            <- ZIO.fromOption(Some(settings.toOptions(graphql.toString, generatedSource.toString)))
           files           <- Codegen.generate(opts, settings.genType).asSomeError
         } yield files
