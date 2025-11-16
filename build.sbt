@@ -91,6 +91,7 @@ lazy val allProjects: Seq[ProjectReference] =
     clientNative,
     clientLaminext,
     tools,
+    stitching,
     codegenSbt,
     federation,
     reporting,
@@ -214,9 +215,8 @@ lazy val tools = project
       "org.scalameta"                  % "scalafmt-interfaces" % scalafmtVersion,
       "io.get-coursier"                % "interface"           % "1.0.28",
       "com.softwaremill.sttp.client4" %% "zio"                 % sttpVersion,
-      "dev.zio"                       %% "zio-test"            % zioVersion     % Test,
-      "dev.zio"                       %% "zio-test-sbt"        % zioVersion     % Test,
-      "dev.zio"                       %% "zio-json"            % zioJsonVersion % Test
+      "dev.zio"                       %% "zio-test"            % zioVersion % Test,
+      "dev.zio"                       %% "zio-test-sbt"        % zioVersion % Test
     ),
     Test / publishArtifact := true,
 
@@ -238,6 +238,15 @@ lazy val tools = project
   )
   .dependsOn(core, clientJVM, quickAdapter % Test)
 
+lazy val stitching = project
+  .in(file("stitching"))
+  .enablePlugins(BuildInfoPlugin)
+  .settings(name := "caliban-stitching")
+  .settings(commonSettings)
+  .settings(enableMimaSettingsJVM)
+  .disablePlugins(AssemblyPlugin)
+  .dependsOn(tools)
+
 lazy val tracing = project
   .in(file("tracing"))
   .enablePlugins(BuildInfoPlugin)
@@ -257,7 +266,7 @@ lazy val tracing = project
       "io.opentelemetry" % "opentelemetry-sdk-testing" % "1.56.0"   % Test
     )
   )
-  .dependsOn(core, tools)
+  .dependsOn(core)
 
 lazy val codegenSbt = project
   .in(file("codegen-sbt"))
@@ -563,7 +572,8 @@ lazy val examples = project
     tapirInterop,
     clientJVM,
     federation,
-    tools
+    tools,
+    stitching
   )
 
 lazy val apolloCompatibility =

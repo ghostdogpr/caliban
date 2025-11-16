@@ -1,6 +1,4 @@
-package caliban.tools
-
-import caliban.{ CalibanError, ResponseValue }
+package caliban
 
 import sttp.client4._
 

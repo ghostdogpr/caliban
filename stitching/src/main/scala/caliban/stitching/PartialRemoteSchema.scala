@@ -1,11 +1,10 @@
-package caliban.tools.stitching
+package caliban.stitching
 
+import caliban.introspection.adt._
+import caliban.schema._
+import caliban.{CalibanError, ResponseValue}
 import zio._
 import zio.query._
-
-import caliban.{ CalibanError, ResponseValue }
-import caliban.schema._
-import caliban.introspection.adt._
 
 trait PartialRemoteSchema[R0, R, A] { self =>
   def toType(isInput: Boolean, isSubscription: Boolean): __Type

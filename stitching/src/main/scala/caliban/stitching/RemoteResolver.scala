@@ -1,12 +1,12 @@
-package caliban.tools.stitching
+package caliban.stitching
 
-import zio._
-import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, ResponseValue }
-import caliban.execution.Field
 import caliban.ResponseValue.ObjectValue
-import sttp.client4.ResponseException.{ DeserializationException, UnexpectedStatusCode }
+import caliban.execution.Field
+import caliban.{CalibanError, GraphQLRequest, GraphQLResponse, RemoteMutation, RemoteQuery, ResponseValue}
+import sttp.client4.ResponseException.{DeserializationException, UnexpectedStatusCode}
 import sttp.client4._
 import sttp.client4.jsoniter._
+import zio._
 
 case class RemoteResolver[-R, +E, -A, +B](
   run: A => ZIO[R, E, B]

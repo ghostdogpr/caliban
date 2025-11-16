@@ -1,11 +1,11 @@
-package caliban.tools.stitching
+package caliban.stitching
 
 import caliban.CalibanError.ExecutionError
-import caliban.execution.{ Feature, Field }
+import caliban.execution.{Feature, Field}
 import caliban.introspection.adt._
 import caliban.schema._
 import caliban.transformers.Transformer
-import caliban.{ CalibanError, GraphQL, ResponseValue }
+import caliban.{CalibanError, GraphQL, ResponseValue}
 import zio._
 import zio.query._
 

@@ -1,15 +1,14 @@
-package caliban.tools.stitching
+package caliban
 
 import caliban.CalibanError.ValidationError
-import caliban._
 import caliban.Macros.gqldoc
 import caliban.execution.Field
 import caliban.schema.Annotations.GQLInterface
 import caliban.schema.Schema.auto._
 import zio._
-import zio.test._
 import zio.json._
 import zio.json.ast.Json
+import zio.test._
 
 object RemoteQuerySpec extends ZIOSpecDefault {
   sealed trait Union

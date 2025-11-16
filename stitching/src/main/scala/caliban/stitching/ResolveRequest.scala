@@ -1,4 +1,4 @@
-package caliban.tools.stitching
+package caliban.stitching
 
 import caliban.execution.Field
 

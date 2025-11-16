@@ -1,18 +1,10 @@
-package caliban.tools.stitching
+package caliban
 
-import caliban.{ GraphQLRequest, InputValue }
 import caliban.execution.Field
-import caliban.Value._
-import caliban.InputValue._
-import caliban.Value.FloatValue._
-import caliban.Value.IntValue._
 import caliban.parsing.SourceMapper
 import caliban.parsing.adt.Definition.ExecutableDefinition.OperationDefinition
-import caliban.parsing.adt.Type.NamedType
-import caliban.parsing.adt.{ Document, OperationType, Selection }
+import caliban.parsing.adt.{Document, OperationType}
 import caliban.rendering.DocumentRenderer
-
-import scala.collection.mutable
 
 case class RemoteQuery(field: Field) { self =>
   def toGraphQLRequest: GraphQLRequest =
