@@ -26,8 +26,8 @@ ThisBuild / crossScalaVersions := allScala
 // ### Dependencies ###
 
 lazy val calibanLib = Seq(
-  "com.github.ghostdogpr" %% "caliban"       % Version.pluginVersion,
-  "com.github.ghostdogpr" %% "caliban-tools" % Version.pluginVersion % "compile->compile;test->test"
+  "com.github.ghostdogpr" %% "caliban"         % Version.pluginVersion,
+  "com.github.ghostdogpr" %% "caliban-codegen" % Version.pluginVersion % "compile->compile;test->test"
 )
 
 lazy val sttp = Seq(

@@ -80,8 +80,8 @@ object CompileTimeCalibanServerPlugin extends AutoPlugin {
                     s"""
                        |package $generatorPackage
                        |
-                       |import caliban.tools.compiletime.CompileTime
-                       |import caliban.tools.compiletime.Config.ClientGenerationSettings
+                       |import caliban.codegen.compiletime.CompileTime
+                       |import caliban.codegen.compiletime.Config.ClientGenerationSettings
                        |
                        |private[generator] object $generatorName {
                        |  def main(args: Array[String]): Unit = {
