@@ -18,7 +18,8 @@ trait SnapshotTest extends ZIOSpecDefault {
     val label = label0.replace('/', '_').replace("'", "")
     zio.test.test[Task[TestResult]](label) {
       str.map { content =>
-        val path = SnapshotTest.projectRoot.resolve(s"tools/src/test/resources/snapshots/$testName/${label + ".scala"}")
+        val path =
+          SnapshotTest.projectRoot.resolve(s"codegen/src/test/resources/snapshots/$testName/${label + ".scala"}")
         writeAndCompare(path, content, label)
       }
     }
