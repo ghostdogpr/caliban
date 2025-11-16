@@ -3,7 +3,7 @@ package caliban
 import caliban.execution.Field
 import caliban.parsing.SourceMapper
 import caliban.parsing.adt.Definition.ExecutableDefinition.OperationDefinition
-import caliban.parsing.adt.{Document, OperationType}
+import caliban.parsing.adt.{ Document, OperationType }
 import caliban.rendering.DocumentRenderer
 
 case class RemoteQuery(field: Field) { self =>

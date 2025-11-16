@@ -2,8 +2,8 @@ package caliban.stitching
 
 import caliban.ResponseValue.ObjectValue
 import caliban.execution.Field
-import caliban.{CalibanError, GraphQLRequest, GraphQLResponse, RemoteMutation, RemoteQuery, ResponseValue}
-import sttp.client4.ResponseException.{DeserializationException, UnexpectedStatusCode}
+import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, RemoteMutation, RemoteQuery, ResponseValue }
+import sttp.client4.ResponseException.{ DeserializationException, UnexpectedStatusCode }
 import sttp.client4._
 import sttp.client4.jsoniter._
 import zio._

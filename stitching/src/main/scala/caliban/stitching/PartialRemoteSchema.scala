@@ -2,7 +2,7 @@ package caliban.stitching
 
 import caliban.introspection.adt._
 import caliban.schema._
-import caliban.{CalibanError, ResponseValue}
+import caliban.{ CalibanError, ResponseValue }
 import zio._
 import zio.query._
 
