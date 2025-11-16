@@ -3,7 +3,7 @@ import poc.caliban.posts.GraphQLApi
 import scala.io.Source
 import zio.test.Assertion._
 import zio.test._
-import caliban.tools._
+import caliban.codegen._
 import java.nio.file.Path
 
 object ValidateGraphQlSpec extends SnapshotTest {
