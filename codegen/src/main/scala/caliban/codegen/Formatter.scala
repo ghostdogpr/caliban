@@ -18,7 +18,7 @@ object Formatter {
         @inline def defaultConfig     =
           if (Files.exists(defaultConfigPath)) defaultConfigPath
           else {
-            val defaultScalafmtCalibanToolsFile = "codegen/src/main/resources/default.scalafmt.conf"
+            val defaultScalafmtCalibanToolsFile = "default.scalafmt.conf"
             val uri                             = this.getClass.getClassLoader.getResource(defaultScalafmtCalibanToolsFile).toURI
             uri.getScheme match {
               case "file" => Paths.get(uri)
