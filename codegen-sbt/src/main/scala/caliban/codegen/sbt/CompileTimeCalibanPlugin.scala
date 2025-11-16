@@ -1,4 +1,4 @@
-package caliban.codegen
+package caliban.codegen.sbt
 
 import caliban.codegen.CalibanSourceGenerator.TrackedSettings
 import caliban.tools.compiletime.Utils

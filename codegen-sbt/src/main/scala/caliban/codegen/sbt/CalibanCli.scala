@@ -1,6 +1,6 @@
-package caliban.codegen
+package caliban.codegen.sbt
 
-import caliban.tools.Codegen.GenType
+import caliban.codegen.Codegen.GenType
 import caliban.tools.*
 import sbt.Keys.commands
 import sbt.{ Command, State }

@@ -24,4 +24,3 @@ final case class Options(
   excludeDeprecated: Option[Boolean],
   supportDeprecatedArgs: Option[Boolean]
 )
-
