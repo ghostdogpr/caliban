@@ -138,7 +138,7 @@ object CompileTimeCalibanServerPlugin extends AutoPlugin {
                   Def.task {
                     TrackedSettings(
                       List(
-                        caliban.codegen.sbt.BuildInfo.version,
+                        caliban.codegen.BuildInfo.version,
                         zio.BuildInfo.version,
                         pluginSettings.mkString
                       )
@@ -154,7 +154,7 @@ object CompileTimeCalibanServerPlugin extends AutoPlugin {
 
   override lazy val projectSettings: Seq[Def.Setting[_]] =
     Seq(
-      libraryDependencies += "com.github.ghostdogpr" %% "caliban-codegen-sbt" % caliban.codegen.sbt.BuildInfo.version % Compile,
+      libraryDependencies += "com.github.ghostdogpr" %% "caliban-tools" % caliban.codegen.BuildInfo.version % Compile,
       (Compile / sourceGenerators) += Compile / ctCalibanServer / ctCalibanServerGenerate
     ) ++ inConfig(Compile)(pluginSettings) ++ inConfig(Test)(pluginSettings)
 }
@@ -339,7 +339,7 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin {
                   Def.task {
                     TrackedSettings(
                       List(
-                        caliban.codegen.sbt.BuildInfo.version,
+                        caliban.codegen.BuildInfo.version,
                         zio.BuildInfo.version,
                         clientsSettings.map(_.id).mkString,
                         serverProjectSettings.mkString,
