@@ -91,6 +91,7 @@ lazy val allProjects: Seq[ProjectReference] =
     clientNative,
     clientLaminext,
     tools,
+    codegen,
     stitching,
     codegenSbt,
     federation,
@@ -203,20 +204,35 @@ lazy val tools = project
   .settings(enableMimaSettingsJVM)
   .disablePlugins(AssemblyPlugin)
   .settings(
+    libraryDependencies ++= Seq(
+      "com.softwaremill.sttp.client4" %% "zio"          % sttpVersion,
+      "dev.zio"                       %% "zio-test"     % zioVersion % Test,
+      "dev.zio"                       %% "zio-test-sbt" % zioVersion % Test
+    )
+  )
+  .dependsOn(core, clientJVM, quickAdapter % Test)
+
+lazy val codegen = project
+  .in(file("codegen"))
+  .enablePlugins(BuildInfoPlugin)
+  .settings(name := "caliban-codegen")
+  .settings(commonSettings)
+  .settings(enableMimaSettingsJVM)
+  .disablePlugins(AssemblyPlugin)
+  .settings(
     buildInfoKeys    := Seq[BuildInfoKey](
       "scalaPartialVersion" -> CrossVersion.partialVersion(scalaVersion.value),
       "scalafmtVersion"     -> scalafmtVersion
     ),
-    buildInfoPackage := "caliban.tools",
+    buildInfoPackage := "caliban.codegen",
     buildInfoObject  := "BuildInfo"
   )
   .settings(
     libraryDependencies ++= Seq(
-      "org.scalameta"                  % "scalafmt-interfaces" % scalafmtVersion,
-      "io.get-coursier"                % "interface"           % "1.0.28",
-      "com.softwaremill.sttp.client4" %% "zio"                 % sttpVersion,
-      "dev.zio"                       %% "zio-test"            % zioVersion % Test,
-      "dev.zio"                       %% "zio-test-sbt"        % zioVersion % Test
+      "org.scalameta"   % "scalafmt-interfaces" % scalafmtVersion,
+      "io.get-coursier" % "interface"           % "1.0.28",
+      "dev.zio"        %% "zio-test"            % zioVersion % Test,
+      "dev.zio"        %% "zio-test-sbt"        % zioVersion % Test
     ),
     Test / publishArtifact := true,
 
@@ -236,7 +252,7 @@ lazy val tools = project
         .withOverwrite(true)
     }
   )
-  .dependsOn(core, clientJVM, quickAdapter % Test)
+  .dependsOn(tools)
 
 lazy val stitching = project
   .in(file("stitching"))
@@ -310,11 +326,12 @@ lazy val codegenSbt = project
         core / publishLocal,
         clientJVM / publishLocal,
         tools / publishLocal,
+        codegen / publishLocal,
         publishLocal
       )
       .value
   )
-  .dependsOn(tools % "compile->compile;test->test")
+  .dependsOn(codegen % "compile->compile;test->test")
 
 lazy val catsInterop = project
   .in(file("interop/cats"))

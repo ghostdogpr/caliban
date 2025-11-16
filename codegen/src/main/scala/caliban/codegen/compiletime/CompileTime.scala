@@ -1,9 +1,10 @@
-package caliban.tools.compiletime
+package caliban.codegen.compiletime
 
 import caliban._
-import caliban.tools.Codegen.GenType
-import caliban.tools.compiletime.Config.ClientGenerationSettings
-import caliban.tools.{ Codegen, SchemaLoader }
+import caliban.codegen.Codegen.GenType
+import caliban.codegen.compiletime.Config.ClientGenerationSettings
+import caliban.codegen.Codegen
+import caliban.tools.SchemaLoader
 import zio.{ Task, ZIO }
 
 object CompileTime {

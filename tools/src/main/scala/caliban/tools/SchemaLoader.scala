@@ -30,7 +30,7 @@ object SchemaLoader {
 
   case class FromIntrospection private[SchemaLoader] (
     url: String,
-    headers: Option[List[Options.Header]],
+    headers: Option[List[Header]],
     config: IntrospectionClient.Config
   ) extends SchemaLoader {
     override def load: Task[Document] =
@@ -44,20 +44,20 @@ object SchemaLoader {
 
   def fromIntrospection(
     url: String,
-    headers: Option[List[Options.Header]]
+    headers: Option[List[Header]]
   ): SchemaLoader =
     fromIntrospectionWith(url, headers)(identity)
 
   def fromIntrospection(
     url: String,
-    headers: Option[List[Options.Header]],
+    headers: Option[List[Header]],
     config: IntrospectionClient.Config
   ): SchemaLoader =
     FromIntrospection(url, headers, config)
 
   def fromIntrospectionWith(
     url: String,
-    headers: Option[List[Options.Header]]
+    headers: Option[List[Header]]
   )(config: IntrospectionClient.Config => IntrospectionClient.Config): SchemaLoader =
     fromIntrospection(url, headers, config(IntrospectionClient.Config.default))
 }

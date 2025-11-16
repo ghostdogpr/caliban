@@ -1,4 +1,4 @@
-package caliban.tools
+package caliban.codegen
 
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._

@@ -1,6 +1,7 @@
-package caliban.tools
+package caliban.codegen
 
-import caliban.tools.Codegen.GenType
+import caliban.codegen.Codegen.GenType
+import caliban.tools.Header
 
 final case class CalibanCommonSettings(
   clientName: Option[String],
@@ -29,7 +30,7 @@ final case class CalibanCommonSettings(
       schemaPath = schemaPath,
       toPath = toPath,
       fmtPath = scalafmtPath,
-      headers = Option(headers.map((Options.Header.apply _).tupled).toList).filter(_.nonEmpty),
+      headers = Option(headers.map((Header.apply _).tupled).toList).filter(_.nonEmpty),
       packageName = packageName,
       clientName = clientName,
       genView = genView,

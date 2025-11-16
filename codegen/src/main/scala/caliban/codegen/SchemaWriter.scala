@@ -1,4 +1,4 @@
-package caliban.tools
+package caliban.codegen
 
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
 import caliban.parsing.adt.Definition.TypeSystemDefinition.{ AggregationTypeDefinition, TypeDefinition }

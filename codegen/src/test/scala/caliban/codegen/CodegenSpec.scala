@@ -1,4 +1,4 @@
-package caliban.tools
+package caliban.codegen
 
 import Codegen.getPackageAndObjectName
 import zio.test._

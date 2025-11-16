@@ -1,10 +1,12 @@
-package caliban.tools
+package caliban.codegen
+
+import caliban.tools.Header
 
 final case class Options(
   schemaPath: String,
   toPath: String,
   fmtPath: Option[String],
-  headers: Option[List[Options.Header]],
+  headers: Option[List[Header]],
   packageName: Option[String],
   clientName: Option[String],
   genView: Option[Boolean],
@@ -23,6 +25,3 @@ final case class Options(
   supportDeprecatedArgs: Option[Boolean]
 )
 
-object Options {
-  final case class Header(name: String, value: String)
-}

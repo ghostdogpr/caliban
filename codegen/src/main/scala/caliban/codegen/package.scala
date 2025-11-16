@@ -1,6 +1,6 @@
 package caliban
 
-package object tools {
+package object codegen {
 
   val supportedScalars = Set("Int", "Float", "Double", "Long", "Unit", "String", "Boolean", "BigInt", "BigDecimal")
 

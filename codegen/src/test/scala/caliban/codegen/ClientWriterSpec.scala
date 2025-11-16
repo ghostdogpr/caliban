@@ -1,4 +1,4 @@
-package caliban.tools
+package caliban.codegen
 
 import caliban.parsing.Parser
 import zio.{ Task, ZIO }

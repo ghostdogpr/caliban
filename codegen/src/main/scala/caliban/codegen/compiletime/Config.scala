@@ -1,7 +1,7 @@
-package caliban.tools.compiletime
+package caliban.codegen.compiletime
 
-import caliban.tools.CalibanCommonSettings
-import caliban.tools.Codegen.GenType
+import caliban.codegen.CalibanCommonSettings
+import caliban.codegen.Codegen.GenType
 
 trait Config {
   case class ClientGenerationSettings(

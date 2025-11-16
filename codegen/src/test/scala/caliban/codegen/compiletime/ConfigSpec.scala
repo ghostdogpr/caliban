@@ -1,8 +1,8 @@
-package caliban.tools.compiletime
+package caliban.codegen.compiletime
 
-import caliban.tools.CalibanCommonSettings
-import caliban.tools.Codegen.GenType
-import caliban.tools.compiletime.Config._
+import caliban.codegen.CalibanCommonSettings
+import caliban.codegen.Codegen.GenType
+import caliban.codegen.compiletime.Config._
 import zio.test._
 
 object ConfigSpec extends ZIOSpecDefault {

@@ -1,4 +1,4 @@
-package caliban.tools.compiletime
+package caliban.codegen.compiletime
 
 import zio.test._
 

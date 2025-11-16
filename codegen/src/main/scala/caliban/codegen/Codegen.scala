@@ -1,8 +1,9 @@
-package caliban.tools
+package caliban.codegen
 
 import zio.{ Task, ZIO }
 
 import java.io.{ File, PrintWriter }
+import caliban.tools._
 
 object Codegen {
 
@@ -106,7 +107,7 @@ object Codegen {
 
   private def getSchemaLoader(
     path: String,
-    schemaPathHeaders: Option[List[Options.Header]],
+    schemaPathHeaders: Option[List[Header]],
     config: IntrospectionClient.Config
   ): SchemaLoader =
     if (path.startsWith("http")) SchemaLoader.fromIntrospection(path, schemaPathHeaders, config)
