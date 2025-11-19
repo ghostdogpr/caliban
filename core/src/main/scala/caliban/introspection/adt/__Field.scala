@@ -5,8 +5,6 @@ import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition.{ Fiel
 import caliban.parsing.adt.Directive
 import caliban.schema.Annotations.GQLExcluded
 
-import scala.util.hashing.MurmurHash3
-
 case class __Field(
   name: String,
   description: Option[String],
@@ -16,7 +14,7 @@ case class __Field(
   deprecationReason: Option[String] = None,
   @GQLExcluded directives: Option[List[Directive]] = None
 ) {
-  final override lazy val hashCode: Int = MurmurHash3.productHash(this)
+  final override lazy val hashCode: Int = caliban.Hash.caseClassHash(this)
 
   def toFieldDefinition: FieldDefinition = {
     val allDirectives = (if (isDeprecated)
