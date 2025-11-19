@@ -5,7 +5,7 @@ import sbt.*
 import Keys.*
 
 val scala212 = "2.12.20"
-val scala213 = "2.13.16"
+val scala213 = "2.13.18"
 val scala3   = "3.3.7"
 val allScala = Seq(scala212, scala213, scala3)
 
@@ -186,7 +186,7 @@ lazy val core = project
         "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-core"     % jsoniterVersion,
         "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros"   % jsoniterVersion % Provided,
         "org.playframework"                     %% "play-json"               % playJsonVersion % Optional,
-        "org.apache.commons"                     % "commons-lang3"           % "3.19.0"        % Test
+        "org.apache.commons"                     % "commons-lang3"           % "3.20.0"        % Test
       )
   )
   .dependsOn(macros)
