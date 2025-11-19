@@ -5,8 +5,8 @@ import sbt.*
 import Keys.*
 
 val scala212 = "2.12.20"
-val scala213 = "2.13.16"
-val scala3   = "3.3.6"
+val scala213 = "2.13.18"
+val scala3   = "3.3.7"
 val allScala = Seq(scala212, scala213, scala3)
 
 val akkaVersion               = "2.6.20"
@@ -15,7 +15,7 @@ val catsEffect3Version        = "3.6.3"
 val catsMtlVersion            = "1.5.0"
 val circeVersion              = "0.14.15"
 val fs2Version                = "3.12.2"
-val http4sVersion             = "0.23.32"
+val http4sVersion             = "0.23.33"
 val javaTimeVersion           = "2.6.0"
 val jsoniterVersion           = "2.38.2"
 val laminextVersion           = "0.17.0"
@@ -23,11 +23,11 @@ val magnoliaScala2Version     = "1.1.10"
 val magnoliaScala3Version     = "1.3.18"
 val pekkoHttpVersion          = "1.2.0"
 val playVersion               = "3.0.9"
-val playJsonVersion           = "3.0.5"
+val playJsonVersion           = "3.0.6"
 val scalafmtVersion           = "3.8.0"
 val sttpVersion               = "3.10.3"
-val tapirVersion              = "1.11.48"
-val zioVersion                = "2.1.21"
+val tapirVersion              = "1.12.3"
+val zioVersion                = "2.1.22"
 val zioInteropCats2Version    = "22.0.0.0"
 val zioInteropCats3Version    = "23.1.0.5"
 val zioInteropReactiveVersion = "2.0.2"
@@ -186,7 +186,7 @@ lazy val core = project
         "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-core"     % jsoniterVersion,
         "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros"   % jsoniterVersion % Provided,
         "org.playframework"                     %% "play-json"               % playJsonVersion % Optional,
-        "org.apache.commons"                     % "commons-lang3"           % "3.19.0"        % Test
+        "org.apache.commons"                     % "commons-lang3"           % "3.20.0"        % Test
       )
   )
   .dependsOn(macros)
@@ -255,7 +255,7 @@ lazy val tracing = project
       "dev.zio"         %% "zio-opentelemetry"         % zioOpenTelemetryVersion,
       "dev.zio"         %% "zio-test"                  % zioVersion % Test,
       "dev.zio"         %% "zio-test-sbt"              % zioVersion % Test,
-      "io.opentelemetry" % "opentelemetry-sdk-testing" % "1.54.1"   % Test
+      "io.opentelemetry" % "opentelemetry-sdk-testing" % "1.56.0"   % Test
     )
   )
   .dependsOn(core, tools)
