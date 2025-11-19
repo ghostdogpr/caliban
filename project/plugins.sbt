@@ -1,6 +1,6 @@
 val sbtcrossProjectVersion = "1.3.2"
 
-addSbtPlugin("org.scalameta"      % "sbt-scalafmt"                  % "2.5.5")
+addSbtPlugin("org.scalameta"      % "sbt-scalafmt"                  % "2.5.6")
 addSbtPlugin("com.github.sbt"     % "sbt-ci-release"                % "1.11.2")
 addSbtPlugin("org.scala-js"       % "sbt-scalajs"                   % "1.20.1")
 addSbtPlugin("org.scala-native"   % "sbt-scala-native"              % "0.5.9")
