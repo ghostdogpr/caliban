@@ -9,8 +9,6 @@ import caliban.rendering.DocumentRenderer
 import caliban.schema.Annotations.GQLExcluded
 import caliban.schema.Types
 
-import scala.util.hashing.MurmurHash3
-
 case class __Type(
   kind: __TypeKind,
   name: Option[String] = None,
@@ -28,7 +26,7 @@ case class __Type(
 ) { self =>
   import caliban.syntax._
 
-  @transient final override lazy val hashCode: Int = MurmurHash3.productHash(self)
+  @transient final override lazy val hashCode: Int = caliban.Hash.caseClassHash(self)
 
   private[caliban] lazy val typeNameRepr: String = DocumentRenderer.renderTypeName(this)
 
