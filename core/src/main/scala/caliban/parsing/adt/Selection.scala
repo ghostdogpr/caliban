@@ -4,12 +4,10 @@ import caliban.InputValue
 import caliban.Scala3Annotations.threadUnsafe
 import caliban.parsing.adt.Type.NamedType
 
-import scala.util.hashing.MurmurHash3
-
 sealed trait Selection extends Product with Serializable {
 
   @transient @threadUnsafe
-  override final lazy val hashCode: Int = MurmurHash3.productHash(this)
+  override final lazy val hashCode: Int = caliban.Hash.caseClassHash(this)
 }
 
 object Selection {

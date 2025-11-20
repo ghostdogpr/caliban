@@ -5,7 +5,7 @@ import sbt.*
 import Keys.*
 
 val scala212 = "2.12.20"
-val scala213 = "2.13.16"
+val scala213 = "2.13.18"
 val scala3   = "3.3.7"
 val allScala = Seq(scala212, scala213, scala3)
 
@@ -17,11 +17,11 @@ val circeVersion              = "0.14.15"
 val fs2Version                = "3.12.2"
 val http4sVersion             = "0.23.33"
 val javaTimeVersion           = "2.6.0"
-val jsoniterVersion           = "2.38.2"
+val jsoniterVersion           = "2.38.4"
 val laminextVersion           = "0.17.0"
 val magnoliaScala2Version     = "1.1.10"
 val magnoliaScala3Version     = "1.3.18"
-val pekkoHttpVersion          = "1.2.0"
+val pekkoHttpVersion          = "1.3.0"
 val playVersion               = "3.0.9"
 val playJsonVersion           = "3.0.6"
 val scalafmtVersion           = "3.8.0"
@@ -33,9 +33,9 @@ val zioInteropCats3Version    = "23.1.0.5"
 val zioInteropReactiveVersion = "2.0.2"
 val zioConfigVersion          = "4.0.5"
 val zqueryVersion             = "0.7.7"
-val zioJsonVersion            = "0.7.44"
+val zioJsonVersion            = "0.7.45"
 val zioHttpVersion            = "3.4.0"
-val zioOpenTelemetryVersion   = "3.1.10"
+val zioOpenTelemetryVersion   = "3.1.11"
 
 Global / onChangedBuildSource := ReloadOnSourceChanges
 
@@ -175,7 +175,7 @@ lazy val core = project
     libraryDependencies ++=
       Seq(
         "com.lihaoyi"                           %% "fastparse"               % "3.1.1",
-        "org.scala-lang.modules"                %% "scala-collection-compat" % "2.13.0",
+        "org.scala-lang.modules"                %% "scala-collection-compat" % "2.14.0",
         "dev.zio"                               %% "zio"                     % zioVersion,
         "dev.zio"                               %% "zio-streams"             % zioVersion,
         "dev.zio"                               %% "zio-query"               % zqueryVersion,
@@ -187,7 +187,7 @@ lazy val core = project
         "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-core"     % jsoniterVersion,
         "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros"   % jsoniterVersion % Provided,
         "org.playframework"                     %% "play-json"               % playJsonVersion % Optional,
-        "org.apache.commons"                     % "commons-lang3"           % "3.19.0"        % Test
+        "org.apache.commons"                     % "commons-lang3"           % "3.20.0"        % Test
       )
   )
   .dependsOn(macros)
