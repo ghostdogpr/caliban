@@ -170,20 +170,20 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
    * Creates a scalar schema for a type `A`
    * @param name name of the scalar type
    * @param description description of the scalar type
-   * @param specifiedBy URL of the scalar specification
+   * @param specifiedByURL URL of the scalar specification
    * @param directives the directives to add to the type
    * @param makeResponse function from `A` to [[ResponseValue]] that defines how to resolve `A`
    */
   def scalarSchema[A](
     name: String,
     description: Option[String],
-    specifiedBy: Option[String],
+    specifiedByURL: Option[String],
     directives: Option[List[Directive]],
     makeResponse: A => ResponseValue
   ): Schema[Any, A] =
     new Schema[Any, A] {
       final override def toType(isInput: Boolean, isSubscription: Boolean): __Type =
-        makeScalar(name, description, specifiedBy, directives)
+        makeScalar(name, description, specifiedByURL, directives)
       final override def resolve(value: A): Step[Any]                              = PureStep(makeResponse(value))
     }
 
