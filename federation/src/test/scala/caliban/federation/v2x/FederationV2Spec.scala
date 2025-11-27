@@ -239,7 +239,7 @@ object FederationV2Spec extends ZIOSpecDefault {
 
         val actual   = federationRenderer.compact.render(Fixture.api)
         val expected =
-          """schema@link(url:"https://specs.apollo.dev/federation/v2.3",import:["@key","@requires","@provides","@external","@shareable","@tag","@inaccessible","@override","@extends","@composeDirective","@interfaceObject"]){query:Query}type Query{hello:String! user:User!}type User@key(fields:"id")@shareable{id:ID!}"""
+          """schema@link(url:"https://specs.apollo.dev/federation/v2.3",import:["@key","@requires","@provides","@external","@shareable","@tag","@inaccessible","@override","@extends","@composeDirective","@interfaceObject"]){query:Query}type Query{hello:String! user:User!} type User@key(fields:"id")@shareable{id:ID!} """
 
         assertTrue(actual == expected)
 

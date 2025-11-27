@@ -1,5 +1,6 @@
 package caliban.introspection.adt
 
+import caliban.Scala3Annotations.threadUnsafe
 import caliban.Value.StringValue
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
@@ -19,14 +20,15 @@ case class __Type(
   enumValues: __DeprecatedArgs => Option[List[__EnumValue]] = _ => None,
   inputFields: __DeprecatedArgs => Option[List[__InputValue]] = _ => None,
   ofType: Option[__Type] = None,
-  specifiedBy: Option[String] = None,
+  specifiedByURL: Option[String] = None,
   @GQLExcluded directives: Option[List[Directive]] = None,
   @GQLExcluded origin: Option[String] = None,
   isOneOf: Option[Boolean] = None
 ) { self =>
   import caliban.syntax._
 
-  final override lazy val hashCode: Int = super.hashCode()
+  @transient @threadUnsafe
+  final override lazy val hashCode: Int = caliban.Hash.caseClassHash(self)
 
   private[caliban] lazy val typeNameRepr: String = DocumentRenderer.renderTypeName(this)
 
@@ -43,7 +45,7 @@ case class __Type(
     args => (enumValues(args) ++ that.enumValues(args)).reduceOption(_ ++ _),
     args => (inputFields(args) ++ that.inputFields(args)).reduceOption(_ ++ _),
     (ofType ++ that.ofType).reduceOption(_ |+| _),
-    (specifiedBy ++ that.specifiedBy).reduceOption((_, b) => b),
+    (specifiedByURL ++ that.specifiedByURL).reduceOption((_, b) => b),
     (directives ++ that.directives).reduceOption(_ ++ _),
     (origin ++ that.origin).reduceOption((_, b) => b)
   )
@@ -68,7 +70,7 @@ case class __Type(
             name.getOrElse(""), {
               val dirs = directives.getOrElse(Nil)
               dirs ++
-                specifiedBy
+                specifiedByURL
                   .map(url => Directive("specifiedBy", Map("url" -> StringValue(url)), dirs.size))
                   .toList
             }

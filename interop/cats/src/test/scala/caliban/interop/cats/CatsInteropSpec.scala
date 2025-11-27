@@ -103,7 +103,8 @@ object CatsInteropSpec extends ZIOSpecDefault {
                          |
                          |type Query {
                          |  io: Int!
-                         |}""".stripMargin
+                         |}
+                         |""".stripMargin
         )
       } @@ TestAspect.blocking
     )

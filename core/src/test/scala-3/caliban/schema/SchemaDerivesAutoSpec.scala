@@ -228,7 +228,8 @@ object SchemaDerivesAutoSpec extends ZIOSpecDefault {
                          |type QueryType {
                          |  a: String!
                          |  foo: Foo!
-                         |}""".stripMargin
+                         |}
+                         |""".stripMargin
         assertTrue(gql.render == expected)
       },
       test("Pass interface to withAdditionalTypes") {
@@ -262,7 +263,8 @@ object SchemaDerivesAutoSpec extends ZIOSpecDefault {
                          |type Query {
                          |  a: A!
                          |  b: B!
-                         |}""".stripMargin
+                         |}
+                         |""".stripMargin
         assertTrue(gql.render == expected)
       },
       suite("Auto derivation reuses implicits") {
@@ -278,7 +280,8 @@ object SchemaDerivesAutoSpec extends ZIOSpecDefault {
 
             |type Queries {
             |  as: [A!]!
-            |}""".stripMargin
+            |}
+            |""".stripMargin
         List(
           test("from GenericSchema[Any]") {
             case class A(a: String, b: Option[Int])

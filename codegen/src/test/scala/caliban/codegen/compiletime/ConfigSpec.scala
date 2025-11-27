@@ -1,0 +1,132 @@
+package caliban.codegen.compiletime
+
+import caliban.codegen.CalibanCommonSettings
+import caliban.codegen.Codegen.GenType
+import caliban.codegen.compiletime.Config._
+import zio.test._
+
+object ConfigSpec extends ZIOSpecDefault {
+
+  private val fullExample: ClientGenerationSettings =
+    ClientGenerationSettings(
+      packageName = "io.example.generated",
+      clientName = "CalibanClient",
+      scalafmtPath = Some("a/b/c"),
+      genView = true,
+      scalarMappings = List(("mapping key 1", "mapping value 1"), "abc" -> "def"),
+      imports = List("zio.test._", "caliban.tools.compiletime._"),
+      splitFiles = true,
+      enableFmt = false,
+      extensibleEnums = true,
+      supportIsRepeatable = true,
+      excludeDeprecated = true,
+      supportDeprecatedArgs = true
+    )
+
+  private val toCalibanCommonSettingsSpec =
+    suite("#toCalibanCommonSettings")(
+      test("fullExample")(
+        assertTrue(
+          fullExample.toCalibanCommonSettings ==
+            CalibanCommonSettings(
+              genType = GenType.Client,
+              clientName = Some("CalibanClient"),
+              scalafmtPath = Some("a/b/c"),
+              headers = List.empty,
+              packageName = Some("io.example.generated"),
+              genView = Some(true),
+              scalarMappings = List(("mapping key 1", "mapping value 1"), "abc" -> "def"),
+              imports = List("zio.test._", "caliban.tools.compiletime._"),
+              splitFiles = Some(true),
+              enableFmt = Some(false),
+              extensibleEnums = Some(true),
+              effect = None,
+              abstractEffectType = None,
+              preserveInputNames = None,
+              supportIsRepeatable = Some(true),
+              addDerives = None,
+              envForDerives = None,
+              excludeDeprecated = Some(true),
+              supportDeprecatedArgs = Some(true)
+            )
+        )
+      )
+    )
+
+  private val asScalaCodeSpec =
+    suite("#asScalaCode")(
+      test("default")(
+        assertTrue(
+          ClientGenerationSettings.default.asScalaCode ==
+            s"""
+               |ClientGenerationSettings(
+               |  packageName = "generated",
+               |  clientName = "Client",
+               |  scalafmtPath = None,
+               |  genView = false,
+               |  scalarMappings = List.empty,
+               |  imports = List.empty,
+               |  splitFiles = false,
+               |  enableFmt = true,
+               |  extensibleEnums = false,
+               |  supportIsRepeatable = true,
+               |  excludeDeprecated = false,
+               |  supportDeprecatedArgs = true
+               |)
+            """.stripMargin.trim
+        )
+      ),
+      test("full example")(
+        assertTrue(
+          fullExample.asScalaCode ==
+            s"""
+               |ClientGenerationSettings(
+               |  packageName = "io.example.generated",
+               |  clientName = "CalibanClient",
+               |  scalafmtPath = Some("a/b/c"),
+               |  genView = true,
+               |  scalarMappings = List(("mapping key 1","mapping value 1"),("abc","def")),
+               |  imports = List("zio.test._","caliban.tools.compiletime._"),
+               |  splitFiles = true,
+               |  enableFmt = false,
+               |  extensibleEnums = true,
+               |  supportIsRepeatable = true,
+               |  excludeDeprecated = true,
+               |  supportDeprecatedArgs = true
+               |)
+            """.stripMargin.trim
+        )
+      )
+    )
+
+  private val defaultSpec =
+    suite(".default")(
+      test("use default value")(
+        assertTrue(
+          ClientGenerationSettings.default ==
+            ClientGenerationSettings(
+              packageName = "generated",
+              clientName = "Client",
+              scalafmtPath = None,
+              genView = false,
+              scalarMappings = List.empty,
+              imports = List.empty,
+              splitFiles = false,
+              enableFmt = true,
+              extensibleEnums = false,
+              excludeDeprecated = false,
+              supportDeprecatedArgs = true
+            )
+        )
+      )
+    )
+
+  override def spec =
+    suite("Config spec")(
+      suite("ClientGenerationSettings")(
+        toCalibanCommonSettingsSpec,
+        asScalaCodeSpec,
+        defaultSpec
+      )
+    )
+}

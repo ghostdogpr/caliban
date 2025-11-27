@@ -2,7 +2,7 @@ package caliban.schema
 
 import caliban.CalibanError.ExecutionError
 import caliban.InputValue
-import caliban.InputValue.ObjectValue
+import caliban.InputValue.{ ListValue, ObjectValue }
 import caliban.schema.ArgBuilder.auto._
 import caliban.Value.{ IntValue, NullValue, StringValue }
 import caliban.schema.Annotations.{ GQLOneOfInput, GQLValueType }
@@ -195,6 +195,33 @@ object ArgBuilderSpec extends ZIOSpecDefault {
         )
         implicit lazy val argBuilder: ArgBuilder[RecursionTest] = ArgBuilder.gen
         assert(argBuilder)(Assertion.anything)
+      }
+    ),
+    suite("Maps")(
+      test("should support maps") {
+        case class MapTest(map: Map[String, String])
+        val ab = ArgBuilder.gen[MapTest]
+        assertTrue(
+          ab.build(
+            ObjectValue(
+              Map(
+                "map" -> ListValue(List(ObjectValue(Map("key" -> StringValue("key"), "value" -> StringValue("value")))))
+              )
+            )
+          ) == Right(
+            MapTest(Map("key" -> "value"))
+          ),
+          ab.build(ObjectValue(Map("map" -> NullValue))).isLeft,
+          ab.build(ObjectValue(Map("map" -> StringValue("foo")))).isLeft,
+          ab.build(ObjectValue(Map("map" -> ListValue(List(StringValue("foo")))))).isLeft,
+          ab.build(ObjectValue(Map("map" -> ListValue(List(ObjectValue(Map("key" -> StringValue("bar")))))))).isLeft,
+          ab.build(ObjectValue(Map("map" -> ListValue(List(ObjectValue(Map("value" -> StringValue("bar")))))))).isLeft,
+          ab.build(
+            ObjectValue(
+              Map("map" -> ListValue(List(ObjectValue(Map("key" -> StringValue("bar"), "value" -> IntValue(1))))))
+            )
+          ).isLeft
+        )
       }
     )
   )

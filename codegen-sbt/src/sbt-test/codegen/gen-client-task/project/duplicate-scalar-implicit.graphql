@@ -1,0 +1,6 @@
+type PriceRuleCustomerSelection {
+  customers(after: String, savedSearchId: ID): String
+  foo(str: String, myString: MyString, predefString: PredefString, scalaPredefString: ScalaPredefString): String
+}
+
+scalar ID

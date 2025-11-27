@@ -30,7 +30,8 @@ object EnumFieldAutoDerivation extends ZIOSpecDefault {
           |
           |type Value {
           |  value: Foo!
-          |}""".stripMargin
+          |}
+          |""".stripMargin
 
       given Schema[Any, Foo]   = Schema.derived
       given Schema[Any, Bar]   = Schema.derived

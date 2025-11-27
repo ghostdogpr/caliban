@@ -46,7 +46,8 @@ object Scala3SpecificSpec extends ZIOSpecDefault {
                                  |
                                  |type Queries {
                                  |  item: FooEnum!
-                                 |}""".stripMargin)
+                                 |}
+                                 |""".stripMargin)
       },
       test("Scala 3 enum") {
         case class Queries(item: MyEnum)

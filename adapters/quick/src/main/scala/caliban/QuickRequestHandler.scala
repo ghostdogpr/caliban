@@ -42,14 +42,21 @@ final private class QuickRequestHandler[R](
   def configureWebSocket[R1](config: quick.WebSocketConfig[R1]): QuickRequestHandler[R & R1] =
     new QuickRequestHandler[R & R1](interpreter, config)
 
-  def handleHttpRequest(request: Request)(implicit trace: Trace): URIO[R, Response] = ZIO.suspendSucceed {
-    transformHttpRequest(request)
-      .flatMap(executeRequest(request.method, _))
-      .foldZIO(
-        Exit.succeed,
-        resp => Exit.succeed(transformResponse(request, resp))
-      )
-  }
+  def handleHttpRequest(request: Request)(implicit
+    trace: Trace
+  ): URIO[R, Response] =
+    if (request.body.mediaType.exists(MediaType.multipart.`form-data`.matches(_, ignoreParameters = true))) {
+      handleUploadRequest(request)
+    } else {
+      ZIO.suspendSucceed {
+        transformHttpRequest(request)
+          .flatMap(executeRequest(request.method, _))
+          .foldZIO(
+            Exit.succeed,
+            resp => Exit.succeed(transformResponse(request, resp))
+          )
+      }
+    }
 
   def handleUploadRequest(request: Request)(implicit trace: Trace): URIO[R, Response] = ZIO.suspendSucceed {
     transformUploadRequest(request).flatMap { case (req, fileHandle) =>

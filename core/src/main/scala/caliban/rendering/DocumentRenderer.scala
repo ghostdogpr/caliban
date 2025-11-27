@@ -14,6 +14,8 @@ import caliban.parsing.adt.Definition.TypeSystemDefinition.{
   SchemaDefinition,
   TypeDefinition
 }
+import caliban.parsing.adt.Definition.TypeSystemExtension
+import caliban.parsing.adt.Definition.TypeSystemExtension.TypeExtension
 import caliban.parsing.adt.Type.{ innerType, NamedType }
 import caliban.parsing.adt._
 
@@ -34,6 +36,16 @@ object DocumentRenderer extends Renderer[Document] {
     case TypeDefinition.InputObjectTypeDefinition(_, name, _, _)  => (3, name)
     case TypeDefinition.InterfaceTypeDefinition(_, name, _, _, _) => (4, name)
     case TypeDefinition.ObjectTypeDefinition(_, name, _, _, _)    => (5, name)
+  }
+
+  private implicit val extensionOrdering: Ordering[TypeSystemExtension] = Ordering.by {
+    case _: TypeSystemExtension.SchemaExtension     => (0, "")
+    case te: TypeExtension.ScalarTypeExtension      => (1, te.name)
+    case te: TypeExtension.UnionTypeExtension       => (2, te.name)
+    case te: TypeExtension.EnumTypeExtension        => (3, te.name)
+    case te: TypeExtension.InputObjectTypeExtension => (4, te.name)
+    case te: TypeExtension.InterfaceTypeExtension   => (5, te.name)
+    case te: TypeExtension.ObjectTypeExtension      => (6, te.name)
   }
 
   private implicit val directiveLocationOrdering: Ordering[DirectiveLocation] = Ordering.by {
@@ -86,6 +98,7 @@ object DocumentRenderer extends Renderer[Document] {
 
       override def unsafeRender(description: Option[String], indent: Option[Int], writer: StringBuilder): Unit =
         description.foreach {
+          case value if value.isBlank        => ()
           case value if value.contains('\n') =>
             def valueEscaped(): Unit = unsafeFastEscapeQuote(value, writer)
 
@@ -126,7 +139,8 @@ object DocumentRenderer extends Renderer[Document] {
       .list(Renderer.newlineOrSpace ++ Renderer.newlineOrEmpty)
       .contramap(_.operationDefinitions),
     typeDefinitionsRenderer.contramap(_.typeDefinitions),
-    fragmentRenderer.list.contramap(_.fragmentDefinitions)
+    fragmentRenderer.list.contramap(_.fragmentDefinitions),
+    typeExtensionsRenderer.contramap(_.typeExtensions)
   )
 
   private lazy val __typeNameRenderer: Renderer[__Type] = new Renderer[__Type] {
@@ -322,6 +336,64 @@ object DocumentRenderer extends Renderer[Document] {
         }
     }
 
+  private trait SchemaOps {
+    def unsafeRenderImpl(
+      theType: String,
+      description: Option[String],
+      directives: List[Directive],
+      query: Option[String],
+      mutation: Option[String],
+      subscription: Option[String],
+      indent: Option[Int],
+      writer: StringBuilder
+    ) = {
+      def renderOp(name: String, op: Option[String]): Unit =
+        op.foreach { o =>
+          pad(increment(indent), writer)
+          writer append name
+          writer append ':'
+          spaceOrEmpty(indent, writer)
+          writer append o
+          newlineOrEmpty(indent, writer)
+        }
+      newlineOrEmpty(indent, writer)
+      descriptionRenderer.unsafeRender(description, indent, writer)
+      writer append theType
+      spaceOrEmpty(indent, writer)
+      directivesRenderer.unsafeRender(directives, indent, writer)
+      val hasTypes                                         = query.nonEmpty || mutation.nonEmpty || subscription.nonEmpty
+      if (hasTypes) {
+        writer append '{'
+        newlineOrEmpty(indent, writer)
+        renderOp("query", query)
+        renderOp("mutation", mutation)
+        renderOp("subscription", subscription)
+        writer append '}'
+      }
+      newlineOrEmpty(indent, writer)
+    }
+  }
+  private lazy val schemaExtensionRenderer: Renderer[TypeSystemExtension.SchemaExtension] =
+    new Renderer[TypeSystemExtension.SchemaExtension] with SchemaOps {
+      override protected[caliban] def unsafeRender(
+        extension: TypeSystemExtension.SchemaExtension,
+        indent: Option[Int],
+        write: StringBuilder
+      ): Unit = {
+        import extension._
+        unsafeRenderImpl("extend schema", None, directives, query, mutation, subscription, indent, write)
+      }
+    }
+  // TODO: The implementation of schemaRenderer is wrong. Two schema definations is invalid. The current implementation
+  // treats it as an extension. The correct implementation should be the follwoing one but I'm keeping the old one for
+  // backward compatibility for now.
+  //  private lazy val schemaRenderer: Renderer[SchemaDefinition] = new Renderer[SchemaDefinition] with SchemaOps {
+  //    override def unsafeRender(definition: SchemaDefinition, indent: Option[Int], writer: StringBuilder): Unit = {
+  //      import definition._
+  //      unsafeRenderImpl("schema", description, directives, query, mutation, subscription, indent, writer)
+  //    }
+  //  }
+
   private lazy val schemaRenderer: Renderer[SchemaDefinition] = new Renderer[SchemaDefinition] {
     override def unsafeRender(definition: SchemaDefinition, indent: Option[Int], writer: StringBuilder): Unit =
       definition match {
@@ -357,7 +429,9 @@ object DocumentRenderer extends Renderer[Document] {
               renderOp("subscription", subscription)
               newlineOrEmpty(indent, writer)
               writer append '}'
-            }
+              newlineOrEmpty(indent, writer)
+            } else
+              newlineOrEmpty(indent, writer)
           }
       }
   }
@@ -383,6 +457,23 @@ object DocumentRenderer extends Renderer[Document] {
       }
   }
 
+  private lazy val typeExtensionsRenderer: Renderer[List[TypeSystemExtension]] =
+    typeExtensionRenderer.list.contramap(_.sorted)
+
+  private lazy val typeExtensionRenderer: Renderer[TypeSystemExtension] = new Renderer[TypeSystemExtension] {
+    override def unsafeRender(extension: TypeSystemExtension, indent: Option[Int], writer: StringBuilder): Unit =
+      extension match {
+        case t: TypeSystemExtension.SchemaExtension    => schemaExtensionRenderer.unsafeRender(t, indent, writer)
+        case t: TypeExtension.EnumTypeExtension        => enumTypeExtensionRenderer.unsafeRender(t, indent, writer)
+        case t: TypeExtension.InputObjectTypeExtension => inputObjectExtensionRenderer.unsafeRender(t, indent, writer)
+        case t: TypeExtension.InterfaceTypeExtension   => interfaceTypeExtensionRenderer.unsafeRender(t, indent, writer)
+        case t: TypeExtension.ScalarTypeExtension      => scalarExtensionRenderer.unsafeRender(t, indent, writer)
+        case t: TypeExtension.ObjectTypeExtension      => objectTypeExtensionRenderer.unsafeRender(t, indent, writer)
+        case t: TypeExtension.UnionTypeExtension       => unionTypeExtensionRenderer.unsafeRender(t, indent, writer)
+      }
+
+  }
+
   private lazy val fragmentRenderer: Renderer[FragmentDefinition] = new Renderer[FragmentDefinition] {
     override def unsafeRender(value: FragmentDefinition, indent: Option[Int], writer: StringBuilder): Unit =
       value match {
@@ -398,60 +489,163 @@ object DocumentRenderer extends Renderer[Document] {
       }
   }
 
-  private lazy val unionRenderer: Renderer[UnionTypeDefinition] = new Renderer[UnionTypeDefinition] {
+  private trait UnionOps {
     private val memberRenderer =
       Renderer.string.list(Renderer.spaceOrEmpty ++ Renderer.char('|') ++ Renderer.spaceOrEmpty)
 
-    override def unsafeRender(value: UnionTypeDefinition, indent: Option[Int], writer: StringBuilder): Unit =
-      value match {
-        case UnionTypeDefinition(description, name, directives, members) =>
-          newlineOrSpace(indent, writer)
-          newlineOrEmpty(indent, writer)
-          descriptionRenderer.unsafeRender(description, indent, writer)
-          writer append "union "
-          writer append name
-          directivesRenderer.unsafeRender(directives, indent, writer)
-          spaceOrEmpty(indent, writer)
-          writer append '='
-          spaceOrEmpty(indent, writer)
-          memberRenderer.unsafeRender(members, indent, writer)
-      }
+    def unsafeRenderImpl(
+      theType: String,
+      name: String,
+      description: Option[String],
+      directives: List[Directive],
+      memberTypes: List[String],
+      indent: Option[Int],
+      writer: StringBuilder
+    ): Unit = {
+      newlineOrSpace(indent, writer)
+      descriptionRenderer.unsafeRender(description, indent, writer)
+      writer append theType
+      writer append ' '
+      writer append name
+      directivesRenderer.unsafeRender(directives, indent, writer)
+      spaceOrEmpty(indent, writer)
+      writer append '='
+      spaceOrEmpty(indent, writer)
+      memberRenderer.unsafeRender(memberTypes, indent, writer)
+      newlineOrSpace(indent, writer)
+    }
   }
 
-  private lazy val scalarRenderer: Renderer[ScalarTypeDefinition] = new Renderer[ScalarTypeDefinition] {
+  private lazy val unionTypeExtensionRenderer: Renderer[TypeExtension.UnionTypeExtension] =
+    new Renderer[TypeExtension.UnionTypeExtension] with UnionOps {
+      override def unsafeRender(
+        extension: TypeExtension.UnionTypeExtension,
+        indent: Option[Int],
+        write: StringBuilder
+      ): Unit = {
+        import extension._
+        unsafeRenderImpl(
+          "extend union",
+          name,
+          None,
+          directives,
+          memberTypes,
+          indent,
+          write
+        )
+      }
+    }
+
+  private lazy val unionRenderer: Renderer[UnionTypeDefinition] =
+    new Renderer[UnionTypeDefinition] with UnionOps {
+      override def unsafeRender(definition: UnionTypeDefinition, indent: Option[Int], writer: StringBuilder): Unit = {
+        import definition._
+        unsafeRenderImpl("union", name, description, directives, memberTypes, indent, writer)
+      }
+    }
+
+  private trait scalarOps {
+    def unsafeRenderImpl(
+      theType: String,
+      name: String,
+      description: Option[String],
+      directives: List[Directive],
+      indent: Option[Int],
+      write: StringBuilder
+    ) = {
+      newlineOrSpace(indent, write)
+      descriptionRenderer.unsafeRender(description, indent, write)
+      write append theType
+      write append ' '
+      write append name
+      directivesRenderer.unsafeRender(directives, indent, write)
+      newlineOrEmpty(indent, write)
+    }
+  }
+  private lazy val scalarExtensionRenderer: Renderer[TypeExtension.ScalarTypeExtension] =
+    new Renderer[TypeExtension.ScalarTypeExtension] with scalarOps {
+      override def unsafeRender(
+        extension: TypeExtension.ScalarTypeExtension,
+        indent: Option[Int],
+        write: StringBuilder
+      ): Unit = {
+        import extension._
+        unsafeRenderImpl(
+          "extend scalar",
+          name,
+          None,
+          directives,
+          indent,
+          write
+        )
+      }
+    }
+
+  private lazy val scalarRenderer: Renderer[ScalarTypeDefinition] = new Renderer[ScalarTypeDefinition] with scalarOps {
     override def unsafeRender(value: ScalarTypeDefinition, indent: Option[Int], write: StringBuilder): Unit =
       value match {
         case ScalarTypeDefinition(description, name, directives) =>
           if (!isBuiltinScalar(name)) {
-            newlineOrSpace(indent, write)
-            descriptionRenderer.unsafeRender(description, indent, write)
-            write append "scalar "
-            write append name
-            directivesRenderer.unsafeRender(directives, indent, write)
+            unsafeRenderImpl("scalar", name, description, directives, indent, write)
           }
       }
   }
 
-  private lazy val enumRenderer: Renderer[EnumTypeDefinition] = new Renderer[EnumTypeDefinition] {
+  private trait EnumOps {
     private val memberRenderer = enumValueDefinitionRenderer.list(Renderer.newlineOrComma)
 
-    override def unsafeRender(value: EnumTypeDefinition, indent: Option[Int], writer: StringBuilder): Unit =
-      value match {
-        case EnumTypeDefinition(description, name, directives, values) =>
-          newlineOrSpace(indent, writer)
-          newlineOrEmpty(indent, writer)
-          descriptionRenderer.unsafeRender(description, indent, writer)
-          writer append "enum "
-          writer append name
-          directivesRenderer.unsafeRender(directives, indent, writer)
-          spaceOrEmpty(indent, writer)
-          writer append '{'
-          newlineOrEmpty(indent, writer)
-          memberRenderer.unsafeRender(values, increment(indent), writer)
-          newlineOrEmpty(indent, writer)
-          writer append '}'
-      }
+    def unsafeRenderImpl(
+      theType: String,
+      name: String,
+      description: Option[String],
+      directives: List[Directive],
+      enumValuesDefinition: List[EnumValueDefinition],
+      indent: Option[Int],
+      writer: StringBuilder
+    ): Unit = {
+      newlineOrEmpty(indent, writer)
+      descriptionRenderer.unsafeRender(description, indent, writer)
+      writer append theType
+      writer append ' '
+      writer append name
+      directivesRenderer.unsafeRender(directives, indent, writer)
+      spaceOrEmpty(indent, writer)
+      writer append '{'
+      newlineOrEmpty(indent, writer)
+      memberRenderer.unsafeRender(enumValuesDefinition, increment(indent), writer)
+      newlineOrEmpty(indent, writer)
+      writer append '}'
+      newlineOrSpace(indent, writer)
+
+    }
   }
+
+  private lazy val enumRenderer: Renderer[EnumTypeDefinition] = new Renderer[EnumTypeDefinition] with EnumOps {
+    override def unsafeRender(definition: EnumTypeDefinition, indent: Option[Int], writer: StringBuilder): Unit = {
+      import definition._
+      unsafeRenderImpl("enum", name, description, directives, enumValuesDefinition, indent, writer)
+    }
+  }
+
+  private lazy val enumTypeExtensionRenderer: Renderer[TypeExtension.EnumTypeExtension] =
+    new Renderer[TypeExtension.EnumTypeExtension] with EnumOps {
+      override def unsafeRender(
+        extension: TypeExtension.EnumTypeExtension,
+        indent: Option[Int],
+        write: StringBuilder
+      ): Unit = {
+        import extension._
+        unsafeRenderImpl(
+          "extend enum",
+          name,
+          None,
+          directives,
+          enumValuesDefinition,
+          indent,
+          write
+        )
+      }
+    }
 
   private lazy val enumValueDefinitionRenderer: Renderer[EnumValueDefinition] =
     new Renderer[EnumValueDefinition] {
@@ -465,26 +659,73 @@ object DocumentRenderer extends Renderer[Document] {
         }
     }
 
-  private lazy val inputObjectTypeDefinition: Renderer[InputObjectTypeDefinition] =
-    new Renderer[InputObjectTypeDefinition] {
-      private val fieldsRenderer = inputValueDefinitionRenderer.list(Renderer.newlineOrSpace)
+  private trait InputObjectOps {
+    private val fieldsRenderer = inputValueDefinitionRenderer.list(Renderer.newlineOrSpace)
 
-      override def unsafeRender(value: InputObjectTypeDefinition, indent: Option[Int], writer: StringBuilder): Unit =
-        value match {
-          case InputObjectTypeDefinition(description, name, directives, fields) =>
-            newlineOrSpace(indent, writer)
-            newlineOrEmpty(indent, writer)
-            descriptionRenderer.unsafeRender(description, indent, writer)
-            writer append "input "
-            writer append name
-            directivesRenderer.unsafeRender(directives, indent, writer)
-            spaceOrEmpty(indent, writer)
-            writer append '{'
-            newlineOrEmpty(indent, writer)
-            fieldsRenderer.unsafeRender(fields, increment(indent), writer)
-            newlineOrEmpty(indent, writer)
-            writer append '}'
-        }
+    def unsafeRenderImpl(
+      theType: String,
+      name: String,
+      description: Option[String],
+      directives: List[Directive],
+      fields: List[InputValueDefinition],
+      indent: Option[Int],
+      writer: StringBuilder
+    ): Unit = {
+      newlineOrEmpty(indent, writer)
+      descriptionRenderer.unsafeRender(description, indent, writer)
+      writer append theType
+      writer append ' '
+      writer append name
+      directivesRenderer.unsafeRender(directives, indent, writer)
+      spaceOrEmpty(indent, writer)
+      writer append '{'
+      newlineOrEmpty(indent, writer)
+      fieldsRenderer.unsafeRender(fields, increment(indent), writer)
+      newlineOrEmpty(indent, writer)
+      writer append '}'
+      newlineOrSpace(indent, writer)
+    }
+  }
+
+  private lazy val inputObjectExtensionRenderer: Renderer[TypeExtension.InputObjectTypeExtension] =
+    new Renderer[TypeExtension.InputObjectTypeExtension] with InputObjectOps {
+      override def unsafeRender(
+        extension: TypeExtension.InputObjectTypeExtension,
+        indent: Option[Int],
+        write: StringBuilder
+      ): Unit = {
+        import extension._
+        unsafeRenderImpl(
+          "extend input",
+          name,
+          None,
+          directives,
+          fields,
+          indent,
+          write
+        )
+      }
+    }
+
+  private lazy val inputObjectTypeDefinition: Renderer[InputObjectTypeDefinition] =
+    new Renderer[InputObjectTypeDefinition] with InputObjectOps {
+
+      override def unsafeRender(
+        definition: InputObjectTypeDefinition,
+        indent: Option[Int],
+        writer: StringBuilder
+      ): Unit = {
+        import definition._
+        unsafeRenderImpl(
+          "input",
+          name,
+          description,
+          directives,
+          fields,
+          indent,
+          writer
+        )
+      }
     }
 
   private lazy val inputValueDefinitionRenderer: Renderer[InputValueDefinition] =
@@ -507,6 +748,27 @@ object DocumentRenderer extends Renderer[Document] {
         }
     }
 
+  private lazy val objectTypeExtensionRenderer: Renderer[TypeExtension.ObjectTypeExtension] =
+    new Renderer[TypeExtension.ObjectTypeExtension] {
+      override def unsafeRender(
+        extension: TypeExtension.ObjectTypeExtension,
+        indent: Option[Int],
+        writer: StringBuilder
+      ): Unit = {
+        import extension._
+        unsafeRenderObjectLike(
+          "extend type",
+          None,
+          name,
+          implements,
+          directives,
+          fields,
+          indent,
+          writer
+        )
+      }
+    }
+
   private lazy val objectTypeDefinitionRenderer: Renderer[ObjectTypeDefinition] =
     new Renderer[ObjectTypeDefinition] {
       override def unsafeRender(value: ObjectTypeDefinition, indent: Option[Int], writer: StringBuilder): Unit =
@@ -520,6 +782,27 @@ object DocumentRenderer extends Renderer[Document] {
           indent,
           writer
         )
+    }
+
+  private lazy val interfaceTypeExtensionRenderer: Renderer[TypeExtension.InterfaceTypeExtension] =
+    new Renderer[TypeExtension.InterfaceTypeExtension] {
+      override def unsafeRender(
+        extension: TypeExtension.InterfaceTypeExtension,
+        indent: Option[Int],
+        writer: StringBuilder
+      ): Unit = {
+        import extension._
+        unsafeRenderObjectLike(
+          "extend interface",
+          None,
+          name,
+          List.empty,
+          directives,
+          fields,
+          indent,
+          writer
+        )
+      }
     }
 
   private lazy val interfaceTypeDefinitionRenderer: Renderer[InterfaceTypeDefinition] =
@@ -548,7 +831,6 @@ object DocumentRenderer extends Renderer[Document] {
     writer: StringBuilder
   ): Unit = {
     newlineOrEmpty(indent, writer)
-    newlineOrEmpty(indent, writer)
     descriptionRenderer.unsafeRender(description, indent, writer)
     writer append variant
     writer append ' '
@@ -572,6 +854,7 @@ object DocumentRenderer extends Renderer[Document] {
       newlineOrEmpty(indent, writer)
       writer append '}'
     }
+    newlineOrSpace(indent, writer)
   }
 
   private lazy val directiveRenderer: Renderer[Directive] = new Renderer[Directive] {

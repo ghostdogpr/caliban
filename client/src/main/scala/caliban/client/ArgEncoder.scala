@@ -2,6 +2,9 @@ package caliban.client
 
 import caliban.client.__Value.{ __BooleanValue, __ListValue, __NullValue, __NumberValue, __ObjectValue, __StringValue }
 
+import java.time.format.DateTimeFormatter
+import java.time.temporal.TemporalAccessor
+import java.time.{ Instant, LocalDate, LocalDateTime, LocalTime, OffsetDateTime, OffsetTime, ZonedDateTime }
 import scala.annotation.implicitNotFound
 import java.util.UUID
 
@@ -51,4 +54,20 @@ object ArgEncoder {
     __ListValue(value.map(ev.encode))
 
   implicit val json: ArgEncoder[__ObjectValue] = (value: __ObjectValue) => value
+
+  // Helper for temporal encoders, using the default `toString` which produces ISO-standard formats.
+  def temporalEncoder[A](format: A => String): ArgEncoder[A] = value => __StringValue(format(value))
+
+  def temporalEncoder[A <: TemporalAccessor](formatter: DateTimeFormatter): ArgEncoder[A] =
+    temporalEncoder(d => formatter.format(d))
+
+  // Time encoders
+  implicit val instant: ArgEncoder[Instant]               = temporalEncoder(_.toString)
+  implicit val localDate: ArgEncoder[LocalDate]           = temporalEncoder(_.toString)
+  implicit val localTime: ArgEncoder[LocalTime]           = temporalEncoder(_.toString)
+  implicit val localDateTime: ArgEncoder[LocalDateTime]   = temporalEncoder(_.toString)
+  implicit val offsetTime: ArgEncoder[OffsetTime]         = temporalEncoder(_.toString)
+  implicit val offsetDateTime: ArgEncoder[OffsetDateTime] = temporalEncoder(_.toString)
+  implicit val zonedDateTime: ArgEncoder[ZonedDateTime]   = temporalEncoder(_.toString)
+
 }

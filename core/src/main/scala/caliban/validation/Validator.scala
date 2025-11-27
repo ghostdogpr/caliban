@@ -363,8 +363,12 @@ object Validator {
             "Variables can only be input types. Objects, unions, and interfaces cannot be used as inputs."
           )
 
-          val v2 =
-            if (t.exists(_._isOneOfInput))
+          val isObjField = v.variableType match {
+            case _: Type.NamedType => true
+            case _: Type.ListType  => false
+          }
+          val v2         =
+            if (isObjField && t.exists(_._isOneOfInput))
               Some(
                 failWhen(v.variableType.nullable)(
                   s"Variable '${v.name}' cannot be nullable.",

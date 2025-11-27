@@ -1,0 +1,59 @@
+schema {
+  query: Query
+  mutation: Mutation
+}
+
+scalar Foo
+
+"Union with directive"
+union SearchResult @auth(requires: USER) = Human | Droid
+
+enum Episode {
+  NEWHOPE
+  EMPIRE
+}
+
+input ReviewInput {
+  stars: Int! = 5
+  commentary: String @deprecated(reason: "Use feedback instead")
+}
+
+"Interface with directive"
+interface Character @auth(requires: USER) {
+  id: ID!
+  name: String! @deprecated(reason: "Use fullName instead")
+  appearsIn: [Episode!]!
+}
+
+"Object type implementing interface with directive"
+type Human implements Character @auth(requires: USER) {
+  id: ID!
+  name: String!
+  appearsIn: [Episode!]!
+  totalCredits: Int
+}
+
+extend schema {
+  subscription: Subscription
+}
+
+extend scalar Foo @auth(requires: USER)
+
+extend union SearchResult = Starship | Planet | Vehicle
+
+extend enum Episode {
+  FORCEAWAKENS
+  LASTJEDI
+}
+
+extend input ReviewInput {
+  spoilerFree: Boolean = true
+}
+
+extend interface Character {
+  species: String
+}
+
+extend type Human implements Character {
+  homePlanet: String
+}

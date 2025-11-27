@@ -2,7 +2,7 @@ package caliban.schema
 
 import caliban.Value.StringValue
 import caliban._
-import caliban.introspection.adt.{ __DeprecatedArgs, __Field, __Type, __TypeKind }
+import caliban.introspection.adt.{ __DeprecatedArgs, __Type, __TypeKind }
 import caliban.parsing.adt.Directive
 import caliban.schema.Annotations._
 import caliban.schema.ArgBuilder.auto._
@@ -220,7 +220,8 @@ object SchemaSpec extends ZIOSpecDefault {
                          |type QueryType {
                          |  a: String!
                          |  foo: Foo!
-                         |}""".stripMargin
+                         |}
+                         |""".stripMargin
         assertTrue(gql.render == expected)
       },
       test("Pass interface to withAdditionalTypes") {
@@ -254,7 +255,8 @@ object SchemaSpec extends ZIOSpecDefault {
                          |type Query {
                          |  a: A!
                          |  b: B!
-                         |}""".stripMargin
+                         |}
+                         |""".stripMargin
         assertTrue(gql.render == expected)
       },
       test("enum supported directives") {
@@ -313,7 +315,8 @@ object SchemaSpec extends ZIOSpecDefault {
                          |
                          |type Mutation {
                          |  mutBox(value: Int!): Box!
-                         |}""".stripMargin
+                         |}
+                         |""".stripMargin
         assertTrue(caliban.renderSchemaWith[Env, EnvironmentSchema, Mutation, Unit]() == expected)
       },
       test("custom enum schema") {
@@ -337,7 +340,8 @@ object SchemaSpec extends ZIOSpecDefault {
               |
               |type Query {
               |  myEnum: Foo!
-              |}""".stripMargin
+              |}
+              |""".stripMargin
         )
       },
       test("nested interfaces") {
@@ -387,14 +391,14 @@ object SchemaSpec extends ZIOSpecDefault {
                       |  top: NestedInterface!
                       |  mid1: Mid1!
                       |  mid2: Mid2!
-                      |}""".stripMargin
+                      |}
+                      |""".stripMargin
         )
       },
       test("annotations on leaf classes of OneOfInput are added to the input object fields") {
         case class Query(value: MyOneOfInput => String)
 
         val schema = graphQL(RootResolver(Query(_.toString))).render
-        println(schema)
         assertTrue(
           schema == """schema {
                       |  query: Query
@@ -408,7 +412,8 @@ object SchemaSpec extends ZIOSpecDefault {
                       |
                       |type Query {
                       |  value(value: MyOneOfInput!): String!
-                      |}""".stripMargin
+                      |}
+                      |""".stripMargin
         )
       }
     )

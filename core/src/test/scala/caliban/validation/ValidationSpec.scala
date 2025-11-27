@@ -396,13 +396,15 @@ object ValidationSpec extends ZIOSpecDefault {
           case class FooString(fooString: String) extends Foo
           case class FooInt(fooInt: IntObj)       extends Foo
           case class Wrapper(fooInput: Foo)
+          case class WrapperOpt(fooInput: Option[Foo])
         }
 
         case class IntObj(intValue: Int)
         case class Bar(foo2: Foo => String)
         case class Queries(
           foo: Foo.Wrapper => String,
-          foos: List[Foo.Wrapper] => String,
+          foos: List[Foo] => String,
+          fooOpt: Foo.WrapperOpt => Option[String],
           fooUnwrapped: Foo => String,
           bar: Bar
         )
@@ -416,34 +418,56 @@ object ValidationSpec extends ZIOSpecDefault {
 
         val api: GraphQL[Any] = graphQL(
           RootResolver(
-            Queries(_.fooInput.toString, _.map(_.fooInput.toString).mkString(","), _.toString, Bar(_.toString))
+            Queries(
+              _.fooInput.toString,
+              _.map(_.toString).mkString(","),
+              _.fooInput.map(_.toString),
+              _.toString,
+              Bar(_.toString)
+            )
           )
         )
 
-        def argumentsQuery(arg1: ObjectValue, arg2: ObjectValue, arg3: ObjectValue, arg4: ObjectValue) =
+        def argumentsQuery(
+          arg1: ObjectValue,
+          arg2: ObjectValue,
+          arg3: ObjectValue,
+          arg4: ObjectValue,
+          arg5: ObjectValue
+        ) =
           s"""
              |{
              |  foo(fooInput: ${arg1.toInputString})
              |
-             |  foos(value: [{ fooInput: ${arg2.toInputString} }])
+             |  foos(value: [${arg2.toInputString}])
              |
-             |  fooUnwrapped(value: ${arg3.toInputString})
+             |  fooOpt(fooInput: null)
+             |
+             |  fooOptSome: fooOpt(fooInput: ${arg3.toInputString})
+             |
+             |  fooUnwrapped(value: ${arg4.toInputString})
              |
              |  bar {
-             |    foo2(value: ${arg4.toInputString} )
+             |    foo2(value: ${arg5.toInputString} )
              |  }
              |}
              |""".stripMargin
 
         val variablesQuery =
           """
-            |query Foo($args1: FooInput!, $args2: FooInput!, $args3: FooInput!){
+            |query Foo($args1: FooInput!, $args2: [FooInput!]!, $args3: FooInput!, $args4: FooInput!, $args5: FooInput!) {
             |  foo(fooInput: $args1)
             |
-            |  fooUnwrapped(value: $args2)
+            |  foos(value: $args2)
+            |
+            |  fooOpt(fooInput: null)
+            |
+            |  fooOptSome: fooOpt(fooInput: $args3)
+            |
+            |  fooUnwrapped(value: $args4)
             |
             |  bar {
-            |    foo2(value: $args3 )
+            |    foo2(value: $args5)
             |  }
             |}
             |""".stripMargin
@@ -460,11 +484,19 @@ object ValidationSpec extends ZIOSpecDefault {
           Map("fooString" -> StringValue("foo"), "fooInt" -> ObjectValue(Map("intValue" -> IntValue(42))))
         ).map(ObjectValue(_))
 
-        val validVariablesCases = validInputs.map(arg => Map("args1" -> arg, "args2" -> arg, "args3" -> arg))
+        val validVariablesCases = validInputs.map { arg =>
+          Map(
+            "args1" -> arg,
+            "args2" -> InputValue.ListValue(List(arg)),
+            "args3" -> arg,
+            "args4" -> arg,
+            "args5" -> arg
+          )
+        }
 
         List(
           test("valid field arguments") {
-            val cases = validInputs.map(v => argumentsQuery(v, v, v, v))
+            val cases = validInputs.map(v => argumentsQuery(v, v, v, v, v))
             ZIO.foldLeft(cases)(assertCompletes) { case (acc, query) =>
               api.interpreter
                 .flatMap(_.execute(query))
@@ -483,10 +515,11 @@ object ValidationSpec extends ZIOSpecDefault {
               invalid <- invalidInputs
               valid    = validInputs.head
               _case   <- List(
-                           argumentsQuery(invalid, valid, valid, valid),
-                           argumentsQuery(valid, invalid, valid, valid),
-                           argumentsQuery(valid, valid, invalid, valid),
-                           argumentsQuery(valid, valid, valid, invalid)
+                           argumentsQuery(invalid, valid, valid, valid, valid),
+                           argumentsQuery(valid, invalid, valid, valid, valid),
+                           argumentsQuery(valid, valid, invalid, valid, valid),
+                           argumentsQuery(valid, valid, valid, invalid, valid),
+                           argumentsQuery(valid, valid, valid, valid, invalid)
                          )
             } yield _case
 
@@ -523,24 +556,32 @@ object ValidationSpec extends ZIOSpecDefault {
             }
           },
           test("OneOf variables cannot be nullable") {
-            val variablesQuery =
+            val cases = List(
               """
                 |query Foo($args1: FooInput){
                 |  foo(fooInput: $args1)
                 |}
+                |""".stripMargin,
+              """
+                |query Foos($args1: FooInput){
+                |  foos(value: [$args1])
+                |}
                 |""".stripMargin
+            )
 
-            api.interpreter
-              .flatMap(_.execute(variablesQuery, variables = Map("args1" -> validInputs.head)))
-              .map(resp =>
-                assertTrue(
-                  resp.errors.nonEmpty,
-                  resp.errors.forall {
-                    case ValidationError("Variable 'args1' cannot be nullable.", _, _, _) => true
-                    case _                                                                => false
-                  }
+            ZIO.foldLeft(cases)(assertCompletes) { case (acc, variablesQuery) =>
+              api.interpreter
+                .flatMap(_.execute(variablesQuery, variables = Map("args1" -> validInputs.head)))
+                .map(resp =>
+                  acc && assertTrue(
+                    resp.errors.nonEmpty,
+                    resp.errors.forall {
+                      case ValidationError("Variable 'args1' cannot be nullable.", _, _, _) => true
+                      case _                                                                => false
+                    }
+                  )
                 )
-              )
+            }
           },
           test("schema is valid") {
             api.validateRootSchema.map(_ => assertCompletes)

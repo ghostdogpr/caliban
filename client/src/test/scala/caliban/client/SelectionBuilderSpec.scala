@@ -20,7 +20,7 @@ object SelectionBuilderSpec extends ZIOSpecDefault {
               Character.name
             }
           val (s, _) = SelectionBuilder.toGraphQL(query.toSelectionSet, useVariables = false)
-          assertTrue(s == "characters{name}")
+          assertTrue(s == "{characters{name}}")
         },
         test("combine 2 fields") {
           val query  =
@@ -28,7 +28,7 @@ object SelectionBuilderSpec extends ZIOSpecDefault {
               Character.name ~ Character.nicknames
             }
           val (s, _) = SelectionBuilder.toGraphQL(query.toSelectionSet, useVariables = false)
-          assertTrue(s == "characters{name nicknames}")
+          assertTrue(s == "{characters{name nicknames}}")
         },
         test("union type") {
           val query  =
@@ -40,7 +40,7 @@ object SelectionBuilderSpec extends ZIOSpecDefault {
             }
           val (s, _) = SelectionBuilder.toGraphQL(query.toSelectionSet, useVariables = false)
           assertTrue(
-            s == "characters{name nicknames role{__typename ... on Captain{shipName} ... on Pilot{shipName} ... on Mechanic{shipName} ... on Engineer{shipName}}}"
+            s == "{characters{name nicknames role{__typename ... on Captain{shipName} ... on Pilot{shipName} ... on Mechanic{shipName} ... on Engineer{shipName}}}}"
           )
         },
         test("union type optional") {
@@ -51,7 +51,7 @@ object SelectionBuilderSpec extends ZIOSpecDefault {
                 Character.roleOption(onCaptain = Some(Role.Captain.shipName))
             }
           val (s, _) = SelectionBuilder.toGraphQL(query.toSelectionSet, useVariables = false)
-          assertTrue(s == "characters{name nicknames role{__typename ... on Captain{shipName}}}")
+          assertTrue(s == "{characters{name nicknames role{__typename ... on Captain{shipName}}}}")
         },
         test("argument") {
           val query  =
@@ -59,7 +59,7 @@ object SelectionBuilderSpec extends ZIOSpecDefault {
               Character.name
             }
           val (s, _) = SelectionBuilder.toGraphQL(query.toSelectionSet, useVariables = false)
-          assertTrue(s == """characters(origin:"MARS"){name}""")
+          assertTrue(s == """{characters(origin:"MARS"){name}}""")
         },
         test("union type with optional parameters") {
           case class CharacterView(name: String, nicknames: List[String], role: Option[Option[String]])
@@ -108,7 +108,7 @@ object SelectionBuilderSpec extends ZIOSpecDefault {
                 }
                 .copy(alias = Some("naomi"))
           val (s, _) = SelectionBuilder.toGraphQL(query.toSelectionSet, useVariables = false)
-          assertTrue(s == """amos:character(name:"Amos Burton"){name} naomi:character(name:"Naomi Nagata"){name}""")
+          assertTrue(s == """{amos:character(name:"Amos Burton"){name} naomi:character(name:"Naomi Nagata"){name}}""")
         },
         test("variables") {
           val query          =
@@ -123,9 +123,11 @@ object SelectionBuilderSpec extends ZIOSpecDefault {
                 }
                 .withAlias("naomi")
           val (s, variables) = SelectionBuilder.toGraphQL(query.toSelectionSet, useVariables = true)
-          assertTrue(s == """amos:character(name:$name){name} naomi:character(name:$name1){name}""") &&
-          assertTrue(variables("name") == ((__StringValue("Amos Burton"), "String!"))) &&
-          assertTrue(variables("name1") == ((__StringValue("Naomi Nagata"), "String!")))
+          assertTrue(
+            s == """{amos:character(name:$name){name} naomi:character(name:$name1){name}}""",
+            variables("name") == ((__StringValue("Amos Burton"), "String!")),
+            variables("name1") == ((__StringValue("Naomi Nagata"), "String!"))
+          )
         },
         test("directives") {
           val query  =
@@ -135,7 +137,7 @@ object SelectionBuilderSpec extends ZIOSpecDefault {
               }
               .withDirective(Directive("yo", List(Argument("value", "what's up", "String!"))))
           val (s, _) = SelectionBuilder.toGraphQL(query.toSelectionSet, useVariables = false)
-          assertTrue(s == """character(name:"Amos Burton") @yo(value:"what's up"){name}""")
+          assertTrue(s == """{character(name:"Amos Burton") @yo(value:"what's up"){name}}""")
         },
         test("directives + variables") {
           val query          =
@@ -145,17 +147,122 @@ object SelectionBuilderSpec extends ZIOSpecDefault {
               }
               .withDirective(Directive("yo", List(Argument("value", "what's up", "String!"))))
           val (s, variables) = SelectionBuilder.toGraphQL(query.toSelectionSet, useVariables = true)
-          assertTrue(s == """character(name:$name) @yo(value:$value){name}""") &&
-          assertTrue(variables("name") == ((__StringValue("Amos Burton"), "String!"))) &&
-          assertTrue(variables("value") == ((__StringValue("what's up"), "String!")))
+          assertTrue(
+            s == """{character(name:$name) @yo(value:$value){name}}""",
+            variables("name") == ((__StringValue("Amos Burton"), "String!")),
+            variables("value") == ((__StringValue("what's up"), "String!"))
+          )
         },
         test("query name") {
           val query = Queries.character("Amos Burton")(Character.name).toGraphQL(queryName = Some("GetCharacter"))
-          assertTrue(query.query == """query GetCharacter {character(name:"Amos Burton"){name}}""")
+          assertTrue(query.query == """query GetCharacter{character(name:"Amos Burton"){name}}""")
+        },
+        test("query name + directives") {
+          val GraphQLRequest(s, variables) = Queries
+            .character("Amos Burton")(Character.name)
+            .toGraphQL(
+              queryName = Some("GetCharacter"),
+              directives = List(Directive("yo", List(Argument("value", "what's up", "String!")))),
+              useVariables = false
+            )
+          assertTrue(s == """query GetCharacter @yo(value:"what's up"){character(name:"Amos Burton"){name}}""")
+        },
+        test("query name + directives + variables") {
+          val GraphQLRequest(s, variables) = Queries
+            .character("Amos Burton")(Character.name)
+            .toGraphQL(
+              queryName = Some("GetCharacter"),
+              directives = List(Directive("yo", List(Argument("value", "what's up", "String!")))),
+              useVariables = true
+            )
+          assertTrue(
+            s == """query GetCharacter ($name: String!,$value: String!) @yo(value:$value){character(name:"Amos Burton"){name}}"""
+          )
+          assertTrue(variables("name") == __StringValue("Amos Burton")) &&
+          assertTrue(variables("value") == __StringValue("what's up"))
         },
         test("pure fields") {
           val query = Queries.character("Amos Burton")(Character.name ~ SelectionBuilder.pure("Fake")).toGraphQL()
           assertTrue(query.query == """query{character(name:"Amos Burton"){name}}""")
+        }
+      ),
+      suite("fragments")(
+        test("simple fragment") {
+          val query = Queries
+            .character("Amos Burton")(
+              SelectionBuilder.fragment("CF", "Character")(Character.name ~ Character.nicknames)
+            )
+            .toGraphQL()
+
+          assertTrue(
+            query.query == """query{character(name:"Amos Burton"){...CF}}fragment CF on Character{name nicknames}"""
+          )
+        },
+        test("fragment deduplicates") {
+          val fragment = SelectionBuilder.fragment("CF", "Character")(Character.name ~ Character.nicknames)
+          val query    = (Queries
+            .character("Amos Burton")(fragment)
+            .withAlias("amos") ~ Queries.character("Naomi Nagata")(fragment).withAlias("naomi"))
+            .toGraphQL()
+
+          assertTrue(
+            query.query == """query{amos:character(name:"Amos Burton"){...CF} naomi:character(name:"Naomi Nagata"){...CF}}fragment CF on Character{name nicknames}"""
+          )
+        },
+        test("structural equality of fragments") {
+          val fragment1 = SelectionBuilder.fragment("CF", "Character")(Character.name ~ Character.nicknames)
+          val fragment2 = SelectionBuilder.fragment("CF", "Character")(Character.name ~ Character.nicknames)
+          val query     = (Queries.character("Amos Burton")(fragment1).withAlias("amos") ~
+            Queries.character("Naomi Nagata")(fragment2).withAlias("naomi"))
+            .toGraphQL()
+          assertTrue(
+            query.query == """query{amos:character(name:"Amos Burton"){...CF} naomi:character(name:"Naomi Nagata"){...CF}}fragment CF on Character{name nicknames}"""
+          )
+        },
+        test("distinct fragments") {
+          val fragment1 = SelectionBuilder.fragment("CF1", "Character")(Character.nicknames)
+          val fragment2 = SelectionBuilder.fragment("CF2", "Character")(Character.name)
+          val query     = (Queries.character("Amos Burton")(fragment1).withAlias("amos") ~
+            Queries.character("Naomi Nagata")(fragment2).withAlias("naomi"))
+            .toGraphQL()
+          assertTrue(
+            query.query == """query{amos:character(name:"Amos Burton"){...CF1} naomi:character(name:"Naomi Nagata"){...CF2}}fragment CF1 on Character{nicknames} fragment CF2 on Character{name}"""
+          )
+        },
+        test("nested fragments") {
+          val characterFragment = SelectionBuilder.fragment("CF", "Character")(
+            Character.name ~ SelectionBuilder.fragment("Inner", "Character")(
+              Character.roleOption(
+                onCaptain = Some(SelectionBuilder.fragment("CaptainFrag", "Captain")(Role.Captain.shipName))
+              )
+            )
+          )
+
+          val query = Queries.character("Amos Burton")(characterFragment).toGraphQL()
+          assertTrue(
+            query.query == """query{character(name:"Amos Burton"){...CF}}fragment CF on Character{name ...Inner} fragment Inner on Character{role{__typename ... on Captain{...CaptainFrag}}} fragment CaptainFrag on Captain{shipName}"""
+          )
+        },
+        test("fragments with variable references") {
+          val characterFragment = SelectionBuilder.fragment("CF", "Character")(
+            Character.name ~
+              Character.roleOption(onCaptain = Some(Role.Captain.shipName))
+          )
+
+          val query = SelectionBuilder
+            .fragment("QueryFrag", "Query")(Queries.character("Amos Burton")(characterFragment))
+            .toGraphQL(
+              queryName = Some("GetCharacter"),
+              useVariables = true
+            )
+
+          assertTrue(
+            query.query == """query GetCharacter($name: String!){...QueryFrag}fragment QueryFrag on Query{character(name:$name){...CF}} fragment CF on Character{name role{__typename ... on Captain{shipName}}}""",
+            query.variables == Map("name" -> __Value.__StringValue("Amos Burton"))
+          )
+        },
+        test("fragments with directives") {
+          assertCompletes
         }
       ),
       suite("response parsing")(

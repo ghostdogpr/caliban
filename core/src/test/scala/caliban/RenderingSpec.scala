@@ -14,11 +14,11 @@ import caliban.parsing.adt.Definition.{ TypeSystemDefinition, TypeSystemExtensio
 import caliban.parsing.adt.{ Definition, Directive }
 import caliban.rendering.{ DocumentRenderer, ValueRenderer }
 import caliban.schema.Annotations.GQLOneOfInput
-import caliban.schema.Schema.auto._
 import caliban.schema.ArgBuilder.auto._
+import caliban.schema.Schema.auto._
 import caliban.schema.{ ArgBuilder, PureStep, Schema }
+import zio.ZIO
 import zio.stream.ZStream
-import zio.{ IO, ZIO }
 import zio.test.Assertion._
 import zio.test._
 
@@ -86,28 +86,31 @@ object RenderingSpec extends ZIOSpecDefault {
         checkApi(api)
       },
       test("it should render empty objects without field list") {
-        assertTrue(graphQL(InvalidSchemas.Object.resolverEmpty).render.trim == """schema {
-                                                                                 |  query: TestEmptyObject
-                                                                                 |}
-                                                                                 |
-                                                                                 |type EmptyObject
-                                                                                 |
-                                                                                 |type TestEmptyObject {
-                                                                                 |  o: EmptyObject!
-                                                                                 |}""".stripMargin.trim)
+        assertTrue(graphQL(InvalidSchemas.Object.resolverEmpty).render == """schema {
+                                                                            |  query: TestEmptyObject
+                                                                            |}
+                                                                            |
+                                                                            |type EmptyObject
+                                                                            |
+                                                                            |type TestEmptyObject {
+                                                                            |  o: EmptyObject!
+                                                                            |}
+                                                                            |""".stripMargin)
       },
       test(
         "it should not render a schema definition without schema directives if no queries, mutations, or subscription"
       ) {
-        assertTrue(graphQL(InvalidSchemas.resolverEmpty).render.trim == "")
+        assertTrue(graphQL(InvalidSchemas.resolverEmpty).render == "")
       },
       test(
         "it should render a schema extension with directives only"
       ) {
         val renderedType =
-          graphQL(InvalidSchemas.resolverEmpty, schemaDirectives = List(SchemaDirectives.Link)).render.trim
+          graphQL(InvalidSchemas.resolverEmpty, schemaDirectives = List(SchemaDirectives.Link)).render
         assertTrue(
-          renderedType == """extend schema @link(url: "https://example.com", import: ["@key", {name: "@provides", as: "@self"}])"""
+          renderedType ==
+            """extend schema @link(url: "https://example.com", import: ["@key", {name: "@provides", as: "@self"}])
+              |""".stripMargin
         )
       },
       test("it should render a schema extension with directives and a mutation") {
@@ -116,7 +119,7 @@ object RenderingSpec extends ZIOSpecDefault {
           Some(MutationIO(_ => ZIO.unit)),
           Option.empty[Unit]
         )
-        val renderedType = graphQL(resolver, schemaDirectives = List(SchemaDirectives.Link)).render.trim
+        val renderedType = graphQL(resolver, schemaDirectives = List(SchemaDirectives.Link)).render
         assertTrue(renderedType.startsWith("extend schema"))
       },
       test("it should render a schema extension with directives and a subscription") {
@@ -125,7 +128,7 @@ object RenderingSpec extends ZIOSpecDefault {
           Option.empty[Unit],
           Some(SubscriptionIO(ZStream.empty))
         )
-        val renderedType = graphQL(resolver, schemaDirectives = List(SchemaDirectives.Link)).render.trim
+        val renderedType = graphQL(resolver, schemaDirectives = List(SchemaDirectives.Link)).render
         assertTrue(renderedType.startsWith("extend schema"))
       },
       test("it should render a schema extension with a subscription and mutation but no directives") {
@@ -134,7 +137,7 @@ object RenderingSpec extends ZIOSpecDefault {
           Some(MutationIO(_ => ZIO.unit)),
           Some(SubscriptionIO(ZStream.empty))
         )
-        val renderedType = graphQL(resolver).render.trim
+        val renderedType = graphQL(resolver).render
         assertTrue(renderedType.startsWith("extend schema"))
       },
       test("it should render object arguments in type directives") {
@@ -157,8 +160,8 @@ object RenderingSpec extends ZIOSpecDefault {
             )
           )
         )
-        val renderedType = DocumentRenderer.typesRenderer.render(List(testType)).trim
-        assertTrue(renderedType == "type TestType @testdirective(object: {key1: \"value1\", key2: \"value2\"})")
+        val renderedType = DocumentRenderer.typesRenderer.render(List(testType))
+        assertTrue(renderedType == "\ntype TestType @testdirective(object: {key1: \"value1\", key2: \"value2\"})\n")
       },
       test("only introspectable directives are rendered") {
         val all              = List(
@@ -183,8 +186,10 @@ object RenderingSpec extends ZIOSpecDefault {
           name = Some("TestType"),
           description = Some("A \"TestType\" description with \\, \b, \f, \r and \t")
         )
-        val renderedType = DocumentRenderer.typesRenderer.render(List(testType)).trim
-        assertTrue(renderedType == "\"A \\\"TestType\\\" description with \\\\, \\b, \\f, \\r and \\t\"\ntype TestType")
+        val renderedType = DocumentRenderer.typesRenderer.render(List(testType))
+        assertTrue(
+          renderedType == "\n\"A \\\"TestType\\\" description with \\\\, \\b, \\f, \\r and \\t\"\ntype TestType\n"
+        )
       },
       test("it should escape \"\"\" inside a triple-quoted description string") {
         val testType     = __Type(
@@ -192,9 +197,9 @@ object RenderingSpec extends ZIOSpecDefault {
           name = Some("TestType"),
           description = Some("A multiline \"TestType\" description\ngiven inside \"\"\"-quotes\n")
         )
-        val renderedType = DocumentRenderer.typesRenderer.render(List(testType)).trim
+        val renderedType = DocumentRenderer.typesRenderer.render(List(testType))
         assertTrue(
-          renderedType == "\"\"\"\nA multiline \"TestType\" description\ngiven inside \\\"\"\"-quotes\n\n\"\"\"\ntype TestType"
+          renderedType == "\n\"\"\"\nA multiline \"TestType\" description\ngiven inside \\\"\"\"-quotes\n\n\"\"\"\ntype TestType\n"
         )
       },
       test("it should render single line descriptions") {
@@ -216,21 +221,23 @@ object RenderingSpec extends ZIOSpecDefault {
       test("it should render compact") {
         val rendered = DocumentRenderer.renderCompact(graphQL(resolver).toDocument)
         assertTrue(
-          rendered == """schema{query:Query} "Description of custom scalar emphasizing proper captain ship names" scalar CaptainShipName@specifiedBy(url:"http://someUrl")@tag union Role@uniondirective=Captain|Engineer|Mechanic|Pilot enum Origin@enumdirective{BELT,EARTH,MARS,MOON@deprecated(reason:"Use: EARTH | MARS | BELT")} input CharacterInput@inputobjdirective{name:String!@external nicknames:[String!]!@required origin:Origin!}interface Human{name:String!@external}type Captain{shipName:CaptainShipName!}type Character implements Human@key(name:"name"){name:String!@external nicknames:[String!]!@required origin:Origin! role:Role}type Engineer{shipName:String!}type Mechanic{shipName:String!}type Narrator implements Human{name:String!}type Pilot{shipName:String!}"Queries" type Query{"Return all characters from a given origin" characters(origin:Origin):[Character!]! character(name:String!):Character@deprecated(reason:"Use `characters`") charactersIn(names:[String!]!@lowercase):[Character!]! exists(character:CharacterInput!):Boolean! human:Human!}"""
+          rendered ==
+            """schema{query:Query} "Description of custom scalar emphasizing proper captain ship names" scalar CaptainShipName@specifiedBy(url:"http://someUrl")@tag union Role@uniondirective=Captain|Engineer|Mechanic|Pilot enum Origin@enumdirective{BELT,EARTH,MARS,MOON@deprecated(reason:"Use: EARTH | MARS | BELT")} input CharacterInput@inputobjdirective{name:String!@external nicknames:[String!]!@required origin:Origin!} interface Human{name:String!@external} type Captain{shipName:CaptainShipName!} type Character implements Human@key(name:"name"){name:String!@external nicknames:[String!]!@required origin:Origin! role:Role} type Engineer{shipName:String!} type Mechanic{shipName:String!} type Narrator implements Human{name:String!} type Pilot{shipName:String!} "Queries" type Query{"Return all characters from a given origin" characters(origin:Origin):[Character!]! character(name:String!):Character@deprecated(reason:"Use `characters`") charactersIn(names:[String!]!@lowercase):[Character!]! exists(character:CharacterInput!):Boolean! human:Human!} """
         )
       },
       test("it should render compact unconditionally with compact") {
         val rendered = graphQL(resolver).renderWith(DocumentRenderer.compact)
 
         assertTrue(
-          rendered == """schema{query:Query} "Description of custom scalar emphasizing proper captain ship names" scalar CaptainShipName@specifiedBy(url:"http://someUrl")@tag union Role@uniondirective=Captain|Engineer|Mechanic|Pilot enum Origin@enumdirective{BELT,EARTH,MARS,MOON@deprecated(reason:"Use: EARTH | MARS | BELT")} input CharacterInput@inputobjdirective{name:String!@external nicknames:[String!]!@required origin:Origin!}interface Human{name:String!@external}type Captain{shipName:CaptainShipName!}type Character implements Human@key(name:"name"){name:String!@external nicknames:[String!]!@required origin:Origin! role:Role}type Engineer{shipName:String!}type Mechanic{shipName:String!}type Narrator implements Human{name:String!}type Pilot{shipName:String!}"Queries" type Query{"Return all characters from a given origin" characters(origin:Origin):[Character!]! character(name:String!):Character@deprecated(reason:"Use `characters`") charactersIn(names:[String!]!@lowercase):[Character!]! exists(character:CharacterInput!):Boolean! human:Human!}"""
+          rendered == """schema{query:Query} "Description of custom scalar emphasizing proper captain ship names" scalar CaptainShipName@specifiedBy(url:"http://someUrl")@tag union Role@uniondirective=Captain|Engineer|Mechanic|Pilot enum Origin@enumdirective{BELT,EARTH,MARS,MOON@deprecated(reason:"Use: EARTH | MARS | BELT")} input CharacterInput@inputobjdirective{name:String!@external nicknames:[String!]!@required origin:Origin!} interface Human{name:String!@external} type Captain{shipName:CaptainShipName!} type Character implements Human@key(name:"name"){name:String!@external nicknames:[String!]!@required origin:Origin! role:Role} type Engineer{shipName:String!} type Mechanic{shipName:String!} type Narrator implements Human{name:String!} type Pilot{shipName:String!} "Queries" type Query{"Return all characters from a given origin" characters(origin:Origin):[Character!]! character(name:String!):Character@deprecated(reason:"Use `characters`") charactersIn(names:[String!]!@lowercase):[Character!]! exists(character:CharacterInput!):Boolean! human:Human!} """
         )
       },
       suite("round-trip")(
         test("kitchen sink")(roundTrip("document-tests/kitchen-sink.graphql")),
         test("kitchen sink with query")(roundTrip("document-tests/kitchen-sink-query.graphql")),
         test("compact query")(roundTrip("document-tests/query-compact.graphql", isCompact = true)),
-        test("compact kitchen sink")(roundTrip("document-tests/kitchen-sink-compact.graphql", isCompact = true))
+        test("compact kitchen sink")(roundTrip("document-tests/kitchen-sink-compact.graphql", isCompact = true)),
+        test("extend tests")(roundTrip("document-tests/extend-tests.graphql"))
       ),
       suite("OneOf input objects") {
         def expected(label: String) =
@@ -255,7 +262,8 @@ object RenderingSpec extends ZIOSpecDefault {
              |
              |type Queries {
              |  foo($label: FooInput!): String!
-             |}""".stripMargin
+             |}
+             |""".stripMargin
 
         List(
           test("as value types") {

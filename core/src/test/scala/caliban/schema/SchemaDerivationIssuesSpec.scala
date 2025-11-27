@@ -35,7 +35,8 @@ object SchemaDerivationIssuesSpec extends ZIOSpecDefault {
             |
             |type Queries {
             |  param: ASTParameter!
-            |}""".stripMargin
+            |}
+            |""".stripMargin
       )
     },
     test("i1977") {
@@ -65,7 +66,8 @@ object SchemaDerivationIssuesSpec extends ZIOSpecDefault {
             |
             |type Queries {
             |  param: ASTParameter!
-            |}""".stripMargin
+            |}
+            |""".stripMargin
       )
     },
     test("i1951") {
@@ -99,7 +101,8 @@ object SchemaDerivationIssuesSpec extends ZIOSpecDefault {
             |
             |type Queries {
             |  param: MyInterface!
-            |}""".stripMargin
+            |}
+            |""".stripMargin
       )
     },
     test("i1989") {
@@ -119,7 +122,8 @@ object SchemaDerivationIssuesSpec extends ZIOSpecDefault {
             |
             |type Queries {
             |  level: Level1!
-            |}""".stripMargin
+            |}
+            |""".stripMargin
       )
     },
     test("i1990") {
@@ -138,7 +142,8 @@ object SchemaDerivationIssuesSpec extends ZIOSpecDefault {
             |
             |type Queries {
             |  op: PrefixOperator!
-            |}""".stripMargin
+            |}
+            |""".stripMargin
       )
     },
     test("i992") {
@@ -166,7 +171,8 @@ object SchemaDerivationIssuesSpec extends ZIOSpecDefault {
             |
             |type Queries {
             |  p: Parent!
-            |}""".stripMargin
+            |}
+            |""".stripMargin
       )
     },
     suite("i1993")(
@@ -190,7 +196,8 @@ object SchemaDerivationIssuesSpec extends ZIOSpecDefault {
               |  e1: Enum1!
               |  e2: Enum1!
               |  e3: Enum1!
-              |}""".stripMargin
+              |}
+              |""".stripMargin
         )
       },
       test("execution") {
@@ -326,7 +333,8 @@ object SchemaDerivationIssuesSpec extends ZIOSpecDefault {
             |type Z {
             |  "Fake field because GraphQL does not support empty objects. Do not query, use __typename instead."
             |  _: Boolean
-            |}""".stripMargin
+            |}
+            |""".stripMargin
       )
     }
   )

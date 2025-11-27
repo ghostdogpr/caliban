@@ -1,12 +1,12 @@
 package caliban.tracing
 
 import caliban.InputValue.ObjectValue
+import caliban.RemoteQuery
 import caliban.Value.FloatValue.FloatNumber
 import caliban.Value.IntValue.IntNumber
 import caliban.Value.StringValue
 import caliban.execution.{ ExecutionRequest, Field }
 import caliban.parsing.adt.OperationType
-import caliban.tools.stitching.RemoteQuery
 import caliban.wrappers.Wrapper.ExecutionWrapper
 import caliban.{ CalibanError, GraphQLResponse, InputValue, Value }
 import io.opentelemetry.api.trace.SpanKind

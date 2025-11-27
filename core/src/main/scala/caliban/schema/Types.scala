@@ -13,10 +13,10 @@ object Types {
   def makeScalar(
     name: String,
     description: Option[String] = None,
-    specifiedBy: Option[String] = None,
+    specifiedByURL: Option[String] = None,
     directives: Option[List[Directive]] = None
   ): __Type =
-    __Type(__TypeKind.SCALAR, Some(name), description, specifiedBy = specifiedBy, directives = directives)
+    __Type(__TypeKind.SCALAR, Some(name), description, specifiedByURL = specifiedByURL, directives = directives)
 
   val boolean: __Type = makeScalar("Boolean")
   val string: __Type  = makeScalar("String")

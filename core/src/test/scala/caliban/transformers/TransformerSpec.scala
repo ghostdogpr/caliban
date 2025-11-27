@@ -36,7 +36,8 @@ object TransformerSpec extends ZIOSpecDefault {
                         |
                         |type Renamed {
                         |  b(arg: String!): String!
-                        |}""".stripMargin
+                        |}
+                        |""".stripMargin
         )
       },
       test("rename field") {
@@ -58,7 +59,8 @@ object TransformerSpec extends ZIOSpecDefault {
               |
               |type Query {
               |  a: InnerObject!
-              |}""".stripMargin
+              |}
+              |""".stripMargin
         )
       },
       test("rename argument") {
@@ -82,7 +84,8 @@ object TransformerSpec extends ZIOSpecDefault {
               |
               |type Query {
               |  a: InnerObject!
-              |}""".stripMargin
+              |}
+              |""".stripMargin
         )
       },
       test("filter field") {
@@ -103,7 +106,8 @@ object TransformerSpec extends ZIOSpecDefault {
               |
               |type Query {
               |  a: String!
-              |}""".stripMargin
+              |}
+              |""".stripMargin
         )
       },
       test("exclude field from input object") {
@@ -138,7 +142,8 @@ object TransformerSpec extends ZIOSpecDefault {
               |
               |type Query {
               |  foo(a: String!, b: String!, l: [String!]!, nested: NestedInput!): String!
-              |}""".stripMargin
+              |}
+              |""".stripMargin
         )
       },
       suite("ExcludeArgument")(
@@ -161,7 +166,8 @@ object TransformerSpec extends ZIOSpecDefault {
                 |
                 |type Query {
                 |  a: String!
-                |}""".stripMargin
+                |}
+                |""".stripMargin
           )
         },
         test("cannot filter non-nullable arguments") {
@@ -193,7 +199,8 @@ object TransformerSpec extends ZIOSpecDefault {
                 |
                 |type Query {
                 |  a(arg1: String!, arg3: String): String!
-                |}""".stripMargin
+                |}
+                |""".stripMargin
           )
         }
       ),
@@ -218,7 +225,8 @@ object TransformerSpec extends ZIOSpecDefault {
               |
               |type Renamed {
               |  c(arg: String!): String!
-              |}""".stripMargin
+              |}
+              |""".stripMargin
         )
       },
       suite("ExcludeDirectives") {
@@ -262,7 +270,8 @@ object TransformerSpec extends ZIOSpecDefault {
                 |  b: Int!
                 |  c: Float!
                 |  d: Boolean!
-                |}""".stripMargin,
+                |}
+                |""".stripMargin,
             renderedA ==
               """schema {
                 |  query: Query
@@ -271,7 +280,8 @@ object TransformerSpec extends ZIOSpecDefault {
                 |type Query {
                 |  a: String!
                 |  c: Float!
-                |}""".stripMargin,
+                |}
+                |""".stripMargin,
             renderedB ==
               """schema {
                 |  query: Query
@@ -280,7 +290,8 @@ object TransformerSpec extends ZIOSpecDefault {
                 |type Query {
                 |  a: String!
                 |  b: Int!
-                |}""".stripMargin,
+                |}
+                |""".stripMargin,
             renderedC ==
               """schema {
                 |  query: Query
@@ -288,7 +299,8 @@ object TransformerSpec extends ZIOSpecDefault {
                 |
                 |type Query {
                 |  a: String!
-                |}""".stripMargin
+                |}
+                |""".stripMargin
           )
         } + test("input fields") {
           case class Nested(
@@ -324,7 +336,8 @@ object TransformerSpec extends ZIOSpecDefault {
                 |
                 |type Query {
                 |  foo(a: String!, b: String!, l: [String!]!, nested: NestedInput!): String!
-                |}""".stripMargin,
+                |}
+                |""".stripMargin,
             renderedA ==
               """schema {
                 |  query: Query
@@ -337,7 +350,8 @@ object TransformerSpec extends ZIOSpecDefault {
                 |
                 |type Query {
                 |  foo(a: String!, b: String!, l: [String!]!, nested: NestedInput!): String!
-                |}""".stripMargin,
+                |}
+                |""".stripMargin,
             renderedB ==
               """schema {
                 |  query: Query
@@ -350,7 +364,8 @@ object TransformerSpec extends ZIOSpecDefault {
                 |
                 |type Query {
                 |  foo(a: String!, b: String!, l: [String!]!, nested: NestedInput!): String!
-                |}""".stripMargin,
+                |}
+                |""".stripMargin,
             renderedC ==
               """schema {
                 |  query: Query
@@ -362,7 +377,8 @@ object TransformerSpec extends ZIOSpecDefault {
                 |
                 |type Query {
                 |  foo(a: String!, b: String!, l: [String!]!, nested: NestedInput!): String!
-                |}""".stripMargin
+                |}
+                |""".stripMargin
           )
         }
       }

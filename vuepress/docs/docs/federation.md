@@ -9,7 +9,7 @@
 To use, add the following dependency to your `build.sbt` file:
 
 ```scala
-"com.github.ghostdogpr" %% "caliban-federation" % "2.10.0"
+"com.github.ghostdogpr" %% "caliban-federation" % "2.11.1"
 ```
 
 ## Federating
@@ -116,14 +116,14 @@ that it should include tracing data as part of the response extensions.
 Caliban can support the v2 federation specification as well. If your gateway supports the [Federation V2 specification](https://www.apollographql.com/docs/federation/federation-spec), you can specify the supported feature set
 by using `caliban.federation.v2_x` where `x` is the minor version of the specification you wish to use.
 
-| Directive    | Caliban Type | Version | Caliban package
---------------| --------------|---------| ---------------
-| `@shareable` | `@GQLShareable` | v2.0    | `caliban.federation.v2_0`
-| `@inaccessible` | `@GQLInaccessible` | v2.0    | `caliban.federation.v2_0`
-| `@override`  | `@GQLOverride` | v2.0    | `caliban.federation.v2_0`
-| `@tag`       | `@GQLTag` | v2.0    | `caliban.federation.v2_0`
-| `@composeDirective` | `ComposeDirective` | v2.1    | `caliban.federation.v2_1`
-| `@interfaceObject` | `@GQLInterfaceObject` | v2.3    | `caliban.federation.v2_3`
+| Directive           | Caliban Type          | Version | Caliban package           |
+| ------------------- | --------------------- | ------- | ------------------------- |
+| `@shareable`        | `@GQLShareable`       | v2.0    | `caliban.federation.v2_0` |
+| `@inaccessible`     | `@GQLInaccessible`    | v2.0    | `caliban.federation.v2_0` |
+| `@override`         | `@GQLOverride`        | v2.0    | `caliban.federation.v2_0` |
+| `@tag`              | `@GQLTag`             | v2.0    | `caliban.federation.v2_0` |
+| `@composeDirective` | `ComposeDirective`    | v2.1    | `caliban.federation.v2_1` |
+| `@interfaceObject`  | `@GQLInterfaceObject` | v2.3    | `caliban.federation.v2_3` |
 
 The `GQLKey` field now also supports the `resolvable` argument. 
 

@@ -19,7 +19,8 @@ object OptionalSpec extends ZIOSpecDefault {
           |  b: String
           |  c: String
           |  d: String
-          |}""".stripMargin
+          |}
+          |""".stripMargin
 
       implicit def wrapperSchema[A](implicit ev: Schema[Any, A]): Schema[Any, Wrapper[A]] =
         new Schema[Any, Wrapper[A]] {

@@ -2,10 +2,11 @@ package caliban.client
 
 import scala.util.Try
 import java.util.UUID
-
 import caliban.client.CalibanClientError.DecodingError
 import caliban.client.__Value._
 
+import java.time.format.DateTimeFormatter
+import java.time.{ Instant, LocalDate, LocalDateTime, LocalTime, OffsetDateTime, OffsetTime, ZonedDateTime }
 import scala.annotation.implicitNotFound
 
 /**
@@ -82,5 +83,31 @@ object ScalarDecoder {
     case __ObjectValue(Nil) => Right(())
     case other              => Left(DecodingError(s"Can't build Unit from input $other"))
   }
-  implicit val json: ScalarDecoder[__Value]          = value => Right(value)
+
+  implicit val json: ScalarDecoder[__Value] = value => Right(value)
+
+  // Helpers for temporal decoders
+  def temporalDecoder[A](name: String)(parse: String => A): ScalarDecoder[A] = {
+    case __StringValue(value) =>
+      Try(parse(value)).toEither.left.map { e =>
+        val message = e.getMessage
+        if (message == null) DecodingError(s"Can't build $name from input $value")
+        else DecodingError(s"Can't build $name from input $value ($message)", Some(e))
+      }
+    case other                => Left(DecodingError(s"Can't build $name from input $other"))
+  }
+
+  def temporalDecoder[A](name: String, formatter: DateTimeFormatter)(
+    parse: (String, DateTimeFormatter) => A
+  ): ScalarDecoder[A] =
+    temporalDecoder(name)(s => parse(s, formatter))
+
+  // Time decoders
+  implicit val instant: ScalarDecoder[Instant]               = temporalDecoder("Instant")(Instant.parse)
+  implicit val localDate: ScalarDecoder[LocalDate]           = temporalDecoder("LocalDate")(LocalDate.parse)
+  implicit val localTime: ScalarDecoder[LocalTime]           = temporalDecoder("LocalTime")(LocalTime.parse)
+  implicit val localDateTime: ScalarDecoder[LocalDateTime]   = temporalDecoder("LocalDateTime")(LocalDateTime.parse)
+  implicit val offsetTime: ScalarDecoder[OffsetTime]         = temporalDecoder("OffsetTime")(OffsetTime.parse)
+  implicit val offsetDateTime: ScalarDecoder[OffsetDateTime] = temporalDecoder("OffsetDateTime")(OffsetDateTime.parse)
+  implicit val zonedDateTime: ScalarDecoder[ZonedDateTime]   = temporalDecoder("ZonedDateTime")(ZonedDateTime.parse)
 }

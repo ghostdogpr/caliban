@@ -23,7 +23,8 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
 
         |type Foo {
         |  value: String!
-        |}""".stripMargin
+        |}
+        |""".stripMargin
 
     List(
       test("SemiAuto derivation - default") {
@@ -78,7 +79,8 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
 
             |type Query {
             |  f(s: String!): Bar!
-            |}""".stripMargin
+            |}
+            |""".stripMargin
 
         List(
           test("SemiAuto") {
@@ -113,20 +115,22 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
               """schema {
                 |  query: Query
                 |}
+                |
                 |"An instantaneous point on the time-line represented by a standard date time string"
                 |scalar Instant
-
+                |
                 |type Bar {
                 |  foo: Foo!
                 |}
-
+                |
                 |type Foo {
                 |  i: Instant!
                 |}
-
+                |
                 |type Query {
                 |  f(i: Instant!): Bar!
-                |}""".stripMargin
+                |}
+                |""".stripMargin
           )
         },
         test("sum schema") {
@@ -149,6 +153,7 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
               """schema {
                 |  query: Query
                 |}
+                |
                 |"An instantaneous point on the time-line represented by a standard date time string"
                 |scalar Instant
 
@@ -172,7 +177,8 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
 
                 |type Query {
                 |  f(i: Instant!, s1: String!): Bar!
-                |}""".stripMargin
+                |}
+                |""".stripMargin
           )
         }
       ),
@@ -189,7 +195,8 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
             |type Foo {
             |  value: String!
             |  value2: String
-            |}""".stripMargin
+            |}
+            |""".stripMargin
         List(
           test("SemiAuto derivation of methods as fields") {
             final case class Foo(value: String) derives Schema.SemiAuto {
@@ -260,7 +267,8 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
                 |type Foo {
                 |  fooValue: String
                 |  barValue: Int!
-                |}""".stripMargin
+                |}
+                |""".stripMargin
 
             assertTrue(rendered == expected)
           },
@@ -279,7 +287,8 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
                 |type Foo {
                 |  fooValue: String
                 |  barValue: Int!
-                |}""".stripMargin
+                |}
+                |""".stripMargin
 
             assertTrue(rendered == expected)
           },
@@ -301,7 +310,8 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
                 |  value: String!
                 |  fooValue: String
                 |  barValue: Int!
-                |}""".stripMargin
+                |}
+                |""".stripMargin
 
             assertTrue(rendered == expected)
           }
@@ -372,7 +382,8 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
             |
             |type Query {
             |  testQuery(isFoo: Boolean!): Payload2!
-            |}""".stripMargin
+            |}
+            |""".stripMargin
         val interpreter    = gql.interpreterUnsafe
 
         for {

@@ -7,12 +7,13 @@ import caliban.parsing.Parser
 import caliban.syntax._
 import caliban.uploads.Upload
 import zio.Chunk
-
 import java.time._
 import java.time.format.DateTimeFormatter
 import java.time.temporal.Temporal
 import java.util.UUID
 import scala.annotation.implicitNotFound
+import scala.collection.immutable.ListMap
+import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
 import scala.util.Try
 import scala.util.control.{ NoStackTrace, NonFatal }
@@ -29,7 +30,7 @@ Derivation requires that you have a Schema for any other type nested inside ${T}
 See https://ghostdogpr.github.io/caliban/docs/schema.html for more information.
 """
 )
-trait ArgBuilder[T] { self =>
+abstract class ArgBuilder[T] { self =>
 
   /**
    * Builds a value of type `T` from an input [[caliban.InputValue]].
@@ -71,20 +72,21 @@ trait ArgBuilder[T] { self =>
    * Builds a new `ArgBuilder` of `A` from an existing `ArgBuilder` of `T` and a function from `T` to `A`.
    * @param f a function from `T` to `A`.
    */
-  def map[A](f: T => A): ArgBuilder[A] = (input: InputValue) => self.build(input).map(f)
+  final def map[A](f: T => A): ArgBuilder[A] = (input: InputValue) => self.build(input).map(f)
 
   /**
    * Builds a new `ArgBuilder` of A from an existing `ArgBuilder` of `T` and a function from `T` to `Either[ExecutionError, A]`.
    * @param f a function from `T` to Either[ExecutionError, A]
    */
-  def flatMap[A](f: T => Either[ExecutionError, A]): ArgBuilder[A] = (input: InputValue) => self.build(input).flatMap(f)
+  final def flatMap[A](f: T => Either[ExecutionError, A]): ArgBuilder[A] = (input: InputValue) =>
+    self.build(input).flatMap(f)
 
   /**
    * Builds a new `ArgBuilder` of T from two `ArgBuilders` of `T` where the second `ArgBuilder` is a fallback if the first one fails
    * In the case that both fail, the error from the second will be returned
    * @param fallback The alternative `ArgBuilder` if this one fails
    */
-  def orElse(fallback: ArgBuilder[T]): ArgBuilder[T] =
+  final def orElse(fallback: ArgBuilder[T]): ArgBuilder[T] =
     (input: InputValue) =>
       self.build(input) match {
         case Left(_) => fallback.build(input)
@@ -94,7 +96,7 @@ trait ArgBuilder[T] { self =>
   /**
    * @see [[orElse]]
    */
-  def ||(fallback: ArgBuilder[T]): ArgBuilder[T] =
+  final def ||(fallback: ArgBuilder[T]): ArgBuilder[T] =
     orElse(fallback)
 }
 
@@ -208,6 +210,28 @@ trait ArgBuilderInstances extends ArgBuilderDerivation {
   implicit def list[A](implicit ev: ArgBuilder[A]): ArgBuilder[List[A]]     = {
     case InputValue.ListValue(items) => traverseInputList[A](items)
     case other                       => ev.build(other).map(List(_))
+  }
+
+  implicit def map[K, V](implicit keyEv: ArgBuilder[K], valueEv: ArgBuilder[V]): ArgBuilder[Map[K, V]] = {
+    case InputValue.ListValue(kvs) =>
+      kvs.iterator
+        .foldLeft[Either[ExecutionError, mutable.Builder[(K, V), ListMap[K, V]]]](Right(ListMap.newBuilder)) {
+          case (res @ Left(_), _)                       => res
+          case (Right(res), InputValue.ObjectValue(kv)) =>
+            for {
+              key   <- if (kv.contains("key")) { keyEv.build(kv("key")) }
+                       else { Left(InvalidInputArgument("key", kv)) }
+              value <-
+                if (kv.contains("value")) {
+                  valueEv.build(kv("value"))
+                } else {
+                  Left(InvalidInputArgument("value", kv))
+                }
+            } yield res += ((key, value))
+          case _                                        => Left(InvalidInputArgument("key-value pair", kvs))
+        }
+        .map(_.result())
+    case other                     => Left(InvalidInputArgument("Map", other))
   }
 
   implicit def seq[A](implicit ev: ArgBuilder[A]): ArgBuilder[Seq[A]]       = list[A].map(_.toSeq)

@@ -7,22 +7,8 @@ import caliban.client.__Value.__NullValue
  * Represents an argument in a GraphQL query. Requires an encoder for the argument type.
  */
 case class Argument[+A](name: String, value: A, typeInfo: String)(implicit encoder: ArgEncoder[A]) {
-  def toGraphQL(
-    useVariables: Boolean,
-    dropNullInputValues: Boolean,
-    variables: Map[String, (__Value, String)]
-  ): (String, Map[String, (__Value, String)]) =
-    encoder.encode(value) match {
-      case `__NullValue` => ("", variables)
-      case v             =>
-        val value = if (dropNullInputValues) v.dropNullValues else v
-        if (useVariables) {
-          val variableName = Argument.generateVariableName(name, value, variables)
-          (s"$name:$$$variableName", variables.updated(variableName, (value, typeInfo)))
-        } else {
-          (s"$name:${value.toString}", variables)
-        }
-    }
+  def encodeRaw: __Value =
+    encoder.encode(value)
 }
 
 object Argument {

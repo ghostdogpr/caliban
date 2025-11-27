@@ -1,4 +1,4 @@
-import _root_.caliban.tools.Codegen
+import _root_.caliban.codegen.Codegen
 
 lazy val base = project
   .in(file("modules/base"))

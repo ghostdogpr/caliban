@@ -2,6 +2,7 @@ package caliban.client
 
 import caliban.client.CalibanClientError.CommunicationError
 import caliban.client.Operations.{ IsOperation, RootSubscription }
+import caliban.client.Selection.Directive
 import caliban.client.__Value.__ObjectValue
 import caliban.client.ws.{ GraphQLWSRequest, GraphQLWSResponse }
 import com.github.plokhotnyuk.jsoniter_scala.core.writeToString
@@ -31,22 +32,24 @@ package object laminext {
       uri: String,
       useVariables: Boolean = false,
       queryName: Option[String] = None,
+      directives: List[Directive] = Nil,
       dropNullInputValues: Boolean = false,
       middleware: FetchEventStreamBuilder => FetchEventStreamBuilder = identity
     )(implicit ev: IsOperation[Origin], ec: ExecutionContext): EventStream[Either[CalibanClientError, A]] =
-      toEventStreamWith(uri, useVariables, queryName, dropNullInputValues, middleware)((res, _, _) => res)
+      toEventStreamWith(uri, useVariables, queryName, directives, dropNullInputValues, middleware)((res, _, _) => res)
 
     def toEventStreamWith[B](
       uri: String,
       useVariables: Boolean = false,
       queryName: Option[String] = None,
+      directives: List[Directive] = Nil,
       dropNullInputValues: Boolean = false,
       middleware: FetchEventStreamBuilder => FetchEventStreamBuilder = identity
     )(
       mapResponse: (A, List[GraphQLResponseError], Option[__ObjectValue]) => B
     )(implicit ev: IsOperation[Origin], ec: ExecutionContext): EventStream[Either[CalibanClientError, B]] =
       middleware(Fetch.post(uri))
-        .body(self.toGraphQL(useVariables, queryName, dropNullInputValues))
+        .body(self.toGraphQL(useVariables, queryName, directives, dropNullInputValues))
         .text
         .map(response =>
           if (response.ok)

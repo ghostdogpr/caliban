@@ -1,10 +1,13 @@
 package caliban.parsing.adt
 
 import caliban.InputValue
+import caliban.Scala3Annotations.threadUnsafe
 import caliban.parsing.adt.Type.NamedType
 
-sealed trait Selection extends Serializable {
-  @transient final override lazy val hashCode: Int = super.hashCode()
+sealed trait Selection extends Product with Serializable {
+
+  @transient @threadUnsafe
+  override final lazy val hashCode: Int = caliban.Hash.caseClassHash(this)
 }
 
 object Selection {

@@ -2,8 +2,8 @@ import sbt.Def.spaceDelimited
 import sbt.librarymanagement.Resolver
 
 val scala212 = "2.12.20"
-val scala213 = "2.13.16"
-val scala3   = "3.3.5"
+val scala213 = "2.13.18"
+val scala3   = "3.3.7"
 val allScala = Seq(scala212, scala213, scala3)
 
 def scalaDefaultVersion: String =
@@ -20,24 +20,25 @@ ThisBuild / licenses           := List("Apache-2.0" -> url("http://www.apache.or
 ThisBuild / version            := "0.0.1"
 ThisBuild / scalaVersion       := scalaDefaultVersion
 ThisBuild / resolvers += Resolver.mavenLocal
-ThisBuild / resolvers += Resolver.sonatypeRepo("snapshots")
 ThisBuild / scalacOptions ++= Seq("-Xfatal-warnings", "-feature")
 ThisBuild / crossScalaVersions := allScala
 
 // ### Dependencies ###
 
-lazy val calibanLib: Seq[ModuleID] =
-  sys.props.get("plugin.version") match {
-    case Some(x) => Seq("com.github.ghostdogpr" %% "caliban" % x)
-    case _       => sys.error("""|The system property 'plugin.version' is not defined.
-                           |Specify this property using the scriptedLaunchOpts -D.""".stripMargin)
-  }
+lazy val calibanLib = Seq(
+  "com.github.ghostdogpr" %% "caliban"         % Version.pluginVersion,
+  "com.github.ghostdogpr" %% "caliban-codegen" % Version.pluginVersion % "compile->compile;test->test"
+)
 
 lazy val sttp = Seq(
   "com.softwaremill.sttp.client4" %% "core" % "4.0.2",
   "com.softwaremill.sttp.client4" %% "zio"  % "4.0.2"
 )
 
+lazy val zioTest = Seq(
+  "dev.zio" %% "zio-test"     % "2.1.9" % Test,
+  "dev.zio" %% "zio-test-sbt" % "2.1.9" % Test
+)
 // ### App Modules ###
 
 /**
@@ -103,7 +104,7 @@ lazy val posts =
             )
         )
     )
-    .settings(libraryDependencies ++= calibanLib)
+    .settings(libraryDependencies ++= calibanLib ++ zioTest)
 
 lazy val potatoes =
   project

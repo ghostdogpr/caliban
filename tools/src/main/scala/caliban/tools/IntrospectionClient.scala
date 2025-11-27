@@ -20,13 +20,13 @@ object IntrospectionClient {
 
   def introspect(
     uri: String,
-    headers: Option[List[Options.Header]]
+    headers: Option[List[Header]]
   ): RIO[Backend[Task], Document] =
     introspect(uri, headers, Config.default)
 
   def introspect(
     uri: String,
-    headers: Option[List[Options.Header]],
+    headers: Option[List[Header]],
     config: IntrospectionClient.Config
   ): RIO[Backend[Task], Document] =
     for {

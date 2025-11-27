@@ -1,11 +1,11 @@
 package caliban.relay
 
 import caliban._
-import caliban.schema.Schema.auto._
 import caliban.schema.ArgBuilder.auto._
+import caliban.schema.Schema.auto._
+import zio.ZIO
 import zio.test.Assertion._
 import zio.test._
-import zio.ZIO
 
 object ConnectionSpec extends ZIOSpecDefault {
   case class ItemEdge(cursor: Base64Cursor, node: Item) extends Edge[Base64Cursor, Item]
@@ -200,7 +200,8 @@ object ConnectionSpec extends ZIOSpecDefault {
                        |
                        |type Query {
                        |  connection(first: Int, last: Int, before: String, after: String): ItemConnection
-                       |}""".stripMargin
+                       |}
+                       |""".stripMargin
 
       assertTrue(api.render == expected)
     },
