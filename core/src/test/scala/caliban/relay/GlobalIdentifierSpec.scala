@@ -85,7 +85,7 @@ object GlobalIdentifierSpec extends ZIOSpecDefault {
       assertTrue(
         DocumentRenderer.renderCompact(
           augmented.toDocument
-        ) == "schema{query:Query}interface Node{id:ID!}type Character implements Node{id:ID! name:String!}type Query{characters:[Character!]! ships:[Ship!]! node(id:ID!):Node}type Ship implements Node{id:ID! name:String! purpose:String!}"
+        ) == "schema{query:Query}interface Node{id:ID!} type Character implements Node{id:ID! name:String!} type Query{characters:[Character!]! ships:[Ship!]! node(id:ID!):Node} type Ship implements Node{id:ID! name:String! purpose:String!} "
       )
     },
     test("resolve node field") {
