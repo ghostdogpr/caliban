@@ -50,7 +50,7 @@ private[caliban] object HttpUtils {
       resp: GraphQLResponse[Any],
       toSse: ResponseValue => Sse,
       done: Sse,
-      heartbeater: Option[ZStream[Any, Nothing, Sse]]
+      heartbeater: Option[ZStream[Any, Nothing, Sse]] = None
     )(implicit trace: Trace): UStream[Sse] =
       (resp.data match {
         case ObjectValue((fieldName, StreamValue(stream)) :: Nil) =>

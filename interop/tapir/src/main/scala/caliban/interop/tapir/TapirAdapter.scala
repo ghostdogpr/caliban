@@ -184,8 +184,7 @@ object TapirAdapter {
     val response = HttpUtils.ServerSentEvents.transformResponse(
       resp,
       v => ServerSentEvent(Some(responseCodec.encode(v)), Some("next")),
-      ServerSentEvent(None, Some("complete")),
-      None
+      ServerSentEvent(None, Some("complete"))
     )
     Right(streamConstructor(ZioServerSentEvents.serialiseSSEToBytes(response)))
   }
