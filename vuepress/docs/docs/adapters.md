@@ -126,6 +126,7 @@ for {
 The `QuickAdapter` exposes the following methods that allow you to customize the server or apply middleware to the routes:
 
 - `configure` which takes a `Configurator[R]` [similar to the tapir-based adapters](adapters.md#built-in-tapir-adapters)
+- `configureSse` which takes an `SseConfig` where you can configure if and how often SSE based subscriptions should heartbeat.
 - `handlers` which returns a `QuickHandlers[R]` which contains individual handlers to manually construct routes.
   Note that this handler is only for the api routes. To construct the graphiql handler use `caliban.GraphiQLHandler.handler`.
 
