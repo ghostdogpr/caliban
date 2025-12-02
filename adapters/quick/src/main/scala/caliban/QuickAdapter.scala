@@ -85,6 +85,8 @@ final class QuickAdapter[R] private (requestHandler: QuickRequestHandler[R]) {
   def configureWebSocket[R1](config: quick.WebSocketConfig[R1]): QuickAdapter[R & R1] =
     new QuickAdapter(requestHandler.configureWebSocket(config))
 
+  def configureSse(config: quick.SseConfig): QuickAdapter[R] =
+    new QuickAdapter(requestHandler.configureSse(config))
 }
 
 object QuickAdapter {
