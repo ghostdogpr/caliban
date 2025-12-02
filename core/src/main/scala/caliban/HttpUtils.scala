@@ -51,8 +51,8 @@ private[caliban] object HttpUtils {
       toSse: ResponseValue => Sse,
       done: Sse,
       heartbeater: Option[ZStream[Any, Nothing, Sse]] = None
-    )(implicit trace: Trace): UStream[Sse] =
-      (resp.data match {
+    )(implicit trace: Trace): UStream[Sse] = {
+      val stream = (resp.data match {
         case ObjectValue((fieldName, StreamValue(stream)) :: Nil) =>
           // Report errors in an initial event sent immediately
           val init =
@@ -62,7 +62,13 @@ private[caliban] object HttpUtils {
             case Left(err) => GraphQLResponse(ObjectValue(List(fieldName -> NullValue)), List(err))
           }
         case _                                                    => ZStream.succeed(resp)
-      }).map(v => toSse(v.toResponseValue)).mergeHaltLeft(heartbeater.getOrElse(ZStream.empty)) ++ ZStream.succeed(done)
+      }).map(v => toSse(v.toResponseValue))
+
+      (heartbeater match {
+        case None    => stream
+        case Some(s) => stream.mergeHaltLeft(s)
+      }) ++ ZStream.succeed(done)
+    }
   }
 
   def computeCacheDirective(extensions: ResponseValue.ObjectValue): Option[String] =

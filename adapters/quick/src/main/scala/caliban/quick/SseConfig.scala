@@ -10,5 +10,5 @@ case class SseConfig(
 }
 
 object SseConfig {
-  def default: SseConfig = SseConfig(Some(10.seconds))
+  def default: SseConfig = SseConfig(None)
 }
