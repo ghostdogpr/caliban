@@ -78,9 +78,9 @@ private object ValueValidator {
 
           case INPUT_OBJECT =>
             argValue match {
-              case ObjectValue(_) if inputType._isOneOfInput =>
-                Validator.validateOneOfInputValue(argValue, errorContext)
-              case ObjectValue(fields)                       =>
+              case obj: ObjectValue if inputType._isOneOfInput =>
+                Validator.validateOneOfInputValue(obj, errorContext)
+              case ObjectValue(fields)                         =>
                 validateAllDiscard(inputType.allInputFields) { f =>
                   fields.collectFirst { case (name, fieldValue) if name == f.name => fieldValue } match {
                     case Some(value)                    =>
@@ -91,9 +91,9 @@ private object ValueValidator {
                       unit
                   }
                 }
-              case NullValue                                 =>
+              case NullValue                                   =>
                 unit
-              case _                                         =>
+              case _                                           =>
                 failValidation(
                   s"$errorContext has invalid type: $argValue",
                   "Input field was supposed to be an input object."

@@ -368,17 +368,19 @@ object Validator {
             case _: Type.ListType  => false
           }
           val v2         =
-            if (isObjField && t.exists(_._isOneOfInput))
-              Some(
-                failWhen(v.variableType.nullable)(
-                  s"Variable '${v.name}' cannot be nullable.",
-                  "Variables used for OneOf Input Object fields must be non-nullable."
-                ) *> validateOneOfInputValue(
-                  context.variables.getOrElse(v.name, NullValue),
-                  s"Variable '${v.name}'"
-                )
-              )
-            else None
+            if (isObjField && t.exists(_._isOneOfInput)) {
+              context.variables.getOrElse(v.name, NullValue) match {
+                case obj: InputValue.ObjectValue => Some(validateOneOfInputValue(obj, s"Variable '${v.name}'"))
+                case NullValue                   => None
+                case _                           =>
+                  Some(
+                    failValidation(
+                      s"Variable '${v.name}' is not valid for a OneOf Input Object.",
+                      "Variables passed to a OneOf Input Object must be an object or null"
+                    )
+                  )
+              }
+            } else None
 
           v2.fold(v1)(v1 *> _)
         } *> {
@@ -670,14 +672,10 @@ object Validator {
   } *> ValueValidator.validateInputTypes(inputValue, argValue, context, errorContext)
 
   private[validation] def validateOneOfInputValue(
-    inputValue: InputValue,
+    inputValue: InputValue.ObjectValue,
     errorContext: => String
   ): Either[ValidationError, Unit] = {
-    val v = inputValue match {
-      case InputValue.ObjectValue(fields) if fields.size == 1 => fields.headOption.map(_._2)
-      case vv: InputValue.VariableValue                       => Some(vv)
-      case _                                                  => None
-    }
+    val v = if (inputValue.fields.size == 1) inputValue.fields.headOption.map(_._2) else None
     v match {
       case None | Some(NullValue) =>
         failValidation(

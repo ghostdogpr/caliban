@@ -460,9 +460,7 @@ object ValidationSpec extends ZIOSpecDefault {
             |
             |  foos(value: $args2)
             |
-            |  fooOpt(fooInput: null)
-            |
-            |  fooOptSome: fooOpt(fooInput: $args3)
+            |  fooOpt(fooInput: $args3)
             |
             |  fooUnwrapped(value: $args4)
             |
@@ -555,34 +553,68 @@ object ValidationSpec extends ZIOSpecDefault {
                 )
             }
           },
-          test("OneOf variables cannot be nullable") {
-            val cases = List(
-              """
-                |query Foo($args1: FooInput){
-                |  foo(fooInput: $args1)
-                |}
-                |""".stripMargin,
-              """
-                |query Foos($args1: FooInput){
-                |  foos(value: [$args1])
-                |}
-                |""".stripMargin
-            )
+          suite("nullable variables")(
+            test("required") {
+              val query =
+                """
+                  |query Foo($args1: FooInput){
+                  |  foo(fooInput: $args1)
+                  |}
+                  |""".stripMargin
 
-            ZIO.foldLeft(cases)(assertCompletes) { case (acc, variablesQuery) =>
               api.interpreter
-                .flatMap(_.execute(variablesQuery, variables = Map("args1" -> validInputs.head)))
+                .flatMap(_.execute(query, variables = Map("args1" -> validInputs.head)))
                 .map(resp =>
-                  acc && assertTrue(
+                  assertTrue(
                     resp.errors.nonEmpty,
                     resp.errors.forall {
-                      case ValidationError("Variable 'args1' cannot be nullable.", _, _, _) => true
-                      case _                                                                => false
+                      case ValidationError(
+                            "Variable 'args1' usage is not allowed because it is nullable and doesn't have a default value.",
+                            _,
+                            _,
+                            _
+                          ) =>
+                        true
+                      case _ => false
                     }
                   )
                 )
+            },
+            test("null") {
+              val query =
+                """
+                  |query Foo($args1: FooInput){
+                  |  fooOpt(fooInput: $args1)
+                  |}
+                  |""".stripMargin
+
+              api.interpreter
+                .flatMap(_.execute(query, variables = Map("args1" -> NullValue)))
+                .map(resp =>
+                  assertTrue(
+                    resp.errors.isEmpty,
+                    resp.data == ResponseValue.ObjectValue(List(("fooOpt", NullValue)))
+                  )
+                )
+            },
+            test("value") {
+              val query =
+                """
+                  |query Foo($args1: FooInput){
+                  |  fooOpt(fooInput: $args1)
+                  |}
+                  |""".stripMargin
+
+              api.interpreter
+                .flatMap(_.execute(query, variables = Map("args1" -> validInputs.head)))
+                .map(resp =>
+                  assertTrue(
+                    resp.errors.isEmpty,
+                    resp.data == ResponseValue.ObjectValue(List(("fooOpt", StringValue("FooString(hello)"))))
+                  )
+                )
             }
-          },
+          ),
           test("schema is valid") {
             api.validateRootSchema.map(_ => assertCompletes)
           }
