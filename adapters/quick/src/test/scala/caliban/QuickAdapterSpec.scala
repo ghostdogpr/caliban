@@ -23,10 +23,13 @@ object QuickAdapterSpec extends ZIOSpecDefault {
 
   private val apiLayer = envLayer >>> ZLayer.fromZIO {
     for {
-      _       <- TestApi.api
-                   .routes("/api/graphql", uploadPath = Some("/upload/graphql"), webSocketPath = Some("/ws/graphql"))
-                   .map(_ @@ auth)
-                   .flatMap(_.serve[TestService & Uploads].forkScoped)
+      adapter <- TestApi.api.interpreter.map { interpreter =>
+                   QuickAdapter(interpreter).configureSse(SseConfig(Some(1.second)))
+                 }
+      routes   =
+        (adapter
+          .routes("/api/graphql", uploadPath = Some("/upload/graphql"), webSocketPath = Some("/ws/graphql")) @@ auth)
+      _       <- Server.serve(routes).forkScoped
       _       <- Live.live(Clock.sleep(3 seconds))
       service <- ZIO.service[TestService]
     } yield service

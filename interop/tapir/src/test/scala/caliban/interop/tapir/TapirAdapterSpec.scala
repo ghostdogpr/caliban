@@ -300,11 +300,40 @@ object TapirAdapterSpec {
                          method = Method.POST.method,
                          query = """mutation{ deleteCharacter(name: "Amos Burton") }"""
                        )
-              event <- res.runHead
+              event <-
+                res
+                  .filter(_.data.isDefined)
+                  .takeUntil(e =>
+                    e == ServerSentEvent(Some("""{"data":{"characterDeleted":"Amos Burton"}}"""), Some("next"))
+                  )
+                  .runHead
             } yield assertTrue(
-              event.isDefined && event.get == ServerSentEvent(
-                Some("""{"data":{"characterDeleted":"Amos Burton"}}"""),
-                Some("next")
+              event.isDefined && event.contains(
+                ServerSentEvent(
+                  Some("""{"data":{"characterDeleted":"Amos Burton"}}"""),
+                  Some("next")
+                )
+              )
+            )
+          } @@ TestAspect.timeout(10.seconds) @@ TestAspect.ignore,
+          test("heartbeating") {
+            for {
+              res   <- runSSERequest(
+                         acceptTextEventStream,
+                         "subscription { characterDeleted }"
+                       )
+              event <-
+                res
+                  .filterNot(_.data.isDefined)
+                  .runHead
+            } yield assertTrue(
+              event.isDefined && event.contains(
+                ServerSentEvent(
+                  None,
+                  None,
+                  None,
+                  None
+                )
               )
             )
           } @@ TestAspect.timeout(10.seconds) @@ TestAspect.ignore

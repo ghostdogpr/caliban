@@ -14,20 +14,23 @@ object ExampleApp extends ZIOAppDefault {
       Console.printLine("Press RETURN to stop...") *>
       Console.readLine.unit
 
-  private val serve =
-    ZIO
-      .serviceWithZIO[GraphQL[Any]] {
-        _.runServer(
-          port = 8090,
-          apiPath = "/api/graphql",
-          graphiqlPath = Some("/graphiql"),
-          webSocketPath = Some("/ws/graphql")
-        )
-      }
-      .provide(
-        ExampleService.make(sampleCharacters),
-        ExampleApi.layer
-      )
+  private val serve = (for {
+    gql <- ZIO.service[GraphQL[Any]]
+    _   <- gql.interpreter.flatMap { interpreter =>
+             QuickAdapter(interpreter)
+               .configureSse(SseConfig(Some(5.seconds)))
+               .runServer(
+                 port = 8090,
+                 apiPath = "/api/graphql",
+                 graphiqlPath = Some("/graphiql"),
+                 webSocketPath = Some("/ws/graphql")
+               )
+           }
+  } yield ())
+    .provide(
+      ExampleService.make(sampleCharacters),
+      ExampleApi.layer
+    )
 
   override def run: ZIO[Any, Throwable, Unit] = serve race cliShutdownSignal
 
