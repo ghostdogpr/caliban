@@ -402,8 +402,8 @@ case class Name(firstName: String, lastName: String)
 @GQLOneOfInput
 sealed trait AuthorInput
 object AuthorInput {
-  case class ById(id: String)
-  case class ByName(name: Name)
+  case class ById(id: String) extends AuthorInput
+  case class ByName(name: Name) extends AuthorInput
 }
 
 case class AuthorArgs(lookup: AuthorInput)
