@@ -176,8 +176,8 @@ object Validator {
           if (set ne Nil) collectValues(set)
         case f: FragmentSpread =>
           val name = f.name
+          collectDirectives(f.directives)
           if (seen.add(name)) {
-            collectDirectives(f.directives)
             val f0 = context.fragments.getOrElseNull(name)
             if (f0 ne null) {
               collectDirectives(f0.directives)

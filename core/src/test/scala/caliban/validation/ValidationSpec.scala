@@ -16,12 +16,18 @@ object ValidationSpec extends ZIOSpecDefault {
   private val gql         = graphQL(resolverWithSubscription)
   private val interpreter = gql.interpreter
 
+  def execute(
+    query: String,
+    variables: Map[String, InputValue] = Map.empty
+  ): IO[ValidationError, Option[CalibanError]] =
+    interpreter.flatMap(_.execute(query, variables = variables)).map(_.errors.headOption)
+
   def check(
     query: String,
     expectedMessage: String,
     variables: Map[String, InputValue] = Map.empty
   ): IO[ValidationError, TestResult] = {
-    val io = interpreter.flatMap(_.execute(query, variables = variables)).map(_.errors.headOption)
+    val io = execute(query, variables)
     io.map(assert(_)(isSome(hasField[CalibanError, String]("msg", _.msg, equalTo(expectedMessage)))))
   }
 
@@ -255,8 +261,8 @@ object ValidationSpec extends ZIOSpecDefault {
                  name
                }
               }""")
-        interpreter.flatMap(_.execute(query, None, Map("x" -> StringValue("y")))).map { response =>
-          assertTrue(response.errors.isEmpty)
+        execute(query, Map("x" -> StringValue("y"))).map { errors =>
+          assertTrue(errors.isEmpty)
         }
       },
       test("variable used in object") {
@@ -264,8 +270,8 @@ object ValidationSpec extends ZIOSpecDefault {
              query($x: String!) {
                exists(character: { name: $x, nicknames: [], origin: EARTH })
               }""")
-        interpreter.flatMap(_.execute(query, None, Map("x" -> StringValue("y")))).map { response =>
-          assertTrue(response.errors.isEmpty)
+        execute(query, Map("x" -> StringValue("y"))).map { errors =>
+          assertTrue(errors.isEmpty)
         }
       },
       test("invalid input field") {
@@ -338,8 +344,26 @@ object ValidationSpec extends ZIOSpecDefault {
              query($x: String = "test") {
                exists(character: { name: $x, nicknames: [], origin: EARTH })
               }""")
-        interpreter.flatMap(_.execute(query, None, Map())).map { response =>
-          assertTrue(response.errors.isEmpty)
+        execute(query).map { errors =>
+          assertTrue(errors.isEmpty)
+        }
+      },
+      test("variables used in directives on multiple spreads of same fragment") {
+        val query = gqldoc("""
+             query($x: Boolean!, $y: Boolean!) {
+               characters {
+                 ...q @include(if: $x)
+                 ...q @include(if: $y)
+               }
+              }
+
+              fragment q on Character {
+                __typename
+                name
+              }
+              """)
+        execute(query, Map("x" -> BooleanValue(true), "y" -> BooleanValue(true))).map { errors =>
+          assertTrue(errors.isEmpty)
         }
       },
       test("directive with variable of the wrong type") {
@@ -364,8 +388,8 @@ object ValidationSpec extends ZIOSpecDefault {
                  name @skip(if: $x)
                }
              }""")
-        interpreter.flatMap(_.execute(query, None, Map("x" -> BooleanValue(true)))).map { response =>
-          assertTrue(response.errors.isEmpty)
+        execute(query, Map("x" -> BooleanValue(true))).map { errors =>
+          assertTrue(errors.isEmpty)
         }
       },
       test("validation works when a non-nullable field is missing but we have a default value") {
