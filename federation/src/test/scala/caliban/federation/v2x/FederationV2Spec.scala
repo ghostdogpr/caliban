@@ -12,7 +12,7 @@ import com.github.plokhotnyuk.jsoniter_scala.core._
 import com.github.plokhotnyuk.jsoniter_scala.circe.JsoniterScalaCodec._
 import io.circe.Json
 import zio.ZIO
-import zio.test.Assertion.hasSameElements
+import zio.test.Assertion.{ containsString, hasSameElements }
 import zio.test._
 
 object FederationV2Spec extends ZIOSpecDefault {
@@ -242,9 +242,63 @@ object FederationV2Spec extends ZIOSpecDefault {
           """schema@link(url:"https://specs.apollo.dev/federation/v2.3",import:["@key","@requires","@provides","@external","@shareable","@tag","@inaccessible","@override","@extends","@composeDirective","@interfaceObject"]){query:Query}type Query{hello:String! user:User!} type User@key(fields:"id")@shareable{id:ID!} """
 
         assertTrue(actual == expected)
+      },
+      suite("federation rendering") {
+        import caliban.federation._
+        import FederationV2.DefaultDirectives
 
+        val directives = List(
+          Nil,                                       // 2.0
+          List("@composeDirective"),                 // 2.1
+          Nil,                                       // 2.2
+          List("@interfaceObject"),                  // 2.3
+          Nil,                                       // 2.4
+          List("@authenticated", "@requiresScopes"), // 2.5
+          List("@policy"),                           // 2.6
+          Nil,                                       // 2.7
+          List("@context", "@fromContext"),          // 2.8
+          List("@cost", "@listSize"),                // 2.9
+          List("@connect", "@source"),               // 2.10 + connect 0.1
+          Nil,                                       // 2.11 + connect 0.2
+          List("@cacheTag")                          // 2.12 + connect 0.3
+        )
+          .scanLeft(DefaultDirectives)(_ ++ _.map(Import(_)))
+
+        List(
+          v2_0,
+          v2_1,
+          v2_2,
+          v2_3,
+          v2_4,
+          v2_5,
+          v2_6,
+          v2_7,
+          v2_8,
+          v2_9,
+          v2_10,
+          v2_11,
+          v2_12
+        ).zip(directives).zipWithIndex.map { case ((fedVer, directives), index) =>
+          renderFederationTest(fedVer, Fixture.api)(s"v2.$index", directives)
+        }
       }
     )
+
+  private def renderFederationTest[V <: FederationV2](
+    fedVer: V,
+    api: GraphQL[Any]
+  )(version: String, directives: List[Import]) =
+    test(s"rendering federation $version") {
+      val renderer = fedVer.federationRenderer
+      val actual   = renderer.compact.render(api)
+
+      TestResult.allSuccesses(directives.map { dir =>
+        val expected = s"\"${dir.name}\""
+        assertTrue(actual.contains(expected))
+      }) &&
+      assertTrue(actual.contains(s"https://specs.apollo.dev/federation/${version}"))
+
+    }
 
   private def makeSchemaDirectives(f: GraphQL[Any] => GraphQL[Any]) = {
     case class Query(

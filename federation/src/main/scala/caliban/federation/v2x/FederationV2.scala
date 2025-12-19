@@ -4,6 +4,8 @@ import caliban.GraphQL
 import caliban.federation.{ FederationDirectives, FederationSupport }
 import caliban.rendering.{ DocumentRenderer, Renderer }
 
+import scala.:+
+
 class FederationV2(extensions: List[Extension])
     extends FederationSupport(Nil, extensions.map(_.toDirective))
     with FederationDirectives
@@ -50,6 +52,11 @@ object FederationV2 {
     `import` = v2_0.`import` :+ Import("@composeDirective")
   )
 
+  private[v2x] val v2_2 = Link(
+    url = s"$federationV2Url/v2.2",
+    `import` = v2_1.`import`
+  )
+
   private[v2x] val v2_3 = Link(
     url = s"$federationV2Url/v2.3",
     `import` = v2_1.`import` :+ Import("@interfaceObject")
@@ -89,9 +96,27 @@ object FederationV2 {
     `import` = v2_9.`import`
   )
 
+  private[v2x] val v2_11 = Link(
+    url = s"$federationV2Url/v2.11",
+    `import` = v2_10.`import`
+  )
+
+  private[v2x] val v2_12 = Link(
+    url = s"$federationV2Url/v2.12",
+    `import` = v2_11.`import` :+ Import("cacheTag")
+  )
+
   val connect: Link = Link(
     url = s"$connectUrl/v0.1",
     `import` = List(Import("@connect"), Import("@source"))
+  )
+
+  val connect0_2: Link = connect.copy(
+    `import` = connect.`import`
+  )
+
+  val connect0_3: Link = connect0_2.copy(
+    url = s"$connectUrl/v0.3"
   )
 
 }
