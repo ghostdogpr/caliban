@@ -179,6 +179,12 @@ trait CommonArgBuilderDerivation {
 trait ArgBuilderDerivation extends CommonArgBuilderDerivation {
   inline def gen[A]: ArgBuilder[A] = derived
 
+  /**
+   * In Scala 3, this method functions identically to [[gen]].
+   * This method exists solely for backward compatibility with Scala 2.
+   */
+  inline def genFast[A]: ArgBuilder[A] = gen
+
   sealed abstract class Auto[A] extends ArgBuilder[A] {
     inline given genAuto[T](using NotGiven[ArgBuilder[T]]): ArgBuilder[T] = derived
   }

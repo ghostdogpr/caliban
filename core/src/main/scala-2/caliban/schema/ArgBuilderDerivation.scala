@@ -105,6 +105,29 @@ trait CommonArgBuilderDerivation {
 
 trait ArgBuilderDerivation extends CommonArgBuilderDerivation {
   def gen[T]: Typeclass[T] = macro Magnolia.gen[T]
+
+  /**
+   * A faster alternative to `gen` for deriving `ArgBuilder` instances at compile-time.
+   *
+   * While `gen` uses the Magnolia library for generic derivation, `genFast` uses a
+   * custom macro implementation that generates more optimized code specifically tailored
+   * for Caliban's ArgBuilder typeclass.
+   *
+   * Key differences from `gen`:
+   *
+   * - '''Enum handling''': For enum variants with `@GQLName`, `genFast` only accepts the
+   *   annotated name, while `gen` accepts both the `@GQLName` value and the original Scala
+   *   class name. For variants without `@GQLName`, both use the Scala class name. This means
+   *   `genFast` is stricter and will reject inputs using the original class name when
+   *   a `@GQLName` is present.
+   *
+   * - '''Value class support''': `genFast` supports both AnyVal-based
+   *   and `@GQLValueType` annotated classes, while `gen` does not handle AnyVal-based classes.
+   *
+   * Use `genFast` when compile-time performance and runtime efficiency are critical,
+   * especially for case classes with many fields.
+   */
+  def genFast[T]: Typeclass[T] = macro FastArgBuilderDerivationMacro.materialize[T]
 }
 
 trait AutoArgBuilderDerivation extends ArgBuilderInstances with LowPriorityDerivedArgBuilder
