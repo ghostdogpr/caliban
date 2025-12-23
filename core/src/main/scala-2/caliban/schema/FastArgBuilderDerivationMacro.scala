@@ -89,12 +89,22 @@ private class FastArgBuilderDerivationMacro(val c: blackbox.Context) {
 
     val instanceDefs = subtypes.map(_._1)
 
-    val builder = subtypes.map(_._2) match {
-      case head :: tail =>
-        val t       = tail.foldLeft(head) { case (acc, item) => q"$acc.orElse($item)" }
+    val tmpVarName = TermName("tmp")
+    val builder    = subtypes.map(_._2) match {
+      case Nil => c.abort(c.enclosingPosition, s"$tpe is marked as @oneOf, but doesn't have subtypes")
+      case lst =>
         val default = makeError(tpe, s"${getTypePrettyName(tpe)}: unexpected case")
-        q"$t.orElse($default)"
-      case Nil          => c.abort(c.enclosingPosition, s"$tpe is marked as @oneOf, but doesn't have subtypes")
+        lst.foldRight(default) { case (item, acc) =>
+          q"""
+             {
+                val $tmpVarName = $item
+                if ($tmpVarName.isRight) {
+                  $tmpVarName
+                } else $acc
+             }
+           """
+        }
+
     }
 
     val oneSizeError   = makeError(tpe, s"${getTypePrettyName(tpe)}: expected object of size 1")

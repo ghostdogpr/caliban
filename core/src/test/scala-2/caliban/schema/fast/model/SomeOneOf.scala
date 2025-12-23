@@ -20,6 +20,12 @@ object SomeOneOf {
     implicit val argBuilder: ArgBuilder[ByClassWithOneField] = ArgBuilder.genFast[ByClassWithOneField]
   }
 
+  case class ByStrId(idStr: String) extends SomeOneOf
+
+  object ByStrId {
+    implicit val argBuilder: ArgBuilder[ByStrId] = ArgBuilder.genFast[ByStrId]
+  }
+
   implicit val argBuilder: ArgBuilder[SomeOneOf] = ArgBuilder.gen[SomeOneOf]
 
   implicit val fastArgBuilder: FastArgBuilderWrapper[SomeOneOf] =

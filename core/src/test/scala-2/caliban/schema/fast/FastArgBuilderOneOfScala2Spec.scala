@@ -16,6 +16,7 @@ object FastArgBuilderOneOfScala2Spec extends ZIOSpecDefault {
         test("on correct values") {
           val inputs = List[InputValue](
             gqlObject("id"    -> 1),
+            gqlObject("idStr" -> "42"),
             gqlObject("field" -> gqlObject("myField" -> 42))
           )
           checkAll(Gen.fromIterable(inputs)) { input =>
@@ -34,6 +35,8 @@ object FastArgBuilderOneOfScala2Spec extends ZIOSpecDefault {
             gqlObject("id"            -> 1, "anything else" -> gqlNull),
             gqlObject("anything else" -> gqlNull),
             gqlObject("id"            -> "str"),
+            gqlObject("idStr1"        -> "str"),
+            gqlObject("idStr"         -> true),
             gqlObject("field"         -> "str"),
             gqlObject()
           )
