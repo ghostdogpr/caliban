@@ -1,10 +1,9 @@
 package caliban.schema
 
-import caliban.CalibanError.ExecutionError
+import caliban.InputValue
 import caliban.Value.*
-import caliban.schema.Annotations.{ GQLDefault, GQLName, GQLOneOfInput, GQLValueType }
+import caliban.schema.Annotations.GQLOneOfInput
 import caliban.schema.macros.Macros
-import caliban.{ CalibanError, InputValue }
 import magnolia1.Macro as MagnoliaMacro
 
 import scala.annotation.nowarn
@@ -13,7 +12,6 @@ import scala.deriving.Mirror
 import scala.util.NotGiven
 
 trait CommonArgBuilderDerivation {
-  import caliban.syntax.*
 
   transparent inline def recurseSum[P, Label <: Tuple, A <: Tuple](
     inline values: List[(String, List[Any], ArgBuilder[Any])] = Nil
@@ -57,12 +55,12 @@ trait CommonArgBuilderDerivation {
     inline summonInline[Mirror.Of[A]] match {
       case m: Mirror.SumOf[A] =>
         inline if (Macros.hasAnnotation[A, GQLOneOfInput]) {
-          makeOneOfBuilder[A](
+          new OneOfArgBuilder[A](
             recurseSum[A, m.MirroredElemLabels, m.MirroredElemTypes](),
             constValue[m.MirroredLabel]
           )
         } else
-          makeSumArgBuilder[A](
+          new SumArgBuilder[A](
             recurseSum[A, m.MirroredElemLabels, m.MirroredElemTypes](),
             constValue[m.MirroredLabel]
           )
@@ -74,110 +72,12 @@ trait CommonArgBuilderDerivation {
         ) {
           scala.compiletime.error("value classes must have exactly one field")
         } else
-          makeProductArgBuilder(
+          new ProductArgBuilder(
             recurseProduct[A, m.MirroredElemLabels, m.MirroredElemTypes](),
             MagnoliaMacro.paramAnns[A].toMap,
             DerivationUtils.isValueType[A, m.MirroredElemLabels]
           )(m.fromProduct)
     }
-
-  private def makeSumArgBuilder[A](
-    _subTypes: => List[(String, List[Any], ArgBuilder[Any])],
-    traitLabel: String
-  ): ArgBuilder[A] = new ArgBuilder[A] {
-    private lazy val subTypes = _subTypes
-    private val emptyInput    = InputValue.ObjectValue(Map.empty)
-
-    final def build(input: InputValue): Either[ExecutionError, A] =
-      input.match {
-        case EnumValue(value)   => Right(value)
-        case StringValue(value) => Right(value)
-        case _                  => Left(ExecutionError(s"Can't build a trait from input $input"))
-      }.flatMap { value =>
-        subTypes.collectFirst {
-          case (
-                label,
-                annotations,
-                builder: ArgBuilder[A @unchecked]
-              ) if label == value || annotations.contains(GQLName(value)) =>
-            builder
-        }
-          .toRight(ExecutionError(s"Invalid value $value for trait $traitLabel"))
-          .flatMap(_.build(emptyInput))
-      }
-  }
-
-  private def makeOneOfBuilder[A](
-    _subTypes: => List[(String, List[Any], ArgBuilder[Any])],
-    traitLabel: String
-  ): ArgBuilder[A] = new ArgBuilder[A] {
-
-    override lazy val partial: PartialFunction[InputValue, Either[ExecutionError, A]] = {
-      val xs = _subTypes.map(_._3).asInstanceOf[List[ArgBuilder[A]]]
-
-      val checkSize: PartialFunction[InputValue, Either[ExecutionError, A]] = {
-        case InputValue.ObjectValue(f) if f.size != 1 =>
-          Left(ExecutionError("Exactly one key must be specified for oneOf inputs"))
-      }
-      xs.foldLeft(checkSize)(_ orElse _.partial)
-    }
-
-    def build(input: InputValue): Either[ExecutionError, A] =
-      partial.applyOrElse(input, (in: InputValue) => Left(inputError(in)))
-
-    private def inputError(input: InputValue) =
-      ExecutionError(s"Invalid oneOf input $input for trait $traitLabel")
-  }
-
-  private def makeProductArgBuilder[A](
-    _fields: => List[(String, ArgBuilder[Any])],
-    annotations: Map[String, List[Any]],
-    isValueType: Boolean
-  )(fromProduct: Product => A): ArgBuilder[A] = new ArgBuilder[A] {
-
-    private lazy val params = Array.from(_fields.map { (label, builder) =>
-      val labelList  = annotations.get(label)
-      val default    = builder.buildMissing(labelList.flatMap(_.collectFirst { case GQLDefault(v) => v }))
-      val finalLabel = labelList.flatMap(_.collectFirst { case GQLName(name) => name }).getOrElse(label)
-      (finalLabel, default, builder)
-    })
-
-    private lazy val required = params.collect { case (label, default, _) if default.isLeft => label }
-
-    override private[schema] val partial: PartialFunction[InputValue, Either[ExecutionError, A]] = {
-      case InputValue.ObjectValue(fields) if required.forall(fields.contains) => fromFields(fields)
-    }
-
-    def build(input: InputValue): Either[ExecutionError, A] =
-      input match {
-        case InputValue.ObjectValue(fields) if !isValueType => fromFields(fields)
-        case value if isValueType                           => fromValue(value)
-        case _                                              => Left(ExecutionError("Expected an input object"))
-      }
-
-    private def fromFields(fields: Map[String, InputValue]): Either[ExecutionError, A] = {
-      var i   = 0
-      val l   = params.length
-      val arr = Array.ofDim[Any](l)
-      while (i < l) {
-        val (label, default, builder) = params(i)
-        val field                     = fields.getOrElseNull(label)
-        val value                     = if (field ne null) builder.build(field) else default
-        value match {
-          case Right(v) => arr(i) = v
-          case Left(e)  => return Left(e)
-        }
-        i += 1
-      }
-      Right(fromProduct(Tuple.fromArray(arr)))
-    }
-
-    private def fromValue(input: InputValue): Either[ExecutionError, A] =
-      params(0)._3
-        .build(input)
-        .map(v => fromProduct(Tuple1(v)))
-  }
-
 }
 
 trait ArgBuilderDerivation extends CommonArgBuilderDerivation {
