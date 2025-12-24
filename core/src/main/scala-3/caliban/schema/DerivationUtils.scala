@@ -47,10 +47,16 @@ private object DerivationUtils {
   def getDeprecatedReason(annotations: Seq[Any]): Option[String] =
     annotations.collectFirst { case GQLDeprecated(reason) => reason }
 
-  transparent inline def isValueType[A, Labels]: Boolean =
+  transparent inline def isValueType[A, Labels <: Tuple]: Boolean =
     inline erasedValue[Labels] match {
       case _: EmptyTuple => false
       case _             => MagnoliaMacro.isValueClass[A] || Macros.hasAnnotation[A, GQLValueType]
+    }
+
+  transparent inline def hasSingleField[Labels <: Tuple]: Boolean =
+    inline erasedValue[Labels] match {
+      case _: (_ *: EmptyTuple) => true
+      case _                    => false
     }
 
   def mkEnum(annotations: List[Any], info: TypeInfo, subTypes: List[(String, __Type, List[Any])]): __Type =

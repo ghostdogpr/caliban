@@ -68,11 +68,17 @@ trait CommonArgBuilderDerivation {
           )
 
       case m: Mirror.ProductOf[A] =>
-        makeProductArgBuilder(
-          recurseProduct[A, m.MirroredElemLabels, m.MirroredElemTypes](),
-          MagnoliaMacro.paramAnns[A].toMap,
-          DerivationUtils.isValueType[A, m.MirroredElemLabels]
-        )(m.fromProduct)
+        inline if (
+          !DerivationUtils.hasSingleField[m.MirroredElemTypes]
+          && DerivationUtils.isValueType[A, m.MirroredElemLabels]
+        ) {
+          scala.compiletime.error("value classes must have exactly one field")
+        } else
+          makeProductArgBuilder(
+            recurseProduct[A, m.MirroredElemLabels, m.MirroredElemTypes](),
+            MagnoliaMacro.paramAnns[A].toMap,
+            DerivationUtils.isValueType[A, m.MirroredElemLabels]
+          )(m.fromProduct)
     }
 
   private def makeSumArgBuilder[A](
@@ -106,7 +112,7 @@ trait CommonArgBuilderDerivation {
     traitLabel: String
   ): ArgBuilder[A] = new ArgBuilder[A] {
 
-    override val partial: PartialFunction[InputValue, Either[ExecutionError, A]] = {
+    override lazy val partial: PartialFunction[InputValue, Either[ExecutionError, A]] = {
       val xs = _subTypes.map(_._3).asInstanceOf[List[ArgBuilder[A]]]
 
       val checkSize: PartialFunction[InputValue, Either[ExecutionError, A]] = {
@@ -135,8 +141,6 @@ trait CommonArgBuilderDerivation {
       val finalLabel = labelList.flatMap(_.collectFirst { case GQLName(name) => name }).getOrElse(label)
       (finalLabel, default, builder)
     })
-
-    assert(!isValueType || params.length == 1, "value classes must have exactly one field")
 
     private lazy val required = params.collect { case (label, default, _) if default.isLeft => label }
 
