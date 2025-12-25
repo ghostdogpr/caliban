@@ -37,12 +37,9 @@ private class FastArgBuilderDerivationMacro(val c: blackbox.Context) {
   }
 
   private def materializeEnum[T: c.WeakTypeTag]: c.Expr[caliban.schema.ArgBuilder[T]] = {
-    val tpe   = weakTypeOf[T]
-    val klass = tpe.typeSymbol.asClass
-
-    // Use stable sorting because `knownDirectSubclasses` doesn't guarantee consistent ordering
-    // between recompilations, which could cause macro output to vary unexpectedly
-    val subtypes = klass.knownDirectSubclasses.toList.sortBy(_.name.decodedName.toString).map { s =>
+    val tpe      = weakTypeOf[T]
+    val klass    = tpe.typeSymbol.asClass
+    val subtypes = klass.knownDirectSubclasses.map { s =>
       val gqlName = s.annotations.collectFirst { ann =>
         ann.tree match { case Apply(_, List(Literal(Constant(s: String)))) if ann.tree.tpe =:= GQLNameType => s }
       }
@@ -80,15 +77,22 @@ private class FastArgBuilderDerivationMacro(val c: blackbox.Context) {
 
     val resultType = weakTypeOf[Either[caliban.CalibanError.ExecutionError, T]]
     val objVarName = TermName("c")
-    val subtypes   = klass.knownDirectSubclasses.zipWithIndex.map { case (s, i) =>
-      val sType          = s.asType.toType
-      val argBuilderName = TermName(s"argBuilder$$$i")
-      val instanceDef    =
-        q"private[this] lazy val $argBuilderName: $ArgBuilderSym[$s] = ${getImplicitArgBuilder(sType)}"
 
-      val builder = q"$argBuilderName.build($objVarName).asInstanceOf[$resultType]"
-      (instanceDef, builder)
-    }.toList
+    // Use stable sorting because `knownDirectSubclasses` doesn't guarantee consistent ordering
+    // between recompilations, which could cause macro output to vary unexpectedly
+    val subtypes = klass.knownDirectSubclasses.toList
+      .sortBy(_.name.decodedName.toString)
+      .zipWithIndex
+      .map { case (s, i) =>
+        val sType          = s.asType.toType
+        val argBuilderName = TermName(s"argBuilder$$$i")
+        val instanceDef    =
+          q"private[this] lazy val $argBuilderName: $ArgBuilderSym[$s] = ${getImplicitArgBuilder(sType)}"
+
+        val builder = q"$argBuilderName.build($objVarName).asInstanceOf[$resultType]"
+        (instanceDef, builder)
+      }
+      .toList
 
     val instanceDefs = subtypes.map(_._1)
 
@@ -143,7 +147,7 @@ private class FastArgBuilderDerivationMacro(val c: blackbox.Context) {
         case Some(idx) => idx._2
         case None      =>
           val newIdx = cachedInstances.length
-          cachedInstances = cachedInstances.appended(v -> newIdx)
+          cachedInstances = cachedInstances :+ (v -> newIdx)
           newIdx
       }
 
@@ -157,7 +161,7 @@ private class FastArgBuilderDerivationMacro(val c: blackbox.Context) {
     val last =
       q"new $RightSym[$ExecutionErrorType, $tpe](new $klass(..${fields.map(_.resName)}))"
 
-    // `if (tmp.isRight) ... else ...` is used instead of pattern matching because the former is slightly faster
+    // `if (tmp.isRight) ... else ...` is used instead of pattern matching because the former is much faster
     val result: Tree = fields.foldRight(last) { case (field, acc) =>
       q"""
          {
