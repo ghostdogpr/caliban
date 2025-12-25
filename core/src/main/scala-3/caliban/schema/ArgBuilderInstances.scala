@@ -86,9 +86,10 @@ private final class ProductArgBuilder[A](
       }
 
   private def fromFields(fields: Map[String, InputValue]): Either[ExecutionError, A] = {
-    var i   = 0
-    val l   = params.length
-    val arr = Array.ofDim[Any](l)
+    val params = this.params
+    var i      = 0
+    val l      = params.length
+    val arr    = Array.ofDim[Any](l)
     while (i < l) {
       val (label, default, builder) = params(i)
       val field                     = fields.getOrElseNull(label)
