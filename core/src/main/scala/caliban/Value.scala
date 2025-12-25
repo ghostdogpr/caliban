@@ -133,6 +133,12 @@ object Value {
   final case class BooleanValue(value: Boolean) extends Value                {
     override def toString: String = if (value) "true" else "false"
   }
+  object BooleanValue {
+    private val `true`  = new BooleanValue(true)
+    private val `false` = new BooleanValue(false)
+
+    def apply(v: Boolean): BooleanValue = if (v) `true` else `false`
+  }
   final case class EnumValue(value: String)     extends Value                {
     override def toString: String      = s""""${value.replace("\"", "\\\"")}""""
     override def toInputString: String = ValueRenderer.enumInputValueRenderer.render(this)
