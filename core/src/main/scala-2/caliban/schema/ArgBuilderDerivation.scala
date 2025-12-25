@@ -52,13 +52,27 @@ trait CommonArgBuilderDerivation {
         case _                                              => Left(ExecutionError("Expected an input object"))
       }
 
-    private[this] def fromFields(fields: Map[String, InputValue]): Either[ExecutionError, T] =
-      ctx.constructMonadic { p =>
-        val idx              = p.index
-        val (label, default) = params(idx)
-        val field            = fields.getOrElseNull(label)
-        if (field ne null) p.typeclass.build(field) else default
+    private[this] def fromFields(fields: Map[String, InputValue]): Either[ExecutionError, T] = {
+      val len         = ctx.parameters.length
+      val fieldValues = Array.ofDim[Any](len)
+
+      var idx = 0
+
+      ctx.parameters.zip(params).foreach { case (param, (label, default)) =>
+        val field = fields.getOrElseNull(label)
+        val res   = if (field ne null) param.typeclass.build(field) else default
+
+        if (res.isLeft) {
+          return res.asInstanceOf[EitherExecutionError[T]]
+        }
+
+        fieldValues(idx) = res.asInstanceOf[Right[_, Any]].value
+
+        idx += 1
       }
+
+      Right(ctx.rawConstruct(fieldValues.toSeq))
+    }
   }
 
   def split[T](ctx: SealedTrait[ArgBuilder, T]): ArgBuilder[T] =
