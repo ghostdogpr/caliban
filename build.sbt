@@ -645,7 +645,10 @@ lazy val benchmarks = project
       "io.github.valdemargr" %% "gql-server"      % "0.4.1",
       "dev.zio"              %% "zio-test"        % zioVersion % Test,
       "dev.zio"              %% "zio-test-sbt"    % zioVersion % Test
-    )
+    ),
+    scalacOptions ++= {
+      if (scalaVersion.value.startsWith("3.")) Seq("-Xmax-inlines", "2000") else Seq.empty
+    }
   )
 
 lazy val federation = project
