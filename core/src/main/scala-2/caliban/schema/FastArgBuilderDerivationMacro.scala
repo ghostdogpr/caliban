@@ -89,22 +89,12 @@ private class FastArgBuilderDerivationMacro(val c: blackbox.Context) {
 
     val instanceDefs = subtypes.map(_._1)
 
-    val tmpVarName = TermName("tmp")
-    val builder    = subtypes.map(_._2) match {
-      case Nil => c.abort(c.enclosingPosition, s"$tpe is marked as @oneOf, but doesn't have subtypes")
-      case lst =>
+    val builder = subtypes.map(_._2) match {
+      case head :: tail =>
+        val t       = tail.foldLeft(head) { case (acc, item) => q"$acc.orElse($item)" }
         val default = makeError(tpe, s"${getTypePrettyName(tpe)}: unexpected case")
-        lst.foldRight(default) { case (item, acc) =>
-          q"""
-             {
-                val $tmpVarName = $item
-                if ($tmpVarName.isRight) {
-                  $tmpVarName
-                } else $acc
-             }
-           """
-        }
-
+        q"$t.orElse($default)"
+      case Nil          => c.abort(c.enclosingPosition, s"$tpe is marked as @oneOf, but doesn't have subtypes")
     }
 
     val oneSizeError   = makeError(tpe, s"${getTypePrettyName(tpe)}: expected object of size 1")
@@ -131,7 +121,7 @@ private class FastArgBuilderDerivationMacro(val c: blackbox.Context) {
     val klass  = tpe.typeSymbol.asClass
     val params = klass.primaryConstructor.asMethod.paramLists.flatten
 
-    val fields = params.zipWithIndex.map { case (v, i) => buildParam(v, i) }
+    val fields = params.zipWithIndex.map { case (v, i) => buildParam(v, i, i) }
     fields match {
       case List(field) => c.Expr[caliban.schema.ArgBuilder[T]](q"${field.implicitArgBuilder}.map(r => new $tpe(r))")
       case _           => c.abort(klass.pos, s"$tpe is not value type")
@@ -143,14 +133,28 @@ private class FastArgBuilderDerivationMacro(val c: blackbox.Context) {
     val klass  = tpe.typeSymbol.asClass
     val params = klass.primaryConstructor.asMethod.paramLists.flatten
 
-    val fields = params.zipWithIndex.map { case (v, i) => buildParam(v, i) }
+    var cachedInstances = Seq.empty[(Symbol, Long)]
+
+    val fields = params.zipWithIndex.map { case (v, i) =>
+      val argBuilderIdx = cachedInstances.find(_._1.typeSignature =:= v.typeSignature) match {
+        case Some(idx) => idx._2
+        case None      =>
+          val newIdx = cachedInstances.length
+          cachedInstances = cachedInstances.appended(v -> newIdx)
+          newIdx
+      }
+
+      val field = buildParam(v, i, argBuilderIdx)
+
+      field
+    }
 
     val objVarName = TermName("c")
 
     val last =
       q"new $RightSym[$ExecutionErrorType, $tpe](new $klass(..${fields.map(_.resName)}))"
 
-    // `if (tmp.isRight) ... else ...` is used instead of pattern matching because the former is much faster
+    // `if (tmp.isRight) ... else ...` is used instead of pattern matching because the former is slightly faster
     val result: Tree = fields.foldRight(last) { case (field, acc) =>
       q"""
          {
@@ -165,9 +169,10 @@ private class FastArgBuilderDerivationMacro(val c: blackbox.Context) {
        """
     }
 
-    val instanceDefs = fields.map(field =>
-      q"private[this] lazy val ${field.argBuilderName}: $ArgBuilderSym[${field.theType}] = ${field.implicitArgBuilder}"
-    )
+    val instanceDefs = cachedInstances.map { case (t, ix) =>
+      val name = getArgBuilderInstanceName(ix)
+      q"private[this] lazy val $name: $ArgBuilderSym[$t] = ${getImplicitArgBuilder(t.typeSignature)}"
+    }
 
     val inputVarName = TermName("v")
     val resultType   = weakTypeOf[Either[caliban.CalibanError.ExecutionError, T]]
@@ -185,7 +190,8 @@ private class FastArgBuilderDerivationMacro(val c: blackbox.Context) {
        """)
   }
 
-  private def buildParam(param: Symbol, ix: Long) = {
+  private def buildParam(param: Symbol, ix: Long, argBuilderIdx: Long) = {
+
     var name                             = param.name.toString
     var defaultValue: caliban.InputValue = caliban.Value.NullValue
 
@@ -204,17 +210,18 @@ private class FastArgBuilderDerivationMacro(val c: blackbox.Context) {
       }
     }
 
-    new CaseClassParam(ix, name, defaultValue, param)
+    new CaseClassParam(ix, name, defaultValue, param, argBuilderIdx)
   }
 
   private class CaseClassParam(
     val ix: Long,
     val name: String,
     val defaultValue: caliban.InputValue,
-    val theType: Symbol
+    val theType: Symbol,
+    val argBuilderIx: Long
   ) {
 
-    val argBuilderName: TermName = TermName(s"argBuilderInstance$$$ix")
+    val argBuilderName: TermName = getArgBuilderInstanceName(argBuilderIx)
     val resName: TermName        = TermName(s"res$$$ix")
     val tempName: TermName       = TermName(s"temp$$$ix")
 
@@ -229,6 +236,8 @@ private class FastArgBuilderDerivationMacro(val c: blackbox.Context) {
       case x         => x
     }
   }
+
+  private def getArgBuilderInstanceName(ix: Long) = TermName(s"argBuilderInstance$$$ix")
 
   private def getTypePrettyName(tpe: Type) = tpe.typeSymbol.name.decodedName.toString
 
@@ -319,4 +328,5 @@ private class FastArgBuilderDerivationMacro(val c: blackbox.Context) {
         q"$ObjectValueObj(Map(..$ts))"
     }
   }
+
 }
