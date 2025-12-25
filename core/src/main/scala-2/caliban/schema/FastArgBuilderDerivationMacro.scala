@@ -37,9 +37,12 @@ private class FastArgBuilderDerivationMacro(val c: blackbox.Context) {
   }
 
   private def materializeEnum[T: c.WeakTypeTag]: c.Expr[caliban.schema.ArgBuilder[T]] = {
-    val tpe      = weakTypeOf[T]
-    val klass    = tpe.typeSymbol.asClass
-    val subtypes = klass.knownDirectSubclasses.map { s =>
+    val tpe   = weakTypeOf[T]
+    val klass = tpe.typeSymbol.asClass
+
+    // Use stable sorting because `knownDirectSubclasses` doesn't guarantee consistent ordering
+    // between recompilations, which could cause macro output to vary unexpectedly
+    val subtypes = klass.knownDirectSubclasses.toList.sortBy(_.name.decodedName.toString).map { s =>
       val gqlName = s.annotations.collectFirst { ann =>
         ann.tree match { case Apply(_, List(Literal(Constant(s: String)))) if ann.tree.tpe =:= GQLNameType => s }
       }
