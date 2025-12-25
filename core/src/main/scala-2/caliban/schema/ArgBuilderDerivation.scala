@@ -3,10 +3,10 @@ package caliban.schema
 import caliban.CalibanError.ExecutionError
 import caliban.InputValue
 import caliban.Value._
-import caliban.schema.Annotations.{ GQLDefault, GQLName, GQLOneOfInput, GQLValueType }
+import caliban.schema.Annotations.{ GQLDefault, GQLName, GQLOneOfInput }
 import magnolia1._
 
-import scala.collection.compat._
+import scala.collection.compat.immutable.ArraySeq
 import scala.language.experimental.macros
 
 trait CommonArgBuilderDerivation {
@@ -28,16 +28,16 @@ trait CommonArgBuilderDerivation {
 
   def join[T](ctx: CaseClass[ArgBuilder, T]): ArgBuilder[T] = new ArgBuilder[T] {
     private lazy val params = {
-      val arr = Array.ofDim[(String, EitherExecutionError[Any])](ctx.parameters.length)
+      val arr = Array.ofDim[(String, EitherExecutionError[Any], ArgBuilder[Any])](ctx.parameters.length)
       ctx.parameters.zipWithIndex.foreach { case (p, i) =>
         val label   = p.annotations.collectFirst { case GQLName(name) => name }.getOrElse(p.label)
         val default = p.typeclass.buildMissing(p.annotations.collectFirst { case GQLDefault(v) => v })
-        arr(i) = (label, default)
+        arr(i) = (label, default, p.typeclass.asInstanceOf[ArgBuilder[Any]])
       }
       arr
     }
 
-    private lazy val required = params.collect { case (label, default) if default.isLeft => label }
+    private lazy val required = params.collect { case (label, default, _) if default.isLeft => label }
 
     private val isValueType = DerivationUtils.isValueType(ctx)
 
@@ -48,17 +48,32 @@ trait CommonArgBuilderDerivation {
     def build(input: InputValue): Either[ExecutionError, T] =
       input match {
         case InputValue.ObjectValue(fields) if !isValueType => fromFields(fields)
-        case value if isValueType                           => ctx.constructMonadic(p => p.typeclass.build(value))
+        case value if isValueType                           => fromValue(value)
         case _                                              => Left(ExecutionError("Expected an input object"))
       }
 
-    private[this] def fromFields(fields: Map[String, InputValue]): Either[ExecutionError, T] =
-      ctx.constructMonadic { p =>
-        val idx              = p.index
-        val (label, default) = params(idx)
-        val field            = fields.getOrElseNull(label)
-        if (field ne null) p.typeclass.build(field) else default
+    private def fromFields(fields: Map[String, InputValue]): Either[ExecutionError, T] = {
+      var i    = 0
+      val l    = params.length
+      val arr  = Array.ofDim[Any](l)
+      while (i < l) {
+        val (label, default, builder) = params(i)
+        val field                     = fields.getOrElseNull(label)
+        val value                     = if (field ne null) builder.build(field) else default
+        value match {
+          case Right(v) => arr(i) = v
+          case l        => return l.asInstanceOf[Either[ExecutionError, T]]
+        }
+        i += 1
       }
+      val args = ArraySeq.unsafeWrapArray(arr)
+      Right(ctx.rawConstruct(args))
+    }
+
+    private def fromValue(input: InputValue): Either[ExecutionError, T] =
+      params(0)._3
+        .build(input)
+        .map(v => ctx.rawConstruct(List(v)))
   }
 
   def split[T](ctx: SealedTrait[ArgBuilder, T]): ArgBuilder[T] =
