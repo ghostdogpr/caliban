@@ -54,9 +54,10 @@ trait CommonArgBuilderDerivation {
       }
 
     private def fromFields(fields: Map[String, InputValue]): Either[ExecutionError, T] = {
-      var i    = 0
-      val l    = params.length
-      val arr  = Array.ofDim[Any](l)
+      val params = this.params
+      var i      = 0
+      val l      = params.length
+      val arr    = Array.ofDim[Any](l)
       while (i < l) {
         val (label, default, builder) = params(i)
         val field                     = fields.getOrElseNull(label)
@@ -67,7 +68,7 @@ trait CommonArgBuilderDerivation {
         }
         i += 1
       }
-      val args = ArraySeq.unsafeWrapArray(arr)
+      val args   = ArraySeq.unsafeWrapArray(arr)
       Right(ctx.rawConstruct(args))
     }
 
