@@ -63,6 +63,7 @@ private final class ProductArgBuilder[A](
   isValueType: Boolean
 )(fromProduct: Product => A)
     extends ArgBuilder[A] {
+  import ProductArgBuilder.ArrayProductWrapper
 
   private lazy val params = Array.from(_fields.map { (label, builder) =>
     val labelList  = annotations.get(label)
@@ -100,11 +101,19 @@ private final class ProductArgBuilder[A](
       }
       i += 1
     }
-    Right(fromProduct(Tuple.fromArray(arr)))
+    Right(fromProduct(new ArrayProductWrapper(arr)))
   }
 
   private def fromValue(input: InputValue): Either[ExecutionError, A] =
     params(0)._3
       .build(input)
       .map(v => fromProduct(Tuple1(v)))
+}
+
+private object ProductArgBuilder {
+  private final class ArrayProductWrapper(arr: Array[Any]) extends Product {
+    def canEqual(that: Any): Boolean = false // Not used by the `fromProduct` method so we just stub it
+    def productArity: Int            = arr.length
+    def productElement(n: Int): Any  = arr(n)
+  }
 }
