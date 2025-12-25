@@ -16,6 +16,7 @@ trait CommonArgBuilderDerivation {
 
   type EitherExecutionError[A] = Either[ExecutionError, A]
 
+  @deprecated("Kept for binary compatibility, to be removed")
   implicit val eitherMonadic: Monadic[EitherExecutionError] = new Monadic[EitherExecutionError] {
     override def flatMap[A, B](from: EitherExecutionError[A])(
       fn: A => EitherExecutionError[B]
