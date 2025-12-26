@@ -16,17 +16,6 @@ trait CommonArgBuilderDerivation {
 
   type EitherExecutionError[A] = Either[ExecutionError, A]
 
-  @deprecated("Kept for binary compatibility, to be removed")
-  implicit val eitherMonadic: Monadic[EitherExecutionError] = new Monadic[EitherExecutionError] {
-    override def flatMap[A, B](from: EitherExecutionError[A])(
-      fn: A => EitherExecutionError[B]
-    ): EitherExecutionError[B] = from.flatMap(fn)
-
-    override def point[A](value: A): EitherExecutionError[A] = Right(value)
-
-    override def map[A, B](from: EitherExecutionError[A])(fn: A => B): EitherExecutionError[B] = from.map(fn)
-  }
-
   def join[T](ctx: CaseClass[ArgBuilder, T]): ArgBuilder[T] = new ArgBuilder[T] {
     private lazy val params = {
       val arr = Array.ofDim[(String, EitherExecutionError[Any], ArgBuilder[Any])](ctx.parameters.length)
