@@ -124,14 +124,20 @@ trait GraphQL[-R] { self =>
               )(overallWrappers, request)
           }
 
-        private def coerceVariables(doc: Document, variables: Map[String, InputValue], operationName: Option[String])(implicit
-          trace: Trace
+        private def coerceVariables(doc: Document, variables: Map[String, InputValue], operationName: Option[String])(
+          implicit trace: Trace
         ): IO[ValidationError, Map[String, InputValue]] =
           Configurator.ref.getWith { config =>
             if (doc.isIntrospection && !config.enableIntrospection)
               ZIO.fail(CalibanError.ValidationError("Introspection is disabled", ""))
             else
-              VariablesCoercer.coerceVariables(variables, doc, typeToValidate(doc), config.skipValidation, operationName) match {
+              VariablesCoercer.coerceVariables(
+                variables,
+                doc,
+                typeToValidate(doc),
+                config.skipValidation,
+                operationName
+              ) match {
                 case Right(value) => Exit.succeed(value)
                 case Left(error)  => ZIO.fail(error)
               }

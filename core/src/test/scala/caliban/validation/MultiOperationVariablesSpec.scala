@@ -34,7 +34,7 @@ object MultiOperationVariablesSpec extends ZIOSpecDefault {
     verifyToken: String => UIO[Boolean]
   )
 
-  val queries = Queries(dummy = ZIO.succeed("ok"))
+  val queries   = Queries(dummy = ZIO.succeed("ok"))
   val mutations = Mutations(
     sendEmail = _ => ZIO.succeed(true),
     verifyToken = _ => ZIO.succeed(true)
@@ -53,7 +53,7 @@ object MultiOperationVariablesSpec extends ZIOSpecDefault {
         Nil,
         None
       )
-    case Left(e) => throw new RuntimeException(s"Schema validation failed: $e")
+    case Left(e)       => throw new RuntimeException(s"Schema validation failed: $e")
   }
 
   // Document with two mutations, each with its own required variable
@@ -71,13 +71,11 @@ object MultiOperationVariablesSpec extends ZIOSpecDefault {
   val parsedDoc = Parser.parseQuery(multiOperationDocument).toOption.get
 
   override def spec = suite("Multi-Operation Variable Coercion")(
-
     suite("VariablesCoercer with operationName")(
-
       test("coercing variables for SendEmail should only require $email") {
         // When operationName is "SendEmail", only $email should be required
         val variables = Map("email" -> StringValue("test@example.com"))
-        val result = VariablesCoercer.coerceVariables(
+        val result    = VariablesCoercer.coerceVariables(
           variables,
           parsedDoc,
           rootType,
@@ -86,11 +84,10 @@ object MultiOperationVariablesSpec extends ZIOSpecDefault {
         )
         assertTrue(result.isRight)
       },
-
       test("coercing variables for VerifyToken should only require $token") {
         // When operationName is "VerifyToken", only $token should be required
         val variables = Map("token" -> StringValue("abc123"))
-        val result = VariablesCoercer.coerceVariables(
+        val result    = VariablesCoercer.coerceVariables(
           variables,
           parsedDoc,
           rootType,
@@ -99,11 +96,10 @@ object MultiOperationVariablesSpec extends ZIOSpecDefault {
         )
         assertTrue(result.isRight)
       },
-
       test("coercing SendEmail without $email should fail") {
         // Missing required variable should still fail
         val variables = Map.empty[String, InputValue]
-        val result = VariablesCoercer.coerceVariables(
+        val result    = VariablesCoercer.coerceVariables(
           variables,
           parsedDoc,
           rootType,
@@ -113,13 +109,12 @@ object MultiOperationVariablesSpec extends ZIOSpecDefault {
         assertTrue(result.isLeft) &&
         assertTrue(result.left.toOption.exists(_.msg.contains("email")))
       },
-
       test("coercing SendEmail should not require $token from VerifyToken operation") {
         // This is the key test: $token is required by VerifyToken, not SendEmail.
         // When executing SendEmail, missing $token should NOT cause an error.
         val variables = Map("email" -> StringValue("test@example.com"))
         // Note: we're NOT providing $token
-        val result = VariablesCoercer.coerceVariables(
+        val result    = VariablesCoercer.coerceVariables(
           variables,
           parsedDoc,
           rootType,
@@ -134,12 +129,11 @@ object MultiOperationVariablesSpec extends ZIOSpecDefault {
         assertTrue(!hasTokenError) &&
         assertTrue(result.isRight)
       },
-
       test("coercing VerifyToken should not require $email from SendEmail operation") {
         // Symmetrical test: $email is required by SendEmail, not VerifyToken
         val variables = Map("token" -> StringValue("abc123"))
         // Note: we're NOT providing $email
-        val result = VariablesCoercer.coerceVariables(
+        val result    = VariablesCoercer.coerceVariables(
           variables,
           parsedDoc,
           rootType,
@@ -153,18 +147,19 @@ object MultiOperationVariablesSpec extends ZIOSpecDefault {
         assertTrue(result.isRight)
       }
     ),
-
     suite("VariablesCoercer without operationName")(
-
       test("single operation document - coercion works without operationName") {
-        val singleOpDoc = Parser.parseQuery("""
+        val singleOpDoc = Parser
+          .parseQuery("""
           mutation SendEmail($email: String!) {
             sendEmail(value: $email)
           }
-        """).toOption.get
+        """)
+          .toOption
+          .get
 
         val variables = Map("email" -> StringValue("test@example.com"))
-        val result = VariablesCoercer.coerceVariables(
+        val result    = VariablesCoercer.coerceVariables(
           variables,
           singleOpDoc,
           rootType,
@@ -173,12 +168,11 @@ object MultiOperationVariablesSpec extends ZIOSpecDefault {
         )
         assertTrue(result.isRight)
       },
-
       test("multi-operation document without operationName - falls back to checking all variables") {
         // When no operationName is provided and there are multiple operations,
         // the coercer checks all variable definitions (legacy behavior)
         val variables = Map("email" -> StringValue("test@example.com"))
-        val result = VariablesCoercer.coerceVariables(
+        val result    = VariablesCoercer.coerceVariables(
           variables,
           parsedDoc,
           rootType,

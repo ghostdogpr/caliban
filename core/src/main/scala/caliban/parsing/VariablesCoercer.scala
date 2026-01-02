@@ -55,7 +55,7 @@ object VariablesCoercer {
           .find(_.name.contains(name))
           .map(_.variableDefinitions)
           .getOrElse(Nil)
-      case None =>
+      case None       =>
         doc.operationDefinitions match {
           case op :: Nil => op.variableDefinitions
           case _         => doc.operationDefinitions.flatMap(_.variableDefinitions)
