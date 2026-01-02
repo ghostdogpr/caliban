@@ -21,17 +21,18 @@ object VariablesCoercer {
     rootType: RootType,
     skipValidation: Boolean
   ): Either[ValidationError, GraphQLRequest] =
-    coerceVariables(req.variables.getOrElse(Map.empty), doc, rootType, skipValidation)
+    coerceVariables(req.variables.getOrElse(Map.empty), doc, rootType, skipValidation, req.operationName)
       .map(m => req.copy(variables = Some(m)))
 
   def coerceVariables(
     variables: Map[String, InputValue],
     doc: Document,
     rootType: RootType,
-    skipValidation: Boolean
+    skipValidation: Boolean,
+    operationName: Option[String] = None
   ): Either[ValidationError, Map[String, InputValue]] =
     try
-      coerceVariablesUnsafe(variables, doc, rootType, skipValidation)
+      coerceVariablesUnsafe(variables, doc, rootType, skipValidation, operationName)
     catch {
       case _: StackOverflowError => Left(ValidationError("max arguments depth exceeded", ""))
     }
@@ -40,12 +41,26 @@ object VariablesCoercer {
     variables: Map[String, InputValue],
     doc: Document,
     rootType: RootType,
-    skipValidation: Boolean
+    skipValidation: Boolean,
+    operationName: Option[String]
   ): Either[ValidationError, Map[String, InputValue]] = {
     // Scala 2's compiler loves inferring `ZPure.succeed` as ZPure[Nothing, Nothing, Any, R, E, A] so we help it out
     type F[+A] = Either[ValidationError, A]
 
-    val variableDefinitions = doc.operationDefinitions.flatMap(_.variableDefinitions)
+    // Only validate variables for the operation being executed, not all operations in the document
+    // This follows the GraphQL spec: "Variables are scoped on a per-operation basis"
+    val variableDefinitions = operationName match {
+      case Some(name) =>
+        doc.operationDefinitions
+          .find(_.name.contains(name))
+          .map(_.variableDefinitions)
+          .getOrElse(Nil)
+      case None =>
+        doc.operationDefinitions match {
+          case op :: Nil => op.variableDefinitions
+          case _         => doc.operationDefinitions.flatMap(_.variableDefinitions)
+        }
+    }
 
     if (variableDefinitions.isEmpty) Right(variables)
     else
