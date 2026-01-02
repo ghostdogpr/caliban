@@ -81,7 +81,7 @@ object Validator {
           .foldLeft(List.empty[(String, FragmentDefinition)]) { case (l, f) => (f.name, f) :: l }
           .toMap
       )
-    } else check(document, rootType, variables, validations)
+    } else check(document, rootType, variables, validations, operationName)
 
     fragments.flatMap { fragments =>
       val operation = operationName match {
@@ -127,14 +127,15 @@ object Validator {
     document: Document,
     rootType: RootType,
     variables: Map[String, InputValue],
-    validations: List[QueryValidation]
+    validations: List[QueryValidation],
+    operationName: Option[String] = None
   ): Either[ValidationError, Map[String, FragmentDefinition]] = {
     val (operations, fragments) = collectDefinitions(document)
     validateFragments(fragments).flatMap { fragmentMap =>
       val buf     = ListBuffer.empty[Selection]
       operations.foreachOne(op => collectSelectionSets(buf)(op.selectionSet))
       fragments.foreachOne(f => collectSelectionSets(buf)(f.selectionSet))
-      val context = Context(document, rootType, operations, fragmentMap, buf.result(), variables)
+      val context = Context(document, rootType, operations, fragmentMap, buf.result(), variables, operationName)
       try
         validateAllDiscard(validations)(_.apply(context)).as(fragmentMap)
       catch {
@@ -437,25 +438,31 @@ object Validator {
     cycleDetected
   }
 
-  def validateDocumentFields(context: Context): Either[ValidationError, Unit] =
-    validateAllDiscard(context.document.definitions) {
-      case OperationDefinition(opType, _, _, _, selectionSet) =>
-        opType match {
-          case OperationType.Query        =>
-            validateSelectionSet(context, selectionSet, context.rootType.queryType)
-          case OperationType.Mutation     =>
-            context.rootType.mutationType.fold[Either[ValidationError, Unit]](
-              failValidation("Mutation operations are not supported on this schema.", "")
-            )(validateSelectionSet(context, selectionSet, _))
-          case OperationType.Subscription =>
-            context.rootType.subscriptionType.fold[Either[ValidationError, Unit]](
-              failValidation("Subscription operations are not supported on this schema.", "")
-            )(validateSelectionSet(context, selectionSet, _))
-        }
-      case _: FragmentDefinition                              => unit
-      case _: TypeSystemDefinition                            => unit
-      case _: TypeSystemExtension                             => unit
+  def validateDocumentFields(context: Context): Either[ValidationError, Unit] = {
+    // Only validate the operation(s) that will be executed, not all operations in the document
+    // This follows the GraphQL spec: variables and fields are scoped on a per-operation basis
+    val operationsToValidate   = context.selectedOperations
+    val fragmentsAndTypeSystem = context.document.definitions.collect {
+      case f: FragmentDefinition   => f
+      case t: TypeSystemDefinition => t
+      case e: TypeSystemExtension  => e
     }
+
+    validateAllDiscard(operationsToValidate) { op =>
+      op.operationType match {
+        case OperationType.Query        =>
+          validateSelectionSet(context, op.selectionSet, context.rootType.queryType)
+        case OperationType.Mutation     =>
+          context.rootType.mutationType.fold[Either[ValidationError, Unit]](
+            failValidation("Mutation operations are not supported on this schema.", "")
+          )(validateSelectionSet(context, op.selectionSet, _))
+        case OperationType.Subscription =>
+          context.rootType.subscriptionType.fold[Either[ValidationError, Unit]](
+            failValidation("Subscription operations are not supported on this schema.", "")
+          )(validateSelectionSet(context, op.selectionSet, _))
+      }
+    } *> validateAllDiscard(fragmentsAndTypeSystem)(_ => unit)
+  }
 
   private def containsFragments(selectionSet: List[Selection]): Boolean =
     selectionSet.exists {

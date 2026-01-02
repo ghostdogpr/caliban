@@ -24,10 +24,21 @@ package object validation {
     operations: List[OperationDefinition],
     fragments: Map[String, FragmentDefinition],
     selectionSets: List[Selection],
-    variables: Map[String, InputValue]
+    variables: Map[String, InputValue],
+    operationName: Option[String] = None
   ) {
     lazy val variableDefinitions: Map[String, VariableDefinition] =
       operations.flatMap(_.variableDefinitions.map(d => d.name -> d)).toMap
+
+    /** Get only the operations that should be validated based on operationName */
+    def selectedOperations: List[OperationDefinition] = operationName match {
+      case Some(name) => operations.filter(_.name.contains(name))
+      case None       =>
+        operations match {
+          case op :: Nil => List(op)
+          case _         => operations // fallback to all if no operationName and multiple ops
+        }
+    }
   }
 
   object Context {
