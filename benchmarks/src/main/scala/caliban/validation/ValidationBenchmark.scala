@@ -74,7 +74,7 @@ class ValidationBenchmark {
 
   @Benchmark
   def variableCoercer(): Any =
-    run(VariablesCoercer.coerceVariables(deepArgs100Elements, parsedDeepWithArgsQuery, deepWithArgsType, false))
+    run(VariablesCoercer.coerceVariables(deepArgs100Elements, parsedDeepWithArgsQuery, deepWithArgsType, false, None))
 
   @Benchmark
   def introspection(): Any =
