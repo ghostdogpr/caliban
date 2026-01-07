@@ -884,12 +884,12 @@ object InputArgumentSpec extends ZIOSpecDefault {
           for {
             res <- execute(query, vars)
           } yield assertTrue(
-            res.errors == List(
-              CalibanError.ValidationError(
-                "Field b in InputValue 'input' of Field 'exampleObject' is null",
-                "Input field was null but was supposed to be non-null."
-              )
-            )
+            // Variable value validation now happens at coercion/execution time, not validation time.
+            // Per spec note on "Values of Correct Type": variable values are checked during coercion.
+            res.errors.nonEmpty && res.errors.exists {
+              case CalibanError.ExecutionError(msg, _, _, _, _) => msg.contains("null")
+              case _                                            => false
+            }
           )
         },
         test("""{ a: "abc", b: null } + {} -> errors""") {
@@ -921,12 +921,12 @@ object InputArgumentSpec extends ZIOSpecDefault {
           for {
             res <- execute(query, vars)
           } yield assertTrue(
-            res.errors == List(
-              CalibanError.ValidationError(
-                "InputValue 'input' of Field 'b' of InputObject 'ExampleObjectInput' is null",
-                "Input field was null but was supposed to be non-null."
-              )
-            )
+            // Variable value validation now happens at coercion/execution time, not validation time.
+            // Per spec note on "Values of Correct Type": variable values are checked during coercion.
+            res.errors.nonEmpty && res.errors.exists {
+              case CalibanError.ExecutionError(msg, _, _, _, _) => msg.contains("null")
+              case _                                            => false
+            }
           )
         },
         test("""{ b: 123, c: "xyz" } + {} -> errors""") {

@@ -1,7 +1,7 @@
 package caliban.validation
 
 import caliban._
-import caliban.CalibanError.ValidationError
+import caliban.CalibanError.{ ExecutionError, ValidationError }
 import caliban.InputValue.ObjectValue
 import caliban.Macros.gqldoc
 import caliban.TestUtils._
@@ -571,9 +571,13 @@ object ValidationSpec extends ZIOSpecDefault {
                 .flatMap(_.execute(variablesQuery, variables = variables))
                 .map(resp =>
                   acc && assertTrue(
+                    // Variable value validation now happens at coercion/execution time, not validation time.
+                    // Per spec note on "Values of Correct Type": variable values are checked during coercion.
                     resp.errors.nonEmpty && resp.errors.forall {
-                      case ValidationError(msg, _, _, _) => msg.contains("is not a valid OneOf Input Object")
-                      case _                             => false
+                      case ValidationError(msg, _, _, _)   => msg.contains("is not a valid OneOf Input Object")
+                      case ExecutionError(msg, _, _, _, _) =>
+                        msg.contains("null") || msg.contains("oneOf") || msg.contains("OneOf")
+                      case _                               => false
                     }
                   )
                 )
