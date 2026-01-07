@@ -135,21 +135,27 @@ trait GraphQL[-R] { self =>
               wrap((request: GraphQLRequest) =>
                 (for {
                   doc          <- wrap(parseZIO)(parsingWrappers, request.query.getOrElse(""))
-                  coercedVars  <- coerceVariables(doc, request.variables.getOrElse(Map.empty))
+                  coercedVars  <- coerceVariables(doc, request.variables.getOrElse(Map.empty), request.operationName)
                   executionReq <- wrap(validation(request, coercedVars))(validationWrappers, doc)
                   result       <- wrap(execution(schemaToExecute(doc), fieldWrappers))(executionWrappers, executionReq)
                 } yield result).catchAll(Executor.fail)
               )(overallWrappers, request)
           }
 
-        private def coerceVariables(doc: Document, variables: Map[String, InputValue])(implicit
-          trace: Trace
+        private def coerceVariables(doc: Document, variables: Map[String, InputValue], operationName: Option[String])(
+          implicit trace: Trace
         ): IO[ValidationError, Map[String, InputValue]] =
           Configurator.ref.getWith { config =>
             if (doc.isIntrospection && !config.enableIntrospection)
               ZIO.fail(CalibanError.ValidationError("Introspection is disabled", ""))
             else
-              VariablesCoercer.coerceVariables(variables, doc, typeToValidate(doc), config.skipValidation) match {
+              VariablesCoercer.coerceVariables(
+                variables,
+                doc,
+                typeToValidate(doc),
+                config.skipValidation,
+                operationName
+              ) match {
                 case Right(value) => Exit.succeed(value)
                 case Left(error)  => ZIO.fail(error)
               }

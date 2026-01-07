@@ -49,12 +49,13 @@ private object ValueValidator {
     errorContext: => String
   ): Either[ValidationError, Unit] =
     argValue match {
-      case v: VariableValue =>
-        val value =
-          context.variables
-            .getOrElse(v.name, context.variableDefinitions.get(v.name).flatMap(_.defaultValue).getOrElse(NullValue))
-
-        validateType(inputType, value, context, errorContext)
+      case _: VariableValue =>
+        // Variable type compatibility is checked by "All Variable Usages Are Allowed" rule.
+        // Variable value coercion is handled by VariablesCoercer (scoped per-operation).
+        // Per the spec note on "Values of Correct Type": we can assume the runtime value
+        // of each variableUsage is valid for usage in its position.
+        // See: https://spec.graphql.org/October2021/#sec-Values-of-Correct-Type
+        unit
       case _                =>
         inputType.kind match {
           case NON_NULL =>
