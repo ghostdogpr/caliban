@@ -8,21 +8,12 @@ import caliban.parsing.adt.Type.{ ListType, NamedType }
 import caliban.parsing.adt._
 import caliban.schema.RootType
 import caliban.validation.Validator.failValidation
-import caliban.{ GraphQLRequest, InputValue, Value }
+import caliban.{ InputValue, Value }
 
 import scala.collection.compat._
 
 object VariablesCoercer {
   import caliban.validation.ValidationOps._
-
-  def coerceVariables(
-    req: GraphQLRequest,
-    doc: Document,
-    rootType: RootType,
-    skipValidation: Boolean
-  ): Either[ValidationError, GraphQLRequest] =
-    coerceVariables(req.variables.getOrElse(Map.empty), doc, rootType, skipValidation, req.operationName)
-      .map(m => req.copy(variables = Some(m)))
 
   def coerceVariables(
     variables: Map[String, InputValue],
@@ -56,10 +47,7 @@ object VariablesCoercer {
           .find(_.name.contains(name))
           .fold(List.empty[VariableDefinition])(_.variableDefinitions)
       case None       =>
-        doc.operationDefinitions match {
-          case op :: Nil => op.variableDefinitions
-          case _         => doc.operationDefinitions.flatMap(_.variableDefinitions)
-        }
+        doc.operationDefinitions.flatMap(_.variableDefinitions)
     }
 
     if (variableDefinitions.isEmpty) Right(variables)

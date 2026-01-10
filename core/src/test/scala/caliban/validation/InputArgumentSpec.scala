@@ -886,8 +886,9 @@ object InputArgumentSpec extends ZIOSpecDefault {
           } yield assertTrue(
             // Variable value validation now happens at coercion/execution time, not validation time.
             // Per spec note on "Values of Correct Type": variable values are checked during coercion.
-            res.errors.nonEmpty && res.errors.exists {
-              case CalibanError.ExecutionError(msg, _, _, _, _) => msg.contains("null")
+            res.errors.exists {
+              case CalibanError.ExecutionError(msg, _, _, _, _) =>
+                msg == "Can't build an instance of 'Int' from 'null'"
               case _                                            => false
             }
           )
@@ -923,8 +924,9 @@ object InputArgumentSpec extends ZIOSpecDefault {
           } yield assertTrue(
             // Variable value validation now happens at coercion/execution time, not validation time.
             // Per spec note on "Values of Correct Type": variable values are checked during coercion.
-            res.errors.nonEmpty && res.errors.exists {
-              case CalibanError.ExecutionError(msg, _, _, _, _) => msg.contains("null")
+            res.errors.exists {
+              case CalibanError.ExecutionError(msg, _, _, _, _) =>
+                msg == "Can't build an instance of 'Int' from 'null'"
               case _                                            => false
             }
           )
