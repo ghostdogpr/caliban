@@ -374,4 +374,4 @@ workflows:
           filters:
             branches:
               only:
-                - series/2.x # TODO: change later to series/3.x
+                - series/3.x
