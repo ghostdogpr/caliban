@@ -41,6 +41,7 @@ The table below shows how common Scala types are converted to GraphQL types.
 | ZStream[R, Throwable, A]                                            | A (subscription) or List of A (query, mutation)                  |
 | Json (from [Circe](https://github.com/circe/circe))                 | Json (custom scalar, need `import caliban.interop.circe.json._`) |
 | Json (from [play-json](https://github.com/playframework/play-json)) | Json (custom scalar, need `import caliban.interop.play.json._`)  |
+| Json (from [zio-json](https://github.com/zio/zio-json))             | Json (custom scalar, need `import caliban.interop.zio.json._`)   |
 
 See the [Custom Types](#custom-types) section to find out how to support your own types.
 
