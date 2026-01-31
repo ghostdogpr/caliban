@@ -43,7 +43,7 @@ object TransformerSpec extends ZIOSpecDefault {
       test("rename enum in input position") {
 
         sealed trait State
-        case object Active extends State
+        case object Active   extends State
         case object Inactive extends State
 
         case class ByStateFilter(states: List[State])
@@ -61,7 +61,9 @@ object TransformerSpec extends ZIOSpecDefault {
         val rendered = transformed.render
         for {
           interpreter <- transformed.interpreter
-          result      <- interpreter.execute("""{ a(byStateFilter: {states:[Active]}) }""").map(_.data.toString) // Providing either Inactive or Archived leads to different errors...
+          result      <- interpreter
+                           .execute("""{ a(byStateFilter: {states:[Active]}) }""")
+                           .map(_.data.toString) // Providing either Inactive or Archived leads to different errors...
         } yield assertTrue(
           result == """{"a":"value"}""",
           rendered == """schema {
