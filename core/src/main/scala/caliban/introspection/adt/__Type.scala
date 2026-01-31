@@ -199,8 +199,11 @@ sealed trait TypeVisitor { self =>
     def loop(t: __Type): __Type =
       f(
         t.copy(
-          fields = t.fields(_).map(_.map(field => field.copy(`type` = () => loop(field.`type`())))),
-          inputFields = t.inputFields(_).map(_.map(field => field.copy(`type` = () => loop(field.`type`())))),
+          fields = t.fields(_).map(_.map(field => field.copy(
+            `type` = () => loop(field._type),
+            args = arg => field.args(arg).map(inputValue => inputValue.copy(`type` = () => loop(inputValue._type)))
+          ))),
+          inputFields = t.inputFields(_).map(_.map(field => field.copy(`type` = () => loop(field._type)))),
           interfaces = () => t.interfaces().map(_.map(loop)),
           possibleTypes = t.possibleTypes.map(_.map(loop)),
           ofType = t.ofType.map(loop)

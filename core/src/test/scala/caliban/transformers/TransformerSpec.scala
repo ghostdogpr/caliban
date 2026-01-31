@@ -40,6 +40,49 @@ object TransformerSpec extends ZIOSpecDefault {
                         |""".stripMargin
         )
       },
+      test("rename enum in input position") {
+
+        sealed trait State
+        case object Active extends State
+        case object Inactive extends State
+
+        case class ByStateFilter(states: List[State])
+        case class Filter(byStateFilter: ByStateFilter)
+        case class Query(a: Filter => String)
+
+        val api: GraphQL[Any] = graphQL(RootResolver(Query(_ => "value")))
+
+        val transformed: GraphQL[Any] = api.transform(
+          Transformer.RenameType(
+            "Inactive" -> "Archived"
+          )
+        )
+
+        val rendered = transformed.render
+        for {
+          interpreter <- transformed.interpreter
+          result      <- interpreter.execute("""{ a(byStateFilter: {states:[Active]}) }""").map(_.data.toString) // Providing either Inactive or Archived leads to different errors...
+        } yield assertTrue(
+          result == """{"a":"value"}""",
+          rendered == """schema {
+                        |  query: Query
+                        |}
+                        |
+                        |enum State {
+                        |  Active
+                        |  Archived
+                        |}
+                        |
+                        |input ByStateFilterInput {
+                        |  states: [State!]!
+                        |}
+                        |
+                        |type Query {
+                        |  a(byStateFilter: ByStateFilterInput!): String!
+                        |}
+                        |""".stripMargin
+        )
+      },
       test("rename field") {
         val transformed: GraphQL[Any] = api.transform(Transformer.RenameField("InnerObject" -> "b" -> "c"))
         val rendered                  = transformed.render
