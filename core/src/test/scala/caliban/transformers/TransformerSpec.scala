@@ -62,8 +62,9 @@ object TransformerSpec extends ZIOSpecDefault {
         for {
           interpreter <- transformed.interpreter
           result      <- interpreter
+                           // Providing either Inactive or Archived leads to different errors...
                            .execute("""{ a(byStateFilter: {states:[Active]}) }""")
-                           .map(_.data.toString) // Providing either Inactive or Archived leads to different errors...
+                           .map(_.data.toString)
         } yield assertTrue(
           result == """{"a":"value"}""",
           rendered == """schema {
