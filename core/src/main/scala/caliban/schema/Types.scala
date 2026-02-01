@@ -166,11 +166,11 @@ object Types {
             } else t :: existingTypes
           )
         val embeddedTypes =
-          t.allFields.flatMap(f => f.`type` :: f.allArgs.map(_.`type`)) ++
-            t.allInputFields.map(_.`type`) ++
-            t.interfaces().getOrElse(Nil).map(() => _)
+          t.allFields.flatMap(f => f._type :: f.allArgs.map(_._type)) ++
+            t.allInputFields.map(_._type) ++
+            t.interfaces().getOrElse(Nil)
         val list2         = embeddedTypes.foldLeft(list1) { case (types, f) =>
-          val t = innerType(f())
+          val t = innerType(f)
           t.name.fold(types)(_ => if (existingTypes.exists(same(t, _))) types else collectTypes(t, types))
         }
         t.possibleTypes.getOrElse(Nil).foldLeft(list2) { case (types, subtype) => collectTypes(subtype, types) }
