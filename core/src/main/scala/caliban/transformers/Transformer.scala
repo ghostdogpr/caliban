@@ -99,7 +99,7 @@ object Transformer {
       TypeVisitor.modify(renameType) |+| TypeVisitor.enumValues.modify(renameEnum)
     }
 
-    private val inverseMap                       = map.map(_.swap)
+    private val inverseMap               = map.map(_.swap)
     protected val typeNames: Set[String] = map.keySet
 
     override protected def transformObjectStep[R1 <: Any](step: ObjectStep[R1], field: Field): ObjectStep[R1] =
