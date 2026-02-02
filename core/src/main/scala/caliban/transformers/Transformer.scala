@@ -483,6 +483,8 @@ object Transformer {
     override protected def transformObjectStep[R1 <: R](step: ObjectStep[R1], field: Field): ObjectStep[R1] =
       right.transformObjectStep(left.transformObjectStep(step, field), field)
 
+    override protected def transformPureStep(step: PureStep, field: Field): PureStep =
+      right.transformPureStep(left.transformPureStep(step, field), field)
   }
 
   private trait TransformFunctionStepAdapter extends Transformer[Any] {
