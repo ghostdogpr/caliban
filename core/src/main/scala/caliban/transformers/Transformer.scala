@@ -39,11 +39,9 @@ abstract class Transformer[-R] { self =>
       case other                                                          => other
     }
 
-  @deprecated("Use transformStep instead")
-  def apply[R1 <: R](step: ObjectStep[R1], field: Field): ObjectStep[R1] = transformStep(step, field) match {
-    case os: ObjectStep[R1] => os
-    case _                  => throw new IllegalStateException("Transformer.apply expected an ObjectStep after transformation")
-  }
+  @deprecated("Use transform instead")
+  def apply[R1 <: R](step: ObjectStep[R1], field: Field): ObjectStep[R1] =
+    if (materializedTypeNames(step.name)) transformObjectStep(step, field) else step
 
   @deprecated("Use transformObjectStep instead")
   protected def transformStep[R1 <: R](step: ObjectStep[R1], field: Field): ObjectStep[R1] =
