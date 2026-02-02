@@ -8,6 +8,8 @@ import sttp.client4._
 import sttp.client4.jsoniter._
 import zio._
 
+import scala.util.control.NoStackTrace
+
 case class RemoteResolver[-R, +E, -A, +B](
   run: A => ZIO[R, E, B]
 ) { self =>
@@ -43,11 +45,26 @@ object RemoteResolver {
             resp.fold(
               {
                 case DeserializationException(body, error, _) =>
-                  Left(CalibanError.ExecutionError(s"${error.getMessage}: $body", innerThrowable = Some(error)))
+                  Left(
+                    CalibanError.ExecutionError(
+                      s"RemoteResolver HTTP error: ${error.getMessage}: $body",
+                      innerThrowable = Some(error)
+                    )
+                  )
                 case UnexpectedStatusCode(_, statusCode)      =>
-                  Left(CalibanError.ExecutionError(s"HTTP Error: $statusCode"))
+                  Left(CalibanError.ExecutionError(s"RemoteResolver HTTP error: UnexpectedStatusCode $statusCode"))
               },
-              resp => Right(resp.data)
+              {
+                case resp if resp.errors.isEmpty => Right(resp.data)
+                case resp                        =>
+                  val errors = resp.errors.map(_.msg).mkString("[", ", ", "]")
+                  Left(
+                    CalibanError.ExecutionError(
+                      s"RemoteResolver HTTP error: Upstream error response: $errors",
+                      innerThrowable = Some(RemoteExecutionError(resp.errors, resp.data))
+                    )
+                  )
+              }
             )
           )
       )
@@ -72,4 +89,15 @@ object RemoteResolver {
       case v @ ObjectValue(fields) => fields.headOption.map(_._2).getOrElse(v)
       case x                       => x
     }
+}
+
+case class RemoteExecutionError(
+  errors: List[CalibanError],
+  partialResponse: ResponseValue
+) extends NoStackTrace {
+  val message: String             = {
+    val renderedErrors = errors.map(_.msg).mkString("[", ", ", "]")
+    s"Upstream error response: $renderedErrors"
+  }
+  override def getMessage: String = message
 }
