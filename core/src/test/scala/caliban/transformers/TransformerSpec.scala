@@ -57,7 +57,7 @@ object TransformerSpec extends ZIOSpecDefault {
 
           val api: GraphQL[Any] = graphQL(RootResolver(Query(_.innerArgs.arg)))
 
-          val transformed: GraphQL[Any] = api.transform(Transformer.RenameType("InnerArgs" -> "InnerArgsV2"))
+          val transformed: GraphQL[Any] = api.transform(Transformer.RenameType("InnerArgsInput" -> "InnerArgsV2Input"))
           val rendered                  = transformed.render
           for {
             interpreter         <- transformed.interpreter
@@ -212,31 +212,58 @@ object TransformerSpec extends ZIOSpecDefault {
         },
         test("rename field in input") {
           case class Args(innerArgs: InnerArgs)
-          case class InnerArgs(arg: String)
+          case class InnerInnerArgs(v: Int)
+          case class InnerArgs(arg: String, secondLevel: List[InnerInnerArgs])
           case class Query(a: Args => String)
 
           val api: GraphQL[Any] = graphQL(RootResolver(Query(_.innerArgs.arg)))
 
-          val transformed: GraphQL[Any] = api.transform(Transformer.RenameField("InnerArgs" -> "arg" -> "argV2"))
+          val transformed: GraphQL[Any] = api.transform(
+            Transformer.RenameField(
+              "InnerArgsInput"      -> "arg" -> "argV2",
+              "InnerInnerArgsInput" -> "v"   -> "v2"
+            )
+          )
           val rendered                  = transformed.render
           for {
-            interpreter         <- transformed.interpreter
-            result              <- interpreter.execute("""{ a(innerArgs: { argV2: "hello" } ) }""").map(_.data.toString)
-            resultWithVariables <- interpreter
-                                     .execute(
-                                       """query($argVar: InnerArgsInput!){
+            interpreter              <- transformed.interpreter
+            result                   <-
+              interpreter.execute("""{ a(innerArgs: { argV2: "hello", secondLevel: [] } ) }""").map(_.data.toString)
+            resultWithVariables      <- interpreter
+                                          .execute(
+                                            """query($argVar: InnerArgsInput!){
                                          |  a(innerArgs: $argVar)
                                          |}""".stripMargin,
-                                       variables = Map(
-                                         "argVar" -> InputValue.ObjectValue(
-                                           Map("argV2" -> StringValue("hello"))
-                                         )
-                                       )
-                                     )
-                                     .map(_.data.toString)
+                                            variables = Map(
+                                              "argVar" -> InputValue.ObjectValue(
+                                                Map(
+                                                  "argV2"       -> StringValue("hello"),
+                                                  "secondLevel" -> InputValue.ListValue(Nil)
+                                                )
+                                              )
+                                            )
+                                          )
+                                          .map(_.data.toString)
+            resultWithInnerVariables <- interpreter
+                                          .execute(
+                                            """query($argVar: [InnerInnerArgsInput!]!){
+                                              |  a(innerArgs: {argV2: "hello", secondLevel: $argVar})
+                                              |}""".stripMargin,
+                                            variables = Map(
+                                              "argVar" -> InputValue.ListValue(
+                                                List(
+                                                  InputValue.ObjectValue(
+                                                    Map("v2" -> Value.IntValue(42))
+                                                  )
+                                                )
+                                              )
+                                            )
+                                          )
+                                          .map(_.data.toString)
           } yield assertTrue(
             result == """{"a":"hello"}""",
             resultWithVariables == """{"a":"hello"}""",
+            resultWithInnerVariables == """{"a":"hello"}""",
             rendered ==
               """schema {
                 |  query: Query
@@ -244,6 +271,11 @@ object TransformerSpec extends ZIOSpecDefault {
                 |
                 |input InnerArgsInput {
                 |  argV2: String!
+                |  secondLevel: [InnerInnerArgsInput!]!
+                |}
+                |
+                |input InnerInnerArgsInput {
+                |  v2: Int!
                 |}
                 |
                 |type Query {
