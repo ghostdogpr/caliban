@@ -161,7 +161,6 @@ object TransformerSpec extends ZIOSpecDefault {
           for {
             interpreter <- transformed.interpreter
             result      <- interpreter
-                             // Providing either Inactive or Archived leads to different errors...
                              .execute("""{ a(byStateFilter: {states:[Archived]}) }""")
                              .map(_.data.toString)
           } yield assertTrue(
@@ -228,7 +227,9 @@ object TransformerSpec extends ZIOSpecDefault {
           for {
             interpreter              <- transformed.interpreter
             result                   <-
-              interpreter.execute("""{ a(innerArgs: { argV2: "hello", secondLevel: [] } ) }""").map(_.data.toString)
+              interpreter
+                .execute("""{ a(innerArgs: { argV2: "hello", secondLevel: [{ v2: 4 }] } ) }""")
+                .map(_.data.toString)
             resultWithVariables      <- interpreter
                                           .execute(
                                             """query($argVar: InnerArgsInput!){

@@ -1,11 +1,11 @@
 package caliban.transformers
 
-import caliban.InputValue
+import caliban.{ InputValue, ResponseValue, Value }
 import caliban.execution.Field
 import caliban.introspection.adt._
 import caliban.parsing.adt.Directive
 import caliban.schema.Annotations.GQLDirective
-import caliban.schema.Step
+import caliban.schema.{ PureStep, Step }
 import caliban.schema.Step.{ FunctionStep, MetadataFunctionStep, NullStep, ObjectStep }
 
 import scala.collection.compat._
@@ -28,12 +28,14 @@ abstract class Transformer[-R] { self =>
   protected def transformObjectStep[R1 <: R](step: ObjectStep[R1], field: Field): ObjectStep[R1] = step
 
   protected def transformFunctionStep[R1 <: R](step: FunctionStep[R1], field: Field): FunctionStep[R1] = step
+  protected def transformPureStep(step: PureStep, field: Field): PureStep                              = step
 
   def transform[R1 <: R](step: Step[R1], field: Field): Step[R1] =
     step match {
       case objStep: ObjectStep[R1] if materializedTypeNames(objStep.name) => transformObjectStep(objStep, field)
       case objectStep: ObjectStep[R1]                                     => objectStep
       case funcStep: FunctionStep[R1]                                     => transformFunctionStep(funcStep, field)
+      case pureStep: PureStep                                             => transformPureStep(pureStep, field)
       case other                                                          => other
     }
 
@@ -84,7 +86,7 @@ object Transformer {
       if (f.isEmpty) Empty else new RenameType(f.toMap)
   }
 
-  final private class RenameType(map: Map[String, String]) extends Transformer[Any] {
+  final private class RenameType(map: Map[String, String]) extends Transformer[Any] with TransformFunctionStepAdapter {
 
     val typeVisitor: TypeVisitor = {
       val renameType = { (t: __Type) =>
@@ -97,6 +99,7 @@ object Transformer {
       TypeVisitor.modify(renameType) |+| TypeVisitor.enumValues.modify(renameEnum)
     }
 
+    private val inverseMap                       = map.map(_.swap)
     protected val typeNames: Set[String] = map.keySet
 
     override protected def transformObjectStep[R1 <: Any](step: ObjectStep[R1], field: Field): ObjectStep[R1] =
@@ -104,6 +107,39 @@ object Transformer {
         case null    => step
         case newName => step.copy(name = newName)
       }
+
+    override protected def transformPureStep(step: PureStep, field: Field): PureStep =
+      step.value match {
+        case value: Value.EnumValue =>
+          map.get(value.value) match {
+            case Some(newEnumName) if field.fieldType.innerType.allEnumValues.exists(_.name == newEnumName) =>
+              PureStep(Value.StringValue(newEnumName))
+            case _                                                                                          => step
+          }
+        case _                      => step
+      }
+
+    protected def transformArg(value: InputValue, definition: __InputValue): InputValue = {
+      val innerType = definition._type.innerType
+      value match {
+        case InputValue.ListValue(values)   => InputValue.ListValue(values.map(transformArg(_, definition)))
+        case InputValue.ObjectValue(fields) =>
+          InputValue.ObjectValue(fields.view.map { case (k, v) =>
+            val memberDef = innerType.allInputFields.find(_.name == k)
+            val newValue  = memberDef.map(transformArg(v, _)).getOrElse(v)
+            k -> newValue
+          }.toMap)
+
+        case Value.EnumValue(enumValue) =>
+          inverseMap.get(enumValue) match {
+            case Some(oldEnumValue) if definition._type.innerType.allEnumValues.exists(_.name == enumValue) =>
+              Value.EnumValue(oldEnumValue)
+            case _                                                                                          => value
+          }
+        case _                          => value
+      }
+    }
+
   }
 
   object RenameField {
@@ -125,7 +161,9 @@ object Transformer {
       if (f.isEmpty) Empty else new RenameField(tuplesToMap2(f: _*))
   }
 
-  final private class RenameField(visitorMap: Map[String, Map[String, String]]) extends Transformer[Any] {
+  final private class RenameField(visitorMap: Map[String, Map[String, String]])
+      extends Transformer[Any]
+      with TransformFunctionStepAdapter {
     private val transformMap = swapMap2(visitorMap)
 
     val typeVisitor: TypeVisitor = {
@@ -151,25 +189,7 @@ object Transformer {
         case map  => step.copy(fields = name => step.fields(map.getOrElse(name, name)))
       }
 
-    override protected def transformFunctionStep[R1 <: Any](
-      original: FunctionStep[R1],
-      field: Field
-    ): FunctionStep[R1] =
-      FunctionStep[R1] { args =>
-        val updatedArgs = (for {
-          parentType         <- field.parentType
-          introspectionField <- parentType.allFields.find(_.name == field.name)
-        } yield transformArgs(args, introspectionField.allArgs)).getOrElse(args)
-
-        original.step(updatedArgs)
-      }
-
-    private def transformArgs(args: Map[String, InputValue], allArgs: List[__InputValue]): Map[String, InputValue] =
-      args.view.map { case (argName, input) =>
-        argName -> allArgs.find(_.name == argName).fold(input)(transformArg(input, _))
-      }.toMap
-
-    private def transformArg(value: InputValue, definition: __InputValue): InputValue = {
+    protected def transformArg(value: InputValue, definition: __InputValue): InputValue = {
       val innerType = definition._type.innerType
       innerType.name
         .flatMap(transformMap.get)
@@ -464,6 +484,29 @@ object Transformer {
 
     override protected def transformObjectStep[R1 <: R](step: ObjectStep[R1], field: Field): ObjectStep[R1] =
       right.transformObjectStep(left.transformObjectStep(step, field), field)
+
+  }
+
+  private trait TransformFunctionStepAdapter extends Transformer[Any] {
+    override protected def transformFunctionStep[R1 <: Any](
+      original: FunctionStep[R1],
+      field: Field
+    ): FunctionStep[R1] =
+      FunctionStep[R1] { args =>
+        val updatedArgs = (for {
+          parentType         <- field.parentType
+          introspectionField <- parentType.allFields.find(_.name == field.name)
+        } yield transformArgs(args, introspectionField.allArgs)).getOrElse(args)
+
+        original.step(updatedArgs)
+      }
+
+    private def transformArgs(args: Map[String, InputValue], allArgs: List[__InputValue]): Map[String, InputValue] =
+      args.view.map { case (argName, input) =>
+        argName -> allArgs.find(_.name == argName).fold(input)(transformArg(input, _))
+      }.toMap
+
+    protected def transformArg(value: InputValue, definition: __InputValue): InputValue
 
   }
 
