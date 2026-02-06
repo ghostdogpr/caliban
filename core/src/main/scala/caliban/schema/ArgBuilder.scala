@@ -153,6 +153,10 @@ trait ArgBuilderInstances extends ArgBuilderDerivation {
     case BooleanValue(value) => Right(value)
     case other               => Left(InvalidInputArgument("Boolean", other))
   }
+  lazy val enum: ArgBuilder[String]                    = {
+    case EnumValue(value) => Right(value)
+    case other            => Left(InvalidInputArgument("Enum", other))
+  }
 
   private abstract class TemporalDecoder[A](name: String) extends ArgBuilder[A] {
     protected[this] def parseUnsafe(input: String): A
