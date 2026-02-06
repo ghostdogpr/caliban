@@ -153,7 +153,7 @@ trait ArgBuilderInstances extends ArgBuilderDerivation {
     case BooleanValue(value) => Right(value)
     case other               => Left(InvalidInputArgument("Boolean", other))
   }
-  lazy val enum: ArgBuilder[String]                    = {
+  lazy val `enum`: ArgBuilder[String]                  = {
     case EnumValue(value) => Right(value)
     case other            => Left(InvalidInputArgument("Enum", other))
   }
