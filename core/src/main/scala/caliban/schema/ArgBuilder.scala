@@ -15,6 +15,7 @@ import scala.annotation.implicitNotFound
 import scala.collection.immutable.ListMap
 import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
+import scala.reflect.ClassTag
 import scala.util.Try
 import scala.util.control.{ NoStackTrace, NonFatal }
 
@@ -153,9 +154,24 @@ trait ArgBuilderInstances extends ArgBuilderDerivation {
     case BooleanValue(value) => Right(value)
     case other               => Left(InvalidInputArgument("Boolean", other))
   }
-  lazy val `enum`: ArgBuilder[String]                  = {
+  private lazy val enumBuilder: ArgBuilder[String]     = {
     case EnumValue(value) => Right(value)
     case other            => Left(InvalidInputArgument("Enum", other))
+  }
+
+  def enumString[A](f: String => A)(implicit d: DummyImplicit): ArgBuilder[A] = enumBuilder.map(f)
+  def enumString[A](f: String => Either[ExecutionError, A]): ArgBuilder[A]    = enumBuilder.flatMap(f)
+  def enumJava[T <: Enum[T]](implicit ct: ClassTag[T]): ArgBuilder[T]         = enumString { value =>
+    val cls = ct.runtimeClass.asInstanceOf[Class[T]]
+    Try {
+      Enum.valueOf[T](cls, value)
+    }.toEither.left.map { t =>
+      val validValues = cls.getEnumConstants.map(_.name()).mkString(", ")
+      ExecutionError(
+        s"'$value' is not a valid value of ${cls.getSimpleName}. Valid values are: [$validValues]",
+        innerThrowable = Some(t)
+      )
+    }
   }
 
   private abstract class TemporalDecoder[A](name: String) extends ArgBuilder[A] {

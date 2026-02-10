@@ -4,7 +4,7 @@ import caliban.CalibanError.ExecutionError
 import caliban.InputValue
 import caliban.InputValue.{ ListValue, ObjectValue }
 import caliban.schema.ArgBuilder.auto._
-import caliban.Value.{ IntValue, NullValue, StringValue }
+import caliban.Value.{ EnumValue, IntValue, NullValue, StringValue }
 import caliban.schema.Annotations.{ GQLOneOfInput, GQLValueType }
 import zio.test.Assertion._
 import zio.test._
@@ -221,6 +221,24 @@ object ArgBuilderSpec extends ZIOSpecDefault {
               Map("map" -> ListValue(List(ObjectValue(Map("key" -> StringValue("bar"), "value" -> IntValue(1))))))
             )
           ).isLeft
+        )
+      }
+    ),
+    suite("Enums")(
+      test("should support Java enums") {
+        assert(ArgBuilder.enumJava[Color].build(EnumValue("Red")))(
+          isRight(equalTo(Color.Red))
+        )
+      },
+      test("should fail for invalid enum value") {
+        assert(ArgBuilder.enumJava[Color].build(EnumValue("Purple")))(
+          isLeft(
+            hasField(
+              "msg",
+              _.msg,
+              equalTo("'Purple' is not a valid value of Color. Valid values are: [Red, Green, Blue]")
+            )
+          )
         )
       }
     )
