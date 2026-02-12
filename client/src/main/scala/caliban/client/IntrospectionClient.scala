@@ -129,6 +129,8 @@ object IntrospectionClient {
     def kind: SelectionBuilder[__Type, __TypeKind]                                                                   = Field("kind", Scalar())
     def name: SelectionBuilder[__Type, Option[String]]                                                               = Field("name", OptionOf(Scalar()))
     def description: SelectionBuilder[__Type, Option[String]]                                                        = Field("description", OptionOf(Scalar()))
+    def specifiedByURL: SelectionBuilder[__Type, Option[String]]                                                     = Field("specifiedByURL", OptionOf(Scalar()))
+    def isOneOf: SelectionBuilder[__Type, Option[Boolean]]                                                           = Field("isOneOf", OptionOf(Scalar()))
     def fields[A](
       includeDeprecated: Option[Boolean] = None
     )(innerSelection: SelectionBuilder[__Field, A]): SelectionBuilder[__Type, Option[List[A]]] =
