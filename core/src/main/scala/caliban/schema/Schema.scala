@@ -369,6 +369,14 @@ trait GenericSchema[R] extends SchemaDerivation[R] with TemporalSchema {
   implicit val base64CursorSchema: Schema[Any, Base64Cursor] =
     Schema.stringSchema.contramap(Cursor[Base64Cursor].encode)
 
+  implicit def extendedSchema[R0, A](implicit ev: Schema[R0, A]): Schema[R0, Extended[A]] =
+    new Schema[R0, Extended[A]] {
+      def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType_(isInput, isSubscription)
+
+      def resolve(value: Extended[A]): Step[R0] =
+        Step.ExtensionStep(ev.resolve(value.value), _.deepMerge(value.extensions).asInstanceOf[ObjectValue])
+    }
+
   implicit def optionSchema[R0, A](implicit ev: Schema[R0, A]): Schema[R0, Option[A]]                                  = new Schema[R0, Option[A]] {
     final override def nullable: Boolean                                         = true
     final override def toType(isInput: Boolean, isSubscription: Boolean): __Type = ev.toType_(isInput, isSubscription)

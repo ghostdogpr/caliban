@@ -261,6 +261,13 @@ lazy val stitching = project
   .settings(name := "caliban-stitching")
   .settings(commonSettings)
   .settings(enableMimaSettingsJVM)
+  .settings(
+    libraryDependencies ++= Seq(
+      "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros" % jsoniterVersion % Provided,
+      "dev.zio"                               %% "zio-test"              % zioVersion      % Test,
+      "dev.zio"                               %% "zio-test-sbt"          % zioVersion      % Test
+    )
+  )
   .disablePlugins(AssemblyPlugin)
   .dependsOn(tools)
 

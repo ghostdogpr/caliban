@@ -3,16 +3,18 @@ package caliban.federation.v2x
 import caliban.InputValue.{ ListValue, ObjectValue }
 import caliban.Macros.gqldoc
 import caliban.TestUtils._
-import caliban.Value.StringValue
+import caliban.Value.{ NullValue, StringValue }
 import caliban.parsing.Parser
 import caliban.parsing.adt.{ Definition, Directive }
 import caliban.schema.Schema.auto._
 import caliban._
+import caliban.federation.EntityResolver
 import com.github.plokhotnyuk.jsoniter_scala.core._
 import com.github.plokhotnyuk.jsoniter_scala.circe.JsoniterScalaCodec._
 import io.circe.Json
+import zio.query.ZQuery
 import zio.ZIO
-import zio.test.Assertion.{ containsString, hasSameElements }
+import zio.test.Assertion.hasSameElements
 import zio.test._
 
 object FederationV2Spec extends ZIOSpecDefault {
@@ -281,7 +283,92 @@ object FederationV2Spec extends ZIOSpecDefault {
         ).zip(directives).zipWithIndex.map { case ((fedVer, directives), index) =>
           renderFederationTest(fedVer, Fixture.api)(s"v2.$index", directives)
         }
-      }
+      },
+      suite("cacheTags")(
+        test("assign dynamic entity cache tags") {
+          import caliban.federation.v2_12.cacheableInstance
+          import Fixture2_12._
+
+          val failable: UserByIdArgs => Either[CalibanError, (Option[User], List[String])] = {
+            case UserByIdArgs("fail") => Left(CalibanError.ExecutionError("User did not resolve"))
+            case UserByIdArgs(id)     => Right(userMap.get(id) -> List(s"user-$id"))
+          }
+
+          val byOption =
+            EntityResolver.fromCachedOption[UserByIdArgs, User](id => userMap.get(id.id) -> List(s"user-${id.id}"))
+
+          val byEither = EntityResolver.fromCachedEither[UserByIdArgs, User](failable)
+
+          val byZIO = EntityResolver.fromCachedZIO[Any, UserByIdArgs, User](id => ZIO.fromEither(failable(id)))
+
+          val byQuery = EntityResolver.fromCachedQuery[Any, UserByIdArgs, User](id => ZQuery.fromEither(failable(id)))
+
+          val query = gqldoc(
+            "query { _entities(representations: [{ __typename: \"User\", id: \"1\" }, { __typename: \"User\", id: \"non-exist\" }]) { ... on User { id } } }"
+          )
+
+          val failQuery = gqldoc(
+            "query { _entities(representations: [{ __typename: \"User\", id: \"fail\" }]) { ... on User { id } } }"
+          )
+
+          val succeeds = Gen.elements(byOption, byEither, byZIO, byQuery)
+          val fails    = Gen.elements(byEither, byZIO, byQuery)
+
+          checkAll(succeeds) { resolver =>
+            val interpreter = buildApi(resolver).interpreterUnsafe
+
+            interpreter.execute(query).map { result =>
+              assertTrue(
+                result.extensions.get == ResponseValue.ObjectValue(
+                  List(
+                    "apolloEntityCacheTags" -> ResponseValue.ListValue(
+                      List(ResponseValue.ListValue(List(StringValue("user-1"))))
+                    )
+                  )
+                ),
+                result.data == ResponseValue.ObjectValue(
+                  List(
+                    "_entities" -> ResponseValue.ListValue(
+                      List(
+                        ResponseValue.ObjectValue(
+                          List("id" -> StringValue("1"))
+                        ),
+                        NullValue
+                      )
+                    )
+                  )
+                ),
+                result.errors.isEmpty
+              )
+            }
+          } && checkAll(fails) { resolver =>
+            val interpreter = buildApi(resolver).interpreterUnsafe
+
+            interpreter.execute(failQuery).map { result =>
+              assertTrue(
+                result.errors.head.msg == "User did not resolve"
+              )
+            }
+          }
+        },
+        test("assign dynamic field cache tag") {
+          import Fixture2_12._
+
+          val query = gqldoc("query { user { id } }")
+
+          api.interpreterUnsafe.execute(query).map { result =>
+            assertTrue(
+              result.data == ResponseValue.ObjectValue.empty,
+              result.extensions.get == ResponseValue.ObjectValue(
+                List(
+                  "apolloEntityCacheTags" ->
+                    ResponseValue.ListValue(List(ResponseValue.ListValue(List(StringValue("top-level-user")))))
+                )
+              )
+            )
+          }
+        }
+      )
     )
 
   private def renderFederationTest[V <: FederationV2](

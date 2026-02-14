@@ -62,15 +62,17 @@ object Executor {
       )
 
     def runQuery(step: ReducedStep[R], cache: Cache) = {
-      val deferred = new AtomicReference(List.empty[Deferred[R]])
-      val errors   = new AtomicReference(List.empty[CalibanError])
+      val deferred   = new AtomicReference(List.empty[Deferred[R]])
+      val errors     = new AtomicReference(List.empty[CalibanError])
+      val extensions = new AtomicReference[ObjectValue](null)
 
       reducedStepExecutor
-        .makeQuery(step, errors, deferred)
+        .makeQuery(step, errors, deferred, extensions)
         .runCache(cache)
         .flatMap { result =>
-          val resultErrors = errors.get().reverse
-          val defers       = deferred.get()
+          val resultErrors     = errors.get().reverse
+          val defers           = deferred.get()
+          val resultExtensions = extensions.get()
           if (defers.nonEmpty) {
             ZIO.environmentWith[R] { env =>
               val stream = (makeDeferStream(defers, cache)
@@ -82,11 +84,12 @@ object Executor {
               GraphQLResponse(
                 StreamValue(ZStream.succeed(result) ++ stream),
                 resultErrors,
+                Option(resultExtensions),
                 hasNext = Some(true)
               )
             }
           } else
-            Exit.succeed(GraphQLResponse(result, resultErrors, hasNext = None))
+            Exit.succeed(GraphQLResponse(result, resultErrors, extensions = Option(resultExtensions), hasNext = None))
         }
     }
 
@@ -140,11 +143,12 @@ object Executor {
       step: ReducedStep[R],
       cache: Cache
     ) = {
-      val deferred = new AtomicReference(List.empty[Deferred[R]])
-      val errors   = new AtomicReference(List.empty[CalibanError])
+      val deferred   = new AtomicReference(List.empty[Deferred[R]])
+      val errors     = new AtomicReference(List.empty[CalibanError])
+      val extensions = new AtomicReference[ObjectValue](null)
 
       reducedStepExecutor
-        .makeQuery(step, errors, deferred)
+        .makeQuery(step, errors, deferred, extensions)
         .runCache(cache)
         .map { result =>
           (
@@ -353,6 +357,9 @@ object Executor {
         case s: MetadataFunctionStep[R] => reduceStep(wrapFn(s.step, currentField), currentField, arguments, path)
         case s: ListStep[R]             => reduceListStep(s.steps)
         case s: StreamStep[R]           => reduceStream(s.inner)
+        case s: ExtensionStep[R]        =>
+          val inner = reduceStep(s.inner, currentField, arguments, path)
+          ReducedStep.ExtensionStep(inner, s.extensions)
       }
     }
 
@@ -454,7 +461,8 @@ object Executor {
     def makeQuery(
       step: ReducedStep[R],
       errors: AtomicReference[List[CalibanError]],
-      deferred: AtomicReference[List[Deferred[R]]]
+      deferred: AtomicReference[List[Deferred[R]]],
+      extensions: AtomicReference[ObjectValue]
     ): URQuery[R, ResponseValue] = {
 
       def handleError(error: ExecutionError): ResponseValue = {
@@ -610,6 +618,12 @@ object Executor {
             val streamStep = DeferredStream(path, remaining, label, startFrom)
             deferred.updateAndGet(streamStep :: _)
             loop(initial)
+          case ReducedStep.ExtensionStep(step, f)                                      =>
+            extensions.updateAndGet {
+              case null => f(ObjectValue.empty)
+              case ext  => f(ext)
+            }
+            loop(step)
         }
 
       loop(step, isTopLevelField = true).fold(handleError, identity)

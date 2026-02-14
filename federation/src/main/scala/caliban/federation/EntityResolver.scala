@@ -1,10 +1,12 @@
 package caliban.federation
 
+import caliban.CalibanError.ExecutionError
 import caliban.execution.Field
+import caliban.federation.v2x.FederationDirectivesV2_12.{ buildCacheTags, Cacheable }
 import caliban.introspection.adt.__Type
 import caliban.schema.Step.QueryStep
-import caliban.schema.{ ArgBuilder, Schema, Step }
-import caliban.{ CalibanError, InputValue }
+import caliban.schema.{ ArgBuilder, Extended, Schema, Step }
+import caliban.{ CalibanError, InputValue, ResponseValue }
 import zio.ZIO
 import zio.query.ZQuery
 
@@ -93,6 +95,26 @@ object EntityResolver {
   )(implicit schema: Schema[R, T]): EntityResolver[R] =
     apply(resolver)
 
+  def fromCachedZIO[R, A: ArgBuilder, T](
+    resolver: A => ZIO[R, CalibanError, (Option[T], List[String])]
+  )(implicit schema: Schema[R, T], cacheable: Cacheable): EntityResolver[R] =
+    fromZIO[R, A, Extended[T]](resolver(_).map(fromCached))
+
+  def fromCachedEither[A: ArgBuilder, T](
+    resolver: A => Either[CalibanError, (Option[T], List[String])]
+  )(implicit schema: Schema[Any, T], cacheable: Cacheable): EntityResolver[Any] =
+    fromEither[A, Extended[T]](resolver(_).map(fromCached))
+
+  def fromCachedQuery[R, A: ArgBuilder, T](
+    resolver: A => ZQuery[R, CalibanError, (Option[T], List[String])]
+  )(implicit schema: Schema[R, T], cacheable: Cacheable): EntityResolver[R] =
+    fromQuery[R, A, Extended[T]](resolver(_).map(fromCached))
+
+  def fromCachedOption[A: ArgBuilder, T](
+    resolver: A => (Option[T], List[String])
+  )(implicit schema: Schema[Any, T], cacheable: Cacheable): EntityResolver[Any] =
+    fromOption[A, Extended[T]](a => fromCached(resolver(a)))
+
   def from[A]: EntityResolverPartiallyApplied[A] =
     new EntityResolverPartiallyApplied
 
@@ -119,6 +141,15 @@ object EntityResolver {
         override def toType: __Type = schema.toType_()
       }
   }
+
+  private def fromCached[T](
+    value: (Option[T], List[String])
+  )(implicit cacheable: Cacheable): Option[Extended[T]] =
+    value match {
+      case (Some(value), Nil)  => Some(Extended(value, ResponseValue.ObjectValue.empty))
+      case (Some(value), tags) => Some(Extended(value, cacheable.fromTags(tags)))
+      case _                   => None
+    }
 
   class EntityResolverPartiallyApplied[A](val dummy: Boolean = false) {
     def apply[R, R1 <: R, T](
