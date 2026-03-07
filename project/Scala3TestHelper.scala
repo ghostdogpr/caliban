@@ -25,7 +25,7 @@ object Scala3TestPlugin extends AutoPlugin {
     val newState            = Command.process(
       s"""set ThisBuild / version := "${scala3TestPluginVersion}";""" +
         s"set ThisBuild / crossScalaVersions := Seq(${scalaVersionsToTest});" +
-        "+macros/publishLocal; +core/publishLocal; +clientJVM/publishLocal; +tools/publishLocal; +codegen/publishLocal; +codegenSbt/publishLocal;" +
+        s"++${scala3VersionText} macros/publishLocal; ++${scala3VersionText} core/publishLocal; ++${scala3VersionText} clientJVM/publishLocal; ++${scala3VersionText} tools/publishLocal; ++${scala3VersionText} codegen/publishLocal;" +
         "codegenSbt/scripted",
       state,
       msg => throw new Exception("Error while parsing SBT command: " + msg)
