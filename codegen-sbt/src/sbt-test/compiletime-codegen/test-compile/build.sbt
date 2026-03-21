@@ -21,13 +21,14 @@ ThisBuild / licenses           := List("Apache-2.0" -> url("http://www.apache.or
 ThisBuild / version            := "0.0.1"
 ThisBuild / scalaVersion       := scalaDefaultVersion(sbtVersion.value)
 ThisBuild / resolvers += Resolver.mavenLocal
-ThisBuild / scalacOptions ~= (opts =>
+ThisBuild / scalacOptions := {
+  val opts = (ThisBuild / scalacOptions).value
   (opts ++ Seq("-Xfatal-warnings", "-feature")).distinct ++
     (CrossVersion.partialVersion(scalaVersion.value) match {
       case Some((2, 12)) => Seq("-Ypartial-unification")
       case _             => Nil
     })
-)
+}
 ThisBuild / crossScalaVersions := allScala
 
 // ### Dependencies ###
