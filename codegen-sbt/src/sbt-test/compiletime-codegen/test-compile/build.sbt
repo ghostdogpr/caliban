@@ -21,7 +21,14 @@ ThisBuild / licenses           := List("Apache-2.0" -> url("http://www.apache.or
 ThisBuild / version            := "0.0.1"
 ThisBuild / scalaVersion       := scalaDefaultVersion(sbtVersion.value)
 ThisBuild / resolvers += Resolver.mavenLocal
-ThisBuild / scalacOptions ~= (opts => (opts ++ Seq("-Xfatal-warnings", "-feature")).distinct)
+ThisBuild / scalacOptions := {
+  val opts = (ThisBuild / scalacOptions).value
+  (opts ++ Seq("-Xfatal-warnings", "-feature")).distinct ++
+    (CrossVersion.partialVersion(scalaVersion.value) match {
+      case Some((2, 12)) => Seq("-Ypartial-unification")
+      case _             => Nil
+    })
+}
 ThisBuild / crossScalaVersions := allScala
 
 // ### Dependencies ###
@@ -46,9 +53,9 @@ def globToMaybeFile(baseDir: File, glob: String): Option[File] = {
   @annotation.tailrec
   def go(acc: PathFinder, parts: List[String]): PathFinder =
     parts match {
-      case Nil => acc
+      case Nil                  => acc
       case "**" :: part :: rest => go(acc ** part, rest)
-      case part :: rest => go(acc / part, rest)
+      case part :: rest         => go(acc / part, rest)
     }
 
   val files = go(baseDir, glob.split('/').toList).get()
@@ -83,7 +90,7 @@ lazy val root =
       // Additional scripted tests commands
       InputKey[Unit]("copy-file-with-options") := {
         val args: Vector[String] = spaceDelimited("<arg>").parsed.toVector
-        val baseDir = baseDirectory.value
+        val baseDir              = baseDirectory.value
 
         IO.copy(
           List(globToFile(baseDir, args(3)) -> file(args(4))),
@@ -106,12 +113,12 @@ lazy val root =
         val newContent = content.replace(previousValue, newValue)
         IO.write(file(initialFile), newContent)
       },
-      InputKey[Unit]("check-file-newer") := {
+      InputKey[Unit]("check-file-newer")       := {
         val args: Vector[String] = spaceDelimited("<arg>").parsed.toVector
-        val baseDir = baseDirectory.value
-        val pathA = globToMaybeFile(baseDir, args(0))
-        val pathB = globToMaybeFile(baseDir, args(1))
-        val isNewer = pathA.isDefined &&
+        val baseDir              = baseDirectory.value
+        val pathA                = globToMaybeFile(baseDir, args(0))
+        val pathB                = globToMaybeFile(baseDir, args(1))
+        val isNewer              = pathA.isDefined &&
           (!pathB.isDefined || IO.getModifiedTimeOrZero(pathA.get) > IO.getModifiedTimeOrZero(pathB.get))
         assert(isNewer, s"${args(0)} is not newer than ${args(1)}")
       }
