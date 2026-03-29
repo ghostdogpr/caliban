@@ -2,18 +2,18 @@
 
 Caliban is a project created by Pierre Ricadat aka [@ghostdogpr](https://github.com/ghostdogpr).
 
-Current maintainers:
+**Current maintainers:**
 - [@ghostdogpr](https://github.com/ghostdogpr)
 - [@paulpdaniels](https://github.com/paulpdaniels)
 - [@frekw](https://github.com/frekw)
 - [@kyri-petrou](https://github.com/kyri-petrou)
 
+The name **Caliban** is inspired by the SF novel and tv series [The Expanse](https://en.wikipedia.org/wiki/Caliban%27s_War).
+
 **Other projects:**
 - **[Shardcake](https://github.com/devsisters/shardcake)** — A Scala library for distributed sharding
 - **[Proteus](https://github.com/ghostdogpr/proteus)** — A code-first Protobuf and gRPC library for Scala
 - **[PureLogic](https://github.com/ghostdogpr/purelogic)** — A direct-style, pure domain logic library for Scala
-
-The name is inspired by the SF novel and tv series [The Expanse](https://en.wikipedia.org/wiki/Caliban%27s_War).
 
 **Thanks**:
 - [@deckerst](https://github.com/deckerst) for the logo
