@@ -8,7 +8,7 @@ module.exports = {
     ['script', {
       defer: true,
       src: 'https://cloud.umami.is/script.js',
-      'data-website-id': '6a091ffe-f57f-4344-b63d-5c74d19cbfd0'
+      'data-website-id': '2ba71608-2c44-4547-804e-ed78f3a41ad1'
     }]
   ],
   locales: {
