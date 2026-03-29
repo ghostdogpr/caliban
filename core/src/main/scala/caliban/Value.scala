@@ -28,7 +28,7 @@ object InputValue {
     override def toString: String = s"$$$name"
   }
 
-  private[caliban] implicit def jsoniterCodec: JsonValueCodec[InputValue] =
+  implicit def jsoniterCodec: JsonValueCodec[InputValue] =
     caliban.interop.jsoniter.ValueJsoniter.inputValueCodec
 }
 
@@ -108,7 +108,7 @@ object ResponseValue {
   implicit def tapirSchema[F[_]: IsTapirSchema]: F[ResponseValue] =
     caliban.interop.tapir.schema.responseValueSchema.asInstanceOf[F[ResponseValue]]
 
-  private[caliban] implicit def jsoniterCodec: JsonValueCodec[ResponseValue] =
+  implicit def jsoniterCodec: JsonValueCodec[ResponseValue] =
     caliban.interop.jsoniter.ValueJsoniter.responseValueCodec
 }
 

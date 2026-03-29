@@ -35,7 +35,7 @@ object Configurator {
     def toLayer: ULayer[Unit] = ZLayer.scoped(ref.locallyScoped(self))
   }
 
-  private[caliban] val ref: FiberRef[ExecutionConfiguration] =
+  val ref: FiberRef[ExecutionConfiguration] =
     Unsafe.unsafe(implicit u => FiberRef.unsafe.make(ExecutionConfiguration()))
 
   private[caliban] val skipValidation: UIO[Boolean] =
