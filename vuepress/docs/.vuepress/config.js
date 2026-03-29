@@ -4,6 +4,11 @@ module.exports = {
     ['link', {
       rel: 'icon',
       href: '/caliban.png'
+    }],
+    ['script', {
+      defer: true,
+      src: 'https://cloud.umami.is/script.js',
+      'data-website-id': '2ba71608-2c44-4547-804e-ed78f3a41ad1'
     }]
   ],
   locales: {
