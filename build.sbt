@@ -7,7 +7,7 @@ import Keys.*
 val scala212     = "2.12.21"
 val scala213     = "2.13.18"
 val scala3Lts    = "3.3.7"
-val scala3ForSbt = "3.7.4"
+val scala3ForSbt = "3.8.3"
 val allScala     = Seq(scala212, scala213, scala3Lts)
 
 val akkaVersion               = "2.6.20"
