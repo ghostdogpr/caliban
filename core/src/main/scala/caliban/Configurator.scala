@@ -35,8 +35,14 @@ object Configurator {
     def toLayer: ULayer[Unit] = ZLayer.scoped(ref.locallyScoped(self))
   }
 
-  val ref: FiberRef[ExecutionConfiguration] =
+  private[caliban] val ref: FiberRef[ExecutionConfiguration] =
     Unsafe.unsafe(implicit u => FiberRef.unsafe.make(ExecutionConfiguration()))
+
+  /**
+   * Runs the given effect with the provided configuration locally set for the duration of the effect.
+   */
+  def locally[R, E, A](config: ExecutionConfiguration)(effect: ZIO[R, E, A])(implicit trace: Trace): ZIO[R, E, A] =
+    ref.locally(config)(effect)
 
   private[caliban] val skipValidation: UIO[Boolean] =
     ref.getWith(cfg => Exit.succeed(cfg.skipValidation))
