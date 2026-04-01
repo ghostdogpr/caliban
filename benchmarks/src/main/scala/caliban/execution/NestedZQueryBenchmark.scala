@@ -117,7 +117,7 @@ class NestedZQueryBenchmark {
     }
     val io          =
       interpreter
-        .wrapExecutionWith(Configurator.ref.locally(cfg())(_))
+        .wrapExecutionWith(Configurator.locally(cfg())(_))
         .execute(simpleQuery)
     run(io)
   }
@@ -130,7 +130,7 @@ class NestedZQueryBenchmark {
       case 10000 => multifield10000
     }
     val io          = interpreter
-      .wrapExecutionWith(Configurator.ref.locally(cfg())(_))
+      .wrapExecutionWith(Configurator.locally(cfg())(_))
       .execute(multifieldQuery)
     run(io)
   }
@@ -143,7 +143,7 @@ class NestedZQueryBenchmark {
       case 10000 => multifieldEager10000
     }
     val io          = interpreter
-      .wrapExecutionWith(Configurator.ref.locally(cfg())(_))
+      .wrapExecutionWith(Configurator.locally(cfg())(_))
       .execute(multifieldQuery)
     run(io)
   }
@@ -156,7 +156,7 @@ class NestedZQueryBenchmark {
       case 10000 => deep10000
     }
     val io          = interpreter
-      .wrapExecutionWith(Configurator.ref.locally(cfg())(_))
+      .wrapExecutionWith(Configurator.locally(cfg())(_))
       .execute(deepQuery)
     run(io)
   }
@@ -164,7 +164,7 @@ class NestedZQueryBenchmark {
   @Benchmark
   def apolloTracingBenchmark(): Any = {
     val io = apolloInterpreter
-      .wrapExecutionWith(Configurator.ref.locally(batched)(_))
+      .wrapExecutionWith(Configurator.locally(batched)(_))
       .execute(multifieldQuery)
     run(io)
   }
@@ -172,7 +172,7 @@ class NestedZQueryBenchmark {
   @Benchmark
   def metricsBenchmark(): Any = {
     val io = metricsInterpreter
-      .wrapExecutionWith(Configurator.ref.locally(batched)(_))
+      .wrapExecutionWith(Configurator.locally(batched)(_))
       .execute(multifieldQuery)
     run(io)
   }

@@ -7,7 +7,7 @@ import caliban.wrappers.Caching
 import zio.stream.{ UStream, ZChannel, ZPipeline, ZStream }
 import zio.{ Cause, Chunk, Trace }
 
-private[caliban] object HttpUtils {
+object HttpUtils {
 
   val MutationOverGetError: ValidationError =
     ValidationError("Mutations are not allowed for GET requests", "")
