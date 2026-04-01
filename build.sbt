@@ -621,9 +621,11 @@ lazy val apolloCompatibility =
       },
       assembly / test                  := {},
       assembly / assemblyMergeStrategy := {
-        case x if Assembly.isConfigFile(x)       => MergeStrategy.concat
-        case PathList("META-INF", "MANIFEST.MF") => MergeStrategy.discard
-        case _                                   => MergeStrategy.first
+        case x if Assembly.isConfigFile(x)                                                            => MergeStrategy.concat
+        case PathList("META-INF", "MANIFEST.MF")                                                      => MergeStrategy.discard
+        case PathList("META-INF", x) if x.endsWith(".SF") || x.endsWith(".DSA") || x.endsWith(".RSA") =>
+          MergeStrategy.discard
+        case _                                                                                        => MergeStrategy.first
       }
     )
     .dependsOn(federation, core, quickAdapter)
