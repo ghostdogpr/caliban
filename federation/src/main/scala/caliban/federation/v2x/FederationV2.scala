@@ -103,7 +103,7 @@ object FederationV2 {
 
   private[v2x] val v2_12 = Link(
     url = s"$federationV2Url/v2.12",
-    `import` = v2_11.`import` :+ Import("cacheTag")
+    `import` = v2_11.`import` :+ Import("@cacheTag")
   )
 
   private[v2x] val v2_13 = Link(

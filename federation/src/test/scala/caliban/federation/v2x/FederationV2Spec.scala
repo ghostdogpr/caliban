@@ -262,7 +262,8 @@ object FederationV2Spec extends ZIOSpecDefault {
           List("@cost", "@listSize"),                // 2.9
           List("@connect", "@source"),               // 2.10 + connect 0.1
           Nil,                                       // 2.11 + connect 0.2
-          List("@cacheTag")                          // 2.12 + connect 0.3
+          List("@cacheTag"),                         // 2.12 + connect 0.3
+          Nil                                        // 2.13 + connect 0.4
         )
           .scanLeft(DefaultDirectives)(_ ++ _.map(Import(_)))
 
@@ -279,7 +280,8 @@ object FederationV2Spec extends ZIOSpecDefault {
           v2_9,
           v2_10,
           v2_11,
-          v2_12
+          v2_12,
+          v2_13
         ).zip(directives).zipWithIndex.map { case ((fedVer, directives), index) =>
           renderFederationTest(fedVer, Fixture.api)(s"v2.$index", directives)
         }
@@ -358,7 +360,12 @@ object FederationV2Spec extends ZIOSpecDefault {
 
           api.interpreterUnsafe.execute(query).map { result =>
             assertTrue(
-              result.data == ResponseValue.ObjectValue.empty,
+              result.data == ResponseValue.ObjectValue(
+                List(
+                  "user" -> ResponseValue
+                    .ObjectValue(List("id" -> StringValue("b2c8ccb8-191a-4233-9b34-3e3111a4adaf")))
+                )
+              ),
               result.extensions.get == ResponseValue.ObjectValue(
                 List(
                   "apolloEntityCacheTags" ->
