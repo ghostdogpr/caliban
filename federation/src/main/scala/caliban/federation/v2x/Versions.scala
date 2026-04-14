@@ -15,5 +15,6 @@ object Versions {
   val v2_10 = FederationV2.v2_10
   val v2_11 = FederationV2.v2_11
   val v2_12 = FederationV2.v2_12
+  val v2_13 = FederationV2.v2_13
 
 }

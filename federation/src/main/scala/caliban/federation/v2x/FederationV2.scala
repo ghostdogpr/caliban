@@ -106,6 +106,11 @@ object FederationV2 {
     `import` = v2_11.`import` :+ Import("cacheTag")
   )
 
+  private[v2x] val v2_13 = Link(
+    url = s"$federationV2Url/v2.13",
+    `import` = v2_12.`import`
+  )
+
   val connect: Link = Link(
     url = s"$connectUrl/v0.1",
     `import` = List(Import("@connect"), Import("@source"))
@@ -117,6 +122,10 @@ object FederationV2 {
 
   val connect0_3: Link = connect0_2.copy(
     url = s"$connectUrl/v0.3"
+  )
+
+  val connect0_4: Link = connect0_3.copy(
+    url = s"$connectUrl/v0.4"
   )
 
 }

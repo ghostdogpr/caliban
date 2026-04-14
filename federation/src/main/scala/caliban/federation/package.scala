@@ -29,4 +29,5 @@ package object federation {
   lazy val v2_10 = new FederationV2(List(Versions.v2_10, FederationV2.connect)) with FederationDirectivesV2_10
   lazy val v2_11 = new FederationV2(List(Versions.v2_11, FederationV2.connect0_2)) with FederationDirectivesV2_11
   lazy val v2_12 = new FederationV2(List(Versions.v2_12, FederationV2.connect0_3)) with FederationDirectivesV2_12
+  lazy val v2_13 = new FederationV2(List(Versions.v2_13, FederationV2.connect0_4)) with FederationDirectivesV2_12
 }
