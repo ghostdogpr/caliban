@@ -2,6 +2,7 @@ package caliban.federation.v2x
 
 import caliban.{ InputValue, Value }
 import caliban.parsing.adt.Directive
+import scala.collection.compat._
 
 package object connect {
 
