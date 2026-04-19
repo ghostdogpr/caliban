@@ -1,10 +1,9 @@
 package caliban.federation.v2x
 
 import caliban.GraphQL
+import caliban.federation.connect.ConnectV0
 import caliban.federation.{ FederationDirectives, FederationSupport }
 import caliban.rendering.{ DocumentRenderer, Renderer }
-
-import scala.:+
 
 class FederationV2(extensions: List[Extension])
     extends FederationSupport(Nil, extensions.map(_.toDirective))
@@ -28,7 +27,8 @@ class FederationV2(extensions: List[Extension])
 object FederationV2 {
 
   val federationV2Url = "https://specs.apollo.dev/federation"
-  val connectUrl      = "https://specs.apollo.dev/connect"
+  @deprecated("Use caliban.federation.connect.ConnectV0.connectUrl instead", "3.0.1")
+  val connectUrl      = ConnectV0.connectUrl
 
   def DefaultDirectives: List[Import] = List(
     Import("@key"),
@@ -111,21 +111,12 @@ object FederationV2 {
     `import` = v2_12.`import`
   )
 
-  val connect: Link = Link(
-    url = s"$connectUrl/v0.1",
-    `import` = List(Import("@connect"), Import("@source"))
-  )
+  val connect: Link = ConnectV0.connect
 
-  val connect0_2: Link = connect.copy(
-    `import` = connect.`import`
-  )
+  val connect0_2: Link = ConnectV0.connect0_2
 
-  val connect0_3: Link = connect0_2.copy(
-    url = s"$connectUrl/v0.3"
-  )
+  val connect0_3: Link = ConnectV0.connect0_3
 
-  val connect0_4: Link = connect0_3.copy(
-    url = s"$connectUrl/v0.4"
-  )
+  val connect0_4: Link = ConnectV0.connect0_4
 
 }

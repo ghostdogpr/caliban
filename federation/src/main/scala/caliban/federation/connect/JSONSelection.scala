@@ -1,3 +1,3 @@
-package caliban.federation.v2x.connect
+package caliban.federation.connect
 
 case class JSONSelection(select: String)

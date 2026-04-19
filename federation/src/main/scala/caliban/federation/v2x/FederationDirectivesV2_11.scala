@@ -1,6 +1,6 @@
 package caliban.federation.v2x
 
-import caliban.federation.v2x.connect.{
+import caliban.federation.connect.{
   BatchSettings,
   Connect,
   ConnectHTTP,
@@ -11,6 +11,7 @@ import caliban.federation.v2x.connect.{
 }
 import caliban.schema.Annotations.GQLDirective
 
+// IMPORTANT: Skips FederationV2_10 because we want to override the types from it.
 trait FederationDirectivesV2_11 extends FederationDirectivesV2_9 {
   case class GQLConnect(
     http: ConnectHTTP,

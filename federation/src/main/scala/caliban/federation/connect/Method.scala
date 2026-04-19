@@ -1,4 +1,4 @@
-package caliban.federation.v2x.connect
+package caliban.federation.connect
 
 sealed trait Method {
   def url: String

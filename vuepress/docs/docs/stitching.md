@@ -208,6 +208,10 @@ Caliban supports Apollo's [dynamic cache tagging and invalidation specification]
 - an `Authorization` header set to your shared secret
 - a JSON array body describing one or more invalidation operations
 
+## Installation
+
+- Available using: `"com.github.ghostdogpr" %% "caliban-stitching" % "3.0.1"`
+
 ### Configuration
 
 `CacheInvalidator.Config` contains:

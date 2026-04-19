@@ -387,7 +387,7 @@ object FederationV2Spec extends ZIOSpecDefault {
       val actual   = renderer.compact.render(api)
 
       TestResult.allSuccesses(directives.map { dir =>
-        val expected = s"\"${dir.name}\""
+        val expected = s""""${dir.name}""""
         assertTrue(actual.contains(expected))
       }) &&
       assertTrue(actual.contains(s"https://specs.apollo.dev/federation/${version}"))

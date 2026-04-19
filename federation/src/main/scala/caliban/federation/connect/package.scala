@@ -1,8 +1,7 @@
-package caliban.federation.v2x
+package caliban.federation
 
 import caliban.{ InputValue, Value }
 import caliban.parsing.adt.Directive
-import scala.collection.compat._
 
 package object connect {
 
@@ -54,8 +53,8 @@ package object connect {
     errors.foreach { e =>
       if (e.message.isDefined || e.extensions.isDefined) {
         val mb = Map.newBuilder[String, InputValue]
-        e.message.foreach(m => mb addOne ("message", Value.StringValue(m.select)))
-        e.extensions.foreach(m => mb addOne ("extensions", Value.StringValue(m.select)))
+        e.message.foreach(m => mb += ("message" -> Value.StringValue(m.select)))
+        e.extensions.foreach(m => mb += ("extensions" -> Value.StringValue(m.select)))
         InputValue.ObjectValue(mb.result())
       }
     }

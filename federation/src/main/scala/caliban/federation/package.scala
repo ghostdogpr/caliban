@@ -1,5 +1,6 @@
 package caliban
 
+import caliban.federation.connect.ConnectV0
 import caliban.federation.v2x.{
   FederationDirectivesV2_10,
   FederationDirectivesV2_11,
@@ -26,8 +27,8 @@ package object federation {
   lazy val v2_7  = new FederationV2(List(Versions.v2_7)) with FederationDirectivesV2_6
   lazy val v2_8  = new FederationV2(List(Versions.v2_8)) with FederationDirectivesV2_8
   lazy val v2_9  = new FederationV2(List(Versions.v2_9)) with FederationDirectivesV2_9
-  lazy val v2_10 = new FederationV2(List(Versions.v2_10, FederationV2.connect)) with FederationDirectivesV2_10
-  lazy val v2_11 = new FederationV2(List(Versions.v2_11, FederationV2.connect0_2)) with FederationDirectivesV2_11
-  lazy val v2_12 = new FederationV2(List(Versions.v2_12, FederationV2.connect0_3)) with FederationDirectivesV2_12
-  lazy val v2_13 = new FederationV2(List(Versions.v2_13, FederationV2.connect0_4)) with FederationDirectivesV2_12
+  lazy val v2_10 = new FederationV2(List(Versions.v2_10, ConnectV0.connect)) with FederationDirectivesV2_10
+  lazy val v2_11 = new FederationV2(List(Versions.v2_11, ConnectV0.connect0_2)) with FederationDirectivesV2_11
+  lazy val v2_12 = new FederationV2(List(Versions.v2_12, ConnectV0.connect0_3)) with FederationDirectivesV2_12
+  lazy val v2_13 = new FederationV2(List(Versions.v2_13, ConnectV0.connect0_4)) with FederationDirectivesV2_12
 }
