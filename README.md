@@ -15,7 +15,7 @@ The design principles behind the library are the following:
 - high performance: while every public interface is pure and immutable, library internals have been optimized for speed.
 - clean separation between schema definition and implementation: schema is defined and validated at compile time using Scala standard types, resolver (`RootResolver`) is a simple value provided at runtime.
 
-### Consult the [Documentation](https://ghostdogpr.github.io/caliban/docs/) to learn how to use Caliban.
+### Consult the [Documentation](https://ghostdogpr.github.io/caliban/) to learn how to use Caliban.
 
 ### Any questions? Head up to the [#caliban](https://discordapp.com/channels/629491597070827530/633200096393166868) channel on [ZIO Discord](https://discord.gg/EYpumuv).
 
