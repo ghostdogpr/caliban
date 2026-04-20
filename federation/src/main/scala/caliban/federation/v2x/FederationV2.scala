@@ -27,7 +27,7 @@ class FederationV2(extensions: List[Extension])
 object FederationV2 {
 
   val federationV2Url = "https://specs.apollo.dev/federation"
-  @deprecated("Use caliban.federation.connect.ConnectV0.connectUrl instead", "3.0.1")
+  @deprecated("Use caliban.federation.connect.ConnectV0.connectUrl instead", "3.1.0")
   val connectUrl      = ConnectV0.connectUrl
 
   def DefaultDirectives: List[Import] = List(

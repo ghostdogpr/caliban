@@ -48,7 +48,7 @@ trait FederationDirectivesV2_10 extends FederationDirectivesV2_9 {
     headers: List[HTTPHeaderMapping] = Nil
   ) extends GQLDirective(Source(name, baseURL, headers))
 
-  @deprecated("Use caliban.federation.connect.Connect instead", "3.0.1")
+  @deprecated("Use caliban.federation.connect.Connect instead", "3.1.0")
   def Connect(
     http: ConnectHTTP,
     selection: JSONSelection,
@@ -73,7 +73,7 @@ trait FederationDirectivesV2_10 extends FederationDirectivesV2_9 {
       entity
     )
 
-  @deprecated("Use caliban.federation.connect.Source instead", "3.0.1")
+  @deprecated("Use caliban.federation.connect.Source instead", "3.1.0")
   def Source(
     name: String,
     baseURL: String,

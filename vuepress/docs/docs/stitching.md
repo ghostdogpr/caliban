@@ -210,7 +210,7 @@ Caliban supports Apollo's [dynamic cache tagging and invalidation specification]
 
 ## Installation
 
-- Available using: `"com.github.ghostdogpr" %% "caliban-stitching" % "3.0.1"`
+- Available using: `"com.github.ghostdogpr" %% "caliban-stitching" % "3.1.0"`
 
 ### Configuration
 
