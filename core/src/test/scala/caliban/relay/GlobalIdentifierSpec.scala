@@ -6,7 +6,6 @@ import caliban.rendering.DocumentRenderer
 import caliban.{ graphQL, CalibanError, GraphQLResponse, InputValue, ResponseValue, RootResolver, Value }
 import zio.test.{ assertTrue, assertZIO, ZIOSpecDefault }
 import caliban.schema.Schema.auto._
-import caliban.schema.ArgBuilder.auto._
 import caliban.schema.{ ArgBuilder, Schema }
 import zio.query.ZQuery
 import zio.test.Assertion.equalTo

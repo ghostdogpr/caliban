@@ -8,7 +8,6 @@ import caliban.introspection.adt._
 import caliban.schema.Annotations.{ GQLDefault, GQLOneOfInput }
 import caliban.schema.{ ArgBuilder, Schema, Types }
 import caliban.schema.Schema.auto._
-import caliban.schema.ArgBuilder.auto._
 import caliban.{ GraphQL, RootResolver }
 import zio.{ IO, ZIO }
 import zio.test.Assertion._
@@ -340,7 +339,7 @@ object ValidationSchemaSpec extends ZIOSpecDefault {
           case object ArgA extends Foo
           case class Queries(foo: Foo => String)
 
-          implicit val ab: ArgBuilder[Foo]          = ArgBuilder.gen
+          implicit val ab: ArgBuilder[Foo]          = ArgBuilder.derived
           implicit val schema: Schema[Any, Queries] = Schema.gen
 
           check(
@@ -355,7 +354,7 @@ object ValidationSchemaSpec extends ZIOSpecDefault {
           case class ArgB(baz: String)              extends Foo
           case class Queries(foo: Foo => String)
 
-          implicit val ab: ArgBuilder[Foo]          = ArgBuilder.gen
+          implicit val ab: ArgBuilder[Foo]          = ArgBuilder.derived
           implicit val schema: Schema[Any, Queries] = Schema.gen
 
           check(
@@ -370,7 +369,7 @@ object ValidationSchemaSpec extends ZIOSpecDefault {
           case class ArgB(bar: String)                    extends Foo
           case class Queries(foo: Foo => String)
 
-          implicit val ab: ArgBuilder[Foo]          = ArgBuilder.gen
+          implicit val ab: ArgBuilder[Foo]          = ArgBuilder.derived
           implicit val schema: Schema[Any, Queries] = Schema.gen
 
           check(
@@ -385,7 +384,7 @@ object ValidationSchemaSpec extends ZIOSpecDefault {
           case class ArgB(foo: String) extends Foo
           case class Queries(foo: Foo => String)
 
-          implicit val ab: ArgBuilder[Foo]          = ArgBuilder.gen
+          implicit val ab: ArgBuilder[Foo]          = ArgBuilder.derived
           implicit val schema: Schema[Any, Queries] = Schema.gen
 
           check(

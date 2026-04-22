@@ -1,7 +1,6 @@
 package caliban.schema
 
 import caliban.Value.StringValue
-import caliban.schema.ArgBuilder.auto._
 import zio.test.Assertion._
 import zio.test._
 

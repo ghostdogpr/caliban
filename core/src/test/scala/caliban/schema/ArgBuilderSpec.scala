@@ -3,7 +3,6 @@ package caliban.schema
 import caliban.CalibanError.ExecutionError
 import caliban.InputValue
 import caliban.InputValue.{ ListValue, ObjectValue }
-import caliban.schema.ArgBuilder.auto._
 import caliban.Value.{ EnumValue, IntValue, NullValue, StringValue }
 import caliban.schema.Annotations.{ GQLOneOfInput, GQLValueType }
 import zio.test.Assertion._
@@ -71,9 +70,16 @@ object ArgBuilderSpec extends ZIOSpecDefault {
       )
     ),
     suite("derived build")(
+      test("derives automatically without imports") {
+        case class Foo(value: String)
+
+        val ab = implicitly[ArgBuilder[Foo]]
+
+        assertTrue(ab.build(ObjectValue(Map("value" -> StringValue("foo")))) == Right(Foo("foo")))
+      },
       test("should fail when null is provided for case class with optional fields") {
         case class Foo(value: Option[String])
-        val ab = ArgBuilder.gen[Foo]
+        val ab = ArgBuilder.derived[Foo]
         assertTrue(
           ab.build(NullValue).isLeft,
           // Sanity checks
@@ -85,7 +91,7 @@ object ArgBuilderSpec extends ZIOSpecDefault {
       test("should fail when an empty object is provided for GQLValueType case classes") {
         @GQLValueType
         case class Foo(value: Option[String])
-        val ab = ArgBuilder.gen[Foo]
+        val ab = ArgBuilder.derived[Foo]
         assertTrue(
           ab.build(ObjectValue(Map())).isLeft,
           // Sanity checks
@@ -138,12 +144,12 @@ object ArgBuilderSpec extends ZIOSpecDefault {
       case class Foo1(foo1: Int)
       case class Foo2(foo2: Int)
 
-      implicit val foo1Ab: ArgBuilder[Foo1]   = ArgBuilder.gen
-      implicit val foo2Ab: ArgBuilder[Foo2]   = ArgBuilder.gen
-      implicit val f1Ab: ArgBuilder[Foo.Arg1] = ArgBuilder.gen
-      implicit val f2Ab: ArgBuilder[Foo.Arg2] = ArgBuilder.gen
-      implicit val f3Ab: ArgBuilder[Foo.Arg3] = ArgBuilder.gen
-      implicit val f4Ab: ArgBuilder[Foo.Arg4] = ArgBuilder.gen
+      implicit val foo1Ab: ArgBuilder[Foo1]   = ArgBuilder.derived
+      implicit val foo2Ab: ArgBuilder[Foo2]   = ArgBuilder.derived
+      implicit val f1Ab: ArgBuilder[Foo.Arg1] = ArgBuilder.derived
+      implicit val f2Ab: ArgBuilder[Foo.Arg2] = ArgBuilder.derived
+      implicit val f3Ab: ArgBuilder[Foo.Arg3] = ArgBuilder.derived
+      implicit val f4Ab: ArgBuilder[Foo.Arg4] = ArgBuilder.derived
       implicit val f5Ab: ArgBuilder[Foo.Arg5] = {
         case ObjectValue(fields) =>
           fields.get("altString") match {
@@ -152,7 +158,7 @@ object ArgBuilderSpec extends ZIOSpecDefault {
           }
         case _                   => Left(ExecutionError("expected object"))
       }
-      val fooAb: ArgBuilder[Foo]              = ArgBuilder.gen
+      val fooAb: ArgBuilder[Foo]              = ArgBuilder.derived
 
       List(
         test("valid input") {
@@ -193,14 +199,14 @@ object ArgBuilderSpec extends ZIOSpecDefault {
           id: String,
           next: Option[RecursionTest]
         )
-        implicit lazy val argBuilder: ArgBuilder[RecursionTest] = ArgBuilder.gen
+        implicit lazy val argBuilder: ArgBuilder[RecursionTest] = ArgBuilder.derived
         assert(argBuilder)(Assertion.anything)
       }
     ),
     suite("Maps")(
       test("should support maps") {
         case class MapTest(map: Map[String, String])
-        val ab = ArgBuilder.gen[MapTest]
+        val ab = ArgBuilder.derived[MapTest]
         assertTrue(
           ab.build(
             ObjectValue(

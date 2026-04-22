@@ -371,7 +371,7 @@ object WrappersSpec extends ZIOSpecDefault {
           test("invalid / missing variables in cached query") {
             case class TestInput(testField: String)
             case class Test(test: TestInput => String)
-            implicit val testInputArg: ArgBuilder[TestInput] = ArgBuilder.gen
+            implicit val testInputArg: ArgBuilder[TestInput] = ArgBuilder.derived
             implicit val testSchema: Schema[Any, Test]       = Schema.gen
 
             val extensions = Some(

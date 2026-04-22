@@ -5,7 +5,6 @@ import caliban._
 import caliban.introspection.adt.{ __DeprecatedArgs, __Type, __TypeKind }
 import caliban.parsing.adt.Directive
 import caliban.schema.Annotations._
-import caliban.schema.ArgBuilder.auto._
 import caliban.schema.Schema.auto._
 import play.api.libs.json.JsValue
 import zio._

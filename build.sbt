@@ -8,7 +8,7 @@ val scala212     = "2.12.21"
 val scala213     = "2.13.18"
 val scala3Lts    = "3.3.7"
 val scala3ForSbt = "3.7.4"
-val allScala     = Seq(scala212, scala213, scala3Lts)
+val allScala     = Seq(scala213, scala3Lts)
 
 val akkaVersion               = "2.6.20"
 val akkaHttpVersion           = "10.2.10"
@@ -16,6 +16,7 @@ val catsEffect3Version        = "3.7.0"
 val catsMtlVersion            = "1.5.0"
 val circeVersion              = "0.14.15"
 val fs2Version                = "3.13.0"
+val hearthVersion             = "0.3.0"
 val http4sVersion             = "0.23.34"
 val javaTimeVersion           = "2.6.0"
 val jsoniterVersion           = "2.38.9"
@@ -176,6 +177,7 @@ lazy val core = project
     libraryDependencies ++=
       Seq(
         "com.lihaoyi"                           %% "fastparse"               % "3.1.1",
+        "com.kubuszok"                          %% "hearth"                  % hearthVersion,
         "org.scala-lang.modules"                %% "scala-collection-compat" % "2.14.0",
         "dev.zio"                               %% "zio"                     % zioVersion,
         "dev.zio"                               %% "zio-streams"             % zioVersion,
@@ -189,7 +191,11 @@ lazy val core = project
         "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros"   % jsoniterVersion % Provided,
         "org.playframework"                     %% "play-json"               % playJsonVersion % Optional,
         "org.apache.commons"                     % "commons-lang3"           % "3.20.0"        % Test
-      )
+      ) ++ {
+        if (scalaVersion.value == scala3Lts)
+          Seq(compilerPlugin("com.kubuszok" %% "hearth-cross-quotes" % hearthVersion))
+        else Seq.empty
+      }
   )
   .dependsOn(macros)
   .settings(
@@ -702,7 +708,7 @@ lazy val docs = project
   .settings(
     skip               := (scalaVersion.value == scala3Lts),
     ideSkipProject     := (scalaVersion.value == scala3Lts),
-    crossScalaVersions := Seq(scala212, scala213),
+    crossScalaVersions := Seq(scala213),
     name               := "caliban-docs",
     mdocIn             := (ThisBuild / baseDirectory).value / "vuepress" / "docs",
     run / fork         := true,

@@ -104,10 +104,11 @@ abstract class ArgBuilder[T] { self =>
 object ArgBuilder extends ArgBuilderInstances {
   def apply[T](implicit ev: ArgBuilder[T]): ArgBuilder[T] = ev
 
+  @deprecated("ArgBuilder derivation is automatic by default; imports are no longer required.", "4.0.0")
   object auto extends AutoArgBuilderDerivation
 }
 
-trait ArgBuilderInstances extends ArgBuilderDerivation {
+trait ArgBuilderInstances extends ArgBuilderDerivation with LowPriorityDerivedArgBuilder {
   implicit lazy val unit: ArgBuilder[Unit]             = _ => Right(())
   implicit lazy val int: ArgBuilder[Int]               = {
     case value: IntValue => Right(value.toInt)

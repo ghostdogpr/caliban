@@ -93,7 +93,7 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
             assertTrue(gql.render == expected)
           },
           test("Auto") {
-            final case class Foo(s: String) derives Schema.Auto, ArgBuilder.GenAuto
+            final case class Foo(s: String) derives Schema.Auto, ArgBuilder
             final case class Bar(foo: Foo) derives Schema.SemiAuto
             final case class Query(f: Foo => Bar) derives Schema.SemiAuto
 

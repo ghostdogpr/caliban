@@ -4,7 +4,6 @@ import java.util.UUID
 import caliban.*
 import caliban.introspection.adt.{ __DeprecatedArgs, __Type, __TypeKind }
 import caliban.schema.Annotations.{ GQLExcluded, GQLInterface, GQLUnion, GQLValueType }
-import caliban.schema.ArgBuilder.auto.*
 import zio.query.ZQuery
 import zio.stream.ZStream
 import zio.test.Assertion.*

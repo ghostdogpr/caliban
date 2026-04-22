@@ -1,7 +1,6 @@
 package caliban.relay
 
 import caliban._
-import caliban.schema.ArgBuilder.auto._
 import caliban.schema.Schema.auto._
 import zio.ZIO
 import zio.test.Assertion._

@@ -23,8 +23,8 @@ object RelaySupport {
     lazy val _typeMap = _resolvers.flatMap(r => r.toType.name.map(_ -> r)).toMap
 
     val genericSchema                                      = new GenericSchema[R] {}
-    implicit val nodeArgBuilder: ArgBuilder[NodeArgs[ID]]  = ArgBuilder.gen[NodeArgs[ID]]
-    implicit val nodeArgsSchema: Schema[Any, NodeArgs[ID]] = Schema.gen[Any, NodeArgs[ID]]
+    implicit val nodeArgBuilder: ArgBuilder[NodeArgs[ID]]  = ??? // ArgBuilder.derived[NodeArgs[ID]]
+    implicit val nodeArgsSchema: Schema[Any, NodeArgs[ID]] = ??? // Schema.gen[Any, NodeArgs[ID]]
 
     val nodeType = __Type(
       __TypeKind.INTERFACE,
@@ -76,7 +76,7 @@ object RelaySupport {
       node: NodeArgs[ID] => ZQuery[Any, ExecutionError, Node[ID]]
     )
 
-    implicit val querySchema: Schema[R, Query] = genericSchema.gen[R, Query]
+    implicit val querySchema: Schema[R, Query] = ??? // genericSchema.gen[R, Query]
 
     (original |+| graphQL[R, Query, Unit, Unit](
       RootResolver(

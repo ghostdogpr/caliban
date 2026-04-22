@@ -393,7 +393,6 @@ object ValidationSpec extends ZIOSpecDefault {
         }
       },
       test("validation works when a non-nullable field is missing but we have a default value") {
-        import caliban.schema.ArgBuilder.auto._
         import caliban.schema.Schema.auto._
 
         case class Foo(inner: Boolean)
@@ -412,7 +411,6 @@ object ValidationSpec extends ZIOSpecDefault {
       },
       suite("OneOf input objects") {
         import caliban.schema.Schema.auto._
-        import caliban.schema.ArgBuilder.auto._
 
         @GQLOneOfInput
         sealed trait Foo
@@ -433,10 +431,10 @@ object ValidationSpec extends ZIOSpecDefault {
           bar: Bar
         )
 
-        implicit val intObjAb: ArgBuilder[IntObj]           = ArgBuilder.gen
-        implicit val fooStringAb: ArgBuilder[Foo.FooString] = ArgBuilder.gen
-        implicit val fooIntAb: ArgBuilder[Foo.FooInt]       = ArgBuilder.gen
-        implicit val fooAb: ArgBuilder[Foo]                 = ArgBuilder.gen
+        implicit val intObjAb: ArgBuilder[IntObj]           = ArgBuilder.derived
+        implicit val fooStringAb: ArgBuilder[Foo.FooString] = ArgBuilder.derived
+        implicit val fooIntAb: ArgBuilder[Foo.FooInt]       = ArgBuilder.derived
+        implicit val fooAb: ArgBuilder[Foo]                 = ArgBuilder.derived
         implicit val barSchema: Schema[Any, Bar]            = Schema.gen
         implicit val schema: Schema[Any, Queries]           = Schema.gen
 

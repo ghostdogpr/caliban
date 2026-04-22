@@ -32,7 +32,7 @@ object ArgBuilderDerivesAutoSpec extends ZIOSpecDefault {
               Right(MissingNullable)
           }
 
-        case class Wrapper(a: Nullable[String]) derives ArgBuilder.Auto
+        case class Wrapper(a: Nullable[String]) derives ArgBuilder
 
         val derivedAB = summon[ArgBuilder[Wrapper]]
 
@@ -56,12 +56,12 @@ object ArgBuilderDerivesAutoSpec extends ZIOSpecDefault {
 
       List(
         test("ArgBuilder.Auto") {
-          case class Wrapper(ints: InputArgs[Int], strings: InputArgs[String]) derives ArgBuilder.Auto
+          case class Wrapper(ints: InputArgs[Int], strings: InputArgs[String]) derives ArgBuilder
           val derived = summon[ArgBuilder[Wrapper]]
           assertTrue(derived.build(obj) == Right(Wrapper(intArgs, strArgs)))
         },
         test("ArgBuilder.GenAuto") {
-          case class Wrapper(ints: InputArgs[Int], strings: InputArgs[String]) derives ArgBuilder.GenAuto
+          case class Wrapper(ints: InputArgs[Int], strings: InputArgs[String]) derives ArgBuilder
           val derived = summon[ArgBuilder[Wrapper]]
           assertTrue(derived.build(obj) == Right(Wrapper(intArgs, strArgs)))
         }

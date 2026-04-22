@@ -3,7 +3,6 @@ package caliban.wrappers
 import caliban._
 import caliban.Macros.gqldoc
 import caliban.schema.Annotations.GQLDefault
-import caliban.schema.ArgBuilder.auto._
 import caliban.schema.Schema.auto._
 import zio._
 import zio.metrics.Metric

@@ -14,7 +14,6 @@ import caliban.parsing.adt.Definition.{ TypeSystemDefinition, TypeSystemExtensio
 import caliban.parsing.adt.{ Definition, Directive }
 import caliban.rendering.{ DocumentRenderer, ValueRenderer }
 import caliban.schema.Annotations.GQLOneOfInput
-import caliban.schema.ArgBuilder.auto._
 import caliban.schema.Schema.auto._
 import caliban.schema.{ ArgBuilder, PureStep, Schema }
 import zio.ZIO
@@ -322,9 +321,9 @@ object RenderingSpec extends ZIOSpecDefault {
     case class Wrapped(fooInput: Foo)
   }
 
-  implicit val fooIntAb: ArgBuilder[Foo.FooInt]        = ArgBuilder.gen
-  implicit val fooInt2Ab: ArgBuilder[Foo.FooInt2]      = ArgBuilder.gen
-  implicit val fooAb: ArgBuilder[Foo]                  = ArgBuilder.gen
+  implicit val fooIntAb: ArgBuilder[Foo.FooInt]        = ArgBuilder.derived
+  implicit val fooInt2Ab: ArgBuilder[Foo.FooInt2]      = ArgBuilder.derived
+  implicit val fooAb: ArgBuilder[Foo]                  = ArgBuilder.derived
   implicit val fooIntSchema: Schema[Any, Foo.FooInt]   = Schema.gen
   implicit val fooInt2Schema: Schema[Any, Foo.FooInt2] = Schema.gen
   implicit val fooSchema: Schema[Any, Foo]             = Schema.gen

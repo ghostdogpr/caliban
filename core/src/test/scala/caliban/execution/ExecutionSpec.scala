@@ -9,7 +9,6 @@ import caliban._
 import caliban.introspection.adt.__Type
 import caliban.parsing.adt.LocationInfo
 import caliban.schema.Annotations.{ GQLInterface, GQLName, GQLOneOfInput, GQLValueType }
-import caliban.schema.ArgBuilder.auto._
 import caliban.schema.Schema.auto._
 import caliban.schema._
 import com.github.plokhotnyuk.jsoniter_scala.core._
@@ -1475,9 +1474,9 @@ object ExecutionSpec extends ZIOSpecDefault {
 
         case class Queries(foo: Foo.Wrapper => String, fooUnwrapped: Foo => String)
 
-        implicit val fooStringAb: ArgBuilder[Foo.FooString] = ArgBuilder.gen
-        implicit val fooIntAb: ArgBuilder[Foo.FooInt]       = ArgBuilder.gen
-        implicit val fooAb: ArgBuilder[Foo]                 = ArgBuilder.gen
+        implicit val fooStringAb: ArgBuilder[Foo.FooString] = ArgBuilder.derived
+        implicit val fooIntAb: ArgBuilder[Foo.FooInt]       = ArgBuilder.derived
+        implicit val fooAb: ArgBuilder[Foo]                 = ArgBuilder.derived
         implicit val schema: Schema[Any, Queries]           = Schema.gen
 
         val api: GraphQL[Any] = graphQL(
@@ -1679,7 +1678,7 @@ object Pet { parent =>
     def pet: Pet
   }
   object Wrapper       {
-    implicit val argBuilder: ArgBuilder[Wrapper] = ArgBuilder.gen
+    implicit val argBuilder: ArgBuilder[Wrapper] = ArgBuilder.derived
     implicit val schema: Schema[Any, Wrapper]    = Schema.gen
   }
 
@@ -1690,11 +1689,11 @@ object Pet { parent =>
       override val pet = cat
     }
     object Wrapper {
-      implicit val argBuilder: ArgBuilder[Wrapper] = ArgBuilder.gen
+      implicit val argBuilder: ArgBuilder[Wrapper] = ArgBuilder.derived
       implicit val schema: Schema[Any, Wrapper]    = Schema.gen
     }
 
-    implicit val argBuilder: ArgBuilder[Cat] = ArgBuilder.gen
+    implicit val argBuilder: ArgBuilder[Cat] = ArgBuilder.derived
     implicit val schema: Schema[Any, Cat]    = Schema.gen
   }
 
@@ -1705,14 +1704,14 @@ object Pet { parent =>
       override val pet = dog
     }
     object Wrapper {
-      implicit val argBuilder: ArgBuilder[Wrapper] = ArgBuilder.gen
+      implicit val argBuilder: ArgBuilder[Wrapper] = ArgBuilder.derived
       implicit val schema: Schema[Any, Wrapper]    = Schema.gen
     }
 
-    implicit val argBuilder: ArgBuilder[Dog] = ArgBuilder.gen
+    implicit val argBuilder: ArgBuilder[Dog] = ArgBuilder.derived
     implicit val schema: Schema[Any, Dog]    = Schema.gen
   }
 
-  implicit val argBuilder: ArgBuilder[Pet] = ArgBuilder.gen
+  implicit val argBuilder: ArgBuilder[Pet] = ArgBuilder.derived
   implicit val schema: Schema[Any, Pet]    = Schema.gen
 }

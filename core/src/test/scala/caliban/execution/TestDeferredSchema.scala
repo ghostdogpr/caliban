@@ -48,7 +48,6 @@ object QuoteService {
 
 object TestDeferredSchema extends SchemaDerivation[CharacterService with QuoteService] {
   import auto._
-  import caliban.schema.ArgBuilder.auto._
 
   sealed trait By
 

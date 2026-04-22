@@ -624,7 +624,7 @@ object i2076 {
     case class Args(limit: Option[Int])
     object Args {
       implicit val schema: Schema[Any, Args]    = Schema.gen
-      implicit val argBuilder: ArgBuilder[Args] = ArgBuilder.gen
+      implicit val argBuilder: ArgBuilder[Args] = ArgBuilder.derived
     }
 
     @GQLName("WidgetA")

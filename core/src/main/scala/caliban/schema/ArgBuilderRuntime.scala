@@ -4,38 +4,52 @@ import caliban.CalibanError.ExecutionError
 import caliban.InputValue
 import caliban.Value.{ EnumValue, StringValue }
 import caliban.schema.Annotations.{ GQLDefault, GQLName }
-import caliban.syntax.*
+import caliban.syntax._
 
-private final class SumArgBuilder[A](
+private[schema] final class SingletonArgBuilder[A](
+  value: => A,
+  label: String,
+  annotations: List[Any]
+) extends ArgBuilder[A] {
+  def build(input: InputValue): Either[ExecutionError, A] =
+    input match {
+      case InputValue.ObjectValue(fields) if fields.isEmpty => Right(value)
+      case EnumValue(value0) if value0 == label || annotations.contains(GQLName(value0)) =>
+        Right(value)
+      case StringValue(value0) if value0 == label || annotations.contains(GQLName(value0)) =>
+        Right(value)
+      case _                                                                              =>
+        Left(ExecutionError("Expected an input object"))
+    }
+}
+
+private[schema] final class SumArgBuilder[A](
   _subTypes: => List[(String, List[Any], ArgBuilder[Any])],
   traitLabel: String
 ) extends ArgBuilder[A] {
   private lazy val subTypes = _subTypes
 
   def build(input: InputValue): Either[ExecutionError, A] =
-    input.match {
+    (input match {
       case EnumValue(value)   => Right(value)
       case StringValue(value) => Right(value)
       case _                  => Left(ExecutionError(s"Can't build a trait from input $input"))
-    }.flatMap { value =>
-      subTypes.collectFirst {
-        case (
-              label,
-              annotations,
-              builder: ArgBuilder[A @unchecked]
-            ) if label == value || annotations.contains(GQLName(value)) =>
-          builder
+    })
+      .flatMap { value =>
+        subTypes.collectFirst {
+          case (label, annotations, builder) if label == value || annotations.contains(GQLName(value)) =>
+            builder.asInstanceOf[ArgBuilder[A]]
+        }
+          .toRight(ExecutionError(s"Invalid value $value for trait $traitLabel"))
+          .flatMap(_.build(SumArgBuilder.emptyInput))
       }
-        .toRight(ExecutionError(s"Invalid value $value for trait $traitLabel"))
-        .flatMap(_.build(SumArgBuilder.emptyInput))
-    }
 }
 
-private object SumArgBuilder {
+private[schema] object SumArgBuilder {
   private val emptyInput = InputValue.ObjectValue(Map.empty)
 }
 
-private final class OneOfArgBuilder[A](
+private[schema] final class OneOfArgBuilder[A](
   _subTypes: => List[(String, List[Any], ArgBuilder[Any])],
   traitLabel: String
 ) extends ArgBuilder[A] {
@@ -57,18 +71,15 @@ private final class OneOfArgBuilder[A](
     ExecutionError(s"Invalid oneOf input $input for trait $traitLabel")
 }
 
-private final class ProductArgBuilder[A](
-  _fields: => List[(String, ArgBuilder[Any])],
-  annotations: Map[String, List[Any]],
-  isValueType: Boolean
-)(fromProduct: Product => A)
-    extends ArgBuilder[A] {
-  import ProductArgBuilder.ArrayProductWrapper
+private[schema] final class ProductArgBuilder[A](
+  _fields: => List[(String, List[Any], ArgBuilder[Any])],
+  isValueType: Boolean,
+  construct: Array[Any] => A
+) extends ArgBuilder[A] {
 
-  private lazy val params = Array.from(_fields.map { (label, builder) =>
-    val labelList  = annotations.get(label)
-    val default    = builder.buildMissing(labelList.flatMap(_.collectFirst { case GQLDefault(v) => v }))
-    val finalLabel = labelList.flatMap(_.collectFirst { case GQLName(name) => name }).getOrElse(label)
+  private lazy val params = Array.from(_fields.map { case (label, annotations, builder) =>
+    val default    = builder.buildMissing(annotations.collectFirst { case GQLDefault(v) => v })
+    val finalLabel = annotations.collectFirst { case GQLName(name) => name }.getOrElse(label)
     (finalLabel, default, builder)
   })
 
@@ -87,12 +98,12 @@ private final class ProductArgBuilder[A](
       }
 
   private def fromFields(fields: Map[String, InputValue]): Either[ExecutionError, A] = {
-    val params = this.params
-    var i      = 0
-    val l      = params.length
-    val arr    = Array.ofDim[Any](l)
-    while (i < l) {
-      val (label, default, builder) = params(i)
+    val currentParams = params
+    var i             = 0
+    val length        = currentParams.length
+    val arr           = Array.ofDim[Any](length)
+    while (i < length) {
+      val (label, default, builder) = currentParams(i)
       val field                     = fields.getOrElseNull(label)
       val value                     = if (field ne null) builder.build(field) else default
       value match {
@@ -101,19 +112,11 @@ private final class ProductArgBuilder[A](
       }
       i += 1
     }
-    Right(fromProduct(new ArrayProductWrapper(arr)))
+    Right(construct(arr))
   }
 
   private def fromValue(input: InputValue): Either[ExecutionError, A] =
     params(0)._3
       .build(input)
-      .map(v => fromProduct(Tuple1(v)))
-}
-
-private object ProductArgBuilder {
-  private final class ArrayProductWrapper(arr: Array[Any]) extends Product {
-    def canEqual(that: Any): Boolean = false // Not used by the `fromProduct` method so we just stub it
-    def productArity: Int            = arr.length
-    def productElement(n: Int): Any  = arr(n)
-  }
+      .map(v => construct(Array[Any](v)))
 }

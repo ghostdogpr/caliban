@@ -7,7 +7,6 @@ import caliban.parsing.VariablesCoercer
 import caliban.parsing.Parser
 import caliban.schema.RootType
 import caliban.schema.Schema.auto._
-import caliban.schema.ArgBuilder.auto._
 import zio._
 import zio.test._
 import zio.test.Assertion._

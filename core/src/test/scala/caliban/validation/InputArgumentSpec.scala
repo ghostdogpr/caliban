@@ -33,22 +33,22 @@ object InputArgumentSpec extends ZIOSpecDefault {
     TriState.argBuilder
 
   implicit val schema: Schema[Any, ExampleObject]    = Schema.gen
-  implicit val argBuilder: ArgBuilder[ExampleObject] = ArgBuilder.gen
+  implicit val argBuilder: ArgBuilder[ExampleObject] = ArgBuilder.derived
 
-  implicit val inputObjectArgBuilder: ArgBuilder[InputObject]        = ArgBuilder.gen
-  implicit val boolArgBuilder: ArgBuilder[BoolArg]                   = ArgBuilder.gen
-  implicit val boolArgNonNullBuilder: ArgBuilder[BoolArgNonNull]     = ArgBuilder.gen
-  implicit val floatArgBuilder: ArgBuilder[FloatArg]                 = ArgBuilder.gen
-  implicit val intArgBuilder: ArgBuilder[IntArg]                     = ArgBuilder.gen
-  implicit val listArgBuilder: ArgBuilder[ListArg]                   = ArgBuilder.gen
-  implicit val listIntArgBuilder: ArgBuilder[ListIntArg]             = ArgBuilder.gen
-  implicit val listListIntArgBuilder: ArgBuilder[ListListIntArg]     = ArgBuilder.gen
-  implicit val stringArgBuilder: ArgBuilder[StringArg]               = ArgBuilder.gen
-  implicit val validBuilder: ArgBuilder[Valid.type]                  = ArgBuilder.gen
-  implicit val enumBuilder: ArgBuilder[Enum]                         = ArgBuilder.gen
-  implicit val enumArgBuilder: ArgBuilder[EnumArg]                   = ArgBuilder.gen
-  implicit val inputArgBuilder: ArgBuilder[InputArg]                 = ArgBuilder.gen
-  implicit val exampleObjectArgBuilder: ArgBuilder[ExampleObjectArg] = ArgBuilder.gen
+  implicit val inputObjectArgBuilder: ArgBuilder[InputObject]        = ArgBuilder.derived
+  implicit val boolArgBuilder: ArgBuilder[BoolArg]                   = ArgBuilder.derived
+  implicit val boolArgNonNullBuilder: ArgBuilder[BoolArgNonNull]     = ArgBuilder.derived
+  implicit val floatArgBuilder: ArgBuilder[FloatArg]                 = ArgBuilder.derived
+  implicit val intArgBuilder: ArgBuilder[IntArg]                     = ArgBuilder.derived
+  implicit val listArgBuilder: ArgBuilder[ListArg]                   = ArgBuilder.derived
+  implicit val listIntArgBuilder: ArgBuilder[ListIntArg]             = ArgBuilder.derived
+  implicit val listListIntArgBuilder: ArgBuilder[ListListIntArg]     = ArgBuilder.derived
+  implicit val stringArgBuilder: ArgBuilder[StringArg]               = ArgBuilder.derived
+  implicit val validBuilder: ArgBuilder[Valid.type]                  = ArgBuilder.derived
+  implicit val enumBuilder: ArgBuilder[Enum]                         = ArgBuilder.derived
+  implicit val enumArgBuilder: ArgBuilder[EnumArg]                   = ArgBuilder.derived
+  implicit val inputArgBuilder: ArgBuilder[InputArg]                 = ArgBuilder.derived
+  implicit val exampleObjectArgBuilder: ArgBuilder[ExampleObjectArg] = ArgBuilder.derived
 
   val gql = {
     // explicit instances to avoid "given instance gen is declared as erased, but is in fact used" on Scala 3
