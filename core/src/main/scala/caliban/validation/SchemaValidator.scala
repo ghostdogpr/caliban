@@ -230,20 +230,40 @@ private[caliban] object SchemaValidator {
         val objectFields    = obj.allFields
         val supertypeFields = supertype.flatMap(_.allFields)
 
-        def isNonNullableSubtype(supertypeFieldType: __Type, objectFieldType: __Type) = {
+        // https://spec.graphql.org/October2021/#IsValidImplementationFieldType()
+        def isValidSubtype(supertypeFieldType: __Type, objectFieldType: __Type): Boolean = {
           import __TypeKind._
-          objectFieldType.kind match {
-            case NON_NULL => objectFieldType.ofType.exists(Types.same(supertypeFieldType, _))
-            case _        => false
-          }
+          if (objectFieldType.kind == NON_NULL) {
+            // Non-Null is a valid sub-type of either Non-Null or its nullable variant.
+            val unwrappedObj = objectFieldType.ofType.getOrElse(objectFieldType)
+            val unwrappedSup =
+              if (supertypeFieldType.kind == NON_NULL) supertypeFieldType.ofType.getOrElse(supertypeFieldType)
+              else supertypeFieldType
+            isValidSubtype(unwrappedSup, unwrappedObj)
+          } else if (supertypeFieldType.kind == NON_NULL) {
+            // A nullable object field cannot implement a non-nullable interface field.
+            false
+          } else if (supertypeFieldType.kind == LIST && objectFieldType.kind == LIST) {
+            (for {
+              s <- supertypeFieldType.ofType
+              o <- objectFieldType.ofType
+            } yield isValidSubtype(s, o)).getOrElse(false)
+          } else if (Types.same(supertypeFieldType, objectFieldType)) {
+            true
+          } else
+            (supertypeFieldType.kind, objectFieldType.kind) match {
+              case (UNION, OBJECT)                              =>
+                supertypeFieldType.possibleTypes.toList.flatten.exists(Types.same(_, objectFieldType))
+              case (INTERFACE, OBJECT) | (INTERFACE, INTERFACE) =>
+                supertypeFieldType.possibleTypes.toList.flatten.exists(Types.same(_, objectFieldType)) ||
+                implementsTransitively(objectFieldType, supertypeFieldType)
+              case _                                            => false
+            }
         }
 
-        def isValidSubtype(supertypeFieldType: __Type, objectFieldType: __Type) = {
-          val supertypePossibleTypes = supertypeFieldType.possibleTypes.toList.flatten
-
-          Types.same(supertypeFieldType, objectFieldType) ||
-          supertypePossibleTypes.exists(Types.same(_, objectFieldType)) ||
-          isNonNullableSubtype(supertypeFieldType, objectFieldType)
+        def implementsTransitively(t: __Type, ancestor: __Type): Boolean = {
+          val direct = t.interfaces().toList.flatten
+          direct.exists(d => Types.same(d, ancestor) || implementsTransitively(d, ancestor))
         }
 
         validateAllDiscard(objectFields) { objField =>

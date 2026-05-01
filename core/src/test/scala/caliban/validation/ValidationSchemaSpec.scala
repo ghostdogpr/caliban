@@ -294,6 +294,13 @@ object ValidationSchemaSpec extends ZIOSpecDefault {
           test("field type that is a Non-Null variant of a valid interface field type is valid") {
             graphQL(resolverNonNullableSubtype).interpreter.exit.map(assert(_)(succeeds(anything)))
           },
+          test(
+            "non-null object field is a valid sub-type of a non-null interface field that the object's type implements"
+          ) {
+            // Covariantly narrowed sub-type: interface field `species: Species!` and object field `species: Mammalia!`
+            // where Mammalia implements Species. See https://spec.graphql.org/October2021/#IsValidImplementationFieldType()
+            assert(SchemaValidator.validateType(narrowedMammalObject))(isRight)
+          },
           test("fields including arguments of the same name and type defined in an interface are valid") {
             graphQL(resolverFieldWithArg).interpreter.exit.map(assert(_)(succeeds(anything)))
           },
