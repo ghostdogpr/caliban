@@ -55,6 +55,32 @@ object TypesSpec extends ZIOSpecDefault {
           interfaces = () => Some(Nil)
         )
         assertTrue(Types.unify(mammalia, unrelated).isEmpty)
+      },
+      test("returns the interface when one type directly implements the other") {
+        // unify(Mammalia, Species) should return Species since Mammalia implements Species.
+        assertTrue(Types.unify(mammalia, species).flatMap(_.name).contains("Species")) &&
+        assertTrue(Types.unify(species, mammalia).flatMap(_.name).contains("Species"))
+      },
+      test("terminates on a cyclic interfaces() graph") {
+        // Defensively guard against malformed schemas: two interfaces that each list the other
+        // as an interface should not cause infinite recursion.
+        lazy val a: __Type = Types
+          .makeInterface(
+            name = Some("CycleA"),
+            description = None,
+            fields = () => Nil,
+            subTypes = Nil
+          )
+          .copy(interfaces = () => Some(List(b)))
+        lazy val b: __Type = Types
+          .makeInterface(
+            name = Some("CycleB"),
+            description = None,
+            fields = () => Nil,
+            subTypes = Nil
+          )
+          .copy(interfaces = () => Some(List(a)))
+        assertTrue(Types.unify(a, b).flatMap(_.name).contains("CycleA"))
       }
     )
   )

@@ -220,23 +220,25 @@ object Types {
       }
 
   /**
-   * Finds the closest common interface (or interface chain ancestor) shared by `t1` and `t2`,
-   * by walking each type's `interfaces()` lists transitively.
+   * Finds the closest type reachable from both `t1` and `t2` via their `interfaces()` chain
+   * (including each type itself, so that a direct implementer/interface pair returns the
+   * interface). BFS order is used so the closest match wins; a `visited` set guards against
+   * cyclic interface graphs.
    *
    * Used by [[unify]] as a fallback when two types differ but covariantly narrow a shared interface
    * field (per https://spec.graphql.org/October2021/#IsValidImplementationFieldType()).
    */
   private def commonInterface(t1: __Type, t2: __Type): Option[__Type] = {
-    def ancestors(t: __Type): List[__Type] = {
-      val direct = t.interfaces().toList.flatten
-      direct ::: direct.flatMap(ancestors)
+    @tailrec
+    def selfAndAncestors(queue: List[__Type], acc: List[__Type]): List[__Type] = queue match {
+      case Nil       => acc.reverse
+      case h :: rest =>
+        if (acc.exists(same(_, h))) selfAndAncestors(rest, acc)
+        else selfAndAncestors(rest ::: h.interfaces().toList.flatten, h :: acc)
     }
-    val a1                                 = ancestors(t1)
-    if (a1.isEmpty) None
-    else {
-      val a2 = ancestors(t2)
-      a1.find(i1 => a2.exists(i2 => same(i1, i2)))
-    }
+    val a1                                                                     = selfAndAncestors(List(t1), Nil)
+    val a2                                                                     = selfAndAncestors(List(t2), Nil)
+    a1.find(i1 => a2.exists(i2 => same(i1, i2)))
   }
 
   def extractCommonDescription(l: List[__Field]): Option[String] =
