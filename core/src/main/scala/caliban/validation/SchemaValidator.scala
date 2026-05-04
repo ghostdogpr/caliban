@@ -262,8 +262,15 @@ private[caliban] object SchemaValidator {
         }
 
         def implementsTransitively(t: __Type, ancestor: __Type): Boolean = {
-          val direct = t.interfaces().toList.flatten
-          direct.exists(d => Types.same(d, ancestor) || implementsTransitively(d, ancestor))
+          @scala.annotation.tailrec
+          def loop(queue: List[__Type], visited: List[__Type]): Boolean = queue match {
+            case Nil       => false
+            case h :: rest =>
+              if (visited.exists(Types.same(_, h))) loop(rest, visited)
+              else if (Types.same(h, ancestor)) true
+              else loop(rest ::: h.interfaces().toList.flatten, h :: visited)
+          }
+          loop(t.interfaces().toList.flatten, List(t))
         }
 
         validateAllDiscard(objectFields) { objField =>

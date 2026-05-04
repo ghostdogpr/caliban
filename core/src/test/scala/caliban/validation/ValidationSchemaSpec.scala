@@ -301,6 +301,42 @@ object ValidationSchemaSpec extends ZIOSpecDefault {
             // where Mammalia implements Species. See https://spec.graphql.org/October2021/#IsValidImplementationFieldType()
             assert(SchemaValidator.validateType(narrowedMammalObject))(isRight)
           },
+          test("subtype check terminates when the implementer's interfaces() graph is cyclic") {
+            // Defensive: a malformed schema where two interfaces list each other should not hang validation.
+            lazy val cycleA: __Type        =
+              Types.makeInterface(Some("CycleA"), None, () => Nil, Nil).copy(interfaces = () => Some(List(cycleB)))
+            lazy val cycleB: __Type        =
+              Types.makeInterface(Some("CycleB"), None, () => Nil, Nil).copy(interfaces = () => Some(List(cycleA)))
+            val unrelatedInterface: __Type = Types.makeInterface(
+              Some("Unrelated"),
+              None,
+              () => List(__Field("f", None, _ => Nil, () => Types.makeInterface(Some("Other"), None, () => Nil, Nil))),
+              Nil
+            )
+            val cyclicObject: __Type       = __Type(
+              kind = __TypeKind.OBJECT,
+              name = Some("CyclicObject"),
+              interfaces = () => Some(List(unrelatedInterface)),
+              fields = _ =>
+                Some(
+                  List(
+                    __Field(
+                      "f",
+                      None,
+                      _ => Nil,
+                      () =>
+                        __Type(
+                          kind = __TypeKind.OBJECT,
+                          name = Some("Impl"),
+                          interfaces = () => Some(List(cycleA)),
+                          fields = _ => Some(Nil)
+                        )
+                    )
+                  )
+                )
+            )
+            assert(SchemaValidator.validateType(cyclicObject))(isLeft)
+          },
           test("fields including arguments of the same name and type defined in an interface are valid") {
             graphQL(resolverFieldWithArg).interpreter.exit.map(assert(_)(succeeds(anything)))
           },
