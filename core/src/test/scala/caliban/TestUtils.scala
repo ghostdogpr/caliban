@@ -552,6 +552,40 @@ object TestUtils {
           ),
         subTypes = List(nullableExtraArgsObject)
       )
+
+      // Covariantly narrowed sub-type field per https://spec.graphql.org/October2021/#IsValidImplementationFieldType()
+      // The interface field is `species: Species!` (Species is itself an interface implemented by Mammalia/Aves),
+      // and the object field narrows it to `species: Mammalia!`.
+      lazy val speciesInterface: __Type = Types.makeInterface(
+        name = Some("Species"),
+        description = None,
+        fields = () => List(__Field("name", None, _ => Nil, () => Types.string.nonNull)),
+        subTypes = List(mammaliaObject, avesObject)
+      )
+      lazy val mammaliaObject: __Type   = __Type(
+        kind = __TypeKind.OBJECT,
+        name = Some("Mammalia"),
+        interfaces = () => Some(List(speciesInterface)),
+        fields = _ => Some(List(__Field("name", None, _ => Nil, () => Types.string.nonNull)))
+      )
+      lazy val avesObject: __Type       = __Type(
+        kind = __TypeKind.OBJECT,
+        name = Some("Aves"),
+        interfaces = () => Some(List(speciesInterface)),
+        fields = _ => Some(List(__Field("name", None, _ => Nil, () => Types.string.nonNull)))
+      )
+      lazy val animalInterface: __Type  = Types.makeInterface(
+        name = Some("Animal"),
+        description = None,
+        fields = () => List(__Field("species", None, _ => Nil, () => speciesInterface.nonNull)),
+        subTypes = List(narrowedMammalObject)
+      )
+      lazy val narrowedMammalObject     = __Type(
+        kind = __TypeKind.OBJECT,
+        name = Some("NarrowedMammal"),
+        interfaces = () => Some(List(animalInterface)),
+        fields = _ => Some(List(__Field("species", None, _ => Nil, () => mammaliaObject.nonNull)))
+      )
     }
 
     @GQLDirective(Directive("__name"))

@@ -208,10 +208,38 @@ object Types {
     if (same(t1, t2)) Option(t1)
     else
       (t1.kind, t2.kind) match {
-        case (__TypeKind.NON_NULL, _) => t1.ofType.flatMap(unify(_, t2))
-        case (_, __TypeKind.NON_NULL) => t2.ofType.flatMap(unify(_, t1))
-        case _                        => None
+        case (__TypeKind.NON_NULL, __TypeKind.NON_NULL) =>
+          for {
+            a <- t1.ofType
+            b <- t2.ofType
+            u <- unify(a, b)
+          } yield u.nonNull
+        case (__TypeKind.NON_NULL, _)                   => t1.ofType.flatMap(unify(_, t2))
+        case (_, __TypeKind.NON_NULL)                   => t2.ofType.flatMap(unify(_, t1))
+        case _                                          => commonInterface(t1, t2)
       }
+
+  /**
+   * Finds the closest type reachable from both `t1` and `t2` via their `interfaces()` chain
+   * (including each type itself, so that a direct implementer/interface pair returns the
+   * interface). BFS order is used so the closest match wins; a `visited` set guards against
+   * cyclic interface graphs.
+   *
+   * Used by [[unify]] as a fallback when two types differ but covariantly narrow a shared interface
+   * field (per https://spec.graphql.org/October2021/#IsValidImplementationFieldType()).
+   */
+  private def commonInterface(t1: __Type, t2: __Type): Option[__Type] = {
+    @tailrec
+    def selfAndAncestors(queue: List[__Type], acc: List[__Type]): List[__Type] = queue match {
+      case Nil       => acc.reverse
+      case h :: rest =>
+        if (acc.exists(same(_, h))) selfAndAncestors(rest, acc)
+        else selfAndAncestors(rest ::: h.interfaces().toList.flatten, h :: acc)
+    }
+    val a1                                                                     = selfAndAncestors(List(t1), Nil)
+    val a2                                                                     = selfAndAncestors(List(t2), Nil)
+    a1.find(i1 => a2.exists(i2 => same(i1, i2)))
+  }
 
   def extractCommonDescription(l: List[__Field]): Option[String] =
     l.map(_.description).distinct match {
