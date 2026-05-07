@@ -90,6 +90,55 @@ schema @@ federated(aResolver, additionalResolvers:_*)
 
 You can now use the resulting `GraphQL[R]` to start querying. You can also see the [full scala/example/federation code](https://github.com/ghostdogpr/caliban/tree/series/3.x/examples/src/main/scala/example/federation)
 
+
+### Federation v2.12 cache tags
+
+Federation `v2.12` adds `@cacheTag` support (Apollo Connect `v0.3`). In Caliban this is exposed by importing `caliban.federation.v2_12._`.
+
+You can apply cache tags at schema level with `@GQLCacheTag`, and at runtime by returning `Extended[A]` with `cacheField`.
+
+```scala
+import caliban.federation.v2_12._
+
+@GQLKey("id")
+@GQLCacheTag(format = "user-{$key.id}")
+case class User(id: String)
+
+case class Query(
+  @GQLCacheTag("profile") user: UIO[Extended[User]],
+  @GQLCacheTag("users-list") users: UIO[List[User]]
+)
+```
+
+For dynamic field-level tags, wrap values with `cacheField`:
+
+```scala
+import caliban.federation.v2_12._
+
+val query = Query(
+  user = ZIO.succeed(cacheField(User("1"))(List("top-level-user"))),
+  users = ZIO.succeed(List(User("1"), User("2")))
+)
+```
+
+For entity resolution, use cached entity resolvers (for example `fromCachedOption`, `fromCachedEither`, `fromCachedZIO`, `fromCachedQuery`) and return both the entity result and the computed tags:
+
+```scala
+import caliban.federation.EntityResolver
+import caliban.federation.v2_12._
+
+val resolver =
+  EntityResolver.fromCachedOption[UserByIdArgs, User](args =>
+    userMap.get(args.id) -> List(s"user-${args.id}")
+  )
+
+val federatedApi = api @@ federated(resolver)
+```
+
+When present, tags are emitted in GraphQL `extensions` under `apolloEntityCacheTags`, which can then be consumed by a gateway cache policy.
+
+If you need to proactively evict cache tags, see [Stitching cache invalidation](./stitching.md#cache-invalidation).
+
 ## Tracing
 
 Federated tracing is slightly different from standard apollo-tracing thus it comes with its own wrapper defined in the `caliban-federation` module.

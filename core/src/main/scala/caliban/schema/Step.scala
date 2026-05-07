@@ -1,6 +1,7 @@
 package caliban.schema
 
 import caliban.CalibanError.ExecutionError
+import caliban.ResponseValue.ObjectValue
 import caliban.Value.NullValue
 import caliban.execution.{ Field, FieldInfo }
 import caliban.{ InputValue, PathValue, ResponseValue }
@@ -12,11 +13,12 @@ import zio.stream.ZStream
 sealed trait Step[-R]
 
 object Step {
-  case class ListStep[-R](steps: List[Step[R]])                         extends Step[R]
-  case class FunctionStep[-R](step: Map[String, InputValue] => Step[R]) extends Step[R]
-  case class MetadataFunctionStep[-R](step: Field => Step[R])           extends Step[R]
-  case class QueryStep[-R](query: ZQuery[R, Throwable, Step[R]])        extends Step[R]
-  case class StreamStep[-R](inner: ZStream[R, Throwable, Step[R]])      extends Step[R]
+  case class ListStep[-R](steps: List[Step[R]])                                        extends Step[R]
+  case class FunctionStep[-R](step: Map[String, InputValue] => Step[R])                extends Step[R]
+  case class MetadataFunctionStep[-R](step: Field => Step[R])                          extends Step[R]
+  case class QueryStep[-R](query: ZQuery[R, Throwable, Step[R]])                       extends Step[R]
+  case class StreamStep[-R](inner: ZStream[R, Throwable, Step[R]])                     extends Step[R]
+  case class ExtensionStep[-R](inner: Step[R], extensions: ObjectValue => ObjectValue) extends Step[R]
 
   case class ObjectStep[-R](name: String, fields: String => Step[R]) extends Step[R]
   object ObjectStep {
@@ -122,6 +124,13 @@ object ReducedStep {
     label: Option[String],
     path: List[PathValue],
     startFrom: Int
+  ) extends ReducedStep[R] {
+    final val isPure = false
+  }
+
+  final case class ExtensionStep[-R](
+    step: ReducedStep[R],
+    extensions: ObjectValue => ObjectValue
   ) extends ReducedStep[R] {
     final val isPure = false
   }

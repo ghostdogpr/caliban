@@ -261,6 +261,13 @@ lazy val stitching = project
   .settings(name := "caliban-stitching")
   .settings(commonSettings)
   .settings(enableMimaSettingsJVM)
+  .settings(
+    libraryDependencies ++= Seq(
+      "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros" % jsoniterVersion % Provided,
+      "dev.zio"                               %% "zio-test"              % zioVersion      % Test,
+      "dev.zio"                               %% "zio-test-sbt"          % zioVersion      % Test
+    )
+  )
   .disablePlugins(AssemblyPlugin)
   .dependsOn(tools)
 
@@ -773,7 +780,10 @@ lazy val enableMimaSettingsJVM =
   Def.settings(
     mimaFailOnProblem      := enforceMimaCompatibility,
     mimaPreviousArtifacts  := previousStableVersion.value.map(organization.value %% moduleName.value % _).toSet,
-    mimaBinaryIssueFilters := Seq()
+    mimaBinaryIssueFilters := Seq(
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.execution.Executor#ReducedStepExecutor.makeQuery"),
+      ProblemFilters.exclude[MissingTypesProblem]("caliban.ResponseValue$ObjectValue$")
+    )
   )
 
 lazy val enableMimaSettingsJS =

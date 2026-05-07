@@ -7,6 +7,8 @@ import caliban.rendering.ValueRenderer
 import com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec
 import zio.stream.Stream
 
+import scala.collection.mutable
+import scala.collection.compat._
 import scala.util.control.NonFatal
 import scala.util.hashing.MurmurHash3
 
@@ -39,17 +41,19 @@ sealed trait ResponseValue extends Serializable { self =>
    * object values will be merged, incompatible types will assume the right-hand side of the merge.
    */
   def deepMerge(other: ResponseValue): ResponseValue = (this, other) match {
-    case (ResponseValue.ObjectValue(o1), ResponseValue.ObjectValue(o2)) =>
+    case (ResponseValue.ObjectValue(o1), ResponseValue.ObjectValue(o2)) if o1.nonEmpty =>
       val otherMap = o2.toMap
+      val unseen   = mutable.Set.from(otherMap.keys)
       ResponseValue.ObjectValue(o1.map { case (k, v) =>
+        unseen -= k
         otherMap.get(k) match {
           case Some(otherValue) => (k, v.deepMerge(otherValue))
           case None             => (k, v)
         }
-      })
-    case (ResponseValue.ListValue(l1), ResponseValue.ListValue(l2))     =>
+      } ++ unseen.flatMap(k => otherMap.get(k).map(k -> _)))
+    case (ResponseValue.ListValue(l1), ResponseValue.ListValue(l2)) if l1.nonEmpty     =>
       ResponseValue.ListValue(l1 ++ l2)
-    case _                                                              => other
+    case _                                                                             => other
   }
 }
 object ResponseValue {
@@ -85,10 +89,10 @@ object ResponseValue {
     loop(path, value)
   }
 
-  final case class ListValue(values: List[ResponseValue])                extends ResponseValue {
+  final case class ListValue(values: List[ResponseValue])             extends ResponseValue {
     override def toString: String = ValueRenderer.responseListValueRenderer.renderCompact(this)
   }
-  final case class ObjectValue(fields: List[(String, ResponseValue)])    extends ResponseValue {
+  final case class ObjectValue(fields: List[(String, ResponseValue)]) extends ResponseValue {
     override def toString: String =
       ValueRenderer.responseObjectValueRenderer.renderCompact(this)
 
@@ -101,6 +105,10 @@ object ResponseValue {
         case _              => false
       }
   }
+  object ObjectValue {
+    val empty: ObjectValue = ObjectValue(Nil)
+  }
+
   final case class StreamValue(stream: Stream[Throwable, ResponseValue]) extends ResponseValue {
     override def toString: String = "<stream>"
   }

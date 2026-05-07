@@ -1665,6 +1665,38 @@ object ExecutionSpec extends ZIOSpecDefault {
               )
             )
         }
+      },
+      test("add extensions from a resolver") {
+        case class UserArgs(id: Int)
+        case class User(test: UserArgs => String)
+        case class Queries(a: Extended[User])
+
+        val api =
+          graphQL(
+            RootResolver(
+              Queries(Extended(User(_ => "hello"), ResponseValue.ObjectValue(List("access" -> StringValue("value")))))
+            )
+          )
+
+        for {
+          interpreter <- api.interpreter
+          result      <- interpreter.execute("""{ a { test(id: 1) } }""")
+          extensions   = result.extensions
+        } yield assertTrue(
+          result.data == ResponseValue.ObjectValue(
+            List(
+              "a" -> ResponseValue.ObjectValue(
+                List(
+                  "test" -> StringValue("hello")
+                )
+              )
+            )
+          ),
+          result.errors.isEmpty,
+          extensions.get == ResponseValue.ObjectValue(
+            List("access" -> StringValue("value"))
+          )
+        )
       }
     )
 }

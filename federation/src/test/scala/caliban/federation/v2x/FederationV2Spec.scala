@@ -3,14 +3,16 @@ package caliban.federation.v2x
 import caliban.InputValue.{ ListValue, ObjectValue }
 import caliban.Macros.gqldoc
 import caliban.TestUtils._
-import caliban.Value.StringValue
+import caliban.Value.{ NullValue, StringValue }
 import caliban.parsing.Parser
 import caliban.parsing.adt.{ Definition, Directive }
 import caliban.schema.Schema.auto._
 import caliban._
+import caliban.federation.EntityResolver
 import com.github.plokhotnyuk.jsoniter_scala.core._
 import com.github.plokhotnyuk.jsoniter_scala.circe.JsoniterScalaCodec._
 import io.circe.Json
+import zio.query.ZQuery
 import zio.ZIO
 import zio.test.Assertion.hasSameElements
 import zio.test._
@@ -242,9 +244,155 @@ object FederationV2Spec extends ZIOSpecDefault {
           """schema@link(url:"https://specs.apollo.dev/federation/v2.3",import:["@key","@requires","@provides","@external","@shareable","@tag","@inaccessible","@override","@extends","@composeDirective","@interfaceObject"]){query:Query}type Query{hello:String! user:User!} type User@key(fields:"id")@shareable{id:ID!} """
 
         assertTrue(actual == expected)
+      },
+      suite("federation rendering") {
+        import caliban.federation._
+        import FederationV2.DefaultDirectives
 
-      }
+        val directives = List(
+          Nil,                                       // 2.0
+          List("@composeDirective"),                 // 2.1
+          Nil,                                       // 2.2
+          List("@interfaceObject"),                  // 2.3
+          Nil,                                       // 2.4
+          List("@authenticated", "@requiresScopes"), // 2.5
+          List("@policy"),                           // 2.6
+          Nil,                                       // 2.7
+          List("@context", "@fromContext"),          // 2.8
+          List("@cost", "@listSize"),                // 2.9
+          List("@connect", "@source"),               // 2.10 + connect 0.1
+          Nil,                                       // 2.11 + connect 0.2
+          List("@cacheTag"),                         // 2.12 + connect 0.3
+          Nil                                        // 2.13 + connect 0.4
+        )
+          .scanLeft(DefaultDirectives)(_ ++ _.map(Import(_)))
+
+        List(
+          v2_0,
+          v2_1,
+          v2_2,
+          v2_3,
+          v2_4,
+          v2_5,
+          v2_6,
+          v2_7,
+          v2_8,
+          v2_9,
+          v2_10,
+          v2_11,
+          v2_12,
+          v2_13
+        ).zip(directives).zipWithIndex.map { case ((fedVer, directives), index) =>
+          renderFederationTest(fedVer, Fixture.api)(s"v2.$index", directives)
+        }
+      },
+      suite("cacheTags")(
+        test("assign dynamic entity cache tags") {
+          import caliban.federation.v2_12.cacheableInstance
+          import Fixture2_12._
+
+          val failable: UserByIdArgs => Either[CalibanError, (Option[User], List[String])] = {
+            case UserByIdArgs("fail") => Left(CalibanError.ExecutionError("User did not resolve"))
+            case UserByIdArgs(id)     => Right(userMap.get(id) -> List(s"user-$id"))
+          }
+
+          val byOption =
+            EntityResolver.fromCachedOption[UserByIdArgs, User](id => userMap.get(id.id) -> List(s"user-${id.id}"))
+
+          val byEither = EntityResolver.fromCachedEither[UserByIdArgs, User](failable)
+
+          val byZIO = EntityResolver.fromCachedZIO[Any, UserByIdArgs, User](id => ZIO.fromEither(failable(id)))
+
+          val byQuery = EntityResolver.fromCachedQuery[Any, UserByIdArgs, User](id => ZQuery.fromEither(failable(id)))
+
+          val query = gqldoc(
+            "query { _entities(representations: [{ __typename: \"User\", id: \"1\" }, { __typename: \"User\", id: \"non-exist\" }]) { ... on User { id } } }"
+          )
+
+          val failQuery = gqldoc(
+            "query { _entities(representations: [{ __typename: \"User\", id: \"fail\" }]) { ... on User { id } } }"
+          )
+
+          val succeeds = Gen.elements(byOption, byEither, byZIO, byQuery)
+          val fails    = Gen.elements(byEither, byZIO, byQuery)
+
+          checkAll(succeeds) { resolver =>
+            val interpreter = buildApi(resolver).interpreterUnsafe
+
+            interpreter.execute(query).map { result =>
+              assertTrue(
+                result.extensions.get == ResponseValue.ObjectValue(
+                  List(
+                    "apolloEntityCacheTags" -> ResponseValue.ListValue(
+                      List(ResponseValue.ListValue(List(StringValue("user-1"))))
+                    )
+                  )
+                ),
+                result.data == ResponseValue.ObjectValue(
+                  List(
+                    "_entities" -> ResponseValue.ListValue(
+                      List(
+                        ResponseValue.ObjectValue(
+                          List("id" -> StringValue("1"))
+                        ),
+                        NullValue
+                      )
+                    )
+                  )
+                ),
+                result.errors.isEmpty
+              )
+            }
+          } && checkAll(fails) { resolver =>
+            val interpreter = buildApi(resolver).interpreterUnsafe
+
+            interpreter.execute(failQuery).map { result =>
+              assertTrue(
+                result.errors.head.msg == "User did not resolve"
+              )
+            }
+          }
+        },
+        test("assign dynamic field cache tag") {
+          import Fixture2_12._
+
+          val query = gqldoc("query { user { id } }")
+
+          api.interpreterUnsafe.execute(query).map { result =>
+            assertTrue(
+              result.data == ResponseValue.ObjectValue(
+                List(
+                  "user" -> ResponseValue
+                    .ObjectValue(List("id" -> StringValue("b2c8ccb8-191a-4233-9b34-3e3111a4adaf")))
+                )
+              ),
+              result.extensions.get == ResponseValue.ObjectValue(
+                List(
+                  "apolloEntityCacheTags" ->
+                    ResponseValue.ListValue(List(ResponseValue.ListValue(List(StringValue("top-level-user")))))
+                )
+              )
+            )
+          }
+        }
+      )
     )
+
+  private def renderFederationTest[V <: FederationV2](
+    fedVer: V,
+    api: GraphQL[Any]
+  )(version: String, directives: List[Import]) =
+    test(s"rendering federation $version") {
+      val renderer = fedVer.federationRenderer
+      val actual   = renderer.compact.render(api)
+
+      TestResult.allSuccesses(directives.map { dir =>
+        val expected = s""""${dir.name}""""
+        assertTrue(actual.contains(expected))
+      }) &&
+      assertTrue(actual.contains(s"https://specs.apollo.dev/federation/${version}"))
+
+    }
 
   private def makeSchemaDirectives(f: GraphQL[Any] => GraphQL[Any]) = {
     case class Query(

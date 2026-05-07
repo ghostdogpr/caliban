@@ -199,6 +199,82 @@ query {
 }
 ```
 
+## Cache invalidation
+
+Caliban supports Apollo's [dynamic cache tagging and invalidation specification](https://www.apollographql.com/docs/graphos/routing/performance/caching/response-caching/invalidation), you can proactively invalidate cached entries with `CacheInvalidator`.
+
+`CacheInvalidator` sends a `POST` request to a configured invalidation endpoint with:
+
+- an `Authorization` header set to your shared secret
+- a JSON array body describing one or more invalidation operations
+
+## Installation
+
+- Available using: `"com.github.ghostdogpr" %% "caliban-stitching" % "3.1.0"`
+
+### Configuration
+
+`CacheInvalidator.Config` contains:
+
+- `sharedSecret`: secret used as the `Authorization` header value
+- `invalidationUri`: URI of the invalidation endpoint
+
+You can load it from ZIO config using:
+
+```scala
+CacheInvalidator.Config.config
+```
+
+This reads:
+
+- `shared-secret`
+- `invalidation-uri`
+
+### Invalidation methods
+
+`CacheInvalidator.InvalidationMethod` supports three invalidation targets:
+
+```scala
+import caliban.federation.subgraph.CacheInvalidator.InvalidationMethod
+
+val bySubgraph = InvalidationMethod.Subgraph("accounts")
+val byType     = InvalidationMethod.Type("products", "Product")
+val byTag      = InvalidationMethod.CacheTag(List("accounts", "products"), "homepage")
+```
+
+### Simple usage
+
+```scala
+import caliban.federation.subgraph.CacheInvalidator
+import caliban.federation.subgraph.CacheInvalidator.InvalidationMethod
+import sttp.client4.Backend
+import zio.Config.Secret
+import zio._
+
+import java.net.URI
+
+val config = CacheInvalidator.Config(
+  sharedSecret = Secret("secret"),
+  invalidationUri = URI.create("https://localhost:8080/invalidate")
+)
+
+val invalidateProgram =
+  for {
+    invalidator <- ZIO.service[CacheInvalidator]
+    _ <- invalidator.invalidate(InvalidationMethod.Subgraph("accounts"))
+    _ <- invalidator.invalidateAll(
+      List(
+        InvalidationMethod.Type("products", "Product"),
+        InvalidationMethod.CacheTag(List("accounts", "products"), "homepage")
+      )
+    )
+  } yield ()
+
+// Provide your sttp Backend[Task] together with CacheInvalidator.Config
+val layer: ZLayer[Backend[Task], Nothing, CacheInvalidator] =
+  ZLayer.succeed(config) >>> CacheInvalidator.live
+```
+
 See the [examples directory](https://github.com/ghostdogpr/caliban/tree/series/3.x/examples/src/main/scala/example/stitching) for a full example.
 
 ## Things not yet supported
