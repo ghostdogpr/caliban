@@ -2,6 +2,7 @@ package caliban.tools
 
 import caliban._
 import caliban.introspection.adt._
+import caliban.parsing.Parser
 import caliban.schema._
 import caliban.schema.Schema.auto._
 import caliban.schema.ArgBuilder.auto._
@@ -99,6 +100,31 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
         interpreter  <- remoteAPI.interpreter
         res          <- interpreter.check(query)
       } yield assert(res)(isUnit)
+    },
+    test("preserves subscription type from schema definition") {
+      val schema =
+        """
+          |schema {
+          |  query: Query
+          |  subscription: Subscription
+          |}
+          |
+          |type Query {
+          |  version: String
+          |}
+          |
+          |type Subscription {
+          |  tick: Int
+          |}
+          |""".stripMargin
+
+      for {
+        doc          <- ZIO.fromEither(Parser.parseQuery(schema))
+        remoteSchema <- ZIO.fromOption(RemoteSchema.parseRemoteSchema(doc))
+      } yield assertTrue(
+        remoteSchema.subscriptionType.flatMap(_.name).contains("Subscription"),
+        remoteSchema.subscriptionType.flatMap(_.fields(__DeprecatedArgs()).map(_.map(_.name))).contains(List("tick"))
+      )
     }
   )
 
