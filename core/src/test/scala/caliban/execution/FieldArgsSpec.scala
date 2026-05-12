@@ -215,6 +215,34 @@ object FieldArgsSpec extends ZIOSpecDefault {
                          )
                        )
       } yield assertTrue(res.data.toString == "{\"query\":\"BLUE\"}")
+    },
+    test("missing nullable variable inside a list is coerced to null, not dropped") {
+      case class QueryInput(tags: List[Option[String]])
+      case class Query(query: Field => QueryInput => UIO[String])
+      val query =
+        """query MyQuery($x: String) {
+          |  query(tags: ["fixed", $x, "important"])
+          |}""".stripMargin
+
+      for {
+        ref         <- Ref.make[Option[Field]](None)
+        api          = graphQL(
+                         RootResolver(
+                           Query(
+                             query = info => _ => ref.set(Option(info)).as("ok")
+                           )
+                         )
+                       )
+        interpreter <- api.interpreter
+        _           <- interpreter.executeRequest(
+                         request = GraphQLRequest(query = Some(query), variables = Some(Map.empty))
+                       )
+        res         <- ref.get
+      } yield assertTrue(
+        res.get.arguments("tags") == InputValue.ListValue(
+          List(Value.StringValue("fixed"), Value.NullValue, Value.StringValue("important"))
+        )
+      )
     }
   )
 }

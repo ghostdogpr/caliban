@@ -275,7 +275,7 @@ object Field {
             value      <- variableValues.get(name).orElse(definition.defaultValue)
           } yield value
         case InputValue.ListValue(values)   =>
-          Some(InputValue.ListValue(values.flatMap(resolveVariable)))
+          Some(InputValue.ListValue(values.map(v => resolveVariable(v).getOrElse(Value.NullValue))))
         case InputValue.ObjectValue(fields) =>
           Some(InputValue.ObjectValue(fields.flatMap { case (k, v) => resolveVariable(v).map(k -> _) }))
         case value: Value                   =>
