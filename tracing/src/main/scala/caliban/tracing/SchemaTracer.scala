@@ -19,10 +19,10 @@ object SchemaTracer {
       f: ExecutionRequest => ZIO[R, Nothing, GraphQLResponse[CalibanError]]
     ): ExecutionRequest => ZIO[R, Nothing, GraphQLResponse[CalibanError]] =
       request => {
-        val parentField = request.field.fields.head.name
+        val parentField = request.field.fields.headOption.map(_.name)
 
         // skip introspection queries
-        if (parentField == "__schema") f(request)
+        if (parentField.contains("__schema")) f(request)
         else
           ZIO.serviceWithZIO[Tracing](tracer =>
             tracer.span(
