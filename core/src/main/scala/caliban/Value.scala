@@ -101,7 +101,7 @@ object ResponseValue {
 
     override def equals(other: Any): Boolean =
       other match {
-        case o: ObjectValue => o.hashCode == hashCode
+        case o: ObjectValue => (this eq o) || (o.hashCode == hashCode && o.fields == fields)
         case _              => false
       }
   }
