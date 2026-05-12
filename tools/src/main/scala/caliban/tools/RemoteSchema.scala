@@ -22,13 +22,17 @@ object RemoteSchema {
       .flatMap(_.mutation)
       .flatMap(doc.objectTypeDefinition)
 
+    val subscriptions = doc.schemaDefinition
+      .flatMap(_.subscription)
+      .flatMap(doc.objectTypeDefinition)
+
     queries
       .map(queries =>
         __Schema(
           description = doc.schemaDefinition.flatMap(_.description),
           queryType = toObjectType(queries, doc.typeDefinitions),
           mutationType = mutations.map(toObjectType(_, doc.typeDefinitions)),
-          subscriptionType = None,
+          subscriptionType = subscriptions.map(toObjectType(_, doc.typeDefinitions)),
           types = doc.typeDefinitions.map(toTypeDefinition(_, doc.typeDefinitions)),
           directives = doc.directiveDefinitions.map(toDirective(_, doc.typeDefinitions))
         )
