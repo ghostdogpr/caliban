@@ -1,7 +1,7 @@
 package caliban.reporting
 
 import caliban.client.CalibanClientError.CommunicationError
-import caliban.reporting.ReportingError.{ ClientError, RetryableError }
+import caliban.reporting.ReportingError.{ ClientError, RetryableError, SchemaError }
 import caliban.schema.Schema.auto._
 import caliban._
 import zio.test.{ assertTrue, TestClock, ZIOSpecDefault }
@@ -97,7 +97,7 @@ object ReportingDaemonSpec extends ZIOSpecDefault {
         c     <- FakeSchemaReporter.invocations
       } yield assertTrue(c.size == 4)
     ),
-    test("Receiving a schema error should halt the process")(
+    test("Receiving a client error should halt the process")(
       for {
         ref   <- schemaRef
         latch <- Promise.make[Nothing, Unit]
@@ -106,6 +106,24 @@ object ReportingDaemonSpec extends ZIOSpecDefault {
         _     <- TestClock.adjust(1.minute) *> latch.succeed(())
         c     <- FakeSchemaReporter.invocations
       } yield assertTrue(c.size == 1)
+    ),
+    test("Receiving a schema error should retry with the requested schema setting")(
+      for {
+        ref   <- schemaRef
+        latch <- Promise.make[Nothing, Unit]
+        _     <- FakeSchemaReporter.whenReport {
+                   case (_, _, prev) if prev.isEmpty =>
+                     ZIO.fail(SchemaError(withCoreSchema = true, code = "RETRY", message = "try again", inSeconds = 10.seconds))
+                   case _                            => ZIO.succeed(ReportingResponse(false, 60.seconds))
+                 }
+        _     <- ZIO.scoped(ReportingDaemon.register(ref) *> latch.await).fork
+        c1    <- TestClock.adjust(5.seconds) *> FakeSchemaReporter.invocations
+        _     <- TestClock.adjust(10.seconds)
+        c2    <- FakeSchemaReporter.invocations
+        _     <- latch.succeed(())
+      } yield assertTrue(c1.size == 1) &&
+        assertTrue(c2.size == 2) &&
+        assertTrue(c2.head.withSchema)
     ),
     test("If true was received then next request should send the schema")(for {
       ref   <- schemaRef

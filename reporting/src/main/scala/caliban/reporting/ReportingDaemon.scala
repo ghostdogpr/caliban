@@ -32,8 +32,9 @@ object ReportingDaemon {
               .report(ref, withCoreSchema)
               .foldZIO(
                 {
-                  case ReportingError.SchemaError(_, _, message, _)  =>
-                    ZIO.logError(s"Schema reporting failed for ${ref.graphRef}: $message")
+                  case ReportingError.SchemaError(withCoreSchema, _, message, inSeconds) =>
+                    ZIO.logError(s"Schema reporting failed for ${ref.graphRef}: $message") *>
+                      loop(withCoreSchema).delay(inSeconds)
                   case ReportingError.ClientError(error)             =>
                     ZIO.logWarningCause(
                       s"Schema reporting for ${ref.graphRef} failed because of a client error ${error.getMessage}. This is likely a defect, halting retries",
