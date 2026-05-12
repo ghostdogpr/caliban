@@ -86,8 +86,8 @@ object RemoteResolver {
 
   val unwrap: RemoteResolver[Any, Nothing, ResponseValue, ResponseValue] =
     RemoteResolver.fromFunction {
-      case v @ ObjectValue(fields) => fields.headOption.map(_._2).getOrElse(v)
-      case x                       => x
+      case ObjectValue((_, value) :: Nil) => value
+      case x                              => x
     }
 }
 
