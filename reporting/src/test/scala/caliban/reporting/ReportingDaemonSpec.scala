@@ -113,7 +113,9 @@ object ReportingDaemonSpec extends ZIOSpecDefault {
         latch <- Promise.make[Nothing, Unit]
         _     <- FakeSchemaReporter.whenReport {
                    case (_, _, prev) if prev.isEmpty =>
-                     ZIO.fail(SchemaError(withCoreSchema = true, code = "RETRY", message = "try again", inSeconds = 10.seconds))
+                     ZIO.fail(
+                       SchemaError(withCoreSchema = true, code = "RETRY", message = "try again", inSeconds = 10.seconds)
+                     )
                    case _                            => ZIO.succeed(ReportingResponse(false, 60.seconds))
                  }
         _     <- ZIO.scoped(ReportingDaemon.register(ref) *> latch.await).fork
