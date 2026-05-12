@@ -47,7 +47,7 @@ case class GraphQLResponse[+E](
 
   def withExtension(key: String, value: ResponseValue): GraphQLResponse[E] =
     copy(extensions = Some(ObjectValue(extensions.foldLeft(List(key -> value)) { case (value, ObjectValue(fields)) =>
-      value ::: fields
+      value ::: fields.filterNot(_._1 == key)
     })))
 }
 
