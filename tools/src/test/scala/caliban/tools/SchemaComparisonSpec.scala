@@ -223,6 +223,27 @@ object SchemaComparisonSpec extends ZIOSpecDefault {
 
         compare(schema1, schema2, List("Directive 'deprecated' was deleted from field 'test' of type 'HeroInput'."))
       },
+      test("directive argument changed only reports changed arguments") {
+        val schema1: String =
+          """
+          type Hero @cache(maxAge: 60, scope: "PUBLIC") {
+            name: String!
+          }
+            |""".stripMargin
+
+        val schema2: String =
+          """
+          type Hero @cache(maxAge: 120, scope: "PUBLIC") {
+            name: String!
+          }
+            |""".stripMargin
+
+        compare(
+          schema1,
+          schema2,
+          List("""Argument 'maxAge' was changed from '60' to '120' on directive 'cache' on type 'Hero'.""")
+        )
+      },
       test("compare Caliban schema with string schema") {
         val schema: String =
           """
