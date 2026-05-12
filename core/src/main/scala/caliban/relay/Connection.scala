@@ -60,12 +60,20 @@ object Connection {
 
     val hasNextPage = args.count match {
       case PaginationCount.First(count) => sliced.length > count
-      case PaginationCount.Last(_)      => false
+      case PaginationCount.Last(_)      =>
+        args.cursor match {
+          case PaginationCursor.Before(cursor) => cursor.value < items.length
+          case _                               => false
+        }
     }
 
     val hasPreviousPage = args.count match {
       case PaginationCount.Last(count) => sliced.length > count
-      case PaginationCount.First(_)    => false
+      case PaginationCount.First(_)    =>
+        args.cursor match {
+          case PaginationCursor.After(cursor) => cursor.value >= 0
+          case _                              => false
+        }
     }
 
     val dropped = args.count match {

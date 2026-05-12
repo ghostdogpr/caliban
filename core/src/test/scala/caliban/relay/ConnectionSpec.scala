@@ -114,10 +114,10 @@ object ConnectionSpec extends ZIOSpecDefault {
       // when before is set
       assert(calcHasNextPage(PaginationCursor.Before(Base64Cursor(2)), PaginationCount.First(1)))(isTrue) &&
       assert(calcHasNextPage(PaginationCursor.Before(Base64Cursor(2)), PaginationCount.First(2)))(isFalse) &&
-      // when last is set, the result is always false
+      // when last is set
       assert(calcHasNextPage(PaginationCursor.NoCursor, PaginationCount.Last(3)))(isFalse) &&
       assert(calcHasNextPage(PaginationCursor.After(Base64Cursor(0)), PaginationCount.Last(3)))(isFalse) &&
-      assert(calcHasNextPage(PaginationCursor.Before(Base64Cursor(1)), PaginationCount.Last(3)))(isFalse)
+      assert(calcHasNextPage(PaginationCursor.Before(Base64Cursor(1)), PaginationCount.Last(3)))(isTrue)
     },
     test("it correctly calculates hasPreviousPage") {
       val list = List(Item("a"), Item("b"), Item("c"))
@@ -139,10 +139,34 @@ object ConnectionSpec extends ZIOSpecDefault {
       // when after is set
       assert(calcHasPreviousPage(PaginationCursor.After(Base64Cursor(0)), PaginationCount.Last(1)))(isTrue) &&
       assert(calcHasPreviousPage(PaginationCursor.After(Base64Cursor(0)), PaginationCount.Last(2)))(isFalse) &&
-      // when first is set, the result is always false
+      // when first is set
       assert(calcHasPreviousPage(PaginationCursor.NoCursor, PaginationCount.First(3)))(isFalse) &&
-      assert(calcHasPreviousPage(PaginationCursor.After(Base64Cursor(0)), PaginationCount.First(3)))(isFalse) &&
+      assert(calcHasPreviousPage(PaginationCursor.After(Base64Cursor(0)), PaginationCount.First(3)))(isTrue) &&
       assert(calcHasPreviousPage(PaginationCursor.Before(Base64Cursor(1)), PaginationCount.First(3)))(isFalse)
+    },
+    test("it correctly calculates page info when paginating with cursors") {
+      val list = List(Item("a"), Item("b"), Item("c"), Item("d"), Item("e"))
+
+      val forward = ItemConnection
+        .fromList(
+          list,
+          Pagination(cursor = PaginationCursor.After(Base64Cursor(1)), count = PaginationCount.First(2))
+        )
+        .pageInfo
+
+      val backward = ItemConnection
+        .fromList(
+          list,
+          Pagination(cursor = PaginationCursor.Before(Base64Cursor(3)), count = PaginationCount.Last(2))
+        )
+        .pageInfo
+
+      assertTrue(
+        forward.hasPreviousPage,
+        forward.hasNextPage,
+        backward.hasPreviousPage,
+        backward.hasNextPage
+      )
     },
     test("it paginates the response forwards") {
       for {
