@@ -60,6 +60,24 @@ object ValidationSpec extends ZIOSpecDefault {
               }""")
         check(query, "Subscription 's' has more than one root field.")
       },
+      test("all subscription operations have only one root") {
+        val query = gqldoc("""
+             subscription First {
+               characters {
+                 name
+               }
+             }
+
+             subscription Second {
+               characters {
+                 name
+               }
+               character(name: "Amos Burton") {
+                 name
+               }
+              }""")
+        check(query, "Subscription 'Second' has more than one root field.")
+      },
       test("subscription doesn't have a __typename field") {
         val query = gqldoc("""
              subscription s {
