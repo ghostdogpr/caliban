@@ -147,6 +147,7 @@ object Protocol {
                                            .map(Right(_))
                                            .runForeachChunk(output.offerAll)
                                            .catchAll(e => output.offer(Right(handler.error(Some(id), e))))
+                                           .ensuring(subscriptions.untrack(id))
                                            .fork
                                            .interruptible
                                            .unit
@@ -371,13 +372,17 @@ object Protocol {
   private class SubscriptionManager private (private val tracked: TMap[String, Promise[Any, Unit]]) {
     def track(id: String): UStream[Promise[Any, Unit]] =
       ZStream.fromZIO {
-        Promise.make[Any, Unit].flatMap { fresh =>
-          STM.atomically {
-            tracked.get(id).flatMap {
-              case Some(existing) => STM.succeed(existing)
-              case None           => tracked.put(id, fresh).as(fresh)
+        tracked.get(id).commit.flatMap {
+          case Some(existing) => ZIO.succeed(existing)
+          case None           =>
+            Promise.make[Any, Unit].flatMap { fresh =>
+              STM.atomically {
+                tracked.get(id).flatMap {
+                  case Some(existing) => STM.succeed(existing)
+                  case None           => tracked.put(id, fresh).as(fresh)
+                }
+              }
             }
-          }
         }
       }
 
