@@ -3,7 +3,7 @@ package caliban.ws
 import caliban.ResponseValue.{ ObjectValue, StreamValue }
 import caliban.Value.StringValue
 import caliban._
-import zio.stm.TMap
+import zio.stm.{ STM, TMap }
 import zio.stream.{ UStream, ZStream }
 import zio.{ Duration, Promise, Queue, Random, Ref, Schedule, UIO, URIO, ZIO }
 
@@ -23,6 +23,22 @@ object Protocol {
   def fromName(name: String): Protocol =
     if (name.equalsIgnoreCase(GraphQLWS.name)) GraphQLWS
     else Legacy
+
+  private def runBeforeInit[R, E](
+    hook: Option[InputValue => ZIO[R, E, Any]],
+    payload: Option[InputValue],
+    onReject: zio.Cause[Any] => UIO[Any]
+  ): URIO[R, Boolean] =
+    hook.fold[URIO[R, Boolean]](ZIO.succeed(true)) { f =>
+      ZIO
+        .suspendSucceed(f(payload.getOrElse(Value.NullValue)))
+        .foldCauseZIO(
+          cause =>
+            if (cause.isInterruptedOnly) ZIO.failCause(cause.stripFailures)
+            else onReject(cause).as(false),
+          _ => ZIO.succeed(true)
+        )
+    }
 
   object GraphQLWS extends Protocol {
     object Ops {
@@ -70,10 +86,11 @@ object Protocol {
                            ZStream.scoped(
                              input.runForeach {
                                case GraphQLWSInput(Ops.ConnectionInit, id, payload)  =>
-                                 val before     = ZIO.whenCase((webSocketHooks.beforeInit, payload)) {
-                                   case (Some(beforeInit), Some(payload)) =>
-                                     beforeInit(payload).orElse(output.offer(Left(GraphQLWSClose(4403, "Forbidden"))))
-                                 }
+                                 val before     = runBeforeInit(
+                                   webSocketHooks.beforeInit,
+                                   payload,
+                                   _ => output.offer(Left(GraphQLWSClose(4403, "Forbidden")))
+                                 )
                                  val ackPayload = webSocketHooks.onAck.fold[URIO[R, Option[ResponseValue]]](ZIO.none)(_.option)
                                  val response   =
                                    ack.set(true) *> ackPayload.flatMap(payload => output.offer(Right(connectionAck(payload))))
@@ -88,7 +105,10 @@ object Protocol {
                                      .fork
                                  }
 
-                                 before *> response *> ka *> after
+                                 ZIO.ifZIO(ack.get)(
+                                   output.offer(Left(GraphQLWSClose(4429, "Too many initialisation requests"))).unit,
+                                   ZIO.whenZIO(before)(response *> ka *> after).unit
+                                 )
                                case GraphQLWSInput(Ops.Pong, id, payload)            =>
                                  ZIO.whenCase(webSocketHooks.onPong -> payload) { case (Some(onPong), Some(payload)) =>
                                    onPong(payload).catchAll(e =>
@@ -118,19 +138,23 @@ object Protocol {
 
                                  val continue = request match {
                                    case Some(req) =>
-                                     val stream = handler.generateGraphQLResponse(req, id, interpreter, subscriptions)
-
-                                     ZIO.ifZIO(subscriptions.isTracking(id))(
-                                       output.offer(Left(GraphQLWSClose(4409, s"Subscriber for $id already exists"))).unit,
-                                       webSocketHooks.onMessage
-                                         .fold(stream)(stream.via(_))
-                                         .map(Right(_))
-                                         .runForeachChunk(output.offerAll)
-                                         .catchAll(e => output.offer(Right(handler.error(Some(id), e))))
-                                         .fork
-                                         .interruptible
-                                         .unit
-                                     )
+                                     subscriptions.reserve(id).flatMap {
+                                       case None    =>
+                                         output
+                                           .offer(Left(GraphQLWSClose(4409, s"Subscriber for $id already exists")))
+                                           .unit
+                                       case Some(p) =>
+                                         val stream = handler.generateGraphQLResponse(req, id, interpreter, p)
+                                         webSocketHooks.onMessage
+                                           .fold(stream)(stream.via(_))
+                                           .map(Right(_))
+                                           .runForeachChunk(output.offerAll)
+                                           .catchAll(e => output.offer(Right(handler.error(Some(id), e))))
+                                           .ensuring(subscriptions.cleanupIfMine(id, p))
+                                           .fork
+                                           .interruptible
+                                           .unit
+                                     }
 
                                    case None =>
                                      generateId(None).flatMap(uuid => output.offer(Right(connectionError(uuid))))
@@ -221,10 +245,11 @@ object Protocol {
                              .acquireReleaseWith(
                                input.runForeach {
                                  case GraphQLWSInput(Ops.ConnectionInit, id, payload) =>
-                                   val before     = ZIO.whenCase((webSocketHooks.beforeInit, payload)) {
-                                     case (Some(beforeInit), Some(payload)) =>
-                                       beforeInit(payload).catchAll(e => output.offer(Right(handler.error(id, e))))
-                                   }
+                                   val before     = runBeforeInit(
+                                     webSocketHooks.beforeInit,
+                                     payload,
+                                     cause => output.offer(Right(connectionErrorFrom(cause)))
+                                   )
                                    val ackPayload = webSocketHooks.onAck.fold[URIO[R, Option[ResponseValue]]](ZIO.none)(_.option)
 
                                    val response =
@@ -240,7 +265,10 @@ object Protocol {
                                        .fork
                                    }
 
-                                   before *> response *> ka *> after
+                                   ZIO.ifZIO(ack.get)(
+                                     output.offer(Right(connectionError)).unit,
+                                     ZIO.whenZIO(before)(response *> ka *> after).unit
+                                   )
                                  case GraphQLWSInput(Ops.Start, id, payload)          =>
                                    val request  = payload.collect { case InputValue.ObjectValue(fields) =>
                                      val query         = fields.get("query").collect { case StringValue(v) => v }
@@ -251,15 +279,19 @@ object Protocol {
                                    }
                                    val continue = request match {
                                      case Some(req) =>
-                                       val stream =
-                                         handler.generateGraphQLResponse(req, id.getOrElse(""), interpreter, subscriptions)
-                                       webSocketHooks.onMessage
-                                         .fold(stream)(stream.via(_))
-                                         .runForeachChunk(o => output.offerAll(o.map(Right(_))))
-                                         .catchAll(e => output.offer(Right(handler.error(id, e))))
-                                         .fork
-                                         .interruptible
-                                         .unit
+                                       val key = id.getOrElse("")
+                                       subscriptions.trackForce(key).flatMap { p =>
+                                         val stream =
+                                           handler.generateGraphQLResponse(req, key, interpreter, p)
+                                         webSocketHooks.onMessage
+                                           .fold(stream)(stream.via(_))
+                                           .runForeachChunk(o => output.offerAll(o.map(Right(_))))
+                                           .catchAll(e => output.offer(Right(handler.error(id, e))))
+                                           .ensuring(subscriptions.cleanupIfMine(key, p))
+                                           .fork
+                                           .interruptible
+                                           .unit
+                                       }
 
                                      case None => output.offer(Right(connectionError))
                                    }
@@ -268,7 +300,7 @@ object Protocol {
                                  case GraphQLWSInput(Ops.Stop, Some(id), _)           =>
                                    subscriptions.untrack(id)
                                  case GraphQLWSInput(Ops.ConnectionTerminate, _, _)   =>
-                                   ZIO.interrupt
+                                   output.shutdown *> ZIO.interrupt
                                  case _                                               =>
                                    ZIO.unit
                                }.interruptible
@@ -291,6 +323,15 @@ object Protocol {
     private val connectionError: GraphQLWSOutput                               = GraphQLWSOutput(Ops.ConnectionError, None, None)
     private def connectionAck(payload: Option[ResponseValue]): GraphQLWSOutput =
       GraphQLWSOutput(Ops.ConnectionAck, None, payload)
+
+    private def connectionErrorFrom(cause: zio.Cause[Any]): GraphQLWSOutput =
+      cause.failureOption.fold(connectionError) { e =>
+        val v = e match {
+          case ce: CalibanError => ce.toResponseValue
+          case other            => StringValue(other.toString)
+        }
+        GraphQLWSOutput(Ops.ConnectionError, None, Some(ResponseValue.ListValue(List(v))))
+      }
   }
 
   private trait ResponseHandler {
@@ -314,7 +355,7 @@ object Protocol {
       payload: GraphQLRequest,
       id: String,
       interpreter: GraphQLInterpreter[R, E],
-      subscriptions: SubscriptionManager
+      interruptPromise: Promise[Any, Unit]
     ): ZStream[R, E, GraphQLWSOutput] = {
       val resp =
         ZStream
@@ -322,9 +363,7 @@ object Protocol {
           .flatMap(res =>
             res.data match {
               case ObjectValue((fieldName, StreamValue(stream)) :: Nil) =>
-                subscriptions.track(id).flatMap { p =>
-                  stream.map(self.toResponse(id, fieldName, _, res.errors)).interruptWhen(p)
-                }
+                stream.map(self.toResponse(id, fieldName, _, res.errors)).interruptWhen(interruptPromise)
               case other                                                =>
                 ZStream.succeed(self.toResponse(id, GraphQLResponse(other, res.errors)))
             }
@@ -335,8 +374,24 @@ object Protocol {
   }
 
   private class SubscriptionManager private (private val tracked: TMap[String, Promise[Any, Unit]]) {
-    def track(id: String): UStream[Promise[Any, Unit]] =
-      ZStream.fromZIO(Promise.make[Any, Unit].tap(tracked.put(id, _).commit))
+
+    def reserve(id: String): UIO[Option[Promise[Any, Unit]]] =
+      Promise.make[Any, Unit].flatMap { p =>
+        STM.atomically {
+          tracked.contains(id).flatMap {
+            case true  => STM.succeed(None)
+            case false => tracked.put(id, p).as(Some(p))
+          }
+        }
+      }
+
+    def trackForce(id: String): UIO[Promise[Any, Unit]] =
+      Promise.make[Any, Unit].flatMap { p =>
+        STM.atomically(tracked.get(id) <* tracked.put(id, p)).flatMap {
+          case Some(prev) => prev.succeed(()).as(p)
+          case None       => ZIO.succeed(p)
+        }
+      }
 
     def untrack(id: String): UIO[Unit] =
       (tracked.get(id) <* tracked.delete(id)).commit.flatMap {
@@ -344,10 +399,16 @@ object Protocol {
         case Some(p) => p.succeed(()).unit
       }
 
+    def cleanupIfMine(id: String, ours: Promise[Any, Unit]): UIO[Unit] =
+      STM.atomically {
+        tracked.get(id).flatMap {
+          case Some(curr) if curr eq ours => tracked.delete(id)
+          case _                          => STM.unit
+        }
+      }
+
     def untrackAll: UIO[Unit] =
       tracked.keys.map(ids => ZIO.foreachDiscard(ids)(untrack)).commit.flatten
-
-    def isTracking(id: String): UIO[Boolean] = tracked.contains(id).commit
   }
 
   private object SubscriptionManager {
