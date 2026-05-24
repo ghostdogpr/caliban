@@ -165,9 +165,7 @@ object ProtocolSpec extends ZIOSpecDefault {
           out(1) == Right(GraphQLWSOutput("connection_error", None, None))
         )
       },
-      test(
-        "two starts with same id then stop: trackForce interrupts the previous, cleanupIfMine doesn't clobber the live one"
-      ) {
+      test("two starts with same id, then stop then terminate, completes without hanging") {
         val start = GraphQLWSInput(
           "start",
           Some("s"),

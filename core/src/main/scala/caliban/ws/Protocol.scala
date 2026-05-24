@@ -138,23 +138,20 @@ object Protocol {
 
                                  val continue = request match {
                                    case Some(req) =>
-                                     subscriptions.reserve(id).flatMap {
-                                       case None    =>
-                                         output
-                                           .offer(Left(GraphQLWSClose(4409, s"Subscriber for $id already exists")))
-                                           .unit
-                                       case Some(p) =>
-                                         val stream = handler.generateGraphQLResponse(req, id, interpreter, p)
+                                     ZIO.ifZIO(subscriptions.isTracking(id))(
+                                       output.offer(Left(GraphQLWSClose(4409, s"Subscriber for $id already exists"))).unit,
+                                       subscriptions.track(id).runDrain *> {
+                                         val stream = handler.generateGraphQLResponse(req, id, interpreter, subscriptions)
                                          webSocketHooks.onMessage
                                            .fold(stream)(stream.via(_))
                                            .map(Right(_))
                                            .runForeachChunk(output.offerAll)
                                            .catchAll(e => output.offer(Right(handler.error(Some(id), e))))
-                                           .ensuring(subscriptions.cleanupIfMine(id, p))
                                            .fork
                                            .interruptible
                                            .unit
-                                     }
+                                       }
+                                     )
 
                                    case None =>
                                      generateId(None).flatMap(uuid => output.offer(Right(connectionError(uuid))))
@@ -279,19 +276,15 @@ object Protocol {
                                    }
                                    val continue = request match {
                                      case Some(req) =>
-                                       val key = id.getOrElse("")
-                                       subscriptions.trackForce(key).flatMap { p =>
-                                         val stream =
-                                           handler.generateGraphQLResponse(req, key, interpreter, p)
-                                         webSocketHooks.onMessage
-                                           .fold(stream)(stream.via(_))
-                                           .runForeachChunk(o => output.offerAll(o.map(Right(_))))
-                                           .catchAll(e => output.offer(Right(handler.error(id, e))))
-                                           .ensuring(subscriptions.cleanupIfMine(key, p))
-                                           .fork
-                                           .interruptible
-                                           .unit
-                                       }
+                                       val key    = id.getOrElse("")
+                                       val stream = handler.generateGraphQLResponse(req, key, interpreter, subscriptions)
+                                       webSocketHooks.onMessage
+                                         .fold(stream)(stream.via(_))
+                                         .runForeachChunk(o => output.offerAll(o.map(Right(_))))
+                                         .catchAll(e => output.offer(Right(handler.error(id, e))))
+                                         .fork
+                                         .interruptible
+                                         .unit
 
                                      case None => output.offer(Right(connectionError))
                                    }
@@ -355,7 +348,7 @@ object Protocol {
       payload: GraphQLRequest,
       id: String,
       interpreter: GraphQLInterpreter[R, E],
-      interruptPromise: Promise[Any, Unit]
+      subscriptions: SubscriptionManager
     ): ZStream[R, E, GraphQLWSOutput] = {
       val resp =
         ZStream
@@ -363,7 +356,9 @@ object Protocol {
           .flatMap(res =>
             res.data match {
               case ObjectValue((fieldName, StreamValue(stream)) :: Nil) =>
-                stream.map(self.toResponse(id, fieldName, _, res.errors)).interruptWhen(interruptPromise)
+                subscriptions.track(id).flatMap { p =>
+                  stream.map(self.toResponse(id, fieldName, _, res.errors)).interruptWhen(p)
+                }
               case other                                                =>
                 ZStream.succeed(self.toResponse(id, GraphQLResponse(other, res.errors)))
             }
@@ -374,37 +369,24 @@ object Protocol {
   }
 
   private class SubscriptionManager private (private val tracked: TMap[String, Promise[Any, Unit]]) {
-
-    def reserve(id: String): UIO[Option[Promise[Any, Unit]]] =
-      Promise.make[Any, Unit].flatMap { p =>
-        STM.atomically {
-          tracked.contains(id).flatMap {
-            case true  => STM.succeed(None)
-            case false => tracked.put(id, p).as(Some(p))
+    def track(id: String): UStream[Promise[Any, Unit]] =
+      ZStream.fromZIO {
+        Promise.make[Any, Unit].flatMap { fresh =>
+          STM.atomically {
+            tracked.get(id).flatMap {
+              case Some(existing) => STM.succeed(existing)
+              case None           => tracked.put(id, fresh).as(fresh)
+            }
           }
         }
       }
 
-    def trackForce(id: String): UIO[Promise[Any, Unit]] =
-      Promise.make[Any, Unit].flatMap { p =>
-        STM.atomically(tracked.get(id) <* tracked.put(id, p)).flatMap {
-          case Some(prev) => prev.succeed(()).as(p)
-          case None       => ZIO.succeed(p)
-        }
-      }
+    def isTracking(id: String): UIO[Boolean] = tracked.contains(id).commit
 
     def untrack(id: String): UIO[Unit] =
       (tracked.get(id) <* tracked.delete(id)).commit.flatMap {
         case None    => ZIO.unit
         case Some(p) => p.succeed(()).unit
-      }
-
-    def cleanupIfMine(id: String, ours: Promise[Any, Unit]): UIO[Unit] =
-      STM.atomically {
-        tracked.get(id).flatMap {
-          case Some(curr) if curr eq ours => tracked.delete(id)
-          case _                          => STM.unit
-        }
       }
 
     def untrackAll: UIO[Unit] =
