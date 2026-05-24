@@ -278,7 +278,10 @@ final private class QuickRequestHandler[R](
                  }
       _     <- ZIO.scoped(ch.receiveAll {
                  case ChannelEvent.UserEventTriggered(HandshakeComplete) =>
-                   out.runForeach(frame => ch.send(ChannelEvent.Read(frame))).forkScoped
+                   out
+                     .runForeach(frame => ch.send(ChannelEvent.Read(frame)))
+                     .ensuring(ch.shutdown)
+                     .forkScoped
                  case ChannelEvent.Read(WebSocketFrame.Text(text))       =>
                    ZIO.suspend(queue.offer(readFromString[GraphQLWSInput](text, readerConfig)))
                  case _                                                  =>
