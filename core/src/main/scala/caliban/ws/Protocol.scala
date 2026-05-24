@@ -277,15 +277,18 @@ object Protocol {
                                    }
                                    val continue = request match {
                                      case Some(req) =>
-                                       val key    = id.getOrElse("")
-                                       val stream = handler.generateGraphQLResponse(req, key, interpreter, subscriptions)
-                                       webSocketHooks.onMessage
-                                         .fold(stream)(stream.via(_))
-                                         .runForeachChunk(o => output.offerAll(o.map(Right(_))))
-                                         .catchAll(e => output.offer(Right(handler.error(id, e))))
-                                         .fork
-                                         .interruptible
-                                         .unit
+                                       val key = id.getOrElse("")
+                                       subscriptions.track(key).runDrain *> {
+                                         val stream = handler.generateGraphQLResponse(req, key, interpreter, subscriptions)
+                                         webSocketHooks.onMessage
+                                           .fold(stream)(stream.via(_))
+                                           .runForeachChunk(o => output.offerAll(o.map(Right(_))))
+                                           .catchAll(e => output.offer(Right(handler.error(id, e))))
+                                           .ensuring(subscriptions.untrack(key))
+                                           .fork
+                                           .interruptible
+                                           .unit
+                                       }
 
                                      case None => output.offer(Right(connectionError))
                                    }
@@ -357,8 +360,9 @@ object Protocol {
           .flatMap(res =>
             res.data match {
               case ObjectValue((fieldName, StreamValue(stream)) :: Nil) =>
-                subscriptions.track(id).flatMap { p =>
-                  stream.map(self.toResponse(id, fieldName, _, res.errors)).interruptWhen(p)
+                ZStream.fromZIO(subscriptions.trackedPromise(id)).flatMap {
+                  case Some(p) => stream.map(self.toResponse(id, fieldName, _, res.errors)).interruptWhen(p)
+                  case None    => ZStream.empty
                 }
               case other                                                =>
                 ZStream.succeed(self.toResponse(id, GraphQLResponse(other, res.errors)))
@@ -385,6 +389,8 @@ object Protocol {
             }
         }
       }
+
+    def trackedPromise(id: String): UIO[Option[Promise[Any, Unit]]] = tracked.get(id).commit
 
     def isTracking(id: String): UIO[Boolean] = tracked.contains(id).commit
 
