@@ -29,6 +29,7 @@ object CompileTimeCalibanServerPlugin extends AutoPlugin {
       )
 
     // ## Plugin task
+    @transient
     lazy val ctCalibanServerGenerate: TaskKey[Seq[File]] = taskKey[Seq[File]]("Internal task")
   }
   import autoImport._
@@ -228,6 +229,7 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin with CompileTimeCaliban
       )
 
     // ## Plugin task
+    @transient
     lazy val ctCalibanClientGenerate: TaskKey[Seq[File]] = taskKey[Seq[File]](
       "Generate Caliban Client(s) code at compile time. Automatically configured to be triggered when compilation is triggered"
     )
