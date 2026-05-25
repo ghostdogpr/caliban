@@ -7,7 +7,7 @@ import Keys.*
 val scala212     = "2.12.21"
 val scala213     = "2.13.18"
 val scala3Lts    = "3.3.7"
-val scala3ForSbt = "3.7.4"
+val scala3ForSbt = "3.8.3"
 val allScala     = Seq(scala212, scala213, scala3Lts)
 
 val akkaVersion               = "2.6.20"
@@ -310,7 +310,7 @@ lazy val codegenSbt = project
     crossScalaVersions            := Seq(scala212, scala3ForSbt),
     pluginCrossBuild / sbtVersion := (scalaBinaryVersion.value match {
       case "2.12" => sbtVersion.value
-      case _      => "2.0.0-RC8"
+      case _      => "2.0.0-RC13"
     }),
     libraryDependencies ++= Seq(
       "dev.zio" %% "zio-config"          % zioConfigVersion,
@@ -733,12 +733,12 @@ lazy val commonSettings = Def.settings(
     "-language:higherKinds",
     "-language:existentials",
     "-unchecked",
-    "-Xfatal-warnings",
     "-release",
     "17"
   ) ++ (CrossVersion.partialVersion(scalaVersion.value) match {
     case Some((2, 12)) =>
       Seq(
+        "-Xfatal-warnings",
         "-Xsource:2.13",
         "-Yno-adapted-args",
         "-Ypartial-unification",
@@ -756,6 +756,7 @@ lazy val commonSettings = Def.settings(
       )
     case Some((2, 13)) =>
       Seq(
+        "-Xfatal-warnings",
         "-Xlint:-byname-implicit",
         "-Ybackend-parallelism:4",
         "-opt:l:method",
@@ -766,6 +767,7 @@ lazy val commonSettings = Def.settings(
 
     case Some((3, minor)) =>
       Seq(
+        "-Werror",
         "-explain-types",
         s"-${if (minor >= 5) "X" else "Y"}kind-projector",
         "-no-indent"
