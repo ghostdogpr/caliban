@@ -44,7 +44,7 @@ object Formatter {
 
   def buildScalaFmt(): Scalafmt = {
     import coursierapi.{ Dependency, Fetch }
-    import org.scalafmt.interfaces.{ RepositoryPackageDownloaderFactory, Scalafmt, ScalafmtClassLoader }
+    import org.scalafmt.interfaces.{ RepositoryPackageDownloaderFactory, Scalafmt }
 
     import java.net.URLClassLoader
     import java.util.ServiceLoader
@@ -61,9 +61,17 @@ object Formatter {
       .create()
       .addDependencies(Dependency.of("org.scalameta", s"scalafmt-dynamic_$scalaVersion", BuildInfo.scalafmtVersion))
       .fetch()
-    val parent      = new ScalafmtClassLoader(this.getClass.getClassLoader)
+    val parent      = new ScalafmtBridgeClassLoader(this.getClass.getClassLoader)
     val classLoader = new URLClassLoader(files.asScala.toArray.map(_.toURI().toURL()), parent)
     val factory     = ServiceLoader.load(classOf[RepositoryPackageDownloaderFactory], classLoader).iterator().next()
     Scalafmt.create(classLoader).withRepositoryPackageDownloader(factory)
   }
+}
+
+private[codegen] final class ScalafmtBridgeClassLoader(parent: ClassLoader)
+    extends ClassLoader(ClassLoader.getPlatformClassLoader) {
+
+  override protected def findClass(name: String): Class[_] =
+    if (name.startsWith("org.scalafmt.interfaces")) parent.loadClass(name)
+    else super.findClass(name)
 }
