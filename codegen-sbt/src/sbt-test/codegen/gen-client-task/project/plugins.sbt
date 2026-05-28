@@ -4,4 +4,4 @@ sys.props.get("plugin.version") match {
                          |Specify this property using the scriptedLaunchOpts -D.""".stripMargin)
 }
 conflictWarning := ConflictWarning("warn", Level.Warn, false)
-addSbtPlugin("org.scalameta" % "sbt-scalafmt" % "2.5.6")
+addSbtPlugin("org.scalameta" % "sbt-scalafmt" % "2.6.1")

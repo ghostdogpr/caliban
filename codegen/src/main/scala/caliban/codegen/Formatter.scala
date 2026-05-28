@@ -43,11 +43,11 @@ object Formatter {
     }.retryN(3) // We have to retry because of the bug detailed here: https://github.com/scalameta/scalafmt/issues/2793
 
   def buildScalaFmt(): Scalafmt = {
-    import coursierapi.{ Dependency, Fetch, Module }
-    import org.scalafmt.interfaces.{ Scalafmt, ScalafmtClassLoader, ScalafmtReporter }
+    import coursierapi.{ Dependency, Fetch }
+    import org.scalafmt.interfaces.{ RepositoryPackageDownloaderFactory, Scalafmt, ScalafmtClassLoader }
 
-    import java.io.{ File, PrintStream }
     import java.net.URLClassLoader
+    import java.util.ServiceLoader
     import scala.jdk.CollectionConverters._
 
     val scalaVersion = BuildInfo.scalaPartialVersion match {
@@ -57,15 +57,14 @@ object Formatter {
       case _             => "2.12"
     }
 
-    val files                      = Fetch
+    val files       = Fetch
       .create()
       .addDependencies(Dependency.of("org.scalameta", s"scalafmt-dynamic_$scalaVersion", BuildInfo.scalafmtVersion))
       .fetch()
-    val classLoader                = new URLClassLoader(files.asScala.toArray.map(_.toURI().toURL()), this.getClass.getClassLoader)
-    val fmt                        = Scalafmt.create(classLoader)
-    val reporterClass              = classLoader.loadClass("org.scalafmt.dynamic.ConsoleScalafmtReporter")
-    val constructor                = reporterClass.getConstructor(classOf[PrintStream]);
-    val reporter: ScalafmtReporter = constructor.newInstance(System.err).asInstanceOf[ScalafmtReporter]
-    fmt.withReporter(reporter)
+    val parent      = new ScalafmtClassLoader(this.getClass.getClassLoader)
+    val classLoader = new URLClassLoader(files.asScala.toArray.map(_.toURI().toURL()), parent)
+    val factory     =
+      ServiceLoader.load(classOf[RepositoryPackageDownloaderFactory], classLoader).iterator().next()
+    Scalafmt.create(classLoader).withRepositoryPackageDownloader(factory)
   }
 }
