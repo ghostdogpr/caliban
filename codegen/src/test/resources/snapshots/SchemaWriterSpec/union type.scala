@@ -12,7 +12,7 @@ object Types {
 
   @GQLDescription("""role
 Captain or Pilot""")
-  sealed trait Role extends scala.Product with scala.Serializable
+  sealed trait Role  extends scala.Product with scala.Serializable
   @GQLDescription("""role2
 Captain or Pilot or Stewart""")
   sealed trait Role2 extends scala.Product with scala.Serializable
