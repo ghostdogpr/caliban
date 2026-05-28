@@ -10,7 +10,7 @@ object Types {
 
   sealed trait AllErrors extends scala.Product with scala.Serializable derives caliban.schema.Schema.SemiAuto
   @GQLInterface
-  sealed trait Error extends scala.Product with scala.Serializable derives caliban.schema.Schema.SemiAuto {
+  sealed trait Error     extends scala.Product with scala.Serializable derives caliban.schema.Schema.SemiAuto {
     @GQLDescription("description")
     def message: String
   }
