@@ -63,8 +63,7 @@ object Formatter {
       .fetch()
     val parent      = new ScalafmtClassLoader(this.getClass.getClassLoader)
     val classLoader = new URLClassLoader(files.asScala.toArray.map(_.toURI().toURL()), parent)
-    val factory     =
-      ServiceLoader.load(classOf[RepositoryPackageDownloaderFactory], classLoader).iterator().next()
+    val factory     = ServiceLoader.load(classOf[RepositoryPackageDownloaderFactory], classLoader).iterator().next()
     Scalafmt.create(classLoader).withRepositoryPackageDownloader(factory)
   }
 }
