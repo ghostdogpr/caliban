@@ -158,7 +158,7 @@ lazy val rootNative3 = project
   )
   .aggregate(macrosNative, coreNative)
 
-lazy val macros = crossProject(JVMPlatform, NativePlatform)
+lazy val macros       = crossProject(JVMPlatform, NativePlatform)
   .crossType(CrossType.Pure)
   .in(file("macros"))
   .settings(name := "caliban-macros")
@@ -173,7 +173,7 @@ lazy val macros = crossProject(JVMPlatform, NativePlatform)
       } else {
         Seq(
           "com.softwaremill.magnolia1_2" %%% "magnolia"      % magnoliaScala2Version,
-          "org.scala-lang"                % "scala-reflect" % scalaVersion.value
+          "org.scala-lang"                 % "scala-reflect" % scalaVersion.value
         )
       }
     }
@@ -187,7 +187,7 @@ lazy val macrosNative = macros.native
     bspEnabled         := false
   )
 
-lazy val core = crossProject(JVMPlatform, NativePlatform)
+lazy val core       = crossProject(JVMPlatform, NativePlatform)
   .crossType(CrossType.Pure)
   .in(file("core"))
   .settings(name := "caliban")
@@ -211,7 +211,7 @@ lazy val core = crossProject(JVMPlatform, NativePlatform)
       )
   )
   .dependsOn(macros)
-lazy val coreJVM = core.jvm
+lazy val coreJVM    = core.jvm
   .settings(enableMimaSettingsJVM)
   .settings(
     Test / fork := true,
