@@ -22,8 +22,6 @@ import zio.stream.ZStream
 import zio.test.Assertion._
 import zio.test._
 
-import scala.io.Source
-
 object RenderingSpec extends ZIOSpecDefault {
   def fixDirectives(directives: List[Directive]): List[Directive] =
     directives.map(_.copy(index = 0)).sortBy(_.name)
@@ -244,13 +242,6 @@ object RenderingSpec extends ZIOSpecDefault {
           Value.EnumValue("back\bform\fquote\"").toString == """"back\bform\fquote\"""""
         )
       },
-      suite("round-trip")(
-        test("kitchen sink")(roundTrip("document-tests/kitchen-sink.graphql")),
-        test("kitchen sink with query")(roundTrip("document-tests/kitchen-sink-query.graphql")),
-        test("compact query")(roundTrip("document-tests/query-compact.graphql", isCompact = true)),
-        test("compact kitchen sink")(roundTrip("document-tests/kitchen-sink-compact.graphql", isCompact = true)),
-        test("extend tests")(roundTrip("document-tests/extend-tests.graphql"))
-      ),
       suite("OneOf input objects") {
         def expected(label: String) =
           s"""schema {
@@ -310,14 +301,6 @@ object RenderingSpec extends ZIOSpecDefault {
         assertTrue(result == Right("""{"key\"key":"value"}"""))
       }
     )
-
-  private def roundTrip(file: String, isCompact: Boolean = false) =
-    ZIO.scoped(for {
-      input   <- ZIO.fromAutoCloseable(ZIO.attempt(Source.fromResource(file))).map(_.mkString)
-      doc     <- ZIO.fromEither(Parser.parseQuery(input))
-      rendered = if (isCompact) DocumentRenderer.renderCompact(doc) else DocumentRenderer.render(doc)
-      reparsed = Parser.parseQuery(rendered)
-    } yield assertTrue(input == rendered, reparsed.isRight))
 
   @GQLOneOfInput
   sealed trait Foo

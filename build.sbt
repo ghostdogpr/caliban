@@ -77,8 +77,10 @@ addCommandAlias(
 
 lazy val allProjects: Seq[ProjectReference] =
   List(
-    macros,
-    core,
+    macrosJVM,
+    macrosNative,
+    coreJVM,
+    coreNative,
     http4s,
     akkaHttp,
     pekkoHttp,
@@ -116,7 +118,8 @@ lazy val rootJVM212 = project
     ideSkipProject     := true
   )
   .aggregate({
-    val excluded: Set[ProjectReference] = Set(clientJS, clientNative, clientLaminext, play, apolloCompatibility)
+    val excluded: Set[ProjectReference] =
+      Set(clientJS, clientNative, clientLaminext, macrosNative, coreNative, play, apolloCompatibility)
     allProjects.filterNot(excluded.contains)
   } *)
 
@@ -128,7 +131,8 @@ lazy val rootJVM213 = project
     ideSkipProject     := true
   )
   .aggregate({
-    val excluded: Set[ProjectReference] = Set(clientJS, clientNative, clientLaminext, codegenSbt)
+    val excluded: Set[ProjectReference] =
+      Set(clientJS, clientNative, clientLaminext, macrosNative, coreNative, codegenSbt)
     allProjects.filterNot(excluded.contains)
   } *)
 
@@ -141,60 +145,93 @@ lazy val rootJVM3 = project
   )
   .aggregate({
     val excluded: Set[ProjectReference] =
-      Set(clientJS, clientNative, clientLaminext, codegenSbt, akkaHttp)
+      Set(clientJS, clientNative, clientLaminext, macrosNative, coreNative, codegenSbt, akkaHttp)
     allProjects.filterNot(excluded.contains)
   } *)
 
-lazy val macros = project
+lazy val rootNative3 = project
+  .in(file("target/rootNative3"))
+  .settings(
+    crossScalaVersions := Nil,
+    publish / skip     := true,
+    ideSkipProject     := true
+  )
+  .aggregate(macrosNative, coreNative)
+
+lazy val macros = crossProject(JVMPlatform, NativePlatform)
+  .crossType(CrossType.Pure)
   .in(file("macros"))
   .settings(name := "caliban-macros")
   .settings(commonSettings)
-  .settings(enableMimaSettingsJVM)
   .disablePlugins(AssemblyPlugin)
   .settings(
     libraryDependencies ++= {
       if (scalaVersion.value == scala3Lts) {
         Seq(
-          "com.softwaremill.magnolia1_3" %% "magnolia" % magnoliaScala3Version
+          "com.softwaremill.magnolia1_3" %%% "magnolia" % magnoliaScala3Version
         )
       } else {
         Seq(
-          "com.softwaremill.magnolia1_2" %% "magnolia"      % magnoliaScala2Version,
+          "com.softwaremill.magnolia1_2" %%% "magnolia"      % magnoliaScala2Version,
           "org.scala-lang"                % "scala-reflect" % scalaVersion.value
         )
       }
     }
   )
+lazy val macrosJVM    = macros.jvm.settings(enableMimaSettingsJVM)
+lazy val macrosNative = macros.native
+  .settings(
+    scalaVersion       := scala3Lts,
+    crossScalaVersions := Seq(scala3Lts),
+    ideSkipProject     := (scalaVersion.value != scala3Lts),
+    bspEnabled         := false
+  )
 
-lazy val core = project
+lazy val core = crossProject(JVMPlatform, NativePlatform)
+  .crossType(CrossType.Pure)
   .in(file("core"))
   .settings(name := "caliban")
   .settings(commonSettings)
-  .settings(enableMimaSettingsJVM)
   .disablePlugins(AssemblyPlugin)
   .settings(
     libraryDependencies ++=
       Seq(
-        "com.lihaoyi"                           %% "fastparse"               % "3.1.1",
-        "org.scala-lang.modules"                %% "scala-collection-compat" % "2.14.0",
-        "dev.zio"                               %% "zio"                     % zioVersion,
-        "dev.zio"                               %% "zio-streams"             % zioVersion,
-        "dev.zio"                               %% "zio-query"               % zqueryVersion,
-        "dev.zio"                               %% "zio-test"                % zioVersion      % Test,
-        "dev.zio"                               %% "zio-test-sbt"            % zioVersion      % Test,
-        "dev.zio"                               %% "zio-json"                % zioJsonVersion  % Optional,
-        "com.softwaremill.sttp.tapir"           %% "tapir-core"              % tapirVersion    % Optional,
-        "io.circe"                              %% "circe-core"              % circeVersion    % Optional,
-        "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-core"     % jsoniterVersion,
-        "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros"   % jsoniterVersion % Provided,
-        "org.playframework"                     %% "play-json"               % playJsonVersion % Optional,
-        "org.apache.commons"                     % "commons-lang3"           % "3.20.0"        % Test
+        "com.lihaoyi"                           %%% "fastparse"               % "3.1.1",
+        "org.scala-lang.modules"                %%% "scala-collection-compat" % "2.14.0",
+        "dev.zio"                               %%% "zio"                     % zioVersion,
+        "dev.zio"                               %%% "zio-streams"             % zioVersion,
+        "dev.zio"                               %%% "zio-query"               % zqueryVersion,
+        "dev.zio"                               %%% "zio-test"                % zioVersion      % Test,
+        "dev.zio"                               %%% "zio-test-sbt"            % zioVersion      % Test,
+        "dev.zio"                               %%% "zio-json"                % zioJsonVersion  % Optional,
+        "com.softwaremill.sttp.tapir"           %%% "tapir-core"              % tapirVersion    % Optional,
+        "io.circe"                              %%% "circe-core"              % circeVersion    % Optional,
+        "com.github.plokhotnyuk.jsoniter-scala" %%% "jsoniter-scala-core"     % jsoniterVersion,
+        "com.github.plokhotnyuk.jsoniter-scala" %%% "jsoniter-scala-macros"   % jsoniterVersion % Provided
       )
   )
   .dependsOn(macros)
+lazy val coreJVM = core.jvm
+  .settings(enableMimaSettingsJVM)
   .settings(
     Test / fork := true,
-    run / fork  := true
+    run / fork  := true,
+    libraryDependencies ++= Seq(
+      "org.playframework" %% "play-json"     % playJsonVersion % Optional,
+      "org.apache.commons" % "commons-lang3" % "3.20.0"        % Test
+    )
+  )
+lazy val coreNative = core.native
+  .settings(
+    scalaVersion       := scala3Lts,
+    crossScalaVersions := Seq(scala3Lts),
+    ideSkipProject     := (scalaVersion.value != scala3Lts),
+    bspEnabled         := false,
+    Test / fork        := false,
+    libraryDependencies ++= Seq(
+      "io.github.cquiroz" %%% "scala-java-time"     % javaTimeVersion,
+      "com.github.lolgab" %%% "scala-native-crypto" % "0.3.0"
+    )
   )
 
 lazy val tools = project
@@ -211,7 +248,7 @@ lazy val tools = project
       "dev.zio"                       %% "zio-test-sbt" % zioVersion % Test
     )
   )
-  .dependsOn(core, clientJVM, quickAdapter % Test)
+  .dependsOn(coreJVM, clientJVM, quickAdapter % Test)
 
 lazy val codegen = project
   .in(file("codegen"))
@@ -290,7 +327,7 @@ lazy val tracing = project
       "io.opentelemetry" % "opentelemetry-sdk-testing" % "1.62.0"   % Test
     )
   )
-  .dependsOn(core)
+  .dependsOn(coreJVM)
 
 lazy val codegenSbt = project
   .in(file("codegen-sbt"))
@@ -334,8 +371,8 @@ lazy val codegenSbt = project
     scriptedBufferLog    := false,
     scriptedDependencies := scriptedDependencies
       .dependsOn(
-        macros / publishLocal,
-        core / publishLocal,
+        macrosJVM / publishLocal,
+        coreJVM / publishLocal,
         clientJVM / publishLocal,
         tools / publishLocal,
         codegen / publishLocal,
@@ -363,7 +400,7 @@ lazy val catsInterop = project
       "dev.zio"       %% "zio-test-sbt"     % zioVersion % Test
     )
   )
-  .dependsOn(core)
+  .dependsOn(coreJVM)
 
 lazy val monixInterop = project
   .in(file("interop/monix"))
@@ -378,7 +415,7 @@ lazy val monixInterop = project
       "io.monix" %% "monix"                       % "3.4.1"
     )
   )
-  .dependsOn(core)
+  .dependsOn(coreJVM)
 
 lazy val tapirInterop = project
   .in(file("interop/tapir"))
@@ -402,7 +439,7 @@ lazy val tapirInterop = project
         "dev.zio"                               %% "zio-test-sbt"          % zioVersion      % Test
       )
   )
-  .dependsOn(core)
+  .dependsOn(coreJVM)
 
 lazy val http4s = project
   .in(file("adapters/http4s"))
@@ -424,7 +461,7 @@ lazy val http4s = project
         "dev.zio"                     %% "zio-test-sbt"            % zioVersion    % Test
       )
   )
-  .dependsOn(core % "compile->compile;test->test", tapirInterop % "compile->compile;test->test", catsInterop)
+  .dependsOn(coreJVM % "compile->compile;test->test", tapirInterop % "compile->compile;test->test", catsInterop)
 
 lazy val quickAdapter = project
   .in(file("adapters/quick"))
@@ -437,7 +474,7 @@ lazy val quickAdapter = project
       "dev.zio" %% "zio-http" % zioHttpVersion
     )
   )
-  .dependsOn(core, tapirInterop % "test->test")
+  .dependsOn(coreJVM, tapirInterop % "test->test")
 
 lazy val akkaHttp = project
   .in(file("adapters/akka-http"))
@@ -456,7 +493,7 @@ lazy val akkaHttp = project
       compilerPlugin(("org.typelevel" %% "kind-projector" % "0.13.4").cross(CrossVersion.full))
     )
   )
-  .dependsOn(core, tapirInterop % "compile->compile;test->test")
+  .dependsOn(coreJVM, tapirInterop % "compile->compile;test->test")
 
 lazy val pekkoHttp = project
   .in(file("adapters/pekko-http"))
@@ -473,7 +510,7 @@ lazy val pekkoHttp = project
       "com.softwaremill.sttp.tapir" %% "tapir-pekko-http-server" % tapirVersion
     )
   )
-  .dependsOn(core, tapirInterop % "compile->compile;test->test")
+  .dependsOn(coreJVM, tapirInterop % "compile->compile;test->test")
 
 lazy val play = project
   .in(file("adapters/play"))
@@ -497,7 +534,7 @@ lazy val play = project
       "org.playframework"           %% "play-pekko-http-server" % playVersion % Test
     )
   )
-  .dependsOn(core, tapirInterop % "compile->compile;test->test")
+  .dependsOn(coreJVM, tapirInterop % "compile->compile;test->test")
 
 lazy val client    = crossProject(JSPlatform, JVMPlatform, NativePlatform)
   .crossType(CrossType.Pure)
@@ -535,7 +572,8 @@ lazy val clientNative = client.native
       "com.github.lolgab" %%% "scala-native-crypto" % "0.3.0",
       "io.github.cquiroz" %%% "scala-java-time"     % javaTimeVersion % Test
     ),
-    Test / fork := false
+    Test / fork := false,
+    bspEnabled  := false
   )
 
 lazy val clientLaminext = crossProject(JSPlatform)
@@ -635,14 +673,14 @@ lazy val apolloCompatibility =
         case _                                                                                        => MergeStrategy.first
       }
     )
-    .dependsOn(federation, core, quickAdapter)
+    .dependsOn(federation, coreJVM, quickAdapter)
 
 lazy val reporting = project
   .in(file("reporting"))
   .settings(name := "caliban-reporting")
   .settings(commonSettings)
   .settings(enableMimaSettingsJVM)
-  .dependsOn(clientJVM, core)
+  .dependsOn(clientJVM, coreJVM)
   .disablePlugins(AssemblyPlugin)
   .settings(
     libraryDependencies ++= Seq(
@@ -663,7 +701,7 @@ lazy val benchmarks = project
     publish / skip     := true,
     crossScalaVersions := Seq(scala213, scala3Lts)
   )
-  .dependsOn(core % "compile->compile")
+  .dependsOn(coreJVM % "compile->compile")
   .enablePlugins(JmhPlugin)
   .settings(
     libraryDependencySchemes ++= Seq(
@@ -684,7 +722,7 @@ lazy val federation = project
   .settings(name := "caliban-federation")
   .settings(commonSettings)
   .settings(enableMimaSettingsJVM)
-  .dependsOn(core % "compile->compile;test->test")
+  .dependsOn(coreJVM % "compile->compile;test->test")
   .disablePlugins(AssemblyPlugin)
   .settings(
     libraryDependencies ++= Seq(
@@ -721,7 +759,7 @@ lazy val docs = project
       "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros" % jsoniterVersion
     )
   )
-  .dependsOn(core, catsInterop, tapirInterop, http4s, tools, quickAdapter)
+  .dependsOn(coreJVM, catsInterop, tapirInterop, http4s, tools, quickAdapter)
 
 lazy val commonSettings = Def.settings(
   apiMappingSettings,

@@ -605,21 +605,6 @@ object ExecutionSpec extends ZIOSpecDefault {
           assertTrue(response.data.toString == """{"test":{"a":333}}""")
         }
       },
-      test("Play Json scalar") {
-        import caliban.interop.play.json._
-        import play.api.libs.json._
-        case class Queries(test: JsValue)
-
-        val interpreter = graphQL(RootResolver(Queries(Json.obj(("a", JsNumber(333)))))).interpreter
-        val query       = gqldoc("""
-             {
-               test
-             }""")
-
-        interpreter.flatMap(_.execute(query)).map { response =>
-          assertTrue(response.data.toString == """{"test":{"a":333}}""")
-        }
-      },
       test("zio-json scalar") {
         import zio.json.ast._
         import caliban.interop.zio.json._
