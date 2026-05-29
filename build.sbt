@@ -149,6 +149,15 @@ lazy val rootJVM3 = project
     allProjects.filterNot(excluded.contains)
   } *)
 
+lazy val rootNative213 = project
+  .in(file("target/rootNative213"))
+  .settings(
+    crossScalaVersions := Nil,
+    publish / skip     := true,
+    ideSkipProject     := true
+  )
+  .aggregate(macrosNative, coreNative)
+
 lazy val rootNative3 = project
   .in(file("target/rootNative3"))
   .settings(
@@ -181,9 +190,9 @@ lazy val macros       = crossProject(JVMPlatform, NativePlatform)
 lazy val macrosJVM    = macros.jvm.settings(enableMimaSettingsJVM)
 lazy val macrosNative = macros.native
   .settings(
-    scalaVersion       := scala3Lts,
-    crossScalaVersions := Seq(scala3Lts),
-    ideSkipProject     := (scalaVersion.value != scala3Lts),
+    scalaVersion       := scala213,
+    crossScalaVersions := Seq(scala213, scala3Lts),
+    ideSkipProject     := (scalaVersion.value == scala212),
     bspEnabled         := false
   )
 
@@ -223,9 +232,9 @@ lazy val coreJVM    = core.jvm
   )
 lazy val coreNative = core.native
   .settings(
-    scalaVersion       := scala3Lts,
-    crossScalaVersions := Seq(scala3Lts),
-    ideSkipProject     := (scalaVersion.value != scala3Lts),
+    scalaVersion       := scala213,
+    crossScalaVersions := Seq(scala213, scala3Lts),
+    ideSkipProject     := (scalaVersion.value == scala212),
     bspEnabled         := false,
     Test / fork        := false,
     libraryDependencies ++= Seq(
