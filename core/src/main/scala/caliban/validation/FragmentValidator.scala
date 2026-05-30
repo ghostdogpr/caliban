@@ -28,7 +28,7 @@ object FragmentValidator {
             Chunk.fromIterable(fields.flatMap { case (name, values) =>
               cross(values, includeIdentity = true).flatMap { case (f1, f2) =>
                 if (doTypesConflict(f1.fieldDef._type, f2.fieldDef._type)) {
-                  Chunk(
+                  Chunk.single(
                     s"$name has conflicting types: ${f1.parentType.name.getOrElse("")}.${f1.fieldDef.name} and ${f2.parentType.name
                         .getOrElse("")}.${f2.fieldDef.name}. Try using an alias."
                   )
@@ -86,9 +86,7 @@ object FragmentValidator {
     def groupByCommonParents(fields: Set[SelectedField]): Chunk[Set[SelectedField]] =
       groupsCache.getOrElseUpdate(
         fields, {
-          val abstractGroup = fields.collect {
-            case field if !isConcrete(field.parentType) => field
-          }
+          val abstractGroup = fields.filter(field => isAbstract(field.parentType))
 
           val concreteGroups =
             mutable.HashMap.empty[String, mutable.Builder[SelectedField, Set[SelectedField]]]
@@ -103,7 +101,7 @@ object FragmentValidator {
             case _ => ()
           }
 
-          if (concreteGroups.isEmpty) Chunk(fields)
+          if (concreteGroups.isEmpty) Chunk.single(fields)
           else Chunk.fromIterable(concreteGroups.values.map(_.result()))
         }
       )
