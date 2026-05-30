@@ -3,11 +3,17 @@ package caliban.validation
 import caliban.introspection.adt._
 import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
 import caliban.parsing.adt._
-import Utils._
+import caliban.syntax._
+import caliban.validation.Utils._
 
-object FieldMap {
+import scala.collection.compat._
+import scala.collection.mutable
+
+private[caliban] object FieldMap {
+  @deprecated("Kept for bin-compatibility only", "3.1.3")
   val empty: FieldMap = Map.empty
 
+  @deprecated("Kept for bin-compatibility only", "3.1.3")
   implicit class FieldMapOps(val self: FieldMap) extends AnyVal {
     def |+|(that: FieldMap): FieldMap = {
       val mb = Map.newBuilder[String, Set[SelectedField]]
@@ -46,22 +52,58 @@ object FieldMap {
     }
   }
 
+  private type FM = mutable.HashMap[String, Set[SelectedField]]
+
+  @deprecated("Kept for bin-compatibility only", "3.1.3")
   def apply(context: Context, parentType: __Type, selectionSet: Iterable[Selection]): FieldMap =
-    selectionSet.foldLeft(FieldMap.empty) { case (fields, selection) =>
-      selection match {
-        case FragmentSpread(name, _)                        =>
-          context.fragments
-            .get(name)
-            .map { definition =>
-              val typ = getType(Some(definition.typeCondition), parentType, context)
-              apply(context, typ, definition.selectionSet) |+| fields
-            }
-            .getOrElse(fields)
+    make(context, parentType, selectionSet).toMap
+
+  def make(
+    context: Context,
+    parentType: __Type,
+    selectionSet: Iterable[Selection]
+  ): collection.Map[String, Set[SelectedField]] = {
+    val fields: FM = mutable.HashMap.empty
+    loop(context, parentType, selectionSet)(fields)
+    fields
+  }
+
+  private def loop(
+    context: Context,
+    parentType: __Type,
+    selectionSet: Iterable[Selection]
+  )(implicit fields: FM): Unit = {
+    val it = selectionSet.iterator
+    while (it.hasNext)
+      it.next() match {
         case f: Field                                       =>
-          fields.addField(f, parentType, f)
+          addField(f, parentType)
+        case FragmentSpread(name, _)                        =>
+          context.fragments.getOrElseNull(name) match {
+            case null       => ()
+            case definition =>
+              val typ = getType(Some(definition.typeCondition), parentType, context)
+              loop(context, typ, definition.selectionSet)
+          }
         case InlineFragment(typeCondition, _, selectionSet) =>
           val typ = getType(typeCondition, parentType, context)
-          apply(context, typ, selectionSet) |+| fields
+          loop(context, typ, selectionSet)
       }
+  }
+
+  private def addField(
+    f: Field,
+    parentType: __Type
+  )(implicit self: FM): Unit =
+    parentType.getFieldOrNull(f.name) match {
+      case null => ()
+      case f1   =>
+        val responseName = f.alias.getOrElse(f.name)
+        val sf           = SelectedField(parentType, f, f1)
+        self.updateWith(responseName) {
+          case Some(s) => Some(s + sf)
+          case _       => Some(Set.empty + sf)
+        }
     }
+
 }
