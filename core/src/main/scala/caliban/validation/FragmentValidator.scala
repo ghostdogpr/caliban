@@ -7,7 +7,6 @@ import caliban.validation.Utils._
 import zio.Chunk
 
 import scala.collection.mutable
-import scala.util.hashing.MurmurHash3
 
 object FragmentValidator {
   def findConflictsWithinSelectionSet(
@@ -16,49 +15,44 @@ object FragmentValidator {
     selectionSet: List[Selection]
   ): Either[ValidationError, Unit] = {
 
-    // NOTE: We use the `hashCode()` as the key since it's much more performant
-    val shapeCache   = mutable.Map.empty[Int, Chunk[String]]
-    val parentsCache = mutable.Map.empty[Int, Chunk[String]]
-    val groupsCache  = mutable.Map.empty[Int, Chunk[Set[SelectedField]]]
+    val shapeCache   = mutable.HashMap.empty[List[Selection], Chunk[String]]
+    val parentsCache = mutable.HashMap.empty[Iterable[Selection], Chunk[String]]
+    val groupsCache  = mutable.HashMap.empty[Set[SelectedField], Chunk[Set[SelectedField]]]
 
-    def sameResponseShapeByName(set: Iterable[Selection], parentType: __Type): Chunk[String] = {
-      val keyHash = MurmurHash3.unorderedHash(set)
-      shapeCache.get(keyHash) match {
-        case Some(value) => value
-        case None        =>
-          val fields = FieldMap(context, parentType, set)
-          val res    = Chunk.fromIterable(fields.flatMap { case (name, values) =>
-            cross(values, includeIdentity = true).flatMap { case (f1, f2) =>
-              if (doTypesConflict(f1.fieldDef._type, f2.fieldDef._type)) {
-                Chunk(
-                  s"$name has conflicting types: ${f1.parentType.name.getOrElse("")}.${f1.fieldDef.name} and ${f2.parentType.name
-                      .getOrElse("")}.${f2.fieldDef.name}. Try using an alias."
-                )
-              } else
-                sameResponseShapeByName(f1.selection.selectionSet ::: f2.selection.selectionSet, f1.fieldDef._type)
-            }
-          })
-          shapeCache.update(keyHash, res)
-          res
-      }
-    }
+    def sameResponseShapeByName(set: List[Selection], parentType: __Type): Chunk[String] =
+      if (set.isEmpty) Chunk.empty
+      else
+        shapeCache.getOrElseUpdate(
+          set, {
+            val fields = FieldMap.make(context, parentType, set)
+            Chunk.fromIterable(fields.flatMap { case (name, values) =>
+              cross(values, includeIdentity = true).flatMap { case (f1, f2) =>
+                if (doTypesConflict(f1.fieldDef._type, f2.fieldDef._type)) {
+                  Chunk.single(
+                    s"$name has conflicting types: ${f1.parentType.name.getOrElse("")}.${f1.fieldDef.name} and ${f2.parentType.name
+                        .getOrElse("")}.${f2.fieldDef.name}. Try using an alias."
+                  )
+                } else
+                  sameResponseShapeByName(f1.selection.selectionSet ::: f2.selection.selectionSet, f1.fieldDef._type)
+              }
+            })
+          }
+        )
 
-    def sameForCommonParentsByName(set: Iterable[Selection]): Chunk[String] = {
-      val keyHash = MurmurHash3.unorderedHash(set)
-      parentsCache.get(keyHash) match {
-        case Some(value) => value
-        case None        =>
-          val fields = FieldMap(context, parentType, set)
-          val res    = Chunk.fromIterable(fields.flatMap { case (_, fields) =>
-            groupByCommonParents(fields).flatMap { group =>
-              val merged = group.flatMap(_.selection.selectionSet)
-              requireSameNameAndArguments(group) ++ sameForCommonParentsByName(merged)
-            }
-          })
-          parentsCache.update(keyHash, res)
-          res
-      }
-    }
+    def sameForCommonParentsByName(set: Iterable[Selection]): Chunk[String] =
+      if (set.isEmpty) Chunk.empty
+      else
+        parentsCache.getOrElseUpdate(
+          set, {
+            val fields = FieldMap.make(context, parentType, set)
+            Chunk.fromIterable(fields.values.flatMap { fields =>
+              groupByCommonParents(fields).flatMap { group =>
+                val merged = group.flatMap(_.selection.selectionSet)
+                requireSameNameAndArguments(group) ++ sameForCommonParentsByName(merged)
+              }
+            })
+          }
+        )
 
     def doTypesConflict(t1: __Type, t2: __Type): Boolean =
       if (isNonNull(t1))
@@ -89,17 +83,13 @@ object FragmentValidator {
         else None
       }
 
-    def groupByCommonParents(fields: Set[SelectedField]): Chunk[Set[SelectedField]] = {
-      val keyHash = fields.hashCode()
-      groupsCache.get(keyHash) match {
-        case Some(value) => value
-        case None        =>
-          val abstractGroup = fields.collect {
-            case field if !isConcrete(field.parentType) => field
-          }
+    def groupByCommonParents(fields: Set[SelectedField]): Chunk[Set[SelectedField]] =
+      groupsCache.getOrElseUpdate(
+        fields, {
+          val abstractGroup = fields.filter(field => isAbstract(field.parentType))
 
           val concreteGroups =
-            mutable.Map.empty[String, mutable.Builder[SelectedField, Set[SelectedField]]]
+            mutable.HashMap.empty[String, mutable.Builder[SelectedField, Set[SelectedField]]]
 
           fields.foreach {
             case field @ SelectedField(
@@ -111,14 +101,10 @@ object FragmentValidator {
             case _ => ()
           }
 
-          val res =
-            if (concreteGroups.isEmpty) Chunk(fields)
-            else Chunk.fromIterable(concreteGroups.values.map(_.result()))
-
-          groupsCache.update(keyHash, res)
-          res
-      }
-    }
+          if (concreteGroups.isEmpty) Chunk.single(fields)
+          else Chunk.fromIterable(concreteGroups.values.map(_.result()))
+        }
+      )
 
     val conflicts = sameResponseShapeByName(selectionSet, parentType) ++ sameForCommonParentsByName(selectionSet)
     if (conflicts.nonEmpty) {
