@@ -7,8 +7,9 @@ import caliban.rendering.ValueRenderer
 import com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec
 import zio.stream.Stream
 
-import scala.collection.mutable
 import scala.collection.compat._
+import scala.collection.mutable
+import scala.runtime.AbstractFunction1
 import scala.util.control.NonFatal
 import scala.util.hashing.MurmurHash3
 
@@ -169,7 +170,7 @@ object Value {
         case NonFatal(_) => BigIntNumber(BigInt(s)) // Should never happen, but we leave it as a fallback
       }
 
-    object IntNumber {
+    object IntNumber extends AbstractFunction1[Int, IntNumber] {
       private final val MaxCachedInt = 1024
 
       private val cache = {
