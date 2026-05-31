@@ -7,8 +7,9 @@ import caliban.rendering.ValueRenderer
 import com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec
 import zio.stream.Stream
 
-import scala.collection.mutable
 import scala.collection.compat._
+import scala.collection.mutable
+import scala.runtime.AbstractFunction1
 import scala.util.control.NonFatal
 import scala.util.hashing.MurmurHash3
 
@@ -169,17 +170,35 @@ object Value {
         case NonFatal(_) => BigIntNumber(BigInt(s)) // Should never happen, but we leave it as a fallback
       }
 
+    object IntNumber extends AbstractFunction1[Int, IntNumber] {
+      private final val MaxCachedInt = 1024
+
+      private val cache = {
+        val arr = new Array[IntNumber](MaxCachedInt)
+        var i   = 0
+        while (i < MaxCachedInt) {
+          arr(i) = new IntNumber(i)
+          i += 1
+        }
+        arr
+      }
+
+      def apply(value: Int): IntNumber =
+        if (value >= 0 && value < MaxCachedInt) cache(value)
+        else new IntNumber(value)
+    }
+
     final case class IntNumber(value: Int)       extends IntValue with PathValue {
       override def toInt: Int       = value
       override def toLong: Long     = value.toLong
       override def toBigInt: BigInt = BigInt(value)
-      override def toString: String = value.toString
+      override def toString: String = String.valueOf(value)
     }
     final case class LongNumber(value: Long)     extends IntValue                {
       override def toInt: Int       = value.toInt
       override def toLong: Long     = value
       override def toBigInt: BigInt = BigInt(value)
-      override def toString: String = value.toString
+      override def toString: String = String.valueOf(value)
     }
     final case class BigIntNumber(value: BigInt) extends IntValue                {
       override def toInt: Int       = value.toInt
@@ -203,13 +222,13 @@ object Value {
       override def toFloat: Float           = value
       override def toDouble: Double         = value.toDouble
       override def toBigDecimal: BigDecimal = BigDecimal.decimal(value)
-      override def toString: String         = value.toString
+      override def toString: String         = String.valueOf(value)
     }
     final case class DoubleNumber(value: Double)         extends FloatValue {
       override def toFloat: Float           = value.toFloat
       override def toDouble: Double         = value
       override def toBigDecimal: BigDecimal = BigDecimal(value)
-      override def toString: String         = value.toString
+      override def toString: String         = String.valueOf(value)
     }
     final case class BigDecimalNumber(value: BigDecimal) extends FloatValue {
       override def toFloat: Float           = value.toFloat
