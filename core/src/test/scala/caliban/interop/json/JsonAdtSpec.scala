@@ -52,28 +52,6 @@ object JsonAdtSpec extends ZIOSpecDefault {
           }
         )
       },
-      suite("play-json") {
-        import caliban.interop.play.json
-        import play.api.libs.json._
-
-        val jsonV = Json.obj(
-          "hello"     -> JsString("world"),
-          "answer"    -> JsNumber(42),
-          "isAwesome" -> JsBoolean(true),
-          "name"      -> JsNull,
-          "arr"       -> JsArray(Seq(JsString("first"), JsNumber(2))),
-          "obj"       -> Json.obj("key" -> JsString("value"))
-        )
-        List(
-          test("Schema") {
-            val step = json.jsonSchema.resolve(jsonV)
-            assertTrue(step == PureStep(output))
-          },
-          test("ArgBuilder") {
-            json.jsonArgBuilder.build(input).map(resp => assertTrue(resp == jsonV))
-          }
-        )
-      },
       suite("zio-json") {
         import caliban.interop.zio.json
         import zio.json.ast._

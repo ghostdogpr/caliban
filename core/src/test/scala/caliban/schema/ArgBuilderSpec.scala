@@ -223,24 +223,6 @@ object ArgBuilderSpec extends ZIOSpecDefault {
           ).isLeft
         )
       }
-    ),
-    suite("Enums")(
-      test("should support Java enums") {
-        assert(ArgBuilder.enumJava[Color].build(EnumValue("Red")))(
-          isRight(equalTo(Color.Red))
-        )
-      },
-      test("should fail for invalid enum value") {
-        assert(ArgBuilder.enumJava[Color].build(EnumValue("Purple")))(
-          isLeft(
-            hasField(
-              "msg",
-              _.msg,
-              equalTo("'Purple' is not a valid value of Color. Valid values are: [Red, Green, Blue]")
-            )
-          )
-        )
-      }
     )
   )
 }

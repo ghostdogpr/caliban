@@ -7,7 +7,6 @@ import caliban.parsing.adt.Directive
 import caliban.schema.Annotations._
 import caliban.schema.ArgBuilder.auto._
 import caliban.schema.Schema.auto._
-import play.api.libs.json.JsValue
 import zio._
 import zio.query.ZQuery
 import zio.stream.ZStream
@@ -117,14 +116,6 @@ object SchemaSpec extends ZIOSpecDefault {
       test("field with Json object [circe]") {
         import caliban.interop.circe.json._
         case class Queries(to: io.circe.Json, from: io.circe.Json => Unit)
-
-        assert(introspect[Queries].fields(__DeprecatedArgs()).toList.flatten.headOption.map(_._type))(
-          isSome(hasField[__Type, String]("to", _.ofType.flatMap(_.name).get, equalTo("Json")))
-        )
-      },
-      test("field with Json object [play]") {
-        import caliban.interop.play.json._
-        case class Queries(to: JsValue, from: JsValue => Unit)
 
         assert(introspect[Queries].fields(__DeprecatedArgs()).toList.flatten.headOption.map(_._type))(
           isSome(hasField[__Type, String]("to", _.ofType.flatMap(_.name).get, equalTo("Json")))

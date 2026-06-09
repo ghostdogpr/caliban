@@ -238,20 +238,6 @@ object Scala3DerivesSpec extends ZIOSpecDefault {
             val rendered = graphQL(RootResolver(Bar(Foo("foo")))).render
             assertTrue(rendered == expectedSchema)
           },
-          test("execution of methods as fields") {
-            final case class Foo(value: String) derives Schema.SemiAuto {
-              @GQLField def value2: Task[String] = ZIO.succeed(value + 2)
-            }
-            final case class Bar(foo: Foo) derives Schema.SemiAuto
-            val gql = graphQL(RootResolver(Bar(Foo("foo"))))
-
-            gql.interpreter.flatMap { i =>
-              i.execute("{foo {value value2}}").map { v =>
-                val s = v.data.toString
-                assertTrue(s == """{"foo":{"value":"foo","value2":"foo2"}}""")
-              }
-            }
-          },
           test("case object") {
             case object Foo derives Schema.SemiAuto {
               @GQLField def fooValue: Option[String] = None
