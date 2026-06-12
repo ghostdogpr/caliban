@@ -3,7 +3,7 @@ import sbt.librarymanagement.Resolver
 
 val scala212 = "2.12.21"
 val scala213 = "2.13.18"
-val scala3   = "3.3.7"
+val scala3   = "3.3.8"
 val allScala = Seq(scala212, scala213, scala3)
 
 def scalaDefaultVersion(sbtVersion: String): String =
@@ -21,7 +21,7 @@ ThisBuild / licenses           := List("Apache-2.0" -> url("http://www.apache.or
 ThisBuild / version            := "0.0.1"
 ThisBuild / scalaVersion       := scalaDefaultVersion(sbtVersion.value)
 ThisBuild / resolvers += Resolver.mavenLocal
-ThisBuild / scalacOptions := {
+ThisBuild / scalacOptions      := {
   val opts = (ThisBuild / scalacOptions).value
   (opts ++ Seq("-Xfatal-warnings", "-feature")).distinct ++
     (CrossVersion.partialVersion(scalaVersion.value) match {
