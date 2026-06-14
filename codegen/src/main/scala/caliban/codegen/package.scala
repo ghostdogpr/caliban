@@ -67,8 +67,8 @@ package object codegen {
   val doubleQuotes = "\""
 
   def safeName(name: String): String =
-    if (name == "_") "_$" // scala 3 does not allow a name of `_`
+    if (name == "_") "`__`" // scala 3 does not allow a name of `_`
     else if (reservedKeywords.contains(name) || name.endsWith("_")) s"`$name`"
-    else if (caseClassReservedFields.contains(name)) s"$name$$"
+    else if (caseClassReservedFields.contains(name)) s"${name}_"
     else name
 }

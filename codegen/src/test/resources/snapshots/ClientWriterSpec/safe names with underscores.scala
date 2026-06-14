@@ -5,7 +5,7 @@ object Client {
 
   type Character
   object Character {
-    def _$ : SelectionBuilder[Character, scala.Option[Boolean]]      =
+    def `__` : SelectionBuilder[Character, scala.Option[Boolean]]    =
       _root_.caliban.client.SelectionBuilder.Field("_", OptionOf(Scalar()))
     def `_name_` : SelectionBuilder[Character, scala.Option[String]] =
       _root_.caliban.client.SelectionBuilder.Field("_name_", OptionOf(Scalar()))
