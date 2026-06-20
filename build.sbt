@@ -535,7 +535,8 @@ lazy val clientNative = client.native
       "com.github.lolgab" %%% "scala-native-crypto" % "0.3.0",
       "io.github.cquiroz" %%% "scala-java-time"     % javaTimeVersion % Test
     ),
-    Test / fork := false
+    Test / fork := false,
+    scalacOptions -= "-Yfuture-lazy-vals" // Some reason SN doesn't like this, but it's only needed for JVM anyway
   )
 
 lazy val clientLaminext = crossProject(JSPlatform)
@@ -770,6 +771,7 @@ lazy val commonSettings = Def.settings(
         "-Werror",
         "-explain-types",
         s"-${if (minor >= 5) "X" else "Y"}kind-projector",
+        if (minor == 3) "-Yfuture-lazy-vals" else "",
         "-no-indent"
       )
     case _                => Nil
@@ -782,7 +784,10 @@ lazy val enableMimaSettingsJVM =
   Def.settings(
     mimaFailOnProblem      := enforceMimaCompatibility,
     mimaPreviousArtifacts  := previousStableVersion.value.map(organization.value %% moduleName.value % _).toSet,
-    mimaBinaryIssueFilters := Seq()
+    mimaBinaryIssueFilters := Seq(
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.*.<clinit>"),
+      ProblemFilters.exclude[DirectMissingMethodProblem]("mdg.engine.proto.reports.*.<clinit>")
+    )
   )
 
 lazy val enableMimaSettingsJS =
