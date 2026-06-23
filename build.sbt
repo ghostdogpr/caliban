@@ -20,14 +20,14 @@ val http4sVersion             = "0.23.34"
 val javaTimeVersion           = "2.7.0"
 val jsoniterVersion           = "2.38.14"
 val laminextVersion           = "0.17.0"
-val magnoliaScala2Version     = "1.1.13"
-val magnoliaScala3Version     = "1.3.20"
+val magnoliaScala2Version     = "1.1.14"
+val magnoliaScala3Version     = "1.3.21"
 val pekkoHttpVersion          = "1.3.0"
 val playVersion               = "3.0.11"
 val playJsonVersion           = "3.0.6"
 val scalafmtVersion           = "3.11.1"
 val sttpVersion               = "4.0.25"
-val tapirVersion              = "1.13.21"
+val tapirVersion              = "1.13.23"
 val zioVersion                = "2.1.26"
 val zioInteropCats2Version    = "22.0.0.0"
 val zioInteropCats3Version    = "23.1.0.13"
@@ -36,7 +36,7 @@ val zioConfigVersion          = "4.0.7"
 val zqueryVersion             = "0.7.8"
 val zioJsonVersion            = "0.9.2"
 val zioHttpVersion            = "3.11.2"
-val zioOpenTelemetryVersion   = "3.1.17"
+val zioOpenTelemetryVersion   = "3.1.18"
 
 Global / onChangedBuildSource := ReloadOnSourceChanges
 
@@ -310,7 +310,7 @@ lazy val codegenSbt = project
     crossScalaVersions            := Seq(scala212, scala3ForSbt),
     pluginCrossBuild / sbtVersion := (scalaBinaryVersion.value match {
       case "2.12" => sbtVersion.value
-      case _      => "2.0.0-RC13"
+      case _      => "2.0.0"
     }),
     libraryDependencies ++= Seq(
       "dev.zio" %% "zio-config"          % zioConfigVersion,
@@ -535,7 +535,8 @@ lazy val clientNative = client.native
       "com.github.lolgab" %%% "scala-native-crypto" % "0.3.0",
       "io.github.cquiroz" %%% "scala-java-time"     % javaTimeVersion % Test
     ),
-    Test / fork := false
+    Test / fork := false,
+    scalacOptions -= "-Yfuture-lazy-vals" // Some reason SN doesn't like this, but it's only needed for JVM anyway
   )
 
 lazy val clientLaminext = crossProject(JSPlatform)
@@ -770,6 +771,7 @@ lazy val commonSettings = Def.settings(
         "-Werror",
         "-explain-types",
         s"-${if (minor >= 5) "X" else "Y"}kind-projector",
+        if (minor == 3) "-Yfuture-lazy-vals" else "",
         "-no-indent"
       )
     case _                => Nil
@@ -782,7 +784,10 @@ lazy val enableMimaSettingsJVM =
   Def.settings(
     mimaFailOnProblem      := enforceMimaCompatibility,
     mimaPreviousArtifacts  := previousStableVersion.value.map(organization.value %% moduleName.value % _).toSet,
-    mimaBinaryIssueFilters := Seq()
+    mimaBinaryIssueFilters := Seq(
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.*.<clinit>"),
+      ProblemFilters.exclude[DirectMissingMethodProblem]("mdg.engine.proto.reports.*.<clinit>")
+    )
   )
 
 lazy val enableMimaSettingsJS =

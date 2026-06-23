@@ -14,6 +14,7 @@ The name **Caliban** is inspired by the SF novel and tv series [The Expanse](htt
 - **[Shardcake](https://github.com/devsisters/shardcake)** — A Scala library for distributed sharding
 - **[Proteus](https://github.com/ghostdogpr/proteus)** — A code-first Protobuf and gRPC library for Scala
 - **[PureLogic](https://github.com/ghostdogpr/purelogic)** — A direct-style, pure domain logic library for Scala
+- **[Sage](https://github.com/ghostdogpr/sage)** — A modern and fast Redis/Valkey client for Scala
 
 **Thanks**:
 - [@deckerst](https://github.com/deckerst) for the logo
