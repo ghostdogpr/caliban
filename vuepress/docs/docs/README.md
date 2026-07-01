@@ -15,7 +15,7 @@ The design principles of Caliban are the following:
 First, add the following dependency to your `build.sbt` file:
 
 ```scala
-"com.github.ghostdogpr" %% "caliban" % "3.1.2"
+"com.github.ghostdogpr" %% "caliban" % "3.1.3"
 ```
 
 Creating a GraphQL API with Caliban is as simple as creating a case class in Scala.
@@ -77,7 +77,7 @@ The interpreter is not tied any web framework, so you are free to expose this fu
 The easiest (and most performant!) way to expose your API over HTTP is to use the optional `caliban-quick` module based on [zio-http](https://github.com/zio/zio-http).
 
 ```scala
-"com.github.ghostdogpr" %% "caliban-quick"  % "3.1.2"
+"com.github.ghostdogpr" %% "caliban-quick"  % "3.1.3"
 ```
 
 You can then serve your GraphQL API over HTTP using a single command:
@@ -98,19 +98,19 @@ And that's it - now you have a fully functional GraphQL server running on port 8
 If you have any specific server requirements or need to interop with other libraries, Caliban offers a wide range of modules to help you do that.
 
 ```scala
-"com.github.ghostdogpr" %% "caliban-http4s"     % "3.1.2" // routes for http4s
-"com.github.ghostdogpr" %% "caliban-akka-http"  % "3.1.2" // routes for akka-http
-"com.github.ghostdogpr" %% "caliban-pekko-http" % "3.1.2" // routes for pekko-http
-"com.github.ghostdogpr" %% "caliban-play"       % "3.1.2" // routes for play
+"com.github.ghostdogpr" %% "caliban-http4s"     % "3.1.3" // routes for http4s
+"com.github.ghostdogpr" %% "caliban-akka-http"  % "3.1.3" // routes for akka-http
+"com.github.ghostdogpr" %% "caliban-pekko-http" % "3.1.3" // routes for pekko-http
+"com.github.ghostdogpr" %% "caliban-play"       % "3.1.3" // routes for play
 
-"com.github.ghostdogpr" %% "caliban-cats"       % "3.1.2" // interop with cats-effect
-"com.github.ghostdogpr" %% "caliban-monix"      % "3.1.2" // interop with monix
-"com.github.ghostdogpr" %% "caliban-tapir"      % "3.1.2" // interop with tapir
+"com.github.ghostdogpr" %% "caliban-cats"       % "3.1.3" // interop with cats-effect
+"com.github.ghostdogpr" %% "caliban-monix"      % "3.1.3" // interop with monix
+"com.github.ghostdogpr" %% "caliban-tapir"      % "3.1.3" // interop with tapir
 
-"com.github.ghostdogpr" %% "caliban-federation" % "3.1.2" // apollo federation
-"com.github.ghostdogpr" %% "caliban-reporting"  % "3.1.2" // apollo schema reporting
-"com.github.ghostdogpr" %% "caliban-tracing"    % "3.1.2" // open-telemetry
-"com.github.ghostdogpr" %% "caliban-stitching"  % "3.1.2" // stitching
+"com.github.ghostdogpr" %% "caliban-federation" % "3.1.3" // apollo federation
+"com.github.ghostdogpr" %% "caliban-reporting"  % "3.1.3" // apollo schema reporting
+"com.github.ghostdogpr" %% "caliban-tracing"    % "3.1.3" // open-telemetry
+"com.github.ghostdogpr" %% "caliban-stitching"  % "3.1.3" // stitching
 ```
 
 ## Where to go next?
