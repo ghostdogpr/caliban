@@ -301,7 +301,7 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin with CompileTimeCaliban
                                   Def
                                     .task[Set[File]](listGeneratedClientsFiles)
                                     .flatMapTask { beforeGenDirFiles =>
-                                      (serverProject / runMain)
+                                      (serverProject / fgRunMain)
                                         .toTask(s" $generatorRef $baseDirValue")
                                         .maybeTaskValue
                                         .map { _ =>
