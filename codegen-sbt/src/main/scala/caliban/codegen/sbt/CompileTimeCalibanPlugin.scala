@@ -301,7 +301,6 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin with CompileTimeCaliban
                                   Def
                                     .task[Set[File]](listGeneratedClientsFiles)
                                     .flatMapTask { beforeGenDirFiles =>
-                                      // `fgRunMain` (not `runMain`) so the generator runs synchronously: sbt 2's `runMain` returns before the forked run finishes, leaving the after-snapshot empty.
                                       (serverProject / fgRunMain)
                                         .toTask(s" $generatorRef $baseDirValue")
                                         .maybeTaskValue
