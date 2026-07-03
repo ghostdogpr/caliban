@@ -301,14 +301,7 @@ object CompileTimeCalibanClientPlugin extends AutoPlugin with CompileTimeCaliban
                                   Def
                                     .task[Set[File]](listGeneratedClientsFiles)
                                     .flatMapTask { beforeGenDirFiles =>
-                                      // We use `fgRunMain` (foreground) rather than `runMain` on purpose. In sbt 1
-                                      // `runMain` blocks until the run completes, but in sbt 2 it was rewritten to be
-                                      // client-side/background-aware: under the server/client execution model it
-                                      // dispatches the run and returns before the forked generator has written its
-                                      // files, so the `afterGenDirFiles` snapshot below would run against an empty
-                                      // directory and the freshly generated client would be missing from the current
-                                      // compilation pass. `fgRunMain` runs the generator synchronously on both sbt
-                                      // versions.
+                                      // `fgRunMain` (not `runMain`) so the generator runs synchronously: sbt 2's `runMain` returns before the forked run finishes, leaving the after-snapshot empty.
                                       (serverProject / fgRunMain)
                                         .toTask(s" $generatorRef $baseDirValue")
                                         .maybeTaskValue
