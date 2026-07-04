@@ -1,6 +1,7 @@
 package caliban.transformers
 
 import caliban.Macros.gqldoc
+import caliban.Value.StringValue
 import caliban._
 import caliban.parsing.adt.Directive
 import caliban.schema.Annotations.GQLDirective
@@ -9,62 +10,284 @@ import caliban.schema.Schema.auto._
 import zio.test._
 
 object TransformerSpec extends ZIOSpecDefault {
+  object SimpleApi {
+    case class Args(arg: String)
+    case class InnerObject(b: Args => String)
+    case class Query(a: InnerObject)
 
-  case class Args(arg: String)
-  case class InnerObject(b: Args => String)
-  case class Query(a: InnerObject)
-
-  val api: GraphQL[Any] = graphQL(RootResolver(Query(InnerObject(_.arg))))
+    val api: GraphQL[Any] = graphQL(RootResolver(Query(InnerObject(_.arg))))
+  }
 
   override def spec =
     suite("TransformerSpec")(
-      test("rename type") {
-        val transformed: GraphQL[Any] = api.transform(Transformer.RenameType("InnerObject" -> "Renamed"))
-        val rendered                  = transformed.render
-        for {
-          interpreter <- transformed.interpreter
-          result      <- interpreter.execute("""{ a { b(arg: "hello") } }""").map(_.data.toString)
-        } yield assertTrue(
-          result == """{"a":{"b":"hello"}}""",
-          rendered == """schema {
-                        |  query: Query
-                        |}
-                        |
-                        |type Query {
-                        |  a: Renamed!
-                        |}
-                        |
-                        |type Renamed {
-                        |  b(arg: String!): String!
-                        |}
-                        |""".stripMargin
-        )
-      },
-      test("rename field") {
-        val transformed: GraphQL[Any] = api.transform(Transformer.RenameField("InnerObject" -> "b" -> "c"))
-        val rendered                  = transformed.render
-        for {
-          interpreter <- transformed.interpreter
-          result      <- interpreter.execute("""{ a { c(arg: "hello") } }""").map(_.data.toString)
-        } yield assertTrue(
-          result == """{"a":{"c":"hello"}}""",
-          rendered ==
-            """schema {
-              |  query: Query
-              |}
-              |
-              |type InnerObject {
-              |  c(arg: String!): String!
-              |}
-              |
-              |type Query {
-              |  a: InnerObject!
-              |}
-              |""".stripMargin
-        )
-      },
+      suite("rename type")(
+        test("rename object type") {
+          val transformed: GraphQL[Any] = SimpleApi.api.transform(Transformer.RenameType("InnerObject" -> "Renamed"))
+          val rendered                  = transformed.render
+          for {
+            interpreter        <- transformed.interpreter
+            result             <- interpreter.execute("""{ a { b(arg: "hello"), __typename } }""").map(_.data.toString)
+            resultWithFragment <- interpreter
+                                    .execute(
+                                      """{ a { ... on Renamed { b(arg: "hello") } } }"""
+                                    )
+                                    .map(_.data.toString)
+          } yield assertTrue(
+            result == """{"a":{"b":"hello","__typename":"Renamed"}}""",
+            resultWithFragment == """{"a":{"b":"hello"}}""",
+            rendered ==
+              """schema {
+                |  query: Query
+                |}
+                |
+                |type Query {
+                |  a: Renamed!
+                |}
+                |
+                |type Renamed {
+                |  b(arg: String!): String!
+                |}
+                |""".stripMargin
+          )
+        },
+        test("rename input type") {
+          case class Args(innerArgs: InnerArgs)
+          case class InnerArgs(arg: String)
+          case class Query(a: Args => String)
+
+          val api: GraphQL[Any] = graphQL(RootResolver(Query(_.innerArgs.arg)))
+
+          val transformed: GraphQL[Any] = api.transform(Transformer.RenameType("InnerArgsInput" -> "InnerArgsV2Input"))
+          val rendered                  = transformed.render
+          for {
+            interpreter         <- transformed.interpreter
+            result              <- interpreter.execute("""{ a(innerArgs: { arg: "hello" } ) }""").map(_.data.toString)
+            resultWithVariables <- interpreter
+                                     .execute(
+                                       """query($argVar: InnerArgsV2Input!){
+                                         |  a(innerArgs: $argVar)
+                                         |}""".stripMargin,
+                                       variables = Map(
+                                         "argVar" -> InputValue.ObjectValue(
+                                           Map("arg" -> StringValue("hello"))
+                                         )
+                                       )
+                                     )
+                                     .map(_.data.toString)
+          } yield assertTrue(
+            result == """{"a":"hello"}""",
+            resultWithVariables == """{"a":"hello"}""",
+            rendered ==
+              """schema {
+                |  query: Query
+                |}
+                |
+                |input InnerArgsV2Input {
+                |  arg: String!
+                |}
+                |
+                |type Query {
+                |  a(innerArgs: InnerArgsV2Input!): String!
+                |}
+                |""".stripMargin
+          )
+        }
+      ),
+      suite("rename enum")(
+        test("rename enum in object") {
+          sealed trait State
+          case object Active   extends State
+          case object Inactive extends State
+
+          case class InnerObject(state: State)
+
+          case class Query(
+            get: State = Inactive,
+            inner: InnerObject = InnerObject(Inactive)
+          )
+
+          val api: GraphQL[Any] = graphQL(RootResolver(Query()))
+
+          val transformed: GraphQL[Any] = api.transform(
+            Transformer.RenameType(
+              "Inactive" -> "Archived"
+            )
+          )
+
+          val rendered = transformed.render
+          for {
+            interpreter <- transformed.interpreter
+            result      <- interpreter.execute("""{ get, inner { state } }""").map(_.data.toString)
+          } yield assertTrue(
+            result == """{"get":"Archived","inner":{"state":"Archived"}}""",
+            rendered == """schema {
+                          |  query: Query
+                          |}
+                          |
+                          |enum State {
+                          |  Active
+                          |  Archived
+                          |}
+                          |
+                          |type InnerObject {
+                          |  state: State!
+                          |}
+                          |
+                          |type Query {
+                          |  get: State!
+                          |  inner: InnerObject!
+                          |}
+                          |""".stripMargin
+          )
+        },
+        test("rename enum in input position") {
+          sealed trait State
+          case object Active   extends State
+          case object Inactive extends State
+
+          case class ByStateFilter(states: List[State])
+          case class Filter(byStateFilter: ByStateFilter)
+          case class Query(a: Filter => String)
+
+          val api: GraphQL[Any] = graphQL(RootResolver(Query(_ => "value")))
+
+          val transformed: GraphQL[Any] = api.transform(
+            Transformer.RenameType(
+              "Inactive" -> "Archived"
+            )
+          )
+
+          val rendered = transformed.render
+          for {
+            interpreter <- transformed.interpreter
+            result      <- interpreter
+                             .execute("""{ a(byStateFilter: {states:[Archived]}) }""")
+                             .map(_.data.toString)
+          } yield assertTrue(
+            result == """{"a":"value"}""",
+            rendered == """schema {
+                          |  query: Query
+                          |}
+                          |
+                          |enum State {
+                          |  Active
+                          |  Archived
+                          |}
+                          |
+                          |input ByStateFilterInput {
+                          |  states: [State!]!
+                          |}
+                          |
+                          |type Query {
+                          |  a(byStateFilter: ByStateFilterInput!): String!
+                          |}
+                          |""".stripMargin
+          )
+        }
+      ),
+      suite("rename field")(
+        test("rename field on object") {
+          val transformed: GraphQL[Any] = SimpleApi.api.transform(Transformer.RenameField("InnerObject" -> "b" -> "c"))
+          val rendered                  = transformed.render
+          for {
+            interpreter <- transformed.interpreter
+            result      <- interpreter.execute("""{ a { c(arg: "hello") } }""").map(_.data.toString)
+          } yield assertTrue(
+            result == """{"a":{"c":"hello"}}""",
+            rendered ==
+              """schema {
+                |  query: Query
+                |}
+                |
+                |type InnerObject {
+                |  c(arg: String!): String!
+                |}
+                |
+                |type Query {
+                |  a: InnerObject!
+                |}
+                |""".stripMargin
+          )
+        },
+        test("rename field in input") {
+          case class Args(innerArgs: InnerArgs)
+          case class InnerInnerArgs(v: Int)
+          case class InnerArgs(arg: String, secondLevel: List[InnerInnerArgs])
+          case class Query(a: Args => String)
+
+          val api: GraphQL[Any] = graphQL(RootResolver(Query(_.innerArgs.arg)))
+
+          val transformed: GraphQL[Any] = api.transform(
+            Transformer.RenameField(
+              "InnerArgsInput"      -> "arg" -> "argV2",
+              "InnerInnerArgsInput" -> "v"   -> "v2"
+            )
+          )
+          val rendered                  = transformed.render
+          for {
+            interpreter              <- transformed.interpreter
+            result                   <-
+              interpreter
+                .execute("""{ a(innerArgs: { argV2: "hello", secondLevel: [{ v2: 4 }] } ) }""")
+                .map(_.data.toString)
+            resultWithVariables      <- interpreter
+                                          .execute(
+                                            """query($argVar: InnerArgsInput!){
+                                         |  a(innerArgs: $argVar)
+                                         |}""".stripMargin,
+                                            variables = Map(
+                                              "argVar" -> InputValue.ObjectValue(
+                                                Map(
+                                                  "argV2"       -> StringValue("hello"),
+                                                  "secondLevel" -> InputValue.ListValue(Nil)
+                                                )
+                                              )
+                                            )
+                                          )
+                                          .map(_.data.toString)
+            resultWithInnerVariables <- interpreter
+                                          .execute(
+                                            """query($argVar: [InnerInnerArgsInput!]!){
+                                              |  a(innerArgs: {argV2: "hello", secondLevel: $argVar})
+                                              |}""".stripMargin,
+                                            variables = Map(
+                                              "argVar" -> InputValue.ListValue(
+                                                List(
+                                                  InputValue.ObjectValue(
+                                                    Map("v2" -> Value.IntValue(42))
+                                                  )
+                                                )
+                                              )
+                                            )
+                                          )
+                                          .map(_.data.toString)
+          } yield assertTrue(
+            result == """{"a":"hello"}""",
+            resultWithVariables == """{"a":"hello"}""",
+            resultWithInnerVariables == """{"a":"hello"}""",
+            rendered ==
+              """schema {
+                |  query: Query
+                |}
+                |
+                |input InnerArgsInput {
+                |  argV2: String!
+                |  secondLevel: [InnerInnerArgsInput!]!
+                |}
+                |
+                |input InnerInnerArgsInput {
+                |  v2: Int!
+                |}
+                |
+                |type Query {
+                |  a(innerArgs: InnerArgsInput!): String!
+                |}
+                |""".stripMargin
+          )
+        }
+      ),
       test("rename argument") {
-        val transformed: GraphQL[Any] = api.transform(Transformer.RenameArgument {
+        val transformed: GraphQL[Any] = SimpleApi.api.transform(Transformer.RenameArgument {
           "InnerObject" -> "b" -> "arg" -> "arg2"
         })
         val rendered                  = transformed.render
@@ -205,7 +428,7 @@ object TransformerSpec extends ZIOSpecDefault {
         }
       ),
       test("combine transformers") {
-        val transformed: GraphQL[Any] = api
+        val transformed: GraphQL[Any] = SimpleApi.api
           .transform(Transformer.RenameType("InnerObject" -> "Renamed"))
           .transform(Transformer.RenameField("Renamed" -> "b" -> "c"))
         val rendered                  = transformed.render
