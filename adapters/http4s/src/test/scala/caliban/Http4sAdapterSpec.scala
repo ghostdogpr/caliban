@@ -11,7 +11,7 @@ import org.http4s.server.middleware.CORS
 import sttp.client4.UriContext
 import zio._
 import zio.interop.catz._
-import zio.test.{ Live, ZIOSpecDefault }
+import zio.test.{ Live, TestAspect, ZIOSpecDefault }
 
 import scala.language.postfixOps
 
@@ -64,5 +64,5 @@ object Http4sAdapterSpec extends ZIOSpecDefault {
         wsUri = Some(uri"ws://localhost:8087/ws/graphql")
       )
       .provideLayerShared(apiLayer)
-  }
+  } @@ TestAspect.withLiveClock
 }

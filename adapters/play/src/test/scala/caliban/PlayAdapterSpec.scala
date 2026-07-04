@@ -11,7 +11,7 @@ import play.api.routing.sird._
 import play.core.server.{ PekkoHttpServer, ServerConfig }
 import sttp.client4.UriContext
 import zio._
-import zio.test.{ Live, ZIOSpecDefault }
+import zio.test.{ Live, TestAspect, ZIOSpecDefault }
 
 import scala.language.postfixOps
 
@@ -62,6 +62,6 @@ object PlayAdapterSpec extends ZIOSpecDefault {
       uploadUri = Some(uri"http://localhost:8088/upload/graphql"),
       wsUri = Some(uri"ws://localhost:8088/ws/graphql")
     )
-    suite.provideLayerShared(apiLayer)
+    suite.provideLayerShared(apiLayer) @@ TestAspect.withLiveClock
   }
 }

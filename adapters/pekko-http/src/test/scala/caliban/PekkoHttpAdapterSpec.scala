@@ -51,6 +51,6 @@ object PekkoHttpAdapterSpec extends ZIOSpecDefault {
       uploadUri = Some(uri"http://localhost:8085/upload/graphql"),
       wsUri = Some(uri"ws://localhost:8085/ws/graphql")
     )
-    suite.provideLayerShared(apiLayer)
+    suite.provideLayerShared(apiLayer) @@ TestAspect.withLiveClock
   }
 }

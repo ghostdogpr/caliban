@@ -60,7 +60,8 @@ object TapirAdapterSpec {
     httpUri: Uri,
     uploadUri: Option[Uri] = None,
     wsUri: Option[Uri] = None,
-    sseSupport: Boolean = true
+    sseSupport: Boolean = true,
+    heartbeatSupport: Boolean = false
   ): Spec[TestService, Throwable] = suite(label) {
     val httpClient   = new TapirClient(httpUri)
     val uploadClient = uploadUri.map(new TapirClient(_))
@@ -296,6 +297,7 @@ object TapirAdapterSpec {
                          acceptTextEventStream,
                          "subscription { characterDeleted }"
                        )
+              _     <- Clock.ClockLive.sleep(50.millis)
               _     <- runHttpRequest(
                          method = Method.POST.method,
                          query = """mutation{ deleteCharacter(name: "Amos Burton") }"""
@@ -315,7 +317,7 @@ object TapirAdapterSpec {
                 )
               )
             )
-          } @@ TestAspect.timeout(10.seconds) @@ TestAspect.ignore,
+          } @@ TestAspect.timeout(10.seconds),
           test("heartbeating") {
             for {
               res   <- runSSERequest(
@@ -336,7 +338,7 @@ object TapirAdapterSpec {
                 )
               )
             )
-          } @@ TestAspect.timeout(10.seconds) @@ TestAspect.ignore
+          }.when(heartbeatSupport) @@ TestAspect.timeout(10.seconds)
         ).when(sseSupport)
       ),
       runUpload.map(runUpload =>

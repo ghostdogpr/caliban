@@ -51,6 +51,6 @@ object AkkaHttpAdapterSpec extends ZIOSpecDefault {
       uploadUri = Some(uri"http://localhost:8086/upload/graphql"),
       wsUri = Some(uri"ws://localhost:8086/ws/graphql")
     )
-    suite.provideLayerShared(apiLayer)
+    suite.provideLayerShared(apiLayer) @@ TestAspect.withLiveClock
   }
 }
