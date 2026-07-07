@@ -18,6 +18,6 @@ private[caliban] trait NumberParsers extends StringParsers {
   def fractionalPart(implicit ev: P[Any]): P[Unit]    = "." ~~ digit.repX(1)
   def floatValue(implicit ev: P[Any]): P[FloatValue]  =
     (
-      integerPart ~~ (fractionalPart | exponentPart | (fractionalPart ~~ exponentPart))
+      integerPart ~~ ((fractionalPart ~~ exponentPart) | fractionalPart | exponentPart)
     ).!.map(FloatValue.fromStringUnsafe)
 }

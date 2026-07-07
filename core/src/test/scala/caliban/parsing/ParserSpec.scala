@@ -170,6 +170,30 @@ object ParserSpec extends ZIOSpecDefault {
           )
         }
       },
+      test("float values with fraction and exponent") {
+        val cases = List(
+          "6.022e23" -> FloatValue(6.022e23),
+          "1.5E3"    -> FloatValue(1.5e3),
+          "1.5e-3"   -> FloatValue(1.5e-3),
+          "1e10"     -> FloatValue(1e10),
+          "6.022"    -> FloatValue(6.022)
+        )
+        assertTrue(cases.forall { case (raw, expected) => Parser.parseInputValue(raw) == Right(expected) })
+      },
+      test("float value with fraction and exponent in a query argument") {
+        val query = "{ f(x: 6.022e23) }"
+        Parser.parseQuery(query).map { doc =>
+          assertTrue(
+            doc ==
+              simpleQuery(
+                selectionSet = List(
+                  simpleField("f", arguments = Map("x" -> FloatValue(6.022e23)), index = 2)
+                ),
+                sourceMapper = SourceMapper(query)
+              )
+          )
+        }
+      },
       test("block strings") {
         val query = "{ sendEmail(message: \"\"\"\n  Hello,\n    World!\n\n  Yours,\n    GraphQL. \"\"\") }"
         Parser.parseQuery(query).map { doc =>

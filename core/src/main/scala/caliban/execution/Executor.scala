@@ -5,6 +5,7 @@ import caliban.ResponseValue._
 import caliban.Value._
 import caliban._
 import caliban.execution.Fragment.IsDeferred
+import caliban.introspection.adt.__Type
 import caliban.parsing.adt._
 import caliban.schema.ReducedStep.DeferStep
 import caliban.schema.Step.{ PureStep => _, _ }
@@ -160,7 +161,7 @@ object Executor {
     }
 
     ZIO.suspendSucceed {
-      stepReducer.reduceStep(plan, request.field, Map.empty, Nil) match {
+      stepReducer.reduceStep(plan, request.field, Map.empty, Nil, request.field.fieldType) match {
         case PureStep(resp) => Exit.succeed(GraphQLResponse(resp, Nil))
         case reducedStep    => makeCache.flatMap(runQuery(reducedStep, _))
       }
@@ -181,7 +182,8 @@ object Executor {
       step: Step[R],
       currentField: Field,
       arguments: Map[String, InputValue],
-      path: List[PathValue]
+      path: List[PathValue],
+      fieldType: __Type
     ): ReducedStep[R] = {
 
       def reduceObjectStep(objectName: String, getFieldStep: String => Step[R]): ReducedStep[R] = {
@@ -190,7 +192,7 @@ object Executor {
           val fname       = f.name
           val field       =
             if (fname == "__typename") PureStep(StringValue(objectName))
-            else reduceStep(getFieldStep(fname), f, f.arguments, PathValue.Key(aliasedName) :: path)
+            else reduceStep(getFieldStep(fname), f, f.arguments, PathValue.Key(aliasedName) :: path, f.fieldType)
           (aliasedName, field, fieldInfo(f, aliasedName, path, f.directives))
         }
 
@@ -225,6 +227,10 @@ object Executor {
 
       def reduceListStep(steps: List[Step[R]]): ReducedStep[R] = {
 
+        val elementType      = Types.listOf(fieldType)
+        val areItemsNullable = elementType.exists(_.isNullable)
+        val itemType         = elementType.getOrElse(fieldType)
+
         def reduceToListStep(head: ReducedStep[R], remaining0: List[Step[R]]): ReducedStep[R] = {
           var i         = 1
           val nil       = Nil
@@ -233,20 +239,13 @@ object Executor {
           lb addOne head
           var remaining = remaining0
           while (remaining ne nil) {
-            val step = reduceStep(remaining.head, currentField, arguments, PathValue.Index(i) :: path)
+            val step = reduceStep(remaining.head, currentField, arguments, PathValue.Index(i) :: path, itemType)
             if (isPure && !step.isPure) isPure = false
             lb addOne step
             i += 1
             remaining = remaining.tail
           }
-          ReducedStep.ListStep(
-            lb.result(),
-            Types.listOf(currentField.fieldType) match {
-              case Some(tpe) => tpe.isNullable
-              case None      => false
-            },
-            isPure
-          )
+          ReducedStep.ListStep(lb.result(), areItemsNullable, isPure)
         }
 
         def reduceToPureStep(head: PureStep, remaining0: List[Step[R]]): ReducedStep[R] = {
@@ -256,7 +255,7 @@ object Executor {
           var remaining = remaining0
           lb addOne head.value
           while (remaining ne nil) {
-            val step = reduceStep(remaining.head, currentField, arguments, PathValue.Index(i) :: path)
+            val step = reduceStep(remaining.head, currentField, arguments, PathValue.Index(i) :: path, itemType)
             lb addOne step.asInstanceOf[PureStep].value
             i += 1
             remaining = remaining.tail
@@ -266,7 +265,7 @@ object Executor {
 
         if (steps.isEmpty) PureStep(ListValue(Nil))
         else {
-          reduceStep(steps.head, currentField, arguments, PathValue.Index(0) :: path) match {
+          reduceStep(steps.head, currentField, arguments, PathValue.Index(0) :: path, itemType) match {
             // In 99.99% of the cases, if the head is pure, all the other elements will be pure as well but we catch that error just in case
             // NOTE: Our entire test suite passes without catching the error
             case step: PureStep =>
@@ -278,7 +277,7 @@ object Executor {
       }
 
       def reduceQuery(q: ZQuery[R, Throwable, Step[R]]): ReducedStep[R] = {
-        def success(v: Step[R])       = reduceStep(v, currentField, arguments, path)
+        def success(v: Step[R])       = reduceStep(v, currentField, arguments, path, fieldType)
         def fail(e: Cause[Throwable]) = effectfulExecutionError(path, Some(currentField.locationInfo), e)
 
         q.asExitOrElse(null) match {
@@ -292,9 +291,10 @@ object Executor {
           ReducedStep.StreamStep(
             stream
               .mapErrorCause(effectfulExecutionError(path, Some(currentField.locationInfo), _))
-              .map(reduceStep(_, currentField, arguments, path))
+              .map(reduceStep(_, currentField, arguments, path, fieldType))
           )
         } else {
+          val itemType = Types.listOf(fieldType).getOrElse(fieldType)
           currentField match {
             case IsStream(label, Some(initialCount)) if initialCount > 0 && Feature.isStreamEnabled(flags) =>
               ReducedStep.QueryStep(
@@ -313,7 +313,7 @@ object Executor {
                       reduceListStep(initial.toList),
                       ReducedStep.StreamStep(
                         ZStream.acquireReleaseExitWith(ZIO.unit)((_, exit) => scope.close(exit)) *>
-                          remaining.map(reduceStep(_, currentField, arguments, path))
+                          remaining.map(reduceStep(_, currentField, arguments, path, itemType))
                       ),
                       label,
                       path,
@@ -324,11 +324,11 @@ object Executor {
               )
             case IsStream(label, _) if Feature.isStreamEnabled(flags)                                      =>
               ReducedStep.DeferStreamStep(
-                reduceStep(PureStep(ListValue(Nil)), currentField, arguments, path),
+                reduceStep(PureStep(ListValue(Nil)), currentField, arguments, path, fieldType),
                 ReducedStep.StreamStep(
                   stream
                     .mapErrorCause(effectfulExecutionError(path, Some(currentField.locationInfo), _))
-                    .map(reduceStep(_, currentField, arguments, path))
+                    .map(reduceStep(_, currentField, arguments, path, itemType))
                 ),
                 label,
                 path,
@@ -340,7 +340,8 @@ object Executor {
                 QueryStep(ZQuery.fromZIONow(stream.runCollect.map(chunk => ListStep(chunk.toList)))),
                 currentField,
                 arguments,
-                path
+                path,
+                fieldType
               )
           }
         }
@@ -353,12 +354,13 @@ object Executor {
         case s: PureStep                => s
         case s: QueryStep[R]            => reduceQuery(s.query)
         case s: ObjectStep[R]           => val t = transformer(s, currentField); reduceObjectStep(t.name, t.fields)
-        case s: FunctionStep[R]         => reduceStep(wrapFn(s.step, arguments), currentField, Map.empty, path)
-        case s: MetadataFunctionStep[R] => reduceStep(wrapFn(s.step, currentField), currentField, arguments, path)
+        case s: FunctionStep[R]         => reduceStep(wrapFn(s.step, arguments), currentField, Map.empty, path, fieldType)
+        case s: MetadataFunctionStep[R] =>
+          reduceStep(wrapFn(s.step, currentField), currentField, arguments, path, fieldType)
         case s: ListStep[R]             => reduceListStep(s.steps)
         case s: StreamStep[R]           => reduceStream(s.inner)
         case s: ExtensionStep[R]        =>
-          val inner = reduceStep(s.inner, currentField, arguments, path)
+          val inner = reduceStep(s.inner, currentField, arguments, path, fieldType)
           ReducedStep.ExtensionStep(inner, s.extensions)
       }
     }
