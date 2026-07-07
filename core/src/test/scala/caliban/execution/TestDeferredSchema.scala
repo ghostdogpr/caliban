@@ -77,7 +77,8 @@ object TestDeferredSchema extends SchemaDerivation[CharacterService with QuoteSe
   )
 
   case class Query(
-    character: CharacterArgs => URIO[CharacterService with QuoteService, Option[CharacterZIO]]
+    character: CharacterArgs => URIO[CharacterService with QuoteService, Option[CharacterZIO]],
+    characters: URIO[CharacterService with QuoteService, List[CharacterZIO]]
   )
 
   def character2CharacterZIO(ch: Character): CharacterZIO =
@@ -146,7 +147,10 @@ object TestDeferredSchema extends SchemaDerivation[CharacterService with QuoteSe
         character = args =>
           ZIO
             .serviceWithZIO[CharacterService](_.characterBy(_.name == args.name))
-            .map(_.headOption.map(character2CharacterZIO))
+            .map(_.headOption.map(character2CharacterZIO)),
+        characters = ZIO
+          .serviceWithZIO[CharacterService](_.characterBy(_ => true))
+          .map(_.map(character2CharacterZIO))
       )
     )
 

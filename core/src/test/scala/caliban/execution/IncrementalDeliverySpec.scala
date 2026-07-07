@@ -309,6 +309,49 @@ object IncrementalDeliverySpec extends ZIOSpecDefault {
           )
         )
       },
+      test("don't reject a root-level list field without @stream") {
+        val query = gqldoc("""
+        {
+           characters {
+             name
+           }
+        }
+          """)
+
+        for {
+          response <- interpreter.flatMap(_.execute(query))
+        } yield assertTrue(response.errors.isEmpty)
+      },
+      test("allow @stream on a root-level list field") {
+        val query = gqldoc("""
+        {
+           characters @stream(initialCount: 0) {
+             name
+           }
+        }
+          """)
+
+        for {
+          response <- interpreter.flatMap(_.execute(query))
+        } yield assertTrue(response.errors.isEmpty)
+      },
+      test("reject @stream on a non-list field") {
+        val query = gqldoc("""
+        {
+           character(name: "Roberta Draper") @stream {
+             name
+           }
+        }
+          """)
+
+        for {
+          response <- interpreter.flatMap(_.execute(query))
+          errors    = response.errors
+        } yield assertTrue(
+          errors.size == 1,
+          errors.head.is(_.subtype[ValidationError]).msg == "Stream directive was used on a non-list field"
+        )
+      },
       test("labels must be unique") {
         val query = gqldoc("""
         {
