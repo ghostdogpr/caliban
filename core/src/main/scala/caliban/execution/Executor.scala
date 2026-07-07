@@ -227,7 +227,6 @@ object Executor {
 
       def reduceListStep(steps: List[Step[R]]): ReducedStep[R] = {
 
-        // descend one list level so nested lists compute nullability at their own depth
         val elementType      = Types.listOf(fieldType)
         val areItemsNullable = elementType.exists(_.isNullable)
         val itemType         = elementType.getOrElse(fieldType)
@@ -295,7 +294,6 @@ object Executor {
               .map(reduceStep(_, currentField, arguments, path, fieldType))
           )
         } else {
-          // with @stream each streamed step is an item of the list field
           val itemType = Types.listOf(fieldType).getOrElse(fieldType)
           currentField match {
             case IsStream(label, Some(initialCount)) if initialCount > 0 && Feature.isStreamEnabled(flags) =>

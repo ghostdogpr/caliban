@@ -913,7 +913,6 @@ object ExecutionSpec extends ZIOSpecDefault {
         }
       },
       test("die inside a non-nullable item of a nested nullable list") {
-        // test: [[Int!]]! — a die in a non-null inner item bubbles to null the nullable inner list
         case class Queries(test: List[Task[List[UIO[Int]]]])
         val api         = graphQL(
           RootResolver(
