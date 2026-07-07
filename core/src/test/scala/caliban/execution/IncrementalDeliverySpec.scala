@@ -309,6 +309,129 @@ object IncrementalDeliverySpec extends ZIOSpecDefault {
           )
         )
       },
+      test("don't reject a root-level list field without @stream") {
+        val query = gqldoc("""
+        {
+           characters {
+             name
+           }
+        }
+          """)
+
+        for {
+          response <- interpreter.flatMap(_.execute(query))
+        } yield assertTrue(response.errors.isEmpty)
+      },
+      test("allow @stream on a root-level list field") {
+        val query = gqldoc("""
+        {
+           characters @stream(initialCount: 0) {
+             name
+           }
+        }
+          """)
+
+        for {
+          response <- interpreter.flatMap(_.execute(query))
+        } yield assertTrue(response.errors.isEmpty)
+      },
+      test("reject @stream on a non-list field") {
+        val query = gqldoc("""
+        {
+           character(name: "Roberta Draper") @stream {
+             name
+           }
+        }
+          """)
+
+        for {
+          response <- interpreter.flatMap(_.execute(query))
+          errors    = response.errors
+        } yield assertTrue(
+          errors.size == 1,
+          errors.head.is(_.subtype[ValidationError]).msg == "Stream directive was used on a non-list field"
+        )
+      },
+      test("reject @stream on a nested non-list field") {
+        val query = gqldoc("""
+        {
+           character(name: "Roberta Draper") {
+             name @stream
+           }
+        }
+          """)
+
+        for {
+          response <- interpreter.flatMap(_.execute(query))
+          errors    = response.errors
+        } yield assertTrue(
+          errors.size == 1,
+          errors.head.is(_.subtype[ValidationError]).msg == "Stream directive was used on a non-list field"
+        )
+      },
+      test("reject @stream on a non-list field inside an anonymous inline fragment") {
+        val query = gqldoc("""
+        {
+           character(name: "Roberta Draper") {
+             ... {
+               name @stream
+             }
+           }
+        }
+          """)
+
+        for {
+          response <- interpreter.flatMap(_.execute(query))
+          errors    = response.errors
+        } yield assertTrue(
+          errors.size == 1,
+          errors.head.is(_.subtype[ValidationError]).msg == "Stream directive was used on a non-list field"
+        )
+      },
+      test("reject @stream on a non-list field inside a typed inline fragment on a subtype") {
+        val query = gqldoc("""
+        {
+           character(name: "James Holden") {
+             role {
+               ... on Pilot {
+                 shipName @stream
+               }
+             }
+           }
+        }
+          """)
+
+        for {
+          response <- interpreter.flatMap(_.execute(query))
+          errors    = response.errors
+        } yield assertTrue(
+          errors.size == 1,
+          errors.head.is(_.subtype[ValidationError]).msg == "Stream directive was used on a non-list field"
+        )
+      },
+      test("reject @stream on a non-list field inside a named fragment on a subtype") {
+        val query = gqldoc("""
+        {
+           character(name: "James Holden") {
+             role {
+               ...RoleFields
+             }
+           }
+        }
+
+        fragment RoleFields on Pilot {
+          shipName @stream
+        }
+          """)
+
+        for {
+          response <- interpreter.flatMap(_.execute(query))
+          errors    = response.errors
+        } yield assertTrue(
+          errors.size == 1,
+          errors.head.is(_.subtype[ValidationError]).msg == "Stream directive was used on a non-list field"
+        )
+      },
       test("labels must be unique") {
         val query = gqldoc("""
         {
