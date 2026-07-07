@@ -369,6 +369,25 @@ object IncrementalDeliverySpec extends ZIOSpecDefault {
           errors.head.is(_.subtype[ValidationError]).msg == "Stream directive was used on a non-list field"
         )
       },
+      test("reject @stream on a non-list field inside an anonymous inline fragment") {
+        val query = gqldoc("""
+        {
+           character(name: "Roberta Draper") {
+             ... {
+               name @stream
+             }
+           }
+        }
+          """)
+
+        for {
+          response <- interpreter.flatMap(_.execute(query))
+          errors    = response.errors
+        } yield assertTrue(
+          errors.size == 1,
+          errors.head.is(_.subtype[ValidationError]).msg == "Stream directive was used on a non-list field"
+        )
+      },
       test("labels must be unique") {
         val query = gqldoc("""
         {

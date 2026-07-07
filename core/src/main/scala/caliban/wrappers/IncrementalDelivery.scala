@@ -90,7 +90,7 @@ object IncrementalDelivery {
           if (dirs.exists(_.name == Directives.Stream))
             Left(CalibanError.ValidationError("Stream directive was used on an inline fragment", ""))
           else {
-            if (typeCondition.exists(_.name.contains(currentType.typeNameRepr)))
+            if (typeCondition.forall(_.name.contains(currentType.typeNameRepr)))
               validateFields(selectionSet, currentType)
             else Right(())
           }
