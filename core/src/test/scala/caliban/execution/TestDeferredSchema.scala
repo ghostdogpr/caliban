@@ -73,7 +73,8 @@ object TestDeferredSchema extends SchemaDerivation[CharacterService with QuoteSe
     origin: Origin,
     role: Option[Role],
     connections: ConnectionArgs => URIO[CharacterService with QuoteService, List[CharacterZIO]],
-    quotes: ZStream[CharacterService with QuoteService, Nothing, Quote] = ZStream.empty
+    quotes: ZStream[CharacterService with QuoteService, Nothing, Quote] = ZStream.empty,
+    counters: ZStream[Any, Nothing, Int] = ZStream.empty
   )
 
   case class Query(
@@ -112,7 +113,8 @@ object TestDeferredSchema extends SchemaDerivation[CharacterService with QuoteSe
           q.from,
           ZIO.succeed(character2CharacterZIO(ch))
         )
-      })
+      }),
+      counters = ZStream.fromIterable(0 to 3).rechunk(1)
     )
 
   implicit val characterArgsSchema: Schema[CharacterService with QuoteService, CharacterArgs] =
@@ -135,7 +137,8 @@ object TestDeferredSchema extends SchemaDerivation[CharacterService with QuoteSe
         field("origin")(_.origin),
         field("role")(_.role),
         fieldWithArgs("connections")(_.connections),
-        field("quotes")(_.quotes)
+        field("quotes")(_.quotes),
+        field("counters")(_.counters)
       )
     )
   implicit val querySchema: Schema[CharacterService with QuoteService, Query]                 =

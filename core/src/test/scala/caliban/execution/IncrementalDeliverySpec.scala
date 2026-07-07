@@ -284,6 +284,30 @@ object IncrementalDeliverySpec extends ZIOSpecDefault {
           )
         )
       },
+      test("advance the path index across stream chunks") {
+        val query = gqldoc("""
+        {
+           character(name: "Roberta Draper") {
+             counters @stream(label: "counters", initialCount: 1)
+           }
+        }
+          """)
+
+        for {
+          response <- interpreter.flatMap(_.execute(query))
+          data     <- runIncrementalResponses(response)
+          head      = data.map(_.toString)
+        } yield assertTrue(
+          data.size == 5,
+          head == Chunk(
+            """{"data":{"character":{"counters":[0]}},"hasNext":true}""",
+            """{"incremental":[{"items":[1],"path":["character","counters",1],"label":"counters"}],"hasNext":true}""",
+            """{"incremental":[{"items":[2],"path":["character","counters",2],"label":"counters"}],"hasNext":true}""",
+            """{"incremental":[{"items":[3],"path":["character","counters",3],"label":"counters"}],"hasNext":true}""",
+            """{"hasNext":false}"""
+          )
+        )
+      },
       test("validate step occurs on on lists only") {
         val query = gqldoc("""
         {
