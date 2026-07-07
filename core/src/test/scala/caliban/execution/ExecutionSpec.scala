@@ -912,6 +912,27 @@ object ExecutionSpec extends ZIOSpecDefault {
           assertTrue(response.data.toString == """{"test":null}""")
         }
       },
+      test("die inside a non-nullable item of a nested nullable list") {
+        case class Queries(test: List[Task[List[UIO[Int]]]])
+        val api         = graphQL(
+          RootResolver(
+            Queries(
+              List(
+                ZIO.succeed(List(ZIO.succeed(1), ZIO.succeed(2))),
+                ZIO.succeed(List(ZIO.succeed(3), ZIO.die(new Exception("Boom"))))
+              )
+            )
+          )
+        )
+        val interpreter = api.interpreter
+        val query       =
+          """query{
+            |  test
+            |}""".stripMargin
+        interpreter.flatMap(_.execute(query)).map { response =>
+          assertTrue(response.data.toString == """{"test":[[1,2],null]}""")
+        }
+      },
       test("fake field") {
         sealed trait A
         object A {

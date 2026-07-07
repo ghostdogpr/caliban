@@ -786,7 +786,9 @@ lazy val enableMimaSettingsJVM =
     mimaPreviousArtifacts  := previousStableVersion.value.map(organization.value %% moduleName.value % _).toSet,
     mimaBinaryIssueFilters := Seq(
       ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.*.<clinit>"),
-      ProblemFilters.exclude[DirectMissingMethodProblem]("mdg.engine.proto.reports.*.<clinit>")
+      ProblemFilters.exclude[DirectMissingMethodProblem]("mdg.engine.proto.reports.*.<clinit>"),
+      // private internal method; extra param added to fix nested-list null propagation
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.execution.Executor#StepReducer.reduceStep")
     )
   )
 
