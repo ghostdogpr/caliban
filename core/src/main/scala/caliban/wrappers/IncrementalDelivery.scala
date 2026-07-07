@@ -5,6 +5,7 @@ import caliban.introspection.adt.{ __Directive, __Type }
 import caliban.parsing.adt.Definition.ExecutableDefinition.FragmentDefinition
 import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
 import caliban.parsing.adt._
+import caliban.validation.Utils
 import caliban.validation.ValidationOps.validateAllDiscard
 import caliban.validation.Validator.{ failValidation, QueryValidation }
 import caliban.wrappers.Wrapper.ValidationWrapper
@@ -89,16 +90,13 @@ object IncrementalDelivery {
         case InlineFragment(typeCondition, dirs, selectionSet) =>
           if (dirs.exists(_.name == Directives.Stream))
             Left(CalibanError.ValidationError("Stream directive was used on an inline fragment", ""))
-          else {
-            if (typeCondition.forall(_.name.contains(currentType.typeNameRepr)))
-              validateFields(selectionSet, currentType)
-            else Right(())
-          }
+          else
+            validateFields(selectionSet, Utils.getType(typeCondition, currentType, context))
 
       }
 
     def validateSpread(fragment: FragmentDefinition, currentType: __Type): Either[CalibanError.ValidationError, Unit] =
-      validateFields(fragment.selectionSet, currentType)
+      validateFields(fragment.selectionSet, Utils.getType(Some(fragment.typeCondition), currentType, context))
 
     def validateField(field: Field, currentType: __Type): Either[CalibanError.ValidationError, Unit] = {
       val selected  = currentType.allFields.find(_.name == field.name)
