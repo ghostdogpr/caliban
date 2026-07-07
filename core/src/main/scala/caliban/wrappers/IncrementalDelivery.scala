@@ -103,11 +103,19 @@ object IncrementalDelivery {
     def validateField(field: Field, currentType: __Type): Either[CalibanError.ValidationError, Unit] = {
       val selected  = currentType.allFields.find(_.name == field.name)
       val hasStream = field.directives.exists(_.name == Directives.Stream)
-      Either.cond(
-        !hasStream || selected.forall(_._type.isList),
-        (),
-        CalibanError.ValidationError("Stream directive was used on a non-list field", "")
-      )
+      Either
+        .cond(
+          !hasStream || selected.forall(_._type.isList),
+          (),
+          CalibanError.ValidationError("Stream directive was used on a non-list field", "")
+        )
+        .flatMap { _ =>
+          if (field.selectionSet.isEmpty) Right(())
+          else
+            selected.fold[Either[CalibanError.ValidationError, Unit]](Right(()))(s =>
+              validateFields(field.selectionSet, s._type.innerType)
+            )
+        }
     }
 
     validateAllDiscard(context.operations) { op =>
