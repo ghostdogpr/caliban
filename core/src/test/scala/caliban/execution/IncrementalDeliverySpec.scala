@@ -393,7 +393,7 @@ object IncrementalDeliverySpec extends ZIOSpecDefault {
         {
            character(name: "James Holden") {
              role {
-               ... on Captain {
+               ... on Pilot {
                  shipName @stream
                }
              }
@@ -419,7 +419,7 @@ object IncrementalDeliverySpec extends ZIOSpecDefault {
            }
         }
 
-        fragment RoleFields on Captain {
+        fragment RoleFields on Pilot {
           shipName @stream
         }
           """)
