@@ -128,12 +128,12 @@ trait ArgBuilderInstances extends ArgBuilderDerivation {
     case other           => Left(InvalidInputArgument("BigInt", other))
   }
   implicit lazy val float: ArgBuilder[Float]           = {
-    case value: IntValue   => Right(value.toLong.toFloat)
+    case value: IntValue   => Right(value.toBigInt.toFloat)
     case value: FloatValue => Right(value.toFloat)
     case other             => Left(InvalidInputArgument("Float", other))
   }
   implicit lazy val double: ArgBuilder[Double]         = {
-    case value: IntValue   => Right(value.toLong.toDouble)
+    case value: IntValue   => Right(value.toBigInt.toDouble)
     case value: FloatValue => Right(value.toDouble)
     case other             => Left(InvalidInputArgument("Double", other))
   }
