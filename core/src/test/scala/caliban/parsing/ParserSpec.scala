@@ -230,6 +230,21 @@ object ParserSpec extends ZIOSpecDefault {
           Parser.parseInputValue(str(bs + "u{DEAD}")).isLeft
         )
       },
+      test("string literals mixing character runs and escapes") {
+        val bs                 = "\\"
+        def str(inner: String) = "\"" + inner + "\""
+        assertTrue(
+          Parser.parseInputValue(str("")) == Right(StringValue("")),
+          Parser.parseInputValue(str("hello world")) == Right(StringValue("hello world")),
+          Parser.parseInputValue(str("a" + bs + "nb" + bs + "tc")) == Right(StringValue("a\nb\tc")),
+          Parser.parseInputValue(str(bs + "\"leading")) == Right(StringValue("\"leading")),
+          Parser.parseInputValue(str("trailing" + bs + bs)) == Right(StringValue("trailing\\")),
+          Parser.parseInputValue(str(bs + "n" + bs + "t")) == Right(StringValue("\n\t")),
+          Parser.parseInputValue(str("run " + bs + "u0041 run")) == Right(StringValue("run A run")),
+          Parser.parseInputValue(str("with\ttab")) == Right(StringValue("with\ttab")),
+          Parser.parseInputValue("\"raw\nnewline\"").isLeft
+        )
+      },
       test("enum values whose names start with a keyword") {
         val cases = List(
           "trueStory" -> EnumValue("trueStory"),
