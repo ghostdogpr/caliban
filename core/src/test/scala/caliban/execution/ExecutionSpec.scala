@@ -207,6 +207,27 @@ object ExecutionSpec extends ZIOSpecDefault {
           assertTrue(resp == """{"data":{"test":{"field1":"1234"}}}""")
         }
       },
+      test("same fragment spread twice with different @include directives") {
+        case class TestQuery(field1: String, field2: String)
+        case class Query(test: TestQuery)
+        val api = graphQL(RootResolver(Query(TestQuery(field1 = "1234", field2 = "5421"))))
+
+        val query =
+          """
+            |query ($cond: Boolean!) {
+            | test {
+            |   ...F @include(if: false)
+            |   ...F @include(if: $cond)
+            | }
+            |}
+            |fragment F on TestQuery { field1 }
+            |""".stripMargin
+
+        api.interpreter.flatMap(_.execute(query, None, Map("cond" -> BooleanValue(true)))).map { response =>
+          val resp = writeToString(response)
+          assertTrue(resp == """{"data":{"test":{"field1":"1234"}}}""")
+        }
+      },
       test("respects variables that are not provided") {
         sealed trait ThreeState
         object ThreeState {
