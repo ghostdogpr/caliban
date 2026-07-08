@@ -306,6 +306,24 @@ object ValidationSpec extends ZIOSpecDefault {
              }""")
         check(query, "Required field 'nicknames' on object 'CharacterInput' was not provided.")
       },
+      test("reject unknown input field inside a list argument") {
+        import caliban.schema.Schema.auto._
+        import caliban.schema.ArgBuilder.auto._
+
+        case class MyInput(a: Int)
+        case class Args(items: List[MyInput])
+        case class Query(field: Args => Int)
+
+        val gql   = graphQL(RootResolver(Query(_.items.size)))
+        val query = gqldoc("""query { field(items: [{ a: 1, bogus: 2 }]) }""")
+        for {
+          int <- gql.interpreter
+          res <- int.execute(query)
+        } yield assertTrue(
+          res.errors.collectFirst { case e: ValidationError => e.msg }
+            .exists(_.contains("Input field 'bogus' is not defined"))
+        )
+      },
       test("directive used in wrong location") {
         val query = gqldoc("""
              query @skip(if: true) {
