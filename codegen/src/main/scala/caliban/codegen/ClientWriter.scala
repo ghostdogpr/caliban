@@ -134,7 +134,9 @@ object ClientWriter {
       commonInterface: Boolean
     ): FieldInfo = {
       val description                                      = field.description match {
-        case Some(d) if d.trim.nonEmpty => s"/**\n * ${d.trim}\n */\n"
+        case Some(d) if d.trim.nonEmpty =>
+          val safe = d.trim.replace("*/", "* /").replace("/*", "/ *")
+          s"/**\n * $safe\n */\n"
         case _                          => ""
       }
       val deprecated                                       = field.directives.find(_.name == "deprecated") match {
@@ -728,7 +730,7 @@ object ClientWriter {
 
       val enumCases = typedef.enumValuesDefinition
         .map(v =>
-          s"case object ${safeEnumValue(v.enumValue)} extends $enumName { val value: String = ${"\"" + safeEnumValue(v.enumValue) + "\""} }"
+          s"""case object ${safeEnumValue(v.enumValue)} extends $enumName { val value: String = "${v.enumValue}" }"""
         ) ++
         (if (extensibleEnums) Some(s"final case class __Unknown(value: String) extends $enumName") else None)
 
@@ -737,8 +739,8 @@ object ClientWriter {
         (if (extensibleEnums) Some(s"case __StringValue (other) => Right($enumName.__Unknown(other))") else None)
 
       val encoderCases = typedef.enumValuesDefinition
-        .map(v => s"""case ${typedef.name}.${safeEnumValue(v.enumValue)} => __EnumValue("${v.enumValue}")""") ++
-        (if (extensibleEnums) Some(s"case ${typedef.name}.__Unknown (value) => __EnumValue(value)") else None)
+        .map(v => s"""case $enumName.${safeEnumValue(v.enumValue)} => __EnumValue("${v.enumValue}")""") ++
+        (if (extensibleEnums) Some(s"case $enumName.__Unknown (value) => __EnumValue(value)") else None)
 
       val enumObject =
         if (typedef.enumValuesDefinition.nonEmpty) {
@@ -750,7 +752,7 @@ object ClientWriter {
               ${decoderCases.mkString("\n")}
               case other => Left(DecodingError(s"Can't build ${typedef.name} from input $$other"))
             }
-            implicit val encoder: ArgEncoder[${typedef.name}] = {
+            implicit val encoder: ArgEncoder[$enumName] = {
               ${encoderCases.mkString("\n")}
             }
 
