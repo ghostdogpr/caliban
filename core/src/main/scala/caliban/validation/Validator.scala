@@ -658,13 +658,13 @@ object Validator {
     argValue match {
       case InputValue.ObjectValue(fields) if inputType.kind == __TypeKind.INPUT_OBJECT =>
         validateAllDiscard(fields) { (k, v) =>
-          inputFields.find(_.name == k) match {
-            case None        =>
+          inputType.getInputFieldOrNull(k) match {
+            case null  =>
               failValidation(
                 s"Input field '$k' is not defined on type '${inputType.name.getOrElse("?")}'.",
                 "Every input field provided in an input object value must be defined in the set of possible fields of that input object’s expected type."
               )
-            case Some(value) =>
+            case value =>
               validateInputValues(
                 value,
                 v,

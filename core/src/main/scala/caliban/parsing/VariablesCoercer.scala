@@ -177,11 +177,10 @@ object VariablesCoercer {
       case __TypeKind.INPUT_OBJECT =>
         value match {
           case InputValue.ObjectValue(fields) =>
-            val defs = typ.allInputFields
             foreachObjectField(fields) { (k, v) =>
-              defs.find(_.name == k) match {
-                case Some(field) => coerceValues(v, field._type, s"$context at field '${field.name}'")
-                case _           => failValidation(s"$context field '$k' does not exist", coercionDescription)
+              typ.getInputFieldOrNull(k) match {
+                case null  => failValidation(s"$context field '$k' does not exist", coercionDescription)
+                case field => coerceValues(v, field._type, s"$context at field '${field.name}'")
               }
             }
           case v                              =>
