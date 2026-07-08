@@ -149,19 +149,19 @@ object IncrementalDelivery {
 
       @tailrec
       def allLabelsUnique(selections: List[Selection]): Boolean = selections match {
-        case Selection.Field(_, _, _, directives, children, _) :: rest if Feature.isStreamEnabled(flags)    =>
-          val label = extractLabel(directives, Directives.Stream)
+        case Selection.Field(_, _, _, directives, children, _) :: rest     =>
+          val label = if (Feature.isStreamEnabled(flags)) extractLabel(directives, Directives.Stream) else None
 
           isLabelUnique(label) && allLabelsUnique(rest ++ children)
-        case Selection.InlineFragment(_, directives, selectionSet) :: rest if Feature.isDeferEnabled(flags) =>
-          val label = extractLabel(directives, Directives.Defer)
+        case Selection.InlineFragment(_, directives, selectionSet) :: rest =>
+          val label = if (Feature.isDeferEnabled(flags)) extractLabel(directives, Directives.Defer) else None
 
           isLabelUnique(label) && allLabelsUnique(rest ++ selectionSet)
-        case Selection.FragmentSpread(name, directives) :: rest if Feature.isDeferEnabled(flags)            =>
-          val label = extractLabel(directives, Directives.Defer)
+        case Selection.FragmentSpread(name, directives) :: rest            =>
+          val label = if (Feature.isDeferEnabled(flags)) extractLabel(directives, Directives.Defer) else None
 
           isLabelUnique(label) && allLabelsUnique(rest ++ context.fragments(name).selectionSet)
-        case _                                                                                              => true
+        case _                                                             => true
       }
 
       if (!allLabelsUnique(context.operations.flatMap(_.selectionSet))) {
