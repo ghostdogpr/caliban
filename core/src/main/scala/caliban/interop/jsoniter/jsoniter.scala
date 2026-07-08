@@ -210,8 +210,8 @@ private[caliban] object ValueJsoniter {
     if (b == '-') b = in.nextByte()
     try
       while (b >= '0' && b <= '9') {
-        b = in.nextByte()
         digits += 1
+        b = in.nextByte()
       }
     catch {
       case _: JsonReaderException => // ignore the end of input error for now

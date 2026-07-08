@@ -4,7 +4,7 @@ import caliban.CalibanError.ExecutionError
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ IntValue, StringValue }
 import caliban.parsing.adt.LocationInfo
-import caliban.{ CalibanError, GraphQLResponse, PathValue, TestUtils }
+import caliban.{ CalibanError, GraphQLResponse, PathValue, ResponseValue, TestUtils }
 import com.github.plokhotnyuk.jsoniter_scala.core._
 import zio.test.Assertion.equalTo
 import zio.test.{ assert, assertTrue, ZIOSpecDefault }
@@ -98,6 +98,14 @@ object GraphQLResponseJsoniterSpec extends ZIOSpecDefault {
       test("should correctly write keys containing UTF-8") {
         val response = GraphQLResponse(ObjectValue(List("utf8〜key" -> StringValue("any"))), Nil)
         assertTrue(writeToString(response) == """{"data":{"utf8〜key":"any"}}""")
+      },
+      test("decodes a bare out-of-Int/Long-range integer at end of input [jsoniter]") {
+        assertTrue(
+          readFromString[ResponseValue]("3000000000") == IntValue.LongNumber(3000000000L),
+          readFromString[ResponseValue]("9999999999999999999") ==
+            IntValue.BigIntNumber(BigInt("9999999999999999999")),
+          readFromString[ResponseValue]("[3000000000]") == ListValue(List(IntValue.LongNumber(3000000000L)))
+        )
       }
     )
 }
