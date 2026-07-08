@@ -202,6 +202,15 @@ object RenderingSpec extends ZIOSpecDefault {
           renderedType == "\n\"\"\"\nA multiline \"TestType\" description\ngiven inside \\\"\"\"-quotes\n\n\"\"\"\ntype TestType\n"
         )
       },
+      test("it should render a compact block-string description ending in backslash-quote as parseable SDL") {
+        val testType = __Type(
+          __TypeKind.SCALAR,
+          name = Some("TestType"),
+          description = Some("A multiline description\nending in \\\"")
+        )
+        val rendered = DocumentRenderer.typesRenderer.renderCompact(List(testType))
+        assertTrue(Parser.parseQuery(rendered).isRight)
+      },
       test("it should render single line descriptions") {
         val api = graphQL(resolver)
         checkApi(api)

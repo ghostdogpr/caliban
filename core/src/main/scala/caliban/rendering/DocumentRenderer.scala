@@ -103,16 +103,10 @@ object DocumentRenderer extends Renderer[Document] {
             def valueEscaped(): Unit = unsafeFastEscapeQuote(value, writer)
 
             writer append tripleQuote
-            // check if it ends in quote but it is already escaped
-            if (value.endsWith("\\\"")) {
-              newlineOrEmpty(indent, writer)
-              valueEscaped()
-              newlineOrEmpty(indent, writer)
-            } else if (value.last == '"') {
+            if (value.last == '"') {
               newlineOrEmpty(indent, writer)
               valueEscaped()
               newlineOrSpace(indent, writer)
-              // check if it ends in quote. We need to break the sequence of 4 or more '"'
             } else {
               // ok. No quotes at the end of value
               newlineOrEmpty(indent, writer)
