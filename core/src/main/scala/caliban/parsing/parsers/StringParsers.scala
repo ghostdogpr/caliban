@@ -64,6 +64,7 @@ private[caliban] trait StringParsers {
       else ev.freshSuccess(s)
     }
   def nameOnly(implicit ev: P[Any]): P[String]                           = Start ~ name ~ End
+  def nameContinue(implicit ev: P[Any]): P[Unit]                         = CharIn("_0-9A-Za-z")
 
   def hexDigit(implicit ev: P[Any]): P[Unit]         = CharIn("0-9a-fA-F")
   def escapedUnicode(implicit ev: P[Any]): P[String] =
