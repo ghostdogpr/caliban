@@ -60,6 +60,16 @@ object ArgBuilderSpec extends ZIOSpecDefault {
         )
       )
     ),
+    suite("float/double")(
+      test("Double from an out-of-Long-range integer literal is not truncated") {
+        val big = BigInt("99999999999999999999")
+        assert(ArgBuilder.double.build(IntValue.BigIntNumber(big)))(isRight(equalTo(big.toDouble)))
+      },
+      test("Float from an out-of-Long-range integer literal is not truncated") {
+        val big = BigInt("99999999999999999999")
+        assert(ArgBuilder.float.build(IntValue.BigIntNumber(big)))(isRight(equalTo(big.toFloat)))
+      }
+    ),
     suite("java.time")(
       test("Instant from epoch")(
         assert(ArgBuilder.instantEpoch.build(IntValue.LongNumber(100)))(
