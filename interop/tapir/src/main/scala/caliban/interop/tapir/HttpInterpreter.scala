@@ -2,6 +2,7 @@ package caliban.interop.tapir
 
 import caliban._
 import caliban.interop.tapir.TapirAdapter._
+import com.github.plokhotnyuk.jsoniter_scala.core.writeToString
 import sttp.capabilities.Streams
 import sttp.model.{ headers => _, _ }
 import sttp.monad.MonadError
@@ -128,19 +129,29 @@ object HttpInterpreter {
   def apply[R, E](interpreter: GraphQLInterpreter[R, E]): HttpInterpreter[R, E] =
     Base(interpreter)
 
+  private[tapir] def queryFromQueryParams(queryParams: QueryParams): DecodeResult[GraphQLRequest] =
+    for {
+      req <- JsonCodecs.requestCodec.decode(s"""{"query":"","variables":${queryParams
+                 .get("variables")
+                 .getOrElse("null")},"extensions":${queryParams
+                 .get("extensions")
+                 .getOrElse("null")}}""")
+
+    } yield req.copy(query = queryParams.get("query"), operationName = queryParams.get("operationName"))
+
+  private[tapir] def queryToQueryParams(request: GraphQLRequest): QueryParams =
+    QueryParams.fromMap(
+      Map(
+        "query"         -> request.query.getOrElse(""),
+        "operationName" -> request.operationName.getOrElse(""),
+        "variables"     -> request.variables.fold("")(vs => writeToString[InputValue](InputValue.ObjectValue(vs))),
+        "extensions"    -> request.extensions.fold("")(es => writeToString[InputValue](InputValue.ObjectValue(es)))
+      ).filter { case (_, v) => v.nonEmpty }
+    )
+
   def makeHttpEndpoints[S](
     streams: Streams[S]
   ): List[PublicEndpoint[(GraphQLRequest, ServerRequest), TapirResponse, CalibanResponse[streams.BinaryStream], S]] = {
-    def queryFromQueryParams(queryParams: QueryParams): DecodeResult[GraphQLRequest] =
-      for {
-        req <- JsonCodecs.requestCodec.decode(s"""{"query":"","variables":${queryParams
-                   .get("variables")
-                   .getOrElse("null")},"extensions":${queryParams
-                   .get("extensions")
-                   .getOrElse("null")}}""")
-
-      } yield req.copy(query = queryParams.get("query"), operationName = queryParams.get("operationName"))
-
     def checkRequest(request: GraphQLRequest): DecodeResult[GraphQLRequest] =
       if (request.isEmpty) DecodeResult.Missing else DecodeResult.Value(request)
 
@@ -177,20 +188,7 @@ object HttpInterpreter {
       : PublicEndpoint[(GraphQLRequest, ServerRequest), TapirResponse, CalibanResponse[streams.BinaryStream], S] =
       endpoint.get
         .in(
-          queryParams.mapDecode(queryFromQueryParams(_).flatMap(checkRequest))(request =>
-            QueryParams.fromMap(
-              Map(
-                "query"         -> request.query.getOrElse(""),
-                "operationName" -> request.operationName.getOrElse(""),
-                "variables"     -> request.variables
-                  .map(_.map { case (k, v) => s""""$k":${v.toInputString}""" }.mkString("{", ",", "}"))
-                  .getOrElse(""),
-                "extensions"    -> request.extensions
-                  .map(_.map { case (k, v) => s""""$k":${v.toInputString}""" }.mkString("{", ",", "}"))
-                  .getOrElse("")
-              ).filter { case (_, v) => v.nonEmpty }
-            )
-          )
+          queryParams.mapDecode(queryFromQueryParams(_).flatMap(checkRequest))(queryToQueryParams)
         )
         .in(extractFromRequest(identity))
         .out(header[MediaType](HeaderNames.ContentType))
