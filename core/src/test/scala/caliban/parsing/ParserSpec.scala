@@ -212,6 +212,9 @@ object ParserSpec extends ZIOSpecDefault {
           )
         }
       },
+      test("block string with lone carriage-return line terminators") {
+        assertTrue(Parser.parseInputValue("\"\"\"a\r    b\"\"\"") == Right(StringValue("a\nb")))
+      },
       test("variables") {
         val query = """query getZuckProfile($devicePicSize: Int = 60) {
                       |  user(id: 4) {
