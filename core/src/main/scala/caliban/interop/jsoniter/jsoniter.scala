@@ -205,26 +205,24 @@ private[caliban] object ValueJsoniter {
 
   private val numberParser: JsonReader => Value = in => {
     in.setMark()
-    var digits = 0
+
     var b      = in.nextByte()
     if (b == '-') b = in.nextByte()
-    try
-      while (b >= '0' && b <= '9') {
+    var digits = 0
+    while (
+      (b >= '0' && b <= '9') && {
         digits += 1
-        b = in.nextByte()
+        in.hasRemaining()
       }
-    catch {
-      case _: JsonReaderException => // ignore the end of input error for now
-    }
+    ) b = in.nextByte()
     in.rollbackToMark()
 
     if ((b | 0x20) != 'e' && b != '.') {
-      if (digits < 19) {
-        if (digits < 10) Value.IntValue.IntNumber(in.readInt())
-        else Value.IntValue.LongNumber(in.readLong())
-      } else {
+      if (digits < 10) Value.IntValue.IntNumber(in.readInt())
+      else if (digits < 19) Value.IntValue.LongNumber(in.readLong())
+      else {
         val x = in.readBigInt(null)
-        if (x.bitLength < 64) Value.IntValue.LongNumber(x.longValue)
+        if (x.isValidLong) Value.IntValue.LongNumber(x.longValue)
         else Value.IntValue.BigIntNumber(x.bigInteger)
       }
     } else Value.FloatValue.BigDecimalNumber(in.readBigDecimal(null).bigDecimal)
