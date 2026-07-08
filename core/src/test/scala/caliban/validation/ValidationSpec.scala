@@ -236,6 +236,19 @@ object ValidationSpec extends ZIOSpecDefault {
               }""")
         check(query, "Directive 'yolo' is not supported.")
       },
+      test("directive missing required argument") {
+        val query = gqldoc("""
+             query {
+               characters {
+                 name @include
+               }
+              }""")
+        execute(query).map(e =>
+          assertTrue(
+            e.exists(_.msg.contains("Required argument 'if' is null or missing on directive 'include'"))
+          )
+        )
+      },
       test("variable defined twice") {
         val query = gqldoc("""
              query($name: String, $name: String) {
