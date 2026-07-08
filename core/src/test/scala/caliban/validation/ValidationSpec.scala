@@ -306,6 +306,28 @@ object ValidationSpec extends ZIOSpecDefault {
              }""")
         check(query, "Required field 'nicknames' on object 'CharacterInput' was not provided.")
       },
+      test("integer literal is accepted for an ID argument") {
+        import caliban.schema.Schema.auto._
+        import caliban.schema.ArgBuilder.auto._
+
+        case class Id(value: String)
+        implicit val idSchema: Schema[Any, Id]    =
+          Schema.scalarSchema("ID", None, None, None, (id: Id) => StringValue(id.value))
+        implicit val idArgBuilder: ArgBuilder[Id] = {
+          case StringValue(v) => Right(Id(v))
+          case i: IntValue    => Right(Id(i.toInt.toString))
+          case other          => Left(ExecutionError(s"Can't build an Id from $other"))
+        }
+        case class Args(id: Id)
+        case class Query(node: Args => String)
+
+        val api   = graphQL(RootResolver(Query(_.id.value)))
+        val query = gqldoc("""query { node(id: 4) }""")
+        for {
+          int <- api.interpreter
+          res <- int.execute(query)
+        } yield assertTrue(res.errors.isEmpty, res.data.toString == """{"node":"4"}""")
+      },
       test("directive used in wrong location") {
         val query = gqldoc("""
              query @skip(if: true) {
