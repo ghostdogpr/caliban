@@ -28,7 +28,9 @@ object json {
       case EnumValue(value)               => Json.Str(value)
       case BooleanValue(value)            => Json.Bool(value)
       case StringValue(value)             => Json.Str(value)
-      case x: IntValue                    => Json.Num(BigDecimal(x.toBigInt))
+      case IntValue.IntNumber(value)      => Json.Num(BigDecimal(value))
+      case IntValue.LongNumber(value)     => Json.Num(BigDecimal(value))
+      case IntValue.BigIntNumber(value)   => Json.Num(BigDecimal(value))
       case x: FloatValue                  => Json.Num(x.toBigDecimal)
       case Value.NullValue                => Json.Null
     }

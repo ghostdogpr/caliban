@@ -71,6 +71,15 @@ object JsonAdtSpec extends ZIOSpecDefault {
           },
           test("ArgBuilder") {
             json.jsonArgBuilder.build(input).map(resp => assertTrue(resp == jsonV))
+          },
+          test("decodes non-integral and out-of-Int-range numbers as Float") {
+            assertTrue(
+              json.jsonSchema.resolve(JsNumber(BigDecimal(42))) == PureStep(Value.IntValue(42)),
+              json.jsonSchema.resolve(JsNumber(BigDecimal("3.14"))) ==
+                PureStep(Value.FloatValue(BigDecimal("3.14"))),
+              json.jsonSchema.resolve(JsNumber(BigDecimal("3000000000"))) ==
+                PureStep(Value.FloatValue(BigDecimal("3000000000")))
+            )
           }
         )
       },
@@ -94,6 +103,27 @@ object JsonAdtSpec extends ZIOSpecDefault {
           },
           test("ArgBuilder") {
             json.jsonArgBuilder.build(input).map(resp => assertTrue(resp == jsonV))
+          },
+          test("encodes all IntValue widths without a BigInt intermediate") {
+            json.jsonArgBuilder
+              .build(
+                InputValue.ObjectValue(
+                  Map(
+                    "i"   -> Value.IntValue(42),
+                    "l"   -> Value.IntValue(3000000000L),
+                    "big" -> Value.IntValue(BigInt("9999999999999999999"))
+                  )
+                )
+              )
+              .map(resp =>
+                assertTrue(
+                  resp == Json.Obj(
+                    "i"   -> Json.Num(BigDecimal(42)),
+                    "l"   -> Json.Num(BigDecimal(3000000000L)),
+                    "big" -> Json.Num(BigDecimal(BigInt("9999999999999999999")))
+                  )
+                )
+              )
           }
         )
       }

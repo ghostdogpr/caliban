@@ -29,7 +29,7 @@ object json {
       case EnumValue(value)                   => Json.fromString(value)
       case InputValue.ListValue(values)       => Json.arr(values.map(inputValueEncoder.apply): _*)
       case InputValue.ObjectValue(fields)     =>
-        Json.obj(fields.map { case (k, v) => k -> inputValueEncoder.apply(v) }.toList: _*)
+        Json.fromFields(fields.map { case (k, v) => k -> inputValueEncoder.apply(v) })
       case InputValue.VariableValue(name)     => Json.fromString(name)
     }
   private def jsonToResponseValue(json: Json): ResponseValue =
