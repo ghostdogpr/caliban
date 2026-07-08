@@ -92,7 +92,7 @@ private[caliban] trait StringParsers {
     ).map(v => StringValue(v))
 
   def blockStringValue(rawValue: String): String = {
-    val l1           = rawValue.split("\r?\n").toList
+    val l1           = rawValue.split("\r\n|\r|\n").toList
     val commonIndent = l1 match {
       case Nil       => None
       case _ :: tail =>

@@ -216,6 +216,20 @@ object RenderingSpec extends ZIOSpecDefault {
           .flatMap(_.definitions.collectFirst { case d: TypeDefinition.ScalarTypeDefinition => d.description }.flatten)
         assertTrue(parsedDescription.contains(description))
       },
+      test("it should round-trip a multiline description containing control characters") {
+        val description       = "line1\nvalue\f"
+        val testType          = __Type(
+          __TypeKind.SCALAR,
+          name = Some("TestType"),
+          description = Some(description)
+        )
+        val rendered          = DocumentRenderer.typesRenderer.renderCompact(List(testType))
+        val parsedDescription = Parser
+          .parseQuery(rendered)
+          .toOption
+          .flatMap(_.definitions.collectFirst { case d: TypeDefinition.ScalarTypeDefinition => d.description }.flatten)
+        assertTrue(parsedDescription.contains(description))
+      },
       test("it should render single line descriptions") {
         val api = graphQL(resolver)
         checkApi(api)

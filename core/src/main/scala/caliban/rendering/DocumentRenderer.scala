@@ -98,8 +98,8 @@ object DocumentRenderer extends Renderer[Document] {
 
       override def unsafeRender(description: Option[String], indent: Option[Int], writer: StringBuilder): Unit =
         description.foreach {
-          case value if value.isBlank        => ()
-          case value if value.contains('\n') =>
+          case value if value.isBlank                                           => ()
+          case value if value.contains('\n') && value.forall(isBlockStringChar) =>
             def valueEscaped(): Unit = unsafeFastEscapeQuote(value, writer)
 
             writer append tripleQuote
@@ -108,7 +108,7 @@ object DocumentRenderer extends Renderer[Document] {
             if (value.last == '"') writer append '\n' else newlineOrEmpty(indent, writer)
             writer append tripleQuote
             newlineOrSpace(indent, writer)
-          case value                         =>
+          case value                                                            =>
             pad(indent, writer)
             writer append '"'
             Renderer.escapedString.unsafeRender(value, indent, writer)
@@ -929,6 +929,9 @@ object DocumentRenderer extends Renderer[Document] {
 
   private def spaceOrEmpty(indentation: Option[Int], writer: StringBuilder): Unit =
     if (indentation.isDefined) writer append ' '
+
+  private def isBlockStringChar(c: Char): Boolean =
+    c >= ' ' || c == '\t' || c == '\n' || c == '\r'
 
   private def newlineOrEmpty(indent: Option[Int], writer: StringBuilder): Unit =
     if (indent.isDefined) writer append '\n'
