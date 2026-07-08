@@ -236,6 +236,42 @@ object FederationV2Spec extends ZIOSpecDefault {
         }
 
       },
+      suite("connect directive builder")(
+        test("Connect renders a complete @connect directive") {
+          import caliban.federation.connect._
+          import caliban.Value.{ BooleanValue, IntValue }
+          val directive = Connect(
+            http = ConnectHTTP(Method.GET("/users/{id}")),
+            selection = JSONSelection("id name"),
+            source = Some("api"),
+            entity = Some(true),
+            batch = Some(BatchSettings(Some(10)))
+          )
+          assertTrue(
+            directive.name == "connect",
+            directive.arguments.get("http").contains(ObjectValue(Map("GET" -> StringValue("/users/{id}")))),
+            directive.arguments.get("selection").contains(StringValue("id name")),
+            directive.arguments.get("source").contains(StringValue("api")),
+            directive.arguments.get("entity").contains(BooleanValue(true)),
+            directive.arguments.get("batch").contains(ObjectValue(Map("maxSize" -> IntValue(10))))
+          )
+        },
+        test("GQLConnect forwards batch to the directive") {
+          import caliban.federation.v2_11.GQLConnect
+          import caliban.federation.connect._
+          import caliban.Value.IntValue
+          val directive =
+            GQLConnect(
+              ConnectHTTP(Method.GET("/x")),
+              JSONSelection("id"),
+              batch = Some(BatchSettings(Some(5)))
+            ).directive
+          assertTrue(directive.arguments.get("batch").contains(ObjectValue(Map("maxSize" -> IntValue(5)))))
+        },
+        test("connect 0.2 link points to v0.2") {
+          assertTrue(caliban.federation.connect.ConnectV0.connect0_2.url == "https://specs.apollo.dev/connect/v0.2")
+        }
+      ),
       test("renderer renders the schema including the extensions") {
         import caliban.federation.v2_3._
 

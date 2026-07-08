@@ -16,13 +16,13 @@ package object connect {
     val connectBuilder = Map.newBuilder[String, InputValue]
     val httpBuilder    = Map.newBuilder[String, InputValue]
 
-    http.method match {
+    httpBuilder += (http.method match {
       case Method.GET(url)      => "GET"    -> Value.StringValue(url)
       case Method.DELETE(url)   => "DELETE" -> Value.StringValue(url)
       case Method.POST(url, _)  => "POST"   -> Value.StringValue(url)
       case Method.PUT(url, _)   => "PUT"    -> Value.StringValue(url)
       case Method.PATCH(url, _) => "PATCH"  -> Value.StringValue(url)
-    }
+    })
     http.method.body.foreach(body => httpBuilder += "body" -> Value.StringValue(body.select))
     if (http.headers.nonEmpty)
       httpBuilder += "headers" -> InputValue.ListValue(
@@ -55,11 +55,11 @@ package object connect {
         val mb = Map.newBuilder[String, InputValue]
         e.message.foreach(m => mb += ("message" -> Value.StringValue(m.select)))
         e.extensions.foreach(m => mb += ("extensions" -> Value.StringValue(m.select)))
-        InputValue.ObjectValue(mb.result())
+        connectBuilder += "errors" -> InputValue.ObjectValue(mb.result())
       }
     }
 
-    Directive("source", httpBuilder.result())
+    Directive("connect", connectBuilder.result())
   }
 
   def Source(

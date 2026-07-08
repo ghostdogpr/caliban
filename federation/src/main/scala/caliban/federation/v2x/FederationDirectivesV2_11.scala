@@ -20,7 +20,7 @@ trait FederationDirectivesV2_11 extends FederationDirectivesV2_9 {
     entity: Option[Boolean] = None,
     batch: Option[BatchSettings] = None,
     errors: Option[ConnectorErrors] = None
-  ) extends GQLDirective(Connect(http, selection, source, entity))
+  ) extends GQLDirective(Connect(http, selection, source, entity, batch, errors))
 
   case class GQLSource(
     name: String,
