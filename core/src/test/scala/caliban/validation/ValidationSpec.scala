@@ -6,8 +6,9 @@ import caliban.InputValue.ObjectValue
 import caliban.Macros.gqldoc
 import caliban.TestUtils._
 import caliban.Value.{ BooleanValue, IntValue, NullValue, StringValue }
+import caliban.introspection.adt.{ __Directive, __DirectiveLocation, __InputValue }
 import caliban.schema.Annotations.{ GQLDefault, GQLOneOfInput }
-import caliban.schema.{ ArgBuilder, Schema }
+import caliban.schema.{ ArgBuilder, Schema, Types }
 import zio.{ IO, UIO, ZIO }
 import zio.test.Assertion._
 import zio.test._
@@ -303,6 +304,25 @@ object ValidationSpec extends ZIOSpecDefault {
               }""")
         execute(query, Map("x" -> StringValue("y"))).map { errors =>
           assertTrue(errors.isEmpty)
+        }
+      },
+      test("variable used only in an operation directive is not flagged as unused") {
+        val logDirective = __Directive(
+          name = "log",
+          description = None,
+          locations = Set(__DirectiveLocation.QUERY),
+          args = _ => List(__InputValue("level", None, () => Types.string, None)),
+          isRepeatable = false
+        )
+        val interpreter  = graphQL(resolver, List(logDirective)).interpreter
+        val query        = gqldoc("""
+             query Q($lvl: String!) @log(level: $lvl) {
+               characters {
+                 name
+               }
+              }""")
+        interpreter.flatMap(_.execute(query, variables = Map("lvl" -> StringValue("info")))).map { response =>
+          assertTrue(response.errors.isEmpty)
         }
       },
       test("invalid input field") {
