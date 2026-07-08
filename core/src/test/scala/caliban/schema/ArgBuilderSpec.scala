@@ -24,6 +24,23 @@ object ArgBuilderSpec extends ZIOSpecDefault {
         )
       )
     ),
+    suite("int")(
+      test("Int within range")(
+        assert(ArgBuilder.int.build(IntValue.LongNumber(Int.MaxValue.toLong)))(
+          isRight(equalTo(Int.MaxValue))
+        )
+      ),
+      test("Int above range fails instead of wrapping")(
+        assert(ArgBuilder.int.build(IntValue.LongNumber(Int.MaxValue.toLong + 1)))(
+          isLeft(anything)
+        )
+      ),
+      test("Int from out-of-range BigInt fails")(
+        assert(ArgBuilder.int.build(IntValue.BigIntNumber(BigInt(Int.MaxValue) + 1)))(
+          isLeft(anything)
+        )
+      )
+    ),
     suite("long")(
       test("Long from string")(
         check(Gen.long) { value =>
@@ -31,6 +48,16 @@ object ArgBuilderSpec extends ZIOSpecDefault {
             isRight(equalTo(value))
           )
         }
+      ),
+      test("Long within range")(
+        assert(ArgBuilder.long.build(IntValue.BigIntNumber(BigInt(Long.MaxValue))))(
+          isRight(equalTo(Long.MaxValue))
+        )
+      ),
+      test("Long above range fails instead of wrapping")(
+        assert(ArgBuilder.long.build(IntValue.BigIntNumber(BigInt(Long.MaxValue) + 1)))(
+          isLeft(anything)
+        )
       )
     ),
     suite("java.time")(
