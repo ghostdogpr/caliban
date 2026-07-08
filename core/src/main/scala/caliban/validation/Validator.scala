@@ -228,6 +228,11 @@ object Validator {
     val ops                  = context.operations
     for {
       _                   <- validateAllDiscard(ops)(op => checkDirectivesUniqueness(op.directives, directiveDefinitions))
+      _                   <- validateAllDiscard(ops)(op =>
+                               validateAllDiscard(op.variableDefinitions)(vd =>
+                                 checkDirectivesUniqueness(vd.directives, directiveDefinitions)
+                               )
+                             )
       fragmentDirs         = {
         val fr = context.fragments
         if (fr.isEmpty) Nil else fr.values.toList.map(_.directives)
