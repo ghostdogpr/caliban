@@ -110,6 +110,14 @@ object SelectionBuilderSpec extends ZIOSpecDefault {
           val (s, _) = SelectionBuilder.toGraphQL(query.toSelectionSet, useVariables = false)
           assertTrue(s == """{amos:character(name:"Amos Burton"){name} naomi:character(name:"Naomi Nagata"){name}}""")
         },
+        test("field-name collision renders a valid alias") {
+          val query  =
+            Queries.characters() {
+              Character.name ~ Character.nicknames ~ Character.name
+            }
+          val (s, _) = SelectionBuilder.toGraphQL(query.toSelectionSet, useVariables = false)
+          assertTrue(s.matches("""\{characters\{name nicknames name\d+:name\}\}"""))
+        },
         test("variables") {
           val query          =
             Queries
@@ -350,6 +358,21 @@ object SelectionBuilderSpec extends ZIOSpecDefault {
               List(
                 "amos"  -> __ObjectValue(List("name" -> __StringValue("Amos Burton"))),
                 "naomi" -> __ObjectValue(List("name" -> __StringValue("Naomi Nagata")))
+              )
+            )
+          assert(query.fromGraphQL(response))(isRight(equalTo((Some("Amos Burton"), Some("Naomi Nagata")))))
+        },
+        test("colliding aliases decode to their own values") {
+          val query     =
+            Queries.character("Amos Burton")(Character.name).withAlias("x") ~
+              Queries.character("Naomi Nagata")(Character.name).withAlias("x")
+          val (s, _)    = SelectionBuilder.toGraphQL(query.toSelectionSet, useVariables = false)
+          val secondKey = "x[0-9]+".r.findFirstIn(s).getOrElse("x")
+          val response  =
+            __ObjectValue(
+              List(
+                "x"       -> __ObjectValue(List("name" -> __StringValue("Amos Burton"))),
+                secondKey -> __ObjectValue(List("name" -> __StringValue("Naomi Nagata")))
               )
             )
           assert(query.fromGraphQL(response))(isRight(equalTo((Some("Amos Burton"), Some("Naomi Nagata")))))

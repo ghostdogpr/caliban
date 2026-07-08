@@ -369,9 +369,11 @@ object SelectionBuilder {
     override def fromGraphQL(value: __Value): Either[DecodingError, A] =
       value match {
         case __ObjectValue(fields) =>
-          fields.find { case (o, _) =>
-            alias.getOrElse(name) + math.abs(self.hashCode) == o || alias.contains(o) || name == o
-          }.toRight(DecodingError(s"Missing field $name"))
+          val disambiguated = alias.getOrElse(name) + math.abs(self.hashCode)
+          fields
+            .find(_._1 == disambiguated)
+            .orElse(fields.find { case (o, _) => alias.contains(o) || name == o })
+            .toRight(DecodingError(s"Missing field $name"))
             .flatMap(v => builder.fromGraphQL(v._2))
         case _                     => Left(DecodingError(s"Invalid field type $name"))
       }

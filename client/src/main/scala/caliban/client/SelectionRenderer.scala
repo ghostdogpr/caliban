@@ -87,10 +87,8 @@ private[client] object SelectionRenderer {
               } else {
                 writer.append(resolved)
                 writer.append(math.abs(f.code))
-                if (hasAlias) {
-                  writer.append(':')
-                  writer.append(f.name)
-                }
+                writer.append(':')
+                writer.append(f.name)
               }
               val bodyWriter = new StringBuilder()
               var state1     = selections.unsafeRender(f.selectionSet, state0, bodyWriter, options)
