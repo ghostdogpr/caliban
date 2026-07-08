@@ -228,6 +228,11 @@ object Validator {
     val ops                  = context.operations
     for {
       _                   <- validateAllDiscard(ops)(op => checkDirectivesUniqueness(op.directives, directiveDefinitions))
+      _                   <- validateAllDiscard(ops)(op =>
+                               validateAllDiscard(op.variableDefinitions)(vd =>
+                                 checkDirectivesUniqueness(vd.directives, directiveDefinitions)
+                               )
+                             )
       fragmentDirs         = {
         val fr = context.fragments
         if (fr.isEmpty) Nil else fr.values.toList.map(_.directives)
@@ -245,6 +250,10 @@ object Validator {
             case OperationType.Subscription => __DirectiveLocation.SUBSCRIPTION
           }
           dirs.foreachOne(v => all.addOne((v, location)))
+        }
+        op.variableDefinitions.foreachOne { vd =>
+          val vdDirs = vd.directives
+          if (vdDirs ne Nil) vdDirs.foreachOne(v => all.addOne((v, __DirectiveLocation.VARIABLE_DEFINITION)))
         }
       }
       fragmentDirs.foreachOne(_.foreachOne(v => all.addOne((v, __DirectiveLocation.FRAGMENT_DEFINITION))))
@@ -336,7 +345,17 @@ object Validator {
                             failWhen(!directive.locations.contains(location))(
                               s"Directive '${d.name}' is used in invalid location '$location'.",
                               "GraphQL servers define what directives they support and where they support them. For each usage of a directive, the directive must be used in a location that the server has declared support for."
-                            )
+                            ) *>
+                            validateAllDiscard(directive.allArgs) { arg =>
+                              failWhen(
+                                arg._type.kind == __TypeKind.NON_NULL &&
+                                  arg.defaultValue.isEmpty &&
+                                  d.arguments.getOrElse(arg.name, NullValue) == NullValue
+                              )(
+                                s"Required argument '${arg.name}' is null or missing on directive '${d.name}' ($location).",
+                                "Arguments can be required. An argument is required if the argument type is non‐null and does not have a default value. Otherwise, the argument is optional."
+                              )
+                            }
                       }
                     }
     } yield ()
