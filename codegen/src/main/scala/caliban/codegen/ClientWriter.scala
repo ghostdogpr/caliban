@@ -845,6 +845,18 @@ object ClientWriter {
 
     val schemaDef = schema.schemaDefinition
 
+    def requireHasFields[A](kind: String, name: String, fields: List[A]): Unit =
+      if (fields.isEmpty)
+        throw new Exception(s"Invalid GraphQL Schema: $kind $name must have at least one field")
+
+    def requireNonEmptyFields[A](kind: String, name: String, fields: List[A])(isDeprecated: A => Boolean): Unit = {
+      requireHasFields(kind, name, fields)
+      if (excludeDeprecated && fields.forall(isDeprecated))
+        throw new Exception(
+          s"Invalid GraphQL Schema: $kind $name has no fields left after excluding deprecated ones"
+        )
+    }
+
     val interfaceTypes =
       if (splitFiles) schema.interfaceTypeDefinitions.map { typedef =>
         writeObjectType(
@@ -860,6 +872,8 @@ object ClientWriter {
       else Nil
 
     val interfaces = schema.interfaceTypeDefinitions.map { typedef =>
+      requireNonEmptyFields("interface", typedef.name, typedef.fields)(_.isDeprecated)
+
       val objDef      = ObjectTypeDefinition(
         description = typedef.description,
         name = typedef.name,
@@ -902,6 +916,8 @@ object ClientWriter {
           schemaDef.exists(_.subscription.getOrElse("Subscription") == obj.name)
       )
       .map { typedef =>
+        requireNonEmptyFields("object", typedef.name, typedef.fields)(_.isDeprecated)
+
         val content     = writeObject(typedef, genView)
         val fullContent =
           if (splitFiles)
@@ -918,6 +934,8 @@ object ClientWriter {
       }
 
     val inputs = schema.inputObjectTypeDefinitions.map { typedef =>
+      requireNonEmptyFields("input object", typedef.name, typedef.fields)(_.isDeprecated)
+
       val content     =
         if (Directives.isOneOf(typedef.directives)) writeOneOfInputObject(typedef)
         else writeInputObject(typedef)
@@ -935,13 +953,17 @@ object ClientWriter {
 
     val enums = schema.enumTypeDefinitions
       .filter(e => !scalarMappingsWithDefaults.contains(e.name))
-      .map {
-        case typedef if excludeDeprecated =>
-          val valuesWithoutDeprecated =
-            typedef.enumValuesDefinition.filterNot(_.isDeprecated)
-
+      .map { typedef =>
+        if (typedef.enumValuesDefinition.isEmpty)
+          throw new Exception(s"Invalid GraphQL Schema: enum ${typedef.name} must have at least one value")
+        else if (excludeDeprecated) {
+          val valuesWithoutDeprecated = typedef.enumValuesDefinition.filterNot(_.isDeprecated)
+          if (valuesWithoutDeprecated.isEmpty)
+            throw new Exception(
+              s"Invalid GraphQL Schema: enum ${typedef.name} has no values left after excluding deprecated ones"
+            )
           typedef.copy(enumValuesDefinition = valuesWithoutDeprecated)
-        case typedef                      => typedef
+        } else typedef
       }
       .map { typedef =>
         val content     = writeEnum(typedef, extensibleEnums = extensibleEnums)
@@ -973,6 +995,7 @@ object ClientWriter {
     val queries = schema
       .objectTypeDefinition(schemaDef.flatMap(_.query).getOrElse("Query"))
       .map { typedef =>
+        requireHasFields("object", typedef.name, typedef.fields)
         val content     = writeRootQuery(typedef)
         val fullContent =
           if (splitFiles)
@@ -999,6 +1022,7 @@ object ClientWriter {
     val mutations = schema
       .objectTypeDefinition(schemaDef.flatMap(_.mutation).getOrElse("Mutation"))
       .map { typedef =>
+        requireHasFields("object", typedef.name, typedef.fields)
         val content     = writeRootMutation(typedef)
         val fullContent =
           if (splitFiles)
@@ -1025,6 +1049,7 @@ object ClientWriter {
     val subscriptions = schema
       .objectTypeDefinition(schemaDef.flatMap(_.subscription).getOrElse("Subscription"))
       .map { typedef =>
+        requireHasFields("object", typedef.name, typedef.fields)
         val content     = writeRootSubscription(typedef)
         val fullContent =
           if (splitFiles)

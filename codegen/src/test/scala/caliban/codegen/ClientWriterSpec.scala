@@ -1,7 +1,7 @@
 package caliban.codegen
 
 import caliban.parsing.Parser
-import zio.{ Task, ZIO }
+import zio.{ Exit, Task, ZIO }
 import zio.test._
 
 object ClientWriterSpec extends SnapshotTest {
@@ -69,7 +69,7 @@ object ClientWriterSpec extends SnapshotTest {
           genView = true
         )
       },
-      snapshotTest("simple object type with exclude deprecated and genView, only deprecated fields") {
+      test("object type with only deprecated fields fails codegen when excluding deprecated") {
         gen(
           schema = """
              type Character {
@@ -79,7 +79,16 @@ object ClientWriterSpec extends SnapshotTest {
             """,
           excludeDeprecated = true,
           genView = true
-        )
+        ).exit.map {
+          case Exit.Failure(cause) =>
+            assertTrue(
+              cause.dieOption.exists(
+                _.getMessage.contains("object Character has no fields left after excluding deprecated")
+              )
+            )
+          case Exit.Success(_)     =>
+            assertTrue(false)
+        }
       },
       snapshotTest("object type with reserved name") {
         gen("""
@@ -184,6 +193,17 @@ object ClientWriterSpec extends SnapshotTest {
              }
             """)
       },
+      test("empty enum fails codegen with a helpful message") {
+        gen("""
+             enum Origin {
+             }
+            """).exit.map {
+          case Exit.Failure(cause) =>
+            assertTrue(cause.dieOption.exists(_.getMessage.contains("enum Origin must have at least one value")))
+          case Exit.Success(_)     =>
+            assertTrue(false)
+        }
+      },
       snapshotTest("enum with exclude deprecated") {
         gen(
           schema = """
@@ -196,7 +216,7 @@ object ClientWriterSpec extends SnapshotTest {
           excludeDeprecated = true
         )
       },
-      snapshotTest("enum with exclude deprecated, only deprecated values") {
+      test("enum with only deprecated values fails codegen when excluding deprecated") {
         gen(
           schema = """
              enum Origin {
@@ -205,7 +225,14 @@ object ClientWriterSpec extends SnapshotTest {
              }
             """,
           excludeDeprecated = true
-        )
+        ).exit.map {
+          case Exit.Failure(cause) =>
+            assertTrue(
+              cause.dieOption.exists(_.getMessage.contains("enum Origin has no values left after excluding deprecated"))
+            )
+          case Exit.Success(_)     =>
+            assertTrue(false)
+        }
       },
       snapshotTest("enum with case-insensitive type name clash") {
         gen("""
@@ -285,6 +312,75 @@ object ClientWriterSpec extends SnapshotTest {
                nicknames: [String!]
              }
             """)
+      },
+      test("empty input object fails codegen with a helpful message") {
+        gen("input CharacterInput {}").exit.map {
+          case Exit.Failure(cause) =>
+            assertTrue(
+              cause.dieOption.exists(_.getMessage.contains("input object CharacterInput must have at least one"))
+            )
+          case Exit.Success(_)     =>
+            assertTrue(false)
+        }
+      },
+      test("input object with only deprecated fields fails codegen when excluding deprecated") {
+        gen(
+          schema = """
+             input CharacterInput {
+               name: String! @deprecated
+             }
+            """,
+          excludeDeprecated = true
+        ).exit.map {
+          case Exit.Failure(cause) =>
+            assertTrue(
+              cause.dieOption.exists(
+                _.getMessage.contains("input object CharacterInput has no fields left after excluding")
+              )
+            )
+          case Exit.Success(_)     =>
+            assertTrue(false)
+        }
+      },
+      test("empty interface fails codegen with a helpful message") {
+        gen("interface Node {}").exit.map {
+          case Exit.Failure(cause) =>
+            assertTrue(cause.dieOption.exists(_.getMessage.contains("interface Node must have at least one")))
+          case Exit.Success(_)     =>
+            assertTrue(false)
+        }
+      },
+      test("interface with only deprecated fields fails codegen when excluding deprecated") {
+        gen(
+          schema = """
+             interface Node {
+               id: ID! @deprecated
+             }
+            """,
+          excludeDeprecated = true
+        ).exit.map {
+          case Exit.Failure(cause) =>
+            assertTrue(
+              cause.dieOption.exists(_.getMessage.contains("interface Node has no fields left after excluding"))
+            )
+          case Exit.Success(_)     =>
+            assertTrue(false)
+        }
+      },
+      test("empty root operation object fails codegen with a helpful message") {
+        gen("""
+             schema {
+               query: Q
+             }
+
+             type Q {
+             }
+            """).exit.map {
+          case Exit.Failure(cause) =>
+            assertTrue(cause.dieOption.exists(_.getMessage.contains("object Q must have at least one field")))
+          case Exit.Success(_)     =>
+            assertTrue(false)
+        }
       },
       snapshotTest("input object with reserved name") {
         gen("""
