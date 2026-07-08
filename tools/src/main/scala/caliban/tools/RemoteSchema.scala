@@ -164,6 +164,7 @@ object RemoteSchema {
       kind = __TypeKind.INTERFACE,
       name = Some(definition.name),
       description = definition.description,
+      interfaces = toInterfaces(definition.implements, definitions),
       possibleTypes = Some(implementations),
       fields = (args: __DeprecatedArgs) =>
         if (definition.fields.nonEmpty)

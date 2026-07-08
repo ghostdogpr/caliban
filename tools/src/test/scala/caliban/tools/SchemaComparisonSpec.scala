@@ -310,6 +310,23 @@ object SchemaComparisonSpec extends ZIOSpecDefault {
           )
 
           compareChanges(schema1, schema2, expected)
+        },
+        test("changes in interface-implemented interfaces") {
+          val schema1: String =
+            """interface A { x: Int }
+              |interface B implements A { x: Int }
+              |""".stripMargin
+
+          val schema2: String =
+            """interface A { x: Int }
+              |interface B { x: Int }
+              |""".stripMargin
+
+          val expected = List(
+            SchemaComparisonChange.InterfaceImplementsDeleted("B", "A")
+          )
+
+          compareChanges(schema1, schema2, expected)
         }
       ),
       suite("type extensions")(
