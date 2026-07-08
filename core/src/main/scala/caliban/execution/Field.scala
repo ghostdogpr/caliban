@@ -140,7 +140,7 @@ object Field {
     directives: List[Directive],
     rootType: RootType
   ): Field = {
-    val memoizedFragments      = new mutable.HashMap[String, List[(Field, Option[String])]]()
+    val memoizedFragments      = new mutable.HashMap[(String, List[Directive]), List[(Field, Option[String])]]()
     val variableDefinitionsMap =
       if (variableDefinitions eq Nil) Map.empty[String, VariableDefinition]
       else variableDefinitions.map(v => v.name -> v).toMap
@@ -194,7 +194,7 @@ object Field {
           }
         case FragmentSpread(name, directives)                           =>
           val fields = memoizedFragments.getOrElseUpdate(
-            name, {
+            (name, directives), {
               val resolvedDirectives = directives.map(resolveDirectiveVariables(variableValues, variableDefinitionsMap))
               val f                  = fragments.getOrElse(name, null)
               if ((f ne null) && checkDirectives(resolvedDirectives)) {
