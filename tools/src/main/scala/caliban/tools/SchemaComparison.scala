@@ -226,8 +226,16 @@ object SchemaComparison {
   private def compareInterfaces(
     left: InterfaceTypeDefinition,
     right: InterfaceTypeDefinition
-  ): List[SchemaComparisonChange] =
-    compareAllFields(left.name, left.fields, right.fields)
+  ): List[SchemaComparisonChange] = {
+    val leftImplements    = left.implements.toSet
+    val rightImplements   = right.implements.toSet
+    val implementsAdded   =
+      (rightImplements -- leftImplements).map(name => InterfaceImplementsAdded(left.name, name.name)).toList
+    val implementsDeleted =
+      (leftImplements -- rightImplements).map(name => InterfaceImplementsDeleted(left.name, name.name)).toList
+
+    implementsAdded ++ implementsDeleted ++ compareAllFields(left.name, left.fields, right.fields)
+  }
 
   private def compareTypes(left: TypeDefinition, right: TypeDefinition): List[SchemaComparisonChange] = {
     val typeTarget         = Target.Type(left.name)

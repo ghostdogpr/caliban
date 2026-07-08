@@ -45,6 +45,14 @@ object SchemaComparisonChange {
     override def breaking: Boolean = true
   }
 
+  case class InterfaceImplementsAdded(typeName: String, implements: String)   extends SchemaComparisonChange {
+    override def toString: String = s"Interface '$typeName' now implements interface: '$implements'."
+  }
+  case class InterfaceImplementsDeleted(typeName: String, implements: String) extends SchemaComparisonChange {
+    override def toString: String  = s"Interface '$typeName' no longer implements interface: '$implements'."
+    override def breaking: Boolean = true
+  }
+
   case class SchemaQueryTypeChanged(from: Option[String], to: Option[String])        extends SchemaComparisonChange {
     override def toString: String  =
       s"Root query type was changed from ${renderRootType(from)} to ${renderRootType(to)}."

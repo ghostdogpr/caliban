@@ -125,6 +125,23 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
         remoteSchema.subscriptionType.flatMap(_.name).contains("Subscription"),
         remoteSchema.subscriptionType.flatMap(_.fields(__DeprecatedArgs()).map(_.map(_.name))).contains(List("tick"))
       )
+    },
+    test("preserves interface-implements-interface relationships") {
+      val schema =
+        """
+          |schema { query: Query }
+          |type Query { node: Node }
+          |interface Node { id: ID! }
+          |interface Resource implements Node { id: ID! name: String! }
+          |type File implements Resource & Node { id: ID! name: String! }
+          |""".stripMargin
+
+      for {
+        doc          <- ZIO.fromEither(Parser.parseQuery(schema))
+        remoteSchema <- ZIO.fromOption(RemoteSchema.parseRemoteSchema(doc))
+        resource      = remoteSchema.types.find(_.name.contains("Resource"))
+        implemented   = resource.flatMap(_.interfaces()).getOrElse(Nil).flatMap(_.name)
+      } yield assertTrue(implemented.contains("Node"))
     }
   )
 
