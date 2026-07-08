@@ -69,16 +69,10 @@ object Transformer {
 
   final private class RenameType(map: Map[String, String]) extends Transformer[Any] {
 
-    val typeVisitor: TypeVisitor = {
-      val renameType = { (t: __Type) =>
+    val typeVisitor: TypeVisitor =
+      TypeVisitor.modify { (t: __Type) =>
         t.name.flatMap(map.get).fold(t)(newName => t.copy(name = Some(newName)))
       }
-      val renameEnum = { (t: __EnumValue) =>
-        map.get(t.name).fold(t)(newName => t.copy(name = newName))
-      }
-
-      TypeVisitor.modify(renameType) |+| TypeVisitor.enumValues.modify(renameEnum)
-    }
 
     protected val typeNames: Set[String] = map.keySet
 

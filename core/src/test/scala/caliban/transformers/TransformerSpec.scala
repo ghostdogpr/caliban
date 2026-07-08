@@ -40,6 +40,27 @@ object TransformerSpec extends ZIOSpecDefault {
                         |""".stripMargin
         )
       },
+      test("rename type does not rename colliding enum values") {
+        sealed trait Color
+        object Color {
+          case object Red   extends Color
+          case object Green extends Color
+        }
+        case class Green(x: String)
+        case class Q(color: Color, green: Green)
+
+        val localApi    = graphQL(RootResolver(Q(Color.Green, Green("hi"))))
+        val transformed = localApi.transform(Transformer.RenameType("Green" -> "RenamedType"))
+        val rendered    = transformed.render
+        for {
+          interpreter <- transformed.interpreter
+          result      <- interpreter.execute("{ color green { x } }").map(_.data.toString)
+        } yield assertTrue(
+          result == """{"color":"Green","green":{"x":"hi"}}""",
+          rendered.contains("enum Color {\n  Green\n  Red\n}"),
+          rendered.contains("green: RenamedType!")
+        )
+      },
       test("rename field") {
         val transformed: GraphQL[Any] = api.transform(Transformer.RenameField("InnerObject" -> "b" -> "c"))
         val rendered                  = transformed.render
