@@ -306,6 +306,29 @@ object ValidationSpec extends ZIOSpecDefault {
           assertTrue(errors.isEmpty)
         }
       },
+      test("explicit null is rejected for a non-null variable") {
+        val query = gqldoc("""
+             query($o: Origin!) {
+               characters(origin: $o) {
+                 name
+               }
+              }""")
+        execute(query, Map("o" -> NullValue)).map { errors =>
+          assertTrue(errors.exists(_.msg.contains("is null")))
+        }
+      },
+      test("explicit null list item is rejected for a non-null item type") {
+        val query = gqldoc("""
+             query($names: [String!]!) {
+               charactersIn(names: $names) {
+                 name
+               }
+              }""")
+        execute(query, Map("names" -> InputValue.ListValue(List(StringValue("Amos Burton"), NullValue)))).map {
+          errors =>
+            assertTrue(errors.exists(_.msg.contains("is null")))
+        }
+      },
       test("variable used only in an operation directive is not flagged as unused") {
         val logDirective = __Directive(
           name = "log",

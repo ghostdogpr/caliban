@@ -922,12 +922,10 @@ object InputArgumentSpec extends ZIOSpecDefault {
           for {
             res <- execute(query, vars)
           } yield assertTrue(
-            // Variable value validation now happens at coercion/execution time, not validation time.
-            // Per spec note on "Values of Correct Type": variable values are checked during coercion.
             res.errors.exists {
-              case CalibanError.ExecutionError(msg, _, _, _, _) =>
-                msg == "Can't build an instance of 'Int' from 'null'"
-              case _                                            => false
+              case CalibanError.ValidationError(msg, _, _, _) =>
+                msg == "Variable 'var' null is null, should be Int!"
+              case _                                          => false
             }
           )
         },

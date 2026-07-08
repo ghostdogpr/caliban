@@ -129,8 +129,8 @@ object VariablesCoercer {
       case None      => Right(value)
     }
 
-  private def resolveType(rootType: RootType, `type`: Type): Option[__Type] =
-    `type` match {
+  private def resolveType(rootType: RootType, `type`: Type): Option[__Type] = {
+    val resolved = `type` match {
       case NamedType(name, _)  => rootType.types.get(name)
       case ListType(ofType, _) =>
         Some(
@@ -140,6 +140,9 @@ object VariablesCoercer {
           )
         )
     }
+    if (`type`.nonNull) resolved.map(t => __Type(kind = __TypeKind.NON_NULL, ofType = Some(t)))
+    else resolved
+  }
 
   private val coercionDescription = "Variable values need to follow GraphQL's coercion rules."
 
