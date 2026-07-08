@@ -285,7 +285,8 @@ object Parsers extends SelectionParsers {
         "ENUM",
         "ENUM_VALUE",
         "INPUT_OBJECT",
-        "INPUT_FIELD_DEFINITION"
+        "INPUT_FIELD_DEFINITION",
+        "VARIABLE_DEFINITION"
       ).!
     ).map {
       case "QUERY"                  => ExecutableDirectiveLocation.QUERY

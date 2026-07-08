@@ -1245,6 +1245,27 @@ object ParserSpec extends ZIOSpecDefault {
           )
         }
       },
+      test("parse directive on VARIABLE_DEFINITION") {
+        val gqlInputExtension = "directive @test on VARIABLE_DEFINITION"
+        Parser.parseQuery(gqlInputExtension).map { doc =>
+          assertTrue(
+            doc == Document(
+              List(
+                DirectiveDefinition(
+                  None,
+                  "test",
+                  List.empty,
+                  isRepeatable = false,
+                  Set(
+                    TypeSystemDefinition.DirectiveLocation.TypeSystemDirectiveLocation.VARIABLE_DEFINITION
+                  )
+                )
+              ),
+              sourceMapper = SourceMapper.apply(gqlInputExtension)
+            )
+          )
+        }
+      },
       test("parse repeatable directives") {
         val gqlInputExtension = "directive @test repeatable on FIELD_DEFINITION"
         Parser.parseQuery(gqlInputExtension).map { doc =>
