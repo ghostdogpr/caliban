@@ -160,6 +160,27 @@ object RemoteQuerySpec extends ZIOSpecDefault {
       } yield assertTrue(
         actual == """query{union(value:"{\"foo\": \"\\t\"}"){...on Interface{id}}}"""
       )
+    },
+    test("does not forward schema field-definition directives to the remote query") {
+      import caliban.schema.Annotations.GQLDirective
+      import caliban.parsing.adt.Directive
+
+      case class Inner(@GQLDirective(Directive("myFieldDir")) name: String)
+      case class Q(obj: Field => UIO[Inner])
+
+      def api2(ref: Ref[String]) = graphQL(
+        RootResolver(
+          Q(field => ref.set(RemoteQuery.QueryRenderer.render(RemoteQuery(field))).as(Inner("x")))
+        )
+      ).interpreter
+
+      val query = gqldoc("""{ obj { name } }""")
+      for {
+        ref    <- Ref.make[String]("")
+        i      <- api2(ref)
+        _      <- i.execute(query)
+        actual <- ref.get
+      } yield assertTrue(actual == "query{obj{name}}")
     }
   )
 }
