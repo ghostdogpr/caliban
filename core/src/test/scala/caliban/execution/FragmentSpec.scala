@@ -200,6 +200,26 @@ object FragmentSpec extends ZIOSpecDefault {
           isSome(anything)
         )
       },
+      test("nested argument conflict on plain fields when a fragment is present") {
+        case class Nested(x: Int => String)
+        case class Query(a: Nested)
+
+        val query =
+          """query{
+            |  a { x(value: 1) }
+            |  a { x(value: 2) }
+            |  ... on Query { __typename }
+            |}""".stripMargin
+
+        val gql = graphQL(RootResolver(Query(Nested(_ => "y"))))
+        for {
+          int <- gql.interpreter
+          res <- int.execute(query)
+        } yield assertTrue(
+          res.errors.collectFirst { case e: CalibanError.ValidationError => e.msg }
+            .exists(_.contains("different arguments"))
+        )
+      },
       test("nested fragment selection on the same type") {
         import caliban.schema.Schema.auto._
 
