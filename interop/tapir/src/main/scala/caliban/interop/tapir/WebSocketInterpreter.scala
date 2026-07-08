@@ -48,10 +48,22 @@ object WebSocketInterpreter {
       serverRequest: ServerRequest,
       protocol: String
     ): URIO[R, Either[TapirResponse, (String, CalibanPipe)]] =
-      Protocol
-        .fromName(protocol)
-        .make(interpreter, keepAliveTime, webSocketHooks)
-        .map(res => Right((protocol, res)))
+      selectSubProtocol(protocol) match {
+        case Some(selected) =>
+          Protocol
+            .fromName(selected)
+            .make(interpreter, keepAliveTime, webSocketHooks)
+            .map(res => Right((selected, res)))
+        case None           =>
+          ZIO.succeed(Left(TapirResponse(sttp.model.StatusCode.BadRequest)))
+      }
+  }
+
+  private[tapir] def selectSubProtocol(header: String): Option[String] = {
+    val offered = header.split(',').iterator.map(_.trim).filter(_.nonEmpty).toList
+    offered
+      .find(_.equalsIgnoreCase(Protocol.GraphQLWS.name))
+      .orElse(offered.find(_.equalsIgnoreCase(Protocol.Legacy.name)))
   }
 
   private case class Intercepted[R1, R, E](
