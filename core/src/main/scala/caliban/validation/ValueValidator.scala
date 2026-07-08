@@ -79,29 +79,31 @@ private object ValueValidator {
 
           case INPUT_OBJECT =>
             argValue match {
-              case obj: ObjectValue if inputType._isOneOfInput =>
-                Validator.validateOneOfInputValue(obj, errorContext)
-              case ObjectValue(fields)                         =>
-                validateAllDiscard(fields) { (k, _) =>
+              case obj: ObjectValue =>
+                validateAllDiscard(obj.fields) { (k, _) =>
                   when(!inputType.allInputFields.exists(_.name == k))(
                     failValidation(
                       s"Input field '$k' is not defined on type '${inputType.name.getOrElse("?")}'.",
                       "Every input field provided in an input object value must be defined in the set of possible fields of that input object’s expected type."
                     )
                   )
-                } *> validateAllDiscard(inputType.allInputFields) { f =>
-                  fields.collectFirst { case (name, fieldValue) if name == f.name => fieldValue } match {
-                    case Some(value)                    =>
-                      validateType(f._type, value, context, s"Field ${f.name} in $errorContext")
-                    case None if f.defaultValue.isEmpty =>
-                      validateType(f._type, NullValue, context, s"Field ${f.name} in $errorContext")
-                    case _                              =>
-                      unit
-                  }
+                } *> {
+                  if (inputType._isOneOfInput) Validator.validateOneOfInputValue(obj, errorContext)
+                  else
+                    validateAllDiscard(inputType.allInputFields) { f =>
+                      obj.fields.collectFirst { case (name, fieldValue) if name == f.name => fieldValue } match {
+                        case Some(value)                    =>
+                          validateType(f._type, value, context, s"Field ${f.name} in $errorContext")
+                        case None if f.defaultValue.isEmpty =>
+                          validateType(f._type, NullValue, context, s"Field ${f.name} in $errorContext")
+                        case _                              =>
+                          unit
+                      }
+                    }
                 }
-              case NullValue                                   =>
+              case NullValue        =>
                 unit
-              case _                                           =>
+              case _                =>
                 failValidation(
                   s"$errorContext has invalid type: $argValue",
                   "Input field was supposed to be an input object."
