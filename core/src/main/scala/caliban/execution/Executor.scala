@@ -115,24 +115,27 @@ object Executor {
         })
 
       def runStream(d: DeferredStream[R]) =
-        d.step.inner.orDie.chunks.flatMap { steps =>
-          ZStream.unwrap(ZIO.foreach(steps)(runIncrementalQuery(_, cache)).map { results =>
-            val (values, errors, more) = results.unzip3
-            val resp                   = ZStream.succeed(
-              Incremental.Stream(
-                values.toList,
-                ListValue((IntValue(d.startFrom) :: d.path).reverse),
-                errors.toList.flatten,
-                d.label
+        d.step.inner.orDie.chunks
+          .filter(_.nonEmpty)
+          .mapAccum(d.startFrom)((idx, steps) => (idx + steps.size, (idx, steps)))
+          .flatMap { case (idx, steps) =>
+            ZStream.unwrap(ZIO.foreach(steps)(runIncrementalQuery(_, cache)).map { results =>
+              val (values, errors, more) = results.unzip3
+              val resp                   = ZStream.succeed(
+                Incremental.Stream(
+                  values.toList,
+                  ListValue((IntValue(idx) :: d.path).reverse),
+                  errors.toList.flatten,
+                  d.label
+                )
               )
-            )
 
-            more.toList.flatten match {
-              case Nil  => resp
-              case rest => resp ++ makeDeferStream(rest, cache)
-            }
-          })
-        }
+              more.toList.flatten match {
+                case Nil  => resp
+                case rest => resp ++ makeDeferStream(rest, cache)
+              }
+            })
+          }
 
       ZStream.mergeAllUnbounded()(defers.map {
         case d: DeferredFragment[R] => runDefer(d)
