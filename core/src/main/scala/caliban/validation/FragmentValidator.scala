@@ -16,7 +16,7 @@ object FragmentValidator {
   ): Either[ValidationError, Unit] = {
 
     val shapeCache   = mutable.HashMap.empty[List[Selection], Chunk[String]]
-    val parentsCache = mutable.HashMap.empty[Iterable[Selection], Chunk[String]]
+    val parentsCache = mutable.HashMap.empty[(Option[String], Iterable[Selection]), Chunk[String]]
     val groupsCache  = mutable.HashMap.empty[Set[SelectedField], Chunk[Set[SelectedField]]]
 
     def sameResponseShapeByName(set: List[Selection], parentType: __Type): Chunk[String] =
@@ -39,16 +39,17 @@ object FragmentValidator {
           }
         )
 
-    def sameForCommonParentsByName(set: Iterable[Selection]): Chunk[String] =
+    def sameForCommonParentsByName(parentType: __Type, set: Iterable[Selection]): Chunk[String] =
       if (set.isEmpty) Chunk.empty
       else
         parentsCache.getOrElseUpdate(
-          set, {
+          (parentType.name, set), {
             val fields = FieldMap.make(context, parentType, set)
             Chunk.fromIterable(fields.values.flatMap { fields =>
               groupByCommonParents(fields).flatMap { group =>
-                val merged = group.flatMap(_.selection.selectionSet)
-                requireSameNameAndArguments(group) ++ sameForCommonParentsByName(merged)
+                val merged    = group.flatMap(_.selection.selectionSet)
+                val fieldType = group.headOption.fold(parentType)(_.fieldDef._type.innerType)
+                requireSameNameAndArguments(group) ++ sameForCommonParentsByName(fieldType, merged)
               }
             })
           }
@@ -106,7 +107,8 @@ object FragmentValidator {
         }
       )
 
-    val conflicts = sameResponseShapeByName(selectionSet, parentType) ++ sameForCommonParentsByName(selectionSet)
+    val conflicts =
+      sameResponseShapeByName(selectionSet, parentType) ++ sameForCommonParentsByName(parentType, selectionSet)
     if (conflicts.nonEmpty) {
       Left(ValidationError(conflicts.head, ""))
     } else {
