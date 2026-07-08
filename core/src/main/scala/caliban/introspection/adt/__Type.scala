@@ -160,6 +160,15 @@ case class __Type(
   private[caliban] def getFieldOrNull(name: String): __Field =
     allFieldsMap.getOrElseNull(name)
 
+  private lazy val allInputFieldsMap = {
+    val map = collection.mutable.HashMap.empty[String, __InputValue]
+    allInputFields.foreach(f => map.update(f.name, f))
+    map
+  }
+
+  private[caliban] def getInputFieldOrNull(name: String): __InputValue =
+    allInputFieldsMap.getOrElseNull(name)
+
   lazy val innerType: __Type = Types.innerType(this)
 
   private[caliban] lazy val possibleTypeNames: Set[String] =
