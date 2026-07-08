@@ -153,7 +153,12 @@ object Renderer {
           case '\r' => writer.append("\\r")
           case '\t' => writer.append("\\t")
           case '"'  => writer.append("\\\"")
-          case c    => writer.append(c)
+          case c    =>
+            if (c < ' ') {
+              writer.append("\\u00")
+              writer.append(Character.forDigit((c >> 4) & 0xf, 16))
+              writer.append(Character.forDigit(c & 0xf, 16))
+            } else writer.append(c)
         }
         i += 1
       }
