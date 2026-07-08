@@ -215,6 +215,21 @@ object ParserSpec extends ZIOSpecDefault {
       test("block string with lone carriage-return line terminators") {
         assertTrue(Parser.parseInputValue("\"\"\"a\r    b\"\"\"") == Right(StringValue("a\nb")))
       },
+      test("unicode escape sequences") {
+        val bs                 = "\\"
+        def str(inner: String) = "\"" + inner + "\""
+        val emoji              = new String(Character.toChars(0x1f600))
+        assertTrue(
+          Parser.parseInputValue(str(bs + "u0041")) == Right(StringValue("A")),
+          Parser.parseInputValue(str(bs + "u{41}")) == Right(StringValue("A")),
+          Parser.parseInputValue(str(bs + "u{1F600}")) == Right(StringValue(emoji)),
+          Parser.parseInputValue(str(bs + "u{00000041}")) == Right(StringValue("A")),
+          Parser.parseInputValue(str(bs + "uD83D" + bs + "uDE00")) == Right(StringValue(emoji)),
+          Parser.parseInputValue(str(bs + "u{110000}")).isLeft,
+          Parser.parseInputValue(str(bs + "u{D800}")).isLeft,
+          Parser.parseInputValue(str(bs + "u{DEAD}")).isLeft
+        )
+      },
       test("enum values whose names start with a keyword") {
         val cases = List(
           "trueStory" -> EnumValue("trueStory"),
