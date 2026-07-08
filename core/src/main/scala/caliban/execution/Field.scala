@@ -115,11 +115,16 @@ case class Field(
             )
           }
 
+      val schemaDirectives =
+        f.parentType.flatMap(pt => Option(pt.innerType.getFieldOrNull(f.name))).flatMap(_.directives).getOrElse(Nil)
+      val directives       =
+        if (schemaDirectives.isEmpty) f.directives else f.directives.filterNot(schemaDirectives.contains)
+
       Selection.Field(
         f.alias,
         f.name,
         f.arguments,
-        f.directives,
+        directives,
         children ++ inlineFragments,
         0
       )
