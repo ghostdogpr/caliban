@@ -215,6 +215,31 @@ object ParserSpec extends ZIOSpecDefault {
       test("block string with lone carriage-return line terminators") {
         assertTrue(Parser.parseInputValue("\"\"\"a\r    b\"\"\"") == Right(StringValue("a\nb")))
       },
+      test("enum values whose names start with a keyword") {
+        val cases = List(
+          "trueStory" -> EnumValue("trueStory"),
+          "falseFlag" -> EnumValue("falseFlag"),
+          "nullable"  -> EnumValue("nullable"),
+          "true"      -> BooleanValue(true),
+          "false"     -> BooleanValue(false),
+          "null"      -> NullValue
+        )
+        assertTrue(cases.forall { case (raw, expected) => Parser.parseInputValue(raw) == Right(expected) })
+      },
+      test("enum value starting with a keyword in a query argument") {
+        val query = "{ f(x: nullable) }"
+        Parser.parseQuery(query).map { doc =>
+          assertTrue(
+            doc ==
+              simpleQuery(
+                selectionSet = List(
+                  simpleField("f", arguments = Map("x" -> EnumValue("nullable")), index = 2)
+                ),
+                sourceMapper = SourceMapper(query)
+              )
+          )
+        }
+      },
       test("variables") {
         val query = """query getZuckProfile($devicePicSize: Int = 60) {
                       |  user(id: 4) {

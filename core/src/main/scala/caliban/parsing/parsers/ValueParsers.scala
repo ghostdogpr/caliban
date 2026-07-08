@@ -10,9 +10,9 @@ import scala.annotation.nowarn
 @nowarn("msg=NoWhitespace") // False positive warning in Scala 2.12.x
 private[caliban] trait ValueParsers extends NumberParsers {
   def booleanValue(implicit ev: P[Any]): P[BooleanValue] =
-    StringIn("true", "false").!.map(v => BooleanValue(v.toBoolean))
+    (StringIn("true", "false").! ~~ !nameContinue).map(v => BooleanValue(v.toBoolean))
 
-  def nullValue(implicit ev: P[Any]): P[InputValue] = LiteralStr("null").map(_ => NullValue)
+  def nullValue(implicit ev: P[Any]): P[InputValue] = (LiteralStr("null") ~~ !nameContinue).map(_ => NullValue)
   def enumValue(implicit ev: P[Any]): P[InputValue] = name.map(EnumValue.apply)
   def listValue(implicit ev: P[Any]): P[ListValue]  = ("[" ~/ value.rep ~ "]").map(values => ListValue(values.toList))
 
