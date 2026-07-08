@@ -494,7 +494,7 @@ object Validator {
   ): Either[ValidationError, Unit] = {
     val v1 = validateFields(context, selectionSet, currentType)(mutable.HashSet.empty)
     if (!context.fragments.isEmpty || containsFragments(selectionSet))
-      v1 *> FragmentValidator.findConflictsWithinSelectionSet(context, context.rootType.queryType, selectionSet)
+      v1 *> FragmentValidator.findConflictsWithinSelectionSet(context, currentType, selectionSet)
     else v1
   }
 
