@@ -145,10 +145,12 @@ object Field {
     directives: List[Directive],
     rootType: RootType
   ): Field = {
-    val memoizedFragments      = new mutable.HashMap[(String, List[Directive]), List[(Field, Option[String])]]()
-    val variableDefinitionsMap =
+    val memoizedFragments                         = new mutable.HashMap[(String, List[Directive]), List[(Field, Option[String])]]()
+    val variableDefinitionsMap                    =
       if (variableDefinitions eq Nil) Map.empty[String, VariableDefinition]
       else variableDefinitions.map(v => v.name -> v).toMap
+    val resolveDirectives: Directive => Directive =
+      resolveDirectiveVariables(variableValues, variableDefinitionsMap)
 
     def loop(
       selectionSet: List[Selection],
@@ -169,7 +171,7 @@ object Field {
             else selected.directives.get
 
           val resolvedDirectives =
-            (directives ::: schemaDirectives).map(resolveDirectiveVariables(variableValues, variableDefinitionsMap))
+            (directives ::: schemaDirectives).map(resolveDirectives)
 
           if (checkDirectives(resolvedDirectives)) {
             // default only case where it's not found is __typename
@@ -200,7 +202,7 @@ object Field {
         case FragmentSpread(name, directives)                           =>
           val fields = memoizedFragments.getOrElseUpdate(
             (name, directives), {
-              val resolvedDirectives = directives.map(resolveDirectiveVariables(variableValues, variableDefinitionsMap))
+              val resolvedDirectives = directives.map(resolveDirectives)
               val f                  = fragments.getOrElse(name, null)
               if ((f ne null) && checkDirectives(resolvedDirectives)) {
                 val typeCondName      = f.typeCondition.name
@@ -226,7 +228,7 @@ object Field {
           )
           fields.foreach((builder.addField _).tupled)
         case InlineFragment(typeCondition, directives, selectionSet)    =>
-          val resolvedDirectives = directives.map(resolveDirectiveVariables(variableValues, variableDefinitionsMap))
+          val resolvedDirectives = directives.map(resolveDirectives)
           if (checkDirectives(resolvedDirectives)) {
             val typeName          = typeCondition.map(_.name)
             val t                 = innerType.possibleTypes
