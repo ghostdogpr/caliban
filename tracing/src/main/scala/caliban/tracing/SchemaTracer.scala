@@ -58,17 +58,20 @@ object SchemaTracer {
   private def graphQLQuery(field: Field): String =
     RemoteQuery.apply(maskField(field)).toGraphQLRequest.query.getOrElse("")
 
-  private def maskArguments(args: Map[String, InputValue]): Map[String, InputValue] =
-    args.map { case (k, v) =>
-      val v1 = v match {
-        case _: ObjectValue      => ObjectValue(Map.empty)
-        case _: StringValue      => StringValue("")
-        case _: Value.IntValue   => IntNumber(0)
-        case _: Value.FloatValue => FloatNumber(0f)
-        case x                   => x
-      }
-      (k, v1)
-    }.toMap
+  private[tracing] def maskArguments(args: Map[String, InputValue]): Map[String, InputValue] =
+    args.map { case (k, v) => (k, maskValue(v)) }.toMap
+
+  private def maskValue(v: InputValue): InputValue =
+    v match {
+      case _: ObjectValue               => ObjectValue(Map.empty)
+      case InputValue.ListValue(values) => InputValue.ListValue(values.map(maskValue))
+      case _: StringValue               => StringValue("")
+      case _: Value.IntValue            => IntNumber(0)
+      case _: Value.FloatValue          => FloatNumber(0f)
+      case _: Value.BooleanValue        => Value.BooleanValue(false)
+      case _: Value.EnumValue           => Value.EnumValue("__REDACTED")
+      case x                            => x
+    }
 
   private def maskField(f: Field): Field =
     f.copy(
