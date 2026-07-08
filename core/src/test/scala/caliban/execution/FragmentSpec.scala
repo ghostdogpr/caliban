@@ -220,6 +220,27 @@ object FragmentSpec extends ZIOSpecDefault {
             .exists(_.contains("different arguments"))
         )
       },
+      test("field-merge conflict is detected on a mutation operation") {
+        case class Nested(x: Int => String)
+        case class Query(a: Nested)
+        case class Mutation(update: Int => Nested)
+
+        val query =
+          """mutation{
+            |  a: update(value: 1) { x(value: 1) }
+            |  a: update(value: 2) { x(value: 1) }
+            |  ... on Mutation { __typename }
+            |}""".stripMargin
+
+        val gql = graphQL(RootResolver(Query(Nested(_ => "y")), Mutation(_ => Nested(_ => "y"))))
+        for {
+          int <- gql.interpreter
+          res <- int.execute(query)
+        } yield assertTrue(
+          res.errors.collectFirst { case e: CalibanError.ValidationError => e.msg }
+            .exists(_.contains("different arguments"))
+        )
+      },
       test("nested fragment selection on the same type") {
         import caliban.schema.Schema.auto._
 
