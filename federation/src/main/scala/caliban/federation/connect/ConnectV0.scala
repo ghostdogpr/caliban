@@ -11,7 +11,7 @@ object ConnectV0 {
   )
 
   val connect0_2: Link = connect.copy(
-    `import` = connect.`import`
+    url = s"$connectUrl/v0.2"
   )
 
   val connect0_3: Link = connect0_2.copy(
