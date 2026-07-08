@@ -207,6 +207,34 @@ object ClientWriterSpec extends SnapshotTest {
           excludeDeprecated = true
         )
       },
+      snapshotTest("enum with case-insensitive type name clash") {
+        gen("""
+             type Foo {
+               id: String
+             }
+
+             enum foo {
+               A
+               B
+             }
+            """)
+      },
+      snapshotTest("enum value that is a reserved word") {
+        gen("""
+             enum E {
+               type
+               match
+             }
+            """)
+      },
+      snapshotTest("field description containing comment markers") {
+        gen("""
+             type Query {
+               "use bar */ instead /* here"
+               foo: String
+             }
+            """)
+      },
       snapshotTest("scalar mapped enum") {
         gen(
           """

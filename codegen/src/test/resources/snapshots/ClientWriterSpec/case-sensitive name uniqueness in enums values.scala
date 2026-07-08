@@ -9,7 +9,7 @@ object Client {
     case object NEWHOPE extends Episode { val value: String = "NEWHOPE" }
     case object EMPIRE  extends Episode { val value: String = "EMPIRE"  }
     case object JEDI    extends Episode { val value: String = "JEDI"    }
-    case object jedi_1  extends Episode { val value: String = "jedi_1"  }
+    case object jedi_1  extends Episode { val value: String = "jedi"    }
 
     implicit val decoder: ScalarDecoder[Episode] = {
       case __StringValue("NEWHOPE") => Right(Episode.NEWHOPE)
