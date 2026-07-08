@@ -87,10 +87,11 @@ private[caliban] trait StringParsers {
     case other => other
   }
 
+  def stringCharacters(implicit ev: P[Any]): P[String] =
+    CharsWhile(c => c != '"' && c != '\\' && (c == '\t' || c >= ' ')).!
+
   def stringCharacter(implicit ev: P[Any]): P[String] =
-    sourceCharacterWithoutLineTerminator.!.filter(c =>
-      c != "\"" && c != "\\"
-    ) | "\\u" ~~ escapedUnicode | "\\" ~~ escapedCharacter
+    stringCharacters | "\\u" ~~ escapedUnicode | "\\" ~~ escapedCharacter
 
   def blockStringCharacter(implicit ev: P[Any]): P[String] = "\\\"\"\"".!.map(_ => "\"\"\"") | sourceCharacter.!
 
