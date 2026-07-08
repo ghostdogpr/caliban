@@ -103,16 +103,9 @@ object DocumentRenderer extends Renderer[Document] {
             def valueEscaped(): Unit = unsafeFastEscapeQuote(value, writer)
 
             writer append tripleQuote
-            if (value.last == '"') {
-              newlineOrEmpty(indent, writer)
-              valueEscaped()
-              newlineOrSpace(indent, writer)
-            } else {
-              // ok. No quotes at the end of value
-              newlineOrEmpty(indent, writer)
-              valueEscaped()
-              newlineOrEmpty(indent, writer)
-            }
+            newlineOrEmpty(indent, writer)
+            valueEscaped()
+            if (value.last == '"') writer append '\n' else newlineOrEmpty(indent, writer)
             writer append tripleQuote
             newlineOrSpace(indent, writer)
           case value                         =>
