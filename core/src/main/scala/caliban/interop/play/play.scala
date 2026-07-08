@@ -7,8 +7,6 @@ import caliban.schema.Types.makeScalar
 import caliban.schema.{ ArgBuilder, Schema, Step }
 import play.api.libs.json._
 
-import scala.util.Try
-
 object json {
   implicit val jsonSchema: Schema[Any, JsValue] = new Schema[Any, JsValue] {
     private def parse(value: JsValue) =
@@ -62,9 +60,7 @@ object json {
       case JsArray(elements) => ResponseValue.ListValue(elements.toList.map(jsonToResponseValue))
       case JsString(value)   => StringValue(value)
       case JsNumber(value)   =>
-        Try(value.toIntExact)
-          .map(IntValue.apply)
-          .getOrElse(FloatValue(value))
+        if (value.isValidInt) IntValue(value.toIntExact) else FloatValue(value)
 
       case b: JsBoolean => BooleanValue(b.value)
       case JsNull       => NullValue
