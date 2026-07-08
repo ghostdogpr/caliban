@@ -115,6 +115,13 @@ object TapirAdapter {
           None,
           encodeMultipartMixedResponse(resp, stream)
         )
+      case resp if accepts.serverSentEvents                     =>
+        (
+          MediaType.TextEventStream,
+          StatusCode.Ok,
+          None,
+          encodeTextEventStreamResponse(resp)
+        )
       case resp if accepts.graphQLJson                          =>
         val isBadRequest = response.errors.exists {
           case _: CalibanError.ParsingError | _: CalibanError.ValidationError => true
@@ -129,13 +136,6 @@ object TapirAdapter {
             keepDataOnErrors = !isBadRequest,
             excludeExtensions = cacheDirective.map(_ => Set(Caching.DirectiveName))
           )
-        )
-      case resp if accepts.serverSentEvents                     =>
-        (
-          MediaType.TextEventStream,
-          StatusCode.Ok,
-          None,
-          encodeTextEventStreamResponse(resp)
         )
       case resp                                                 =>
         val isBadRequest = response.errors.contains(HttpUtils.MutationOverGetError: Any)
