@@ -155,7 +155,11 @@ object Validator {
       case (t, _)                                            => t
     }
 
-  private def collectVariablesUsed(context: Context, selectionSet: List[Selection]): mutable.Set[String] = {
+  private def collectVariablesUsed(
+    context: Context,
+    selectionSet: List[Selection],
+    operationDirectives: List[Directive]
+  ): mutable.Set[String] = {
     val allValues = ListBuffer.empty[InputValue]
     val variables = mutable.Set.empty[String]
     val seen      = mutable.HashSet.empty[String]
@@ -201,6 +205,7 @@ object Validator {
       }
 
     collectValues(selectionSet)
+    operationDirectives.foreachOne(d => if (!d.arguments.isEmpty) allValues.addAll(d.arguments.values))
     if (!allValues.isEmpty) collectVariableValues(allValues)
     variables
   }
@@ -363,7 +368,7 @@ object Validator {
   def validateVariables(context: Context): Either[ValidationError, Unit] =
     validateAllDiscard(context.operations) { op =>
       val variableDefinitions = op.variableDefinitions
-      val variableUsages      = collectVariablesUsed(context, op.selectionSet)
+      val variableUsages      = collectVariablesUsed(context, op.selectionSet, op.directives)
       if (variableDefinitions.isEmpty && variableUsages.isEmpty) unit
       else
         validateAllDiscard(op.variableDefinitions.groupBy(_.name)) { (name, variables) =>
