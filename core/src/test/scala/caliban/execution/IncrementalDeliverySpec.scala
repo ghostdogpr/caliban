@@ -478,6 +478,24 @@ object IncrementalDeliverySpec extends ZIOSpecDefault {
           errors.size == 1,
           errors.head.is(_.subtype[ValidationError]).msg == "Stream and defer directive labels must be unique"
         )
+      },
+      test("duplicate defer labels are detected in defer-only mode") {
+        val query = gqldoc("""
+        {
+           character(name: "Roberta Draper") {
+             ... @defer(label: "dup") { n1: nicknames }
+             ... @defer(label: "dup") { n2: nicknames }
+           }
+        }
+          """)
+
+        for {
+          response <- deferOnlyInterpreter.flatMap(_.execute(query))
+          errors    = response.errors
+        } yield assertTrue(
+          errors.size == 1,
+          errors.head.is(_.subtype[ValidationError]).msg == "Stream and defer directive labels must be unique"
+        )
       }
     )
   ).provide(CharacterService.test, QuoteService.test)

@@ -157,7 +157,8 @@ object TestDeferredSchema extends SchemaDerivation[CharacterService with QuoteSe
       )
     )
 
-  val interpreter = (graphQL(resolver) @@ IncrementalDelivery.all).interpreter
+  val interpreter          = (graphQL(resolver) @@ IncrementalDelivery.all).interpreter
+  val deferOnlyInterpreter = (graphQL(resolver) @@ IncrementalDelivery.defer).interpreter
 }
 
 object TestDatasourceDeferredSchema extends GenericSchema[Any] {
