@@ -215,8 +215,10 @@ object Value {
 
     @throws[NumberFormatException]("if the string is not a valid representation of a float")
     def fromStringUnsafe(s: String): FloatValue =
-      try DoubleNumber(s.toDouble)
-      catch { case NonFatal(_) => BigDecimalNumber(BigDecimal(s)) }
+      try {
+        val double = s.toDouble
+        if (double.isInfinity) BigDecimalNumber(BigDecimal(s)) else DoubleNumber(double)
+      } catch { case NonFatal(_) => BigDecimalNumber(BigDecimal(s)) }
 
     final case class FloatNumber(value: Float)           extends FloatValue {
       override def toFloat: Float           = value
