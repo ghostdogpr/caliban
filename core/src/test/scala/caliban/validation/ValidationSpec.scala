@@ -328,6 +328,15 @@ object ValidationSpec extends ZIOSpecDefault {
              }""")
         check(query, "Directive 'skip' is used in invalid location 'QUERY'.")
       },
+      test("directive on a variable definition is validated") {
+        val query = gqldoc("""
+             query($x: String @skip(if: true)) {
+               characters {
+                 name
+               }
+             }""")
+        check(query, "Directive 'skip' is used in invalid location 'VARIABLE_DEFINITION'.")
+      },
       test("directive used twice") {
         val query = gqldoc("""
              query {

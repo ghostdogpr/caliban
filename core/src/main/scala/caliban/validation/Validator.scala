@@ -246,6 +246,10 @@ object Validator {
           }
           dirs.foreachOne(v => all.addOne((v, location)))
         }
+        op.variableDefinitions.foreachOne { vd =>
+          val vdDirs = vd.directives
+          if (vdDirs ne Nil) vdDirs.foreachOne(v => all.addOne((v, __DirectiveLocation.VARIABLE_DEFINITION)))
+        }
       }
       fragmentDirs.foreachOne(_.foreachOne(v => all.addOne((v, __DirectiveLocation.FRAGMENT_DEFINITION))))
       if (selectionDirectives ne Nil) all.addAll(selectionDirectives)
