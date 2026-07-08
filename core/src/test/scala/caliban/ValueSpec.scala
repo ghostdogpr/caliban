@@ -31,7 +31,7 @@ object ValueSpec extends ZIOSpecDefault {
       }
     ),
     suite("FloatValue.fromStringUnsafe")(
-      test("preserves out-of-range values as BigDecimal instead of Infinity") {
+      test("preserves overflowing values as BigDecimal instead of Infinity") {
         val v = FloatValue.fromStringUnsafe("1e400")
         assertTrue(
           v == BigDecimalNumber(BigDecimal("1e400")),
@@ -39,8 +39,18 @@ object ValueSpec extends ZIOSpecDefault {
           v.toString != "Infinity"
         )
       },
+      test("preserves underflowing values as BigDecimal instead of zero") {
+        val v = FloatValue.fromStringUnsafe("1e-400")
+        assertTrue(
+          v == BigDecimalNumber(BigDecimal("1e-400")),
+          v.toBigDecimal == BigDecimal("1e-400")
+        )
+      },
       test("keeps in-range values as Double") {
         assertTrue(FloatValue.fromStringUnsafe("1.5") == DoubleNumber(1.5))
+      },
+      test("keeps genuine zero as Double") {
+        assertTrue(FloatValue.fromStringUnsafe("0.0") == DoubleNumber(0.0))
       }
     )
   )

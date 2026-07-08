@@ -217,7 +217,11 @@ object Value {
     def fromStringUnsafe(s: String): FloatValue =
       try {
         val double = s.toDouble
-        if (double.isInfinity) BigDecimalNumber(BigDecimal(s)) else DoubleNumber(double)
+        if (double != 0.0 && !double.isInfinity) DoubleNumber(double)
+        else {
+          val bd = BigDecimal(s)
+          if (bd.signum == 0) DoubleNumber(double) else BigDecimalNumber(bd)
+        }
       } catch { case NonFatal(_) => BigDecimalNumber(BigDecimal(s)) }
 
     final case class FloatNumber(value: Float)           extends FloatValue {
