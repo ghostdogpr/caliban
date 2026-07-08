@@ -4,6 +4,8 @@ import caliban.Value.BooleanValue
 import caliban.Value.FloatValue
 import caliban.Value.FloatValue.{ BigDecimalNumber, DoubleNumber }
 import caliban.Value.IntValue.IntNumber
+import caliban.Value.StringValue
+import caliban.parsing.Parser
 import zio.test.{ assertCompletes, assertTrue, ZIOSpecDefault }
 
 object ValueSpec extends ZIOSpecDefault {
@@ -51,6 +53,17 @@ object ValueSpec extends ZIOSpecDefault {
       },
       test("keeps genuine zero as Double") {
         assertTrue(FloatValue.fromStringUnsafe("0.0") == DoubleNumber(0.0))
+      }
+    ),
+    suite("StringValue.toInputString")(
+      test("escapes control characters so the output round-trips") {
+        val bs       = "\\"
+        val value    = StringValue(s"a${0x07.toChar}b${0x00.toChar}c${0x1f.toChar}d")
+        val rendered = value.toInputString
+        assertTrue(
+          rendered == "\"a" + bs + "u0007b" + bs + "u0000c" + bs + "u001fd\"",
+          Parser.parseInputValue(rendered) == Right(value)
+        )
       }
     )
   )
