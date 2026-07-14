@@ -200,6 +200,7 @@ jobs:
       - run: |
           sbt ++2.13 docs/mdoc
           sbt "++2.13 doc"
+          sbt "++2.12 doc"
       - save_cache:
           key: sbtcache
           paths:
