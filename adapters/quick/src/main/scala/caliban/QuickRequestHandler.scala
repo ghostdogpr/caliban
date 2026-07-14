@@ -252,13 +252,23 @@ final private class QuickRequestHandler[R](
     responses: ZStream[Any, Throwable, ResponseValue]
   )(implicit trace: Trace): ZStream[Any, Throwable, Byte] = {
     import HttpUtils.DeferMultipart._
+    val delimiter = PartDelimiter.getBytes(UTF_8)
+    val header    = PartHeader.getBytes(UTF_8)
+    val close     = CloseDelimiter.getBytes(UTF_8)
 
-    responses
-      .map(encodeWithinLimit)
-      // later @defer payloads would patch data the client never received
-      .takeUntil(_.isEmpty)
-      .map(_.getOrElse(responseLimitErrorBytes))
-      .intersperse(InnerBoundary.getBytes(UTF_8), InnerBoundary.getBytes(UTF_8), EndBoundary.getBytes(UTF_8))
+    // Write the delimiter that ends a part in the same chunk as the part. With `intersperse`
+    // the whole boundary is a separator, emitted only when the NEXT part is pulled, and a
+    // multipart parser cannot surface a part before its delimiter: the initial `@defer`
+    // payload would stay unreadable until the first deferred payload resolves. For any
+    // non-empty stream the bytes on the wire are the same as with `intersperse`, and the
+    // body still closes on completion.
+    (ZStream.succeed(delimiter) ++
+      responses
+        .map(encodeWithinLimit)
+        // later @defer payloads would patch data the client never received
+        .takeUntil(_.isEmpty)
+        .map(bytes => header ++ bytes.getOrElse(responseLimitErrorBytes) ++ delimiter) ++
+      ZStream.succeed(close))
       .mapConcatChunk(Chunk.fromArray)
   }
 
