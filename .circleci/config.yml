@@ -19,8 +19,8 @@ jobs:
     docker:
       - image: cimg/openjdk:17.0-node
         environment: &sbt-mem
-          SBT_OPTS: "-Xmx2G -XX:MaxMetaspaceSize=1500M"
-          JAVA_TOOL_OPTIONS: "-Xmx2G -XX:MaxMetaspaceSize=1G"
+          SBT_OPTS: "-Xmx2G"
+          JAVA_TOOL_OPTIONS: "-Xmx2G"
     resource_class: large
     steps:
       - checkout
