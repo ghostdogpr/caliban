@@ -18,14 +18,14 @@ val circeVersion              = "0.14.16"
 val fs2Version                = "3.13.0"
 val http4sVersion             = "0.23.36"
 val javaTimeVersion           = "2.7.0"
-val jsoniterVersion           = "2.38.17"
+val jsoniterVersion           = "2.39.1"
 val laminextVersion           = "0.17.0"
 val magnoliaScala2Version     = "1.1.14"
 val magnoliaScala3Version     = "1.3.23"
 val pekkoHttpVersion          = "1.3.0"
 val playVersion               = "3.0.11"
 val playJsonVersion           = "3.0.6"
-val scalafmtVersion           = "3.11.1"
+val scalafmtVersion           = "3.11.3"
 val sttpVersion               = "4.0.26"
 val tapirVersion              = "1.13.27"
 val zioVersion                = "2.1.26"
@@ -266,7 +266,12 @@ lazy val stitching = project
       "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros" % jsoniterVersion % Provided,
       "dev.zio"                               %% "zio-test"              % zioVersion      % Test,
       "dev.zio"                               %% "zio-test-sbt"          % zioVersion      % Test
-    )
+    ),
+    // Scala 2.12 Scaladoc re-expands the jsoniter macro in CacheInvalidator and crashes, so skip it
+    Compile / doc / sources := {
+      val prev = (Compile / doc / sources).value
+      if (scalaVersion.value == scala212) Nil else prev
+    }
   )
   .disablePlugins(AssemblyPlugin)
   .dependsOn(tools)
@@ -287,7 +292,7 @@ lazy val tracing = project
       "dev.zio"         %% "zio-opentelemetry"         % zioOpenTelemetryVersion,
       "dev.zio"         %% "zio-test"                  % zioVersion % Test,
       "dev.zio"         %% "zio-test-sbt"              % zioVersion % Test,
-      "io.opentelemetry" % "opentelemetry-sdk-testing" % "1.63.0"   % Test
+      "io.opentelemetry" % "opentelemetry-sdk-testing" % "1.64.0"   % Test
     )
   )
   .dependsOn(core)
