@@ -267,11 +267,8 @@ lazy val stitching = project
       "dev.zio"                               %% "zio-test"              % zioVersion      % Test,
       "dev.zio"                               %% "zio-test-sbt"          % zioVersion      % Test
     ),
-    // Scala 2.12 Scaladoc re-expands the jsoniter macro in CacheInvalidator and crashes, so skip it
-    Compile / doc / sources := {
-      val prev = (Compile / doc / sources).value
-      if (scalaVersion.value == scala212) Nil else prev
-    }
+    // Scaladoc re-expands the jsoniter macro in CacheInvalidator and can crash, so skip it on all versions
+    Compile / doc / sources := Nil
   )
   .disablePlugins(AssemblyPlugin)
   .dependsOn(tools)
