@@ -66,6 +66,12 @@ object Http4sAdapterSpec extends ZIOSpecDefault {
       .provideLayerShared(apiLayer)
   }
 
+  /**
+   * Converts a Resource to a scoped ZIO, where the resource is closed in a forked fiber.
+   *
+   *  This is needed because for some unknown reason closing the server resource "hangs" until the test suit gives
+   *  up on waiting for it to shut down (even though the server correctly closes).
+   */
   private def toZIO[R, A](resource: Resource[RIO[R, *], A])(implicit trace: Trace): RIO[R & Scope, A] =
     ZIO.environmentWithZIO[R] { env =>
       resource.allocated.flatMap { case (r, close) =>
