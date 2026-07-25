@@ -16,23 +16,23 @@ val catsEffect3Version        = "3.7.0"
 val catsMtlVersion            = "1.5.0"
 val circeVersion              = "0.14.16"
 val fs2Version                = "3.13.0"
-val http4sVersion             = "0.23.35"
+val http4sVersion             = "0.23.36"
 val javaTimeVersion           = "2.7.0"
-val jsoniterVersion           = "2.38.17"
+val jsoniterVersion           = "2.39.1"
 val laminextVersion           = "0.17.0"
 val magnoliaScala2Version     = "1.1.14"
-val magnoliaScala3Version     = "1.3.21"
+val magnoliaScala3Version     = "1.3.23"
 val pekkoHttpVersion          = "1.3.0"
 val playVersion               = "3.0.11"
 val playJsonVersion           = "3.0.6"
-val scalafmtVersion           = "3.11.1"
-val sttpVersion               = "4.0.25"
-val tapirVersion              = "1.13.25"
+val scalafmtVersion           = "3.11.4"
+val sttpVersion               = "4.0.26"
+val tapirVersion              = "1.13.28"
 val zioVersion                = "2.1.26"
 val zioInteropCats2Version    = "22.0.0.0"
 val zioInteropCats3Version    = "23.1.0.13"
 val zioInteropReactiveVersion = "2.0.2"
-val zioConfigVersion          = "4.0.7"
+val zioConfigVersion          = "4.0.8"
 val zqueryVersion             = "0.7.8"
 val zioJsonVersion            = "0.9.2"
 val zioHttpVersion            = "3.11.3"
@@ -266,7 +266,9 @@ lazy val stitching = project
       "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros" % jsoniterVersion % Provided,
       "dev.zio"                               %% "zio-test"              % zioVersion      % Test,
       "dev.zio"                               %% "zio-test-sbt"          % zioVersion      % Test
-    )
+    ),
+    // Scaladoc re-expands the jsoniter macro in CacheInvalidator and can crash, so skip it on all versions
+    Compile / doc / sources := Nil
   )
   .disablePlugins(AssemblyPlugin)
   .dependsOn(tools)
@@ -287,7 +289,7 @@ lazy val tracing = project
       "dev.zio"         %% "zio-opentelemetry"         % zioOpenTelemetryVersion,
       "dev.zio"         %% "zio-test"                  % zioVersion % Test,
       "dev.zio"         %% "zio-test-sbt"              % zioVersion % Test,
-      "io.opentelemetry" % "opentelemetry-sdk-testing" % "1.63.0"   % Test
+      "io.opentelemetry" % "opentelemetry-sdk-testing" % "1.64.0"   % Test
     )
   )
   .dependsOn(core)

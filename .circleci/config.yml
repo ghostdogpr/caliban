@@ -18,6 +18,9 @@ jobs:
   test212_jdk:
     docker:
       - image: cimg/openjdk:17.0-node
+        environment: &sbt-mem
+          SBT_OPTS: "-Xmx2G"
+          JAVA_TOOL_OPTIONS: "-Xmx2G"
     resource_class: large
     steps:
       - checkout
@@ -63,6 +66,7 @@ jobs:
   test213_jdk:
     docker:
       - image: cimg/openjdk:17.0-node
+        environment: *sbt-mem
     resource_class: large
     steps:
       - checkout
@@ -78,6 +82,7 @@ jobs:
   test213_jdk21:
     docker:
       - image: cimg/openjdk:21.0-node
+        environment: *sbt-mem
     resource_class: large
     steps:
       - checkout
@@ -93,6 +98,7 @@ jobs:
   test33_jdk:
     docker:
       - image: cimg/openjdk:17.0-node
+        environment: *sbt-mem
     resource_class: large
     steps:
       - checkout
@@ -108,6 +114,7 @@ jobs:
   test33_jdk21:
     docker:
       - image: cimg/openjdk:21.0-node
+        environment: *sbt-mem
     resource_class: large
     steps:
       - checkout
@@ -193,6 +200,7 @@ jobs:
       - run: |
           sbt ++2.13 docs/mdoc
           sbt "++2.13 doc"
+          sbt "++2.12 doc"
       - save_cache:
           key: sbtcache
           paths:

@@ -3,6 +3,7 @@ package caliban
 import caliban.interop.tapir.TestData.sampleCharacters
 import caliban.interop.tapir._
 import caliban.uploads.Uploads
+import cats.effect.Resource
 import com.comcast.ip4s._
 import fs2.io.net.Network
 import org.http4s.ember.server.EmberServerBuilder
@@ -27,7 +28,7 @@ object Http4sAdapterSpec extends ZIOSpecDefault {
   private def apiLayer = envLayer >>> ZLayer.scoped {
     for {
       interpreter <- TestApi.api.interpreter
-      _           <- EmberServerBuilder
+      serverF      = EmberServerBuilder
                        .default[TestTask]
                        .withHost(host"localhost")
                        .withPort(port"8087")
@@ -48,8 +49,7 @@ object Http4sAdapterSpec extends ZIOSpecDefault {
                          ).orNotFound
                        )
                        .build
-                       .toScopedZIO
-                       .forkScoped
+      _           <- toZIO(serverF)
       _           <- Live.live(Clock.sleep(3 seconds))
       service     <- ZIO.service[TestService]
     } yield service
@@ -65,4 +65,20 @@ object Http4sAdapterSpec extends ZIOSpecDefault {
       )
       .provideLayerShared(apiLayer)
   }
+
+  /**
+   * Converts a Resource to a scoped ZIO, where the resource is closed in a forked fiber.
+   *
+   *  This is needed because for some unknown reason closing the server resource "hangs" until the test suit gives
+   *  up on waiting for it to shut down (even though the server correctly closes).
+   */
+  private def toZIO[R, A](resource: Resource[RIO[R, *], A])(implicit trace: Trace): RIO[R & Scope, A] =
+    ZIO.environmentWithZIO[R] { env =>
+      resource.allocated.flatMap { case (r, close) =>
+        Scope
+          .addFinalizer(close.provideEnvironment(env).interruptible.forkDaemon)
+          .as(r)
+      }
+    }
+
 }
