@@ -11,7 +11,7 @@ object GraphQLRequestJsoniterSpec extends ZIOSpecDefault {
     suite("GraphQLRequestJsoniterSpec")(
       test("can be parsed from JSON by jsoniter") {
         val request =
-          """{"query": "{}", "operationName": "op", "variables": {"hello":"world","answer":42,"isAwesome":true, "name": null}}"""
+          """{"query": "{}", "operationName": "op", "variables": {"hello":"world","intValue":42,"longValue":99999999999,"bigIntValue":9223372036854775810,"decimalValue":1.1,"bigDecimalValue":4.4028235E38,"isAwesome":true, "name": null}}"""
         assert(readFromString[GraphQLRequest](request))(
           equalTo(
             GraphQLRequest(
@@ -19,10 +19,14 @@ object GraphQLRequestJsoniterSpec extends ZIOSpecDefault {
               operationName = Some("op"),
               variables = Some(
                 Map(
-                  "hello"     -> Value.StringValue("world"),
-                  "answer"    -> Value.IntValue(42),
-                  "isAwesome" -> Value.BooleanValue(true),
-                  "name"      -> Value.NullValue
+                  "hello"           -> Value.StringValue("world"),
+                  "intValue"        -> Value.IntValue.IntNumber(42),
+                  "longValue"       -> Value.IntValue.LongNumber(99999999999L),
+                  "bigIntValue"     -> Value.IntValue.BigIntNumber(BigInt("9223372036854775810")),
+                  "decimalValue"    -> Value.FloatValue(BigDecimal("1.1")),
+                  "bigDecimalValue" -> Value.FloatValue(BigDecimal("4.4028235E38")),
+                  "isAwesome"       -> Value.BooleanValue(true),
+                  "name"            -> Value.NullValue
                 )
               )
             )
