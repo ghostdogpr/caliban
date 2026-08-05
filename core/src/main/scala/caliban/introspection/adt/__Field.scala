@@ -16,8 +16,7 @@ case class __Field(
   isDeprecated: Boolean = false,
   deprecationReason: Option[String] = None,
   @GQLExcluded directives: Option[List[Directive]] = None,
-  @GQLExcluded extend: Option[Extend] = None,
-  @GQLExcluded renameInput: String => String = identity
+  @GQLExcluded extend: Option[Extend] = None
 ) {
   @transient @threadUnsafe
   final override lazy val hashCode: Int = caliban.Hash.caseClassHash(this)
@@ -44,9 +43,6 @@ case class __Field(
 
   private[caliban] lazy val allArgNames: Set[String] =
     allArgs.view.map(_.name).toSet
-
-  private[caliban] lazy val renameArguments: String => String =
-    allArgs.foldLeft(identity[String] _) { case (rename, arg) => rename andThen arg.renameInput }
 }
 
 case class Extend(

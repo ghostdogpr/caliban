@@ -18,17 +18,12 @@ import caliban.{ CalibanError, GraphQL, GraphQLResponse, ResponseValue }
 import zio.query.ZQuery
 import zio.{ Chunk, Trace, URIO }
 
-private case class SuperGraphExecutor[-R](
-  private val subGraphs: List[SubGraphExecutor[R]],
-  private val transformers: Chunk[TypeVisitor]
-) extends GraphQL[R] {
-  private val subGraphMap: Map[String, SubGraphExecutor[R]] = subGraphs.map(g => g.name -> g).toMap
-
-  protected val wrappers: List[Wrapper[R]]              = Nil
-  protected val additionalDirectives: List[__Directive] = Nil
-  protected val features: Set[Feature]                  = Set.empty
-  protected val transformer: Transformer[R]             = Transformer.empty
-  protected val schemaBuilder: RootSchemaBuilder[R]     = {
+private object SuperGraphExecutor {
+  def apply[R](
+    subGraphs: List[SubGraphExecutor[R]],
+    schemaVisitors: Chunk[TypeVisitor],
+    transformer: Transformer[Any]
+  ): SuperGraphExecutor[R] = {
     val builder = subGraphs.collect {
       case subGraph if subGraph.exposeAtRoot && subGraph.schema.queryType.kind == __TypeKind.OBJECT =>
         val rootTypes = Set(
@@ -47,8 +42,25 @@ private case class SuperGraphExecutor[-R](
           )
         )
     }.reduceLeft(_ |+| _)
-    transformers.foldLeft(builder) { case (builder, transformer) => builder.visit(transformer) }
+    val schema  = schemaVisitors
+      .foldLeft(builder) { case (builder, visitor) => builder.visit(visitor) }
+      .visit(transformer.typeVisitor)
+
+    new SuperGraphExecutor(subGraphs, schema, transformer)
   }
+}
+
+private case class SuperGraphExecutor[-R](
+  private val subGraphs: List[SubGraphExecutor[R]],
+  protected val schemaBuilder: RootSchemaBuilder[R],
+  private val gatewayTransformer: Transformer[Any]
+) extends GraphQL[R] {
+  private val subGraphMap: Map[String, SubGraphExecutor[R]] = subGraphs.map(g => g.name -> g).toMap
+
+  protected val wrappers: List[Wrapper[R]]              = Nil
+  protected val additionalDirectives: List[__Directive] = Nil
+  protected val features: Set[Feature]                  = Set.empty
+  protected val transformer: Transformer[R]             = Transformer.empty
 
   protected override def resolve[R1 <: R](
     op: Operation[R1],
@@ -58,7 +70,7 @@ private case class SuperGraphExecutor[-R](
     if (isIntrospection)
       Executor.executeRequest(req, op.plan, fieldWrappers, QueryExecution.Parallel, features)
     else
-      resolveRootField(Resolver.Field(req.field), req.operationType)
+      resolveRootField(Resolver.Field(req.field, gatewayTransformer), req.operationType)
         .fold(
           error => GraphQLResponse(NullValue, List(error)),
           result => GraphQLResponse(result, Nil)

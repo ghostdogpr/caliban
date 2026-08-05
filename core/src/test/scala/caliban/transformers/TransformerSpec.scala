@@ -131,6 +131,22 @@ object TransformerSpec extends ZIOSpecDefault {
               |""".stripMargin
         )
       },
+      test("filter fields matching a predicate") {
+        case class Query(a: String, b: Int)
+        val api: GraphQL[Any] = graphQL(RootResolver(Query("a", 2)))
+
+        val transformed = api.transform(
+          Transformer.ExcludeField.when { case ("Query", fieldName) => fieldName != "a" }
+        )
+        for {
+          interpreter <- transformed.interpreter
+          result      <- interpreter.execute("""{ a }""").map(_.data.toString)
+        } yield assertTrue(
+          result == """{"a":"a"}""",
+          transformed.render.contains("a: String!"),
+          !transformed.render.contains("b: Int!")
+        )
+      },
       test("exclude field from input object") {
         case class Nested(a: String, b: Option[String], c: String)
         case class Args(a: String, b: String, l: List[String], nested: Nested)

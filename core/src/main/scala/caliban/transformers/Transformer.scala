@@ -28,6 +28,13 @@ abstract class Transformer[-R] { self =>
   def apply[R1 <: R](step: ObjectStep[R1], field: Field): ObjectStep[R1] =
     transformStep(step, field)
 
+  private[caliban] def translateInput(
+    typeName: String,
+    fieldName: String,
+    arguments: Map[String, InputValue]
+  ): (String, String, Map[String, InputValue]) =
+    (typeName, fieldName, arguments)
+
   def |+|[R0 <: R](that: Transformer[R0]): Transformer[R0] =
     (self, that) match {
       case (l, Transformer.Empty) => l
@@ -69,6 +76,8 @@ object Transformer {
 
   final private class RenameType(map: Map[String, String]) extends Transformer[Any] {
 
+    private val reverseMap = map.map(_.swap)
+
     val typeVisitor: TypeVisitor =
       TypeVisitor.modify { (t: __Type) =>
         t.name.flatMap(map.get).fold(t)(newName => t.copy(name = Some(newName)))
@@ -81,6 +90,13 @@ object Transformer {
         case null    => step
         case newName => step.copy(name = newName)
       }
+
+    override private[caliban] def translateInput(
+      typeName: String,
+      fieldName: String,
+      arguments: Map[String, InputValue]
+    ): (String, String, Map[String, InputValue]) =
+      (reverseMap.getOrElse(typeName, typeName), fieldName, arguments)
   }
 
   object RenameField {
@@ -127,6 +143,13 @@ object Transformer {
         case null => step
         case map  => step.copy(fields = name => step.fields(map.getOrElse(name, name)))
       }
+
+    override private[caliban] def translateInput(
+      typeName: String,
+      fieldName: String,
+      arguments: Map[String, InputValue]
+    ): (String, String, Map[String, InputValue]) =
+      (typeName, transformMap.get(typeName).flatMap(_.get(fieldName)).getOrElse(fieldName), arguments)
   }
 
   object RenameArgument {
@@ -181,6 +204,20 @@ object Transformer {
               }
           )
       }
+
+    override private[caliban] def translateInput(
+      typeName: String,
+      fieldName: String,
+      arguments: Map[String, InputValue]
+    ): (String, String, Map[String, InputValue]) = {
+      val renames = transformMap.get(typeName).flatMap(_.get(fieldName))
+      val renamed = renames.fold(arguments)(map =>
+        arguments.map { case (name, value) =>
+          map.getOrElse(name, name) -> value
+        }
+      )
+      (typeName, fieldName, renamed)
+    }
   }
 
   object ExcludeField {
@@ -199,6 +236,13 @@ object Transformer {
      */
     def apply(f: (String, String)*): Transformer[Any] =
       if (f.isEmpty) Empty else new ExcludeField(f.groupMap(_._1)(_._2).transform((_, l) => l.toSet))
+
+    /**
+     * Excludes every field for which the partial predicate returns `true`.
+     * Fields outside the predicate's domain are kept.
+     */
+    def when(predicate: PartialFunction[(String, String), Boolean]): Transformer[Any] =
+      new ExcludeFieldWhen(predicate)
   }
 
   final private class ExcludeField(map: Map[String, Set[String]]) extends Transformer[Any] {
@@ -216,6 +260,32 @@ object Transformer {
       map.getOrElse(step.name, null) match {
         case null => step
         case excl => step.copy(fields = name => if (!excl(name)) step.fields(name) else NullStep)
+      }
+  }
+
+  final private class ExcludeFieldWhen(predicate: PartialFunction[(String, String), Boolean]) extends Transformer[Any] {
+    private val excluded = mutable.HashMap.empty[String, Set[String]]
+
+    private def shouldKeep(typeName: String, fieldName: String): Boolean = {
+      val exclude = predicate.applyOrElse((typeName, fieldName), (_: (String, String)) => false)
+      if (exclude)
+        excluded.updateWith(typeName) {
+          case Some(fields) => Some(fields + fieldName)
+          case None         => Some(Set(fieldName))
+        }
+      !exclude
+    }
+
+    val typeVisitor: TypeVisitor =
+      TypeVisitor.fields.filterWith((t, field) => shouldKeep(t.name.getOrElse(""), field.name)) |+|
+        TypeVisitor.inputFields.filterWith((t, field) => shouldKeep(t.name.getOrElse(""), field.name))
+
+    protected def typeNames: collection.Set[String] = excluded.keySet
+
+    protected def transformStep[R](step: ObjectStep[R], field: Field): ObjectStep[R] =
+      excluded.get(step.name) match {
+        case Some(fields) => step.copy(fields = name => if (!fields(name)) step.fields(name) else NullStep)
+        case None         => step
       }
   }
 
@@ -403,6 +473,15 @@ object Transformer {
 
     override def apply[R1 <: R](step: ObjectStep[R1], field: Field): ObjectStep[R1] =
       if (materializedTypeNames(step.name)) transformStep(step, field) else step
+
+    override private[caliban] def translateInput(
+      typeName: String,
+      fieldName: String,
+      arguments: Map[String, InputValue]
+    ): (String, String, Map[String, InputValue]) = {
+      val (rightType, rightField, rightArguments) = right.translateInput(typeName, fieldName, arguments)
+      left.translateInput(rightType, rightField, rightArguments)
+    }
   }
 
   private def mapFunctionStep[R](step: Step[R])(f: Map[String, InputValue] => Map[String, InputValue]): Step[R] =

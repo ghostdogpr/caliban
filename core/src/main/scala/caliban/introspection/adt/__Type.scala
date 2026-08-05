@@ -261,69 +261,6 @@ object TypeVisitor {
           )
   }
 
-  def renameType(f: PartialFunction[String, String]): TypeVisitor = {
-    def rename(name: String): String = f.lift(name).getOrElse(name)
-
-    TypeVisitor.modify(t => t.copy(name = t.name.map(rename))) |+|
-      TypeVisitor.enumValues.modify(value => value.copy(name = rename(value.name)))
-  }
-
-  def renameField(f: PartialFunction[(String, String), String]): TypeVisitor =
-    TypeVisitor.fields.modifyWith((t, field) =>
-      f.lift(t.name.getOrElse("") -> field.name)
-        .fold(field)(newName =>
-          field.copy(
-            name = newName,
-            renameInput = field.renameInput andThen ((name: String) => if (name == newName) field.name else name)
-          )
-        )
-    ) |+|
-      TypeVisitor.inputFields.modifyWith((t, field) =>
-        f.lift(t.name.getOrElse("") -> field.name)
-          .fold(field)(newName =>
-            field.copy(
-              name = newName,
-              renameInput = field.renameInput andThen ((name: String) => if (name == newName) field.name else name)
-            )
-          )
-      )
-
-  def renameArgument(f: PartialFunction[(String, String), (String, String)]): TypeVisitor =
-    TypeVisitor.fields.modifyWith((t, field) =>
-      f.lift(t.name.getOrElse("") -> field.name) match {
-        case Some((oldName, newName)) =>
-          field.copy(args =
-            args =>
-              field
-                .args(args)
-                .map(arg =>
-                  if (arg.name == oldName)
-                    arg.copy(
-                      name = newName,
-                      renameInput = arg.renameInput andThen ((name: String) => if (name == newName) oldName else name)
-                    )
-                  else arg
-                )
-          )
-        case None                     => field
-      }
-    )
-
-  def filterField(f: PartialFunction[(String, String), Boolean]): TypeVisitor =
-    TypeVisitor.fields.filterWith((t, field) => f.lift(t.name.getOrElse("") -> field.name).getOrElse(true)) |+|
-      TypeVisitor.inputFields.filterWith((t, field) => f.lift(t.name.getOrElse("") -> field.name).getOrElse(true))
-
-  def filterInterface(f: PartialFunction[(String, String), Boolean]): TypeVisitor =
-    TypeVisitor.interfaces.filterWith((t, interface) =>
-      f.lift(t.name.getOrElse("") -> interface.name.getOrElse("")).getOrElse(true)
-    )
-
-  def filterArgument(f: PartialFunction[(String, String, String), Boolean]): TypeVisitor =
-    TypeVisitor.fields.modifyWith((t, field) =>
-      field.copy(args =
-        args => field.args(args).filter(arg => f.lift((t.name.getOrElse(""), field.name, arg.name)).getOrElse(true))
-      )
-    )
 }
 
 private[caliban] sealed abstract class ListVisitor[A](implicit val set: __Type => (List[A] => List[A]) => __Type) {

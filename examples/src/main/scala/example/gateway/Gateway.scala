@@ -2,8 +2,8 @@ package example.gateway
 
 import caliban.InputValue.{ ListValue, ObjectValue }
 import caliban.gateway.{ SubGraph, SuperGraph }
-import caliban.introspection.adt.TypeVisitor
 import caliban.quick.GraphqlServerOps
+import caliban.transformers.Transformer
 import sttp.client4.Backend
 import sttp.client4.httpclient.zio.HttpClientZioBackend
 import zio._
@@ -16,8 +16,8 @@ object Gateway extends ZIOAppDefault {
   val gateway: SuperGraph[Backend[Task]] =
     SuperGraph
       .compose(List(stores, books, authors))
-      .transform(TypeVisitor.filterField { case ("Query", fieldName) => fieldName == "stores" })
-      .transform(TypeVisitor.renameType { case "authors_v1_Author" => "Author" })
+      .transform(Transformer.ExcludeField.when { case ("Query", fieldName) => fieldName != "stores" })
+      .transform(Transformer.RenameType("authors_v1_Author" -> "Author"))
       .extend(
         stores,
         sourceFieldName = "bookSells",
