@@ -2,9 +2,8 @@ package caliban.gateway
 
 import caliban._
 import caliban.introspection.adt.{ __DeprecatedArgs, __Schema, __TypeKind, Extend, TypeVisitor }
-import caliban.tools.SttpClient
-import zio.prelude.NonEmptyList
-import zio.{ Chunk, RIO, ZIO }
+import sttp.client4.Backend
+import zio.{ Chunk, RIO, Task, ZIO }
 
 case class SuperGraph[-R](
   protected val subGraphs: List[SubGraph[R]],
@@ -27,7 +26,8 @@ case class SuperGraph[-R](
     targetTypeName: String,
     targetFieldName: String,
     argumentMappings: Map[String, InputValue => (String, InputValue)],
-    filterBatchResults: Option[(ResponseValue.ObjectValue, ResponseValue.ObjectValue) => Boolean] = None
+    filterBatchResults: Option[(ResponseValue.ObjectValue, ResponseValue.ObjectValue) => Boolean] = None,
+    additionalFields: List[String] = Nil
   ): SuperGraph[R] =
     transformWith(
       _.get(sourceGraph.name)
@@ -41,8 +41,16 @@ case class SuperGraph[-R](
                   List(
                     fieldDefinition.copy(
                       name = targetFieldName,
-                      args = Nil,
-                      extend = Some(Extend(sourceGraph.name, sourceFieldName, argumentMappings, filterBatchResults))
+                      args = _ => Nil,
+                      extend = Some(
+                        Extend(
+                          sourceGraph.name,
+                          sourceFieldName,
+                          argumentMappings,
+                          filterBatchResults,
+                          additionalFields
+                        )
+                      )
                     )
                   )
                 else Nil
@@ -54,13 +62,13 @@ case class SuperGraph[-R](
 
   def build: RIO[R, GraphQL[R]] =
     for {
-      subGraphs        <- ZIO.foreachPar(self.subGraphs)(_.build)
-      nel              <- ZIO
-                            .succeed(NonEmptyList.fromIterableOption(subGraphs))
-                            .someOrFail(new Throwable("At least one subgraph must be defined"))
-      subGraphsMap      = subGraphs.map(g => g.name -> g.schema).toMap
-      subGraphsVisitors = Chunk.fromIterable(subGraphs).flatMap(_.visitors)
-    } yield SuperGraphExecutor(nel, subGraphsVisitors ++ transformers.map(_(subGraphsMap)))
+      subGraphs         <- ZIO.foreachPar(self.subGraphs)(_.build)
+      nonEmptySubGraphs <- ZIO
+                             .fromOption(if (subGraphs.nonEmpty) Some(subGraphs) else None)
+                             .orElseFail(new Throwable("At least one subgraph must be defined"))
+      subGraphsMap       = subGraphs.map(g => g.name -> g.schema).toMap
+      subGraphsVisitors  = Chunk.fromIterable(subGraphs).flatMap(_.visitors)
+    } yield SuperGraphExecutor(nonEmptySubGraphs, subGraphsVisitors ++ transformers.map(_(subGraphsMap)))
 }
 
 object SuperGraph {
@@ -68,7 +76,7 @@ object SuperGraph {
 
   def compose[R](subGraphs: List[SubGraph[R]]): SuperGraph[R] = new SuperGraph[R](subGraphs)
 
-  def fromSchema(schema: __Schema): SuperGraph[SttpClient] = {
+  def fromSchema(schema: __Schema): SuperGraph[Backend[Task]] = {
     val subgraphs = schema.types.collectFirst {
       case t if t.kind == __TypeKind.ENUM && t.name.contains("join__Graph") =>
         val entries = t.enumValues(__DeprecatedArgs()).getOrElse(Nil)

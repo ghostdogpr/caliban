@@ -3,12 +3,13 @@ package caliban.execution
 import caliban.Value.BooleanValue
 import caliban.introspection.adt.{ __Field, __Type }
 import caliban.parsing.SourceMapper
-import caliban.parsing.adt.Definition.ExecutableDefinition.FragmentDefinition
+import caliban.parsing.adt.Definition.ExecutableDefinition.{ FragmentDefinition, OperationDefinition }
 import caliban.parsing.adt.Selection.{ Field => F, FragmentSpread, InlineFragment }
 import caliban.parsing.adt.Type.NamedType
-import caliban.parsing.adt.{ Directive, LocationInfo, Selection, VariableDefinition }
+import caliban.parsing.adt._
+import caliban.rendering.DocumentRenderer
 import caliban.schema.{ RootType, Types }
-import caliban.{ InputValue, Value }
+import caliban.{ GraphQLRequest, InputValue, Value }
 
 import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
@@ -134,6 +135,30 @@ case class Field(
 
     loop(this)
   }
+
+  def toGraphQLRequest(operationType: OperationType): GraphQLRequest =
+    GraphQLRequest(query =
+      Some(
+        DocumentRenderer.renderCompact(
+          Document(
+            List(
+              OperationDefinition(
+                operationType,
+                None,
+                Nil,
+                Nil,
+                if (isRoot) fields.map(_.toSelection) else List(toSelection)
+              )
+            ),
+            SourceMapper.empty
+          )
+        )
+      )
+    )
+
+  def withTypeName: Field =
+    if (fields.isEmpty) self
+    else copy(fields = Field("__typename", Types.string, None) :: fields.map(_.withTypeName))
 }
 
 object Field {

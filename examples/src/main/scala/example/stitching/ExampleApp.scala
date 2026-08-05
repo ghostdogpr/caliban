@@ -6,7 +6,8 @@ import caliban.schema.ArgBuilder.auto._
 import caliban.schema.Schema.auto._
 import caliban.schema._
 import caliban.stitching.{ HttpRequest, RemoteResolver, RemoteSchemaResolver, ResolveRequest }
-import caliban.tools.{ Header, RemoteSchema, SchemaLoader }
+import caliban.gateway.subgraphs.RemoteSchema
+import caliban.tools.{ Header, SchemaLoader }
 import sttp.client4.Backend
 import sttp.client4.httpclient.zio._
 import zio._

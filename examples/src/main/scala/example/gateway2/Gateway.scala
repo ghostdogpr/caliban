@@ -2,15 +2,15 @@ package example.gateway2
 
 import caliban.gateway.{ SubGraph, SuperGraph }
 import caliban.quick.GraphqlServerOps
-import caliban.tools.SttpClient
-import sttp.client3.httpclient.zio.HttpClientZioBackend
+import sttp.client4.Backend
+import sttp.client4.httpclient.zio.HttpClientZioBackend
 import zio._
 
 object Gateway extends ZIOAppDefault {
-  val products: SubGraph[SttpClient] = SubGraph.federated("Products", "http://localhost:8088/api/graphql")
-  val reviews: SubGraph[SttpClient]  = SubGraph.federated("Reviews", "http://localhost:8089/api/graphql")
+  val products: SubGraph[Backend[Task]] = SubGraph.federated("Products", "http://localhost:8088/api/graphql")
+  val reviews: SubGraph[Backend[Task]]  = SubGraph.federated("Reviews", "http://localhost:8089/api/graphql")
 
-  val gateway: SuperGraph[SttpClient] =
+  val gateway: SuperGraph[Backend[Task]] =
     SuperGraph.compose(List(products, reviews))
 
   def run: Task[Unit] =

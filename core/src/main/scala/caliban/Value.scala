@@ -1,6 +1,7 @@
 package caliban
 
 import caliban.Scala3Annotations.threadUnsafe
+import caliban.Value.NullValue
 import caliban.Value.StringValue
 import caliban.interop.tapir.IsTapirSchema
 import caliban.rendering.ValueRenderer
@@ -56,6 +57,21 @@ sealed trait ResponseValue extends Serializable { self =>
       ResponseValue.ListValue(l1 ++ l2)
     case _                                                                             => other
   }
+
+  lazy val toInputValue: InputValue =
+    self match {
+      case ResponseValue.ListValue(values)   => InputValue.ListValue(values.map(_.toInputValue))
+      case ResponseValue.ObjectValue(fields) =>
+        InputValue.ObjectValue(fields.map { case (k, v) => k -> v.toInputValue }.toMap)
+      case ResponseValue.StreamValue(_)      => NullValue
+      case value: Value                      => value
+    }
+
+  lazy val asObjectValue: ResponseValue.ObjectValue =
+    self match {
+      case value: ResponseValue.ObjectValue => value
+      case _                                => ResponseValue.ObjectValue.empty
+    }
 }
 object ResponseValue {
 
@@ -105,6 +121,9 @@ object ResponseValue {
         case o: ObjectValue => (this eq o) || (o.hashCode == hashCode && o.fields == fields)
         case _              => false
       }
+
+    private lazy val fieldsMap: Map[String, ResponseValue] = fields.toMap
+    def get(key: String): ResponseValue                    = fieldsMap.getOrElse(key, NullValue)
   }
   object ObjectValue {
     val empty: ObjectValue = ObjectValue(Nil)

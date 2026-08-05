@@ -47,7 +47,7 @@ object FetchDataSource {
                       val (firstReq, firstField) = fields.head
                       fields.tail.foldLeft((List(firstField), Map(firstReq -> sourceFieldName))) {
                         case ((fields, rootFieldMap), (request, field)) =>
-                          val (merged, res) = {
+                          val (merged, res) =
                             if (batchEnabled)
                               fields
                                 .foldLeft((false, List.empty[Field])) { case ((merged, res), f) =>
@@ -63,7 +63,6 @@ object FetchDataSource {
                                       )
                                 }
                             else (false, fields)
-                          }
                           if (merged) (res, rootFieldMap.updated(request, field.name))
                           else {
                             val alias = s"${field.name}${res.size}"
@@ -101,10 +100,16 @@ object FetchDataSource {
     f2: Field
   ): Option[Field] =
     mergeInputValueMaps(f1.arguments, f2.arguments).flatMap { mergedArguments =>
-      import zio.prelude._
-      (f1.fields zip f2.fields).forEach { case (f1, f2) => combineFieldArguments(f1, f2) }.map { mergedFields =>
-        f1.copy(arguments = mergedArguments, fields = mergedFields)
-      }
+      (f1.fields zip f2.fields)
+        .foldRight(Option(List.empty[Field])) { case ((left, right), accumulated) =>
+          for {
+            merged <- combineFieldArguments(left, right)
+            tail   <- accumulated
+          } yield merged :: tail
+        }
+        .map { mergedFields =>
+          f1.copy(arguments = mergedArguments, fields = mergedFields)
+        }
     }
 
   private def mergeInputValueMaps(

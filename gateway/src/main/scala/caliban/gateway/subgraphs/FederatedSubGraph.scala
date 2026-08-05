@@ -9,27 +9,31 @@ import caliban.gateway.SubGraph.SubGraphExecutor
 import caliban.introspection.adt.{ __Schema, __Type, Extend, TypeVisitor }
 import caliban.parsing.Parser
 import caliban.parsing.adt.OperationType
-import caliban.tools.SttpClient
 import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, ResponseValue }
-import sttp.client3.jsoniter._
-import sttp.client3.{ basicRequest, DeserializationException, HttpError, Identity, RequestT, UriContext }
-import zio.{ Chunk, RIO, ZIO }
+import sttp.client4.ResponseException.{ DeserializationException, UnexpectedStatusCode }
+import sttp.client4._
+import sttp.client4.jsoniter._
+import zio.{ Chunk, RIO, Task, ZIO }
 
 case class FederatedSubGraph(name: String, url: String, headers: Map[String, String], exposeAtRoot: Boolean)
-    extends SubGraph[SttpClient] { self =>
-  def build: RIO[SttpClient, SubGraphExecutor[SttpClient]] =
+    extends SubGraph[Backend[Task]] { self =>
+  def build: RIO[Backend[Task], SubGraphExecutor[Backend[Task]]] =
     for {
-      res         <- ZIO
-                       .serviceWithZIO[SttpClient](_.send(makeRequest(GraphQLRequest(Some("{ _service { sdl } }")))))
-                       .map(_.body)
-                       .absolve
-      sdl          = res.asObjectValue.get("_service").asObjectValue.get("sdl") match {
-                       case StringValue(value) => value
-                       case _                  => ""
-                     }
-      doc         <- Parser.parseQuery(sdl)
-      remoteSchema = RemoteSchema.parseRemoteSchema(doc)
-    } yield new SubGraphExecutor[SttpClient] {
+      res          <- ZIO
+                        .serviceWithZIO[Backend[Task]](
+                          _.send(makeRequest(GraphQLRequest(Some("{ _service { sdl } }"))))
+                        )
+                        .map(_.body)
+                        .absolve
+      sdl           = res.asObjectValue.get("_service").asObjectValue.get("sdl") match {
+                        case StringValue(value) => value
+                        case _                  => ""
+                      }
+      doc          <- ZIO.fromEither(Parser.parseQuery(sdl))
+      remoteSchema <- ZIO
+                        .fromOption(RemoteSchema.parseRemoteSchema(doc))
+                        .orElseFail(new RuntimeException(s"No query type found in schema for subgraph $name"))
+    } yield new SubGraphExecutor[Backend[Task]] {
       val name: String          = self.name
       val exposeAtRoot: Boolean = self.exposeAtRoot
       val schema: __Schema      = remoteSchema
@@ -87,24 +91,33 @@ case class FederatedSubGraph(name: String, url: String, headers: Map[String, Str
 
       override val visitors: Chunk[TypeVisitor] = Chunk(visitor)
 
-      def run(field: Field, operationType: OperationType): ZIO[SttpClient, ExecutionError, ResponseValue] =
+      def run(field: Field, operationType: OperationType): ZIO[Backend[Task], ExecutionError, ResponseValue] =
         (for {
-          res <- ZIO.serviceWithZIO[SttpClient](_.send(makeRequest(field.withTypeName.toGraphQLRequest(operationType))))
+          res  <- ZIO.serviceWithZIO[Backend[Task]](
+                    _.send(makeRequest(field.withTypeName.toGraphQLRequest(operationType)))
+                  )
           body <- ZIO.fromEither(res.body) // TODO: handle errors
         } yield body).mapError(e => CalibanError.ExecutionError(e.toString, innerThrowable = Some(e)))
     }
 
   private def makeRequest(
     graphQLRequest: GraphQLRequest
-  ): RequestT[Identity, Either[ExecutionError, ResponseValue], Any] =
+  ): Request[Either[ExecutionError, ResponseValue]] =
     basicRequest
       .post(uri"$url")
-      .body(graphQLRequest)
+      .body(asJson(graphQLRequest))
       .headers(headers)
       .response(asJson[GraphQLResponse[CalibanError]])
-      .mapResponse(_.map(_.data).left.map {
-        case DeserializationException(body, error) =>
-          ExecutionError(s"${error.getMessage}: $body", innerThrowable = Some(error))
-        case HttpError(_, statusCode)              => ExecutionError(s"HTTP Error: $statusCode")
-      })
+      .mapResponse(
+        _.fold(
+          {
+            case DeserializationException(body, error, _) =>
+              Left(ExecutionError(s"${error.getMessage}: $body", innerThrowable = Some(error)))
+            case UnexpectedStatusCode(_, statusCode)      => Left(ExecutionError(s"HTTP Error: $statusCode"))
+          },
+          response =>
+            if (response.errors.isEmpty) Right(response.data)
+            else Left(ExecutionError(response.errors.map(_.msg).mkString("Upstream errors: ", ", ", "")))
+        )
+      )
 }

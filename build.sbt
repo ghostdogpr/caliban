@@ -94,6 +94,7 @@ lazy val allProjects: Seq[ProjectReference] =
     tools,
     codegen,
     stitching,
+    gateway,
     codegenSbt,
     federation,
     reporting,
@@ -271,6 +272,23 @@ lazy val stitching = project
     Compile / doc / sources := Nil
   )
   .disablePlugins(AssemblyPlugin)
+  .dependsOn(tools)
+
+lazy val gateway = project
+  .in(file("gateway"))
+  .enablePlugins(BuildInfoPlugin)
+  .settings(name := "caliban-gateway")
+  .settings(commonSettings)
+  .settings(enableMimaSettingsJVM)
+  .disablePlugins(AssemblyPlugin)
+  .settings(
+    buildInfoPackage := "caliban.gateway",
+    buildInfoObject  := "BuildInfo",
+    libraryDependencies ++= Seq(
+      "dev.zio" %% "zio-test"     % zioVersion % Test,
+      "dev.zio" %% "zio-test-sbt" % zioVersion % Test
+    )
+  )
   .dependsOn(tools)
 
 lazy val tracing = project
@@ -605,7 +623,8 @@ lazy val examples = project
     clientJVM,
     federation,
     tools,
-    stitching
+    stitching,
+    gateway
   )
 
 lazy val apolloCompatibility =

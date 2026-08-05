@@ -17,26 +17,30 @@ object RemoteSchema {
     val queries = doc.schemaDefinition
       .flatMap(_.query)
       .flatMap(doc.objectTypeDefinition)
+      .orElse(doc.objectTypeDefinition("Query"))
 
     val mutations = doc.schemaDefinition
       .flatMap(_.mutation)
       .flatMap(doc.objectTypeDefinition)
+      .orElse(doc.objectTypeDefinition("Mutation"))
 
     val subscriptions = doc.schemaDefinition
       .flatMap(_.subscription)
       .flatMap(doc.objectTypeDefinition)
+      .orElse(doc.objectTypeDefinition("Subscription"))
 
-    queries
-      .map(queries =>
-        __Schema(
-          description = doc.schemaDefinition.flatMap(_.description),
-          queryType = toObjectType(queries, doc.typeDefinitions),
-          mutationType = mutations.map(toObjectType(_, doc.typeDefinitions)),
-          subscriptionType = subscriptions.map(toObjectType(_, doc.typeDefinitions)),
-          types = doc.typeDefinitions.map(toTypeDefinition(_, doc.typeDefinitions)),
-          directives = doc.directiveDefinitions.map(toDirective(_, doc.typeDefinitions))
-        )
+    Some(
+      __Schema(
+        description = doc.schemaDefinition.flatMap(_.description),
+        queryType = queries
+          .map(toObjectType(_, doc.typeDefinitions))
+          .getOrElse(__Type(__TypeKind.OBJECT, name = Some("Query"))),
+        mutationType = mutations.map(toObjectType(_, doc.typeDefinitions)),
+        subscriptionType = subscriptions.map(toObjectType(_, doc.typeDefinitions)),
+        types = doc.typeDefinitions.map(toTypeDefinition(_, doc.typeDefinitions)),
+        directives = doc.directiveDefinitions.map(toDirective(_, doc.typeDefinitions))
       )
+    )
   }
 
   private def toObjectType(

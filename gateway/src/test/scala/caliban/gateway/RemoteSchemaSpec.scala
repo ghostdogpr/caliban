@@ -1,4 +1,4 @@
-package caliban.tools
+package caliban.gateway
 
 import caliban._
 import caliban.introspection.adt._
@@ -12,7 +12,9 @@ import zio.test._
 import caliban.schema.Annotations._
 import caliban.Macros.gqldoc
 import caliban.execution.Feature
+import caliban.gateway.subgraphs.RemoteSchema
 import caliban.transformers.Transformer
+import caliban.tools.{ SchemaComparison, SchemaLoader }
 
 object RemoteSchemaSpec extends ZIOSpecDefault {
   sealed trait EnumType  extends Product with Serializable
@@ -58,7 +60,7 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
     test("is isomorphic") {
       for {
         introspected <- SchemaLoader.fromCaliban(api).load
-        remoteSchema  = RemoteSchema.parseRemoteSchema(introspected)
+        remoteSchema <- ZIO.fromOption(RemoteSchema.parseRemoteSchema(introspected))
         remoteAPI    <- ZIO.succeed(fromRemoteSchema(remoteSchema))
         sdl           = api.render
         remoteSDL     = remoteAPI.render
@@ -95,7 +97,7 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
 
       for {
         introspected <- SchemaLoader.fromCaliban(api).load
-        remoteSchema  = RemoteSchema.parseRemoteSchema(introspected)
+        remoteSchema <- ZIO.fromOption(RemoteSchema.parseRemoteSchema(introspected))
         remoteAPI    <- ZIO.succeed(fromRemoteSchema(remoteSchema))
         interpreter  <- remoteAPI.interpreter
         res          <- interpreter.check(query)
@@ -142,6 +144,25 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
         resource      = remoteSchema.types.find(_.name.contains("Resource"))
         implemented   = resource.flatMap(_.interfaces()).getOrElse(Nil).flatMap(_.name)
       } yield assertTrue(implemented.contains("Node"))
+    },
+    test("parses an entity-only federated schema without a public query root") {
+      val schema =
+        """
+          |extend schema @link(url: "https://specs.apollo.dev/federation/v2.5", import: ["@key"])
+          |type Product @key(fields: "id") {
+          |  id: ID!
+          |  name: String!
+          |}
+          |""".stripMargin
+
+      for {
+        doc          <- ZIO.fromEither(Parser.parseQuery(schema))
+        remoteSchema <- ZIO.fromOption(RemoteSchema.parseRemoteSchema(doc))
+      } yield assertTrue(
+        remoteSchema.queryType.name.contains("Query"),
+        remoteSchema.queryType.allFields.isEmpty,
+        remoteSchema.types.exists(_.name.contains("Product"))
+      )
     }
   )
 

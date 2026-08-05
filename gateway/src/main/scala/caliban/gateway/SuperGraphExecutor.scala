@@ -1,25 +1,25 @@
 package caliban.gateway
 
 import caliban.CalibanError.ExecutionError
-import caliban.ResponseValue.{ListValue, ObjectValue}
+import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.NullValue
 import caliban.execution._
 import caliban.gateway.FetchDataSource.FetchRequest
-import caliban.gateway.Resolver.{Extractor, Fetcher}
+import caliban.gateway.Resolver.{ Extractor, Fetcher }
 import caliban.gateway.SubGraph.SubGraphExecutor
-import caliban.introspection.adt.{Extend, TypeVisitor, __Directive, __TypeKind}
+import caliban.introspection.adt.{ __Directive, __TypeKind, Extend, TypeVisitor }
 import caliban.parsing.adt.OperationType
 import caliban.schema.Step.NullStep
-import caliban.schema.{Operation, RootSchemaBuilder, Types}
+import caliban.schema.{ Operation, RootSchemaBuilder, Types }
+import caliban.transformers.Transformer
 import caliban.wrappers.Wrapper
 import caliban.wrappers.Wrapper.FieldWrapper
-import caliban.{CalibanError, GraphQL, GraphQLResponse, ResponseValue}
-import zio.prelude.NonEmptyList
+import caliban.{ CalibanError, GraphQL, GraphQLResponse, ResponseValue }
 import zio.query.ZQuery
-import zio.{Chunk, Trace, URIO}
+import zio.{ Chunk, Trace, URIO }
 
 private case class SuperGraphExecutor[-R](
-  private val subGraphs: NonEmptyList[SubGraphExecutor[R]],
+  private val subGraphs: List[SubGraphExecutor[R]],
   private val transformers: Chunk[TypeVisitor]
 ) extends GraphQL[R] {
   private val subGraphMap: Map[String, SubGraphExecutor[R]] = subGraphs.map(g => g.name -> g).toMap
@@ -27,6 +27,7 @@ private case class SuperGraphExecutor[-R](
   protected val wrappers: List[Wrapper[R]]              = Nil
   protected val additionalDirectives: List[__Directive] = Nil
   protected val features: Set[Feature]                  = Set.empty
+  protected val transformer: Transformer[R]             = Transformer.empty
   protected val schemaBuilder: RootSchemaBuilder[R]     = {
     val builder = subGraphs.collect {
       case subGraph if subGraph.exposeAtRoot && subGraph.schema.queryType.kind == __TypeKind.OBJECT =>

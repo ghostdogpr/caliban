@@ -8,7 +8,6 @@ import caliban.gateway.SubGraph.SubGraphExecutor
 import caliban.introspection.Introspector
 import caliban.introspection.adt.__Schema
 import caliban.parsing.adt.OperationType
-import caliban.validation.Validator
 import zio.{ RIO, ZIO }
 
 case class CalibanSubGraph[R](name: String, api: GraphQL[R], exposeAtRoot: Boolean) extends SubGraph[R] { self =>
@@ -16,7 +15,7 @@ case class CalibanSubGraph[R](name: String, api: GraphQL[R], exposeAtRoot: Boole
     for {
       interpreter  <- api.interpreter
       schemaBuilder = api.getSchemaBuilder
-      rootSchema   <- Validator.validateSchema(schemaBuilder)
+      rootSchema   <- ZIO.fromEither(api.validateRootSchema)
     } yield new SubGraphExecutor[R] {
       val name: String          = self.name
       val exposeAtRoot: Boolean = self.exposeAtRoot

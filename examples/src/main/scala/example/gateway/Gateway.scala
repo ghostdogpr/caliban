@@ -4,16 +4,16 @@ import caliban.InputValue.{ ListValue, ObjectValue }
 import caliban.gateway.{ SubGraph, SuperGraph }
 import caliban.introspection.adt.TypeVisitor
 import caliban.quick.GraphqlServerOps
-import caliban.tools.SttpClient
-import sttp.client3.httpclient.zio.HttpClientZioBackend
+import sttp.client4.Backend
+import sttp.client4.httpclient.zio.HttpClientZioBackend
 import zio._
 
 object Gateway extends ZIOAppDefault {
-  val stores: SubGraph[SttpClient]  = SubGraph.graphQL("Stores", "http://localhost:8081/api/graphql")
-  val books: SubGraph[SttpClient]   = SubGraph.graphQL("Books", "http://localhost:8082/api/graphql")
-  val authors: SubGraph[SttpClient] = SubGraph.graphQL("Authors", "http://localhost:8083/api/graphql")
+  val stores: SubGraph[Backend[Task]]  = SubGraph.graphQL("Stores", "http://localhost:8081/api/graphql")
+  val books: SubGraph[Backend[Task]]   = SubGraph.graphQL("Books", "http://localhost:8082/api/graphql")
+  val authors: SubGraph[Backend[Task]] = SubGraph.graphQL("Authors", "http://localhost:8083/api/graphql")
 
-  val gateway: SuperGraph[SttpClient] =
+  val gateway: SuperGraph[Backend[Task]] =
     SuperGraph
       .compose(List(stores, books, authors))
       .transform(TypeVisitor.filterField { case ("Query", fieldName) => fieldName == "stores" })
@@ -38,7 +38,8 @@ object Gateway extends ZIOAppDefault {
         targetTypeName = "Book",
         targetFieldName = "author",
         argumentMappings = Map("authorId" -> (v => "input" -> ObjectValue(Map("ids" -> ListValue(List(v)))))),
-        filterBatchResults = Some(_.get("authorId") == _.get("id"))
+        filterBatchResults = Some(_.get("authorId") == _.get("id")),
+        additionalFields = List("id")
       )
 
   def run: Task[Unit] =

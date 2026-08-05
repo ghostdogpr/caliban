@@ -5,7 +5,6 @@ import caliban.interop.tapir.HttpInterpreter
 import caliban.quick.GraphqlServerOps
 import caliban.schema.ArgBuilder.auto._
 import caliban.schema.Schema.auto._
-import sttp.tapir.json.circe._
 import zio._
 import zio.http._
 
