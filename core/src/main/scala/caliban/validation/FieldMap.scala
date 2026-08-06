@@ -59,63 +59,39 @@ private[caliban] object FieldMap {
 
   private type FM = mutable.HashMap[String, Set[SelectedField]]
 
-  private abstract class SelectionCollector {
-    final def addField(field: Field, parentType: __Type): Unit =
-      parentType.getFieldOrNull(field.name) match {
-        case null     => ()
-        case fieldDef =>
-          appendField(
-            field.alias.getOrElse(field.name),
-            SelectedField(parentType, field, fieldDef)
-          )
-      }
-
-    protected def appendField(responseName: String, field: SelectedField): Unit
-
-    def addFragmentSpread(context: Context, parentType: __Type, name: String): Unit
-  }
-
-  private final class InliningCollector(fields: FM) extends SelectionCollector {
-    override protected def appendField(responseName: String, field: SelectedField): Unit =
-      fields.updateWith(responseName) {
-        case Some(existing) => Some(existing + field)
-        case None           => Some(Set(field))
-      }
-
-    override def addFragmentSpread(context: Context, parentType: __Type, name: String): Unit =
-      context.fragments.getOrElseNull(name) match {
-        case null       => ()
-        case definition =>
-          val typ = getType(Some(definition.typeCondition), parentType, context)
-          loop(context, typ, definition.selectionSet, this)
-      }
-  }
-
-  private final class FragmentPreservingCollector extends SelectionCollector {
-    private val fields        = mutable.HashMap.empty[String, mutable.ArrayBuffer[SelectedField]]
-    private val fragmentNames = mutable.ListBuffer.empty[String]
-    private val seenFragments = mutable.HashSet.empty[String]
-
-    override protected def appendField(responseName: String, field: SelectedField): Unit =
-      fields.getOrElseUpdate(responseName, mutable.ArrayBuffer.empty) += field
-
-    override def addFragmentSpread(_context: Context, _parentType: __Type, name: String): Unit =
-      if (seenFragments.add(name)) fragmentNames += name
-
-    def result(): Collected = Collected(fields, fragmentNames.toList)
-  }
-
   @deprecated("Kept for bin-compatibility only", "3.1.3")
   def apply(context: Context, parentType: __Type, selectionSet: Iterable[Selection]): FieldMap =
     make(context, parentType, selectionSet).toMap
 
+  @deprecated("Kept for bin-compatibility only", "3.1.5")
   def make(
     context: Context,
     parentType: __Type,
     selectionSet: Iterable[Selection]
   ): collection.Map[String, Set[SelectedField]] = {
-    val fields: FM = mutable.HashMap.empty
-    loop(context, parentType, selectionSet, new InliningCollector(fields))
+    val fields: FM    = mutable.HashMap.empty
+    val seenFragments = mutable.HashSet.empty[String]
+
+    def addSelections(parentType: __Type, selectionSet: Iterable[Selection]): Unit = {
+      val collected = collect(context, parentType, selectionSet)
+      collected.fields.foreach { case (responseName, selectedFields) =>
+        fields.updateWith(responseName) {
+          case Some(existing) => Some(existing ++ selectedFields)
+          case None           => Some(selectedFields.toSet)
+        }
+      }
+      collected.fragmentNames.foreach { name =>
+        if (seenFragments.add(name))
+          context.fragments.getOrElseNull(name) match {
+            case null       => ()
+            case definition =>
+              val fragmentType = getType(Some(definition.typeCondition), parentType, context)
+              addSelections(fragmentType, definition.selectionSet)
+          }
+      }
+    }
+
+    addSelections(parentType, selectionSet)
     fields
   }
 
@@ -124,27 +100,37 @@ private[caliban] object FieldMap {
     parentType: __Type,
     selectionSet: Iterable[Selection]
   ): Collected = {
-    val collector = new FragmentPreservingCollector
-    loop(context, parentType, selectionSet, collector)
-    collector.result()
+    val fields        = mutable.HashMap.empty[String, mutable.ArrayBuffer[SelectedField]]
+    val fragmentNames = mutable.ListBuffer.empty[String]
+    val seenFragments = mutable.HashSet.empty[String]
+    collectInto(context, parentType, selectionSet, fields, fragmentNames, seenFragments)
+    Collected(fields, fragmentNames.toList)
   }
 
-  private def loop(
+  private def collectInto(
     context: Context,
     parentType: __Type,
     selectionSet: Iterable[Selection],
-    collector: SelectionCollector
+    fields: mutable.HashMap[String, mutable.ArrayBuffer[SelectedField]],
+    fragmentNames: mutable.ListBuffer[String],
+    seenFragments: mutable.HashSet[String]
   ): Unit = {
     val it = selectionSet.iterator
     while (it.hasNext)
       it.next() match {
         case f: Field                                       =>
-          collector.addField(f, parentType)
+          parentType.getFieldOrNull(f.name) match {
+            case null     => ()
+            case fieldDef =>
+              val responseName = f.alias.getOrElse(f.name)
+              fields.getOrElseUpdate(responseName, mutable.ArrayBuffer.empty) +=
+                SelectedField(parentType, f, fieldDef)
+          }
         case FragmentSpread(name, _)                        =>
-          collector.addFragmentSpread(context, parentType, name)
+          if (seenFragments.add(name)) fragmentNames += name
         case InlineFragment(typeCondition, _, selectionSet) =>
           val typ = getType(typeCondition, parentType, context)
-          loop(context, typ, selectionSet, collector)
+          collectInto(context, typ, selectionSet, fields, fragmentNames, seenFragments)
       }
   }
 

@@ -11,15 +11,38 @@ import java.util.IdentityHashMap
 import scala.collection.mutable
 
 object FragmentValidator {
-  private sealed abstract class ComparisonMode(val mutuallyExclusive: Boolean) {
-    // Comparing overlapping parents is stronger because it also checks field names and arguments.
-    final def covers(requested: ComparisonMode): Boolean =
-      !mutuallyExclusive || requested.mutuallyExclusive
+  private sealed trait ComparisonMode {
+    def covers(requested: ComparisonMode): Boolean
+    def findNameOrArgumentsConflict(first: SelectedField, second: SelectedField): Option[String]
   }
 
   private object ComparisonMode {
-    case object Overlapping       extends ComparisonMode(mutuallyExclusive = false)
-    case object MutuallyExclusive extends ComparisonMode(mutuallyExclusive = true)
+    // Comparing overlapping parents is stronger because it also checks field names and arguments.
+    case object Overlapping extends ComparisonMode {
+      override def covers(requested: ComparisonMode): Boolean = true
+
+      override def findNameOrArgumentsConflict(
+        first: SelectedField,
+        second: SelectedField
+      ): Option[String] =
+        if (first.fieldDef.name != second.fieldDef.name)
+          Some(
+            s"${first.parentType.name.getOrElse("")}.${first.fieldDef.name} and ${second.parentType.name
+                .getOrElse("")}.${second.fieldDef.name} are different fields."
+          )
+        else if (first.selection.arguments != second.selection.arguments)
+          Some(s"${first.fieldDef.name} and ${second.fieldDef.name} have different arguments")
+        else None
+    }
+
+    case object MutuallyExclusive extends ComparisonMode {
+      override def covers(requested: ComparisonMode): Boolean = requested eq MutuallyExclusive
+
+      override def findNameOrArgumentsConflict(
+        _first: SelectedField,
+        _second: SelectedField
+      ): Option[String] = None
+    }
 
     def exclusiveWhen(condition: Boolean): ComparisonMode =
       if (condition) MutuallyExclusive else Overlapping
@@ -28,46 +51,49 @@ object FragmentValidator {
   private class ComparisonMemo[A, B] {
     private val data = mutable.HashMap.empty[A, mutable.HashMap[B, ComparisonMode]]
 
-    def contains(first: A, second: B, mode: ComparisonMode): Boolean =
-      data.get(first) match {
-        case Some(seconds) =>
-          seconds.get(second) match {
-            case Some(previousMode) => previousMode.covers(mode)
-            case None               => false
-          }
-        case None          => false
+    def recordIfNotCovered(first: A, second: B, mode: ComparisonMode): Boolean = {
+      val seconds = data.getOrElseUpdate(first, mutable.HashMap.empty)
+      seconds.get(second) match {
+        case Some(previousMode) if previousMode.covers(mode) => false
+        case _                                               =>
+          seconds.update(second, mode)
+          true
       }
-
-    def add(first: A, second: B, mode: ComparisonMode): Unit =
-      data.getOrElseUpdate(first, mutable.HashMap.empty).update(second, mode)
+    }
   }
 
   private final class FragmentPairMemo {
     private val pairs = new ComparisonMemo[String, String]
 
-    def contains(first: String, second: String, mode: ComparisonMode): Boolean =
-      if (first.compareTo(second) <= 0) pairs.contains(first, second, mode)
-      else pairs.contains(second, first, mode)
-
-    def add(first: String, second: String, mode: ComparisonMode): Unit =
-      if (first.compareTo(second) <= 0) pairs.add(first, second, mode)
-      else pairs.add(second, first, mode)
+    def recordIfNotCovered(first: String, second: String, mode: ComparisonMode): Boolean =
+      if (first.compareTo(second) <= 0) pairs.recordIfNotCovered(first, second, mode)
+      else pairs.recordIfNotCovered(second, first, mode)
   }
 
-  private final case class CachedFields(id: Int, collected: FieldMap.Collected)
+  private final case class FieldMapId(value: Int) extends AnyVal
+  private final case class CachedFields(id: FieldMapId, collected: FieldMap.Collected)
 
   def findConflictsWithinSelectionSet(
     context: Context,
     parentType: __Type,
     selectionSet: List[Selection]
-  ): Either[ValidationError, Unit] = {
-    val comparedFragmentPairs          = new FragmentPairMemo
-    val comparedFieldsAndFragmentPairs = new ComparisonMemo[Int, String]
-    val fieldsCache                    =
-      new IdentityHashMap[List[Selection], IdentityHashMap[__Type, CachedFields]]()
-    var nextFieldMapId                 = 0
+  ): Either[ValidationError, Unit] =
+    new ConflictFinder(context, parentType).find(selectionSet)
 
-    def getFieldsAndFragmentNames(parentType: __Type, selectionSet: List[Selection]): CachedFields = {
+  private final class ConflictFinder(context: Context, rootParentType: __Type) {
+    private val comparedFragmentPairs          = new FragmentPairMemo
+    private val comparedFieldsAndFragmentPairs = new ComparisonMemo[FieldMapId, String]
+    private val fieldsCache                    =
+      new IdentityHashMap[List[Selection], IdentityHashMap[__Type, CachedFields]]()
+    private var nextFieldMapId                 = 0
+
+    def find(selectionSet: List[Selection]): Either[ValidationError, Unit] =
+      validateSelectionSets(rootParentType, selectionSet, mutable.HashSet.empty) match {
+        case Some(conflict) => Left(ValidationError(conflict, ""))
+        case None           => ValidationOps.unit
+      }
+
+    private def getFieldsAndFragmentNames(parentType: __Type, selectionSet: List[Selection]): CachedFields = {
       var byParentType = fieldsCache.get(selectionSet)
       if (byParentType eq null) {
         byParentType = new IdentityHashMap[__Type, CachedFields]()
@@ -76,23 +102,23 @@ object FragmentValidator {
 
       var cached = byParentType.get(parentType)
       if (cached eq null) {
-        cached = CachedFields(nextFieldMapId, FieldMap.collect(context, parentType, selectionSet))
+        cached = CachedFields(FieldMapId(nextFieldMapId), FieldMap.collect(context, parentType, selectionSet))
         nextFieldMapId += 1
         byParentType.put(parentType, cached)
       }
       cached
     }
 
-    def getReferencedFieldsAndFragmentNames(fragmentName: String): CachedFields = {
+    private def getReferencedFieldsAndFragmentNames(fragmentName: String): CachedFields = {
       val definition = context.fragments.getOrElseNull(fragmentName)
       if (definition eq null) null
       else {
-        val fragmentType = getType(definition.typeCondition, context).getOrElse(parentType)
+        val fragmentType = getType(definition.typeCondition, context).getOrElse(rootParentType)
         getFieldsAndFragmentNames(fragmentType, definition.selectionSet)
       }
     }
 
-    def doTypesConflict(t1: __Type, t2: __Type): Boolean =
+    private def doTypesConflict(t1: __Type, t2: __Type): Boolean =
       if (isNonNull(t1))
         if (isNonNull(t2)) t1.ofType.flatMap(p1 => t2.ofType.map(p2 => doTypesConflict(p1, p2))).getOrElse(true)
         else true
@@ -103,45 +129,46 @@ object FragmentValidator {
         else true
       else if (isListType(t2))
         true
-      else if (isLeafType(t1) || isLeafType(t2))
+      else if (isLeafType(t1) && isLeafType(t2))
         t1.name != t2.name
+      else if (!isComposite(t1) || !isComposite(t2))
+        true
       else
         false
 
-    def findConflict(
+    private def findConflict(
       responseName: String,
       f1: SelectedField,
       f2: SelectedField,
       parentMode: ComparisonMode
     ): Option[String] = {
       val mode = ComparisonMode.exclusiveWhen(
-        parentMode.mutuallyExclusive ||
+        (parentMode eq ComparisonMode.MutuallyExclusive) ||
           (isObjectType(f1.parentType) && isObjectType(f2.parentType) && f1.parentType.name != f2.parentType.name)
       )
 
-      if (!mode.mutuallyExclusive && f1.fieldDef.name != f2.fieldDef.name)
-        Some(
-          s"${f1.parentType.name.getOrElse("")}.${f1.fieldDef.name} and ${f2.parentType.name.getOrElse("")}.${f2.fieldDef.name} are different fields."
-        )
-      else if (!mode.mutuallyExclusive && f1.selection.arguments != f2.selection.arguments)
-        Some(s"${f1.fieldDef.name} and ${f2.fieldDef.name} have different arguments")
-      else if (doTypesConflict(f1.fieldDef._type, f2.fieldDef._type))
+      if (doTypesConflict(f1.fieldDef._type, f2.fieldDef._type))
         Some(
           s"$responseName has conflicting types: ${f1.parentType.name.getOrElse("")}.${f1.fieldDef.name} and ${f2.parentType.name
               .getOrElse("")}.${f2.fieldDef.name}. Try using an alias."
         )
-      else if (f1.selection.selectionSet.nonEmpty && f2.selection.selectionSet.nonEmpty)
-        findConflictsBetweenSubSelectionSets(
-          mode,
-          f1.fieldDef._type.innerType,
-          f1.selection.selectionSet,
-          f2.fieldDef._type.innerType,
-          f2.selection.selectionSet
-        )
-      else None
+      else
+        mode.findNameOrArgumentsConflict(f1, f2) match {
+          case conflict @ Some(_) => conflict
+          case None               =>
+            if (f1.selection.selectionSet.nonEmpty && f2.selection.selectionSet.nonEmpty)
+              findConflictsBetweenSubSelectionSets(
+                mode,
+                f1.fieldDef._type.innerType,
+                f1.selection.selectionSet,
+                f2.fieldDef._type.innerType,
+                f2.selection.selectionSet
+              )
+            else None
+        }
     }
 
-    def collectConflictsWithin(fields: CachedFields): Option[String] = {
+    private def collectConflictsWithin(fields: CachedFields): Option[String] = {
       val fieldGroups = fields.collected.fields.iterator
       while (fieldGroups.hasNext) {
         val (responseName, values) = fieldGroups.next()
@@ -159,7 +186,7 @@ object FragmentValidator {
       None
     }
 
-    def collectConflictsBetween(
+    private def collectConflictsBetween(
       fields1: CachedFields,
       fields2: CachedFields,
       mode: ComparisonMode
@@ -187,14 +214,13 @@ object FragmentValidator {
         None
       }
 
-    def collectConflictsBetweenFieldsAndFragment(
+    private def collectConflictsBetweenFieldsAndFragment(
       fields: CachedFields,
       fragmentName: String,
       mode: ComparisonMode
     ): Option[String] =
-      if (comparedFieldsAndFragmentPairs.contains(fields.id, fragmentName, mode)) None
+      if (!comparedFieldsAndFragmentPairs.recordIfNotCovered(fields.id, fragmentName, mode)) None
       else {
-        comparedFieldsAndFragmentPairs.add(fields.id, fragmentName, mode)
         val fragmentFields = getReferencedFieldsAndFragmentNames(fragmentName)
         if ((fragmentFields eq null) || fields.id == fragmentFields.id) None
         else {
@@ -213,15 +239,14 @@ object FragmentValidator {
         }
       }
 
-    def collectConflictsBetweenFragments(
+    private def collectConflictsBetweenFragments(
       fragmentName1: String,
       fragmentName2: String,
       mode: ComparisonMode
     ): Option[String] =
       if (fragmentName1 == fragmentName2) None
-      else if (comparedFragmentPairs.contains(fragmentName1, fragmentName2, mode)) None
+      else if (!comparedFragmentPairs.recordIfNotCovered(fragmentName1, fragmentName2, mode)) None
       else {
-        comparedFragmentPairs.add(fragmentName1, fragmentName2, mode)
         val fields1 = getReferencedFieldsAndFragmentNames(fragmentName1)
         val fields2 = getReferencedFieldsAndFragmentNames(fragmentName2)
         if ((fields1 eq null) || (fields2 eq null)) None
@@ -249,7 +274,7 @@ object FragmentValidator {
         }
       }
 
-    def findConflictsBetweenSubSelectionSets(
+    private def findConflictsBetweenSubSelectionSets(
       mode: ComparisonMode,
       parentType1: __Type,
       selectionSet1: List[Selection],
@@ -290,7 +315,7 @@ object FragmentValidator {
       }
     }
 
-    def findConflictsWithin(parentType: __Type, selectionSet: List[Selection]): Option[String] = {
+    private def findConflictsWithin(parentType: __Type, selectionSet: List[Selection]): Option[String] = {
       val fields         = getFieldsAndFragmentNames(parentType, selectionSet)
       val directConflict = collectConflictsWithin(fields)
       if (directConflict.nonEmpty) directConflict
@@ -315,7 +340,7 @@ object FragmentValidator {
       }
     }
 
-    def validateSelectionSets(
+    private def validateSelectionSets(
       parentType: __Type,
       selectionSet: List[Selection],
       validatedFragments: mutable.HashSet[String]
@@ -356,9 +381,5 @@ object FragmentValidator {
       }
     }
 
-    validateSelectionSets(parentType, selectionSet, mutable.HashSet.empty) match {
-      case Some(conflict) => Left(ValidationError(conflict, ""))
-      case None           => ValidationOps.unit
-    }
   }
 }

@@ -241,6 +241,30 @@ object FragmentSpec extends ZIOSpecDefault {
             .exists(_.contains("different arguments"))
         )
       },
+      test("nested response shapes conflict below mutually-exclusive fragments") {
+        case class Owner(name: String, age: Int)
+        sealed trait Pet
+        case class Dog(friend: Owner) extends Pet
+        case class Cat(friend: Owner) extends Pet
+        case class Query(pet: Pet)
+
+        val query =
+          """query {
+            |  pet {
+            |    ... on Dog { p: friend { v: name } }
+            |    ... on Cat { p: friend { v: age } }
+            |  }
+            |}""".stripMargin
+
+        val gql = graphQL(RootResolver(Query(Dog(Owner("name", 42)))))
+        for {
+          int <- gql.interpreter
+          res <- int.execute(query)
+        } yield assertTrue(
+          res.errors.collectFirst { case e: CalibanError.ValidationError => e.msg }
+            .exists(_.contains("conflicting types"))
+        )
+      },
       test("field-merge conflict is detected between named fragments") {
         case class Dog(name: String, nickname: String)
         case class Query(dog: Dog)
@@ -713,7 +737,10 @@ object FragmentSpec extends ZIOSpecDefault {
             for {
               interpreter <- gql.interpreter
               res         <- interpreter.execute(query)
-            } yield assert(res.errors.headOption)(isSome(anything))
+            } yield assertTrue(
+              res.errors.collectFirst { case e: CalibanError.ValidationError => e.msg }
+                .exists(_.contains("conflicting types"))
+            )
           }
         )
       )
