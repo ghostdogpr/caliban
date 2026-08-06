@@ -63,7 +63,7 @@ private[caliban] object FieldMap {
   def apply(context: Context, parentType: __Type, selectionSet: Iterable[Selection]): FieldMap =
     make(context, parentType, selectionSet).toMap
 
-  @deprecated("Kept for bin-compatibility only", "3.1.5")
+  @deprecated("Kept for bin-compatibility only", "3.1.6")
   def make(
     context: Context,
     parentType: __Type,

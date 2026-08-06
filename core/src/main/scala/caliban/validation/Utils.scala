@@ -14,7 +14,7 @@ object Utils {
       case _      => false
     }
 
-  @deprecated("Kept for bin-compatibility only", "3.1.5")
+  @deprecated("Kept for bin-compatibility only", "3.1.6")
   def isConcrete(t: __Type): Boolean =
     t.kind != UNION && t.kind != INTERFACE
 
@@ -43,7 +43,7 @@ object Utils {
     case _      => false
   }
 
-  @deprecated("Kept for bin-compatibility only", "3.1.5")
+  @deprecated("Kept for bin-compatibility only", "3.1.6")
   def isAbstract(t: __Type): Boolean =
     t.kind match {
       case UNION     => true
@@ -64,7 +64,7 @@ object Utils {
   /**
    * For an iterable, produce a Chunk containing tuples of all possible unique combinations, optionally including the identity
    */
-  @deprecated("Kept for bin-compatibility only", "3.1.5")
+  @deprecated("Kept for bin-compatibility only", "3.1.6")
   def cross[A](a: Iterable[A], includeIdentity: Boolean): Chunk[(A, A)] = {
     val ca       = Chunk.fromIterable(a)
     val size     = ca.size
