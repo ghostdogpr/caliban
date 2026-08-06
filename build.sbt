@@ -789,6 +789,9 @@ lazy val enableMimaSettingsJVM =
     mimaBinaryIssueFilters := Seq(
       ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.*.<clinit>"),
       ProblemFilters.exclude[DirectMissingMethodProblem]("mdg.engine.proto.reports.*.<clinit>"),
+      // package-private validation helper removed after its last internal caller
+      ProblemFilters.exclude[MissingClassProblem]("caliban.validation.FieldMap$FieldMapOps"),
+      ProblemFilters.exclude[MissingClassProblem]("caliban.validation.FieldMap$FieldMapOps$"),
       // private internal method; extra param added to fix nested-list null propagation
       ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.execution.Executor#StepReducer.reduceStep")
     )
