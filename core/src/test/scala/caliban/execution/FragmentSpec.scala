@@ -241,6 +241,117 @@ object FragmentSpec extends ZIOSpecDefault {
             .exists(_.contains("different arguments"))
         )
       },
+      test("field-merge conflict is detected between named fragments") {
+        case class Dog(name: String, nickname: String)
+        case class Query(dog: Dog)
+
+        val query =
+          """fragment Name on Dog {
+            |  value: name
+            |}
+            |fragment Nickname on Dog {
+            |  value: nickname
+            |}
+            |query {
+            |  dog {
+            |    ...Name
+            |    ...Nickname
+            |  }
+            |}""".stripMargin
+
+        val gql = graphQL(RootResolver(Query(Dog("name", "nickname"))))
+        for {
+          int <- gql.interpreter
+          res <- int.execute(query)
+        } yield assertTrue(
+          res.errors.collectFirst { case e: CalibanError.ValidationError => e.msg }
+            .exists(_.contains("different fields"))
+        )
+      },
+      test("field-merge conflict is detected through nested named fragments") {
+        case class Child(value: Int => String)
+        case class Query(child: Child)
+
+        val query =
+          """fragment One on Child {
+            |  ...OneNested
+            |}
+            |fragment OneNested on Child {
+            |  value(value: 1)
+            |}
+            |fragment Two on Child {
+            |  ...TwoNested
+            |}
+            |fragment TwoNested on Child {
+            |  value(value: 2)
+            |}
+            |query {
+            |  child {
+            |    ...One
+            |    ...Two
+            |  }
+            |}""".stripMargin
+
+        val gql = graphQL(RootResolver(Query(Child(_.toString))))
+        for {
+          int <- gql.interpreter
+          res <- int.execute(query)
+        } yield assertTrue(
+          res.errors.collectFirst { case e: CalibanError.ValidationError => e.msg }
+            .exists(_.contains("different arguments"))
+        )
+      },
+      test("mutually-exclusive fragment comparison does not hide a later conflict") {
+        case class Child(value: Int => String)
+        sealed trait Parent
+        case class A(child: Child) extends Parent
+        case class B(child: Child) extends Parent
+        case class Query(parent: Parent, child: Child)
+
+        val mutuallyExclusiveQuery =
+          """fragment One on Child {
+            |  value(value: 1)
+            |}
+            |fragment Two on Child {
+            |  value(value: 2)
+            |}
+            |query {
+            |  parent {
+            |    ... on A { child { ...One } }
+            |    ... on B { child { ...Two } }
+            |  }
+            |}""".stripMargin
+
+        val conflictingQuery =
+          """fragment One on Child {
+            |  value(value: 1)
+            |}
+            |fragment Two on Child {
+            |  value(value: 2)
+            |}
+            |query {
+            |  parent {
+            |    ... on A { child { ...One } }
+            |    ... on B { child { ...Two } }
+            |  }
+            |  child {
+            |    ...One
+            |    ...Two
+            |  }
+            |}""".stripMargin
+
+        val child = Child(_.toString)
+        val gql   = graphQL(RootResolver(Query(A(child), child)))
+        for {
+          int         <- gql.interpreter
+          valid       <- int.execute(mutuallyExclusiveQuery)
+          conflicting <- int.execute(conflictingQuery)
+        } yield assertTrue(
+          valid.errors.isEmpty,
+          conflicting.errors.collectFirst { case e: CalibanError.ValidationError => e.msg }
+            .exists(_.contains("different arguments"))
+        )
+      },
       test("nested fragment selection on the same type") {
         import caliban.schema.Schema.auto._
 

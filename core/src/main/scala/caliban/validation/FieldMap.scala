@@ -10,6 +10,11 @@ import scala.collection.compat._
 import scala.collection.mutable
 
 private[caliban] object FieldMap {
+  final case class Collected(
+    fields: collection.Map[String, mutable.ArrayBuffer[SelectedField]],
+    fragmentNames: List[String]
+  )
+
   @deprecated("Kept for bin-compatibility only", "3.1.3")
   val empty: FieldMap = Map.empty
 
@@ -54,6 +59,52 @@ private[caliban] object FieldMap {
 
   private type FM = mutable.HashMap[String, Set[SelectedField]]
 
+  private abstract class SelectionCollector {
+    final def addField(field: Field, parentType: __Type): Unit =
+      parentType.getFieldOrNull(field.name) match {
+        case null     => ()
+        case fieldDef =>
+          appendField(
+            field.alias.getOrElse(field.name),
+            SelectedField(parentType, field, fieldDef)
+          )
+      }
+
+    protected def appendField(responseName: String, field: SelectedField): Unit
+
+    def addFragmentSpread(context: Context, parentType: __Type, name: String): Unit
+  }
+
+  private final class InliningCollector(fields: FM) extends SelectionCollector {
+    override protected def appendField(responseName: String, field: SelectedField): Unit =
+      fields.updateWith(responseName) {
+        case Some(existing) => Some(existing + field)
+        case None           => Some(Set(field))
+      }
+
+    override def addFragmentSpread(context: Context, parentType: __Type, name: String): Unit =
+      context.fragments.getOrElseNull(name) match {
+        case null       => ()
+        case definition =>
+          val typ = getType(Some(definition.typeCondition), parentType, context)
+          loop(context, typ, definition.selectionSet, this)
+      }
+  }
+
+  private final class FragmentPreservingCollector extends SelectionCollector {
+    private val fields        = mutable.HashMap.empty[String, mutable.ArrayBuffer[SelectedField]]
+    private val fragmentNames = mutable.ListBuffer.empty[String]
+    private val seenFragments = mutable.HashSet.empty[String]
+
+    override protected def appendField(responseName: String, field: SelectedField): Unit =
+      fields.getOrElseUpdate(responseName, mutable.ArrayBuffer.empty) += field
+
+    override def addFragmentSpread(_context: Context, _parentType: __Type, name: String): Unit =
+      if (seenFragments.add(name)) fragmentNames += name
+
+    def result(): Collected = Collected(fields, fragmentNames.toList)
+  }
+
   @deprecated("Kept for bin-compatibility only", "3.1.3")
   def apply(context: Context, parentType: __Type, selectionSet: Iterable[Selection]): FieldMap =
     make(context, parentType, selectionSet).toMap
@@ -64,46 +115,37 @@ private[caliban] object FieldMap {
     selectionSet: Iterable[Selection]
   ): collection.Map[String, Set[SelectedField]] = {
     val fields: FM = mutable.HashMap.empty
-    loop(context, parentType, selectionSet)(fields)
+    loop(context, parentType, selectionSet, new InliningCollector(fields))
     fields
+  }
+
+  def collect(
+    context: Context,
+    parentType: __Type,
+    selectionSet: Iterable[Selection]
+  ): Collected = {
+    val collector = new FragmentPreservingCollector
+    loop(context, parentType, selectionSet, collector)
+    collector.result()
   }
 
   private def loop(
     context: Context,
     parentType: __Type,
-    selectionSet: Iterable[Selection]
-  )(implicit fields: FM): Unit = {
+    selectionSet: Iterable[Selection],
+    collector: SelectionCollector
+  ): Unit = {
     val it = selectionSet.iterator
     while (it.hasNext)
       it.next() match {
         case f: Field                                       =>
-          addField(f, parentType)
+          collector.addField(f, parentType)
         case FragmentSpread(name, _)                        =>
-          context.fragments.getOrElseNull(name) match {
-            case null       => ()
-            case definition =>
-              val typ = getType(Some(definition.typeCondition), parentType, context)
-              loop(context, typ, definition.selectionSet)
-          }
+          collector.addFragmentSpread(context, parentType, name)
         case InlineFragment(typeCondition, _, selectionSet) =>
           val typ = getType(typeCondition, parentType, context)
-          loop(context, typ, selectionSet)
+          loop(context, typ, selectionSet, collector)
       }
   }
-
-  private def addField(
-    f: Field,
-    parentType: __Type
-  )(implicit self: FM): Unit =
-    parentType.getFieldOrNull(f.name) match {
-      case null => ()
-      case f1   =>
-        val responseName = f.alias.getOrElse(f.name)
-        val sf           = SelectedField(parentType, f, f1)
-        self.updateWith(responseName) {
-          case Some(s) => Some(s + sf)
-          case _       => Some(Set.empty + sf)
-        }
-    }
 
 }
