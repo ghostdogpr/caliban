@@ -241,6 +241,55 @@ object FragmentSpec extends ZIOSpecDefault {
             .exists(_.contains("different arguments"))
         )
       },
+      test("nested response shapes conflict below mutually-exclusive fragments") {
+        case class Owner(name: String, age: Int)
+        sealed trait Pet
+        case class Dog(friend: Owner) extends Pet
+        case class Cat(friend: Owner) extends Pet
+        case class Query(pet: Pet)
+
+        val query =
+          """query {
+            |  pet {
+            |    ... on Dog { p: friend { v: name } }
+            |    ... on Cat { p: friend { v: age } }
+            |  }
+            |}""".stripMargin
+
+        val gql = graphQL(RootResolver(Query(Dog(Owner("name", 42)))))
+        for {
+          int <- gql.interpreter
+          res <- int.execute(query)
+        } yield assertTrue(
+          res.errors.collectFirst { case e: CalibanError.ValidationError => e.msg }
+            .exists(_.contains("conflicting types"))
+        )
+      },
+      test("nested response shapes conflict across different object types") {
+        case class Owner(v: String)
+        case class Company(v: Int)
+        sealed trait Pet
+        case class Dog(friend: Owner)   extends Pet
+        case class Cat(friend: Company) extends Pet
+        case class Query(pet: Pet)
+
+        val query =
+          """query {
+            |  pet {
+            |    ... on Dog { p: friend { v } }
+            |    ... on Cat { p: friend { v } }
+            |  }
+            |}""".stripMargin
+
+        val gql = graphQL(RootResolver(Query(Dog(Owner("name")))))
+        for {
+          int <- gql.interpreter
+          res <- int.execute(query)
+        } yield assertTrue(
+          res.errors.collectFirst { case e: CalibanError.ValidationError => e.msg }
+            .exists(_.contains("conflicting types"))
+        )
+      },
       test("nested fragment selection on the same type") {
         import caliban.schema.Schema.auto._
 
@@ -602,7 +651,10 @@ object FragmentSpec extends ZIOSpecDefault {
             for {
               interpreter <- gql.interpreter
               res         <- interpreter.execute(query)
-            } yield assert(res.errors.headOption)(isSome(anything))
+            } yield assertTrue(
+              res.errors.collectFirst { case e: CalibanError.ValidationError => e.msg }
+                .exists(_.contains("conflicting types"))
+            )
           }
         )
       )
