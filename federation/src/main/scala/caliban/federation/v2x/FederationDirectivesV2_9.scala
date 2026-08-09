@@ -6,7 +6,7 @@ import caliban.Value.{ BooleanValue, IntValue, StringValue }
 import caliban.parsing.adt.Directive
 import caliban.schema.Annotations.GQLDirective
 
-trait FederationDirectivesV2_9 extends FederationDirectivesV2_8 {
+trait FederationDirectivesV2_9 extends FederationDirectivesV2_8 with FederationDirectivesV2_7 {
 
   def Cost(weight: Int) = Directive("cost", Map("weight" -> IntValue(weight)))
 

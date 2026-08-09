@@ -6,7 +6,7 @@ import caliban.schema.Annotations.GQLDirective
 
 import scala.annotation.nowarn
 
-trait FederationDirectivesV2_10 extends FederationDirectivesV2_9 {
+trait FederationDirectivesV2_10 extends FederationDirectivesV2_9 with FederationDirectivesV2_7 {
 
   case class JSONSelection(select: String)
   case class HTTPHeaderMapping(
