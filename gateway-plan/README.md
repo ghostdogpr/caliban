@@ -9,6 +9,7 @@ A decision-complete architecture and implementation specification for a producti
 - The canonical entry point is the [implementation handoff](IMPLEMENTATION-HANDOFF.md). Read it completely before beginning implementation.
 - To assign work, give the agent both the handoff and one file from [tickets](tickets/). The ticket bounds the change; the handoff owns cross-cutting contracts and invariants.
 - Follow the handoff milestones and each ticket's blockers. Ticket numbers group the work, but blockers control the exact order when work within a milestone can proceed in parallel. Use [decisions](decisions/) and [research](research/) only when the ticket or handoff needs deeper rationale.
+- Treat assigned ticket numbers as stable identifiers. Reprioritize by changing blockers or milestone prose rather than renumbering existing tickets; append a new numbered ticket when later evidence exposes additional work.
 
 ## Design summary
 

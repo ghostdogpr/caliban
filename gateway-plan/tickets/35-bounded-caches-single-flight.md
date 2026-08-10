@@ -2,7 +2,7 @@
 
 **What to build:** Cache parsed, prepared, planned, and deterministic negative results within one graph generation using finite independent budgets and scoped keyed single-flight.
 
-**Blocked by:** 30 — Support operation conditions and selection details
+**Blocked by:** 15 — Harden schema and operation parsing; 31 — Support operation conditions and selection details
 
 **Status:** ready-for-agent
 
@@ -12,4 +12,3 @@
 - [ ] Non-default or unstable validation settings bypass prepared/planned caching until a stable discriminator exists.
 - [ ] Cache hits avoid single-flight; waiters cancel independently; abandoned shared work is interrupted.
 - [ ] Only successful complete values are inserted and oversized valid operations may execute without cache admission.
-

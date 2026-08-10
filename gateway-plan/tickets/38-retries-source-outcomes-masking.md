@@ -2,7 +2,7 @@
 
 **What to build:** Add bounded replay-safe retries and refine source error masking, extension allowlists, and safe message policy on top of the SourceFailure integration semantics established by the MVP.
 
-**Blocked by:** 15 — Classify and own every remote response; 24 — Configure source execution behavior; 37 — Track overdue work and narrow deadlines
+**Blocked by:** 16 — Classify and own every remote response; 25 — Configure source execution behavior; 37 — Track overdue work and narrow deadlines
 
 **Status:** ready-for-agent
 

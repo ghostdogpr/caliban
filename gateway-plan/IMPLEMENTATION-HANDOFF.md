@@ -91,7 +91,7 @@ Do not create `caliban-gateway-router`, `caliban-gateway-quick`, a planner artif
 - `caliban-gateway` may compile-depend on `caliban-tools` and use its introspection client with the gateway-owned sttp `Backend[Task]`; the resulting client/sttp dependencies are intentional because remote execution already needs them.
 - Do not depend on `caliban-stitching` or deprecate it in this milestone. The products coexist until the gateway is proven and a separate migration decision exists.
 - `caliban-federation` is a test/example dependency for constructing representative subgraphs. Production composition normalizes Federation SDL through core parser/introspection ASTs and does not depend on federation server support.
-- Add non-published audit and benchmark projects only at the slice points stated below, following the existing `apollo-compatibility` assembly/container/workflow precedent.
+- Add non-published audit and benchmark projects only at the milestones stated below, following the existing `apollo-compatibility` assembly/container/workflow precedent.
 - A new published artifact begins with `mimaPreviousArtifacts := Set.empty`; establish its real MiMa baseline only after the first release. Examples must compile in a Scala-matrix test/example project. The current documentation/mdoc project is not evidence for Scala 3 examples until its own matrix supports them.
 
 ### Package boundaries
@@ -410,7 +410,7 @@ The result is one immutable in-memory composed graph and integer-indexed routing
 
 ## Operation frontend and cache boundaries
 
-Reuse Caliban's parser and static validation semantics initially. Add `Parser.parseQuery(query, ParserLimits(...))` in core so token, nesting, and AST-node budgets are enforced during parsing, before an oversized AST is allocated. Existing parser APIs remain compatible.
+Reuse Caliban's existing parser and static validation semantics through the structured Federation MVP. Ticket 15 then adds `Parser.parseQuery(query, ParserLimits(...))` in core so token, nesting, and AST-node budgets are enforced during parsing, before an oversized AST is allocated. Existing parser APIs remain compatible.
 
 Operation pipeline:
 
@@ -537,7 +537,7 @@ Do not use `ResponseValue` as the production remote-routing store. The measured 
 
 A remote `SourceDocument` owns bounded UTF-8 buffers plus a plan-driven index. Decode only values required for routing, keys, requirements, type conditions, and nullability into tagged primitive slots. Retain untouched final-output leaves/subtrees as raw byte references when profitable. Local results enter through a structural importer.
 
-The indexed coordinator-owned store is established by the structured Federation MVP in Tickets 8–10; raw-span retention and a packed token index are not MVP requirements. The first correct implementation may decode final leaves into the indexed store behind the same `SourceDocument`/projection seam. Enable retained raw spans only when lifetime tests are complete and profiles show the copy/decoding reduction is worth the complexity. This is not permission to substitute a recursive `ResponseValue` merge engine.
+The indexed coordinator-owned store is established by the structured Federation MVP in Tickets 7–9; raw-span retention and a packed token index are not MVP requirements. The first correct implementation may decode final leaves into the indexed store behind the same `SourceDocument`/projection seam. Enable retained raw spans only when lifetime tests are complete and profiles show the copy/decoding reduction is worth the complexity. This is not permission to substitute a recursive `ResponseValue` merge engine.
 
 The `ResponseStore` is coordinator-confined. Object/field slots come from the planned operation; dynamic lists use contiguous handles; runtime references are integer IDs into primitive arrays. Internal key/requirement fields stay addressable but are absent from client projection. The verifier rejects conflicting writers.
 
@@ -677,51 +677,54 @@ Two top-level mutation fields route to different sources. The full routed subtre
 
 The files in [`tickets/`](tickets/) are the authoritative work breakdown. The ranges below group them into product milestones; each ticket's `Blocked by` field controls the exact order and safe parallelism within a milestone. No Quick adapter, external audit, benchmark harness, or broad public configuration model is part of the foundation unless its ticket is reached.
 
-### Milestone 0 — Structured Federation MVP (Tickets 1–14)
+### Milestone 0 — Structured Federation MVP (Tickets 1–13)
 
 - Ticket 1 adds only the unpublished module and minimal `Gateway`/`GatewayRuntime` scaffolding needed to compile and establish public/private boundaries. It does not anticipate source, lookup, header, transport, planner, or configuration APIs owned by later tickets.
-- Ticket 2 adds the gateway-neutral Caliban core seams. Tickets 3–6 normalize pinned schemas, compose a client schema, prepare operations, and plan one deterministic remote root call.
-- Tickets 7–10 classify and execute one bounded remote call, then integrate nested data, null completion, errors, and classified source failure into the indexed store through a sink-parameterized structured projection writer.
-- Tickets 11–14 add local client introspection, one Federation entity transition, stable batching/correlation, and the complete structured Products-to-Reviews path with its request deadline, cancellation, trace-context, and ownership protocol.
+- Tickets 2–5 normalize pinned schemas, compose a client schema, prepare operations with Caliban's existing parser semantics, and plan one deterministic remote root call.
+- Tickets 6–9 classify and execute one bounded remote call, then integrate nested data, null completion, errors, and classified source failure into the indexed store through a sink-parameterized structured projection writer.
+- Tickets 10–13 add local client introspection, one Federation entity transition, stable batching/correlation, and the complete structured Products-to-Reviews path with its request deadline, cancellation, trace-context, and ownership protocol.
 
 Exit checks:
 
 - The provisional Scala matrix compiles and publication remains disabled.
 - Direct embedded structured execution handles a root call, an entity transition, partial source failure, null completion, and client introspection with deterministic explanation.
 - The first projection implementation is sink-parameterized, but no gateway encoded sink or Quick behavior is implemented yet.
+- Parser token, nesting, and AST-node budgets are deliberately not an MVP prerequisite; Ticket 15 adds them against a working semantic baseline.
 - Cancellation and deadline tests release cooperative work exactly once and never fabricate a response for caller interruption.
 
-### Milestone 1 — Remote protocol and acquisition completion (Tickets 15–16)
+### Milestone 1 — Core response proof and remote-boundary hardening (Tickets 14–17)
 
-Complete the remote media/status/body-ownership matrix and bounded source-document lifetimes, then add independently bounded ordinary introspection and Federation `_service` schema acquisition.
+After the MVP, establish the reusable response-store oracle and independently harden parsing and remote response ownership; none of those three tickets needs to wait for another. Remote ordinary introspection and Federation `_service` acquisition follows the two hardening tickets. The response oracle unblocks the encoded sink early, while hardening/acquisition does not block code-first ordinary or local graph work.
 
 Exit checks:
 
+- Valid MVP schemas and operations preserve their parsing, validation, preparation, and execution semantics after parser limits are enabled.
+- The reusable oracle covers nested completion, entity fan-out, partial failure, and varied completion order and is extended by later execution-breadth tickets.
 - Every remote response is classified before GraphQL integration, valid GraphQL envelopes win over HTTP status, and malformed/empty/oversized outcomes are typed and bounded.
 - Acquired schemas use independent finite cold-build budgets, protected static headers, redirects disabled by default, and accumulated source-attributed diagnostics.
 
-### Milestone 2 — Heterogeneous graphs (Tickets 17–25)
+### Milestone 2 — Heterogeneous graphs (Tickets 18–26)
 
-Add ordinary lookups, symmetric shareability, bounded route choice/coalescing, local Caliban execution, batch lookups and required arguments, structural transforms, runtime header policy, and immutable source execution configuration. Close the milestone with the canonical remote Products/local Pricing/remote Reviews graph.
+Add ordinary lookups and local Caliban execution directly from code-first pinned schema input; neither waits for remote schema acquisition or parser hardening. As soon as both work, Ticket 26 proves a fixed-route remote Products/local Pricing/remote Reviews graph. Federation shareability/route choice, batch lookups, the core incoming-header context/runtime header policy, and immutable source execution configuration proceed as independent branches according to their real blockers rather than delaying that first mixed execution. Ticket 23 establishes transforms for the coordinate families available in this milestone; later feature tickets extend that same transform compiler when they introduce new coordinate families.
 
 Exit checks:
 
 - Ordinary-only, local-only, Federation-only, and mixed graphs use the same composition, planner, scheduler, coordinator, and response machinery.
 - Environment intersections compile and run, local results make no JSON round trip, and invalid metadata accumulates deterministic diagnostics.
 
-### Milestone 3 — Federation breadth and compatibility (Tickets 26–34)
+### Milestone 3 — Federation breadth and compatibility (Tickets 27–34)
 
-Complete compound/multiple keys, multi-hop routing, recursive requirements and provides, ownership/visibility, abstract selections, aliases/fragments/directives/conditions, response-store property testing, and ordered mutations. Only then integrate the latest reviewed Federation Gateway Audit and close every in-scope case.
+Complete compound/multiple keys, multi-hop routing, recursive requirements and provides, ownership/visibility, abstract selections, aliases/fragments/directives/conditions, and ordered mutations. Most Federation work remains independent of ordinary/local execution; Ticket 28 deliberately converges with the source-neutral requirement and transform models before adding Federation-specific requirement coordinates. Ticket 14's core response-store oracle is already available, and the requirements, abstract-selection, condition, and mutation tickets extend it with their own semantics. Only then integrate the latest reviewed Federation Gateway Audit and close every in-scope case. Ticket 42 later closes the fully configured conditional mixed scenario once both product branches and their operational semantics exist.
 
 Exit checks:
 
 - Every in-scope audit case in the selected revision passes through native code-first composition; only explicitly reviewed staged features are excluded.
 - The reference planner/executor and property scenarios cover completion, path mapping, ownership, and varied execution order.
-- Ticket 34 re-runs the real planner/executor across the full candidate Scala matrix and enables publication only for confirmed versions.
+- Ticket 34 re-runs the real planner/executor across the full candidate Scala matrix and records the confirmed versions while publication remains disabled until Ticket 53.
 
-### Milestone 4 — Operational and HTTP completion (Tickets 35–45)
+### Milestone 4 — Operational and HTTP completion (Tickets 35–46)
 
-Follow blockers rather than raw ticket number in this milestone. Tickets 35–39 add caches/single-flight, admission/drain/status, overdue/deadline narrowing, retry and masking policy, and operation resolution/policy. Tickets 43 and 44 may proceed once their own prerequisites are satisfied: they add the second projection sink and Quick ingress/header handling. Ticket 40 then audits every finite gateway, encoded-output, and Quick-input bound; Tickets 41–42 close metrics/logging and operational race testing. Ticket 45 connects Quick to the encoded gateway capability and proves structured/encoded HTTP parity before any benchmark uses it.
+Follow blockers rather than raw ticket number in this milestone. Tickets 35–39 add caches/single-flight, admission/drain/status, overdue/deadline narrowing, retry and masking policy, and operation resolution/policy. Ticket 43 adds only the generic core encoded capability after the structured MVP; Ticket 44 implements the gateway sink after the response-store oracle. Ticket 45 remains deferred until the structured MVP and runtime-header seam exist, so Quick adapter work does not return to the foundation. Ticket 40 audits every finite gateway, encoded-output, and Quick-input bound; Tickets 41–42 close metrics/logging and operational race testing. Ticket 46 connects Quick to the encoded gateway capability and proves structured/encoded HTTP parity before any benchmark uses it.
 
 Exit checks:
 
@@ -730,7 +733,7 @@ Exit checks:
 - Structured and encoded results are semantically equivalent, and Quick matches the reviewed media/method/status matrix without inspecting response bytes.
 - No response is fabricated for caller interruption and expected outcomes are not automatically logged.
 
-### Milestone 5 — Performance closure (Tickets 46–49)
+### Milestone 5 — Performance closure (Tickets 47–50)
 
 Integrate the latest reviewed GraphQL Gateways Benchmark only after the actual Quick encoded path and operational suite are complete. Establish the semantically validated gate, profile the full engine, set measured finite defaults, optimize the dominant actionable seam, and re-run the standing useful-throughput comparison.
 
@@ -739,9 +742,9 @@ Exit checks:
 - Correct useful throughput is at least 85% of the leading compared gateway, or maintainers record the narrowly permitted expiring exception after profiles show no actionable dominant seam and all semantic/operational gates remain green.
 - Latency, CPU, allocation, GC, and memory are reported, and audit/operational suites remain green after optimization.
 
-### Milestone 6 — Tracing and release readiness (Tickets 50–52)
+### Milestone 6 — Tracing and release readiness (Tickets 51–53)
 
-Add supported OpenTelemetry integration in its dependency-bearing module, compiling examples and migration documentation, then perform the final public API, environment-intersection, MiMa, clean-checkout, and release review.
+Add supported OpenTelemetry integration in its dependency-bearing module, compiling examples and migration documentation, then perform the final public API, environment-intersection, MiMa, clean-checkout, and release review. Ticket 52 is also the convergence point for the independent acquisition, batch-lookup, transform, and fixed-route mixed branches, so none can be omitted from release merely because it did not block the Federation audit or operational spine.
 
 Exit checks:
 

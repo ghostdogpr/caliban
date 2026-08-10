@@ -2,7 +2,7 @@
 
 **What to build:** Verify that every gateway subsystem introduced its own finite resource protections and close the immutable typed configuration model without retrofitting limits in one place.
 
-**Blocked by:** 34 — Close compatibility and confirm publication matrix; 35 — Add bounded caches and single-flight; 36 — Implement admission, drain, and runtime status; 37 — Track overdue work and narrow deadlines; 38 — Implement retries, source outcomes, and masking; 39 — Add operation resolution and policy; 43 — Add the gateway encoded response sink; 44 — Harden Quick ingress and install header context
+**Blocked by:** 15 — Harden schema and operation parsing; 17 — Acquire ordinary and Federation schemas remotely; 34 — Close compatibility and confirm publication matrix; 35 — Add bounded caches and single-flight; 36 — Implement admission, drain, and runtime status; 37 — Track overdue work and narrow deadlines; 38 — Implement retries, source outcomes, and masking; 39 — Add operation resolution and policy; 44 — Project gateway responses directly to encoded bytes; 45 — Harden Quick ingress and install header context
 
 **Status:** ready-for-agent
 

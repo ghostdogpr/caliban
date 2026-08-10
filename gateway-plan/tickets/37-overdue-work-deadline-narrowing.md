@@ -2,7 +2,7 @@
 
 **What to build:** Extend the single MVP deadline protocol with overdue accounting, per-source narrowing, and observability for uninterruptible local, header, resolver, and policy effects without reimplementing request timeout ownership.
 
-**Blocked by:** 20 — Execute local Caliban graphs; 23 — Apply runtime header policy; 24 — Configure source execution behavior; 36 — Implement admission, drain, and runtime status
+**Blocked by:** 21 — Execute local Caliban graphs; 24 — Apply runtime header policy; 25 — Configure source execution behavior; 36 — Implement admission, drain, and runtime status
 
 **Status:** ready-for-agent
 

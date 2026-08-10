@@ -2,7 +2,7 @@
 
 **What to build:** Install typed operation resolution before parsing and whole-operation policy after planned-operation lookup and variable binding, preserving cache and routing invariants.
 
-**Blocked by:** 28 — Complete ownership and visibility composition; 35 — Add bounded caches and single-flight; 37 — Track overdue work and narrow deadlines
+**Blocked by:** 29 — Complete ownership and visibility composition; 35 — Add bounded caches and single-flight; 37 — Track overdue work and narrow deadlines
 
 **Status:** ready-for-agent
 

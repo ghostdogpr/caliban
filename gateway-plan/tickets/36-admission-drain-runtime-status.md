@@ -2,7 +2,7 @@
 
 **What to build:** Add atomic bounded request admission and the Running-to-Draining-to-Closed lifecycle around the established MVP request entry point and deadline boundary.
 
-**Blocked by:** 14 — Close the structured Federation MVP
+**Blocked by:** 13 — Close the structured Federation MVP
 
 **Status:** ready-for-agent
 
