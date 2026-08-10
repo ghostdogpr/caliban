@@ -2,17 +2,17 @@
 
 Status: implementation-ready
 
-This is the canonical entry point for implementing the embedded Caliban Gateway. An implementation agent should read this document completely before editing code. The Wayfinder map and tickets preserve rationale and deeper detail, but the implementation must not depend on reconstructing the architecture from them.
+This is the canonical entry point for implementing the embedded Caliban Gateway. An implementation agent should read this document completely before editing code. The plan overview, decisions, and tickets preserve rationale and deeper detail, but the implementation must not depend on reconstructing the architecture from them.
 
 ## Instructions for the implementation agent
 
 1. Start from a fresh branch based on the then-current `series/3.x`. Do not base implementation on `wip_gateway`.
 2. Treat the gateway code currently present on `wip_gateway` as an abandoned prototype. Its `SuperGraph`, `SubGraph`, ZQuery routing, `Extend`, and `ResponseValue` execution APIs impose no compatibility constraint.
 3. Read [the gateway domain language](CONTEXT.md) after this document and use its terms consistently.
-4. Implement the vertical slices in order. Each slice must end in executable behavior and acceptance checks; do not build all internals independently and connect them at the end.
+4. Implement the ticket milestones below in dependency order. Each milestone must end in executable behavior and acceptance checks; do not build all internals independently and connect them at the end.
 5. Do not reopen settled architecture because another design looks locally simpler. Reopen a decision only when compilation, a specification conflict, the selected acceptance suites, or measurements demonstrate that the stated contract cannot work.
 6. Private representations and algorithms may change freely behind the fixed seams. When a performance seam is called out, measure before specializing it.
-7. Record any necessary deviation and its evidence in this document or a linked decision before allowing the implementation to drift silently.
+7. The milestone sequence and ticket dependency graph are one plan. If they ever disagree, reconcile the documents before writing code instead of explaining the mismatch separately.
 
 ## Goal
 
@@ -25,7 +25,7 @@ Add a production-capable, ZIO-native, embedded GraphQL gateway based on Caliban.
 
 The gateway should feel like a Caliban library, exploit Scala and ZIO directly, reuse Caliban semantics where that remains competitive, and retain private specialization seams where generic Caliban representations would prevent performance comparable to leading gateways.
 
-Start `caliban-gateway` cross-built on the repository's then-current supported JVM Scala matrix. Keep the common implementation Scala 2-compatible when that costs little. This is not a lowest-common-denominator constraint: if a substantive Scala 3 feature materially improves the public model, correctness, maintainability, or measured hot path and cannot reasonably be isolated, the module may become Scala 3-only with the concrete reason recorded before its API is published. Dependency availability is also a valid reason to narrow the matrix. Slice 0 provisionally settles the matrix by compiling the skeleton and Slice 3 re-confirms it against the real planner/executor. Do not publish snapshots, milestones, release candidates, or releases of `caliban-gateway` before that Slice 3 confirmation, because narrowing an already published matrix is a user-visible break.
+Start `caliban-gateway` cross-built on the repository's then-current supported JVM Scala matrix. Keep the common implementation Scala 2-compatible when that costs little. This is not a lowest-common-denominator constraint: if a substantive Scala 3 feature materially improves the public model, correctness, maintainability, or measured hot path and cannot reasonably be isolated, the module may become Scala 3-only with the concrete reason recorded before its API is published. Dependency availability is also a valid reason to narrow the matrix. Ticket 1 provisionally settles the matrix by compiling the skeleton and Ticket 34 re-confirms it against the real planner/executor. Do not publish snapshots, milestones, release candidates, or releases of `caliban-gateway` before that confirmation, because narrowing an already published matrix is a user-visible break.
 
 The initial public performance objective is semantically correct throughput within 15% of the leader in the current GraphQL Gateways Benchmark. The initial compatibility objective is every in-scope case in the current Federation Gateway Audit through the gateway's native code-first composition path.
 
@@ -537,7 +537,7 @@ Do not use `ResponseValue` as the production remote-routing store. The measured 
 
 A remote `SourceDocument` owns bounded UTF-8 buffers plus a plan-driven index. Decode only values required for routing, keys, requirements, type conditions, and nullability into tagged primitive slots. Retain untouched final-output leaves/subtrees as raw byte references when profitable. Local results enter through a structural importer.
 
-The indexed coordinator-owned store is a Slice 1 invariant; raw-span retention and a packed token index are not. The first correct implementation may decode final leaves into the indexed store behind the same `SourceDocument`/projection seam. Enable retained raw spans only when lifetime tests are complete and profiles show the copy/decoding reduction is worth the complexity. This is not permission to substitute a recursive `ResponseValue` merge engine.
+The indexed coordinator-owned store is established by the structured Federation MVP in Tickets 8–10; raw-span retention and a packed token index are not MVP requirements. The first correct implementation may decode final leaves into the indexed store behind the same `SourceDocument`/projection seam. Enable retained raw spans only when lifetime tests are complete and profiles show the copy/decoding reduction is worth the complexity. This is not permission to substitute a recursive `ResponseValue` merge engine.
 
 The `ResponseStore` is coordinator-confined. Object/field slots come from the planned operation; dynamic lists use contiguous handles; runtime references are integer IDs into primitive arrays. Internal key/requirement fields stay addressable but are absent from client projection. The verifier rejects conflicting writers.
 
@@ -675,89 +675,79 @@ Two top-level mutation fields route to different sources. The full routed subtre
 
 ## Implementation sequence
 
-### Slice 0 — Fresh foundation and shared Caliban seams
+The files in [`tickets/`](tickets/) are the authoritative work breakdown. The ranges below group them into product milestones; each ticket's `Blocked by` field controls the exact order and safe parallelism within a milestone. No Quick adapter, external audit, benchmark harness, or broad public configuration model is part of the foundation unless its ticket is reached.
 
-- Branch from current `series/3.x`; add the gateway module fresh and compile its ordinary-method skeleton on the repository's current JVM Scala matrix. Provisionally narrow only after a concrete language/dependency constraint is recorded, and disable every publication task until Slice 3 re-confirms the matrix.
-- Add bounded parser support in core.
-- Add the generic response outcome/structured response error, encoded-interpreter core types, and core `IncomingHeaders` context; add Quick bounded unary decoding, header-context installation, status/cache parity, and encoded passthrough.
-- Establish private-constructor immutable public descriptions, diagnostic/outcome types, runtime shell, and private package boundaries.
+### Milestone 0 — Structured Federation MVP (Tickets 1–14)
 
-Exit checks:
-
-- Existing Caliban core/Quick suites pass on supported Scala versions.
-- Fake encoded interpreter parity covers both JSON media types, generic cache-control passthrough, `405` plus `Allow: POST` for GET mutation, `413` finite-body overflow, request error, executed result, overload, timeout, and internal server failure; gateway v1 separately proves it emits no cache-control directive and SSE remains structured.
-- Gateway exposes none of the prototype names; its Scala matrix is provisionally verified and publication is disabled.
-
-### Slice 1 — Federation walking skeleton
-
-Build this vertical slice through three internal milestones rather than one long subsystem branch:
-
-1. **Root call:** acquire/normalize/compose minimal Federation SDL, prepare and plan one root query, execute one scoped sttp call, assemble/project it through both surfaces, and expose it through Quick with finite deadline/limits and cancellation cleanup.
-2. **Entity transition:** add the verified source-call DAG, one `_entities` transition, batching/correlation, null/error records, deterministic explanation, and cancellation tests at each new handoff.
-3. **External skeleton:** add the current audit adapter after milestone 1 and selected root cases; add selected entity cases and the current benchmark adapter after milestone 2. The benchmark is a smoke/regression signal here, not an optimization gate.
+- Ticket 1 adds only the unpublished module and minimal `Gateway`/`GatewayRuntime` scaffolding needed to compile and establish public/private boundaries. It does not anticipate source, lookup, header, transport, planner, or configuration APIs owned by later tickets.
+- Ticket 2 adds the gateway-neutral Caliban core seams. Tickets 3–6 normalize pinned schemas, compose a client schema, prepare operations, and plan one deterministic remote root call.
+- Tickets 7–10 classify and execute one bounded remote call, then integrate nested data, null completion, errors, and classified source failure into the indexed store through a sink-parameterized structured projection writer.
+- Tickets 11–14 add local client introspection, one Federation entity transition, stable batching/correlation, and the complete structured Products-to-Reviews path with its request deadline, cancellation, trace-context, and ownership protocol.
 
 Exit checks:
 
-- Selected root and entity-transition audit cases pass through Quick and direct execution.
-- Parsed encoded bytes equal compatibility results semantically.
-- Explanation is deterministic.
-- Fault tests at admission, permits, HTTP ingestion, integration, and projection show no leaks.
+- The provisional Scala matrix compiles and publication remains disabled.
+- Direct embedded structured execution handles a root call, an entity transition, partial source failure, null completion, and client introspection with deterministic explanation.
+- The first projection implementation is sink-parameterized, but no gateway encoded sink or Quick behavior is implemented yet.
+- Cancellation and deadline tests release cooperative work exactly once and never fabricate a response for caller interruption.
 
-### Slice 2 — Heterogeneous graphs
+### Milestone 1 — Remote protocol and acquisition completion (Tickets 15–16)
 
-- Ordinary introspection/pinned SDL and local `GraphQL[R]` sources.
-- Root coexistence, explicit lookup/batch correlation/shareability/requirements/transformation.
-- Header policy, source permits/timeouts, local structural import.
-- Canonical mixed remote Products/local Pricing/remote Reviews scenario.
+Complete the remote media/status/body-ownership matrix and bounded source-document lifetimes, then add independently bounded ordinary introspection and Federation `_service` schema acquisition.
 
 Exit checks:
 
-- Standalone ordinary, local-only, Federation-only, and mixed graphs share the runtime/planner.
-- Environment intersections compile and run.
-- Invalid metadata accumulates deterministic diagnostics.
-- Local results make no JSON round trip.
+- Every remote response is classified before GraphQL integration, valid GraphQL envelopes win over HTTP status, and malformed/empty/oversized outcomes are typed and bounded.
+- Acquired schemas use independent finite cold-build budgets, protected static headers, redirects disabled by default, and accumulated source-attributed diagnostics.
 
-### Slice 3 — Federation and GraphQL breadth
+### Milestone 2 — Heterogeneous graphs (Tickets 17–25)
 
-Expand breadth-first through the current audit: compound/multiple keys, multi-hop, `@requires`, `@provides`, `@override`, `@inaccessible`, interface objects/abstract types, shared roots, input/enum intersection, aliases/directives, null keys, conditions, partial errors, and mutations. Complete cost search, coalescing, requirement recursion, path rewriting, and null propagation. Add the small test reference planner/executor and property generators.
+Add ordinary lookups, symmetric shareability, bounded route choice/coalescing, local Caliban execution, batch lookups and required arguments, structural transforms, runtime header policy, and immutable source execution configuration. Close the milestone with the canonical remote Products/local Pricing/remote Reviews graph.
 
 Exit checks:
 
-- Every in-scope audit case in the recorded current revision passes through code-first composition.
-- Only explicitly staged features are excluded with recorded reasons.
-- Encoded/structured parity covers success, partial error, source failure, abstract types, and mutation ordering.
-- Re-run the full gateway compile/test matrix against the real planner, dense DAG, response store, and generated-call code; record any evidence-backed narrowing and only then enable publication for supported versions.
+- Ordinary-only, local-only, Federation-only, and mixed graphs use the same composition, planner, scheduler, coordinator, and response machinery.
+- Environment intersections compile and run, local results make no JSON round trip, and invalid metadata accumulates deterministic diagnostics.
 
-### Slice 4 — Operational completion
+### Milestone 3 — Federation breadth and compatibility (Tickets 26–34)
 
-Complete caches/single-flight, admission, source limits, retries, errors/masking, resolver/policy, warnings, drain/status with overdue counts, overdue-user-effect metrics, safe logging, and fault injection.
+Complete compound/multiple keys, multi-hop routing, recursive requirements and provides, ownership/visibility, abstract selections, aliases/fragments/directives/conditions, response-store property testing, and ordered mutations. Only then integrate the latest reviewed Federation Gateway Audit and close every in-scope case.
 
 Exit checks:
 
-- Exactly-once accounting/release under races and interruption.
-- Retry safety, source-result handoff boundary, request-deadline inclusion, and injected uninterruptible local/resolver/policy/header effects remaining active/request-owned and overdue with late result delivery disabled until they exit.
-- Bounded memory/admission and immutable policy.
-- No response on caller interruption and no automatic logging of expected outcomes.
+- Every in-scope audit case in the selected revision passes through native code-first composition; only explicitly reviewed staged features are excluded.
+- The reference planner/executor and property scenarios cover completion, path mapping, ownership, and varied execution order.
+- Ticket 34 re-runs the real planner/executor across the full candidate Scala matrix and enables publication only for confirmed versions.
 
-### Slice 5 — Performance closure
+### Milestone 4 — Operational and HTTP completion (Tickets 35–45)
 
-Run component and in-process profiles plus the current GraphQL Gateways Benchmark through Quick's actual encoded path. Count only semantically correct responses. Compare transport backends or add raw parsing specialization only if profiles identify those seams. Set numeric defaults from measured allocation/live-set/throughput rather than architecture guesses.
+Follow blockers rather than raw ticket number in this milestone. Tickets 35–39 add caches/single-flight, admission/drain/status, overdue/deadline narrowing, retry and masking policy, and operation resolution/policy. Tickets 43 and 44 may proceed once their own prerequisites are satisfied: they add the second projection sink and Quick ingress/header handling. Ticket 40 then audits every finite gateway, encoded-output, and Quick-input bound; Tickets 41–42 close metrics/logging and operational race testing. Ticket 45 connects Quick to the encoded gateway capability and proves structured/encoded HTTP parity before any benchmark uses it.
 
 Exit checks:
 
-- Correct useful throughput is at least 85% of the leading compared gateway, or maintainers record an explicit release exception after profiles demonstrate no actionable dominant seam and all correctness/operational gates remain green.
-- Latency, CPU, allocation, GC, and memory are reported.
-- Audit and operational suites remain green after every optimization.
+- Exactly-once accounting/release holds under races, interruption, deadlines, drain, retry, and uninterruptible user effects.
+- Every mandatory resource bound is finite, including Quick request bytes and final encoded bytes; immutable policy and environment intersections are verified.
+- Structured and encoded results are semantically equivalent, and Quick matches the reviewed media/method/status matrix without inspecting response bytes.
+- No response is fabricated for caller interruption and expected outcomes are not automatically logged.
 
-### Slice 6 — Tracing and release readiness
+### Milestone 5 — Performance closure (Tickets 46–49)
 
-Implement supported OpenTelemetry integration in a dependency-bearing module, documentation/examples, final public API review, and API/MiMa baseline for the new artifact.
+Integrate the latest reviewed GraphQL Gateways Benchmark only after the actual Quick encoded path and operational suite are complete. Establish the semantically validated gate, profile the full engine, set measured finite defaults, optimize the dominant actionable seam, and re-run the standing useful-throughput comparison.
+
+Exit checks:
+
+- Correct useful throughput is at least 85% of the leading compared gateway, or maintainers record the narrowly permitted expiring exception after profiles show no actionable dominant seam and all semantic/operational gates remain green.
+- Latency, CPU, allocation, GC, and memory are reported, and audit/operational suites remain green after optimization.
+
+### Milestone 6 — Tracing and release readiness (Tickets 50–52)
+
+Add supported OpenTelemetry integration in its dependency-bearing module, compiling examples and migration documentation, then perform the final public API, environment-intersection, MiMa, clean-checkout, and release review.
 
 Exit checks:
 
 - Trace relationships and downstream W3C propagation pass without raw-data capture.
 - Examples for ordinary, Federation, local, and mixed graphs compile.
-- Clean-checkout audit, benchmark, operational, and release suites pass.
+- Clean-checkout audit, benchmark, operational, cross-build, documentation, and release suites pass.
 
 ## Acceptance oracle
 
@@ -793,7 +783,7 @@ Audit and benchmark adapters live in non-published sbt projects modeled after `a
 | Local Caliban overhead | Preserve normal interpreter semantics first; add a core prepared-local seam only after measured need. |
 | Cancellation/finalization | Scoped fibers, exact ownership states, narrow masking, and injected cancellation at every suspension/handoff. |
 | Uninterruptible application code | Atomic late-result disabling, strict request ownership, retained permits/environment/resources/accounting, overdue-work telemetry, and an explicit warning that response, drain, and scope close may wait because the JVM cannot forcibly terminate user code. |
-| Cross-build breaks in real engine code | Provisional Slice 0 matrix, publication disabled, full Slice 3 re-confirmation, and evidence required before narrowing. |
+| Cross-build breaks in real engine code | Provisional Ticket 1 matrix, publication disabled, full Ticket 34 re-confirmation, and evidence required before narrowing. |
 | Competitive target remains unreachable | Keep 85% as the standing gate; permit only an expiring checked-in maintainer exception backed by profiles and green semantic/operational suites. |
 | Premature optimization | Keep reference tests and external gates; compact representations can change only while semantics remain fixed. |
 
