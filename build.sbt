@@ -96,6 +96,7 @@ lazy val allProjects: Seq[ProjectReference] =
     stitching,
     codegenSbt,
     federation,
+    gateway,
     reporting,
     tracing,
     apolloCompatibility
@@ -701,6 +702,21 @@ lazy val federation = project
     ),
     libraryDependencies ++= Seq(
       "com.thesamet.scalapb" %% "scalapb-runtime" % scalapb.compiler.Version.scalapbVersion % "protobuf"
+    )
+  )
+
+lazy val gateway = project
+  .in(file("gateway"))
+  .settings(name := "caliban-gateway")
+  .settings(commonSettings)
+  .dependsOn(core)
+  .disablePlugins(AssemblyPlugin)
+  .settings(
+    publish / skip        := true,
+    mimaPreviousArtifacts := Set.empty,
+    libraryDependencies ++= Seq(
+      "dev.zio" %% "zio-test"     % zioVersion % Test,
+      "dev.zio" %% "zio-test-sbt" % zioVersion % Test
     )
   )
 

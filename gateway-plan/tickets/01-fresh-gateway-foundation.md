@@ -4,10 +4,10 @@
 
 **Blocked by:** None — can start immediately
 
-**Status:** ready-for-agent
+**Status:** completed
 
-- [ ] The gateway module compiles on the provisional supported JVM Scala matrix and publication remains disabled.
-- [ ] The only new public scaffolding is the minimal contravariant `Gateway` description and `GatewayRuntime` shape needed by subsequent tickets; constructors and representations that must remain private are private.
-- [ ] No source, lookup, batching, header-policy, transport, transformation, planner, response-store, or broad configuration type is introduced before the ticket that first gives it executable semantics.
-- [ ] Gateway internals remain private and dependencies point from gateway to existing Caliban modules, never from core to gateway.
-- [ ] No HTTP client, Quick, tracing, or other dependency needed only by a later ticket is added to the foundation module.
+- [x] The gateway module compiles on the provisional supported JVM Scala matrix and publication remains disabled.
+- [x] The only new public scaffolding is the minimal contravariant `Gateway` description and `GatewayRuntime` shape needed by subsequent tickets; constructors and representations that must remain private are private.
+- [x] No source, lookup, batching, header-policy, transport, transformation, planner, response-store, or broad configuration type is introduced before the ticket that first gives it executable semantics.
+- [x] Gateway internals remain private and dependencies point from gateway to existing Caliban modules, never from core to gateway.
+- [x] No HTTP client, Quick, tracing, or other dependency needed only by a later ticket is added to the foundation module.
