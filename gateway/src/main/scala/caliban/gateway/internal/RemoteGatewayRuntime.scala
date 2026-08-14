@@ -1,22 +1,20 @@
 package caliban.gateway.internal
 
-import caliban.InputValue.{ ListValue => InputListValue, ObjectValue => InputObjectValue, VariableValue }
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ NullValue, StringValue }
 import caliban.execution.{ Executor, Field, RequestPreparation }
 import caliban.gateway.GatewayRuntime
+import caliban.gateway.internal.EntityExecutor.EntityResult
+import caliban.gateway.internal.OperationPlanner._
+import caliban.gateway.internal.RemoteGatewayRuntime._
 import caliban.introspection.Introspector
 import caliban.parsing.SourceMapper
 import caliban.parsing.adt.Definition.ExecutableDefinition.OperationDefinition
-import caliban.parsing.adt.Type.{ ListType, NamedType }
-import caliban.parsing.adt.{ Document, OperationType, Selection, VariableDefinition }
+import caliban.parsing.adt.{ Document, OperationType }
 import caliban.rendering.DocumentRenderer
 import caliban.schema.{ RootSchema, RootType }
-import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, InputValue, PathValue, ResponseValue }
+import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, PathValue, ResponseValue }
 import zio.{ IO, Trace, URIO, ZIO }
-
-import OperationPlanner._
-import RemoteGatewayRuntime._
 
 private[gateway] final class RemoteGatewayRuntime[-R](
   graph: ComposedGraph,
@@ -26,6 +24,7 @@ private[gateway] final class RemoteGatewayRuntime[-R](
   private val rootType: RootType             = graph.rootType
   private val introspection: RootSchema[Any] = Introspector.introspect[Any](rootType)
   private val planner                        = new OperationPlanner(graph, sources.size)
+  private val entityExecutor                 = new EntityExecutor(sources)
 
   def check(query: String)(implicit trace: Trace): IO[CalibanError, Unit] =
     RequestPreparation.check(query, rootType)
@@ -57,10 +56,14 @@ private[gateway] final class RemoteGatewayRuntime[-R](
   )(implicit trace: Trace): ZIO[Any, Nothing, GraphQLResponse[CalibanError]] =
     plan.passthrough match {
       case Some(source) =>
-        sources(source).execute(original).catchAll(_ => ZIO.succeed(singleSourceFailure))
+        sources.get(source) match {
+          case Some(remote) => remote.execute(original).catchAll(_ => ZIO.succeed(singleSourceFailure))
+          case None         => ZIO.succeed(singleSourceFailure)
+        }
       case None         =>
         executeRoots(plan, execution, original).flatMap { roots =>
-          ZIO.foreach(plan.entities)(executeEntity(_, roots, original)).map(entities => roots -> entities)
+          val rootValues = roots.iterator.map(result => result.route.id -> result.response.data).toMap
+          entityExecutor.execute(plan.entities, rootValues, original).map(entities => roots -> entities)
         }
           .zipPar(executeIntrospection(execution, plan.localFields.filter(isIntrospectionField)))
           .map { case (roots, entities, local) => assemble(plan, roots, entities, local) }
@@ -97,78 +100,13 @@ private[gateway] final class RemoteGatewayRuntime[-R](
       extensions = original.extensions
     )
 
-    sources(route.source)
-      .execute(request)
-      .map(response => RootResult(route, response))
-      .catchAll(_ => ZIO.succeed(RootResult(route, rootFailure(route))))
-  }
-
-  private def executeEntity(
-    route: EntityRoute,
-    roots: List[RootResult],
-    original: GraphQLRequest
-  )(implicit trace: Trace): ZIO[Any, Nothing, EntityResult] = {
-    val parent                                                         = roots.find(_.route.id == route.dependency).map(_.response.data).getOrElse(NullValue)
-    val entity                                                         = ResponseValue.at(route.mergePath.map(name => PathValue.Key(name)))(parent)
-    val representation: Option[Option[caliban.InputValue.ObjectValue]] = entity match {
-      case NullValue           => None
-      case ObjectValue(fields) =>
-        val values   = fields.toMap
-        val key      = values.get(route.key.responseName).collect {
-          case value: InputValue if value != NullValue => value
-        }
-        val typename = values.get(route.typename.responseName).collect { case value: StringValue => value }
-        Some(for {
-          keyValue      <- key
-          typenameValue <- typename
-        } yield InputObjectValue(Map("__typename" -> typenameValue, route.key.field -> keyValue)))
-      case _                   => Some(None)
-    }
-
-    representation match {
-      case None                       => ZIO.succeed(EntityResult(route, skippedEntity))
-      case Some(None)                 => ZIO.succeed(EntityResult(route, missingRepresentation(route)))
-      case Some(Some(representation)) =>
-        val variables   = Map("representations" -> InputListValue(List(representation)))
-        val entityField = Selection.Field(
-          None,
-          "_entities",
-          Map("representations" -> VariableValue("representations")),
-          Nil,
-          List(
-            Selection.InlineFragment(
-              Some(NamedType(route.entityType, nonNull = false)),
-              Nil,
-              route.fields.map(_.toSelection)
-            )
-          ),
-          0
-        )
-        val operation   = OperationDefinition(
-          OperationType.Query,
-          Some("__GatewayEntity"),
-          List(
-            VariableDefinition(
-              "representations",
-              ListType(NamedType("_Any", nonNull = true), nonNull = true),
-              None,
-              Nil
-            )
-          ),
-          Nil,
-          List(entityField)
-        )
-        val request     = GraphQLRequest(
-          query = Some(DocumentRenderer.renderCompact(Document(operation :: Nil, SourceMapper.empty))),
-          operationName = Some("__GatewayEntity"),
-          variables = Some(variables),
-          extensions = original.extensions
-        )
-
-        sources(route.source)
+    sources.get(route.source) match {
+      case Some(source) =>
+        source
           .execute(request)
-          .map(response => EntityResult(route, response))
-          .catchAll(_ => ZIO.succeed(EntityResult(route, entityFailure(route))))
+          .map(response => RootResult(route, response))
+          .catchAll(_ => ZIO.succeed(RootResult(route, rootFailure(route))))
+      case None         => ZIO.succeed(RootResult(route, rootFailure(route)))
     }
   }
 
@@ -203,42 +141,40 @@ private[gateway] final class RemoteGatewayRuntime[-R](
     })
     val errors      = local.errors :::
       roots.flatMap(result => errorsAtRoot(result.route, result.response.errors)) :::
-      entities.flatMap(result => errorsAtEntity(result.route, result.response.errors))
+      entities.flatMap(_.errors)
     GraphQLResponse(data, errors)
   }
 
   private def mergeEntities(field: Field, value: ResponseValue, entities: List[EntityResult]): ResponseValue =
-    entities
-      .filter(_.route.mergePath.headOption.contains(field.aliasedName))
-      .foldLeft(value) { case (current, result) =>
-        entityValue(result.response.data) match {
-          case Some(patch) => mergeAt(current, result.route.mergePath.drop(1), patch)
-          case None        => current
+    entities.foldLeft(value) { case (current, result) =>
+      result.patches
+        .filter(_.route.mergePath.headOption.contains(field.aliasedName))
+        .foldLeft(current) { case (merged, patch) =>
+          mergeAt(merged, patch.path.drop(1), patch.value)
         }
-      }
-
-  private def entityValue(data: ResponseValue): Option[ResponseValue] =
-    data match {
-      case ObjectValue(fields) =>
-        fields.collectFirst { case ("_entities", ListValue(value :: _)) =>
-          value
-        }
-      case _                   => None
     }
 
-  private def mergeAt(value: ResponseValue, path: List[String], patch: ResponseValue): ResponseValue =
+  private def mergeAt(value: ResponseValue, path: List[PathValue], patch: ResponseValue): ResponseValue =
     path match {
-      case Nil          => mergeObject(value, patch)
-      case head :: tail =>
+      case Nil                            => mergeObject(value, patch)
+      case PathValue.Key(key) :: tail     =>
         value match {
           case ObjectValue(fields) =>
             ObjectValue(fields.map {
-              case (`head`, nested) => head -> mergeAt(nested, tail, patch)
-              case other            => other
+              case (name, nested) if name == key => name -> mergeAt(nested, tail, patch)
+              case other                         => other
             })
-          case ListValue(values)   => ListValue(values.map(mergeAt(_, path, patch)))
           case other               => other
         }
+      case PathValue.Index(index) :: tail =>
+        value match {
+          case ListValue(values) if index >= 0 && index < values.size =>
+            ListValue(values.zipWithIndex.map { case (nested, current) =>
+              if (current == index) mergeAt(nested, tail, patch) else nested
+            })
+          case other                                                  => other
+        }
+      case _                              => value
     }
 
   private def mergeObject(left: ResponseValue, right: ResponseValue): ResponseValue =
@@ -302,18 +238,6 @@ private[gateway] final class RemoteGatewayRuntime[-R](
       case error                                                    => error :: Nil
     }
 
-  private def errorsAtEntity(route: EntityRoute, errors: List[CalibanError]): List[CalibanError] =
-    errors.map {
-      case error: CalibanError.ExecutionError =>
-        val suffix = error.path match {
-          case PathValue.Key("_entities") :: PathValue.Index(0) :: tail => tail
-          case PathValue.Key("_entities") :: tail                       => tail
-          case path                                                     => path
-        }
-        error.copy(path = route.mergePath.map(name => PathValue.Key(name)) ::: suffix)
-      case error                              => error
-    }
-
   private def renderPlan(plan: OperationPlan): String = {
     val header = plan.operation.toString.toLowerCase
     val roots  = plan.roots.flatMap { route =>
@@ -359,39 +283,13 @@ private[gateway] final class RemoteGatewayRuntime[-R](
       )
     )
 
-  private def entityFailure(route: EntityRoute): GraphQLResponse[CalibanError] =
-    GraphQLResponse(
-      NullValue,
-      List(
-        CalibanError.ExecutionError(
-          "Remote GraphQL request failed.",
-          path = route.mergePath.map(name => PathValue.Key(name))
-        )
-      )
-    )
-
-  private def missingRepresentation(route: EntityRoute): GraphQLResponse[CalibanError] =
-    GraphQLResponse(
-      NullValue,
-      List(
-        CalibanError.ExecutionError(
-          s"Entity key '${route.entityType}.${route.key.field}' was missing from the source result.",
-          path = route.mergePath.map(name => PathValue.Key(name))
-        )
-      )
-    )
-
   private val singleSourceFailure =
     GraphQLResponse(
       NullValue,
       List(CalibanError.ExecutionError("Remote GraphQL request failed."))
     )
-
-  private val skippedEntity = GraphQLResponse(NullValue, Nil)
 }
 
 private object RemoteGatewayRuntime {
   final case class RootResult(route: RootRoute, response: GraphQLResponse[CalibanError])
-
-  final case class EntityResult(route: EntityRoute, response: GraphQLResponse[CalibanError])
 }

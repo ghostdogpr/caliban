@@ -8,7 +8,7 @@ import caliban.Value.{ BooleanValue, NullValue, StringValue }
 import caliban.execution.RequestPreparation
 import caliban.parsing.Parser
 import caliban.tools.RemoteSchema
-import caliban.{ CalibanError, GraphQLInterpreter, GraphQLRequest }
+import caliban.{ CalibanError, GraphQLInterpreter, GraphQLRequest, PathValue }
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromArray
 import sttp.model.Uri
 import zio._
@@ -661,7 +661,7 @@ object GatewaySpec extends ZIOSpecDefault {
       val collidingProductResponse =
         """{"data":{"product":{"id":"Table","__typename":"Table","_caliban_gateway_key":"Table","_caliban_gateway_typename":"Table","_caliban_gateway_key_2":"p1","_caliban_gateway_typename_2":"Product"}}}"""
       val reviewResponse           =
-        """{"data":{"_entities":[{"reviews":[{"body":"Solid"}]}]}}"""
+        """{"data":{"_entities":[{"reviews":[{"body":"Solid"}],"_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product"}]}}"""
       val query                    =
         """query Product {
           |  product(id: "p1") {
@@ -767,7 +767,10 @@ object GatewaySpec extends ZIOSpecDefault {
             !rendered.contains("reviews")
         ),
         reviewSent.head.query.exists(rendered =>
-          rendered.contains("_entities") && rendered.contains("...on Product") && rendered.contains("reviews{body}")
+          rendered.contains("_entities") && rendered.contains("...on Product") &&
+            rendered.contains("reviews{body}") &&
+            rendered.contains("_caliban_gateway_entity_key:id") &&
+            rendered.contains("_caliban_gateway_entity_typename:__typename")
         ),
         reviewSent.head.variables.contains(
           Map(
@@ -804,33 +807,286 @@ object GatewaySpec extends ZIOSpecDefault {
         sentB.isEmpty
       )
     },
-    test("rejects list-valued entity joins during planning") {
-      val listProducts = productsFederationSchema.replace("product(id: ID!): Product", "products: [Product!]!")
+    test("batches and correlates list-valued entity joins") {
+      val listProducts    = productsFederationSchema.replace("product(id: ID!): Product", "products: [Product!]!")
+      val productResponse =
+        """{"data":{"products":[{"name":"First","_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"},{"name":"Second","_caliban_gateway_key":"p2","_caliban_gateway_typename":"Product"},{"name":"First again","_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}]}}"""
+      val reviewResponse  =
+        """{"data":{"_entities":[{"_caliban_gateway_entity_key":"p2","_caliban_gateway_entity_typename":"Product","reviews":[{"body":"Second review"}]},{"_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product","reviews":[{"body":"First review"}]}]}}"""
 
       for {
-        products <- stub("""{"data":{"products":[]}}""")
-        reviews  <- stub("""{"data":{"_entities":[]}}""")
+        products <- stub(productResponse)
+        reviews  <- stub(reviewResponse)
         gateway  <- Gateway
                       .compose(
                         Subgraph.federation("products", products.endpoint, listProducts),
                         Subgraph.federation("reviews", reviews.endpoint, reviewsFederationSchema)
                       )
                       .build
-        response <- gateway.execute("{ products { reviews { body } } }")
+        response <- gateway.execute("{ products { name reviews { body } } }")
         sentA    <- products.requests.get
         sentB    <- reviews.requests.get
+        validA   <- ZIO.foreach(sentA)(validateRequest(listProducts, _).exit)
+        validB   <- ZIO.foreach(sentB)(validateRequest(reviewsFederationSchema, _).exit)
+        values    = field(response.data, "products").collect { case ResponseListValue(values) => values }.getOrElse(Nil)
       } yield assertTrue(
-        response.errors.map(_.msg) ==
-          List("Federation entity joins from list-valued field 'products' are not supported."),
-        sentA.isEmpty,
-        sentB.isEmpty
+        response.errors.isEmpty,
+        values.flatMap(field(_, "name")) == List(
+          StringValue("First"),
+          StringValue("Second"),
+          StringValue("First again")
+        ),
+        values
+          .flatMap(field(_, "reviews"))
+          .collect { case ResponseListValue(ResponseObjectValue(review) :: Nil) =>
+            review.collectFirst { case ("body", StringValue(body)) => body }
+          }
+          .flatten == List("First review", "Second review", "First review"),
+        values.forall(value =>
+          field(value, "id").isEmpty &&
+            field(value, "__typename").isEmpty &&
+            field(value, "_caliban_gateway_key").isEmpty &&
+            field(value, "_caliban_gateway_typename").isEmpty
+        ),
+        sentA.size == 1,
+        sentB.size == 1,
+        validA.forall(_.isSuccess),
+        validB.forall(_.isSuccess),
+        sentB.head.variables.contains(
+          Map(
+            "representations" -> ListValue(
+              List(
+                InputObjectValue(Map("__typename" -> StringValue("Product"), "id" -> StringValue("p1"))),
+                InputObjectValue(Map("__typename" -> StringValue("Product"), "id" -> StringValue("p2")))
+              )
+            )
+          )
+        ),
+        sentB.head.query.exists(rendered =>
+          rendered.contains("_caliban_gateway_entity_key:id") &&
+            rendered.contains("_caliban_gateway_entity_typename:__typename")
+        )
+      )
+    },
+    test("deduplicates compatible entity routes across the operation") {
+      val listProducts    = productsFederationSchema.replace("product(id: ID!): Product", "products: [Product!]!")
+      val orderedReviews  = reviewsFederationSchema.replace(
+        "type Review { body: String! }",
+        "type Review { body: String! rating: Int! }"
+      )
+      val productResponse =
+        """{"data":{"first":[{"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}],"second":[{"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}]}}"""
+      val reviewResponse  =
+        """{"data":{"_entities":[{"_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product","reviews":[{"body":"Shared","rating":5}]}]}}"""
+
+      for {
+        products <- stub(productResponse)
+        reviews  <- stub(reviewResponse)
+        gateway  <- Gateway
+                      .compose(
+                        Subgraph.federation("products", products.endpoint, listProducts),
+                        Subgraph.federation("reviews", reviews.endpoint, orderedReviews)
+                      )
+                      .build
+        response <- gateway.execute(
+                      "{ first: products { reviews { body rating } } second: products { reviews { rating body } } }"
+                    )
+        sentB    <- reviews.requests.get
+      } yield assertTrue(
+        response.errors.isEmpty,
+        field(response.data, "first").exists {
+          case ResponseListValue(ResponseObjectValue(product) :: Nil) =>
+            product.collectFirst { case ("reviews", value) => value }.exists {
+              case ResponseListValue(ResponseObjectValue(review) :: Nil) =>
+                review.contains("body" -> StringValue("Shared"))
+              case _                                                     => false
+            }
+          case _                                                      => false
+        },
+        field(response.data, "second").exists {
+          case ResponseListValue(ResponseObjectValue(product) :: Nil) =>
+            product.collectFirst { case ("reviews", value) => value }.exists {
+              case ResponseListValue(ResponseObjectValue(review) :: Nil) =>
+                review.contains("body" -> StringValue("Shared"))
+              case _                                                     => false
+            }
+          case _                                                      => false
+        },
+        sentB.size == 1,
+        sentB.head.variables.contains(
+          Map(
+            "representations" -> ListValue(
+              List(InputObjectValue(Map("__typename" -> StringValue("Product"), "id" -> StringValue("p1"))))
+            )
+          )
+        )
+      )
+    },
+    test("keeps incompatible entity routes in separate groups") {
+      val listProducts    = productsFederationSchema.replace("product(id: ID!): Product", "products: [Product!]!")
+      val argumentReviews = reviewsFederationSchema
+        .replace(
+          "reviews: [Review!]!",
+          "reviews(limit: Int!): [Review!]!"
+        )
+        .replace("type Review { body: String! }", "type Review { body: String! rating: Int! }")
+      val productResponse =
+        """{"data":{"first":[{"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}],"second":[{"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}],"third":[{"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}],"fourth":[{"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}]}}"""
+      val firstResponse   =
+        """{"data":{"_entities":[{"_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product","reviews":[{"body":"First"}]}]}}"""
+      val secondResponse  =
+        """{"data":{"_entities":[{"_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product","reviews":[{"body":"Second"}]}]}}"""
+      val aliasedResponse =
+        """{"data":{"_entities":[{"_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product","feedback":[{"body":"Aliased"}]}]}}"""
+      val shapedResponse  =
+        """{"data":{"_entities":[{"_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product","reviews":[{"body":"Shaped","rating":5}]}]}}"""
+
+      for {
+        products <- stub(productResponse)
+        reviews  <- stub(firstResponse, secondResponse, aliasedResponse, shapedResponse)
+        gateway  <- Gateway
+                      .compose(
+                        Subgraph.federation("products", products.endpoint, listProducts),
+                        Subgraph.federation("reviews", reviews.endpoint, argumentReviews)
+                      )
+                      .build
+        response <-
+          gateway.execute(
+            """{
+              |  first: products { reviews(limit: 1) { body } }
+              |  second: products { reviews(limit: 2) { body } }
+              |  third: products { feedback: reviews(limit: 1) { body } }
+              |  fourth: products { reviews(limit: 1) { body rating } }
+              |}""".stripMargin
+          )
+        sentB    <- reviews.requests.get
+        validB   <- ZIO.foreach(sentB)(validateRequest(argumentReviews, _).exit)
+      } yield assertTrue(
+        response.errors.isEmpty,
+        sentB.size == 4,
+        validB.forall(_.isSuccess),
+        sentB.flatMap(_.query).exists(_.contains("reviews(limit:1)")),
+        sentB.flatMap(_.query).exists(_.contains("reviews(limit:2)")),
+        sentB.flatMap(_.query).exists(_.contains("feedback:reviews(limit:1){body}")),
+        sentB.flatMap(_.query).exists(_.contains("reviews(limit:1){body rating}")),
+        field(response.data, "first").collect { case ResponseListValue(ResponseObjectValue(product) :: Nil) => product }
+          .flatMap(_.collectFirst { case ("reviews", ResponseListValue(ResponseObjectValue(review) :: Nil)) => review })
+          .exists(_.contains("body" -> StringValue("First"))),
+        field(response.data, "second").collect { case ResponseListValue(ResponseObjectValue(product) :: Nil) =>
+          product
+        }
+          .flatMap(_.collectFirst { case ("reviews", ResponseListValue(ResponseObjectValue(review) :: Nil)) => review })
+          .exists(_.contains("body" -> StringValue("Second"))),
+        field(response.data, "third").collect { case ResponseListValue(ResponseObjectValue(product) :: Nil) => product }
+          .flatMap(_.collectFirst { case ("feedback", ResponseListValue(ResponseObjectValue(review) :: Nil)) =>
+            review
+          })
+          .exists(_.contains("body" -> StringValue("Aliased"))),
+        field(response.data, "fourth").collect { case ResponseListValue(ResponseObjectValue(product) :: Nil) =>
+          product
+        }
+          .flatMap(_.collectFirst { case ("reviews", ResponseListValue(ResponseObjectValue(review) :: Nil)) => review })
+          .exists(review =>
+            review.contains("body" -> StringValue("Shaped")) && review.contains("rating" -> IntNumber(5))
+          )
+      )
+    },
+    test("fans entity errors out to duplicate client locations") {
+      val listProducts    = productsFederationSchema.replace("product(id: ID!): Product", "products: [Product!]!")
+      val productResponse =
+        """{"data":{"products":[{"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"},{"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}]}}"""
+      val reviewResponse  =
+        """{"data":{"_entities":[{"_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product","reviews":[{"_caliban_gateway_entity_key":null}]}]},"errors":[{"message":"review unavailable","path":["_entities",0,"reviews",0,"_caliban_gateway_entity_key"]}]}"""
+
+      for {
+        products <- stub(productResponse)
+        reviews  <- stub(reviewResponse)
+        gateway  <- Gateway
+                      .compose(
+                        Subgraph.federation("products", products.endpoint, listProducts),
+                        Subgraph.federation("reviews", reviews.endpoint, reviewsFederationSchema)
+                      )
+                      .build
+        response <- gateway.execute("{ products { reviews { _caliban_gateway_entity_key: body } } }")
+        sentB    <- reviews.requests.get
+        errors    = response.errors.collect { case error: CalibanError.ExecutionError => error }
+      } yield assertTrue(
+        errors.map(_.msg) == List("review unavailable", "review unavailable"),
+        errors.map(_.path) == List(
+          List(
+            PathValue.Key("products"),
+            PathValue.Index(0),
+            PathValue.Key("reviews"),
+            PathValue.Index(0),
+            PathValue.Key("_caliban_gateway_entity_key")
+          ),
+          List(
+            PathValue.Key("products"),
+            PathValue.Index(1),
+            PathValue.Key("reviews"),
+            PathValue.Index(0),
+            PathValue.Key("_caliban_gateway_entity_key")
+          )
+        ),
+        sentB.size == 1,
+        sentB.head.variables.exists { case variables =>
+          variables
+            .get("representations")
+            .contains(
+              ListValue(
+                List(InputObjectValue(Map("__typename" -> StringValue("Product"), "id" -> StringValue("p1"))))
+              )
+            )
+        }
+      )
+    },
+    test("handles null, missing, extra, and duplicate entity results deterministically") {
+      val listProducts    = productsFederationSchema.replace("product(id: ID!): Product", "products: [Product!]!")
+      val productResponse =
+        """{"data":{"products":[{"name":"First","_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"},{"name":"Second","_caliban_gateway_key":"p2","_caliban_gateway_typename":"Product"},{"name":"Third","_caliban_gateway_key":"p3","_caliban_gateway_typename":"Product"}]}}"""
+      val reviewResponse  =
+        """{"data":{"_entities":[null,{"_caliban_gateway_entity_key":"p2","_caliban_gateway_entity_typename":"Product","reviews":[{"body":"Second review"}]},{"_caliban_gateway_entity_key":"p2","_caliban_gateway_entity_typename":"Product","reviews":[{"body":"Duplicate"}]},{"_caliban_gateway_entity_key":"extra","_caliban_gateway_entity_typename":"Product","reviews":[{"body":"Extra"}]}]}}"""
+
+      for {
+        products <- stub(productResponse)
+        reviews  <- stub(reviewResponse)
+        gateway  <- Gateway
+                      .compose(
+                        Subgraph.federation("products", products.endpoint, listProducts),
+                        Subgraph.federation("reviews", reviews.endpoint, reviewsFederationSchema)
+                      )
+                      .build
+        response <- gateway.execute("{ products { name reviews { body } } }")
+        sentB    <- reviews.requests.get
+        values    = field(response.data, "products").collect { case ResponseListValue(values) => values }.getOrElse(Nil)
+        errors    = response.errors.collect { case error: CalibanError.ExecutionError => error }
+      } yield assertTrue(
+        values.flatMap(field(_, "name")) == List(StringValue("First"), StringValue("Second"), StringValue("Third")),
+        values.headOption.flatMap(field(_, "reviews")).contains(NullValue),
+        values.lift(1).flatMap(field(_, "reviews")).exists {
+          case ResponseListValue(ResponseObjectValue(review) :: Nil) =>
+            review.contains("body" -> StringValue("Second review"))
+          case _                                                     => false
+        },
+        values.lift(2).flatMap(field(_, "reviews")).contains(NullValue),
+        errors.map(_.msg) == List(
+          "Remote entity response contained a duplicate result for 'Product.id'.",
+          "Remote entity response contained an unexpected result for 'Product.id'.",
+          "Remote entity response omitted a result for 'Product.id'."
+        ),
+        errors.map(_.path) == List(
+          List(PathValue.Key("products")),
+          List(PathValue.Key("products")),
+          List(PathValue.Key("products"), PathValue.Index(2))
+        ),
+        sentB.size == 1
       )
     },
     test("executes a join from entity-only authored Federation service SDL with namespaced metadata") {
       val productResponse =
         """{"data":{"product":{"name":"Table","_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}}}"""
       val reviewResponse  =
-        """{"data":{"_entities":[{"reviews":[{"body":"Solid"}]}]}}"""
+        """{"data":{"_entities":[{"reviews":[{"body":"Solid"}],"_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product"}]}}"""
       val productsSchema  = authoredProductsFederationSchema
         .replace(", import: [\"@key\"]", ", as: \"fed\"")
         .replace("federation__FieldSet", "fed__FieldSet")

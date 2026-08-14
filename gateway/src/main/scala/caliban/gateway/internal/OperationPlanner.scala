@@ -1,13 +1,12 @@
 package caliban.gateway.internal
 
 import caliban.execution.{ ExecutionRequest, Field }
+import caliban.gateway.internal.OperationPlanner._
 import caliban.introspection.adt.__Type
 import caliban.parsing.adt.{ Directive, Document, OperationType, Selection }
 import caliban.schema.Types
 
 import scala.collection.mutable
-
-import OperationPlanner._
 
 private[gateway] final class OperationPlanner(
   graph: ComposedGraph,
@@ -56,7 +55,7 @@ private[gateway] final class OperationPlanner(
       val owners        = (routes.map(_.source) ::: entities.map(_.source)).distinct
       val passthrough   =
         if (sourceCount == 1 && routes.size == 1 && entities.isEmpty && localFields.isEmpty)
-          Some(routes.head.source)
+          routes.headOption.map(_.source)
         else None
 
       if (execution.operationType == OperationType.Mutation && owners.size > 1)
@@ -141,21 +140,18 @@ private[gateway] final class OperationPlanner(
         case (result, (target, children)) =>
           for {
             current                         <- result
+            child                           <- children.headOption.toRight(
+                                                 PlanningFailure(
+                                                   s"Cannot route '$typeName': no downstream field was selected."
+                                                 )
+                                               )
             _                               <- validateTransition(visitedSources, target, transitions)
-            _                               <-
-              if (field.fieldType.isList)
-                Left(
-                  PlanningFailure(
-                    s"Federation entity joins from list-valued field '${path.mkString(".")}' are not supported."
-                  )
-                )
-              else Right(())
             key                             <-
               graph
                 .key(target, typeName)
                 .toRight(
                   PlanningFailure(
-                    s"Cannot route '$typeName.${children.head.name}': source '$target' has no resolvable entity lookup."
+                    s"Cannot route '$typeName.${child.name}': source '$target' has no resolvable entity lookup."
                   )
                 )
             _                               <-
@@ -163,14 +159,14 @@ private[gateway] final class OperationPlanner(
               else
                 Left(
                   PlanningFailure(
-                    s"Cannot route '$typeName.${children.head.name}': source '$target' has no resolvable entity lookup."
+                    s"Cannot route '$typeName.${child.name}': source '$target' has no resolvable entity lookup."
                   )
                 )
             keyField                        <-
               Option(parentType.getFieldOrNull(key.field))
                 .toRight(
                   PlanningFailure(
-                    s"Cannot route '$typeName.${children.head.name}': source '$source' does not provide key field '${key.field}'."
+                    s"Cannot route '$typeName.${child.name}': source '$source' does not provide key field '${key.field}'."
                   )
                 )
             _                               <-
@@ -178,7 +174,7 @@ private[gateway] final class OperationPlanner(
               else
                 Left(
                   PlanningFailure(
-                    s"Cannot route '$typeName.${children.head.name}': source '$source' does not provide key field '${key.field}'."
+                    s"Cannot route '$typeName.${child.name}': source '$source' does not provide key field '${key.field}'."
                   )
                 )
             plannedChildren                 <- planEntityFields(
@@ -250,16 +246,6 @@ private[gateway] final class OperationPlanner(
       }
       .map(_.reverse)
 
-  private def privateAlias(base: String, used: Set[String]): String = {
-    var candidate = base
-    var suffix    = 2
-    while (used.contains(candidate)) {
-      candidate = s"${base}_$suffix"
-      suffix += 1
-    }
-    candidate
-  }
-
   private def isLocalField(field: Field): Boolean =
     field.name == "__schema" || field.name == "__type" || field.name == "__typename"
 
@@ -314,6 +300,16 @@ private[gateway] object OperationPlanner {
   final case class PlanningFailure(message: String)
 
   final case class RequiredSelection(field: String, responseName: String)
+
+  def privateAlias(base: String, used: Set[String]): String = {
+    var candidate = base
+    var suffix    = 2
+    while (used.contains(candidate)) {
+      candidate = s"${base}_$suffix"
+      suffix += 1
+    }
+    candidate
+  }
 
   final case class PlannedField(downstream: Field, entities: List[PlannedEntity])
 
