@@ -5,11 +5,36 @@ import caliban.ResponseValue.{ ListValue => ResponseListValue, ObjectValue => Re
 import caliban.Value.{ BooleanValue, NullValue, StringValue }
 import caliban.gateway.GatewayTestSupport._
 import caliban.parsing.Parser
-import caliban.{ CalibanError, GraphQLInterpreter, GraphQLRequest, PathValue }
+import caliban.schema.{ GenericSchema, Schema }
+import caliban.{ graphQL, CalibanError, GraphQLInterpreter, GraphQLRequest, PathValue, RootResolver }
 import zio._
 import zio.test._
 
 object GatewaySpec extends ZIOSpecDefault {
+
+  private trait Greeting {
+    def value: UIO[String]
+  }
+
+  private trait Audience {
+    def value: UIO[String]
+  }
+
+  private object LocalSchemas {
+    object GreetingApi extends GenericSchema[Greeting] {
+      import auto._
+      final case class Query(greeting: URIO[Greeting, String])
+      implicit val querySchema: Schema[Greeting, Query] = gen
+      val api                                           = graphQL(RootResolver(Query(ZIO.serviceWithZIO[Greeting](_.value))))
+    }
+
+    object AudienceApi extends GenericSchema[Audience] {
+      import auto._
+      final case class Query(audience: URIO[Audience, String])
+      implicit val querySchema: Schema[Audience, Query] = gen
+      val api                                           = graphQL(RootResolver(Query(ZIO.serviceWithZIO[Audience](_.value))))
+    }
+  }
 
   private val schema =
     """
@@ -65,6 +90,78 @@ object GatewaySpec extends ZIOSpecDefault {
     Gateway.compose(Subgraph.graphql("products", stub.endpoint, schema)).build
 
   def spec = suite("GatewaySpec")(
+    suite("local subgraphs")(
+      test("executes local roots with their accumulated environments") {
+        val description: Gateway[Greeting with Audience] = Gateway.compose(
+          Subgraph.local("greeting", LocalSchemas.GreetingApi.api),
+          Subgraph.local("audience", LocalSchemas.AudienceApi.api)
+        )
+        val environment                                  = ZLayer.succeed(new Greeting {
+          def value: UIO[String] = ZIO.succeed("hello")
+        }) ++ ZLayer.succeed(new Audience {
+          def value: UIO[String] = ZIO.succeed("world")
+        })
+
+        (for {
+          gateway  <- description.build
+          response <- gateway.execute("{ greeting audience }")
+        } yield assertTrue(
+          response.errors.isEmpty,
+          field(response.data, "greeting").contains(StringValue("hello")),
+          field(response.data, "audience").contains(StringValue("world"))
+        )).provideSome[Scope](environment)
+      },
+      test("preserves FiberRef context and local Caliban failures") {
+        for {
+          context     <- FiberRef.make("initial")
+          api          = {
+            object Schema extends GenericSchema[Any] {
+              import auto._
+              final case class Query(
+                context: UIO[String],
+                failure: IO[CalibanError, String]
+              )
+              val api = graphQL(
+                RootResolver(
+                  Query(
+                    context.get,
+                    ZIO.fail(CalibanError.ExecutionError("local failure"))
+                  )
+                )
+              )
+            }
+            Schema.api
+          }
+          interpreter <- ZIO.fromEither(api.interpreterEither).orDie
+          gateway     <- Gateway.compose(Subgraph.local("local", api)).build
+          request      = GraphQLRequest(query = Some("{ context failure }"))
+          direct      <- context.locally("request-context")(interpreter.executeRequest(request))
+          response    <- context.locally("request-context")(gateway.executeRequest(request))
+        } yield assertTrue(
+          field(response.data, "context").contains(StringValue("request-context")),
+          field(response.data, "failure").contains(NullValue),
+          response.errors.collect { case error: CalibanError.ExecutionError => error.msg } == List("local failure"),
+          response.errors == direct.errors
+        )
+      },
+      test("preserves interruption of local Caliban execution") {
+        for {
+          started <- Promise.make[Nothing, Unit]
+          api      = {
+            object Schema extends GenericSchema[Any] {
+              import auto._
+              final case class Query(blocked: UIO[String])
+              val api = graphQL(RootResolver(Query(started.succeed(()) *> ZIO.never)))
+            }
+            Schema.api
+          }
+          gateway <- Gateway.compose(Subgraph.local("local", api)).build
+          fiber   <- gateway.execute("{ blocked }").fork
+          _       <- started.await
+          exit    <- fiber.interrupt
+        } yield assertTrue(exit.isInterrupted)
+      }
+    ),
     suite("single-source execution")(
       test("executes one pinned remote graph end to end through GatewayRuntime") {
         for {

@@ -5,25 +5,25 @@ import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ NullValue, StringValue }
 import caliban.execution.Field
 import caliban.gateway.internal.EntityExecutor._
-import caliban.gateway.internal.OperationPlanner.{ privateAlias, EntityRoute, RequiredSelection, RouteId }
+import caliban.gateway.internal.OperationPlanner._
 import caliban.parsing.SourceMapper
 import caliban.parsing.adt.Definition.ExecutableDefinition.OperationDefinition
 import caliban.parsing.adt.Type.{ ListType, NamedType }
 import caliban.parsing.adt.{ Directive, Document, OperationType, Selection, VariableDefinition }
 import caliban.rendering.DocumentRenderer
 import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, InputValue, PathValue, ResponseValue }
-import zio.{ Trace, UIO, ZIO }
+import zio.{ Trace, URIO, ZIO }
 
 import scala.collection.immutable.ListMap
 import scala.collection.mutable
 
-private[gateway] final class EntityExecutor(sources: Map[String, RemoteGraphQLSource]) {
+private[gateway] final class EntityExecutor[-R](sources: Map[String, GraphQLSource[R]]) {
 
   def execute(
     routes: List[EntityRoute],
     roots: Map[RouteId, ResponseValue],
     original: GraphQLRequest
-  )(implicit trace: Trace): UIO[List[EntityResult]] = {
+  )(implicit trace: Trace): URIO[R, List[EntityResult]] = {
     val grouped = mutable.LinkedHashMap.empty[EntityGroupKey, EntityGroup]
     routes.foreach { route =>
       val key = EntityGroupKey(route.source, route.entityType, route.key.field, entitySelectionKey(route.fields))
@@ -39,7 +39,7 @@ private[gateway] final class EntityExecutor(sources: Map[String, RemoteGraphQLSo
     group: EntityGroup,
     roots: Map[RouteId, ResponseValue],
     original: GraphQLRequest
-  )(implicit trace: Trace): UIO[EntityResult] = {
+  )(implicit trace: Trace): URIO[R, EntityResult] = {
     val route       = group.firstRoute
     val routes      = group.routes
     val batch       = prepareBatch(routes, roots)
@@ -91,7 +91,7 @@ private[gateway] final class EntityExecutor(sources: Map[String, RemoteGraphQLSo
         case Some(source) =>
           source
             .execute(request)
-            .map(response => correlateResponse(route, batch, correlation, response))
+            .map(response => correlateResponse(route, batch, correlation, response, source.errorPolicy))
             .catchAll(_ => ZIO.succeed(failure))
         case None         => ZIO.succeed(failure)
       }
@@ -182,7 +182,8 @@ private[gateway] final class EntityExecutor(sources: Map[String, RemoteGraphQLSo
     route: EntityRoute,
     batch: EntityBatch,
     correlation: EntityCorrelation,
-    response: GraphQLResponse[CalibanError]
+    response: GraphQLResponse[CalibanError],
+    errorPolicy: GraphQLSource.ErrorPolicy
   ): EntityResult = {
     val expected       = batch.entries.iterator.map(entry => entry.identity -> entry).toMap
     val resolved       = mutable.Set.empty[EntityIdentity]
@@ -218,7 +219,7 @@ private[gateway] final class EntityExecutor(sources: Map[String, RemoteGraphQLSo
         .flatMap(patch => entry.locations.map(location => EntityPatch(location.route, location.path, patch)))
     )
     val errors  = batch.errors :::
-      relocateErrors(route, batch, correlation, values, response.errors) :::
+      relocateErrors(route, batch, correlation, values, response.errors, errorPolicy) :::
       protocolErrors.toList :::
       missing.flatMap(entry => entry.locations.map(location => missingEntityResult(location.route, location.path)))
 
@@ -252,22 +253,23 @@ private[gateway] final class EntityExecutor(sources: Map[String, RemoteGraphQLSo
     batch: EntityBatch,
     correlation: EntityCorrelation,
     values: List[ResponseValue],
-    errors: List[CalibanError]
+    errors: List[CalibanError],
+    errorPolicy: GraphQLSource.ErrorPolicy
   ): List[CalibanError] =
     errors.flatMap {
       case error: CalibanError.ExecutionError =>
         error.path match {
           case PathValue.Key("_entities") :: PathValue.Index(index) :: tail =>
             val locations = entityLocations(batch, correlation, values, index)
-            if (locations.isEmpty) mergePaths(route, batch).map(RemoteError.at)
+            if (locations.isEmpty) mergePaths(route, batch).map(errorPolicy.unusableEntity(error, _))
             else
               locations.map { location =>
                 if (tail.isEmpty || RemoteError.hasClientPath(location.route.fields, tail))
                   error.copy(path = location.path ::: tail, locationInfo = None)
-                else RemoteError.at(location.path)
+                else errorPolicy.unusableEntity(error, location.path)
               }
           case _                                                            =>
-            mergePaths(route, batch).map(RemoteError.at)
+            mergePaths(route, batch).map(errorPolicy.unusableEntity(error, _))
         }
       case error                              => List(error)
     }

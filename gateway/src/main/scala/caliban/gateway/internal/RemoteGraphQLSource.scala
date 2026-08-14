@@ -8,15 +8,17 @@ import com.github.plokhotnyuk.jsoniter_scala.core.{ readFromArray, writeToArray 
 import sttp.client4._
 import sttp.client4.httpclient.zio.SttpClient
 import sttp.model.Uri
-import zio.{ IO, Trace, ZIO }
+import zio.{ Trace, ZIO }
 
-import scala.util.control.{ NoStackTrace, NonFatal }
+import scala.util.control.NonFatal
 
-private[gateway] final class RemoteGraphQLSource(endpoint: Uri, backend: SttpClient) {
+private[gateway] final class RemoteGraphQLSource(endpoint: Uri, backend: SttpClient) extends GraphQLSource[Any] {
+
+  val errorPolicy: GraphQLSource.ErrorPolicy = GraphQLSource.ErrorPolicy.Remote
 
   def execute(request: GraphQLRequest)(implicit
     trace: Trace
-  ): IO[RemoteGraphQLSource.Failure, GraphQLResponse[CalibanError]] =
+  ): ZIO[Any, GraphQLSource.Failure, GraphQLResponse[CalibanError]] =
     ZIO
       .attempt(writeToArray(request))
       .orDie
@@ -29,25 +31,25 @@ private[gateway] final class RemoteGraphQLSource(endpoint: Uri, backend: SttpCli
           .followRedirects(false)
           .response(asByteArrayAlways)
           .send(backend)
-          .mapError(_ => RemoteGraphQLSource.TransportFailure)
+          .mapError(_ => GraphQLSource.TransportFailure)
       }
       .flatMap(response => ZIO.fromEither(decode(response)))
 
   private def decode(
     response: Response[Array[Byte]]
-  ): Either[RemoteGraphQLSource.InvalidResponse.type, GraphQLResponse[CalibanError]] = {
+  ): Either[GraphQLSource.InvalidResponse.type, GraphQLResponse[CalibanError]] = {
     val mediaType = response.contentType.map(_.takeWhile(_ != ';').trim.toLowerCase(java.util.Locale.ROOT))
     val allowed   = mediaType.contains("application/graphql-response+json") ||
       (response.code.isSuccess && mediaType.contains("application/json"))
 
-    if (!allowed) Left(RemoteGraphQLSource.InvalidResponse)
+    if (!allowed) Left(GraphQLSource.InvalidResponse)
     else
       try {
         val envelope = readFromArray[ResponseValue](response.body)
         if (validEnvelope(envelope)) Right(decodeEnvelope(envelope.asInstanceOf[ObjectValue]))
-        else Left(RemoteGraphQLSource.InvalidResponse)
+        else Left(GraphQLSource.InvalidResponse)
       } catch {
-        case NonFatal(_) => Left(RemoteGraphQLSource.InvalidResponse)
+        case NonFatal(_) => Left(GraphQLSource.InvalidResponse)
       }
   }
 
@@ -112,10 +114,4 @@ private[gateway] final class RemoteGraphQLSource(endpoint: Uri, backend: SttpCli
       case ObjectValue(fields) => fields.exists { case ("message", _: StringValue) => true; case _ => false }
       case _                   => false
     }
-}
-
-private[gateway] object RemoteGraphQLSource {
-  sealed trait Failure         extends NoStackTrace
-  case object TransportFailure extends Failure
-  case object InvalidResponse  extends Failure
 }

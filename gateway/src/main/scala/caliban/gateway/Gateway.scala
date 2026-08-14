@@ -1,13 +1,14 @@
 package caliban.gateway
 
-import caliban.gateway.internal.{ RemoteGatewayRuntime, RemoteGraphQLSource, SchemaComposition, SchemaContribution }
+import caliban.gateway.Subgraph.Source
+import caliban.gateway.internal._
 import caliban.parsing.adt.Definition.TypeSystemDefinition.SchemaDefinition
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition.{ FieldDefinition, ObjectTypeDefinition }
 import caliban.parsing.adt.Definition.TypeSystemExtension.SchemaExtension
 import caliban.parsing.adt.Type.NamedType
 import caliban.parsing.adt.Document
 import caliban.tools.RemoteSchema
-import sttp.client4.httpclient.zio.HttpClientZioBackend
+import sttp.client4.httpclient.zio.{ HttpClientZioBackend, SttpClient }
 import zio._
 
 /**
@@ -54,22 +55,65 @@ object Gateway {
                           if (diagnostics.isEmpty) ZIO.succeed(graph)
                           else ZIO.fail(GatewayBuildError(diagnostics.distinct.sorted))
                         }
-      backend      <- HttpClientZioBackend
-                        .scoped()
-                        .mapError(_ => GatewayBuildError("Unable to initialize the remote GraphQL transport."))
-      sources       =
-        subgraphs.iterator.map(subgraph => subgraph.name -> new RemoteGraphQLSource(subgraph.endpoint, backend)).toMap
-    } yield new RemoteGatewayRuntime[R](graph, sources)
+      backend      <-
+        if (subgraphs.exists(isRemote))
+          HttpClientZioBackend
+            .scoped()
+            .map(Some(_))
+            .mapError(_ => GatewayBuildError("Unable to initialize the remote GraphQL transport."))
+        else ZIO.none
+      sources      <- ZIO.foreach(subgraphs)(makeSource(_, backend)).map(_.toMap)
+    } yield new GatewayRuntimeImpl[R](graph, sources)
   }
 
   private def load[R](subgraph: Subgraph[R])(implicit trace: Trace): IO[String, SchemaContribution] =
-    for {
-      document    <- subgraph.schema.document.mapError(error => s"[${subgraph.name}] ${error.getMessage}")
-      rootDocument = ensureFederationQuery(document, subgraph.isFederation)
-      rootType    <- ZIO
-                       .fromEither(RemoteSchema.toRootType(rootDocument))
-                       .mapError(error => s"[${subgraph.name}] ${error.getMessage}")
-    } yield SchemaContribution(subgraph.name, rootType, document, subgraph.isFederation)
+    subgraph.source match {
+      case Source.Remote(_, schema, federation) =>
+        for {
+          document    <- schema.document.mapError(error => s"[${subgraph.name}] ${error.getMessage}")
+          rootDocument = ensureFederationQuery(document, federation)
+          rootType    <- toRootType(subgraph.name, rootDocument)
+        } yield SchemaContribution(subgraph.name, rootType, document, federation)
+      case Source.Local(graph)                  =>
+        val document   = graph.toDocument
+        val federation = SchemaComposition.isFederation(document)
+        for {
+          rootType <- toRootType(subgraph.name, document)
+          _        <- ZIO
+                        .fromEither(graph.interpreterEither)
+                        .mapError(error => s"[${subgraph.name}] ${error.getMessage}")
+        } yield SchemaContribution(subgraph.name, rootType, document, federation)
+    }
+
+  private def makeSource[R](subgraph: Subgraph[R], backend: Option[SttpClient])(implicit
+    trace: Trace
+  ): IO[GatewayBuildError, (String, GraphQLSource[R])] =
+    subgraph.source match {
+      case Source.Remote(endpoint, _, _) =>
+        ZIO
+          .fromOption(backend)
+          .orElseFail(GatewayBuildError("Unable to initialize the remote GraphQL transport."))
+          .map { backend =>
+            val source: GraphQLSource[R] = new RemoteGraphQLSource(endpoint, backend)
+            subgraph.name -> source
+          }
+      case Source.Local(graph)           =>
+        ZIO
+          .fromEither(graph.interpreterEither)
+          .mapError(error => GatewayBuildError(s"[${subgraph.name}] ${error.getMessage}"))
+          .map(interpreter => subgraph.name -> new LocalGraphQLSource(interpreter))
+    }
+
+  private def isRemote[R](subgraph: Subgraph[R]): Boolean =
+    subgraph.source match {
+      case _: Source.Remote => true
+      case _                => false
+    }
+
+  private def toRootType(name: String, document: Document): IO[String, caliban.schema.RootType] =
+    ZIO
+      .fromEither(RemoteSchema.toRootType(document))
+      .mapError(error => s"[$name] ${error.getMessage}")
 
   private def ensureFederationQuery(document: Document, federation: Boolean): Document = {
     val schemaExtensions = document.typeExtensions.collect { case extension: SchemaExtension => extension }

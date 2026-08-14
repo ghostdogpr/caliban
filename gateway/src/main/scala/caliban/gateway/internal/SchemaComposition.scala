@@ -49,6 +49,9 @@ private[gateway] object ComposedGraph {
 
 private[gateway] object SchemaComposition {
 
+  def isFederation(document: Document): Boolean =
+    federationLinks(document).nonEmpty || document.objectTypeDefinitions.exists(_.fields.exists(_.name == "_entities"))
+
   def compose(contributions: List[SchemaContribution]): Either[List[String], ComposedGraph] = {
     val schemas     = contributions.sortBy(_.name)
     val queryFields = rootFields(schemas, OperationType.Query)
@@ -381,14 +384,7 @@ private[gateway] object SchemaComposition {
   private final case class ImportedName(name: String, alias: String, directive: Boolean)
 
   private def federationDirectiveNames(document: Document): FederationDirectiveNames = {
-    val schemaDirectives     = document.schemaDefinition.toList.flatMap(_.directives) :::
-      document.typeExtensions.collect { case extension: SchemaExtension => extension }.flatMap(_.directives)
-    val links                = schemaDirectives.filter(directive =>
-      directive.name == "link" && directive.arguments.get("url").exists {
-        case StringValue(url) => url.startsWith("https://specs.apollo.dev/federation/")
-        case _                => false
-      }
-    )
+    val links                = federationLinks(document)
     val imported             = links.flatMap(_.arguments.get("import").toList).flatMap {
       case caliban.InputValue.ListValue(values) => values
       case _                                    => Nil
@@ -429,6 +425,18 @@ private[gateway] object SchemaComposition {
         federationNamespaces.map(_ + "__external"),
       hiddenDirectives,
       hiddenTypes
+    )
+  }
+
+  private def federationLinks(document: Document): List[Directive] = {
+    val schemaDirectives = document.schemaDefinition.toList.flatMap(_.directives) :::
+      document.typeExtensions.collect { case extension: SchemaExtension => extension }.flatMap(_.directives)
+
+    schemaDirectives.filter(directive =>
+      directive.name == "link" && directive.arguments.get("url").exists {
+        case StringValue(url) => url.startsWith("https://specs.apollo.dev/federation/")
+        case _                => false
+      }
     )
   }
 

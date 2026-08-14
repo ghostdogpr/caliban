@@ -1,0 +1,74 @@
+package caliban.gateway.internal
+
+import caliban.execution.Field
+import caliban.gateway.internal.GraphQLSource.ErrorPolicy
+import caliban.{ CalibanError, GraphQLInterpreter, GraphQLRequest, GraphQLResponse, PathValue }
+import zio.{ Trace, ZIO }
+
+import scala.util.control.NoStackTrace
+
+/**
+ * Executes GraphQL work against one composed subgraph.
+ */
+private[gateway] trait GraphQLSource[-R] {
+  def errorPolicy: ErrorPolicy
+
+  def execute(request: GraphQLRequest)(implicit
+    trace: Trace
+  ): ZIO[R, GraphQLSource.Failure, GraphQLResponse[CalibanError]]
+}
+
+private[gateway] object GraphQLSource {
+  sealed trait ErrorPolicy {
+    def passthrough(fields: List[Field], errors: List[CalibanError]): List[CalibanError]
+
+    def routed(fields: List[Field], errors: List[CalibanError]): List[CalibanError]
+
+    def unusableEntity(error: CalibanError.ExecutionError, path: List[PathValue]): CalibanError.ExecutionError
+  }
+
+  object ErrorPolicy {
+    case object Local extends ErrorPolicy {
+      def passthrough(fields: List[Field], errors: List[CalibanError]): List[CalibanError] = errors
+
+      def routed(fields: List[Field], errors: List[CalibanError]): List[CalibanError] =
+        errors.map {
+          case error: CalibanError.ExecutionError => error.copy(locationInfo = None)
+          case error                              => error
+        }
+
+      def unusableEntity(error: CalibanError.ExecutionError, path: List[PathValue]): CalibanError.ExecutionError =
+        error.copy(path = path, locationInfo = None)
+    }
+
+    case object Remote extends ErrorPolicy {
+      def passthrough(fields: List[Field], errors: List[CalibanError]): List[CalibanError] = routed(fields, errors)
+
+      def routed(fields: List[Field], errors: List[CalibanError]): List[CalibanError] =
+        errors.flatMap {
+          case error: CalibanError.ExecutionError if RemoteError.hasClientPath(fields, error.path) =>
+            error.copy(locationInfo = None) :: Nil
+          case _: CalibanError.ExecutionError                                                      =>
+            fields.map(field => RemoteError.at(List(PathValue.Key(field.aliasedName))))
+          case error                                                                               => error :: Nil
+        }
+
+      def unusableEntity(error: CalibanError.ExecutionError, path: List[PathValue]): CalibanError.ExecutionError =
+        RemoteError.at(path)
+    }
+  }
+
+  sealed trait Failure         extends NoStackTrace
+  case object TransportFailure extends Failure
+  case object InvalidResponse  extends Failure
+}
+
+private[gateway] final class LocalGraphQLSource[-R](interpreter: GraphQLInterpreter[R, CalibanError])
+    extends GraphQLSource[R] {
+  val errorPolicy: ErrorPolicy = ErrorPolicy.Local
+
+  def execute(request: GraphQLRequest)(implicit
+    trace: Trace
+  ): ZIO[R, GraphQLSource.Failure, GraphQLResponse[CalibanError]] =
+    interpreter.executeRequest(request)
+}

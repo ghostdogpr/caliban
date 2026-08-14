@@ -4,13 +4,70 @@ import caliban.InputValue.{ ListValue, ObjectValue => InputObjectValue }
 import caliban.ResponseValue.{ ListValue => ResponseListValue, ObjectValue => ResponseObjectValue }
 import caliban.Value.IntValue.IntNumber
 import caliban.Value.{ BooleanValue, NullValue, StringValue }
+import caliban.federation.EntityResolver
+import caliban.federation.v2_6.{ federated, GQLKey }
 import caliban.gateway.GatewayTestSupport._
-import caliban.{ CalibanError, GraphQLRequest, PathValue }
+import caliban.schema.{ ArgBuilder, GenericSchema, Schema }
+import caliban.{ graphQL, CalibanError, GraphQLRequest, PathValue, RootResolver }
 import sttp.model.Uri
 import zio._
+import zio.query.ZQuery
 import zio.test._
 
 object EntitySpec extends ZIOSpecDefault {
+
+  private trait Pricing {
+    def currency: UIO[String]
+    def price(id: String): UIO[Int]
+  }
+
+  private object PricingApi extends GenericSchema[Pricing] {
+    import auto._
+
+    final case class ProductId(value: String)
+    final case class ProductArgs(id: ProductId)
+    final case class Product(id: ProductId, price: Int)
+    final case class Query(currency: URIO[Pricing, String])
+
+    implicit val productIdSchema: Schema[Any, ProductId]     =
+      Schema.scalarSchema("ID", None, None, None, id => StringValue(id.value))
+    implicit val productIdBuilder: ArgBuilder[ProductId]     = ArgBuilder.string.map(ProductId(_))
+    implicit val productArgsSchema: Schema[Any, ProductArgs] = Schema.gen
+    implicit val productArgsBuilder: ArgBuilder[ProductArgs] = ArgBuilder.gen
+    implicit val querySchema: Schema[Pricing, Query]         = gen
+    implicit val productSchema: Schema[Any, Product]         =
+      obj("Product", directives = List(GQLKey("id").directive))(implicit attributes =>
+        List(
+          field("id")(_.id),
+          field("price")(_.price)
+        )
+      )
+
+    val api = graphQL(
+      RootResolver(Query(ZIO.serviceWithZIO[Pricing](_.currency)))
+    ) @@ federated(
+      EntityResolver.from[ProductArgs](args =>
+        ZQuery
+          .fromZIO(ZIO.serviceWithZIO[Pricing](_.price(args.id.value)))
+          .map(price => Some(Product(args.id, price)))
+      )
+    )
+
+    val failingApi = graphQL(
+      RootResolver(Query(ZIO.serviceWithZIO[Pricing](_.currency)))
+    ) @@ federated(
+      EntityResolver.from[ProductArgs] { _ =>
+        val failure: ZQuery[Any, CalibanError, Option[Product]] = ZQuery.fail(
+          CalibanError.ExecutionError(
+            "local pricing unavailable",
+            path = List(PathValue.Key("_pricing_internal")),
+            extensions = Some(ResponseObjectValue(List("code" -> StringValue("PRICING_DOWN"))))
+          )
+        )
+        failure
+      }
+    )
+  }
 
   private val federationDirectives =
     """
@@ -78,6 +135,77 @@ object EntitySpec extends ZIOSpecDefault {
 
   def spec = suite("EntitySpec")(
     suite("entity execution")(
+      test("executes remote Products, local Pricing, and remote Reviews in one operation") {
+        val productsResponse =
+          """{"data":{"product":{"name":"Table","_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product","_caliban_gateway_key_2":"p1","_caliban_gateway_typename_2":"Product"}}}"""
+        val reviewsResponse  =
+          """{"data":{"_entities":[{"reviews":[{"body":"Solid"}],"_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product"}]}}"""
+        val pricing          = new Pricing {
+          def currency: UIO[String]       = ZIO.succeed("USD")
+          def price(id: String): UIO[Int] = ZIO.succeed(if (id == "p1") 125 else 0)
+        }
+
+        (for {
+          products <- stub(productsResponse)
+          reviews  <- stub(reviewsResponse)
+          gateway  <- Gateway
+                        .compose(
+                          Subgraph.federation("products", products.endpoint, productsFederationSchema),
+                          Subgraph.local("pricing", PricingApi.api),
+                          Subgraph.federation("reviews", reviews.endpoint, reviewsFederationSchema)
+                        )
+                        .build
+          response <- gateway
+                        .execute("{ product(id: \"p1\") { name price reviews { body } } currency }")
+                        .provideEnvironment(ZEnvironment(pricing))
+          product   = field(response.data, "product")
+        } yield assertTrue(
+          response.errors.isEmpty,
+          field(response.data, "currency").contains(StringValue("USD")),
+          product.flatMap(field(_, "name")).contains(StringValue("Table")),
+          product.flatMap(field(_, "price")).contains(IntNumber(125)),
+          product.flatMap(field(_, "reviews")).exists {
+            case ResponseListValue(ResponseObjectValue(fields) :: Nil) =>
+              fields.contains("body" -> StringValue("Solid"))
+            case _                                                     => false
+          }
+        ))
+      },
+      test("preserves local entity failures while retaining independent remote data") {
+        val productsSchema   = productsFederationSchema.replace(
+          "  product(id: ID!): Product",
+          "  product(id: ID!): Product\n  status: String!"
+        )
+        val productsResponse =
+          """{"data":{"status":"available","product":{"name":"Table","_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}}}"""
+        val pricing          = new Pricing {
+          def currency: UIO[String]       = ZIO.succeed("USD")
+          def price(id: String): UIO[Int] = ZIO.succeed(0)
+        }
+        val extensions       = ResponseObjectValue(List("code" -> StringValue("PRICING_DOWN")))
+
+        for {
+          products <- stub(productsResponse)
+          gateway  <- Gateway
+                        .compose(
+                          Subgraph.federation("products", products.endpoint, productsSchema),
+                          Subgraph.local("pricing", PricingApi.failingApi)
+                        )
+                        .build
+          response <- gateway
+                        .execute("{ status product(id: \"p1\") { name price } }")
+                        .provideEnvironment(ZEnvironment(pricing))
+          errors    = response.errors.collect { case error: CalibanError.ExecutionError => error }
+        } yield assertTrue(
+          field(response.data, "status").contains(StringValue("available")),
+          field(response.data, "product").contains(NullValue),
+          errors.map(_.msg) == List("local pricing unavailable"),
+          errors.map(_.path) == List(List(PathValue.Key("product"))),
+          errors.map(_.extensions) == List(Some(extensions)),
+          errors.forall(_.msg != "Remote GraphQL request failed."),
+          errors.forall(!_.msg.startsWith("Remote entity response"))
+        )
+      },
       test("executes one Federation entity join through the executable plan") {
         val productResponse          =
           """{"data":{"product":{"name":"Table","_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}}}"""

@@ -709,7 +709,7 @@ lazy val gateway = project
   .in(file("gateway"))
   .settings(name := "caliban-gateway")
   .settings(commonSettings)
-  .dependsOn(core, tools)
+  .dependsOn(core, tools, federation % "test->compile")
   .disablePlugins(AssemblyPlugin)
   .settings(
     publish / skip        := true,

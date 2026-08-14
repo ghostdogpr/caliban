@@ -5,8 +5,8 @@ import caliban.Value.{ NullValue, StringValue }
 import caliban.execution.{ Executor, Field, RequestPreparation }
 import caliban.gateway.GatewayRuntime
 import caliban.gateway.internal.EntityExecutor.EntityResult
+import caliban.gateway.internal.GatewayRuntimeImpl._
 import caliban.gateway.internal.OperationPlanner._
-import caliban.gateway.internal.RemoteGatewayRuntime._
 import caliban.introspection.Introspector
 import caliban.introspection.adt.{ __Type, __TypeKind }
 import caliban.parsing.SourceMapper
@@ -17,15 +17,15 @@ import caliban.schema.{ RootSchema, RootType }
 import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, PathValue, ResponseValue }
 import zio.{ IO, Trace, URIO, ZIO }
 
-private[gateway] final class RemoteGatewayRuntime[-R](
+private[gateway] final class GatewayRuntimeImpl[-R](
   graph: ComposedGraph,
-  sources: Map[String, RemoteGraphQLSource]
+  sources: Map[String, GraphQLSource[R]]
 ) extends GatewayRuntime[R] {
 
   private val rootType: RootType             = graph.rootType
   private val introspection: RootSchema[Any] = Introspector.introspect[Any](rootType)
   private val planner                        = new OperationPlanner(graph, sources.size)
-  private val entityExecutor                 = new EntityExecutor(sources)
+  private val entityExecutor                 = new EntityExecutor[R](sources)
 
   def check(query: String)(implicit trace: Trace): IO[CalibanError, Unit] =
     RequestPreparation.check(query, rootType)
@@ -54,14 +54,20 @@ private[gateway] final class RemoteGatewayRuntime[-R](
     plan: OperationPlan,
     execution: caliban.execution.ExecutionRequest,
     original: GraphQLRequest
-  )(implicit trace: Trace): ZIO[Any, Nothing, GraphQLResponse[CalibanError]] =
+  )(implicit trace: Trace): ZIO[R, Nothing, GraphQLResponse[CalibanError]] =
     plan.passthrough match {
       case Some(source) =>
         sources.get(source) match {
-          case Some(remote) =>
-            remote
+          case Some(source) =>
+            source
               .execute(original)
-              .map(finalizeRemoteResponse(plan.fields, _))
+              .map(response =>
+                completeSourceResponse(
+                  plan.fields,
+                  response,
+                  source.errorPolicy.passthrough(plan.fields, response.errors)
+                )
+              )
               .catchAll(_ => ZIO.succeed(singleSourceFailure(plan)))
           case None         => ZIO.succeed(singleSourceFailure(plan))
         }
@@ -78,7 +84,7 @@ private[gateway] final class RemoteGatewayRuntime[-R](
     plan: OperationPlan,
     execution: caliban.execution.ExecutionRequest,
     original: GraphQLRequest
-  )(implicit trace: Trace): ZIO[Any, Nothing, List[RootResult]] = {
+  )(implicit trace: Trace): ZIO[R, Nothing, List[RootResult]] = {
     val execute = executeRoot(_: RootRoute, execution, original)
     plan.operation match {
       case OperationType.Query        => ZIO.foreachPar(plan.roots)(execute)
@@ -91,7 +97,7 @@ private[gateway] final class RemoteGatewayRuntime[-R](
     route: RootRoute,
     execution: caliban.execution.ExecutionRequest,
     original: GraphQLRequest
-  )(implicit trace: Trace): ZIO[Any, Nothing, RootResult] = {
+  )(implicit trace: Trace): ZIO[R, Nothing, RootResult] = {
     val operation = OperationDefinition(
       execution.operationType,
       execution.operationName,
@@ -109,7 +115,12 @@ private[gateway] final class RemoteGatewayRuntime[-R](
       case Some(source) =>
         source
           .execute(request)
-          .map(response => RootResult(route, response))
+          .map(response =>
+            RootResult(
+              route,
+              response.copy(errors = source.errorPolicy.routed(route.client, response.errors))
+            )
+          )
           .catchAll(_ => ZIO.succeed(RootResult(route, rootFailure(route))))
       case None         => ZIO.succeed(RootResult(route, rootFailure(route)))
     }
@@ -144,9 +155,7 @@ private[gateway] final class RemoteGatewayRuntime[-R](
             .getOrElse(NullValue)
       field.aliasedName -> project(field, value, Vector(field.aliasedName), plan.entities)
     })
-    val errors      = local.errors :::
-      roots.flatMap(result => errorsAtRoot(result.route, result.response.errors)) :::
-      entities.flatMap(_.errors)
+    val errors      = local.errors ::: roots.flatMap(_.response.errors) ::: entities.flatMap(_.errors)
     val completed   = completeObject(plan.fields, data, Vector.empty, errors)
     GraphQLResponse(completed.value.getOrElse(NullValue), errors ::: completed.errors)
   }
@@ -338,23 +347,11 @@ private[gateway] final class RemoteGatewayRuntime[-R](
       case _                   => Nil
     }
 
-  private def errorsAtRoot(route: RootRoute, errors: List[CalibanError]): List[CalibanError] =
-    finalizeRemoteErrors(route.client, errors)
-
-  private def finalizeRemoteErrors(fields: List[Field], errors: List[CalibanError]): List[CalibanError] =
-    errors.flatMap {
-      case error: CalibanError.ExecutionError if RemoteError.hasClientPath(fields, error.path) =>
-        error.copy(locationInfo = None) :: Nil
-      case _: CalibanError.ExecutionError                                                      =>
-        fields.map(field => RemoteError.at(List(PathValue.Key(field.aliasedName))))
-      case error                                                                               => error :: Nil
-    }
-
-  private def finalizeRemoteResponse(
+  private def completeSourceResponse(
     fields: List[Field],
-    response: GraphQLResponse[CalibanError]
+    response: GraphQLResponse[CalibanError],
+    errors: List[CalibanError]
   ): GraphQLResponse[CalibanError] = {
-    val errors    = finalizeRemoteErrors(fields, response.errors)
     val completed = completeObject(fields, response.data, Vector.empty, errors)
     response.copy(data = completed.value.getOrElse(NullValue), errors = errors ::: completed.errors)
   }
@@ -402,11 +399,11 @@ private[gateway] final class RemoteGatewayRuntime[-R](
   private def singleSourceFailure(plan: OperationPlan): GraphQLResponse[CalibanError] = {
     val data   = ObjectValue(plan.fields.map(field => field.aliasedName -> NullValue))
     val errors = plan.fields.map(field => RemoteError.at(List(PathValue.Key(field.aliasedName))))
-    finalizeRemoteResponse(plan.fields, GraphQLResponse(data, errors))
+    completeSourceResponse(plan.fields, GraphQLResponse(data, errors), errors)
   }
 }
 
-private object RemoteGatewayRuntime {
+private object GatewayRuntimeImpl {
   final case class RootResult(route: RootRoute, response: GraphQLResponse[CalibanError])
 
   private final case class CompletedValue(value: Option[ResponseValue], errors: List[CalibanError.ExecutionError])
