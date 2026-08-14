@@ -1,5 +1,7 @@
 # Operation-front-end measurement spike
 
+> Historical experiment: its measurements remain useful, but its proposed production types and sequencing are not requirements. The current [implementation handoff](../../IMPLEMENTATION-HANDOFF.md) is authoritative.
+
 This throwaway Scala 3/JMH spike answers two questions needed by the gateway architecture:
 
 1. Is Caliban's existing parser an adequate default, or is there already evidence to build a specialized parser?

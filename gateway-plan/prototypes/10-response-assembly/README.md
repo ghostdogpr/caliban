@@ -1,5 +1,7 @@
 # Response-assembly measurement spike
 
+> Historical experiment: its measurements remain useful, but its proposed production types and sequencing are not requirements. The current [implementation handoff](../../IMPLEMENTATION-HANDOFF.md) is authoritative.
+
 This throwaway JMH spike compares three complete source-response paths for the
 same federated entity join:
 
