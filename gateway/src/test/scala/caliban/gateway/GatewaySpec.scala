@@ -1,6 +1,6 @@
 package caliban.gateway
 
-import caliban.InputValue.ListValue
+import caliban.InputValue.{ ListValue, ObjectValue => InputObjectValue }
 import caliban.ResponseValue
 import caliban.ResponseValue.{ ListValue => ResponseListValue, ObjectValue => ResponseObjectValue }
 import caliban.Value.IntValue.IntNumber
@@ -71,6 +71,70 @@ object GatewaySpec extends ZIOSpecDefault {
     """{"errors":[{"message":"request rejected"}]}"""
 
   private val invalidResponse = """{"unexpected":true}"""
+
+  private val federationDirectives =
+    """
+      |directive @link(url: String!, as: String, import: [link__Import], for: link__Purpose) repeatable on SCHEMA
+      |directive @key(fields: federation__FieldSet!, resolvable: Boolean = true) repeatable on OBJECT | INTERFACE
+      |directive @external on FIELD_DEFINITION
+      |scalar link__Import
+      |enum link__Purpose { SECURITY EXECUTION }
+      |scalar federation__FieldSet
+      |scalar _Any
+      |type _Service { sdl: String! }
+      |""".stripMargin
+
+  private val productsFederationSchema =
+    s"""
+       |schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key"]) { query: Query }
+       |$federationDirectives
+       |union _Entity = Product
+       |type Query {
+       |  product(id: ID!): Product
+       |  _entities(representations: [_Any!]!): [_Entity]!
+       |  _service: _Service!
+       |}
+       |type Product @key(fields: "id") { id: ID! name: String! }
+       |""".stripMargin
+
+  private val reviewsFederationSchema =
+    s"""
+       |schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key", "@external"]) { query: Query }
+       |$federationDirectives
+       |union _Entity = Product
+       |type Query {
+       |  _entities(representations: [_Any!]!): [_Entity]!
+       |  _service: _Service!
+       |}
+       |type Product @key(fields: "id") { id: ID! @external reviews: [Review!]! }
+       |type Review { body: String! }
+       |""".stripMargin
+
+  private val authoredFederationDirectives =
+    """
+      |directive @link(url: String!, as: String, import: [link__Import], for: link__Purpose) repeatable on SCHEMA
+      |directive @key(fields: federation__FieldSet!, resolvable: Boolean = true) repeatable on OBJECT | INTERFACE
+      |directive @external on FIELD_DEFINITION
+      |scalar link__Import
+      |enum link__Purpose { SECURITY EXECUTION }
+      |scalar federation__FieldSet
+      |""".stripMargin
+
+  private val authoredProductsFederationSchema =
+    s"""
+       |schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key"]) { query: Query }
+       |$authoredFederationDirectives
+       |type Query { product(id: ID!): Product }
+       |type Product @key(fields: "id") { id: ID! name: String! }
+       |""".stripMargin
+
+  private val authoredReviewsFederationSchema =
+    s"""
+       |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key", "@external"])
+       |$authoredFederationDirectives
+       |type Product @key(fields: "id") { id: ID! @external reviews: [Review!]! }
+       |type Review { body: String! }
+       |""".stripMargin
 
   private def stub(responses: String*): ZIO[Server with Ref[Int], Nothing, Stub] =
     stubWith(ZIO.unit, responses: _*)
@@ -587,6 +651,331 @@ object GatewaySpec extends ZIOSpecDefault {
         response.errors.map(_.msg) == List("Custom executable directives are not supported by this gateway."),
         productSent.isEmpty,
         reviewSent.isEmpty
+      )
+    },
+    test("executes one Federation entity join through the executable plan") {
+      val productResponse          =
+        """{"data":{"product":{"name":"Table","_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}}}"""
+      val aliasedProductResponse   =
+        """{"data":{"product":{"productId":"p1","__typename":"Product","_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}}}"""
+      val collidingProductResponse =
+        """{"data":{"product":{"id":"Table","__typename":"Table","_caliban_gateway_key":"Table","_caliban_gateway_typename":"Table","_caliban_gateway_key_2":"p1","_caliban_gateway_typename_2":"Product"}}}"""
+      val reviewResponse           =
+        """{"data":{"_entities":[{"reviews":[{"body":"Solid"}]}]}}"""
+      val query                    =
+        """query Product {
+          |  product(id: "p1") {
+          |    name
+          |    reviews { body }
+          |  }
+          |}""".stripMargin
+      val conditionalQuery         =
+        """query Product($includeReviews: Boolean!) {
+          |  product(id: "p1") {
+          |    name
+          |    reviews @include(if: $includeReviews) { body }
+          |  }
+          |}""".stripMargin
+
+      for {
+        products        <- stub(productResponse, aliasedProductResponse, collidingProductResponse)
+        reviews         <- stub(reviewResponse)
+        gateway         <- Gateway
+                             .compose(
+                               Subgraph.federation("products", products.endpoint, productsFederationSchema),
+                               Subgraph.federation("reviews", reviews.endpoint, reviewsFederationSchema)
+                             )
+                             .build
+        explanation     <- gateway.explain(query, Some("Product"))
+        withoutReviews  <- gateway.explain(
+                             GraphQLRequest(
+                               query = Some(conditionalQuery),
+                               operationName = Some("Product"),
+                               variables = Some(Map("includeReviews" -> BooleanValue(false)))
+                             )
+                           )
+        withReviews     <- gateway.explain(
+                             GraphQLRequest(
+                               query = Some(conditionalQuery),
+                               operationName = Some("Product"),
+                               variables = Some(Map("includeReviews" -> BooleanValue(true)))
+                             )
+                           )
+        response        <- gateway.execute(query, Some("Product"))
+        explicit        <- gateway.execute("{ product(id: \"p1\") { productId: id __typename reviews { body } } }")
+        colliding       <-
+          gateway.execute(
+            "{ product(id: \"p1\") { id: name __typename: name _caliban_gateway_key: name _caliban_gateway_typename: name reviews { body } } }"
+          )
+        introspection   <- gateway.execute(
+                             """{
+                             |  query: __type(name: "Query") { fields { name } }
+                             |  transport: __type(name: "_Service") { name }
+                             |  linkPurpose: __type(name: "link__Purpose") { name }
+                             |  schema: __schema { directives { name } }
+                             |}""".stripMargin
+                           )
+        productSent     <- products.requests.get
+        reviewSent      <- reviews.requests.get
+        productValid    <- ZIO.foreach(productSent)(validateRequest(productsFederationSchema, _).exit)
+        reviewValid     <- ZIO.foreach(reviewSent)(validateRequest(reviewsFederationSchema, _).exit)
+        product          = field(response.data, "product")
+        explicitProduct  = field(explicit.data, "product")
+        collidingProduct = field(colliding.data, "product")
+        queryFields      = field(introspection.data, "query")
+                             .flatMap(field(_, "fields"))
+                             .collect { case ResponseListValue(values) =>
+                               values.flatMap(field(_, "name")).collect { case StringValue(name) => name }
+                             }
+        directives       = field(introspection.data, "schema")
+                             .flatMap(field(_, "directives"))
+                             .collect { case ResponseListValue(values) =>
+                               values.flatMap(field(_, "name")).collect { case StringValue(name) => name }
+                             }
+      } yield assertTrue(
+        response.errors.isEmpty,
+        product.flatMap(field(_, "name")).contains(StringValue("Table")),
+        product.flatMap(field(_, "reviews")).exists {
+          case ResponseListValue(ResponseObjectValue(review) :: Nil) =>
+            review.contains("body" -> StringValue("Solid"))
+          case _                                                     => false
+        },
+        product.flatMap(field(_, "id")).isEmpty,
+        product.flatMap(field(_, "__typename")).isEmpty,
+        explicitProduct.flatMap(field(_, "productId")).contains(StringValue("p1")),
+        explicitProduct.flatMap(field(_, "id")).isEmpty,
+        explicitProduct.flatMap(field(_, "__typename")).contains(StringValue("Product")),
+        queryFields.contains(List("product")),
+        field(introspection.data, "transport").contains(NullValue),
+        field(introspection.data, "linkPurpose").contains(NullValue),
+        directives.exists(names => !names.contains("link") && !names.contains("key")),
+        colliding.errors.isEmpty,
+        collidingProduct.flatMap(field(_, "id")).contains(StringValue("Table")),
+        collidingProduct.flatMap(field(_, "__typename")).contains(StringValue("Table")),
+        collidingProduct.flatMap(field(_, "_caliban_gateway_key")).contains(StringValue("Table")),
+        collidingProduct.flatMap(field(_, "_caliban_gateway_typename")).contains(StringValue("Table")),
+        collidingProduct.flatMap(field(_, "_caliban_gateway_key_2")).isEmpty,
+        collidingProduct.flatMap(field(_, "_caliban_gateway_typename_2")).isEmpty,
+        productSent.size == 3,
+        reviewSent.size == 3,
+        productValid.forall(_.isSuccess),
+        reviewValid.forall(_.isSuccess),
+        productSent.head.query.exists(rendered =>
+          rendered.contains("product(id:\"p1\")") &&
+            rendered.contains("name") && rendered.contains("_caliban_gateway_key:id") &&
+            rendered.contains("_caliban_gateway_typename:__typename") &&
+            !rendered.contains("reviews")
+        ),
+        reviewSent.head.query.exists(rendered =>
+          rendered.contains("_entities") && rendered.contains("...on Product") && rendered.contains("reviews{body}")
+        ),
+        reviewSent.head.variables.contains(
+          Map(
+            "representations" -> ListValue(
+              List(InputObjectValue(Map("__typename" -> StringValue("Product"), "id" -> StringValue("p1"))))
+            )
+          )
+        ),
+        explanation ==
+          """query
+            |fetch products at $.product fields [name, id (key), __typename (key)]
+            |fetch reviews after products at $.product via Product(id) fields [reviews.body]""".stripMargin,
+        !withoutReviews.contains("fetch reviews"),
+        withReviews.contains("fetch reviews")
+      )
+    },
+    test("skips an entity lookup when the nullable parent is null") {
+      for {
+        products <- stub("""{"data":{"product":null}}""")
+        reviews  <- stub("""{"data":{"_entities":[]}}""")
+        gateway  <- Gateway
+                      .compose(
+                        Subgraph.federation("products", products.endpoint, productsFederationSchema),
+                        Subgraph.federation("reviews", reviews.endpoint, reviewsFederationSchema)
+                      )
+                      .build
+        response <- gateway.execute("{ product(id: \"missing\") { reviews { body } } }")
+        sentA    <- products.requests.get
+        sentB    <- reviews.requests.get
+      } yield assertTrue(
+        response.errors.isEmpty,
+        field(response.data, "product").contains(NullValue),
+        sentA.size == 1,
+        sentB.isEmpty
+      )
+    },
+    test("rejects list-valued entity joins during planning") {
+      val listProducts = productsFederationSchema.replace("product(id: ID!): Product", "products: [Product!]!")
+
+      for {
+        products <- stub("""{"data":{"products":[]}}""")
+        reviews  <- stub("""{"data":{"_entities":[]}}""")
+        gateway  <- Gateway
+                      .compose(
+                        Subgraph.federation("products", products.endpoint, listProducts),
+                        Subgraph.federation("reviews", reviews.endpoint, reviewsFederationSchema)
+                      )
+                      .build
+        response <- gateway.execute("{ products { reviews { body } } }")
+        sentA    <- products.requests.get
+        sentB    <- reviews.requests.get
+      } yield assertTrue(
+        response.errors.map(_.msg) ==
+          List("Federation entity joins from list-valued field 'products' are not supported."),
+        sentA.isEmpty,
+        sentB.isEmpty
+      )
+    },
+    test("executes a join from entity-only authored Federation service SDL with namespaced metadata") {
+      val productResponse =
+        """{"data":{"product":{"name":"Table","_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}}}"""
+      val reviewResponse  =
+        """{"data":{"_entities":[{"reviews":[{"body":"Solid"}]}]}}"""
+      val productsSchema  = authoredProductsFederationSchema
+        .replace(", import: [\"@key\"]", ", as: \"fed\"")
+        .replace("federation__FieldSet", "fed__FieldSet")
+        .replace("@key", "@fed__key")
+      val reviewsSchema   = authoredReviewsFederationSchema
+        .replace(", import: [\"@key\", \"@external\"]", ", as: \"fed\"")
+        .replace("federation__FieldSet", "fed__FieldSet")
+        .replace("@key", "@fed__key")
+        .replace("@external", "@fed__external")
+
+      for {
+        products  <- stub(productResponse)
+        reviews   <- stub(reviewResponse)
+        gateway   <- Gateway
+                       .compose(
+                         Subgraph.federation("products", products.endpoint, productsSchema),
+                         Subgraph.federation("reviews", reviews.endpoint, reviewsSchema)
+                       )
+                       .build
+        response  <- gateway.execute("{ product(id: \"p1\") { name reviews { body } } }")
+        metadata  <- gateway.execute(
+                       "{ transport: __type(name: \"fed__FieldSet\") { name } schema: __schema { directives { name } } }"
+                     )
+        sentA     <- products.requests.get
+        sentB     <- reviews.requests.get
+        directives = field(metadata.data, "schema")
+                       .flatMap(field(_, "directives"))
+                       .collect { case ResponseListValue(values) =>
+                         values.flatMap(field(_, "name")).collect { case StringValue(name) => name }
+                       }
+      } yield assertTrue(
+        response.errors.isEmpty,
+        metadata.errors.isEmpty,
+        field(response.data, "product").flatMap(field(_, "name")).contains(StringValue("Table")),
+        field(response.data, "product").flatMap(field(_, "reviews")).exists {
+          case ResponseListValue(ResponseObjectValue(review) :: Nil) =>
+            review.contains("body" -> StringValue("Solid"))
+          case _                                                     => false
+        },
+        field(metadata.data, "transport").contains(NullValue),
+        directives.exists(names => !names.contains("fed__key") && !names.contains("fed__external")),
+        sentA.size == 1,
+        sentB.size == 1,
+        sentB.head.query.exists(_.contains("_entities"))
+      )
+    },
+    test("hides imported Federation directive aliases from the client schema") {
+      val endpoint = Uri.unsafeParse("http://127.0.0.1:1/graphql")
+      val products = productsFederationSchema
+        .replace("import: [\"@key\"]", "import: [{ name: \"@key\", as: \"@entityKey\" }]")
+        .replace("directive @key", "directive @entityKey")
+        .replace("@key(fields:", "@entityKey(fields:")
+      val reviews  = reviewsFederationSchema
+        .replace(
+          "import: [\"@key\", \"@external\"]",
+          "import: [{ name: \"@key\", as: \"@entityKey\" }, { name: \"@external\", as: \"@outside\" }]"
+        )
+        .replace("directive @key", "directive @entityKey")
+        .replace("directive @external", "directive @outside")
+        .replace("@key(fields:", "@entityKey(fields:")
+        .replace("@external", "@outside")
+
+      for {
+        gateway       <- Gateway
+                           .compose(
+                             Subgraph.federation("products", endpoint, products),
+                             Subgraph.federation("reviews", endpoint, reviews)
+                           )
+                           .build
+        introspection <- gateway.execute("{ __schema { directives { name } } }")
+        directives     = field(introspection.data, "__schema")
+                           .flatMap(field(_, "directives"))
+                           .collect { case ResponseListValue(values) =>
+                             values.flatMap(field(_, "name")).collect { case StringValue(name) => name }
+                           }
+      } yield assertTrue(
+        introspection.errors.isEmpty,
+        directives.exists(names => !names.contains("entityKey") && !names.contains("outside"))
+      )
+    },
+    test("rejects impossible Federation joins before contacting a subgraph") {
+      val missingKeyProducts = productsFederationSchema.replace("id: ID! name: String!", "name: String!")
+      val noLookupReviews    = reviewsFederationSchema.replace(
+        "@key(fields: \"id\")",
+        "@key(fields: \"id\", resolvable: false)"
+      )
+      val wrongEntityReviews = reviewsFederationSchema.replace("union _Entity = Product", "union _Entity = Review")
+      val cycleProducts      = productsFederationSchema.replace(
+        "type Product @key(fields: \"id\") { id: ID! name: String! }",
+        "type Product @key(fields: \"id\") { id: ID! name: String! } type Review @key(fields: \"id\") { id: ID! product: Product! }"
+      )
+      val cycleReviews       = reviewsFederationSchema.replace(
+        "type Review { body: String! }",
+        "type Review @key(fields: \"id\") { id: ID! body: String! product: Product! @external }"
+      )
+
+      def rejected(productsSchema: String, reviewsSchema: String, query: String) =
+        for {
+          products <- stub("""{"data":{"product":null}}""")
+          reviews  <- stub("""{"data":{"_entities":[]}}""")
+          gateway  <- Gateway
+                        .compose(
+                          Subgraph.federation("products", products.endpoint, productsSchema),
+                          Subgraph.federation("reviews", reviews.endpoint, reviewsSchema)
+                        )
+                        .build
+          response <- gateway.execute(query)
+          sentA    <- products.requests.get
+          sentB    <- reviews.requests.get
+        } yield (response.errors.map(_.msg), sentA, sentB)
+
+      for {
+        missing     <- rejected(
+                         missingKeyProducts,
+                         reviewsFederationSchema,
+                         "{ product(id: \"p1\") { reviews { body } } }"
+                       )
+        lookup      <- rejected(
+                         productsFederationSchema,
+                         noLookupReviews,
+                         "{ product(id: \"p1\") { reviews { body } } }"
+                       )
+        wrongEntity <- rejected(
+                         productsFederationSchema,
+                         wrongEntityReviews,
+                         "{ product(id: \"p1\") { reviews { body } } }"
+                       )
+        cycle       <- rejected(
+                         cycleProducts,
+                         cycleReviews,
+                         "{ product(id: \"p1\") { reviews { product { name } } } }"
+                       )
+      } yield assertTrue(
+        missing._1 == List("Cannot route 'Product.reviews': source 'products' does not provide key field 'id'."),
+        lookup._1 == List("Cannot route 'Product.reviews': source 'reviews' has no resolvable entity lookup."),
+        wrongEntity._1 == List("Cannot route 'Product.reviews': source 'reviews' has no resolvable entity lookup."),
+        cycle._1 == List("Federation routing cycle detected: products -> reviews -> products."),
+        missing._2.isEmpty,
+        missing._3.isEmpty,
+        lookup._2.isEmpty,
+        lookup._3.isEmpty,
+        wrongEntity._2.isEmpty,
+        wrongEntity._3.isEmpty,
+        cycle._2.isEmpty,
+        cycle._3.isEmpty
       )
     },
     test("accumulates deterministic source-attributed composition diagnostics") {
