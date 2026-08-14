@@ -185,7 +185,7 @@ Avoid golden tests of private representations unless the public feature is a pla
 
 ## Migration from the current WIP
 
-The reviewed Ticket 1 foundation is retained. The implementation produced by the superseded Ticket 2–7 sequence is a reference branch, not a dependency of the new design.
+The reviewed Ticket 1 foundation is retained. The `gateway_temp` branch contains the implementation produced by the superseded Ticket 2–7 sequence. Inspect that branch only when salvaging a behavior, test, or independently useful implementation listed below; it is not a dependency or merge source for the new design.
 
 Salvage deliberately:
 
