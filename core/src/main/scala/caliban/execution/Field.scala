@@ -12,6 +12,7 @@ import caliban.{ InputValue, Value }
 
 import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
+import scala.jdk.CollectionConverters._
 
 /**
  * Represents a field used during the execution of a query
@@ -66,6 +67,43 @@ case class Field(
     val fields0 = fields
     fields0.isEmpty || fields0.tail.isEmpty || inner(fields0)
   }
+
+  private[caliban] def collectFields(typeName: String): List[Field] = {
+    def matchesType(field: Field): Boolean =
+      field._condition.forall(_.contains(typeName))
+
+    if (allFieldsUniqueNameAndCondition) {
+      if (fields.isEmpty || !matchesType(fields.head)) Nil else fields
+    } else {
+      val capacity  = calculateMapCapacity(fields.size)
+      val collected = new java.util.LinkedHashMap[String, Field](capacity)
+      val nil       = Nil
+      var remaining = fields
+
+      while (remaining ne nil) {
+        val field = remaining.head
+        if (matchesType(field))
+          collected.compute(
+            field.aliasedName,
+            (_, existing) =>
+              if (existing eq null) field
+              else existing.copy(fields = existing.fields ::: field.fields)
+          )
+        remaining = remaining.tail
+      }
+
+      collected.values().asScala.toList
+    }
+  }
+
+  /**
+   * Mutable maps resize when their entries exceed `capacity * loadFactor`. Accounting for the default `0.75d` load
+   * factor avoids resizing the collection while fields are merged.
+   *
+   * This is equivalent to `java.util.HashMap.calculateHashMapCapacity`, available on JDK 19 and newer.
+   */
+  private def calculateMapCapacity(nMappings: Int): Int =
+    Math.ceil(nMappings / 0.75d).toInt
 
   def combine(other: Field): Field =
     self.copy(

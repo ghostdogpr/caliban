@@ -48,6 +48,9 @@ object Introspector extends IntrospectionDerivation {
   private val introspectionType       = introspectionSchema.toType_()
   val introspectionRootType: RootType = RootType(introspectionType, None, None)
 
+  private[caliban] def withIntrospection(rootType: RootType): RootType =
+    rootType.copy(queryType = introspectionRootType.queryType |+| rootType.queryType)
+
   private val oneOfDirective =
     __Directive(
       "oneOf",

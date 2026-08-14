@@ -114,6 +114,15 @@ trait GraphQL[-R] { self =>
 
         private val introWrappers                               = wrappers.collect { case w: IntrospectionWrapper[R] => w }
         private lazy val introspectionRootSchema: RootSchema[R] = Introspector.introspect(rootType, introWrappers)
+        private lazy val schemaWithIntrospection: RootSchema[R] = {
+          val query = Operation(
+            introspectionRootSchema.query.opType |+| schema.query.opType,
+            Step.mergeRootSteps(schema.query.plan, introspectionRootSchema.query.plan)
+          )
+          RootSchema(query, schema.mutation, schema.subscription)
+        }
+        private lazy val rootTypeWithIntrospection: RootType    =
+          rootType.copy(queryType = schemaWithIntrospection.query.opType)
 
         private def parseZIO(query: String): IO[CalibanError.ParsingError, Document] =
           RequestPreparation.parse(query)
@@ -131,7 +140,7 @@ trait GraphQL[-R] { self =>
                   doc          <- wrap(parseZIO)(parsingWrappers, request.query.getOrElse(""))
                   coercedVars  <- coerceVariables(doc, request.variables.getOrElse(Map.empty), request.operationName)
                   executionReq <- wrap(validation(request, coercedVars))(validationWrappers, doc)
-                  result       <- wrap(execution(schemaToExecute(doc), fieldWrappers))(executionWrappers, executionReq)
+                  result       <- wrap(execution(fieldWrappers))(executionWrappers, executionReq)
                 } yield result).catchAll(Executor.fail)
               )(overallWrappers, request)
           }
@@ -142,20 +151,23 @@ trait GraphQL[-R] { self =>
           RequestPreparation.coerceVariables(
             doc,
             GraphQLRequest(operationName = operationName, variables = Some(variables)),
-            typeToValidate(doc)
+            rootTypeWithIntrospection
           )
 
         private def validation(
           req: GraphQLRequest,
           coercedVars: Map[String, InputValue]
         )(doc: Document)(implicit trace: Trace): IO[ValidationError, ExecutionRequest] =
-          RequestPreparation.validate(doc, req, coercedVars, typeToValidate(doc))
+          RequestPreparation.validate(doc, req, coercedVars, rootTypeWithIntrospection)
 
         private def execution[R1 <: R](
-          schemaToExecute: RootSchema[R1],
           fieldWrappers: List[FieldWrapper[R1]]
         )(request: ExecutionRequest)(implicit trace: Trace) = {
-          val op = request.operationType match {
+          val schemaToExecute =
+            if (request.isIntrospection) introspectionRootSchema
+            else if (request.hasIntrospection) schemaWithIntrospection
+            else schema
+          val op              = request.operationType match {
             case OperationType.Query        => schemaToExecute.query
             case OperationType.Mutation     => schemaToExecute.mutation.getOrElse(schemaToExecute.query)
             case OperationType.Subscription => schemaToExecute.subscription.getOrElse(schemaToExecute.query)
@@ -172,12 +184,6 @@ trait GraphQL[-R] { self =>
             )
           }
         }
-
-        private def typeToValidate(doc: Document) =
-          if (doc.isIntrospection) Introspector.introspectionRootType else rootType
-
-        private def schemaToExecute(doc: Document) =
-          if (doc.isIntrospection) introspectionRootSchema else schema
 
       }
     }

@@ -16,19 +16,19 @@ import zio.{ Exit, IO, Trace }
 private[caliban] object RequestPreparation {
 
   final case class Prepared(document: Document, executionRequest: ExecutionRequest) {
-    def isIntrospection: Boolean = document.isIntrospection
+    def isIntrospection: Boolean = executionRequest.isIntrospection
   }
 
   def check(query: String, rootType: RootType)(implicit trace: Trace): IO[CalibanError, Unit] =
     for {
       document <- parse(query)
-      _        <- Validator.validate(document, validationRoot(document, rootType))
+      _        <- Validator.validate(document, validationRoot(rootType))
     } yield ()
 
   def prepare(request: GraphQLRequest, rootType: RootType)(implicit trace: Trace): IO[CalibanError, Prepared] =
     for {
       document  <- parse(request.query.getOrElse(""))
-      root       = validationRoot(document, rootType)
+      root       = validationRoot(rootType)
       variables <- coerceVariables(document, request, root)
       execution <- validate(document, request, variables, root)
     } yield Prepared(document, execution)
@@ -42,18 +42,15 @@ private[caliban] object RequestPreparation {
     rootType: RootType
   )(implicit trace: Trace): IO[ValidationError, Map[String, InputValue]] =
     Configurator.ref.getWith { config =>
-      if (document.isIntrospection && !config.enableIntrospection)
-        Exit.fail(CalibanError.ValidationError("Introspection is disabled", ""))
-      else
-        Exit.fromEither(
-          VariablesCoercer.coerceVariables(
-            request.variables.getOrElse(Map.empty),
-            document,
-            rootType,
-            config.skipValidation,
-            request.operationName
-          )
+      Exit.fromEither(
+        VariablesCoercer.coerceVariables(
+          request.variables.getOrElse(Map.empty),
+          document,
+          rootType,
+          config.skipValidation,
+          request.operationName
         )
+      )
     }
 
   def validate(
@@ -72,11 +69,21 @@ private[caliban] object RequestPreparation {
           config.skipValidation,
           config.validations
         )
-        .fold(Exit.fail, checkHttpMethod(config)(request, _))
+        .fold(
+          Exit.fail,
+          execution => checkIntrospection(config)(execution) *> checkHttpMethod(config)(request, execution)
+        )
     }
 
-  def validationRoot(document: Document, rootType: RootType): RootType =
-    if (document.isIntrospection) Introspector.introspectionRootType else rootType
+  private def validationRoot(rootType: RootType): RootType =
+    Introspector.withIntrospection(rootType)
+
+  private def checkIntrospection(
+    config: ExecutionConfiguration
+  )(execution: ExecutionRequest): IO[ValidationError, Unit] =
+    if (!config.enableIntrospection && execution.hasIntrospection)
+      Exit.fail(CalibanError.ValidationError("Introspection is disabled", ""))
+    else Exit.unit
 
   private def checkHttpMethod(
     config: ExecutionConfiguration
