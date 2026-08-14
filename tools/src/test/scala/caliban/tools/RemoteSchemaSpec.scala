@@ -142,6 +142,111 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
         resource      = remoteSchema.types.find(_.name.contains("Resource"))
         implemented   = resource.flatMap(_.interfaces()).getOrElse(Nil).flatMap(_.name)
       } yield assertTrue(implemented.contains("Node"))
+    },
+    test("builds a validated RootType from conventional roots and extensions") {
+      val schema =
+        """
+          |type Query {
+          |  value: String
+          |}
+          |
+          |extend type Query {
+          |  version: String
+          |}
+          |
+          |type Mutation {
+          |  update: Boolean
+          |}
+          |
+          |type Subscription {
+          |  events: String
+          |}
+          |""".stripMargin
+
+      for {
+        document <- ZIO.fromEither(Parser.parseQuery(schema))
+        rootType <- ZIO.fromEither(RemoteSchema.toRootType(document))
+        fields    = rootType.queryType.fields(__DeprecatedArgs()).toList.flatten.map(_.name)
+      } yield assertTrue(
+        rootType.queryType.name.contains("Query"),
+        rootType.mutationType.flatMap(_.name).contains("Mutation"),
+        rootType.subscriptionType.flatMap(_.name).contains("Subscription"),
+        fields == List("value", "version")
+      )
+    },
+    test("rejects conflicting operation roots across schema declarations") {
+      val schema =
+        """
+          |schema { query: Query }
+          |extend schema { query: RootQuery }
+          |type Query { value: String }
+          |type RootQuery { value: String }
+          |""".stripMargin
+
+      for {
+        document <- ZIO.fromEither(Parser.parseQuery(schema))
+        result    = RemoteSchema.toRootType(document)
+      } yield assertTrue(
+        result.left.exists(_.msg == "Conflicting query root types are declared: 'Query', 'RootQuery'.")
+      )
+    },
+    test("does not infer Query when a schema definition omits the query root") {
+      val schema =
+        """
+          |schema { mutation: Mutation }
+          |type Query { value: String }
+          |type Mutation { update: Boolean }
+          |""".stripMargin
+
+      for {
+        document <- ZIO.fromEither(Parser.parseQuery(schema))
+        result    = RemoteSchema.toRootType(document)
+      } yield assertTrue(result.left.exists(_.msg == "The query root operation is missing."))
+    },
+    test("preserves and validates OneOf input objects") {
+      val validSchema   =
+        """
+          |type Query { find(by: Choice!): String }
+          |input Choice @oneOf { id: ID name: String }
+          |""".stripMargin
+      val invalidSchema =
+        """
+          |type Query { find(by: Choice!): String }
+          |input Choice @oneOf { id: ID! }
+          |""".stripMargin
+
+      for {
+        validDocument   <- ZIO.fromEither(Parser.parseQuery(validSchema))
+        invalidDocument <- ZIO.fromEither(Parser.parseQuery(invalidSchema))
+        rootType        <- ZIO.fromEither(RemoteSchema.toRootType(validDocument))
+        oneOf            = rootType.additionalTypes.find(_.name.contains("Choice")).flatMap(_.isOneOf)
+        invalid          = RemoteSchema.toRootType(invalidDocument)
+      } yield assertTrue(oneOf.contains(true), invalid.isLeft)
+    },
+    test("rejects multiple schema definitions") {
+      val schema =
+        """
+          |schema { query: Query }
+          |schema { query: Query }
+          |type Query { value: String }
+          |""".stripMargin
+
+      for {
+        document <- ZIO.fromEither(Parser.parseQuery(schema))
+        result    = RemoteSchema.toRootType(document)
+      } yield assertTrue(result.left.exists(_.msg == "Schema is defined multiple times."))
+    },
+    test("rejects a type shared by multiple root operations") {
+      val schema =
+        """
+          |schema { query: Root mutation: Root }
+          |type Root { value: String }
+          |""".stripMargin
+
+      for {
+        document <- ZIO.fromEither(Parser.parseQuery(schema))
+        result    = RemoteSchema.toRootType(document)
+      } yield assertTrue(result.left.exists(_.msg == "Root operation type 'Root' is used more than once."))
     }
   )
 

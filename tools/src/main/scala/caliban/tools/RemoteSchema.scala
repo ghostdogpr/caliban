@@ -1,12 +1,19 @@
 package caliban.tools
 
+import caliban.CalibanError.ValidationError
 import caliban.parsing.adt._
 import caliban.Value.StringValue
 import caliban.introspection.adt._
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
 import caliban.parsing.adt.Definition.TypeSystemDefinition._
+import caliban.parsing.adt.Definition.TypeSystemExtension._
+import caliban.parsing.adt.Definition.TypeSystemExtension.TypeExtension._
+import caliban.schema.RootType
+import caliban.validation.SchemaValidator
 
 object RemoteSchema {
+
+  private final case class RootNames(query: Option[String], mutation: Option[String], subscription: Option[String])
 
   /**
    * Turns an introspection schema into a caliban.parsing.adt.__Schema
@@ -38,6 +45,240 @@ object RemoteSchema {
         )
       )
   }
+
+  private[caliban] def toRootType(document: Document): Either[ValidationError, RootType] =
+    for {
+      normalized <- normalizeExtensions(document)
+      roots       = rootNames(normalized)
+      _          <- SchemaValidator.validateDocument(normalized, roots.query, roots.mutation, roots.subscription)
+      rootType    = buildRootType(normalized)
+      _          <- SchemaValidator.validateRootType(rootType)
+    } yield rootType
+
+  private def normalizeExtensions(document: Document): Either[ValidationError, Document] = {
+    val typeExtensions = document.typeExtensions.collect { case extension: TypeExtension => extension }
+      .groupBy(extensionName)
+    val knownTypes     = document.typeDefinitions.iterator.map(_.name).toSet
+    val unknown        = typeExtensions.keys.find(!knownTypes.contains(_))
+
+    unknown match {
+      case Some(name) => Left(ValidationError(s"Schema extends undefined type '$name'.", ""))
+      case None       =>
+        val normalizedTypes =
+          document.typeDefinitions.foldLeft[Either[ValidationError, List[TypeDefinition]]](Right(Nil)) {
+            case (result, definition) =>
+              for {
+                definitions <- result
+                normalized  <- mergeExtensions(definition, typeExtensions.getOrElse(definition.name, Nil))
+              } yield normalized :: definitions
+          }
+
+        for {
+          types            <- normalizedTypes
+          schemaDefinition <- mergeSchemaDeclarations(document)
+        } yield {
+          val retained = document.definitions.filter {
+            case _: TypeDefinition                        => false
+            case _: TypeExtension                         => false
+            case _: SchemaDefinition | _: SchemaExtension => false
+            case _                                        => true
+          }
+          Document(schemaDefinition.toList ::: types.reverse ::: retained, document.sourceMapper)
+        }
+    }
+  }
+
+  private def mergeSchemaDeclarations(document: Document): Either[ValidationError, Option[SchemaDefinition]] = {
+    val definitions = document.definitions.collect { case definition: SchemaDefinition => definition }
+    val extensions  = document.typeExtensions.collect { case extension: SchemaExtension => extension }
+
+    if (definitions.size > 1)
+      Left(ValidationError("Schema is defined multiple times.", "A schema document may define at most one schema."))
+    else if (definitions.isEmpty && extensions.isEmpty) Right(None)
+    else
+      for {
+        query        <- rootDeclaration("query", definitions.map(_.query) ::: extensions.map(_.query))
+        mutation     <- rootDeclaration("mutation", definitions.map(_.mutation) ::: extensions.map(_.mutation))
+        subscription <- rootDeclaration(
+                          "subscription",
+                          definitions.map(_.subscription) ::: extensions.map(_.subscription)
+                        )
+      } yield Some(
+        SchemaDefinition(
+          definitions.flatMap(_.directives) ::: extensions.flatMap(_.directives),
+          query,
+          mutation,
+          subscription,
+          definitions.flatMap(_.description).headOption
+        )
+      )
+  }
+
+  private def rootDeclaration(
+    operation: String,
+    declarations: List[Option[String]]
+  ): Either[ValidationError, Option[String]] =
+    declarations.flatten.distinct match {
+      case Nil         => Right(None)
+      case name :: Nil => Right(Some(name))
+      case names       =>
+        Left(
+          ValidationError(
+            s"Conflicting $operation root types are declared: ${names.map(name => s"'$name'").mkString(", ")}.",
+            ""
+          )
+        )
+    }
+
+  private def mergeExtensions(
+    definition: TypeDefinition,
+    extensions: List[TypeExtension]
+  ): Either[ValidationError, TypeDefinition] =
+    extensions.foldLeft[Either[ValidationError, TypeDefinition]](Right(definition)) { case (result, extension) =>
+      result.flatMap {
+        case ScalarTypeDefinition(description, name, directives)                        =>
+          extension match {
+            case ScalarTypeExtension(_, addedDirectives) =>
+              Right(ScalarTypeDefinition(description, name, directives ::: addedDirectives))
+            case _                                       => extensionKindMismatch(name)
+          }
+        case ObjectTypeDefinition(description, name, interfaces, directives, fields)    =>
+          extension match {
+            case ObjectTypeExtension(_, addedInterfaces, addedDirectives, addedFields) =>
+              Right(
+                ObjectTypeDefinition(
+                  description,
+                  name,
+                  interfaces ::: addedInterfaces,
+                  directives ::: addedDirectives,
+                  fields ::: addedFields
+                )
+              )
+            case _                                                                     => extensionKindMismatch(name)
+          }
+        case InterfaceTypeDefinition(description, name, interfaces, directives, fields) =>
+          extension match {
+            case InterfaceTypeExtension(_, addedDirectives, addedFields) =>
+              Right(
+                InterfaceTypeDefinition(
+                  description,
+                  name,
+                  interfaces,
+                  directives ::: addedDirectives,
+                  fields ::: addedFields
+                )
+              )
+            case _                                                       => extensionKindMismatch(name)
+          }
+        case UnionTypeDefinition(description, name, directives, members)                =>
+          extension match {
+            case UnionTypeExtension(_, addedDirectives, addedMembers) =>
+              Right(UnionTypeDefinition(description, name, directives ::: addedDirectives, members ::: addedMembers))
+            case _                                                    => extensionKindMismatch(name)
+          }
+        case EnumTypeDefinition(description, name, directives, values)                  =>
+          extension match {
+            case EnumTypeExtension(_, addedDirectives, addedValues) =>
+              Right(EnumTypeDefinition(description, name, directives ::: addedDirectives, values ::: addedValues))
+            case _                                                  => extensionKindMismatch(name)
+          }
+        case InputObjectTypeDefinition(description, name, directives, fields)           =>
+          extension match {
+            case InputObjectTypeExtension(_, addedDirectives, addedFields) =>
+              Right(
+                InputObjectTypeDefinition(
+                  description,
+                  name,
+                  directives ::: addedDirectives,
+                  fields ::: addedFields
+                )
+              )
+            case _                                                         => extensionKindMismatch(name)
+          }
+      }
+    }
+
+  private def extensionKindMismatch(name: String): Either[ValidationError, Nothing] =
+    Left(ValidationError(s"Schema extension kind does not match type '$name'.", ""))
+
+  private def extensionName(extension: TypeExtension): String =
+    extension match {
+      case ScalarTypeExtension(name, _)         => name
+      case ObjectTypeExtension(name, _, _, _)   => name
+      case InterfaceTypeExtension(name, _, _)   => name
+      case UnionTypeExtension(name, _, _)       => name
+      case EnumTypeExtension(name, _, _)        => name
+      case InputObjectTypeExtension(name, _, _) => name
+    }
+
+  private def buildRootType(document: Document): RootType = {
+    val roots         = rootNames(document)
+    val definitions   = document.typeDefinitions
+    val rootTypeNames = roots.query.toSet ++ roots.mutation ++ roots.subscription
+
+    RootType(
+      withStandardDeprecationDefault(
+        toObjectType(document.objectTypeDefinition(roots.query.get).get, definitions)
+      ),
+      roots.mutation
+        .flatMap(document.objectTypeDefinition)
+        .map(definition => withStandardDeprecationDefault(toObjectType(definition, definitions))),
+      roots.subscription
+        .flatMap(document.objectTypeDefinition)
+        .map(definition => withStandardDeprecationDefault(toObjectType(definition, definitions))),
+      definitions
+        .filterNot(definition => rootTypeNames.contains(definition.name))
+        .map(definition => withRootTypeMetadata(definition, toTypeDefinition(definition, definitions))),
+      document.directiveDefinitions.map(definition =>
+        withStandardDeprecationDefault(toDirective(definition, definitions))
+      ),
+      document.schemaDefinition.flatMap(_.description)
+    )
+  }
+
+  private def withStandardDeprecationDefault(tpe: __Type): __Type = {
+    def default(args: __DeprecatedArgs): __DeprecatedArgs =
+      if (args.includeDeprecated.isEmpty) args.copy(includeDeprecated = Some(false)) else args
+
+    tpe.copy(
+      fields = args => tpe.fields(default(args)),
+      enumValues = args => tpe.enumValues(default(args)),
+      inputFields = args => tpe.inputFields(default(args))
+    )
+  }
+
+  private def withRootTypeMetadata(definition: TypeDefinition, tpe: __Type): __Type = {
+    val converted = withStandardDeprecationDefault(tpe)
+    definition match {
+      case ScalarTypeDefinition(_, _, directives) =>
+        converted.copy(specifiedByURL = directives.collectFirst {
+          case directive if directive.name == "specifiedBy" =>
+            directive.arguments.get("url").collect { case StringValue(value) => value }
+        }.flatten)
+      case _                                      => converted
+    }
+  }
+
+  private def withStandardDeprecationDefault(directive: __Directive): __Directive =
+    directive.copy(args =
+      args =>
+        directive.args {
+          if (args.includeDeprecated.isEmpty) args.copy(includeDeprecated = Some(false)) else args
+        }
+    )
+
+  private def rootNames(document: Document): RootNames =
+    document.schemaDefinition match {
+      case Some(SchemaDefinition(_, query, mutation, subscription, _)) =>
+        RootNames(query, mutation, subscription)
+      case None                                                        =>
+        val names = document.typeDefinitions.iterator.map(_.name).toSet
+        RootNames(
+          Some("Query"),
+          if (names.contains("Mutation")) Some("Mutation") else None,
+          if (names.contains("Subscription")) Some("Subscription") else None
+        )
+    }
 
   private def toObjectType(
     definition: Definition.TypeSystemDefinition.TypeDefinition.ObjectTypeDefinition,
@@ -232,7 +473,8 @@ object RemoteSchema {
               .filter(filterDeprecated(_, args))
           )
         else None,
-      directives = toDirectives(definition.directives)
+      directives = toDirectives(definition.directives),
+      isOneOf = Some(Directives.isOneOf(definition.directives))
     )
 
   private def toUnionType(

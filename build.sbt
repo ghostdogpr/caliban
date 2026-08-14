@@ -709,14 +709,16 @@ lazy val gateway = project
   .in(file("gateway"))
   .settings(name := "caliban-gateway")
   .settings(commonSettings)
-  .dependsOn(core)
+  .dependsOn(core, tools)
   .disablePlugins(AssemblyPlugin)
   .settings(
     publish / skip        := true,
     mimaPreviousArtifacts := Set.empty,
     libraryDependencies ++= Seq(
-      "dev.zio" %% "zio-test"     % zioVersion % Test,
-      "dev.zio" %% "zio-test-sbt" % zioVersion % Test
+      "com.softwaremill.sttp.client4" %% "zio"          % sttpVersion,
+      "dev.zio"                       %% "zio-http"     % zioHttpVersion % Test,
+      "dev.zio"                       %% "zio-test"     % zioVersion     % Test,
+      "dev.zio"                       %% "zio-test-sbt" % zioVersion     % Test
     )
   )
 

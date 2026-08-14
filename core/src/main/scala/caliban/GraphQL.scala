@@ -1,17 +1,16 @@
 package caliban
 
 import caliban.CalibanError.ValidationError
-import caliban.Configurator.ExecutionConfiguration
-import caliban.execution.{ ExecutionRequest, Executor, Feature }
+import caliban.execution.{ ExecutionRequest, Executor, Feature, RequestPreparation }
 import caliban.introspection.Introspector
 import caliban.introspection.adt._
 import caliban.parsing.adt.Definition.TypeSystemDefinition.SchemaDefinition
 import caliban.parsing.adt.{ Directive, Document, OperationType }
-import caliban.parsing.{ Parser, SourceMapper, VariablesCoercer }
+import caliban.parsing.SourceMapper
 import caliban.rendering.{ DocumentRenderer, Renderer }
 import caliban.schema._
 import caliban.transformers.Transformer
-import caliban.validation.{ SchemaValidator, Validator }
+import caliban.validation.SchemaValidator
 import caliban.wrappers.Wrapper
 import caliban.wrappers.Wrapper._
 import zio.stacktracer.TracingImplicits.disableAutoTrace
@@ -117,15 +116,10 @@ trait GraphQL[-R] { self =>
         private lazy val introspectionRootSchema: RootSchema[R] = Introspector.introspect(rootType, introWrappers)
 
         private def parseZIO(query: String): IO[CalibanError.ParsingError, Document] =
-          Exit.fromEither(Parser.parseQuery(query))
+          RequestPreparation.parse(query)
 
         override def check(query: String)(implicit trace: Trace): IO[CalibanError, Unit] =
-          for {
-            document      <- parseZIO(query)
-            intro          = Introspector.isIntrospection(document)
-            typeToValidate = if (intro) Introspector.introspectionRootType else rootType
-            _             <- Validator.validate(document, typeToValidate)
-          } yield ()
+          RequestPreparation.check(query, rootType)
 
         override def executeRequest(request: GraphQLRequest)(implicit
           trace: Trace
@@ -145,39 +139,17 @@ trait GraphQL[-R] { self =>
         private def coerceVariables(doc: Document, variables: Map[String, InputValue], operationName: Option[String])(
           implicit trace: Trace
         ): IO[ValidationError, Map[String, InputValue]] =
-          Configurator.ref.getWith { config =>
-            if (doc.isIntrospection && !config.enableIntrospection)
-              ZIO.fail(CalibanError.ValidationError("Introspection is disabled", ""))
-            else
-              VariablesCoercer.coerceVariables(
-                variables,
-                doc,
-                typeToValidate(doc),
-                config.skipValidation,
-                operationName
-              ) match {
-                case Right(value) => Exit.succeed(value)
-                case Left(error)  => ZIO.fail(error)
-              }
-          }
+          RequestPreparation.coerceVariables(
+            doc,
+            GraphQLRequest(operationName = operationName, variables = Some(variables)),
+            typeToValidate(doc)
+          )
 
         private def validation(
           req: GraphQLRequest,
           coercedVars: Map[String, InputValue]
         )(doc: Document)(implicit trace: Trace): IO[ValidationError, ExecutionRequest] =
-          Configurator.ref.getWith { config =>
-            Validator.prepare(
-              doc,
-              typeToValidate(doc),
-              req.operationName,
-              coercedVars,
-              config.skipValidation,
-              config.validations
-            ) match {
-              case Right(value) => checkHttpMethod(config)(req, value)
-              case Left(error)  => Exit.fail(error)
-            }
-          }
+          RequestPreparation.validate(doc, req, coercedVars, typeToValidate(doc))
 
         private def execution[R1 <: R](
           schemaToExecute: RootSchema[R1],
@@ -207,15 +179,6 @@ trait GraphQL[-R] { self =>
         private def schemaToExecute(doc: Document) =
           if (doc.isIntrospection) introspectionRootSchema else schema
 
-        private def checkHttpMethod(
-          cfg: ExecutionConfiguration
-        )(gqlReq: GraphQLRequest, req: ExecutionRequest): IO[ValidationError, ExecutionRequest] =
-          if (
-            req.operationType == OperationType.Mutation &&
-            !cfg.allowMutationsOverGetRequests &&
-            gqlReq.isHttpGetRequest
-          ) Exit.fail(HttpUtils.MutationOverGetError)
-          else Exit.succeed(req)
       }
     }
 

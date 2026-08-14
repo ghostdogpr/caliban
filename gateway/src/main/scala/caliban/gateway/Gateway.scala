@@ -1,5 +1,8 @@
 package caliban.gateway
 
+import caliban.gateway.internal.{ RemoteGatewayRuntime, RemoteGraphQLSource }
+import caliban.tools.RemoteSchema
+import sttp.client4.httpclient.zio.HttpClientZioBackend
 import zio._
 
 /**
@@ -18,4 +21,30 @@ final class Gateway[-R] private[gateway] (
    */
   def build(implicit trace: Trace): ZIO[Scope, GatewayBuildError, GatewayRuntime[R]] =
     composer(trace)
+}
+
+object Gateway {
+
+  /**
+   * Creates a reusable gateway description from one or more subgraphs.
+   */
+  def compose[R](first: Subgraph[R], rest: Subgraph[R]*): Gateway[R] =
+    new Gateway[R](trace => build(first, rest)(trace))
+
+  private def build[R](first: Subgraph[R], rest: Seq[Subgraph[R]])(implicit
+    trace: Trace
+  ): ZIO[Scope, GatewayBuildError, GatewayRuntime[R]] =
+    if (rest.nonEmpty)
+      ZIO.fail(GatewayBuildError("This gateway version can execute exactly one subgraph."))
+    else if (first.name.trim.isEmpty)
+      ZIO.fail(GatewayBuildError("Subgraph name must not be empty."))
+    else
+      for {
+        document <- first.schema.document.mapError(error => GatewayBuildError(error.getMessage))
+        rootType <-
+          ZIO.fromEither(RemoteSchema.toRootType(document)).mapError(error => GatewayBuildError(error.getMessage))
+        backend  <- HttpClientZioBackend
+                      .scoped()
+                      .mapError(_ => GatewayBuildError("Unable to initialize the remote GraphQL transport."))
+      } yield new RemoteGatewayRuntime[R](rootType, new RemoteGraphQLSource(first.endpoint, backend))
 }
