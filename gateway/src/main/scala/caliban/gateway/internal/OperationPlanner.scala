@@ -25,7 +25,7 @@ private[gateway] final class OperationPlanner(
           source <- graph
                       .source(execution.operationType, field.name)
                       .toRight(PlanningFailure(s"No subgraph owns root field '${field.name}'."))
-          plan   <- planField(field, source, List(source), List(field.aliasedName), transitions = 0)
+          plan   <- planField(field, source, Vector(source), Vector(field.aliasedName), transitions = 0)
         } yield PlannedRoot(source, field, plan.downstream, plan.entities) :: roots
       }
       .map(_.reverse)
@@ -72,8 +72,8 @@ private[gateway] final class OperationPlanner(
   private def planField(
     field: Field,
     source: String,
-    visitedSources: List[String],
-    path: List[String],
+    visitedSources: Vector[String],
+    path: Vector[String],
     transitions: Int
   ): Either[PlanningFailure, PlannedField] = {
     val parentType = field.fieldType.innerType
@@ -107,8 +107,8 @@ private[gateway] final class OperationPlanner(
   private def planLocalFields(
     field: Field,
     source: String,
-    visitedSources: List[String],
-    path: List[String],
+    visitedSources: Vector[String],
+    path: Vector[String],
     transitions: Int,
     local: List[Field]
   ): Either[PlanningFailure, List[Field]] =
@@ -127,8 +127,8 @@ private[gateway] final class OperationPlanner(
   private def planRemoteFields(
     field: Field,
     source: String,
-    visitedSources: List[String],
-    path: List[String],
+    visitedSources: Vector[String],
+    path: Vector[String],
     transitions: Int,
     parentType: __Type,
     typeName: String,
@@ -136,7 +136,7 @@ private[gateway] final class OperationPlanner(
     remote: mutable.LinkedHashMap[String, mutable.ListBuffer[Field]]
   ): Either[PlanningFailure, PlannedField] =
     remote.toList
-      .foldLeft[Either[PlanningFailure, (List[Field], List[PlannedEntity])]](Right(selected -> Nil)) {
+      .foldLeft[Either[PlanningFailure, (Vector[Field], List[PlannedEntity])]](Right(selected.toVector -> Nil)) {
         case (result, (target, children)) =>
           for {
             current                         <- result
@@ -206,12 +206,14 @@ private[gateway] final class OperationPlanner(
                                                  typenameSelection,
                                                  plannedChildren
                                                )
-          } yield (downstreamFields ::: List(internalKey, internalTypename)) -> (entityRoutes :+ entity)
+          } yield (downstreamFields :+ internalKey :+ internalTypename) -> (entity :: entityRoutes)
       }
-      .map { case (downstreamFields, entities) => PlannedField(field.copy(fields = downstreamFields), entities) }
+      .map { case (downstreamFields, entities) =>
+        PlannedField(field.copy(fields = downstreamFields.toList), entities.reverse)
+      }
 
   private def validateTransition(
-    visitedSources: List[String],
+    visitedSources: Vector[String],
     target: String,
     transitions: Int
   ): Either[PlanningFailure, Unit] =
@@ -224,8 +226,8 @@ private[gateway] final class OperationPlanner(
   private def planEntityFields(
     children: List[Field],
     target: String,
-    visitedSources: List[String],
-    path: List[String],
+    visitedSources: Vector[String],
+    path: Vector[String],
     transitions: Int
   ): Either[PlanningFailure, List[Field]] =
     children
@@ -317,7 +319,7 @@ private[gateway] object OperationPlanner {
 
   final case class PlannedEntity(
     source: String,
-    mergePath: List[String],
+    mergePath: Vector[String],
     entityType: String,
     key: RequiredSelection,
     typename: RequiredSelection,
@@ -330,7 +332,7 @@ private[gateway] object OperationPlanner {
     source: String,
     dependency: RouteId,
     dependencySource: String,
-    mergePath: List[String],
+    mergePath: Vector[String],
     entityType: String,
     key: RequiredSelection,
     typename: RequiredSelection,

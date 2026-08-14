@@ -84,12 +84,7 @@ private[gateway] final class EntityExecutor(sources: Map[String, RemoteGraphQLSo
       )
       val failure     = EntityResult(
         Nil,
-        batch.errors ::: routes.map(route =>
-          CalibanError.ExecutionError(
-            "Remote GraphQL request failed.",
-            path = routePath(route)
-          )
-        )
+        batch.errors ::: routes.map(route => RemoteError.at(routePath(route)))
       )
 
       sources.get(route.source) match {
@@ -122,7 +117,7 @@ private[gateway] final class EntityExecutor(sources: Map[String, RemoteGraphQLSo
 
     routes.foreach { route =>
       val parent = roots.getOrElse(route.dependency, NullValue)
-      entityCandidates(parent, route.mergePath, Nil).foreach {
+      entityCandidates(parent, route.mergePath, Vector.empty).foreach {
         case (_, NullValue)           => ()
         case (path, ObjectValue(raw)) =>
           responseIdentity(route.key, route.typename, raw.toMap) match {
@@ -153,20 +148,21 @@ private[gateway] final class EntityExecutor(sources: Map[String, RemoteGraphQLSo
 
   private def entityCandidates(
     value: ResponseValue,
-    fields: List[String],
-    path: List[PathValue]
+    fields: Vector[String],
+    path: Vector[PathValue]
   ): List[(List[PathValue], ResponseValue)] =
-    fields match {
-      case Nil          =>
+    fields.headOption match {
+      case None       =>
         value match {
           case ListValue(values) =>
             values.zipWithIndex.flatMap { case (item, index) =>
-              entityCandidates(item, Nil, path :+ PathValue.Index(index))
+              entityCandidates(item, Vector.empty, path :+ PathValue.Index(index))
             }
           case NullValue         => Nil
-          case other             => List(path -> other)
+          case other             => List(path.toList -> other)
         }
-      case head :: tail =>
+      case Some(head) =>
+        val tail = fields.tail
         value match {
           case ObjectValue(values) =>
             values.collectFirst { case (name, nested) if name == head => nested } match {
@@ -178,7 +174,7 @@ private[gateway] final class EntityExecutor(sources: Map[String, RemoteGraphQLSo
               entityCandidates(item, fields, path :+ PathValue.Index(index))
             }
           case NullValue           => Nil
-          case other               => List(path -> other)
+          case other               => List(path.toList -> other)
         }
     }
 
@@ -262,12 +258,16 @@ private[gateway] final class EntityExecutor(sources: Map[String, RemoteGraphQLSo
       case error: CalibanError.ExecutionError =>
         error.path match {
           case PathValue.Key("_entities") :: PathValue.Index(index) :: tail =>
-            entityLocations(batch, correlation, values, index)
-              .map(path => error.copy(path = path ::: correlation.visiblePath(tail)))
-          case PathValue.Key("_entities") :: tail                           =>
-            List(error.copy(path = routePath(route) ::: correlation.visiblePath(tail)))
-          case path                                                         =>
-            List(error.copy(path = routePath(route) ::: correlation.visiblePath(path)))
+            val locations = entityLocations(batch, correlation, values, index)
+            if (locations.isEmpty) mergePaths(route, batch).map(RemoteError.at)
+            else
+              locations.map { location =>
+                if (tail.isEmpty || RemoteError.hasClientPath(location.route.fields, tail))
+                  error.copy(path = location.path ::: tail, locationInfo = None)
+                else RemoteError.at(location.path)
+              }
+          case _                                                            =>
+            mergePaths(route, batch).map(RemoteError.at)
         }
       case error                              => List(error)
     }
@@ -277,7 +277,7 @@ private[gateway] final class EntityExecutor(sources: Map[String, RemoteGraphQLSo
     correlation: EntityCorrelation,
     values: List[ResponseValue],
     index: Int
-  ): List[List[PathValue]] = {
+  ): List[EntityLocation] = {
     val byIdentity = values
       .lift(index)
       .collect { case ObjectValue(fields) =>
@@ -285,11 +285,18 @@ private[gateway] final class EntityExecutor(sources: Map[String, RemoteGraphQLSo
       }
       .flatten
       .flatMap(identity => batch.entries.find(_.identity == identity))
-      .map(_.locations.map(_.path))
+      .map(_.locations)
 
     byIdentity
-      .orElse(batch.entries.lift(index).map(_.locations.map(_.path)))
-      .getOrElse(batch.entries.headOption.flatMap(_.locations.headOption).map(_.path).toList)
+      .orElse(batch.entries.lift(index).map(_.locations))
+      .getOrElse(Nil)
+  }
+
+  private def mergePaths(route: EntityRoute, batch: EntityBatch): List[List[PathValue]] = {
+    val paths = mutable.LinkedHashSet.empty[List[PathValue]]
+    batch.entries.foreach(_.locations.foreach(location => paths += routePath(location.route)))
+    paths += routePath(route)
+    paths.toList
   }
 
   private def missingRepresentation(route: EntityRoute, path: List[PathValue]): CalibanError.ExecutionError =
@@ -317,7 +324,7 @@ private[gateway] final class EntityExecutor(sources: Map[String, RemoteGraphQLSo
     )
 
   private def routePath(route: EntityRoute): List[PathValue] =
-    route.mergePath.map(PathValue.Key(_))
+    route.mergePath.iterator.map(PathValue.Key(_)).toList
 
   private def entitySelectionKey(fields: List[Field]): String = {
     val selections = fields.map(field => canonicalSelection(field.toSelection)).sortBy(renderSelection)
@@ -377,12 +384,6 @@ private[gateway] object EntityExecutor {
         Selection.Field(Some(key.responseName), key.field, Map.empty, Nil, Nil, 0),
         Selection.Field(Some(typename.responseName), typename.field, Map.empty, Nil, Nil, 0)
       )
-
-    def visiblePath(path: List[PathValue]): List[PathValue] =
-      path match {
-        case PathValue.Key(name) :: tail if name == key.responseName || name == typename.responseName => tail
-        case _                                                                                        => path
-      }
   }
 
   private final case class EntityIdentity(typename: String, key: InputValue)

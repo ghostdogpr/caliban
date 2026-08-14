@@ -8,6 +8,7 @@ import caliban.gateway.internal.EntityExecutor.EntityResult
 import caliban.gateway.internal.OperationPlanner._
 import caliban.gateway.internal.RemoteGatewayRuntime._
 import caliban.introspection.Introspector
+import caliban.introspection.adt.{ __Type, __TypeKind }
 import caliban.parsing.SourceMapper
 import caliban.parsing.adt.Definition.ExecutableDefinition.OperationDefinition
 import caliban.parsing.adt.{ Document, OperationType }
@@ -57,8 +58,12 @@ private[gateway] final class RemoteGatewayRuntime[-R](
     plan.passthrough match {
       case Some(source) =>
         sources.get(source) match {
-          case Some(remote) => remote.execute(original).catchAll(_ => ZIO.succeed(singleSourceFailure))
-          case None         => ZIO.succeed(singleSourceFailure)
+          case Some(remote) =>
+            remote
+              .execute(original)
+              .map(finalizeRemoteResponse(plan.fields, _))
+              .catchAll(_ => ZIO.succeed(singleSourceFailure(plan)))
+          case None         => ZIO.succeed(singleSourceFailure(plan))
         }
       case None         =>
         executeRoots(plan, execution, original).flatMap { roots =>
@@ -137,13 +142,115 @@ private[gateway] final class RemoteGatewayRuntime[-R](
             .get(field.aliasedName)
             .orElse(rootValues.get(field.aliasedName).map(value => mergeEntities(field, value, entities)))
             .getOrElse(NullValue)
-      field.aliasedName -> project(field, value, List(field.aliasedName), plan.entities)
+      field.aliasedName -> project(field, value, Vector(field.aliasedName), plan.entities)
     })
     val errors      = local.errors :::
       roots.flatMap(result => errorsAtRoot(result.route, result.response.errors)) :::
       entities.flatMap(_.errors)
-    GraphQLResponse(data, errors)
+    val completed   = completeObject(plan.fields, data, Vector.empty, errors)
+    GraphQLResponse(completed.value.getOrElse(NullValue), errors ::: completed.errors)
   }
+
+  private def completeObject(
+    fields: List[Field],
+    value: ResponseValue,
+    path: Vector[PathValue],
+    sourceErrors: List[CalibanError]
+  ): CompletedValue =
+    value match {
+      case ObjectValue(values) =>
+        val byName    = values.toMap
+        val completed = fields.map { field =>
+          val fieldPath = path :+ PathValue.Key(field.aliasedName)
+          field.aliasedName -> completeValue(
+            field.fieldType,
+            field,
+            byName.getOrElse(field.aliasedName, NullValue),
+            fieldPath,
+            sourceErrors
+          )
+        }
+        val errors    = completed.flatMap(_._2.errors)
+        if (completed.exists(_._2.value.isEmpty)) CompletedValue(None, errors)
+        else
+          CompletedValue(
+            Some(ObjectValue(completed.flatMap { case (name, result) => result.value.map(name -> _) })),
+            errors
+          )
+      case _                   => CompletedValue(Some(NullValue), Nil)
+    }
+
+  private def completeValue(
+    fieldType: __Type,
+    field: Field,
+    value: ResponseValue,
+    path: Vector[PathValue],
+    sourceErrors: List[CalibanError]
+  ): CompletedValue =
+    fieldType.kind match {
+      case __TypeKind.NON_NULL                                         =>
+        val completed = fieldType.ofType
+          .map(completeValue(_, field, value, path, sourceErrors))
+          .getOrElse(CompletedValue(Some(NullValue), Nil))
+        completed.value match {
+          case Some(NullValue) =>
+            CompletedValue(
+              None,
+              completed.errors ::: nullViolation(field, path.toList, sourceErrors ::: completed.errors)
+            )
+          case _               => completed
+        }
+      case _ if value == NullValue                                     => CompletedValue(Some(NullValue), Nil)
+      case __TypeKind.LIST                                             =>
+        (value, fieldType.ofType) match {
+          case (ListValue(values), Some(itemType)) =>
+            val completed = values.zipWithIndex.map { case (item, index) =>
+              completeValue(itemType, field, item, path :+ PathValue.Index(index), sourceErrors)
+            }
+            val errors    = completed.flatMap(_.errors)
+            if (completed.exists(_.value.isEmpty)) CompletedValue(Some(NullValue), errors)
+            else CompletedValue(Some(ListValue(completed.flatMap(_.value))), errors)
+          case _                                   =>
+            CompletedValue(Some(NullValue), invalidListErrors(path.toList, sourceErrors))
+        }
+      case __TypeKind.OBJECT | __TypeKind.INTERFACE | __TypeKind.UNION =>
+        val typeName  = fieldType.innerType.name.getOrElse("")
+        val completed = completeObject(field.collectFields(typeName), value, path, sourceErrors)
+        if (completed.value.isEmpty) CompletedValue(Some(NullValue), completed.errors) else completed
+      case _                                                           => CompletedValue(Some(value), Nil)
+    }
+
+  private def nullViolation(
+    field: Field,
+    path: List[PathValue],
+    errors: List[CalibanError]
+  ): List[CalibanError.ExecutionError] =
+    if (hasErrorAt(errors, path)) Nil
+    else {
+      val parent = field.parentType.flatMap(_.name).getOrElse("Unknown")
+      List(
+        CalibanError.ExecutionError(
+          s"Cannot return null for non-nullable field $parent.${field.name}.",
+          path,
+          Some(field.locationInfo)
+        )
+      )
+    }
+
+  private def invalidListErrors(
+    path: List[PathValue],
+    errors: List[CalibanError]
+  ): List[CalibanError.ExecutionError] =
+    if (hasErrorAt(errors, path)) Nil else List(RemoteError.at(path))
+
+  private def hasErrorAt(errors: List[CalibanError], path: List[PathValue]): Boolean =
+    errors.exists {
+      case error: CalibanError.ExecutionError => pathsOverlap(error.path, path)
+      case _                                  => false
+    }
+
+  private def pathsOverlap(left: List[PathValue], right: List[PathValue]): Boolean =
+    left.nonEmpty && (left.startsWith(right) || right.startsWith(left))
 
   private def mergeEntities(field: Field, value: ResponseValue, entities: List[EntityResult]): ResponseValue =
     entities.foldLeft(value) { case (current, result) =>
@@ -192,7 +299,7 @@ private[gateway] final class RemoteGatewayRuntime[-R](
   private def project(
     field: Field,
     value: ResponseValue,
-    path: List[String],
+    path: Vector[String],
     entities: List[EntityRoute]
   ): ResponseValue =
     value match {
@@ -232,11 +339,25 @@ private[gateway] final class RemoteGatewayRuntime[-R](
     }
 
   private def errorsAtRoot(route: RootRoute, errors: List[CalibanError]): List[CalibanError] =
+    finalizeRemoteErrors(route.client, errors)
+
+  private def finalizeRemoteErrors(fields: List[Field], errors: List[CalibanError]): List[CalibanError] =
     errors.flatMap {
-      case error: CalibanError.ExecutionError if error.path.isEmpty =>
-        route.client.map(field => error.copy(path = List(PathValue.Key(field.aliasedName))))
-      case error                                                    => error :: Nil
+      case error: CalibanError.ExecutionError if RemoteError.hasClientPath(fields, error.path) =>
+        error.copy(locationInfo = None) :: Nil
+      case _: CalibanError.ExecutionError                                                      =>
+        fields.map(field => RemoteError.at(List(PathValue.Key(field.aliasedName))))
+      case error                                                                               => error :: Nil
     }
+
+  private def finalizeRemoteResponse(
+    fields: List[Field],
+    response: GraphQLResponse[CalibanError]
+  ): GraphQLResponse[CalibanError] = {
+    val errors    = finalizeRemoteErrors(fields, response.errors)
+    val completed = completeObject(fields, response.data, Vector.empty, errors)
+    response.copy(data = completed.value.getOrElse(NullValue), errors = errors ::: completed.errors)
+  }
 
   private def renderPlan(plan: OperationPlan): String = {
     val header = plan.operation.toString.toLowerCase
@@ -275,21 +396,18 @@ private[gateway] final class RemoteGatewayRuntime[-R](
   private def rootFailure(route: RootRoute): GraphQLResponse[CalibanError] =
     GraphQLResponse(
       ObjectValue(route.client.map(field => field.aliasedName -> NullValue)),
-      route.client.map(field =>
-        CalibanError.ExecutionError(
-          "Remote GraphQL request failed.",
-          path = List(PathValue.Key(field.aliasedName))
-        )
-      )
+      route.client.map(field => RemoteError.at(List(PathValue.Key(field.aliasedName))))
     )
 
-  private val singleSourceFailure =
-    GraphQLResponse(
-      NullValue,
-      List(CalibanError.ExecutionError("Remote GraphQL request failed."))
-    )
+  private def singleSourceFailure(plan: OperationPlan): GraphQLResponse[CalibanError] = {
+    val data   = ObjectValue(plan.fields.map(field => field.aliasedName -> NullValue))
+    val errors = plan.fields.map(field => RemoteError.at(List(PathValue.Key(field.aliasedName))))
+    finalizeRemoteResponse(plan.fields, GraphQLResponse(data, errors))
+  }
 }
 
 private object RemoteGatewayRuntime {
   final case class RootResult(route: RootRoute, response: GraphQLResponse[CalibanError])
+
+  private final case class CompletedValue(value: Option[ResponseValue], errors: List[CalibanError.ExecutionError])
 }

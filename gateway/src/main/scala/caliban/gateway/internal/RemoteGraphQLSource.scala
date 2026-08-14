@@ -79,7 +79,7 @@ private[gateway] final class RemoteGraphQLSource(endpoint: Uri, backend: SttpCli
   private def decodeError(value: ResponseValue): CalibanError = {
     val fields     = value.asInstanceOf[ObjectValue].fields
     val message    = fields.collectFirst { case ("message", StringValue(value)) => value }.get
-    val path       = fields.collectFirst { case ("path", ListValue(values)) => values.flatMap(pathValue) }.getOrElse(Nil)
+    val path       = fields.collectFirst { case ("path", ListValue(values)) => decodePath(values) }.flatten.getOrElse(Nil)
     val location   = fields.collectFirst { case ("locations", ListValue((value: ObjectValue) :: _)) => value }
       .flatMap(decodeLocation)
     val extensions = fields.collectFirst { case ("extensions", value: ObjectValue) => value }
@@ -92,6 +92,11 @@ private[gateway] final class RemoteGraphQLSource(endpoint: Uri, backend: SttpCli
       case value: IntValue.IntNumber => Some(value)
       case _                         => None
     }
+
+  private def decodePath(values: List[ResponseValue]): Option[List[PathValue]] = {
+    val decoded = values.map(pathValue)
+    if (decoded.forall(_.nonEmpty)) Some(decoded.flatten) else None
+  }
 
   private def decodeLocation(value: ObjectValue): Option[LocationInfo] = {
     val line   = value.fields.collectFirst { case ("line", IntValue.IntNumber(value)) => value }
