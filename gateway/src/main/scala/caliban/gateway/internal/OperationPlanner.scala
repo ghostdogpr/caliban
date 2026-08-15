@@ -46,8 +46,9 @@ private[gateway] final class OperationPlanner(
             root.source,
             entity.mergePath,
             entity.entityType,
-            entity.key,
+            entity.keys,
             entity.typename,
+            entity.lookup,
             entity.fields
           )
         )
@@ -119,7 +120,7 @@ private[gateway] final class OperationPlanner(
           planned <- planField(child, source, visitedSources, path :+ child.aliasedName, transitions)
           _       <-
             if (planned.entities.isEmpty) Right(())
-            else Left(PlanningFailure("Nested Federation entity transitions are not supported by this gateway."))
+            else Left(PlanningFailure("Nested entity transitions are not supported by this gateway."))
         } yield planned.downstream :: values
       }
       .map(_.reverse)
@@ -139,78 +140,103 @@ private[gateway] final class OperationPlanner(
       .foldLeft[Either[PlanningFailure, (Vector[Field], List[PlannedEntity])]](Right(selected.toVector -> Nil)) {
         case (result, (target, children)) =>
           for {
-            current                         <- result
-            child                           <- children.headOption.toRight(
-                                                 PlanningFailure(
-                                                   s"Cannot route '$typeName': no downstream field was selected."
-                                                 )
-                                               )
-            _                               <- validateTransition(visitedSources, target, transitions)
-            key                             <-
+            current                             <- result
+            child                               <- children.headOption.toRight(
+                                                     PlanningFailure(
+                                                       s"Cannot route '$typeName': no downstream field was selected."
+                                                     )
+                                                   )
+            _                                   <- validateTransition(visitedSources, target, transitions)
+            lookup                              <-
               graph
-                .key(target, typeName)
+                .lookup(target, typeName)
                 .toRight(
                   PlanningFailure(
                     s"Cannot route '$typeName.${child.name}': source '$target' has no resolvable entity lookup."
                   )
                 )
-            _                               <-
-              if (key.resolvable && graph.canLookup(target, typeName)) Right(())
-              else
-                Left(
-                  PlanningFailure(
-                    s"Cannot route '$typeName.${child.name}': source '$target' has no resolvable entity lookup."
+            keyFields                           <- requiredKeyFields(parentType, typeName, source, child.name, lookup)
+            plannedChildren                     <- planEntityFields(
+                                                     children.toList,
+                                                     target,
+                                                     visitedSources,
+                                                     path,
+                                                     transitions
+                                                   )
+            (downstreamFields, entityRoutes)     = current
+            usedNames                            = field.fields.iterator.map(_.aliasedName).toSet ++
+                                                     downstreamFields.iterator.map(_.aliasedName)
+            keyData                              = keyFields.foldLeft(
+                                                     (Vector.empty[RequiredSelection], Vector.empty[Field], usedNames)
+                                                   ) { case ((selections, fields, names), (key, keyField)) =>
+                                                     val alias = privateAlias("_caliban_gateway_key", names)
+                                                     (
+                                                       selections :+ RequiredSelection(key, alias),
+                                                       fields :+ Field(key, keyField._type, Some(parentType), alias = Some(alias)),
+                                                       names + alias
+                                                     )
+                                                   }
+            (keySelections, internalKeys, names) = keyData
+            typenameSelection                    =
+              if (lookup.operation.requiresTypename)
+                Some(
+                  RequiredSelection(
+                    "__typename",
+                    privateAlias("_caliban_gateway_typename", names)
                   )
                 )
-            keyField                        <-
-              Option(parentType.getFieldOrNull(key.field))
-                .toRight(
-                  PlanningFailure(
-                    s"Cannot route '$typeName.${child.name}': source '$source' does not provide key field '${key.field}'."
-                  )
-                )
-            _                               <-
-              if (graph.source(typeName, key.field, source).contains(source)) Right(())
-              else
-                Left(
-                  PlanningFailure(
-                    s"Cannot route '$typeName.${child.name}': source '$source' does not provide key field '${key.field}'."
-                  )
-                )
-            plannedChildren                 <- planEntityFields(
-                                                 children.toList,
-                                                 target,
-                                                 visitedSources,
-                                                 path,
-                                                 transitions
-                                               )
-            (downstreamFields, entityRoutes) = current
-            usedNames                        = field.fields.iterator.map(_.aliasedName).toSet ++
-                                                 downstreamFields.iterator.map(_.aliasedName)
-            keyAlias                         = privateAlias("_caliban_gateway_key", usedNames)
-            typenameAlias                    = privateAlias("_caliban_gateway_typename", usedNames + keyAlias)
-            keySelection                     = RequiredSelection(key.field, keyAlias)
-            typenameSelection                = RequiredSelection("__typename", typenameAlias)
-            internalKey                      = Field(key.field, keyField._type, Some(parentType), alias = Some(keyAlias))
-            internalTypename                 = Field(
-                                                 "__typename",
-                                                 Types.string,
-                                                 Some(parentType),
-                                                 alias = Some(typenameAlias)
-                                               )
-            entity                           = PlannedEntity(
-                                                 target,
-                                                 path,
-                                                 typeName,
-                                                 keySelection,
-                                                 typenameSelection,
-                                                 plannedChildren
-                                               )
-          } yield (downstreamFields :+ internalKey :+ internalTypename) -> (entity :: entityRoutes)
+              else None
+            internalTypename                     = typenameSelection.map(selection =>
+                                                     Field(
+                                                       selection.field,
+                                                       Types.string,
+                                                       Some(parentType),
+                                                       alias = Some(selection.responseName)
+                                                     )
+                                                   )
+            entity                               = PlannedEntity(
+                                                     target,
+                                                     path,
+                                                     typeName,
+                                                     keySelections.toList,
+                                                     typenameSelection,
+                                                     lookup,
+                                                     plannedChildren
+                                                   )
+          } yield (downstreamFields ++ internalKeys ++ internalTypename) -> (entity :: entityRoutes)
       }
       .map { case (downstreamFields, entities) =>
         PlannedField(field.copy(fields = downstreamFields.toList), entities.reverse)
       }
+
+  private def requiredKeyFields(
+    parentType: __Type,
+    typeName: String,
+    source: String,
+    childName: String,
+    lookup: ComposedGraph.EntityLookup
+  ): Either[PlanningFailure, List[(String, caliban.introspection.adt.__Field)]] =
+    lookup.keyFields
+      .foldLeft[Either[PlanningFailure, List[(String, caliban.introspection.adt.__Field)]]](Right(Nil)) {
+        case (result, key) =>
+          for {
+            fields   <- result
+            keyField <- Option(parentType.getFieldOrNull(key)).toRight(
+                          PlanningFailure(
+                            s"Cannot route '$typeName.$childName': source '$source' does not provide key field '$key'."
+                          )
+                        )
+            _        <-
+              if (graph.source(typeName, key, source).contains(source)) Right(())
+              else
+                Left(
+                  PlanningFailure(
+                    s"Cannot route '$typeName.$childName': source '$source' does not provide key field '$key'."
+                  )
+                )
+          } yield (key -> keyField) :: fields
+      }
+      .map(_.reverse)
 
   private def validateTransition(
     visitedSources: Vector[String],
@@ -218,9 +244,9 @@ private[gateway] final class OperationPlanner(
     transitions: Int
   ): Either[PlanningFailure, Unit] =
     if (visitedSources.contains(target))
-      Left(PlanningFailure(s"Federation routing cycle detected: ${(visitedSources :+ target).mkString(" -> ")}."))
+      Left(PlanningFailure(s"Entity routing cycle detected: ${(visitedSources :+ target).mkString(" -> ")}."))
     else if (transitions > 0)
-      Left(PlanningFailure("More than one Federation entity transition is not supported by this gateway."))
+      Left(PlanningFailure("More than one entity transition is not supported by this gateway."))
     else Right(())
 
   private def planEntityFields(
@@ -243,7 +269,7 @@ private[gateway] final class OperationPlanner(
                      )
           _       <-
             if (planned.entities.isEmpty) Right(())
-            else Left(PlanningFailure("More than one Federation entity transition is not supported by this gateway."))
+            else Left(PlanningFailure("More than one entity transition is not supported by this gateway."))
         } yield planned.downstream :: values
       }
       .map(_.reverse)
@@ -321,8 +347,9 @@ private[gateway] object OperationPlanner {
     source: String,
     mergePath: Vector[String],
     entityType: String,
-    key: RequiredSelection,
-    typename: RequiredSelection,
+    keys: List[RequiredSelection],
+    typename: Option[RequiredSelection],
+    lookup: ComposedGraph.EntityLookup,
     fields: List[Field]
   )
 
@@ -334,8 +361,9 @@ private[gateway] object OperationPlanner {
     dependencySource: String,
     mergePath: Vector[String],
     entityType: String,
-    key: RequiredSelection,
-    typename: RequiredSelection,
+    keys: List[RequiredSelection],
+    typename: Option[RequiredSelection],
+    lookup: ComposedGraph.EntityLookup,
     fields: List[Field]
   )
 

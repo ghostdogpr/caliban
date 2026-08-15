@@ -73,7 +73,7 @@ object Gateway {
           document    <- schema.document.mapError(error => s"[${subgraph.name}] ${error.getMessage}")
           rootDocument = ensureFederationQuery(document, federation)
           rootType    <- toRootType(subgraph.name, rootDocument)
-        } yield SchemaContribution(subgraph.name, rootType, document, federation)
+        } yield SchemaContribution(subgraph.name, rootType, document, federation, subgraph.lookups)
       case Source.Local(graph)                  =>
         val document   = graph.toDocument
         val federation = SchemaComposition.isFederation(document)
@@ -82,7 +82,7 @@ object Gateway {
           _        <- ZIO
                         .fromEither(graph.interpreterEither)
                         .mapError(error => s"[${subgraph.name}] ${error.getMessage}")
-        } yield SchemaContribution(subgraph.name, rootType, document, federation)
+        } yield SchemaContribution(subgraph.name, rootType, document, federation, subgraph.lookups)
     }
 
   private def makeSource[R](subgraph: Subgraph[R], backend: Option[SttpClient])(implicit

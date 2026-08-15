@@ -11,8 +11,16 @@ import zio.{ IO, ZIO }
  */
 final class Subgraph[-R] private[gateway] (
   private[gateway] val name: String,
-  private[gateway] val source: Subgraph.Source[R]
-)
+  private[gateway] val source: Subgraph.Source[R],
+  private[gateway] val lookups: List[Lookup]
+) {
+
+  /**
+   * Adds an explicit ordinary GraphQL object lookup to this subgraph.
+   */
+  def withLookup(lookup: Lookup): Subgraph[R] =
+    new Subgraph[R](name, source, lookup :: lookups)
+}
 
 object Subgraph {
 
@@ -20,31 +28,31 @@ object Subgraph {
    * Describes an ordinary remote GraphQL graph from pinned SDL.
    */
   def graphql(name: String, endpoint: Uri, schema: String): Subgraph[Any] =
-    new Subgraph[Any](name, Source.Remote(endpoint, SchemaInput.Sdl(schema), federation = false))
+    new Subgraph[Any](name, Source.Remote(endpoint, SchemaInput.Sdl(schema), federation = false), Nil)
 
   /**
    * Describes an ordinary remote GraphQL graph from an already parsed schema document.
    */
   def graphql(name: String, endpoint: Uri, schema: Document): Subgraph[Any] =
-    new Subgraph[Any](name, Source.Remote(endpoint, SchemaInput.Parsed(schema), federation = false))
+    new Subgraph[Any](name, Source.Remote(endpoint, SchemaInput.Parsed(schema), federation = false), Nil)
 
   /**
    * Describes a Federation-enabled remote GraphQL subgraph from pinned SDL.
    */
   def federation(name: String, endpoint: Uri, schema: String): Subgraph[Any] =
-    new Subgraph[Any](name, Source.Remote(endpoint, SchemaInput.Sdl(schema), federation = true))
+    new Subgraph[Any](name, Source.Remote(endpoint, SchemaInput.Sdl(schema), federation = true), Nil)
 
   /**
    * Describes a Federation-enabled remote GraphQL subgraph from an already parsed schema document.
    */
   def federation(name: String, endpoint: Uri, schema: Document): Subgraph[Any] =
-    new Subgraph[Any](name, Source.Remote(endpoint, SchemaInput.Parsed(schema), federation = true))
+    new Subgraph[Any](name, Source.Remote(endpoint, SchemaInput.Parsed(schema), federation = true), Nil)
 
   /**
    * Describes an in-process Caliban graph whose environment is supplied when the gateway executes.
    */
   def local[R](name: String, graph: GraphQL[R]): Subgraph[R] =
-    new Subgraph[R](name, Source.Local(graph))
+    new Subgraph[R](name, Source.Local(graph), Nil)
 
   private[gateway] sealed trait Source[-R]
 

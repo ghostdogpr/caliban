@@ -316,7 +316,8 @@ private[gateway] final class GatewayRuntimeImpl[-R](
         val values          = fields.toMap
         val privateTypename = entities
           .find(_.mergePath == path)
-          .flatMap(route => values.get(route.typename.responseName))
+          .flatMap(_.typename)
+          .flatMap(selection => values.get(selection.responseName))
         val clientTypename  = field.fields
           .find(_.name == "__typename")
           .flatMap(child => values.get(child.aliasedName))
@@ -362,18 +363,19 @@ private[gateway] final class GatewayRuntimeImpl[-R](
       route.client.zip(route.downstream).map { case (client, downstream) =>
         val entity = plan.entities.find(_.mergePath.headOption.contains(client.aliasedName))
         val fields = flatten(downstream.fields).map { path =>
-          entity match {
-            case Some(join) if path == join.key.responseName      => s"${join.key.field} (key)"
-            case Some(join) if path == join.typename.responseName => s"${join.typename.field} (key)"
-            case _                                                => path
-          }
+          entity
+            .flatMap(join =>
+              join.keys.find(_.responseName == path).orElse(join.typename.filter(_.responseName == path))
+            )
+            .map(selection => s"${selection.field} (key)")
+            .getOrElse(path)
         }
         s"fetch ${route.source} at $$.${client.aliasedName} fields ${fields.mkString("[", ", ", "]")}"
       }
     }
     val joins  = plan.entities.map(route =>
       s"fetch ${route.source} after ${route.dependencySource} at $$.${route.mergePath.mkString(".")} " +
-        s"via ${route.entityType}(${route.key.field}) fields ${flatten(route.fields).mkString("[", ", ", "]")}"
+        s"via ${route.entityType}(${route.keys.map(_.field).mkString(",")}) fields ${flatten(route.fields).mkString("[", ", ", "]")}"
     )
     (header :: roots ::: joins).mkString("\n")
   }

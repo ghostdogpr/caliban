@@ -203,7 +203,7 @@ object EntitySpec extends ZIOSpecDefault {
           errors.map(_.path) == List(List(PathValue.Key("product"))),
           errors.map(_.extensions) == List(Some(extensions)),
           errors.forall(_.msg != "Remote GraphQL request failed."),
-          errors.forall(!_.msg.startsWith("Remote entity response"))
+          errors.forall(!_.msg.startsWith("Entity lookup response"))
         )
       },
       test("executes one Federation entity join through the executable plan") {
@@ -771,9 +771,9 @@ object EntitySpec extends ZIOSpecDefault {
           },
           values.lift(2).flatMap(field(_, "reviews")).contains(NullValue),
           errors.map(_.msg) == List(
-            "Remote entity response contained a duplicate result for 'Product.id'.",
-            "Remote entity response contained an unexpected result for 'Product.id'.",
-            "Remote entity response omitted a result for 'Product.id'."
+            "Entity lookup response contained a duplicate result for 'Product(id)'.",
+            "Entity lookup response contained an unexpected result for 'Product(id)'.",
+            "Entity lookup response omitted a result for 'Product(id)'."
           ),
           errors.map(_.path) == List(
             List(PathValue.Key("products")),
@@ -927,7 +927,7 @@ object EntitySpec extends ZIOSpecDefault {
           missing._1 == List("Cannot route 'Product.reviews': source 'products' does not provide key field 'id'."),
           lookup._1 == List("Cannot route 'Product.reviews': source 'reviews' has no resolvable entity lookup."),
           wrongEntity._1 == List("Cannot route 'Product.reviews': source 'reviews' has no resolvable entity lookup."),
-          cycle._1 == List("Federation routing cycle detected: products -> reviews -> products."),
+          cycle._1 == List("Entity routing cycle detected: products -> reviews -> products."),
           missing._2.isEmpty,
           missing._3.isEmpty,
           lookup._2.isEmpty,
