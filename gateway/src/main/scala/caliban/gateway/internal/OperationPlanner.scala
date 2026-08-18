@@ -3,6 +3,7 @@ package caliban.gateway.internal
 import caliban.execution.{ ExecutionRequest, Field }
 import caliban.gateway.internal.OperationPlanner._
 import caliban.introspection.adt.__Type
+import caliban.parsing.SourceMapper
 import caliban.parsing.adt.{ Directive, Document, OperationType, Selection }
 import caliban.schema.Types
 
@@ -30,7 +31,9 @@ private[gateway] final class OperationPlanner(
                       source,
                       Vector(field.aliasedName),
                       Set.empty,
-                      availableKeys(source, field.fieldType.innerType)
+                      availableKeys(source, field.fieldType.innerType),
+                      Nil,
+                      Set.empty
                     )
           _      <- Either.cond(
                       plan.pending.isEmpty,
@@ -67,6 +70,7 @@ private[gateway] final class OperationPlanner(
             entity.mergePath,
             entity.entityType,
             entity.keys,
+            entity.requirements,
             entity.typename,
             entity.lookup,
             entity.fields,
@@ -95,7 +99,7 @@ private[gateway] final class OperationPlanner(
       val entities                                                                        = baseEntities.map { route =>
         if (!route.requiresKeyEnrichment) route
         else {
-          val required     = route.keys.flatMap(selectionPaths).map(route.mergePath ++ _).toSet
+          val required     = (route.keys ::: route.requirements).flatMap(selectionPaths).map(route.mergePath ++ _).toSet
           val dependencies = baseEntities.iterator
             .filter(_.root == route.root)
             .filterNot(candidate => dependsOn(candidate, route.id, Set.empty))
@@ -161,22 +165,38 @@ private[gateway] final class OperationPlanner(
     source: String,
     path: Vector[String],
     trail: Set[TransitionKey],
-    availableExternal: List[ComposedGraph.KeyField]
+    availableExternal: List[ComposedGraph.KeyField],
+    provided: List[Field],
+    satisfiedRequirements: Set[(String, String)]
   ): Either[PlanningFailure, PlannedField] = {
     val parentType = field.fieldType.innerType
     val typeName   = parentType.name.getOrElse("")
-    val local      = mutable.ListBuffer.empty[Field]
-    val remote     = mutable.LinkedHashMap.empty[String, mutable.ListBuffer[Field]]
+    val scoped     = mergeFields(
+      provided ::: fieldSetFields(
+        graph.provided(source, field.parentType.flatMap(_.name).getOrElse(""), field.name),
+        field.fieldType
+      )
+    )
+    val local      = mutable.ListBuffer.empty[(Field, List[Field])]
+    val remote     = mutable.LinkedHashMap.empty[(String, List[Selection]), mutable.ListBuffer[Field]]
     var failure    = Option.empty[PlanningFailure]
 
-    field.collectFields(typeName).foreach { child =>
-      val provider =
+    selectedFields(field, parentType, typeName).foreach { child =>
+      val childParent = child.parentType.flatMap(_.name).getOrElse(typeName)
+      val supplied    = scoped.find(candidate => sameField(candidate, child))
+      val provider    =
         if (child.name == "__typename") Some(source)
-        else graph.source(typeName, child.name, source)
+        else supplied.map(_ => source).orElse(graph.source(childParent, child.name, source))
 
       provider match {
-        case Some(`source`) => local += child
-        case Some(other)    => remote.getOrElseUpdate(other, mutable.ListBuffer.empty) += child
+        case Some(`source`) =>
+          val requirements = graph.required(source, childParent, child.name)
+          if (requirements.isEmpty || satisfiedRequirements.contains(childParent -> child.name))
+            local += child -> supplied.toList.flatMap(_.fields)
+          else remote.getOrElseUpdate(source -> requirements, mutable.ListBuffer.empty) += child
+        case Some(other)    =>
+          val requirements = graph.required(other, childParent, child.name)
+          remote.getOrElseUpdate(other -> requirements, mutable.ListBuffer.empty) += child
         case None           =>
           if (failure.isEmpty) failure = Some(PlanningFailure(s"No subgraph owns field '$typeName.${child.name}'."))
       }
@@ -188,8 +208,8 @@ private[gateway] final class OperationPlanner(
         for {
           localPlan <- planLocalFields(source, path, trail, local.toList)
           candidates = groupPending(
-                         remote.iterator.map { case (target, fields) =>
-                           PendingSelection(target, fields.toList)
+                         remote.iterator.map { case ((target, requirements), fields) =>
+                           PendingSelection(target, fields.toList, requirements)
                          }.toList :::
                            localPlan.pending
                        )
@@ -201,6 +221,7 @@ private[gateway] final class OperationPlanner(
                          typeName,
                          trail,
                          availableExternal,
+                         scoped,
                          localPlan.downstream,
                          localPlan.entities,
                          candidates
@@ -213,11 +234,11 @@ private[gateway] final class OperationPlanner(
     source: String,
     path: Vector[String],
     trail: Set[TransitionKey],
-    local: List[Field]
+    local: List[(Field, List[Field])]
   ): Either[PlanningFailure, PlannedSelections] =
     local
       .foldLeft[Either[PlanningFailure, PlannedSelections]](Right(PlannedSelections(Nil, Nil, Nil))) {
-        case (result, child) =>
+        case (result, (child, provided)) =>
           for {
             values  <- result
             planned <- planField(
@@ -225,7 +246,9 @@ private[gateway] final class OperationPlanner(
                          source,
                          path :+ child.aliasedName,
                          trail,
-                         availableKeys(source, child.fieldType.innerType)
+                         availableKeys(source, child.fieldType.innerType),
+                         provided,
+                         Set.empty
                        )
           } yield PlannedSelections(
             planned.downstream :: values.downstream,
@@ -243,6 +266,7 @@ private[gateway] final class OperationPlanner(
     typeName: String,
     trail: Set[TransitionKey],
     availableExternal: List[ComposedGraph.KeyField],
+    provided: List[Field],
     selected: List[Field],
     nestedEntities: List[PlannedEntity],
     pending: List[PendingSelection]
@@ -261,6 +285,7 @@ private[gateway] final class OperationPlanner(
                        typeName,
                        trail,
                        availableExternal,
+                       provided,
                        current,
                        candidate
                      )
@@ -278,6 +303,7 @@ private[gateway] final class OperationPlanner(
     typeName: String,
     trail: Set[TransitionKey],
     availableExternal: List[ComposedGraph.KeyField],
+    provided: List[Field],
     state: TransitionState,
     candidate: PendingSelection
   ): Either[PlanningFailure, TransitionState] = {
@@ -293,19 +319,41 @@ private[gateway] final class OperationPlanner(
 
       lookup match {
         case Right(selection) =>
+          val requirementData                =
+            injectRequirementFields(field, state.downstream, fieldSetFields(candidate.requirements, parentType))
+          val (requiredFields, requirements) = requirementData
           for {
+            requirementPlan             <- planRequirements(
+                                             field,
+                                             source,
+                                             path,
+                                             trail + transition,
+                                             availableExternal,
+                                             provided,
+                                             requiredFields
+                                           )
+            _                           <- Either.cond(
+                                             requirementPlan.pending.isEmpty,
+                                             (),
+                                             PlanningFailure(unsatisfiedMessage(requirementPlan.pending))
+                                           )
+            enrichedDownstream           = mergeFields(state.downstream.toList ::: requirementPlan.downstream.fields).toVector
             planned                     <- planField(
                                              field.copy(fields = candidate.fields),
                                              target,
                                              path,
                                              trail + transition,
-                                             selection.lookup.key
+                                             selection.lookup.key,
+                                             Nil,
+                                             candidate.fields.iterator
+                                               .map(child => child.parentType.flatMap(_.name).getOrElse(typeName) -> child.name)
+                                               .toSet
                                            )
             keyData                      = selection match {
                                              case LookupSelection.Static(value, fields) =>
-                                               injectKeyFields(field, parentType, state.downstream, fields, value)
+                                               injectKeyFields(field, parentType, enrichedDownstream, fields, value)
                                              case LookupSelection.Client(value, fields) =>
-                                               injectSelectedKeys(field, parentType, state.downstream, fields, value)
+                                               injectSelectedKeys(field, parentType, enrichedDownstream, fields, value)
                                            }
             (downstream, keys, typename) = keyData
             entity                       = PlannedEntity(
@@ -314,13 +362,18 @@ private[gateway] final class OperationPlanner(
                                              path,
                                              typeName,
                                              keys,
+                                             requirements,
                                              typename,
                                              selection.lookup,
                                              planned.downstream.fields,
                                              planned.entities,
-                                             selection.requiresKeyEnrichment
+                                             selection.requiresKeyEnrichment || requirementPlan.entities.nonEmpty
                                            )
-            next                         = TransitionState(downstream, state.entities ::: (entity :: Nil), state.pending)
+            next                         = TransitionState(
+                                             downstream,
+                                             state.entities ::: requirementPlan.entities ::: (entity :: Nil),
+                                             state.pending
+                                           )
             resolved                    <- planned.pending.foldLeft[Either[PlanningFailure, TransitionState]](Right(next)) {
                                              case (result, pending) =>
                                                result.flatMap(current =>
@@ -332,6 +385,7 @@ private[gateway] final class OperationPlanner(
                                                    typeName,
                                                    trail + transition,
                                                    availableExternal,
+                                                   provided,
                                                    current,
                                                    pending
                                                  )
@@ -339,7 +393,7 @@ private[gateway] final class OperationPlanner(
                                            }
           } yield resolved
         case Left(_)          =>
-          val candidates = bridgeSources(typeName, source, target, trail)
+          val candidates = bridgeSources(typeName, source, target)
           val attempts   = candidates.iterator.map(next =>
             planTransition(
               field,
@@ -349,8 +403,9 @@ private[gateway] final class OperationPlanner(
               typeName,
               trail + transition,
               availableExternal,
+              provided,
               state,
-              PendingSelection(next, candidate.fields)
+              PendingSelection(next, candidate.fields, Nil)
             )
           )
           attempts.collect { case Right(next) if next.pending == state.pending => next }.toList
@@ -404,8 +459,109 @@ private[gateway] final class OperationPlanner(
       } yield next :: rest
     }
 
+  private def fieldSetFields(selections: List[Selection], parentType: __Type): List[Field] =
+    if (selections.isEmpty) Nil
+    else
+      Field(
+        selectionSet = selections,
+        fragments = Map.empty,
+        variableValues = Map.empty,
+        variableDefinitions = Nil,
+        fieldType = parentType,
+        sourceMapper = SourceMapper.empty,
+        directives = Nil,
+        rootType = graph.rootType
+      ).fields
+
+  private def sameField(left: Field, right: Field): Boolean =
+    left.name == right.name && left.arguments == right.arguments
+
+  private def selectedFields(field: Field, parentType: __Type, typeName: String): List[Field] =
+    parentType.kind match {
+      case caliban.introspection.adt.__TypeKind.INTERFACE | caliban.introspection.adt.__TypeKind.UNION => field.fields
+      case _                                                                                           => field.collectFields(typeName)
+    }
+
+  private def injectRequirementFields(
+    field: Field,
+    selected: Vector[Field],
+    requirements: List[Field]
+  ): (List[Field], List[RequiredSelection]) = {
+    val usedNames = field.fields.iterator.map(_.aliasedName).toSet ++ selected.iterator.map(_.aliasedName)
+    requirements
+      .foldLeft((List.empty[Field], List.empty[RequiredSelection], usedNames)) {
+        case ((fields, selections, names), requirement) =>
+          val alias                = privateAlias(requirementAliasBase(requirement), names)
+          val (aliased, selection) = requirementSelection(requirement.copy(alias = Some(alias)))
+          (
+            aliased :: fields,
+            selection :: selections,
+            names + alias
+          )
+      } match {
+      case (fields, selections, _) => fields.reverse -> selections.reverse
+    }
+  }
+
+  private def planRequirements(
+    field: Field,
+    source: String,
+    path: Vector[String],
+    trail: Set[TransitionKey],
+    availableExternal: List[ComposedGraph.KeyField],
+    provided: List[Field],
+    requirements: List[Field]
+  ): Either[PlanningFailure, PlannedField] =
+    if (requirements.isEmpty) Right(PlannedField(field.copy(fields = Nil), Nil, Nil))
+    else planField(field.copy(fields = requirements), source, path, trail, availableExternal, provided, Set.empty)
+
+  private def requirementSelection(field: Field): (Field, RequiredSelection) = {
+    val prepared         = field.fields.map(requirementSelection)
+    val children         = prepared.map(_._1)
+    val selections       = prepared.map(_._2)
+    val needsRuntimeType = selections.exists(_.conditions.nonEmpty)
+    val runtimeType      =
+      if (needsRuntimeType) {
+        val used  = children.iterator.map(_.aliasedName).toSet
+        val alias = privateAlias("_caliban_gateway_requirement_typename", used)
+        Some(alias -> Field("__typename", Types.string, Some(field.fieldType.innerType), alias = Some(alias)))
+      } else None
+    val downstream       = field.copy(fields = children ::: runtimeType.toList.map(_._2))
+    downstream -> RequiredSelection(
+      field.name,
+      field.aliasedName,
+      selections,
+      field._condition.orElse(field.targets),
+      runtimeType.map(_._1)
+    )
+  }
+
+  private def requirementAliasBase(field: Field): String = {
+    def parts(value: Field): List[String] =
+      value.name ::
+        value.arguments.toList.sortBy(_._1).flatMap { case (name, argument) =>
+          name :: argument.toInputString :: Nil
+        } :::
+        value.targets.toList.flatMap(_.toList.sorted) :::
+        value.fields.flatMap(parts)
+
+    val suffix = parts(field)
+      .mkString("_")
+      .map(character =>
+        if (
+          character >= 'a' && character <= 'z' ||
+          character >= 'A' && character <= 'Z' ||
+          character >= '0' && character <= '9' ||
+          character == '_'
+        ) character
+        else '_'
+      )
+      .mkString
+    s"_caliban_gateway_requirement_$suffix"
+  }
+
   private def wrapPending(field: Field, pending: List[PendingSelection]): List[PendingSelection] =
-    pending.map(value => PendingSelection(value.source, field.copy(fields = value.fields) :: Nil))
+    pending.map(value => value.copy(fields = field.copy(fields = value.fields) :: Nil))
 
   private def injectKeyFields(
     field: Field,
@@ -540,24 +696,25 @@ private[gateway] final class OperationPlanner(
   private def bridgeSources(
     typeName: String,
     source: String,
-    target: String,
-    trail: Set[TransitionKey]
-  ): List[String] = {
-    val ancestors = trail.iterator.flatMap(transition => Iterator(transition.source, transition.target)).toSet
+    target: String
+  ): List[String] =
     graph
       .lookups(target, typeName)
       .iterator
       .flatMap(lookup => graph.sourcesForKey(typeName, lookup.key).iterator)
-      .filter(candidate => candidate != source && candidate != target && !ancestors.contains(candidate))
+      .filter(candidate => candidate != source && candidate != target)
       .toList
       .distinct
       .sorted
-  }
 
   private def groupPending(values: List[PendingSelection]): List[PendingSelection] = {
-    val grouped = mutable.LinkedHashMap.empty[String, mutable.ListBuffer[Field]]
-    values.foreach(value => grouped.getOrElseUpdate(value.source, mutable.ListBuffer.empty) ++= value.fields)
-    grouped.iterator.map { case (source, fields) => PendingSelection(source, mergeFields(fields.toList)) }.toList
+    val grouped = mutable.LinkedHashMap.empty[(String, List[Selection]), mutable.ListBuffer[Field]]
+    values.foreach(value =>
+      grouped.getOrElseUpdate(value.source -> value.requirements, mutable.ListBuffer.empty) ++= value.fields
+    )
+    grouped.iterator.map { case ((source, requirements), fields) =>
+      PendingSelection(source, mergeFields(fields.toList), requirements)
+    }.toList
   }
 
   private def entityCount(entities: List[PlannedEntity]): Int =
@@ -642,7 +799,9 @@ private[gateway] object OperationPlanner {
   final case class RequiredSelection(
     field: String,
     responseName: String,
-    children: List[RequiredSelection] = Nil
+    children: List[RequiredSelection] = Nil,
+    conditions: Option[Set[String]] = None,
+    runtimeTypeAlias: Option[String] = None
   )
 
   private final case class RequiredKeyField(
@@ -664,7 +823,7 @@ private[gateway] object OperationPlanner {
     candidate
   }
 
-  private final case class PendingSelection(source: String, fields: List[Field])
+  private final case class PendingSelection(source: String, fields: List[Field], requirements: List[Selection])
 
   private final case class TransitionKey(source: String, target: String, entityType: String, fields: List[String]) {
     def render: String = s"$source -> $target for $entityType(${fields.mkString(",")})"
@@ -713,6 +872,7 @@ private[gateway] object OperationPlanner {
     mergePath: Vector[String],
     entityType: String,
     keys: List[RequiredSelection],
+    requirements: List[RequiredSelection],
     typename: Option[RequiredSelection],
     lookup: ComposedGraph.EntityLookup,
     fields: List[Field],
@@ -731,6 +891,7 @@ private[gateway] object OperationPlanner {
     mergePath: Vector[String],
     entityType: String,
     keys: List[RequiredSelection],
+    requirements: List[RequiredSelection],
     typename: Option[RequiredSelection],
     lookup: ComposedGraph.EntityLookup,
     fields: List[Field],

@@ -5,32 +5,22 @@ circular-reference-interface	1	failing	ticket-15	Cyclic abstract selections are 
 corrupted-supergraph-node-id	0,1,2,3,4,5,6,7,8,9	failing	ticket-15	Shared-root and abstract entity routing are owned by Ticket 15.
 enum-intersection	0,1,2,3,4	failing	ticket-13	Input and output enum composition is owned by Ticket 13.
 fed1-external-extends-resolvable	0	failing	ticket-13	External-only field ownership is owned by Ticket 13.
-include-skip	2,3	failing	ticket-15	Conditional routed selections are owned by Ticket 15.
 input-object-intersection	0,1,2	failing	ticket-13	Input-object composition is owned by Ticket 13.
 interface-object-indirect-extension	0	failing	ticket-15	Interface-object entity routing is owned by Ticket 15.
-interface-object-with-requires	0,1,2,3,4,5,6	failing	ticket-12	Interface-object requirements are owned by Ticket 12.
-keys-mashup	0	failing	ticket-12	The remaining case requires @requires-driven return routing owned by Ticket 12.
+interface-object-with-requires	0,1,2,3,4,5,6	failing	ticket-15	Interface-object runtime routing is owned by Ticket 15.
 mutations	0,1,2,3	failing	ticket-16	Cross-source mutation scheduling is explicitly deferred to Ticket 16.
-nested-provides	0,1	failing	ticket-12	Nested provided-field routing is owned by Ticket 12.
 node	0	failing	ticket-15	Interface entity enrichment is owned by Ticket 15.
 non-resolvable-interface-object	0,1,2,3,4,5,6	deferred	ticket-24	The fixture requires a product-specific option to accept non-resolvable interface objects.
 override-type-interface	0,1,2,3	failing	ticket-13	Override ownership across object and interface fields is owned by Ticket 13.
-override-with-requires	0,2	failing	ticket-12	Requirements on overridden fields are owned by Ticket 12.
 partial-union	0,1	failing	ticket-13	Partial union composition is owned by Ticket 13.
 partial-union-complex	0,1,2,3,4	failing	ticket-15	Runtime-type routing for partial unions is owned by Ticket 15.
-provides-on-interface	0,1	failing	ticket-12	Provided interface fields are owned by Ticket 12.
-provides-on-union	0,1	failing	ticket-12	Provided union fields are owned by Ticket 12.
-requires-circular	0,1	failing	ticket-12	Requirement-cycle diagnostics are owned by Ticket 12.
-requires-interface	0,1	failing	ticket-12	Interface requirements are owned by Ticket 12.
-requires-requires	0,1,2,3,4	failing	ticket-12	Multi-hop requirement chains are owned by Ticket 12.
-requires-with-argument	0,1,2,3,4	failing	ticket-12	Argument-bearing requirements are owned by Ticket 12.
-requires-with-argument-conflict	0	failing	ticket-12	Requirement argument conflicts are owned by Ticket 12.
-requires-with-fragments	0,1,2,3,4,5	failing	ticket-12	Fragment-bearing requirements are owned by Ticket 12.
+provides-on-interface	0,1	failing	ticket-15	Provided fields on abstract runtime selections are owned by Ticket 15.
+provides-on-union	0,1	failing	ticket-15	Provided fields on abstract runtime selections are owned by Ticket 15.
+requires-with-fragments	0,4	failing	ticket-13	The remaining fragment cases depend on inaccessible runtime-type visibility owned by Ticket 13.
 shared-root	0,1	failing	ticket-13	Shared root ownership is owned by Ticket 13.
 simple-inaccessible	2,3	failing	ticket-13	Inaccessible schema visibility is owned by Ticket 13.
 simple-interface-object	0,1,2,3,4,5,6,7,8,9,10,11,12	failing	ticket-15	Interface-object runtime selections are owned by Ticket 15.
 simple-override	0,1	failing	ticket-13	Override ownership is owned by Ticket 13.
-simple-requires-provides	5,6,7,10,11	failing	ticket-12	Requirements and provided fields are owned by Ticket 12.
 typename	0,1,2,3,4,5	failing	ticket-15	Cross-source runtime typename semantics are owned by Ticket 15.
 unavailable-override	0,1	failing	ticket-13	Unavailable override ownership is owned by Ticket 13.
 union-interface-distributed	0,1,4,5,7,9	failing	ticket-15	Distributed union and interface selections are owned by Ticket 15.

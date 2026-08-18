@@ -22,6 +22,58 @@ private[gateway] object GatewayTestSupport {
 
   val invalidResponse = """{"unexpected":true}"""
 
+  val authoredFederationDirectives =
+    """
+      |directive @link(url: String!, as: String, import: [link__Import], for: link__Purpose) repeatable on SCHEMA
+      |directive @key(fields: federation__FieldSet!, resolvable: Boolean = true) repeatable on OBJECT | INTERFACE
+      |directive @external on FIELD_DEFINITION
+      |directive @shareable repeatable on OBJECT | FIELD_DEFINITION
+      |scalar link__Import
+      |enum link__Purpose { SECURITY EXECUTION }
+      |scalar federation__FieldSet
+      |""".stripMargin
+
+  val federationDirectives =
+    """
+      |directive @link(url: String!, as: String, import: [link__Import], for: link__Purpose) repeatable on SCHEMA
+      |directive @key(fields: federation__FieldSet!, resolvable: Boolean = true) repeatable on OBJECT | INTERFACE
+      |directive @external on FIELD_DEFINITION
+      |directive @shareable repeatable on OBJECT | FIELD_DEFINITION
+      |directive @requires(fields: federation__FieldSet!) on FIELD_DEFINITION
+      |directive @provides(fields: federation__FieldSet!) on FIELD_DEFINITION
+      |scalar link__Import
+      |enum link__Purpose { SECURITY EXECUTION }
+      |scalar federation__FieldSet
+      |scalar _Any
+      |type _Service { sdl: String! }
+      |""".stripMargin
+
+  val productsFederationSchema =
+    s"""
+       |schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key"]) { query: Query }
+       |$federationDirectives
+       |union _Entity = Product
+       |type Query {
+       |  product(id: ID!): Product
+       |  _entities(representations: [_Any!]!): [_Entity]!
+       |  _service: _Service!
+       |}
+       |type Product @key(fields: "id") { id: ID! name: String! }
+       |""".stripMargin
+
+  val reviewsFederationSchema =
+    s"""
+       |schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key", "@external"]) { query: Query }
+       |$federationDirectives
+       |union _Entity = Product
+       |type Query {
+       |  _entities(representations: [_Any!]!): [_Entity]!
+       |  _service: _Service!
+       |}
+       |type Product @key(fields: "id") { id: ID! @external reviews: [Review!]! }
+       |type Review { body: String! }
+       |""".stripMargin
+
   def stub(responses: String*): ZIO[Server with Ref[Int], Nothing, Stub] =
     stubWith(ZIO.unit, responses: _*)
 

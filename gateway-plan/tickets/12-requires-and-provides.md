@@ -4,14 +4,14 @@
 
 **Blocked by:** 11 — Support key and multi-hop routing breadth
 
-**Status:** ready-for-agent
+**Status:** completed
 
 ## Completion criteria
 
-- [ ] Field-set parsing covers nested fields and fragments used by supported Federation versions.
-- [ ] Requirements are gathered recursively before dependent source calls and are never projected unless requested.
-- [ ] Provided fields satisfy downstream work only within the scope where they are promised.
-- [ ] Requirement chains, conflicts, and cycles have deterministic planning behavior.
-- [ ] Argument-bearing requirements supported by the selected Federation baseline preserve argument semantics.
-- [ ] Relevant audit groups and focused partial-failure tests pass through `GatewayRuntime`.
-- [ ] The pinned audit is rerun: every newly passing case is removed from `expectations.tsv`, ownership remains accurate for failures, and no new deferrals are introduced.
+- [x] Field-set parsing covers nested fields and fragments used by supported Federation versions.
+- [x] Requirements are gathered recursively before dependent source calls and are never projected unless requested.
+- [x] Provided fields satisfy downstream work only within the scope where they are promised.
+- [x] Requirement chains, conflicts, and cycles have deterministic planning behavior.
+- [x] Argument-bearing requirements supported by the selected Federation baseline preserve argument semantics.
+- [x] Relevant audit groups and focused partial-failure tests pass through `GatewayRuntime`.
+- [x] The pinned audit is rerun: every newly passing case is removed from `expectations.tsv`, ownership remains accurate for failures, and no new deferrals are introduced.
