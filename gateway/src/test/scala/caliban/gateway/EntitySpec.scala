@@ -785,11 +785,30 @@ object EntitySpec extends ZIOSpecDefault {
       }
     ),
     suite("Federation schemas and routing")(
+      test("retains a conventional Query root alongside a schema link extension") {
+        val linkedSchema =
+          s"""
+             |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key"])
+             |$authoredFederationDirectives
+             |type Query { product: Product }
+             |type Product @key(fields: "id") { id: ID! name: String! }
+             |""".stripMargin
+
+        for {
+          products <- stub("""{"data":{"product":{"id":"p1","name":"Table"}}}""")
+          gateway  <- Gateway.compose(Subgraph.federation("products", products.endpoint, linkedSchema)).build
+          response <- gateway.execute("{ product { id name } }")
+        } yield assertTrue(
+          response.errors.isEmpty,
+          field(response.data, "product").flatMap(field(_, "id")).contains(StringValue("p1")),
+          field(response.data, "product").flatMap(field(_, "name")).contains(StringValue("Table"))
+        )
+      },
       test("executes a join from entity-only authored Federation service SDL with namespaced metadata") {
         val productResponse =
           """{"data":{"product":{"name":"Table","_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}}}"""
         val reviewResponse  =
-          """{"data":{"_entities":[{"reviews":[{"body":"Solid"}],"_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product"}]}}"""
+          """{"data":{"_entities":[{"reviews":[{"body":"Solid"}]}]}}"""
         val productsSchema  = authoredProductsFederationSchema
           .replace(", import: [\"@key\"]", ", as: \"fed\"")
           .replace("federation__FieldSet", "fed__FieldSet")
@@ -834,7 +853,9 @@ object EntitySpec extends ZIOSpecDefault {
           directives.exists(names => !names.contains("fed__key") && !names.contains("fed__external")),
           sentA.size == 1,
           sentB.size == 1,
-          sentB.head.query.exists(_.contains("_entities"))
+          sentB.head.query.exists(query =>
+            query.contains("_entities") && !query.contains("_caliban_gateway_entity_key")
+          )
         )
       },
       test("hides imported Federation directive aliases from the client schema") {

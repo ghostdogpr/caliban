@@ -14,3 +14,4 @@
 - [ ] Failure and null completion in one mutation field follow GraphQL semantics without reordering later fields.
 - [ ] Coalescing or batching never crosses a top-level mutation fence.
 - [ ] Relevant audit cases and an explicit cross-source ordering test pass.
+- [ ] The pinned audit is rerun: every newly passing case is added to `supported-cases.txt`, ownership remains accurate for failures, and a suite is marked supported once none of its cases fail. No new deferrals are introduced.

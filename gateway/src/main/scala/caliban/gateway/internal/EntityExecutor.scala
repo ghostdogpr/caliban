@@ -67,10 +67,17 @@ private[gateway] final class EntityExecutor[-R](sources: Map[String, GraphQLSour
     }
   }
 
-  private def federationCorrelation(route: EntityRoute, routes: List[EntityRoute]): EntityCorrelation.Federation = {
+  private def federationCorrelation(
+    route: EntityRoute,
+    routes: List[EntityRoute],
+    fields: List[String]
+  ): EntityCorrelation.Federation = {
     val usedNames = routes.iterator.flatMap(_.fields.iterator.map(_.aliasedName)).toSet
-    val keys      =
-      correlationKeys(route.keys.map(key => key.field -> key.field), usedNames, "_caliban_gateway_entity_key")
+    val keys      = correlationKeys(
+      route.keys.collect { case key if fields.contains(key.field) => key.field -> key.field },
+      usedNames,
+      "_caliban_gateway_entity_key"
+    )
     val names     = usedNames ++ keys.iterator.map(_.selection.responseName)
     EntityCorrelation.Federation(
       IdentitySelections(
@@ -124,8 +131,10 @@ private[gateway] final class EntityExecutor[-R](sources: Map[String, GraphQLSour
     original: GraphQLRequest
   ): Option[LookupExecution] =
     route.lookup.operation match {
-      case ComposedGraph.LookupOperation.FederationEntities                                                           =>
-        val correlation = federationCorrelation(route, routes)
+      case ComposedGraph.LookupOperation.FederationEntities(correlationFields)                                        =>
+        val correlation =
+          if (correlationFields.nonEmpty) federationCorrelation(route, routes, correlationFields)
+          else EntityCorrelation.Ordered
         val variables   = Map("representations" -> InputListValue(batch.entries.map(federationRepresentation)))
         val entityField = Selection.Field(
           None,

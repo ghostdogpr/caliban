@@ -134,14 +134,15 @@ object Gateway {
       .mapError(error => s"[$name] ${error.getMessage}")
 
   private def ensureFederationQuery(document: Document, federation: Boolean): Document = {
-    val schemaExtensions = document.typeExtensions.collect { case extension: SchemaExtension => extension }
-    val hasSchema        = document.schemaDefinition.nonEmpty || schemaExtensions.nonEmpty
-    val hasQuery         =
-      if (hasSchema)
-        document.schemaDefinition.flatMap(_.query).nonEmpty || schemaExtensions.exists(_.query.nonEmpty)
-      else document.objectTypeDefinitions.exists(_.name == "Query")
+    val schemaExtensions     = document.typeExtensions.collect { case extension: SchemaExtension => extension }
+    val hasDeclaredQuery     =
+      document.schemaDefinition.flatMap(_.query).nonEmpty || schemaExtensions.exists(_.query.nonEmpty)
+    val hasConventionalQuery =
+      document.schemaDefinition.isEmpty && document.objectTypeDefinitions.exists(_.name == "Query")
 
-    if (!federation || hasQuery) document
+    if (!federation || hasDeclaredQuery) document
+    else if (hasConventionalQuery)
+      Document(SchemaDefinition(Nil, Some("Query"), None, None, None) :: document.definitions, document.sourceMapper)
     else {
       val names    = document.typeDefinitions.iterator.map(_.name).toSet
       val rootName = Iterator

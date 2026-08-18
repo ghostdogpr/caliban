@@ -1,0 +1,47 @@
+suite	disposition	owner	rationale
+abstract-types	failing	ticket-15	Abstract selections and runtime-type routing are owned by Ticket 15.
+child-type-mismatch	failing	ticket-13	Cross-subgraph type compatibility is owned by Ticket 13.
+circular-reference-interface	failing	ticket-15	Cyclic abstract selections are owned by Ticket 15.
+complex-entity-call	failing	ticket-11	Compound and competing entity keys are owned by Ticket 11.
+corrupted-supergraph-node-id	failing	ticket-15	Shared-root and abstract entity routing are owned by Ticket 15.
+enum-intersection	failing	ticket-13	Input and output enum composition is owned by Ticket 13.
+fed1-external-extends	failing	ticket-13	Federation 1 ownership normalization is owned by Ticket 13.
+fed1-external-extends-resolvable	failing	ticket-11	Resolvable Federation 1 entity keys are owned by Ticket 11.
+fed1-external-extension	failing	ticket-13	Federation 1 extension ownership is owned by Ticket 13.
+fed2-external-extends	failing	ticket-13	Federation 2 external ownership is owned by Ticket 13.
+fed2-external-extension	failing	ticket-13	Federation 2 extension ownership is owned by Ticket 13.
+include-skip	failing	ticket-15	Conditional routed selections are owned by Ticket 15.
+input-object-intersection	failing	ticket-13	Input-object composition is owned by Ticket 13.
+interface-object-indirect-extension	failing	ticket-11	Interface-object entity routing is owned by Ticket 11.
+interface-object-with-requires	failing	ticket-12	Interface-object requirements are owned by Ticket 12.
+keys-mashup	failing	ticket-11	Multiple key selection and multi-hop routing are owned by Ticket 11.
+mutations	failing	ticket-16	Cross-source mutation scheduling is explicitly deferred to Ticket 16.
+mysterious-external	failing	ticket-13	External field ownership is owned by Ticket 13.
+nested-provides	failing	ticket-12	Nested provided-field routing is owned by Ticket 12.
+node	failing	ticket-15	Interface entity enrichment is owned by Ticket 15.
+non-resolvable-interface-object	deferred	ticket-24	The fixture requires a product-specific option to accept non-resolvable interface objects.
+null-keys	failing	ticket-11	Null entity-key routing is owned by Ticket 11.
+override-type-interface	failing	ticket-13	Override ownership across object and interface fields is owned by Ticket 13.
+override-with-requires	failing	ticket-12	Requirements on overridden fields are owned by Ticket 12.
+parent-entity-call	failing	ticket-11	Parent-directed entity routing is owned by Ticket 11.
+parent-entity-call-complex	failing	ticket-11	Compound parent-directed entity routing is owned by Ticket 11.
+partial-union	failing	ticket-13	Partial union composition is owned by Ticket 13.
+partial-union-complex	failing	ticket-15	Runtime-type routing for partial unions is owned by Ticket 15.
+provides-on-interface	failing	ticket-12	Provided interface fields are owned by Ticket 12.
+provides-on-union	failing	ticket-12	Provided union fields are owned by Ticket 12.
+requires-circular	failing	ticket-12	Requirement-cycle diagnostics are owned by Ticket 12.
+requires-interface	failing	ticket-12	Interface requirements are owned by Ticket 12.
+requires-requires	failing	ticket-12	Multi-hop requirement chains are owned by Ticket 12.
+requires-with-argument	failing	ticket-12	Argument-bearing requirements are owned by Ticket 12.
+requires-with-argument-conflict	failing	ticket-12	Requirement argument conflicts are owned by Ticket 12.
+requires-with-fragments	failing	ticket-12	Fragment-bearing requirements are owned by Ticket 12.
+shared-root	failing	ticket-13	Shared root ownership is owned by Ticket 13.
+simple-entity-call	supported	ticket-10	A single Federation entity transition is already supported by the real gateway runtime.
+simple-inaccessible	failing	ticket-13	Inaccessible schema visibility is owned by Ticket 13.
+simple-interface-object	failing	ticket-15	Interface-object runtime selections are owned by Ticket 15.
+simple-override	failing	ticket-13	Override ownership is owned by Ticket 13.
+simple-requires-provides	failing	ticket-12	Requirements and provided fields are owned by Ticket 12.
+typename	failing	ticket-15	Cross-source runtime typename semantics are owned by Ticket 15.
+unavailable-override	failing	ticket-13	Unavailable override ownership is owned by Ticket 13.
+union-interface-distributed	failing	ticket-15	Distributed union and interface selections are owned by Ticket 15.
+union-intersection	failing	ticket-13	Union composition is owned by Ticket 13.

@@ -14,4 +14,5 @@
 - [ ] Internal selections remain hidden and entity correlation remains stable across hops.
 - [ ] Unsatisfied obligations and dependency cycles fail with deterministic diagnostics rather than runtime guessing.
 - [ ] Relevant audit groups pass, plus focused tests for duplicate values, null keys, and competing keys.
+- [ ] The pinned audit is rerun: every newly passing case is added to `supported-cases.txt`, ownership remains accurate for failures, and a suite is marked supported once none of its cases fail. No new deferrals are introduced.
 - [ ] Route selection deepens the existing plan; it does not introduce a parallel reference plan or lowered execution graph.

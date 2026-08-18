@@ -97,6 +97,7 @@ lazy val allProjects: Seq[ProjectReference] =
     codegenSbt,
     federation,
     gateway,
+    gatewayAudit,
     reporting,
     tracing,
     apolloCompatibility
@@ -721,6 +722,37 @@ lazy val gateway = project
       "dev.zio"                       %% "zio-test-sbt" % zioVersion     % Test
     )
   )
+
+lazy val gatewayAudit = project
+  .in(file("gateway-audit"))
+  .settings(commonSettings)
+  .settings(
+    name                             := "caliban-gateway-audit",
+    publish / skip                   := true,
+    skip                             := (scalaVersion.value != scala213),
+    ideSkipProject                   := (scalaVersion.value != scala213),
+    crossScalaVersions               := Seq(scala213),
+    assembly / assemblyJarName       := "caliban-gateway-audit.jar",
+    assembly / mainClass             := Some("caliban.gateway.audit.Main"),
+    assembly / assemblyOutputPath    := {
+      (assembly / baseDirectory).value / "target" / (assembly / assemblyJarName).value
+    },
+    assembly / test                  := {},
+    assembly / assemblyMergeStrategy := {
+      case x if Assembly.isConfigFile(x)                                                            => MergeStrategy.concat
+      case PathList("META-INF", "MANIFEST.MF")                                                      => MergeStrategy.discard
+      case PathList("META-INF", x) if x.endsWith(".SF") || x.endsWith(".DSA") || x.endsWith(".RSA") =>
+        MergeStrategy.discard
+      case _                                                                                        => MergeStrategy.first
+    },
+    libraryDependencies ++= Seq(
+      "com.softwaremill.sttp.client4" %% "zio"          % sttpVersion,
+      "dev.zio"                       %% "zio-http"     % zioHttpVersion,
+      "dev.zio"                       %% "zio-test"     % zioVersion % Test,
+      "dev.zio"                       %% "zio-test-sbt" % zioVersion % Test
+    )
+  )
+  .dependsOn(gateway)
 
 lazy val docs = project
   .in(file("mdoc"))

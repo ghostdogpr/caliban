@@ -49,7 +49,7 @@ private[gateway] object ComposedGraph {
   }
 
   object LookupOperation {
-    case object FederationEntities extends LookupOperation {
+    final case class FederationEntities(correlationFields: List[String]) extends LookupOperation {
       val requiresTypename: Boolean = true
     }
 
@@ -462,7 +462,11 @@ private[gateway] object SchemaComposition {
         directives.collectFirst(Function.unlift(keyDirective(_, names))).map { key =>
           val operation =
             if (key.resolvable && hasEntityLookup(schema, name))
-              Some(ComposedGraph.LookupOperation.FederationEntities)
+              Some(
+                ComposedGraph.LookupOperation.FederationEntities(
+                  if (declaresEntityLookup(schema, name)) key.fields else Nil
+                )
+              )
             else None
           EntityDefinition(key.fields, operation)
         }
@@ -809,8 +813,12 @@ private[gateway] object SchemaComposition {
     )
 
   private def hasEntityLookup(schema: SchemaContribution, entityType: String): Boolean =
+    declaresEntityLookup(schema, entityType) ||
+      schema.federation && !schema.rootType.queryType.allFields.exists(_.name == "_entities")
+
+  private def declaresEntityLookup(schema: SchemaContribution, entityType: String): Boolean =
     schema.rootType.queryType.allFields.find(_.name == "_entities") match {
-      case None        => schema.federation
+      case None        => false
       case Some(field) =>
         val acceptsRepresentations = field.allArgs.find(_.name == "representations").exists { argument =>
           argument._type.isList && argument._type.innerType.name.contains("_Any")
