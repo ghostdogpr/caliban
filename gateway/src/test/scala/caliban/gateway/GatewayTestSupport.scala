@@ -14,7 +14,11 @@ import zio.http.netty.NettyConfig
 
 private[gateway] object GatewayTestSupport {
 
-  final case class Stub(endpoint: Uri, requests: Ref[Vector[GraphQLRequest]])
+  final case class Stub(
+    endpoint: Uri,
+    requests: Ref[Vector[GraphQLRequest]],
+    headers: Ref[Vector[Headers]]
+  )
 
   val invalidResponse = """{"unexpected":true}"""
 
@@ -24,6 +28,7 @@ private[gateway] object GatewayTestSupport {
   def stubWith(beforeResponse: UIO[Unit], responses: String*): ZIO[Server with Ref[Int], Nothing, Stub] =
     for {
       requests <- Ref.make(Vector.empty[GraphQLRequest])
+      headers  <- Ref.make(Vector.empty[Headers])
       index    <- Ref.make(0)
       id       <- ZIO.serviceWithZIO[Ref[Int]](_.updateAndGet(_ + 1))
       path      = s"graphql-$id"
@@ -32,6 +37,7 @@ private[gateway] object GatewayTestSupport {
                       bytes   <- request.body.asArray.orDie
                       decoded <- ZIO.attempt(readFromArray[GraphQLRequest](bytes)).orDie
                       _       <- requests.update(_ :+ decoded)
+                      _       <- headers.update(_ :+ request.headers)
                       _       <- beforeResponse
                       next    <- index.getAndUpdate(_ + 1)
                       body     = responses(math.min(next, responses.size - 1))
@@ -44,7 +50,7 @@ private[gateway] object GatewayTestSupport {
       server   <- ZIO.service[Server]
       _        <- server.install(Routes(Method.POST / path -> handler))
       port     <- server.port
-    } yield Stub(Uri.unsafeParse(s"http://127.0.0.1:$port/$path"), requests)
+    } yield Stub(Uri.unsafeParse(s"http://127.0.0.1:$port/$path"), requests, headers)
 
   val testServer: ZLayer[Any, Throwable, Server] = {
     val config = Server.Config.default

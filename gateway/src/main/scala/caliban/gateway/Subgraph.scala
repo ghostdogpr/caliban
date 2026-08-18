@@ -1,10 +1,8 @@
 package caliban.gateway
 
-import caliban.{ CalibanError, GraphQL }
+import caliban.GraphQL
 import caliban.parsing.adt.Document
-import caliban.parsing.Parser
 import sttp.model.Uri
-import zio.{ IO, ZIO }
 
 /**
  * A named GraphQL graph that participates in gateway composition and execution.
@@ -23,6 +21,16 @@ final class Subgraph[-R] private[gateway] (
 }
 
 object Subgraph {
+
+  /**
+   * Describes an ordinary remote GraphQL graph whose schema is acquired through introspection.
+   */
+  def graphql(
+    name: String,
+    endpoint: Uri,
+    acquisition: SchemaAcquisition = SchemaAcquisition.default
+  ): Subgraph[Any] =
+    new Subgraph[Any](name, Source.Remote(endpoint, SchemaInput.Acquired(acquisition), federation = false), Nil)
 
   /**
    * Describes an ordinary remote GraphQL graph from pinned SDL.
@@ -49,6 +57,16 @@ object Subgraph {
     new Subgraph[Any](name, Source.Remote(endpoint, SchemaInput.Parsed(schema), federation = true), Nil)
 
   /**
+   * Describes a Federation-enabled remote GraphQL subgraph whose schema is acquired through `_service`.
+   */
+  def federation(
+    name: String,
+    endpoint: Uri,
+    acquisition: SchemaAcquisition = SchemaAcquisition.default
+  ): Subgraph[Any] =
+    new Subgraph[Any](name, Source.Remote(endpoint, SchemaInput.Acquired(acquisition), federation = true), Nil)
+
+  /**
    * Describes an in-process Caliban graph whose environment is supplied when the gateway executes.
    */
   def local[R](name: String, graph: GraphQL[R]): Subgraph[R] =
@@ -62,15 +80,10 @@ object Subgraph {
   }
 }
 
-private[gateway] sealed trait SchemaInput {
-  final def document: IO[CalibanError.ParsingError, Document] =
-    this match {
-      case SchemaInput.Sdl(value)    => ZIO.fromEither(Parser.parseQuery(value))
-      case SchemaInput.Parsed(value) => ZIO.succeed(value)
-    }
-}
+private[gateway] sealed trait SchemaInput
 
 private[gateway] object SchemaInput {
-  final case class Sdl(value: String)      extends SchemaInput
-  final case class Parsed(value: Document) extends SchemaInput
+  final case class Sdl(value: String)                  extends SchemaInput
+  final case class Parsed(value: Document)             extends SchemaInput
+  final case class Acquired(config: SchemaAcquisition) extends SchemaInput
 }

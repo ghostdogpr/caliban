@@ -39,11 +39,32 @@ object Gateway {
 
   private def build[R](first: Subgraph[R], rest: Seq[Subgraph[R]])(implicit
     trace: Trace
+  ): ZIO[Scope, GatewayBuildError, GatewayRuntime[R]] =
+    ZIO.scopeWith { parent =>
+      for {
+        child   <- parent.fork
+        // Success commits the child scope to the caller; failure or interruption rolls it back immediately.
+        runtime <- child.extend(buildRuntime(first, rest)).onExit {
+                     case failure @ Exit.Failure(_) => child.close(failure)
+                     case Exit.Success(_)           => ZIO.unit
+                   }
+      } yield runtime
+    }
+
+  private def buildRuntime[R](first: Subgraph[R], rest: Seq[Subgraph[R]])(implicit
+    trace: Trace
   ): ZIO[Scope, GatewayBuildError, GatewayRuntime[R]] = {
     val subgraphs = first +: rest.toList
 
     for {
-      loaded       <- ZIO.foreach(subgraphs)(load(_).either)
+      backend      <-
+        if (subgraphs.exists(isRemote))
+          HttpClientZioBackend
+            .scoped()
+            .map(Some(_))
+            .mapError(_ => GatewayBuildError("Unable to initialize the remote GraphQL transport."))
+        else ZIO.none
+      loaded       <- ZIO.foreachPar(subgraphs)(load(_, backend).either)
       contributions = loaded.collect { case Right(contribution) => contribution }
       diagnostics   = nameDiagnostics(subgraphs) ::: loaded.collect { case Left(diagnostic) => diagnostic }
       composed      = SchemaComposition.compose(contributions)
@@ -55,26 +76,23 @@ object Gateway {
                           if (diagnostics.isEmpty) ZIO.succeed(graph)
                           else ZIO.fail(GatewayBuildError(diagnostics.distinct.sorted))
                         }
-      backend      <-
-        if (subgraphs.exists(isRemote))
-          HttpClientZioBackend
-            .scoped()
-            .map(Some(_))
-            .mapError(_ => GatewayBuildError("Unable to initialize the remote GraphQL transport."))
-        else ZIO.none
       sources      <- ZIO.foreach(subgraphs)(makeSource(_, backend)).map(_.toMap)
     } yield new GatewayRuntimeImpl[R](graph, sources)
   }
 
-  private def load[R](subgraph: Subgraph[R])(implicit trace: Trace): IO[String, SchemaContribution] =
+  private def load[R](subgraph: Subgraph[R], backend: Option[SttpClient])(implicit
+    trace: Trace
+  ): IO[String, SchemaContribution] =
     subgraph.source match {
-      case Source.Remote(_, schema, federation) =>
+      case Source.Remote(endpoint, schema, federation) =>
         for {
-          document    <- schema.document.mapError(error => s"[${subgraph.name}] ${error.getMessage}")
+          document    <- RemoteSchemaAcquisition
+                           .document(schema, endpoint, federation, backend)
+                           .mapError(error => s"[${subgraph.name}] $error")
           rootDocument = ensureFederationQuery(document, federation)
           rootType    <- toRootType(subgraph.name, rootDocument)
         } yield SchemaContribution(subgraph.name, rootType, document, federation, subgraph.lookups)
-      case Source.Local(graph)                  =>
+      case Source.Local(graph)                         =>
         val document   = graph.toDocument
         val federation = SchemaComposition.isFederation(document)
         for {
