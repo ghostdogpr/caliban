@@ -50,23 +50,31 @@ object CompositionSpec extends ZIOSpecDefault {
           "type Query { product: Product! @shareable } type Product { id: ID! @shareable price: Int! }",
           "\"@shareable\""
         )
+        val stockSchema = schema(
+          "type Query { product: Product! @shareable } type Product { stock: Int! }",
+          "\"@shareable\""
+        )
 
         for {
-          names    <- stub("""{"data":{"product":{"id":"p1","name":"Table"}}}""")
-          prices   <- stub("""{"data":{"product":{"id":"p1","price":10}}}""")
-          gateway  <- Gateway
-                        .compose(
-                          Subgraph.federation("names", names.endpoint, namesSchema),
-                          Subgraph.federation("prices", prices.endpoint, priceSchema)
-                        )
-                        .build
-          response <- gateway.execute("{ product { id name price } }")
-          product   = field(response.data, "product")
+          names         <- stub("""{"data":{"product":{"id":"p1","name":"Table"}}}""")
+          prices        <- stub("""{"data":{"product":{"id":"p1","price":10}}}""")
+          stock         <- stub("""{"data":{"product":{"stock":5}}}""")
+          gateway       <- Gateway
+                             .compose(
+                               Subgraph.federation("names", names.endpoint, namesSchema),
+                               Subgraph.federation("prices", prices.endpoint, priceSchema),
+                               Subgraph.federation("stock", stock.endpoint, stockSchema)
+                             )
+                             .build
+          response      <- gateway.execute("{ product { id name price } }")
+          stockRequests <- stock.requests.get
+          product        = field(response.data, "product")
         } yield assertTrue(
           response.errors.isEmpty,
           product.flatMap(field(_, "id")).contains(StringValue("p1")),
           product.flatMap(field(_, "name")).contains(StringValue("Table")),
-          product.flatMap(field(_, "price")).contains(IntValue(10))
+          product.flatMap(field(_, "price")).contains(IntValue(10)),
+          stockRequests.isEmpty
         )
       },
       test("retains an entity transition below a multiply provided root") {
@@ -284,6 +292,34 @@ object CompositionSpec extends ZIOSpecDefault {
           sent.size == 1,
           sent.headOption.flatMap(_.query).exists(query => query.contains("price") && query.contains("upc"))
         )
+      },
+      test("rejects malformed and unknown Federation keys with source diagnostics") {
+        val malformed = schema(
+          "type Query { product: Product } type Product @key(fields: \"id(\") { id: ID! }",
+          "\"@key\""
+        )
+        val unknown   = schema(
+          "type Query { product: Product } type Product @key(fields: \"missing\") { id: ID! }",
+          "\"@key\""
+        )
+
+        Gateway
+          .compose(
+            Subgraph.federation("malformed", endpoint, malformed),
+            Subgraph.federation("unknown", endpoint, unknown)
+          )
+          .build
+          .exit
+          .map { exit =>
+            val diagnostics = exit.causeOption.flatMap(_.failureOption).map(_.diagnostics).getOrElse(Nil)
+            assertTrue(
+              diagnostics.count(_.contains("Invalid @key field set")) == 2,
+              diagnostics.exists(message =>
+                message.startsWith("[malformed]") && message.contains("could not be parsed")
+              ),
+              diagnostics.exists(message => message.startsWith("[unknown]") && message.contains("does not exist"))
+            )
+          }
       },
       test("rejects incompatible external and overridden declarations") {
         val idOwner    = schema("type Query { alpha: Product } type Product { id: ID }", "\"@external\"")

@@ -558,7 +558,6 @@ object EntityRoutingSpec extends ZIOSpecDefault {
         )
       },
       test("rejects unsatisfied entity routing obligations before contacting a subgraph") {
-        val missingKeyProducts = productsFederationSchema.replace("id: ID! name: String!", "name: String!")
         val noLookupReviews    = reviewsFederationSchema.replace(
           "@key(fields: \"id\")",
           "@key(fields: \"id\", resolvable: false)"
@@ -589,11 +588,6 @@ object EntityRoutingSpec extends ZIOSpecDefault {
           } yield (response.errors.map(_.msg), sentA, sentB)
 
         for {
-          missing     <- rejected(
-                           missingKeyProducts,
-                           reviewsFederationSchema,
-                           "{ product(id: \"p1\") { reviews { body } } }"
-                         )
           lookup      <- rejected(
                            productsFederationSchema,
                            noLookupReviews,
@@ -610,12 +604,9 @@ object EntityRoutingSpec extends ZIOSpecDefault {
                            "{ product(id: \"p1\") { reviews { product { name } } } }"
                          )
         } yield assertTrue(
-          missing._1 == List("Entity routing obligations are unsatisfied: 'reviews:reviews.body'."),
           lookup._1 == List("Entity routing obligations are unsatisfied: 'reviews:reviews.body'."),
           wrongEntity._1 == List("Entity routing obligations are unsatisfied: 'reviews:reviews.body'."),
           cycle._1 == List("Entity routing cycle detected: products -> reviews for Product(reviews.product.name)."),
-          missing._2.isEmpty,
-          missing._3.isEmpty,
           lookup._2.isEmpty,
           lookup._3.isEmpty,
           wrongEntity._2.isEmpty,

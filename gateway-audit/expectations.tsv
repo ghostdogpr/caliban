@@ -2,7 +2,7 @@ suite	cases	disposition	owner	rationale
 abstract-types	0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17	failing	ticket-15	Abstract selections and runtime-type routing are owned by Ticket 15.
 child-type-mismatch	0,1,2,3	failing	ticket-15	Composition succeeds; the remaining failures require abstract runtime-type routing owned by Ticket 15.
 circular-reference-interface	1	failing	ticket-15	Cyclic abstract selections are owned by Ticket 15.
-corrupted-supergraph-node-id	0,2,3,5	failing	ticket-15	The remaining abstract entity routing is owned by Ticket 15.
+corrupted-supergraph-node-id	0,2,5	failing	ticket-15	The remaining abstract entity routing is owned by Ticket 15.
 interface-object-indirect-extension	0	failing	ticket-15	Interface-object entity routing is owned by Ticket 15.
 interface-object-with-requires	0,1,2,3,4,5,6	failing	ticket-15	Interface-object runtime routing is owned by Ticket 15.
 mutations	0,1,2,3	failing	ticket-16	Cross-source mutation scheduling is explicitly deferred to Ticket 16.

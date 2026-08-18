@@ -40,9 +40,6 @@ private[gateway] final class ComposedGraph private[internal] (
       if (sources.contains(preferred)) Some(preferred) else sources.headOption
     }
 
-  def lookup(source: String, typeName: String): Option[ComposedGraph.EntityLookup] =
-    lookups(source, typeName).headOption
-
   def lookups(source: String, typeName: String): List[ComposedGraph.EntityLookup] =
     entityLookups.getOrElse(source -> typeName, Nil)
 
@@ -84,9 +81,7 @@ private[gateway] final class ComposedGraph private[internal] (
 private[gateway] object ComposedGraph {
   final case class KeyField(name: String, children: List[KeyField])
 
-  final case class EntityLookup(key: List[KeyField], operation: LookupOperation) {
-    def keyFields: List[String] = key.map(_.name)
-  }
+  final case class EntityLookup(key: List[KeyField], operation: LookupOperation)
 
   sealed trait LookupOperation {
     def requiresTypename: Boolean
@@ -154,6 +149,7 @@ private[gateway] object SchemaComposition {
     val compiledFieldSets = prepared.map(federationFieldSets)
     val diagnostics       =
       (lookupDiagnostics(schemas) :::
+        prepared.flatMap(federationKeyDiagnostics) :::
         compiledFieldSets.flatMap(_.fold(identity, _ => Nil)) :::
         rootDiagnostics(OperationType.Query, queryEntries) :::
         rootDiagnostics(OperationType.Mutation, mutationEntries) :::
@@ -493,6 +489,7 @@ private[gateway] object SchemaComposition {
               schema.federation && hasDirective(field.directives, names.external),
               schema.federation && hasDirective(field.directives, names.inaccessible),
               if (schema.federation) directiveString(field.directives, names.overrideDirective, "from") else None,
+              schema.federation,
               federationLinks(schema.document).nonEmpty,
               field.allArgs
                 .filter(argument => schema.federation && hasDirective(argument.directives, names.inaccessible))
@@ -519,8 +516,12 @@ private[gateway] object SchemaComposition {
           case _                    => true
         }
         overrideDiagnostics(prefix, entries.map(entry => entry.source -> entry.overrideFrom)) :::
+          (if (!incompatible && providers.size > 1 && providers.exists(entry => !entry.federation)) {
+             val sources = providers.map(_.source).distinct.sorted.map(name => s"'$name'").mkString(", ")
+             List(s"$prefix Field is resolved by multiple ordinary subgraphs: $sources.")
+           } else Nil) :::
           (if (
-             !incompatible && providers.size > 1 && providers.exists(_.federation2) &&
+             !incompatible && providers.size > 1 && providers.forall(_.federation) && providers.exists(_.federation2) &&
              !providers.forall(entry => !entry.federation2 || entry.shareable)
            ) {
              val sources = providers.map(_.source).distinct.sorted.map(name => s"'$name'").mkString(", ")
@@ -579,6 +580,7 @@ private[gateway] object SchemaComposition {
     external: Boolean,
     inaccessible: Boolean,
     overrideFrom: Option[String],
+    federation: Boolean,
     federation2: Boolean,
     inaccessibleArguments: Set[String],
     hiddenDirectives: Set[String]
@@ -679,22 +681,65 @@ private[gateway] object SchemaComposition {
                         )
         selections <- parseFieldSet(value).toRight(s"$prefix: the selection could not be parsed.")
         parent     <- startType.toRight(s"$prefix: the selected parent type does not exist.")
-        document    = Document(
-                        caliban.parsing.adt.Definition.ExecutableDefinition.OperationDefinition(
-                          OperationType.Query,
-                          None,
-                          Nil,
-                          Nil,
-                          selections
-                        ) :: Nil,
-                        SourceMapper.empty
-                      )
-        _          <- Validator
-                        .validateAll(document, schema.rootType.copy(queryType = parent))
-                        .left
-                        .map(error => s"$prefix: ${error.msg}")
+        _          <- validateFieldSetSelections(schema, parent, selections).left.map(error => s"$prefix: $error")
       } yield (typeName, fieldName, selections)
     }
+
+  private def federationKeyDiagnostics(metadata: PreparedSchema): List[String] = {
+    val schema = metadata.schema
+    if (!schema.federation) Nil
+    else {
+      val definitions = schema.document.typeDefinitions.collect {
+        case definition: ObjectTypeDefinition    => definition.name -> definition.directives
+        case definition: InterfaceTypeDefinition => definition.name -> definition.directives
+      } ::: schema.document.typeExtensions.collect {
+        case extension: ObjectTypeExtension    => extension.name -> extension.directives
+        case extension: InterfaceTypeExtension => extension.name -> extension.directives
+      }
+
+      definitions.flatMap { case (typeName, directives) =>
+        directives.filter(directive => metadata.directives.key.contains(directive.name)).flatMap { directive =>
+          val prefix = s"[${schema.name}] Invalid @${directive.name} field set on '$typeName'"
+          val result = for {
+            value      <- directive.arguments
+                            .get("fields")
+                            .collect { case StringValue(value) => value }
+                            .toRight(s"$prefix: the 'fields' argument must be a string.")
+            selections <- parseFieldSet(value).toRight(s"$prefix: the selection could not be parsed.")
+            _          <- keyFields(selections)
+                            .toRight(
+                              s"$prefix: only fields without aliases, arguments, or directives can be selected."
+                            )
+            parent     <- schema.rootType.types
+                            .get(typeName)
+                            .toRight(s"$prefix: the selected parent type does not exist.")
+            _          <- validateFieldSetSelections(schema, parent, selections).left.map(error => s"$prefix: $error")
+          } yield ()
+
+          result.fold(_ :: Nil, _ => Nil)
+        }
+      }
+    }
+  }
+
+  private def validateFieldSetSelections(
+    schema: SchemaContribution,
+    parent: __Type,
+    selections: List[Selection]
+  ): Either[String, Unit] = {
+    val document = Document(
+      caliban.parsing.adt.Definition.ExecutableDefinition.OperationDefinition(
+        OperationType.Query,
+        None,
+        Nil,
+        Nil,
+        selections
+      ) :: Nil,
+      SourceMapper.empty
+    )
+
+    Validator.validateAll(document, schema.rootType.copy(queryType = parent)).left.map(_.msg)
+  }
 
   private def nonRootTypes(schemas: List[PreparedSchema]): List[TypeEntry] =
     schemas.flatMap { metadata =>
@@ -1591,17 +1636,6 @@ private[gateway] object SchemaComposition {
         } yield field :: fields
       }
       .map(_.reverse)
-
-  private def fieldSignature(field: __Field): String =
-    render(
-      ObjectTypeDefinition(
-        None,
-        "Signature",
-        Nil,
-        Nil,
-        List(field.toFieldDefinition.copy(description = None, directives = Nil))
-      )
-    )
 
   private def hasEntityLookup(schema: SchemaContribution, entityType: String): Boolean =
     declaresEntityLookup(schema, entityType) ||

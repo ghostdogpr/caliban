@@ -374,36 +374,60 @@ object MultiSourceSpec extends ZIOSpecDefault {
         )
       }
     ),
-    suite("composition")(test("accumulates deterministic source-attributed composition diagnostics") {
-      val endpoint = Uri.unsafeParse("http://127.0.0.1:1/graphql")
-      val alpha    = Subgraph.graphql(
-        "alpha",
-        endpoint,
-        "type Query { duplicate: String alpha: Product } type Product { value: String }"
-      )
-      val beta     = Subgraph.graphql(
-        "beta",
-        endpoint,
-        "type Query { duplicate: Int beta: Product } type Product { value: Int }"
-      )
+    suite("composition")(
+      test("accumulates deterministic source-attributed composition diagnostics") {
+        val endpoint = Uri.unsafeParse("http://127.0.0.1:1/graphql")
+        val alpha    = Subgraph.graphql(
+          "alpha",
+          endpoint,
+          "type Query { duplicate: String alpha: Product } type Product { value: String }"
+        )
+        val beta     = Subgraph.graphql(
+          "beta",
+          endpoint,
+          "type Query { duplicate: Int beta: Product } type Product { value: Int }"
+        )
 
-      for {
-        forward <- Gateway.compose(alpha, beta).build.exit
-        reverse <- Gateway.compose(beta, alpha).build.exit
-        first    = forward.causeOption.flatMap(_.failureOption).map(_.diagnostics)
-        second   = reverse.causeOption.flatMap(_.failureOption).map(_.diagnostics)
-      } yield assertTrue(
-        forward.isFailure,
-        reverse.isFailure,
-        first == second,
-        first.exists(_.size == 2),
-        first.exists(_.exists(_.contains("query.duplicate"))),
-        first.exists(
-          _.exists(message =>
-            message.contains("type Product") && message.contains("'alpha'") && message.contains("'beta'")
+        for {
+          forward <- Gateway.compose(alpha, beta).build.exit
+          reverse <- Gateway.compose(beta, alpha).build.exit
+          first    = forward.causeOption.flatMap(_.failureOption).map(_.diagnostics)
+          second   = reverse.causeOption.flatMap(_.failureOption).map(_.diagnostics)
+        } yield assertTrue(
+          forward.isFailure,
+          reverse.isFailure,
+          first == second,
+          first.exists(_.size == 2),
+          first.exists(_.exists(_.contains("query.duplicate"))),
+          first.exists(
+            _.exists(message =>
+              message.contains("type Product") && message.contains("'alpha'") && message.contains("'beta'")
+            )
           )
         )
-      )
-    })
+      },
+      test("rejects compatible duplicate roots from ordinary subgraphs") {
+        val endpoint = Uri.unsafeParse("http://127.0.0.1:1/graphql")
+        val schema   = "type Query { duplicate: String }"
+        val alpha    = Subgraph.graphql("alpha", endpoint, schema)
+        val beta     = Subgraph.graphql("beta", endpoint, schema)
+
+        for {
+          forward <- Gateway.compose(alpha, beta).build.exit
+          reverse <- Gateway.compose(beta, alpha).build.exit
+          first    = forward.causeOption.flatMap(_.failureOption).map(_.diagnostics)
+          second   = reverse.causeOption.flatMap(_.failureOption).map(_.diagnostics)
+        } yield assertTrue(
+          forward.isFailure,
+          reverse.isFailure,
+          first == second,
+          first.exists(
+            _.exists(message =>
+              message.contains("query.duplicate") && message.contains("'alpha'") && message.contains("'beta'")
+            )
+          )
+        )
+      }
+    )
   ).provideSomeShared[Scope](testServer, stubIds) @@ TestAspect.sequential
 }

@@ -15,9 +15,7 @@ import zio.{ Exit, IO, Trace }
  */
 private[caliban] object RequestPreparation {
 
-  final case class Prepared(document: Document, executionRequest: ExecutionRequest) {
-    def isIntrospection: Boolean = executionRequest.isIntrospection
-  }
+  final case class Prepared(document: Document, executionRequest: ExecutionRequest)
 
   def check(query: String, rootType: RootType)(implicit trace: Trace): IO[CalibanError, Unit] =
     for {

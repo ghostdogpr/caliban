@@ -17,4 +17,4 @@
 - [x] Relevant audit groups pass without introducing a second general-purpose schema model solely for validation.
 - [x] The pinned audit is rerun: every newly passing case is removed from `expectations.tsv`, ownership remains accurate for failures, and no new deferrals are introduced.
 
-The pinned audit now passes 107 of 199 cases. Remaining abstract runtime-routing failures are owned by Ticket 15.
+The pinned audit now passes 108 of 199 cases. Remaining abstract runtime-routing failures are owned by Ticket 15.

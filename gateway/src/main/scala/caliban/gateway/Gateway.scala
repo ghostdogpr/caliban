@@ -43,14 +43,16 @@ object Gateway {
     trace: Trace
   ): ZIO[Scope, GatewayBuildError, GatewayRuntime[R]] =
     ZIO.scopeWith { parent =>
-      for {
-        child   <- parent.fork
-        // Success commits the child scope to the caller; failure or interruption rolls it back immediately.
-        runtime <- child.extend(buildRuntime(first, rest)).onExit {
-                     case failure @ Exit.Failure(_) => child.close(failure)
-                     case Exit.Success(_)           => ZIO.unit
-                   }
-      } yield runtime
+      ZIO.uninterruptibleMask { restore =>
+        for {
+          child   <- parent.fork
+          // Success commits the child scope to the caller; failure or interruption rolls it back immediately.
+          runtime <- restore(child.extend(buildRuntime(first, rest))).onExit {
+                       case failure @ Exit.Failure(_) => child.close(failure)
+                       case Exit.Success(_)           => ZIO.unit
+                     }
+        } yield runtime
+      }
     }
 
   private def buildRuntime[R](first: Subgraph[R], rest: Seq[Subgraph[R]])(implicit

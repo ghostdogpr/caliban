@@ -298,29 +298,45 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
         interrupted.isInterrupted
       )
     },
-    test("does not retain failed build resources in the caller scope") {
+    test("does not retain failed or interrupted build resources in the caller scope") {
       val protectedConfig = SchemaAcquisition.default.withHeaders(SttpHeader("Content-Encoding", "gzip"))
 
       for {
-        parent          <- Scope.make
-        initialSize      = parent.size
-        failed          <- parent.extend(
-                             Gateway
-                               .compose(
-                                 Subgraph.federation(
-                                   "failed",
-                                   Uri.unsafeParse("http://127.0.0.1:1/graphql"),
-                                   protectedConfig
-                                 )
-                               )
-                               .build
-                               .either
-                           )
-        sizeAfterFailure = parent.size
-        _               <- parent.close(Exit.succeed(()))
+        parent               <- Scope.make
+        initialSize           = parent.size
+        failed               <- parent.extend(
+                                  Gateway
+                                    .compose(
+                                      Subgraph.federation(
+                                        "failed",
+                                        Uri.unsafeParse("http://127.0.0.1:1/graphql"),
+                                        protectedConfig
+                                      )
+                                    )
+                                    .build
+                                    .either
+                                )
+        sizeAfterFailure      = parent.size
+        interruptStarted     <- Promise.make[Nothing, Unit]
+        interruptReleased    <- Promise.make[Nothing, Unit]
+        interruptEndpoint    <- streamingEndpoint(
+                                  (ZStream.fromZIO(interruptStarted.succeed(()).unit).drain ++ ZStream.never).ensuring(
+                                    interruptReleased.succeed(()).unit
+                                  )
+                                )
+        interruptedBuild     <- parent
+                                  .extend(Gateway.compose(Subgraph.federation("interrupted", interruptEndpoint)).build)
+                                  .fork
+        _                    <- interruptStarted.await
+        interrupted          <- interruptedBuild.interrupt
+        _                    <- interruptReleased.await
+        sizeAfterInterruption = parent.size
+        _                    <- parent.close(Exit.succeed(()))
       } yield assertTrue(
         failed.isLeft,
-        sizeAfterFailure == initialSize
+        interrupted.isInterrupted,
+        sizeAfterFailure == initialSize,
+        sizeAfterInterruption == initialSize
       )
     }
   ).provideSomeShared[Scope](testServer, stubIds) @@ TestAspect.sequential

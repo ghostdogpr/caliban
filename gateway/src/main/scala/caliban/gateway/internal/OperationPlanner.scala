@@ -2,7 +2,7 @@ package caliban.gateway.internal
 
 import caliban.execution.{ ExecutionRequest, Field }
 import caliban.gateway.internal.OperationPlanner._
-import caliban.introspection.adt.__Type
+import caliban.introspection.adt.{ __Type, __TypeKind }
 import caliban.parsing.SourceMapper
 import caliban.parsing.adt.{ Directive, Document, OperationType, Selection }
 import caliban.schema.Types
@@ -43,7 +43,10 @@ private[gateway] final class OperationPlanner(
                                           (),
                                           PlanningFailure(unsatisfiedMessage(plan.pending))
                                         )
-                       } yield PlannedRoot(source, field, plan.downstream, plan.entities) :: accumulated
+                       } yield
+                         if (hasRootWork(plan))
+                           PlannedRoot(source, field, plan.downstream, plan.entities) :: accumulated
+                         else accumulated
                      }
         } yield planned ::: roots
       }
@@ -154,6 +157,13 @@ private[gateway] final class OperationPlanner(
 
     field.copy(fields = filter(field.fieldType.innerType, field.fields, rootSources))
   }
+
+  private def hasRootWork(plan: PlannedField): Boolean =
+    plan.downstream.fieldType.innerType.kind match {
+      case __TypeKind.OBJECT | __TypeKind.INTERFACE | __TypeKind.UNION =>
+        plan.downstream.fields.nonEmpty || plan.entities.nonEmpty
+      case _                                                           => true
+    }
 
   private def validateDependencies(routes: List[EntityRoute]): Either[PlanningFailure, Unit] = {
     val routeById = routes.iterator.map(route => route.id -> route).toMap
