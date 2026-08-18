@@ -454,14 +454,14 @@ object EntityRoutingSpec extends ZIOSpecDefault {
           .replace("directive @key", "directive @entityKey")
           .replace("@key(fields:", "@entityKey(fields:")
         val reviews  = reviewsFederationSchema
+          .replace("directive @key", "directive @entityKey")
+          .replace("@key(fields:", "@entityKey(fields:")
+          .replace("directive @external", "directive @outside")
+          .replace("id: ID! @external", "id: ID! @outside")
           .replace(
             "import: [\"@key\", \"@external\"]",
             "import: [{ name: \"@key\", as: \"@entityKey\" }, { name: \"@external\", as: \"@outside\" }]"
           )
-          .replace("directive @key", "directive @entityKey")
-          .replace("directive @external", "directive @outside")
-          .replace("@key(fields:", "@entityKey(fields:")
-          .replace("@external", "@outside")
 
         for {
           gateway       <- Gateway
@@ -551,7 +551,7 @@ object EntityRoutingSpec extends ZIOSpecDefault {
           sentA     <- externalA.requests.get
           sentB     <- externalB.requests.get
         } yield assertTrue(
-          response.errors.map(_.msg) == List("No subgraph owns field 'Thing.ghost'."),
+          response.errors.map(_.msg) == List("Field 'ghost' does not exist on type 'Thing'."),
           rootSent.isEmpty,
           sentA.isEmpty,
           sentB.isEmpty

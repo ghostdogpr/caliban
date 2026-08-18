@@ -194,7 +194,10 @@ private[gateway] final class GatewayRuntimeImpl[-R](
     local: GraphQLResponse[CalibanError]
   ): GraphQLResponse[CalibanError] = {
     val localValues = responseFields(local).toMap
-    val rootValues  = roots.flatMap(result => responseFields(result.response)).toMap
+    val rootValues  =
+      roots.flatMap(result => responseFields(result.response)).foldLeft(Map.empty[String, ResponseValue]) {
+        case (values, (name, value)) => values.updated(name, values.get(name).fold(value)(mergeRootValue(_, value)))
+      }
     val data        = ObjectValue(plan.fields.map { field =>
       val value =
         if (field.name == "__typename") StringValue(plan.rootName)
@@ -247,7 +250,7 @@ private[gateway] final class GatewayRuntimeImpl[-R](
     sourceErrors: List[CalibanError]
   ): CompletedValue =
     fieldType.kind match {
-      case __TypeKind.NON_NULL                                         =>
+      case __TypeKind.NON_NULL                     =>
         val completed = fieldType.ofType
           .map(completeValue(_, field, value, path, sourceErrors))
           .getOrElse(CompletedValue(Some(NullValue), Nil))
@@ -259,8 +262,8 @@ private[gateway] final class GatewayRuntimeImpl[-R](
             )
           case _               => completed
         }
-      case _ if value == NullValue                                     => CompletedValue(Some(NullValue), Nil)
-      case __TypeKind.LIST                                             =>
+      case _ if value == NullValue                 => CompletedValue(Some(NullValue), Nil)
+      case __TypeKind.LIST                         =>
         (value, fieldType.ofType) match {
           case (ListValue(values), Some(itemType)) =>
             val completed = values.zipWithIndex.map { case (item, index) =>
@@ -272,11 +275,42 @@ private[gateway] final class GatewayRuntimeImpl[-R](
           case _                                   =>
             CompletedValue(Some(NullValue), invalidListErrors(path.toList, sourceErrors))
         }
-      case __TypeKind.OBJECT | __TypeKind.INTERFACE | __TypeKind.UNION =>
+      case __TypeKind.INTERFACE | __TypeKind.UNION =>
+        val possible = fieldType.possibleTypes.getOrElse(Nil).flatMap(_.name).toSet
+        val runtime  = value match {
+          case ObjectValue(fields) => fields.collectFirst { case ("__typename", StringValue(name)) => name }
+          case _                   => None
+        }
+        if (runtime.exists(name => possible.nonEmpty && !possible.contains(name)))
+          CompletedValue(Some(NullValue), Nil)
+        else {
+          val typeName  = runtime.orElse(fieldType.innerType.name).getOrElse("")
+          val completed = completeObject(field.collectFields(typeName), value, path, sourceErrors)
+          if (completed.value.isEmpty) CompletedValue(Some(NullValue), completed.errors) else completed
+        }
+      case __TypeKind.OBJECT                       =>
         val typeName  = fieldType.innerType.name.getOrElse("")
         val completed = completeObject(field.collectFields(typeName), value, path, sourceErrors)
         if (completed.value.isEmpty) CompletedValue(Some(NullValue), completed.errors) else completed
-      case _                                                           => CompletedValue(Some(value), Nil)
+      case __TypeKind.ENUM                         =>
+        value match {
+          case StringValue(name) if fieldType.allEnumValues.exists(_.name == name) => CompletedValue(Some(value), Nil)
+          case _                                                                   =>
+            val errors =
+              if (hasErrorAt(sourceErrors, path.toList)) Nil
+              else {
+                val enumName = fieldType.name.getOrElse("Unknown")
+                List(
+                  CalibanError.ExecutionError(
+                    s"Invalid value for enum '$enumName'.",
+                    path.toList,
+                    Some(field.locationInfo)
+                  )
+                )
+              }
+            CompletedValue(Some(NullValue), errors)
+        }
+      case _                                       => CompletedValue(Some(value), Nil)
     }
 
   private def nullViolation(
@@ -344,6 +378,24 @@ private[gateway] final class GatewayRuntimeImpl[-R](
             rightFields.filterNot(field => names.contains(field._1))
         )
       case (_, value)                                          => value
+    }
+
+  private def mergeRootValue(left: ResponseValue, right: ResponseValue): ResponseValue =
+    (left, right) match {
+      case (NullValue, value)                                                                     => value
+      case (value, NullValue)                                                                     => value
+      case (ObjectValue(leftFields), ObjectValue(rightFields))                                    =>
+        val rightMap = rightFields.toMap
+        val names    = leftFields.iterator.map(_._1).toSet
+        ObjectValue(
+          leftFields.map { case (name, value) => name -> rightMap.get(name).fold(value)(mergeRootValue(value, _)) } :::
+            rightFields.filterNot(field => names.contains(field._1))
+        )
+      case (ListValue(leftValues), ListValue(rightValues)) if leftValues.size == rightValues.size =>
+        ListValue(leftValues.zip(rightValues).map { case (leftValue, rightValue) =>
+          mergeRootValue(leftValue, rightValue)
+        })
+      case (_, value)                                                                             => value
     }
 
   private def project(

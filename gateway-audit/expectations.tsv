@@ -1,27 +1,19 @@
 suite	cases	disposition	owner	rationale
 abstract-types	0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17	failing	ticket-15	Abstract selections and runtime-type routing are owned by Ticket 15.
-child-type-mismatch	0,1,2,3	failing	ticket-13	Cross-subgraph type compatibility is owned by Ticket 13.
+child-type-mismatch	0,1,2,3	failing	ticket-15	Composition succeeds; the remaining failures require abstract runtime-type routing owned by Ticket 15.
 circular-reference-interface	1	failing	ticket-15	Cyclic abstract selections are owned by Ticket 15.
-corrupted-supergraph-node-id	0,1,2,3,4,5,6,7,8,9	failing	ticket-15	Shared-root and abstract entity routing are owned by Ticket 15.
-enum-intersection	0,1,2,3,4	failing	ticket-13	Input and output enum composition is owned by Ticket 13.
-fed1-external-extends-resolvable	0	failing	ticket-13	External-only field ownership is owned by Ticket 13.
-input-object-intersection	0,1,2	failing	ticket-13	Input-object composition is owned by Ticket 13.
+corrupted-supergraph-node-id	0,2,3,5	failing	ticket-15	The remaining abstract entity routing is owned by Ticket 15.
 interface-object-indirect-extension	0	failing	ticket-15	Interface-object entity routing is owned by Ticket 15.
 interface-object-with-requires	0,1,2,3,4,5,6	failing	ticket-15	Interface-object runtime routing is owned by Ticket 15.
 mutations	0,1,2,3	failing	ticket-16	Cross-source mutation scheduling is explicitly deferred to Ticket 16.
 node	0	failing	ticket-15	Interface entity enrichment is owned by Ticket 15.
 non-resolvable-interface-object	0,1,2,3,4,5,6	deferred	ticket-24	The fixture requires a product-specific option to accept non-resolvable interface objects.
-override-type-interface	0,1,2,3	failing	ticket-13	Override ownership across object and interface fields is owned by Ticket 13.
-partial-union	0,1	failing	ticket-13	Partial union composition is owned by Ticket 13.
-partial-union-complex	0,1,2,3,4	failing	ticket-15	Runtime-type routing for partial unions is owned by Ticket 15.
-provides-on-interface	0,1	failing	ticket-15	Provided fields on abstract runtime selections are owned by Ticket 15.
+override-type-interface	0,1	failing	ticket-15	Override ownership composes; the remaining concrete-type transitions through interfaces are owned by Ticket 15.
+partial-union	0	failing	ticket-15	Composition succeeds; runtime-type routing for the remaining partial-union selection is owned by Ticket 15.
+partial-union-complex	0,1,2,4	failing	ticket-15	Runtime-type routing for partial unions is owned by Ticket 15.
+provides-on-interface	1	failing	ticket-15	Provided fields on abstract runtime selections are owned by Ticket 15.
 provides-on-union	0,1	failing	ticket-15	Provided fields on abstract runtime selections are owned by Ticket 15.
-requires-with-fragments	0,4	failing	ticket-13	The remaining fragment cases depend on inaccessible runtime-type visibility owned by Ticket 13.
-shared-root	0,1	failing	ticket-13	Shared root ownership is owned by Ticket 13.
-simple-inaccessible	2,3	failing	ticket-13	Inaccessible schema visibility is owned by Ticket 13.
 simple-interface-object	0,1,2,3,4,5,6,7,8,9,10,11,12	failing	ticket-15	Interface-object runtime selections are owned by Ticket 15.
-simple-override	0,1	failing	ticket-13	Override ownership is owned by Ticket 13.
 typename	0,1,2,3,4,5	failing	ticket-15	Cross-source runtime typename semantics are owned by Ticket 15.
-unavailable-override	0,1	failing	ticket-13	Unavailable override ownership is owned by Ticket 13.
 union-interface-distributed	0,1,4,5,7,9	failing	ticket-15	Distributed union and interface selections are owned by Ticket 15.
-union-intersection	0,1,2,3,4,5,6,7,8,9,10,11	failing	ticket-13	Union composition is owned by Ticket 13.
+union-intersection	1,2,3,5,6,7,8,9,10,11	failing	ticket-15	Union composition succeeds; the remaining distributed abstract selections are owned by Ticket 15.

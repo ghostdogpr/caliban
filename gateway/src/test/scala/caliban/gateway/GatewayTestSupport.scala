@@ -28,6 +28,8 @@ private[gateway] object GatewayTestSupport {
       |directive @key(fields: federation__FieldSet!, resolvable: Boolean = true) repeatable on OBJECT | INTERFACE
       |directive @external on FIELD_DEFINITION
       |directive @shareable repeatable on OBJECT | FIELD_DEFINITION
+      |directive @inaccessible on FIELD_DEFINITION | OBJECT | INTERFACE | UNION | ARGUMENT_DEFINITION | SCALAR | ENUM | ENUM_VALUE | INPUT_OBJECT | INPUT_FIELD_DEFINITION
+      |directive @override(from: String!) on FIELD_DEFINITION
       |scalar link__Import
       |enum link__Purpose { SECURITY EXECUTION }
       |scalar federation__FieldSet

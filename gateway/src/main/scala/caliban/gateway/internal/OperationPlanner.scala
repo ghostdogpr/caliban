@@ -22,25 +22,30 @@ private[gateway] final class OperationPlanner(
     val planned      = remoteFields
       .foldLeft[Either[PlanningFailure, List[PlannedRoot]]](Right(Nil)) { case (result, field) =>
         for {
-          roots  <- result
-          source <- graph
-                      .source(execution.operationType, field.name)
-                      .toRight(PlanningFailure(s"No subgraph owns root field '${field.name}'."))
-          plan   <- planField(
-                      field,
-                      source,
-                      Vector(field.aliasedName),
-                      Set.empty,
-                      availableKeys(source, field.fieldType.innerType),
-                      Nil,
-                      Set.empty
-                    )
-          _      <- Either.cond(
-                      plan.pending.isEmpty,
-                      (),
-                      PlanningFailure(unsatisfiedMessage(plan.pending))
-                    )
-        } yield PlannedRoot(source, field, plan.downstream, plan.entities) :: roots
+          roots   <- result
+          sources  = graph.sources(execution.operationType, field.name)
+          _       <- Either.cond(sources.nonEmpty, (), PlanningFailure(s"No subgraph owns root field '${field.name}'."))
+          planned <- sources.foldLeft[Either[PlanningFailure, List[PlannedRoot]]](Right(Nil)) { case (values, source) =>
+                       for {
+                         accumulated <- values
+                         selected     = if (sources.size == 1) field else rootFieldForSource(field, source, sources)
+                         plan        <- planField(
+                                          selected,
+                                          source,
+                                          Vector(field.aliasedName),
+                                          Set.empty,
+                                          availableKeys(source, selected.fieldType.innerType),
+                                          Nil,
+                                          Set.empty
+                                        )
+                         _           <- Either.cond(
+                                          plan.pending.isEmpty,
+                                          (),
+                                          PlanningFailure(unsatisfiedMessage(plan.pending))
+                                        )
+                       } yield PlannedRoot(source, field, plan.downstream, plan.entities) :: accumulated
+                     }
+        } yield planned ::: roots
       }
       .map(_.reverse)
 
@@ -128,6 +133,26 @@ private[gateway] final class OperationPlanner(
           )
       }
     }
+  }
+
+  private def rootFieldForSource(field: Field, source: String, rootSources: List[String]): Field = {
+    def filter(parent: __Type, fields: List[Field], candidates: List[String]): List[Field] = {
+      val typeName = parent.name.getOrElse("")
+      fields.flatMap { child =>
+        val childParent = child.parentType.flatMap(_.name).getOrElse(typeName)
+        val owners      = candidates.filter(graph.owns(_, childParent, child.name))
+        val next        = if (owners.nonEmpty) owners else candidates
+        val children    = filter(child.fieldType.innerType, child.fields, next)
+        val include     =
+          child.name == "__typename" && candidates.contains(source) ||
+            (if (child.fields.nonEmpty) children.nonEmpty
+             else owners.contains(source) || owners.isEmpty && candidates.headOption.contains(source))
+
+        if (include) child.copy(fields = children) :: Nil else Nil
+      }
+    }
+
+    field.copy(fields = filter(field.fieldType.innerType, field.fields, rootSources))
   }
 
   private def validateDependencies(routes: List[EntityRoute]): Either[PlanningFailure, Unit] = {

@@ -61,7 +61,7 @@ object FieldRoutingSpec extends ZIOSpecDefault {
       test("injects argument-bearing requirements without projecting them") {
         val productsSchema    =
           s"""
-             |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key"])
+             |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key", "@shareable"])
              |$authoredFederationDirectives
              |type Query { product: Product }
              |type Product @key(fields: "id") {
@@ -129,17 +129,17 @@ object FieldRoutingSpec extends ZIOSpecDefault {
       test("evaluates nested fragment requirements for the returned runtime type") {
         val productsSchema    =
           s"""
-             |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key"])
+             |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key", "@shareable"])
              |$authoredFederationDirectives
              |type Query { product: Product }
              |type Product @key(fields: "id") { id: ID! details: ProductDetails! }
              |interface ProductDetails { code: String! }
-             |type PhysicalDetails implements ProductDetails { code: String! dimensions: Int! }
-             |type DigitalDetails implements ProductDetails { code: String! downloadSize: Int! }
+             |type PhysicalDetails implements ProductDetails @shareable { code: String! dimensions: Int! }
+             |type DigitalDetails implements ProductDetails @shareable { code: String! downloadSize: Int! }
              |""".stripMargin
         val inventorySchema   =
           s"""
-             |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key", "@external", "@requires"])
+             |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key", "@external", "@requires", "@shareable"])
              |$authoredFederationDirectives
              |type Product @key(fields: "id") {
              |  id: ID! @external
@@ -147,8 +147,8 @@ object FieldRoutingSpec extends ZIOSpecDefault {
              |  shippingEstimate: Int! @requires(fields: "details { code ... on PhysicalDetails { dimensions } ... on DigitalDetails { downloadSize } }")
              |}
              |interface ProductDetails { code: String! }
-             |type PhysicalDetails implements ProductDetails { code: String! dimensions: Int! }
-             |type DigitalDetails implements ProductDetails { code: String! downloadSize: Int! }
+             |type PhysicalDetails implements ProductDetails @shareable { code: String! dimensions: Int! }
+             |type DigitalDetails implements ProductDetails @shareable { code: String! downloadSize: Int! }
              |""".stripMargin
         val productResponse   =
           """{"data":{"product":{"_caliban_gateway_requirement_details_code_dimensions_PhysicalDetails_downloadSize_DigitalDetails":{"code":"box","_caliban_gateway_requirement_typename":"PhysicalDetails","dimensions":4},"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}}}"""
