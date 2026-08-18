@@ -2,7 +2,7 @@ package caliban.gateway.internal
 
 import caliban.execution.{ ExecutionRequest, Field }
 import caliban.gateway.internal.OperationPlanner._
-import caliban.introspection.adt.{ __Type, __TypeKind }
+import caliban.introspection.adt.{ __Field, __Type, __TypeKind }
 import caliban.parsing.SourceMapper
 import caliban.parsing.adt.{ Directive, Document, OperationType, Selection }
 import caliban.schema.Types
@@ -443,9 +443,9 @@ private[gateway] final class OperationPlanner(
               PendingSelection(next, candidate.fields, Nil)
             )
           )
-          attempts.collect { case Right(next) if next.pending == state.pending => next }.toList
-            .sortBy(next => entityCount(next.entities) - entityCount(state.entities))
-            .headOption
+          attempts.collect { case Right(next) if next.pending == state.pending => next }.reduceOption { (best, next) =>
+            if (entityCount(next.entities) < entityCount(best.entities)) next else best
+          }
             .map(Right(_))
             .getOrElse(Right(state.copy(pending = groupPending(state.pending ::: (candidate :: Nil)))))
       }
@@ -457,14 +457,17 @@ private[gateway] final class OperationPlanner(
     parentType: __Type,
     typeName: String,
     target: String
-  ): Option[LookupSelection.Client] =
+  ): Option[LookupSelection.Client] = {
+    val fields = field.collectFields(typeName)
     graph
       .lookups(target, typeName)
-      .iterator
-      .flatMap(lookup => clientKeySelections(field.collectFields(typeName), parentType, lookup.key).map(lookup -> _))
-      .map { case (lookup, fields) => LookupSelection.Client(lookup, fields) }
-      .toList
-      .headOption
+      .collectFirst(
+        Function.unlift { lookup =>
+          clientKeySelections(fields, parentType, lookup.key)
+            .map(selected => LookupSelection.Client(lookup, selected))
+        }
+      )
+  }
 
   private def clientKeySelections(
     fields: List[Field],
@@ -513,8 +516,8 @@ private[gateway] final class OperationPlanner(
 
   private def selectedFields(field: Field, parentType: __Type, typeName: String): List[Field] =
     parentType.kind match {
-      case caliban.introspection.adt.__TypeKind.INTERFACE | caliban.introspection.adt.__TypeKind.UNION => field.fields
-      case _                                                                                           => field.collectFields(typeName)
+      case __TypeKind.INTERFACE | __TypeKind.UNION => field.fields
+      case _                                       => field.collectFields(typeName)
     }
 
   private def injectRequirementFields(
@@ -841,7 +844,7 @@ private[gateway] object OperationPlanner {
 
   private final case class RequiredKeyField(
     name: String,
-    field: caliban.introspection.adt.__Field,
+    field: __Field,
     children: List[RequiredKeyField],
     owned: Boolean
   ) {

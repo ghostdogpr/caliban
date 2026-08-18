@@ -14,6 +14,9 @@ import zio.http.netty.NettyConfig
 
 private[gateway] object GatewayTestSupport {
 
+  def buildDiagnostics[A](exit: Exit[GatewayBuildError, A]): List[String] =
+    exit.causeOption.flatMap(_.failureOption).fold(List.empty[String])(_.diagnostics)
+
   final case class Stub(
     endpoint: Uri,
     requests: Ref[Vector[GraphQLRequest]],
@@ -34,6 +37,18 @@ private[gateway] object GatewayTestSupport {
       |enum link__Purpose { SECURITY EXECUTION }
       |scalar federation__FieldSet
       |""".stripMargin
+
+  def federationSchemaPreamble(imports: String*): String =
+    federationSchemaPreamble("extend schema", "", imports)
+
+  def federationSchemaPreambleWithQueryRoot(imports: String*): String =
+    federationSchemaPreamble("schema", " { query: Query }", imports)
+
+  private def federationSchemaPreamble(declaration: String, root: String, imports: Seq[String]): String = {
+    val renderedImports = imports.map(value => "\"" + value + "\"").mkString(", ")
+    s"""$declaration @link(url: "https://specs.apollo.dev/federation/v2.3", import: [$renderedImports])$root
+       |$authoredFederationDirectives""".stripMargin
+  }
 
   val federationDirectives =
     """

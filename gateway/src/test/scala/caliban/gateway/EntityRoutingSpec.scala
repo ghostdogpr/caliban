@@ -5,7 +5,6 @@ import caliban.ResponseValue.{ ListValue => ResponseListValue, ObjectValue => Re
 import caliban.Value.IntValue.IntNumber
 import caliban.Value.{ NullValue, StringValue }
 import caliban.gateway.GatewayTestSupport._
-import caliban.InputValue
 import sttp.model.Uri
 import zio._
 import zio.test._
@@ -14,16 +13,14 @@ object EntityRoutingSpec extends ZIOSpecDefault {
 
   private val authoredProductsFederationSchema =
     s"""
-       |schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key"]) { query: Query }
-       |$authoredFederationDirectives
+       |${federationSchemaPreambleWithQueryRoot("@key")}
        |type Query { product(id: ID!): Product }
        |type Product @key(fields: "id") { id: ID! name: String! }
        |""".stripMargin
 
   private val authoredReviewsFederationSchema =
     s"""
-       |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key", "@external"])
-       |$authoredFederationDirectives
+       |${federationSchemaPreamble("@key", "@external")}
        |type Product @key(fields: "id") { id: ID! @external reviews: [Review!]! }
        |type Review { body: String! }
        |""".stripMargin
@@ -33,8 +30,7 @@ object EntityRoutingSpec extends ZIOSpecDefault {
       test("selects a satisfiable compound key from competing Federation keys") {
         val productsSchema  =
           s"""
-             |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key", "@external"])
-             |$authoredFederationDirectives
+             |${federationSchemaPreamble("@key", "@external")}
              |type Query { product: Product }
              |type Product @key(fields: "id organization { id }") {
              |  id: ID!
@@ -46,8 +42,7 @@ object EntityRoutingSpec extends ZIOSpecDefault {
              |""".stripMargin
         val reviewsSchema   =
           s"""
-             |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key", "@external"])
-             |$authoredFederationDirectives
+             |${federationSchemaPreamble("@key", "@external")}
              |type Product
              |  @key(fields: "sku")
              |  @key(fields: "id organization { id }") {
@@ -105,21 +100,18 @@ object EntityRoutingSpec extends ZIOSpecDefault {
       test("routes through an intermediate key source and skips null intermediate entities") {
         val booksSchema        =
           s"""
-             |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key"])
-             |$authoredFederationDirectives
+             |${federationSchemaPreamble("@key")}
              |type Query { books: [Book!]! }
              |type Book @key(fields: "upc") { upc: ID! }
              |""".stripMargin
         val identitiesSchema   =
           s"""
-             |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key"])
-             |$authoredFederationDirectives
+             |${federationSchemaPreamble("@key")}
              |type Book @key(fields: "id") @key(fields: "upc") { id: ID! upc: ID! }
              |""".stripMargin
         val authorsSchema      =
           s"""
-             |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key"])
-             |$authoredFederationDirectives
+             |${federationSchemaPreamble("@key")}
              |type Book @key(fields: "id") { id: ID! author: Author }
              |type Author { name: String! }
              |""".stripMargin
@@ -167,27 +159,23 @@ object EntityRoutingSpec extends ZIOSpecDefault {
       test("tries later bridge sources when the first declared bridge is unreachable") {
         val rootsSchema       =
           s"""
-             |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key"])
-             |$authoredFederationDirectives
+             |${federationSchemaPreamble("@key")}
              |type Query { thing: Thing }
              |type Thing @key(fields: "a") { a: ID! }
              |""".stripMargin
         val unreachableSchema =
           s"""
-             |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key", "@external"])
-             |$authoredFederationDirectives
+             |${federationSchemaPreamble("@key", "@external")}
              |type Thing @key(fields: "a") { a: ID! @external d: ID! @external }
              |""".stripMargin
         val bridgeSchema      =
           s"""
-             |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key"])
-             |$authoredFederationDirectives
+             |${federationSchemaPreamble("@key")}
              |type Thing @key(fields: "a") @key(fields: "d") { a: ID! d: ID! }
              |""".stripMargin
         val targetSchema      =
           s"""
-             |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key"])
-             |$authoredFederationDirectives
+             |${federationSchemaPreamble("@key")}
              |type Thing @key(fields: "d") { d: ID! label: String! }
              |""".stripMargin
         val rootResponse      =
@@ -225,22 +213,19 @@ object EntityRoutingSpec extends ZIOSpecDefault {
       test("executes independent entity routes concurrently") {
         val productsSchema  =
           s"""
-             |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key"])
-             |$authoredFederationDirectives
+             |${federationSchemaPreamble("@key")}
              |type Query { product: Product }
              |type Product @key(fields: "id") { id: ID! }
              |""".stripMargin
         val reviewsSchema   =
           s"""
-             |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key", "@external"])
-             |$authoredFederationDirectives
+             |${federationSchemaPreamble("@key", "@external")}
              |type Product @key(fields: "id") { id: ID! @external reviews: [Review!]! }
              |type Review { body: String! }
              |""".stripMargin
         val pricesSchema    =
           s"""
-             |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key", "@external"])
-             |$authoredFederationDirectives
+             |${federationSchemaPreamble("@key", "@external")}
              |type Product @key(fields: "id") { id: ID! @external price: Int! }
              |""".stripMargin
         val productResponse =
@@ -274,16 +259,14 @@ object EntityRoutingSpec extends ZIOSpecDefault {
       test("routes an interface key using the concrete runtime typename") {
         val nodesSchema     =
           s"""
-             |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key"])
-             |$authoredFederationDirectives
+             |${federationSchemaPreamble("@key")}
              |type Query { node: Node }
              |interface Node @key(fields: "id") { id: ID! }
              |type Product implements Node @key(fields: "id") { id: ID! }
              |""".stripMargin
         val detailsSchema   =
           s"""
-             |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key", "@external"])
-             |$authoredFederationDirectives
+             |${federationSchemaPreamble("@key", "@external")}
              |interface Node @key(fields: "id") { id: ID! @external label: String! }
              |type Product implements Node @key(fields: "id") { id: ID! @external label: String! }
              |""".stripMargin
@@ -321,16 +304,14 @@ object EntityRoutingSpec extends ZIOSpecDefault {
       test("moves an unresolvable child selection to a resolvable parent entity") {
         val productsSchema   =
           s"""
-             |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key", "@shareable"])
-             |$authoredFederationDirectives
+             |${federationSchemaPreamble("@key", "@shareable")}
              |type Query { products: [Product!]! }
              |type Product @key(fields: "id pid") { id: ID! pid: ID! category: Category @shareable }
              |type Category @key(fields: "id") { id: ID! }
              |""".stripMargin
         val detailsSchema    =
           s"""
-             |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key", "@shareable"])
-             |$authoredFederationDirectives
+             |${federationSchemaPreamble("@key", "@shareable")}
              |type Product @key(fields: "id pid") { id: ID! pid: ID! category: Category @shareable }
              |type Category { details: Details }
              |type Details { products: Int! }
@@ -377,8 +358,7 @@ object EntityRoutingSpec extends ZIOSpecDefault {
       test("retains a conventional Query root alongside a schema link extension") {
         val linkedSchema =
           s"""
-             |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key"])
-             |$authoredFederationDirectives
+             |${federationSchemaPreamble("@key")}
              |type Query { product: Product }
              |type Product @key(fields: "id") { id: ID! name: String! }
              |""".stripMargin
@@ -489,14 +469,12 @@ object EntityRoutingSpec extends ZIOSpecDefault {
             |""".stripMargin
         val leftSchema  =
           s"""
-             |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key", "@external"])
-             |$authoredFederationDirectives
+             |${federationSchemaPreamble("@key", "@external")}
              |type Thing @key(fields: "c") { b: ID! c: ID! @external }
              |""".stripMargin
         val rightSchema =
           s"""
-             |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key", "@external"])
-             |$authoredFederationDirectives
+             |${federationSchemaPreamble("@key", "@external")}
              |type Thing @key(fields: "b") { b: ID! @external c: ID! }
              |""".stripMargin
 
@@ -530,8 +508,7 @@ object EntityRoutingSpec extends ZIOSpecDefault {
             |""".stripMargin
         val externalSchema =
           s"""
-             |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key", "@external"])
-             |$authoredFederationDirectives
+             |${federationSchemaPreamble("@key", "@external")}
              |type Thing @key(fields: "id") { id: ID! @external ghost: String @external }
              |""".stripMargin
 

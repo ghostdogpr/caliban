@@ -3,7 +3,7 @@ package caliban.execution
 import caliban.CalibanError.ValidationError
 import caliban.Configurator.ExecutionConfiguration
 import caliban.introspection.Introspector
-import caliban.parsing.adt.Document
+import caliban.parsing.adt.{ Document, OperationType }
 import caliban.parsing.{ Parser, VariablesCoercer }
 import caliban.schema.RootType
 import caliban.validation.Validator
@@ -87,7 +87,7 @@ private[caliban] object RequestPreparation {
     config: ExecutionConfiguration
   )(request: GraphQLRequest, execution: ExecutionRequest): IO[ValidationError, ExecutionRequest] =
     if (
-      execution.operationType == caliban.parsing.adt.OperationType.Mutation &&
+      execution.operationType == OperationType.Mutation &&
       !config.allowMutationsOverGetRequests &&
       request.isHttpGetRequest
     ) Exit.fail(HttpUtils.MutationOverGetError)

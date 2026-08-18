@@ -158,9 +158,7 @@ object CompositionSpec extends ZIOSpecDefault {
           .build
           .exit
 
-        result.map(exit =>
-          assertTrue(exit.causeOption.flatMap(_.failureOption).exists(_.diagnostics.exists(_.contains("shareable"))))
-        )
+        result.map(exit => assertTrue(buildDiagnostics(exit).exists(_.contains("shareable"))))
       },
       test("requires each Federation 2 provider to make a key field shareable") {
         val keyed = schema(
@@ -176,9 +174,7 @@ object CompositionSpec extends ZIOSpecDefault {
           )
           .build
           .exit
-          .map(exit =>
-            assertTrue(exit.causeOption.flatMap(_.failureOption).exists(_.diagnostics.exists(_.contains("shareable"))))
-          )
+          .map(exit => assertTrue(buildDiagnostics(exit).exists(_.contains("shareable"))))
       },
       test("does not treat an unimported custom directive as Federation shareability") {
         val valueSchema = schema("type Query { value: String @shareable }", "")
@@ -190,9 +186,7 @@ object CompositionSpec extends ZIOSpecDefault {
           )
           .build
           .exit
-          .map(exit =>
-            assertTrue(exit.causeOption.flatMap(_.failureOption).exists(_.diagnostics.exists(_.contains("shareable"))))
-          )
+          .map(exit => assertTrue(buildDiagnostics(exit).exists(_.contains("shareable"))))
       },
       test("allows an override to name a source that is no longer present") {
         val base     = schema("type Query { value: String @shareable }", "\"@shareable\"")
@@ -311,7 +305,7 @@ object CompositionSpec extends ZIOSpecDefault {
           .build
           .exit
           .map { exit =>
-            val diagnostics = exit.causeOption.flatMap(_.failureOption).map(_.diagnostics).getOrElse(Nil)
+            val diagnostics = buildDiagnostics(exit)
             assertTrue(
               diagnostics.count(_.contains("Invalid @key field set")) == 2,
               diagnostics.exists(message =>
@@ -340,7 +334,7 @@ object CompositionSpec extends ZIOSpecDefault {
           .build
           .exit
           .map { exit =>
-            val diagnostics = exit.causeOption.flatMap(_.failureOption).map(_.diagnostics).getOrElse(Nil)
+            val diagnostics = buildDiagnostics(exit)
             assertTrue(
               diagnostics.exists(_.startsWith("[type Product.id]")),
               diagnostics.exists(message =>
@@ -367,7 +361,7 @@ object CompositionSpec extends ZIOSpecDefault {
           .build
           .exit
           .map { exit =>
-            val diagnostics = exit.causeOption.flatMap(_.failureOption).map(_.diagnostics).getOrElse(Nil)
+            val diagnostics = buildDiagnostics(exit)
             assertTrue(
               diagnostics.exists(message =>
                 message.contains("@override") && message.contains("'beta'") && message.contains("'gamma'")
@@ -448,7 +442,7 @@ object CompositionSpec extends ZIOSpecDefault {
           .build
           .exit
           .map { exit =>
-            val diagnostics = exit.causeOption.flatMap(_.failureOption).map(_.diagnostics).getOrElse(Nil)
+            val diagnostics = buildDiagnostics(exit)
             assertTrue(
               diagnostics.exists(_.startsWith("[arguments]")),
               diagnostics.exists(_.startsWith("[inputs]"))
@@ -563,11 +557,7 @@ object CompositionSpec extends ZIOSpecDefault {
           )
           .build
           .exit
-          .map(exit =>
-            assertTrue(
-              exit.causeOption.flatMap(_.failureOption).exists(_.diagnostics.exists(_.contains("Input/output enum")))
-            )
-          )
+          .map(exit => assertTrue(buildDiagnostics(exit).exists(_.contains("Input/output enum"))))
       },
       test("rejects incompatible argument and input-field defaults") {
         val alphaSchema =
@@ -583,7 +573,7 @@ object CompositionSpec extends ZIOSpecDefault {
           .build
           .exit
           .map { exit =>
-            val diagnostics = exit.causeOption.flatMap(_.failureOption).map(_.diagnostics).getOrElse(Nil)
+            val diagnostics = buildDiagnostics(exit)
             assertTrue(
               diagnostics.exists(_.startsWith("[query.value]")),
               diagnostics.exists(_.startsWith("[type Filter.limit]"))

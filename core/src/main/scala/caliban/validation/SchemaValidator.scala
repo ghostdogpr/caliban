@@ -9,7 +9,6 @@ import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
 import caliban.parsing.adt.{ Directive, Document, Type }
 import caliban.rendering.DocumentRenderer
-import caliban.schema.Types.collectTypes
 import caliban.schema.{ RootSchema, RootSchemaBuilder, RootType, Types }
 import caliban.validation.Utils.isObjectType
 import caliban.validation.ValidationOps._
@@ -72,16 +71,14 @@ private[caliban] object SchemaValidator {
   }
 
   private[caliban] def validateRootType(rootType: RootType): Either[ValidationError, Unit] = {
-    val init  = rootType.additionalTypes.foldLeft(List.empty[__Type]) { case (acc, t) => collectTypes(t, acc) }
-    val types =
-      (init ++
-        collectTypes(rootType.queryType, init) ++
-        rootType.mutationType.fold(List.empty[__Type])(collectTypes(_, init)) ++
-        rootType.subscriptionType.fold(List.empty[__Type])(collectTypes(_, init)))
-        .groupBy(t => (t.name, t.kind, t.origin))
-        .flatMap(_._2.headOption)
-        .toList
-        .sorted
+    val types = Types
+      .collectRootTypes(
+        rootType.additionalTypes,
+        Some(rootType.queryType),
+        rootType.mutationType,
+        rootType.subscriptionType
+      )
+      .sorted
 
     validateSchema(types, Some(rootType.queryType), rootType.mutationType, rootType.subscriptionType)
   }

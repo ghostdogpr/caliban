@@ -55,12 +55,12 @@ private[gateway] final class EntityExecutor[-R](sources: Map[String, GraphQLSour
     val routes = group.routes
     val batch  = prepareBatch(routes, roots, blocked)
 
-    if (batch.entries.isEmpty) ZIO.succeed(EntityResult(Nil, batch.errors, routes.map(_.id).toSet, batch.blocked))
+    if (batch.entries.isEmpty) ZIO.succeed(EntityResult(Nil, batch.errors, batch.routes, batch.blocked))
     else {
       val failure = EntityResult(
         Nil,
         batch.errors ::: routes.map(route => RemoteError.at(routePath(route))),
-        routes.map(_.id).toSet,
+        batch.routes,
         blockAll(batch)
       )
 
@@ -71,7 +71,6 @@ private[gateway] final class EntityExecutor[-R](sources: Map[String, GraphQLSour
               source
                 .execute(lookup.request)
                 .map(response => correlateResponse(route, batch, lookup, response, source.errorPolicy))
-                .map(result => result.copy(completed = routes.map(_.id).toSet))
                 .catchAll(_ => ZIO.succeed(failure))
             case None         => ZIO.succeed(failure)
           }
@@ -467,7 +466,7 @@ private[gateway] final class EntityExecutor[-R](sources: Map[String, GraphQLSour
     val protocolErrors = mutable.ListBuffer.empty[CalibanError]
     val blocked        = mutable.Map.empty[RouteId, mutable.Set[List[PathValue]]]
     batch.blocked.foreach { case (route, paths) => blocked.put(route, mutable.Set(paths.toSeq: _*)) }
-    val values         = lookupValues(response.data, lookup)
+    val values         = lookup.response.values(response.data)
 
     values.foreach {
       case (index, NullValue)                   =>
@@ -540,21 +539,6 @@ private[gateway] final class EntityExecutor[-R](sources: Map[String, GraphQLSour
     blocked.iterator.map { case (route, paths) => route -> paths.toSet }.toMap
   }
 
-  private def lookupValues(data: ResponseValue, lookup: LookupExecution): List[(Int, ResponseValue)] =
-    lookup.response.values(data)
-
-  private def resultIdentity(
-    entityType: String,
-    correlation: EntityCorrelation,
-    batch: EntityBatch,
-    index: Int,
-    fields: Map[String, ResponseValue]
-  ): Option[EntityIdentity] =
-    correlation match {
-      case EntityCorrelation.Ordered      => batch.entries.lift(index).map(_.identity)
-      case keyed: EntityCorrelation.Keyed => readIdentity(entityType, keyed.identity, fields)
-    }
-
   private def relocateErrors(
     route: EntityRoute,
     batch: EntityBatch,
@@ -592,7 +576,7 @@ private[gateway] final class EntityExecutor[-R](sources: Map[String, GraphQLSour
       case EntityCorrelation.Ordered      => batch.entries.lift(index).map(_.locations).getOrElse(Nil)
       case keyed: EntityCorrelation.Keyed =>
         val byIdentity = value.collect { case ObjectValue(fields) =>
-          resultIdentity(entityType, keyed, batch, index, fields.toMap)
+          readIdentity(entityType, keyed.identity, fields.toMap)
         }.flatten
           .flatMap(identity => batch.entries.find(_.identity == identity))
           .map(_.locations)
@@ -612,25 +596,25 @@ private[gateway] final class EntityExecutor[-R](sources: Map[String, GraphQLSour
 
   private def missingRepresentation(route: EntityRoute, path: List[PathValue]): CalibanError.ExecutionError =
     CalibanError.ExecutionError(
-      "Entity key '" + entityKey(route) + "' was missing from the source result.",
+      s"Entity key '${entityKey(route)}' was missing from the source result.",
       path = path
     )
 
   private def duplicateEntityResult(route: EntityRoute): CalibanError.ExecutionError =
     CalibanError.ExecutionError(
-      "Entity lookup response contained a duplicate result for '" + entityKey(route) + "'.",
+      s"Entity lookup response contained a duplicate result for '${entityKey(route)}'.",
       path = routePath(route)
     )
 
   private def unexpectedEntityResult(route: EntityRoute): CalibanError.ExecutionError =
     CalibanError.ExecutionError(
-      "Entity lookup response contained an unexpected result for '" + entityKey(route) + "'.",
+      s"Entity lookup response contained an unexpected result for '${entityKey(route)}'.",
       path = routePath(route)
     )
 
   private def missingEntityResult(route: EntityRoute, path: List[PathValue]): CalibanError.ExecutionError =
     CalibanError.ExecutionError(
-      "Entity lookup response omitted a result for '" + entityKey(route) + "'.",
+      s"Entity lookup response omitted a result for '${entityKey(route)}'.",
       path = path
     )
 

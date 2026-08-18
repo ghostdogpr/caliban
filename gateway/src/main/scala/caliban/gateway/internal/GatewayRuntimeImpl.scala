@@ -2,7 +2,7 @@ package caliban.gateway.internal
 
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ NullValue, StringValue }
-import caliban.execution.{ Executor, Field, RequestPreparation }
+import caliban.execution.{ ExecutionRequest, Executor, Field, RequestPreparation }
 import caliban.gateway.GatewayRuntime
 import caliban.gateway.internal.EntityExecutor.EntityResult
 import caliban.gateway.internal.GatewayRuntimeImpl._
@@ -52,7 +52,7 @@ private[gateway] final class GatewayRuntimeImpl[-R](
 
   private def executePlan(
     plan: OperationPlan,
-    execution: caliban.execution.ExecutionRequest,
+    execution: ExecutionRequest,
     original: GraphQLRequest
   )(implicit trace: Trace): ZIO[R, Nothing, GraphQLResponse[CalibanError]] =
     plan.passthrough match {
@@ -75,15 +75,15 @@ private[gateway] final class GatewayRuntimeImpl[-R](
         executeRoots(plan, execution, original).flatMap { roots =>
           val rootValues = roots.iterator.map(result => result.route.id -> result.response.data).toMap
           executeEntities(plan.entities, rootValues, plan.roots.iterator.map(_.id).toSet, Map.empty, original).map {
-            execution =>
+            entityExecution =>
               val updated = roots.map(result =>
                 result.copy(
                   response = result.response.copy(
-                    data = execution.roots.getOrElse(result.route.id, result.response.data)
+                    data = entityExecution.roots.getOrElse(result.route.id, result.response.data)
                   )
                 )
               )
-              updated -> execution.results
+              updated -> entityExecution.results
           }
         }
           .zipPar(executeIntrospection(execution, plan.localFields.filter(isIntrospectionField)))
@@ -132,7 +132,7 @@ private[gateway] final class GatewayRuntimeImpl[-R](
 
   private def executeRoots(
     plan: OperationPlan,
-    execution: caliban.execution.ExecutionRequest,
+    execution: ExecutionRequest,
     original: GraphQLRequest
   )(implicit trace: Trace): ZIO[R, Nothing, List[RootResult]] = {
     val execute = executeRoot(_: RootRoute, execution, original)
@@ -145,7 +145,7 @@ private[gateway] final class GatewayRuntimeImpl[-R](
 
   private def executeRoot(
     route: RootRoute,
-    execution: caliban.execution.ExecutionRequest,
+    execution: ExecutionRequest,
     original: GraphQLRequest
   )(implicit trace: Trace): ZIO[R, Nothing, RootResult] = {
     val operation = OperationDefinition(
@@ -177,7 +177,7 @@ private[gateway] final class GatewayRuntimeImpl[-R](
   }
 
   private def executeIntrospection(
-    execution: caliban.execution.ExecutionRequest,
+    execution: ExecutionRequest,
     fields: List[Field]
   )(implicit trace: Trace): ZIO[Any, Nothing, GraphQLResponse[CalibanError]] =
     if (fields.isEmpty) ZIO.succeed(GraphQLResponse(ObjectValue(Nil), Nil))
@@ -369,33 +369,34 @@ private[gateway] final class GatewayRuntimeImpl[-R](
     }
 
   private def mergeObject(left: ResponseValue, right: ResponseValue): ResponseValue =
-    (left, right) match {
-      case (ObjectValue(leftFields), ObjectValue(rightFields)) =>
-        val rightMap = rightFields.toMap
-        val names    = leftFields.iterator.map(_._1).toSet
-        ObjectValue(
-          leftFields.map { case (name, value) => name -> rightMap.get(name).fold(value)(mergeObject(value, _)) } :::
-            rightFields.filterNot(field => names.contains(field._1))
-        )
-      case (_, value)                                          => value
-    }
+    mergeValues(left, right)((_, value) => value)
 
   private def mergeRootValue(left: ResponseValue, right: ResponseValue): ResponseValue =
-    (left, right) match {
+    mergeValues(left, right) {
       case (NullValue, value)                                                                     => value
       case (value, NullValue)                                                                     => value
-      case (ObjectValue(leftFields), ObjectValue(rightFields))                                    =>
-        val rightMap = rightFields.toMap
-        val names    = leftFields.iterator.map(_._1).toSet
-        ObjectValue(
-          leftFields.map { case (name, value) => name -> rightMap.get(name).fold(value)(mergeRootValue(value, _)) } :::
-            rightFields.filterNot(field => names.contains(field._1))
-        )
       case (ListValue(leftValues), ListValue(rightValues)) if leftValues.size == rightValues.size =>
         ListValue(leftValues.zip(rightValues).map { case (leftValue, rightValue) =>
           mergeRootValue(leftValue, rightValue)
         })
       case (_, value)                                                                             => value
+    }
+
+  private def mergeValues(
+    left: ResponseValue,
+    right: ResponseValue
+  )(mergeLeaf: (ResponseValue, ResponseValue) => ResponseValue): ResponseValue =
+    (left, right) match {
+      case (ObjectValue(leftFields), ObjectValue(rightFields)) =>
+        val rightMap = rightFields.toMap
+        val names    = leftFields.iterator.map(_._1).toSet
+        ObjectValue(
+          leftFields.map { case (name, value) =>
+            name -> rightMap.get(name).fold(value)(other => mergeValues(value, other)(mergeLeaf))
+          } :::
+            rightFields.filterNot(field => names.contains(field._1))
+        )
+      case _                                                   => mergeLeaf(left, right)
     }
 
   private def project(

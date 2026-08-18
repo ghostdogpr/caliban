@@ -391,18 +391,16 @@ object MultiSourceSpec extends ZIOSpecDefault {
         for {
           forward <- Gateway.compose(alpha, beta).build.exit
           reverse <- Gateway.compose(beta, alpha).build.exit
-          first    = forward.causeOption.flatMap(_.failureOption).map(_.diagnostics)
-          second   = reverse.causeOption.flatMap(_.failureOption).map(_.diagnostics)
+          first    = buildDiagnostics(forward)
+          second   = buildDiagnostics(reverse)
         } yield assertTrue(
           forward.isFailure,
           reverse.isFailure,
           first == second,
-          first.exists(_.size == 2),
-          first.exists(_.exists(_.contains("query.duplicate"))),
-          first.exists(
-            _.exists(message =>
-              message.contains("type Product") && message.contains("'alpha'") && message.contains("'beta'")
-            )
+          first.size == 2,
+          first.exists(_.contains("query.duplicate")),
+          first.exists(message =>
+            message.contains("type Product") && message.contains("'alpha'") && message.contains("'beta'")
           )
         )
       },
@@ -415,16 +413,14 @@ object MultiSourceSpec extends ZIOSpecDefault {
         for {
           forward <- Gateway.compose(alpha, beta).build.exit
           reverse <- Gateway.compose(beta, alpha).build.exit
-          first    = forward.causeOption.flatMap(_.failureOption).map(_.diagnostics)
-          second   = reverse.causeOption.flatMap(_.failureOption).map(_.diagnostics)
+          first    = buildDiagnostics(forward)
+          second   = buildDiagnostics(reverse)
         } yield assertTrue(
           forward.isFailure,
           reverse.isFailure,
           first == second,
-          first.exists(
-            _.exists(message =>
-              message.contains("query.duplicate") && message.contains("'alpha'") && message.contains("'beta'")
-            )
+          first.exists(message =>
+            message.contains("query.duplicate") && message.contains("'alpha'") && message.contains("'beta'")
           )
         )
       }

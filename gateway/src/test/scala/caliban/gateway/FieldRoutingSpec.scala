@@ -18,8 +18,7 @@ object FieldRoutingSpec extends ZIOSpecDefault {
         val endpoint          = Uri.unsafeParse("http://127.0.0.1:1/graphql")
         val malformedRequires =
           s"""
-             |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key", "@external", "@requires"])
-             |$authoredFederationDirectives
+             |${federationSchemaPreamble("@key", "@external", "@requires")}
              |type Query { product: Product }
              |type Product @key(fields: "id") {
              |  id: ID!
@@ -29,8 +28,7 @@ object FieldRoutingSpec extends ZIOSpecDefault {
              |""".stripMargin
         val invalidProvides   =
           s"""
-             |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key", "@provides"])
-             |$authoredFederationDirectives
+             |${federationSchemaPreamble("@key", "@provides")}
              |type Query { review: Review }
              |type Review { product: Product @provides(fields: "missing") }
              |type Product @key(fields: "id") { id: ID! }
@@ -45,24 +43,21 @@ object FieldRoutingSpec extends ZIOSpecDefault {
                                   .compose(Subgraph.federation("reviews", endpoint, invalidProvides))
                                   .build
                                   .exit
-          requiresDiagnostics = requires.causeOption.flatMap(_.failureOption).map(_.diagnostics)
-          providesDiagnostics = provides.causeOption.flatMap(_.failureOption).map(_.diagnostics)
+          requiresDiagnostics = buildDiagnostics(requires)
+          providesDiagnostics = buildDiagnostics(provides)
         } yield assertTrue(
           requires.isFailure,
           provides.isFailure,
-          requiresDiagnostics.exists(
-            _.exists(message => message.contains("[inventory]") && message.contains("Product.shippingEstimate"))
+          requiresDiagnostics.exists(message =>
+            message.contains("[inventory]") && message.contains("Product.shippingEstimate")
           ),
-          providesDiagnostics.exists(
-            _.exists(message => message.contains("[reviews]") && message.contains("Review.product"))
-          )
+          providesDiagnostics.exists(message => message.contains("[reviews]") && message.contains("Review.product"))
         )
       },
       test("injects argument-bearing requirements without projecting them") {
         val productsSchema    =
           s"""
-             |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key", "@shareable"])
-             |$authoredFederationDirectives
+             |${federationSchemaPreamble("@key", "@shareable")}
              |type Query { product: Product }
              |type Product @key(fields: "id") {
              |  id: ID!
@@ -72,8 +67,7 @@ object FieldRoutingSpec extends ZIOSpecDefault {
              |""".stripMargin
         val inventorySchema   =
           s"""
-             |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key", "@external", "@requires"])
-             |$authoredFederationDirectives
+             |${federationSchemaPreamble("@key", "@external", "@requires")}
              |type Product @key(fields: "id") {
              |  id: ID! @external
              |  price(multiplier: Int!): Int! @external
@@ -129,8 +123,7 @@ object FieldRoutingSpec extends ZIOSpecDefault {
       test("evaluates nested fragment requirements for the returned runtime type") {
         val productsSchema    =
           s"""
-             |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key", "@shareable"])
-             |$authoredFederationDirectives
+             |${federationSchemaPreamble("@key", "@shareable")}
              |type Query { product: Product }
              |type Product @key(fields: "id") { id: ID! details: ProductDetails! }
              |interface ProductDetails { code: String! }
@@ -139,8 +132,7 @@ object FieldRoutingSpec extends ZIOSpecDefault {
              |""".stripMargin
         val inventorySchema   =
           s"""
-             |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key", "@external", "@requires", "@shareable"])
-             |$authoredFederationDirectives
+             |${federationSchemaPreamble("@key", "@external", "@requires", "@shareable")}
              |type Product @key(fields: "id") {
              |  id: ID! @external
              |  details: ProductDetails! @external
@@ -193,8 +185,7 @@ object FieldRoutingSpec extends ZIOSpecDefault {
       test("uses provided fields only within the annotated result scope") {
         val productsSchema   =
           s"""
-             |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key", "@external", "@provides"])
-             |$authoredFederationDirectives
+             |${federationSchemaPreamble("@key", "@external", "@provides")}
              |type Query {
              |  featured: Product @provides(fields: "name")
              |  regular: Product
@@ -203,8 +194,7 @@ object FieldRoutingSpec extends ZIOSpecDefault {
              |""".stripMargin
         val catalogSchema    =
           s"""
-             |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key"])
-             |$authoredFederationDirectives
+             |${federationSchemaPreamble("@key")}
              |type Product @key(fields: "id") { id: ID! name: String! }
              |""".stripMargin
         val productsResponse =
@@ -237,8 +227,7 @@ object FieldRoutingSpec extends ZIOSpecDefault {
       test("uses a path-scoped provision to satisfy a downstream requirement") {
         val productsSchema   =
           s"""
-             |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key", "@external", "@provides"])
-             |$authoredFederationDirectives
+             |${federationSchemaPreamble("@key", "@external", "@provides")}
              |type Query {
              |  featured: Product @provides(fields: "price")
              |  regular: Product
@@ -247,14 +236,12 @@ object FieldRoutingSpec extends ZIOSpecDefault {
              |""".stripMargin
         val pricingSchema    =
           s"""
-             |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key"])
-             |$authoredFederationDirectives
+             |${federationSchemaPreamble("@key")}
              |type Product @key(fields: "id") { id: ID! price: Int! }
              |""".stripMargin
         val shippingSchema   =
           s"""
-             |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key", "@external", "@requires"])
-             |$authoredFederationDirectives
+             |${federationSchemaPreamble("@key", "@external", "@requires")}
              |type Product @key(fields: "id") {
              |  id: ID! @external
              |  price: Int! @external
@@ -321,8 +308,7 @@ object FieldRoutingSpec extends ZIOSpecDefault {
       test("separates conflicting argument-bearing requirement groups") {
         val productsSchema  =
           s"""
-             |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key"])
-             |$authoredFederationDirectives
+             |${federationSchemaPreamble("@key")}
              |type Query { product: Product }
              |type Product @key(fields: "id") {
              |  id: ID!
@@ -332,8 +318,7 @@ object FieldRoutingSpec extends ZIOSpecDefault {
              |""".stripMargin
         val inventorySchema =
           s"""
-             |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key", "@external", "@requires"])
-             |$authoredFederationDirectives
+             |${federationSchemaPreamble("@key", "@external", "@requires")}
              |type Product @key(fields: "id") {
              |  id: ID! @external
              |  price(multiplier: Int!): Int! @external
@@ -384,21 +369,18 @@ object FieldRoutingSpec extends ZIOSpecDefault {
       test("orders recursive requirements before their dependents") {
         val rootsSchema    =
           s"""
-             |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key"])
-             |$authoredFederationDirectives
+             |${federationSchemaPreamble("@key")}
              |type Query { product: Product }
              |type Product @key(fields: "id") { id: ID! }
              |""".stripMargin
         val priceSchema    =
           s"""
-             |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key", "@external"])
-             |$authoredFederationDirectives
+             |${federationSchemaPreamble("@key", "@external")}
              |type Product @key(fields: "id") { id: ID! @external price: Int! }
              |""".stripMargin
         val ratingSchema   =
           s"""
-             |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key", "@external", "@requires"])
-             |$authoredFederationDirectives
+             |${federationSchemaPreamble("@key", "@external", "@requires")}
              |type Product @key(fields: "id") {
              |  id: ID! @external
              |  price: Int! @external
@@ -407,8 +389,7 @@ object FieldRoutingSpec extends ZIOSpecDefault {
              |""".stripMargin
         val labelSchema    =
           s"""
-             |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key", "@external", "@requires"])
-             |$authoredFederationDirectives
+             |${federationSchemaPreamble("@key", "@external", "@requires")}
              |type Product @key(fields: "id") {
              |  id: ID! @external
              |  expensive: Boolean! @external
@@ -452,21 +433,18 @@ object FieldRoutingSpec extends ZIOSpecDefault {
       test("blocks dependent requirement routes while preserving independent root data") {
         val rootsSchema  =
           s"""
-             |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key"])
-             |$authoredFederationDirectives
+             |${federationSchemaPreamble("@key")}
              |type Query { status: String! product: Product }
              |type Product @key(fields: "id") { id: ID! }
              |""".stripMargin
         val priceSchema  =
           s"""
-             |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key", "@external"])
-             |$authoredFederationDirectives
+             |${federationSchemaPreamble("@key", "@external")}
              |type Product @key(fields: "id") { id: ID! @external price: Int! }
              |""".stripMargin
         val ratingSchema =
           s"""
-             |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key", "@external", "@requires"])
-             |$authoredFederationDirectives
+             |${federationSchemaPreamble("@key", "@external", "@requires")}
              |type Product @key(fields: "id") {
              |  id: ID! @external
              |  price: Int! @external
@@ -475,8 +453,7 @@ object FieldRoutingSpec extends ZIOSpecDefault {
              |""".stripMargin
         val labelSchema  =
           s"""
-             |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key", "@external", "@requires"])
-             |$authoredFederationDirectives
+             |${federationSchemaPreamble("@key", "@external", "@requires")}
              |type Product @key(fields: "id") {
              |  id: ID! @external
              |  expensive: Boolean! @external
@@ -515,8 +492,7 @@ object FieldRoutingSpec extends ZIOSpecDefault {
       test("executes a locally owned dependent field after its remote requirements") {
         val productsSchema =
           s"""
-             |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key", "@external", "@requires"])
-             |$authoredFederationDirectives
+             |${federationSchemaPreamble("@key", "@external", "@requires")}
              |type Query { product: Product }
              |type Product @key(fields: "id") {
              |  id: ID!
@@ -526,8 +502,7 @@ object FieldRoutingSpec extends ZIOSpecDefault {
              |""".stripMargin
         val pricingSchema  =
           s"""
-             |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key"])
-             |$authoredFederationDirectives
+             |${federationSchemaPreamble("@key")}
              |type Product @key(fields: "id") { id: ID! price: Int! }
              |""".stripMargin
         val rootResponse   =
