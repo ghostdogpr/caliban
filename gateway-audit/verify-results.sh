@@ -1,15 +1,14 @@
 #!/bin/sh
 set -eu
 
-if [ "$#" -lt 3 ] || [ "$#" -gt 4 ]; then
-    echo "Usage: $0 <results.txt> <expectations.tsv> <supported-cases.txt> [report.md]" >&2
+if [ "$#" -lt 2 ] || [ "$#" -gt 3 ]; then
+    echo "Usage: $0 <results.txt> <expectations.tsv> [report.md]" >&2
     exit 1
 fi
 
 RESULTS=$1
 EXPECTATIONS=$2
-SUPPORTED_CASES=$3
-REPORT=${4:-report.md}
+REPORT=${3:-report.md}
 REVISION=${FEDERATION_GATEWAY_AUDIT_REVISION:-unknown}
 
 {
@@ -24,15 +23,26 @@ REVISION=${FEDERATION_GATEWAY_AUDIT_REVISION:-unknown}
 awk -F '\t' -v report="$REPORT" '
     FILENAME == ARGV[1] {
         if (FNR == 1) next
-        disposition[$1] = $2
-        owner[$1] = $3
-        rationale[$1] = $4
-        expected[$1] = 1
-        next
-    }
-
-    FILENAME == ARGV[2] {
-        supported[$1] = 1
+        if ($3 != "failing" && $3 != "deferred") {
+            print "Invalid expectation disposition for suite " $1 ": " $3 > "/dev/stderr"
+            violations++
+        }
+        count = split($2, positions, ",")
+        for (item = 1; item <= count; item++) {
+            if (positions[item] !~ /^[0-9]+$/) {
+                print "Invalid expected case index for suite " $1 ": " positions[item] > "/dev/stderr"
+                violations++
+            }
+            case_id = $1 "_" positions[item]
+            if (case_id in expected) {
+                print "Duplicate audit expectation: " case_id > "/dev/stderr"
+                violations++
+            }
+            disposition[case_id] = $3
+            owner[case_id] = $4
+            rationale[case_id] = $5
+            expected[case_id] = 1
+        }
         next
     }
 
@@ -42,39 +52,32 @@ awk -F '\t' -v report="$REPORT" '
     }
 
     /^[.X]+$/ && current != "" {
-        if (!(current in expected)) {
-            print "Unclassified upstream suite: " current > "/dev/stderr"
-            violations++
-            current = ""
-            next
-        }
-
-        seen[current] = 1
         for (position = 1; position <= length($0); position++) {
             case_id = current "_" (position - 1)
             marker = substr($0, position, 1)
             result = marker == "." ? "pass" : "fail"
-            if (case_id in supported) {
-                case_disposition = "supported"
-                case_owner = "ticket-10"
-                case_rationale = "Pinned passing behavior; a failure is a regression."
-                supported_seen[case_id] = 1
+            observed[case_id] = 1
+
+            if (case_id in expected) {
+                case_disposition = disposition[case_id]
+                case_owner = owner[case_id]
+                case_rationale = rationale[case_id]
             } else {
-                case_disposition = disposition[current]
-                case_owner = owner[current]
-                case_rationale = rationale[current]
+                case_disposition = "supported"
+                case_owner = "-"
+                case_rationale = "Passing behavior is required."
             }
             print "| `" case_id "` | " result " | " case_disposition " | " case_owner " | " case_rationale " |" >> report
 
             total++
             counts[case_disposition]++
             if (marker == "X") failures++
-            if (case_id in supported && marker == "X") {
-                print "Supported audit case failed: " case_id > "/dev/stderr"
+            if (marker == "X" && !(case_id in expected)) {
+                print "Unexpected audit case failure: " case_id > "/dev/stderr"
                 violations++
             }
-            if (!(case_id in supported) && marker == ".") {
-                print "Passing audit case is not in the supported baseline: " case_id > "/dev/stderr"
+            if (marker == "." && case_id in expected) {
+                print "Expected audit failure passed; remove its exception: " case_id > "/dev/stderr"
                 violations++
             }
         }
@@ -82,15 +85,9 @@ awk -F '\t' -v report="$REPORT" '
     }
 
     END {
-        for (suite in expected) {
-            if (!(suite in seen)) {
-                print "Expected upstream suite was not reported: " suite > "/dev/stderr"
-                violations++
-            }
-        }
-        for (case_id in supported) {
-            if (!(case_id in supported_seen)) {
-                print "Supported audit case was not reported: " case_id > "/dev/stderr"
+        for (case_id in expected) {
+            if (!(case_id in observed)) {
+                print "Expected audit case was not reported: " case_id > "/dev/stderr"
                 violations++
             }
         }
@@ -105,6 +102,6 @@ awk -F '\t' -v report="$REPORT" '
 
         if (violations > 0) exit 1
     }
-' "$EXPECTATIONS" "$SUPPORTED_CASES" "$RESULTS"
+' "$EXPECTATIONS" "$RESULTS"
 
 cat "$REPORT"

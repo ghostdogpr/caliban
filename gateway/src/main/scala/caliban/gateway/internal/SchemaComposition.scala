@@ -3,12 +3,12 @@ package caliban.gateway.internal
 import caliban.Value.{ BooleanValue, StringValue }
 import caliban.gateway.Lookup
 import caliban.introspection.adt._
-import caliban.parsing.SourceMapper
+import caliban.parsing.{ Parser, SourceMapper }
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
 import caliban.parsing.adt.Definition.TypeSystemExtension.SchemaExtension
-import caliban.parsing.adt.Definition.TypeSystemExtension.TypeExtension.ObjectTypeExtension
-import caliban.parsing.adt.{ Directive, Document, OperationType }
+import caliban.parsing.adt.Definition.TypeSystemExtension.TypeExtension._
+import caliban.parsing.adt.{ Directive, Document, OperationType, Selection }
 import caliban.rendering.DocumentRenderer
 import caliban.schema.RootType
 import caliban.validation.SchemaValidator
@@ -27,7 +27,8 @@ private[gateway] final class ComposedGraph private[internal] (
   val rootType: RootType,
   private val routes: Map[(OperationType, String), String],
   private val fieldRoutes: Map[(String, String), List[String]],
-  private val entityLookups: Map[(String, String), ComposedGraph.EntityLookup]
+  private val fieldAvailability: Map[(String, String), List[String]],
+  private val entityLookups: Map[(String, String), List[ComposedGraph.EntityLookup]]
 ) {
   def source(operation: OperationType, field: String): Option[String] =
     routes.get(operation -> field)
@@ -38,18 +39,53 @@ private[gateway] final class ComposedGraph private[internal] (
     }
 
   def lookup(source: String, typeName: String): Option[ComposedGraph.EntityLookup] =
-    entityLookups.get(source -> typeName)
+    lookups(source, typeName).headOption
+
+  def lookups(source: String, typeName: String): List[ComposedGraph.EntityLookup] =
+    entityLookups.getOrElse(source -> typeName, Nil)
+
+  def owns(source: String, typeName: String, field: String): Boolean =
+    fieldRoutes.getOrElse(typeName -> field, Nil).contains(source)
+
+  def declares(source: String, typeName: String, field: String): Boolean =
+    fieldAvailability.getOrElse(typeName -> field, Nil).contains(source)
+
+  def sourcesForKey(typeName: String, fields: List[ComposedGraph.KeyField]): List[String] =
+    fields match {
+      case Nil          => Nil
+      case head :: tail =>
+        val first = sourcesForKeyField(typeName, head)
+        first.filter(source => tail.forall(field => sourcesForKeyField(typeName, field).contains(source)))
+    }
+
+  private def sourcesForKeyField(typeName: String, field: ComposedGraph.KeyField): List[String] = {
+    val sources = fieldAvailability.getOrElse(typeName -> field.name, Nil)
+    if (field.children.isEmpty) sources
+    else {
+      val childType = rootType.types
+        .get(typeName)
+        .flatMap(_.allFields.find(_.name == field.name))
+        .flatMap(_._type.innerType.name)
+      childType.fold(List.empty[String])(name =>
+        sources.filter(source => field.children.forall(child => sourcesForKeyField(name, child).contains(source)))
+      )
+    }
+  }
 }
 
 private[gateway] object ComposedGraph {
-  final case class EntityLookup(keyFields: List[String], operation: LookupOperation)
+  final case class KeyField(name: String, children: List[KeyField])
+
+  final case class EntityLookup(key: List[KeyField], operation: LookupOperation) {
+    def keyFields: List[String] = key.map(_.name)
+  }
 
   sealed trait LookupOperation {
     def requiresTypename: Boolean
   }
 
   object LookupOperation {
-    final case class FederationEntities(correlationFields: List[String]) extends LookupOperation {
+    final case class FederationEntities(correlationKey: Option[List[KeyField]]) extends LookupOperation {
       val requiresTypename: Boolean = true
     }
 
@@ -126,18 +162,28 @@ private[gateway] object SchemaComposition {
       } ::: mutations.map { case (source, field) =>
         (OperationType.Mutation -> field.name) -> source
       }).toMap
-      val fieldRoutes                                  = types
-        .flatMap(entry => entry.ownedFields.map(field => (entry.name -> field) -> entry.source))
+      val fieldDefinitions                             = types
+        .flatMap(entry => entry.tpe.allFields.map(field => (entry.name -> field.name) -> entry))
         .groupBy(_._1)
-        .map { case (coordinate, providers) => coordinate -> providers.map(_._2).distinct.sorted }
-      val lookups                                      =
-        types.flatMap(entry => entry.entity.toList.flatMap(_.lookup).map((entry.source -> entry.name) -> _)).toMap
+      val fieldRoutes                                  = fieldDefinitions.flatMap { case (coordinate, definitions) =>
+        val owned = definitions.collect {
+          case (_, entry) if entry.ownedFields.contains(coordinate._2) => entry.source
+        }
+        if (owned.nonEmpty) Some(coordinate -> owned.distinct.sorted) else None
+      }
+      val fieldAvailability                            = fieldDefinitions.map { case (coordinate, definitions) =>
+        coordinate -> definitions.map(_._2.source).distinct.sorted
+      }
+      val lookups                                      = types
+        .flatMap(entry => entry.entity.toList.flatMap(_.lookups).map((entry.source -> entry.name) -> _))
+        .groupBy(_._1)
+        .map { case (coordinate, values) => coordinate -> values.map(_._2) }
 
       SchemaValidator
         .validateRootType(rootType)
         .left
         .map(error => List(s"[composition] ${error.getMessage}"))
-        .map(_ => new ComposedGraph(rootType, routes, fieldRoutes, lookups))
+        .map(_ => new ComposedGraph(rootType, routes, fieldRoutes, fieldAvailability, lookups))
     }
   }
 
@@ -418,18 +464,16 @@ private[gateway] object SchemaComposition {
     tpe: __Type,
     entity: Option[EntityDefinition],
     ownedFields: Set[String],
+    shareableFields: Set[String],
     hiddenDirectives: Set[String]
   )
 
   private final case class EntityDefinition(
-    keyFields: List[String],
-    operation: Option[ComposedGraph.LookupOperation]
-  ) {
-    def lookup: Option[ComposedGraph.EntityLookup] =
-      operation.map(ComposedGraph.EntityLookup(keyFields, _))
-  }
+    keyFields: Set[String],
+    lookups: List[ComposedGraph.EntityLookup]
+  )
 
-  private final case class FederationKey(fields: List[String], resolvable: Boolean)
+  private final case class FederationKey(fields: List[ComposedGraph.KeyField], resolvable: Boolean)
 
   private def nonRootTypes(schemas: List[SchemaContribution]): List[TypeEntry] =
     schemas.flatMap { schema =>
@@ -450,35 +494,56 @@ private[gateway] object SchemaComposition {
     }
 
   private def typeEntry(schema: SchemaContribution, name: String, tpe: __Type): TypeEntry = {
-    val definitions = schema.document.objectTypeDefinitions.filter(_.name == name)
+    val definitions = schema.document.typeDefinitions.filter(_.name == name)
     val extensions  = schema.document.typeExtensions.collect {
-      case extension: ObjectTypeExtension if extension.name == name => extension
+      case extension: ObjectTypeExtension if extension.name == name    =>
+        extension.directives -> extension.fields
+      case extension: InterfaceTypeExtension if extension.name == name =>
+        extension.directives -> extension.fields
     }
-    val directives  = definitions.flatMap(_.directives) ::: extensions.flatMap(_.directives)
-    val fields      = definitions.flatMap(_.fields) ::: extensions.flatMap(_.fields)
+    val directives  = definitions.flatMap(_.directives) ::: extensions.flatMap(_._1)
+    val fields      = definitions.flatMap {
+      case definition: ObjectTypeDefinition    => definition.fields
+      case definition: InterfaceTypeDefinition => definition.fields
+      case _                                   => Nil
+    } ::: extensions.flatMap(_._2)
     val names       = federationDirectiveNames(schema.document)
     val entity      =
-      if (schema.federation)
-        directives.collectFirst(Function.unlift(keyDirective(_, names))).map { key =>
-          val operation =
-            if (key.resolvable && hasEntityLookup(schema, name))
-              Some(
-                ComposedGraph.LookupOperation.FederationEntities(
-                  if (declaresEntityLookup(schema, name)) key.fields else Nil
-                )
-              )
-            else None
-          EntityDefinition(key.fields, operation)
-        }
-      else
+      if (schema.federation) {
+        val keys = directives.flatMap(keyDirective(_, names))
+        if (keys.nonEmpty) {
+          val lookups =
+            if (hasEntityLookup(schema, name))
+              keys.collect {
+                case key if key.resolvable =>
+                  ComposedGraph.EntityLookup(
+                    key.fields,
+                    ComposedGraph.LookupOperation.FederationEntities(
+                      if (declaresEntityLookup(schema, name)) Some(key.fields) else None
+                    )
+                  )
+              }
+            else Nil
+          Some(EntityDefinition(keys.flatMap(_.fields.map(_.name)).toSet, lookups))
+        } else None
+      } else
         schema.lookups
           .find(_.typeName == name)
           .map { lookup =>
-            EntityDefinition(lookup.keyFields, compileLookup(schema, lookup))
+            val key = lookup.keyFields.map(ComposedGraph.KeyField(_, Nil))
+            EntityDefinition(
+              lookup.keyFields.toSet,
+              compileLookup(schema, lookup).toList.map(ComposedGraph.EntityLookup(key, _))
+            )
           }
     val external    = fields.collect {
       case field
           if schema.federation && field.directives.exists(directive => names.external.contains(directive.name)) =>
+        field.name
+    }.toSet
+    val shareable   = fields.collect {
+      case field
+          if schema.federation && field.directives.exists(directive => names.shareable.contains(directive.name)) =>
         field.name
     }.toSet
     TypeEntry(
@@ -487,6 +552,7 @@ private[gateway] object SchemaComposition {
       tpe,
       entity,
       tpe.allFields.map(_.name).toSet -- external,
+      shareable,
       if (schema.federation) names.hidden else Set.empty
     )
   }
@@ -563,10 +629,21 @@ private[gateway] object SchemaComposition {
     val kindDiagnostic   =
       if (kinds.size > 1) List(s"[type $name] Entity kinds are incompatible between subgraphs.") else Nil
     val fieldDiagnostics = fields.toList.flatMap { case (fieldName, definitions) =>
-      val values = definitions.map(_._2)
-      val owned  = values.filter { case (entry, _) => entry.ownedFields.contains(fieldName) }
-      val key    = entries.exists(_.entity.exists(_.keyFields.contains(fieldName)))
-      if (values.map { case (_, field) => fieldSignature(field) }.distinct.size > 1 || owned.size > 1 && !key) {
+      val values                 = definitions.map(_._2)
+      val owned                  = values.filter { case (entry, _) => entry.ownedFields.contains(fieldName) }
+      val key                    = entries.exists(_.entity.exists(_.keyFields.contains(fieldName)))
+      val shareable              = owned.nonEmpty && owned.forall { case (entry, _) => entry.shareableFields.contains(fieldName) }
+      val signatures             = if (owned.nonEmpty) owned else values
+      val incompatibleSignatures =
+        if (key)
+          signatures.map { case (_, field) =>
+            field._type.innerType.kind -> field._type.innerType.name
+          }.distinct.size > 1
+        else signatures.map { case (_, field) => fieldSignature(field) }.distinct.size > 1
+      if (
+        incompatibleSignatures ||
+        owned.size > 1 && !key && !shareable
+      ) {
         val sources = values.map(_._1.source).distinct.sorted.map(source => s"'$source'").mkString(", ")
         List(s"[type $name.$fieldName] Definitions are incompatible between subgraphs: $sources.")
       } else Nil
@@ -602,11 +679,17 @@ private[gateway] object SchemaComposition {
     val base             = entries.head.tpe
     val hiddenDirectives = entries.iterator.flatMap(_.hiddenDirectives).toSet
     val fields           = entries
-      .flatMap(entry => entry.tpe.allFields.map(field => field.name -> (entry.source -> field)))
+      .flatMap(entry => entry.tpe.allFields.map(field => field.name -> (entry -> field)))
       .groupBy(_._1)
       .toList
       .sortBy(_._1)
-      .flatMap { case (_, definitions) => definitions.map(_._2).sortBy(_._1).headOption.map(_._2) }
+      .flatMap { case (fieldName, definitions) =>
+        definitions
+          .map(_._2)
+          .sortBy { case (entry, _) => (!entry.ownedFields.contains(fieldName), entry.source) }
+          .headOption
+          .map(_._2)
+      }
       .map(sanitizeField(_, rewrite, hiddenDirectives))
 
     sanitizeType(base, rewrite, hiddenDirectives).copy(fields = _ => Some(fields))
@@ -726,6 +809,7 @@ private[gateway] object SchemaComposition {
   private final case class FederationDirectiveNames(
     key: Set[String],
     external: Set[String],
+    shareable: Set[String],
     hidden: Set[String],
     hiddenTypes: Set[String]
   )
@@ -772,6 +856,8 @@ private[gateway] object SchemaComposition {
       Set("key", "federation__key") ++ aliases.get("key") ++ federationNamespaces.map(_ + "__key"),
       Set("external", "federation__external") ++ aliases.get("external") ++
         federationNamespaces.map(_ + "__external"),
+      Set("shareable", "federation__shareable") ++ aliases.get("shareable") ++
+        federationNamespaces.map(_ + "__shareable"),
       hiddenDirectives,
       hiddenTypes
     )
@@ -795,11 +881,35 @@ private[gateway] object SchemaComposition {
   ): Option[FederationKey] =
     if (!names.key.contains(directive.name)) None
     else
-      directive.arguments.get("fields").collect {
-        case StringValue(value) if value.trim.matches("[_A-Za-z][_0-9A-Za-z]*") =>
-          val resolvable = !directive.arguments.get("resolvable").contains(BooleanValue(false))
-          FederationKey(value.trim :: Nil, resolvable)
+      directive.arguments.get("fields").collect { case StringValue(value) => value }.flatMap { value =>
+        parseKeyFields(value)
+          .map(fields => FederationKey(fields, !directive.arguments.get("resolvable").contains(BooleanValue(false))))
       }
+
+  private def parseKeyFields(value: String): Option[List[ComposedGraph.KeyField]] =
+    Parser.parseQuery(s"{ $value }") match {
+      case Right(document) =>
+        document.operationDefinitions match {
+          case operation :: Nil => keyFields(operation.selectionSet)
+          case _                => None
+        }
+      case Left(_)         => None
+    }
+
+  private def keyFields(selections: List[Selection]): Option[List[ComposedGraph.KeyField]] =
+    selections
+      .foldLeft(Option(List.empty[ComposedGraph.KeyField])) { case (result, selection) =>
+        for {
+          fields <- result
+          field  <- selection match {
+                      case Selection.Field(None, name, arguments, directives, children, _)
+                          if arguments.isEmpty && directives.isEmpty =>
+                        keyFields(children).map(ComposedGraph.KeyField(name, _))
+                      case _ => None
+                    }
+        } yield field :: fields
+      }
+      .map(_.reverse)
 
   private def fieldSignature(field: __Field): String =
     render(

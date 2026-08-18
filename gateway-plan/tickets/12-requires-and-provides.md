@@ -14,4 +14,4 @@
 - [ ] Requirement chains, conflicts, and cycles have deterministic planning behavior.
 - [ ] Argument-bearing requirements supported by the selected Federation baseline preserve argument semantics.
 - [ ] Relevant audit groups and focused partial-failure tests pass through `GatewayRuntime`.
-- [ ] The pinned audit is rerun: every newly passing case is added to `supported-cases.txt`, ownership remains accurate for failures, and a suite is marked supported once none of its cases fail. No new deferrals are introduced.
+- [ ] The pinned audit is rerun: every newly passing case is removed from `expectations.tsv`, ownership remains accurate for failures, and no new deferrals are introduced.

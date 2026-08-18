@@ -74,10 +74,60 @@ private[gateway] final class GatewayRuntimeImpl[-R](
       case None         =>
         executeRoots(plan, execution, original).flatMap { roots =>
           val rootValues = roots.iterator.map(result => result.route.id -> result.response.data).toMap
-          entityExecutor.execute(plan.entities, rootValues, original).map(entities => roots -> entities)
+          executeEntities(plan.entities, rootValues, plan.roots.iterator.map(_.id).toSet, Map.empty, original).map {
+            execution =>
+              val updated = roots.map(result =>
+                result.copy(
+                  response = result.response.copy(
+                    data = execution.roots.getOrElse(result.route.id, result.response.data)
+                  )
+                )
+              )
+              updated -> execution.results
+          }
         }
           .zipPar(executeIntrospection(execution, plan.localFields.filter(isIntrospectionField)))
           .map { case (roots, entities, local) => assemble(plan, roots, entities, local) }
+    }
+
+  private def executeEntities(
+    pending: List[EntityRoute],
+    roots: Map[RouteId, ResponseValue],
+    completed: Set[RouteId],
+    blocked: Map[RouteId, Set[List[PathValue]]],
+    original: GraphQLRequest
+  )(implicit trace: Trace): URIO[R, EntityExecution] =
+    if (pending.isEmpty) ZIO.succeed(EntityExecution(roots, Nil))
+    else {
+      val ready = pending.filter(route => route.dependencies.forall(completed.contains))
+      if (ready.isEmpty)
+        ZIO.succeed(
+          EntityExecution(
+            roots,
+            EntityResult(
+              Nil,
+              List(CalibanError.ExecutionError("Entity routing dependency cycle detected.")),
+              Set.empty,
+              Map.empty
+            ) :: Nil
+          )
+        )
+      else
+        entityExecutor.execute(ready, roots, blocked, original).flatMap { results =>
+          val nextRoots     = results.flatMap(_.patches).foldLeft(roots) { case (values, patch) =>
+            values.get(patch.route.root) match {
+              case Some(root) => values.updated(patch.route.root, mergeAt(root, patch.path, patch.value))
+              case None       => values
+            }
+          }
+          val nextCompleted = completed ++ results.iterator.flatMap(_.completed)
+          val nextBlocked   = results.flatMap(_.blocked).foldLeft(blocked) { case (values, (route, paths)) =>
+            values.updated(route, values.getOrElse(route, Set.empty) ++ paths)
+          }
+          val remaining     = pending.filterNot(route => nextCompleted.contains(route.id))
+          executeEntities(remaining, nextRoots, nextCompleted, nextBlocked, original)
+            .map(next => next.copy(results = results ::: next.results))
+        }
     }
 
   private def executeRoots(
@@ -151,7 +201,7 @@ private[gateway] final class GatewayRuntimeImpl[-R](
         else
           localValues
             .get(field.aliasedName)
-            .orElse(rootValues.get(field.aliasedName).map(value => mergeEntities(field, value, entities)))
+            .orElse(rootValues.get(field.aliasedName))
             .getOrElse(NullValue)
       field.aliasedName -> project(field, value, Vector(field.aliasedName), plan.entities)
     })
@@ -261,15 +311,6 @@ private[gateway] final class GatewayRuntimeImpl[-R](
   private def pathsOverlap(left: List[PathValue], right: List[PathValue]): Boolean =
     left.nonEmpty && (left.startsWith(right) || right.startsWith(left))
 
-  private def mergeEntities(field: Field, value: ResponseValue, entities: List[EntityResult]): ResponseValue =
-    entities.foldLeft(value) { case (current, result) =>
-      result.patches
-        .filter(_.route.mergePath.headOption.contains(field.aliasedName))
-        .foldLeft(current) { case (merged, patch) =>
-          mergeAt(merged, patch.path.drop(1), patch.value)
-        }
-    }
-
   private def mergeAt(value: ResponseValue, path: List[PathValue], patch: ResponseValue): ResponseValue =
     path match {
       case Nil                            => mergeObject(value, patch)
@@ -299,7 +340,7 @@ private[gateway] final class GatewayRuntimeImpl[-R](
         val rightMap = rightFields.toMap
         val names    = leftFields.iterator.map(_._1).toSet
         ObjectValue(
-          leftFields.map { case (name, value) => name -> rightMap.getOrElse(name, value) } :::
+          leftFields.map { case (name, value) => name -> rightMap.get(name).fold(value)(mergeObject(value, _)) } :::
             rightFields.filterNot(field => names.contains(field._1))
         )
       case (_, value)                                          => value
@@ -407,6 +448,8 @@ private[gateway] final class GatewayRuntimeImpl[-R](
 
 private object GatewayRuntimeImpl {
   final case class RootResult(route: RootRoute, response: GraphQLResponse[CalibanError])
+
+  private final case class EntityExecution(roots: Map[RouteId, ResponseValue], results: List[EntityResult])
 
   private final case class CompletedValue(value: Option[ResponseValue], errors: List[CalibanError.ExecutionError])
 }

@@ -56,14 +56,13 @@ jobs:
             --healthcheck http://127.0.0.1:4000/health \
             --write "$GITHUB_WORKSPACE/gateway-audit/results.txt" \
             --junit
-      - name: Verify supported cases and write report
+      - name: Verify audit expectations and write report
         shell: bash
         run: |
           source gateway-audit/upstream.env
           ./gateway-audit/verify-results.sh \
             ./gateway-audit/results.txt \
             ./gateway-audit/expectations.tsv \
-            ./gateway-audit/supported-cases.txt \
             ./gateway-audit/report.md
           cat ./gateway-audit/report.md >> "$GITHUB_STEP_SUMMARY"
       - name: Upload audit evidence

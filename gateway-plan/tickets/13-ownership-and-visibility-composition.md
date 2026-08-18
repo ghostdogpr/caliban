@@ -15,4 +15,4 @@
 - [ ] Federation directive imports, aliases, and namespaced forms resolve without leaking transport metadata.
 - [ ] Invalid ownership or visibility produces accumulated source-attributed diagnostics.
 - [ ] Relevant audit groups pass without introducing a second general-purpose schema model solely for validation.
-- [ ] The pinned audit is rerun: every newly passing case is added to `supported-cases.txt`, ownership remains accurate for failures, and a suite is marked supported once none of its cases fail. No new deferrals are introduced.
+- [ ] The pinned audit is rerun: every newly passing case is removed from `expectations.tsv`, ownership remains accurate for failures, and no new deferrals are introduced.

@@ -14,4 +14,4 @@
 - [ ] Missing runtime-type information produces a safe GraphQL outcome rather than an unsafe route.
 - [ ] Source errors map through aliases and abstract selections to deterministic client paths.
 - [ ] Relevant audit groups pass through the same plan and executor used by ordinary object selections.
-- [ ] The pinned audit is rerun: every newly passing case is added to `supported-cases.txt`, ownership remains accurate for failures, and a suite is marked supported once none of its cases fail. No new deferrals are introduced.
+- [ ] The pinned audit is rerun: every newly passing case is removed from `expectations.tsv`, ownership remains accurate for failures, and no new deferrals are introduced.
