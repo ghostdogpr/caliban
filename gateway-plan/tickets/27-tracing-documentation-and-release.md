@@ -1,8 +1,8 @@
-# 26 — Finish tracing, documentation, and release review
+# 27 — Finish tracing, documentation, and release review
 
 **Outcome:** The gateway is observable, documented, cross-built, and ready for a public release decision.
 
-**Blocked by:** 07 — Add local Caliban subgraphs; 08 — Add explicit ordinary GraphQL lookups; 09 — Acquire remote schemas safely; 14 — Add structural schema transformations; 25 — Benchmark, profile, and optimize the real gateway
+**Blocked by:** 07 — Add local Caliban subgraphs; 08 — Add explicit ordinary GraphQL lookups; 09 — Acquire remote schemas safely; 14 — Add structural schema transformations; 26 — Benchmark, profile, and optimize the real gateway
 
 **Status:** ready-for-agent
 

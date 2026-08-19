@@ -84,6 +84,8 @@ Output: one immutable plan describing source work, dependencies, internal requir
 
 The first plan may be a small Scala algebra interpreted directly. Explanation, caching, and execution all use that plan. A second lowered representation requires measured evidence that direct interpretation is a material cost.
 
+Unambiguous routing remains a direct deterministic construction. When several valid owners, keys, lookups, bridge sources, or requirement paths can satisfy the same work, planning evaluates a bounded set of candidates and selects the complete route using deterministic structural costs such as downstream call count, dependency depth, and unnecessary internal selections. It does not invent source-latency estimates. Candidate count, expanded work, and planning duration are finite; exhausting a guardrail fails safely before source dispatch. Candidate states are planner-local exploration data, not a second executable plan representation.
+
 ### Execution sources
 
 An execution source accepts prepared GraphQL work and returns either a source result or source failure. Remote GraphQL and local Caliban share GraphQL semantics but may keep specialized implementations and result handling. Local results never require a JSON round trip.
@@ -118,6 +120,7 @@ The gateway owns pooled remote transport resources. GraphQL-over-HTTP classifica
 - Query work may run concurrently when dependencies permit.
 - Top-level mutation fields execute in client order, including all routed descendants of each field.
 - Planning never guesses a join from matching names.
+- Equivalent valid routes use stable tie-breaking; ambiguous routing does not depend on map iteration order.
 
 ### Results and errors
 
@@ -145,7 +148,7 @@ The gateway owns pooled remote transport resources. GraphQL-over-HTTP classifica
 - Caller interruption stays interruption and does not fabricate a GraphQL response.
 - Deadline expiry disables late result delivery and interrupts cooperative work.
 - The JVM cannot terminate arbitrary uninterruptible user code; such work may delay response completion, drain, or scope close and remains accounted for until it exits.
-- Admission, source concurrency, caches, retries, and all body/parser limits are finite.
+- Admission, source concurrency, caches, retries, planner search, and all body/parser limits are finite.
 
 ## Performance strategy
 
@@ -153,6 +156,7 @@ Correctness and a simple executable path come first, but performance is a releas
 
 - Keep the transport pooled and avoid obvious repeated parsing or serialization.
 - Establish semantic end-to-end tests before replacing values or plans with specialized representations.
+- Measure plan quality separately from planner CPU cost: downstream calls, dependency depth, and avoidable internal selections matter even when planning is cached.
 - Integrate the real Quick path before measuring router throughput.
 - Use profiles to locate dominant CPU and allocation costs.
 - Optimize the dominant measured seam behind its existing interface.
@@ -177,6 +181,7 @@ Maintain focused tests for:
 - composition diagnostics where several failures must accumulate;
 - remote protocol classification and resource release;
 - entity correlation, null completion, and path rewriting;
+- ambiguous-route quality and deterministic planner guardrails;
 - cancellation and ownership races;
 - structured versus encoded semantic equality;
 - compatibility cases and benchmark response validation.
