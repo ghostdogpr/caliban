@@ -27,7 +27,7 @@ private[gateway] final class EntityExecutor[-R](
     routes: List[EntityRoute],
     roots: Map[RouteId, ResponseValue],
     blocked: Map[RouteId, Set[List[PathValue]]],
-    original: GraphQLRequest
+    resolvedRequest: GraphQLRequest
   )(implicit trace: Trace): URIO[R, List[EntityResult]] = {
     val grouped = mutable.LinkedHashMap.empty[EntityGroupKey, EntityGroup]
     routes.foreach { route =>
@@ -45,14 +45,14 @@ private[gateway] final class EntityExecutor[-R](
         case None        => grouped.put(key, EntityGroup(route, mutable.ListBuffer.empty))
       }
     }
-    ZIO.foreachPar(grouped.values.toList)(group => executeGroup(group, roots, blocked, original))
+    ZIO.foreachPar(grouped.values.toList)(group => executeGroup(group, roots, blocked, resolvedRequest))
   }
 
   private def executeGroup(
     group: EntityGroup,
     roots: Map[RouteId, ResponseValue],
     blocked: Map[RouteId, Set[List[PathValue]]],
-    original: GraphQLRequest
+    resolvedRequest: GraphQLRequest
   )(implicit trace: Trace): URIO[R, EntityResult] = {
     val route  = group.firstRoute
     val routes = group.routes
@@ -69,7 +69,7 @@ private[gateway] final class EntityExecutor[-R](
 
       graph
         .mapping(route.source)
-        .flatMap(mapping => buildLookup(route, routes, batch, original, mapping).map(mapping -> _)) match {
+        .flatMap(mapping => buildLookup(route, routes, batch, resolvedRequest, mapping).map(mapping -> _)) match {
         case Some((mapping, lookup)) =>
           sources.get(route.source) match {
             case Some(source) =>
@@ -152,7 +152,7 @@ private[gateway] final class EntityExecutor[-R](
     route: EntityRoute,
     routes: List[EntityRoute],
     batch: EntityBatch,
-    original: GraphQLRequest,
+    resolvedRequest: GraphQLRequest,
     mapping: SchemaCoordinateMapping
   ): Option[LookupExecution] = {
     val executableFields = route.fields.map(graph.executableEntityField(route.source, route.entityType, _))
@@ -204,7 +204,7 @@ private[gateway] final class EntityExecutor[-R](
         )
         Some(
           LookupExecution(
-            request(operation, Some(variables), original),
+            request(operation, Some(variables), resolvedRequest),
             correlation,
             LookupResponse.ListRoot("_entities"),
             executableFields
@@ -233,7 +233,7 @@ private[gateway] final class EntityExecutor[-R](
             List(selection)
           )
           LookupExecution(
-            request(operation, None, original),
+            request(operation, None, resolvedRequest),
             correlation,
             LookupResponse.ListRoot(alias),
             executableFields
@@ -264,7 +264,7 @@ private[gateway] final class EntityExecutor[-R](
             values
           )
           LookupExecution(
-            request(operation, None, original),
+            request(operation, None, resolvedRequest),
             correlation,
             LookupResponse.Aliases(indices.toMap),
             executableFields
@@ -276,13 +276,13 @@ private[gateway] final class EntityExecutor[-R](
   private def request(
     operation: OperationDefinition,
     variables: Option[Map[String, InputValue]],
-    original: GraphQLRequest
+    resolvedRequest: GraphQLRequest
   ): GraphQLRequest =
     GraphQLRequest(
       query = Some(DocumentRenderer.renderCompact(Document(operation :: Nil, SourceMapper.empty))),
       operationName = operation.name,
       variables = variables,
-      extensions = original.extensions
+      extensions = resolvedRequest.extensions
     )
 
   private def requiredSelection(value: RequiredSelection): Selection =

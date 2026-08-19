@@ -2,7 +2,7 @@ package caliban.gateway
 
 import caliban.{ CalibanError, GraphQLInterpreter, GraphQLRequest, GraphQLResponse }
 import sttp.model.Header
-import zio.{ FiberRef, IO, Trace, UIO, URIO, Unsafe, ZIO }
+import zio.{ FiberRef, Trace, UIO, URIO, Unsafe, ZIO }
 
 /**
  * An executable gateway created by [[Gateway.build]].
@@ -23,12 +23,14 @@ trait GatewayRuntime[-R] extends GraphQLInterpreter[R, CalibanError] {
   /**
    * Returns a deterministic semantic description of the executable plan for an operation.
    */
-  def explain(request: GraphQLRequest)(implicit trace: Trace): IO[CalibanError, String]
+  def explain(request: GraphQLRequest)(implicit trace: Trace): ZIO[R, CalibanError, String]
 
   /**
    * Returns a deterministic semantic description for an operation without variables or extensions.
    */
-  def explain(query: String, operationName: Option[String] = None)(implicit trace: Trace): IO[CalibanError, String] =
+  def explain(query: String, operationName: Option[String] = None)(implicit
+    trace: Trace
+  ): ZIO[R, CalibanError, String] =
     explain(GraphQLRequest(query = Some(query), operationName = operationName))
 }
 

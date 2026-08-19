@@ -22,14 +22,28 @@ import zio._
  * requests; constructing and building the description does not require that environment.
  */
 final class Gateway[-R] private[gateway] (
-  private val composer: Trace => ZIO[Scope, GatewayBuildError, GatewayRuntime[R]]
+  private val subgraphs: List[Subgraph[R]],
+  private val resolver: Option[OperationResolver[R]],
+  private val policy: Option[OperationPolicy[R]]
 ) {
 
   /**
    * Builds an executable runtime within the current scope.
    */
   def build(implicit trace: Trace): ZIO[Scope, GatewayBuildError, GatewayRuntime[R]] =
-    composer(trace)
+    Gateway.build(subgraphs, resolver, policy)
+
+  /**
+   * Resolves canonical GraphQL text before parsing and validation.
+   */
+  def withOperationResolver[R1](value: OperationResolver[R1]): Gateway[R with R1] =
+    new Gateway(subgraphs, Some(value), policy)
+
+  /**
+   * Allows or rejects operations after validation and variable coercion.
+   */
+  def withOperationPolicy[R1](value: OperationPolicy[R1]): Gateway[R with R1] =
+    new Gateway(subgraphs, resolver, Some(value))
 }
 
 object Gateway {
@@ -38,16 +52,20 @@ object Gateway {
    * Creates a reusable gateway description from one or more subgraphs.
    */
   def compose[R](first: Subgraph[R], rest: Subgraph[R]*): Gateway[R] =
-    new Gateway[R](trace => build(first, rest)(trace))
+    new Gateway[R](first :: rest.toList, None, None)
 
-  private def build[R](first: Subgraph[R], rest: Seq[Subgraph[R]])(implicit
+  private def build[R](
+    subgraphs: List[Subgraph[R]],
+    resolver: Option[OperationResolver[R]],
+    policy: Option[OperationPolicy[R]]
+  )(implicit
     trace: Trace
   ): ZIO[Scope, GatewayBuildError, GatewayRuntime[R]] =
     ZIO.scopeWith { parent =>
       ZIO.uninterruptibleMask { restore =>
         for {
           child   <- parent.fork
-          runtime <- restore(child.extend(buildRuntime(first, rest))).onExit {
+          runtime <- restore(child.extend(buildRuntime(subgraphs, resolver, policy))).onExit {
                        case failure @ Exit.Failure(_) => child.close(failure)
                        case Exit.Success(_)           => ZIO.unit
                      }
@@ -55,11 +73,13 @@ object Gateway {
       }
     }
 
-  private def buildRuntime[R](first: Subgraph[R], rest: Seq[Subgraph[R]])(implicit
+  private def buildRuntime[R](
+    subgraphs: List[Subgraph[R]],
+    resolver: Option[OperationResolver[R]],
+    policy: Option[OperationPolicy[R]]
+  )(implicit
     trace: Trace
-  ): ZIO[Scope, GatewayBuildError, GatewayRuntime[R]] = {
-    val subgraphs = first +: rest.toList
-
+  ): ZIO[Scope, GatewayBuildError, GatewayRuntime[R]] =
     for {
       backend      <-
         if (subgraphs.exists(isRemote))
@@ -83,8 +103,7 @@ object Gateway {
                           else ZIO.fail(GatewayBuildError(diagnostics.distinct.sorted))
                         }
       sources       = loaded.collect { case Right(value) => value.contribution.name -> value.source }.toMap
-    } yield new GatewayRuntimeImpl[R](graph, sources)
-  }
+    } yield new GatewayRuntimeImpl[R](graph, sources, new OperationHooks(resolver, policy))
 
   private def load[R](subgraph: Subgraph[R], backend: Option[SttpClient])(implicit
     trace: Trace
