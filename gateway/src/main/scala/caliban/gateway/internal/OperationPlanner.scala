@@ -25,65 +25,48 @@ private[gateway] final class OperationPlanner(
           roots   <- result
           sources  = graph.sources(execution.operationType, field.name)
           _       <- Either.cond(sources.nonEmpty, (), PlanningFailure(s"No subgraph owns root field '${field.name}'."))
-          planned <- sources.foldLeft[Either[PlanningFailure, List[PlannedRoot]]](Right(Nil)) { case (values, source) =>
-                       for {
-                         accumulated <- values
-                         selected     = if (sources.size == 1) field else rootFieldForSource(field, source, sources)
-                         plan        <- planField(
-                                          selected,
-                                          source,
-                                          Vector(field.aliasedName),
-                                          Set.empty,
-                                          sources.toSet,
-                                          availableKeys(source, selected.fieldType.innerType),
-                                          Nil,
-                                          Set.empty
-                                        )
-                         _           <- Either.cond(
-                                          plan.pending.isEmpty,
-                                          (),
-                                          PlanningFailure(unsatisfiedMessage(plan.pending))
-                                        )
-                       } yield
-                         if (hasRootWork(plan))
-                           PlannedRoot(source, field, plan.downstream, plan.entities, plan.runtimeTypes) :: accumulated
-                         else if (
-                           sources.size == 1 && Set[__TypeKind](__TypeKind.INTERFACE, __TypeKind.UNION)
-                             .contains(selected.fieldType.innerType.kind)
-                         ) {
-                           val alias      = privateAlias(
-                             "_caliban_gateway_runtime_typename",
-                             selected.fields.iterator.map(_.aliasedName).toSet
-                           )
-                           val downstream = plan.downstream.copy(fields =
-                             Field(
-                               "__typename",
-                               Types.string,
-                               Some(selected.fieldType.innerType),
-                               alias = Some(alias)
-                             ) :: Nil
-                           )
-                           PlannedRoot(
-                             source,
-                             field,
-                             downstream,
-                             plan.entities,
-                             RuntimeTypeSelection(Vector(field.aliasedName), alias) :: plan.runtimeTypes
-                           ) :: accumulated
-                         } else accumulated
-                     }
-        } yield planned ::: roots
+          planned <-
+            if (execution.operationType == OperationType.Mutation) {
+              val attempts = sources.map(source => planRootAtSource(field, field, source, sources, true))
+              attempts.collectFirst { case Right(Some(root)) => root } match {
+                case Some(root) => Right(root :: roots)
+                case None       =>
+                  attempts.collectFirst { case Left(failure) => failure }
+                    .fold[Either[PlanningFailure, List[PlannedRoot]]](
+                      Right(roots)
+                    )(Left(_))
+              }
+            } else
+              sources
+                .foldLeft[Either[PlanningFailure, List[PlannedRoot]]](Right(Nil)) { case (values, source) =>
+                  for {
+                    accumulated <- values
+                    selected     = if (sources.size == 1) field else rootFieldForSource(field, source, sources)
+                    planned     <- planRootAtSource(field, selected, source, sources, sources.size == 1)
+                  } yield planned.toList ::: accumulated
+                }
+                .map(_ ::: roots)
+        } yield planned
       }
       .map(_.reverse)
 
     planned.flatMap { roots =>
       val grouped                                                                         = mutable.LinkedHashMap.empty[String, mutable.ListBuffer[PlannedRoot]]
       roots.foreach(root => grouped.getOrElseUpdate(root.source, mutable.ListBuffer.empty) += root)
-      val routes                                                                          = grouped.iterator.zipWithIndex.map { case ((source, values), index) =>
-        val selected = values.toList
-        RootRoute(RouteId(index), source, selected.map(_.client), selected.map(_.downstream))
-      }.toList
-      val routeBySource                                                                   = routes.iterator.map(route => route.source -> route.id).toMap
+      val (routes, routeAssignments)                                                      =
+        if (execution.operationType == OperationType.Mutation) {
+          val values = roots.zipWithIndex.map { case (root, index) =>
+            RootRoute(RouteId(index), root.source, root.client :: Nil, root.downstream :: Nil)
+          }
+          values -> roots.zip(values).map { case (root, route) => root -> route.id }
+        } else {
+          val values        = grouped.iterator.zipWithIndex.map { case ((source, planned), index) =>
+            val selected = planned.toList
+            RootRoute(RouteId(index), source, selected.map(_.client), selected.map(_.downstream))
+          }.toList
+          val routeBySource = values.iterator.map(route => route.source -> route.id).toMap
+          values -> roots.flatMap(root => routeBySource.get(root.source).map(root -> _))
+        }
       var nextRouteId                                                                     = routes.size
       def flatten(
         values: List[PlannedEntity],
@@ -111,11 +94,8 @@ private[gateway] final class OperationPlanner(
           val children = flatten(entity.entities, root, Set(id))
           current :: children
         }
-      val baseEntities                                                                    = roots.flatMap { planned =>
-        routeBySource
-          .get(planned.source)
-          .toList
-          .flatMap(root => flatten(planned.entities, root, Set(root)))
+      val baseEntities                                                                    = routeAssignments.flatMap { case (planned, root) =>
+        flatten(planned.entities, root, Set(root))
       }
       val entityById                                                                      = baseEntities.iterator.map(route => route.id -> route).toMap
       def dependsOn(route: EntityRoute, dependency: RouteId, seen: Set[RouteId]): Boolean =
@@ -143,7 +123,6 @@ private[gateway] final class OperationPlanner(
           route.copy(dependencies = route.dependencies ++ dependencies)
         }
       }
-      val owners                                                                          = (routes.map(_.source) ::: entities.map(_.source)).distinct
       val runtimeTypes                                                                    = (
         roots.flatMap(_.runtimeTypes) ::: entities.flatMap(route =>
           route.typename
@@ -160,9 +139,7 @@ private[gateway] final class OperationPlanner(
         else None
 
       validateDependencies(entities).flatMap { _ =>
-        if (execution.operationType == OperationType.Mutation && owners.size > 1)
-          Left(PlanningFailure("Mutations spanning multiple subgraphs are not supported by this gateway."))
-        else if (passthrough.isEmpty && hasCustomExecutableDirective(document, execution.operationName))
+        if (passthrough.isEmpty && hasCustomExecutableDirective(document, execution.operationName))
           Left(PlanningFailure("Custom executable directives are not supported by this gateway."))
         else
           Right(
@@ -180,6 +157,59 @@ private[gateway] final class OperationPlanner(
       }
     }
   }
+
+  private def planRootAtSource(
+    client: Field,
+    selected: Field,
+    source: String,
+    sources: List[String],
+    addRuntimeTypeFallback: Boolean
+  ): Either[PlanningFailure, Option[PlannedRoot]] =
+    for {
+      planned <- planField(
+                   selected,
+                   source,
+                   Vector(client.aliasedName),
+                   Set.empty,
+                   sources.toSet,
+                   availableKeys(source, selected.fieldType.innerType),
+                   Nil,
+                   Set.empty
+                 )
+      _       <- Either.cond(
+                   planned.pending.isEmpty,
+                   (),
+                   PlanningFailure(unsatisfiedMessage(planned.pending))
+                 )
+    } yield
+      if (hasRootWork(planned))
+        Some(PlannedRoot(source, client, planned.downstream, planned.entities, planned.runtimeTypes))
+      else if (
+        addRuntimeTypeFallback && Set[__TypeKind](__TypeKind.INTERFACE, __TypeKind.UNION)
+          .contains(selected.fieldType.innerType.kind)
+      ) {
+        val alias      = privateAlias(
+          "_caliban_gateway_runtime_typename",
+          selected.fields.iterator.map(_.aliasedName).toSet
+        )
+        val downstream = planned.downstream.copy(fields =
+          Field(
+            "__typename",
+            Types.string,
+            Some(selected.fieldType.innerType),
+            alias = Some(alias)
+          ) :: Nil
+        )
+        Some(
+          PlannedRoot(
+            source,
+            client,
+            downstream,
+            planned.entities,
+            RuntimeTypeSelection(Vector(client.aliasedName), alias) :: planned.runtimeTypes
+          )
+        )
+      } else None
 
   private def rootFieldForSource(field: Field, source: String, rootSources: List[String]): Field = {
     def filter(
@@ -1004,12 +1034,26 @@ private[gateway] final class OperationPlanner(
       .sorted
 
   private def groupPending(values: List[PendingSelection]): List[PendingSelection] = {
-    val grouped = mutable.LinkedHashMap.empty[(String, List[Selection]), mutable.ListBuffer[Field]]
+    val grouped  = mutable.LinkedHashMap.empty[(String, List[Selection]), mutable.ListBuffer[Field]]
     values.foreach(value =>
       grouped.getOrElseUpdate(value.source -> value.requirements, mutable.ListBuffer.empty) ++= value.fields
     )
-    grouped.iterator.map { case ((source, requirements), fields) =>
+    val pending  = grouped.iterator.map { case ((source, requirements), fields) =>
       PendingSelection(source, mergeFields(fields.toList), requirements)
+    }.toList
+    val bySource = mutable.LinkedHashMap.empty[String, mutable.ListBuffer[PendingSelection]]
+    pending.foreach(value => bySource.getOrElseUpdate(value.source, mutable.ListBuffer.empty) += value)
+    bySource.valuesIterator.flatMap { values =>
+      val sourcePending = values.toList
+      val target        = sourcePending.indexWhere(_.requirements.nonEmpty)
+      if (target < 0) sourcePending
+      else {
+        val unrequired = sourcePending.filter(_.requirements.isEmpty).flatMap(_.fields)
+        sourcePending.zipWithIndex.collect {
+          case (value, index) if value.requirements.nonEmpty =>
+            if (index == target) value.copy(fields = mergeFields(value.fields ::: unrequired)) else value
+        }
+      }
     }.toList
   }
 

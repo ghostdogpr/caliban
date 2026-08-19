@@ -4,14 +4,14 @@
 
 **Blocked by:** 10 — Integrate the Federation Gateway Audit
 
-**Status:** ready-for-agent
+**Status:** complete
 
 ## Completion criteria
 
-- [ ] Each top-level mutation field and all of its dependent routes complete before the next top-level mutation begins.
-- [ ] Independent nested work within the active mutation field may run concurrently.
-- [ ] Query concurrency remains unchanged.
-- [ ] Failure and null completion in one mutation field follow GraphQL semantics without reordering later fields.
-- [ ] Coalescing or batching never crosses a top-level mutation fence.
-- [ ] Relevant audit cases and an explicit cross-source ordering test pass.
-- [ ] The pinned audit is rerun: every newly passing case is removed from `expectations.tsv`, ownership remains accurate for failures, and no new deferrals are introduced.
+- [x] Each top-level mutation field and all of its dependent routes complete before the next top-level mutation begins.
+- [x] Independent nested work within the active mutation field may run concurrently.
+- [x] Query concurrency remains unchanged.
+- [x] Failure and null completion in one mutation field follow GraphQL semantics without reordering later fields.
+- [x] Coalescing or batching never crosses a top-level mutation fence.
+- [x] Relevant audit cases and an explicit cross-source ordering test pass.
+- [x] The pinned audit is rerun with all 199 cases passing and no exceptions.

@@ -14,7 +14,7 @@
 - [x] Internal selections remain hidden and entity correlation remains stable across hops.
 - [x] Unsatisfied obligations and dependency cycles fail with deterministic diagnostics rather than runtime guessing.
 - [x] Relevant audit groups pass, plus focused tests for duplicate values, null keys, and competing keys.
-- [x] The pinned audit is rerun: every newly passing case is removed from `expectations.tsv`, ownership remains accurate for failures, and no new deferrals are introduced.
+- [x] The pinned audit is rerun without regressions or new deferrals.
 - [x] Route selection deepens the existing plan; it does not introduce a parallel reference plan or lowered execution graph.
 
 ## Implementation notes

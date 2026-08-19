@@ -73,7 +73,19 @@ private[gateway] final class GatewayRuntimeImpl[-R](
           case None         => ZIO.succeed(singleSourceFailure(plan))
         }
       case None         =>
-        executeRoots(plan, execution, original).flatMap { roots =>
+        executeRemote(plan, execution, original)
+          .zipPar(executeIntrospection(execution, plan.localFields.filter(isIntrospectionField)))
+          .map { case (remote, local) => assemble(plan, remote, local) }
+    }
+
+  private def executeRemote(
+    plan: OperationPlan,
+    execution: ExecutionRequest,
+    original: GraphQLRequest
+  )(implicit trace: Trace): ZIO[R, Nothing, RemoteExecution] =
+    plan.operation match {
+      case OperationType.Query        =>
+        executeRoots(plan.roots, execution, original).flatMap { roots =>
           val rootValues = roots.iterator.map(result => result.route.id -> result.response.data).toMap
           executeEntities(plan.entities, rootValues, plan.roots.iterator.map(_.id).toSet, Map.empty, original).map {
             entityExecution =>
@@ -84,11 +96,66 @@ private[gateway] final class GatewayRuntimeImpl[-R](
                   )
                 )
               )
-              updated -> entityExecution.results
+              RemoteExecution(updated, entityExecution.results)
           }
         }
-          .zipPar(executeIntrospection(execution, plan.localFields.filter(isIntrospectionField)))
-          .map { case (roots, entities, local) => assemble(plan, roots, entities, local) }
+      case OperationType.Mutation     =>
+        executeMutations(plan, plan.roots, execution, original, Nil, Nil, Nil)
+      case OperationType.Subscription => ZIO.succeed(RemoteExecution(Nil, Nil))
+    }
+
+  private def executeMutations(
+    plan: OperationPlan,
+    pending: List[RootRoute],
+    execution: ExecutionRequest,
+    original: GraphQLRequest,
+    roots: List[RootResult],
+    results: List[EntityResult],
+    completionErrors: List[CalibanError]
+  )(implicit trace: Trace): ZIO[R, Nothing, RemoteExecution] =
+    pending match {
+      case Nil           =>
+        ZIO.succeed(RemoteExecution(roots.reverse, results.reverse, completionErrors.reverse))
+      case route :: tail =>
+        executeRoot(route, execution, original).flatMap { root =>
+          val rootData = mutationRootData(route, root.response.data)
+          val current  = plan.entities.filter(_.root == route.id)
+          executeEntities(current, Map(route.id -> rootData), Set(route.id), Map.empty, original).flatMap {
+            entityExecution =>
+              val updated     = root.copy(
+                response = root.response.copy(
+                  data = entityExecution.roots.getOrElse(route.id, rootData)
+                )
+              )
+              val nextRoots   = updated :: roots
+              val nextResults = entityExecution.results.reverse ::: results
+              val errors      = updated.response.errors ::: entityExecution.results.flatMap(_.errors)
+              val completed   = completeObject(
+                route.client,
+                updated.response.data,
+                Vector.empty,
+                errors,
+                plan.runtimeTypes
+              )
+              val nextErrors  = completed.errors.reverse ::: completionErrors
+              if (completed.value.isEmpty)
+                ZIO.succeed(
+                  RemoteExecution(
+                    nextRoots.reverse,
+                    nextResults.reverse,
+                    nextErrors.reverse,
+                    aborted = true
+                  )
+                )
+              else executeMutations(plan, tail, execution, original, nextRoots, nextResults, nextErrors)
+          }
+        }
+    }
+
+  private def mutationRootData(route: RootRoute, data: ResponseValue): ResponseValue =
+    data match {
+      case NullValue => ObjectValue(route.client.map(field => field.aliasedName -> NullValue))
+      case value     => value
     }
 
   private def executeEntities(
@@ -132,17 +199,11 @@ private[gateway] final class GatewayRuntimeImpl[-R](
     }
 
   private def executeRoots(
-    plan: OperationPlan,
+    routes: List[RootRoute],
     execution: ExecutionRequest,
     original: GraphQLRequest
-  )(implicit trace: Trace): ZIO[R, Nothing, List[RootResult]] = {
-    val execute = executeRoot(_: RootRoute, execution, original)
-    plan.operation match {
-      case OperationType.Query        => ZIO.foreachPar(plan.roots)(execute)
-      case OperationType.Mutation     => ZIO.foreach(plan.roots)(execute)
-      case OperationType.Subscription => ZIO.succeed(Nil)
-    }
-  }
+  )(implicit trace: Trace): ZIO[R, Nothing, List[RootResult]] =
+    ZIO.foreachPar(routes)(executeRoot(_, execution, original))
 
   private def executeRoot(
     route: RootRoute,
@@ -202,10 +263,11 @@ private[gateway] final class GatewayRuntimeImpl[-R](
 
   private def assemble(
     plan: OperationPlan,
-    roots: List[RootResult],
-    entities: List[EntityResult],
+    remote: RemoteExecution,
     local: GraphQLResponse[CalibanError]
   ): GraphQLResponse[CalibanError] = {
+    val roots       = remote.roots
+    val entities    = remote.entities
     val localValues = responseFields(local).toMap
     val rootValues  =
       roots.flatMap(result => responseFields(result.response)).foldLeft(Map.empty[String, ResponseValue]) {
@@ -221,9 +283,13 @@ private[gateway] final class GatewayRuntimeImpl[-R](
             .getOrElse(NullValue)
       field.aliasedName -> project(field, value, Vector(field.aliasedName), plan.entities, plan.runtimeTypes)
     })
-    val errors      = local.errors ::: roots.flatMap(_.response.errors) ::: entities.flatMap(_.errors)
-    val completed   = completeObject(plan.fields, data, Vector.empty, errors, plan.runtimeTypes)
-    GraphQLResponse(completed.value.getOrElse(NullValue), errors ::: completed.errors)
+    val errors      =
+      local.errors ::: roots.flatMap(_.response.errors) ::: entities.flatMap(_.errors) ::: remote.completionErrors
+    if (remote.aborted) GraphQLResponse(NullValue, errors)
+    else {
+      val completed = completeObject(plan.fields, data, Vector.empty, errors, plan.runtimeTypes)
+      GraphQLResponse(completed.value.getOrElse(NullValue), errors ::: completed.errors)
+    }
   }
 
   private def completeObject(
@@ -561,6 +627,13 @@ private object GatewayRuntimeImpl {
   final case class RootResult(route: RootRoute, response: GraphQLResponse[CalibanError])
 
   private final case class EntityExecution(roots: Map[RouteId, ResponseValue], results: List[EntityResult])
+
+  private final case class RemoteExecution(
+    roots: List[RootResult],
+    entities: List[EntityResult],
+    completionErrors: List[CalibanError] = Nil,
+    aborted: Boolean = false
+  )
 
   private final case class CompletedValue(value: Option[ResponseValue], errors: List[CalibanError.ExecutionError])
 }

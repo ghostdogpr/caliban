@@ -1,8 +1,8 @@
-# 26 — Benchmark, profile, and optimize the real gateway
+# 25 — Benchmark, profile, and optimize the real gateway
 
 **Outcome:** The production Quick path is measured against current gateways, and measured bottlenecks are optimized without splitting semantics.
 
-**Blocked by:** 23 — Add the encoded response path; 25 — Improve ambiguous-route planning
+**Blocked by:** 23 — Add the encoded response path; 24 — Improve ambiguous-route planning
 
 **Status:** ready-for-agent
 
@@ -15,4 +15,3 @@
 - [ ] The dominant actionable seam is optimized behind its existing interface; specialized plans or response storage are introduced only if this evidence selects them.
 - [ ] Semantic, audit, lifecycle, planner-quality, and structured-versus-encoded tests remain green after optimization.
 - [ ] Useful throughput reaches the standing target or an evidence-backed expiring maintainer exception records the remaining gap.
-

@@ -1,2 +1,0 @@
-suite	cases	disposition	owner	rationale
-mutations	0,1,2,3	failing	ticket-16	Cross-source mutation scheduling is explicitly deferred to Ticket 16.

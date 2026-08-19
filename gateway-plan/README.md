@@ -25,12 +25,10 @@ The gateway is an embedded, code-first Caliban library supporting ordinary remot
 
 The design is Caliban-first. Existing Caliban parsing, validation, execution, values, errors, and ZIO behavior are reused unless a concrete gateway requirement demonstrates that they are insufficient. Performance-specific representations are introduced behind existing seams after measurement.
 
-The implementation produced by the superseded ticket set is reference material, not the base for the new internal architecture. Begin from the reviewed Ticket 1 foundation and salvage independently useful behavior or tests deliberately.
-
 ## Roadmap
 
 - Tickets 1–6 establish one complete remote and Federation path through structured Caliban responses.
 - Tickets 7–9 add local graphs, ordinary lookups, and safe remote schema acquisition.
 - Tickets 10–16 use the Federation Gateway Audit to drive routing, composition, and operation breadth.
 - Tickets 17–23 add protocol and operation policy, bounded runtime behavior, lifecycle closure, Quick, and encoded responses.
-- Tickets 24–26 close compatibility, measured performance, tracing, documentation, and release review.
+- Ticket 24 improves ambiguous-route planning, Ticket 25 measures and optimizes the production path, and Ticket 26 closes tracing, documentation, compatibility evidence, and release review.

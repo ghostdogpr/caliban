@@ -15,6 +15,6 @@
 - [x] Federation directive imports, aliases, and namespaced forms resolve without leaking transport metadata.
 - [x] Invalid ownership or visibility produces accumulated source-attributed diagnostics.
 - [x] Relevant audit groups pass without introducing a second general-purpose schema model solely for validation.
-- [x] The pinned audit is rerun: every newly passing case is removed from `expectations.tsv`, ownership remains accurate for failures, and no new deferrals are introduced.
+- [x] The pinned audit is rerun without regressions or new deferrals.
 
 The pinned audit now passes 108 of 199 cases. Remaining abstract runtime-routing failures are owned by Ticket 15.

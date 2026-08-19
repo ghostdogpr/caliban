@@ -285,37 +285,255 @@ object MultiSourceSpec extends ZIOSpecDefault {
       }
     ),
     suite("operation restrictions")(
-      test("rejects mutations spanning multiple sources until Ticket 16") {
+      test("executes mutation roots serially in client order across sources") {
         val productsSchema =
           "type Query { product: String } type Mutation { updateProduct(id: ID!): Boolean! }"
         val reviewsSchema  =
           "type Query { reviews: [String!]! } type Mutation { addReview(text: String!): Boolean! }"
 
         for {
-          products    <- stub("""{"data":{"updated":true}}""")
-          reviews     <- stub("""{"data":{"added":true}}""")
-          gateway     <- Gateway
-                           .compose(
-                             Subgraph.graphql("products", products.endpoint, productsSchema),
-                             Subgraph.graphql("reviews", reviews.endpoint, reviewsSchema)
+          firstStarted  <- Promise.make[Nothing, Unit]
+          releaseFirst  <- Promise.make[Nothing, Unit]
+          secondStarted <- Promise.make[Nothing, Unit]
+          products      <- stubWith(
+                             firstStarted.succeed(()).unit *> releaseFirst.await,
+                             """{"data":{"updated":true}}"""
                            )
-                           .build
-          response    <- gateway.execute(
-                           """mutation Changes {
-                          |  added: addReview(text: "Good")
-                          |  updated: updateProduct(id: "p1")
-                          |}""".stripMargin,
-                           Some("Changes")
-                         )
-          productSent <- products.requests.get
-          reviewSent  <- reviews.requests.get
+          reviews       <- stubWith(secondStarted.succeed(()).unit, """{"data":{"added":true}}""")
+          gateway       <- Gateway
+                             .compose(
+                               Subgraph.graphql("products", products.endpoint, productsSchema),
+                               Subgraph.graphql("reviews", reviews.endpoint, reviewsSchema)
+                             )
+                             .build
+          execution     <- gateway
+                             .execute(
+                               """mutation Changes {
+                             |  updated: updateProduct(id: "p1")
+                             |  added: addReview(text: "Good")
+                             |}""".stripMargin,
+                               Some("Changes")
+                             )
+                             .fork
+          first         <- firstStarted.await.as(true).race(execution.await.as(false))
+          secondBefore  <- secondStarted.isDone
+          _             <- releaseFirst.succeed(()).when(first)
+          response      <- execution.join
+          secondAfter   <- secondStarted.isDone
+          productSent   <- products.requests.get
+          reviewSent    <- reviews.requests.get
+          names          = response.data match {
+                             case ResponseObjectValue(fields) => fields.map(_._1)
+                             case _                           => Nil
+                           }
+        } yield assertTrue(
+          first,
+          !secondBefore,
+          secondAfter,
+          response.errors.isEmpty,
+          names == List("updated", "added"),
+          field(response.data, "updated").contains(caliban.Value.BooleanValue(true)),
+          field(response.data, "added").contains(caliban.Value.BooleanValue(true)),
+          productSent.size == 1,
+          reviewSent.size == 1
+        )
+      },
+      test("does not coalesce mutation roots on the same source") {
+        val schema =
+          "type Query { value: Int! } type Mutation { increment(by: Int!): Int! set(value: Int!): Int! }"
+
+        for {
+          backend  <- stub("""{"data":{"incremented":1}}""", """{"data":{"assigned":10}}""")
+          gateway  <- Gateway.compose(Subgraph.graphql("counter", backend.endpoint, schema)).build
+          response <- gateway.execute(
+                        """mutation {
+                          |  incremented: increment(by: 1)
+                          |  assigned: set(value: 10)
+                          |}""".stripMargin
+                      )
+          requests <- backend.requests.get
+        } yield assertTrue(
+          response.errors.isEmpty,
+          field(response.data, "incremented").contains(IntNumber(1)),
+          field(response.data, "assigned").contains(IntNumber(10)),
+          requests.size == 2,
+          requests.headOption.flatMap(_.query).exists(query => query.contains("increment") && !query.contains("set")),
+          requests
+            .drop(1)
+            .headOption
+            .flatMap(_.query)
+            .exists(query => query.contains("set") && !query.contains("increment"))
+        )
+      },
+      test("completes entity work before starting the next mutation root") {
+        val productsSchema =
+          s"""
+             |${federationSchemaPreamble("@key")}
+             |type Query { product: Product }
+             |type Mutation { updateProduct: Product! }
+             |type Product @key(fields: "id") { id: ID! price: Float! }
+             |""".stripMargin
+        val reviewsSchema  =
+          s"""
+             |${federationSchemaPreamble("@key", "@external", "@requires")}
+             |directive @requires(fields: federation__FieldSet!) on FIELD_DEFINITION
+             |type Query { available: Boolean! }
+             |type Mutation { addReview: Boolean! }
+             |type Product @key(fields: "id") {
+             |  id: ID! @external
+             |  price: Float! @external
+             |  isExpensive: Boolean! @requires(fields: "price")
+             |  isAvailable: Boolean!
+             |}
+             |""".stripMargin
+
+        for {
+          products <-
+            stub(
+              """{"data":{"updated":{"price":599.99,"_caliban_gateway_key":"p1","_caliban_gateway_requirement_price":599.99,"_caliban_gateway_typename":"Product"}}}"""
+            )
+          reviews  <- stubByRequest(request =>
+                        if (request.query.exists(_.contains("_entities")))
+                          """{"data":{"_entities":[{"isExpensive":true,"isAvailable":true}]}}"""
+                        else """{"data":{"added":true}}"""
+                      )
+          gateway  <- Gateway
+                        .compose(
+                          Subgraph.federation("products", products.endpoint, productsSchema),
+                          Subgraph.federation("reviews", reviews.endpoint, reviewsSchema)
+                        )
+                        .build
+          response <- gateway.execute(
+                        """mutation {
+                          |  updated: updateProduct { price isExpensive isAvailable }
+                          |  added: addReview
+                          |}""".stripMargin
+                      )
+          sent     <- reviews.requests.get
+        } yield assertTrue(
+          response.errors.isEmpty,
+          field(response.data, "updated")
+            .flatMap(field(_, "isExpensive"))
+            .contains(caliban.Value.BooleanValue(true)),
+          field(response.data, "updated")
+            .flatMap(field(_, "isAvailable"))
+            .contains(caliban.Value.BooleanValue(true)),
+          field(response.data, "added").contains(caliban.Value.BooleanValue(true)),
+          sent.size == 2,
+          sent.headOption.flatMap(_.query).exists(_.contains("_entities")),
+          sent.drop(1).headOption.flatMap(_.query).exists(_.contains("addReview"))
+        )
+      },
+      test("continues with later mutation roots after a field error") {
+        val productsSchema =
+          "type Query { product: String } type Mutation { updateProduct: Boolean }"
+        val reviewsSchema  =
+          "type Query { reviews: [String!]! } type Mutation { addReview: Boolean! }"
+
+        for {
+          products <- stub(
+                        """{"data":{"updated":null},"errors":[{"message":"update failed","path":["updated"]}]}"""
+                      )
+          reviews  <- stub("""{"data":{"added":true}}""")
+          gateway  <- Gateway
+                        .compose(
+                          Subgraph.graphql("products", products.endpoint, productsSchema),
+                          Subgraph.graphql("reviews", reviews.endpoint, reviewsSchema)
+                        )
+                        .build
+          response <- gateway.execute("mutation { updated: updateProduct added: addReview }")
+          sent     <- reviews.requests.get
+        } yield assertTrue(
+          field(response.data, "updated").contains(NullValue),
+          field(response.data, "added").contains(caliban.Value.BooleanValue(true)),
+          response.errors.map(_.msg) == List("update failed"),
+          sent.size == 1
+        )
+      },
+      test("stops after a top-level non-null mutation failure") {
+        val productsSchema =
+          "type Query { product: String } type Mutation { updateProduct: Boolean! }"
+        val reviewsSchema  =
+          "type Query { reviews: [String!]! } type Mutation { addReview: Boolean! }"
+
+        for {
+          products <- stub(
+                        """{"data":null,"errors":[{"message":"update failed","path":["updated"]}]}"""
+                      )
+          reviews  <- stub("""{"data":{"added":true}}""")
+          gateway  <- Gateway
+                        .compose(
+                          Subgraph.graphql("products", products.endpoint, productsSchema),
+                          Subgraph.graphql("reviews", reviews.endpoint, reviewsSchema)
+                        )
+                        .build
+          response <- gateway.execute("mutation { updated: updateProduct added: addReview }")
+          sent     <- reviews.requests.get
         } yield assertTrue(
           response.data == NullValue,
-          response.errors.map(_.msg) == List(
-            "Mutations spanning multiple subgraphs are not supported by this gateway."
-          ),
-          productSent.isEmpty,
-          reviewSent.isEmpty
+          response.errors.map(_.msg) == List("update failed"),
+          sent.isEmpty
+        )
+      },
+      test("retains earlier completion errors when a later mutation root aborts") {
+        val productsSchema =
+          "enum Status { READY } type Query { product: String } type Mutation { status: Status fail: Boolean! }"
+        val reviewsSchema  =
+          "type Query { reviews: [String!]! } type Mutation { addReview: Boolean! }"
+
+        for {
+          products <- stub(
+                        """{"data":{"status":"BROKEN"}}""",
+                        """{"data":{"failed":null},"errors":[{"message":"update failed","path":["failed"]}]}"""
+                      )
+          reviews  <- stub("""{"data":{"added":true}}""")
+          gateway  <- Gateway
+                        .compose(
+                          Subgraph.graphql("products", products.endpoint, productsSchema),
+                          Subgraph.graphql("reviews", reviews.endpoint, reviewsSchema)
+                        )
+                        .build
+          response <- gateway.execute("mutation { status failed: fail added: addReview }")
+          sent     <- reviews.requests.get
+        } yield assertTrue(
+          response.data == NullValue,
+          response.errors.map(_.msg) == List("update failed", "Invalid value for enum 'Status'."),
+          sent.isEmpty
+        )
+      },
+      test("selects a viable provider for a shareable mutation root") {
+        val alphaSchema =
+          s"""
+             |${federationSchemaPreamble("@shareable")}
+             |type Query { alpha: String }
+             |type Mutation { publish: Product! @shareable }
+             |type Product { id: ID! }
+             |""".stripMargin
+        val betaSchema  =
+          s"""
+             |${federationSchemaPreamble("@shareable")}
+             |type Query { beta: String }
+             |type Mutation { publish: Product! @shareable }
+             |type Product { title: String! }
+             |""".stripMargin
+
+        for {
+          alpha     <- stub("""{"data":{"published":{"id":"p1"}}}""")
+          beta      <- stub("""{"data":{"published":{"title":"Ready"}}}""")
+          gateway   <- Gateway
+                         .compose(
+                           Subgraph.federation("alpha", alpha.endpoint, alphaSchema),
+                           Subgraph.federation("beta", beta.endpoint, betaSchema)
+                         )
+                         .build
+          response  <- gateway.execute("mutation { published: publish { title } }")
+          alphaSent <- alpha.requests.get
+          betaSent  <- beta.requests.get
+        } yield assertTrue(
+          response.errors.isEmpty,
+          field(response.data, "published").flatMap(field(_, "title")).contains(StringValue("Ready")),
+          alphaSent.isEmpty,
+          betaSent.size == 1
         )
       },
       test("collects repeated mutation root fields before remote execution") {

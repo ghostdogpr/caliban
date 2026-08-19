@@ -14,7 +14,7 @@
 - [x] Missing runtime-type information produces a safe GraphQL outcome rather than an unsafe route.
 - [x] Source errors map through aliases and abstract selections to deterministic client paths.
 - [x] Relevant audit groups pass through the same plan and executor used by ordinary object selections.
-- [x] The pinned audit is rerun: every newly passing case is removed from `expectations.tsv`, ownership remains accurate for failures, and no new deferrals are introduced.
+- [x] The pinned audit is rerun without regressions or new deferrals.
 
 ## Implementation notes
 

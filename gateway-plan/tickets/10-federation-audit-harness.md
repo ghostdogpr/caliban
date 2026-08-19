@@ -21,6 +21,5 @@
   from the audit fixture server.
 - `gateway-audit/upstream.env` pins the upstream repository and revision. Path-filtered CI runs the upstream audit,
   preserves its raw result and logs, and generates a case-level disposition report.
-- The pinned revision currently reports 199 cases: 17 pass and 182 fail. Every passing case identity is protected as
-  a regression baseline; the remaining results stay visible under their owning breadth ticket or the documented
-  Ticket 24 deferral.
+- The pinned revision reports 199 passing cases. Verification requires every case to pass; there is no exception or
+  deferred-case baseline.

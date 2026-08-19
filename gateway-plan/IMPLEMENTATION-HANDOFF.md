@@ -188,28 +188,6 @@ Maintain focused tests for:
 
 Avoid golden tests of private representations unless the public feature is a plan explanation. Refactoring a private plan or helper should not require rewriting unrelated tests.
 
-## Migration from the current WIP
-
-The reviewed Ticket 1 foundation is retained. The `gateway_temp` branch contains the implementation produced by the superseded Ticket 2–7 sequence. Inspect that branch only when salvaging a behavior, test, or independently useful implementation listed below; it is not a dependency or merge source for the new design.
-
-Salvage deliberately:
-
-- public-interface ideas that remain small;
-- remote HTTP classification, bounds, and resource-ownership behavior;
-- generally useful Caliban validation fixes after independent review;
-- behavioral tests and fixtures.
-
-Re-evaluate rather than transplant:
-
-- parallel schema wrapper and contribution hierarchies;
-- the custom operation compiler;
-- rich-plan plus lowered-DAG pairs;
-- a verifier whose invariants can be enforced by construction;
-- indexed response storage and sink machinery before profiles justify them;
-- tests coupled to those representations.
-
-When salvaging code, adapt it to the new deep module instead of preserving an interface merely to make cherry-picking easy.
-
 ## Ticket execution
 
 The numbered files in [tickets](tickets/) are the authoritative sequence. Blockers express ordering; tickets without a dependency relationship may proceed independently.

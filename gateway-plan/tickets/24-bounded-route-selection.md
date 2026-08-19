@@ -1,8 +1,8 @@
-# 25 — Improve ambiguous-route planning
+# 24 — Improve ambiguous-route planning
 
 **Outcome:** When several valid routes can satisfy an operation, the planner selects a deterministic, reasonably efficient dependency DAG without unbounded search.
 
-**Blocked by:** 24 — Close the Federation Gateway Audit
+**Blocked by:** 16 — Preserve mutation ordering
 
 **Status:** ready-for-agent
 
@@ -16,4 +16,3 @@
 - [ ] `GatewayRuntime.explain` and execution continue to consume the same selected `OperationPlan` dependency DAG.
 - [ ] Regression tests assert both client-visible correctness and route quality without coupling unrelated tests to private planner representation.
 - [ ] The existing plan representation, execution scheduler, plan cache, and response store are not replaced by a second lowering pipeline.
-
