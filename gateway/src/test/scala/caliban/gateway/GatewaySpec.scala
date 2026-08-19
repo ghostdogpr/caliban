@@ -217,7 +217,7 @@ object GatewaySpec extends ZIOSpecDefault {
               }.contains(true)
             case _                                                      => false
           },
-          requests == Vector(request)
+          requests == Vector(request.copy(extensions = None))
         )
       },
       test("accepts partial data plus remote GraphQL errors") {

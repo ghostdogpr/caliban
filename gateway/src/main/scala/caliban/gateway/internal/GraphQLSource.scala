@@ -63,9 +63,18 @@ private[gateway] object GraphQLSource {
     }
   }
 
-  sealed trait Failure         extends NoStackTrace
-  case object TransportFailure extends Failure
-  case object InvalidResponse  extends Failure
+  sealed trait Failure                          extends NoStackTrace
+  case object TransportFailure                  extends Failure
+  case object TimeoutFailure                    extends Failure
+  case object InvalidRequest                    extends Failure
+  case object RequestTooLarge                   extends Failure
+  final case class HttpFailure(statusCode: Int) extends Failure
+  case object RedirectResponse                  extends Failure
+  case object UnsupportedMediaType              extends Failure
+  case object ResponseTooLarge                  extends Failure
+  case object ResponseNestingTooDeep            extends Failure
+  case object ResponseStructureTooLarge         extends Failure
+  case object InvalidResponse                   extends Failure
 }
 
 private[gateway] final class LocalGraphQLSource[-R](interpreter: GraphQLInterpreter[R, CalibanError])

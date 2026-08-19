@@ -89,8 +89,8 @@ object MultiSourceSpec extends ZIOSpecDefault {
           reviewRequests.head.variables.isEmpty,
           productValid.forall(_.isSuccess),
           reviewValid.forall(_.isSuccess),
-          productRequests.head.extensions == request.extensions,
-          reviewRequests.head.extensions == request.extensions,
+          productRequests.head.extensions.isEmpty,
+          reviewRequests.head.extensions.isEmpty,
           productRequests.head.query.exists(query =>
             query.contains("featured:product(id:\"p1\")") && !query.contains("reviews")
           ),
