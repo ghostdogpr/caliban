@@ -215,7 +215,7 @@ object FieldRoutingSpec extends ZIOSpecDefault {
           field(response.data, "product").flatMap(field(_, "shippingEstimate")).contains(IntNumber(40)),
           sentA.headOption
             .flatMap(_.query)
-            .exists(query => query.contains("...on PhysicalDetails{dimensions}") && query.contains("__typename")),
+            .exists(query => query.contains("...on PhysicalDetails{dimensions code}") && query.contains("__typename")),
           sentB.headOption
             .flatMap(_.variables)
             .contains(

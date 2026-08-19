@@ -605,8 +605,12 @@ object CompositionSpec extends ZIOSpecDefault {
           "type Query { beta: Search } union Search = Review type Review { body: String! }"
 
         for {
-          alpha    <- stub("""{"data":{"alpha":{"__typename":"Product","id":"p1"}}}""")
-          beta     <- stub("""{"data":{"beta":{"__typename":"Review","body":"good"}}}""")
+          alpha    <- stub(
+                        """{"data":{"alpha":{"_caliban_gateway_runtime_typename":"Product","id":"p1"}}}"""
+                      )
+          beta     <- stub(
+                        """{"data":{"beta":{"_caliban_gateway_runtime_typename":"Review","body":"good"}}}"""
+                      )
           gateway  <- Gateway
                         .compose(
                           Subgraph.graphql("alpha", alpha.endpoint, alphaSchema),

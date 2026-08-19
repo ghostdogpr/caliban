@@ -1,6 +1,8 @@
 package caliban.gateway.internal
 
-import caliban.Value.{ BooleanValue, StringValue }
+import caliban.{ PathValue, ResponseValue }
+import caliban.ResponseValue.{ ListValue, ObjectValue }
+import caliban.Value.{ BooleanValue, NullValue, StringValue }
 import caliban.gateway.Lookup
 import caliban.introspection.adt._
 import caliban.parsing.{ Parser, SourceMapper }
@@ -32,6 +34,8 @@ private[gateway] final class ComposedGraph private[internal] (
   private val entityLookups: Map[(String, String), List[ComposedGraph.EntityLookup]],
   private val requirements: Map[(String, String, String), List[Selection]],
   private val provisions: Map[(String, String, String), List[Selection]],
+  private val interfaceObjects: Set[(String, String)],
+  private val sourceRuntimeTypes: Map[(String, String), Set[String]],
   private val mappings: Map[String, SchemaCoordinateMapping]
 ) {
   def sources(operation: OperationType, field: String): List[String] =
@@ -63,6 +67,209 @@ private[gateway] final class ComposedGraph private[internal] (
   def mapping(source: String): Option[SchemaCoordinateMapping] =
     mappings.get(source)
 
+  def isInterfaceObject(source: String, typeName: String): Boolean =
+    interfaceObjects.contains(source -> typeName)
+
+  def runtimeTypeSource(typeName: String, preferred: String): Option[String] = {
+    val candidates = entityLookups.keysIterator.collect {
+      case (source, `typeName`) if !isInterfaceObject(source, typeName) => source
+    }.toList.distinct.sorted
+    if (candidates.contains(preferred)) Some(preferred) else candidates.headOption
+  }
+
+  def runtimeTypes(source: String, typeName: String): List[String] =
+    sourceRuntimeTypes.getOrElse(source -> typeName, Set.empty).toList.sorted
+
+  def runtimeSources(current: Set[String], parentType: String, field: String): Set[String] = {
+    val providers = fieldRoutes.getOrElse(parentType -> field, Nil).toSet
+    if (providers.isEmpty) current
+    else {
+      val constrained = current intersect providers
+      if (entityLookups.keysIterator.exists(_._2 == parentType) || constrained.isEmpty) providers else constrained
+    }
+  }
+
+  def runtimeTypesForField(
+    sources: Set[String],
+    source: String,
+    parentType: String,
+    field: String,
+    outputType: String
+  ): Set[String] = {
+    val candidates = if (sources.nonEmpty) sources.toList.sorted else source :: Nil
+    val available  = candidates.flatMap { candidate =>
+      sourceFields
+        .get((candidate, parentType, field))
+        .flatMap(_._type.innerType.name)
+        .map(name => sourceRuntimeTypes.getOrElse(candidate -> name, Set.empty))
+        .filter(_.nonEmpty)
+    }
+    available.reduceOption(_ intersect _).getOrElse(sourceRuntimeTypes.getOrElse(source -> outputType, Set.empty))
+  }
+
+  def isObjectType(typeName: String): Boolean =
+    rootType.types.get(typeName).exists(_.kind == __TypeKind.OBJECT)
+
+  def isObjectType(source: String, typeName: String): Boolean =
+    sourceRuntimeTypes.get(source -> typeName).exists(_.contains(typeName))
+
+  def appliesOnSource(source: String, parentType: String, field: caliban.execution.Field): Boolean =
+    field._condition.forall(condition =>
+      isInterfaceObject(source, parentType) ||
+        sourceRuntimeTypes.getOrElse(source -> parentType, Set.empty).exists(condition)
+    )
+
+  def executableField(source: String, field: caliban.execution.Field): caliban.execution.Field =
+    executableField(source, None, field)
+
+  def executableEntityField(
+    source: String,
+    entityType: String,
+    field: caliban.execution.Field
+  ): caliban.execution.Field =
+    executableField(source, Some(entityType), field)
+
+  def restoreResponseNames(
+    clientFields: List[caliban.execution.Field],
+    executableFields: List[caliban.execution.Field],
+    value: ResponseValue
+  ): ResponseValue =
+    value match {
+      case ObjectValue(fields) =>
+        val selected = executableFields
+          .zip(clientFields)
+          .groupBy(_._1.aliasedName)
+          .flatMap { case (responseName, matches) =>
+            for {
+              executable <- matches.iterator.map(_._1).reduceOption(_.combine(_))
+              client     <- matches.iterator.map(_._2).reduceOption(_.combine(_))
+            } yield (responseName, (client, executable))
+          }
+        val restored = fields.map { case (name, nested) =>
+          selected.get(name) match {
+            case Some((client, executable)) =>
+              client.aliasedName -> restoreResponseNames(client.fields, executable.fields, nested)
+            case None                       => name -> nested
+          }
+        }
+        val merged   = restored.foldLeft(ListMap.empty[String, ResponseValue]) { case (values, (name, nested)) =>
+          values.updated(name, values.get(name).fold(nested)(mergeResponseValues(_, nested)))
+        }
+        ObjectValue(merged.toList)
+      case ListValue(values)   => ListValue(values.map(restoreResponseNames(clientFields, executableFields, _)))
+      case other               => other
+    }
+
+  def restoreResponsePath(
+    clientFields: List[caliban.execution.Field],
+    executableFields: List[caliban.execution.Field],
+    path: List[PathValue]
+  ): List[PathValue] =
+    path match {
+      case PathValue.Key(name) :: tail    =>
+        executableFields.zip(clientFields).find(_._1.aliasedName == name) match {
+          case Some((executable, client)) =>
+            PathValue.Key(client.aliasedName) :: restoreResponsePath(client.fields, executable.fields, tail)
+          case None                       => path
+        }
+      case PathValue.Index(index) :: tail =>
+        PathValue.Index(index) :: restoreResponsePath(clientFields, executableFields, tail)
+      case _ :: _                         => path
+      case Nil                            => Nil
+    }
+
+  private def mergeResponseValues(left: ResponseValue, right: ResponseValue): ResponseValue =
+    (left, right) match {
+      case (ObjectValue(leftFields), ObjectValue(rightFields))                                    =>
+        val merged = rightFields.foldLeft(ListMap(leftFields: _*)) { case (values, (name, nested)) =>
+          values.updated(name, values.get(name).fold(nested)(mergeResponseValues(_, nested)))
+        }
+        ObjectValue(merged.toList)
+      case (ListValue(leftValues), ListValue(rightValues)) if leftValues.size == rightValues.size =>
+        ListValue(leftValues.zip(rightValues).map { case (leftValue, rightValue) =>
+          mergeResponseValues(leftValue, rightValue)
+        })
+      case (NullValue, value)                                                                     => value
+      case (value, NullValue)                                                                     => value
+      case (_, value)                                                                             => value
+    }
+
+  private def executableField(
+    source: String,
+    parentType: Option[String],
+    field: caliban.execution.Field
+  ): caliban.execution.Field = {
+    val parent      = parentType.orElse(field.parentType.flatMap(_.innerType.name)).getOrElse("")
+    val targets     = field.targets.flatMap { original =>
+      if (isInterfaceObject(source, parent)) None
+      else {
+        field._condition
+          .map(
+            _.filter(sourceRuntimeTypes.getOrElse(source -> parent, Set.empty))
+              .filter(isObjectType(source, _))
+          )
+          .orElse(Some(original))
+      }
+    }
+    val childParent = sourceFields
+      .get((source, parent, field.name))
+      .flatMap(_._type.innerType.name)
+      .orElse(field.fieldType.innerType.name)
+    val children    = disambiguate(source, field.fields.map(executableField(source, childParent, _)))
+    field.copy(targets = targets, fields = children)
+  }
+
+  private def disambiguate(
+    source: String,
+    fields: List[caliban.execution.Field]
+  ): List[caliban.execution.Field] = {
+    def responseTypes(field: caliban.execution.Field): Set[String] = {
+      val sourceDefinitions = field.targets.toList
+        .flatMap(_.toList)
+        .flatMap(target => this.field(source, target, field.name))
+        .map(value => outputType(value._type))
+        .toSet
+      if (sourceDefinitions.nonEmpty) sourceDefinitions else Set(outputType(field.fieldType))
+    }
+
+    val conflicts = fields
+      .groupBy(_.aliasedName)
+      .collect {
+        case (name, values) if values.iterator.flatMap(responseTypes).toSet.size > 1 => name
+      }
+      .toSet
+    if (conflicts.isEmpty) fields
+    else {
+      val initial = fields.iterator.map(_.aliasedName).toSet
+      fields
+        .foldLeft((List.empty[caliban.execution.Field], initial)) { case ((values, used), field) =>
+          if (!conflicts.contains(field.aliasedName)) (field :: values, used)
+          else {
+            val alias = privateResponseName(field.aliasedName, used)
+            (field.copy(alias = Some(alias)) :: values, used + alias)
+          }
+        }
+        ._1
+        .reverse
+    }
+  }
+
+  private def outputType(tpe: __Type): String =
+    tpe.kind match {
+      case __TypeKind.NON_NULL => s"${tpe.ofType.fold("")(outputType)}!"
+      case __TypeKind.LIST     => s"[${tpe.ofType.fold("")(outputType)}]"
+      case _                   => tpe.name.getOrElse(tpe.kind.toString)
+    }
+
+  private def privateResponseName(responseName: String, used: Set[String]): String = {
+    val base                     = s"_caliban_gateway_$responseName"
+    def loop(index: Int): String = {
+      val candidate = if (index == 0) base else s"${base}_$index"
+      if (used.contains(candidate)) loop(index + 1) else candidate
+    }
+    loop(0)
+  }
+
   def sourcesForKey(typeName: String, fields: List[ComposedGraph.KeyField]): List[String] =
     fields match {
       case Nil          => Nil
@@ -89,7 +296,11 @@ private[gateway] final class ComposedGraph private[internal] (
 private[gateway] object ComposedGraph {
   final case class KeyField(name: String, children: List[KeyField])
 
-  final case class EntityLookup(key: List[KeyField], operation: LookupOperation)
+  final case class EntityLookup(
+    key: List[KeyField],
+    operation: LookupOperation,
+    representationType: Option[String] = None
+  )
 
   sealed trait LookupOperation {
     def requiresTypename: Boolean
@@ -237,6 +448,15 @@ private[gateway] object SchemaComposition {
               lookups,
               requirements,
               provisions,
+              types.iterator.filter(_.interfaceObject).map(entry => entry.source -> entry.name).toSet,
+              schemas.iterator.flatMap { schema =>
+                schema.rootType.types.iterator.map { case (name, tpe) =>
+                  val runtimeTypes =
+                    if (tpe.kind == __TypeKind.OBJECT) Set(name)
+                    else tpe.possibleTypes.getOrElse(Nil).flatMap(_.name).toSet
+                  (schema.name -> name) -> runtimeTypes
+                }
+              }.toMap,
               schemas.iterator.map(schema => schema.name -> schema.mapping).toMap
             )
           )
@@ -654,6 +874,7 @@ private[gateway] object SchemaComposition {
     source: String,
     name: String,
     tpe: __Type,
+    interfaceObject: Boolean,
     entity: Option[EntityDefinition],
     ownedFields: Set[String],
     shareableFields: Set[String],
@@ -821,22 +1042,26 @@ private[gateway] object SchemaComposition {
     }
 
   private def typeEntry(metadata: PreparedSchema, name: String, tpe: __Type): TypeEntry = {
-    val schema        = metadata.schema
-    val definitions   = schema.document.typeDefinitions.filter(_.name == name)
-    val extensions    = schema.document.typeExtensions.collect {
+    val schema          = metadata.schema
+    val definitions     = schema.document.typeDefinitions.filter(_.name == name)
+    val extensions      = schema.document.typeExtensions.collect {
       case extension: ObjectTypeExtension if extension.name == name    =>
         extension.directives -> extension.fields
       case extension: InterfaceTypeExtension if extension.name == name =>
         extension.directives -> extension.fields
     }
-    val directives    = definitions.flatMap(_.directives) ::: extensions.flatMap(_._1)
-    val fields        = definitions.flatMap {
+    val directives      = definitions.flatMap(_.directives) ::: extensions.flatMap(_._1)
+    val fields          = definitions.flatMap {
       case definition: ObjectTypeDefinition    => definition.fields
       case definition: InterfaceTypeDefinition => definition.fields
       case _                                   => Nil
     } ::: extensions.flatMap(_._2)
-    val names         = metadata.directives
-    val entity        =
+    val names           = metadata.directives
+    val interfaceObject = schema.federation && hasDirective(directives, names.interfaceObject)
+    val composedType    =
+      if (interfaceObject && tpe.kind == __TypeKind.OBJECT) tpe.copy(kind = __TypeKind.INTERFACE)
+      else tpe
+    val entity          =
       if (schema.federation) {
         val keys = directives.flatMap(keyDirective(_, names))
         if (keys.nonEmpty) {
@@ -848,7 +1073,8 @@ private[gateway] object SchemaComposition {
                     key.fields,
                     ComposedGraph.LookupOperation.FederationEntities(
                       if (declaresEntityLookup(schema, name)) Some(key.fields) else None
-                    )
+                    ),
+                    if (interfaceObject) Some(name) else None
                   )
               }
             else Nil
@@ -864,35 +1090,36 @@ private[gateway] object SchemaComposition {
               compileLookup(schema, lookup).toList.map(ComposedGraph.EntityLookup(key, _))
             )
           }
-    val typeExternal  = schema.federation && hasDirective(directives, names.external)
-    val fed1Owned     = metadata.federation1ExtensionKeyCoordinates.collect { case (`name`, field) => field }
-    val external      = (fields.collect {
+    val typeExternal    = schema.federation && hasDirective(directives, names.external)
+    val fed1Owned       = metadata.federation1ExtensionKeyCoordinates.collect { case (`name`, field) => field }
+    val external        = (fields.collect {
       case field if schema.federation && hasDirective(field.directives, names.external) =>
         field.name
     }.toSet ++ (if (typeExternal) fields.map(_.name) else Nil)) -- fed1Owned
-    val typeShareable = schema.federation && hasDirective(directives, names.shareable)
-    val keyFields     = entity.fold(Set.empty[String])(_.keyFields) ++ metadata.keyCoordinates.collect {
+    val typeShareable   = schema.federation && hasDirective(directives, names.shareable)
+    val keyFields       = entity.fold(Set.empty[String])(_.keyFields) ++ metadata.keyCoordinates.collect {
       case (`name`, field) => field
     }
-    val shareable     = fields.collect {
+    val shareable       = fields.collect {
       case field if schema.federation && hasDirective(field.directives, names.shareable) =>
         field.name
     }.toSet ++ keyFields ++ (if (typeShareable) fields.map(_.name) else Nil)
-    val inaccessible  = schema.mapping.hiddenTypes.contains(name) ||
+    val inaccessible    = schema.mapping.hiddenTypes.contains(name) ||
       schema.federation && hasDirective(directives, names.inaccessible)
-    val hiddenFields  = fields.collect {
+    val hiddenFields    = fields.collect {
       case field if schema.federation && hasDirective(Some(field.directives), names.inaccessible) => field.name
     }.toSet ++ schema.mapping.hiddenFields.collect { case (`name`, field) => field }
-    val hiddenArgs    = schema.mapping.hiddenArguments.collect { case (`name`, field, argument) => field -> argument }
-    val hiddenInputs  = schema.mapping.hiddenInputFields.collect { case (`name`, field) => field }
-    val hiddenEnums   = schema.mapping.hiddenEnumValues.collect { case (`name`, value) => value }
-    val overrides     = fields.flatMap { field =>
+    val hiddenArgs      = schema.mapping.hiddenArguments.collect { case (`name`, field, argument) => field -> argument }
+    val hiddenInputs    = schema.mapping.hiddenInputFields.collect { case (`name`, field) => field }
+    val hiddenEnums     = schema.mapping.hiddenEnumValues.collect { case (`name`, value) => value }
+    val overrides       = fields.flatMap { field =>
       directiveString(Some(field.directives), names.overrideDirective, "from").map(field.name -> _)
     }.toMap
     TypeEntry(
       schema.name,
       name,
-      tpe,
+      composedType,
+      interfaceObject,
       entity,
       tpe.allFields.map(_.name).toSet -- external,
       shareable,
@@ -1098,7 +1325,24 @@ private[gateway] object SchemaComposition {
             name -> chosen
           }
       }
-    resolveComposedReferences(chosen)
+    val interfaceObjects  = types.iterator.filter(_.interfaceObject).map(_.name).toSet
+    val expanded          = chosen.map { case (name, tpe) =>
+      if (tpe.kind != __TypeKind.OBJECT) name -> tpe
+      else {
+        val inherited = tpe
+          .interfaces()
+          .getOrElse(Nil)
+          .flatMap(_.name)
+          .filter(interfaceObjects)
+          .flatMap(interfaceName => chosen.get(interfaceName).toList.flatMap(_.allFields))
+        val existing  = tpe.allFields.map(_.name).toSet
+        val fields    = tpe.allFields ::: inherited.filterNot(field => existing.contains(field.name))
+        name -> tpe.copy(fields =
+          args => Some(if (args.includeDeprecated.getOrElse(false)) fields else fields.filterNot(_.isDeprecated))
+        )
+      }
+    }
+    resolveComposedReferences(expanded)
   }
 
   private def resolveComposedReferences(types: Map[String, __Type]): Map[String, __Type] = {
@@ -1412,8 +1656,8 @@ private[gateway] object SchemaComposition {
       case _                                          =>
         val leftPossible  = left.possibleTypeNames
         val rightPossible = right.possibleTypeNames
-        if (leftPossible.nonEmpty && leftPossible.subsetOf(rightPossible)) left
-        else if (rightPossible.nonEmpty && rightPossible.subsetOf(leftPossible)) right
+        if (leftPossible.nonEmpty && leftPossible.subsetOf(rightPossible)) right
+        else if (rightPossible.nonEmpty && rightPossible.subsetOf(leftPossible)) left
         else left
     }
 
@@ -1587,6 +1831,7 @@ private[gateway] object SchemaComposition {
     overrideDirective: Set[String],
     requires: Set[String],
     provides: Set[String],
+    interfaceObject: Set[String],
     hidden: Set[String],
     hiddenTypes: Set[String]
   )
@@ -1637,8 +1882,9 @@ private[gateway] object SchemaComposition {
     val overrideNames     = names("override")
     val requiresNames     = names("requires", federation1 = true)
     val providesNames     = names("provides", federation1 = true)
+    val interfaceObjects  = names("interfaceObject")
     val hiddenDirectives  = Set("link") ++ keyNames ++ externalNames ++ extendsNames ++ shareableNames ++
-      inaccessibleNames ++ overrideNames ++ requiresNames ++ providesNames ++
+      inaccessibleNames ++ overrideNames ++ requiresNames ++ providesNames ++ interfaceObjects ++
       document.directiveDefinitions.iterator.map(_.name).filter(name => namespacePrefix.exists(name.startsWith))
 
     FederationDirectiveNames(
@@ -1650,6 +1896,7 @@ private[gateway] object SchemaComposition {
       overrideNames,
       requiresNames,
       providesNames,
+      interfaceObjects,
       hiddenDirectives,
       hiddenTypes
     )

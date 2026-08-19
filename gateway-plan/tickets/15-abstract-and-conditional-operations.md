@@ -4,14 +4,20 @@
 
 **Blocked by:** 10 — Integrate the Federation Gateway Audit; 13 — Complete ownership and visibility composition
 
-**Status:** ready-for-agent
+**Status:** complete
 
 ## Completion criteria
 
-- [ ] Interface and union selections route using valid possible runtime types and source capabilities.
-- [ ] Inline fragments, fragment spreads, aliases, repeated selections, and `__typename` preserve Caliban semantics across sources.
-- [ ] `@skip` and `@include` conditions affect source work and projection without corrupting entity requirements.
-- [ ] Missing runtime-type information produces a safe GraphQL outcome rather than an unsafe route.
-- [ ] Source errors map through aliases and abstract selections to deterministic client paths.
-- [ ] Relevant audit groups pass through the same plan and executor used by ordinary object selections.
-- [ ] The pinned audit is rerun: every newly passing case is removed from `expectations.tsv`, ownership remains accurate for failures, and no new deferrals are introduced.
+- [x] Interface and union selections route using valid possible runtime types and source capabilities.
+- [x] Inline fragments, fragment spreads, aliases, repeated selections, and `__typename` preserve Caliban semantics across sources.
+- [x] `@skip` and `@include` conditions affect source work and projection without corrupting entity requirements.
+- [x] Missing runtime-type information produces a safe GraphQL outcome rather than an unsafe route.
+- [x] Source errors map through aliases and abstract selections to deterministic client paths.
+- [x] Relevant audit groups pass through the same plan and executor used by ordinary object selections.
+- [x] The pinned audit is rerun: every newly passing case is removed from `expectations.tsv`, ownership remains accurate for failures, and no new deferrals are introduced.
+
+## Implementation notes
+
+- Runtime-type evidence is carried by the existing operation plan and retained only for gateway projection and completion.
+- Source-specific abstract selections are rendered as valid concrete fragments, including interface-object and source-private requirement types.
+- The pinned audit passes 195 of 199 cases. The four remaining failures are the cross-source mutations owned by Ticket 16; no cases are deferred.

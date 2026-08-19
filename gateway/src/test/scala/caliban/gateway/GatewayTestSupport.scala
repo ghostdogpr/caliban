@@ -33,6 +33,7 @@ private[gateway] object GatewayTestSupport {
       |directive @shareable repeatable on OBJECT | FIELD_DEFINITION
       |directive @inaccessible on FIELD_DEFINITION | OBJECT | INTERFACE | UNION | ARGUMENT_DEFINITION | SCALAR | ENUM | ENUM_VALUE | INPUT_OBJECT | INPUT_FIELD_DEFINITION
       |directive @override(from: String!) on FIELD_DEFINITION
+      |directive @interfaceObject on OBJECT
       |scalar link__Import
       |enum link__Purpose { SECURITY EXECUTION }
       |scalar federation__FieldSet

@@ -1,19 +1,2 @@
 suite	cases	disposition	owner	rationale
-abstract-types	0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17	failing	ticket-15	Abstract selections and runtime-type routing are owned by Ticket 15.
-child-type-mismatch	0,1,2,3	failing	ticket-15	Composition succeeds; the remaining failures require abstract runtime-type routing owned by Ticket 15.
-circular-reference-interface	1	failing	ticket-15	Cyclic abstract selections are owned by Ticket 15.
-corrupted-supergraph-node-id	0,2,5	failing	ticket-15	The remaining abstract entity routing is owned by Ticket 15.
-interface-object-indirect-extension	0	failing	ticket-15	Interface-object entity routing is owned by Ticket 15.
-interface-object-with-requires	0,1,2,3,4,5,6	failing	ticket-15	Interface-object runtime routing is owned by Ticket 15.
 mutations	0,1,2,3	failing	ticket-16	Cross-source mutation scheduling is explicitly deferred to Ticket 16.
-node	0	failing	ticket-15	Interface entity enrichment is owned by Ticket 15.
-non-resolvable-interface-object	0,1,2,3,4,5,6	deferred	ticket-24	The fixture requires a product-specific option to accept non-resolvable interface objects.
-override-type-interface	0,1	failing	ticket-15	Override ownership composes; the remaining concrete-type transitions through interfaces are owned by Ticket 15.
-partial-union	0	failing	ticket-15	Composition succeeds; runtime-type routing for the remaining partial-union selection is owned by Ticket 15.
-partial-union-complex	0,1,2,4	failing	ticket-15	Runtime-type routing for partial unions is owned by Ticket 15.
-provides-on-interface	1	failing	ticket-15	Provided fields on abstract runtime selections are owned by Ticket 15.
-provides-on-union	0,1	failing	ticket-15	Provided fields on abstract runtime selections are owned by Ticket 15.
-simple-interface-object	0,1,2,3,4,5,6,7,8,9,10,11,12	failing	ticket-15	Interface-object runtime selections are owned by Ticket 15.
-typename	0,1,2,3,4,5	failing	ticket-15	Cross-source runtime typename semantics are owned by Ticket 15.
-union-interface-distributed	0,1,4,5,7,9	failing	ticket-15	Distributed union and interface selections are owned by Ticket 15.
-union-intersection	1,2,3,5,6,7,8,9,10,11	failing	ticket-15	Union composition succeeds; the remaining distributed abstract selections are owned by Ticket 15.

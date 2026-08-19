@@ -150,7 +150,8 @@ private[gateway] final class GatewayRuntimeImpl[-R](
     original: GraphQLRequest
   )(implicit trace: Trace): ZIO[R, Nothing, RootResult] = {
     val mapping    = graph.mapping(route.source)
-    val downstream = mapping.fold(route.downstream)(value => route.downstream.map(value.rootFieldToSource))
+    val executable = route.downstream.map(graph.executableField(route.source, _))
+    val downstream = mapping.fold(executable)(value => executable.map(value.rootFieldToSource))
     val operation  = OperationDefinition(
       execution.operationType,
       execution.operationName,
@@ -169,10 +170,18 @@ private[gateway] final class GatewayRuntimeImpl[-R](
         source
           .execute(request)
           .map { response =>
-            val translated = mapping.fold(response)(_.rootResponseToClient(route.downstream, response))
+            val translated = mapping.fold(response)(_.rootResponseToClient(executable, response))
+            val errors     = translated.errors.map {
+              case error: CalibanError.ExecutionError =>
+                error.copy(path = graph.restoreResponsePath(route.downstream, executable, error.path))
+              case error                              => error
+            }
             RootResult(
               route,
-              translated.copy(errors = source.errorPolicy.routed(route.client, translated.errors))
+              translated.copy(
+                data = graph.restoreResponseNames(route.downstream, executable, translated.data),
+                errors = source.errorPolicy.routed(route.client, errors)
+              )
             )
           }
           .catchAll(_ => ZIO.succeed(RootResult(route, rootFailure(route))))
@@ -210,10 +219,10 @@ private[gateway] final class GatewayRuntimeImpl[-R](
             .get(field.aliasedName)
             .orElse(rootValues.get(field.aliasedName))
             .getOrElse(NullValue)
-      field.aliasedName -> project(field, value, Vector(field.aliasedName), plan.entities)
+      field.aliasedName -> project(field, value, Vector(field.aliasedName), plan.entities, plan.runtimeTypes)
     })
     val errors      = local.errors ::: roots.flatMap(_.response.errors) ::: entities.flatMap(_.errors)
-    val completed   = completeObject(plan.fields, data, Vector.empty, errors)
+    val completed   = completeObject(plan.fields, data, Vector.empty, errors, plan.runtimeTypes)
     GraphQLResponse(completed.value.getOrElse(NullValue), errors ::: completed.errors)
   }
 
@@ -221,7 +230,8 @@ private[gateway] final class GatewayRuntimeImpl[-R](
     fields: List[Field],
     value: ResponseValue,
     path: Vector[PathValue],
-    sourceErrors: List[CalibanError]
+    sourceErrors: List[CalibanError],
+    runtimeTypes: List[RuntimeTypeSelection]
   ): CompletedValue =
     value match {
       case ObjectValue(values) =>
@@ -233,7 +243,8 @@ private[gateway] final class GatewayRuntimeImpl[-R](
             field,
             byName.getOrElse(field.aliasedName, NullValue),
             fieldPath,
-            sourceErrors
+            sourceErrors,
+            runtimeTypes
           )
         }
         val errors    = completed.flatMap(_._2.errors)
@@ -251,12 +262,13 @@ private[gateway] final class GatewayRuntimeImpl[-R](
     field: Field,
     value: ResponseValue,
     path: Vector[PathValue],
-    sourceErrors: List[CalibanError]
+    sourceErrors: List[CalibanError],
+    runtimeTypes: List[RuntimeTypeSelection]
   ): CompletedValue =
     fieldType.kind match {
       case __TypeKind.NON_NULL                     =>
         val completed = fieldType.ofType
-          .map(completeValue(_, field, value, path, sourceErrors))
+          .map(completeValue(_, field, value, path, sourceErrors, runtimeTypes))
           .getOrElse(CompletedValue(Some(NullValue), Nil))
         completed.value match {
           case Some(NullValue) =>
@@ -271,7 +283,7 @@ private[gateway] final class GatewayRuntimeImpl[-R](
         (value, fieldType.ofType) match {
           case (ListValue(values), Some(itemType)) =>
             val completed = values.zipWithIndex.map { case (item, index) =>
-              completeValue(itemType, field, item, path :+ PathValue.Index(index), sourceErrors)
+              completeValue(itemType, field, item, path :+ PathValue.Index(index), sourceErrors, runtimeTypes)
             }
             val errors    = completed.flatMap(_.errors)
             if (completed.exists(_.value.isEmpty)) CompletedValue(Some(NullValue), errors)
@@ -280,21 +292,25 @@ private[gateway] final class GatewayRuntimeImpl[-R](
             CompletedValue(Some(NullValue), invalidSourceValueErrors(path.toList, sourceErrors))
         }
       case __TypeKind.INTERFACE | __TypeKind.UNION =>
-        val possible = fieldType.possibleTypes.getOrElse(Nil).flatMap(_.name).toSet
-        val runtime  = value match {
-          case ObjectValue(fields) => fields.collectFirst { case ("__typename", StringValue(name)) => name }
-          case _                   => None
-        }
-        if (runtime.exists(name => possible.nonEmpty && !possible.contains(name)))
-          CompletedValue(Some(NullValue), Nil)
-        else {
-          val typeName  = runtime.orElse(fieldType.innerType.name).getOrElse("")
-          val completed = completeObject(field.collectFields(typeName), value, path, sourceErrors)
-          if (completed.value.isEmpty) CompletedValue(Some(NullValue), completed.errors) else completed
+        val possible        = fieldType.possibleTypes.getOrElse(Nil).flatMap(_.name).toSet
+        val runtime         = runtimeType(value, responsePath(path), runtimeTypes, field)
+        val requiresRuntime = field.fields.exists(child =>
+          child.name == "__typename" || child._condition.nonEmpty || child.targets.nonEmpty
+        )
+        runtime.filter(name => possible.isEmpty || possible.contains(name)) match {
+          case Some(typeName)                              =>
+            val completed = completeObject(field.collectFields(typeName), value, path, sourceErrors, runtimeTypes)
+            if (completed.value.isEmpty) CompletedValue(Some(NullValue), completed.errors) else completed
+          case None if runtime.isEmpty && !requiresRuntime =>
+            val typeName  = fieldType.innerType.name.getOrElse("")
+            val completed = completeObject(field.collectFields(typeName), value, path, sourceErrors, runtimeTypes)
+            if (completed.value.isEmpty) CompletedValue(Some(NullValue), completed.errors) else completed
+          case None                                        =>
+            CompletedValue(Some(NullValue), invalidSourceValueErrors(path.toList, sourceErrors))
         }
       case __TypeKind.OBJECT                       =>
         val typeName  = fieldType.innerType.name.getOrElse("")
-        val completed = completeObject(field.collectFields(typeName), value, path, sourceErrors)
+        val completed = completeObject(field.collectFields(typeName), value, path, sourceErrors, runtimeTypes)
         if (completed.value.isEmpty) CompletedValue(Some(NullValue), completed.errors) else completed
       case __TypeKind.ENUM                         =>
         value match {
@@ -408,7 +424,8 @@ private[gateway] final class GatewayRuntimeImpl[-R](
     field: Field,
     value: ResponseValue,
     path: Vector[String],
-    entities: List[EntityRoute]
+    entities: List[EntityRoute],
+    runtimeTypes: List[RuntimeTypeSelection]
   ): ResponseValue =
     value match {
       case ObjectValue(fields) if field.fields.nonEmpty =>
@@ -420,24 +437,31 @@ private[gateway] final class GatewayRuntimeImpl[-R](
         val clientTypename  = field.fields
           .find(_.name == "__typename")
           .flatMap(child => values.get(child.aliasedName))
-        val typeName        = privateTypename
+        val plannedTypename = runtimeType(value, path, runtimeTypes, field).map(StringValue.apply)
+        val typeName        = plannedTypename
           .orElse(clientTypename)
+          .orElse(privateTypename)
           .collect { case StringValue(name) => name }
           .orElse(field.fieldType.innerType.name)
           .getOrElse("")
-        ObjectValue(
-          field
-            .collectFields(typeName)
-            .map(child =>
-              child.aliasedName -> project(
-                child,
-                values.getOrElse(child.aliasedName, NullValue),
-                path :+ child.aliasedName,
-                entities
-              )
+        val projected       = field
+          .collectFields(typeName)
+          .map(child =>
+            child.aliasedName -> project(
+              child,
+              values.getOrElse(child.aliasedName, NullValue),
+              path :+ child.aliasedName,
+              entities,
+              runtimeTypes
             )
-        )
-      case ListValue(values)                            => ListValue(values.map(project(field, _, path, entities)))
+          )
+        val runtimeEvidence = runtimeTypes.iterator
+          .flatMap(selection => values.get(selection.responseName).map(selection.responseName -> _))
+          .toList
+          .distinct
+        ObjectValue(projected ::: runtimeEvidence)
+      case ListValue(values)                            =>
+        ListValue(values.map(project(field, _, path, entities, runtimeTypes)))
       case other                                        => other
     }
 
@@ -452,9 +476,38 @@ private[gateway] final class GatewayRuntimeImpl[-R](
     response: GraphQLResponse[CalibanError],
     errors: List[CalibanError]
   ): GraphQLResponse[CalibanError] = {
-    val completed = completeObject(fields, response.data, Vector.empty, errors)
+    val completed = completeObject(fields, response.data, Vector.empty, errors, Nil)
     response.copy(data = completed.value.getOrElse(NullValue), errors = errors ::: completed.errors)
   }
+
+  private def runtimeType(
+    value: ResponseValue,
+    path: Vector[String],
+    runtimeTypes: List[RuntimeTypeSelection],
+    field: Field
+  ): Option[String] =
+    value match {
+      case ObjectValue(fields) =>
+        val values          = fields.toMap
+        val matching        = runtimeTypes.filter(_.path == path)
+        val selectedAliases = field.fields.iterator.filter(_.name == "__typename").map(_.aliasedName)
+        matching.iterator
+          .flatMap(selection => values.get(selection.responseName))
+          .collectFirst { case StringValue(name) => StringValue(name) }
+          .orElse(selectedAliases.flatMap(values.get).collectFirst { case value: StringValue => value })
+          .orElse(values.get("__typename"))
+          .orElse(
+            runtimeTypes.iterator
+              .filterNot(matching.contains)
+              .flatMap(selection => values.get(selection.responseName))
+              .collectFirst { case value: StringValue => value }
+          )
+          .collect { case StringValue(name) => name }
+      case _                   => None
+    }
+
+  private def responsePath(path: Vector[PathValue]): Vector[String] =
+    path.collect { case PathValue.Key(name) => name }
 
   private def renderPlan(plan: OperationPlan): String = {
     val header = plan.operation.toString.toLowerCase
