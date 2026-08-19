@@ -121,6 +121,25 @@ object MultiSourceSpec extends ZIOSpecDefault {
           errors.map(_.path) == List(List(PathValue.Key("recent")))
         )
       },
+      test("relocates an unusable grouped error only to its visible root") {
+        val schema = "type Query { first: Result second: Result } type Result { value: String }"
+        val result =
+          """{"data":{"first":null,"second":{"value":"ok"}},"errors":[{"message":"internal failure","path":["first","_internal"]}]}"""
+
+        for {
+          source   <- stub(result)
+          gateway  <- Gateway.compose(Subgraph.graphql("values", source.endpoint, schema)).build
+          response <- gateway.execute("{ first { value } second { value } }")
+          sent     <- source.requests.get
+          errors    = response.errors.collect { case error: CalibanError.ExecutionError => error }
+        } yield assertTrue(
+          field(response.data, "first").contains(NullValue),
+          field(response.data, "second").flatMap(field(_, "value")).contains(StringValue("ok")),
+          errors.map(_.msg) == List("Remote GraphQL request failed."),
+          errors.map(_.path) == List(List(PathValue.Key("first"))),
+          sent.size == 1
+        )
+      },
       test("orders root errors independently of source completion order") {
         val firstSchema   = "type Query { first: String }"
         val secondSchema  = "type Query { second: String }"
@@ -205,6 +224,20 @@ object MultiSourceSpec extends ZIOSpecDefault {
           mutationNames.exists(_.toSet == Set("updateProduct", "addReview")),
           productSent.isEmpty,
           reviewSent.isEmpty
+        )
+      },
+      test("does not advertise deferred subscription roots") {
+        val schema = "type Query { value: String } type Subscription { changes: String }"
+
+        for {
+          source   <- stub("""{"data":{"value":"ok"}}""")
+          gateway  <- Gateway.compose(Subgraph.graphql("values", source.endpoint, schema)).build
+          response <- gateway.execute("{ __schema { subscriptionType { name } } }")
+          sent     <- source.requests.get
+        } yield assertTrue(
+          response.errors.isEmpty,
+          field(response.data, "__schema").flatMap(field(_, "subscriptionType")).contains(NullValue),
+          sent.isEmpty
         )
       },
       test("mixes local introspection with remote root fields") {

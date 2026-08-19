@@ -1,7 +1,7 @@
 package caliban.gateway
 
-import caliban.ResponseValue.ObjectValue
-import caliban.Value.StringValue
+import caliban.ResponseValue.{ ListValue, ObjectValue }
+import caliban.Value.{ BooleanValue, StringValue }
 import caliban.gateway.GatewayTestSupport._
 import caliban.schema.{ GenericSchema, Schema }
 import caliban.tools.IntrospectionClient
@@ -107,6 +107,49 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
         field(acquiredResult.data, "review").flatMap(field(_, "body")).contains(StringValue("Solid")),
         ordinaryCalls.headOption.flatMap(_.query).exists(_.contains("__schema")),
         federationCalls.headOption.flatMap(_.query).exists(_.contains("_service"))
+      )
+    },
+    test("preserves referenced deprecation and specifiedBy metadata from acquired SDL") {
+      val metadataSchema =
+        """
+          |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3")
+          |type Query { wrapper: Wrapper }
+          |type Wrapper { nested: Nested }
+          |type Nested { legacy: String @deprecated state: State url: URL }
+          |enum State { ACTIVE LEGACY @deprecated(reason: "Use ACTIVE") }
+          |scalar URL @specifiedBy(url: "https://example.com/url")
+          |""".stripMargin
+
+      for {
+        source     <- stub(serviceResponse(metadataSchema))
+        gateway    <- Gateway.compose(Subgraph.federation("metadata", source.endpoint)).build
+        response   <-
+          gateway.execute(
+            "{ nested: __type(name: \"Nested\") { fields(includeDeprecated: true) { name isDeprecated deprecationReason } } state: __type(name: \"State\") { enumValues(includeDeprecated: true) { name isDeprecated deprecationReason } } scalar: __type(name: \"URL\") { specifiedByURL } }"
+          )
+        nested      = field(response.data, "nested")
+                        .flatMap(field(_, "fields"))
+                        .collect { case ListValue(values) => values }
+                        .getOrElse(Nil)
+        states      = field(response.data, "state")
+                        .flatMap(field(_, "enumValues"))
+                        .collect { case ListValue(values) => values }
+                        .getOrElse(Nil)
+        legacyField = nested.find(field(_, "name").contains(StringValue("legacy")))
+        legacyState = states.find(field(_, "name").contains(StringValue("LEGACY")))
+      } yield assertTrue(
+        response.errors.isEmpty,
+        legacyField.exists(value =>
+          field(value, "isDeprecated").contains(BooleanValue(true)) &&
+            field(value, "deprecationReason").contains(StringValue("No longer supported"))
+        ),
+        legacyState.exists(value =>
+          field(value, "isDeprecated").contains(BooleanValue(true)) &&
+            field(value, "deprecationReason").contains(StringValue("Use ACTIVE"))
+        ),
+        field(response.data, "scalar")
+          .flatMap(field(_, "specifiedByURL"))
+          .contains(StringValue("https://example.com/url"))
       )
     },
     test("acquires sibling schemas concurrently") {

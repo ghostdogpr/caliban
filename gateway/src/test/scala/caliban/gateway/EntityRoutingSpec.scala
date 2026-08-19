@@ -427,6 +427,64 @@ object EntityRoutingSpec extends ZIOSpecDefault {
           )
         )
       },
+      test("routes a nested entity key through an inaccessible internal field") {
+        val productsSchema =
+          s"""
+             |${federationSchemaPreamble("@key", "@inaccessible")}
+             |type Query { product: Product }
+             |type Product @key(fields: "organization { internalId }") {
+             |  organization: Organization!
+             |}
+             |type Organization { internalId: ID! @inaccessible name: String }
+             |""".stripMargin
+        val reviewsSchema  =
+          s"""
+             |${federationSchemaPreamble("@key", "@external", "@inaccessible")}
+             |type Product @key(fields: "organization { internalId }") {
+             |  organization: Organization! @external
+             |  reviews: [Review!]!
+             |}
+             |type Organization { internalId: ID! @external @inaccessible }
+             |type Review { body: String! }
+             |""".stripMargin
+
+        for {
+          products <-
+            stub(
+              """{"data":{"product":{"_caliban_gateway_key":{"internalId":"o1"},"_caliban_gateway_typename":"Product"}}}"""
+            )
+          reviews  <- stub("""{"data":{"_entities":[{"reviews":[{"body":"Solid"}]}]}}""")
+          gateway  <- Gateway
+                        .compose(
+                          Subgraph.federation("products", products.endpoint, productsSchema),
+                          Subgraph.federation("reviews", reviews.endpoint, reviewsSchema)
+                        )
+                        .build
+          response <- gateway.execute("{ product { reviews { body } } }")
+          sent     <- reviews.requests.get
+        } yield assertTrue(
+          response.errors.isEmpty,
+          field(response.data, "product").flatMap(field(_, "reviews")).exists {
+            case ResponseListValue(ResponseObjectValue(review) :: Nil) =>
+              review.contains("body" -> StringValue("Solid"))
+            case _                                                     => false
+          },
+          sent.headOption
+            .flatMap(_.variables)
+            .contains(
+              Map(
+                "representations" -> ListValue(
+                  InputObjectValue(
+                    Map(
+                      "__typename"   -> StringValue("Product"),
+                      "organization" -> InputObjectValue(Map("internalId" -> StringValue("o1")))
+                    )
+                  ) :: Nil
+                )
+              )
+            )
+        )
+      },
       test("hides imported Federation directive aliases from the client schema") {
         val endpoint = Uri.unsafeParse("http://127.0.0.1:1/graphql")
         val products = productsFederationSchema

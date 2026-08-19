@@ -382,23 +382,25 @@ private[gateway] final class EntityExecutor[-R](sources: Map[String, GraphQLSour
     allowNull: Boolean = false
   ): Option[InputValue] =
     if (value == NullValue) if (allowNull) Some(NullValue) else None
-    else if (selection.children.isEmpty) value match {
-      case input: InputValue => Some(input)
-      case _                 => None
-    }
+    else if (selection.children.isEmpty) responseInput(value)
     else
       value match {
         case ObjectValue(fields) =>
           selectedObject(selection.children, selection.runtimeTypeAlias, fields.toMap, allowNull)
         case ListValue(values)   =>
-          traverse(values) {
-            case ObjectValue(fields)    =>
-              selectedObject(selection.children, selection.runtimeTypeAlias, fields.toMap, allowNull)
-            case NullValue if allowNull => Some(NullValue)
-            case _                      => None
-          }.map(InputListValue.apply)
+          traverse(values)(selectedInput(selection, _, allowNull)).map(InputListValue.apply)
         case _                   => None
       }
+
+  private def responseInput(value: ResponseValue): Option[InputValue] =
+    value match {
+      case input: InputValue   => Some(input)
+      case ObjectValue(fields) =>
+        traverse(fields) { case (name, nested) => responseInput(nested).map(name -> _) }
+          .map(values => InputObjectValue(values.toMap))
+      case ListValue(values)   => traverse(values)(responseInput).map(InputListValue.apply)
+      case _                   => None
+    }
 
   private def selectedObject(
     selections: List[RequiredSelection],

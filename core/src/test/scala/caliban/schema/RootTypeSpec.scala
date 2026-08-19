@@ -41,6 +41,13 @@ object RootTypeSpec extends ZIOSpecDefault {
             interfaceName("MyField").contains(List("CommonInterface"))
           )
         }
+      },
+      test("allows a code-first resolver type to serve multiple root operations") {
+        case class Root(value: String)
+
+        val api = graphQL(RootResolver(Root("query"), Root("mutation")))
+
+        assertTrue(api.validateRootSchema.isRight)
       }
     )
 

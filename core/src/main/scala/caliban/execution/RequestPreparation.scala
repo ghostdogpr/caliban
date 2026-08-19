@@ -18,17 +18,26 @@ private[caliban] object RequestPreparation {
   final case class Prepared(document: Document, executionRequest: ExecutionRequest)
 
   def check(query: String, rootType: RootType)(implicit trace: Trace): IO[CalibanError, Unit] =
+    checkWithIntrospection(query, validationRoot(rootType))
+
+  private[caliban] def checkWithIntrospection(query: String, rootType: RootType)(implicit
+    trace: Trace
+  ): IO[CalibanError, Unit] =
     for {
       document <- parse(query)
-      _        <- Validator.validate(document, validationRoot(rootType))
+      _        <- Validator.validate(document, rootType)
     } yield ()
 
   def prepare(request: GraphQLRequest, rootType: RootType)(implicit trace: Trace): IO[CalibanError, Prepared] =
+    prepareWithIntrospection(request, validationRoot(rootType))
+
+  private[caliban] def prepareWithIntrospection(request: GraphQLRequest, rootType: RootType)(implicit
+    trace: Trace
+  ): IO[CalibanError, Prepared] =
     for {
       document  <- parse(request.query.getOrElse(""))
-      root       = validationRoot(rootType)
-      variables <- coerceVariables(document, request, root)
-      execution <- validate(document, request, variables, root)
+      variables <- coerceVariables(document, request, rootType)
+      execution <- validate(document, request, variables, rootType)
     } yield Prepared(document, execution)
 
   def parse(query: String): IO[CalibanError.ParsingError, Document] =

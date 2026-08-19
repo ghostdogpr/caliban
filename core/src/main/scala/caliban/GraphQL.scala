@@ -128,7 +128,7 @@ trait GraphQL[-R] { self =>
           RequestPreparation.parse(query)
 
         override def check(query: String)(implicit trace: Trace): IO[CalibanError, Unit] =
-          RequestPreparation.check(query, rootType)
+          RequestPreparation.checkWithIntrospection(query, rootTypeWithIntrospection)
 
         override def executeRequest(request: GraphQLRequest)(implicit
           trace: Trace

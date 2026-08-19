@@ -48,8 +48,13 @@ private[gateway] object GraphQLSource {
         errors.flatMap {
           case error: CalibanError.ExecutionError if RemoteError.hasClientPath(fields, error.path) =>
             error.copy(locationInfo = None) :: Nil
-          case _: CalibanError.ExecutionError                                                      =>
-            fields.map(field => RemoteError.at(List(PathValue.Key(field.aliasedName))))
+          case error: CalibanError.ExecutionError                                                  =>
+            error.path match {
+              case PathValue.Key(name) :: _ if fields.exists(_.aliasedName == name) =>
+                RemoteError.at(List(PathValue.Key(name))) :: Nil
+              case _                                                                =>
+                fields.map(field => RemoteError.at(List(PathValue.Key(field.aliasedName))))
+            }
           case error                                                                               => error :: Nil
         }
 

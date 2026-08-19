@@ -177,9 +177,31 @@ object LookupSpec extends ZIOSpecDefault {
         requests.headOption
           .flatMap(_.query)
           .exists(query =>
-            query.contains("productsByRefs") && query.contains("productId:\"p1\"") &&
-              query.contains("regionCode:\"eu\"")
+            query.contains("productsByRefs") &&
+              query.contains("{productId:\"p1\",regionCode:\"us\"}") &&
+              query.contains("{productId:\"p2\",regionCode:\"eu\"}")
           )
+      )
+    },
+    test("skips a lookup when an entity key component is null") {
+      val nullKeyResponse =
+        """{"data":{"status":"available","products":[{"name":"Unknown","_caliban_gateway_key":"p1","_caliban_gateway_key_2":null}]}}"""
+
+      for {
+        products <- stub(nullKeyResponse)
+        reviews  <- stub("""{"data":{"_caliban_gateway_lookup":[]}}""")
+        gateway  <- Gateway
+                      .compose(
+                        Subgraph.graphql("products", products.endpoint, productsSchema),
+                        Subgraph.graphql("reviews", reviews.endpoint, reviewsSchema).withLookup(keyedLookup)
+                      )
+                      .build
+        response <- gateway.execute("{ products { name reviews { body } } }")
+        sent     <- reviews.requests.get
+      } yield assertTrue(
+        sent.isEmpty,
+        response.errors.exists(_.msg.contains("Entity key 'Product(id, region)' was missing")),
+        field(response.data, "products").contains(ListValue(List(NullValue)))
       )
     },
     test("executes an ordinary lookup against a local Caliban subgraph") {

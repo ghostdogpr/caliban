@@ -1,7 +1,7 @@
 package caliban.gateway.internal
 
 import caliban.ResponseValue.{ ListValue, ObjectValue }
-import caliban.Value.{ NullValue, StringValue }
+import caliban.Value.{ EnumValue, NullValue, StringValue }
 import caliban.execution.{ ExecutionRequest, Executor, Field, RequestPreparation }
 import caliban.gateway.GatewayRuntime
 import caliban.gateway.internal.EntityExecutor.EntityResult
@@ -23,15 +23,16 @@ private[gateway] final class GatewayRuntimeImpl[-R](
 ) extends GatewayRuntime[R] {
 
   private val rootType: RootType             = graph.rootType
+  private val requestRootType: RootType      = Introspector.withIntrospection(rootType)
   private val introspection: RootSchema[Any] = Introspector.introspect[Any](rootType)
   private val planner                        = new OperationPlanner(graph, sources.size)
   private val entityExecutor                 = new EntityExecutor[R](sources)
 
   def check(query: String)(implicit trace: Trace): IO[CalibanError, Unit] =
-    RequestPreparation.check(query, rootType)
+    RequestPreparation.checkWithIntrospection(query, requestRootType)
 
   def explain(request: GraphQLRequest)(implicit trace: Trace): IO[CalibanError, String] =
-    RequestPreparation.prepare(request, rootType).flatMap { prepared =>
+    RequestPreparation.prepareWithIntrospection(request, requestRootType).flatMap { prepared =>
       ZIO
         .fromEither(planner.plan(prepared.document, prepared.executionRequest))
         .mapError(failure => CalibanError.ValidationError(failure.message, ""))
@@ -40,7 +41,7 @@ private[gateway] final class GatewayRuntimeImpl[-R](
 
   def executeRequest(request: GraphQLRequest)(implicit trace: Trace): URIO[R, GraphQLResponse[CalibanError]] =
     RequestPreparation
-      .prepare(request, rootType)
+      .prepareWithIntrospection(request, requestRootType)
       .foldZIO(
         Executor.fail,
         prepared =>
@@ -239,7 +240,7 @@ private[gateway] final class GatewayRuntimeImpl[-R](
             Some(ObjectValue(completed.flatMap { case (name, result) => result.value.map(name -> _) })),
             errors
           )
-      case _                   => CompletedValue(Some(NullValue), Nil)
+      case _                   => CompletedValue(Some(NullValue), invalidSourceValueErrors(path.toList, sourceErrors))
     }
 
   private def completeValue(
@@ -273,7 +274,7 @@ private[gateway] final class GatewayRuntimeImpl[-R](
             if (completed.exists(_.value.isEmpty)) CompletedValue(Some(NullValue), errors)
             else CompletedValue(Some(ListValue(completed.flatMap(_.value))), errors)
           case _                                   =>
-            CompletedValue(Some(NullValue), invalidListErrors(path.toList, sourceErrors))
+            CompletedValue(Some(NullValue), invalidSourceValueErrors(path.toList, sourceErrors))
         }
       case __TypeKind.INTERFACE | __TypeKind.UNION =>
         val possible = fieldType.possibleTypes.getOrElse(Nil).flatMap(_.name).toSet
@@ -295,6 +296,7 @@ private[gateway] final class GatewayRuntimeImpl[-R](
       case __TypeKind.ENUM                         =>
         value match {
           case StringValue(name) if fieldType.allEnumValues.exists(_.name == name) => CompletedValue(Some(value), Nil)
+          case EnumValue(name) if fieldType.allEnumValues.exists(_.name == name)   => CompletedValue(Some(value), Nil)
           case _                                                                   =>
             val errors =
               if (hasErrorAt(sourceErrors, path.toList)) Nil
@@ -330,7 +332,7 @@ private[gateway] final class GatewayRuntimeImpl[-R](
       )
     }
 
-  private def invalidListErrors(
+  private def invalidSourceValueErrors(
     path: List[PathValue],
     errors: List[CalibanError]
   ): List[CalibanError.ExecutionError] =

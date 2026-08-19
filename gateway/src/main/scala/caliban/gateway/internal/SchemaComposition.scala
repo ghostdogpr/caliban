@@ -27,7 +27,7 @@ private[gateway] final class ComposedGraph private[internal] (
   val rootType: RootType,
   private val routes: Map[(OperationType, String), List[String]],
   private val fieldRoutes: Map[(String, String), List[String]],
-  private val fieldAvailability: Map[(String, String), List[String]],
+  private val sourceFields: Map[(String, String, String), __Field],
   private val entityLookups: Map[(String, String), List[ComposedGraph.EntityLookup]],
   private val requirements: Map[(String, String, String), List[Selection]],
   private val provisions: Map[(String, String, String), List[Selection]]
@@ -47,7 +47,10 @@ private[gateway] final class ComposedGraph private[internal] (
     fieldRoutes.getOrElse(typeName -> field, Nil).contains(source)
 
   def declares(source: String, typeName: String, field: String): Boolean =
-    fieldAvailability.getOrElse(typeName -> field, Nil).contains(source)
+    sourceFields.contains((source, typeName, field))
+
+  def field(source: String, typeName: String, field: String): Option[__Field] =
+    sourceFields.get((source, typeName, field))
 
   def required(source: String, typeName: String, field: String): List[Selection] =
     requirements.getOrElse((source, typeName, field), Nil)
@@ -64,17 +67,17 @@ private[gateway] final class ComposedGraph private[internal] (
     }
 
   private def sourcesForKeyField(typeName: String, field: ComposedGraph.KeyField): List[String] = {
-    val sources = fieldAvailability.getOrElse(typeName -> field.name, Nil)
+    val sources = sourceFields.keysIterator.collect {
+      case (source, owner, name) if owner == typeName && name == field.name => source
+    }.toList.sorted
     if (field.children.isEmpty) sources
-    else {
-      val childType = rootType.types
-        .get(typeName)
-        .flatMap(_.allFields.find(_.name == field.name))
-        .flatMap(_._type.innerType.name)
-      childType.fold(List.empty[String])(name =>
-        sources.filter(source => field.children.forall(child => sourcesForKeyField(name, child).contains(source)))
+    else
+      sources.filter(source =>
+        sourceFields
+          .get((source, typeName, field.name))
+          .flatMap(_._type.innerType.name)
+          .exists(name => field.children.forall(child => sourcesForKeyField(name, child).contains(source)))
       )
-    }
   }
 }
 
@@ -187,9 +190,9 @@ private[gateway] object SchemaComposition {
         }
         if (owned.nonEmpty) Some(coordinate -> owned.map(_.source).distinct.sorted) else None
       }
-      val fieldAvailability                                  = fieldDefinitions.map { case (coordinate, definitions) =>
-        coordinate -> definitions.map(_._2.source).distinct.sorted
-      }
+      val sourceFields                                       = types.flatMap { entry =>
+        entry.tpe.allFields.map(field => (entry.source, entry.name, field.name) -> field)
+      }.toMap
       val lookups                                            = types
         .flatMap(entry => entry.entity.toList.flatMap(_.lookups).map((entry.source -> entry.name) -> _))
         .groupBy(_._1)
@@ -203,7 +206,15 @@ private[gateway] object SchemaComposition {
         .left
         .map(error => List(s"[composition] ${error.getMessage}"))
         .map(_ =>
-          new ComposedGraph(rootType, routes, fieldRoutes, fieldAvailability, lookups, requirements, provisions)
+          new ComposedGraph(
+            rootType,
+            routes,
+            fieldRoutes,
+            sourceFields,
+            lookups,
+            requirements,
+            provisions
+          )
         )
     }
   }
@@ -994,7 +1005,7 @@ private[gateway] object SchemaComposition {
     all: => Map[String, __Type]
   ): Map[String, __Type] = {
     val inaccessibleTypes = types.iterator.filter(_.inaccessible).map(_.name).toSet
-    types
+    val chosen            = types
       .groupBy(_.name)
       .flatMap { case (name, entries) =>
         val sorted = entries.sortBy(_.source)
@@ -1013,6 +1024,34 @@ private[gateway] object SchemaComposition {
             name -> chosen
           }
       }
+    resolveComposedReferences(chosen)
+  }
+
+  private def resolveComposedReferences(types: Map[String, __Type]): Map[String, __Type] = {
+    def resolve(references: List[__Type], candidates: => Map[String, __Type]): List[__Type] =
+      references.flatMap(_.name).distinct.sorted.flatMap(candidates.get)
+
+    lazy val objects: Map[String, __Type]    = types.collect {
+      case (name, tpe) if tpe.kind == __TypeKind.OBJECT =>
+        name -> tpe.copy(interfaces = () => tpe.interfaces().map(resolve(_, composed)))
+    }
+    lazy val interfaces: Map[String, __Type] = types.collect {
+      case (name, tpe) if tpe.kind == __TypeKind.INTERFACE =>
+        name -> tpe.copy(
+          interfaces = () => tpe.interfaces().map(resolve(_, composed)),
+          possibleTypes = tpe.possibleTypes.map(resolve(_, objects))
+        )
+    }
+    lazy val unions: Map[String, __Type]     = types.collect {
+      case (name, tpe) if tpe.kind == __TypeKind.UNION =>
+        name -> tpe.copy(possibleTypes = tpe.possibleTypes.map(resolve(_, objects)))
+    }
+    lazy val composed: Map[String, __Type]   =
+      types.filterNot { case (_, tpe) =>
+        tpe.kind == __TypeKind.OBJECT || tpe.kind == __TypeKind.INTERFACE || tpe.kind == __TypeKind.UNION
+      } ++ objects ++ interfaces ++ unions
+
+    composed
   }
 
   private def mergeObject(
@@ -1175,6 +1214,16 @@ private[gateway] object SchemaComposition {
     types: List[TypeEntry]
   ): List[String] = {
     val inaccessibleTypes   = types.filter(_.inaccessible).map(_.name).toSet
+    val inaccessibleFields  = types.iterator.flatMap(entry => entry.inaccessibleFields.map(entry.name -> _)).toSet
+    val inaccessibleInputs  = types.iterator.flatMap { entry =>
+      entry.tpe.allInputFields.iterator.collect {
+        case field if hasDirective(field.directives, entry.inaccessibleDirectives) => entry.name -> field.name
+      }
+    }.toSet
+    val inaccessibleRoots   = roots.iterator
+      .filter(_.inaccessible)
+      .map(entry => entry.operation -> entry.field.name)
+      .toSet
     val rootHiddenArguments = roots
       .groupBy(entry => entry.operation -> entry.field.name)
       .map { case (coordinate, entries) => coordinate -> entries.iterator.flatMap(_.inaccessibleArguments).toSet }
@@ -1187,7 +1236,9 @@ private[gateway] object SchemaComposition {
       }
     }.toSet
     val rootOutputErrors    = roots.collect {
-      case entry if !entry.inaccessible && entry.field._type.innerType.name.exists(inaccessibleTypes.contains) =>
+      case entry
+          if !inaccessibleRoots.contains(entry.operation -> entry.field.name) &&
+            entry.field._type.innerType.name.exists(inaccessibleTypes.contains) =>
         s"[${entry.source}] Field '${entry.field.name}' must be @inaccessible because its return type is inaccessible."
     }
     val rootArgumentErrors  = roots.flatMap { entry =>
@@ -1201,8 +1252,8 @@ private[gateway] object SchemaComposition {
     val fieldOutputErrors   = types.flatMap { entry =>
       entry.tpe.allFields.collect {
         case field
-            if !entry.inaccessibleFields
-              .contains(field.name) && field._type.innerType.name.exists(inaccessibleTypes.contains) =>
+            if !inaccessibleFields.contains(entry.name -> field.name) &&
+              field._type.innerType.name.exists(inaccessibleTypes.contains) =>
           s"[${entry.source}] Field '${entry.name}.${field.name}' must be @inaccessible because its return type is inaccessible."
       }
     }
@@ -1219,7 +1270,7 @@ private[gateway] object SchemaComposition {
     val inputFieldErrors    = types.flatMap { entry =>
       entry.tpe.allInputFields.collect {
         case field
-            if !hasDirective(field.directives, entry.inaccessibleDirectives) &&
+            if !inaccessibleInputs.contains(entry.name -> field.name) &&
               field._type.innerType.name.exists(inaccessibleTypes.contains) =>
           s"[${entry.source}] Input field '${entry.name}.${field.name}' must be @inaccessible because its input type is inaccessible."
       }

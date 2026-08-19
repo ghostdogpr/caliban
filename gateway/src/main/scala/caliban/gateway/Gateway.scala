@@ -93,7 +93,7 @@ object Gateway {
           document                <- RemoteSchemaAcquisition
                                        .document(schema, endpoint, federation, Some(client))
                                        .mapError(error => s"[${subgraph.name}] $error")
-          rootDocument             = ensureFederationQuery(ensureFederationTypes(document, federation), federation)
+          rootDocument             = ensureFederationTransportQuery(ensureFederationTypes(document, federation), federation)
           rootType                <- toRootType(subgraph.name, rootDocument)
           contribution             = SchemaContribution(subgraph.name, rootType, document, federation, subgraph.lookups)
           source: GraphQLSource[R] = new RemoteGraphQLSource(endpoint, client)
@@ -126,7 +126,7 @@ object Gateway {
       .fromEither(RemoteSchema.toRootType(document))
       .mapError(error => s"[$name] ${error.getMessage}")
 
-  private def ensureFederationQuery(document: Document, federation: Boolean): Document = {
+  private def ensureFederationTransportQuery(document: Document, federation: Boolean): Document = {
     val schemaExtensions     = document.typeExtensions.collect { case extension: SchemaExtension => extension }
     val hasDeclaredQuery     =
       document.schemaDefinition.flatMap(_.query).nonEmpty || schemaExtensions.exists(_.query.nonEmpty)
@@ -134,8 +134,7 @@ object Gateway {
       document.schemaDefinition.isEmpty && document.objectTypeDefinitions.exists(_.name == "Query")
 
     if (!federation || hasDeclaredQuery) document
-    else if (hasConventionalQuery)
-      Document(SchemaDefinition(Nil, Some("Query"), None, None, None) :: document.definitions, document.sourceMapper)
+    else if (hasConventionalQuery) document
     else {
       val names    = document.typeDefinitions.iterator.map(_.name).toSet
       val rootName = Iterator
@@ -168,7 +167,14 @@ object Gateway {
             case definition: SchemaDefinition if definition.query.isEmpty => definition.copy(query = Some(rootName))
             case definition                                               => definition
           }
-        case None    => SchemaDefinition(Nil, Some(rootName), None, None, None) :: document.definitions
+        case None    =>
+          SchemaDefinition(
+            Nil,
+            Some(rootName),
+            if (names.contains("Mutation")) Some("Mutation") else None,
+            if (names.contains("Subscription")) Some("Subscription") else None,
+            None
+          ) :: document.definitions
       }
 
       Document(schema ::: root :: service, document.sourceMapper)

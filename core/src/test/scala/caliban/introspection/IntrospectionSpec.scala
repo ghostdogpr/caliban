@@ -252,6 +252,27 @@ object IntrospectionSpec extends ZIOSpecDefault {
           wasRun    <- evaluated.get
         } yield assertTrue(response.errors.isEmpty, !wasRun)
       },
+      test("executes fragment-only introspection on the application query root") {
+        case class Query(value: String)
+
+        val named  =
+          """
+            |query { ...IntrospectionFields }
+            |fragment IntrospectionFields on Query { __schema { queryType { name } } }
+            |""".stripMargin
+        val inline = "query { ... on Query { __type(name: \"Query\") { name } } }"
+
+        for {
+          api            <- graphQL(RootResolver(Query("value"))).interpreter
+          namedResponse  <- api.execute(named)
+          inlineResponse <- api.execute(inline)
+        } yield assertTrue(
+          namedResponse.errors.isEmpty,
+          namedResponse.data.toString == """{"__schema":{"queryType":{"name":"Query"}}}""",
+          inlineResponse.errors.isEmpty,
+          inlineResponse.data.toString == """{"__type":{"name":"Query"}}"""
+        )
+      },
       test("introspect type") {
         val interpreter = graphQL(resolverIO).interpreter
         val query       = gqldoc("""

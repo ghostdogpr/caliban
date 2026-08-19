@@ -37,9 +37,9 @@ object RemoteSchema {
       .map(queries =>
         __Schema(
           description = doc.schemaDefinition.flatMap(_.description),
-          queryType = toObjectType(queries, doc.typeDefinitions),
-          mutationType = mutations.map(toObjectType(_, doc.typeDefinitions)),
-          subscriptionType = subscriptions.map(toObjectType(_, doc.typeDefinitions)),
+          queryType = toTypeDefinition(queries, doc.typeDefinitions),
+          mutationType = mutations.map(toTypeDefinition(_, doc.typeDefinitions)),
+          subscriptionType = subscriptions.map(toTypeDefinition(_, doc.typeDefinitions)),
           types = doc.typeDefinitions.map(toTypeDefinition(_, doc.typeDefinitions)),
           directives = doc.directiveDefinitions.map(toDirective(_, doc.typeDefinitions))
         )
@@ -103,15 +103,21 @@ object RemoteSchema {
                           "subscription",
                           definitions.map(_.subscription) ::: extensions.map(_.subscription)
                         )
-      } yield Some(
-        SchemaDefinition(
-          definitions.flatMap(_.directives) ::: extensions.flatMap(_.directives),
-          query,
-          mutation,
-          subscription,
-          definitions.flatMap(_.description).headOption
+      } yield {
+        val conventional                                                     = document.typeDefinitions.iterator.map(_.name).toSet
+        def inferred(declared: Option[String], name: String): Option[String] =
+          declared.orElse(if (definitions.isEmpty && conventional.contains(name)) Some(name) else None)
+
+        Some(
+          SchemaDefinition(
+            definitions.flatMap(_.directives) ::: extensions.flatMap(_.directives),
+            inferred(query, "Query"),
+            inferred(mutation, "Mutation"),
+            inferred(subscription, "Subscription"),
+            definitions.flatMap(_.description).headOption
+          )
         )
-      )
+      }
   }
 
   private def rootDeclaration(
@@ -217,18 +223,16 @@ object RemoteSchema {
     val rootTypeNames = roots.query.toSet ++ roots.mutation ++ roots.subscription
 
     RootType(
-      withStandardDeprecationDefault(
-        toObjectType(document.objectTypeDefinition(roots.query.get).get, definitions)
-      ),
+      toTypeDefinition(document.objectTypeDefinition(roots.query.get).get, definitions),
       roots.mutation
         .flatMap(document.objectTypeDefinition)
-        .map(definition => withStandardDeprecationDefault(toObjectType(definition, definitions))),
+        .map(definition => toTypeDefinition(definition, definitions)),
       roots.subscription
         .flatMap(document.objectTypeDefinition)
-        .map(definition => withStandardDeprecationDefault(toObjectType(definition, definitions))),
+        .map(definition => toTypeDefinition(definition, definitions)),
       definitions
         .filterNot(definition => rootTypeNames.contains(definition.name))
-        .map(definition => withRootTypeMetadata(definition, toTypeDefinition(definition, definitions))),
+        .map(definition => toTypeDefinition(definition, definitions)),
       document.directiveDefinitions.map(definition =>
         withStandardDeprecationDefault(toDirective(definition, definitions))
       ),
@@ -247,7 +251,7 @@ object RemoteSchema {
     )
   }
 
-  private def withRootTypeMetadata(definition: TypeDefinition, tpe: __Type): __Type = {
+  private def withTypeMetadata(definition: TypeDefinition, tpe: __Type): __Type = {
     val converted = withStandardDeprecationDefault(tpe)
     definition match {
       case ScalarTypeDefinition(_, _, directives) =>
@@ -361,17 +365,7 @@ object RemoteSchema {
     definitions: List[Definition.TypeSystemDefinition.TypeDefinition]
   ) =
     definitions.find(_.name == name) match {
-      case Some(value) =>
-        value match {
-          case e: EnumTypeDefinition        => toEnumType(e)
-          case s: ScalarTypeDefinition      => toScalar(s)
-          case u: UnionTypeDefinition       => toUnionType(u, definitions)
-          case o: ObjectTypeDefinition      => toObjectType(o, definitions)
-          case i: InputObjectTypeDefinition =>
-            toInputObjectType(i, definitions)
-          case i: InterfaceTypeDefinition   =>
-            toInterfaceType(i, definitions)
-        }
+      case Some(value) => toTypeDefinition(value, definitions)
       case None        => __Type(kind = __TypeKind.SCALAR, name = Some(name))
     }
 
@@ -398,7 +392,7 @@ object RemoteSchema {
   ): __Type = {
     val implementations = definitions.collect {
       case t @ ObjectTypeDefinition(_, _, implements, _, _) if implements.map(_.name).toSet.contains(definition.name) =>
-        toObjectType(t, definitions)
+        toTypeDefinition(t, definitions)
     }
 
     __Type(
@@ -508,8 +502,8 @@ object RemoteSchema {
   private def toTypeDefinition(
     definition: Definition.TypeSystemDefinition.TypeDefinition,
     definitions: List[Definition.TypeSystemDefinition.TypeDefinition]
-  ): __Type =
-    definition match {
+  ): __Type = {
+    val converted = definition match {
       case o: ObjectTypeDefinition      => toObjectType(o, definitions)
       case s: ScalarTypeDefinition      => toScalar(s)
       case e: EnumTypeDefinition        => toEnumType(e)
@@ -517,6 +511,8 @@ object RemoteSchema {
       case i: InterfaceTypeDefinition   => toInterfaceType(i, definitions)
       case i: InputObjectTypeDefinition => toInputObjectType(i, definitions)
     }
+    withTypeMetadata(definition, converted)
+  }
 
   private def toDirective(
     definition: Definition.TypeSystemDefinition.DirectiveDefinition,
@@ -580,6 +576,6 @@ object RemoteSchema {
           .collect { case StringValue(value) =>
             value
           }
-          .getOrElse("deprecated")
+          .getOrElse("No longer supported")
     }
 }

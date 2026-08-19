@@ -692,9 +692,11 @@ private[gateway] final class OperationPlanner(
   ): Either[PlanningFailure, RequiredKeyField] =
     for {
       typeName <- parentType.name.toRight(PlanningFailure("Entity key parent type has no name."))
-      field    <- Option(parentType.getFieldOrNull(key.name)).toRight(
-                    PlanningFailure(s"Source '$source' does not provide key field '$typeName.${key.name}'.")
-                  )
+      field    <- graph
+                    .field(source, typeName, key.name)
+                    .toRight(
+                      PlanningFailure(s"Source '$source' does not provide key field '$typeName.${key.name}'.")
+                    )
       carried   = availableExternal.find(_.name == key.name)
       owned     = graph.owns(source, typeName, key.name)
       _        <- Either.cond(
@@ -711,8 +713,10 @@ private[gateway] final class OperationPlanner(
       .distinct
 
   private def declaredKey(source: String, parentType: __Type, key: ComposedGraph.KeyField): Boolean =
-    parentType.name.exists(graph.declares(source, _, key.name)) && Option(parentType.getFieldOrNull(key.name)).exists {
-      field => key.children.forall(declaredKey(source, field._type.innerType, _))
+    parentType.name.exists { typeName =>
+      graph.declares(source, typeName, key.name) && graph.field(source, typeName, key.name).exists { field =>
+        key.children.forall(declaredKey(source, field._type.innerType, _))
+      }
     }
 
   private def requiredSelection(field: RequiredKeyField, responseName: String): RequiredSelection =

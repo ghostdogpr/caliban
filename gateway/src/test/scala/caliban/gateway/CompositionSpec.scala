@@ -497,6 +497,80 @@ object CompositionSpec extends ZIOSpecDefault {
           field(response.data, "visible").flatMap(field(_, "interfaces")).contains(ListValue(Nil)),
           field(response.data, "hidden").contains(NullValue)
         )
+      },
+      test("does not expose inaccessible union members") {
+        val hiddenSchema = schema(
+          """
+            |type Query { result: Search }
+            |union Search = Product | HiddenResult
+            |type Product { id: ID! }
+            |type HiddenResult @inaccessible { reason: String! }
+            |""".stripMargin,
+          "\"@inaccessible\""
+        )
+
+        for {
+          source   <- stub("""{"data":{"result":{"__typename":"Product","id":"p1"}}}""")
+          gateway  <- Gateway.compose(Subgraph.federation("search", source.endpoint, hiddenSchema)).build
+          response <-
+            gateway.execute(
+              "{ search: __type(name: \"Search\") { possibleTypes { name } } hidden: __type(name: \"HiddenResult\") { name } }"
+            )
+        } yield assertTrue(
+          field(response.data, "search")
+            .flatMap(field(_, "possibleTypes"))
+            .contains(ListValue(List(caliban.ResponseValue.ObjectValue(List("name" -> StringValue("Product")))))),
+          field(response.data, "hidden").contains(NullValue)
+        )
+      },
+      test("uses globally composed visibility for fields and input fields") {
+        val hidden  = schema(
+          """
+            |type Query { alpha(filter: Filter): Product }
+            |type Product { id: ID! @shareable secret: HiddenOutput @shareable @inaccessible }
+            |type HiddenOutput @inaccessible { value: String @shareable }
+            |input Filter { term: String secret: HiddenInput @inaccessible }
+            |input HiddenInput @inaccessible { value: String }
+            |""".stripMargin,
+          "\"@inaccessible\", \"@shareable\""
+        )
+        val visible = schema(
+          """
+            |type Query { beta(filter: Filter): Product }
+            |type Product { id: ID! @shareable secret: HiddenOutput @shareable }
+            |type HiddenOutput { value: String @shareable }
+            |input Filter { term: String secret: HiddenInput }
+            |input HiddenInput { value: String }
+            |""".stripMargin,
+          "\"@inaccessible\", \"@shareable\""
+        )
+
+        for {
+          alpha        <- stub("""{"data":{"alpha":{"id":"p1"}}}""")
+          beta         <- stub("""{"data":{"beta":{"id":"p1"}}}""")
+          gateway      <- Gateway
+                            .compose(
+                              Subgraph.federation("alpha", alpha.endpoint, hidden),
+                              Subgraph.federation("beta", beta.endpoint, visible)
+                            )
+                            .build
+          response     <-
+            gateway.execute(
+              "{ product: __type(name: \"Product\") { fields { name } } filter: __type(name: \"Filter\") { inputFields { name } } output: __type(name: \"HiddenOutput\") { name } input: __type(name: \"HiddenInput\") { name } }"
+            )
+          productFields = field(response.data, "product")
+                            .flatMap(field(_, "fields"))
+                            .collect { case ListValue(values) => values.flatMap(field(_, "name")) }
+          inputFields   = field(response.data, "filter")
+                            .flatMap(field(_, "inputFields"))
+                            .collect { case ListValue(values) => values.flatMap(field(_, "name")) }
+        } yield assertTrue(
+          response.errors.isEmpty,
+          productFields.contains(List(StringValue("id"))),
+          inputFields.contains(List(StringValue("term"))),
+          field(response.data, "output").contains(NullValue),
+          field(response.data, "input").contains(NullValue)
+        )
       }
     ),
     suite("type merging")(
@@ -543,6 +617,47 @@ object CompositionSpec extends ZIOSpecDefault {
                         "{ alpha { ... on Product { id } } beta { ... on Review { body } } }"
                       )
         } yield assertTrue(response.errors.isEmpty)
+      },
+      test("resolves interface and union references to composed types") {
+        val alphaSchema =
+          "type Query { search: Search product: Product } interface Node { id: ID! } union Search = Product type Product implements Node { id: ID! }"
+        val betaSchema  =
+          "type Query { productByName: Product } interface Node { name: String! } type Product implements Node { name: String! }"
+
+        for {
+          alpha          <- stub("""{"data":{"search":null}}""")
+          beta           <- stub("""{"data":{"productByName":null}}""")
+          gateway        <- Gateway
+                              .compose(
+                                Subgraph.graphql("alpha", alpha.endpoint, alphaSchema),
+                                Subgraph.graphql("beta", beta.endpoint, betaSchema)
+                              )
+                              .build
+          response       <-
+            gateway.execute(
+              "{ product: __type(name: \"Product\") { interfaces { fields { name } } } search: __type(name: \"Search\") { possibleTypes { fields { name } } } }"
+            )
+          product         = field(response.data, "product")
+          search          = field(response.data, "search")
+          interfaceFields = product
+                              .flatMap(field(_, "interfaces"))
+                              .collect { case ListValue(interface :: Nil) => interface }
+                              .flatMap(field(_, "fields"))
+                              .collect { case ListValue(values) =>
+                                values.flatMap(field(_, "name")).collect { case StringValue(name) => name }.toSet
+                              }
+          possibleFields  = search
+                              .flatMap(field(_, "possibleTypes"))
+                              .collect { case ListValue(possible :: Nil) => possible }
+                              .flatMap(field(_, "fields"))
+                              .collect { case ListValue(values) =>
+                                values.flatMap(field(_, "name")).collect { case StringValue(name) => name }.toSet
+                              }
+        } yield assertTrue(
+          response.errors.isEmpty,
+          interfaceFields.contains(Set("id", "name")),
+          possibleFields.contains(Set("id", "name"))
+        )
       },
       test("rejects incompatible enums used as both input and output") {
         val alphaSchema =

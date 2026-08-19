@@ -2,7 +2,7 @@ package caliban.gateway
 
 import caliban.InputValue.ListValue
 import caliban.ResponseValue.{ ListValue => ResponseListValue, ObjectValue => ResponseObjectValue }
-import caliban.Value.{ BooleanValue, NullValue, StringValue }
+import caliban.Value.{ BooleanValue, EnumValue, NullValue, StringValue }
 import caliban.gateway.GatewayTestSupport._
 import caliban.parsing.Parser
 import caliban.schema.{ GenericSchema, Schema }
@@ -34,6 +34,19 @@ object GatewaySpec extends ZIOSpecDefault {
       implicit val querySchema: Schema[Audience, Query] = gen
       val api                                           = graphQL(RootResolver(Query(ZIO.serviceWithZIO[Audience](_.value))))
     }
+
+    sealed trait Status
+    object Status {
+      case object ACTIVE extends Status
+    }
+
+    object EnumApi extends GenericSchema[Any] {
+      import auto._
+      final case class Query(status: Status)
+      implicit val statusSchema: Schema[Any, Status] = gen
+      implicit val querySchema: Schema[Any, Query]   = gen
+      val api                                        = graphQL(RootResolver(Query(Status.ACTIVE)))
+    }
   }
 
   private val schema =
@@ -51,6 +64,9 @@ object GatewaySpec extends ZIOSpecDefault {
       |
       |type Details {
       |  name: String!
+      |  legacyLabel: String @deprecated
+      |  state: State
+      |  url: URL
       |}
       |
       |type Review {
@@ -58,6 +74,7 @@ object GatewaySpec extends ZIOSpecDefault {
       |}
       |
       |scalar URL @specifiedBy(url: "https://example.com/url")
+      |enum State { ACTIVE LEGACY @deprecated(reason: "Use ACTIVE") }
       |""".stripMargin
 
   private val nestedQuery =
@@ -110,6 +127,15 @@ object GatewaySpec extends ZIOSpecDefault {
           field(response.data, "greeting").contains(StringValue("hello")),
           field(response.data, "audience").contains(StringValue("world"))
         )).provideSome[Scope](environment)
+      },
+      test("completes enum values returned by a local subgraph") {
+        for {
+          gateway  <- Gateway.compose(Subgraph.local("status", LocalSchemas.EnumApi.api)).build
+          response <- gateway.execute("{ status }")
+        } yield assertTrue(
+          response.errors.isEmpty,
+          field(response.data, "status").contains(EnumValue("ACTIVE"))
+        )
       },
       test("preserves FiberRef context and local Caliban failures") {
         for {
@@ -281,6 +307,34 @@ object GatewaySpec extends ZIOSpecDefault {
           errors.map(_.path) == List(List(PathValue.Key("reviews")))
         )
       },
+      test("completes a malformed nullable object to null") {
+        val objectSchema = "type Query { product: Product } type Product { name: String! }"
+
+        for {
+          remote   <- stub("""{"data":{"product":"invalid"}}""")
+          gateway  <- Gateway.compose(Subgraph.graphql("products", remote.endpoint, objectSchema)).build
+          response <- gateway.execute("{ product { name } }")
+          errors    = response.errors.collect { case error: CalibanError.ExecutionError => error }
+        } yield assertTrue(
+          field(response.data, "product").contains(NullValue),
+          errors.map(_.msg) == List("Remote GraphQL request failed."),
+          errors.map(_.path) == List(List(PathValue.Key("product")))
+        )
+      },
+      test("bubbles a malformed non-null object") {
+        val objectSchema = "type Query { product: Product! } type Product { name: String! }"
+
+        for {
+          remote   <- stub("""{"data":{"product":[]}}""")
+          gateway  <- Gateway.compose(Subgraph.graphql("products", remote.endpoint, objectSchema)).build
+          response <- gateway.execute("{ product { name } }")
+          errors    = response.errors.collect { case error: CalibanError.ExecutionError => error }
+        } yield assertTrue(
+          response.data == NullValue,
+          errors.map(_.msg) == List("Remote GraphQL request failed."),
+          errors.map(_.path) == List(List(PathValue.Key("product")))
+        )
+      },
       test("attaches a single-source failure to every affected nullable root") {
         val nullableRoots = "type Query { first: String second: String }"
 
@@ -332,31 +386,90 @@ object GatewaySpec extends ZIOSpecDefault {
     suite("local introspection")(
       test("executes introspection locally without calling the remote graph") {
         for {
-          remote   <- stub(dataResponse)
-          gateway  <- runtime(remote)
-          response <- gateway.execute(
-                        """{
+          remote       <- stub(dataResponse)
+          gateway      <- runtime(remote)
+          response     <- gateway.execute(
+                            """{
                           |  product: __type(name: "Product") {
                           |    visible: fields { name }
                           |    all: fields(includeDeprecated: true) { name }
                           |  }
+                          |  details: __type(name: "Details") {
+                          |    visible: fields { name }
+                          |    all: fields(includeDeprecated: true) { name isDeprecated deprecationReason }
+                          |  }
+                          |  state: __type(name: "State") {
+                          |    visible: enumValues { name }
+                          |    all: enumValues(includeDeprecated: true) { name isDeprecated deprecationReason }
+                          |  }
                           |  scalar: __type(name: "URL") { specifiedByURL }
                           |}""".stripMargin
-                      )
-          requests <- remote.requests.get
-          product   = field(response.data, "product")
-          visible   = product.flatMap(field(_, "visible")).collect { case ResponseListValue(values) =>
-                        values.flatMap(field(_, "name")).collect { case StringValue(value) => value }
-                      }
-          all       = product.flatMap(field(_, "all")).collect { case ResponseListValue(values) =>
-                        values.flatMap(field(_, "name")).collect { case StringValue(value) => value }
-                      }
-          url       = field(response.data, "scalar").flatMap(field(_, "specifiedByURL"))
+                          )
+          requests     <- remote.requests.get
+          product       = field(response.data, "product")
+          visible       = product.flatMap(field(_, "visible")).collect { case ResponseListValue(values) =>
+                            values.flatMap(field(_, "name")).collect { case StringValue(value) => value }
+                          }
+          all           = product.flatMap(field(_, "all")).collect { case ResponseListValue(values) =>
+                            values.flatMap(field(_, "name")).collect { case StringValue(value) => value }
+                          }
+          details       = field(response.data, "details")
+          detailVisible = details.flatMap(field(_, "visible")).collect { case ResponseListValue(values) =>
+                            values.flatMap(field(_, "name")).collect { case StringValue(value) => value }
+                          }
+          detailAll     = details.flatMap(field(_, "all")).collect { case ResponseListValue(values) => values }
+          state         = field(response.data, "state")
+          stateVisible  = state.flatMap(field(_, "visible")).collect { case ResponseListValue(values) =>
+                            values.flatMap(field(_, "name")).collect { case StringValue(value) => value }
+                          }
+          stateAll      = state.flatMap(field(_, "all")).collect { case ResponseListValue(values) => values }
+          url           = field(response.data, "scalar").flatMap(field(_, "specifiedByURL"))
         } yield assertTrue(
           response.errors.isEmpty,
           visible.exists(!_.contains("legacyName")),
           all.exists(_.contains("legacyName")),
+          detailVisible.exists(!_.contains("legacyLabel")),
+          detailAll.exists(
+            _.exists(value =>
+              field(value, "name").contains(StringValue("legacyLabel")) &&
+                field(value, "isDeprecated").contains(BooleanValue(true)) &&
+                field(value, "deprecationReason").contains(StringValue("No longer supported"))
+            )
+          ),
+          stateVisible.exists(!_.contains("LEGACY")),
+          stateAll.exists(
+            _.exists(value =>
+              field(value, "name").contains(StringValue("LEGACY")) &&
+                field(value, "isDeprecated").contains(BooleanValue(true)) &&
+                field(value, "deprecationReason").contains(StringValue("Use ACTIVE"))
+            )
+          ),
           url.contains(StringValue("https://example.com/url")),
+          requests.isEmpty
+        )
+      },
+      test("executes named and inline fragment-only introspection locally") {
+        val named  =
+          """
+            |query { ...IntrospectionFields }
+            |fragment IntrospectionFields on Query { __schema { queryType { name } } }
+            |""".stripMargin
+        val inline = "query { ... on Query { __type(name: \"Product\") { name } } }"
+
+        for {
+          remote         <- stub(dataResponse)
+          gateway        <- runtime(remote)
+          namedResponse  <- gateway.execute(named)
+          inlineResponse <- gateway.execute(inline)
+          requests       <- remote.requests.get
+        } yield assertTrue(
+          namedResponse.errors.isEmpty,
+          field(namedResponse.data, "__schema")
+            .flatMap(field(_, "queryType"))
+            .flatMap(field(_, "name"))
+            .contains(StringValue("Query")),
+          inlineResponse.errors.isEmpty,
+          field(inlineResponse.data, "__type").flatMap(field(_, "name")).contains(StringValue("Product")),
           requests.isEmpty
         )
       },

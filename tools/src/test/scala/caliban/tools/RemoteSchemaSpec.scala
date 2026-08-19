@@ -143,6 +143,36 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
         implemented   = resource.flatMap(_.interfaces()).getOrElse(Nil).flatMap(_.name)
       } yield assertTrue(implemented.contains("Node"))
     },
+    test("preserves metadata on object types reached through an interface") {
+      val schema =
+        """
+          |type Query { node: Node }
+          |interface Node { id: ID! }
+          |type Product implements Node {
+          |  id: ID!
+          |  legacy: String @deprecated
+          |  url: URL
+          |}
+          |scalar URL @specifiedBy(url: "https://example.com/url")
+          |""".stripMargin
+
+      for {
+        document <- ZIO.fromEither(Parser.parseQuery(schema))
+        rootType <- ZIO.fromEither(RemoteSchema.toRootType(document))
+        product   = rootType.types
+                      .get("Node")
+                      .flatMap(_.possibleTypes)
+                      .flatMap(_.find(_.name.contains("Product")))
+        visible   = product.flatMap(_.fields(__DeprecatedArgs())).getOrElse(Nil)
+        all       = product.flatMap(_.fields(__DeprecatedArgs(Some(true)))).getOrElse(Nil)
+        legacy    = all.find(_.name == "legacy")
+        url       = all.find(_.name == "url").map(_._type.innerType)
+      } yield assertTrue(
+        !visible.exists(_.name == "legacy"),
+        legacy.flatMap(_.deprecationReason).contains("No longer supported"),
+        url.flatMap(_.specifiedByURL).contains("https://example.com/url")
+      )
+    },
     test("builds a validated RootType from conventional roots and extensions") {
       val schema =
         """
@@ -172,6 +202,24 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
         rootType.mutationType.flatMap(_.name).contains("Mutation"),
         rootType.subscriptionType.flatMap(_.name).contains("Subscription"),
         fields == List("value", "version")
+      )
+    },
+    test("retains conventional roots when schema metadata is supplied by an extension") {
+      val schema =
+        """
+          |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3")
+          |type Query { value: String }
+          |type Mutation { update: Boolean }
+          |type Subscription { events: String }
+          |""".stripMargin
+
+      for {
+        document <- ZIO.fromEither(Parser.parseQuery(schema))
+        rootType <- ZIO.fromEither(RemoteSchema.toRootType(document))
+      } yield assertTrue(
+        rootType.queryType.name.contains("Query"),
+        rootType.mutationType.flatMap(_.name).contains("Mutation"),
+        rootType.subscriptionType.flatMap(_.name).contains("Subscription")
       )
     },
     test("rejects conflicting operation roots across schema declarations") {

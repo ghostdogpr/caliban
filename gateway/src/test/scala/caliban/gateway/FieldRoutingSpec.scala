@@ -120,6 +120,57 @@ object FieldRoutingSpec extends ZIOSpecDefault {
             )
         )
       },
+      test("forwards list and nested-list requirement values") {
+        val productsSchema  =
+          s"""
+             |${federationSchemaPreamble("@key")}
+             |type Query { product: Product }
+             |type Product @key(fields: "id") {
+             |  id: ID!
+             |  tags: [[String!]!]!
+             |}
+             |""".stripMargin
+        val shippingSchema  =
+          s"""
+             |${federationSchemaPreamble("@key", "@external", "@requires")}
+             |type Product @key(fields: "id") {
+             |  id: ID! @external
+             |  tags: [[String!]!]! @external
+             |  shipping: Int! @requires(fields: "tags")
+             |}
+             |""".stripMargin
+        val productResponse =
+          """{"data":{"product":{"_caliban_gateway_requirement_tags":[["fragile","large"],["priority"]],"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}}}"""
+
+        for {
+          products <- stub(productResponse)
+          shipping <- stub("""{"data":{"_entities":[{"shipping":5}]}}""")
+          gateway  <- Gateway
+                        .compose(
+                          Subgraph.federation("products", products.endpoint, productsSchema),
+                          Subgraph.federation("shipping", shipping.endpoint, shippingSchema)
+                        )
+                        .build
+          response <- gateway.execute("{ product { shipping } }")
+          sent     <- shipping.requests.get
+          tags      = sent.headOption
+                        .flatMap(_.variables)
+                        .flatMap(_.get("representations"))
+                        .collect { case ListValue(InputObjectValue(fields) :: Nil) => fields.get("tags") }
+                        .flatten
+        } yield assertTrue(
+          response.errors.isEmpty,
+          field(response.data, "product").flatMap(field(_, "shipping")).contains(IntNumber(5)),
+          tags.contains(
+            ListValue(
+              List(
+                ListValue(List(StringValue("fragile"), StringValue("large"))),
+                ListValue(List(StringValue("priority")))
+              )
+            )
+          )
+        )
+      },
       test("evaluates nested fragment requirements for the returned runtime type") {
         val productsSchema    =
           s"""
