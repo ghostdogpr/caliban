@@ -4,7 +4,7 @@ import caliban.ResponseValue.ObjectValue
 import caliban.Value.StringValue
 import caliban.client.Operations.RootQuery
 import caliban.client.SelectionBuilder
-import caliban.gateway.{ SchemaAcquisition, SchemaInput }
+import caliban.gateway.{ RemoteGraphQLConfig, SchemaInput }
 import caliban.parsing.Parser
 import caliban.parsing.adt.Document
 import caliban.tools.IntrospectionClient
@@ -29,12 +29,13 @@ private[gateway] object RemoteSchemaAcquisition {
     input: SchemaInput,
     endpoint: Uri,
     federation: Boolean,
+    config: RemoteGraphQLConfig.Acquisition,
     backend: Option[SttpClient]
   )(implicit trace: Trace): IO[String, Document] =
     input match {
-      case SchemaInput.Sdl(value)       => ZIO.fromEither(Parser.parseQuery(value)).mapError(_.getMessage)
-      case SchemaInput.Parsed(value)    => ZIO.succeed(value)
-      case SchemaInput.Acquired(config) =>
+      case SchemaInput.Sdl(value)    => ZIO.fromEither(Parser.parseQuery(value)).mapError(_.getMessage)
+      case SchemaInput.Parsed(value) => ZIO.succeed(value)
+      case SchemaInput.Acquired      =>
         val diagnostics = config.diagnostics
         if (diagnostics.nonEmpty) ZIO.fail(diagnostics.mkString(" "))
         else
@@ -47,7 +48,7 @@ private[gateway] object RemoteSchemaAcquisition {
   private def acquire(
     endpoint: Uri,
     federation: Boolean,
-    config: SchemaAcquisition,
+    config: RemoteGraphQLConfig.Acquisition,
     backend: SttpClient
   )(implicit trace: Trace): IO[String, Document] = {
     val acquisition =
@@ -59,7 +60,7 @@ private[gateway] object RemoteSchemaAcquisition {
 
   private def acquireIntrospection(
     endpoint: Uri,
-    config: SchemaAcquisition,
+    config: RemoteGraphQLConfig.Acquisition,
     backend: SttpClient
   )(implicit trace: Trace): IO[String, Document] = {
     implicit val introspectionConfig: IntrospectionClient.Config = IntrospectionClient.Config.default
@@ -89,7 +90,7 @@ private[gateway] object RemoteSchemaAcquisition {
 
   private def acquireFederation(
     endpoint: Uri,
-    config: SchemaAcquisition,
+    config: RemoteGraphQLConfig.Acquisition,
     backend: SttpClient
   )(implicit trace: Trace): IO[String, Document] = {
     val request = GraphQLRequest(query = Some(ServiceQuery), operationName = Some("__CalibanGatewayServiceSchema"))
@@ -117,7 +118,7 @@ private[gateway] object RemoteSchemaAcquisition {
   private def send(
     endpoint: Uri,
     body: Array[Byte],
-    config: SchemaAcquisition,
+    config: RemoteGraphQLConfig.Acquisition,
     backend: SttpClient
   )(implicit trace: Trace): IO[String, Chunk[Byte]] = {
     val request = config.headers.foldLeft(

@@ -195,14 +195,24 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
       )
     },
     test("enforces acquisition headers, redirects, and finite response and parsing limits") {
-      val headersConfig   = SchemaAcquisition.default.withHeaders(SttpHeader("Authorization", "Bearer schema"))
-      val protectedConfig = SchemaAcquisition.default.withHeaders(
-        SttpHeader("Content-Type", "text/plain"),
-        SttpHeader("Content-Encoding", "gzip")
+      val headersConfig   = RemoteGraphQLConfig.default.withAcquisition(
+        _.withHeaders(SttpHeader("Authorization", "Bearer schema"))
       )
-      val responseLimit   = SchemaAcquisition.default.withMaxResponseBytes(32)
-      val parsingLimit    = SchemaAcquisition.default.withMaxParsingDepth(4)
-      val ordinaryLimit   = SchemaAcquisition.default.withMaxParsingDepth(32)
+      val protectedConfig = RemoteGraphQLConfig.default.withAcquisition(
+        _.withHeaders(
+          SttpHeader("Content-Type", "text/plain"),
+          SttpHeader("Content-Encoding", "gzip")
+        )
+      )
+      val responseLimit   = RemoteGraphQLConfig.default.withAcquisition(
+        _.withMaxResponseBytes(32)
+      )
+      val parsingLimit    = RemoteGraphQLConfig.default.withAcquisition(
+        _.withMaxParsingDepth(4)
+      )
+      val ordinaryLimit   = RemoteGraphQLConfig.default.withAcquisition(
+        _.withMaxParsingDepth(32)
+      )
       val nestedSchema    = reviewsSchema.replace("body: String!", "body(arg: [[[[[String]]]]]): String!")
       val nestedDefault   = List.fill(40)("[").mkString + "null" + List.fill(40)("]").mkString
 
@@ -296,7 +306,9 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
             released.succeed(()).unit
           )
 
-      val timeoutConfig = SchemaAcquisition.default.withTimeout(1.second)
+      val timeoutConfig = RemoteGraphQLConfig.default.withAcquisition(
+        _.withTimeout(1.second)
+      )
 
       for {
         successReleased   <- Promise.make[Nothing, Unit]
@@ -342,7 +354,9 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
       )
     },
     test("does not retain failed or interrupted build resources in the caller scope") {
-      val protectedConfig = SchemaAcquisition.default.withHeaders(SttpHeader("Content-Encoding", "gzip"))
+      val protectedConfig = RemoteGraphQLConfig.default.withAcquisition(
+        _.withHeaders(SttpHeader("Content-Encoding", "gzip"))
+      )
 
       for {
         parent               <- Scope.make

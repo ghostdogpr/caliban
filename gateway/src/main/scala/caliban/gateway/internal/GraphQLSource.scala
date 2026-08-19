@@ -66,6 +66,7 @@ private[gateway] object GraphQLSource {
   sealed trait Failure                          extends NoStackTrace
   case object TransportFailure                  extends Failure
   case object TimeoutFailure                    extends Failure
+  case object HeaderFailure                     extends Failure
   case object InvalidRequest                    extends Failure
   case object RequestTooLarge                   extends Failure
   final case class HttpFailure(statusCode: Int) extends Failure

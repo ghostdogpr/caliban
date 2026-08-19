@@ -90,20 +90,24 @@ object Gateway {
     trace: Trace
   ): IO[List[String], LoadedSubgraph[R]] =
     subgraph.source match {
-      case Source.Remote(endpoint, schema, federation) =>
+      case Source.Remote(endpoint, schema, federation, config) =>
+        val policyDiagnostics = config
+          .diagnostics(schema == SchemaInput.Acquired)
+          .map(message => s"[${subgraph.name}] $message")
         for {
+          _                       <- ZIO.fail(policyDiagnostics).when(policyDiagnostics.nonEmpty)
           client                  <- ZIO
                                        .fromOption(backend)
                                        .orElseFail(List(s"[${subgraph.name}] Remote GraphQL transport is unavailable."))
           document                <- RemoteSchemaAcquisition
-                                       .document(schema, endpoint, federation, Some(client))
+                                       .document(schema, endpoint, federation, config.acquisition, Some(client))
                                        .mapError(error => List(s"[${subgraph.name}] $error"))
           rootDocument             = ensureFederationTransportQuery(ensureFederationTypes(document, federation), federation)
           sourceRootType          <- toRootType(subgraph.name, rootDocument).mapError(_ :: Nil)
           contribution            <- prepareContribution(subgraph, sourceRootType, rootDocument, document, federation)
-          source: GraphQLSource[R] = new RemoteGraphQLSource(endpoint, client)
+          source: GraphQLSource[R] = RemoteGraphQLSource(endpoint, client, config)
         } yield LoadedSubgraph(contribution, source)
-      case Source.Local(graph)                         =>
+      case Source.Local(graph)                                 =>
         val document   = graph.toDocument
         val federation = SchemaComposition.isFederation(document)
         for {
@@ -122,8 +126,8 @@ object Gateway {
 
   private def isRemote[R](subgraph: Subgraph[R]): Boolean =
     subgraph.source match {
-      case _: Source.Remote => true
-      case _                => false
+      case _: Source.Remote[_] => true
+      case _                   => false
     }
 
   private def toRootType(name: String, document: Document): IO[String, RootType] =

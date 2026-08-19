@@ -2,49 +2,139 @@ package caliban.gateway.internal
 
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ IntValue, NullValue, StringValue }
+import caliban.gateway.{ IncomingRequestHeaders, RemoteGraphQLConfig }
+import caliban.parsing.Parser
 import caliban.parsing.adt.LocationInfo
+import caliban.parsing.adt.OperationType
 import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, PathValue, ResponseValue }
 import com.github.plokhotnyuk.jsoniter_scala.core._
 import sttp.capabilities.zio.ZioStreams
 import sttp.client4._
 import sttp.client4.httpclient.zio.SttpClient
-import sttp.model.Uri
+import sttp.model.{ Header, Uri }
 import zio._
 import zio.stream.ZStream
 
 import java.io.{ ByteArrayOutputStream, OutputStream }
 import scala.util.control.{ NoStackTrace, NonFatal }
 
-private[gateway] final class RemoteGraphQLSource(
+private[gateway] final class RemoteGraphQLSource[-R](
   endpoint: Uri,
   backend: SttpClient,
-  limits: RemoteGraphQLSource.Limits = RemoteGraphQLSource.Limits.default
-) extends GraphQLSource[Any] {
+  config: RemoteGraphQLConfig[R],
+  structuralLimits: RemoteGraphQLSource.StructuralLimits
+) extends GraphQLSource[R] {
   import RemoteGraphQLSource._
+
+  private val execution = config.execution
 
   val errorPolicy: GraphQLSource.ErrorPolicy = GraphQLSource.ErrorPolicy.Remote
 
   def execute(request: GraphQLRequest)(implicit
     trace: Trace
-  ): ZIO[Any, GraphQLSource.Failure, GraphQLResponse[CalibanError]] =
-    ZIO
-      .fromEither(encode(request.copy(extensions = None)))
-      .flatMap { body =>
-        basicRequest
-          .post(endpoint)
-          .body(body)
-          .contentType("application/json; charset=utf-8")
-          .header("Accept", "application/graphql-response+json, application/json;q=0.9")
-          .followRedirects(false)
-          .response(asStreamAlways(ZioStreams)(readBounded))
-          .send(backend)
-          .mapError(_ => GraphQLSource.TransportFailure)
-          .timeoutFail(GraphQLSource.TimeoutFailure)(limits.timeout)
-      }
+  ): ZIO[R, GraphQLSource.Failure, GraphQLResponse[CalibanError]] = {
+    val logicalCall =
+      for {
+        body      <- ZIO.fromEither(encode(request.copy(extensions = None)))
+        incoming  <- IncomingRequestHeaders.get
+        effectful <- config.effectfulHeaders.mapError(_ => GraphQLSource.HeaderFailure)
+        headers    = outboundHeaders(incoming, effectful)
+        replaySafe = execution.retries > 0 && isReplaySafe(request)
+        response  <- executeAttempts(body, headers, replaySafe, execution.retries)
+      } yield response
+
+    logicalCall.timeoutFail(GraphQLSource.TimeoutFailure)(execution.timeout)
+  }
+
+  private def executeAttempts(
+    body: Array[Byte],
+    headers: List[Header],
+    replaySafe: Boolean,
+    retries: Int
+  )(implicit trace: Trace): IO[GraphQLSource.Failure, GraphQLResponse[CalibanError]] =
+    send(body, headers).catchAll { failure =>
+      if (replaySafe && retries > 0 && retryable(failure))
+        ZIO.sleep(execution.retryBackoff) *> executeAttempts(body, headers, replaySafe, retries - 1)
+      else ZIO.fail(failure)
+    }
+
+  private def send(
+    body: Array[Byte],
+    headers: List[Header]
+  )(implicit trace: Trace): IO[GraphQLSource.Failure, GraphQLResponse[CalibanError]] = {
+    val request = headers.foldLeft(
+      basicRequest
+        .post(endpoint)
+        .body(body)
+    )((current, header) => current.header(header, DuplicateHeaderBehavior.Add))
+
+    request
+      .contentType("application/json; charset=utf-8")
+      .header("Accept", "application/graphql-response+json, application/json;q=0.9")
+      .followRedirects(false)
+      .response(asStreamAlways(ZioStreams)(readBounded))
+      .send(backend)
+      .mapError(_ => GraphQLSource.TransportFailure)
       .flatMap(response => ZIO.fromEither(decode(response)))
+  }
+
+  private def outboundHeaders(incoming: List[Header], effectful: List[Header]): List[Header] = {
+    val connectionDeclaredHeaderNames = (incoming ::: execution.headers ::: effectful).iterator
+      .filter(header => normalize(header) == "connection")
+      .flatMap(_.value.split(',').iterator)
+      .map(_.trim)
+      .filter(_.nonEmpty)
+      .map(RemoteGraphQLConfig.normalize)
+      .toSet
+
+    val forwarded = incoming.filter { header =>
+      execution.forwardAll || execution.forwardedHeaders.contains(normalize(header))
+    }
+    mergeHeaders(mergeHeaders(mergeHeaders(Nil, forwarded), execution.headers), effectful)
+      .filterNot(header =>
+        RemoteGraphQLConfig.isProtocolHeader(header.name) || connectionDeclaredHeaderNames.contains(normalize(header))
+      )
+  }
+
+  private def mergeHeaders(lower: List[Header], higher: List[Header]): List[Header] =
+    if (higher.isEmpty) lower
+    else {
+      val overridden = higher.iterator.map(normalize).toSet
+      lower.filterNot(header => overridden.contains(normalize(header))) ::: higher
+    }
+
+  private def normalize(header: Header): String =
+    RemoteGraphQLConfig.normalize(header.name)
+
+  private def isReplaySafe(request: GraphQLRequest): Boolean =
+    request.query.exists { query =>
+      Parser
+        .parseQuery(query)
+        .fold(
+          _ => false,
+          document => {
+            val operation = request.operationName match {
+              case Some(name) => document.operationDefinitions.find(_.name.contains(name))
+              case None       =>
+                document.operationDefinitions match {
+                  case value :: Nil => Some(value)
+                  case _            => None
+                }
+            }
+            operation.exists(_.operationType == OperationType.Query)
+          }
+        )
+    }
+
+  private def retryable(failure: GraphQLSource.Failure): Boolean =
+    failure match {
+      case GraphQLSource.TransportFailure             => true
+      case GraphQLSource.HttpFailure(502 | 503 | 504) => true
+      case _                                          => false
+    }
 
   private def encode(request: GraphQLRequest): Either[GraphQLSource.Failure, Array[Byte]] = {
-    val output = new BoundedOutputStream(limits.maxRequestBytes)
+    val output = new BoundedOutputStream(execution.maxRequestBytes)
     try {
       writeToStream(request, output)
       Right(output.toByteArray)
@@ -56,9 +146,9 @@ private[gateway] final class RemoteGraphQLSource(
 
   private def readBounded(stream: ZStream[Any, Throwable, Byte])(implicit trace: Trace): Task[BoundedBody] =
     stream
-      .take(limits.maxResponseBytes.toLong + 1L)
+      .take(execution.maxResponseBytes.toLong + 1L)
       .runCollect
-      .map(bytes => BoundedBody(bytes, bytes.length > limits.maxResponseBytes))
+      .map(bytes => BoundedBody(bytes, bytes.length > execution.maxResponseBytes))
 
   private def decode(
     response: Response[BoundedBody]
@@ -131,8 +221,8 @@ private[gateway] final class RemoteGraphQLSource(
           case _                                       => ()
         }
 
-      if (depth > limits.maxResponseDepth) failure = Some(GraphQLSource.ResponseNestingTooDeep)
-      else if (tokens > limits.maxResponseTokens) failure = Some(GraphQLSource.ResponseStructureTooLarge)
+      if (depth > structuralLimits.maxResponseDepth) failure = Some(GraphQLSource.ResponseNestingTooDeep)
+      else if (tokens > structuralLimits.maxResponseTokens) failure = Some(GraphQLSource.ResponseStructureTooLarge)
       index += 1
     }
 
@@ -213,19 +303,31 @@ private[gateway] final class RemoteGraphQLSource(
 
 private[gateway] object RemoteGraphQLSource {
 
-  final case class Limits(
-    timeout: Duration,
-    maxRequestBytes: Int,
-    maxResponseBytes: Int,
+  def apply(endpoint: Uri, backend: SttpClient): RemoteGraphQLSource[Any] =
+    new RemoteGraphQLSource(endpoint, backend, RemoteGraphQLConfig.default, StructuralLimits.default)
+
+  def apply[R](
+    endpoint: Uri,
+    backend: SttpClient,
+    config: RemoteGraphQLConfig[R]
+  ): RemoteGraphQLSource[R] =
+    new RemoteGraphQLSource(endpoint, backend, config, StructuralLimits.default)
+
+  def apply[R](
+    endpoint: Uri,
+    backend: SttpClient,
+    config: RemoteGraphQLConfig[R],
+    structuralLimits: StructuralLimits
+  ): RemoteGraphQLSource[R] =
+    new RemoteGraphQLSource(endpoint, backend, config, structuralLimits)
+
+  final case class StructuralLimits(
     maxResponseDepth: Int,
     maxResponseTokens: Int
   )
 
-  object Limits {
-    val default: Limits = Limits(
-      timeout = Duration.fromSeconds(30),
-      maxRequestBytes = 1024 * 1024,
-      maxResponseBytes = 16 * 1024 * 1024,
+  object StructuralLimits {
+    val default: StructuralLimits = StructuralLimits(
       maxResponseDepth = 128,
       maxResponseTokens = 250000
     )
