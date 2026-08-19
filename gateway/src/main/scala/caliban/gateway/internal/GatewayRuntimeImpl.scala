@@ -26,7 +26,7 @@ private[gateway] final class GatewayRuntimeImpl[-R](
   private val requestRootType: RootType      = Introspector.withIntrospection(rootType)
   private val introspection: RootSchema[Any] = Introspector.introspect[Any](rootType)
   private val planner                        = new OperationPlanner(graph, sources.size)
-  private val entityExecutor                 = new EntityExecutor[R](sources)
+  private val entityExecutor                 = new EntityExecutor[R](graph, sources)
 
   def check(query: String)(implicit trace: Trace): IO[CalibanError, Unit] =
     RequestPreparation.checkWithIntrospection(query, requestRootType)
@@ -149,14 +149,16 @@ private[gateway] final class GatewayRuntimeImpl[-R](
     execution: ExecutionRequest,
     original: GraphQLRequest
   )(implicit trace: Trace): ZIO[R, Nothing, RootResult] = {
-    val operation = OperationDefinition(
+    val mapping    = graph.mapping(route.source)
+    val downstream = mapping.fold(route.downstream)(value => route.downstream.map(value.rootFieldToSource))
+    val operation  = OperationDefinition(
       execution.operationType,
       execution.operationName,
       Nil,
       Nil,
-      route.downstream.map(_.toSelection)
+      downstream.map(_.toSelection)
     )
-    val request   = GraphQLRequest(
+    val request    = GraphQLRequest(
       query = Some(DocumentRenderer.renderCompact(Document(operation :: Nil, SourceMapper.empty))),
       operationName = execution.operationName,
       extensions = original.extensions
@@ -166,12 +168,13 @@ private[gateway] final class GatewayRuntimeImpl[-R](
       case Some(source) =>
         source
           .execute(request)
-          .map(response =>
+          .map { response =>
+            val translated = mapping.fold(response)(_.rootResponseToClient(route.downstream, response))
             RootResult(
               route,
-              response.copy(errors = source.errorPolicy.routed(route.client, response.errors))
+              translated.copy(errors = source.errorPolicy.routed(route.client, translated.errors))
             )
-          )
+          }
           .catchAll(_ => ZIO.succeed(RootResult(route, rootFailure(route))))
       case None         => ZIO.succeed(RootResult(route, rootFailure(route)))
     }

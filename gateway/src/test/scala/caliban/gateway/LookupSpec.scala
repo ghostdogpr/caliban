@@ -321,6 +321,55 @@ object LookupSpec extends ZIOSpecDefault {
         sentB.headOption.flatMap(_.query).exists(_.contains("regionCode:EU"))
       )
     },
+    test("reverse-maps renamed enum keys inside nested remote lookup inputs") {
+      val productsSchema =
+        "enum Region { US } type Query { products: [Product] } type Product { id: ID! region: Region! name: String! }"
+      val reviewsSchema  =
+        "enum Region { US } input RegionRefInput { code: Region! } input ProductRefInput { productId: ID! region: RegionRefInput! } type Query { productsByRefs(refs: [ProductRefInput!]!): [Product!]! } type Product { id: ID! region: Region! reviews: [Review!]! } type Review { body: String! }"
+      val lookup         = Lookup.list(
+        "Product",
+        List("id", "region"),
+        "productsByRefs",
+        Map(
+          "refs" -> Lookup.Argument.batch(
+            Lookup.Argument.obj(
+              "productId" -> Lookup.Argument.key("id"),
+              "region"    -> Lookup.Argument.obj("code" -> Lookup.Argument.key("region"))
+            )
+          )
+        ),
+        Lookup.Correlation.byKey(Map("id" -> "id", "region" -> "region"))
+      )
+      val transformation = SchemaTransformation.renameEnumValue("Region", "US", "NORTH_AMERICA")
+
+      for {
+        products <-
+          stub(
+            """{"data":{"products":[{"name":"Table","_caliban_gateway_key":"p1","_caliban_gateway_key_2":"US"}]}}"""
+          )
+        reviews  <-
+          stub(
+            """{"data":{"_caliban_gateway_lookup":[{"_caliban_gateway_lookup_key":"p1","_caliban_gateway_lookup_key_2":"US","reviews":[{"body":"Table review"}]}]}}"""
+          )
+        gateway  <- Gateway
+                      .compose(
+                        Subgraph.graphql("products", products.endpoint, productsSchema).transform(transformation),
+                        Subgraph
+                          .graphql("reviews", reviews.endpoint, reviewsSchema)
+                          .withLookup(lookup)
+                          .transform(transformation)
+                      )
+                      .build
+        response <- gateway.execute("{ products { name reviews { body } } }")
+        sent     <- reviews.requests.get
+        valid    <- ZIO.foreach(sent)(validateRequest(reviewsSchema, _).exit)
+      } yield assertTrue(
+        response.errors.isEmpty,
+        valid.forall(_.isSuccess),
+        sent.headOption.flatMap(_.query).exists(_.contains("region:{code:US}")),
+        !sent.headOption.flatMap(_.query).exists(_.contains("NORTH_AMERICA"))
+      )
+    },
     test("allows keyed omissions but rejects short ordered lookup results") {
       val shortResponse =
         """{"data":{"_caliban_gateway_lookup":[{"_caliban_gateway_lookup_key":"p1","_caliban_gateway_lookup_key_2":"us","reviews":[{"body":"Table review"}]}]}}"""

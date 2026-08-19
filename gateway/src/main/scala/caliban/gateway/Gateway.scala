@@ -9,6 +9,7 @@ import caliban.parsing.adt.Definition.TypeSystemExtension.TypeExtension
 import caliban.parsing.adt.Definition.TypeSystemExtension.TypeExtension._
 import caliban.parsing.adt.Type.NamedType
 import caliban.parsing.adt.Document
+import caliban.schema.RootType
 import caliban.tools.RemoteSchema
 import sttp.client4.httpclient.zio.{ HttpClientZioBackend, SttpClient }
 import zio._
@@ -69,8 +70,10 @@ object Gateway {
         else ZIO.none
       loaded       <- ZIO.foreachPar(subgraphs)(load(_, backend).either)
       contributions = loaded.collect { case Right(value) => value.contribution }
-      diagnostics   = nameDiagnostics(subgraphs) ::: loaded.collect { case Left(diagnostic) => diagnostic }
-      composed      = SchemaComposition.compose(contributions)
+      diagnostics   = nameDiagnostics(subgraphs) ::: loaded.collect { case Left(diagnostics) => diagnostics }.flatten
+      composed      =
+        if (contributions.nonEmpty) SchemaComposition.compose(contributions)
+        else Left(Nil)
       graph        <- ZIO
                         .fromEither(
                           composed.left.map(errors => GatewayBuildError((diagnostics ::: errors).distinct.sorted))
@@ -85,28 +88,30 @@ object Gateway {
 
   private def load[R](subgraph: Subgraph[R], backend: Option[SttpClient])(implicit
     trace: Trace
-  ): IO[String, LoadedSubgraph[R]] =
+  ): IO[List[String], LoadedSubgraph[R]] =
     subgraph.source match {
       case Source.Remote(endpoint, schema, federation) =>
         for {
-          client                  <- ZIO.fromOption(backend).orElseFail(s"[${subgraph.name}] Remote GraphQL transport is unavailable.")
+          client                  <- ZIO
+                                       .fromOption(backend)
+                                       .orElseFail(List(s"[${subgraph.name}] Remote GraphQL transport is unavailable."))
           document                <- RemoteSchemaAcquisition
                                        .document(schema, endpoint, federation, Some(client))
-                                       .mapError(error => s"[${subgraph.name}] $error")
+                                       .mapError(error => List(s"[${subgraph.name}] $error"))
           rootDocument             = ensureFederationTransportQuery(ensureFederationTypes(document, federation), federation)
-          rootType                <- toRootType(subgraph.name, rootDocument)
-          contribution             = SchemaContribution(subgraph.name, rootType, document, federation, subgraph.lookups)
+          sourceRootType          <- toRootType(subgraph.name, rootDocument).mapError(_ :: Nil)
+          contribution            <- prepareContribution(subgraph, sourceRootType, rootDocument, document, federation)
           source: GraphQLSource[R] = new RemoteGraphQLSource(endpoint, client)
         } yield LoadedSubgraph(contribution, source)
       case Source.Local(graph)                         =>
         val document   = graph.toDocument
         val federation = SchemaComposition.isFederation(document)
         for {
-          rootType    <- toRootType(subgraph.name, document)
-          interpreter <- ZIO
-                           .fromEither(graph.interpreterEither)
-                           .mapError(error => s"[${subgraph.name}] ${error.getMessage}")
-          contribution = SchemaContribution(subgraph.name, rootType, document, federation, subgraph.lookups)
+          sourceRootType <- toRootType(subgraph.name, document).mapError(_ :: Nil)
+          contribution   <- prepareContribution(subgraph, sourceRootType, document, document, federation)
+          interpreter    <- ZIO
+                              .fromEither(graph.interpreterEither)
+                              .mapError(error => List(s"[${subgraph.name}] ${error.getMessage}"))
         } yield LoadedSubgraph(contribution, new LocalGraphQLSource(interpreter))
     }
 
@@ -121,10 +126,39 @@ object Gateway {
       case _                => false
     }
 
-  private def toRootType(name: String, document: Document): IO[String, caliban.schema.RootType] =
+  private def toRootType(name: String, document: Document): IO[String, RootType] =
     ZIO
       .fromEither(RemoteSchema.toRootType(document))
       .mapError(error => s"[$name] ${error.getMessage}")
+
+  private def prepareContribution[R](
+    subgraph: Subgraph[R],
+    sourceRootType: RootType,
+    rootDocument: Document,
+    document: Document,
+    federation: Boolean
+  ): IO[List[String], SchemaContribution] =
+    for {
+      mapping  <- ZIO.fromEither(
+                    SchemaCoordinateMapping.compile(
+                      subgraph.name,
+                      sourceRootType,
+                      document,
+                      federation,
+                      subgraph.transformations
+                    )
+                  )
+      rootType <-
+        if (mapping.nonEmpty) toRootType(subgraph.name, mapping.transform(rootDocument)).mapError(_ :: Nil)
+        else ZIO.succeed(sourceRootType)
+    } yield SchemaContribution(
+      subgraph.name,
+      rootType,
+      mapping.transform(document),
+      federation,
+      subgraph.lookups.map(mapping.transform),
+      mapping
+    )
 
   private def ensureFederationTransportQuery(document: Document, federation: Boolean): Document = {
     val schemaExtensions     = document.typeExtensions.collect { case extension: SchemaExtension => extension }

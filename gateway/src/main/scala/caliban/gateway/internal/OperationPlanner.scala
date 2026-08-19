@@ -121,7 +121,10 @@ private[gateway] final class OperationPlanner(
       }
       val owners                                                                          = (routes.map(_.source) ::: entities.map(_.source)).distinct
       val passthrough                                                                     =
-        if (sourceCount == 1 && routes.size == 1 && entities.isEmpty && localFields.isEmpty)
+        if (
+          sourceCount == 1 && routes.size == 1 && entities.isEmpty && localFields.isEmpty &&
+          routes.headOption.forall(route => graph.mapping(route.source).forall(!_.nonEmpty))
+        )
           routes.headOption.map(_.source)
         else None
 
