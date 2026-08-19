@@ -13,6 +13,11 @@ import zio.{ FiberRef, Trace, UIO, URIO, Unsafe, ZIO }
 trait GatewayRuntime[-R] extends GraphQLInterpreter[R, CalibanError] {
 
   /**
+   * Returns a point-in-time view of bounded runtime work and operation-cache usage.
+   */
+  def status(implicit trace: Trace): UIO[GatewayRuntime.Status]
+
+  /**
    * Executes a request with incoming headers available to configured source forwarding policies.
    */
   def executeRequest(request: GraphQLRequest, headers: List[Header])(implicit
@@ -32,6 +37,27 @@ trait GatewayRuntime[-R] extends GraphQLInterpreter[R, CalibanError] {
     trace: Trace
   ): ZIO[R, CalibanError, String] =
     explain(GraphQLRequest(query = Some(query), operationName = operationName))
+}
+
+object GatewayRuntime {
+
+  final case class AdmissionStatus(limit: Int, active: Int, waiting: Int)
+
+  final case class OperationCacheStatus(
+    maxWeight: Long,
+    weight: Long,
+    entries: Int,
+    hits: Long,
+    misses: Long,
+    evictions: Long,
+    inFlight: Int
+  )
+
+  final case class Status(
+    requests: AdmissionStatus,
+    sources: Map[String, AdmissionStatus],
+    operationCache: OperationCacheStatus
+  )
 }
 
 private[gateway] object IncomingRequestHeaders {

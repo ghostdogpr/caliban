@@ -2,7 +2,7 @@ package caliban.gateway.internal
 
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ EnumValue, NullValue, StringValue }
-import caliban.execution.{ ExecutionRequest, Executor, Field, RequestPreparation }
+import caliban.execution.{ ExecutionRequest, Executor, Field }
 import caliban.gateway.GatewayRuntime
 import caliban.gateway.internal.EntityExecutor.EntityResult
 import caliban.gateway.internal.GatewayRuntimeImpl._
@@ -20,37 +20,32 @@ import zio.{ IO, Trace, URIO, ZIO }
 private[gateway] final class GatewayRuntimeImpl[-R](
   graph: ComposedGraph,
   sources: Map[String, GraphQLSource[R]],
-  operationHooks: OperationHooks[R]
+  operations: OperationPreparation[R],
+  control: RuntimeControl
 ) extends GatewayRuntime[R] {
 
   private val rootType: RootType             = graph.rootType
-  private val requestRootType: RootType      = Introspector.withIntrospection(rootType)
   private val introspection: RootSchema[Any] = Introspector.introspect[Any](rootType)
-  private val planner                        = new OperationPlanner(graph, sources.size)
   private val entityExecutor                 = new EntityExecutor[R](graph, sources)
 
   def check(query: String)(implicit trace: Trace): IO[CalibanError, Unit] =
-    RequestPreparation.checkWithIntrospection(query, requestRootType)
+    control.admit(operations.check(query))
+
+  def status(implicit trace: Trace): zio.UIO[GatewayRuntime.Status] =
+    operations.cacheStatus.flatMap(control.status)
 
   def explain(request: GraphQLRequest)(implicit trace: Trace): ZIO[R, CalibanError, String] =
-    operationHooks.prepare(request, requestRootType).flatMap { prepared =>
-      ZIO
-        .fromEither(planner.plan(prepared.document, prepared.executionRequest))
-        .mapError(failure => CalibanError.ValidationError(failure.message, ""))
-        .map(renderPlan)
-    }
+    control.admit(operations.prepare(request).map(prepared => renderPlan(prepared.plan)))
 
   def executeRequest(request: GraphQLRequest)(implicit trace: Trace): URIO[R, GraphQLResponse[CalibanError]] =
-    operationHooks
-      .prepare(request, requestRootType)
-      .foldZIO(
-        Executor.fail,
-        prepared =>
-          planner.plan(prepared.document, prepared.executionRequest) match {
-            case Left(failure) => ZIO.succeed(planFailure(failure))
-            case Right(plan)   => executePlan(plan, prepared.executionRequest, prepared.request)
-          }
-      )
+    control.admit(
+      operations
+        .prepare(request)
+        .foldZIO(
+          Executor.fail,
+          prepared => executePlan(prepared.plan, prepared.executionRequest, prepared.request)
+        )
+    )
 
   private def executePlan(
     plan: OperationPlan,
@@ -612,9 +607,6 @@ private[gateway] final class GatewayRuntimeImpl[-R](
 
   private def isIntrospectionField(field: Field): Boolean =
     field.name == "__schema" || field.name == "__type"
-
-  private def planFailure(failure: PlanningFailure): GraphQLResponse[CalibanError] =
-    GraphQLResponse(NullValue, List(CalibanError.ExecutionError(failure.message)))
 
   private def rootFailure(route: RootRoute): GraphQLResponse[CalibanError] =
     GraphQLResponse(

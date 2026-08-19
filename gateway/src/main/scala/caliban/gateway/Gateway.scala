@@ -2,6 +2,7 @@ package caliban.gateway
 
 import caliban.gateway.Subgraph.Source
 import caliban.gateway.internal._
+import caliban.introspection.Introspector
 import caliban.parsing.adt.Definition.TypeSystemDefinition.SchemaDefinition
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
 import caliban.parsing.adt.Definition.TypeSystemExtension.SchemaExtension
@@ -24,26 +25,33 @@ import zio._
 final class Gateway[-R] private[gateway] (
   private val subgraphs: List[Subgraph[R]],
   private val resolver: Option[OperationResolver[R]],
-  private val policy: Option[OperationPolicy[R]]
+  private val policy: Option[OperationPolicy[R]],
+  private val config: GatewayConfig
 ) {
 
   /**
    * Builds an executable runtime within the current scope.
    */
   def build(implicit trace: Trace): ZIO[Scope, GatewayBuildError, GatewayRuntime[R]] =
-    Gateway.build(subgraphs, resolver, policy)
+    Gateway.build(subgraphs, resolver, policy, config)
+
+  /**
+   * Transforms the finite operation and admission limits used by each built runtime.
+   */
+  def withConfig(configure: GatewayConfig => GatewayConfig): Gateway[R] =
+    new Gateway(subgraphs, resolver, policy, configure(config))
 
   /**
    * Resolves canonical GraphQL text before parsing and validation.
    */
   def withOperationResolver[R1](value: OperationResolver[R1]): Gateway[R with R1] =
-    new Gateway(subgraphs, Some(value), policy)
+    new Gateway(subgraphs, Some(value), policy, config)
 
   /**
    * Allows or rejects operations after validation and variable coercion.
    */
   def withOperationPolicy[R1](value: OperationPolicy[R1]): Gateway[R with R1] =
-    new Gateway(subgraphs, resolver, Some(value))
+    new Gateway(subgraphs, resolver, Some(value), config)
 }
 
 object Gateway {
@@ -52,31 +60,34 @@ object Gateway {
    * Creates a reusable gateway description from one or more subgraphs.
    */
   def compose[R](first: Subgraph[R], rest: Subgraph[R]*): Gateway[R] =
-    new Gateway[R](first :: rest.toList, None, None)
+    new Gateway[R](first :: rest.toList, None, None, GatewayConfig.default)
 
   private def build[R](
     subgraphs: List[Subgraph[R]],
     resolver: Option[OperationResolver[R]],
-    policy: Option[OperationPolicy[R]]
+    policy: Option[OperationPolicy[R]],
+    config: GatewayConfig
   )(implicit
     trace: Trace
   ): ZIO[Scope, GatewayBuildError, GatewayRuntime[R]] =
-    ZIO.scopeWith { parent =>
-      ZIO.uninterruptibleMask { restore =>
-        for {
-          child   <- parent.fork
-          runtime <- restore(child.extend(buildRuntime(subgraphs, resolver, policy))).onExit {
-                       case failure @ Exit.Failure(_) => child.close(failure)
-                       case Exit.Success(_)           => ZIO.unit
-                     }
-        } yield runtime
+    ZIO.fail(GatewayBuildError(config.diagnostics)).when(config.diagnostics.nonEmpty) *>
+      ZIO.scopeWith { parent =>
+        ZIO.uninterruptibleMask { restore =>
+          for {
+            child   <- parent.fork
+            runtime <- restore(child.extend(buildRuntime(subgraphs, resolver, policy, config))).onExit {
+                         case failure @ Exit.Failure(_) => child.close(failure)
+                         case Exit.Success(_)           => ZIO.unit
+                       }
+          } yield runtime
+        }
       }
-    }
 
   private def buildRuntime[R](
     subgraphs: List[Subgraph[R]],
     resolver: Option[OperationResolver[R]],
-    policy: Option[OperationPolicy[R]]
+    policy: Option[OperationPolicy[R]],
+    config: GatewayConfig
   )(implicit
     trace: Trace
   ): ZIO[Scope, GatewayBuildError, GatewayRuntime[R]] =
@@ -88,7 +99,7 @@ object Gateway {
             .map(Some(_))
             .mapError(_ => GatewayBuildError("Unable to initialize the remote GraphQL transport."))
         else ZIO.none
-      loaded       <- ZIO.foreachPar(subgraphs)(load(_, backend).either)
+      loaded       <- ZIO.foreachPar(subgraphs)(load(_, backend, config.maxConcurrentLocalCalls).either)
       contributions = loaded.collect { case Right(value) => value.contribution }
       diagnostics   = nameDiagnostics(subgraphs) ::: loaded.collect { case Left(diagnostics) => diagnostics }.flatten
       composed      =
@@ -102,10 +113,20 @@ object Gateway {
                           if (diagnostics.isEmpty) ZIO.succeed(graph)
                           else ZIO.fail(GatewayBuildError(diagnostics.distinct.sorted))
                         }
-      sources       = loaded.collect { case Right(value) => value.contribution.name -> value.source }.toMap
-    } yield new GatewayRuntimeImpl[R](graph, sources, new OperationHooks(resolver, policy))
+      rawSources    = loaded.collect { case Right(value) => value.contribution.name -> value.source }.toMap
+      sourceLimits  = loaded.collect { case Right(value) => value.contribution.name -> value.maxConcurrentCalls }.toMap
+      control      <- RuntimeControl.make(config.maxConcurrentRequests, sourceLimits)
+      sources       = rawSources.map { case (name, source) => name -> control.source(name, source) }
+      requestRoot   = Introspector.withIntrospection(graph.rootType)
+      operations   <- OperationPreparation.make(
+                        requestRoot,
+                        new OperationPlanner(graph, sources.size),
+                        new OperationHooks(resolver, policy),
+                        config
+                      )
+    } yield new GatewayRuntimeImpl[R](graph, sources, operations, control)
 
-  private def load[R](subgraph: Subgraph[R], backend: Option[SttpClient])(implicit
+  private def load[R](subgraph: Subgraph[R], backend: Option[SttpClient], localCallLimit: Int)(implicit
     trace: Trace
   ): IO[List[String], LoadedSubgraph[R]] =
     subgraph.source match {
@@ -125,7 +146,7 @@ object Gateway {
           sourceRootType          <- toRootType(subgraph.name, rootDocument).mapError(_ :: Nil)
           contribution            <- prepareContribution(subgraph, sourceRootType, rootDocument, document, federation)
           source: GraphQLSource[R] = RemoteGraphQLSource(endpoint, client, config)
-        } yield LoadedSubgraph(contribution, source)
+        } yield LoadedSubgraph(contribution, source, config.execution.maxConcurrentCalls)
       case Source.Local(graph)                                 =>
         val document   = graph.toDocument
         val federation = SchemaComposition.isFederation(document)
@@ -135,12 +156,13 @@ object Gateway {
           interpreter    <- ZIO
                               .fromEither(graph.interpreterEither)
                               .mapError(error => List(s"[${subgraph.name}] ${error.getMessage}"))
-        } yield LoadedSubgraph(contribution, new LocalGraphQLSource(interpreter))
+        } yield LoadedSubgraph(contribution, new LocalGraphQLSource(interpreter), localCallLimit)
     }
 
   private final case class LoadedSubgraph[-R](
     contribution: SchemaContribution,
-    source: GraphQLSource[R]
+    source: GraphQLSource[R],
+    maxConcurrentCalls: Int
   )
 
   private def isRemote[R](subgraph: Subgraph[R]): Boolean =

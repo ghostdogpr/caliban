@@ -1,11 +1,10 @@
 package caliban.gateway.internal
 
-import caliban.execution.{ ExecutionRequest, RequestPreparation }
+import caliban.execution.ExecutionRequest
 import caliban.gateway.OperationHookCacheBehavior.{ Bypass => BypassCache, Stable }
 import caliban.gateway.OperationPolicy.{ Allow, Reject, ValidatedOperation }
 import caliban.gateway.{ OperationPolicy, OperationResolver }
 import caliban.parsing.adt.Document
-import caliban.schema.RootType
 import caliban.{ CalibanError, GraphQLRequest }
 import zio.{ Cause, Trace, ZIO }
 
@@ -24,21 +23,7 @@ private[gateway] final class OperationHooks[-R](
         )
     }
 
-  def prepare(request: GraphQLRequest, rootType: RootType)(implicit
-    trace: Trace
-  ): ZIO[R, CalibanError, OperationHooks.Prepared] =
-    for {
-      resolved <- resolve(request)
-      prepared <- RequestPreparation.prepareWithIntrospection(resolved, rootType)
-      _        <- evaluatePolicy(resolved, prepared)
-    } yield OperationHooks.Prepared(
-      resolved,
-      prepared.document,
-      prepared.executionRequest,
-      cacheDirective
-    )
-
-  private def resolve(request: GraphQLRequest)(implicit trace: Trace): ZIO[R, CalibanError, GraphQLRequest] =
+  private[gateway] def resolve(request: GraphQLRequest)(implicit trace: Trace): ZIO[R, CalibanError, GraphQLRequest] =
     resolver match {
       case Some(resolver) =>
         OperationHooks
@@ -50,13 +35,14 @@ private[gateway] final class OperationHooks[-R](
       case None           => ZIO.succeed(request)
     }
 
-  private def evaluatePolicy(
+  private[gateway] def evaluatePolicy(
     request: GraphQLRequest,
-    prepared: RequestPreparation.Prepared
+    document: Document,
+    executionRequest: ExecutionRequest
   )(implicit trace: Trace): ZIO[R, CalibanError, Unit] =
     policy match {
       case Some(policy) =>
-        val operation = new ValidatedOperation(request, prepared.document, prepared.executionRequest)
+        val operation = new ValidatedOperation(request, document, executionRequest)
         OperationHooks
           .run(policy.evaluate(operation), OperationHooks.PolicyFailure)
           .flatMap {
@@ -69,13 +55,6 @@ private[gateway] final class OperationHooks[-R](
 }
 
 private[gateway] object OperationHooks {
-  final case class Prepared(
-    request: GraphQLRequest,
-    document: Document,
-    executionRequest: ExecutionRequest,
-    cacheDirective: OperationCacheDirective
-  )
-
   private val ResolutionFailure = CalibanError.ValidationError("Operation resolution failed.", "")
   private val PolicyFailure     = CalibanError.ValidationError("Operation policy failed.", "")
   private val PolicyRejection   = CalibanError.ValidationError("Operation rejected by gateway policy.", "")
