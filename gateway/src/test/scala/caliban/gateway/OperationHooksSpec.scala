@@ -168,10 +168,12 @@ object OperationHooksSpec extends ZIOSpecDefault {
     },
     test("keeps stable hook discriminators or signals cache bypass") {
       val stable = new OperationHooks[Any](
+        _ => Nil,
         Some(OperationResolver.stable[Any]("documents-v1")(_ => ZIO.succeed(query))),
         Some(OperationPolicy.stable[Any]("policy-v1")(_ => ZIO.succeed(Allow)))
       )
       val bypass = new OperationHooks[Any](
+        _ => Nil,
         Some(OperationResolver.uncached[Any](_ => ZIO.succeed(query))),
         None
       )

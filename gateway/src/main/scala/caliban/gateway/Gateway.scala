@@ -111,6 +111,9 @@ object Gateway {
                           if (diagnostics.isEmpty) ZIO.succeed(graph)
                           else ZIO.fail(GatewayBuildError(diagnostics.distinct.sorted))
                         }
+      _            <- ZIO
+                        .fail(GatewayBuildError(graph.securityPolicyDiagnostics))
+                        .when(policy.isEmpty && graph.hasSecurityRequirements)
       rawSources    = loaded.collect { case Right(value) => value.contribution.name -> value.source }.toMap
       sourceLimits  = loaded.collect { case Right(value) => value.contribution.name -> value.maxConcurrentCalls }.toMap
       control      <- RuntimeControl.make(
@@ -124,7 +127,7 @@ object Gateway {
       operations   <- OperationPreparation.make(
                         requestRoot,
                         new OperationPlanner(graph, sources.size),
-                        new OperationHooks(resolver, policy),
+                        new OperationHooks(graph.securityRequirements, resolver, policy),
                         config
                       )
     } yield new GatewayRuntimeImpl[R](graph, sources, operations, control)

@@ -21,8 +21,47 @@ object OperationPolicy {
   final class ValidatedOperation private[gateway] (
     val request: GraphQLRequest,
     val document: Document,
-    val executionRequest: ExecutionRequest
+    val executionRequest: ExecutionRequest,
+    val securityRequirements: List[SecurityRequirement]
   )
+
+  /**
+   * A composed security requirement reached by one selected client field.
+   *
+   * Every requirement, directive, and runtime type condition is conjunctive. `responsePath` uses client response names,
+   * including aliases. `fieldName = None` identifies a type-level directive application.
+   */
+  final case class SecurityRequirement(
+    responsePath: List[String],
+    typeName: String,
+    fieldName: Option[String],
+    runtimeTypeConditions: List[RuntimeTypeCondition],
+    directives: List[SecurityDirective]
+  )
+
+  /**
+   * Limits a requirement to values of `responsePath` whose runtime type is any member of `types`.
+   *
+   * Multiple runtime type conditions on a requirement are conjunctive, while the types within one condition are
+   * disjunctive.
+   */
+  final case class RuntimeTypeCondition(responsePath: List[String], types: Set[String])
+
+  sealed trait SecurityDirective
+
+  object SecurityDirective {
+    case object Authenticated extends SecurityDirective
+
+    /**
+     * Scope alternatives. The outer list is disjunctive and every inner list is conjunctive.
+     */
+    final case class RequiresScopes(scopes: List[List[String]]) extends SecurityDirective
+
+    /**
+     * Policy alternatives. The outer list is disjunctive and every inner list is conjunctive.
+     */
+    final case class Policy(policies: List[List[String]]) extends SecurityDirective
+  }
 
   sealed trait Decision
   case object Allow  extends Decision

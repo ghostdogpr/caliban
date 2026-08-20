@@ -3,7 +3,9 @@ package caliban.gateway.internal
 import caliban.{ PathValue, ResponseValue }
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ BooleanValue, NullValue, StringValue }
+import caliban.execution.{ ExecutionRequest, Field }
 import caliban.gateway.Lookup
+import caliban.gateway.OperationPolicy.{ RuntimeTypeCondition, SecurityDirective, SecurityRequirement }
 import caliban.introspection.adt._
 import caliban.parsing.{ Parser, SourceMapper }
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition
@@ -36,8 +38,27 @@ private[gateway] final class ComposedGraph private[internal] (
   private val provisions: Map[(String, String, String), List[Selection]],
   private val interfaceObjects: Set[(String, String)],
   private val sourceRuntimeTypes: Map[(String, String), Set[String]],
-  private val mappings: Map[String, SchemaCoordinateMapping]
+  private val mappings: Map[String, SchemaCoordinateMapping],
+  private val securityApplications: List[ComposedGraph.SecurityApplication]
 ) {
+  private val securityByCoordinate =
+    securityApplications.groupBy(application => application.typeName -> application.fieldName)
+  private val runtimeTypesByName   = rootType.types.iterator.map { case (name, tpe) =>
+    val runtimeTypes =
+      if (tpe.kind == __TypeKind.OBJECT) Set(name)
+      else tpe.possibleTypes.getOrElse(Nil).flatMap(_.name).toSet
+    name -> runtimeTypes
+  }.toMap
+  private val securedFieldTypes    = securityApplications.iterator
+    .flatMap(application => application.fieldName.map(_ -> application.typeName))
+    .toList
+    .groupBy(_._1)
+    .map { case (fieldName, values) => fieldName -> values.map(_._2).distinct.sorted }
+  private val securedTypes         = securityApplications.collect {
+    case application if application.fieldName.isEmpty =>
+      application.typeName
+  }.distinct.sorted
+
   def sources(operation: OperationType, field: String): List[String] =
     routes.getOrElse(operation -> field, Nil)
 
@@ -66,6 +87,106 @@ private[gateway] final class ComposedGraph private[internal] (
 
   def mapping(source: String): Option[SchemaCoordinateMapping] =
     mappings.get(source)
+
+  def hasSecurityRequirements: Boolean = securityApplications.nonEmpty
+
+  def securityPolicyDiagnostics: List[String] =
+    securityApplications
+      .map(application =>
+        s"[${application.source}] Federation ${application.directiveName} at '${application.coordinate}' requires an operation policy."
+      )
+      .distinct
+      .sorted
+
+  def securityRequirements(execution: ExecutionRequest): List[SecurityRequirement] = {
+    def applications(typeName: String, fieldName: Option[String]): List[SecurityDirective] =
+      securityByCoordinate.getOrElse(typeName -> fieldName, Nil).map(_.directive)
+
+    def condition(path: List[String], types: Option[Set[String]]): List[RuntimeTypeCondition] =
+      types.filter(_.nonEmpty).map(RuntimeTypeCondition(path, _) :: Nil).getOrElse(Nil)
+
+    def runtimeTypes(typeName: String): Set[String] =
+      runtimeTypesByName.getOrElse(typeName, Set.empty)
+
+    def candidateConditions(
+      path: List[String],
+      selectedType: String,
+      candidateType: String,
+      selection: Option[Set[String]]
+    ): Option[List[RuntimeTypeCondition]] = {
+      val selected   = selection.getOrElse(runtimeTypes(selectedType))
+      val applicable = selected intersect runtimeTypes(candidateType)
+      if (applicable.isEmpty) None
+      else if (applicable == selected) Some(Nil)
+      else Some(RuntimeTypeCondition(path, applicable) :: Nil)
+    }
+
+    def selected(
+      responsePath: List[String],
+      typeName: String,
+      fieldName: Option[String],
+      runtimeTypeConditions: List[RuntimeTypeCondition]
+    ): List[SecurityRequirement] = {
+      val values = applications(typeName, fieldName)
+      if (values.isEmpty) Nil
+      else SecurityRequirement(responsePath, typeName, fieldName, runtimeTypeConditions, values) :: Nil
+    }
+
+    def loop(
+      fields: List[Field],
+      parentPath: Vector[String],
+      root: Boolean,
+      inheritedConditions: List[RuntimeTypeCondition]
+    ): List[SecurityRequirement] =
+      fields.flatMap { field =>
+        if (ExecutionRequest.isMetaField(field)) Nil
+        else {
+          val responsePath     = parentPath :+ field.aliasedName
+          val parentType       = field.parentType.flatMap(_.innerType.name).getOrElse("")
+          val outputType       = field.fieldType.innerType.name.getOrElse("")
+          val parentConditions = (inheritedConditions ::: condition(parentPath.toList, field._condition)).distinct
+          val direct           = selected(responsePath.toList, parentType, Some(field.name), parentConditions)
+          val rootRequirements =
+            if (root) selected(responsePath.toList, parentType, None, parentConditions)
+            else Nil
+          val relatedFields    = securedFieldTypes.getOrElse(field.name, Nil).flatMap { typeName =>
+            if (typeName == parentType) Nil
+            else
+              candidateConditions(parentPath.toList, parentType, typeName, field._condition).toList.flatMap {
+                conditions =>
+                  selected(
+                    responsePath.toList,
+                    typeName,
+                    Some(field.name),
+                    (parentConditions ::: conditions).distinct
+                  )
+              }
+          }
+          val output           = selected(responsePath.toList, outputType, None, parentConditions)
+          val relatedOutput    = securedTypes.flatMap { typeName =>
+            if (typeName == outputType) Nil
+            else
+              candidateConditions(responsePath.toList, outputType, typeName, None).toList.flatMap { conditions =>
+                selected(
+                  responsePath.toList,
+                  typeName,
+                  None,
+                  (parentConditions ::: conditions).distinct
+                )
+              }
+          }
+
+          rootRequirements ::: direct ::: relatedFields ::: output ::: relatedOutput ::: loop(
+            field.fields,
+            responsePath,
+            root = false,
+            parentConditions
+          )
+        }
+      }
+
+    loop(execution.field.fields, Vector.empty, root = true, Nil)
+  }
 
   def isInterfaceObject(source: String, typeName: String): Boolean =
     interfaceObjects.contains(source -> typeName)
@@ -289,6 +410,20 @@ private[gateway] final class ComposedGraph private[internal] (
 private[gateway] object ComposedGraph {
   final case class KeyField(name: String, children: List[KeyField])
 
+  private[internal] final case class SecurityApplication(
+    source: String,
+    typeName: String,
+    fieldName: Option[String],
+    directive: SecurityDirective
+  ) {
+    val coordinate: String    = fieldName.fold(typeName)(name => s"$typeName.$name")
+    val directiveName: String = directive match {
+      case SecurityDirective.Authenticated     => "@authenticated"
+      case _: SecurityDirective.RequiresScopes => "@requiresScopes"
+      case _: SecurityDirective.Policy         => "@policy"
+    }
+  }
+
   final case class EntityLookup(
     key: List[KeyField],
     operation: LookupOperation,
@@ -374,10 +509,13 @@ private[gateway] object SchemaComposition {
         .map(metadata.schema.name -> _)
     }
     val compiledFieldSets = prepared.map(federationFieldSets)
+    val compiledSecurity  = prepared.map(securityApplications)
     val diagnostics       =
       (lookupDiagnostics(schemas) :::
         prepared.flatMap(federationKeyDiagnostics) :::
         compiledFieldSets.flatMap(_.fold(identity, _ => Nil)) :::
+        compiledSecurity.flatMap(_.fold(identity, _ => Nil)) :::
+        prepared.flatMap(unsupportedFederationDiagnostics) :::
         rootDiagnostics(OperationType.Query, queryEntries) :::
         rootDiagnostics(OperationType.Mutation, mutationEntries) :::
         incompatibleTypeDiagnostics(types, enumUsages) :::
@@ -403,6 +541,8 @@ private[gateway] object SchemaComposition {
         chooseCompatibleDirectives(directives)
       )
       val transformationDiagnostics                          = invalidTransformationDiagnostics(schemas, rootType)
+      val allSecurity                                        = compiledSecurity.flatMap(_.toOption).flatten
+      val securityVisibilityDiagnostics                      = hiddenSecurityDiagnostics(allSecurity, rootType)
       val routes: Map[(OperationType, String), List[String]] = rootRoutes(OperationType.Query, queryEntries) ++
         rootRoutes(OperationType.Mutation, mutationEntries)
       val fieldDefinitions                                   = types
@@ -425,8 +565,19 @@ private[gateway] object SchemaComposition {
       val fieldSets                                          = compiledFieldSets.flatMap(_.toOption)
       val requirements                                       = fieldSets.flatMap(_.requirements).toMap
       val provisions                                         = fieldSets.flatMap(_.provisions).toMap
-
-      if (transformationDiagnostics.nonEmpty) Left(transformationDiagnostics)
+      val transitiveSecurityDiagnostics                      = missingTransitiveSecurityDiagnostics(
+        requirements,
+        allSecurity,
+        rootType,
+        schemas
+      )
+      if (
+        transformationDiagnostics.nonEmpty || securityVisibilityDiagnostics.nonEmpty ||
+        transitiveSecurityDiagnostics.nonEmpty
+      )
+        Left(
+          (transformationDiagnostics ::: securityVisibilityDiagnostics ::: transitiveSecurityDiagnostics).distinct.sorted
+        )
       else
         SchemaValidator
           .validateRootType(rootType)
@@ -450,10 +601,141 @@ private[gateway] object SchemaComposition {
                   (schema.name -> name) -> runtimeTypes
                 }
               }.toMap,
-              schemas.iterator.map(schema => schema.name -> schema.mapping).toMap
+              schemas.iterator.map(schema => schema.name -> schema.mapping).toMap,
+              allSecurity
             )
           )
     }
+  }
+
+  private def hiddenSecurityDiagnostics(
+    applications: List[ComposedGraph.SecurityApplication],
+    rootType: RootType
+  ): List[String] =
+    applications.collect {
+      case application if !rootType.types.get(application.typeName).exists { tpe =>
+            application.fieldName.forall(name => tpe.allFields.exists(_.name == name))
+          } =>
+        s"[${application.source}] Federation ${application.directiveName} at '${application.coordinate}' cannot be enforced because the coordinate is not client-visible."
+    }
+
+  private final case class SecurityProfile(
+    authenticated: Boolean,
+    scopes: Option[List[Set[String]]],
+    policies: Option[List[Set[String]]]
+  ) {
+    def implies(required: SecurityProfile): Boolean =
+      (authenticated || !required.authenticated) &&
+        SecurityProfile.implies(scopes, required.scopes) &&
+        SecurityProfile.implies(policies, required.policies)
+  }
+
+  private object SecurityProfile {
+    def apply(applications: List[ComposedGraph.SecurityApplication]): SecurityProfile =
+      SecurityProfile(
+        applications.exists(_.directive == SecurityDirective.Authenticated),
+        conjunction(applications.flatMap { application =>
+          application.directive match {
+            case SecurityDirective.RequiresScopes(values) => Some(values)
+            case _                                        => None
+          }
+        }),
+        conjunction(applications.flatMap { application =>
+          application.directive match {
+            case SecurityDirective.Policy(values) => Some(values)
+            case _                                => None
+          }
+        })
+      )
+
+    private def conjunction(expressions: List[List[List[String]]]): Option[List[Set[String]]] =
+      if (expressions.isEmpty) None
+      else
+        Some(
+          expressions.foldLeft(List(Set.empty[String])) { (acc, expression) =>
+            val normalized = if (expression.isEmpty) List(Nil) else expression
+            val combined   = for {
+              left  <- acc
+              right <- normalized
+            } yield left ++ right
+            combined.distinct.filterNot(candidate =>
+              combined.exists(other => other != candidate && other.subsetOf(candidate))
+            )
+          }
+        )
+
+    private def implies(actual: Option[List[Set[String]]], required: Option[List[Set[String]]]): Boolean = {
+      val actualValues   = actual.getOrElse(List(Set.empty[String]))
+      val requiredValues = required.getOrElse(List(Set.empty[String]))
+      actualValues.forall(value => requiredValues.exists(_.subsetOf(value)))
+    }
+  }
+
+  private def missingTransitiveSecurityDiagnostics(
+    requirements: Map[(String, String, String), List[Selection]],
+    applications: List[ComposedGraph.SecurityApplication],
+    rootType: RootType,
+    schemas: List[SchemaContribution]
+  ): List[String] = {
+    val schemaByName       = schemas.iterator.map(schema => schema.name -> schema).toMap
+    val runtimeTypesByName = rootType.types.iterator.map { case (name, tpe) =>
+      val runtimeTypes =
+        if (tpe.kind == __TypeKind.OBJECT) Set(name)
+        else tpe.possibleTypes.getOrElse(Nil).flatMap(_.name).toSet
+      name -> runtimeTypes
+    }.toMap
+
+    def applicable(selectedType: String, candidateType: String): Boolean =
+      selectedType == candidateType || {
+        val selected  = runtimeTypesByName.getOrElse(selectedType, Set.empty)
+        val candidate = runtimeTypesByName.getOrElse(candidateType, Set.empty)
+        selected.nonEmpty && candidate.nonEmpty && (selected intersect candidate).nonEmpty
+      }
+
+    def typeApplications(typeName: String): List[ComposedGraph.SecurityApplication] =
+      applications.filter(application => application.fieldName.isEmpty && applicable(typeName, application.typeName))
+
+    def fieldApplications(typeName: String, fieldName: String): List[ComposedGraph.SecurityApplication] =
+      applications.filter(application =>
+        application.fieldName.contains(fieldName) && applicable(typeName, application.typeName)
+      )
+
+    def profile(typeName: String, fieldName: Option[String]): SecurityProfile =
+      SecurityProfile(typeApplications(typeName) ::: fieldName.toList.flatMap(fieldApplications(typeName, _)))
+
+    def dependencies(
+      selections: List[Selection],
+      parentType: String
+    ): List[(String, SecurityProfile)] =
+      selections.flatMap {
+        case field: Selection.Field             =>
+          rootType.types
+            .get(parentType)
+            .flatMap(_.allFields.find(_.name == field.name))
+            .toList
+            .flatMap { definition =>
+              val outputType = definition._type.innerType.name
+              val required   = SecurityProfile(
+                fieldApplications(parentType, field.name) ::: outputType.toList.flatMap(typeApplications)
+              )
+              (s"$parentType.${field.name}" -> required) ::
+                outputType.toList.flatMap(dependencies(field.selectionSet, _))
+            }
+        case fragment: Selection.InlineFragment =>
+          val selectedType = fragment.typeCondition.fold(parentType)(_.name)
+          val required     = SecurityProfile(typeApplications(selectedType))
+          (selectedType -> required) :: dependencies(fragment.selectionSet, selectedType)
+        case _: Selection.FragmentSpread        => Nil
+      }
+
+    requirements.toList.flatMap { case ((source, sourceType, fieldName), selections) =>
+      val typeName  = schemaByName.get(source).fold(sourceType)(composedTypeName(_, sourceType))
+      val available = profile(typeName, Some(fieldName))
+      dependencies(selections, typeName).collect {
+        case (dependency, required) if !available.implies(required) =>
+          s"[$source] Field '$typeName.$fieldName' does not specify sufficient Federation security requirements for @requires dependency '$dependency'."
+      }
+    }.distinct.sorted
   }
 
   private def invalidTransformationDiagnostics(
@@ -896,6 +1178,15 @@ private[gateway] object SchemaComposition {
 
   private final case class EnumUsage(input: Boolean, output: Boolean)
 
+  private final case class SecurityCoordinate(typeName: String, fieldName: Option[String])
+
+  private final case class TypeSystemDirectiveApplication(
+    coordinate: String,
+    directives: List[Directive],
+    securityCoordinate: Option[SecurityCoordinate],
+    supportsOverride: Boolean
+  )
+
   private def objectLikeEntries(document: Document): List[(String, List[Directive], List[FieldDefinition])] =
     document.typeDefinitions.collect {
       case definition: ObjectTypeDefinition    => (definition.name, definition.directives, definition.fields)
@@ -904,6 +1195,216 @@ private[gateway] object SchemaComposition {
       case extension: ObjectTypeExtension    => (extension.name, extension.directives, extension.fields)
       case extension: InterfaceTypeExtension => (extension.name, extension.directives, extension.fields)
     }
+
+  private def typeSystemDirectiveApplications(
+    document: Document,
+    composedName: String => String
+  ): List[TypeSystemDirectiveApplication] = {
+    def unsupported(coordinate: String, directives: List[Directive]): TypeSystemDirectiveApplication =
+      TypeSystemDirectiveApplication(coordinate, directives, None, supportsOverride = false)
+
+    def typeApplication(
+      name: String,
+      directives: List[Directive],
+      supportsSecurity: Boolean
+    ): TypeSystemDirectiveApplication = {
+      val typeName = composedName(name)
+      TypeSystemDirectiveApplication(
+        typeName,
+        directives,
+        if (supportsSecurity) Some(SecurityCoordinate(typeName, None)) else None,
+        supportsOverride = false
+      )
+    }
+
+    def fieldApplications(typeName: String, fields: List[FieldDefinition]): List[TypeSystemDirectiveApplication] = {
+      val parent = composedName(typeName)
+      fields.flatMap { field =>
+        TypeSystemDirectiveApplication(
+          s"$parent.${field.name}",
+          field.directives,
+          Some(SecurityCoordinate(parent, Some(field.name))),
+          supportsOverride = true
+        ) :: field.args.map(argument => unsupported(s"$parent.${field.name}(${argument.name}:)", argument.directives))
+      }
+    }
+
+    def inputApplications(
+      typeName: String,
+      fields: List[InputValueDefinition]
+    ): List[TypeSystemDirectiveApplication] = {
+      val parent = composedName(typeName)
+      fields.map(field => unsupported(s"$parent.${field.name}", field.directives))
+    }
+
+    def enumApplications(
+      typeName: String,
+      values: List[EnumValueDefinition]
+    ): List[TypeSystemDirectiveApplication] = {
+      val parent = composedName(typeName)
+      values.map(value => unsupported(s"$parent.${value.enumValue}", value.directives))
+    }
+
+    val schemas            = document.schemaDefinition.toList.map(definition => unsupported("schema", definition.directives)) :::
+      document.typeExtensions.collect { case extension: SchemaExtension =>
+        unsupported("schema", extension.directives)
+      }
+    val types              = document.typeDefinitions.flatMap {
+      case definition: ScalarTypeDefinition      =>
+        typeApplication(definition.name, definition.directives, supportsSecurity = true) :: Nil
+      case definition: ObjectTypeDefinition      =>
+        typeApplication(definition.name, definition.directives, supportsSecurity = true) ::
+          fieldApplications(definition.name, definition.fields)
+      case definition: InterfaceTypeDefinition   =>
+        typeApplication(definition.name, definition.directives, supportsSecurity = true) ::
+          fieldApplications(definition.name, definition.fields)
+      case definition: UnionTypeDefinition       =>
+        typeApplication(definition.name, definition.directives, supportsSecurity = false) :: Nil
+      case definition: EnumTypeDefinition        =>
+        typeApplication(definition.name, definition.directives, supportsSecurity = true) ::
+          enumApplications(definition.name, definition.enumValuesDefinition)
+      case definition: InputObjectTypeDefinition =>
+        typeApplication(definition.name, definition.directives, supportsSecurity = false) ::
+          inputApplications(definition.name, definition.fields)
+    }
+    val extensions         = document.typeExtensions.flatMap {
+      case extension: SchemaExtension          => Nil
+      case extension: ScalarTypeExtension      =>
+        typeApplication(extension.name, extension.directives, supportsSecurity = true) :: Nil
+      case extension: ObjectTypeExtension      =>
+        typeApplication(extension.name, extension.directives, supportsSecurity = true) ::
+          fieldApplications(extension.name, extension.fields)
+      case extension: InterfaceTypeExtension   =>
+        typeApplication(extension.name, extension.directives, supportsSecurity = true) ::
+          fieldApplications(extension.name, extension.fields)
+      case extension: UnionTypeExtension       =>
+        typeApplication(extension.name, extension.directives, supportsSecurity = false) :: Nil
+      case extension: EnumTypeExtension        =>
+        typeApplication(extension.name, extension.directives, supportsSecurity = true) ::
+          enumApplications(extension.name, extension.enumValuesDefinition)
+      case extension: InputObjectTypeExtension =>
+        typeApplication(extension.name, extension.directives, supportsSecurity = false) ::
+          inputApplications(extension.name, extension.fields)
+    }
+    val directiveArguments = document.directiveDefinitions.flatMap { definition =>
+      definition.args.map(argument => unsupported(s"@${definition.name}(${argument.name}:)", argument.directives))
+    }
+
+    schemas ::: types ::: extensions ::: directiveArguments
+  }
+
+  private def securityApplications(
+    metadata: PreparedSchema
+  ): Either[List[String], List[ComposedGraph.SecurityApplication]] = {
+    val schema   = metadata.schema
+    val names    = metadata.directives
+    val compiled = typeSystemDirectiveApplications(schema.document, composedTypeName(schema, _)).flatMap {
+      application =>
+        application.securityCoordinate.toList.flatMap { securityCoordinate =>
+          application.directives.flatMap(directive =>
+            compileSecurityDirective(schema.name, application.coordinate, directive, names).map(
+              _.map { value =>
+                ComposedGraph.SecurityApplication(
+                  schema.name,
+                  securityCoordinate.typeName,
+                  securityCoordinate.fieldName,
+                  value
+                )
+              }
+            )
+          )
+        }
+    }
+    val errors   = compiled.collect { case Left(error) => error }
+
+    if (errors.nonEmpty) Left(errors)
+    else Right(compiled.collect { case Right(application) => application })
+  }
+
+  private def compileSecurityDirective(
+    source: String,
+    coordinate: String,
+    directive: Directive,
+    names: FederationDirectiveNames
+  ): Option[Either[String, SecurityDirective]] =
+    if (names.authenticated.contains(directive.name))
+      Some(
+        if (directive.arguments.isEmpty) Right(SecurityDirective.Authenticated)
+        else Left(s"[$source] Invalid Federation @authenticated application at '$coordinate'.")
+      )
+    else if (names.requiresScopes.contains(directive.name))
+      Some(
+        groupedStrings(directive.arguments, "scopes")
+          .map(SecurityDirective.RequiresScopes.apply)
+          .toRight(s"[$source] Invalid Federation @requiresScopes application at '$coordinate'.")
+      )
+    else if (names.policy.contains(directive.name))
+      Some(
+        groupedStrings(directive.arguments, "policies")
+          .map(SecurityDirective.Policy.apply)
+          .toRight(s"[$source] Invalid Federation @policy application at '$coordinate'.")
+      )
+    else None
+
+  private def groupedStrings(arguments: Map[String, caliban.InputValue], name: String): Option[List[List[String]]] =
+    if (arguments.keySet != Set(name)) None
+    else
+      arguments.get(name).collect { case caliban.InputValue.ListValue(groups) => groups }.flatMap { groups =>
+        val values = groups.map {
+          case caliban.InputValue.ListValue(entries) =>
+            val strings = entries.collect { case StringValue(value) => value }
+            if (strings.size == entries.size) Some(strings) else None
+          case _                                     => None
+        }
+        if (values.forall(_.nonEmpty)) Some(values.flatten) else None
+      }
+
+  private def composedTypeName(schema: SchemaContribution, typeName: String): String =
+    if (schema.rootType.queryType.name.contains(typeName)) "Query"
+    else if (schema.rootType.mutationType.flatMap(_.name).contains(typeName)) "Mutation"
+    else if (schema.rootType.subscriptionType.flatMap(_.name).contains(typeName)) "Subscription"
+    else typeName
+
+  private def unsupportedFederationDiagnostics(metadata: PreparedSchema): List[String] = {
+    val schema = metadata.schema
+    val names  = metadata.directives
+    typeSystemDirectiveApplications(schema.document, composedTypeName(schema, _)).flatMap { application =>
+      application.directives.flatMap { directive =>
+        val security          = securityDirectiveName(directive.name, names).collect {
+          case name if application.securityCoordinate.isEmpty =>
+            s"[${schema.name}] Federation $name is not supported at '${application.coordinate}'."
+        }
+        val unavailable       = names.unavailableSecurity
+          .get(directive.name)
+          .map(name =>
+            s"[${schema.name}] Federation $name is not available in the linked feature version at '${application.coordinate}'."
+          )
+        val context           =
+          if (names.context.contains(directive.name))
+            Some(s"[${schema.name}] Federation @context is not supported at '${application.coordinate}'.")
+          else None
+        val from              =
+          if (names.fromContext.contains(directive.name))
+            Some(s"[${schema.name}] Federation @fromContext is not supported at '${application.coordinate}'.")
+          else None
+        val overrideDirective =
+          if (!names.overrideDirective.contains(directive.name)) None
+          else if (directive.arguments.contains("label"))
+            Some(s"[${schema.name}] Federation @override(label:) is not supported at '${application.coordinate}'.")
+          else if (!application.supportsOverride)
+            Some(s"[${schema.name}] Federation @override is not supported at '${application.coordinate}'.")
+          else None
+
+        security.toList ::: unavailable.toList ::: context.toList ::: from.toList ::: overrideDirective.toList
+      }
+    }
+  }
+
+  private def securityDirectiveName(name: String, names: FederationDirectiveNames): Option[String] =
+    if (names.authenticated.contains(name)) Some("@authenticated")
+    else if (names.requiresScopes.contains(name)) Some("@requiresScopes")
+    else if (names.policy.contains(name)) Some("@policy")
+    else None
 
   private def federationFieldSets(
     metadata: PreparedSchema
@@ -1796,59 +2297,107 @@ private[gateway] object SchemaComposition {
     requires: Set[String],
     provides: Set[String],
     interfaceObject: Set[String],
+    authenticated: Set[String],
+    requiresScopes: Set[String],
+    policy: Set[String],
+    unavailableSecurity: Map[String, String],
+    context: Set[String],
+    fromContext: Set[String],
     hidden: Set[String],
     hiddenTypes: Set[String]
   )
 
   private final case class ImportedName(name: String, alias: String, directive: Boolean)
 
+  private final case class FeatureVersion(major: Int, minor: Int) {
+    def atLeast(requiredMajor: Int, requiredMinor: Int): Boolean =
+      major > requiredMajor || major == requiredMajor && minor >= requiredMinor
+  }
+
+  private final case class LinkedFeature(
+    directive: Directive,
+    identity: String,
+    name: String,
+    version: FeatureVersion,
+    namespace: String,
+    imports: List[ImportedName]
+  ) {
+    def directiveNames(name: String): Set[String] = {
+      val imported  = imports.collect { case value if value.directive && value.name == name => value.alias }.toSet
+      val qualified = if (this.name == name) Set(namespace) else Set(s"${namespace}__$name")
+      imported ++ qualified
+    }
+  }
+
   private def federationDirectiveNames(document: Document): FederationDirectiveNames = {
-    val links                                                          = federationLinks(document)
-    val imported                                                       = links.flatMap(_.arguments.get("import").toList).flatMap {
-      case caliban.InputValue.ListValue(values) => values
-      case _                                    => Nil
-    }
-    val imports                                                        = imported.flatMap {
-      case StringValue(name)                      =>
-        Some(ImportedName(name.stripPrefix("@"), name.stripPrefix("@"), name.startsWith("@")))
-      case caliban.InputValue.ObjectValue(fields) =>
-        fields.get("name").collect { case StringValue(name) => name }.map { name =>
-          val alias = fields.get("as").collect { case StringValue(value) => value }.getOrElse(name)
-          ImportedName(name.stripPrefix("@"), alias.stripPrefix("@"), name.startsWith("@"))
-        }
-      case _                                      => None
-    }
-    val directiveAliases                                               = imports.iterator.collect { case value if value.directive => value.name -> value.alias }.toMap
-    val federationNamespaces                                           = links.iterator
-      .map(
-        _.arguments
-          .get("as")
-          .collect { case StringValue(value) => value.stripPrefix("@") }
-          .getOrElse("federation")
-      )
-      .toSet
-    val namespaces                                                     = federationNamespaces ++ (if (links.nonEmpty) Set("link") else Set.empty)
-    val namespacePrefix                                                = namespaces.map(_ + "__")
-    val hiddenTypes                                                    = document.typeDefinitions.iterator
+    val links                                                                    = linkedFeatures(document)
+    val federation                                                               = links.filter(_.identity == FederationIdentity)
+    val security                                                                 = links.filter(feature => SecurityFeatureIdentities.contains(feature.identity))
+    val relevant                                                                 = federation ::: security
+    val imports                                                                  = relevant.flatMap(_.imports)
+    val namespaces                                                               = relevant.iterator.map(_.namespace).toSet ++
+      (if (links.nonEmpty) Set("link") else Set.empty)
+    val namespacePrefix                                                          = namespaces.map(_ + "__")
+    val hiddenTypes                                                              = document.typeDefinitions.iterator
       .map(_.name)
       .filter(name => namespacePrefix.exists(name.startsWith))
       .toSet ++ imports.collect { case value if !value.directive => value.alias } ++
       Set("_Any", "_Entity", "_FieldSet", "_Service")
-    def names(name: String, federation1: Boolean = false): Set[String] =
-      directiveAliases.get(name).toSet ++ federationNamespaces.map(_ + "__" + name) ++
-        (if (federation1 && links.isEmpty) Set(name) else Set.empty)
+    def federationNames(name: String, federation1: Boolean = false): Set[String] =
+      federation.iterator.flatMap(_.directiveNames(name)).toSet ++
+        (if (federation1 && federation.isEmpty) Set(name) else Set.empty)
+    def securityNames(
+      name: String,
+      federationMajor: Int,
+      federationMinor: Int,
+      identity: String
+    ): Set[String] =
+      federation.iterator
+        .filter(_.version.atLeast(federationMajor, federationMinor))
+        .flatMap(_.directiveNames(name))
+        .toSet ++
+        security.iterator
+          .filter(feature => feature.identity == identity && feature.version == FeatureVersion(0, 1))
+          .flatMap(_.directiveNames(name))
+          .toSet
+    def unavailableSecurityNames(
+      name: String,
+      federationMajor: Int,
+      federationMinor: Int,
+      identity: String
+    ): Set[String] =
+      federation.iterator
+        .filterNot(_.version.atLeast(federationMajor, federationMinor))
+        .flatMap(_.directiveNames(name))
+        .toSet ++
+        security.iterator
+          .filter(feature => feature.identity == identity && feature.version != FeatureVersion(0, 1))
+          .flatMap(_.directiveNames(name))
+          .toSet
 
-    val keyNames          = names("key", federation1 = true)
-    val externalNames     = names("external", federation1 = true)
-    val extendsNames      = names("extends", federation1 = true)
-    val shareableNames    = names("shareable")
-    val inaccessibleNames = names("inaccessible")
-    val overrideNames     = names("override")
-    val requiresNames     = names("requires", federation1 = true)
-    val providesNames     = names("provides", federation1 = true)
-    val interfaceObjects  = names("interfaceObject")
-    val hiddenDirectives  = Set("link") ++ keyNames ++ externalNames ++ extendsNames ++ shareableNames ++
+    val keyNames            = federationNames("key", federation1 = true)
+    val externalNames       = federationNames("external", federation1 = true)
+    val extendsNames        = federationNames("extends", federation1 = true)
+    val shareableNames      = federationNames("shareable")
+    val inaccessibleNames   = federationNames("inaccessible")
+    val overrideNames       = federationNames("override")
+    val requiresNames       = federationNames("requires", federation1 = true)
+    val providesNames       = federationNames("provides", federation1 = true)
+    val interfaceObjects    = federationNames("interfaceObject")
+    val authenticated       = securityNames("authenticated", 2, 5, AuthenticatedIdentity)
+    val requiresScopes      = securityNames("requiresScopes", 2, 5, RequiresScopesIdentity)
+    val policy              = securityNames("policy", 2, 6, PolicyIdentity)
+    val unavailableSecurity =
+      unavailableSecurityNames("authenticated", 2, 5, AuthenticatedIdentity).map(_ -> "@authenticated").toMap ++
+        unavailableSecurityNames("requiresScopes", 2, 5, RequiresScopesIdentity)
+          .map(_ -> "@requiresScopes")
+          .toMap ++
+        unavailableSecurityNames("policy", 2, 6, PolicyIdentity).map(_ -> "@policy").toMap
+    val context             = federationNames("context")
+    val fromContext         = federationNames("fromContext")
+    val hiddenDirectives    = Set("link") ++ keyNames ++ externalNames ++ extendsNames ++ shareableNames ++
       inaccessibleNames ++ overrideNames ++ requiresNames ++ providesNames ++ interfaceObjects ++
+      authenticated ++ requiresScopes ++ policy ++ unavailableSecurity.keySet ++ context ++ fromContext ++
       document.directiveDefinitions.iterator.map(_.name).filter(name => namespacePrefix.exists(name.startsWith))
 
     FederationDirectiveNames(
@@ -1861,22 +2410,81 @@ private[gateway] object SchemaComposition {
       requiresNames,
       providesNames,
       interfaceObjects,
+      authenticated,
+      requiresScopes,
+      policy,
+      unavailableSecurity,
+      context,
+      fromContext,
       hiddenDirectives,
       hiddenTypes
     )
   }
 
-  private def federationLinks(document: Document): List[Directive] = {
+  private val FederationIdentity        = "https://specs.apollo.dev/federation"
+  private val AuthenticatedIdentity     = "https://specs.apollo.dev/authenticated"
+  private val RequiresScopesIdentity    = "https://specs.apollo.dev/requiresScopes"
+  private val PolicyIdentity            = "https://specs.apollo.dev/policy"
+  private val SecurityFeatureIdentities = Set(AuthenticatedIdentity, RequiresScopesIdentity, PolicyIdentity)
+
+  private def schemaLinkDirectives(document: Document): List[Directive] = {
     val schemaDirectives = document.schemaDefinition.toList.flatMap(_.directives) :::
       document.typeExtensions.collect { case extension: SchemaExtension => extension }.flatMap(_.directives)
 
-    schemaDirectives.filter(directive =>
-      directive.name == "link" && directive.arguments.get("url").exists {
-        case StringValue(url) => url.startsWith("https://specs.apollo.dev/federation/")
-        case _                => false
-      }
-    )
+    schemaDirectives.filter(_.name == "link")
   }
+
+  private def linkedFeatures(document: Document): List[LinkedFeature] =
+    schemaLinkDirectives(document).flatMap { directive =>
+      directive.arguments.get("url").collect { case StringValue(url) => url }.flatMap { url =>
+        val normalized   = url.takeWhile(character => character != '?' && character != '#').stripSuffix("/")
+        val versionStart = normalized.lastIndexOf('/')
+        val identity     = if (versionStart < 0) "" else normalized.substring(0, versionStart)
+        val nameStart    = identity.lastIndexOf('/')
+        val name         = if (nameStart < 0) "" else identity.substring(nameStart + 1)
+        val version      = if (versionStart < 0) "" else normalized.substring(versionStart + 1)
+
+        version match {
+          case VersionPattern(major, minor) if name.nonEmpty =>
+            val imports   = directive.arguments.get("import").toList.flatMap {
+              case caliban.InputValue.ListValue(values) => values.flatMap(importedName)
+              case _                                    => Nil
+            }
+            val namespace = directive.arguments
+              .get("as")
+              .collect { case StringValue(value) => value.stripPrefix("@") }
+              .getOrElse(name)
+            Some(
+              LinkedFeature(
+                directive,
+                identity,
+                name,
+                FeatureVersion(major.toInt, minor.toInt),
+                namespace,
+                imports
+              )
+            )
+          case _                                             => None
+        }
+      }
+    }
+
+  private val VersionPattern = "v([0-9]+)\\.([0-9]+)".r
+
+  private def importedName(value: caliban.InputValue): Option[ImportedName] =
+    value match {
+      case StringValue(name)                      =>
+        Some(ImportedName(name.stripPrefix("@"), name.stripPrefix("@"), name.startsWith("@")))
+      case caliban.InputValue.ObjectValue(fields) =>
+        fields.get("name").collect { case StringValue(name) => name }.map { name =>
+          val alias = fields.get("as").collect { case StringValue(value) => value }.getOrElse(name)
+          ImportedName(name.stripPrefix("@"), alias.stripPrefix("@"), name.startsWith("@"))
+        }
+      case _                                      => None
+    }
+
+  private def federationLinks(document: Document): List[Directive] =
+    linkedFeatures(document).collect { case feature if feature.identity == FederationIdentity => feature.directive }
 
   private def keyDirective(
     directive: Directive,

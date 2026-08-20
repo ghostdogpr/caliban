@@ -2,13 +2,14 @@ package caliban.gateway.internal
 
 import caliban.execution.ExecutionRequest
 import caliban.gateway.OperationHookCacheBehavior.{ Bypass => BypassCache, Stable }
-import caliban.gateway.OperationPolicy.{ Allow, Reject, ValidatedOperation }
+import caliban.gateway.OperationPolicy.{ Allow, Reject, SecurityRequirement, ValidatedOperation }
 import caliban.gateway.{ OperationPolicy, OperationResolver }
 import caliban.parsing.adt.Document
 import caliban.{ CalibanError, GraphQLRequest }
 import zio.{ Cause, Trace, ZIO }
 
 private[gateway] final class OperationHooks[-R](
+  securityRequirements: ExecutionRequest => List[SecurityRequirement],
   resolver: Option[OperationResolver[R]],
   policy: Option[OperationPolicy[R]]
 ) {
@@ -42,7 +43,12 @@ private[gateway] final class OperationHooks[-R](
   )(implicit trace: Trace): ZIO[R, CalibanError, Unit] =
     policy match {
       case Some(policy) =>
-        val operation = new ValidatedOperation(request, document, executionRequest)
+        val operation = new ValidatedOperation(
+          request,
+          document,
+          executionRequest,
+          securityRequirements(executionRequest)
+        )
         OperationHooks
           .run(policy.evaluate(operation), OperationHooks.PolicyFailure)
           .flatMap {
