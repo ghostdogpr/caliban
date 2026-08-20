@@ -27,6 +27,16 @@ trait GraphQLInterpreter[-R, +E] { self =>
   def executeRequest(request: GraphQLRequest)(implicit trace: Trace): URIO[R, GraphQLResponse[E]]
 
   /**
+   * Executes a request and lets the caller choose the returned response representation.
+   *
+   * The default implementation uses [[executeRequest]], so both methods have identical execution semantics.
+   */
+  private[caliban] def executeRequestWith[A](
+    request: GraphQLRequest
+  )(f: GraphQLResponseContext.Classified[GraphQLResponse[E]] => A)(implicit trace: Trace): URIO[R, A] =
+    GraphQLResponseContext.capture(executeRequest(request)).map(f)
+
+  /**
    * Parses, validates and finally runs the provided query against this interpreter.
    * @param query a string containing the GraphQL query
    * @param operationName the operation to run in case the query contains multiple operations

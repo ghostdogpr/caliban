@@ -25,7 +25,7 @@ object GraphQLResponseJsoniterSpec extends ZIOSpecDefault {
           ("myCustomKey", StringValue("my-value"))
         )
 
-        val response = GraphQLResponse(
+        val response: GraphQLResponse[Any] = GraphQLResponse(
           StringValue("data"),
           List(
             ExecutionError(
@@ -48,6 +48,31 @@ object GraphQLResponseJsoniterSpec extends ZIOSpecDefault {
         )
 
         assertTrue(writeToString(response) == """{"data":"data"}""")
+      },
+      test("encodes directly with caller-selected envelope fields [jsoniter]") {
+        val response: GraphQLResponse[Any] = GraphQLResponse(
+          NullValue,
+          List(ExecutionError("boom")),
+          Some(ObjectValue(List("cacheControl" -> StringValue("private"), "traceId" -> StringValue("trace-1"))))
+        )
+        val codec                          = GraphQLResponseJsoniter.codec(
+          keepDataOnErrors = false,
+          excludeExtensions = Set("cacheControl")
+        )
+
+        assertTrue(
+          writeToString(response)(codec) ==
+            """{"errors":[{"message":"boom"}],"extensions":{"traceId":"trace-1"}}"""
+        )
+      },
+      test("direct encoding matches the materialized response envelope [jsoniter]") {
+        val responses: List[GraphQLResponse[Any]] = List(
+          GraphQLResponse(ObjectValue(List("nested" -> ListValue(List(IntValue(1), NullValue)))), Nil),
+          GraphQLResponse(NullValue, List(ExecutionError("boom"))),
+          GraphQLResponse(StringValue("data"), Nil, Some(ObjectValue(Nil)), Some(false))
+        )
+
+        assertTrue(responses.forall(response => writeToString(response) == writeToString(response.toResponseValue)))
       },
       test("can be parsed from JSON [jsoniter]") {
         val req =

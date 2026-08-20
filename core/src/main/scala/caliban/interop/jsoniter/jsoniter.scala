@@ -6,7 +6,9 @@ import caliban.parsing.adt.LocationInfo
 import com.github.plokhotnyuk.jsoniter_scala.core._
 import com.github.plokhotnyuk.jsoniter_scala.macros._
 
+import java.io.OutputStream
 import scala.collection.immutable.TreeMap
+import scala.util.control.NoStackTrace
 
 /**
  *  Implementation of the custom decoders ported from the jsoniter-circe implementation:
@@ -265,7 +267,24 @@ private[caliban] object ErrorJsoniter {
 }
 
 private[caliban] object GraphQLResponseJsoniter {
-  val graphQLResponseCodec: JsonValueCodec[GraphQLResponse[Any]] =
+  case object ResponseLimitExceeded extends RuntimeException with NoStackTrace
+
+  val graphQLResponseCodec: JsonValueCodec[GraphQLResponse[Any]] = codec()
+
+  def writeToArray(
+    response: GraphQLResponse[Any],
+    maxBytes: Int,
+    responseCodec: JsonValueCodec[GraphQLResponse[Any]]
+  ): Array[Byte] = {
+    val output = new BoundedOutputStream(maxBytes)
+    writeToStream(response, output)(responseCodec)
+    output.toByteArray
+  }
+
+  def codec(
+    keepDataOnErrors: Boolean = true,
+    excludeExtensions: Set[String] = Set.empty
+  ): JsonValueCodec[GraphQLResponse[Any]] =
     new JsonValueCodec[GraphQLResponse[Any]] {
       override def decodeValue(
         in: JsonReader,
@@ -311,9 +330,85 @@ private[caliban] object GraphQLResponseJsoniter {
           .fromDecoded(data, errors, extensions, hasNext)
           .getOrElse(in.decodeError("invalid GraphQL response"))
       }
-      override def encodeValue(x: GraphQLResponse[Any], out: JsonWriter): Unit =
-        ValueJsoniter.responseValueCodec.encodeValue(x.toResponseValue, out)
+      override def encodeValue(x: GraphQLResponse[Any], out: JsonWriter): Unit = {
+        val hasErrors = x.errors.nonEmpty
+
+        out.writeObjectStart()
+        if (!hasErrors || keepDataOnErrors) {
+          out.writeKey("data")
+          ValueJsoniter.responseValueCodec.encodeValue(x.data, out)
+        }
+        if (hasErrors) {
+          out.writeKey("errors")
+          out.writeArrayStart()
+          var errors = x.errors
+          while (errors ne Nil) {
+            errors.head match {
+              case error: CalibanError => ValueJsoniter.responseValueCodec.encodeValue(error.toResponseValue, out)
+              case error               =>
+                out.writeObjectStart()
+                out.writeKey("message")
+                out.writeVal(error.toString)
+                out.writeObjectEnd()
+            }
+            errors = errors.tail
+          }
+          out.writeArrayEnd()
+        }
+        x.extensions.foreach { extensions =>
+          val visible =
+            excludeExtensions.isEmpty || extensions.fields.exists(field => !excludeExtensions.contains(field._1))
+          if (visible) {
+            out.writeKey("extensions")
+            out.writeObjectStart()
+            var fields = extensions.fields
+            while (fields ne Nil) {
+              val field = fields.head
+              if (!excludeExtensions.contains(field._1)) {
+                out.writeKey(field._1)
+                ValueJsoniter.responseValueCodec.encodeValue(field._2, out)
+              }
+              fields = fields.tail
+            }
+            out.writeObjectEnd()
+          }
+        }
+        x.hasNext.foreach { hasNext =>
+          out.writeKey("hasNext")
+          out.writeVal(hasNext)
+        }
+        out.writeObjectEnd()
+      }
       override def nullValue: GraphQLResponse[Any]                             =
         null.asInstanceOf[GraphQLResponse[Any]]
     }
+
+  private final class BoundedOutputStream(maxBytes: Int) extends OutputStream {
+    private var bytes = new Array[Byte](0)
+    private var size  = 0
+
+    override def write(value: Int): Unit = {
+      ensureCapacity(1)
+      bytes(size) = value.toByte
+      size += 1
+    }
+
+    override def write(values: Array[Byte], offset: Int, length: Int): Unit = {
+      ensureCapacity(length)
+      java.lang.System.arraycopy(values, offset, bytes, size, length)
+      size += length
+    }
+
+    def toByteArray: Array[Byte] =
+      if (size == bytes.length) bytes else java.util.Arrays.copyOf(bytes, size)
+
+    private def ensureCapacity(additionalBytes: Int): Unit = {
+      val required = size + additionalBytes
+      if (additionalBytes < 0 || required < size || required > maxBytes) throw ResponseLimitExceeded
+      if (required > bytes.length) {
+        val next = math.min(maxBytes.toLong, math.max(required.toLong, bytes.length.toLong * 2L)).toInt
+        bytes = java.util.Arrays.copyOf(bytes, next)
+      }
+    }
+  }
 }

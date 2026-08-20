@@ -92,6 +92,12 @@ final class QuickAdapter[R] private (requestHandler: QuickRequestHandler[R]) {
    */
   def withMaxRequestBodyBytes(value: Int): QuickAdapter[R] =
     new QuickAdapter(requestHandler.withMaxRequestBodyBytes(value))
+
+  /**
+   * Sets the maximum number of bytes materialized for one JSON response body.
+   */
+  def withMaxResponseBodyBytes(value: Int): QuickAdapter[R] =
+    new QuickAdapter(requestHandler.withMaxResponseBodyBytes(value))
 }
 
 object QuickAdapter {
@@ -99,11 +105,12 @@ object QuickAdapter {
 
   def apply[R](interpreter: GraphQLInterpreter[R, Any]): QuickAdapter[R] =
     new QuickAdapter(
-      new QuickRequestHandler(
+      QuickRequestHandler(
         interpreter,
         quick.WebSocketConfig.default,
         quick.SseConfig.default,
-        DefaultMaxRequestBodyBytes
+        DefaultMaxRequestBodyBytes,
+        DefaultMaxResponseBodyBytes
       )
     )
 
@@ -111,6 +118,11 @@ object QuickAdapter {
    * The default maximum HTTP request-body size: one megabyte.
    */
   val DefaultMaxRequestBodyBytes: Int = 1024 * 1024
+
+  /**
+   * The default maximum JSON response-body size: 16 megabytes.
+   */
+  val DefaultMaxResponseBodyBytes: Int = 16 * 1024 * 1024
 
   def handlers[R](implicit tag: Tag[R], trace: Trace): URIO[QuickAdapter[R], QuickHandlers[R]] =
     ZIO.serviceWith(_.handlers)

@@ -5,7 +5,7 @@ import caliban.Value.{ NullValue, StringValue }
 import caliban.gateway.GatewayTestSupport._
 import caliban.schema.{ GenericSchema, Schema }
 import caliban._
-import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
+import com.github.plokhotnyuk.jsoniter_scala.core.{ readFromString, writeToString }
 import sttp.model.{ Header => SttpHeader }
 import zio._
 import zio.http._
@@ -28,6 +28,26 @@ object GatewayHttpSpec extends ZIOSpecDefault {
       |type Query { greeting: String! failing: String }
       |type Mutation { setValue(value: String!): String! }
       |""".stripMargin
+
+  private val parityProductsSchema =
+    s"""
+       |schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key"]) {
+       |  query: Query
+       |  mutation: Mutation
+       |}
+       |$federationDirectives
+       |type Query { product(id: ID!): Product }
+       |type Mutation { renameProduct(id: ID!, name: String!): Product! }
+       |type Product @key(fields: "id") { id: ID! name: String! }
+       |""".stripMargin
+
+  private val parityReviewsSchema =
+    s"""
+       |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key", "@external"])
+       |$federationDirectives
+       |type Product @key(fields: "id") { id: ID! @external reviews: [Review]! }
+       |type Review { body: String! }
+       |""".stripMargin
 
   private def install(adapter: QuickAdapter[Any]): ZIO[Server with Ref[Int], Nothing, URL] =
     for {
@@ -133,6 +153,114 @@ object GatewayHttpSpec extends ZIOSpecDefault {
           legacyResponse.status == Status.GatewayTimeout,
           legacyBody.contains("Gateway request timed out.")
         )
+      }
+    ),
+    suite("encoded responses")(
+      test("preserves specialized response mapping through Quick configuration") {
+        for {
+          executionHeader <- FiberRef.make("missing")
+          mapperContext   <- Promise.make[Nothing, (String, Boolean, Boolean)]
+          interpreter      = new GraphQLInterpreter[Any, Any] {
+                               def check(query: String)(implicit trace: Trace): IO[CalibanError, Unit] = ZIO.unit
+
+                               def executeRequest(request: GraphQLRequest)(implicit
+                                 trace: Trace
+                               ): UIO[GraphQLResponse[Any]] =
+                                 ZIO.dieMessage("structured fallback was used")
+
+                               override private[caliban] def executeRequestWith[A](
+                                 request: GraphQLRequest
+                               )(f: GraphQLResponseContext.Classified[GraphQLResponse[Any]] => A)(implicit
+                                 trace: Trace
+                               ): UIO[A] =
+                                 for {
+                                   mapped <- ZIO.succeed(
+                                               f(
+                                                 GraphQLResponseContext.Classified(
+                                                   GraphQLResponse(
+                                                     ResponseValue.ObjectValue(
+                                                       List("status" -> StringValue("mapped"))
+                                                     ),
+                                                     Nil
+                                                   ),
+                                                   GraphQLResponseContext.Outcome.Executed
+                                                 )
+                                               )
+                                             )
+                                   header <- executionHeader.get
+                                   config <- Configurator.ref.get
+                                   _      <- mapperContext.succeed(
+                                               (header, config.enableIntrospection, mapped.isInstanceOf[Either[_, _]])
+                                             )
+                                 } yield mapped
+                             }
+          response        <- QuickAdapter(interpreter)
+                               .configure(ExecutionConfiguration(enableIntrospection = false))
+                               .configure(executionHeader.locallyScoped("configured"))
+                               .handlers
+                               .api
+                               .runZIO(post(URL.empty, """{"query":"{ status }"}"""))
+          body            <- response.body.asString.orDie
+          context         <- mapperContext.await
+        } yield assertTrue(
+          response.status == Status.Ok,
+          body == """{"data":{"status":"mapped"}}""",
+          context == (("configured", false, true))
+        )
+      },
+      test("matches structured execution for joins, partial errors, null propagation, and mutations") {
+        val query    = """query { product(id: "p1") { name reviews { body } } }"""
+        val mutation = """mutation { renameProduct(id: "p1", name: "next") { id name } }"""
+
+        for {
+          products           <- stubByRequest { request =>
+                                  if (request.query.exists(_.contains("renameProduct")))
+                                    """{"data":{"renameProduct":{"id":"p1","name":"next"}}}"""
+                                  else
+                                    """{"data":{"product":{"id":"p1","name":"original","_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}}}"""
+                                }
+          reviews            <-
+            stub(
+              """{"data":{"_entities":[{"_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product","reviews":[{"body":"good"},{"body":null}]}]},"errors":[{"message":"bad review","path":["_entities",0,"reviews",1,"body"]}]}"""
+            )
+          runtime            <- Gateway
+                                  .compose(
+                                    Subgraph.federation("products", products.endpoint, parityProductsSchema),
+                                    Subgraph.federation("reviews", reviews.endpoint, parityReviewsSchema)
+                                  )
+                                  .build
+          url                <- install(QuickAdapter(runtime))
+          structuredQuery    <- runtime.executeRequest(GraphQLRequest(query = Some(query)))
+          encodedQueryResult <- execute(post(url, writeToString(GraphQLRequest(query = Some(query)))))
+          encodedQuery        = readFromString[GraphQLResponse[CalibanError]](encodedQueryResult.body)
+          structuredMutation <- runtime.executeRequest(GraphQLRequest(query = Some(mutation)))
+          encodedMutation    <- execute(post(url, writeToString(GraphQLRequest(query = Some(mutation)))))
+          decodedMutation     = readFromString[GraphQLResponse[CalibanError]](encodedMutation.body)
+        } yield assertTrue(
+          encodedQueryResult.response.status == Status.Ok,
+          encodedQuery.toResponseValue == structuredQuery.toResponseValue,
+          field(encodedQuery.data, "product")
+            .flatMap(field(_, "reviews"))
+            .contains(
+              ResponseValue.ListValue(
+                List(ResponseValue.ObjectValue(List("body" -> StringValue("good"))), NullValue)
+              )
+            ),
+          encodedQuery.errors.nonEmpty,
+          decodedMutation.toResponseValue == structuredMutation.toResponseValue
+        )
+      },
+      test("enforces the configured encoded response limit") {
+        for {
+          source   <- stub("""{"data":{"greeting":"hello"}}""")
+          runtime  <- Gateway.compose(Subgraph.graphql("service", source.endpoint, schema)).build
+          response <- QuickAdapter(runtime)
+                        .withMaxResponseBodyBytes(16)
+                        .handlers
+                        .api
+                        .runZIO(post(URL.empty, """{"query":"{ greeting }"}"""))
+          body     <- response.body.asString.orDie
+        } yield assertTrue(response.status == Status.InternalServerError, body.isEmpty)
       }
     ),
     suite("GraphQL over HTTP")(

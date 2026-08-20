@@ -2,6 +2,7 @@ package caliban.json
 
 import caliban.Value._
 import caliban.{ GraphQLResponse, ResponseValue }
+import caliban.interop.jsoniter.GraphQLResponseJsoniter
 import com.github.plokhotnyuk.jsoniter_scala.core._
 import org.openjdk.jmh.annotations._
 
@@ -44,8 +45,24 @@ class JsonEncodingBenchmark {
   }
 
   private val testData: GraphQLResponse[Any] = GraphQLResponse(mkObject(5, 20), Nil, None)
+  private val smallResponse: GraphQLResponse[Any] = GraphQLResponse(
+    ResponseValue.ObjectValue(List("name" -> StringValue("Ada"), "active" -> BooleanValue(true))),
+    Nil,
+    None
+  )
 
   @Benchmark
   def jsoniter(): Unit = writeToString(testData)
+
+  @Benchmark
+  def jsoniterDirectResponse(): Array[Byte] =
+    GraphQLResponseJsoniter.writeToArray(
+      smallResponse,
+      16 * 1024 * 1024,
+      GraphQLResponseJsoniter.graphQLResponseCodec
+    )
+
+  @Benchmark
+  def jsoniterMaterializedResponseEnvelope(): Array[Byte] = writeToArray(smallResponse.toResponseValue)
 
 }
