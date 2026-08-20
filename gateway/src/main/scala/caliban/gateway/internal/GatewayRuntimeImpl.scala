@@ -14,7 +14,7 @@ import caliban.parsing.adt.Definition.ExecutableDefinition.OperationDefinition
 import caliban.parsing.adt.{ Document, OperationType }
 import caliban.rendering.DocumentRenderer
 import caliban.schema.{ RootSchema, RootType }
-import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, PathValue, ResponseValue }
+import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, GraphQLResponseContext, PathValue, ResponseValue }
 import zio.{ IO, Trace, URIO, ZIO }
 
 private[gateway] final class GatewayRuntimeImpl[-R](
@@ -49,11 +49,14 @@ private[gateway] final class GatewayRuntimeImpl[-R](
         operations
           .prepare(request)
           .foldZIO(
-            Executor.fail,
+            error => GraphQLResponseContext.markRequestError(error) *> Executor.fail(error),
             prepared => executePlan(prepared.plan, prepared.executionRequest, prepared.request)
           )
       )
-      .map(_.getOrElse(requestTimeoutResponse))
+      .flatMap {
+        case Some(response) => ZIO.succeed(response)
+        case None           => GraphQLResponseContext.markServerError(504).as(requestTimeoutResponse)
+      }
 
   private def executePlan(
     plan: OperationPlan,

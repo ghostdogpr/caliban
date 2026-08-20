@@ -127,6 +127,7 @@ The `QuickAdapter` exposes the following methods that allow you to customize the
 
 - `configure` which takes a `Configurator[R]` [similar to the tapir-based adapters](adapters.md#built-in-tapir-adapters)
 - `configureSse` which takes an `SseConfig` where you can configure if and how often SSE based subscriptions should heartbeat.
+- `withMaxRequestBodyBytes` which changes the 1 MB default limit for JSON, GraphQL, and upload request bodies.
 - `handlers` which returns a `QuickHandlers[R]` which contains individual handlers to manually construct routes.
   Note that this handler is only for the api routes. To construct the graphiql handler use `caliban.GraphiQLHandler.handler`.
 

@@ -2,9 +2,9 @@ package caliban.gateway.internal
 
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.NullValue
-import caliban.gateway.{ IncomingRequestHeaders, RemoteGraphQLConfig }
+import caliban.gateway.RemoteGraphQLConfig
 import caliban.parsing.adt.OperationType
-import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, ResponseValue }
+import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, IncomingRequestHeaders, ResponseValue }
 import com.github.plokhotnyuk.jsoniter_scala.core._
 import sttp.capabilities.zio.ZioStreams
 import sttp.client4._
@@ -35,7 +35,7 @@ private[gateway] final class RemoteGraphQLSource[-R](
     val logicalCall =
       for {
         body      <- ZIO.fromEither(encode(request.copy(extensions = None)))
-        incoming  <- IncomingRequestHeaders.get
+        incoming  <- IncomingRequestHeaders.get.map(_.map { case (name, value) => Header(name, value) })
         effectful <- config.effectfulHeaders.mapError(_ => GraphQLSource.HeaderFailure)
         headers    = outboundHeaders(incoming, effectful)
         replaySafe = execution.retries > 0 && operationType == OperationType.Query

@@ -141,7 +141,9 @@ trait GraphQL[-R] { self =>
                   coercedVars  <- coerceVariables(doc, request.variables.getOrElse(Map.empty), request.operationName)
                   executionReq <- wrap(validation(request, coercedVars))(validationWrappers, doc)
                   result       <- wrap(execution(fieldWrappers))(executionWrappers, executionReq)
-                } yield result).catchAll(Executor.fail)
+                } yield result).catchAll(error =>
+                  GraphQLResponseContext.markRequestError(error) *> Executor.fail(error)
+                )
               )(overallWrappers, request)
           }
 

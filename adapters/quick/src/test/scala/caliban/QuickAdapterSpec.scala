@@ -24,7 +24,9 @@ object QuickAdapterSpec extends ZIOSpecDefault {
   private val apiLayer = envLayer >>> ZLayer.fromZIO {
     for {
       adapter <- TestApi.api.interpreter.map { interpreter =>
-                   QuickAdapter(interpreter).configureSse(SseConfig(Some(1.second)))
+                   QuickAdapter(interpreter)
+                     .configureSse(SseConfig(Some(1.second)))
+                     .withMaxRequestBodyBytes(Int.MaxValue - 2)
                  }
       routes   =
         (adapter
@@ -40,7 +42,8 @@ object QuickAdapterSpec extends ZIOSpecDefault {
       "QuickAdapterSpec",
       uri"http://localhost:8090/api/graphql",
       wsUri = Some(uri"ws://localhost:8090/ws/graphql"),
-      uploadUri = Some(uri"http://localhost:8090/upload/graphql")
+      uploadUri = Some(uri"http://localhost:8090/upload/graphql"),
+      mutationOverGetStatus = 405
     )
     suite.provideShared(
       apiLayer,

@@ -1,8 +1,8 @@
 package caliban.gateway
 
-import caliban.{ CalibanError, GraphQLInterpreter, GraphQLRequest, GraphQLResponse }
+import caliban.{ CalibanError, GraphQLInterpreter, GraphQLRequest, GraphQLResponse, IncomingRequestHeaders }
 import sttp.model.Header
-import zio.{ FiberRef, Trace, UIO, URIO, Unsafe, ZIO }
+import zio.{ Trace, UIO, URIO, ZIO }
 
 /**
  * An executable gateway created by [[Gateway.build]].
@@ -23,7 +23,7 @@ trait GatewayRuntime[-R] extends GraphQLInterpreter[R, CalibanError] {
   def executeRequest(request: GraphQLRequest, headers: List[Header])(implicit
     trace: Trace
   ): URIO[R, GraphQLResponse[CalibanError]] =
-    IncomingRequestHeaders.locally(headers)(executeRequest(request))
+    IncomingRequestHeaders.locally(headers.map(header => header.name -> header.value))(executeRequest(request))
 
   /**
    * Returns a deterministic semantic description of the executable plan for an operation.
@@ -68,14 +68,4 @@ object GatewayRuntime {
     sources: Map[String, AdmissionStatus],
     operationCache: OperationCacheStatus
   )
-}
-
-private[gateway] object IncomingRequestHeaders {
-  private val current: FiberRef[List[Header]] =
-    Unsafe.unsafe(implicit unsafe => FiberRef.unsafe.make(Nil))
-
-  def get: UIO[List[Header]] = current.get
-
-  def locally[R, E, A](headers: List[Header])(effect: ZIO[R, E, A]): ZIO[R, E, A] =
-    current.locally(headers)(effect)
 }
