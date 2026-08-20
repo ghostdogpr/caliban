@@ -373,6 +373,38 @@ object EntityRoutingSpec extends ZIOSpecDefault {
           field(response.data, "product").flatMap(field(_, "name")).contains(StringValue("Table"))
         )
       },
+      test("retains extension-only conventional Query and Mutation roots") {
+        val linkedSchema   =
+          s"""
+             |${federationSchemaPreamble("@key")}
+             |extend type Query { product: Product }
+             |extend type Mutation { updateProduct: Product }
+             |type Product @key(fields: "id") { id: ID! name: String! }
+             |""".stripMargin
+        val sourceResponse =
+          """{"data":{"product":{"id":"p1","name":"Table"},"updateProduct":{"id":"p1","name":"Desk"}}}"""
+
+        for {
+          products      <- stub(sourceResponse)
+          gateway       <- Gateway.compose(Subgraph.federation("products", products.endpoint, linkedSchema)).build
+          query         <- gateway.execute("{ product { name } }")
+          mutation      <- gateway.execute("mutation { updateProduct { name } }")
+          introspection <- gateway.execute("{ __schema { queryType { name } mutationType { name } } }")
+        } yield assertTrue(
+          query.errors.isEmpty,
+          field(query.data, "product").flatMap(field(_, "name")).contains(StringValue("Table")),
+          mutation.errors.isEmpty,
+          field(mutation.data, "updateProduct").flatMap(field(_, "name")).contains(StringValue("Desk")),
+          field(introspection.data, "__schema")
+            .flatMap(field(_, "queryType"))
+            .flatMap(field(_, "name"))
+            .contains(StringValue("Query")),
+          field(introspection.data, "__schema")
+            .flatMap(field(_, "mutationType"))
+            .flatMap(field(_, "name"))
+            .contains(StringValue("Mutation"))
+        )
+      },
       test("executes a join from entity-only authored Federation service SDL with namespaced metadata") {
         val productResponse =
           """{"data":{"product":{"name":"Table","_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}}}"""

@@ -1,7 +1,7 @@
 package caliban
 
 import caliban.ResponseValue.{ ListValue, ObjectValue }
-import caliban.Value.StringValue
+import caliban.Value.{ IntValue, StringValue }
 import caliban.parsing.adt.LocationInfo
 import com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec
 
@@ -18,6 +18,49 @@ sealed trait CalibanError extends NoStackTrace with Product with Serializable {
 }
 
 object CalibanError {
+
+  private[caliban] def fromResponseValue(value: ResponseValue): Option[CalibanError] =
+    value match {
+      case ObjectValue(fields) =>
+        val message    = fields.collectFirst { case ("message", StringValue(value)) => value }
+        val path       = fields.collectFirst { case ("path", value) => value } match {
+          case None                    => Some(Nil)
+          case Some(ListValue(values)) =>
+            val decoded = values.map {
+              case value: StringValue        => Some(value: PathValue)
+              case value: IntValue.IntNumber => Some(value: PathValue)
+              case _                         => None
+            }
+            if (decoded.forall(_.nonEmpty)) Some(decoded.flatten) else None
+          case _                       => None
+        }
+        val locations  = fields.collectFirst { case ("locations", value) => value } match {
+          case None                    => Some(None)
+          case Some(ListValue(values)) =>
+            val decoded = values.map {
+              case ObjectValue(location) =>
+                for {
+                  line   <- location.collectFirst { case ("line", IntValue.IntNumber(value)) => value }
+                  column <- location.collectFirst { case ("column", IntValue.IntNumber(value)) => value }
+                } yield LocationInfo(column, line)
+              case _                     => None
+            }
+            if (decoded.forall(_.nonEmpty)) Some(decoded.flatten.headOption) else None
+          case _                       => None
+        }
+        val extensions = fields.collectFirst { case ("extensions", value) => value } match {
+          case None                     => Some(None)
+          case Some(value: ObjectValue) => Some(Some(value))
+          case _                        => None
+        }
+        for {
+          msg       <- message
+          path      <- path
+          location  <- locations
+          extension <- extensions
+        } yield ExecutionError(msg, path, location, extensions = extension)
+      case _                   => None
+    }
 
   /**
    * Describes an error that happened while parsing a query.

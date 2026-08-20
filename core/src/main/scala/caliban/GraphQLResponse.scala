@@ -52,6 +52,79 @@ case class GraphQLResponse[+E](
 }
 
 object GraphQLResponse {
+  private[caliban] sealed trait ResponseField[+A]
+
+  private[caliban] object ResponseField {
+    case object Missing                   extends ResponseField[Nothing]
+    final case class Present[A](value: A) extends ResponseField[A]
+  }
+
+  private[caliban] def decodeErrors(values: List[ResponseValue]): Option[List[CalibanError]] = {
+    val decoded = values.map(CalibanError.fromResponseValue)
+    if (decoded.forall(_.nonEmpty)) Some(decoded.flatten) else None
+  }
+
+  private[caliban] def fromDecoded(
+    data: ResponseField[ResponseValue],
+    errors: ResponseField[List[CalibanError]],
+    extensions: Option[ResponseValue.ObjectValue],
+    hasNext: Option[Boolean]
+  ): Option[GraphQLResponse[CalibanError]] =
+    (data, errors) match {
+      case (_, ResponseField.Present(Nil))                => None
+      case (ResponseField.Missing, ResponseField.Missing) => None
+      case _                                              =>
+        Some(
+          GraphQLResponse(
+            data = data match {
+              case ResponseField.Present(value) => value
+              case ResponseField.Missing        => NullValue
+            },
+            errors = errors match {
+              case ResponseField.Present(value) => value
+              case ResponseField.Missing        => Nil
+            },
+            extensions = extensions,
+            hasNext = hasNext
+          )
+        )
+    }
+
+  private[caliban] def fromResponseValue(value: ResponseValue): Option[GraphQLResponse[CalibanError]] =
+    value match {
+      case ObjectValue(fields) =>
+        val data       = fields.collectFirst { case ("data", value) => ResponseField.Present(value) }
+          .getOrElse(ResponseField.Missing)
+        val errors     = fields.collectFirst { case ("errors", value) => value } match {
+          case None                    => Some(ResponseField.Missing)
+          case Some(ListValue(values)) =>
+            decodeErrors(values).map(ResponseField.Present(_))
+          case _                       => None
+        }
+        val extensions = fields.collectFirst { case ("extensions", value) => value } match {
+          case None                     => Some(None)
+          case Some(value: ObjectValue) => Some(Some(value))
+          case _                        => None
+        }
+        val hasNext    = fields.collectFirst { case ("hasNext", value) => value } match {
+          case None                      => Some(None)
+          case Some(BooleanValue(value)) => Some(Some(value))
+          case _                         => None
+        }
+        for {
+          decodedErrors <- errors
+          extension     <- extensions
+          next          <- hasNext
+          response      <- fromDecoded(
+                             data,
+                             decodedErrors,
+                             extension,
+                             next
+                           )
+        } yield response
+      case _                   => None
+    }
+
   implicit def tapirSchema[F[_]: IsTapirSchema, E]: F[GraphQLResponse[E]] =
     caliban.interop.tapir.schema.responseSchema.asInstanceOf[F[GraphQLResponse[E]]]
 

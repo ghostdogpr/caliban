@@ -2,6 +2,7 @@ package caliban.gateway.internal
 
 import caliban.gateway.GatewayRuntime
 import caliban.gateway.GatewayRuntime.{ LifecycleStatus, OperationCacheStatus, Status }
+import caliban.parsing.adt.OperationType
 import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse }
 import zio.{ Clock, Duration, Exit, Fiber, Promise, Ref, Scope, Trace, UIO, ZIO }
 
@@ -157,10 +158,10 @@ private[gateway] final class RuntimeControl private (
   ) extends GraphQLSource[R] {
     val errorPolicy: GraphQLSource.ErrorPolicy = underlying.errorPolicy
 
-    def execute(request: GraphQLRequest)(implicit
+    def execute(request: GraphQLRequest, operationType: OperationType)(implicit
       trace: Trace
     ): ZIO[R, GraphQLSource.Failure, GraphQLResponse[CalibanError]] =
-      gate(underlying.execute(request))
+      gate(underlying.execute(request, operationType))
   }
 }
 

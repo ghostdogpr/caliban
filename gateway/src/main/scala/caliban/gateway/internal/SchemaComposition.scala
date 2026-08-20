@@ -227,9 +227,9 @@ private[gateway] final class ComposedGraph private[internal] (
       val sourceDefinitions = field.targets.toList
         .flatMap(_.toList)
         .flatMap(target => this.field(source, target, field.name))
-        .map(value => outputType(value._type))
+        .map(value => DocumentRenderer.renderTypeName(value._type))
         .toSet
-      if (sourceDefinitions.nonEmpty) sourceDefinitions else Set(outputType(field.fieldType))
+      if (sourceDefinitions.nonEmpty) sourceDefinitions else Set(DocumentRenderer.renderTypeName(field.fieldType))
     }
 
     val conflicts = fields
@@ -253,13 +253,6 @@ private[gateway] final class ComposedGraph private[internal] (
         .reverse
     }
   }
-
-  private def outputType(tpe: __Type): String =
-    tpe.kind match {
-      case __TypeKind.NON_NULL => s"${tpe.ofType.fold("")(outputType)}!"
-      case __TypeKind.LIST     => s"[${tpe.ofType.fold("")(outputType)}]"
-      case _                   => tpe.name.getOrElse(tpe.kind.toString)
-    }
 
   private def privateResponseName(responseName: String, used: Set[String]): String = {
     val base                     = s"_caliban_gateway_$responseName"
@@ -416,10 +409,10 @@ private[gateway] object SchemaComposition {
         .flatMap(entry => entry.tpe.allFields.map(field => (entry.name -> field.name) -> entry))
         .groupBy(_._1)
       val fieldRoutes                                        = fieldDefinitions.flatMap { case (coordinate, definitions) =>
-        val declared = definitions.map(_._2)
-        val owned    = effectiveFieldProviders(coordinate._2, declared).filterNot { entry =>
-          interfaceOverrideTargets(coordinate._1, coordinate._2, types).contains(entry.source)
-        }
+        val declared        = definitions.map(_._2)
+        val overrideTargets = interfaceOverrideTargets(coordinate._1, coordinate._2, types)
+        val owned           =
+          effectiveFieldProviders(coordinate._2, declared).filterNot(entry => overrideTargets.contains(entry.source))
         if (owned.nonEmpty) Some(coordinate -> owned.map(_.source).distinct.sorted) else None
       }
       val sourceFields                                       = types.flatMap { entry =>
@@ -903,6 +896,15 @@ private[gateway] object SchemaComposition {
 
   private final case class EnumUsage(input: Boolean, output: Boolean)
 
+  private def objectLikeEntries(document: Document): List[(String, List[Directive], List[FieldDefinition])] =
+    document.typeDefinitions.collect {
+      case definition: ObjectTypeDefinition    => (definition.name, definition.directives, definition.fields)
+      case definition: InterfaceTypeDefinition => (definition.name, definition.directives, definition.fields)
+    } ::: document.typeExtensions.collect {
+      case extension: ObjectTypeExtension    => (extension.name, extension.directives, extension.fields)
+      case extension: InterfaceTypeExtension => (extension.name, extension.directives, extension.fields)
+    }
+
   private def federationFieldSets(
     metadata: PreparedSchema
   ): Either[List[String], FederationFieldSets] = {
@@ -910,14 +912,8 @@ private[gateway] object SchemaComposition {
     if (!schema.federation) Right(FederationFieldSets(Nil, Nil))
     else {
       val names        = metadata.directives
-      val fields       = schema.document.typeDefinitions.flatMap {
-        case definition: ObjectTypeDefinition    => definition.fields.map(definition.name -> _)
-        case definition: InterfaceTypeDefinition => definition.fields.map(definition.name -> _)
-        case _                                   => Nil
-      } ::: schema.document.typeExtensions.flatMap {
-        case extension: ObjectTypeExtension    => extension.fields.map(extension.name -> _)
-        case extension: InterfaceTypeExtension => extension.fields.map(extension.name -> _)
-        case _                                 => Nil
+      val fields       = objectLikeEntries(schema.document).flatMap { case (name, _, fields) =>
+        fields.map(name -> _)
       }
       val requirements = fields.flatMap { case (typeName, field) =>
         val parent = schema.rootType.types.get(typeName)
@@ -954,13 +950,7 @@ private[gateway] object SchemaComposition {
     directives.find(directive => names.contains(directive.name)).map { directive =>
       val prefix = s"[${schema.name}] Invalid @${directive.name} field set on '$typeName.$fieldName'"
       for {
-        value      <- directive.arguments
-                        .get("fields")
-                        .collect { case StringValue(value) => value }
-                        .toRight(
-                          s"$prefix: the 'fields' argument must be a string."
-                        )
-        selections <- parseFieldSet(value).toRight(s"$prefix: the selection could not be parsed.")
+        selections <- directiveFieldSet(directive).left.map(error => s"$prefix: $error")
         parent     <- startType.toRight(s"$prefix: the selected parent type does not exist.")
         _          <- validateFieldSetSelections(schema, parent, selections).left.map(error => s"$prefix: $error")
       } yield (typeName, fieldName, selections)
@@ -970,23 +960,13 @@ private[gateway] object SchemaComposition {
     val schema = metadata.schema
     if (!schema.federation) Nil
     else {
-      val definitions = schema.document.typeDefinitions.collect {
-        case definition: ObjectTypeDefinition    => definition.name -> definition.directives
-        case definition: InterfaceTypeDefinition => definition.name -> definition.directives
-      } ::: schema.document.typeExtensions.collect {
-        case extension: ObjectTypeExtension    => extension.name -> extension.directives
-        case extension: InterfaceTypeExtension => extension.name -> extension.directives
-      }
+      val definitions = objectLikeEntries(schema.document).map { case (name, directives, _) => name -> directives }
 
       definitions.flatMap { case (typeName, directives) =>
         directives.filter(directive => metadata.directives.key.contains(directive.name)).flatMap { directive =>
           val prefix = s"[${schema.name}] Invalid @${directive.name} field set on '$typeName'"
           val result = for {
-            value      <- directive.arguments
-                            .get("fields")
-                            .collect { case StringValue(value) => value }
-                            .toRight(s"$prefix: the 'fields' argument must be a string.")
-            selections <- parseFieldSet(value).toRight(s"$prefix: the selection could not be parsed.")
+            selections <- directiveFieldSet(directive).left.map(error => s"$prefix: $error")
             _          <- keyFields(selections)
                             .toRight(
                               s"$prefix: only fields without aliases, arguments, or directives can be selected."
@@ -1109,9 +1089,23 @@ private[gateway] object SchemaComposition {
     val hiddenFields    = fields.collect {
       case field if schema.federation && hasDirective(Some(field.directives), names.inaccessible) => field.name
     }.toSet ++ schema.mapping.hiddenFields.collect { case (`name`, field) => field }
-    val hiddenArgs      = schema.mapping.hiddenArguments.collect { case (`name`, field, argument) => field -> argument }
-    val hiddenInputs    = schema.mapping.hiddenInputFields.collect { case (`name`, field) => field }
-    val hiddenEnums     = schema.mapping.hiddenEnumValues.collect { case (`name`, value) => value }
+    val hiddenArgs      = schema.mapping.hiddenArguments.collect { case (`name`, field, argument) =>
+      field -> argument
+    } ++ fields.iterator
+      .flatMap(field =>
+        field.args.iterator.collect {
+          case argument if hasDirective(argument.directives, names.inaccessible) => field.name -> argument.name
+        }
+      )
+      .toSet
+    val hiddenInputs    = schema.mapping.hiddenInputFields.collect { case (`name`, field) => field } ++
+      tpe.allInputFields.iterator.collect {
+        case field if hasDirective(field.directives, names.inaccessible) => field.name
+      }
+    val hiddenEnums     = schema.mapping.hiddenEnumValues.collect { case (`name`, value) => value } ++
+      tpe.allEnumValues.iterator.collect {
+        case value if hasDirective(value.directives, names.inaccessible) => value.name
+      }
     val overrides       = fields.flatMap { field =>
       directiveString(Some(field.directives), names.overrideDirective, "from").map(field.name -> _)
     }.toMap
@@ -1271,13 +1265,8 @@ private[gateway] object SchemaComposition {
   ): List[String] =
     if (!usage.input || !usage.output) Nil
     else {
-      val inaccessible = entries.iterator.flatMap(_.inaccessibleDirectives).toSet
-      val hiddenNames  = entries.iterator
-        .flatMap(_.tpe.allEnumValues)
-        .filter(value => hasDirective(value.directives, inaccessible))
-        .map(_.name)
-        .toSet
-      val valueSets    = entries.map(entry => entry.tpe.allEnumValues.map(_.name).toSet -- hiddenNames)
+      val hiddenNames = entries.iterator.flatMap(_.inaccessibleEnumValues).toSet
+      val valueSets   = entries.map(entry => entry.tpe.allEnumValues.map(_.name).toSet -- hiddenNames)
       if (valueSets.distinct.size > 1)
         List(s"[type $name] Input/output enum values are incompatible between subgraphs: ${sources(entries)}.")
       else Nil
@@ -1390,13 +1379,9 @@ private[gateway] object SchemaComposition {
           if (values.exists { case (entry, _) => entry.inaccessibleFields.contains(fieldName) }) Nil else values
         val providers  = effectiveFieldProviders(fieldName, visible.map(_._1))
         val ordered    = visible.sortBy { case (entry, _) => (!providers.exists(_.source == entry.source), entry.source) }
-        val hiddenArgs = values.iterator.flatMap { case (entry, field) =>
-          field.allArgs.iterator
-            .filter(argument => hasDirective(argument.directives, entry.inaccessibleDirectives))
-            .map(_.name)
-        }.toSet ++ values.iterator.flatMap { case (entry, _) =>
+        val hiddenArgs = values.iterator.flatMap { case (entry, _) =>
           entry.inaccessibleArguments.collect { case (`fieldName`, argument) => argument }
-        }
+        }.toSet
         (if (providers.nonEmpty) ordered.headOption else None).map { case (_, field) =>
           val mergedType = ordered.map(_._2._type).reduceOption(mergeOutputType).getOrElse(field._type)
           sanitizeField(field.copy(`type` = () => mergedType), rewrite, hidden, hiddenArgs)
@@ -1438,17 +1423,12 @@ private[gateway] object SchemaComposition {
   }
 
   private def mergeInputObject(entries: List[TypeEntry], rewrite: __Type => __Type): __Type = {
-    val base         = entries.headOption.map(_.tpe).getOrElse(__Type(__TypeKind.INPUT_OBJECT))
-    val hidden       = hiddenDirectives(entries)
-    val inaccessible = entries.iterator.flatMap(_.inaccessibleDirectives).toSet
-    val hiddenNames  = entries.iterator.flatMap(_.inaccessibleInputFields).toSet ++ entries.iterator
-      .flatMap(_.tpe.allInputFields)
-      .filter(field => hasDirective(field.directives, inaccessible))
-      .map(_.name)
-      .toSet
-    val commonNames  =
+    val base        = entries.headOption.map(_.tpe).getOrElse(__Type(__TypeKind.INPUT_OBJECT))
+    val hidden      = hiddenDirectives(entries)
+    val hiddenNames = entries.iterator.flatMap(_.inaccessibleInputFields).toSet
+    val commonNames =
       entries.map(_.tpe.allInputFields.map(_.name).toSet).reduceOption(_ intersect _).getOrElse(Set.empty)
-    val fields       = commonNames.toList.sorted.flatMap { name =>
+    val fields      = commonNames.toList.sorted.flatMap { name =>
       entries.iterator
         .flatMap(_.tpe.allInputFields)
         .find(field => field.name == name && !hiddenNames.contains(name))
@@ -1470,19 +1450,14 @@ private[gateway] object SchemaComposition {
     usage: EnumUsage,
     rewrite: __Type => __Type
   ): __Type = {
-    val base         = entries.headOption.map(_.tpe).getOrElse(__Type(__TypeKind.ENUM))
-    val hidden       = hiddenDirectives(entries)
-    val inaccessible = entries.iterator.flatMap(_.inaccessibleDirectives).toSet
-    val hiddenNames  = entries.iterator.flatMap(_.inaccessibleEnumValues).toSet ++ entries.iterator
-      .flatMap(_.tpe.allEnumValues)
-      .filter(value => hasDirective(value.directives, inaccessible))
-      .map(_.name)
-      .toSet
-    val visible      = entries.map(_.tpe.allEnumValues.filterNot(value => hiddenNames.contains(value.name)))
-    val names        =
+    val base        = entries.headOption.map(_.tpe).getOrElse(__Type(__TypeKind.ENUM))
+    val hidden      = hiddenDirectives(entries)
+    val hiddenNames = entries.iterator.flatMap(_.inaccessibleEnumValues).toSet
+    val visible     = entries.map(_.tpe.allEnumValues.filterNot(value => hiddenNames.contains(value.name)))
+    val names       =
       if (usage.input) visible.map(_.map(_.name).toSet).reduceOption(_ intersect _).getOrElse(Set.empty)
       else visible.flatMap(_.map(_.name)).toSet
-    val values       = names.toList.sorted
+    val values      = names.toList.sorted
       .flatMap(name => visible.iterator.flatten.find(_.name == name))
       .map(value => value.copy(directives = filterFederationDirectives(value.directives, hidden)))
     sanitizeType(base, rewrite, hidden).copy(
@@ -1536,12 +1511,7 @@ private[gateway] object SchemaComposition {
     val inaccessibleTypes   = types.filter(_.inaccessible).map(_.name).toSet
     val inaccessibleFields  = types.iterator.flatMap(entry => entry.inaccessibleFields.map(entry.name -> _)).toSet
     val inaccessibleInputs  =
-      (types.iterator.flatMap(entry => entry.inaccessibleInputFields.map(entry.name -> _)) ++
-        types.iterator.flatMap { entry =>
-          entry.tpe.allInputFields.iterator.collect {
-            case field if hasDirective(field.directives, entry.inaccessibleDirectives) => entry.name -> field.name
-          }
-        }).toSet
+      types.iterator.flatMap(entry => entry.inaccessibleInputFields.map(entry.name -> _)).toSet
     val inaccessibleRoots   = roots.iterator
       .filter(_.inaccessible)
       .map(entry => entry.operation -> entry.field.name)
@@ -1549,19 +1519,13 @@ private[gateway] object SchemaComposition {
     val rootHiddenArguments = roots
       .groupBy(entry => entry.operation -> entry.field.name)
       .map { case (coordinate, entries) => coordinate -> entries.iterator.flatMap(_.inaccessibleArguments).toSet }
-    val hiddenArguments     =
-      (types.iterator.flatMap(entry =>
+    val hiddenArguments     = types.iterator
+      .flatMap(entry =>
         entry.inaccessibleArguments.map { case (field, argument) =>
           (entry.name, field, argument)
         }
-      ) ++ types.iterator.flatMap { entry =>
-        entry.tpe.allFields.iterator.flatMap { field =>
-          field.allArgs.iterator.collect {
-            case argument if hasDirective(argument.directives, entry.inaccessibleDirectives) =>
-              (entry.name, field.name, argument.name)
-          }
-        }
-      }).toSet
+      )
+      .toSet
     val rootOutputErrors    = roots.collect {
       case entry
           if !inaccessibleRoots.contains(entry.operation -> entry.field.name) &&
@@ -1920,8 +1884,8 @@ private[gateway] object SchemaComposition {
   ): Option[FederationKey] =
     if (!names.key.contains(directive.name)) None
     else
-      directive.arguments.get("fields").collect { case StringValue(value) => value }.flatMap { value =>
-        parseKeyFields(value)
+      directiveFieldSet(directive).toOption.flatMap { selections =>
+        keyFields(selections)
           .map(fields => FederationKey(fields, !directive.arguments.get("resolvable").contains(BooleanValue(false))))
       }
 
@@ -1929,13 +1893,7 @@ private[gateway] object SchemaComposition {
     schema: SchemaContribution,
     names: FederationDirectiveNames
   ): Set[(String, String)] = {
-    val definitions = schema.document.typeDefinitions.collect {
-      case definition: ObjectTypeDefinition    => definition.name -> definition.directives
-      case definition: InterfaceTypeDefinition => definition.name -> definition.directives
-    } ::: schema.document.typeExtensions.collect {
-      case extension: ObjectTypeExtension    => extension.name -> extension.directives
-      case extension: InterfaceTypeExtension => extension.name -> extension.directives
-    }
+    val definitions = objectLikeEntries(schema.document).map { case (name, directives, _) => name -> directives }
 
     definitions.iterator.flatMap { case (typeName, directives) =>
       directives.iterator
@@ -1981,16 +1939,18 @@ private[gateway] object SchemaComposition {
       (typeName -> field.name) :: child.toList.flatMap(keyCoordinates(rootType, _, field.children))
     }
 
-  private def parseKeyFields(value: String): Option[List[ComposedGraph.KeyField]] =
-    parseFieldSet(value).flatMap(keyFields)
+  private def directiveFieldSet(directive: Directive): Either[String, List[Selection]] =
+    for {
+      value      <- directive.arguments
+                      .get("fields")
+                      .collect { case StringValue(value) => value }
+                      .toRight("the 'fields' argument must be a string.")
+      selections <- parseFieldSet(value).toRight("the selection could not be parsed.")
+    } yield selections
 
-  private def parseFieldSet(value: String): Option[List[Selection]] =
+  private[gateway] def parseFieldSet(value: String): Option[List[Selection]] =
     Parser.parseQuery(s"{ $value }") match {
-      case Right(document) =>
-        document.operationDefinitions match {
-          case operation :: Nil => Some(operation.selectionSet)
-          case _                => None
-        }
+      case Right(document) => document.operationDefinition(None).map(_.selectionSet)
       case Left(_)         => None
     }
 

@@ -65,7 +65,7 @@ private[gateway] final class GatewayRuntimeImpl[-R](
         sources.get(source) match {
           case Some(source) =>
             source
-              .execute(resolvedRequest)
+              .execute(resolvedRequest, plan.operation)
               .map(response =>
                 completeSourceResponse(
                   plan.fields,
@@ -78,7 +78,7 @@ private[gateway] final class GatewayRuntimeImpl[-R](
         }
       case None         =>
         executeRemote(plan, execution, resolvedRequest)
-          .zipPar(executeIntrospection(execution, plan.localFields.filter(isIntrospectionField)))
+          .zipPar(executeIntrospection(execution, plan.localFields.filter(ExecutionRequest.isIntrospectionField)))
           .map { case (remote, local) => assemble(plan, remote, local) }
     }
 
@@ -109,7 +109,7 @@ private[gateway] final class GatewayRuntimeImpl[-R](
           }
         }
       case OperationType.Mutation     =>
-        executeMutations(plan, plan.roots, execution, resolvedRequest, Nil, Nil, Nil)
+        executeMutations(plan, plan.roots, execution, resolvedRequest)
       case OperationType.Subscription => ZIO.succeed(RemoteExecution(Nil, Nil))
     }
 
@@ -117,46 +117,46 @@ private[gateway] final class GatewayRuntimeImpl[-R](
     plan: OperationPlan,
     pending: List[RootRoute],
     execution: ExecutionRequest,
-    resolvedRequest: GraphQLRequest,
-    roots: List[RootResult],
-    results: List[EntityResult],
-    completionErrors: List[CalibanError]
+    resolvedRequest: GraphQLRequest
   )(implicit trace: Trace): ZIO[R, Nothing, RemoteExecution] =
     pending match {
-      case Nil           =>
-        ZIO.succeed(RemoteExecution(roots.reverse, results.reverse, completionErrors.reverse))
+      case Nil           => ZIO.succeed(RemoteExecution(Nil, Nil))
       case route :: tail =>
         executeRoot(route, execution, resolvedRequest).flatMap { root =>
           val rootData = mutationRootData(route, root.response.data)
           val current  = plan.entities.filter(_.root == route.id)
           executeEntities(current, Map(route.id -> rootData), Set(route.id), Map.empty, resolvedRequest).flatMap {
             entityExecution =>
-              val updated     = root.copy(
+              val updated   = root.copy(
                 response = root.response.copy(
                   data = entityExecution.roots.getOrElse(route.id, rootData)
                 )
               )
-              val nextRoots   = updated :: roots
-              val nextResults = entityExecution.results.reverse ::: results
-              val errors      = updated.response.errors ::: entityExecution.results.flatMap(_.errors)
-              val completed   = completeObject(
+              val errors    = updated.response.errors ::: entityExecution.results.flatMap(_.errors)
+              val completed = completeObject(
                 route.client,
                 updated.response.data,
                 Vector.empty,
                 errors,
                 plan.runtimeTypes
               )
-              val nextErrors  = completed.errors.reverse ::: completionErrors
               if (completed.value.isEmpty)
                 ZIO.succeed(
                   RemoteExecution(
-                    nextRoots.reverse,
-                    nextResults.reverse,
-                    nextErrors.reverse,
+                    updated :: Nil,
+                    entityExecution.results,
+                    completed.errors,
                     aborted = true
                   )
                 )
-              else executeMutations(plan, tail, execution, resolvedRequest, nextRoots, nextResults, nextErrors)
+              else
+                executeMutations(plan, tail, execution, resolvedRequest).map(next =>
+                  next.copy(
+                    roots = updated :: next.roots,
+                    entities = entityExecution.results ::: next.entities,
+                    completionErrors = completed.errors ::: next.completionErrors
+                  )
+                )
           }
         }
     }
@@ -238,7 +238,7 @@ private[gateway] final class GatewayRuntimeImpl[-R](
     sources.get(route.source) match {
       case Some(source) =>
         source
-          .execute(request)
+          .execute(request, execution.operationType)
           .map { response =>
             val translated = mapping.fold(response)(_.rootResponseToClient(executable, response))
             val errors     = translated.errors.map {
@@ -374,19 +374,28 @@ private[gateway] final class GatewayRuntimeImpl[-R](
         )
         runtime.filter(name => possible.isEmpty || possible.contains(name)) match {
           case Some(typeName)                              =>
-            val completed = completeObject(field.collectFields(typeName), value, path, sourceErrors, runtimeTypes)
-            if (completed.value.isEmpty) CompletedValue(Some(NullValue), completed.errors) else completed
+            completeNestedObject(typeName, field, value, path, sourceErrors, runtimeTypes)
           case None if runtime.isEmpty && !requiresRuntime =>
-            val typeName  = fieldType.innerType.name.getOrElse("")
-            val completed = completeObject(field.collectFields(typeName), value, path, sourceErrors, runtimeTypes)
-            if (completed.value.isEmpty) CompletedValue(Some(NullValue), completed.errors) else completed
+            completeNestedObject(
+              fieldType.innerType.name.getOrElse(""),
+              field,
+              value,
+              path,
+              sourceErrors,
+              runtimeTypes
+            )
           case None                                        =>
             CompletedValue(Some(NullValue), invalidSourceValueErrors(path.toList, sourceErrors))
         }
       case __TypeKind.OBJECT                       =>
-        val typeName  = fieldType.innerType.name.getOrElse("")
-        val completed = completeObject(field.collectFields(typeName), value, path, sourceErrors, runtimeTypes)
-        if (completed.value.isEmpty) CompletedValue(Some(NullValue), completed.errors) else completed
+        completeNestedObject(
+          fieldType.innerType.name.getOrElse(""),
+          field,
+          value,
+          path,
+          sourceErrors,
+          runtimeTypes
+        )
       case __TypeKind.ENUM                         =>
         value match {
           case StringValue(name) if fieldType.allEnumValues.exists(_.name == name) => CompletedValue(Some(value), Nil)
@@ -408,6 +417,18 @@ private[gateway] final class GatewayRuntimeImpl[-R](
         }
       case _                                       => CompletedValue(Some(value), Nil)
     }
+
+  private def completeNestedObject(
+    typeName: String,
+    field: Field,
+    value: ResponseValue,
+    path: Vector[PathValue],
+    sourceErrors: List[CalibanError],
+    runtimeTypes: List[RuntimeTypeSelection]
+  ): CompletedValue = {
+    val completed = completeObject(field.collectFields(typeName), value, path, sourceErrors, runtimeTypes)
+    if (completed.value.isEmpty) CompletedValue(Some(NullValue), completed.errors) else completed
+  }
 
   private def nullViolation(
     field: Field,
@@ -612,9 +633,6 @@ private[gateway] final class GatewayRuntimeImpl[-R](
       if (field.fields.isEmpty) List(field.aliasedName)
       else flatten(field.fields).map(child => s"${field.aliasedName}.$child")
     }
-
-  private def isIntrospectionField(field: Field): Boolean =
-    field.name == "__schema" || field.name == "__type"
 
   private def rootFailure(route: RootRoute): GraphQLResponse[CalibanError] =
     GraphQLResponse(

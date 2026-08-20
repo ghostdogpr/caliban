@@ -180,39 +180,13 @@ private[gateway] final class OperationPreparation[-R] private (
       .toMap
 
   private def hasVariableCondition(document: Document, operationName: Option[String]): Boolean = {
-    val fragments = document.fragmentDefinitions.iterator.map(fragment => fragment.name -> fragment).toMap
-
     def isVariableCondition(directive: Directive): Boolean =
       (directive.name == "skip" || directive.name == "include") && directive.arguments.values.exists {
         case _: VariableValue => true
         case _                => false
       }
 
-    def loop(selections: List[Selection], visitedFragments: Set[String]): Boolean =
-      selections.exists {
-        case Selection.Field(_, _, _, directives, selectionSet, _) =>
-          directives.exists(isVariableCondition) || loop(selectionSet, visitedFragments)
-        case Selection.InlineFragment(_, directives, selectionSet) =>
-          directives.exists(isVariableCondition) || loop(selectionSet, visitedFragments)
-        case Selection.FragmentSpread(name, directives)            =>
-          directives.exists(isVariableCondition) ||
-          (!visitedFragments.contains(name) && fragments
-            .get(name)
-            .exists(fragment =>
-              fragment.directives.exists(isVariableCondition) || loop(fragment.selectionSet, visitedFragments + name)
-            ))
-      }
-
-    val operation = operationName match {
-      case Some(name) => document.operationDefinitions.find(_.name.contains(name))
-      case None       =>
-        document.operationDefinitions match {
-          case value :: Nil => Some(value)
-          case _            => None
-        }
-    }
-
-    operation.exists(value => value.directives.exists(isVariableCondition) || loop(value.selectionSet, Set.empty))
+    document.hasDirective(operationName)(isVariableCondition)
   }
 }
 

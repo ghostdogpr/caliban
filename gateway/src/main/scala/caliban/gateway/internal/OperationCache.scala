@@ -51,7 +51,7 @@ private[gateway] final class OperationCache[K, E, V] private (
           case Decision.Await(promise)   =>
             promise.await.flatMap {
               case Exit.Failure(cause) if cause.isInterrupted => getOrCompute(key)(compute)
-              case exit                                       => fromExit(exit)
+              case exit                                       => ZIO.suspendSucceed[Any, E, V](exit)
             }
           case Decision.Compute(promise) => complete(key, promise, compute)
         }
@@ -64,7 +64,7 @@ private[gateway] final class OperationCache[K, E, V] private (
   )(implicit trace: Trace): ZIO[R, E, V] =
     ZIO.uninterruptibleMask { restore =>
       restore(compute).exit.flatMap { exit =>
-        val result = exit match {
+        val result: Exit[E, V] = exit match {
           case Exit.Success(weighted) => Exit.succeed(weighted.value)
           case Exit.Failure(cause)    => Exit.failCause(cause)
         }
@@ -74,14 +74,8 @@ private[gateway] final class OperationCache[K, E, V] private (
             case Exit.Success(weighted) => withoutFlight.insert(key, weighted, maxWeight)
             case Exit.Failure(_)        => withoutFlight
           }
-        } *> promise.succeed(result).unit *> fromExit(result)
+        } *> promise.succeed(result).unit *> ZIO.suspendSucceed[Any, E, V](result)
       }
-    }
-
-  private def fromExit[A](exit: Exit[E, A])(implicit trace: Trace): ZIO[Any, E, A] =
-    exit match {
-      case Exit.Success(value) => ZIO.succeed(value)
-      case Exit.Failure(cause) => ZIO.failCause(cause)
     }
 }
 

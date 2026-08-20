@@ -15,18 +15,46 @@ private[gateway] final class OperationPlanner(
 ) {
 
   def plan(document: Document, execution: ExecutionRequest): Either[PlanningFailure, OperationPlan] = {
-    val rootName     = operationRootName(execution.operationType)
-    val fields       = execution.field.collectFields(rootName)
-    val localFields  = fields.filter(isLocalField)
-    val remoteFields = fields.filterNot(isLocalField)
-    val planned      = remoteFields
+    val rootName    = operationRootName(execution.operationType)
+    val fields      = execution.field.collectFields(rootName)
+    val localFields = fields.filter(isLocalField)
+
+    for {
+      roots      <- planRoots(fields.filterNot(isLocalField), execution.operationType)
+      planned     = rootRoutes(roots, execution.operationType)
+      entities    = enrichmentDependencies(entityRoutes(planned.assignments, planned.routes.size))
+      runtime     = runtimeTypeSelections(roots, entities)
+      passthrough = passthroughSource(planned.routes, entities, runtime, localFields)
+      _          <- validateDependencies(entities)
+      _          <- Either.cond(
+                      passthrough.nonEmpty || !document.hasDirective(execution.operationName)(isCustomDirective),
+                      (),
+                      PlanningFailure("Custom executable directives are not supported by this gateway.")
+                    )
+    } yield OperationPlan(
+      execution.operationType,
+      rootName,
+      fields,
+      localFields,
+      planned.routes,
+      entities,
+      runtime,
+      passthrough
+    )
+  }
+
+  private def planRoots(
+    fields: List[Field],
+    operationType: OperationType
+  ): Either[PlanningFailure, List[PlannedRoot]] =
+    fields
       .foldLeft[Either[PlanningFailure, List[PlannedRoot]]](Right(Nil)) { case (result, field) =>
         for {
           roots   <- result
-          sources  = graph.sources(execution.operationType, field.name)
+          sources  = graph.sources(operationType, field.name)
           _       <- Either.cond(sources.nonEmpty, (), PlanningFailure(s"No subgraph owns root field '${field.name}'."))
           planned <-
-            if (execution.operationType == OperationType.Mutation) {
+            if (operationType == OperationType.Mutation) {
               val attempts = sources.map(source => planRootAtSource(field, field, source, sources, true))
               attempts.collectFirst { case Right(Some(root)) => root } match {
                 case Some(root) => Right(root :: roots)
@@ -50,113 +78,107 @@ private[gateway] final class OperationPlanner(
       }
       .map(_.reverse)
 
-    planned.flatMap { roots =>
-      val grouped                                                                         = mutable.LinkedHashMap.empty[String, mutable.ListBuffer[PlannedRoot]]
+  private def rootRoutes(roots: List[PlannedRoot], operationType: OperationType): PlannedRoutes =
+    if (operationType == OperationType.Mutation) {
+      val routes = roots.zipWithIndex.map { case (root, index) =>
+        RootRoute(RouteId(index), root.source, root.client :: Nil, root.downstream :: Nil)
+      }
+      PlannedRoutes(routes, roots.zip(routes).map { case (root, route) => root -> route.id })
+    } else {
+      val grouped  = mutable.LinkedHashMap.empty[String, mutable.ListBuffer[PlannedRoot]]
       roots.foreach(root => grouped.getOrElseUpdate(root.source, mutable.ListBuffer.empty) += root)
-      val (routes, routeAssignments)                                                      =
-        if (execution.operationType == OperationType.Mutation) {
-          val values = roots.zipWithIndex.map { case (root, index) =>
-            RootRoute(RouteId(index), root.source, root.client :: Nil, root.downstream :: Nil)
-          }
-          values -> roots.zip(values).map { case (root, route) => root -> route.id }
-        } else {
-          val values        = grouped.iterator.zipWithIndex.map { case ((source, planned), index) =>
-            val selected = planned.toList
-            RootRoute(RouteId(index), source, selected.map(_.client), selected.map(_.downstream))
-          }.toList
-          val routeBySource = values.iterator.map(route => route.source -> route.id).toMap
-          values -> roots.flatMap(root => routeBySource.get(root.source).map(root -> _))
-        }
-      var nextRouteId                                                                     = routes.size
-      def flatten(
-        values: List[PlannedEntity],
-        root: RouteId,
-        dependencies: Set[RouteId]
-      ): List[EntityRoute] =
-        values.flatMap { entity =>
-          val id       = RouteId(nextRouteId)
-          nextRouteId += 1
-          val current  = EntityRoute(
-            id,
-            root,
-            entity.source,
-            dependencies,
-            entity.dependencySource,
-            entity.mergePath,
-            entity.entityType,
-            entity.keys,
-            entity.requirements,
-            entity.typename,
-            entity.lookup,
-            entity.fields,
-            entity.requiresKeyEnrichment
-          )
-          val children = flatten(entity.entities, root, Set(id))
-          current :: children
-        }
-      val baseEntities                                                                    = routeAssignments.flatMap { case (planned, root) =>
-        flatten(planned.entities, root, Set(root))
-      }
-      val entityById                                                                      = baseEntities.iterator.map(route => route.id -> route).toMap
-      def dependsOn(route: EntityRoute, dependency: RouteId, seen: Set[RouteId]): Boolean =
-        route.dependencies.contains(dependency) || route.dependencies.exists { id =>
-          !seen.contains(id) && entityById.get(id).exists(dependsOn(_, dependency, seen + id))
-        }
-      def selectionPaths(selection: RequiredSelection): List[Vector[String]]              =
-        if (selection.children.isEmpty) Vector(selection.responseName) :: Nil
-        else selection.children.flatMap(selectionPaths).map(Vector(selection.responseName) ++ _)
-      def fieldPaths(field: Field): List[Vector[String]]                                  =
-        if (field.fields.isEmpty) Vector(field.aliasedName) :: Nil
-        else field.fields.flatMap(fieldPaths).map(Vector(field.aliasedName) ++ _)
-      val entities                                                                        = baseEntities.map { route =>
-        if (!route.requiresKeyEnrichment) route
-        else {
-          val required     = (route.keys ::: route.requirements).flatMap(selectionPaths).map(route.mergePath ++ _).toSet
-          val dependencies = baseEntities.iterator
-            .filter(_.root == route.root)
-            .filterNot(candidate => dependsOn(candidate, route.id, Set.empty))
-            .filter(candidate =>
-              candidate.fields.flatMap(fieldPaths).exists(path => required.contains(candidate.mergePath ++ path))
-            )
-            .map(_.id)
-            .toSet
-          route.copy(dependencies = route.dependencies ++ dependencies)
-        }
-      }
-      val runtimeTypes                                                                    = (
-        roots.flatMap(_.runtimeTypes) ::: entities.flatMap(route =>
-          route.typename
-            .filter(_ => graph.isObjectType(route.entityType))
-            .map(selection => RuntimeTypeSelection(route.mergePath, selection.responseName))
-        )
-      ).distinct
-      val passthrough                                                                     =
-        if (
-          sourceCount == 1 && routes.size == 1 && entities.isEmpty && runtimeTypes.isEmpty && localFields.isEmpty &&
-          routes.headOption.forall(route => graph.mapping(route.source).forall(!_.nonEmpty))
-        )
-          routes.headOption.map(_.source)
-        else None
+      val routes   = grouped.iterator.zipWithIndex.map { case ((source, planned), index) =>
+        val selected = planned.toList
+        RootRoute(RouteId(index), source, selected.map(_.client), selected.map(_.downstream))
+      }.toList
+      val bySource = routes.iterator.map(route => route.source -> route.id).toMap
+      PlannedRoutes(routes, roots.flatMap(root => bySource.get(root.source).map(root -> _)))
+    }
 
-      validateDependencies(entities).flatMap { _ =>
-        if (passthrough.isEmpty && hasCustomExecutableDirective(document, execution.operationName))
-          Left(PlanningFailure("Custom executable directives are not supported by this gateway."))
-        else
-          Right(
-            OperationPlan(
-              execution.operationType,
-              rootName,
-              fields,
-              localFields,
-              routes,
-              entities,
-              runtimeTypes,
-              passthrough
-            )
+  private def entityRoutes(assignments: List[(PlannedRoot, RouteId)], firstId: Int): List[EntityRoute] = {
+    var nextRouteId = firstId
+    def flatten(
+      values: List[PlannedEntity],
+      root: RouteId,
+      dependencies: Set[RouteId]
+    ): List[EntityRoute] =
+      values.flatMap { entity =>
+        val id       = RouteId(nextRouteId)
+        nextRouteId += 1
+        val current  = EntityRoute(
+          id,
+          root,
+          entity.source,
+          dependencies,
+          entity.dependencySource,
+          entity.mergePath,
+          entity.entityType,
+          entity.keys,
+          entity.requirements,
+          entity.typename,
+          entity.lookup,
+          entity.fields,
+          entity.requiresKeyEnrichment
+        )
+        val children = flatten(entity.entities, root, Set(id))
+        current :: children
+      }
+
+    assignments.flatMap { case (planned, root) => flatten(planned.entities, root, Set(root)) }
+  }
+
+  private def enrichmentDependencies(routes: List[EntityRoute]): List[EntityRoute] = {
+    val byId = routes.iterator.map(route => route.id -> route).toMap
+
+    def dependsOn(route: EntityRoute, dependency: RouteId, seen: Set[RouteId]): Boolean =
+      route.dependencies.contains(dependency) || route.dependencies.exists { id =>
+        !seen.contains(id) && byId.get(id).exists(dependsOn(_, dependency, seen + id))
+      }
+    def selectionPaths(selection: RequiredSelection): List[Vector[String]]              =
+      if (selection.children.isEmpty) Vector(selection.responseName) :: Nil
+      else selection.children.flatMap(selectionPaths).map(Vector(selection.responseName) ++ _)
+    def fieldPaths(field: Field): List[Vector[String]]                                  =
+      if (field.fields.isEmpty) Vector(field.aliasedName) :: Nil
+      else field.fields.flatMap(fieldPaths).map(Vector(field.aliasedName) ++ _)
+
+    routes.map { route =>
+      if (!route.requiresKeyEnrichment) route
+      else {
+        val required     = (route.keys ::: route.requirements).flatMap(selectionPaths).map(route.mergePath ++ _).toSet
+        val dependencies = routes.iterator
+          .filter(_.root == route.root)
+          .filterNot(candidate => dependsOn(candidate, route.id, Set.empty))
+          .filter(candidate =>
+            candidate.fields.flatMap(fieldPaths).exists(path => required.contains(candidate.mergePath ++ path))
           )
+          .map(_.id)
+          .toSet
+        route.copy(dependencies = route.dependencies ++ dependencies)
       }
     }
   }
+
+  private def runtimeTypeSelections(
+    roots: List[PlannedRoot],
+    entities: List[EntityRoute]
+  ): List[RuntimeTypeSelection] =
+    (roots.flatMap(_.runtimeTypes) ::: entities.flatMap(route =>
+      route.typename
+        .filter(_ => graph.isObjectType(route.entityType))
+        .map(selection => RuntimeTypeSelection(route.mergePath, selection.responseName))
+    )).distinct
+
+  private def passthroughSource(
+    routes: List[RootRoute],
+    entities: List[EntityRoute],
+    runtimeTypes: List[RuntimeTypeSelection],
+    localFields: List[Field]
+  ): Option[String] =
+    if (
+      sourceCount == 1 && routes.size == 1 && entities.isEmpty && runtimeTypes.isEmpty && localFields.isEmpty &&
+      routes.headOption.forall(route => graph.mapping(route.source).forall(!_.nonEmpty))
+    ) routes.headOption.map(_.source)
+    else None
 
   private def planRootAtSource(
     client: Field,
@@ -188,18 +210,12 @@ private[gateway] final class OperationPlanner(
         addRuntimeTypeFallback && Set[__TypeKind](__TypeKind.INTERFACE, __TypeKind.UNION)
           .contains(selected.fieldType.innerType.kind)
       ) {
-        val alias      = privateAlias(
+        val (alias, typename) = privateTypename(
           "_caliban_gateway_runtime_typename",
+          selected.fieldType.innerType,
           selected.fields.iterator.map(_.aliasedName).toSet
         )
-        val downstream = planned.downstream.copy(fields =
-          Field(
-            "__typename",
-            Types.string,
-            Some(selected.fieldType.innerType),
-            alias = Some(alias)
-          ) :: Nil
-        )
+        val downstream        = planned.downstream.copy(fields = typename :: Nil)
         Some(
           PlannedRoot(
             source,
@@ -287,42 +303,46 @@ private[gateway] final class OperationPlanner(
     provided: List[Field],
     satisfiedRequirements: Set[(String, String)]
   ): Either[PlanningFailure, PlannedField] = {
-    val parentType       = field.fieldType.innerType
-    val typeName         = parentType.name.getOrElse("")
-    val sourceTypeName   = field.parentType
+    val parentType     = field.fieldType.innerType
+    val typeName       = parentType.name.getOrElse("")
+    val sourceTypeName = field.parentType
       .flatMap(_.name)
       .flatMap(graph.field(source, _, field.name))
       .flatMap(_._type.innerType.name)
       .getOrElse(typeName)
-    val possibleTypes    = field.parentType
+    val possibleTypes  = field.parentType
       .flatMap(_.name)
       .map(graph.runtimeTypesForField(runtimeSources, source, _, field.name, sourceTypeName))
       .getOrElse(graph.runtimeTypes(source, sourceTypeName).toSet)
-    val scoped           = mergeFields(
+    val scoped         = mergeFields(
       provided ::: fieldSetFields(
         graph.provided(source, field.parentType.flatMap(_.name).getOrElse(""), field.name),
         field.fieldType
       )
     )
-    val local            = mutable.ListBuffer.empty[(Field, List[Field])]
-    val remote           = mutable.LinkedHashMap.empty[(String, List[Selection]), mutable.ListBuffer[Field]]
-    var failure          = Option.empty[PlanningFailure]
-    val selections       = selectedFields(field, parentType, typeName)
+    val local          = mutable.ListBuffer.empty[(Field, List[Field])]
+    val remote         = mutable.LinkedHashMap.empty[(String, List[Selection]), mutable.ListBuffer[Field]]
+    var failure        = Option.empty[PlanningFailure]
+    val selections     = selectedFields(field, parentType, typeName)
       .filter(graph.appliesOnSource(source, sourceTypeName, _))
       .filter(child =>
         graph.isInterfaceObject(source, sourceTypeName) ||
           child._condition.forall(condition => possibleTypes.isEmpty || condition.exists(possibleTypes))
       )
-    val runtimeTypeAlias =
+    val runtimeType    =
       if (
         graph.isInterfaceObject(source, typeName) && selections.exists(_.targets.nonEmpty) &&
         !selections.exists(_.name == "__typename")
       )
-        Some(privateAlias("_caliban_gateway_runtime_typename", field.fields.iterator.map(_.aliasedName).toSet))
+        Some(
+          privateTypename(
+            "_caliban_gateway_runtime_typename",
+            parentType,
+            field.fields.iterator.map(_.aliasedName).toSet
+          )
+        )
       else None
-    val routed           = selections ::: runtimeTypeAlias.toList.map(alias =>
-      Field("__typename", Types.string, Some(parentType), alias = Some(alias))
-    )
+    val routed         = selections ::: runtimeType.toList.map(_._2)
 
     routed.flatMap { child =>
       val childParent                                       = child.parentType.flatMap(_.name).getOrElse(typeName)
@@ -409,9 +429,9 @@ private[gateway] final class OperationPlanner(
                        )
         } yield {
           val withRuntimeType = addRuntimeType(field, source, path, parentType, planned)
-          runtimeTypeAlias.fold(withRuntimeType)(alias =>
+          runtimeType.fold(withRuntimeType) { case (alias, _) =>
             withRuntimeType.copy(runtimeTypes = RuntimeTypeSelection(path, alias) :: withRuntimeType.runtimeTypes)
-          )
+          }
         }
     }
   }
@@ -816,13 +836,12 @@ private[gateway] final class OperationPlanner(
       case __TypeKind.INTERFACE | __TypeKind.UNION
           if !parentType.name.exists(graph.isInterfaceObject(source, _)) &&
             (planned.downstream.fields.isEmpty || planned.downstream.fields.exists(_.targets.nonEmpty)) =>
-        val used  =
+        val used              =
           field.fields.iterator.map(_.aliasedName).toSet ++ planned.downstream.fields.iterator.map(_.aliasedName)
-        val alias = privateAlias("_caliban_gateway_runtime_typename", used)
+        val (alias, typename) = privateTypename("_caliban_gateway_runtime_typename", parentType, used)
         planned.copy(
           downstream = planned.downstream.copy(
-            fields = planned.downstream.fields :::
-              Field("__typename", Types.string, Some(parentType), alias = Some(alias)) :: Nil
+            fields = planned.downstream.fields ::: typename :: Nil
           ),
           runtimeTypes = RuntimeTypeSelection(path, alias) :: planned.runtimeTypes
         )
@@ -836,9 +855,13 @@ private[gateway] final class OperationPlanner(
     val needsRuntimeType = selections.exists(_.conditions.nonEmpty)
     val runtimeType      =
       if (needsRuntimeType) {
-        val used  = children.iterator.map(_.aliasedName).toSet
-        val alias = privateAlias("_caliban_gateway_requirement_typename", used)
-        Some(alias -> Field("__typename", Types.string, Some(field.fieldType.innerType), alias = Some(alias)))
+        Some(
+          privateTypename(
+            "_caliban_gateway_requirement_typename",
+            field.fieldType.innerType,
+            children.iterator.map(_.aliasedName).toSet
+          )
+        )
       } else None
     val downstream       = field.copy(fields = children ::: runtimeType.toList.map(_._2))
     downstream -> RequiredSelection(
@@ -885,8 +908,8 @@ private[gateway] final class OperationPlanner(
     lookup: ComposedGraph.EntityLookup,
     targets: Option[Set[String]]
   ): (Vector[Field], List[RequiredSelection], Option[RequiredSelection]) = {
-    val usedNames = field.fields.iterator.map(_.aliasedName).toSet ++ selected.iterator.map(_.aliasedName)
-    val keyData   = keyFields.foldLeft(
+    val usedNames   = field.fields.iterator.map(_.aliasedName).toSet ++ selected.iterator.map(_.aliasedName)
+    val keyData     = keyFields.foldLeft(
       (List.empty[RequiredSelection], Vector.empty[Field], usedNames)
     ) { case ((selections, fields, names), keyField) =>
       val alias = privateAlias("_caliban_gateway_key", names)
@@ -896,15 +919,13 @@ private[gateway] final class OperationPlanner(
         names + alias
       )
     }
-    val keys      = keyData._1.reverse
-    val typename  =
+    val keys        = keyData._1.reverse
+    val runtimeType =
       if (lookup.operation.requiresTypename || targets.nonEmpty)
-        Some(RequiredSelection("__typename", privateAlias("_caliban_gateway_typename", keyData._3)))
+        Some(privateTypename("_caliban_gateway_typename", parentType, keyData._3))
       else None
-    val typeField = typename.map(selection =>
-      Field(selection.field, Types.string, Some(parentType), alias = Some(selection.responseName))
-    )
-    (selected ++ keyData._2 ++ typeField, keys, typename)
+    val typename    = runtimeType.map { case (alias, _) => RequiredSelection("__typename", alias) }
+    (selected ++ keyData._2 ++ runtimeType.map(_._2), keys, typename)
   }
 
   private def injectSelectedKeys(
@@ -915,15 +936,18 @@ private[gateway] final class OperationPlanner(
     lookup: ComposedGraph.EntityLookup,
     targets: Option[Set[String]]
   ): (Vector[Field], List[RequiredSelection], Option[RequiredSelection]) = {
-    val usedNames = field.fields.iterator.map(_.aliasedName).toSet ++ selected.iterator.map(_.aliasedName)
-    val typename  =
+    val usedNames   = field.fields.iterator.map(_.aliasedName).toSet ++ selected.iterator.map(_.aliasedName)
+    val runtimeType =
       if (lookup.operation.requiresTypename || targets.nonEmpty)
-        Some(RequiredSelection("__typename", privateAlias("_caliban_gateway_typename", usedNames)))
+        Some(privateTypename("_caliban_gateway_typename", parentType, usedNames))
       else None
-    val typeField = typename.map(selection =>
-      Field(selection.field, Types.string, Some(parentType), alias = Some(selection.responseName))
-    )
-    (selected ++ typeField, keys, typename)
+    val typename    = runtimeType.map { case (alias, _) => RequiredSelection("__typename", alias) }
+    (selected ++ runtimeType.map(_._2), keys, typename)
+  }
+
+  private def privateTypename(base: String, parentType: __Type, used: Set[String]): (String, Field) = {
+    val alias = privateAlias(base, used)
+    alias -> Field("__typename", Types.string, Some(parentType), alias = Some(alias))
   }
 
   private def transitionTarget(parentType: __Type, entityType: String): Option[Set[String]] =
@@ -1086,41 +1110,7 @@ private[gateway] final class OperationPlanner(
     }
 
   private def isLocalField(field: Field): Boolean =
-    field.name == "__schema" || field.name == "__type" || field.name == "__typename"
-
-  private def hasCustomExecutableDirective(document: Document, operationName: Option[String]): Boolean = {
-    val fragments = document.fragmentDefinitions.iterator.map(fragment => fragment.name -> fragment).toMap
-
-    def loop(selections: List[Selection], visitedFragments: Set[String]): Boolean =
-      selections.exists {
-        case Selection.Field(_, _, _, directives, selectionSet, _) =>
-          directives.exists(isCustomDirective) || loop(selectionSet, visitedFragments)
-        case Selection.InlineFragment(_, directives, selectionSet) =>
-          directives.exists(isCustomDirective) || loop(selectionSet, visitedFragments)
-        case Selection.FragmentSpread(name, directives)            =>
-          directives.exists(isCustomDirective) ||
-          (!visitedFragments.contains(name) && fragments
-            .get(name)
-            .exists(fragment =>
-              fragment.directives.exists(isCustomDirective) || loop(fragment.selectionSet, visitedFragments + name)
-            ))
-      }
-
-    val operation = operationName match {
-      case Some(name) => document.operationDefinitions.find(_.name.contains(name))
-      case None       =>
-        document.operationDefinitions match {
-          case operation :: Nil => Some(operation)
-          case _                => None
-        }
-    }
-
-    operation.exists(operation =>
-      operation.directives.exists(isCustomDirective) ||
-        operation.variableDefinitions.exists(_.directives.exists(isCustomDirective)) ||
-        loop(operation.selectionSet, Set.empty)
-    )
-  }
+    ExecutionRequest.isMetaField(field)
 
   private def isCustomDirective(directive: Directive): Boolean =
     directive.name != "skip" && directive.name != "include"
@@ -1137,6 +1127,11 @@ private[gateway] object OperationPlanner {
   final case class RouteId(value: Int) extends AnyVal
 
   final case class PlanningFailure(message: String)
+
+  private final case class PlannedRoutes(
+    routes: List[RootRoute],
+    assignments: List[(PlannedRoot, RouteId)]
+  )
 
   final case class RequiredSelection(
     field: String,

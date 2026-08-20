@@ -74,7 +74,7 @@ private[gateway] final class EntityExecutor[-R](
           sources.get(route.source) match {
             case Some(source) =>
               source
-                .execute(lookup.request)
+                .execute(lookup.request, OperationType.Query)
                 .map(response =>
                   correlateResponse(
                     route,

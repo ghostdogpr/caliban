@@ -1,5 +1,6 @@
 package caliban.gateway
 
+import caliban.gateway.GatewayConfigValidation._
 import zio.Duration
 
 /**
@@ -66,14 +67,14 @@ final class GatewayConfig private (
 
   private[gateway] def diagnostics: List[String] =
     List(
-      if (maxOperationCacheWeight <= 0) "Gateway operation cache weight must be positive." :: Nil else Nil,
-      if (maxOperationTextBytes <= 0) "Gateway maxOperationTextBytes must be positive." :: Nil else Nil,
-      if (maxOperationNesting <= 0) "Gateway maxOperationNesting must be positive." :: Nil else Nil,
-      if (maxParsedOperationNodes <= 0) "Gateway maxParsedOperationNodes must be positive." :: Nil else Nil,
-      if (maxConcurrentRequests <= 0) "Gateway maxConcurrentRequests must be positive." :: Nil else Nil,
-      if (maxConcurrentLocalCalls <= 0) "Gateway maxConcurrentLocalCalls must be positive." :: Nil else Nil,
-      if (!finitePositive(requestTimeout)) "Gateway request timeout must be finite and positive." :: Nil else Nil,
-      if (!finitePositive(drainTimeout)) "Gateway drain timeout must be finite and positive." :: Nil else Nil
+      positive(maxOperationCacheWeight, "Gateway operation cache weight must be positive."),
+      positive(maxOperationTextBytes, "Gateway maxOperationTextBytes must be positive."),
+      positive(maxOperationNesting, "Gateway maxOperationNesting must be positive."),
+      positive(maxParsedOperationNodes, "Gateway maxParsedOperationNodes must be positive."),
+      positive(maxConcurrentRequests, "Gateway maxConcurrentRequests must be positive."),
+      positive(maxConcurrentLocalCalls, "Gateway maxConcurrentLocalCalls must be positive."),
+      finitePositive(requestTimeout, "Gateway request timeout must be finite and positive."),
+      finitePositive(drainTimeout, "Gateway drain timeout must be finite and positive.")
     ).flatten
 
   private def copy(
@@ -96,9 +97,6 @@ final class GatewayConfig private (
       requestTimeout,
       drainTimeout
     )
-
-  private def finitePositive(value: Duration): Boolean =
-    value.compareTo(Duration.Zero) > 0 && value.compareTo(Duration.Infinity) < 0
 }
 
 object GatewayConfig {
@@ -117,4 +115,18 @@ object GatewayConfig {
       requestTimeout = Duration.fromSeconds(30),
       drainTimeout = Duration.fromSeconds(30)
     )
+}
+
+private[gateway] object GatewayConfigValidation {
+  def positive(value: Long, message: String): List[String] =
+    if (value > 0) Nil else message :: Nil
+
+  def nonNegative(value: Long, message: String): List[String] =
+    if (value >= 0) Nil else message :: Nil
+
+  def finitePositive(value: Duration, message: String): List[String] =
+    if (value.compareTo(Duration.Zero) > 0 && value.compareTo(Duration.Infinity) < 0) Nil else message :: Nil
+
+  def finiteNonNegative(value: Duration, message: String): List[String] =
+    if (value.compareTo(Duration.Zero) >= 0 && value.compareTo(Duration.Infinity) < 0) Nil else message :: Nil
 }

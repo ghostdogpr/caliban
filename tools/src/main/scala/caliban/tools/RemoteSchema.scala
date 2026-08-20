@@ -55,6 +55,31 @@ object RemoteSchema {
       _          <- SchemaValidator.validateRootType(rootType)
     } yield rootType
 
+  private[caliban] def promoteOrphanTypeExtensions(document: Document): Document = {
+    val known      = document.typeDefinitions.iterator.map(_.name).toSet
+    val normalized = document.definitions.foldLeft((known, List.empty[Definition])) {
+      case ((names, definitions), extension: TypeExtension) if !names.contains(extensionName(extension)) =>
+        val definition = extension match {
+          case ScalarTypeExtension(name, directives)                     =>
+            ScalarTypeDefinition(None, name, directives)
+          case ObjectTypeExtension(name, interfaces, directives, fields) =>
+            ObjectTypeDefinition(None, name, interfaces, directives, fields)
+          case InterfaceTypeExtension(name, directives, fields)          =>
+            InterfaceTypeDefinition(None, name, Nil, directives, fields)
+          case UnionTypeExtension(name, directives, members)             =>
+            UnionTypeDefinition(None, name, directives, members)
+          case EnumTypeExtension(name, directives, values)               =>
+            EnumTypeDefinition(None, name, directives, values)
+          case InputObjectTypeExtension(name, directives, fields)        =>
+            InputObjectTypeDefinition(None, name, directives, fields)
+        }
+        (names + definition.name, definition :: definitions)
+      case ((names, definitions), definition)                                                            =>
+        (names, definition :: definitions)
+    }
+    Document(normalized._2.reverse, document.sourceMapper)
+  }
+
   private def normalizeExtensions(document: Document): Either[ValidationError, Document] = {
     val typeExtensions = document.typeExtensions.collect { case extension: TypeExtension => extension }
       .groupBy(extensionName)

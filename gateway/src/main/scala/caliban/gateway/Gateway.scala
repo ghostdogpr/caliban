@@ -6,8 +6,6 @@ import caliban.introspection.Introspector
 import caliban.parsing.adt.Definition.TypeSystemDefinition.SchemaDefinition
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
 import caliban.parsing.adt.Definition.TypeSystemExtension.SchemaExtension
-import caliban.parsing.adt.Definition.TypeSystemExtension.TypeExtension
-import caliban.parsing.adt.Definition.TypeSystemExtension.TypeExtension._
 import caliban.parsing.adt.Type.NamedType
 import caliban.parsing.adt.Document
 import caliban.schema.RootType
@@ -147,7 +145,8 @@ object Gateway {
           document                <- RemoteSchemaAcquisition
                                        .document(schema, endpoint, federation, config.acquisition, Some(client))
                                        .mapError(error => List(s"[${subgraph.name}] $error"))
-          rootDocument             = ensureFederationTransportQuery(ensureFederationTypes(document, federation), federation)
+          normalizedDocument       = if (federation) RemoteSchema.promoteOrphanTypeExtensions(document) else document
+          rootDocument             = ensureFederationTransportQuery(normalizedDocument, federation)
           sourceRootType          <- toRootType(subgraph.name, rootDocument).mapError(_ :: Nil)
           contribution            <- prepareContribution(subgraph, sourceRootType, rootDocument, document, federation)
           source: GraphQLSource[R] = RemoteGraphQLSource(endpoint, client, config)
@@ -199,7 +198,8 @@ object Gateway {
                     )
                   )
       rootType <-
-        if (mapping.nonEmpty) toRootType(subgraph.name, mapping.transform(rootDocument)).mapError(_ :: Nil)
+        if (mapping.nonEmpty)
+          toRootType(subgraph.name, mapping.transform(rootDocument)).mapError(_ :: Nil)
         else ZIO.succeed(sourceRootType)
     } yield SchemaContribution(
       subgraph.name,
@@ -264,36 +264,6 @@ object Gateway {
       Document(schema ::: root :: service, document.sourceMapper)
     }
   }
-
-  private def ensureFederationTypes(document: Document, federation: Boolean): Document =
-    if (!federation) document
-    else {
-      val known      = document.typeDefinitions.iterator.map(_.name).toSet
-      val normalized = document.definitions.foldLeft((known, List.empty[caliban.parsing.adt.Definition])) {
-        case ((names, definitions), extension: TypeExtension) =>
-          val (name, definition) = promotedExtension(extension)
-          if (names.contains(name)) (names, extension :: definitions)
-          else (names + name, definition :: definitions)
-        case ((names, definitions), definition)               => (names, definition :: definitions)
-      }
-      Document(normalized._2.reverse, document.sourceMapper)
-    }
-
-  private def promotedExtension(extension: TypeExtension): (String, caliban.parsing.adt.Definition) =
-    extension match {
-      case ScalarTypeExtension(name, directives)                     =>
-        name -> ScalarTypeDefinition(None, name, directives)
-      case ObjectTypeExtension(name, interfaces, directives, fields) =>
-        name -> ObjectTypeDefinition(None, name, interfaces, directives, fields)
-      case InterfaceTypeExtension(name, directives, fields)          =>
-        name -> InterfaceTypeDefinition(None, name, Nil, directives, fields)
-      case UnionTypeExtension(name, directives, members)             =>
-        name -> UnionTypeDefinition(None, name, directives, members)
-      case EnumTypeExtension(name, directives, values)               =>
-        name -> EnumTypeDefinition(None, name, directives, values)
-      case InputObjectTypeExtension(name, directives, fields)        =>
-        name -> InputObjectTypeDefinition(None, name, directives, fields)
-    }
 
   private def nameDiagnostics[R](subgraphs: List[Subgraph[R]]): List[String] = {
     val blank     = subgraphs.collect {

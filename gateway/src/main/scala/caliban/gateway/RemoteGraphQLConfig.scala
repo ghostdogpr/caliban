@@ -1,5 +1,6 @@
 package caliban.gateway
 
+import caliban.gateway.GatewayConfigValidation._
 import sttp.model.Header
 import zio.{ Duration, ZIO }
 
@@ -80,14 +81,9 @@ object RemoteGraphQLConfig {
         case header if isProtocolHeader(header.name) =>
           s"Schema acquisition header '${header.name}' is owned by the GraphQL transport."
       }
-      val timeoutError     =
-        if (timeout.compareTo(Duration.Zero) <= 0 || timeout.compareTo(Duration.Infinity) >= 0)
-          List("Schema acquisition timeout must be finite and positive.")
-        else Nil
-      val responseError    =
-        if (maxResponseBytes <= 0) List("Schema acquisition maxResponseBytes must be positive.") else Nil
-      val parsingError     =
-        if (maxParsingDepth <= 0) List("Schema acquisition maxParsingDepth must be positive.") else Nil
+      val timeoutError     = finitePositive(timeout, "Schema acquisition timeout must be finite and positive.")
+      val responseError    = positive(maxResponseBytes, "Schema acquisition maxResponseBytes must be positive.")
+      val parsingError     = positive(maxParsingDepth, "Schema acquisition maxParsingDepth must be positive.")
 
       timeoutError ::: responseError ::: parsingError ::: protectedHeaders
     }
@@ -174,22 +170,14 @@ object RemoteGraphQLConfig {
       copy(forwardedHeaders = Set.empty, forwardAll = true)
 
     private[gateway] def diagnostics: List[String] = {
-      val timeoutError            =
-        if (timeout.compareTo(Duration.Zero) <= 0 || timeout.compareTo(Duration.Infinity) >= 0)
-          List("Source execution timeout must be finite and positive.")
-        else Nil
-      val requestError            =
-        if (maxRequestBytes <= 0) List("Source execution maxRequestBytes must be positive.") else Nil
-      val responseError           =
-        if (maxResponseBytes <= 0) List("Source execution maxResponseBytes must be positive.") else Nil
-      val retryError              =
-        if (retries < 0) List("Source execution retry count must be non-negative.") else Nil
+      val timeoutError            = finitePositive(timeout, "Source execution timeout must be finite and positive.")
+      val requestError            = positive(maxRequestBytes, "Source execution maxRequestBytes must be positive.")
+      val responseError           = positive(maxResponseBytes, "Source execution maxResponseBytes must be positive.")
+      val retryError              = nonNegative(retries, "Source execution retry count must be non-negative.")
       val backoffError            =
-        if (retryBackoff.compareTo(Duration.Zero) < 0 || retryBackoff.compareTo(Duration.Infinity) >= 0)
-          List("Source execution retry backoff must be finite and non-negative.")
-        else Nil
+        finiteNonNegative(retryBackoff, "Source execution retry backoff must be finite and non-negative.")
       val maxConcurrentCallsError =
-        if (maxConcurrentCalls <= 0) List("Source execution maxConcurrentCalls must be positive.") else Nil
+        positive(maxConcurrentCalls, "Source execution maxConcurrentCalls must be positive.")
       val protectedHeaders        = headers.collect {
         case header if isProtocolHeader(header.name) =>
           s"Source execution header '${header.name}' is owned by the GraphQL transport."

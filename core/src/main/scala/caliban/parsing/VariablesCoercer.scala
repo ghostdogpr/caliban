@@ -43,8 +43,8 @@ object VariablesCoercer {
     // See: https://spec.graphql.org/October2021/#sec-All-Variable-Uses-Defined
     val variableDefinitions = operationName match {
       case Some(name) =>
-        doc.operationDefinitions
-          .find(_.name.contains(name))
+        doc
+          .operationDefinition(Some(name))
           .fold(List.empty[VariableDefinition])(_.variableDefinitions)
       case None       =>
         doc.operationDefinitions.flatMap(_.variableDefinitions)

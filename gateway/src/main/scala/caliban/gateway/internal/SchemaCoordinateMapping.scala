@@ -8,7 +8,7 @@ import caliban.gateway.{ Lookup, SchemaTransformation }
 import caliban.gateway.SchemaTransformation._
 import caliban.gateway.internal.OperationPlanner._
 import caliban.introspection.adt.{ __Field, __InputValue, __Type, __TypeKind }
-import caliban.parsing.{ Parser, SourceMapper }
+import caliban.parsing.SourceMapper
 import caliban.parsing.adt.Definition.ExecutableDefinition.OperationDefinition
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
 import caliban.parsing.adt.Definition.TypeSystemDefinition._
@@ -446,7 +446,8 @@ private[gateway] final class SchemaCoordinateMapping private (
       else
         transformed.arguments.get("fields") match {
           case Some(StringValue(value)) =>
-            parseFieldSet(value)
+            SchemaComposition
+              .parseFieldSet(value)
               .flatMap(selections =>
                 fieldSetStart(directive.name, candidateTypes, selections, fieldSets.provides).map(_ -> selections)
               )
@@ -509,14 +510,6 @@ private[gateway] final class SchemaCoordinateMapping private (
         )
       case other                              => other
     }
-
-  private def parseFieldSet(value: String): Option[List[Selection]] =
-    Parser
-      .parseQuery(s"{ $value }")
-      .toOption
-      .flatMap(_.definitions.collectFirst { case operation: OperationDefinition =>
-        operation.selectionSet
-      })
 
   private def renderFieldSet(selections: List[Selection]): String =
     DocumentRenderer

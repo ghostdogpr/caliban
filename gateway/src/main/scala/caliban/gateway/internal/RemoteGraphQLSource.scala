@@ -1,12 +1,10 @@
 package caliban.gateway.internal
 
 import caliban.ResponseValue.{ ListValue, ObjectValue }
-import caliban.Value.{ IntValue, NullValue, StringValue }
+import caliban.Value.NullValue
 import caliban.gateway.{ IncomingRequestHeaders, RemoteGraphQLConfig }
-import caliban.parsing.Parser
-import caliban.parsing.adt.LocationInfo
 import caliban.parsing.adt.OperationType
-import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, PathValue, ResponseValue }
+import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, ResponseValue }
 import com.github.plokhotnyuk.jsoniter_scala.core._
 import sttp.capabilities.zio.ZioStreams
 import sttp.client4._
@@ -30,7 +28,7 @@ private[gateway] final class RemoteGraphQLSource[-R](
 
   val errorPolicy: GraphQLSource.ErrorPolicy = GraphQLSource.ErrorPolicy.Remote
 
-  def execute(request: GraphQLRequest)(implicit
+  def execute(request: GraphQLRequest, operationType: OperationType)(implicit
     trace: Trace
   ): ZIO[R, GraphQLSource.Failure, GraphQLResponse[CalibanError]] = {
     val logicalCall =
@@ -39,7 +37,7 @@ private[gateway] final class RemoteGraphQLSource[-R](
         incoming  <- IncomingRequestHeaders.get
         effectful <- config.effectfulHeaders.mapError(_ => GraphQLSource.HeaderFailure)
         headers    = outboundHeaders(incoming, effectful)
-        replaySafe = execution.retries > 0 && isReplaySafe(request)
+        replaySafe = execution.retries > 0 && operationType == OperationType.Query
         response  <- executeAttempts(body, headers, replaySafe, execution.retries)
       } yield response
 
@@ -106,26 +104,6 @@ private[gateway] final class RemoteGraphQLSource[-R](
   private def normalize(header: Header): String =
     RemoteGraphQLConfig.normalize(header.name)
 
-  private def isReplaySafe(request: GraphQLRequest): Boolean =
-    request.query.exists { query =>
-      Parser
-        .parseQuery(query)
-        .fold(
-          _ => false,
-          document => {
-            val operation = request.operationName match {
-              case Some(name) => document.operationDefinitions.find(_.name.contains(name))
-              case None       =>
-                document.operationDefinitions match {
-                  case value :: Nil => Some(value)
-                  case _            => None
-                }
-            }
-            operation.exists(_.operationType == OperationType.Query)
-          }
-        )
-    }
-
   private def retryable(failure: GraphQLSource.Failure): Boolean =
     failure match {
       case GraphQLSource.TransportFailure             => true
@@ -179,8 +157,8 @@ private[gateway] final class RemoteGraphQLSource[-R](
           case NonFatal(_) => Left(GraphQLSource.InvalidResponse)
         }
       response <- envelope match {
-                    case value: ObjectValue if validEnvelope(value) => Right(decodeEnvelope(value))
-                    case _                                          => Left(GraphQLSource.InvalidResponse)
+                    case value: ObjectValue => decodeEnvelope(value).toRight(GraphQLSource.InvalidResponse)
+                    case _                  => Left(GraphQLSource.InvalidResponse)
                   }
     } yield response
 
@@ -235,70 +213,27 @@ private[gateway] final class RemoteGraphQLSource[-R](
     scalar && boundary
   }
 
-  private def validEnvelope(value: ResponseValue): Boolean =
-    value match {
-      case ObjectValue(fields) =>
-        val data            = fields.collectFirst { case ("data", value) => value }
-        val errors          = fields.collectFirst { case ("errors", value) => value }
-        val extensions      = fields.collectFirst { case ("extensions", value) => value }
-        val validData       = data.forall {
-          case _: ObjectValue => true
-          case NullValue      => true
-          case _              => false
-        }
-        val validErrors     = errors.forall {
-          case ListValue(values) if values.nonEmpty => values.forall(validError)
-          case _                                    => false
-        }
-        val validExtensions = extensions.forall(_.isInstanceOf[ObjectValue])
-        (data.nonEmpty || errors.nonEmpty) && validData && validErrors && validExtensions &&
-        !(data.contains(NullValue) && errors.isEmpty)
-      case _                   => false
+  private def decodeEnvelope(value: ObjectValue): Option[GraphQLResponse[CalibanError]] = {
+    val data            = value.fields.collectFirst { case ("data", value) => value }
+    val errors          = value.fields.collectFirst { case ("errors", value) => value }
+    val extensions      = value.fields.collectFirst { case ("extensions", value) => value }
+    val validData       = data.forall {
+      case _: ObjectValue => true
+      case NullValue      => true
+      case _              => false
     }
-
-  private def decodeEnvelope(envelope: ObjectValue): GraphQLResponse[CalibanError] = {
-    val data       = envelope.fields.collectFirst { case ("data", value) => value }.getOrElse(NullValue)
-    val errors     = envelope.fields.collectFirst { case ("errors", ListValue(values)) => values.map(decodeError) }
-    val extensions = envelope.fields.collectFirst { case ("extensions", value: ObjectValue) => value }
-    GraphQLResponse(data, errors.getOrElse(Nil), extensions)
-  }
-
-  private def decodeError(value: ResponseValue): CalibanError = {
-    val fields     = value.asInstanceOf[ObjectValue].fields
-    val message    = fields.collectFirst { case ("message", StringValue(value)) => value }.get
-    val path       = fields.collectFirst { case ("path", ListValue(values)) => decodePath(values) }.flatten.getOrElse(Nil)
-    val location   = fields.collectFirst { case ("locations", ListValue((value: ObjectValue) :: _)) => value }
-      .flatMap(decodeLocation)
-    val extensions = fields.collectFirst { case ("extensions", value: ObjectValue) => value }
-    CalibanError.ExecutionError(message, path, location, extensions = extensions)
-  }
-
-  private def pathValue(value: ResponseValue): Option[PathValue] =
-    value match {
-      case value: StringValue        => Some(value)
-      case value: IntValue.IntNumber => Some(value)
-      case _                         => None
+    val validErrors     = errors.forall {
+      case ListValue(values) => values.nonEmpty
+      case _                 => false
     }
+    val validExtensions = extensions.forall(_.isInstanceOf[ObjectValue])
 
-  private def decodePath(values: List[ResponseValue]): Option[List[PathValue]] = {
-    val decoded = values.map(pathValue)
-    if (decoded.forall(_.nonEmpty)) Some(decoded.flatten) else None
+    if (
+      (data.nonEmpty || errors.nonEmpty) && validData && validErrors && validExtensions &&
+      !(data.contains(NullValue) && errors.isEmpty)
+    ) GraphQLResponse.fromResponseValue(value).filter(_.hasNext.isEmpty)
+    else None
   }
-
-  private def decodeLocation(value: ObjectValue): Option[LocationInfo] = {
-    val line   = value.fields.collectFirst { case ("line", IntValue.IntNumber(value)) => value }
-    val column = value.fields.collectFirst { case ("column", IntValue.IntNumber(value)) => value }
-    for {
-      line   <- line
-      column <- column
-    } yield LocationInfo(column, line)
-  }
-
-  private def validError(value: ResponseValue): Boolean =
-    value match {
-      case ObjectValue(fields) => fields.exists { case ("message", _: StringValue) => true; case _ => false }
-      case _                   => false
-    }
 }
 
 private[gateway] object RemoteGraphQLSource {

@@ -43,6 +43,41 @@ case class Document(definitions: List[Definition], sourceMapper: SourceMapper) {
   @transient lazy val subscriptionDefinitions: List[OperationDefinition]          =
     definitions.collect { case od: OperationDefinition if od.operationType == Subscription => od }
 
+  private[caliban] def operationDefinition(operationName: Option[String]): Option[OperationDefinition] =
+    operationName match {
+      case Some(name) => operationDefinitions.find(_.name.contains(name))
+      case None       =>
+        operationDefinitions match {
+          case operation :: Nil => Some(operation)
+          case _                => None
+        }
+    }
+
+  private[caliban] def hasDirective(operationName: Option[String])(predicate: Directive => Boolean): Boolean = {
+    val fragments = fragmentDefinitions.iterator.map(fragment => fragment.name -> fragment).toMap
+
+    def loop(selections: List[Selection], visitedFragments: Set[String]): Boolean =
+      selections.exists {
+        case Selection.Field(_, _, _, directives, selectionSet, _) =>
+          directives.exists(predicate) || loop(selectionSet, visitedFragments)
+        case Selection.InlineFragment(_, directives, selectionSet) =>
+          directives.exists(predicate) || loop(selectionSet, visitedFragments)
+        case Selection.FragmentSpread(name, directives)            =>
+          directives.exists(predicate) ||
+          (!visitedFragments.contains(name) && fragments
+            .get(name)
+            .exists(fragment =>
+              fragment.directives.exists(predicate) || loop(fragment.selectionSet, visitedFragments + name)
+            ))
+      }
+
+    operationDefinition(operationName).exists(operation =>
+      operation.directives.exists(predicate) ||
+        operation.variableDefinitions.exists(_.directives.exists(predicate)) ||
+        loop(operation.selectionSet, Set.empty)
+    )
+  }
+
   def objectTypeDefinition(name: String): Option[ObjectTypeDefinition]       =
     objectTypeDefinitions.find(t => t.name == name)
   def interfaceTypeDefinition(name: String): Option[InterfaceTypeDefinition] =
