@@ -1,7 +1,9 @@
 package caliban.gateway
 
+import zio.Duration
+
 /**
- * Finite operation-front-end and admission limits for one built gateway runtime.
+ * Finite operation-preparation, admission, and lifecycle limits for one built gateway runtime.
  */
 final class GatewayConfig private (
   private[gateway] val maxOperationCacheWeight: Long,
@@ -9,7 +11,9 @@ final class GatewayConfig private (
   private[gateway] val maxOperationNesting: Int,
   private[gateway] val maxParsedOperationNodes: Int,
   private[gateway] val maxConcurrentRequests: Int,
-  private[gateway] val maxConcurrentLocalCalls: Int
+  private[gateway] val maxConcurrentLocalCalls: Int,
+  private[gateway] val requestTimeout: Duration,
+  private[gateway] val drainTimeout: Duration
 ) {
 
   /**
@@ -48,6 +52,18 @@ final class GatewayConfig private (
   def withMaxConcurrentLocalCalls(value: Int): GatewayConfig =
     copy(maxConcurrentLocalCalls = value)
 
+  /**
+   * Sets the maximum duration of one request, including admission and response completion.
+   */
+  def withRequestTimeout(value: Duration): GatewayConfig =
+    copy(requestTimeout = value)
+
+  /**
+   * Sets how long scope closure allows accepted requests to drain before interrupting them.
+   */
+  def withDrainTimeout(value: Duration): GatewayConfig =
+    copy(drainTimeout = value)
+
   private[gateway] def diagnostics: List[String] =
     List(
       if (maxOperationCacheWeight <= 0) "Gateway operation cache weight must be positive." :: Nil else Nil,
@@ -55,7 +71,9 @@ final class GatewayConfig private (
       if (maxOperationNesting <= 0) "Gateway maxOperationNesting must be positive." :: Nil else Nil,
       if (maxParsedOperationNodes <= 0) "Gateway maxParsedOperationNodes must be positive." :: Nil else Nil,
       if (maxConcurrentRequests <= 0) "Gateway maxConcurrentRequests must be positive." :: Nil else Nil,
-      if (maxConcurrentLocalCalls <= 0) "Gateway maxConcurrentLocalCalls must be positive." :: Nil else Nil
+      if (maxConcurrentLocalCalls <= 0) "Gateway maxConcurrentLocalCalls must be positive." :: Nil else Nil,
+      if (!finitePositive(requestTimeout)) "Gateway request timeout must be finite and positive." :: Nil else Nil,
+      if (!finitePositive(drainTimeout)) "Gateway drain timeout must be finite and positive." :: Nil else Nil
     ).flatten
 
   private def copy(
@@ -64,7 +82,9 @@ final class GatewayConfig private (
     maxOperationNesting: Int = maxOperationNesting,
     maxParsedOperationNodes: Int = maxParsedOperationNodes,
     maxConcurrentRequests: Int = maxConcurrentRequests,
-    maxConcurrentLocalCalls: Int = maxConcurrentLocalCalls
+    maxConcurrentLocalCalls: Int = maxConcurrentLocalCalls,
+    requestTimeout: Duration = requestTimeout,
+    drainTimeout: Duration = drainTimeout
   ): GatewayConfig =
     new GatewayConfig(
       maxOperationCacheWeight,
@@ -72,8 +92,13 @@ final class GatewayConfig private (
       maxOperationNesting,
       maxParsedOperationNodes,
       maxConcurrentRequests,
-      maxConcurrentLocalCalls
+      maxConcurrentLocalCalls,
+      requestTimeout,
+      drainTimeout
     )
+
+  private def finitePositive(value: Duration): Boolean =
+    value.compareTo(Duration.Zero) > 0 && value.compareTo(Duration.Infinity) < 0
 }
 
 object GatewayConfig {
@@ -88,6 +113,8 @@ object GatewayConfig {
       maxOperationNesting = 128,
       maxParsedOperationNodes = 100000,
       maxConcurrentRequests = 1024,
-      maxConcurrentLocalCalls = 64
+      maxConcurrentLocalCalls = 64,
+      requestTimeout = Duration.fromSeconds(30),
+      drainTimeout = Duration.fromSeconds(30)
     )
 }

@@ -115,7 +115,12 @@ object Gateway {
                         }
       rawSources    = loaded.collect { case Right(value) => value.contribution.name -> value.source }.toMap
       sourceLimits  = loaded.collect { case Right(value) => value.contribution.name -> value.maxConcurrentCalls }.toMap
-      control      <- RuntimeControl.make(config.maxConcurrentRequests, sourceLimits)
+      control      <- RuntimeControl.make(
+                        config.maxConcurrentRequests,
+                        sourceLimits,
+                        config.requestTimeout,
+                        config.drainTimeout
+                      )
       sources       = rawSources.map { case (name, source) => name -> control.source(name, source) }
       requestRoot   = Introspector.withIntrospection(graph.rootType)
       operations   <- OperationPreparation.make(

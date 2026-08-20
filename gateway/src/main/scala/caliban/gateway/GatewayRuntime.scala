@@ -41,6 +41,15 @@ trait GatewayRuntime[-R] extends GraphQLInterpreter[R, CalibanError] {
 
 object GatewayRuntime {
 
+  sealed trait LifecycleState
+  object LifecycleState {
+    case object Running  extends LifecycleState
+    case object Draining extends LifecycleState
+    case object Closed   extends LifecycleState
+  }
+
+  final case class LifecycleStatus(state: LifecycleState, active: Int, overdue: Int)
+
   final case class AdmissionStatus(limit: Int, active: Int, waiting: Int)
 
   final case class OperationCacheStatus(
@@ -54,6 +63,7 @@ object GatewayRuntime {
   )
 
   final case class Status(
+    lifecycle: LifecycleStatus,
     requests: AdmissionStatus,
     sources: Map[String, AdmissionStatus],
     operationCache: OperationCacheStatus

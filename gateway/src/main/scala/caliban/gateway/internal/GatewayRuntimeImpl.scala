@@ -29,23 +29,31 @@ private[gateway] final class GatewayRuntimeImpl[-R](
   private val entityExecutor                 = new EntityExecutor[R](graph, sources)
 
   def check(query: String)(implicit trace: Trace): IO[CalibanError, Unit] =
-    control.admit(operations.check(query))
+    control.runRequest(operations.check(query)).flatMap {
+      case Some(_) => ZIO.unit
+      case None    => ZIO.fail(requestTimeoutError)
+    }
 
   def status(implicit trace: Trace): zio.UIO[GatewayRuntime.Status] =
     operations.cacheStatus.flatMap(control.status)
 
   def explain(request: GraphQLRequest)(implicit trace: Trace): ZIO[R, CalibanError, String] =
-    control.admit(operations.prepare(request).map(prepared => renderPlan(prepared.plan)))
+    control.runRequest(operations.prepare(request).map(prepared => renderPlan(prepared.plan))).flatMap {
+      case Some(value) => ZIO.succeed(value)
+      case None        => ZIO.fail(requestTimeoutError)
+    }
 
   def executeRequest(request: GraphQLRequest)(implicit trace: Trace): URIO[R, GraphQLResponse[CalibanError]] =
-    control.admit(
-      operations
-        .prepare(request)
-        .foldZIO(
-          Executor.fail,
-          prepared => executePlan(prepared.plan, prepared.executionRequest, prepared.request)
-        )
-    )
+    control
+      .runRequest(
+        operations
+          .prepare(request)
+          .foldZIO(
+            Executor.fail,
+            prepared => executePlan(prepared.plan, prepared.executionRequest, prepared.request)
+          )
+      )
+      .map(_.getOrElse(requestTimeoutResponse))
 
   private def executePlan(
     plan: OperationPlan,
@@ -622,6 +630,10 @@ private[gateway] final class GatewayRuntimeImpl[-R](
 }
 
 private object GatewayRuntimeImpl {
+  private val requestTimeoutError    = CalibanError.ValidationError("Gateway request timed out.", "")
+  private val requestTimeoutResponse =
+    GraphQLResponse(NullValue, List(CalibanError.ExecutionError("Gateway request timed out.")))
+
   final case class RootResult(route: RootRoute, response: GraphQLResponse[CalibanError])
 
   private final case class EntityExecution(roots: Map[RouteId, ResponseValue], results: List[EntityResult])
