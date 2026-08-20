@@ -7,7 +7,7 @@ import caliban.gateway.OperationPolicy.Allow
 import caliban.gateway.internal.OperationCache.Weighted
 import caliban.gateway.internal._
 import caliban.schema.{ GenericSchema, Schema }
-import caliban.{ graphQL, GraphQLRequest, InputValue, RootResolver }
+import caliban.{ graphQL, Configurator, GraphQLRequest, InputValue, RootResolver }
 import sttp.model.Uri
 import zio._
 import zio.http.{ Body, Handler, Header, Headers, Method, Request, Response, Routes, Server, Status }
@@ -155,6 +155,34 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
           bypassStatus.operationCache.entries == 0,
           bypassStatus.operationCache.misses == 0,
           bypassStatus.operationCache.hits == 0
+        )
+      },
+      test("isolates cached preparations by the Caliban introspection setting") {
+        val schemaIntrospection = GraphQLRequest(query = Some("{ __schema { queryType { name } } }"))
+        val typeIntrospection   = GraphQLRequest(query = Some("{ __type(name: \"Query\") { name } }"))
+        val disabled            = Configurator.ExecutionConfiguration(enableIntrospection = false)
+        val enabled             = Configurator.ExecutionConfiguration(enableIntrospection = true)
+
+        for {
+          remote         <- stub(response)
+          runtime        <- Gateway.compose(Subgraph.graphql("remote", remote.endpoint, schema)).build
+          enabledMiss    <- Configurator.locally(enabled)(runtime.executeRequest(schemaIntrospection))
+          enabledHit     <- Configurator.locally(enabled)(runtime.executeRequest(schemaIntrospection))
+          disabledSchema <- Configurator.locally(disabled)(runtime.executeRequest(schemaIntrospection))
+          disabledType   <- Configurator.locally(disabled)(runtime.executeRequest(typeIntrospection))
+          reenabled      <- Configurator.locally(enabled)(runtime.executeRequest(schemaIntrospection))
+          status         <- runtime.status
+          forwarded      <- remote.requests.get
+          disabledResults = disabledSchema :: disabledType :: Nil
+        } yield assertTrue(
+          enabledMiss.errors.isEmpty,
+          enabledHit.errors.isEmpty,
+          reenabled.errors.isEmpty,
+          disabledResults.forall(_.errors.map(_.msg) == List("Introspection is disabled")),
+          status.operationCache.entries == 1,
+          status.operationCache.misses == 3,
+          status.operationCache.hits == 2,
+          forwarded.isEmpty
         )
       },
       test("reuses one plan across variable values and binds each request separately") {

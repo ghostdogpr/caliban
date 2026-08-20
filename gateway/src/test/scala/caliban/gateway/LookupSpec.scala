@@ -440,6 +440,7 @@ object LookupSpec extends ZIOSpecDefault {
                         Subgraph.graphql("products", products.endpoint, productsSchema),
                         Subgraph.graphql("reviews", reviews.endpoint, reviewsSchema).withLookup(keyedLookup)
                       )
+                      .withConfig(_.withRemoteErrorDisclosure(_.withMessages(true)))
                       .build
         response <- gateway.execute("{ status products { name reviews { body } } }")
         errors    = response.errors.collect { case error: CalibanError.ExecutionError => error }

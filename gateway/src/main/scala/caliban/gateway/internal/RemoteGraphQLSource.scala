@@ -24,7 +24,8 @@ private[gateway] final class RemoteGraphQLSource[-R](
 ) extends GraphQLSource[R] {
   import RemoteGraphQLSource._
 
-  private val execution = config.execution
+  private val execution  = config.execution
+  private val disclosure = config.errorDisclosure.getOrElse(RemoteGraphQLConfig.ErrorDisclosure.default)
 
   val errorPolicy: GraphQLSource.ErrorPolicy = GraphQLSource.ErrorPolicy.Remote
 
@@ -231,7 +232,11 @@ private[gateway] final class RemoteGraphQLSource[-R](
     if (
       (data.nonEmpty || errors.nonEmpty) && validData && validErrors && validExtensions &&
       !(data.contains(NullValue) && errors.isEmpty)
-    ) GraphQLResponse.fromResponseValue(value).filter(_.hasNext.isEmpty)
+    )
+      GraphQLResponse
+        .fromResponseValue(value)
+        .filter(_.hasNext.isEmpty)
+        .map(response => response.copy(errors = response.errors.map(RemoteError.disclose(_, disclosure))))
     else None
   }
 }

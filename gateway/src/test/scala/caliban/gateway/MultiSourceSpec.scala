@@ -52,6 +52,7 @@ object MultiSourceSpec extends ZIOSpecDefault {
                                  Subgraph.graphql("products", products.endpoint, productsSchema),
                                  Subgraph.graphql("reviews", reviews.endpoint, reviewsSchema)
                                )
+                               .withConfig(_.withRemoteErrorDisclosure(_.withMessages(true)))
                                .build
           request          = GraphQLRequest(
                                query = Some(query),
@@ -159,6 +160,7 @@ object MultiSourceSpec extends ZIOSpecDefault {
                                 Subgraph.graphql("first", slowFirstA.endpoint, firstSchema),
                                 Subgraph.graphql("second", fastSecondA.endpoint, secondSchema)
                               )
+                              .withConfig(_.withRemoteErrorDisclosure(_.withMessages(true)))
                               .build
           responseA      <- gatewayA.execute("{ first second }")
           firstStartedB  <- Promise.make[Nothing, Unit]
@@ -172,11 +174,20 @@ object MultiSourceSpec extends ZIOSpecDefault {
                                 Subgraph.graphql("first", fastFirstB.endpoint, firstSchema),
                                 Subgraph.graphql("second", slowSecondB.endpoint, secondSchema)
                               )
+                              .withConfig(_.withRemoteErrorDisclosure(_.withMessages(true)))
                               .build
           responseB      <- gatewayB.execute("{ first second }")
         } yield assertTrue(
           responseA.errors.map(_.msg) == List("first failed", "second failed"),
           responseB.errors.map(_.msg) == List("first failed", "second failed"),
+          responseA.errors.collect { case error: CalibanError.ExecutionError => error.path } == List(
+            List(PathValue.Key("first")),
+            List(PathValue.Key("second"))
+          ),
+          responseB.errors.collect { case error: CalibanError.ExecutionError => error.path } == List(
+            List(PathValue.Key("first")),
+            List(PathValue.Key("second"))
+          ),
           responseA.data == responseB.data
         )
       },
@@ -440,6 +451,7 @@ object MultiSourceSpec extends ZIOSpecDefault {
                           Subgraph.graphql("products", products.endpoint, productsSchema),
                           Subgraph.graphql("reviews", reviews.endpoint, reviewsSchema)
                         )
+                        .withConfig(_.withRemoteErrorDisclosure(_.withMessages(true)))
                         .build
           response <- gateway.execute("mutation { updated: updateProduct added: addReview }")
           sent     <- reviews.requests.get
@@ -466,6 +478,7 @@ object MultiSourceSpec extends ZIOSpecDefault {
                           Subgraph.graphql("products", products.endpoint, productsSchema),
                           Subgraph.graphql("reviews", reviews.endpoint, reviewsSchema)
                         )
+                        .withConfig(_.withRemoteErrorDisclosure(_.withMessages(true)))
                         .build
           response <- gateway.execute("mutation { updated: updateProduct added: addReview }")
           sent     <- reviews.requests.get
@@ -492,6 +505,7 @@ object MultiSourceSpec extends ZIOSpecDefault {
                           Subgraph.graphql("products", products.endpoint, productsSchema),
                           Subgraph.graphql("reviews", reviews.endpoint, reviewsSchema)
                         )
+                        .withConfig(_.withRemoteErrorDisclosure(_.withMessages(true)))
                         .build
           response <- gateway.execute("mutation { status failed: fail added: addReview }")
           sent     <- reviews.requests.get

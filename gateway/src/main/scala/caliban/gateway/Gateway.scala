@@ -97,7 +97,9 @@ object Gateway {
             .map(Some(_))
             .mapError(_ => GatewayBuildError("Unable to initialize the remote GraphQL transport."))
         else ZIO.none
-      loaded       <- ZIO.foreachPar(subgraphs)(load(_, backend, config.maxConcurrentLocalCalls).either)
+      loaded       <- ZIO.foreachPar(subgraphs)(
+                        load(_, backend, config.maxConcurrentLocalCalls, config.remoteErrorDisclosure).either
+                      )
       contributions = loaded.collect { case Right(value) => value.contribution }
       diagnostics   = nameDiagnostics(subgraphs) ::: loaded.collect { case Left(diagnostics) => diagnostics }.flatten
       composed      =
@@ -132,7 +134,12 @@ object Gateway {
                       )
     } yield new GatewayRuntimeImpl[R](graph, sources, operations, control)
 
-  private def load[R](subgraph: Subgraph[R], backend: Option[SttpClient], localCallLimit: Int)(implicit
+  private def load[R](
+    subgraph: Subgraph[R],
+    backend: Option[SttpClient],
+    localCallLimit: Int,
+    remoteErrorDisclosure: RemoteGraphQLConfig.ErrorDisclosure
+  )(implicit
     trace: Trace
   ): IO[List[String], LoadedSubgraph[R]] =
     subgraph.source match {
@@ -152,7 +159,8 @@ object Gateway {
           rootDocument             = ensureFederationTransportQuery(normalizedDocument, federation)
           sourceRootType          <- toRootType(subgraph.name, rootDocument).mapError(_ :: Nil)
           contribution            <- prepareContribution(subgraph, sourceRootType, rootDocument, document, federation)
-          source: GraphQLSource[R] = RemoteGraphQLSource(endpoint, client, config)
+          source: GraphQLSource[R] =
+            RemoteGraphQLSource(endpoint, client, config.withDefaultErrorDisclosure(remoteErrorDisclosure))
         } yield LoadedSubgraph(contribution, source, config.execution.maxConcurrentCalls)
       case Source.Local(graph)                                 =>
         val document   = graph.toDocument

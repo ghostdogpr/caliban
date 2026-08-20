@@ -97,9 +97,6 @@ object GatewaySpec extends ZIOSpecDefault {
   private val dataResponse =
     """{"data":{"catalog":[{"id":"p1","details":{"name":"Table"},"reviews":[{"body":"Solid"}]}]}}"""
 
-  private val partialResponse =
-    """{"data":{"catalog":null},"errors":[{"message":"catalog unavailable","path":["catalog"]}]}"""
-
   private val errorsResponse =
     """{"errors":[{"message":"request rejected"}]}"""
 
@@ -220,18 +217,71 @@ object GatewaySpec extends ZIOSpecDefault {
           requests == Vector(request.copy(extensions = None))
         )
       },
-      test("accepts partial data plus remote GraphQL errors") {
+      test("redacts remote errors while preserving aliases, list paths, and null completion") {
+        val partialSchema   = "type Query { products: [Product] } type Product { name: String! }"
+        val partialResponse =
+          """{"data":{"catalog":[{"label":null},{"label":"Desk"}]},"errors":[{"message":"database password: secret","path":["catalog",0,"label"],"locations":[{"line":1,"column":2}],"extensions":{"code":"PRODUCT_DOWN","debug":"password=secret"}}]}"""
+
         for {
           remote   <- stub(partialResponse)
-          gateway  <- runtime(remote)
-          response <- gateway.execute(
-                        nestedQuery,
-                        Some("Products"),
-                        Map("ids" -> ListValue(List(StringValue("p1"))), "includeReviews" -> BooleanValue(true))
-                      )
+          gateway  <- Gateway.compose(Subgraph.graphql("products", remote.endpoint, partialSchema)).build
+          response <- gateway.execute("{ catalog: products { label: name } }")
+          errors    = response.errors.collect { case error: CalibanError.ExecutionError => error }
         } yield assertTrue(
-          response.data == NullValue,
-          response.errors.map(_.msg) == List("catalog unavailable")
+          field(response.data, "catalog").contains(
+            ResponseListValue(List(NullValue, ResponseObjectValue(List("label" -> StringValue("Desk")))))
+          ),
+          errors.map(_.msg) == List("Remote GraphQL request failed."),
+          errors.map(_.path) == List(
+            List(PathValue.Key("catalog"), PathValue.Index(0), PathValue.Key("label"))
+          ),
+          errors.forall(_.locationInfo.isEmpty),
+          errors.flatMap(_.extensions).map(_.fields) == List(List("code" -> StringValue("PRODUCT_DOWN")))
+        )
+      },
+      test("configures remote error disclosure globally with a per-subgraph override") {
+        val globalResponse   =
+          """{"data":{"first":null},"errors":[{"message":"global detail","path":["first"],"extensions":{"code":"FIRST_DOWN","reason":"maintenance","secret":"hidden"}}]}"""
+        val overrideResponse =
+          """{"data":{"second":null},"errors":[{"message":"override detail","path":["second"],"extensions":{"code":"SECOND_DOWN","reason":"private"}}]}"""
+        val overrideConfig   = RemoteGraphQLConfig.default.withErrorDisclosure(_.withMessages(false))
+
+        for {
+          first    <- stub(globalResponse)
+          second   <- stub(overrideResponse)
+          gateway  <- Gateway
+                        .compose(
+                          Subgraph.graphql("first", first.endpoint, "type Query { first: String }"),
+                          Subgraph.graphql(
+                            "second",
+                            second.endpoint,
+                            "type Query { second: String }",
+                            overrideConfig
+                          )
+                        )
+                        .withConfig(
+                          _.withRemoteErrorDisclosure(
+                            _.withMessages(true).withAdditionalExtensionKeys("reason")
+                          )
+                        )
+                        .build
+          response <- gateway.execute("{ first second }")
+          errors    = response.errors.collect { case error: CalibanError.ExecutionError => error }
+        } yield assertTrue(
+          errors.map(_.msg) == List("global detail", "Remote GraphQL request failed."),
+          errors.map(_.path) == List(List(PathValue.Key("first")), List(PathValue.Key("second"))),
+          errors.headOption
+            .flatMap(_.extensions)
+            .exists(
+              _.fields == List("code" -> StringValue("FIRST_DOWN"), "reason" -> StringValue("maintenance"))
+            ),
+          errors
+            .drop(1)
+            .headOption
+            .flatMap(_.extensions)
+            .exists(
+              _.fields == List("code" -> StringValue("SECOND_DOWN"))
+            )
         )
       },
       test("accepts a remote GraphQL errors-only response") {
@@ -250,7 +300,10 @@ object GatewaySpec extends ZIOSpecDefault {
       test("turns an invalid remote response into a safe gateway error") {
         for {
           remote   <- stub(invalidResponse)
-          gateway  <- runtime(remote)
+          gateway  <- Gateway
+                        .compose(Subgraph.graphql("products", remote.endpoint, schema))
+                        .withConfig(_.withRemoteErrorDisclosure(_.withMessages(true)))
+                        .build
           response <- gateway.execute("{ products(ids: [\"p1\"]) { id } }")
         } yield assertTrue(
           response.data == NullValue,
@@ -267,7 +320,10 @@ object GatewaySpec extends ZIOSpecDefault {
 
         for {
           remote   <- stub(responseBody)
-          gateway  <- Gateway.compose(Subgraph.graphql("products", remote.endpoint, singleSchema)).build
+          gateway  <- Gateway
+                        .compose(Subgraph.graphql("products", remote.endpoint, singleSchema))
+                        .withConfig(_.withRemoteErrorDisclosure(_.withMessages(true)))
+                        .build
           response <- gateway.execute("{ product { name } }")
           errors    = response.errors.collect { case error: CalibanError.ExecutionError => error }
         } yield assertTrue(

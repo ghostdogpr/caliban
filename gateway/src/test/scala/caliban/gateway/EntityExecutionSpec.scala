@@ -61,7 +61,11 @@ object EntityExecutionSpec extends ZIOSpecDefault {
           CalibanError.ExecutionError(
             "local pricing unavailable",
             path = List(PathValue.Key("_pricing_internal")),
-            extensions = Some(ResponseObjectValue(List("code" -> StringValue("PRICING_DOWN"))))
+            extensions = Some(
+              ResponseObjectValue(
+                List("code" -> StringValue("PRICING_DOWN"), "debug" -> StringValue("local detail"))
+              )
+            )
           )
         )
         failure
@@ -118,7 +122,9 @@ object EntityExecutionSpec extends ZIOSpecDefault {
           def currency: UIO[String]       = ZIO.succeed("USD")
           def price(id: String): UIO[Int] = ZIO.succeed(0)
         }
-        val extensions       = ResponseObjectValue(List("code" -> StringValue("PRICING_DOWN")))
+        val extensions       = ResponseObjectValue(
+          List("code" -> StringValue("PRICING_DOWN"), "debug" -> StringValue("local detail"))
+        )
 
         for {
           products <- stub(productsResponse)
@@ -314,6 +320,7 @@ object EntityExecutionSpec extends ZIOSpecDefault {
                           Subgraph.federation("products", products.endpoint, productsSchema),
                           Subgraph.federation("reviews", reviews.endpoint, reviewsFederationSchema)
                         )
+                        .withConfig(_.withRemoteErrorDisclosure(_.withMessages(true)))
                         .build
           response <- gateway.execute("{ status product(id: \"p1\") { name reviews { body } } }")
           errors    = response.errors.collect { case error: CalibanError.ExecutionError => error }
@@ -648,6 +655,7 @@ object EntityExecutionSpec extends ZIOSpecDefault {
                           Subgraph.federation("products", products.endpoint, listProducts),
                           Subgraph.federation("reviews", reviews.endpoint, reviewsFederationSchema)
                         )
+                        .withConfig(_.withRemoteErrorDisclosure(_.withMessages(true)))
                         .build
           response <- gateway.execute("{ products { reviews { _caliban_gateway_entity_key: body } } }")
           sentB    <- reviews.requests.get
@@ -757,6 +765,7 @@ object EntityExecutionSpec extends ZIOSpecDefault {
                            Subgraph.federation("products", products.endpoint, productsSchema),
                            Subgraph.federation("inventory", inventory.endpoint, inventorySchema)
                          )
+                         .withConfig(_.withRemoteErrorDisclosure(_.withMessages(true)))
                          .build
           response  <- gateway.execute("{ products { shippingEstimate } }")
           sent      <- inventory.requests.get

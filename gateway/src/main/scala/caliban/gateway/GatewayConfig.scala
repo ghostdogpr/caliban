@@ -4,7 +4,7 @@ import caliban.gateway.GatewayConfigValidation._
 import zio.Duration
 
 /**
- * Finite operation-preparation, admission, and lifecycle limits for one built gateway runtime.
+ * Operation-preparation, admission, lifecycle, and remote-error disclosure configuration for one built gateway runtime.
  */
 final class GatewayConfig private (
   private[gateway] val maxOperationCacheWeight: Long,
@@ -14,7 +14,8 @@ final class GatewayConfig private (
   private[gateway] val maxConcurrentRequests: Int,
   private[gateway] val maxConcurrentLocalCalls: Int,
   private[gateway] val requestTimeout: Duration,
-  private[gateway] val drainTimeout: Duration
+  private[gateway] val drainTimeout: Duration,
+  private[gateway] val remoteErrorDisclosure: RemoteGraphQLConfig.ErrorDisclosure
 ) {
 
   /**
@@ -65,6 +66,14 @@ final class GatewayConfig private (
   def withDrainTimeout(value: Duration): GatewayConfig =
     copy(drainTimeout = value)
 
+  /**
+   * Transforms the default disclosure policy for GraphQL errors returned by remote sources.
+   */
+  def withRemoteErrorDisclosure(
+    configure: RemoteGraphQLConfig.ErrorDisclosure => RemoteGraphQLConfig.ErrorDisclosure
+  ): GatewayConfig =
+    copy(remoteErrorDisclosure = configure(remoteErrorDisclosure))
+
   private[gateway] def diagnostics: List[String] =
     List(
       positive(maxOperationCacheWeight, "Gateway operation cache weight must be positive."),
@@ -85,7 +94,8 @@ final class GatewayConfig private (
     maxConcurrentRequests: Int = maxConcurrentRequests,
     maxConcurrentLocalCalls: Int = maxConcurrentLocalCalls,
     requestTimeout: Duration = requestTimeout,
-    drainTimeout: Duration = drainTimeout
+    drainTimeout: Duration = drainTimeout,
+    remoteErrorDisclosure: RemoteGraphQLConfig.ErrorDisclosure = remoteErrorDisclosure
   ): GatewayConfig =
     new GatewayConfig(
       maxOperationCacheWeight,
@@ -95,7 +105,8 @@ final class GatewayConfig private (
       maxConcurrentRequests,
       maxConcurrentLocalCalls,
       requestTimeout,
-      drainTimeout
+      drainTimeout,
+      remoteErrorDisclosure
     )
 }
 
@@ -113,7 +124,8 @@ object GatewayConfig {
       maxConcurrentRequests = 1024,
       maxConcurrentLocalCalls = 64,
       requestTimeout = Duration.fromSeconds(30),
-      drainTimeout = Duration.fromSeconds(30)
+      drainTimeout = Duration.fromSeconds(30),
+      remoteErrorDisclosure = RemoteGraphQLConfig.ErrorDisclosure.default
     )
 }
 

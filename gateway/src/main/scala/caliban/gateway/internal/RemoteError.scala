@@ -1,13 +1,36 @@
 package caliban.gateway.internal
 
+import caliban.ResponseValue.ObjectValue
 import caliban.execution.Field
+import caliban.gateway.RemoteGraphQLConfig
 import caliban.schema.Types
 import caliban.{ CalibanError, PathValue }
 
 private[gateway] object RemoteError {
 
+  private val Message = "Remote GraphQL request failed."
+
   def at(path: List[PathValue]): CalibanError.ExecutionError =
-    CalibanError.ExecutionError("Remote GraphQL request failed.", path = path)
+    CalibanError.ExecutionError(Message, path = path)
+
+  def disclose(
+    error: CalibanError,
+    disclosure: RemoteGraphQLConfig.ErrorDisclosure
+  ): CalibanError.ExecutionError =
+    error match {
+      case value: CalibanError.ExecutionError =>
+        val extensions = value.extensions.flatMap { current =>
+          val retained = current.fields.filter { case (name, _) => disclosure.extensionKeys(name) }
+          if (retained.isEmpty) None else Some(ObjectValue(retained))
+        }
+        value.copy(
+          msg = if (disclosure.includeMessages) value.msg else Message,
+          locationInfo = None,
+          innerThrowable = None,
+          extensions = extensions
+        )
+      case _                                  => at(Nil)
+    }
 
   def hasClientPath(fields: List[Field], path: List[PathValue]): Boolean =
     path match {

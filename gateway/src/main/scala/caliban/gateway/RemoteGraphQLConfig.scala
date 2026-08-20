@@ -5,12 +5,13 @@ import sttp.model.Header
 import zio.{ Duration, ZIO }
 
 /**
- * Immutable acquisition and execution configuration for one remote GraphQL-over-HTTP source.
+ * Immutable acquisition, execution, and error-disclosure configuration for one remote GraphQL-over-HTTP source.
  */
 final class RemoteGraphQLConfig[-R] private (
   private[gateway] val acquisition: RemoteGraphQLConfig.Acquisition,
   private[gateway] val execution: RemoteGraphQLConfig.Execution,
-  private[gateway] val effectfulHeaders: ZIO[R, Throwable, List[Header]]
+  private[gateway] val effectfulHeaders: ZIO[R, Throwable, List[Header]],
+  private[gateway] val errorDisclosure: Option[RemoteGraphQLConfig.ErrorDisclosure]
 ) {
 
   /**
@@ -19,7 +20,7 @@ final class RemoteGraphQLConfig[-R] private (
   def withAcquisition(
     configure: RemoteGraphQLConfig.Acquisition => RemoteGraphQLConfig.Acquisition
   ): RemoteGraphQLConfig[R] =
-    new RemoteGraphQLConfig(configure(acquisition), execution, effectfulHeaders)
+    new RemoteGraphQLConfig(configure(acquisition), execution, effectfulHeaders, errorDisclosure)
 
   /**
    * Transforms the stored request-execution configuration.
@@ -27,20 +28,64 @@ final class RemoteGraphQLConfig[-R] private (
   def withExecution(
     configure: RemoteGraphQLConfig.Execution => RemoteGraphQLConfig.Execution
   ): RemoteGraphQLConfig[R] =
-    new RemoteGraphQLConfig(acquisition, configure(execution), effectfulHeaders)
+    new RemoteGraphQLConfig(acquisition, configure(execution), effectfulHeaders, errorDisclosure)
+
+  /**
+   * Overrides the gateway-wide disclosure policy for GraphQL errors returned by this source. The first
+   * transformation starts from the secure source default; subsequent transformations use the stored override.
+   */
+  def withErrorDisclosure(
+    configure: RemoteGraphQLConfig.ErrorDisclosure => RemoteGraphQLConfig.ErrorDisclosure
+  ): RemoteGraphQLConfig[R] = {
+    val current = errorDisclosure.getOrElse(RemoteGraphQLConfig.ErrorDisclosure.default)
+    new RemoteGraphQLConfig(acquisition, execution, effectfulHeaders, Some(configure(current)))
+  }
 
   /**
    * Adds effectful request-execution headers and their environment requirement. These headers are not used for
    * schema acquisition.
    */
   def withExecutionHeadersZIO[R1](value: ZIO[R1, Throwable, List[Header]]): RemoteGraphQLConfig[R with R1] =
-    new RemoteGraphQLConfig(acquisition, execution, effectfulHeaders.zipWith(value)(_ ::: _))
+    new RemoteGraphQLConfig(acquisition, execution, effectfulHeaders.zipWith(value)(_ ::: _), errorDisclosure)
 
   private[gateway] def diagnostics(includeAcquisition: Boolean): List[String] =
     execution.diagnostics ::: (if (includeAcquisition) acquisition.diagnostics else Nil)
+
+  private[gateway] def withDefaultErrorDisclosure(value: RemoteGraphQLConfig.ErrorDisclosure): RemoteGraphQLConfig[R] =
+    if (errorDisclosure.nonEmpty) this
+    else new RemoteGraphQLConfig(acquisition, execution, effectfulHeaders, Some(value))
 }
 
 object RemoteGraphQLConfig {
+
+  /**
+   * Controls which untrusted remote GraphQL error details may be returned to clients.
+   */
+  final class ErrorDisclosure private (
+    private[gateway] val includeMessages: Boolean,
+    private[gateway] val extensionKeys: Set[String]
+  ) {
+
+    /**
+     * Enables or disables disclosure of remote GraphQL error messages.
+     */
+    def withMessages(value: Boolean): ErrorDisclosure =
+      new ErrorDisclosure(value, extensionKeys)
+
+    /**
+     * Adds remote GraphQL error extension keys to the default `code` allowlist.
+     */
+    def withAdditionalExtensionKeys(values: String*): ErrorDisclosure =
+      new ErrorDisclosure(includeMessages, extensionKeys ++ values)
+  }
+
+  object ErrorDisclosure {
+
+    /**
+     * Redacts remote messages and retains only the `code` extension.
+     */
+    val default: ErrorDisclosure = new ErrorDisclosure(includeMessages = false, Set("code"))
+  }
 
   /**
    * Finite schema-acquisition configuration for one remote GraphQL source.
@@ -238,7 +283,7 @@ object RemoteGraphQLConfig {
    * The default finite remote GraphQL configuration.
    */
   val default: RemoteGraphQLConfig[Any] =
-    new RemoteGraphQLConfig(Acquisition.default, Execution.default, ZIO.succeed(Nil))
+    new RemoteGraphQLConfig(Acquisition.default, Execution.default, ZIO.succeed(Nil), None)
 
   private[gateway] def normalize(name: String): String =
     name.toLowerCase(java.util.Locale.ROOT)

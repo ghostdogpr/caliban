@@ -63,7 +63,8 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
 
   def spec = suite("GraphQLHttpSpec")(
     test("classifies status, media type, malformed envelopes, and redirects") {
-      val valid = """{"data":{"value":"ok"}}"""
+      val valid     = """{"data":{"value":"ok"}}"""
+      val disclosed = RemoteGraphQLConfig.default.withErrorDisclosure(_.withMessages(true))
 
       for {
         backend             <- HttpClientZioBackend.scoped()
@@ -100,7 +101,9 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
                                    )
                                  )
                                )
-        graphQlResult       <- RemoteGraphQLSource(graphQlError, backend).execute(request, OperationType.Query).either
+        graphQlResult       <- RemoteGraphQLSource(graphQlError, backend, disclosed)
+                                 .execute(request, OperationType.Query)
+                                 .either
         legacyResult        <- RemoteGraphQLSource(legacySuccess, backend).execute(request, OperationType.Query).either
         statusResult        <- RemoteGraphQLSource(legacyFailure, backend).execute(request, OperationType.Query).either
         textStatusResult    <- RemoteGraphQLSource(textFailure, backend).execute(request, OperationType.Query).either
@@ -494,7 +497,9 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
                                 )
                             )
         envelopeResult   <-
-          RemoteGraphQLSource(envelopeEndpoint, backend, policy).execute(request, OperationType.Query).either
+          RemoteGraphQLSource(envelopeEndpoint, backend, policy.withErrorDisclosure(_.withMessages(true)))
+            .execute(request, OperationType.Query)
+            .either
         envelopeAttempts <- envelopeCalls.get
       } yield assertTrue(
         queryResult.isRight,
