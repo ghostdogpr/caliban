@@ -158,8 +158,8 @@ private object ValueValidator {
         }
       case "ID"      =>
         argValue match {
-          case _: StringValue | NullValue => unit
-          case t                          => failValidation(s"$errorContext has invalid type $t", "Expected 'ID'")
+          case _: StringValue | _: IntValue | NullValue => unit
+          case t                                        => failValidation(s"$errorContext has invalid type $t", "Expected 'ID'")
         }
       case "Int"     =>
         argValue match {

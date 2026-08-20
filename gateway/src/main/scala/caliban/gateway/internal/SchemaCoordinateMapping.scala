@@ -2,7 +2,7 @@ package caliban.gateway.internal
 
 import caliban.InputValue.{ ListValue => InputListValue, ObjectValue => InputObjectValue }
 import caliban.ResponseValue.{ ListValue, ObjectValue }
-import caliban.Value.{ EnumValue, StringValue }
+import caliban.Value.{ EnumValue, NullValue, StringValue }
 import caliban.execution.Field
 import caliban.gateway.{ Lookup, SchemaTransformation }
 import caliban.gateway.SchemaTransformation._
@@ -961,12 +961,61 @@ private[gateway] object SchemaCoordinateMapping {
       )
   }
 
-  private final case class HiddenReferences(
+  private[gateway] final case class InputCoordinateReferences(
+    inputTypes: Set[String] = Set.empty,
     enumValues: Set[(String, String)] = Set.empty,
     inputFields: Set[(String, String)] = Set.empty
   ) {
-    def ++(that: HiddenReferences): HiddenReferences =
-      HiddenReferences(enumValues ++ that.enumValues, inputFields ++ that.inputFields)
+    def ++(that: InputCoordinateReferences): InputCoordinateReferences =
+      InputCoordinateReferences(
+        inputTypes ++ that.inputTypes,
+        enumValues ++ that.enumValues,
+        inputFields ++ that.inputFields
+      )
+  }
+
+  private[gateway] def inputCoordinateReferences(tpe: __Type, value: InputValue): InputCoordinateReferences = {
+    def loop(expected: __Type, input: InputValue): InputCoordinateReferences =
+      expected.kind match {
+        case __TypeKind.NON_NULL     => expected.ofType.fold(InputCoordinateReferences())(loop(_, input))
+        case __TypeKind.LIST         =>
+          expected.ofType.fold(InputCoordinateReferences()) { nested =>
+            input match {
+              case InputListValue(values) => values.foldLeft(InputCoordinateReferences())(_ ++ loop(nested, _))
+              case NullValue              => InputCoordinateReferences()
+              case singleton              => loop(nested, singleton)
+            }
+          }
+        case __TypeKind.INPUT_OBJECT =>
+          val typeName = expected.name.getOrElse("")
+          val own      = InputCoordinateReferences(inputTypes = Set(typeName))
+          input match {
+            case InputObjectValue(fields) =>
+              fields.iterator.foldLeft(own) { case (result, (name, nested)) =>
+                val fieldReference  = InputCoordinateReferences(inputFields = Set(typeName -> name))
+                val nestedReference = expected.allInputFields
+                  .find(_.name == name)
+                  .fold(InputCoordinateReferences())(field => loop(field._type, nested))
+                result ++ fieldReference ++ nestedReference
+              }
+            case _                        => own
+          }
+        case __TypeKind.ENUM         =>
+          val typeName  = expected.name.getOrElse("")
+          val valueName = input match {
+            case EnumValue(name)   => Some(name)
+            case StringValue(name) => Some(name)
+            case _                 => None
+          }
+          InputCoordinateReferences(
+            inputTypes = Set(typeName),
+            enumValues = valueName.map(typeName -> _).toSet
+          )
+        case _                       =>
+          InputCoordinateReferences(inputTypes = expected.name.toSet)
+      }
+
+    loop(tpe, value)
   }
 
   private def referencedHiddenCoordinates(
@@ -974,42 +1023,7 @@ private[gateway] object SchemaCoordinateMapping {
     rootType: RootType,
     hiddenEnums: Set[(String, String)],
     hiddenInputFields: Set[(String, String)]
-  ): HiddenReferences = {
-    def references(tpe: __Type, value: InputValue): HiddenReferences =
-      tpe.kind match {
-        case __TypeKind.NON_NULL     => tpe.ofType.fold(HiddenReferences())(references(_, value))
-        case __TypeKind.LIST         =>
-          value match {
-            case InputListValue(values) =>
-              tpe.ofType.fold(HiddenReferences())(nested =>
-                values.foldLeft(HiddenReferences())(_ ++ references(nested, _))
-              )
-            case _                      => HiddenReferences()
-          }
-        case __TypeKind.INPUT_OBJECT =>
-          value match {
-            case InputObjectValue(fields) =>
-              val typeName    = tpe.name.getOrElse("")
-              val definitions = rootType.types.get(typeName).toList.flatMap(_.allInputFields)
-              fields.iterator.foldLeft(HiddenReferences()) { case (result, (name, nested)) =>
-                val own             = HiddenReferences(inputFields = Set(typeName -> name))
-                val nestedReference = definitions
-                  .find(_.name == name)
-                  .fold(HiddenReferences())(field => references(field._type, nested))
-                result ++ own ++ nestedReference
-              }
-            case _                        => HiddenReferences()
-          }
-        case __TypeKind.ENUM         =>
-          val name = tpe.name.getOrElse("")
-          value match {
-            case EnumValue(value)   => HiddenReferences(enumValues = Set(name -> value))
-            case StringValue(value) => HiddenReferences(enumValues = Set(name -> value))
-            case _                  => HiddenReferences()
-          }
-        case _                       => HiddenReferences()
-      }
-
+  ): InputCoordinateReferences = {
     def directiveValues(directives: List[Directive]): List[(__Type, InputValue)] =
       directives.flatMap { directive =>
         rootType.additionalDirectives.find(_.name == directive.name).toList.flatMap { definition =>
@@ -1084,12 +1098,12 @@ private[gateway] object SchemaCoordinateMapping {
 
     val found = document.definitions.iterator
       .flatMap(definition => directiveValues(directives(definition)) ::: defaults(definition))
-      .map { case (tpe, value) => references(tpe, value) }
-      .foldLeft(HiddenReferences())(_ ++ _)
+      .map { case (tpe, value) => inputCoordinateReferences(tpe, value) }
+      .foldLeft(InputCoordinateReferences())(_ ++ _)
 
-    HiddenReferences(
-      found.enumValues.filter(hiddenEnums),
-      found.inputFields.filter(hiddenInputFields)
+    InputCoordinateReferences(
+      enumValues = found.enumValues.filter(hiddenEnums),
+      inputFields = found.inputFields.filter(hiddenInputFields)
     )
   }
 }

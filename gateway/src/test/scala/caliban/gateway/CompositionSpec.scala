@@ -1,13 +1,25 @@
 package caliban.gateway
 
-import caliban.ResponseValue.ListValue
+import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ FloatValue, IntValue, NullValue, StringValue }
 import caliban.gateway.GatewayTestSupport._
+import caliban.gateway.internal.{ SchemaComposition, SchemaContribution, SchemaCoordinateMapping }
+import caliban.introspection.adt.{ __Directive, __DirectiveLocation }
+import caliban.parsing.{ Parser, SourceMapper }
+import caliban.parsing.adt.{ Directive, Document }
+import caliban.schema.{ RootType, Types }
+import caliban.tools.RemoteSchema
 import sttp.model.Uri
 import zio._
 import zio.test._
 
 object CompositionSpec extends ZIOSpecDefault {
+
+  private final case class CompositionInput(
+    name: String,
+    schema: String,
+    transformations: List[SchemaTransformation] = Nil
+  )
 
   private val endpoint = Uri.unsafeParse("http://127.0.0.1:1/graphql")
 
@@ -17,6 +29,66 @@ object CompositionSpec extends ZIOSpecDefault {
        |$authoredFederationDirectives
        |$body
        |""".stripMargin
+
+  private val directiveDefinitions =
+    """
+      |directive @link(url: String!, as: String, import: [link__Import]) repeatable on SCHEMA
+      |directive @compose(name: String!) repeatable on SCHEMA
+      |directive @label(name: String!) repeatable on OBJECT | INTERFACE | UNION | SCALAR | ENUM | INPUT_OBJECT | FIELD_DEFINITION | ARGUMENT_DEFINITION | INPUT_FIELD_DEFINITION | ENUM_VALUE
+      |directive @shareable repeatable on OBJECT | FIELD_DEFINITION
+      |directive @inaccessible on OBJECT | FIELD_DEFINITION | INPUT_OBJECT | INPUT_FIELD_DEFINITION | ENUM_VALUE
+      |scalar link__Import
+      |""".stripMargin
+
+  private def directiveSchema(body: String, audit: String, compose: String = "@compose(name: \"@audit\")"): String =
+    s"""
+       |schema
+       |  @link(
+       |    url: "https://specs.apollo.dev/federation/v2.3"
+       |    import: [
+       |      { name: "@composeDirective", as: "@compose" }
+       |      { name: "@tag", as: "@label" }
+       |      "@shareable"
+       |      "@inaccessible"
+       |    ]
+       |  )
+       |  @link(url: "https://example.com/audit/v1.0", import: ["@audit"])
+       |  $compose
+       |{ query: Query }
+       |$directiveDefinitions
+       |$audit
+       |$body
+       |""".stripMargin
+
+  private def compose(inputs: CompositionInput*) = {
+    val contributions = inputs.toList.foldRight(Right(Nil): Either[List[String], List[SchemaContribution]]) {
+      case (input, result) =>
+        for {
+          tail       <- result
+          document   <- Parser.parseQuery(input.schema).left.map(error => List(s"[${input.name}] ${error.getMessage}"))
+          sourceRoot <- RemoteSchema
+                          .toRootType(document)
+                          .left
+                          .map(error => List(s"[${input.name}] ${error.getMessage}"))
+          mapping    <- SchemaCoordinateMapping.compile(
+                          input.name,
+                          sourceRoot,
+                          document,
+                          federation = true,
+                          input.transformations
+                        )
+          transformed = mapping.transform(document)
+          rootType   <- RemoteSchema
+                          .toRootType(transformed)
+                          .left
+                          .map(error => List(s"[${input.name}] ${error.getMessage}"))
+        } yield SchemaContribution(input.name, rootType, transformed, federation = true, Nil, mapping) :: tail
+    }
+    contributions.flatMap(SchemaComposition.compose)
+  }
+
+  private def directives(value: Option[List[Directive]]): List[(String, Map[String, caliban.InputValue])] =
+    value.getOrElse(Nil).map(directive => directive.name -> directive.arguments)
 
   def spec = suite("CompositionSpec")(
     suite("ownership")(
@@ -698,6 +770,507 @@ object CompositionSpec extends ZIOSpecDefault {
               diagnostics.exists(_.startsWith("[type Filter.limit]"))
             )
           }
+      }
+    ),
+    suite("directive metadata")(
+      test("retains metadata when one source type backs multiple operation roots") {
+        val root     = Types.makeObject(
+          Some("Root"),
+          None,
+          Types.makeField("value", None, Nil, () => Types.string) :: Nil,
+          Directive("mark") :: Nil
+        )
+        val rootType = RootType(
+          root,
+          Some(root),
+          None,
+          additionalDirectives = __Directive(
+            "mark",
+            None,
+            Set(__DirectiveLocation.OBJECT),
+            _ => Nil,
+            isRepeatable = false
+          ) :: Nil
+        )
+        val document = Document(Nil, SourceMapper.empty)
+        val result   = SchemaCoordinateMapping
+          .compile("local", rootType, document, federation = false, Nil)
+          .flatMap(mapping =>
+            SchemaComposition.compose(
+              SchemaContribution("local", rootType, document, federation = false, Nil, mapping) :: Nil
+            )
+          )
+
+        assertTrue(
+          result.isRight,
+          result.fold(_ => false, graph => directives(graph.rootType.queryType.directives).exists(_._1 == "mark")),
+          result.fold(
+            _ => false,
+            graph => graph.rootType.mutationType.exists(tpe => directives(tpe.directives).exists(_._1 == "mark"))
+          )
+        )
+      },
+      test("retains tag metadata across visible type-system coordinates") {
+        val result = compose(
+          CompositionInput(
+            "types",
+            directiveSchema(
+              """
+                |type Query {
+                |  node: Node
+                |  result: Result
+                |  code: Code
+                |  state: State
+                |  search(filter: Filter): String
+                |}
+                |interface Node @label(name: "interface") { id: ID! }
+                |type Product implements Node { id: ID! }
+                |union Result @label(name: "union") = Product
+                |scalar Code @label(name: "scalar")
+                |enum State @label(name: "enum") { READY @label(name: "value") }
+                |input Filter @label(name: "input") { term: String @label(name: "input-field") }
+                |""".stripMargin,
+              "directive @audit(level: String!) on FIELD_DEFINITION"
+            )
+          )
+        )
+        val types  = result.fold(_ => Map.empty[String, caliban.introspection.adt.__Type], _.rootType.types)
+        val labels = List("Node", "Result", "Code", "State", "Filter").map(name =>
+          directives(types.get(name).flatMap(_.directives)).exists(_._1 == "label")
+        )
+
+        assertTrue(
+          result.isRight,
+          labels.forall(_ == true),
+          directives(types.get("State").flatMap(_.allEnumValues.headOption).flatMap(_.directives))
+            .exists(_._1 == "label"),
+          directives(types.get("Filter").flatMap(_.allInputFields.headOption).flatMap(_.directives))
+            .exists(_._1 == "label")
+        )
+      },
+      test("resolves namespace-qualified tag and composeDirective metadata") {
+        val sdl    =
+          """
+            |schema
+            |  @link(url: "https://specs.apollo.dev/federation/v2.3")
+            |  @link(url: "https://example.com/audit/v1.0")
+            |  @federation__composeDirective(name: "@audit__trace")
+            |{ query: Query }
+            |directive @link(url: String!, as: String, import: [link__Import]) repeatable on SCHEMA
+            |directive @federation__composeDirective(name: String!) repeatable on SCHEMA
+            |directive @federation__tag(name: String!) repeatable on FIELD_DEFINITION
+            |directive @audit__trace(level: String!) on FIELD_DEFINITION
+            |scalar link__Import
+            |type Query { value: String @federation__tag(name: "public") @audit__trace(level: "metadata") }
+            |""".stripMargin
+        val result = compose(CompositionInput("namespaced", sdl))
+        val graph  = result.fold(_ => None, Some(_))
+        val field  = graph.flatMap(_.rootType.queryType.allFields.find(_.name == "value"))
+
+        assertTrue(
+          result.isRight,
+          graph.toList.flatMap(_.rootType.additionalDirectives).map(_.name).sorted ==
+            List("audit__trace", "federation__tag"),
+          directives(field.flatMap(_.directives)).map(_._1).sorted == List("audit__trace", "federation__tag")
+        )
+      },
+      test("retains aliased tag and selected custom metadata on transformed visible coordinates") {
+        val sdl      = directiveSchema(
+          """
+            |type Query @label(name: "root") {
+            |  product(filter: Filter @audit(level: "argument")): Product
+            |}
+            |type Product @audit(level: "type") {
+            |  value: String @label(name: "public") @audit(level: "field")
+            |  hidden: String @inaccessible @label(name: "hidden")
+            |}
+            |input Filter { term: String @audit(level: "input") }
+            |""".stripMargin,
+          "directive @audit(level: String!) repeatable on OBJECT | FIELD_DEFINITION | ARGUMENT_DEFINITION | INPUT_FIELD_DEFINITION"
+        )
+        val result   = compose(
+          CompositionInput(
+            "products",
+            sdl,
+            List(
+              SchemaTransformation.renameField("Product", "value", "display"),
+              SchemaTransformation.hideField("Product", "hidden")
+            )
+          )
+        )
+        val composed = result.fold(_ => None, Some(_))
+        val query    = composed.map(_.rootType.queryType)
+        val product  = composed.flatMap(_.rootType.types.get("Product"))
+        val display  = product.flatMap(_.allFields.find(_.name == "display"))
+        val filter   = composed.flatMap(_.rootType.types.get("Filter"))
+
+        assertTrue(
+          result.isRight,
+          composed.toList.flatMap(_.rootType.additionalDirectives).map(_.name).sorted == List("audit", "label"),
+          directives(query.flatMap(_.directives)).exists(_._1 == "label"),
+          directives(product.flatMap(_.directives)).exists(_._1 == "audit"),
+          directives(display.flatMap(_.directives)).map(_._1).sorted == List("audit", "label"),
+          product.forall(!_.allFields.exists(_.name == "hidden")),
+          directives(
+            query.flatMap(_.allFields.find(_.name == "product")).flatMap(_.allArgs.headOption).flatMap(_.directives)
+          ).exists(_._1 == "audit"),
+          directives(filter.flatMap(_.allInputFields.headOption).flatMap(_.directives)).exists(_._1 == "audit")
+        )
+      },
+      test("rejects retained metadata that references non-visible input coordinates") {
+        val hiddenField = compose(
+          CompositionInput(
+            "hidden-field",
+            directiveSchema(
+              """
+                |type Query { value: String @audit(options: { secret: "value" }) }
+                |input Options { visible: String secret: String @inaccessible }
+                |""".stripMargin,
+              "directive @audit(options: [Options]) on FIELD_DEFINITION"
+            )
+          )
+        )
+        val hiddenType  = compose(
+          CompositionInput(
+            "hidden-type",
+            directiveSchema(
+              """
+                |type Query { value: String @audit(options: { value: "secret" }) }
+                |input SecretOptions @inaccessible { value: String }
+                |""".stripMargin,
+              "directive @audit(options: SecretOptions) on FIELD_DEFINITION"
+            )
+          )
+        )
+        val hiddenEnum  = compose(
+          CompositionInput(
+            "hidden-enum",
+            directiveSchema(
+              """
+                |type Query { value: String @audit(state: BLOCKED) }
+                |enum State { READY BLOCKED @inaccessible }
+                |""".stripMargin,
+              "directive @audit(state: State) on FIELD_DEFINITION"
+            )
+          )
+        )
+
+        assertTrue(
+          hiddenField.fold(_.exists(_.contains("Options.secret")), _ => false),
+          hiddenType.fold(_.exists(_.contains("SecretOptions")), _ => false),
+          hiddenEnum.fold(_.exists(_.contains("State.BLOCKED")), _ => false)
+        )
+      },
+      test("retains an otherwise-unused ID referenced by a directive definition") {
+        val result = compose(
+          CompositionInput(
+            "id-metadata",
+            directiveSchema(
+              "type Query { value: String @audit(id: \"1\") }",
+              "directive @audit(id: ID) on FIELD_DEFINITION"
+            )
+          )
+        )
+
+        assertTrue(
+          result.isRight,
+          result.fold(_ => false, _.rootType.types.contains("ID")),
+          result.fold(
+            _ => false,
+            _.rootType.additionalDirectives
+              .find(_.name == "audit")
+              .exists(
+                _.allArgs.exists(argument => argument.name == "id" && argument._type.innerType.name.contains("ID"))
+              )
+          )
+        )
+      },
+      test("merges repeatable applications from every contribution") {
+        def shared(source: String)                                   = directiveSchema(
+          s"""type Query { value: String @shareable @label(name: "$source") @audit(level: "$source") }""",
+          "directive @audit(level: String!) repeatable on FIELD_DEFINITION"
+        )
+        val result                                                   = compose(CompositionInput("alpha", shared("alpha")), CompositionInput("beta", shared("beta")))
+        val applied: List[(String, Map[String, caliban.InputValue])] = result.fold(
+          _ => Nil,
+          _.rootType.queryType.allFields
+            .find(_.name == "value")
+            .toList
+            .flatMap(field => directives(field.directives))
+        )
+
+        assertTrue(
+          result.isRight,
+          applied.collect { case ("label", arguments) => arguments("name") }.toSet ==
+            Set[caliban.InputValue](StringValue("alpha"), StringValue("beta")),
+          applied.collect { case ("audit", arguments) => arguments("level") }.toSet ==
+            Set[caliban.InputValue](StringValue("alpha"), StringValue("beta"))
+        )
+      },
+      test("selects and merges directives graph-wide by linked feature identity") {
+        def featureSchema(sourceDirective: String, selected: Boolean, feature: String = "audit") = {
+          val selection = if (selected) s"""@compose(name: "@$sourceDirective")""" else ""
+          s"""
+             |schema
+             |  @link(
+             |    url: "https://specs.apollo.dev/federation/v2.3"
+             |    import: [{ name: "@composeDirective", as: "@compose" }, "@shareable"]
+             |  )
+             |  @link(
+             |    url: "https://example.com/$feature/v1.0"
+             |    import: [{ name: "@audit", as: "@$sourceDirective" }]
+             |  )
+             |  $selection
+             |{ query: Query }
+             |directive @link(url: String!, as: String, import: [link__Import]) repeatable on SCHEMA
+             |directive @compose(name: String!) repeatable on SCHEMA
+             |directive @shareable repeatable on FIELD_DEFINITION
+             |directive @$sourceDirective(label: String!) repeatable on FIELD_DEFINITION
+             |scalar link__Import
+             |type Query { value: String @shareable @$sourceDirective(label: "$sourceDirective") }
+             |""".stripMargin
+        }
+
+        val merged    = compose(
+          CompositionInput("alpha", featureSchema("audit", selected = true)),
+          CompositionInput("beta", featureSchema("review", selected = false))
+        )
+        val field     = merged.fold(_ => None, _.rootType.queryType.allFields.find(_.name == "value"))
+        val collision = compose(
+          CompositionInput("alpha", featureSchema("audit", selected = true, feature = "first")),
+          CompositionInput("beta", featureSchema("audit", selected = true, feature = "second"))
+        )
+
+        assertTrue(
+          merged.isRight,
+          merged.fold(_ => Nil, _.rootType.additionalDirectives.map(_.name)) == List("audit"),
+          directives(field.flatMap(_.directives)).collect { case ("audit", arguments) => arguments("label") } ==
+            List[caliban.InputValue](StringValue("audit"), StringValue("review")),
+          collision.fold(
+            _.exists(message => message.contains("first") && message.contains("second") && message.contains("audit")),
+            _ => false
+          )
+        )
+      },
+      test("preserves authored multiplicity for repeatable directives") {
+        val result       = compose(
+          CompositionInput(
+            "repeatable",
+            directiveSchema(
+              "type Query { value: String @audit(label: \"same\") @audit(label: \"same\") }",
+              "directive @audit(label: String!) repeatable on FIELD_DEFINITION"
+            )
+          )
+        )
+        val applications = result.fold(
+          _ => Nil,
+          _.rootType.queryType.allFields
+            .find(_.name == "value")
+            .toList
+            .flatMap(field => directives(field.directives))
+            .filter(_._1 == "audit")
+        )
+
+        assertTrue(result.isRight, applications.size == 2)
+      },
+      test("validates and compares applications with GraphQL input semantics") {
+        def defaultSchema(value: String, selected: Boolean) = directiveSchema(
+          s"type Query { value: String @shareable @audit$value }",
+          "directive @audit(enabled: Boolean = false) on FIELD_DEFINITION",
+          compose = if (selected) "@compose(name: \"@audit\")" else ""
+        )
+        val equivalent                                      = compose(
+          CompositionInput("alpha", defaultSchema("", selected = true)),
+          CompositionInput("beta", defaultSchema("(enabled: false)", selected = false))
+        )
+        val invalid                                         = compose(
+          CompositionInput(
+            "invalid",
+            directiveSchema(
+              "type Query { value: String @audit(unknown: \"value\") }",
+              "directive @audit(required: String!) on OBJECT"
+            )
+          )
+        )
+
+        assertTrue(
+          equivalent.isRight,
+          invalid.fold(_.exists(_.contains("FIELD_DEFINITION")), _ => false),
+          invalid.fold(_.exists(_.contains("unknown")), _ => false),
+          invalid.fold(_.exists(_.contains("required")), _ => false)
+        )
+      },
+      test("canonicalizes built-in scalar directive arguments") {
+        def scalarSchema(score: String, id: String, selected: Boolean) = directiveSchema(
+          s"type Query { value: String @shareable @audit(score: $score, id: $id) }",
+          "directive @audit(score: Float!, id: ID!) on FIELD_DEFINITION",
+          compose = if (selected) "@compose(name: \"@audit\")" else ""
+        )
+        val result                                                     = compose(
+          CompositionInput("alpha", scalarSchema("1", "1", selected = true)),
+          CompositionInput("beta", scalarSchema("1.0", "\"1\"", selected = false))
+        )
+        val audit                                                      = result.fold(
+          _ => None,
+          _.rootType.queryType.allFields
+            .find(_.name == "value")
+            .flatMap(_.directives)
+            .flatMap(_.find(_.name == "audit"))
+        )
+
+        assertTrue(
+          result.isRight,
+          audit.flatMap(_.arguments.get("score")).contains(FloatValue(BigDecimal(1))),
+          audit.flatMap(_.arguments.get("id")).contains(StringValue("1"))
+        )
+      },
+      test("canonicalizes structured directive-definition defaults") {
+        def structured(default: String, selected: Boolean) = directiveSchema(
+          "input Options { enabled: Boolean = false tags: [String!] = [\"x\"] }\n" +
+            "type Query { value: String @shareable @audit }",
+          s"directive @audit(options: Options = $default) on FIELD_DEFINITION",
+          compose = if (selected) "@compose(name: \"@audit\")" else ""
+        )
+        val result                                         = compose(
+          CompositionInput(
+            "alpha",
+            structured("{ enabled: false, tags: [\"x\"] }", selected = true)
+          ),
+          CompositionInput("beta", structured("{ tags: \"x\" }", selected = false))
+        )
+
+        assertTrue(result.isRight)
+      },
+      test("rejects unknown fields before canonicalizing directive input objects") {
+        val result = compose(
+          CompositionInput(
+            "unknown-input-field",
+            directiveSchema(
+              "input Options { nested: Nested }\n" +
+                "input Nested { known: String }\n" +
+                "type Query { value: String @audit(options: { nested: { known: \"x\", typo: \"y\" } }) }",
+              "directive @audit(options: Options!) on FIELD_DEFINITION"
+            )
+          )
+        )
+
+        assertTrue(
+          result.fold(
+            _.exists(message => message.contains("unknown-input-field") && message.contains("typo")),
+            _ => false
+          )
+        )
+      },
+      test("retains selected schema-coordinate applications as composed metadata") {
+        val result = compose(
+          CompositionInput(
+            "schema-metadata",
+            directiveSchema(
+              "type Query { value: String }",
+              "directive @audit(label: String!) repeatable on SCHEMA",
+              compose = "@compose(name: \"@audit\") @audit(label: \"schema\")"
+            )
+          )
+        )
+
+        assertTrue(
+          result.isRight,
+          result.fold(
+            _ => false,
+            graph =>
+              directives(Some(graph.schemaDirectives)).exists { case (name, arguments) =>
+                name == "audit" && arguments.get("label").contains(StringValue("schema"))
+              }
+          )
+        )
+      },
+      test("requires Federation 2.1 for composeDirective") {
+        val sdl    = directiveSchema(
+          "type Query { value: String @audit(level: \"value\") }",
+          "directive @audit(level: String!) on FIELD_DEFINITION"
+        ).replace("federation/v2.3", "federation/v2.0")
+        val result = compose(CompositionInput("old-federation", sdl))
+
+        assertTrue(
+          result.fold(
+            _.exists(message => message.contains("old-federation") && message.contains("v2.1")),
+            _ => false
+          )
+        )
+      },
+      test("rejects incompatible definitions and non-repeatable applications") {
+        def custom(argumentType: String, value: String) = directiveSchema(
+          s"type Query { value: String @shareable @audit(level: $value) }",
+          s"directive @audit(level: $argumentType!) on FIELD_DEFINITION"
+        )
+        val definitionsResult                           = compose(
+          CompositionInput("alpha", custom("String", "\"alpha\"")),
+          CompositionInput("beta", custom("Int", "1"))
+        )
+        val applicationsResult                          = compose(
+          CompositionInput("alpha", custom("String", "\"alpha\"")),
+          CompositionInput("beta", custom("String", "\"beta\""))
+        )
+        val definitionErrors                            = definitionsResult.fold(identity, _ => Nil)
+        val applicationErrors                           = applicationsResult.fold(identity, _ => Nil)
+
+        assertTrue(
+          definitionErrors.exists(message =>
+            message.contains("@audit") && message.contains("'alpha'") && message.contains("'beta'")
+          ),
+          applicationErrors.exists(message =>
+            message.contains("Query.value") && message.contains("'alpha'") && message.contains("'beta'")
+          )
+        )
+      },
+      test("validates compose declarations and exposes only retained definitions through introspection") {
+        val invalid           = compose(
+          CompositionInput(
+            "invalid",
+            directiveSchema(
+              "type Query { value: String }",
+              "directive @audit(level: String!) on FIELD_DEFINITION",
+              compose = "@compose(name: \"audit\") @compose(name: \"@missing\")"
+            )
+          )
+        )
+        val valid             = directiveSchema(
+          "type Query { value: String @audit(level: \"ok\") }",
+          "directive @audit(level: String!) on FIELD_DEFINITION\ndirective @unused on FIELD_DEFINITION"
+        )
+        val schemaApplication = compose(
+          CompositionInput(
+            "schema-application",
+            directiveSchema(
+              "type Query { value: String }",
+              "directive @audit(level: String!) on SCHEMA",
+              compose = "@compose(name: \"@audit\") @audit(level: \"schema\")"
+            )
+          )
+        )
+
+        for {
+          remote   <- stub("""{"data":{"value":"ok"}}""")
+          runtime  <- Gateway.compose(Subgraph.federation("valid", remote.endpoint, valid)).build
+          response <- runtime.execute("{ __schema { directives { name isRepeatable locations } } }")
+          names     = field(response.data, "__schema")
+                        .flatMap(field(_, "directives"))
+                        .collect { case ListValue(values) => values }
+                        .getOrElse(Nil)
+                        .flatMap {
+                          case ObjectValue(fields) => fields.collectFirst { case ("name", StringValue(name)) => name }
+                          case _                   => None
+                        }
+        } yield assertTrue(
+          invalid.fold(_.exists(_.contains("must start with '@'")), _ => false),
+          invalid.fold(_.exists(_.contains("@missing")), _ => false),
+          schemaApplication.fold(_ => false, _.schemaDirectives.exists(_.name == "audit")),
+          response.errors.isEmpty,
+          names.contains("audit"),
+          names.contains("label"),
+          !names.contains("unused"),
+          !names.contains("compose")
+        )
       }
     )
   ).provideSomeShared[Scope](testServer, stubIds) @@ TestAspect.sequential

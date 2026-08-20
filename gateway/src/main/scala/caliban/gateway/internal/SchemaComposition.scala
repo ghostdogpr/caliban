@@ -39,7 +39,8 @@ private[gateway] final class ComposedGraph private[internal] (
   private val interfaceObjects: Set[(String, String)],
   private val sourceRuntimeTypes: Map[(String, String), Set[String]],
   private val mappings: Map[String, SchemaCoordinateMapping],
-  private val securityApplications: List[ComposedGraph.SecurityApplication]
+  private val securityApplications: List[ComposedGraph.SecurityApplication],
+  private[gateway] val schemaDirectives: List[Directive]
 ) {
   private val securityByCoordinate =
     securityApplications.groupBy(application => application.typeName -> application.fieldName)
@@ -469,6 +470,7 @@ private[gateway] object ComposedGraph {
 }
 
 private[gateway] object SchemaComposition {
+  import DirectiveComposition._
 
   def isFederation(document: Document): Boolean =
     hasFederationTransport(document)
@@ -489,58 +491,61 @@ private[gateway] object SchemaComposition {
     }
 
   def compose(contributions: List[SchemaContribution]): Either[List[String], ComposedGraph] = {
-    val schemas           = contributions.sortBy(_.name)
-    val prepared          = schemas.map { schema =>
-      val names = federationDirectiveNames(schema.document)
+    val schemas            = contributions.sortBy(_.name)
+    val namesBySource      = schemas.map(schema => schema.name -> federationDirectiveNames(schema.document)).toMap
+    val composedDirectives =
+      DirectiveComposition.compile(schemas.map(schema => Source(schema, namesBySource(schema.name).hidden)))
+    val prepared           = schemas.map { schema =>
+      val names = namesBySource(schema.name)
       PreparedSchema(
         schema,
         names,
         federationKeyCoordinates(schema, names),
-        federation1ExtensionKeyCoordinates(schema, names)
+        federation1ExtensionKeyCoordinates(schema, names),
+        composedDirectives.hidden(schema.name)
       )
     }
-    val queryEntries      = rootFields(prepared, OperationType.Query)
-    val mutationEntries   = rootFields(prepared, OperationType.Mutation)
-    val types             = nonRootTypes(prepared)
-    val enumUsages        = enumUsageByName(schemas)
-    val directives        = prepared.flatMap { metadata =>
-      metadata.schema.rootType.additionalDirectives
-        .filterNot(directive => metadata.schema.federation && metadata.directives.hidden.contains(directive.name))
-        .map(metadata.schema.name -> _)
-    }
-    val compiledFieldSets = prepared.map(federationFieldSets)
-    val compiledSecurity  = prepared.map(securityApplications)
-    val diagnostics       =
+    val queryEntries       = rootFields(prepared, OperationType.Query)
+    val mutationEntries    = rootFields(prepared, OperationType.Mutation)
+    val types              = nonRootTypes(prepared)
+    val enumUsages         = enumUsageByName(schemas)
+    val compiledFieldSets  = prepared.map(federationFieldSets)
+    val compiledSecurity   = prepared.map(securityApplications)
+    val diagnostics        =
       (lookupDiagnostics(schemas) :::
         prepared.flatMap(federationKeyDiagnostics) :::
+        composedDirectives.diagnostics :::
         compiledFieldSets.flatMap(_.fold(identity, _ => Nil)) :::
         compiledSecurity.flatMap(_.fold(identity, _ => Nil)) :::
         prepared.flatMap(unsupportedFederationDiagnostics) :::
         rootDiagnostics(OperationType.Query, queryEntries) :::
         rootDiagnostics(OperationType.Mutation, mutationEntries) :::
         incompatibleTypeDiagnostics(types, enumUsages) :::
-        visibilityDiagnostics(queryEntries ::: mutationEntries, types) :::
-        incompatibleDirectiveDiagnostics(directives)).distinct.sorted
+        visibilityDiagnostics(queryEntries ::: mutationEntries, types)).distinct.sorted
 
     if (diagnostics.nonEmpty) Left(diagnostics)
     else {
       val queryFields                                        = chooseRootFields(queryEntries)
       val mutationFields                                     = chooseRootFields(mutationEntries)
-      lazy val additionalByName: Map[String, __Type]         = chooseCompatible(types, enumUsages, additionalByName)
+      lazy val additionalByName: Map[String, __Type]         =
+        chooseCompatible(types, enumUsages, additionalByName, composedDirectives)
       def rewrite(tpe: __Type): __Type                       = rewriteType(tpe, additionalByName)
-      val query                                              = makeRootType("Query", queryFields, rewrite)
+      val query                                              = makeRootType("Query", queryFields, rewrite, composedDirectives)
       val mutation                                           =
-        if (mutationFields.nonEmpty) Some(makeRootType("Mutation", mutationFields, rewrite))
+        if (mutationFields.nonEmpty) Some(makeRootType("Mutation", mutationFields, rewrite, composedDirectives))
         else None
-      val additional                                         = additionalByName.toList.sortBy(_._1).map(_._2)
+      val additional                                         =
+        additionalByName.toList.sortBy(_._1).map(_._2) :::
+          composedDirectives.additionalTypes.filterNot(tpe => tpe.name.exists(additionalByName.contains))
       val rootType                                           = RootType(
         query,
         mutation,
         None,
         additional,
-        chooseCompatibleDirectives(directives)
+        composedDirectives.definitions(rewrite)
       )
       val transformationDiagnostics                          = invalidTransformationDiagnostics(schemas, rootType)
+      val directiveDiagnostics                               = composedDirectives.finalDiagnostics(rootType)
       val allSecurity                                        = compiledSecurity.flatMap(_.toOption).flatten
       val securityVisibilityDiagnostics                      = hiddenSecurityDiagnostics(allSecurity, rootType)
       val routes: Map[(OperationType, String), List[String]] = rootRoutes(OperationType.Query, queryEntries) ++
@@ -572,11 +577,13 @@ private[gateway] object SchemaComposition {
         schemas
       )
       if (
-        transformationDiagnostics.nonEmpty || securityVisibilityDiagnostics.nonEmpty ||
+        transformationDiagnostics.nonEmpty || directiveDiagnostics.nonEmpty ||
+        securityVisibilityDiagnostics.nonEmpty ||
         transitiveSecurityDiagnostics.nonEmpty
       )
         Left(
-          (transformationDiagnostics ::: securityVisibilityDiagnostics ::: transitiveSecurityDiagnostics).distinct.sorted
+          (transformationDiagnostics ::: directiveDiagnostics ::: securityVisibilityDiagnostics :::
+            transitiveSecurityDiagnostics).distinct.sorted
         )
       else
         SchemaValidator
@@ -602,7 +609,8 @@ private[gateway] object SchemaComposition {
                 }
               }.toMap,
               schemas.iterator.map(schema => schema.name -> schema.mapping).toMap,
-              allSecurity
+              allSecurity,
+              composedDirectives.schemaDirectives
             )
           )
     }
@@ -1050,7 +1058,7 @@ private[gateway] object SchemaComposition {
                 case (owner, fieldName, argument) if owner == rootType.name.getOrElse("") && fieldName == field.name =>
                   argument
               }),
-              if (schema.federation) names.hidden else Set.empty
+              metadata.hiddenDirectives
             )
           }
       }
@@ -1142,7 +1150,8 @@ private[gateway] object SchemaComposition {
     schema: SchemaContribution,
     directives: FederationDirectiveNames,
     keyCoordinates: Set[(String, String)],
-    federation1ExtensionKeyCoordinates: Set[(String, String)]
+    federation1ExtensionKeyCoordinates: Set[(String, String)],
+    hiddenDirectives: Set[String]
   )
 
   private final case class TypeEntry(
@@ -1626,7 +1635,7 @@ private[gateway] object SchemaComposition {
       overrides,
       federationLinks(schema.document).nonEmpty,
       names.inaccessible,
-      if (schema.federation) names.hidden else Set.empty
+      metadata.hiddenDirectives
     )
   }
 
@@ -1780,20 +1789,11 @@ private[gateway] object SchemaComposition {
     else Nil
   }
 
-  private def incompatibleDirectiveDiagnostics(directives: List[(String, __Directive)]): List[String] =
-    directives
-      .groupBy(_._2.name)
-      .collect {
-        case (name, definitions) if definitions.map(entry => directiveSignature(entry._2)).distinct.size > 1 =>
-          val sources = formatSources(definitions.map(_._1))
-          s"[directive @$name] Definitions are incompatible between subgraphs: $sources."
-      }
-      .toList
-
   private def chooseCompatible(
     types: List[TypeEntry],
     enumUsages: Map[String, EnumUsage],
-    all: => Map[String, __Type]
+    all: => Map[String, __Type],
+    directives: DirectiveComposition.Result
   ): Map[String, __Type] = {
     val inaccessibleTypes = types.iterator.filter(_.inaccessible).map(_.name).toSet
     val chosen            = types
@@ -1805,12 +1805,19 @@ private[gateway] object SchemaComposition {
           sorted.headOption.map { base =>
             val rewrite = rewriteType(_: __Type, all)
             val chosen  = base.tpe.kind match {
-              case __TypeKind.OBJECT | __TypeKind.INTERFACE => mergeObject(sorted, rewrite, inaccessibleTypes)
-              case __TypeKind.UNION                         => mergeUnion(sorted, rewrite, inaccessibleTypes)
-              case __TypeKind.INPUT_OBJECT                  => mergeInputObject(sorted, rewrite)
+              case __TypeKind.OBJECT | __TypeKind.INTERFACE =>
+                mergeObject(sorted, rewrite, inaccessibleTypes, directives)
+              case __TypeKind.UNION                         => mergeUnion(sorted, rewrite, inaccessibleTypes, directives)
+              case __TypeKind.INPUT_OBJECT                  => mergeInputObject(sorted, rewrite, directives)
               case __TypeKind.ENUM                          =>
-                mergeEnum(sorted, enumUsages.getOrElse(name, EnumUsage(input = false, output = false)), rewrite)
-              case _                                        => sanitizeType(base.tpe, rewrite, hiddenDirectives(sorted))
+                mergeEnum(
+                  sorted,
+                  enumUsages.getOrElse(name, EnumUsage(input = false, output = false)),
+                  rewrite,
+                  directives
+                )
+              case _                                        =>
+                directives.attachType(sanitizeType(base.tpe, rewrite, hiddenDirectives(sorted)), name)
             }
             name -> chosen
           }
@@ -1865,7 +1872,8 @@ private[gateway] object SchemaComposition {
   private def mergeObject(
     entries: List[TypeEntry],
     rewrite: __Type => __Type,
-    inaccessibleTypes: Set[String]
+    inaccessibleTypes: Set[String],
+    directives: DirectiveComposition.Result
   ): __Type = {
     val base          = entries.headOption.map(_.tpe).getOrElse(__Type(__TypeKind.OBJECT))
     val hidden        = hiddenDirectives(entries)
@@ -1885,28 +1893,37 @@ private[gateway] object SchemaComposition {
         }.toSet
         (if (providers.nonEmpty) ordered.headOption else None).map { case (_, field) =>
           val mergedType = ordered.map(_._2._type).reduceOption(mergeOutputType).getOrElse(field._type)
-          sanitizeField(field.copy(`type` = () => mergedType), rewrite, hidden, hiddenArgs)
+          directives.attachField(
+            entries.head.name,
+            sanitizeField(field.copy(`type` = () => mergedType), rewrite, hidden, hiddenArgs)
+          )
         }
       }
     val interfaces    = mergeReferencedTypes(entries, _.interfaces().getOrElse(Nil), inaccessibleTypes)
     val possibleTypes = mergeReferencedTypes(entries, _.possibleTypes.getOrElse(Nil), inaccessibleTypes)
 
-    sanitizeType(base, rewrite, hidden).copy(
-      fields = args => Some(if (args.includeDeprecated.getOrElse(false)) fields else fields.filterNot(_.isDeprecated)),
-      interfaces = () => Some(interfaces),
-      possibleTypes = if (base.kind == __TypeKind.INTERFACE) Some(possibleTypes) else base.possibleTypes
-    )
+    directives
+      .attachType(sanitizeType(base, rewrite, hidden), entries.head.name)
+      .copy(
+        fields =
+          args => Some(if (args.includeDeprecated.getOrElse(false)) fields else fields.filterNot(_.isDeprecated)),
+        interfaces = () => Some(interfaces),
+        possibleTypes = if (base.kind == __TypeKind.INTERFACE) Some(possibleTypes) else base.possibleTypes
+      )
   }
 
   private def mergeUnion(
     entries: List[TypeEntry],
     rewrite: __Type => __Type,
-    inaccessibleTypes: Set[String]
+    inaccessibleTypes: Set[String],
+    directives: DirectiveComposition.Result
   ): __Type = {
     val base    = entries.headOption.map(_.tpe).getOrElse(__Type(__TypeKind.UNION))
     val hidden  = hiddenDirectives(entries)
     val members = mergeReferencedTypes(entries, _.possibleTypes.getOrElse(Nil), inaccessibleTypes)
-    sanitizeType(base, rewrite, hidden).copy(possibleTypes = Some(members))
+    directives
+      .attachType(sanitizeType(base, rewrite, hidden), entries.head.name)
+      .copy(possibleTypes = Some(members))
   }
 
   private def mergeReferencedTypes(
@@ -1923,7 +1940,11 @@ private[gateway] object SchemaComposition {
       .flatMap(name => values.find(_.name.contains(name)))
   }
 
-  private def mergeInputObject(entries: List[TypeEntry], rewrite: __Type => __Type): __Type = {
+  private def mergeInputObject(
+    entries: List[TypeEntry],
+    rewrite: __Type => __Type,
+    directives: DirectiveComposition.Result
+  ): __Type = {
     val base        = entries.headOption.map(_.tpe).getOrElse(__Type(__TypeKind.INPUT_OBJECT))
     val hidden      = hiddenDirectives(entries)
     val hiddenNames = entries.iterator.flatMap(_.inaccessibleInputFields).toSet
@@ -1933,23 +1954,27 @@ private[gateway] object SchemaComposition {
       entries.iterator
         .flatMap(_.tpe.allInputFields)
         .find(field => field.name == name && !hiddenNames.contains(name))
-        .map(field =>
-          field.copy(
+        .map { field =>
+          val sanitized = field.copy(
             `type` = () => rewrite(field._type),
-            directives = filterFederationDirectives(field.directives, hidden)
+            directives = filterHiddenDirectives(field.directives, hidden)
           )
-        )
+          directives.attachInputField(entries.head.name, sanitized)
+        }
     }
-    sanitizeType(base, rewrite, hidden).copy(
-      inputFields =
-        args => Some(if (args.includeDeprecated.getOrElse(false)) fields else fields.filterNot(_.isDeprecated))
-    )
+    directives
+      .attachType(sanitizeType(base, rewrite, hidden), entries.head.name)
+      .copy(
+        inputFields =
+          args => Some(if (args.includeDeprecated.getOrElse(false)) fields else fields.filterNot(_.isDeprecated))
+      )
   }
 
   private def mergeEnum(
     entries: List[TypeEntry],
     usage: EnumUsage,
-    rewrite: __Type => __Type
+    rewrite: __Type => __Type,
+    directives: DirectiveComposition.Result
   ): __Type = {
     val base        = entries.headOption.map(_.tpe).getOrElse(__Type(__TypeKind.ENUM))
     val hidden      = hiddenDirectives(entries)
@@ -1960,11 +1985,16 @@ private[gateway] object SchemaComposition {
       else visible.flatMap(_.map(_.name)).toSet
     val values      = names.toList.sorted
       .flatMap(name => visible.iterator.flatten.find(_.name == name))
-      .map(value => value.copy(directives = filterFederationDirectives(value.directives, hidden)))
-    sanitizeType(base, rewrite, hidden).copy(
-      enumValues =
-        args => Some(if (args.includeDeprecated.getOrElse(false)) values else values.filterNot(_.isDeprecated))
-    )
+      .map { value =>
+        val sanitized = value.copy(directives = filterHiddenDirectives(value.directives, hidden))
+        directives.attachEnumValue(entries.head.name, sanitized)
+      }
+    directives
+      .attachType(sanitizeType(base, rewrite, hidden), entries.head.name)
+      .copy(
+        enumValues =
+          args => Some(if (args.includeDeprecated.getOrElse(false)) values else values.filterNot(_.isDeprecated))
+      )
   }
 
   private def effectiveRootProviders(entries: List[RootFieldEntry]): List[RootFieldEntry] = {
@@ -2164,7 +2194,7 @@ private[gateway] object SchemaComposition {
 
   private def sanitizeType(tpe: __Type, rewrite: __Type => __Type, hiddenDirectives: Set[String]): __Type =
     tpe.copy(
-      directives = filterFederationDirectives(tpe.directives, hiddenDirectives),
+      directives = filterHiddenDirectives(tpe.directives, hiddenDirectives),
       fields = args => tpe.fields(args).map(_.map(sanitizeField(_, rewrite, hiddenDirectives)))
     )
 
@@ -2180,13 +2210,13 @@ private[gateway] object SchemaComposition {
         field.args(args).filterNot(value => inaccessibleArguments.contains(value.name)).map { value =>
           value.copy(
             `type` = () => rewrite(value._type),
-            directives = filterFederationDirectives(value.directives, hiddenDirectives)
+            directives = filterHiddenDirectives(value.directives, hiddenDirectives)
           )
         },
-      directives = filterFederationDirectives(field.directives, hiddenDirectives)
+      directives = filterHiddenDirectives(field.directives, hiddenDirectives)
     )
 
-  private def filterFederationDirectives(
+  private def filterHiddenDirectives(
     directives: Option[List[Directive]],
     hiddenDirectives: Set[String]
   ): Option[List[Directive]] =
@@ -2199,34 +2229,32 @@ private[gateway] object SchemaComposition {
       case None         => tpe.name.flatMap(types.get).getOrElse(tpe)
     }
 
-  private def chooseCompatibleDirectives(directives: List[(String, __Directive)]): List[__Directive] =
-    directives
-      .groupBy(_._2.name)
-      .toList
-      .sortBy(_._1)
-      .flatMap { case (_, definitions) => definitions.sortBy(_._1).headOption.map(_._2) }
-
-  private def makeRootType(name: String, fields: List[RootFieldEntry], rewrite: __Type => __Type): __Type = {
+  private def makeRootType(
+    name: String,
+    fields: List[RootFieldEntry],
+    rewrite: __Type => __Type,
+    directives: DirectiveComposition.Result
+  ): __Type = {
     val sorted = fields
-      .map(entry => sanitizeField(entry.field, rewrite, entry.hiddenDirectives, entry.inaccessibleArguments))
+      .map(entry =>
+        directives.attachField(
+          name,
+          sanitizeField(entry.field, rewrite, entry.hiddenDirectives, entry.inaccessibleArguments)
+        )
+      )
       .sortBy(_.name)
-    __Type(
-      kind = __TypeKind.OBJECT,
-      name = Some(name),
-      fields = args => Some(if (args.includeDeprecated.getOrElse(false)) sorted else sorted.filterNot(_.isDeprecated))
+    directives.attachType(
+      __Type(
+        kind = __TypeKind.OBJECT,
+        name = Some(name),
+        fields = args => Some(if (args.includeDeprecated.getOrElse(false)) sorted else sorted.filterNot(_.isDeprecated))
+      ),
+      name
     )
   }
 
   private def typeSignature(tpe: __Type): String =
     tpe.toTypeDefinition.fold(tpe.kind.toString)(definition => render(normalize(definition)))
-
-  private def directiveSignature(directive: __Directive): String =
-    render(
-      directive.toDirectiveDefinition.copy(
-        description = None,
-        args = directive.toDirectiveDefinition.args.map(normalize).sortBy(_.name)
-      )
-    )
 
   private def normalize(definition: TypeDefinition): TypeDefinition =
     definition match {
@@ -2307,28 +2335,6 @@ private[gateway] object SchemaComposition {
     hiddenTypes: Set[String]
   )
 
-  private final case class ImportedName(name: String, alias: String, directive: Boolean)
-
-  private final case class FeatureVersion(major: Int, minor: Int) {
-    def atLeast(requiredMajor: Int, requiredMinor: Int): Boolean =
-      major > requiredMajor || major == requiredMajor && minor >= requiredMinor
-  }
-
-  private final case class LinkedFeature(
-    directive: Directive,
-    identity: String,
-    name: String,
-    version: FeatureVersion,
-    namespace: String,
-    imports: List[ImportedName]
-  ) {
-    def directiveNames(name: String): Set[String] = {
-      val imported  = imports.collect { case value if value.directive && value.name == name => value.alias }.toSet
-      val qualified = if (this.name == name) Set(namespace) else Set(s"${namespace}__$name")
-      imported ++ qualified
-    }
-  }
-
   private def federationDirectiveNames(document: Document): FederationDirectiveNames = {
     val links                                                                    = linkedFeatures(document)
     val federation                                                               = links.filter(_.identity == FederationIdentity)
@@ -2384,6 +2390,8 @@ private[gateway] object SchemaComposition {
     val requiresNames       = federationNames("requires", federation1 = true)
     val providesNames       = federationNames("provides", federation1 = true)
     val interfaceObjects    = federationNames("interfaceObject")
+    val tagNames            = federationNames("tag")
+    val composeNames        = federationNames("composeDirective")
     val authenticated       = securityNames("authenticated", 2, 5, AuthenticatedIdentity)
     val requiresScopes      = securityNames("requiresScopes", 2, 5, RequiresScopesIdentity)
     val policy              = securityNames("policy", 2, 6, PolicyIdentity)
@@ -2397,7 +2405,8 @@ private[gateway] object SchemaComposition {
     val fromContext         = federationNames("fromContext")
     val hiddenDirectives    = Set("link") ++ keyNames ++ externalNames ++ extendsNames ++ shareableNames ++
       inaccessibleNames ++ overrideNames ++ requiresNames ++ providesNames ++ interfaceObjects ++
-      authenticated ++ requiresScopes ++ policy ++ unavailableSecurity.keySet ++ context ++ fromContext ++
+      tagNames ++ composeNames ++ authenticated ++ requiresScopes ++ policy ++ unavailableSecurity.keySet ++ context ++
+      fromContext ++
       document.directiveDefinitions.iterator.map(_.name).filter(name => namespacePrefix.exists(name.startsWith))
 
     FederationDirectiveNames(
@@ -2421,68 +2430,10 @@ private[gateway] object SchemaComposition {
     )
   }
 
-  private val FederationIdentity        = "https://specs.apollo.dev/federation"
-  private val AuthenticatedIdentity     = "https://specs.apollo.dev/authenticated"
-  private val RequiresScopesIdentity    = "https://specs.apollo.dev/requiresScopes"
-  private val PolicyIdentity            = "https://specs.apollo.dev/policy"
-  private val SecurityFeatureIdentities = Set(AuthenticatedIdentity, RequiresScopesIdentity, PolicyIdentity)
-
-  private def schemaLinkDirectives(document: Document): List[Directive] = {
-    val schemaDirectives = document.schemaDefinition.toList.flatMap(_.directives) :::
-      document.typeExtensions.collect { case extension: SchemaExtension => extension }.flatMap(_.directives)
-
-    schemaDirectives.filter(_.name == "link")
-  }
-
-  private def linkedFeatures(document: Document): List[LinkedFeature] =
-    schemaLinkDirectives(document).flatMap { directive =>
-      directive.arguments.get("url").collect { case StringValue(url) => url }.flatMap { url =>
-        val normalized   = url.takeWhile(character => character != '?' && character != '#').stripSuffix("/")
-        val versionStart = normalized.lastIndexOf('/')
-        val identity     = if (versionStart < 0) "" else normalized.substring(0, versionStart)
-        val nameStart    = identity.lastIndexOf('/')
-        val name         = if (nameStart < 0) "" else identity.substring(nameStart + 1)
-        val version      = if (versionStart < 0) "" else normalized.substring(versionStart + 1)
-
-        version match {
-          case VersionPattern(major, minor) if name.nonEmpty =>
-            val imports   = directive.arguments.get("import").toList.flatMap {
-              case caliban.InputValue.ListValue(values) => values.flatMap(importedName)
-              case _                                    => Nil
-            }
-            val namespace = directive.arguments
-              .get("as")
-              .collect { case StringValue(value) => value.stripPrefix("@") }
-              .getOrElse(name)
-            Some(
-              LinkedFeature(
-                directive,
-                identity,
-                name,
-                FeatureVersion(major.toInt, minor.toInt),
-                namespace,
-                imports
-              )
-            )
-          case _                                             => None
-        }
-      }
-    }
-
-  private val VersionPattern = "v([0-9]+)\\.([0-9]+)".r
-
-  private def importedName(value: caliban.InputValue): Option[ImportedName] =
-    value match {
-      case StringValue(name)                      =>
-        Some(ImportedName(name.stripPrefix("@"), name.stripPrefix("@"), name.startsWith("@")))
-      case caliban.InputValue.ObjectValue(fields) =>
-        fields.get("name").collect { case StringValue(name) => name }.map { name =>
-          val alias = fields.get("as").collect { case StringValue(value) => value }.getOrElse(name)
-          ImportedName(name.stripPrefix("@"), alias.stripPrefix("@"), name.startsWith("@"))
-        }
-      case _                                      => None
-    }
-
+  private val AuthenticatedIdentity                                = "https://specs.apollo.dev/authenticated"
+  private val RequiresScopesIdentity                               = "https://specs.apollo.dev/requiresScopes"
+  private val PolicyIdentity                                       = "https://specs.apollo.dev/policy"
+  private val SecurityFeatureIdentities                            = Set(AuthenticatedIdentity, RequiresScopesIdentity, PolicyIdentity)
   private def federationLinks(document: Document): List[Directive] =
     linkedFeatures(document).collect { case feature if feature.identity == FederationIdentity => feature.directive }
 
