@@ -1,8 +1,8 @@
-# 25 — Benchmark, profile, and optimize the real gateway
+# 28 — Benchmark, profile, and optimize the real gateway
 
 **Outcome:** The production Quick path is measured against current gateways, and measured bottlenecks are optimized without splitting semantics.
 
-**Blocked by:** 23 — Add the encoded response path; 24 — Improve ambiguous-route planning
+**Blocked by:** 26 — Add the encoded response path; 27 — Improve ambiguous-route planning
 
 **Status:** ready-for-agent
 

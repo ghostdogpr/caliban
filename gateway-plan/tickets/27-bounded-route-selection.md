@@ -1,4 +1,4 @@
-# 24 — Improve ambiguous-route planning
+# 27 — Improve ambiguous-route planning
 
 **Outcome:** When several valid routes can satisfy an operation, the planner selects a deterministic, reasonably efficient dependency DAG without unbounded search.
 

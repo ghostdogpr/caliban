@@ -22,6 +22,10 @@ Use these terms in gateway code, tickets, and discussion. Prefer ordinary GraphQ
 
 **Requirement** — fields needed to perform a later route even when the client did not request them. Requirements stay internal to execution and are absent from the projected result.
 
+**Security requirement** — authorization metadata composed for a selected schema coordinate, including any runtime type condition under which it applies. An operation policy decides it; the gateway does not assign application-specific authorization meaning.
+
+**Composed directive metadata** — compatible directive definitions and applications intentionally retained from contributing subgraphs on composed schema coordinates. Retaining metadata does not make the gateway interpret that directive during execution.
+
 **Source result** — a valid GraphQL response from an execution source, including partial data and GraphQL errors.
 
 **Source failure** — failure to obtain a valid GraphQL response, such as a transport error, invalid protocol response, timeout, or size violation. It is distinct from GraphQL errors in a valid source result.

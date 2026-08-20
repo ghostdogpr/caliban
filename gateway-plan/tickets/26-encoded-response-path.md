@@ -1,8 +1,8 @@
-# 23 — Add the encoded response path
+# 26 — Add the encoded response path
 
 **Outcome:** Quick can send a caller-owned encoded gateway response without paying an avoidable structured-to-wire conversion cost.
 
-**Blocked by:** 22 — Integrate the structured gateway with Quick
+**Blocked by:** 25 — Integrate the structured gateway with Quick
 
 **Status:** ready-for-agent
 

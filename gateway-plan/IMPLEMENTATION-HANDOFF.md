@@ -112,11 +112,14 @@ The gateway owns pooled remote transport resources. GraphQL-over-HTTP classifica
 - Source coordinates and locations are preserved when available for diagnostics.
 - Shareable fields require compatible declarations from every sharing Federation subgraph.
 - Transformations and visibility rules affect both the client schema and routing metadata consistently.
+- Security directives are retained as composed requirements. A graph using them requires an installed operation policy, and that policy receives the effective requirements of each validated operation before source dispatch.
+- `@tag` and custom directives selected by `@composeDirective` retain compatible definitions and applications on composed client coordinates.
+- Deferred Federation features that affect routing or security, including progressive override labels and contexts, fail composition explicitly instead of degrading to a supported subset.
 
 ### Operations
 
 - Parsing, validation, operation selection, fragments, aliases, directives, variable defaults, and coercion follow Caliban/GraphQL semantics.
-- Introspection executes against the composed client schema without a remote source call.
+- Introspection executes against the composed client schema without a remote source call and obeys Caliban's existing `Configurator` introspection setting on every request.
 - Query work may run concurrently when dependencies permit.
 - Top-level mutation fields execute in client order, including all routed descendants of each field.
 - Planning never guesses a join from matching names.
@@ -125,7 +128,7 @@ The gateway owns pooled remote transport resources. GraphQL-over-HTTP classifica
 ### Results and errors
 
 - Valid source GraphQL responses may contain data, errors, or both.
-- Source GraphQL errors preserve safe messages and are rewritten to client paths.
+- Local Caliban errors retain Caliban behavior. Remote GraphQL errors are rewritten to client paths, redact untrusted messages by default, omit source locations, and allowlist the `code` extension by default; operators may opt into additional disclosure globally or per source.
 - Source failure attaches at the route's client merge location while independent work may continue.
 - Non-null propagation follows GraphQL semantics and is independent of source completion order.
 - Client field order is deterministic.
