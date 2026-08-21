@@ -322,6 +322,9 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
                     .compose(Subgraph.local("local", localGraph(ZIO.succeed("ok"))))
                     .withConfig(
                       _.withMaxOperationNesting(0)
+                        .withMaxPlanningCandidates(0)
+                        .withMaxPlanningExpansions(0)
+                        .withPlanningTimeout(Duration.Infinity)
                         .withMaxConcurrentRequests(0)
                     )
                     .build
@@ -329,6 +332,9 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
         } yield assertTrue(
           buildDiagnostics(exit) == List(
             "Gateway maxOperationNesting must be positive.",
+            "Gateway maxPlanningCandidates must be positive.",
+            "Gateway maxPlanningExpansions must be positive.",
+            "Gateway planning timeout must be finite and positive.",
             "Gateway maxConcurrentRequests must be positive."
           )
         )

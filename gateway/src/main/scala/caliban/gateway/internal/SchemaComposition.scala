@@ -63,9 +63,10 @@ private[gateway] final class ComposedGraph private[internal] (
   def sources(operation: OperationType, field: String): List[String] =
     routes.getOrElse(operation -> field, Nil)
 
-  def source(typeName: String, field: String, preferred: String): Option[String] =
-    fieldRoutes.get(typeName -> field).flatMap { sources =>
-      if (sources.contains(preferred)) Some(preferred) else sources.headOption
+  def fieldSources(typeName: String, field: String, preferred: String): List[String] =
+    fieldRoutes.getOrElse(typeName -> field, Nil) match {
+      case sources if sources.contains(preferred) => preferred :: sources.filterNot(_ == preferred)
+      case sources                                => sources
     }
 
   def lookups(source: String, typeName: String): List[ComposedGraph.EntityLookup] =

@@ -4,13 +4,16 @@ import caliban.gateway.GatewayConfigValidation._
 import zio.Duration
 
 /**
- * Operation-preparation, admission, lifecycle, and remote-error disclosure configuration for one built gateway runtime.
+ * Operation-preparation, planning, admission, lifecycle, and remote-error disclosure configuration for one built gateway runtime.
  */
 final class GatewayConfig private (
   private[gateway] val maxOperationCacheWeight: Long,
   private[gateway] val maxOperationTextBytes: Int,
   private[gateway] val maxOperationNesting: Int,
   private[gateway] val maxParsedOperationNodes: Int,
+  private[gateway] val maxPlanningCandidates: Int,
+  private[gateway] val maxPlanningExpansions: Int,
+  private[gateway] val planningTimeout: Duration,
   private[gateway] val maxConcurrentRequests: Int,
   private[gateway] val maxConcurrentLocalCalls: Int,
   private[gateway] val requestTimeout: Duration,
@@ -41,6 +44,24 @@ final class GatewayConfig private (
    */
   def withMaxParsedOperationNodes(value: Int): GatewayConfig =
     copy(maxParsedOperationNodes = value)
+
+  /**
+   * Sets the maximum number of alternative route candidates considered while planning one operation.
+   */
+  def withMaxPlanningCandidates(value: Int): GatewayConfig =
+    copy(maxPlanningCandidates = value)
+
+  /**
+   * Sets the maximum number of candidate plans expanded while planning one operation.
+   */
+  def withMaxPlanningExpansions(value: Int): GatewayConfig =
+    copy(maxPlanningExpansions = value)
+
+  /**
+   * Sets the maximum duration spent planning one operation.
+   */
+  def withPlanningTimeout(value: Duration): GatewayConfig =
+    copy(planningTimeout = value)
 
   /**
    * Sets the maximum number of requests executing within this runtime.
@@ -80,6 +101,9 @@ final class GatewayConfig private (
       positive(maxOperationTextBytes, "Gateway maxOperationTextBytes must be positive."),
       positive(maxOperationNesting, "Gateway maxOperationNesting must be positive."),
       positive(maxParsedOperationNodes, "Gateway maxParsedOperationNodes must be positive."),
+      positive(maxPlanningCandidates, "Gateway maxPlanningCandidates must be positive."),
+      positive(maxPlanningExpansions, "Gateway maxPlanningExpansions must be positive."),
+      finitePositive(planningTimeout, "Gateway planning timeout must be finite and positive."),
       positive(maxConcurrentRequests, "Gateway maxConcurrentRequests must be positive."),
       positive(maxConcurrentLocalCalls, "Gateway maxConcurrentLocalCalls must be positive."),
       finitePositive(requestTimeout, "Gateway request timeout must be finite and positive."),
@@ -91,6 +115,9 @@ final class GatewayConfig private (
     maxOperationTextBytes: Int = maxOperationTextBytes,
     maxOperationNesting: Int = maxOperationNesting,
     maxParsedOperationNodes: Int = maxParsedOperationNodes,
+    maxPlanningCandidates: Int = maxPlanningCandidates,
+    maxPlanningExpansions: Int = maxPlanningExpansions,
+    planningTimeout: Duration = planningTimeout,
     maxConcurrentRequests: Int = maxConcurrentRequests,
     maxConcurrentLocalCalls: Int = maxConcurrentLocalCalls,
     requestTimeout: Duration = requestTimeout,
@@ -102,6 +129,9 @@ final class GatewayConfig private (
       maxOperationTextBytes,
       maxOperationNesting,
       maxParsedOperationNodes,
+      maxPlanningCandidates,
+      maxPlanningExpansions,
+      planningTimeout,
       maxConcurrentRequests,
       maxConcurrentLocalCalls,
       requestTimeout,
@@ -121,6 +151,9 @@ object GatewayConfig {
       maxOperationTextBytes = 1024 * 1024,
       maxOperationNesting = 128,
       maxParsedOperationNodes = 100000,
+      maxPlanningCandidates = 1024,
+      maxPlanningExpansions = 100000,
+      planningTimeout = Duration.fromSeconds(2),
       maxConcurrentRequests = 1024,
       maxConcurrentLocalCalls = 64,
       requestTimeout = Duration.fromSeconds(30),

@@ -31,15 +31,7 @@ private[gateway] final class EntityExecutor[-R](
   )(implicit trace: Trace): URIO[R, List[EntityResult]] = {
     val grouped = mutable.LinkedHashMap.empty[EntityGroupKey, EntityGroup]
     routes.foreach { route =>
-      val key =
-        EntityGroupKey(
-          route.source,
-          route.entityType,
-          route.lookup,
-          route.keys,
-          route.requirements,
-          entitySelectionKey(route.fields)
-        )
+      val key = entityGroupKey(route)
       grouped.get(key) match {
         case Some(group) => group.additionalRoutes += route
         case None        => grouped.put(key, EntityGroup(route, mutable.ListBuffer.empty))
@@ -702,6 +694,60 @@ private[gateway] final class EntityExecutor[-R](
   private def routePath(route: EntityRoute): List[PathValue] =
     route.mergePath.iterator.map(PathValue.Key(_)).toList
 
+}
+
+private[gateway] object EntityExecutor {
+  final case class EntityPatch(route: EntityRoute, path: List[PathValue], value: ResponseValue)
+
+  final case class EntityResult(
+    patches: List[EntityPatch],
+    errors: List[CalibanError],
+    completed: Set[RouteId],
+    blocked: Map[RouteId, Set[List[PathValue]]]
+  )
+
+  private final case class EntityGroupKey(
+    source: String,
+    entityType: String,
+    lookup: ComposedGraph.EntityLookup,
+    keys: List[RequiredSelection],
+    requirements: List[RequiredSelection],
+    selection: String
+  )
+
+  private[gateway] def logicalCallCount(routes: List[EntityRoute]): Int = {
+    val routeIds = routes.iterator.map(_.id).toSet
+
+    def count(
+      pending: List[EntityRoute],
+      completed: Set[RouteId],
+      calls: Int
+    ): Int =
+      if (pending.isEmpty) calls
+      else {
+        val ready = pending.filter(route => route.dependencies.forall(id => completed.contains(id) || !routeIds(id)))
+        if (ready.isEmpty) calls
+        else
+          count(
+            pending.filterNot(ready.toSet),
+            completed ++ ready.iterator.map(_.id),
+            calls + ready.iterator.map(entityGroupKey).toSet.size
+          )
+      }
+
+    count(routes, Set.empty, 0)
+  }
+
+  private def entityGroupKey(route: EntityRoute): EntityGroupKey =
+    EntityGroupKey(
+      route.source,
+      route.entityType,
+      route.lookup,
+      route.keys,
+      route.requirements,
+      entitySelectionKey(route.fields)
+    )
+
   private def entitySelectionKey(fields: List[Field]): String = {
     val selections = fields.map(field => canonicalSelection(field.toSelection)).sortBy(renderSelection)
     DocumentRenderer.renderCompact(
@@ -740,27 +786,6 @@ private[gateway] final class EntityExecutor[-R](
         SourceMapper.empty
       )
     )
-
-}
-
-private[gateway] object EntityExecutor {
-  final case class EntityPatch(route: EntityRoute, path: List[PathValue], value: ResponseValue)
-
-  final case class EntityResult(
-    patches: List[EntityPatch],
-    errors: List[CalibanError],
-    completed: Set[RouteId],
-    blocked: Map[RouteId, Set[List[PathValue]]]
-  )
-
-  private final case class EntityGroupKey(
-    source: String,
-    entityType: String,
-    lookup: ComposedGraph.EntityLookup,
-    keys: List[RequiredSelection],
-    requirements: List[RequiredSelection],
-    selection: String
-  )
 
   private final case class EntityGroup(firstRoute: EntityRoute, additionalRoutes: mutable.ListBuffer[EntityRoute]) {
     def routes: List[EntityRoute] = firstRoute :: additionalRoutes.toList

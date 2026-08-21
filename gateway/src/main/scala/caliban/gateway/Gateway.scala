@@ -128,7 +128,15 @@ object Gateway {
       requestRoot   = Introspector.withIntrospection(graph.rootType)
       operations   <- OperationPreparation.make(
                         requestRoot,
-                        new OperationPlanner(graph, sources.size),
+                        new OperationPlanner(
+                          graph,
+                          sources.size,
+                          OperationPlanner.Limits(
+                            config.maxPlanningCandidates,
+                            config.maxPlanningExpansions,
+                            config.planningTimeout
+                          )
+                        ),
                         new OperationHooks(graph.securityRequirements, resolver, policy),
                         config
                       )

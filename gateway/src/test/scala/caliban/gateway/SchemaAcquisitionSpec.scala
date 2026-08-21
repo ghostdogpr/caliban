@@ -375,9 +375,11 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
                                 )
         sizeAfterFailure      = parent.size
         interruptStarted     <- Promise.make[Nothing, Unit]
+        responseComplete     <- Promise.make[Nothing, Unit]
         interruptReleased    <- Promise.make[Nothing, Unit]
         interruptEndpoint    <- streamingEndpoint(
-                                  (ZStream.fromZIO(interruptStarted.succeed(()).unit).drain ++ ZStream.never).ensuring(
+                                  (ZStream.fromZIO(interruptStarted.succeed(()).unit).drain ++
+                                    ZStream.fromZIO(responseComplete.await).drain).ensuring(
                                     interruptReleased.succeed(()).unit
                                   )
                                 )
@@ -385,7 +387,9 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
                                   .extend(Gateway.compose(Subgraph.federation("interrupted", interruptEndpoint)).build)
                                   .fork
         _                    <- interruptStarted.await
-        interrupted          <- interruptedBuild.interrupt
+        _                    <- interruptedBuild.interruptFork
+        _                    <- responseComplete.succeed(())
+        interrupted          <- interruptedBuild.await
         _                    <- interruptReleased.await
         sizeAfterInterruption = parent.size
         _                    <- parent.close(Exit.succeed(()))
