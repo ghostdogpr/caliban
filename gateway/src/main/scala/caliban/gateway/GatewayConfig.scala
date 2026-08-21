@@ -151,7 +151,7 @@ object GatewayConfig {
       maxOperationTextBytes = 1024 * 1024,
       maxOperationNesting = 128,
       maxParsedOperationNodes = 100000,
-      maxPlanningCandidates = 1024,
+      maxPlanningCandidates = 4096,
       maxPlanningExpansions = 100000,
       planningTimeout = Duration.fromSeconds(2),
       maxConcurrentRequests = 1024,

@@ -18,6 +18,7 @@ import caliban.schema.RootType
 import caliban.validation.{ SchemaValidator, Validator }
 
 import scala.collection.immutable.ListMap
+import scala.collection.mutable
 
 private[gateway] final case class SchemaContribution(
   name: String,
@@ -256,32 +257,49 @@ private[gateway] final class ComposedGraph private[internal] (
     clientFields: List[caliban.execution.Field],
     executableFields: List[caliban.execution.Field],
     value: ResponseValue
+  ): ResponseValue = {
+    val mappings = responseNameMappings(clientFields, executableFields)
+    restoreResponseNames(mappings, value)
+  }
+
+  private def restoreResponseNames(
+    mappings: Map[String, ComposedGraph.ResponseNameMapping],
+    value: ResponseValue
   ): ResponseValue =
     value match {
       case ObjectValue(fields) =>
-        val selected = executableFields
-          .zip(clientFields)
-          .groupBy(_._1.aliasedName)
-          .flatMap { case (responseName, matches) =>
-            for {
-              executable <- matches.iterator.map(_._1).reduceOption(_.combine(_))
-              client     <- matches.iterator.map(_._2).reduceOption(_.combine(_))
-            } yield (responseName, (client, executable))
+        val restored = mutable.LinkedHashMap.empty[String, ResponseValue]
+        fields.foreach { case (name, nested) =>
+          val (clientName, clientValue) = mappings.get(name) match {
+            case Some(mapping) => mapping.clientName -> restoreResponseNames(mapping.children, nested)
+            case None          => name               -> nested
           }
-        val restored = fields.map { case (name, nested) =>
-          selected.get(name) match {
-            case Some((client, executable)) =>
-              client.aliasedName -> restoreResponseNames(client.fields, executable.fields, nested)
-            case None                       => name -> nested
-          }
+          restored.update(
+            clientName,
+            restored.get(clientName).fold(clientValue)(mergeResponseValues(_, clientValue))
+          )
         }
-        val merged   = restored.foldLeft(ListMap.empty[String, ResponseValue]) { case (values, (name, nested)) =>
-          values.updated(name, values.get(name).fold(nested)(mergeResponseValues(_, nested)))
-        }
-        ObjectValue(merged.toList)
-      case ListValue(values)   => ListValue(values.map(restoreResponseNames(clientFields, executableFields, _)))
+        ObjectValue(restored.toList)
+      case ListValue(values)   => ListValue(values.map(restoreResponseNames(mappings, _)))
       case other               => other
     }
+
+  private def responseNameMappings(
+    clientFields: List[caliban.execution.Field],
+    executableFields: List[caliban.execution.Field]
+  ): Map[String, ComposedGraph.ResponseNameMapping] =
+    executableFields
+      .zip(clientFields)
+      .groupBy(_._1.aliasedName)
+      .flatMap { case (responseName, matches) =>
+        for {
+          executable <- matches.iterator.map(_._1).reduceOption(_.combine(_))
+          client     <- matches.iterator.map(_._2).reduceOption(_.combine(_))
+        } yield responseName -> ComposedGraph.ResponseNameMapping(
+          client.aliasedName,
+          responseNameMappings(client.fields, executable.fields)
+        )
+      }
 
   def restoreResponsePath(
     clientFields: List[caliban.execution.Field],
@@ -410,6 +428,11 @@ private[gateway] final class ComposedGraph private[internal] (
 }
 
 private[gateway] object ComposedGraph {
+  private final case class ResponseNameMapping(
+    clientName: String,
+    children: Map[String, ResponseNameMapping]
+  )
+
   final case class KeyField(name: String, children: List[KeyField])
 
   private[internal] final case class SecurityApplication(

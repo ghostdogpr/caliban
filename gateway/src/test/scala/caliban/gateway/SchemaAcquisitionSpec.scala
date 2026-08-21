@@ -336,15 +336,19 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
         timeoutResult     <- timeoutFiber.join
         _                 <- timeoutReleased.await
         interruptStarted  <- Promise.make[Nothing, Unit]
+        responseComplete  <- Promise.make[Nothing, Unit]
         interruptReleased <- Promise.make[Nothing, Unit]
         interruptEndpoint <- streamingEndpoint(
-                               (ZStream.fromZIO(interruptStarted.succeed(()).unit).drain ++ ZStream.never).ensuring(
+                               (ZStream.fromZIO(interruptStarted.succeed(()).unit).drain ++
+                                 ZStream.fromZIO(responseComplete.await).drain).ensuring(
                                  interruptReleased.succeed(()).unit
                                )
                              )
         interruptFiber    <- Gateway.compose(Subgraph.federation("interrupt", interruptEndpoint)).build.fork
         _                 <- interruptStarted.await
-        interrupted       <- interruptFiber.interrupt
+        _                 <- interruptFiber.interruptFork
+        _                 <- responseComplete.succeed(())
+        interrupted       <- interruptFiber.await
         _                 <- interruptReleased.await
       } yield assertTrue(
         success.isRight,

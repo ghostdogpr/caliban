@@ -258,15 +258,19 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
           _                   <- timeoutStarted.await
           _                   <- timeoutReleased.await
           interruptStarted    <- Promise.make[Nothing, Unit]
+          interruptComplete   <- Promise.make[Nothing, Unit]
           interruptReleases   <- Ref.make(0)
           interruptReleased   <- Promise.make[Nothing, Unit]
           interruptEndpoint   <- streaming(
-                                   (ZStream.fromZIO(interruptStarted.succeed(()).unit).drain ++ ZStream.never)
+                                   (ZStream.fromZIO(interruptStarted.succeed(()).unit).drain ++
+                                     ZStream.fromZIO(interruptComplete.await).drain)
                                      .ensuring(interruptReleases.update(_ + 1) *> interruptReleased.succeed(()).unit)
                                  )
           interruptFiber      <- RemoteGraphQLSource(interruptEndpoint, backend).execute(request, OperationType.Query).fork
           _                   <- interruptStarted.await
-          interrupted         <- interruptFiber.interrupt
+          _                   <- interruptFiber.interruptFork
+          _                   <- interruptComplete.succeed(())
+          interrupted         <- interruptFiber.await
           _                   <- interruptReleased.await
           successReleaseCount <- successReleases.get
           failureReleaseCount <- failureReleases.get
