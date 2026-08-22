@@ -877,7 +877,9 @@ lazy val enableMimaSettingsJVM =
       ProblemFilters.exclude[MissingClassProblem]("caliban.interop.jsoniter.ErrorJsoniter$ErrorDTO*"),
       ProblemFilters.exclude[MissingClassProblem](
         "caliban.interop.jsoniter.GraphQLResponseJsoniter$GraphQLResponseDTO*"
-      )
+      ),
+      // private implementation class; construction is handled by QuickAdapter
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.QuickRequestHandler.this")
     )
   )
 
