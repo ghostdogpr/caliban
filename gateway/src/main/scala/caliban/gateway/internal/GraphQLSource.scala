@@ -17,6 +17,21 @@ private[gateway] trait GraphQLSource[-R] {
   def execute(request: GraphQLRequest, operationType: OperationType)(implicit
     trace: Trace
   ): ZIO[R, GraphQLSource.Failure, GraphQLResponse[CalibanError]]
+
+  def admittedBy(gate: ExecutionGate): GraphQLSource[R] =
+    new GatedGraphQLSource(this, gate)
+}
+
+private[gateway] final class GatedGraphQLSource[-R](
+  underlying: GraphQLSource[R],
+  gate: ExecutionGate
+) extends GraphQLSource[R] {
+  val errorPolicy: ErrorPolicy = underlying.errorPolicy
+
+  def execute(request: GraphQLRequest, operationType: OperationType)(implicit
+    trace: Trace
+  ): ZIO[R, GraphQLSource.Failure, GraphQLResponse[CalibanError]] =
+    gate(underlying.execute(request, operationType))
 }
 
 private[gateway] object GraphQLSource {

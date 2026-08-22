@@ -282,6 +282,48 @@ object EntityExecutionSpec extends ZIOSpecDefault {
           withReviews.contains("fetch reviews")
         )
       },
+      test("deduplicates identical entity lookups across concurrent requests") {
+        val callers          = 2
+        val productsResponse =
+          """{"data":{"product":{"name":"Table","_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}}}"""
+        val reviewsResponse  =
+          """{"data":{"_entities":[{"reviews":[{"body":"Solid"}],"_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product"}]}}"""
+        val query            = "{ product(id: \"p1\") { name reviews { body } } }"
+
+        for {
+          ready        <- Promise.make[Nothing, Unit]
+          headerRuns   <- Ref.make(0)
+          reviewsConfig = RemoteGraphQLConfig.default
+                            .withExecution(_.withInFlightQueryDeduplication(true))
+                            .withExecutionHeadersZIO(
+                              headerRuns
+                                .updateAndGet(_ + 1)
+                                .flatMap(count => ready.succeed(()).unit.when(count == callers)) *>
+                                ready.await.as(Nil)
+                            )
+          products     <- stub(productsResponse)
+          reviews      <- stub(reviewsResponse)
+          gateway      <- Gateway
+                            .compose(
+                              Subgraph.federation("products", products.endpoint, productsFederationSchema),
+                              Subgraph.federation(
+                                "reviews",
+                                reviews.endpoint,
+                                reviewsFederationSchema,
+                                reviewsConfig
+                              )
+                            )
+                            .build
+          fibers       <- ZIO.foreach(1 to callers)(_ => gateway.execute(query).fork)
+          responses    <- ZIO.foreach(fibers)(_.join)
+          reviewCalls  <- reviews.requests.get
+          totalHeaders <- headerRuns.get
+        } yield assertTrue(
+          responses.forall(_.errors.isEmpty),
+          reviewCalls.size == 1,
+          totalHeaders == callers
+        )
+      },
       test("skips an entity lookup when the nullable parent is null") {
         for {
           products <- stub("""{"data":{"product":null}}""")

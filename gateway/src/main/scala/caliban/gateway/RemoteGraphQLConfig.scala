@@ -161,6 +161,7 @@ object RemoteGraphQLConfig {
     private[gateway] val retries: Int,
     private[gateway] val retryBackoff: Duration,
     private[gateway] val maxConcurrentCalls: Int,
+    private[gateway] val inFlightQueryDeduplication: Boolean,
     private[gateway] val headers: List[Header],
     private[gateway] val forwardedHeaders: Set[String],
     private[gateway] val forwardAll: Boolean
@@ -195,6 +196,12 @@ object RemoteGraphQLConfig {
      */
     def withMaxConcurrentCalls(value: Int): Execution =
       copy(maxConcurrentCalls = value)
+
+    /**
+     * Enables or disables sharing one in-flight remote call between concurrent identical queries.
+     */
+    def withInFlightQueryDeduplication(value: Boolean): Execution =
+      copy(inFlightQueryDeduplication = value)
 
     /**
      * Sets static outbound headers.
@@ -243,6 +250,7 @@ object RemoteGraphQLConfig {
       retries: Int = retries,
       retryBackoff: Duration = retryBackoff,
       maxConcurrentCalls: Int = maxConcurrentCalls,
+      inFlightQueryDeduplication: Boolean = inFlightQueryDeduplication,
       headers: List[Header] = headers,
       forwardedHeaders: Set[String] = forwardedHeaders,
       forwardAll: Boolean = forwardAll
@@ -254,6 +262,7 @@ object RemoteGraphQLConfig {
         retries,
         retryBackoff,
         maxConcurrentCalls,
+        inFlightQueryDeduplication,
         headers,
         forwardedHeaders,
         forwardAll
@@ -273,6 +282,7 @@ object RemoteGraphQLConfig {
         retries = 0,
         retryBackoff = Duration.fromMillis(100),
         maxConcurrentCalls = 64,
+        inFlightQueryDeduplication = false,
         headers = Nil,
         forwardedHeaders = Set.empty,
         forwardAll = false

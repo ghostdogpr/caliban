@@ -20,6 +20,6 @@
 
 `GraphQLInterpreter.executeRequestWith` is the single internal response boundary used by ordinary structured execution and Quick's caller-owned encoded response. Quick supplies a bounded direct jsoniter encoder and receives a caller-owned, right-sized byte array; streaming responses continue through the existing structured path.
 
-The finite 16 MB default changes oversized unary JSON responses from a successful response to an empty `500` response. Ticket 29 should include this compatibility change in the release notes.
+The finite 16 MB default changes oversized unary JSON responses from a successful response to an empty `500` response. Ticket 30 should include this compatibility change in the release notes.
 
 `JsonEncodingBenchmark` compares Quick's actual bounded `GraphQLResponse` encoder with the previous materialized response envelope. A local JDK 25 run (`-prof gc -wi 2 -i 3 -w 1s -r 1s -f 1`) measured 13.79 million versus 12.41 million operations per second and 96 versus 128 allocated bytes per operation for the focused response, demonstrating the removed envelope construction cost. This is a component measurement, not an end-to-end throughput claim.

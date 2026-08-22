@@ -32,4 +32,6 @@ The design is Caliban-first. Existing Caliban parsing, validation, execution, va
 - Tickets 10–16 use the Federation Gateway Audit to drive routing, composition, and operation breadth.
 - Tickets 17–21 add protocol and operation policy, bounded runtime behavior, and lifecycle closure.
 - Tickets 22–24 close silent Federation semantics, preserve selected directive metadata, and secure the client exposure boundary.
-- Tickets 25–26 integrate Quick and the encoded response path, Ticket 27 improves ambiguous-route planning, Ticket 28 measures and optimizes the production path, and Ticket 29 closes tracing, documentation, compatibility evidence, and release review.
+- Tickets 25–26 integrate Quick and the encoded response path, Ticket 27 improves ambiguous-route planning, Ticket 28 measures and
+  optimizes the production path, Ticket 29 adds safe in-flight query deduplication selected by that evidence, and Ticket 30 closes
+  tracing, documentation, compatibility evidence, and release review.

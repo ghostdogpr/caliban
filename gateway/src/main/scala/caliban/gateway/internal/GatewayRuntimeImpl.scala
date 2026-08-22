@@ -293,7 +293,7 @@ private[gateway] final class GatewayRuntimeImpl[-R](
             .get(field.aliasedName)
             .orElse(rootValues.get(field.aliasedName))
             .getOrElse(NullValue)
-      field.aliasedName -> project(field, value, Vector(field.aliasedName), plan.entities, plan.runtimeTypes)
+      field.aliasedName -> value
     })
     val errors      =
       local.errors ::: roots.flatMap(_.response.errors) ::: entities.flatMap(_.errors) ::: remote.completionErrors
@@ -471,21 +471,55 @@ private[gateway] final class GatewayRuntimeImpl[-R](
       case PathValue.Key(key) :: tail     =>
         value match {
           case ObjectValue(fields) =>
-            ObjectValue(fields.map {
-              case (name, nested) if name == key => name -> mergeAt(nested, tail, patch)
-              case other                         => other
-            })
+            ObjectValue(updateFieldAt(fields, key, tail, patch))
           case other               => other
         }
       case PathValue.Index(index) :: tail =>
         value match {
-          case ListValue(values) if index >= 0 && index < values.size =>
-            ListValue(values.zipWithIndex.map { case (nested, current) =>
-              if (current == index) mergeAt(nested, tail, patch) else nested
-            })
-          case other                                                  => other
+          case ListValue(values) if index >= 0 => ListValue(updateValueAt(values, index, tail, patch))
+          case other                           => other
         }
       case _                              => value
+    }
+
+  private def updateFieldAt(
+    fields: List[(String, ResponseValue)],
+    key: String,
+    path: List[PathValue],
+    patch: ResponseValue
+  ): List[(String, ResponseValue)] = {
+    var remaining = fields
+    var index     = 0
+    var first     = -1
+    var matches   = 0
+    while (remaining.nonEmpty) {
+      if (remaining.head._1 == key) {
+        if (first < 0) first = index
+        matches += 1
+      }
+      remaining = remaining.tail
+      index += 1
+    }
+    if (matches == 0) fields
+    else if (matches == 1) {
+      val (name, nested) = fields(first)
+      fields.updated(first, name -> mergeAt(nested, path, patch))
+    } else
+      fields.map {
+        case (name, nested) if name == key => name -> mergeAt(nested, path, patch)
+        case other                         => other
+      }
+  }
+
+  private def updateValueAt(
+    values: List[ResponseValue],
+    index: Int,
+    path: List[PathValue],
+    patch: ResponseValue
+  ): List[ResponseValue] =
+    values.drop(index) match {
+      case nested :: _ => values.updated(index, mergeAt(nested, path, patch))
+      case Nil         => values
     }
 
   private def mergeObject(left: ResponseValue, right: ResponseValue): ResponseValue =
@@ -517,51 +551,6 @@ private[gateway] final class GatewayRuntimeImpl[-R](
             rightFields.filterNot(field => names.contains(field._1))
         )
       case _                                                   => mergeLeaf(left, right)
-    }
-
-  private def project(
-    field: Field,
-    value: ResponseValue,
-    path: Vector[String],
-    entities: List[EntityRoute],
-    runtimeTypes: List[RuntimeTypeSelection]
-  ): ResponseValue =
-    value match {
-      case ObjectValue(fields) if field.fields.nonEmpty =>
-        val values          = fields.toMap
-        val privateTypename = entities
-          .find(_.mergePath == path)
-          .flatMap(_.typename)
-          .flatMap(selection => values.get(selection.responseName))
-        val clientTypename  = field.fields
-          .find(_.name == "__typename")
-          .flatMap(child => values.get(child.aliasedName))
-        val plannedTypename = runtimeType(value, path, runtimeTypes, field).map(StringValue.apply)
-        val typeName        = plannedTypename
-          .orElse(clientTypename)
-          .orElse(privateTypename)
-          .collect { case StringValue(name) => name }
-          .orElse(field.fieldType.innerType.name)
-          .getOrElse("")
-        val projected       = field
-          .collectFields(typeName)
-          .map(child =>
-            child.aliasedName -> project(
-              child,
-              values.getOrElse(child.aliasedName, NullValue),
-              path :+ child.aliasedName,
-              entities,
-              runtimeTypes
-            )
-          )
-        val runtimeEvidence = runtimeTypes.iterator
-          .flatMap(selection => values.get(selection.responseName).map(selection.responseName -> _))
-          .toList
-          .distinct
-        ObjectValue(projected ::: runtimeEvidence)
-      case ListValue(values)                            =>
-        ListValue(values.map(project(field, _, path, entities, runtimeTypes)))
-      case other                                        => other
     }
 
   private def responseFields(response: GraphQLResponse[CalibanError]): List[(String, ResponseValue)] =

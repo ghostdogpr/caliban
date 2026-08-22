@@ -26,7 +26,7 @@ private[gateway] final class RuntimeControl private (
     }
 
   def source[R](name: String, source: GraphQLSource[R]): GraphQLSource[R] =
-    sources.get(name).fold(source)(new GatedGraphQLSource(source, _))
+    sources.get(name).fold(source)(source.admittedBy)
 
   def status(cache: OperationCacheStatus)(implicit trace: Trace): UIO[Status] =
     state.get.flatMap { current =>
@@ -152,17 +152,6 @@ private[gateway] final class RuntimeControl private (
       _         <- state.update(_.copy(lifecycle = GatewayRuntime.LifecycleState.Closed))
     } yield ()).uninterruptible
 
-  private final class GatedGraphQLSource[-R](
-    underlying: GraphQLSource[R],
-    gate: ExecutionGate
-  ) extends GraphQLSource[R] {
-    val errorPolicy: GraphQLSource.ErrorPolicy = underlying.errorPolicy
-
-    def execute(request: GraphQLRequest, operationType: OperationType)(implicit
-      trace: Trace
-    ): ZIO[R, GraphQLSource.Failure, GraphQLResponse[CalibanError]] =
-      gate(underlying.execute(request, operationType))
-  }
 }
 
 private[gateway] object RuntimeControl {

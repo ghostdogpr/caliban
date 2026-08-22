@@ -514,6 +514,78 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
           done.sources.get("remote").exists(value => value.active == 0 && value.waiting == 0)
         )
       },
+      test("deduplicates identical queries before source admission") {
+        val config = RemoteGraphQLConfig.default.withExecution(
+          _.withMaxConcurrentCalls(1)
+            .withInFlightQueryDeduplication(true)
+        )
+        for {
+          calls     <- Ref.make(0)
+          started   <- Promise.make[Nothing, Unit]
+          release   <- Promise.make[Nothing, Unit]
+          remote    <- endpoint(_ =>
+                         calls.update(_ + 1) *>
+                           started.succeed(()).unit *>
+                           release.await.as(graphQLResponse(response))
+                       )
+          runtime   <- Gateway
+                         .compose(Subgraph.graphql("remote", remote, schema, config))
+                         .withConfig(_.withMaxConcurrentRequests(32))
+                         .build
+          fibers    <- ZIO.foreach(1 to 20)(_ => runtime.executeRequest(request).fork)
+          _         <- started.await
+          sharing   <- waitForStatus(runtime)(_.requests.active == 20)
+          before    <- calls.get
+          _         <- release.succeed(())
+          responses <- ZIO.foreach(fibers)(_.join)
+          done      <- runtime.status
+        } yield assertTrue(
+          before == 1,
+          sharing.sources.get("remote").exists(value => value.active == 1 && value.waiting == 0),
+          responses.forall(_.errors.isEmpty),
+          done.sources.get("remote").exists(value => value.active == 0 && value.waiting == 0)
+        )
+      },
+      test("bounds distinct deduplication identities before source admission") {
+        val config       = RemoteGraphQLConfig.default.withExecution(
+          _.withMaxConcurrentCalls(1)
+            .withInFlightQueryDeduplication(true)
+        )
+        val operations   = Some("query First { value } query Second { value }")
+        val firstRequest = GraphQLRequest(query = operations, operationName = Some("First"))
+        val nextRequest  = GraphQLRequest(query = operations, operationName = Some("Second"))
+        for {
+          calls        <- Ref.make(0)
+          firstStarted <- Promise.make[Nothing, Unit]
+          nextStarted  <- Promise.make[Nothing, Unit]
+          releaseFirst <- Promise.make[Nothing, Unit]
+          remote       <- endpoint(_ =>
+                            calls.updateAndGet(_ + 1).flatMap {
+                              case 1 => firstStarted.succeed(()).unit *> releaseFirst.await.as(graphQLResponse(response))
+                              case _ => nextStarted.succeed(()).as(graphQLResponse(response))
+                            }
+                          )
+          runtime      <- Gateway
+                            .compose(Subgraph.graphql("remote", remote, schema, config))
+                            .withConfig(_.withMaxConcurrentRequests(2))
+                            .build
+          first        <- runtime.executeRequest(firstRequest).fork
+          _            <- firstStarted.await
+          second       <- runtime.executeRequest(nextRequest).fork
+          bounded      <- waitForStatus(runtime)(_.requests.active == 2)
+          before       <- calls.get
+          _            <- releaseFirst.succeed(())
+          _            <- nextStarted.await
+          responses    <- first.join.zip(second.join)
+          total        <- calls.get
+        } yield assertTrue(
+          before == 1,
+          bounded.sources.get("remote").exists(value => value.active == 1 && value.waiting == 0),
+          responses._1.errors.isEmpty,
+          responses._2.errors.isEmpty,
+          total == 2
+        )
+      },
       test("releases a source permit when the current call is interrupted") {
         for {
           gate          <- ExecutionGate.make(1)

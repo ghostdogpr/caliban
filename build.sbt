@@ -98,6 +98,7 @@ lazy val allProjects: Seq[ProjectReference] =
     federation,
     gateway,
     gatewayAudit,
+    gatewayBenchmark,
     reporting,
     tracing,
     apolloCompatibility
@@ -753,6 +754,36 @@ lazy val gatewayAudit = project
     )
   )
   .dependsOn(gateway)
+
+lazy val gatewayBenchmark = project
+  .in(file("gateway-benchmark"))
+  .settings(commonSettings)
+  .settings(
+    name                             := "caliban-gateway-benchmark",
+    publish / skip                   := true,
+    skip                             := (scalaVersion.value != scala213),
+    ideSkipProject                   := (scalaVersion.value != scala213),
+    crossScalaVersions               := Seq(scala213),
+    assembly / assemblyJarName       := "caliban-gateway-benchmark.jar",
+    assembly / mainClass             := Some("caliban.gateway.benchmark.Main"),
+    assembly / assemblyOutputPath    := {
+      (assembly / baseDirectory).value / "target" / (assembly / assemblyJarName).value
+    },
+    assembly / test                  := {},
+    assembly / assemblyMergeStrategy := {
+      case x if Assembly.isConfigFile(x)                                                            => MergeStrategy.concat
+      case PathList("META-INF", "MANIFEST.MF")                                                      => MergeStrategy.discard
+      case PathList("META-INF", x) if x.endsWith(".SF") || x.endsWith(".DSA") || x.endsWith(".RSA") =>
+        MergeStrategy.discard
+      case _                                                                                        => MergeStrategy.first
+    },
+    libraryDependencies ++= Seq(
+      "dev.zio" %% "zio-http"     % zioHttpVersion,
+      "dev.zio" %% "zio-test"     % zioVersion % Test,
+      "dev.zio" %% "zio-test-sbt" % zioVersion % Test
+    )
+  )
+  .dependsOn(gateway, quickAdapter)
 
 lazy val docs = project
   .in(file("mdoc"))

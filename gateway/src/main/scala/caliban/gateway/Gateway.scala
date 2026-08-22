@@ -149,26 +149,29 @@ object Gateway {
     remoteErrorDisclosure: RemoteGraphQLConfig.ErrorDisclosure
   )(implicit
     trace: Trace
-  ): IO[List[String], LoadedSubgraph[R]] =
+  ): ZIO[Scope, List[String], LoadedSubgraph[R]] =
     subgraph.source match {
       case Source.Remote(endpoint, schema, federation, config) =>
         val policyDiagnostics = config
           .diagnostics(schema == SchemaInput.Acquired)
           .map(message => s"[${subgraph.name}] $message")
         for {
-          _                       <- ZIO.fail(policyDiagnostics).when(policyDiagnostics.nonEmpty)
-          client                  <- ZIO
-                                       .fromOption(backend)
-                                       .orElseFail(List(s"[${subgraph.name}] Remote GraphQL transport is unavailable."))
-          document                <- RemoteSchemaAcquisition
-                                       .document(schema, endpoint, federation, config.acquisition, Some(client))
-                                       .mapError(error => List(s"[${subgraph.name}] $error"))
-          normalizedDocument       = if (federation) RemoteSchema.promoteOrphanTypeExtensions(document) else document
-          rootDocument             = ensureFederationTransportQuery(normalizedDocument, federation)
-          sourceRootType          <- toRootType(subgraph.name, rootDocument).mapError(_ :: Nil)
-          contribution            <- prepareContribution(subgraph, sourceRootType, rootDocument, document, federation)
-          source: GraphQLSource[R] =
-            RemoteGraphQLSource(endpoint, client, config.withDefaultErrorDisclosure(remoteErrorDisclosure))
+          _                 <- ZIO.fail(policyDiagnostics).when(policyDiagnostics.nonEmpty)
+          client            <- ZIO
+                                 .fromOption(backend)
+                                 .orElseFail(List(s"[${subgraph.name}] Remote GraphQL transport is unavailable."))
+          document          <- RemoteSchemaAcquisition
+                                 .document(schema, endpoint, federation, config.acquisition, Some(client))
+                                 .mapError(error => List(s"[${subgraph.name}] $error"))
+          normalizedDocument = if (federation) RemoteSchema.promoteOrphanTypeExtensions(document) else document
+          rootDocument       = ensureFederationTransportQuery(normalizedDocument, federation)
+          sourceRootType    <- toRootType(subgraph.name, rootDocument).mapError(_ :: Nil)
+          contribution      <- prepareContribution(subgraph, sourceRootType, rootDocument, document, federation)
+          source            <- RemoteGraphQLSource.make(
+                                 endpoint,
+                                 client,
+                                 config.withDefaultErrorDisclosure(remoteErrorDisclosure)
+                               )
         } yield LoadedSubgraph(contribution, source, config.execution.maxConcurrentCalls)
       case Source.Local(graph)                                 =>
         val document   = graph.toDocument
