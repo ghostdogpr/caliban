@@ -2,7 +2,7 @@ package caliban.gateway.internal
 
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ EnumValue, NullValue, StringValue }
-import caliban.execution.{ ExecutionRequest, Executor, Field }
+import caliban.execution.{ isIntrospectionField, ExecutionRequest, Executor, Field }
 import caliban.gateway.GatewayRuntime
 import caliban.gateway.internal.EntityExecutor.EntityResult
 import caliban.gateway.internal.GatewayRuntimeImpl._
@@ -81,7 +81,7 @@ private[gateway] final class GatewayRuntimeImpl[-R](
         }
       case None         =>
         executeRemote(plan, execution, resolvedRequest)
-          .zipPar(executeIntrospection(execution, plan.localFields.filter(ExecutionRequest.isIntrospectionField)))
+          .zipPar(executeIntrospection(execution, plan.localFields.filter(isIntrospectionField)))
           .map { case (remote, local) => assemble(plan, remote, local) }
     }
 

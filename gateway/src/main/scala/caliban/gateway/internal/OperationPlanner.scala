@@ -1,6 +1,6 @@
 package caliban.gateway.internal
 
-import caliban.execution.{ ExecutionRequest, Field }
+import caliban.execution.{ isMetaField, ExecutionRequest, Field }
 import caliban.gateway.internal.OperationPlanner._
 import caliban.introspection.adt.{ __Field, __Type, __TypeKind }
 import caliban.parsing.SourceMapper
@@ -1289,7 +1289,7 @@ private[gateway] final class OperationPlanner(
     }
 
   private def isLocalField(field: Field): Boolean =
-    ExecutionRequest.isMetaField(field)
+    isMetaField(field)
 
   private def isCustomDirective(directive: Directive): Boolean =
     directive.name != "skip" && directive.name != "include"

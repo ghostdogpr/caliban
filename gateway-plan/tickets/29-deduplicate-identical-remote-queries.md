@@ -32,9 +32,9 @@ and concurrency; 28 — Benchmark, profile, and optimize the real gateway
 
 ## Verification
 
-The focused gateway suites cover shared success and failure, identity separation, mutation isolation, interrupted waiters, retry
-ownership, cleanup, and concurrent entity lookups. The benchmark adapter opts into the default-disabled feature; no gateway-wide cache
-or completed-response cache is involved.
+The focused gateway suites cover shared success and failure, identity separation, mutation isolation, caller-specific deadlines,
+interrupted waiters, owning-scope shutdown, retry ownership, cleanup, and concurrent entity lookups. The benchmark adapter opts into
+the default-disabled feature; no gateway-wide cache or completed-response cache is involved.
 
 At 50 virtual users, adjacent 10-second measurement slices following a 15-second warmup produced these control results with the
 pinned, unmodified request driver. Gateway-call totals include the driver's 100 setup calls so downstream-call ratios cover every

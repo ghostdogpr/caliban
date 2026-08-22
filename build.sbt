@@ -119,7 +119,8 @@ lazy val rootJVM212 = project
     ideSkipProject     := true
   )
   .aggregate({
-    val excluded: Set[ProjectReference] = Set(clientJS, clientNative, clientLaminext, play, apolloCompatibility)
+    val excluded: Set[ProjectReference] =
+      Set(clientJS, clientNative, clientLaminext, play, apolloCompatibility, gatewayAudit, gatewayBenchmark)
     allProjects.filterNot(excluded.contains)
   } *)
 
@@ -144,7 +145,7 @@ lazy val rootJVM3 = project
   )
   .aggregate({
     val excluded: Set[ProjectReference] =
-      Set(clientJS, clientNative, clientLaminext, codegenSbt, akkaHttp)
+      Set(clientJS, clientNative, clientLaminext, codegenSbt, akkaHttp, gatewayAudit, gatewayBenchmark)
     allProjects.filterNot(excluded.contains)
   } *)
 
@@ -871,7 +872,12 @@ lazy val enableMimaSettingsJVM =
       ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.*.<clinit>"),
       ProblemFilters.exclude[DirectMissingMethodProblem]("mdg.engine.proto.reports.*.<clinit>"),
       // private internal method; extra param added to fix nested-list null propagation
-      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.execution.Executor#StepReducer.reduceStep")
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.execution.Executor#StepReducer.reduceStep"),
+      // private implementation details replaced by direct jsoniter codecs
+      ProblemFilters.exclude[MissingClassProblem]("caliban.interop.jsoniter.ErrorJsoniter$ErrorDTO*"),
+      ProblemFilters.exclude[MissingClassProblem](
+        "caliban.interop.jsoniter.GraphQLResponseJsoniter$GraphQLResponseDTO*"
+      )
     )
   )
 

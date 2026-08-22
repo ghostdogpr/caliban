@@ -61,6 +61,26 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
       .fromChunk(Chunk.fromArray(body.getBytes(StandardCharsets.UTF_8)))
       .ensuring(releases.update(_ + 1) *> released.succeed(()).unit)
 
+  private final case class BlockedEndpoint(
+    uri: Uri,
+    calls: Ref[Int],
+    started: Promise[Nothing, Unit],
+    release: Promise[Nothing, Unit]
+  )
+
+  private def blockedEndpoint(expectedCalls: Int): ZIO[Server with Ref[Int], Nothing, BlockedEndpoint] =
+    for {
+      calls   <- Ref.make(0)
+      started <- Promise.make[Nothing, Unit]
+      release <- Promise.make[Nothing, Unit]
+      uri     <- endpoint { _ =>
+                   calls.updateAndGet(_ + 1).flatMap { count =>
+                     ZIO.when(count == expectedCalls)(started.succeed(()).unit) *>
+                       release.await.as(Response.json("""{"data":{"value":"ok"}}"""))
+                   }
+                 }
+    } yield BlockedEndpoint(uri, calls, started, release)
+
   def spec = suite("GraphQLHttpSpec")(
     test("classifies status, media type, malformed envelopes, and redirects") {
       val valid     = """{"data":{"value":"ok"}}"""
@@ -440,26 +460,33 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
       )
     },
     test("deduplicates concurrent identical remote queries") {
-      val config = RemoteGraphQLConfig.default.withExecution(_.withInFlightQueryDeduplication(true))
+      val callers = 20
 
       for {
-        calls     <- Ref.make(0)
-        started   <- Promise.make[Nothing, Unit]
-        release   <- Promise.make[Nothing, Unit]
-        remote    <- endpoint(_ =>
-                       calls.update(_ + 1) *>
-                         started.succeed(()).unit *>
-                         release.await.as(Response.json("""{"data":{"value":"ok"}}"""))
-                     )
-        gateway   <- Gateway.compose(Subgraph.graphql("remote", remote, schema, config)).build
-        fibers    <- ZIO.foreach(1 to 20)(_ => gateway.executeRequest(request).fork)
-        _         <- started.await
-        _         <- Live.live(ZIO.sleep(250.millis))
-        shared    <- calls.get
-        _         <- release.succeed(())
-        responses <- ZIO.foreach(fibers)(_.join)
+        ready        <- Promise.make[Nothing, Unit]
+        headerRuns   <- Ref.make(0)
+        config        = RemoteGraphQLConfig.default
+                          .withExecution(_.withInFlightQueryDeduplication(true))
+                          .withExecutionHeadersZIO(
+                            headerRuns
+                              .updateAndGet(_ + 1)
+                              .flatMap(count => ready.succeed(()).unit.when(count == callers)) *>
+                              ready.await.as(Nil)
+                          )
+        remote       <- blockedEndpoint(expectedCalls = 1)
+        gateway      <- Gateway.compose(Subgraph.graphql("remote", remote.uri, schema, config)).build
+        fibers       <- ZIO.foreach(1 to callers)(_ => gateway.executeRequest(request).fork)
+        _            <- remote.started.await
+        _            <- Live.live(ZIO.sleep(250.millis))
+        shared       <- remote.calls.get
+        _            <- remote.release.succeed(())
+        responses    <- ZIO.foreach(fibers)(_.join)
+        totalCalls   <- remote.calls.get
+        totalHeaders <- headerRuns.get
       } yield assertTrue(
         shared == 1,
+        totalCalls == 1,
+        totalHeaders == callers,
         responses.forall(response =>
           response.errors.isEmpty && response.data == ObjectValue(List("value" -> StringValue("ok")))
         )
@@ -550,22 +577,15 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
 
       for {
         backend     <- HttpClientZioBackend.scoped()
-        calls       <- Ref.make(0)
-        started     <- Promise.make[Nothing, Unit]
-        release     <- Promise.make[Nothing, Unit]
-        remote      <- endpoint(_ =>
-                         calls.update(_ + 1) *>
-                           started.succeed(()).unit *>
-                           release.await.as(Response.json("""{"data":{"value":"ok"}}"""))
-                       )
-        source      <- RemoteGraphQLSource.make(remote, backend, config)
+        remote      <- blockedEndpoint(expectedCalls = 1)
+        source      <- RemoteGraphQLSource.make(remote.uri, backend, config)
         owner       <- source.execute(request, OperationType.Query).fork
-        _           <- started.await
+        _           <- remote.started.await
         waiter      <- source.execute(request, OperationType.Query).fork
         _           <- Live.live(ZIO.sleep(100.millis))
         waiterExit  <- waiter.interrupt
-        sharedCalls <- calls.get
-        _           <- release.succeed(())
+        sharedCalls <- remote.calls.get
+        _           <- remote.release.succeed(())
         ownerResult <- owner.join
       } yield assertTrue(
         waiterExit.isInterrupted,
@@ -573,59 +593,78 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
         ownerResult.errors.isEmpty
       )
     },
+    test("retains each waiter's deadline while sharing remote work") {
+      val config = RemoteGraphQLConfig.default.withExecution(_.withInFlightQueryDeduplication(true))
+
+      for {
+        backend      <- HttpClientZioBackend.scoped()
+        remote       <- blockedEndpoint(expectedCalls = 1)
+        source       <- RemoteGraphQLSource.make(remote.uri, backend, config)
+        owner        <- Live.live(source.execute(request, OperationType.Query).timeout(100.millis)).fork
+        _            <- remote.started.await
+        waiter       <- Live.live(source.execute(request, OperationType.Query).timeout(2.seconds)).fork
+        ownerResult  <- owner.join
+        sharedCalls  <- remote.calls.get
+        _            <- remote.release.succeed(())
+        waiterResult <- waiter.join
+      } yield assertTrue(
+        ownerResult.isEmpty,
+        sharedCalls == 1,
+        waiterResult.exists(_.errors.isEmpty)
+      )
+    },
+    test("interrupts shared work when its owning scope closes") {
+      val config = RemoteGraphQLConfig.default.withExecution(_.withInFlightQueryDeduplication(true))
+
+      for {
+        backend    <- HttpClientZioBackend.scoped()
+        remote     <- blockedEndpoint(expectedCalls = 1)
+        scope      <- Scope.make
+        source     <- scope.extend(RemoteGraphQLSource.make(remote.uri, backend, config))
+        owner      <- source.execute(request, OperationType.Query).fork
+        _          <- remote.started.await
+        waiter     <- source.execute(request, OperationType.Query).fork
+        _          <- Live.live(ZIO.sleep(100.millis))
+        closing    <- scope.close(Exit.unit).fork
+        ownerExit  <- owner.await
+        waiterExit <- waiter.await
+        _          <- closing.join
+        calls      <- remote.calls.get
+      } yield assertTrue(
+        ownerExit.isInterrupted,
+        waiterExit.isInterrupted,
+        calls == 1
+      )
+    },
     test("does not deduplicate mutations or calls with distinct request identities") {
       val config = RemoteGraphQLConfig.default.withExecution(_.withInFlightQueryDeduplication(true))
 
       for {
         backend          <- HttpClientZioBackend.scoped()
-        mutationCalls    <- Ref.make(0)
-        mutationsStarted <- Promise.make[Nothing, Unit]
-        releaseMutations <- Promise.make[Nothing, Unit]
-        mutationEndpoint <- endpoint { _ =>
-                              mutationCalls.updateAndGet(_ + 1).flatMap { count =>
-                                ZIO.when(count == 2)(mutationsStarted.succeed(()).unit) *>
-                                  releaseMutations.await.as(Response.json("""{"data":{"value":"ok"}}"""))
-                              }
-                            }
-        mutationSource   <- RemoteGraphQLSource.make(mutationEndpoint, backend, config)
+        mutations        <- blockedEndpoint(expectedCalls = 2)
+        mutationSource   <- RemoteGraphQLSource.make(mutations.uri, backend, config)
         mutationFibers   <- ZIO.foreach(1 to 2)(_ => mutationSource.execute(request, OperationType.Mutation).fork)
-        mutationsReady   <- Live.live(mutationsStarted.await.timeout(2.seconds))
-        _                <- releaseMutations.succeed(())
+        mutationsReady   <- Live.live(mutations.started.await.timeout(2.seconds))
+        _                <- mutations.release.succeed(())
         _                <- ZIO.foreach(mutationFibers)(_.join)
-        mutationTotal    <- mutationCalls.get
+        mutationTotal    <- mutations.calls.get
         headerRuns       <- Ref.make(0)
-        headerCalls      <- Ref.make(0)
-        headersStarted   <- Promise.make[Nothing, Unit]
-        releaseHeaders   <- Promise.make[Nothing, Unit]
-        headerEndpoint   <- endpoint { _ =>
-                              headerCalls.updateAndGet(_ + 1).flatMap { count =>
-                                ZIO.when(count == 2)(headersStarted.succeed(()).unit) *>
-                                  releaseHeaders.await.as(Response.json("""{"data":{"value":"ok"}}"""))
-                              }
-                            }
+        headers          <- blockedEndpoint(expectedCalls = 2)
         headerConfig      = config.withExecutionHeadersZIO(
                               headerRuns
                                 .updateAndGet(_ + 1)
                                 .map(value => List(SttpHeader("X-Request-Identity", value.toString)))
                             )
-        headerSource     <- RemoteGraphQLSource.make(headerEndpoint, backend, headerConfig)
+        headerSource     <- RemoteGraphQLSource.make(headers.uri, backend, headerConfig)
         headerFibers     <- ZIO.foreach(1 to 2)(_ => headerSource.execute(request, OperationType.Query).fork)
-        headersReady     <- Live.live(headersStarted.await.timeout(2.seconds))
-        _                <- releaseHeaders.succeed(())
+        headersReady     <- Live.live(headers.started.await.timeout(2.seconds))
+        _                <- headers.release.succeed(())
         _                <- ZIO.foreach(headerFibers)(_.join)
-        headerTotal      <- headerCalls.get
+        headerTotal      <- headers.calls.get
         evaluatedHeaders <- headerRuns.get
-        incomingCalls    <- Ref.make(0)
-        incomingStarted  <- Promise.make[Nothing, Unit]
-        releaseIncoming  <- Promise.make[Nothing, Unit]
-        incomingEndpoint <- endpoint { _ =>
-                              incomingCalls.updateAndGet(_ + 1).flatMap { count =>
-                                ZIO.when(count == 2)(incomingStarted.succeed(()).unit) *>
-                                  releaseIncoming.await.as(Response.json("""{"data":{"value":"ok"}}"""))
-                              }
-                            }
+        incoming         <- blockedEndpoint(expectedCalls = 2)
         incomingSource   <- RemoteGraphQLSource.make(
-                              incomingEndpoint,
+                              incoming.uri,
                               backend,
                               config.withExecution(_.forwardIncomingHeaders("X-Tenant"))
                             )
@@ -636,20 +675,12 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
                                 )
                                 .fork
                             )
-        incomingReady    <- Live.live(incomingStarted.await.timeout(2.seconds))
-        _                <- releaseIncoming.succeed(())
+        incomingReady    <- Live.live(incoming.started.await.timeout(2.seconds))
+        _                <- incoming.release.succeed(())
         _                <- ZIO.foreach(incomingFibers)(_.join)
-        incomingTotal    <- incomingCalls.get
-        bodyCalls        <- Ref.make(0)
-        bodiesStarted    <- Promise.make[Nothing, Unit]
-        releaseBodies    <- Promise.make[Nothing, Unit]
-        bodyEndpoint     <- endpoint { _ =>
-                              bodyCalls.updateAndGet(_ + 1).flatMap { count =>
-                                ZIO.when(count == 3)(bodiesStarted.succeed(()).unit) *>
-                                  releaseBodies.await.as(Response.json("""{"data":{"value":"ok"}}"""))
-                              }
-                            }
-        bodySource       <- RemoteGraphQLSource.make(bodyEndpoint, backend, config)
+        incomingTotal    <- incoming.calls.get
+        bodies           <- blockedEndpoint(expectedCalls = 3)
+        bodySource       <- RemoteGraphQLSource.make(bodies.uri, backend, config)
         bodyRequests      = List(
                               request.copy(variables = Some(Map("input" -> StringValue("one")))),
                               request.copy(variables = Some(Map("input" -> StringValue("two")))),
@@ -659,10 +690,10 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
                               )
                             )
         bodyFibers       <- ZIO.foreach(bodyRequests)(bodySource.execute(_, OperationType.Query).fork)
-        bodiesReady      <- Live.live(bodiesStarted.await.timeout(2.seconds))
-        _                <- releaseBodies.succeed(())
+        bodiesReady      <- Live.live(bodies.started.await.timeout(2.seconds))
+        _                <- bodies.release.succeed(())
         _                <- ZIO.foreach(bodyFibers)(_.join)
-        bodyTotal        <- bodyCalls.get
+        bodyTotal        <- bodies.calls.get
       } yield assertTrue(
         mutationsReady.nonEmpty,
         mutationTotal == 2,

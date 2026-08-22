@@ -3,7 +3,7 @@ package caliban.gateway.internal
 import caliban.{ PathValue, ResponseValue }
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ BooleanValue, NullValue, StringValue }
-import caliban.execution.{ ExecutionRequest, Field }
+import caliban.execution.{ isMetaField, ExecutionRequest, Field }
 import caliban.gateway.Lookup
 import caliban.gateway.OperationPolicy.{ RuntimeTypeCondition, SecurityDirective, SecurityRequirement }
 import caliban.introspection.adt._
@@ -142,7 +142,7 @@ private[gateway] final class ComposedGraph private[internal] (
       inheritedConditions: List[RuntimeTypeCondition]
     ): List[SecurityRequirement] =
       fields.flatMap { field =>
-        if (ExecutionRequest.isMetaField(field)) Nil
+        if (isMetaField(field)) Nil
         else {
           val responsePath     = parentPath :+ field.aliasedName
           val parentType       = field.parentType.flatMap(_.innerType.name).getOrElse("")

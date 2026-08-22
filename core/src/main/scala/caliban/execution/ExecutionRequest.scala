@@ -9,16 +9,8 @@ case class ExecutionRequest(
   operationName: Option[String]
 ) {
   private[caliban] def hasIntrospection: Boolean =
-    operationType == Query && field.fields.exists(ExecutionRequest.isIntrospectionField)
+    operationType == Query && field.fields.exists(isIntrospectionField)
 
   private[caliban] def isIntrospection: Boolean =
-    operationType == Query && field.fields.nonEmpty && field.fields.forall(ExecutionRequest.isIntrospectionField)
-}
-
-object ExecutionRequest {
-  private[caliban] def isIntrospectionField(field: Field): Boolean =
-    field.name == "__schema" || field.name == "__type"
-
-  private[caliban] def isMetaField(field: Field): Boolean =
-    isIntrospectionField(field) || field.name == "__typename"
+    operationType == Query && field.fields.nonEmpty && field.fields.forall(isIntrospectionField)
 }
