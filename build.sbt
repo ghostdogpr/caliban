@@ -35,8 +35,8 @@ val zioInteropReactiveVersion = "2.0.2"
 val zioConfigVersion          = "4.0.8"
 val zqueryVersion             = "0.7.8"
 val zioJsonVersion            = "0.10.0"
-val zioHttpVersion            = "3.11.3"
-val zioOpenTelemetryVersion   = "3.1.18"
+val zioHttpVersion            = "3.11.4"
+val zioOpenTelemetryVersion   = "3.1.19"
 
 Global / onChangedBuildSource := ReloadOnSourceChanges
 
