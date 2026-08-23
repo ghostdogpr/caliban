@@ -3,7 +3,7 @@ package caliban.gateway.internal
 import caliban.InputValue.VariableValue
 import caliban.execution.{ ExecutionRequest, Field, RequestPreparation }
 import caliban.gateway.GatewayRuntime.OperationCacheStatus
-import caliban.gateway.GatewayConfig
+import caliban.gateway.{ GatewayConfig, GatewayWrapper }
 import caliban.gateway.internal.OperationCache.Weighted
 import caliban.gateway.internal.OperationCacheDirective.{ Bypass, Cacheable }
 import caliban.gateway.internal.OperationPreparation._
@@ -20,7 +20,7 @@ private[gateway] final class OperationPreparation[-R] private (
   planner: OperationPlanner,
   hooks: OperationHooks[R],
   limits: OperationLimits,
-  cache: OperationCache[CacheKey, CalibanError, CachedOperation]
+  cache: OperationCache[CacheKey, CalibanError, CachedOperation, R]
 ) {
 
   def check(query: String)(implicit trace: Trace): IO[CalibanError, Unit] =
@@ -222,10 +222,11 @@ private[gateway] object OperationPreparation {
     rootType: RootType,
     planner: OperationPlanner,
     hooks: OperationHooks[R],
-    config: GatewayConfig
+    config: GatewayConfig,
+    wrapper: GatewayWrapper[R]
   )(implicit trace: Trace): UIO[OperationPreparation[R]] =
     OperationCache
-      .make[CacheKey, CalibanError, CachedOperation](config.maxOperationCacheWeight)
+      .make[CacheKey, CalibanError, CachedOperation, R](config.maxOperationCacheWeight, wrapper)
       .map(cache =>
         new OperationPreparation(
           rootType,

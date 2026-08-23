@@ -97,6 +97,8 @@ lazy val allProjects: Seq[ProjectReference] =
     codegenSbt,
     federation,
     gateway,
+    gatewayTracing,
+    gatewayExamples,
     gatewayAudit,
     gatewayBenchmark,
     reporting,
@@ -715,7 +717,6 @@ lazy val gateway = project
   .dependsOn(core, tools, quickAdapter % "test->compile", federation % "test->compile")
   .disablePlugins(AssemblyPlugin)
   .settings(
-    publish / skip        := true,
     mimaPreviousArtifacts := Set.empty,
     libraryDependencies ++= Seq(
       "com.softwaremill.sttp.client4" %% "zio"          % sttpVersion,
@@ -724,6 +725,24 @@ lazy val gateway = project
       "dev.zio"                       %% "zio-test-sbt" % zioVersion     % Test
     )
   )
+
+lazy val gatewayExamples = project
+  .in(file("gateway-examples"))
+  .settings(name := "caliban-gateway-examples")
+  .settings(commonSettings)
+  .settings(publish / skip := true)
+  .disablePlugins(AssemblyPlugin)
+  .dependsOn(gateway, quickAdapter, federation)
+
+lazy val gatewayTracing = project
+  .in(file("gateway-tracing"))
+  .settings(name := "caliban-gateway-tracing")
+  .settings(commonSettings)
+  .settings(
+    mimaPreviousArtifacts := Set.empty
+  )
+  .disablePlugins(AssemblyPlugin)
+  .dependsOn(gateway % "compile->compile;test->test", tracing % "compile->compile;test->test")
 
 lazy val gatewayAudit = project
   .in(file("gateway-audit"))

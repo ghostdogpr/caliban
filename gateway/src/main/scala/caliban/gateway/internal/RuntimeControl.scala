@@ -1,10 +1,10 @@
 package caliban.gateway.internal
 
 import caliban.gateway.GatewayRuntime
+import caliban.gateway.GatewayWrapper
 import caliban.gateway.GatewayRuntime.{ LifecycleStatus, OperationCacheStatus, Status }
-import caliban.parsing.adt.OperationType
-import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse }
-import zio.{ Clock, Duration, Exit, Fiber, Promise, Ref, Scope, Trace, UIO, ZIO }
+import caliban.gateway.GatewayWrapper.{ AdmissionKind, Event, Result }
+import zio.{ Clock, Duration, Exit, Fiber, Promise, Ref, Scope, Trace, UIO, URIO, ZIO }
 
 private[gateway] final class RuntimeControl private (
   requests: ExecutionGate,
@@ -18,15 +18,41 @@ private[gateway] final class RuntimeControl private (
   import RuntimeControl._
 
   def runRequest[R, E, A](effect: ZIO[R, E, A])(implicit trace: Trace): ZIO[R, E, Option[A]] =
+    runRequest(requests(effect), ZIO.unit)
+
+  def runObservedRequest[R, E, A](wrapper: GatewayWrapper[R], event: Event.Request)(effect: ZIO[R, E, A])(
+    onTimeout: URIO[R, A]
+  )(result: Exit[E, A] => Result)(implicit trace: Trace): ZIO[R, E, A] =
     ZIO.uninterruptibleMask { restore =>
       begin.flatMap {
-        case Some(lease) => restore(run(lease, requests(effect))).ensuring(end(lease.token))
+        case Some(lease) =>
+          restore(
+            wrapper.wrap(event)(
+              run(
+                lease,
+                requests.observed(wrapper)(effect),
+                wrapper.wrap(Event.RequestOverdue)(ZIO.unit)(
+                  Result.classifyExit
+                )
+              ).flatMap(_.fold(onTimeout)(ZIO.succeed(_)))
+            )(result)
+          ).ensuring(end(lease.token))
         case None        => ZIO.interrupt
       }
     }
 
-  def source[R](name: String, source: GraphQLSource[R]): GraphQLSource[R] =
-    sources.get(name).fold(source)(source.admittedBy)
+  private def runRequest[R, E, A](effect: ZIO[R, E, A], onOverdue: URIO[R, Unit])(implicit
+    trace: Trace
+  ): ZIO[R, E, Option[A]] =
+    ZIO.uninterruptibleMask { restore =>
+      begin.flatMap {
+        case Some(lease) => restore(run(lease, effect, onOverdue)).ensuring(end(lease.token))
+        case None        => ZIO.interrupt
+      }
+    }
+
+  def source[R](name: String, source: GraphQLSource[R], wrapper: GatewayWrapper[R]): GraphQLSource[R] =
+    sources.get(name).fold(source)(source.admittedBy(_, wrapper))
 
   def status(cache: OperationCacheStatus)(implicit trace: Trace): UIO[Status] =
     state.get.flatMap { current =>
@@ -58,38 +84,50 @@ private[gateway] final class RuntimeControl private (
       }
     }
 
-  private def run[R, E, A](lease: Lease, effect: ZIO[R, E, A])(implicit trace: Trace): ZIO[R, E, Option[A]] = {
+  private def run[R, E, A](lease: Lease, effect: ZIO[R, E, A], onOverdue: URIO[R, Unit])(implicit
+    trace: Trace
+  ): ZIO[R, E, Option[A]] =
+    currentStop(lease).flatMap {
+      case Some(Stop.Deadline) => markOverdue(lease.token, onOverdue) *> ZIO.none
+      case Some(Stop.Drain)    => markOverdue(lease.token, onOverdue) *> ZIO.interrupt
+      case None                => race(lease, effect, onOverdue)
+    }
+
+  private def race[R, E, A](lease: Lease, effect: ZIO[R, E, A], onOverdue: URIO[R, Unit])(implicit
+    trace: Trace
+  ): ZIO[R, E, Option[A]] = {
     val stop: ZIO[R, E, Stop]      = stopAt(lease)
     val work: ZIO[R, E, Option[A]] = effect.map(Some(_))
 
     work.raceWith(stop)(
-      (exit, stopFiber) => finishBeforeStop(lease, exit, stopFiber),
+      (exit, stopFiber) => finishBeforeStop(lease, exit, stopFiber, onOverdue),
       (exit, workFiber) =>
         exit match {
           case Exit.Success(stop)  =>
             effectiveStop(stop).flatMap {
               case Stop.Deadline =>
-                (markOverdue(lease.token) *> workFiber.interrupt).uninterruptible *>
+                (markOverdue(lease.token, onOverdue) *> workFiber.interrupt).uninterruptible *>
                   effectiveStop(Stop.Deadline).flatMap {
                     case Stop.Deadline => ZIO.none
                     case Stop.Drain    => ZIO.interrupt
                   }
               case Stop.Drain    =>
-                (markOverdue(lease.token) *> workFiber.interrupt).uninterruptible *> ZIO.interrupt
+                (markOverdue(lease.token, onOverdue) *> workFiber.interrupt).uninterruptible *> ZIO.interrupt
             }
           case Exit.Failure(cause) => workFiber.interrupt.uninterruptible *> ZIO.failCause(cause)
         }
     )
   }
 
-  private def finishBeforeStop[E, A](
+  private def finishBeforeStop[R, E, A](
     lease: Lease,
     result: Exit[E, Option[A]],
-    stopFiber: Fiber[E, Stop]
-  )(implicit trace: Trace): ZIO[Any, E, Option[A]] =
+    stopFiber: Fiber[E, Stop],
+    onOverdue: URIO[R, Unit]
+  )(implicit trace: Trace): ZIO[R, E, Option[A]] =
     stopFiber.interrupt *> currentStop(lease).flatMap {
-      case Some(Stop.Deadline) => markOverdue(lease.token) *> ZIO.none
-      case Some(Stop.Drain)    => markOverdue(lease.token) *> ZIO.interrupt
+      case Some(Stop.Deadline) => markOverdue(lease.token, onOverdue) *> ZIO.none
+      case Some(Stop.Drain)    => markOverdue(lease.token, onOverdue) *> ZIO.interrupt
       case None                =>
         result match {
           case Exit.Success(value) => ZIO.succeed(value)
@@ -121,12 +159,14 @@ private[gateway] final class RuntimeControl private (
       current.drainStartedAt.exists(startedAt => now - startedAt >= drainTimeout.toNanos)
     }
 
-  private def markOverdue(token: Token)(implicit trace: Trace): UIO[Unit] =
-    state.update(current =>
-      if (current.requests.contains(token))
-        current.copy(requests = current.requests.updated(token, RequestState.Overdue))
-      else current
-    )
+  private def markOverdue[R](token: Token, onOverdue: URIO[R, Unit])(implicit trace: Trace): URIO[R, Unit] =
+    state.modify { current =>
+      current.requests.get(token) match {
+        case Some(RequestState.Active) =>
+          true -> current.copy(requests = current.requests.updated(token, RequestState.Overdue))
+        case _                         => false -> current
+      }
+    }.flatMap(onOverdue.when(_).unit)
 
   private def end(token: Token)(implicit trace: Trace): UIO[Unit] =
     state.modify { current =>
@@ -162,8 +202,10 @@ private[gateway] object RuntimeControl {
     drainTimeout: Duration
   )(implicit trace: Trace): ZIO[Scope, Nothing, RuntimeControl] =
     for {
-      requests  <- ExecutionGate.make(requestLimit)
-      sources   <- ZIO.foreach(sourceLimits) { case (name, limit) => ExecutionGate.make(limit).map(name -> _) }
+      requests  <- ExecutionGate.make(requestLimit, AdmissionKind.Request)
+      sources   <- ZIO.foreach(sourceLimits) { case (name, limit) =>
+                     ExecutionGate.make(limit, AdmissionKind.Source).map(name -> _)
+                   }
       state     <- Ref.make(State(GatewayRuntime.LifecycleState.Running, Map.empty, None))
       drained   <- Promise.make[Nothing, Unit]
       forceStop <- Promise.make[Nothing, Unit]

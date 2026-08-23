@@ -11,6 +11,7 @@ import caliban.{ graphQL, Configurator, GraphQLRequest, InputValue, RootResolver
 import sttp.model.Uri
 import zio._
 import zio.http.{ Body, Handler, Header, Headers, Method, Request, Response, Routes, Server, Status }
+import zio.metrics.Metric
 import zio.test._
 
 object RuntimeBoundsSpec extends ZIOSpecDefault {
@@ -520,28 +521,46 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
             .withInFlightQueryDeduplication(true)
         )
         for {
-          calls     <- Ref.make(0)
-          started   <- Promise.make[Nothing, Unit]
-          release   <- Promise.make[Nothing, Unit]
-          remote    <- endpoint(_ =>
-                         calls.update(_ + 1) *>
-                           started.succeed(()).unit *>
-                           release.await.as(graphQLResponse(response))
-                       )
-          runtime   <- Gateway
-                         .compose(Subgraph.graphql("remote", remote, schema, config))
-                         .withConfig(_.withMaxConcurrentRequests(32))
-                         .build
-          fibers    <- ZIO.foreach(1 to 20)(_ => runtime.executeRequest(request).fork)
-          _         <- started.await
-          sharing   <- waitForStatus(runtime)(_.requests.active == 20)
-          before    <- calls.get
-          _         <- release.succeed(())
-          responses <- ZIO.foreach(fibers)(_.join)
-          done      <- runtime.status
+          calls       <- Ref.make(0)
+          started     <- Promise.make[Nothing, Unit]
+          release     <- Promise.make[Nothing, Unit]
+          remote      <- endpoint(_ =>
+                           calls.update(_ + 1) *>
+                             started.succeed(()).unit *>
+                             release.await.as(graphQLResponse(response))
+                         )
+          runtime     <- Gateway
+                           .compose(Subgraph.graphql("remote", remote, schema, config))
+                           .withConfig(_.withMaxConcurrentRequests(32))
+                           .build
+          startBefore <- Metric
+                           .counter("caliban_gateway_in_flight_deduplication_total")
+                           .tagged("result", "start")
+                           .value
+          joinBefore  <- Metric
+                           .counter("caliban_gateway_in_flight_deduplication_total")
+                           .tagged("result", "join")
+                           .value
+          fibers      <- ZIO.foreach(1 to 20)(_ => runtime.executeRequest(request).fork)
+          _           <- started.await
+          sharing     <- waitForStatus(runtime)(_.requests.active == 20)
+          before      <- calls.get
+          _           <- release.succeed(())
+          responses   <- ZIO.foreach(fibers)(_.join)
+          done        <- runtime.status
+          startAfter  <- Metric
+                           .counter("caliban_gateway_in_flight_deduplication_total")
+                           .tagged("result", "start")
+                           .value
+          joinAfter   <- Metric
+                           .counter("caliban_gateway_in_flight_deduplication_total")
+                           .tagged("result", "join")
+                           .value
         } yield assertTrue(
           before == 1,
           sharing.sources.get("remote").exists(value => value.active == 1 && value.waiting == 0),
+          startAfter.count == startBefore.count + 1.0,
+          joinAfter.count == joinBefore.count + 19.0,
           responses.forall(_.errors.isEmpty),
           done.sources.get("remote").exists(value => value.active == 0 && value.waiting == 0)
         )

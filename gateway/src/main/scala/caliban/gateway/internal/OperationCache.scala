@@ -1,21 +1,24 @@
 package caliban.gateway.internal
 
 import caliban.gateway.GatewayRuntime.OperationCacheStatus
+import caliban.gateway.GatewayWrapper
+import caliban.gateway.GatewayWrapper.{ CacheResult, Event, Result }
 import zio.{ Exit, Promise, Ref, Trace, UIO, ZIO }
 
 import scala.annotation.tailrec
 import scala.collection.immutable.Queue
 
-private[gateway] final class OperationCache[K, E, V] private (
+private[gateway] final class OperationCache[K, E, V, -R] private (
   maxWeight: Long,
-  state: Ref[OperationCache.State[K, E, V]]
+  state: Ref[OperationCache.State[K, E, V]],
+  wrapper: GatewayWrapper[R]
 ) {
   import OperationCache._
 
-  def getOrCompute[R](key: K)(compute: => ZIO[R, E, Weighted[V]])(implicit trace: Trace): ZIO[R, E, V] =
+  def getOrCompute[R0](key: K)(compute: => ZIO[R0, E, Weighted[V]])(implicit trace: Trace): ZIO[R with R0, E, V] =
     state.get.flatMap { current =>
       current.entries.get(key) match {
-        case Some(entry) => state.update(_.recordHit).as(entry.value)
+        case Some(entry) => state.update(_.recordHit) *> observe(CacheResult.Hit)(ZIO.succeed(entry.value))
         case None        => miss(key)(compute)
       }
     }
@@ -33,7 +36,7 @@ private[gateway] final class OperationCache[K, E, V] private (
       )
     }
 
-  private def miss[R](key: K)(compute: => ZIO[R, E, Weighted[V]])(implicit trace: Trace): ZIO[R, E, V] =
+  private def miss[R0](key: K)(compute: => ZIO[R0, E, Weighted[V]])(implicit trace: Trace): ZIO[R with R0, E, V] =
     Promise.make[Nothing, Exit[E, V]].flatMap { fresh =>
       state
         .modify[Decision[E, V]] { current =>
@@ -47,21 +50,23 @@ private[gateway] final class OperationCache[K, E, V] private (
           }
         }
         .flatMap {
-          case Decision.Hit(value)       => ZIO.succeed(value)
+          case Decision.Hit(value)       => observe(CacheResult.Hit)(ZIO.succeed(value))
           case Decision.Await(promise)   =>
-            promise.await.flatMap {
-              case Exit.Failure(cause) if cause.isInterrupted => getOrCompute(key)(compute)
-              case exit                                       => ZIO.suspendSucceed[Any, E, V](exit)
-            }
-          case Decision.Compute(promise) => complete(key, promise, compute)
+            observe(CacheResult.Wait)(
+              promise.await.flatMap {
+                case Exit.Failure(cause) if cause.isInterrupted => getOrCompute(key)(compute)
+                case exit                                       => ZIO.suspendSucceed[Any, E, V](exit)
+              }
+            )
+          case Decision.Compute(promise) => observe(CacheResult.Miss)(complete(key, promise, compute))
         }
     }
 
-  private def complete[R](
+  private def complete[R0](
     key: K,
     promise: Promise[Nothing, Exit[E, V]],
-    compute: => ZIO[R, E, Weighted[V]]
-  )(implicit trace: Trace): ZIO[R, E, V] =
+    compute: => ZIO[R0, E, Weighted[V]]
+  )(implicit trace: Trace): ZIO[R0, E, V] =
     ZIO.uninterruptibleMask { restore =>
       restore(compute).exit.flatMap { exit =>
         val result: Exit[E, V] = exit match {
@@ -77,14 +82,28 @@ private[gateway] final class OperationCache[K, E, V] private (
         } *> promise.succeed(result).unit *> ZIO.suspendSucceed[Any, E, V](result)
       }
     }
+
+  private def observe[R0, E0, A](value: CacheResult)(effect: ZIO[R0, E0, A])(implicit
+    trace: Trace
+  ): ZIO[R with R0, E0, A] =
+    if (!wrapper.enabled) effect
+    else
+      wrapper.wrap(Event.CacheAccess(value))(effect)(
+        Result.classifyExit
+      )
 }
 
 private[gateway] object OperationCache {
 
   final case class Weighted[+A](value: A, weight: Long)
 
-  def make[K, E, V](maxWeight: Long)(implicit trace: Trace): UIO[OperationCache[K, E, V]] =
-    Ref.make(State.empty[K, E, V]).map(new OperationCache(maxWeight, _))
+  def make[K, E, V](maxWeight: Long)(implicit trace: Trace): UIO[OperationCache[K, E, V, Any]] =
+    make(maxWeight, GatewayWrapper.empty)
+
+  def make[K, E, V, R](maxWeight: Long, wrapper: GatewayWrapper[R])(implicit
+    trace: Trace
+  ): UIO[OperationCache[K, E, V, R]] =
+    Ref.make(State.empty[K, E, V]).map(new OperationCache(maxWeight, _, wrapper))
 
   private final case class Entry[+V](value: V, weight: Long)
 

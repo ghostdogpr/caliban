@@ -3,7 +3,8 @@ package caliban.gateway.internal
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ EnumValue, IntValue, NullValue, StringValue }
 import caliban.execution.{ ExecutionRequest, Executor, Field }
-import caliban.gateway.GatewayRuntime
+import caliban.gateway.{ GatewayRuntime, GatewayWrapper }
+import caliban.gateway.GatewayWrapper.{ Event, Outcome, Result }
 import caliban.gateway.internal.EntityExecutor.EntityResult
 import caliban.gateway.internal.GatewayRuntimeImpl._
 import caliban.gateway.internal.OperationPlanner._
@@ -24,7 +25,8 @@ private[gateway] final class GatewayRuntimeImpl[-R](
   graph: ComposedGraph,
   sources: Map[String, GraphQLSource[R]],
   operations: OperationPreparation[R],
-  control: RuntimeControl
+  control: RuntimeControl,
+  wrapper: GatewayWrapper[R]
 ) extends GatewayRuntime[R] {
 
   private val rootType: RootType             = graph.rootType
@@ -78,19 +80,68 @@ private[gateway] final class GatewayRuntimeImpl[-R](
     }
 
   def executeRequest(request: GraphQLRequest)(implicit trace: Trace): URIO[R, GraphQLResponse[CalibanError]] =
+    if (wrapper.enabled) executeObservedRequest(request)
+    else
+      control
+        .runRequest(
+          operations
+            .prepare(request)
+            .foldZIO(
+              error => GraphQLResponseContext.markRequestError(error) *> Executor.fail(error),
+              prepared => executePlan(prepared.plan, prepared.executionRequest, prepared.request)
+            )
+        )
+        .flatMap {
+          case Some(response) => ZIO.succeed(response)
+          case None           => GraphQLResponseContext.markServerError(504).as(requestTimeoutResponse)
+        }
+
+  private def executeObservedRequest(request: GraphQLRequest)(implicit
+    trace: Trace
+  ): URIO[R, GraphQLResponse[CalibanError]] =
     control
-      .runRequest(
-        operations
-          .prepare(request)
-          .foldZIO(
-            error => GraphQLResponseContext.markRequestError(error) *> Executor.fail(error),
-            prepared => executePlan(prepared.plan, prepared.executionRequest, prepared.request)
+      .runObservedRequest(wrapper, Event.Request(request.operationName))(
+        wrapper
+          .wrap(Event.Routing)(operations.prepare(request))(
+            Result.fromExit(_)(
+              _ => Result(Outcome.Success),
+              _ => Result(Outcome.RequestError)
+            )
           )
+          .foldZIO(
+            error =>
+              wrapper
+                .wrap(Event.Completion)(GraphQLResponseContext.markRequestError(error) *> Executor.fail(error))(
+                  Result.fromExit(_)(responseResult, _ => Result(Outcome.InternalError))
+                )
+                .map(RequestResult(_, Outcome.RequestError, None)),
+            prepared =>
+              executePlan(prepared.plan, prepared.executionRequest, prepared.request).map { response =>
+                RequestResult(
+                  response,
+                  if (response.errors.isEmpty) Outcome.Success else Outcome.GraphQLError,
+                  Some(prepared.plan.operation)
+                )
+              }
+          )
+      )(
+        wrapper.wrap(Event.Completion)(
+          GraphQLResponseContext
+            .markServerError(504)
+            .as(RequestResult(requestTimeoutResponse, Outcome.Timeout, None))
+        )(
+          Result.fromExit(_)(
+            value => Result(value.outcome, errorCount = value.response.errors.size),
+            _ => Result(Outcome.InternalError)
+          )
+        )
+      )(
+        Result.fromExit(_)(
+          result => Result(result.outcome, result.operationType, result.response.errors.size),
+          _ => Result(Outcome.InternalError)
+        )
       )
-      .flatMap {
-        case Some(response) => ZIO.succeed(response)
-        case None           => GraphQLResponseContext.markServerError(504).as(requestTimeoutResponse)
-      }
+      .map(_.response)
 
   private def executePlan(
     plan: OperationPlan,
@@ -103,26 +154,52 @@ private[gateway] final class GatewayRuntimeImpl[-R](
           case Some(source) =>
             source
               .execute(resolvedRequest, plan.operation)
-              .map(response =>
-                completeSourceResponse(
-                  plan.fields,
-                  response,
-                  source.errorPolicy.passthrough(plan.fields, response.errors)
+              .flatMap(response =>
+                observeCompletion(
+                  ZIO.succeed(
+                    completeSourceResponse(
+                      plan.fields,
+                      response,
+                      source.errorPolicy.passthrough(plan.fields, response.errors)
+                    )
+                  )
                 )
               )
-              .catchAll(_ => ZIO.succeed(singleSourceFailure(plan)))
-          case None         => ZIO.succeed(singleSourceFailure(plan))
+              .catchAll(_ => observeCompletion(ZIO.succeed(singleSourceFailure(plan))))
+          case None         =>
+            observeCompletion(ZIO.succeed(singleSourceFailure(plan)))
         }
       case None         =>
         val introspectionFields = plan.introspectionFields
         if (introspectionFields.isEmpty)
           executeRemote(plan, execution, resolvedRequest)
-            .map(remote => assemble(plan, remote, GraphQLResponse(ObjectValue.empty, Nil)))
+            .flatMap(remote =>
+              observeCompletion(
+                ZIO.succeed(assemble(plan, remote, GraphQLResponse(ObjectValue.empty, Nil)))
+              )
+            )
         else
           executeRemote(plan, execution, resolvedRequest)
             .zipPar(executeIntrospection(execution, introspectionFields))
-            .map { case (remote, local) => assemble(plan, remote, local) }
+            .flatMap { case (remote, local) =>
+              observeCompletion(ZIO.succeed(assemble(plan, remote, local)))
+            }
     }
+
+  private def observeCompletion[R0, E](effect: ZIO[R0, E, GraphQLResponse[CalibanError]])(implicit
+    trace: Trace
+  ): ZIO[R with R0, E, GraphQLResponse[CalibanError]] =
+    if (!wrapper.enabled) effect
+    else
+      wrapper.wrap(Event.Completion)(effect)(
+        Result.fromExit(_)(responseResult, _ => Result(Outcome.InternalError))
+      )
+
+  private def responseResult(response: GraphQLResponse[_]): Result =
+    Result(
+      if (response.errors.isEmpty) Outcome.Success else Outcome.GraphQLError,
+      errorCount = response.errors.size
+    )
 
   private def executeRemote(
     plan: OperationPlan,
@@ -902,6 +979,12 @@ private object GatewayRuntimeImpl {
 
   private val requestTimeoutResponse =
     GraphQLResponse(NullValue, List(CalibanError.ExecutionError("Gateway request timed out.")))
+
+  private final case class RequestResult(
+    response: GraphQLResponse[CalibanError],
+    outcome: Outcome,
+    operationType: Option[OperationType]
+  )
 
   final case class RootResult(route: RootRoute, response: GraphQLResponse[CalibanError])
 

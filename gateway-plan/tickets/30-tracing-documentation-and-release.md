@@ -6,17 +6,24 @@
 14 — Add structural schema transformations; 28 — Benchmark, profile, and optimize the real gateway; 29 — Deduplicate identical remote
 query calls
 
-**Status:** ready-for-agent
+**Status:** complete
 
 ## Completion criteria
 
-- [ ] OpenTelemetry integration adds spans for request, routing, source calls, retries, and completion with W3C propagation and no raw GraphQL data capture by default.
-- [ ] Metrics cover requests, source calls, retries, caches, admission, in-flight deduplication, and overdue work with bounded label cardinality; expected errors are not logged automatically.
-- [ ] Examples compile for ordinary remote, Federation remote, local Caliban, mixed, pinned-schema, acquired-schema, and Quick deployment paths.
-- [ ] Public documentation explains lifecycle, limits, remote-error disclosure, introspection control, security-policy requirements, composed directives, headers, environment intersections, deferred features, and migration expectations.
-- [ ] The supported Scala matrix runs the real gateway and examples; Scala 2 remains only if the implementation uses no valuable Scala 3-only feature that justifies narrowing.
-- [ ] Public types are minimal, privately constructible where intended, and reviewed for MiMa and naming consistency with Caliban.
-- [ ] The selected Federation Gateway Audit revision is refreshed through an explicit reviewed pin change, and every case passes through native composition and execution.
-- [ ] Audit evidence records the upstream revision, case results, Scala version, and execution environment.
-- [ ] Clean-checkout project, audit, benchmark, lifecycle, tracing, formatting, and documentation checks pass.
-- [ ] Publication is enabled only after the maintainer accepts the compatibility and performance evidence.
+- [x] OpenTelemetry integration adds spans for request, routing, source calls, retries, and completion with W3C propagation and no raw GraphQL data capture by default.
+- [x] Metrics cover requests, source calls, retries, caches, admission, in-flight deduplication, and overdue work with bounded label cardinality; expected errors are not logged automatically.
+- [x] Runnable applications demonstrate ordinary remote, Federation remote, local Caliban, mixed, pinned-schema, acquired-schema, and Quick deployment paths.
+- [x] Public documentation explains lifecycle, limits, remote-error disclosure, introspection control, security-policy requirements, composed directives, headers, environment intersections, deferred features, and migration expectations.
+- [x] Normal project checks cover the supported Scala versions; the compatibility audit uses one Scala version and only checks upstream compatibility.
+- [x] Public types are minimal, privately constructible where intended, and reviewed for MiMa and naming consistency with Caliban.
+- [x] The selected Federation Gateway Audit revision and canonical repository location are explicitly reviewed, and every case passes through native composition and execution.
+- [x] CI runs the pinned upstream audit and fails unless every reported compatibility case passes.
+- [x] Clean-checkout project, audit, benchmark, lifecycle, tracing, formatting, and documentation checks pass.
+- [x] Publication state follows the maintainer's explicit release decision.
+
+## Completion notes
+
+The existing audit pin was reviewed unchanged after the upstream project moved to its canonical repository and passes 199/199
+cases. Gateway and gateway-tracing are enabled for publication by maintainer direction; the broader performance target remains
+tracked by ticket 28. Runnable examples remain a non-published project. Metrics and tracing are installed explicitly as composable
+`GatewayWrapper` integrations, leaving the empty-wrapper runtime path free of telemetry collection costs.

@@ -2,7 +2,8 @@ package caliban.gateway.internal
 
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.NullValue
-import caliban.gateway.RemoteGraphQLConfig
+import caliban.gateway.{ GatewayWrapper, RemoteGraphQLConfig }
+import caliban.gateway.GatewayWrapper.{ DeduplicationResult, Event, Outcome, Result }
 import caliban.parsing.adt.OperationType
 import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, IncomingRequestHeaders, ResponseValue }
 import com.github.plokhotnyuk.jsoniter_scala.core._
@@ -19,12 +20,14 @@ import scala.collection.mutable
 import scala.util.control.{ NoStackTrace, NonFatal }
 
 private[gateway] final class RemoteGraphQLSource[-R](
+  name: String,
   endpoint: Uri,
   backend: SttpClient,
   config: RemoteGraphQLConfig[R],
   structuralLimits: RemoteGraphQLSource.StructuralLimits,
   queryCalls: Option[RemoteGraphQLSource.InFlightQueryDeduplicator],
-  admission: Option[ExecutionGate]
+  admission: Option[ExecutionGate],
+  wrapper: GatewayWrapper[R]
 ) extends GraphQLSource[R] {
   import RemoteGraphQLSource._
 
@@ -41,55 +44,103 @@ private[gateway] final class RemoteGraphQLSource[-R](
         body      <- ZIO.fromEither(encode(request.copy(extensions = None)))
         incoming  <- IncomingRequestHeaders.get.map(_.map { case (name, value) => Header(name, value) })
         effectful <- config.effectfulHeaders.mapError(_ => GraphQLSource.HeaderFailure)
-        headers    = outboundHeaders(incoming, effectful)
+        headers   <- wrapper.outboundHeaders(name, outboundHeaders(incoming, effectful))
         replaySafe = execution.retries > 0 && operationType == OperationType.Query
-        rawCall    = executeAttempts(body, headers, replaySafe, execution.retries)
+        rawCall    = executeAttempts(body, headers, replaySafe, execution.retries, attempt = 0)
         response  <-
           if (operationType == OperationType.Query)
-            queryCalls.fold(admission.fold(rawCall)(_(rawCall)))(
-              _.execute(QueryCallIdentity(body, headers), admission)(
+            queryCalls.fold(admission.fold(rawCall)(_.observed(wrapper)(rawCall)))(
+              _.execute(QueryCallIdentity(body, headers), admission, wrapper)(
                 rawCall.timeoutFail(GraphQLSource.TimeoutFailure)(execution.timeout)
               )
             )
-          else admission.fold(rawCall)(_(rawCall))
+          else admission.fold(rawCall)(_.observed(wrapper)(rawCall))
       } yield response
 
     logicalCall.timeoutFail(GraphQLSource.TimeoutFailure)(execution.timeout)
   }
 
-  override def admittedBy(gate: ExecutionGate): GraphQLSource[R] =
-    new RemoteGraphQLSource(endpoint, backend, config, structuralLimits, queryCalls, Some(gate))
+  override def admittedBy[R1](gate: ExecutionGate, observer: GatewayWrapper[R1]): GraphQLSource[R with R1] =
+    new RemoteGraphQLSource(name, endpoint, backend, config, structuralLimits, queryCalls, Some(gate), observer)
 
   private def executeAttempts(
     body: Array[Byte],
     headers: List[Header],
     replaySafe: Boolean,
-    retries: Int
-  )(implicit trace: Trace): IO[GraphQLSource.Failure, GraphQLResponse[CalibanError]] =
-    send(body, headers).catchAll { failure =>
+    retries: Int,
+    attempt: Int
+  )(implicit trace: Trace): ZIO[R, GraphQLSource.Failure, GraphQLResponse[CalibanError]] = {
+    val transport   = wrapper.attemptHeaders(name, attempt, headers).flatMap(send(body, _))
+    val observed    =
+      if (!wrapper.enabled) transport
+      else
+        wrapper.wrap(Event.Attempt(name, attempt, body.length.toLong, endpoint.host, endpoint.port))(transport)(
+          Result.fromExit(_)(
+            value =>
+              Result(
+                if (value.response.errors.isEmpty) Outcome.Success else Outcome.GraphQLError,
+                errorCount = value.response.errors.size,
+                statusCode = Some(value.statusCode),
+                responseBytes = Some(value.responseBytes)
+              ),
+            failure =>
+              Result(
+                GraphQLSource.failureOutcome(failure.failure),
+                statusCode = failure.statusCode,
+                responseBytes = failure.responseBytes
+              )
+          )
+        )
+    val sendAttempt = observed.map(_.response).mapError(_.failure)
+    val call        =
+      if (attempt == 0 || !wrapper.enabled) sendAttempt
+      else
+        wrapper.wrap(Event.Retry(name, attempt))(sendAttempt)(
+          Result.fromExit(_)(
+            response =>
+              Result(
+                if (response.errors.isEmpty) Outcome.Success else Outcome.GraphQLError,
+                errorCount = response.errors.size
+              ),
+            failure => Result(GraphQLSource.failureOutcome(failure))
+          )
+        )
+
+    call.catchAll { failure =>
       if (replaySafe && retries > 0 && retryable(failure))
-        ZIO.sleep(execution.retryBackoff) *> executeAttempts(body, headers, replaySafe, retries - 1)
+        ZIO.sleep(execution.retryBackoff) *>
+          executeAttempts(body, headers, replaySafe, retries - 1, attempt + 1)
       else ZIO.fail(failure)
     }
+  }
 
   private def send(
     body: Array[Byte],
     headers: List[Header]
-  )(implicit trace: Trace): IO[GraphQLSource.Failure, GraphQLResponse[CalibanError]] = {
+  )(implicit trace: Trace): ZIO[R, AttemptFailure, AttemptResponse] = {
     val request = headers.foldLeft(
       basicRequest
         .post(endpoint)
         .body(body)
     )((current, header) => current.header(header, DuplicateHeaderBehavior.Add))
 
-    request
+    val response: ZIO[R, AttemptFailure, Response[BoundedBody]] = request
       .contentType("application/json; charset=utf-8")
       .header("Accept", "application/graphql-response+json, application/json;q=0.9")
       .followRedirects(false)
       .response(asStreamAlways(ZioStreams)(readBounded))
       .send(backend)
-      .mapError(_ => GraphQLSource.TransportFailure)
-      .flatMap(response => ZIO.fromEither(decode(response)))
+      .mapError(_ => AttemptFailure(GraphQLSource.TransportFailure, None, None))
+
+    response.flatMap { value =>
+      val responseBytes = value.body.bytes.length.toLong
+      ZIO
+        .fromEither(decode(value))
+        .mapBoth(
+          AttemptFailure(_, Some(value.code.code), Some(responseBytes)),
+          AttemptResponse(_, value.code.code, responseBytes)
+        )
+    }
   }
 
   private def outboundHeaders(incoming: List[Header], effectful: List[Header]): List[Header] = {
@@ -260,15 +311,45 @@ private[gateway] final class RemoteGraphQLSource[-R](
 
 private[gateway] object RemoteGraphQLSource {
 
+  private final case class AttemptResponse(
+    response: GraphQLResponse[CalibanError],
+    statusCode: Int,
+    responseBytes: Long
+  )
+
+  private final case class AttemptFailure(
+    failure: GraphQLSource.Failure,
+    statusCode: Option[Int],
+    responseBytes: Option[Long]
+  )
+
   def apply(endpoint: Uri, backend: SttpClient): RemoteGraphQLSource[Any] =
-    new RemoteGraphQLSource(endpoint, backend, RemoteGraphQLConfig.default, StructuralLimits.default, None, None)
+    new RemoteGraphQLSource(
+      "remote",
+      endpoint,
+      backend,
+      RemoteGraphQLConfig.default,
+      StructuralLimits.default,
+      None,
+      None,
+      GatewayWrapper.empty
+    )
 
   def apply[R](
     endpoint: Uri,
     backend: SttpClient,
     config: RemoteGraphQLConfig[R]
   ): RemoteGraphQLSource[R] =
-    new RemoteGraphQLSource(endpoint, backend, config, StructuralLimits.default, None, None)
+    new RemoteGraphQLSource(
+      "remote",
+      endpoint,
+      backend,
+      config,
+      StructuralLimits.default,
+      None,
+      None,
+      GatewayWrapper.empty
+    )
 
   def apply[R](
     endpoint: Uri,
@@ -276,19 +357,39 @@ private[gateway] object RemoteGraphQLSource {
     config: RemoteGraphQLConfig[R],
     structuralLimits: StructuralLimits
   ): RemoteGraphQLSource[R] =
-    new RemoteGraphQLSource(endpoint, backend, config, structuralLimits, None, None)
+    new RemoteGraphQLSource(
+      "remote",
+      endpoint,
+      backend,
+      config,
+      structuralLimits,
+      None,
+      None,
+      GatewayWrapper.empty
+    )
 
   def make[R](
     endpoint: Uri,
     backend: SttpClient,
     config: RemoteGraphQLConfig[R]
   )(implicit trace: Trace): ZIO[Scope, Nothing, RemoteGraphQLSource[R]] =
+    make("remote", endpoint, backend, config, GatewayWrapper.empty)
+
+  def make[R](
+    name: String,
+    endpoint: Uri,
+    backend: SttpClient,
+    config: RemoteGraphQLConfig[R],
+    wrapper: GatewayWrapper[R]
+  )(implicit trace: Trace): ZIO[Scope, Nothing, RemoteGraphQLSource[R]] =
     ZIO.scopeWith { scope =>
       val deduplicator =
         if (config.execution.inFlightQueryDeduplication)
           InFlightQueryDeduplicator.make(scope, config.execution.maxConcurrentCalls).map(Some(_))
         else ZIO.none
-      deduplicator.map(new RemoteGraphQLSource(endpoint, backend, config, StructuralLimits.default, _, None))
+      deduplicator.map(
+        new RemoteGraphQLSource(name, endpoint, backend, config, StructuralLimits.default, _, None, wrapper)
+      )
     }
 
   final case class StructuralLimits(
@@ -337,42 +438,66 @@ private[gateway] object RemoteGraphQLSource {
     scope: Scope,
     state: Ref[QueryCallState]
   ) {
-    def execute(
-      key: QueryCallIdentity,
-      admission: Option[ExecutionGate]
-    )(
-      call: => IO[GraphQLSource.Failure, GraphQLResponse[CalibanError]]
-    )(implicit trace: Trace): IO[GraphQLSource.Failure, GraphQLResponse[CalibanError]] =
-      ZIO.uninterruptible(loop(key, admission, call))
-
-    private def loop(
+    def execute[R](
       key: QueryCallIdentity,
       admission: Option[ExecutionGate],
-      call: => IO[GraphQLSource.Failure, GraphQLResponse[CalibanError]]
-    )(implicit trace: Trace): IO[GraphQLSource.Failure, GraphQLResponse[CalibanError]] =
+      wrapper: GatewayWrapper[R]
+    )(
+      call: => ZIO[R, GraphQLSource.Failure, GraphQLResponse[CalibanError]]
+    )(implicit trace: Trace): ZIO[R, GraphQLSource.Failure, GraphQLResponse[CalibanError]] =
+      ZIO.uninterruptible(loop(key, admission, wrapper, call))
+
+    private def loop[R](
+      key: QueryCallIdentity,
+      admission: Option[ExecutionGate],
+      wrapper: GatewayWrapper[R],
+      call: => ZIO[R, GraphQLSource.Failure, GraphQLResponse[CalibanError]]
+    )(implicit trace: Trace): ZIO[R, GraphQLSource.Failure, GraphQLResponse[CalibanError]] =
       state.get.flatMap { current =>
         current.entries.get(key) match {
-          case Some(existing) => await(existing).interruptible
+          case Some(existing) =>
+            observe(DeduplicationResult.Join, wrapper)(await(existing).interruptible)
           case None           =>
             Promise.make[Nothing, QueryCallExit].flatMap { candidate =>
               decide(key, candidate).flatMap {
                 case QueryCallDecision.Start          =>
-                  runCandidate(key, candidate, admission, call).interruptible.forkIn(scope) *>
-                    await(candidate).interruptible
-                case QueryCallDecision.Join(existing) => await(existing).interruptible
-                case QueryCallDecision.Wait(signal)   => signal.await.interruptible *> loop(key, admission, call)
+                  observe(DeduplicationResult.Start, wrapper)(
+                    runCandidate(key, candidate, admission, wrapper, call).interruptible.forkIn(scope) *>
+                      await(candidate).interruptible
+                  )
+                case QueryCallDecision.Join(existing) =>
+                  observe(DeduplicationResult.Join, wrapper)(await(existing).interruptible)
+                case QueryCallDecision.Wait(signal)   =>
+                  observe(DeduplicationResult.Wait, wrapper)(
+                    signal.await.interruptible *> loop(
+                      key,
+                      admission,
+                      wrapper,
+                      call
+                    )
+                  )
               }
             }
         }
       }
 
-    private def runCandidate(
+    private def runCandidate[R](
       key: QueryCallIdentity,
       candidate: QueryCallPromise,
       admission: Option[ExecutionGate],
-      call: => IO[GraphQLSource.Failure, GraphQLResponse[CalibanError]]
-    )(implicit trace: Trace): UIO[Unit] =
-      complete(key, candidate, admission.fold(call)(_(call)))
+      wrapper: GatewayWrapper[R],
+      call: => ZIO[R, GraphQLSource.Failure, GraphQLResponse[CalibanError]]
+    )(implicit trace: Trace): URIO[R, Unit] =
+      complete(key, candidate, admission.fold(call)(_.observed(wrapper)(call)))
+
+    private def observe[R, E, A](value: DeduplicationResult, wrapper: GatewayWrapper[R])(effect: ZIO[R, E, A])(implicit
+      trace: Trace
+    ): ZIO[R, E, A] =
+      if (!wrapper.enabled) effect
+      else
+        wrapper.wrap(Event.Deduplication(value))(effect)(
+          Result.classifyExit
+        )
 
     private def decide(key: QueryCallIdentity, candidate: QueryCallPromise): UIO[QueryCallDecision] =
       state.modify { current =>
@@ -384,11 +509,11 @@ private[gateway] object RemoteGraphQLSource {
         }
       }
 
-    private def complete(
+    private def complete[R](
       key: QueryCallIdentity,
       promise: QueryCallPromise,
-      call: => IO[GraphQLSource.Failure, GraphQLResponse[CalibanError]]
-    )(implicit trace: Trace): UIO[Unit] =
+      call: => ZIO[R, GraphQLSource.Failure, GraphQLResponse[CalibanError]]
+    )(implicit trace: Trace): URIO[R, Unit] =
       ZIO.uninterruptibleMask { restore =>
         restore(call).exit.flatMap { exit =>
           Promise.make[Nothing, Unit].flatMap { nextSpace =>

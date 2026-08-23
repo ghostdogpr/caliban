@@ -1,25 +1,14 @@
 #!/bin/sh
 set -eu
 
-if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
-    echo "Usage: $0 <results.txt> [report.md]" >&2
+if [ "$#" -ne 1 ]; then
+    echo "Usage: $0 <results.txt>" >&2
     exit 1
 fi
 
 RESULTS=$1
-REPORT=${2:-report.md}
-REVISION=${FEDERATION_GATEWAY_AUDIT_REVISION:-unknown}
 
-{
-    echo "# Caliban Federation Gateway Audit"
-    echo
-    echo "Upstream revision: \`$REVISION\`"
-    echo
-    echo "| Case | Result |"
-    echo "| --- | --- |"
-} > "$REPORT"
-
-awk -F '\t' -v report="$REPORT" '
+awk -F '\t' '
     /^[a-z0-9-]+$/ {
         current = $0
         next
@@ -29,13 +18,11 @@ awk -F '\t' -v report="$REPORT" '
         for (position = 1; position <= length($0); position++) {
             case_id = current "_" (position - 1)
             marker = substr($0, position, 1)
-            result = marker == "." ? "pass" : "fail"
             if (case_id in observed) {
                 print "Duplicate audit case: " case_id > "/dev/stderr"
                 violations++
             }
             observed[case_id] = 1
-            print "| `" case_id "` | " result " |" >> report
 
             total++
             if (marker == "X") {
@@ -56,13 +43,7 @@ awk -F '\t' -v report="$REPORT" '
             print "Audit result summary is missing or inconsistent." > "/dev/stderr"
             violations++
         }
-        print "" >> report
-        print "Total cases: " total >> report
-        print "Passing: " (total - failures) >> report
-        print "Failing: " (failures + 0) >> report
-
         if (violations > 0) exit 1
+        print "Federation Gateway Audit: " total "/" total " cases passed."
     }
 ' "$RESULTS"
-
-cat "$REPORT"

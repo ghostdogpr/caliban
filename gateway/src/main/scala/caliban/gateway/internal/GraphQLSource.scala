@@ -1,6 +1,8 @@
 package caliban.gateway.internal
 
 import caliban.execution.Field
+import caliban.gateway.GatewayWrapper
+import caliban.gateway.GatewayWrapper.{ Event, Outcome, Result }
 import caliban.gateway.internal.GraphQLSource.ErrorPolicy
 import caliban.parsing.adt.OperationType
 import caliban.{ CalibanError, GraphQLInterpreter, GraphQLRequest, GraphQLResponse, PathValue }
@@ -18,23 +20,62 @@ private[gateway] trait GraphQLSource[-R] {
     trace: Trace
   ): ZIO[R, GraphQLSource.Failure, GraphQLResponse[CalibanError]]
 
-  def admittedBy(gate: ExecutionGate): GraphQLSource[R] =
-    new GatedGraphQLSource(this, gate)
+  def admittedBy[R1](gate: ExecutionGate, wrapper: GatewayWrapper[R1]): GraphQLSource[R with R1] =
+    new GatedGraphQLSource(this, gate, wrapper)
 }
 
-private[gateway] final class GatedGraphQLSource[-R](
+private[gateway] final class ObservedGraphQLSource[R](
+  name: String,
   underlying: GraphQLSource[R],
-  gate: ExecutionGate
+  wrapper: GatewayWrapper[R]
 ) extends GraphQLSource[R] {
   val errorPolicy: ErrorPolicy = underlying.errorPolicy
 
   def execute(request: GraphQLRequest, operationType: OperationType)(implicit
     trace: Trace
   ): ZIO[R, GraphQLSource.Failure, GraphQLResponse[CalibanError]] =
-    gate(underlying.execute(request, operationType))
+    if (!wrapper.enabled) underlying.execute(request, operationType)
+    else
+      wrapper.wrap(Event.SourceCall(name, operationType))(underlying.execute(request, operationType))(
+        Result.fromExit(_)(
+          response =>
+            Result(
+              if (response.errors.isEmpty) Outcome.Success else Outcome.GraphQLError,
+              errorCount = response.errors.size
+            ),
+          failure => Result(GraphQLSource.failureOutcome(failure))
+        )
+      )
+
+}
+
+private[gateway] final class GatedGraphQLSource[-R](
+  underlying: GraphQLSource[R],
+  gate: ExecutionGate,
+  wrapper: GatewayWrapper[R]
+) extends GraphQLSource[R] {
+  val errorPolicy: ErrorPolicy = underlying.errorPolicy
+
+  def execute(request: GraphQLRequest, operationType: OperationType)(implicit
+    trace: Trace
+  ): ZIO[R, GraphQLSource.Failure, GraphQLResponse[CalibanError]] =
+    gate.observed(wrapper)(underlying.execute(request, operationType))
 }
 
 private[gateway] object GraphQLSource {
+  def failureOutcome(failure: Failure): Outcome =
+    failure match {
+      case TransportFailure                                                                        => Outcome.TransportError
+      case TimeoutFailure                                                                          => Outcome.Timeout
+      case HeaderFailure | InvalidRequest                                                          => Outcome.RequestError
+      case RequestTooLarge | ResponseTooLarge | ResponseNestingTooDeep | ResponseStructureTooLarge =>
+        Outcome.LimitExceeded
+      case HttpFailure(status) if status >= 400 && status < 500                                    => Outcome.Http4xx
+      case HttpFailure(status) if status >= 500 && status < 600                                    => Outcome.Http5xx
+      case HttpFailure(_)                                                                          => Outcome.HttpError
+      case RedirectResponse | UnsupportedMediaType | InvalidResponse                               => Outcome.InvalidResponse
+    }
+
   sealed trait ErrorPolicy {
     def passthrough(fields: List[Field], errors: List[CalibanError]): List[CalibanError]
 

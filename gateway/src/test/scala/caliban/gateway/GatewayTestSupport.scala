@@ -101,9 +101,17 @@ private[gateway] object GatewayTestSupport {
   def stubByRequest(response: GraphQLRequest => String): ZIO[Server with Ref[Int], Nothing, Stub] =
     stubResponding(ZIO.unit)((request, _) => response(request))
 
+  def stubWithStatuses(responses: (Status, String)*): ZIO[Server with Ref[Int], Nothing, Stub] =
+    stubRespondingWithStatus(ZIO.unit)((_, index) => responses(math.min(index, responses.size - 1)))
+
   private def stubResponding(
     beforeResponse: UIO[Unit]
   )(response: (GraphQLRequest, Int) => String): ZIO[Server with Ref[Int], Nothing, Stub] =
+    stubRespondingWithStatus(beforeResponse)((request, index) => Status.Ok -> response(request, index))
+
+  private def stubRespondingWithStatus(
+    beforeResponse: UIO[Unit]
+  )(response: (GraphQLRequest, Int) => (Status, String)): ZIO[Server with Ref[Int], Nothing, Stub] =
     for {
       requests <- Ref.make(Vector.empty[GraphQLRequest])
       headers  <- Ref.make(Vector.empty[Headers])
@@ -118,11 +126,11 @@ private[gateway] object GatewayTestSupport {
                       _       <- headers.update(_ :+ request.headers)
                       _       <- beforeResponse
                       next    <- index.getAndUpdate(_ + 1)
-                      body     = response(decoded, next)
+                      result   = response(decoded, next)
                     } yield Response(
-                      Status.Ok,
+                      result._1,
                       Headers(Header.Custom("Content-Type", "application/graphql-response+json")),
-                      Body.fromString(body)
+                      Body.fromString(result._2)
                     )
                   }
       server   <- ZIO.service[Server]
