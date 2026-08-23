@@ -44,6 +44,12 @@ object RoutePlanningSpec extends ZIOSpecDefault {
        |}
        |""".stripMargin
 
+  private val shareableReplicaSchema =
+    s"""
+       |${federationSchemaPreamble("@key", "@shareable")}
+       |type Product @key(fields: "id") { id: ID! @shareable }
+       |""".stripMargin
+
   def spec = suite("Route planning")(
     test("chooses a complete field owner with fewer dependent calls") {
       for {
@@ -454,6 +460,27 @@ object RoutePlanningSpec extends ZIOSpecDefault {
         field(response.data, "product").flatMap(field(_, "label")).contains(StringValue("direct")),
         rootSent.size == 1,
         ownerSent.size == 1
+      )
+    },
+    test("prefers a requirement-free local owner without expanding remote shareable alternatives") {
+      for {
+        root     <- stub("""{"data":{"product":{"id":"p1"}}}""")
+        replica  <- stub("""{"data":{"_entities":[]}}""")
+        runtime  <- Gateway
+                      .compose(
+                        Subgraph.federation("root", root.endpoint, rootSchema),
+                        Subgraph.federation("replica", replica.endpoint, shareableReplicaSchema)
+                      )
+                      .withConfig(_.withMaxPlanningCandidates(1))
+                      .build
+        response <- runtime.execute("{ product { id } }")
+        rootSent <- root.requests.get
+        remote   <- replica.requests.get
+      } yield assertTrue(
+        response.errors.isEmpty,
+        field(response.data, "product").flatMap(field(_, "id")).contains(StringValue("p1")),
+        rootSent.size == 1,
+        remote.isEmpty
       )
     },
     test("fails safely before source work when planning guardrails are exhausted") {

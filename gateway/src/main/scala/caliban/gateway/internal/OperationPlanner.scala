@@ -60,7 +60,9 @@ private[gateway] final class OperationPlanner(
         for {
           accumulated <- result
           options     <- planRootOptions(field, operationType)
-          combined    <- search.combine(accumulated, options)(_ ::: _)
+          combined    <-
+            if (accumulated == List(Nil)) Right(options)
+            else search.combine(accumulated, options)(_ ::: _)
         } yield combined
       }
       .flatMap(options =>
@@ -305,7 +307,7 @@ private[gateway] final class OperationPlanner(
         val childParent = child.parentType.flatMap(_.name).getOrElse(typeName)
         val owners      = candidates.filter(graph.owns(_, childParent, child.name))
         val next        = if (owners.nonEmpty) owners else candidates
-        val supplied    = provided.find(sameField(_, child))
+        val supplied    = provided.find(providedFieldCovers(_, child))
         val children    = filter(child.fieldType.innerType, child.fields, next, supplied.toList.flatMap(_.fields))
         val include     =
           child.name == "__typename" && candidates.contains(source) ||
@@ -409,23 +411,30 @@ private[gateway] final class OperationPlanner(
 
     val routedSelections = routed.flatMap { child =>
       val childParent                                   = child.parentType.flatMap(_.name).getOrElse(typeName)
-      val supplied                                      = scoped.find(candidate => sameField(candidate, child))
-      def providers(owner: String): List[FieldProvider] =
-        if (child.name == "__typename" && graph.isInterfaceObject(source, typeName))
-          graph.runtimeTypeSource(typeName, source).toList.map(FieldProvider(_, typeName))
-        else if (child.name == "__typename") List(FieldProvider(source, typeName))
-        else
-          supplied
-            .map(_ => List(FieldProvider(source, owner)))
-            .getOrElse {
-              List(
-                graph.fieldSources(owner, child.name, source).map(FieldProvider(_, owner)),
-                if (owner == childParent) Nil
-                else graph.fieldSources(childParent, child.name, source).map(FieldProvider(_, childParent)),
-                if (childParent == typeName) Nil
-                else graph.fieldSources(typeName, child.name, source).map(FieldProvider(_, typeName))
-              ).find(_.nonEmpty).getOrElse(Nil)
-            }
+      val supplied                                      = scoped.find(candidate => providedFieldCovers(candidate, child))
+      def providers(owner: String): List[FieldProvider] = {
+        val candidates =
+          if (child.name == "__typename" && graph.isInterfaceObject(source, typeName))
+            graph.runtimeTypeSource(typeName, source).toList.map(FieldProvider(_, typeName))
+          else if (child.name == "__typename") List(FieldProvider(source, typeName))
+          else
+            supplied
+              .map(_ => List(FieldProvider(source, owner)))
+              .getOrElse {
+                List(
+                  graph.fieldSources(owner, child.name, source).map(FieldProvider(_, owner)),
+                  if (owner == childParent) Nil
+                  else graph.fieldSources(childParent, child.name, source).map(FieldProvider(_, childParent)),
+                  if (childParent == typeName) Nil
+                  else graph.fieldSources(typeName, child.name, source).map(FieldProvider(_, typeName))
+                ).find(_.nonEmpty).getOrElse(Nil)
+              }
+        candidates.find { provider =>
+          val requirements = graph.required(provider.source, provider.typeName, child.name)
+          canResolveLocally(provider, source, child.name, requirements, satisfiedRequirements)
+        }
+          .fold(candidates)(List(_))
+      }
 
       val directProviders = providers(childParent)
       val conditions      =
@@ -467,9 +476,13 @@ private[gateway] final class OperationPlanner(
                        assignment.foreach { case (selection, provider) =>
                          val requirements = graph.required(provider.source, provider.typeName, selection.field.name)
                          if (
-                           provider.source == source &&
-                           (requirements.isEmpty ||
-                             satisfiedRequirements.contains(provider.typeName -> selection.field.name))
+                           canResolveLocally(
+                             provider,
+                             source,
+                             selection.field.name,
+                             requirements,
+                             satisfiedRequirements
+                           )
                          )
                            local += selection.field -> selection.supplied.toList.flatMap(_.fields)
                          else
@@ -907,8 +920,19 @@ private[gateway] final class OperationPlanner(
         rootType = graph.rootType
       ).fields
 
-  private def sameField(left: Field, right: Field): Boolean =
-    left.name == right.name && left.arguments == right.arguments
+  private def canResolveLocally(
+    provider: FieldProvider,
+    currentSource: String,
+    fieldName: String,
+    requirements: List[Selection],
+    satisfiedRequirements: Set[(String, String)]
+  ): Boolean =
+    provider.source == currentSource &&
+      (requirements.isEmpty || satisfiedRequirements.contains(provider.typeName -> fieldName))
+
+  private def providedFieldCovers(provided: Field, requested: Field): Boolean =
+    provided.name == requested.name && provided.arguments == requested.arguments &&
+      provided._condition.forall(condition => requested._condition.exists(_.subsetOf(condition)))
 
   private def selectedFields(field: Field, parentType: __Type, typeName: String): List[Field] =
     parentType.kind match {
