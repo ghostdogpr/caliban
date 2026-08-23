@@ -1,8 +1,7 @@
 package caliban.gateway.internal
 
-import caliban.InputValue.{ ListValue, ObjectValue, VariableValue }
-import caliban.Value.NullValue
-import caliban.execution.{ ExecutionRequest, Field, Fragment, RequestPreparation }
+import caliban.InputValue.VariableValue
+import caliban.execution.{ ExecutionRequest, Field, RequestPreparation }
 import caliban.gateway.GatewayRuntime.OperationCacheStatus
 import caliban.gateway.GatewayConfig
 import caliban.gateway.internal.OperationCache.Weighted
@@ -14,7 +13,7 @@ import caliban.schema.RootType
 import caliban.validation.Validator
 import caliban.validation.Validator.{ AllValidations, QueryValidation }
 import caliban.{ CalibanError, Configurator, GraphQLRequest, InputValue }
-import zio.{ IO, Trace, UIO, ZIO }
+import zio.{ Exit, IO, Trace, UIO, ZIO }
 
 private[gateway] final class OperationPreparation[-R] private (
   rootType: RootType,
@@ -36,10 +35,9 @@ private[gateway] final class OperationPreparation[-R] private (
     for {
       resolved    <- hooks.resolve(request)
       query        = resolved.query.getOrElse("")
-      textWeight  <- ZIO.fromEither(limits.textWeight(query).left.map(limitFailure))
       preparation <- Configurator.ref.get.map(PreparationConfig.from)
       prepared    <- hooks.cacheDirective match {
-                       case Bypass                                               => prepareUncached(resolved)
+                       case Bypass                                               => checkedUncached(resolved, query)
                        case Cacheable(resolver, policy) if preparation.cacheable =>
                          cache
                            .getOrCompute(
@@ -51,12 +49,21 @@ private[gateway] final class OperationPreparation[-R] private (
                                policy,
                                preparation
                              )
-                           )(computeWeighted(resolved, textWeight, preparation))
+                           )(
+                             ZIO
+                               .fromEither(limits.textWeight(query).left.map(limitFailure))
+                               .flatMap(computeWeighted(resolved, _, preparation))
+                           )
                            .flatMap(materialize(resolved, _))
-                       case _: Cacheable                                         => prepareUncached(resolved)
+                       case _: Cacheable                                         => checkedUncached(resolved, query)
                      }
       _           <- hooks.evaluatePolicy(resolved, prepared.document, prepared.executionRequest)
     } yield prepared
+
+  private def checkedUncached(resolved: GraphQLRequest, query: String)(implicit
+    trace: Trace
+  ): IO[CalibanError, Prepared] =
+    ZIO.fromEither(limits.textWeight(query).left.map(limitFailure)) *> prepareUncached(resolved)
 
   def cacheStatus(implicit trace: Trace): UIO[OperationCacheStatus] = cache.status
 
@@ -77,7 +84,7 @@ private[gateway] final class OperationPreparation[-R] private (
       document <- RequestPreparation.parse(request.query.getOrElse(""))
       nodes    <- ZIO.fromEither(limits.documentWeight(document).left.map(limitFailure))
       _        <- Validator.validate(document, rootType).unless(preparation.skipValidation)
-      plan     <-
+      planned  <-
         if (hasVariableCondition(document, request.operationName)) ZIO.none
         else
           for {
@@ -89,8 +96,13 @@ private[gateway] final class OperationPreparation[-R] private (
                            documentIsValid = true
                          )
             plan      <- ZIO.fromEither(planner.plan(document, execution)).mapError(planningFailure)
-          } yield Some(plan)
-    } yield CachedOperation(document, plan) -> nodes
+          } yield Some((execution, plan))
+    } yield {
+      val execution =
+        if (symbolicVariables(document).isEmpty && !planned.exists(_._2.hasVariableReferences)) planned.map(_._1)
+        else None
+      CachedOperation(document, planned.map(_._2), execution) -> nodes
+    }
 
   private def prepareUncached(request: GraphQLRequest)(implicit trace: Trace): IO[CalibanError, Prepared] =
     for {
@@ -104,19 +116,26 @@ private[gateway] final class OperationPreparation[-R] private (
     request: GraphQLRequest,
     cached: CachedOperation
   )(implicit trace: Trace): IO[CalibanError, Prepared] =
-    for {
-      variables <- RequestPreparation.coerceVariables(cached.document, request, rootType)
-      execution <- RequestPreparation.prepareParsedWithVariableValidation(
-                     request,
-                     cached.document,
-                     variables,
-                     rootType
-                   )
-      plan      <- cached.plan match {
-                     case Some(value) => ZIO.succeed(bindPlan(value, variables))
-                     case None        => ZIO.fromEither(planner.plan(cached.document, execution)).mapError(planningFailure)
-                   }
-    } yield Prepared(request, cached.document, execution, plan)
+    (cached.execution, cached.plan) match {
+      case (Some(execution), Some(plan)) =>
+        Exit.succeed(Prepared(request, cached.document, execution, plan))
+      case _                             =>
+        for {
+          variables <- RequestPreparation.coerceVariables(cached.document, request, rootType)
+          execution <- RequestPreparation.prepareParsedWithVariableValidation(
+                         request,
+                         cached.document,
+                         variables,
+                         rootType
+                       )
+          plan      <- cached.plan match {
+                         case Some(value) if !value.hasVariableReferences => Exit.succeed(value)
+                         case Some(value)                                 => Exit.succeed(value.bind(variables))
+                         case None                                        =>
+                           Exit.fromEither(planner.plan(cached.document, execution)).mapError(planningFailure)
+                       }
+        } yield Prepared(request, cached.document, execution, plan)
+    }
 
   private def operationWeight(
     text: Int,
@@ -137,40 +156,6 @@ private[gateway] final class OperationPreparation[-R] private (
     )
 
     text.toLong * 2L + nodes.toLong + operationName.fold(0)(_.length).toLong + planWeight + 1L
-  }
-
-  private def bindPlan(plan: OperationPlan, variables: Map[String, InputValue]): OperationPlan = {
-    def bindValue(value: InputValue): Option[InputValue] =
-      value match {
-        case VariableValue(name) => variables.get(name)
-        case ListValue(values)   => Some(ListValue(values.map(value => bindValue(value).getOrElse(NullValue))))
-        case ObjectValue(fields) =>
-          Some(ObjectValue(fields.flatMap { case (name, value) => bindValue(value).map(name -> _) }))
-        case value               => Some(value)
-      }
-
-    def bindDirective(directive: Directive): Directive =
-      directive.copy(arguments = directive.arguments.flatMap { case (name, value) => bindValue(value).map(name -> _) })
-
-    def bindFragment(fragment: Fragment): Fragment =
-      fragment.copy(directives = fragment.directives.map(bindDirective))
-
-    def bindField(field: Field): Field =
-      field.copy(
-        fields = field.fields.map(bindField),
-        arguments = field.arguments.flatMap { case (name, value) => bindValue(value).map(name -> _) },
-        directives = field.directives.map(bindDirective),
-        fragment = field.fragment.map(bindFragment)
-      )
-
-    plan.copy(
-      fields = plan.fields.map(bindField),
-      localFields = plan.localFields.map(bindField),
-      roots = plan.roots.map(route =>
-        route.copy(client = route.client.map(bindField), downstream = route.downstream.map(bindField))
-      ),
-      entities = plan.entities.map(route => route.copy(fields = route.fields.map(bindField)))
-    )
   }
 
   private def symbolicVariables(document: Document): Map[String, InputValue] =
@@ -201,7 +186,8 @@ private[gateway] object OperationPreparation {
 
   private final case class CachedOperation(
     document: Document,
-    plan: Option[OperationPlan]
+    plan: Option[OperationPlan],
+    execution: Option[ExecutionRequest]
   )
 
   private final case class CacheKey(

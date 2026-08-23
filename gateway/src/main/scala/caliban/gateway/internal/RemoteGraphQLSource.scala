@@ -142,7 +142,7 @@ private[gateway] final class RemoteGraphQLSource[-R](
     stream
       .take(execution.maxResponseBytes.toLong + 1L)
       .runCollect
-      .map(bytes => BoundedBody(bytes, bytes.length > execution.maxResponseBytes))
+      .map(bytes => BoundedBody(bytes.toArray, bytes.length > execution.maxResponseBytes))
 
   private def decode(
     response: Response[BoundedBody]
@@ -164,11 +164,11 @@ private[gateway] final class RemoteGraphQLSource[-R](
       }
     }
 
-  private def decodeBody(bytes: Chunk[Byte]): Either[GraphQLSource.Failure, GraphQLResponse[CalibanError]] =
+  private def decodeBody(bytes: Array[Byte]): Either[GraphQLSource.Failure, GraphQLResponse[CalibanError]] =
     for {
       _        <- responseWithinLimits(bytes)
       envelope <-
-        try Right(readFromArray[ResponseValue](bytes.toArray))
+        try Right(readFromArray[ResponseValue](bytes))
         catch {
           case NonFatal(_) => Left(GraphQLSource.InvalidResponse)
         }
@@ -178,16 +178,18 @@ private[gateway] final class RemoteGraphQLSource[-R](
                   }
     } yield response
 
-  private def responseWithinLimits(bytes: Chunk[Byte]): Either[GraphQLSource.Failure, Unit] = {
-    var depth    = 0
-    var index    = 0
-    var escaped  = false
-    var string   = false
-    var tokens   = 0
-    var previous = 0.toByte
-    var failure  = Option.empty[GraphQLSource.Failure]
+  private def responseWithinLimits(bytes: Array[Byte]): Either[GraphQLSource.Failure, Unit] = {
+    val maxDepth  = structuralLimits.maxResponseDepth
+    val maxTokens = structuralLimits.maxResponseTokens
+    val length    = bytes.length
+    var depth     = 0
+    var index     = 0
+    var escaped   = false
+    var string    = false
+    var tokens    = 0
+    var previous  = 0.toByte
 
-    while (index < bytes.length && failure.isEmpty) {
+    while (index < length) {
       val current = bytes(index)
       if (string) {
         if (escaped) escaped = false
@@ -205,22 +207,22 @@ private[gateway] final class RemoteGraphQLSource[-R](
             depth += 1
             tokens += 1
             previous = current
+            if (depth > maxDepth) return Left(GraphQLSource.ResponseNestingTooDeep)
           case '}' | ']'                               =>
             depth -= 1
             previous = current
           case value if isScalarStart(value, previous) =>
             tokens += 1
             previous = current
-          case value if !value.toChar.isWhitespace     => previous = current
-          case _                                       => ()
+          case ' ' | '\t' | '\n' | '\r'                => ()
+          case _                                       => previous = current
         }
 
-      if (depth > structuralLimits.maxResponseDepth) failure = Some(GraphQLSource.ResponseNestingTooDeep)
-      else if (tokens > structuralLimits.maxResponseTokens) failure = Some(GraphQLSource.ResponseStructureTooLarge)
+      if (tokens > maxTokens) return Left(GraphQLSource.ResponseStructureTooLarge)
       index += 1
     }
 
-    failure.toLeft(())
+    Right(())
   }
 
   private def isScalarStart(value: Byte, previous: Byte): Boolean = {
@@ -301,9 +303,7 @@ private[gateway] object RemoteGraphQLSource {
     )
   }
 
-  private final case class BoundedBody(bytes: Chunk[Byte], limitExceeded: Boolean)
-
-  private final case class QueryCallIdentity(
+  private[internal] final case class QueryCallIdentity(
     body: RequestBody,
     headers: Vector[(String, Vector[String])]
   )
@@ -319,7 +319,9 @@ private[gateway] object RemoteGraphQLSource {
     }
   }
 
-  private final class RequestBody(private val bytes: Array[Byte]) {
+  private final case class BoundedBody(bytes: Array[Byte], limitExceeded: Boolean)
+
+  private[internal] final class RequestBody(private val bytes: Array[Byte]) {
     private val hash = Arrays.hashCode(bytes)
 
     override def hashCode(): Int = hash
@@ -331,7 +333,7 @@ private[gateway] object RemoteGraphQLSource {
       }
   }
 
-  private final class InFlightQueryDeduplicator private (
+  private[internal] final class InFlightQueryDeduplicator private (
     scope: Scope,
     state: Ref[QueryCallState]
   ) {

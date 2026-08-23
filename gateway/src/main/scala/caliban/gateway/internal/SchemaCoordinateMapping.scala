@@ -35,6 +35,10 @@ private[gateway] final class SchemaCoordinateMapping private (
 ) {
   import SchemaCoordinateMapping._
 
+  private val renamesNothing: Boolean =
+    typeNames.isEmpty && fieldNames.isEmpty && argumentNames.isEmpty &&
+      inputFieldNames.isEmpty && enumValueNames.isEmpty
+
   private val sourceRootTypes =
     Map("Query" -> originalRootType.queryType) ++
       originalRootType.mutationType.map("Mutation" -> _).toMap ++
@@ -197,6 +201,7 @@ private[gateway] final class SchemaCoordinateMapping private (
   }
 
   def representationToSource(typeName: String, value: InputObjectValue): InputObjectValue = {
+    if (renamesNothing) return value
     val sourceName = sourceType(typeName)
     val definition = originalRootType.types.get(sourceName)
     InputObjectValue(value.fields.iterator.map {
@@ -215,18 +220,21 @@ private[gateway] final class SchemaCoordinateMapping private (
     fields: List[Field],
     selections: List[RequiredSelection],
     value: ResponseValue
-  ): ResponseValue = {
-    val mapped = originalRootType.types
-      .get(sourceType(typeName))
-      .fold(value)(responseValueToClient(_, fields, value))
-    requiredResponseToClient(typeName, selections, mapped)
-  }
+  ): ResponseValue =
+    if (renamesNothing) value
+    else {
+      val mapped = originalRootType.types
+        .get(sourceType(typeName))
+        .fold(value)(responseValueToClient(_, fields, value))
+      requiredResponseToClient(typeName, selections, mapped)
+    }
 
   def rootResponseToClient(
     fields: List[Field],
     response: GraphQLResponse[CalibanError]
   ): GraphQLResponse[CalibanError] =
-    response.copy(data = objectResponseToClient(fields, response.data))
+    if (renamesNothing) response
+    else response.copy(data = objectResponseToClient(fields, response.data))
 
   private def objectResponseToClient(fields: List[Field], value: ResponseValue): ResponseValue =
     value match {

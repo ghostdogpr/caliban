@@ -1,8 +1,8 @@
 package caliban.gateway.internal
 
 import caliban.ResponseValue.{ ListValue, ObjectValue }
-import caliban.Value.{ EnumValue, NullValue, StringValue }
-import caliban.execution.{ isIntrospectionField, ExecutionRequest, Executor, Field }
+import caliban.Value.{ EnumValue, IntValue, NullValue, StringValue }
+import caliban.execution.{ ExecutionRequest, Executor, Field }
 import caliban.gateway.GatewayRuntime
 import caliban.gateway.internal.EntityExecutor.EntityResult
 import caliban.gateway.internal.GatewayRuntimeImpl._
@@ -17,6 +17,9 @@ import caliban.schema.{ RootSchema, RootType }
 import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, GraphQLResponseContext, PathValue, ResponseValue }
 import zio.{ IO, Trace, URIO, ZIO }
 
+import java.util.concurrent.ConcurrentHashMap
+import scala.collection.mutable
+
 private[gateway] final class GatewayRuntimeImpl[-R](
   graph: ComposedGraph,
   sources: Map[String, GraphQLSource[R]],
@@ -27,6 +30,37 @@ private[gateway] final class GatewayRuntimeImpl[-R](
   private val rootType: RootType             = graph.rootType
   private val introspection: RootSchema[Any] = Introspector.introspect[Any](rootType)
   private val entityExecutor                 = new EntityExecutor[R](graph, sources)
+
+  private def preparedRoot(
+    route: RootRoute,
+    operationType: OperationType,
+    operationName: Option[String],
+    caches: PlanCaches
+  ): PreparedRoot = {
+    val cached = caches.roots.get(route.id)
+    if (cached != null && cached.operationType == operationType && cached.operationName == operationName) cached
+    else {
+      val mapping    = graph.mapping(route.source)
+      val executable = route.downstream.map(graph.executableField(route.source, _))
+      val downstream = mapping.fold(executable)(value => executable.map(value.rootFieldToSource))
+      val operation  = OperationDefinition(
+        operationType,
+        operationName,
+        Nil,
+        Nil,
+        downstream.map(_.toSelection)
+      )
+      val prepared   = PreparedRoot(
+        operationType,
+        operationName,
+        executable,
+        DocumentRenderer.renderCompact(Document(operation :: Nil, SourceMapper.empty)),
+        graph.responseNameRestorer(route.downstream, executable)
+      )
+      caches.roots.put(route.id, prepared)
+      prepared
+    }
+  }
 
   def check(query: String)(implicit trace: Trace): IO[CalibanError, Unit] =
     control.runRequest(operations.check(query)).flatMap {
@@ -80,9 +114,14 @@ private[gateway] final class GatewayRuntimeImpl[-R](
           case None         => ZIO.succeed(singleSourceFailure(plan))
         }
       case None         =>
-        executeRemote(plan, execution, resolvedRequest)
-          .zipPar(executeIntrospection(execution, plan.localFields.filter(isIntrospectionField)))
-          .map { case (remote, local) => assemble(plan, remote, local) }
+        val introspectionFields = plan.introspectionFields
+        if (introspectionFields.isEmpty)
+          executeRemote(plan, execution, resolvedRequest)
+            .map(remote => assemble(plan, remote, GraphQLResponse(ObjectValue.empty, Nil)))
+        else
+          executeRemote(plan, execution, resolvedRequest)
+            .zipPar(executeIntrospection(execution, introspectionFields))
+            .map { case (remote, local) => assemble(plan, remote, local) }
     }
 
   private def executeRemote(
@@ -92,14 +131,15 @@ private[gateway] final class GatewayRuntimeImpl[-R](
   )(implicit trace: Trace): ZIO[R, Nothing, RemoteExecution] =
     plan.operation match {
       case OperationType.Query        =>
-        executeRoots(plan.roots, execution, resolvedRequest).flatMap { roots =>
+        executeRoots(plan.roots, execution, resolvedRequest, plan.caches).flatMap { roots =>
           val rootValues = roots.iterator.map(result => result.route.id -> result.response.data).toMap
           executeEntities(
             plan.entities,
             rootValues,
             plan.roots.iterator.map(_.id).toSet,
             Map.empty,
-            resolvedRequest
+            resolvedRequest,
+            plan.caches
           ).map { entityExecution =>
             val updated = roots.map(result =>
               result.copy(
@@ -125,41 +165,47 @@ private[gateway] final class GatewayRuntimeImpl[-R](
     pending match {
       case Nil           => ZIO.succeed(RemoteExecution(Nil, Nil))
       case route :: tail =>
-        executeRoot(route, execution, resolvedRequest).flatMap { root =>
+        executeRoot(route, execution, resolvedRequest, plan.caches).flatMap { root =>
           val rootData = mutationRootData(route, root.response.data)
           val current  = plan.entities.filter(_.root == route.id)
-          executeEntities(current, Map(route.id -> rootData), Set(route.id), Map.empty, resolvedRequest).flatMap {
-            entityExecution =>
-              val updated   = root.copy(
-                response = root.response.copy(
-                  data = entityExecution.roots.getOrElse(route.id, rootData)
+          executeEntities(
+            current,
+            Map(route.id -> rootData),
+            Set(route.id),
+            Map.empty,
+            resolvedRequest,
+            plan.caches
+          ).flatMap { entityExecution =>
+            val updated   = root.copy(
+              response = root.response.copy(
+                data = entityExecution.roots.getOrElse(route.id, rootData)
+              )
+            )
+            val errors    = updated.response.errors ::: entityExecution.results.flatMap(_.errors)
+            val completed = completeObject(
+              route.client,
+              updated.response.data,
+              Nil,
+              errors,
+              plan.runtimeTypes
+            )
+            if (completed.value.isEmpty)
+              ZIO.succeed(
+                RemoteExecution(
+                  updated :: Nil,
+                  entityExecution.results,
+                  completed.errors,
+                  aborted = true
                 )
               )
-              val errors    = updated.response.errors ::: entityExecution.results.flatMap(_.errors)
-              val completed = completeObject(
-                route.client,
-                updated.response.data,
-                Vector.empty,
-                errors,
-                plan.runtimeTypes
+            else
+              executeMutations(plan, tail, execution, resolvedRequest).map(next =>
+                next.copy(
+                  roots = updated :: next.roots,
+                  entities = entityExecution.results ::: next.entities,
+                  completionErrors = completed.errors ::: next.completionErrors
+                )
               )
-              if (completed.value.isEmpty)
-                ZIO.succeed(
-                  RemoteExecution(
-                    updated :: Nil,
-                    entityExecution.results,
-                    completed.errors,
-                    aborted = true
-                  )
-                )
-              else
-                executeMutations(plan, tail, execution, resolvedRequest).map(next =>
-                  next.copy(
-                    roots = updated :: next.roots,
-                    entities = entityExecution.results ::: next.entities,
-                    completionErrors = completed.errors ::: next.completionErrors
-                  )
-                )
           }
         }
     }
@@ -175,7 +221,8 @@ private[gateway] final class GatewayRuntimeImpl[-R](
     roots: Map[RouteId, ResponseValue],
     completed: Set[RouteId],
     blocked: Map[RouteId, Set[List[PathValue]]],
-    resolvedRequest: GraphQLRequest
+    resolvedRequest: GraphQLRequest,
+    caches: PlanCaches
   )(implicit trace: Trace): URIO[R, EntityExecution] =
     if (pending.isEmpty) ZIO.succeed(EntityExecution(roots, Nil))
     else {
@@ -193,10 +240,17 @@ private[gateway] final class GatewayRuntimeImpl[-R](
           )
         )
       else
-        entityExecutor.execute(ready, roots, blocked, resolvedRequest).flatMap { results =>
-          val nextRoots     = results.flatMap(_.patches).foldLeft(roots) { case (values, patch) =>
-            values.get(patch.route.root) match {
-              case Some(root) => values.updated(patch.route.root, mergeAt(root, patch.path, patch.value))
+        entityExecutor.execute(ready, roots, blocked, resolvedRequest, caches).flatMap { results =>
+          val patchesByRoot =
+            mutable.LinkedHashMap.empty[RouteId, mutable.ListBuffer[(List[PathValue], ResponseValue)]]
+          results.foreach(
+            _.patches.foreach(patch =>
+              patchesByRoot.getOrElseUpdate(patch.route.root, mutable.ListBuffer.empty) += (patch.path -> patch.value)
+            )
+          )
+          val nextRoots     = patchesByRoot.foldLeft(roots) { case (values, (rootId, patches)) =>
+            values.get(rootId) match {
+              case Some(root) => values.updated(rootId, applyPatches(root, patches.toList))
               case None       => values
             }
           }
@@ -205,7 +259,7 @@ private[gateway] final class GatewayRuntimeImpl[-R](
             values.updated(route, values.getOrElse(route, Set.empty) ++ paths)
           }
           val remaining     = pending.filterNot(route => nextCompleted.contains(route.id))
-          executeEntities(remaining, nextRoots, nextCompleted, nextBlocked, resolvedRequest)
+          executeEntities(remaining, nextRoots, nextCompleted, nextBlocked, resolvedRequest, caches)
             .map(next => next.copy(results = results ::: next.results))
         }
     }
@@ -213,27 +267,24 @@ private[gateway] final class GatewayRuntimeImpl[-R](
   private def executeRoots(
     routes: List[RootRoute],
     execution: ExecutionRequest,
-    resolvedRequest: GraphQLRequest
+    resolvedRequest: GraphQLRequest,
+    caches: PlanCaches
   )(implicit trace: Trace): ZIO[R, Nothing, List[RootResult]] =
-    ZIO.foreachPar(routes)(executeRoot(_, execution, resolvedRequest))
+    routes match {
+      case route :: Nil => executeRoot(route, execution, resolvedRequest, caches).map(_ :: Nil)
+      case _            => ZIO.foreachPar(routes)(executeRoot(_, execution, resolvedRequest, caches))
+    }
 
   private def executeRoot(
     route: RootRoute,
     execution: ExecutionRequest,
-    resolvedRequest: GraphQLRequest
+    resolvedRequest: GraphQLRequest,
+    caches: PlanCaches
   )(implicit trace: Trace): ZIO[R, Nothing, RootResult] = {
-    val mapping    = graph.mapping(route.source)
-    val executable = route.downstream.map(graph.executableField(route.source, _))
-    val downstream = mapping.fold(executable)(value => executable.map(value.rootFieldToSource))
-    val operation  = OperationDefinition(
-      execution.operationType,
-      execution.operationName,
-      Nil,
-      Nil,
-      downstream.map(_.toSelection)
-    )
-    val request    = GraphQLRequest(
-      query = Some(DocumentRenderer.renderCompact(Document(operation :: Nil, SourceMapper.empty))),
+    val mapping  = graph.mapping(route.source)
+    val prepared = preparedRoot(route, execution.operationType, execution.operationName, caches)
+    val request  = GraphQLRequest(
+      query = Some(prepared.query),
       operationName = execution.operationName,
       extensions = resolvedRequest.extensions
     )
@@ -243,16 +294,20 @@ private[gateway] final class GatewayRuntimeImpl[-R](
         source
           .execute(request, execution.operationType)
           .map { response =>
-            val translated = mapping.fold(response)(_.rootResponseToClient(executable, response))
+            val translated = mapping.fold(response)(_.rootResponseToClient(prepared.executable, response))
             val errors     = translated.errors.map {
               case error: CalibanError.ExecutionError =>
-                error.copy(path = graph.restoreResponsePath(route.downstream, executable, error.path))
+                error.copy(path = graph.restoreResponsePath(route.downstream, prepared.executable, error.path))
               case error                              => error
+            }
+            val restored   = prepared.restorer match {
+              case Some(mappings) => graph.restoreResponseNames(mappings, translated.data)
+              case None           => translated.data
             }
             RootResult(
               route,
               translated.copy(
-                data = graph.restoreResponseNames(route.downstream, executable, translated.data),
+                data = restored,
                 errors = source.errorPolicy.routed(route.client, errors)
               )
             )
@@ -299,7 +354,7 @@ private[gateway] final class GatewayRuntimeImpl[-R](
       local.errors ::: roots.flatMap(_.response.errors) ::: entities.flatMap(_.errors) ::: remote.completionErrors
     if (remote.aborted) GraphQLResponse(NullValue, errors)
     else {
-      val completed = completeObject(plan.fields, data, Vector.empty, errors, plan.runtimeTypes)
+      val completed = completeObject(plan.fields, data, Nil, errors, plan.runtimeTypes)
       GraphQLResponse(completed.value.getOrElse(NullValue), errors ::: completed.errors)
     }
   }
@@ -307,39 +362,48 @@ private[gateway] final class GatewayRuntimeImpl[-R](
   private def completeObject(
     fields: List[Field],
     value: ResponseValue,
-    path: Vector[PathValue],
+    path: List[PathValue],
     sourceErrors: List[CalibanError],
     runtimeTypes: List[RuntimeTypeSelection]
   ): CompletedValue =
     value match {
-      case ObjectValue(values) =>
-        val byName    = values.toMap
-        val completed = fields.map { field =>
-          val fieldPath = path :+ PathValue.Key(field.aliasedName)
-          field.aliasedName -> completeValue(
+      case obj: ObjectValue =>
+        val completed = new mutable.ListBuffer[(String, ResponseValue)]
+        val errors    = new mutable.ListBuffer[CalibanError.ExecutionError]
+        var missing   = false
+        var remaining = fields
+
+        val lookup = IndexedFields(obj)
+
+        while (remaining ne Nil) {
+          val field  = remaining.head
+          val name   = field.aliasedName
+          val value  = lookup.getOrNullValue(name)
+          val result = completeValue(
             field.fieldType,
             field,
-            byName.getOrElse(field.aliasedName, NullValue),
-            fieldPath,
+            value,
+            PathValue.Key(name) :: path,
             sourceErrors,
             runtimeTypes
           )
+          if (result.errors ne Nil) errors ++= result.errors
+          result.value match {
+            case Some(completedValue) => completed += (name -> completedValue)
+            case None                 => missing = true
+          }
+          remaining = remaining.tail
         }
-        val errors    = completed.flatMap(_._2.errors)
-        if (completed.exists(_._2.value.isEmpty)) CompletedValue(None, errors)
-        else
-          CompletedValue(
-            Some(ObjectValue(completed.flatMap { case (name, result) => result.value.map(name -> _) })),
-            errors
-          )
-      case _                   => CompletedValue(Some(NullValue), invalidSourceValueErrors(path.toList, sourceErrors))
+        if (missing) CompletedValue(None, errors.toList)
+        else CompletedValue(Some(ObjectValue(completed.toList)), errors.toList)
+      case _                => CompletedValue(Some(NullValue), invalidSourceValueErrors(path.reverse, sourceErrors))
     }
 
   private def completeValue(
     fieldType: __Type,
     field: Field,
     value: ResponseValue,
-    path: Vector[PathValue],
+    path: List[PathValue],
     sourceErrors: List[CalibanError],
     runtimeTypes: List[RuntimeTypeSelection]
   ): CompletedValue =
@@ -352,7 +416,7 @@ private[gateway] final class GatewayRuntimeImpl[-R](
           case Some(NullValue) =>
             CompletedValue(
               None,
-              completed.errors ::: nullViolation(field, path.toList, sourceErrors ::: completed.errors)
+              completed.errors ::: nullViolation(field, path.reverse, sourceErrors ::: completed.errors)
             )
           case _               => completed
         }
@@ -360,14 +424,33 @@ private[gateway] final class GatewayRuntimeImpl[-R](
       case __TypeKind.LIST                         =>
         (value, fieldType.ofType) match {
           case (ListValue(values), Some(itemType)) =>
-            val completed = values.zipWithIndex.map { case (item, index) =>
-              completeValue(itemType, field, item, path :+ PathValue.Index(index), sourceErrors, runtimeTypes)
+            val completed = new mutable.ListBuffer[ResponseValue]
+            val errors    = new mutable.ListBuffer[CalibanError.ExecutionError]
+            var missing   = false
+            var index     = 0
+            var remaining = values
+            while (remaining ne Nil) {
+              val result =
+                completeValue(
+                  itemType,
+                  field,
+                  remaining.head,
+                  PathValue.Index(index) :: path,
+                  sourceErrors,
+                  runtimeTypes
+                )
+              if (result.errors ne Nil) errors ++= result.errors
+              result.value match {
+                case Some(completedValue) => completed += completedValue
+                case None                 => missing = true
+              }
+              index += 1
+              remaining = remaining.tail
             }
-            val errors    = completed.flatMap(_.errors)
-            if (completed.exists(_.value.isEmpty)) CompletedValue(Some(NullValue), errors)
-            else CompletedValue(Some(ListValue(completed.flatMap(_.value))), errors)
+            if (missing) CompletedValue(Some(NullValue), errors.toList)
+            else CompletedValue(Some(ListValue(completed.toList)), errors.toList)
           case _                                   =>
-            CompletedValue(Some(NullValue), invalidSourceValueErrors(path.toList, sourceErrors))
+            CompletedValue(Some(NullValue), invalidSourceValueErrors(path.reverse, sourceErrors))
         }
       case __TypeKind.INTERFACE | __TypeKind.UNION =>
         val possible        = fieldType.possibleTypes.getOrElse(Nil).flatMap(_.name).toSet
@@ -388,7 +471,7 @@ private[gateway] final class GatewayRuntimeImpl[-R](
               runtimeTypes
             )
           case None                                        =>
-            CompletedValue(Some(NullValue), invalidSourceValueErrors(path.toList, sourceErrors))
+            CompletedValue(Some(NullValue), invalidSourceValueErrors(path.reverse, sourceErrors))
         }
       case __TypeKind.OBJECT                       =>
         completeNestedObject(
@@ -405,13 +488,13 @@ private[gateway] final class GatewayRuntimeImpl[-R](
           case EnumValue(name) if fieldType.allEnumValues.exists(_.name == name)   => CompletedValue(Some(value), Nil)
           case _                                                                   =>
             val errors =
-              if (hasErrorAt(sourceErrors, path.toList)) Nil
+              if (hasErrorAt(sourceErrors, path.reverse)) Nil
               else {
                 val enumName = fieldType.name.getOrElse("Unknown")
                 List(
                   CalibanError.ExecutionError(
                     s"Invalid value for enum '$enumName'.",
-                    path.toList,
+                    path.reverse,
                     Some(field.locationInfo)
                   )
                 )
@@ -425,7 +508,7 @@ private[gateway] final class GatewayRuntimeImpl[-R](
     typeName: String,
     field: Field,
     value: ResponseValue,
-    path: Vector[PathValue],
+    path: List[PathValue],
     sourceErrors: List[CalibanError],
     runtimeTypes: List[RuntimeTypeSelection]
   ): CompletedValue = {
@@ -465,21 +548,110 @@ private[gateway] final class GatewayRuntimeImpl[-R](
   private def pathsOverlap(left: List[PathValue], right: List[PathValue]): Boolean =
     left.nonEmpty && (left.startsWith(right) || right.startsWith(left))
 
+  private def applyPatches(
+    value: ResponseValue,
+    patches: List[(List[PathValue], ResponseValue)]
+  ): ResponseValue =
+    patches match {
+      case Nil                  => value
+      case (path, patch) :: Nil => mergeAt(value, path, patch)
+      case _                    =>
+        var current   = value
+        var remaining = patches
+        val nested    = new mutable.ListBuffer[(List[PathValue], ResponseValue)]
+        while (remaining ne Nil) {
+          val patch = remaining.head
+          if (patch._1.isEmpty) {
+            if (nested.nonEmpty) {
+              current = applyNestedPatches(current, nested.toList)
+              nested.clear()
+            }
+            current = mergeObject(current, patch._2)
+          } else nested += patch
+          remaining = remaining.tail
+        }
+        if (nested.isEmpty) current else applyNestedPatches(current, nested.toList)
+    }
+
+  private def applyNestedPatches(
+    value: ResponseValue,
+    patches: List[(List[PathValue], ResponseValue)]
+  ): ResponseValue =
+    patches match {
+      case (path, patch) :: Nil => mergeAt(value, path, patch)
+      case _                    => applyGroupedPatches(value, patches)
+    }
+
+  private def applyGroupedPatches(
+    value: ResponseValue,
+    patches: List[(List[PathValue], ResponseValue)]
+  ): ResponseValue =
+    value match {
+      case ObjectValue(fields) =>
+        var byKey: List[(String, mutable.ListBuffer[(List[PathValue], ResponseValue)])] = Nil
+        patches.foreach { patch =>
+          patch._1 match {
+            case StringValue(key) :: tail =>
+              var remaining = byKey
+              while ((remaining ne Nil) && !remaining.head._1.equals(key)) remaining = remaining.tail
+              remaining match {
+                case (_, bucket) :: _ => bucket += (tail -> patch._2)
+                case Nil              =>
+                  val bucket = new mutable.ListBuffer[(List[PathValue], ResponseValue)]
+                  bucket += (tail -> patch._2)
+                  byKey = (key -> bucket) :: byKey
+              }
+            case _                        => ()
+          }
+        }
+        if (byKey.isEmpty) value
+        else
+          ObjectValue(fields.map { field =>
+            var remaining = byKey
+            while ((remaining ne Nil) && !remaining.head._1.equals(field._1)) remaining = remaining.tail
+            remaining match {
+              case (_, nestedPatches) :: _ => (field._1, applyPatches(field._2, nestedPatches.toList))
+              case Nil                     => field
+            }
+          })
+      case ListValue(values)   =>
+        val byIndex = mutable.LongMap.empty[mutable.ListBuffer[(List[PathValue], ResponseValue)]]
+        patches.foreach { patch =>
+          patch._1 match {
+            case IntValue.IntNumber(index) :: tail if index >= 0 =>
+              byIndex.getOrElseUpdate(index.toLong, mutable.ListBuffer.empty) += (tail -> patch._2)
+            case _                                               => ()
+          }
+        }
+        if (byIndex.isEmpty) value
+        else {
+          var index = 0
+          ListValue(values.map { nested =>
+            val nestedPatches = byIndex.getOrNull(index.toLong)
+            val patched       = if (nestedPatches eq null) nested else applyPatches(nested, nestedPatches.toList)
+            index += 1
+            patched
+          })
+        }
+      case other               => other
+    }
+
   private def mergeAt(value: ResponseValue, path: List[PathValue], patch: ResponseValue): ResponseValue =
     path match {
-      case Nil                            => mergeObject(value, patch)
-      case PathValue.Key(key) :: tail     =>
-        value match {
-          case ObjectValue(fields) =>
-            ObjectValue(updateFieldAt(fields, key, tail, patch))
-          case other               => other
+      case Nil          => mergeObject(value, patch)
+      case head :: tail =>
+        head match {
+          case StringValue(key)          =>
+            value match {
+              case ObjectValue(fields) => ObjectValue(updateFieldAt(fields, key, tail, patch))
+              case other               => other
+            }
+          case IntValue.IntNumber(index) =>
+            value match {
+              case ListValue(values) if index >= 0 => ListValue(updateValueAt(values, index, tail, patch))
+              case other                           => other
+            }
         }
-      case PathValue.Index(index) :: tail =>
-        value match {
-          case ListValue(values) if index >= 0 => ListValue(updateValueAt(values, index, tail, patch))
-          case other                           => other
-        }
-      case _                              => value
     }
 
   private def updateFieldAt(
@@ -488,27 +660,18 @@ private[gateway] final class GatewayRuntimeImpl[-R](
     path: List[PathValue],
     patch: ResponseValue
   ): List[(String, ResponseValue)] = {
+    val updated   = new mutable.ListBuffer[(String, ResponseValue)]
+    var found     = false
     var remaining = fields
-    var index     = 0
-    var first     = -1
-    var matches   = 0
-    while (remaining.nonEmpty) {
-      if (remaining.head._1 == key) {
-        if (first < 0) first = index
-        matches += 1
-      }
+    while (remaining ne Nil) {
+      val field = remaining.head
+      if (field._1.equals(key)) {
+        found = true
+        updated += ((key, mergeAt(field._2, path, patch)))
+      } else updated += field
       remaining = remaining.tail
-      index += 1
     }
-    if (matches == 0) fields
-    else if (matches == 1) {
-      val (name, nested) = fields(first)
-      fields.updated(first, name -> mergeAt(nested, path, patch))
-    } else
-      fields.map {
-        case (name, nested) if name == key => name -> mergeAt(nested, path, patch)
-        case other                         => other
-      }
+    if (found) updated.toList else fields
   }
 
   private def updateValueAt(
@@ -516,14 +679,25 @@ private[gateway] final class GatewayRuntimeImpl[-R](
     index: Int,
     path: List[PathValue],
     patch: ResponseValue
-  ): List[ResponseValue] =
-    values.drop(index) match {
-      case nested :: _ => values.updated(index, mergeAt(nested, path, patch))
-      case Nil         => values
+  ): List[ResponseValue] = {
+    var reversedPrefix: List[ResponseValue] = Nil
+    var remaining                           = values
+    var position                            = 0
+    while (position < index && (remaining ne Nil)) {
+      reversedPrefix = remaining.head :: reversedPrefix
+      remaining = remaining.tail
+      position += 1
     }
+    remaining match {
+      case nested :: tail => reversedPrefix reverse_::: (mergeAt(nested, path, patch) :: tail)
+      case Nil            => values
+    }
+  }
+
+  private val rightWins: (ResponseValue, ResponseValue) => ResponseValue = (_, value) => value
 
   private def mergeObject(left: ResponseValue, right: ResponseValue): ResponseValue =
-    mergeValues(left, right)((_, value) => value)
+    mergeValues(left, right)(rightWins)
 
   private def mergeRootValue(left: ResponseValue, right: ResponseValue): ResponseValue =
     mergeValues(left, right) {
@@ -541,16 +715,90 @@ private[gateway] final class GatewayRuntimeImpl[-R](
     right: ResponseValue
   )(mergeLeaf: (ResponseValue, ResponseValue) => ResponseValue): ResponseValue =
     (left, right) match {
-      case (ObjectValue(leftFields), ObjectValue(rightFields)) =>
-        val rightMap = rightFields.toMap
-        val names    = leftFields.iterator.map(_._1).toSet
-        ObjectValue(
-          leftFields.map { case (name, value) =>
-            name -> rightMap.get(name).fold(value)(other => mergeValues(value, other)(mergeLeaf))
-          } :::
-            rightFields.filterNot(field => names.contains(field._1))
-        )
-      case _                                                   => mergeLeaf(left, right)
+      case (leftObj: ObjectValue, rightObj: ObjectValue) =>
+        val leftFields                                          = leftObj.fields
+        var leftSize                                            = 0
+        var remaining                                           = leftFields
+        while (remaining ne Nil) {
+          leftSize += 1
+          remaining = remaining.tail
+        }
+        var positions: java.util.HashMap[String, AnyRef]        = null
+        if (leftSize >= IndexedFields.WideObjectFields) {
+          positions = new java.util.HashMap(leftSize * 2)
+          var position = 0
+          remaining = leftFields
+          while (remaining ne Nil) {
+            val name  = remaining.head._1
+            val boxed = Integer.valueOf(position)
+            positions.get(name) match {
+              case null                               => positions.put(name, boxed)
+              case single: Integer                    =>
+                val duplicated = new java.util.ArrayList[Integer](2)
+                duplicated.add(single)
+                duplicated.add(boxed)
+                positions.put(name, duplicated)
+              case duplicated: java.util.ArrayList[_] =>
+                duplicated.asInstanceOf[java.util.ArrayList[Integer]].add(boxed)
+              case _                                  => ()
+            }
+            position += 1
+            remaining = remaining.tail
+          }
+        }
+        val matches                                             = new Array[ResponseValue](leftSize)
+        var extras: mutable.ListBuffer[(String, ResponseValue)] = null
+        var rightRemaining                                      = rightObj.fields
+        while (rightRemaining ne Nil) {
+          val field   = rightRemaining.head
+          var matched = false
+          if (positions ne null) {
+            positions.get(field._1) match {
+              case null                               => ()
+              case single: Integer                    =>
+                matches(single.intValue) = field._2
+                matched = true
+              case duplicated: java.util.ArrayList[_] =>
+                val values = duplicated.asInstanceOf[java.util.ArrayList[Integer]]
+                var i      = 0
+                while (i < values.size) {
+                  matches(values.get(i).intValue) = field._2
+                  i += 1
+                }
+                matched = true
+              case _                                  => ()
+            }
+          } else {
+            var position = 0
+            remaining = leftFields
+            while (remaining ne Nil) {
+              if (remaining.head._1.equals(field._1)) {
+                matches(position) = field._2
+                matched = true
+              }
+              position += 1
+              remaining = remaining.tail
+            }
+          }
+          if (!matched) {
+            if (extras eq null) extras = new mutable.ListBuffer
+            extras += field
+          }
+          rightRemaining = rightRemaining.tail
+        }
+        val merged                                              = new mutable.ListBuffer[(String, ResponseValue)]
+        var position                                            = 0
+        remaining = leftFields
+        while (remaining ne Nil) {
+          val field   = remaining.head
+          val matched = matches(position)
+          merged += (if (matched eq null) field else (field._1, mergeValues(field._2, matched)(mergeLeaf)))
+          position += 1
+          remaining = remaining.tail
+        }
+        if (extras ne null) merged ++= extras
+        ObjectValue(merged.toList)
+      case _                                             => mergeLeaf(left, right)
     }
 
   private def responseFields(response: GraphQLResponse[CalibanError]): List[(String, ResponseValue)] =
@@ -564,7 +812,7 @@ private[gateway] final class GatewayRuntimeImpl[-R](
     response: GraphQLResponse[CalibanError],
     errors: List[CalibanError]
   ): GraphQLResponse[CalibanError] = {
-    val completed = completeObject(fields, response.data, Vector.empty, errors, Nil)
+    val completed = completeObject(fields, response.data, Nil, errors, Nil)
     response.copy(data = completed.value.getOrElse(NullValue), errors = errors ::: completed.errors)
   }
 
@@ -575,27 +823,37 @@ private[gateway] final class GatewayRuntimeImpl[-R](
     field: Field
   ): Option[String] =
     value match {
-      case ObjectValue(fields) =>
-        val values          = fields.toMap
+      case obj: ObjectValue =>
+        val lookup          = IndexedFields(obj)
         val matching        = runtimeTypes.filter(_.path == path)
         val selectedAliases = field.fields.iterator.filter(_.name == "__typename").map(_.aliasedName)
         matching.iterator
-          .flatMap(selection => values.get(selection.responseName))
+          .flatMap(selection => lookup.get(selection.responseName))
           .collectFirst { case StringValue(name) => StringValue(name) }
-          .orElse(selectedAliases.flatMap(values.get).collectFirst { case value: StringValue => value })
-          .orElse(values.get("__typename"))
+          .orElse(selectedAliases.flatMap(lookup.get(_)).collectFirst { case value: StringValue => value })
+          .orElse(lookup.get("__typename"))
           .orElse(
             runtimeTypes.iterator
               .filterNot(matching.contains)
-              .flatMap(selection => values.get(selection.responseName))
+              .flatMap(selection => lookup.get(selection.responseName))
               .collectFirst { case value: StringValue => value }
           )
           .collect { case StringValue(name) => name }
-      case _                   => None
+      case _                => None
     }
 
-  private def responsePath(path: Vector[PathValue]): Vector[String] =
-    path.collect { case PathValue.Key(name) => name }
+  private def responsePath(path: List[PathValue]): Vector[String] = {
+    var names: List[String] = Nil
+    var remaining           = path
+    while (remaining ne Nil) {
+      remaining.head match {
+        case PathValue.Key(name) => names = name :: names
+        case _                   => ()
+      }
+      remaining = remaining.tail
+    }
+    names.toVector
+  }
 
   private def renderPlan(plan: OperationPlan): String = {
     val header = plan.operation.toString.toLowerCase
@@ -640,11 +898,20 @@ private[gateway] final class GatewayRuntimeImpl[-R](
 }
 
 private object GatewayRuntimeImpl {
-  private val requestTimeoutError    = CalibanError.ValidationError("Gateway request timed out.", "")
+  private val requestTimeoutError = CalibanError.ValidationError("Gateway request timed out.", "")
+
   private val requestTimeoutResponse =
     GraphQLResponse(NullValue, List(CalibanError.ExecutionError("Gateway request timed out.")))
 
   final case class RootResult(route: RootRoute, response: GraphQLResponse[CalibanError])
+
+  private[internal] final case class PreparedRoot(
+    operationType: OperationType,
+    operationName: Option[String],
+    executable: List[Field],
+    query: String,
+    restorer: Option[Map[String, ComposedGraph.ResponseNameMapping]]
+  )
 
   private final case class EntityExecution(roots: Map[RouteId, ResponseValue], results: List[EntityResult])
 
@@ -656,4 +923,24 @@ private object GatewayRuntimeImpl {
   )
 
   private final case class CompletedValue(value: Option[ResponseValue], errors: List[CalibanError.ExecutionError])
+}
+
+private[internal] object PlanCaches {
+
+  def memoize[A <: AnyRef](cache: ConcurrentHashMap[RouteId, A], id: RouteId)(compute: => A): A = {
+    val cached = cache.get(id)
+    if (cached ne null) cached
+    else {
+      val created = compute
+      cache.put(id, created)
+      created
+    }
+  }
+}
+
+private[internal] final class PlanCaches {
+  val roots: ConcurrentHashMap[RouteId, GatewayRuntimeImpl.PreparedRoot]        = new ConcurrentHashMap
+  val groupKeys: ConcurrentHashMap[RouteId, EntityExecutor.EntityGroupKey]      = new ConcurrentHashMap
+  val lookups: ConcurrentHashMap[RouteId, EntityExecutor.PreparedLookup]        = new ConcurrentHashMap
+  val identities: ConcurrentHashMap[RouteId, EntityExecutor.IdentitySelections] = new ConcurrentHashMap
 }

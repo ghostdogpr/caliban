@@ -105,6 +105,37 @@ object ResponseValue {
         case o: ObjectValue => (this eq o) || (o.hashCode == hashCode && o.fields == fields)
         case _              => false
       }
+
+    private[caliban] def get(name: String): Option[ResponseValue] = {
+      var result: Option[ResponseValue] = None
+      var remaining                     = fields
+      while (remaining ne Nil) {
+        val head = remaining.head
+        if (head._1.equals(name)) result = Some(head._2)
+        remaining = remaining.tail
+      }
+      result
+    }
+
+    private[caliban] def getOrNullValue(name: String): ResponseValue = {
+      var result: ResponseValue = Value.NullValue
+      var remaining             = fields
+      while (remaining ne Nil) {
+        val head = remaining.head
+        if (head._1.equals(name)) result = head._2
+        remaining = remaining.tail
+      }
+      result
+    }
+
+    private[caliban] def has(name: String): Boolean = {
+      var remaining = fields
+      while (remaining ne Nil) {
+        if (remaining.head._1.equals(name)) return true
+        remaining = remaining.tail
+      }
+      false
+    }
   }
   object ObjectValue {
     val empty: ObjectValue = ObjectValue(Nil)

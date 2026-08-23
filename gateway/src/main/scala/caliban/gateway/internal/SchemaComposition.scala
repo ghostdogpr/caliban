@@ -257,12 +257,25 @@ private[gateway] final class ComposedGraph private[internal] (
     clientFields: List[caliban.execution.Field],
     executableFields: List[caliban.execution.Field],
     value: ResponseValue
-  ): ResponseValue = {
+  ): ResponseValue =
+    responseNameRestorer(clientFields, executableFields) match {
+      case Some(mappings) => restoreResponseNames(mappings, value)
+      case None           => value
+    }
+
+  def responseNameRestorer(
+    clientFields: List[caliban.execution.Field],
+    executableFields: List[caliban.execution.Field]
+  ): Option[Map[String, ComposedGraph.ResponseNameMapping]] = {
     val mappings = responseNameMappings(clientFields, executableFields)
-    restoreResponseNames(mappings, value)
+
+    def isIdentity(values: Map[String, ComposedGraph.ResponseNameMapping]): Boolean =
+      values.forall { case (name, mapping) => mapping.clientName == name && isIdentity(mapping.children) }
+
+    if (isIdentity(mappings)) None else Some(mappings)
   }
 
-  private def restoreResponseNames(
+  def restoreResponseNames(
     mappings: Map[String, ComposedGraph.ResponseNameMapping],
     value: ResponseValue
   ): ResponseValue =
@@ -428,7 +441,7 @@ private[gateway] final class ComposedGraph private[internal] (
 }
 
 private[gateway] object ComposedGraph {
-  private final case class ResponseNameMapping(
+  private[internal] final case class ResponseNameMapping(
     clientName: String,
     children: Map[String, ResponseNameMapping]
   )

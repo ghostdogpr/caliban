@@ -1,13 +1,17 @@
 package caliban.gateway.internal
 
-import caliban.execution.{ isMetaField, ExecutionRequest, Field }
+import caliban.InputValue
+import caliban.Value.NullValue
+import caliban.execution.{ isIntrospectionField, isMetaField, ExecutionRequest, Field, Fragment }
 import caliban.gateway.internal.OperationPlanner._
 import caliban.introspection.adt.{ __Field, __Type, __TypeKind }
 import caliban.parsing.SourceMapper
-import caliban.parsing.adt.{ Directive, Document, OperationType, Selection }
+import caliban.parsing.adt.{ Definition, Directive, Document, OperationType, Selection }
+import caliban.rendering.DocumentRenderer
 import caliban.schema.Types
 import zio.Duration
 
+import scala.collection.immutable.ListMap
 import scala.collection.mutable
 
 private[gateway] final class OperationPlanner(
@@ -1550,7 +1554,50 @@ private[gateway] object OperationPlanner {
     lookup: ComposedGraph.EntityLookup,
     fields: List[Field],
     requiresKeyEnrichment: Boolean
-  )
+  ) {
+
+    lazy val selectionKey: String = canonicalSelectionKey(fields)
+  }
+
+  private[internal] def canonicalSelectionKey(fields: List[Field]): String = {
+    def renderSelection(selection: Selection): String =
+      DocumentRenderer.renderCompact(
+        Document(
+          Definition.ExecutableDefinition
+            .OperationDefinition(OperationType.Query, None, Nil, Nil, selection :: Nil) :: Nil,
+          SourceMapper.empty
+        )
+      )
+
+    def canonicalDirective(directive: Directive): Directive =
+      directive.copy(arguments = ListMap(directive.arguments.toList.sortBy(_._1): _*), index = 0)
+
+    def canonicalSelection(selection: Selection): Selection =
+      selection match {
+        case field: Selection.Field             =>
+          field.copy(
+            arguments = ListMap(field.arguments.toList.sortBy(_._1): _*),
+            directives = field.directives.map(canonicalDirective),
+            selectionSet = field.selectionSet.map(canonicalSelection).sortBy(renderSelection),
+            index = 0
+          )
+        case fragment: Selection.InlineFragment =>
+          fragment.copy(
+            dirs = fragment.dirs.map(canonicalDirective),
+            selectionSet = fragment.selectionSet.map(canonicalSelection).sortBy(renderSelection)
+          )
+        case fragment: Selection.FragmentSpread =>
+          fragment.copy(directives = fragment.directives.map(canonicalDirective))
+      }
+
+    val selections = fields.map(field => canonicalSelection(field.toSelection)).sortBy(renderSelection)
+    DocumentRenderer.renderCompact(
+      Document(
+        Definition.ExecutableDefinition.OperationDefinition(OperationType.Query, None, Nil, Nil, selections) :: Nil,
+        SourceMapper.empty
+      )
+    )
+  }
 
   final case class OperationPlan(
     operation: OperationType,
@@ -1561,5 +1608,82 @@ private[gateway] object OperationPlanner {
     entities: List[EntityRoute],
     runtimeTypes: List[RuntimeTypeSelection],
     passthrough: Option[String]
-  )
+  ) {
+
+    private[internal] lazy val caches: PlanCaches = new PlanCaches
+
+    lazy val introspectionFields: List[Field] = localFields.filter(isIntrospectionField)
+
+    lazy val hasVariableReferences: Boolean = PlanVariables.references(this)
+
+    private[internal] def bind(variables: Map[String, InputValue]): OperationPlan =
+      PlanVariables.bind(this, variables)
+  }
+
+  private[internal] object PlanVariables {
+
+    def references(plan: OperationPlan): Boolean =
+      plan.fields.exists(fieldReferences) ||
+        plan.localFields.exists(fieldReferences) ||
+        plan.roots.exists(route => route.client.exists(fieldReferences) || route.downstream.exists(fieldReferences)) ||
+        plan.entities.exists(route => route.fields.exists(fieldReferences))
+
+    def bind(plan: OperationPlan, variables: Map[String, InputValue]): OperationPlan = {
+      def bindValue(value: InputValue): Option[InputValue] =
+        value match {
+          case variable: InputValue.VariableValue =>
+            variables.get(variable.name)
+          case InputValue.ListValue(values)       =>
+            Some(InputValue.ListValue(values.map(value => bindValue(value).getOrElse(NullValue))))
+          case InputValue.ObjectValue(fields)     =>
+            Some(InputValue.ObjectValue(fields.flatMap { case (name, value) => bindValue(value).map(name -> _) }))
+          case value                              => Some(value)
+        }
+
+      def bindDirective(directive: Directive): Directive =
+        directive.copy(arguments = directive.arguments.flatMap { case (name, value) =>
+          bindValue(value).map(name -> _)
+        })
+
+      def bindFragment(fragment: Fragment): Fragment =
+        fragment.copy(directives = fragment.directives.map(bindDirective))
+
+      def bindField(field: Field): Field =
+        field.copy(
+          fields = field.fields.map(bindField),
+          arguments = field.arguments.flatMap { case (name, value) => bindValue(value).map(name -> _) },
+          directives = field.directives.map(bindDirective),
+          fragment = field.fragment.map(bindFragment)
+        )
+
+      plan.copy(
+        fields = plan.fields.map(bindField),
+        localFields = plan.localFields.map(bindField),
+        roots = plan.roots.map(route =>
+          route.copy(client = route.client.map(bindField), downstream = route.downstream.map(bindField))
+        ),
+        entities = plan.entities.map(route => route.copy(fields = route.fields.map(bindField)))
+      )
+    }
+
+    private def fieldReferences(field: Field): Boolean =
+      field.arguments.valuesIterator.exists(valueReferences) ||
+        field.directives.exists(directiveReferences) ||
+        field.fragment.exists(fragmentReferences) ||
+        field.fields.exists(fieldReferences)
+
+    private def fragmentReferences(fragment: Fragment): Boolean =
+      fragment.directives.exists(directiveReferences)
+
+    private def directiveReferences(directive: Directive): Boolean =
+      directive.arguments.valuesIterator.exists(valueReferences)
+
+    private def valueReferences(value: InputValue): Boolean =
+      value match {
+        case _: InputValue.VariableValue    => true
+        case InputValue.ListValue(values)   => values.exists(valueReferences)
+        case InputValue.ObjectValue(fields) => fields.valuesIterator.exists(valueReferences)
+        case _                              => false
+      }
+  }
 }

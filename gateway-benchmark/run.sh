@@ -9,4 +9,4 @@ if [ ! -f "$JAR" ]; then
     exit 1
 fi
 
-exec java ${JAVA_OPTS:-} -jar "$JAR"
+exec java -XX:+UseParallelGC ${JAVA_OPTS:-} -jar "$JAR"

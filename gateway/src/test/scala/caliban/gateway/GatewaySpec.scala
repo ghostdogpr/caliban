@@ -6,7 +6,7 @@ import caliban.Value.{ BooleanValue, EnumValue, NullValue, StringValue }
 import caliban.gateway.GatewayTestSupport._
 import caliban.parsing.Parser
 import caliban.schema.{ GenericSchema, Schema }
-import caliban.{ graphQL, CalibanError, GraphQLInterpreter, GraphQLRequest, PathValue, RootResolver }
+import caliban.{ graphQL, CalibanError, GraphQLInterpreter, GraphQLRequest, PathValue, ResponseValue, RootResolver }
 import zio._
 import zio.test._
 
@@ -46,6 +46,17 @@ object GatewaySpec extends ZIOSpecDefault {
       implicit val statusSchema: Schema[Any, Status] = gen
       implicit val querySchema: Schema[Any, Query]   = gen
       val api                                        = graphQL(RootResolver(Query(Status.ACTIVE)))
+    }
+
+    object EchoApi extends GenericSchema[Any] {
+      import auto._
+      import caliban.schema.ArgBuilder
+      final case class EchoArgs(value: String)
+      final case class Query(echo: EchoArgs => String)
+      implicit val argsBuilder: ArgBuilder[EchoArgs] = ArgBuilder.gen
+      implicit val argsSchema: Schema[Any, EchoArgs] = gen
+      implicit val querySchema: Schema[Any, Query]   = gen
+      val api                                        = graphQL(RootResolver(Query(args => args.value)))
     }
   }
 
@@ -124,6 +135,56 @@ object GatewaySpec extends ZIOSpecDefault {
           field(response.data, "greeting").contains(StringValue("hello")),
           field(response.data, "audience").contains(StringValue("world"))
         )).provideSome[Scope](environment)
+      },
+      test("shares one cached plan and its caches across concurrent constant executions") {
+        val query = """{ echo(value: "fixed") status }"""
+
+        for {
+          gateway   <- Gateway
+                         .compose(
+                           Subgraph.local("echo", LocalSchemas.EchoApi.api),
+                           Subgraph.local("status", LocalSchemas.EnumApi.api)
+                         )
+                         .build
+          primed    <- gateway.execute(query)
+          responses <- ZIO.foreachPar((1 to 24).toList)(_ => gateway.execute(query))
+        } yield assertTrue(
+          primed.errors.isEmpty,
+          responses.forall(response =>
+            response.errors.isEmpty &&
+              field(response.data, "echo").contains(StringValue("fixed")) &&
+              field(response.data, "status").contains(EnumValue("ACTIVE"))
+          )
+        )
+      },
+      test("binds concurrent variables independently across a multi-source plan") {
+        val query = """query Echo($v: String!) { echo(value: $v) status }"""
+
+        def echoRequest(value: String): GraphQLRequest =
+          GraphQLRequest(
+            query = Some(query),
+            operationName = Some("Echo"),
+            variables = Some(Map("v" -> StringValue(value)))
+          )
+
+        for {
+          gateway   <- Gateway
+                         .compose(
+                           Subgraph.local("echo", LocalSchemas.EchoApi.api),
+                           Subgraph.local("status", LocalSchemas.EnumApi.api)
+                         )
+                         .build
+          primed    <- gateway.executeRequest(echoRequest("primed"))
+          responses <- ZIO.foreachPar((1 to 24).toList)(i => gateway.executeRequest(echoRequest(s"value-$i")))
+        } yield assertTrue(
+          primed.errors.isEmpty,
+          field(primed.data, "echo").contains(StringValue("primed")),
+          responses.forall(_.errors.isEmpty),
+          responses.zipWithIndex.forall { case (response, i) =>
+            field(response.data, "echo").contains(StringValue(s"value-${i + 1}")) &&
+            field(response.data, "status").contains(EnumValue("ACTIVE"))
+          }
+        )
       },
       test("completes enum values returned by a local subgraph") {
         for {
@@ -215,6 +276,80 @@ object GatewaySpec extends ZIOSpecDefault {
             case _                                                      => false
           },
           requests == Vector(request.copy(extensions = None))
+        )
+      },
+      test("reuses the cached operation across sequential and concurrent identical requests") {
+        val query    = """{ catalog: products(ids: ["p1"]) { id details { name } } }"""
+        val response = """{"data":{"catalog":[{"id":"p1","details":{"name":"Table"}}]}}"""
+        for {
+          remote   <- stub(response)
+          gateway  <- runtime(remote)
+          first    <- gateway.execute(query)
+          repeated <- ZIO.foreachPar(List.fill(16)(query))(gateway.execute(_))
+          requests <- remote.requests.get
+        } yield assertTrue(
+          first.errors.isEmpty,
+          field(first.data, "catalog").contains(
+            ResponseListValue(
+              List(
+                ResponseObjectValue(
+                  List(
+                    "id"      -> StringValue("p1"),
+                    "details" -> ResponseObjectValue(List("name" -> StringValue("Table")))
+                  )
+                )
+              )
+            )
+          ),
+          repeated.forall(_ == first),
+          requests.size == 17,
+          requests.forall(_ == requests.head)
+        )
+      },
+      test("binds fresh variables on every execution of a cached operation") {
+        val query =
+          """query Products($ids: [ID!]!) { catalog: products(ids: $ids) { id details { name } } }"""
+
+        def clientRequest(id: String): GraphQLRequest =
+          GraphQLRequest(
+            query = Some(query),
+            operationName = Some("Products"),
+            variables = Some(Map("ids" -> ListValue(List(StringValue(id)))))
+          )
+
+        def product(id: String, name: String): ResponseValue =
+          ResponseListValue(
+            List(
+              ResponseObjectValue(
+                List(
+                  "id"      -> StringValue(id),
+                  "details" -> ResponseObjectValue(List("name" -> StringValue(name)))
+                )
+              )
+            )
+          )
+
+        def requestedIds(request: GraphQLRequest): String =
+          request.variables.getOrElse(Map.empty).get("ids").fold("")(_.toInputString)
+
+        for {
+          remote    <- stubByRequest { request =>
+                         if (requestedIds(request).contains("p2"))
+                           """{"data":{"catalog":[{"id":"p2","details":{"name":"Desk"}}]}}"""
+                         else """{"data":{"catalog":[{"id":"p1","details":{"name":"Table"}}]}}"""
+                       }
+          gateway   <- runtime(remote)
+          firstRun  <- gateway.executeRequest(clientRequest("p1"))
+          secondRun <- gateway.executeRequest(clientRequest("p2"))
+          requests  <- remote.requests.get
+        } yield assertTrue(
+          firstRun.errors.isEmpty,
+          secondRun.errors.isEmpty,
+          field(firstRun.data, "catalog").contains(product("p1", "Table")),
+          field(secondRun.data, "catalog").contains(product("p2", "Desk")),
+          requests.size == 2,
+          requestedIds(requests(0)).contains("p1"),
+          requestedIds(requests(1)).contains("p2")
         )
       },
       test("redacts remote errors while preserving aliases, list paths, and null completion") {
