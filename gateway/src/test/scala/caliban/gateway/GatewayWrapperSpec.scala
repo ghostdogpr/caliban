@@ -185,20 +185,4 @@ object GatewayWrapperSpec extends ZIOSpecDefault {
         }
     }
 
-  private def counter(name: String, label: String, value: String): UIO[Double] =
-    Metric.counter(name).tagged(label, value).value.map(_.count)
-
-  private def gauge(name: String): UIO[Double] = Metric.gauge(name).value.map(_.value)
-
-  private def gauge(name: String, label: String, value: String): UIO[Double] =
-    Metric.gauge(name).tagged(label, value).value.map(_.value)
-
-  private def histogram(name: String, labels: (String, String)*): UIO[Long] =
-    labels
-      .foldLeft(Metric.histogram(name, GatewayMetrics.durationBuckets)) { case (metric, (label, value)) =>
-        metric.tagged(label, value)
-      }
-      .value
-      .map(_.count)
-
 }

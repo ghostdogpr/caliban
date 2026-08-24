@@ -63,20 +63,15 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
     )
 
   private def streamingEndpoint(stream: ZStream[Any, Throwable, Byte]): ZIO[Server with Ref[Int], Nothing, Uri] =
-    for {
-      id     <- ZIO.serviceWithZIO[Ref[Int]](_.updateAndGet(_ + 1))
-      path    = s"acquisition-$id"
-      handler = Handler.fromFunction[Request](_ =>
-                  Response(
-                    Status.Ok,
-                    Headers(Header.Custom("Content-Type", "application/graphql-response+json")),
-                    Body.fromStreamChunked(stream)
-                  )
-                )
-      server <- ZIO.service[Server]
-      _      <- server.install(Routes(Method.POST / path -> handler))
-      port   <- server.port
-    } yield Uri.unsafeParse(s"http://127.0.0.1:$port/$path")
+    postEndpoint("acquisition")(_ =>
+      ZIO.succeed(
+        Response(
+          Status.Ok,
+          Headers(Header.Custom("Content-Type", "application/graphql-response+json")),
+          Body.fromStreamChunked(stream)
+        )
+      )
+    )
 
   def spec = suite("SchemaAcquisitionSpec")(
     test("acquires ordinary introspection and Federation service SDL through pinned composition") {
@@ -127,14 +122,8 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
           gateway.execute(
             "{ nested: __type(name: \"Nested\") { fields(includeDeprecated: true) { name isDeprecated deprecationReason } } state: __type(name: \"State\") { enumValues(includeDeprecated: true) { name isDeprecated deprecationReason } } scalar: __type(name: \"URL\") { specifiedByURL } }"
           )
-        nested      = field(response.data, "nested")
-                        .flatMap(field(_, "fields"))
-                        .collect { case ListValue(values) => values }
-                        .getOrElse(Nil)
-        states      = field(response.data, "state")
-                        .flatMap(field(_, "enumValues"))
-                        .collect { case ListValue(values) => values }
-                        .getOrElse(Nil)
+        nested      = listValues(field(response.data, "nested").flatMap(field(_, "fields")))
+        states      = listValues(field(response.data, "state").flatMap(field(_, "enumValues")))
         legacyField = nested.find(field(_, "name").contains(StringValue("legacy")))
         legacyState = states.find(field(_, "name").contains(StringValue("LEGACY")))
       } yield assertTrue(
@@ -217,74 +206,66 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
       val nestedDefault   = List.fill(40)("[").mkString + "null" + List.fill(40)("]").mkString
 
       for {
-        introspection   <- introspectionResponse
-        headerStub      <- stub(serviceResponse(reviewsSchema), reviewResponse)
-        headerGateway   <- Gateway
-                             .compose(Subgraph.federation("headers", headerStub.endpoint, headersConfig))
-                             .build
-        _               <- headerGateway.execute("{ review { body } }")
-        sentHeaders     <- headerStub.headers.get
-        protectedStub   <- stub(serviceResponse(reviewsSchema))
-        protectedResult <- Gateway
-                             .compose(Subgraph.federation("protected", protectedStub.endpoint, protectedConfig))
-                             .build
-                             .either
-        protectedCalls  <- protectedStub.requests.get
-        boundedStub     <- stub(serviceResponse(reviewsSchema))
-        boundedResult   <- Gateway
-                             .compose(Subgraph.federation("bounded", boundedStub.endpoint, responseLimit))
-                             .build
-                             .either
-        parsingStub     <- stub(serviceResponse(nestedSchema))
-        parsingResult   <- Gateway
-                             .compose(Subgraph.federation("parsing", parsingStub.endpoint, parsingLimit))
-                             .build
-                             .either
-        ordinaryStub    <- stub(
-                             introspection.replaceFirst(
-                               "\"defaultValue\":null",
-                               "\"defaultValue\":\"" + nestedDefault + "\""
-                             )
-                           )
-        ordinaryResult  <- Gateway
-                             .compose(Subgraph.graphql("ordinary-parsing", ordinaryStub.endpoint, ordinaryLimit))
-                             .build
-                             .either
-        redirectTarget  <- stub(serviceResponse(reviewsSchema))
-        redirects       <- Ref.make(0)
-        id              <- ZIO.serviceWithZIO[Ref[Int]](_.updateAndGet(_ + 1))
-        path             = s"redirect-$id"
-        server          <- ZIO.service[Server]
-        _               <- server.install(
-                             Routes(
-                               Method.POST / path -> Handler.fromFunctionZIO[Request](_ =>
-                                 redirects
-                                   .update(_ + 1)
-                                   .as(
-                                     Response(
-                                       Status.TemporaryRedirect,
-                                       Headers(
-                                         Header.Custom("Location", redirectTarget.endpoint.toString),
-                                         Header.Custom("Content-Type", "application/graphql-response+json")
-                                       ),
-                                       Body.fromString(serviceResponse(reviewsSchema))
-                                     )
-                                   )
-                               )
-                             )
-                           )
-        port            <- server.port
-        redirectResult  <- Gateway
-                             .compose(
-                               Subgraph.federation(
-                                 "redirect",
-                                 Uri.unsafeParse(s"http://127.0.0.1:$port/$path")
-                               )
-                             )
-                             .build
-                             .either
-        redirectCount   <- redirects.get
-        targetCalls     <- redirectTarget.requests.get
+        introspection    <- introspectionResponse
+        headerStub       <- stub(serviceResponse(reviewsSchema), reviewResponse)
+        headerGateway    <- Gateway
+                              .compose(Subgraph.federation("headers", headerStub.endpoint, headersConfig))
+                              .build
+        _                <- headerGateway.execute("{ review { body } }")
+        sentHeaders      <- headerStub.headers.get
+        protectedStub    <- stub(serviceResponse(reviewsSchema))
+        protectedResult  <- Gateway
+                              .compose(Subgraph.federation("protected", protectedStub.endpoint, protectedConfig))
+                              .build
+                              .either
+        protectedCalls   <- protectedStub.requests.get
+        boundedStub      <- stub(serviceResponse(reviewsSchema))
+        boundedResult    <- Gateway
+                              .compose(Subgraph.federation("bounded", boundedStub.endpoint, responseLimit))
+                              .build
+                              .either
+        parsingStub      <- stub(serviceResponse(nestedSchema))
+        parsingResult    <- Gateway
+                              .compose(Subgraph.federation("parsing", parsingStub.endpoint, parsingLimit))
+                              .build
+                              .either
+        ordinaryStub     <- stub(
+                              introspection.replaceFirst(
+                                "\"defaultValue\":null",
+                                "\"defaultValue\":\"" + nestedDefault + "\""
+                              )
+                            )
+        ordinaryResult   <- Gateway
+                              .compose(Subgraph.graphql("ordinary-parsing", ordinaryStub.endpoint, ordinaryLimit))
+                              .build
+                              .either
+        redirectTarget   <- stub(serviceResponse(reviewsSchema))
+        redirects        <- Ref.make(0)
+        redirectEndpoint <- postEndpoint("redirect")(_ =>
+                              redirects
+                                .update(_ + 1)
+                                .as(
+                                  Response(
+                                    Status.TemporaryRedirect,
+                                    Headers(
+                                      Header.Custom("Location", redirectTarget.endpoint.toString),
+                                      Header.Custom("Content-Type", "application/graphql-response+json")
+                                    ),
+                                    Body.fromString(serviceResponse(reviewsSchema))
+                                  )
+                                )
+                            )
+        redirectResult   <- Gateway
+                              .compose(
+                                Subgraph.federation(
+                                  "redirect",
+                                  redirectEndpoint
+                                )
+                              )
+                              .build
+                              .either
+        redirectCount    <- redirects.get
+        targetCalls      <- redirectTarget.requests.get
       } yield assertTrue(
         sentHeaders.headOption.flatMap(_.get("Authorization")).contains("Bearer schema"),
         sentHeaders.headOption.flatMap(_.get("Content-Type")).exists(_.startsWith("application/json")),
@@ -373,7 +354,7 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
                                     .compose(
                                       Subgraph.federation(
                                         "failed",
-                                        Uri.unsafeParse("http://127.0.0.1:1/graphql"),
+                                        unreachableEndpoint,
                                         protectedConfig
                                       )
                                     )

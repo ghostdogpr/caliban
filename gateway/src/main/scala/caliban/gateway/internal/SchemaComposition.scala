@@ -1,6 +1,6 @@
 package caliban.gateway.internal
 
-import caliban.{ PathValue, ResponseValue }
+import caliban.{ InputValue, PathValue, ResponseValue }
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ BooleanValue, NullValue, StringValue }
 import caliban.execution.{ isMetaField, ExecutionRequest, Field }
@@ -232,25 +232,25 @@ private[gateway] final class ComposedGraph private[internal] (
   def isObjectType(source: String, typeName: String): Boolean =
     sourceRuntimeTypes.get(source -> typeName).exists(_.contains(typeName))
 
-  def appliesOnSource(source: String, parentType: String, field: caliban.execution.Field): Boolean =
+  def appliesOnSource(source: String, parentType: String, field: Field): Boolean =
     field._condition.forall(condition =>
       isInterfaceObject(source, parentType) ||
         sourceRuntimeTypes.getOrElse(source -> parentType, Set.empty).exists(condition)
     )
 
-  def executableField(source: String, field: caliban.execution.Field): caliban.execution.Field =
+  def executableField(source: String, field: Field): Field =
     executableField(source, None, field)
 
   def executableEntityField(
     source: String,
     entityType: String,
-    field: caliban.execution.Field
-  ): caliban.execution.Field =
+    field: Field
+  ): Field =
     executableField(source, Some(entityType), field)
 
   def restoreResponseNames(
-    clientFields: List[caliban.execution.Field],
-    executableFields: List[caliban.execution.Field],
+    clientFields: List[Field],
+    executableFields: List[Field],
     value: ResponseValue
   ): ResponseValue =
     responseNameRestorer(clientFields, executableFields) match {
@@ -259,8 +259,8 @@ private[gateway] final class ComposedGraph private[internal] (
     }
 
   def responseNameRestorer(
-    clientFields: List[caliban.execution.Field],
-    executableFields: List[caliban.execution.Field]
+    clientFields: List[Field],
+    executableFields: List[Field]
   ): Option[Map[String, ComposedGraph.ResponseNameMapping]] = {
     val mappings = responseNameMappings(clientFields, executableFields)
 
@@ -293,8 +293,8 @@ private[gateway] final class ComposedGraph private[internal] (
     }
 
   private def responseNameMappings(
-    clientFields: List[caliban.execution.Field],
-    executableFields: List[caliban.execution.Field]
+    clientFields: List[Field],
+    executableFields: List[Field]
   ): Map[String, ComposedGraph.ResponseNameMapping] =
     executableFields
       .zip(clientFields)
@@ -310,8 +310,8 @@ private[gateway] final class ComposedGraph private[internal] (
       }
 
   def restoreResponsePath(
-    clientFields: List[caliban.execution.Field],
-    executableFields: List[caliban.execution.Field],
+    clientFields: List[Field],
+    executableFields: List[Field],
     path: List[PathValue]
   ): List[PathValue] =
     path match {
@@ -346,8 +346,8 @@ private[gateway] final class ComposedGraph private[internal] (
   private def executableField(
     source: String,
     parentType: Option[String],
-    field: caliban.execution.Field
-  ): caliban.execution.Field = {
+    field: Field
+  ): Field = {
     val parent      = parentType.orElse(field.parentType.flatMap(_.innerType.name)).getOrElse("")
     val targets     = field.targets.flatMap { original =>
       if (isInterfaceObject(source, parent)) None
@@ -370,9 +370,9 @@ private[gateway] final class ComposedGraph private[internal] (
 
   private def disambiguate(
     source: String,
-    fields: List[caliban.execution.Field]
-  ): List[caliban.execution.Field] = {
-    def responseTypes(field: caliban.execution.Field): Set[String] = {
+    fields: List[Field]
+  ): List[Field] = {
+    def responseTypes(field: Field): Set[String] = {
       val sourceDefinitions = field.targets.toList
         .flatMap(_.toList)
         .flatMap(target => this.field(source, target, field.name))
@@ -391,7 +391,7 @@ private[gateway] final class ComposedGraph private[internal] (
     else {
       val initial = fields.iterator.map(_.aliasedName).toSet
       fields
-        .foldLeft((List.empty[caliban.execution.Field], initial)) { case ((values, used), field) =>
+        .foldLeft((List.empty[Field], initial)) { case ((values, used), field) =>
           if (!conflicts.contains(field.aliasedName)) (field :: values, used)
           else {
             val alias = privateResponseName(field.aliasedName, used)
@@ -505,7 +505,11 @@ private[gateway] object SchemaComposition {
   import DirectiveComposition._
 
   def isFederation(document: Document): Boolean =
-    hasFederationTransport(document)
+    isFederation2(document) || {
+      val typeNames = document.typeDefinitions.iterator.map(_.name).toSet
+      typeNames.contains("_Any") && typeNames.contains("_Entity") &&
+      document.objectTypeDefinitions.exists(_.fields.exists(_.name == "_entities"))
+    }
 
   def fieldSetDirectiveNames(document: Document): (Set[String], Set[String]) = {
     val names = federationDirectiveNames(document)
@@ -514,13 +518,6 @@ private[gateway] object SchemaComposition {
 
   def federationTransportTypes(document: Document, federation: Boolean): Set[String] =
     if (federation) federationDirectiveNames(document).hiddenTypes else Set.empty
-
-  private def hasFederationTransport(document: Document): Boolean =
-    isFederation2(document) || {
-      val typeNames = document.typeDefinitions.iterator.map(_.name).toSet
-      typeNames.contains("_Any") && typeNames.contains("_Entity") &&
-      document.objectTypeDefinitions.exists(_.fields.exists(_.name == "_entities"))
-    }
 
   def compose(contributions: List[SchemaContribution]): Either[List[String], ComposedGraph] = {
     val schemas            = contributions.sortBy(_.name)
@@ -1295,48 +1292,38 @@ private[gateway] object SchemaComposition {
       document.typeExtensions.collect { case extension: SchemaExtension =>
         unsupported("schema", extension.directives)
       }
-    val types              = document.typeDefinitions.flatMap {
-      case definition: ScalarTypeDefinition      =>
-        typeApplication(definition.name, definition.directives, supportsSecurity = true) :: Nil
-      case definition: ObjectTypeDefinition      =>
-        typeApplication(definition.name, definition.directives, supportsSecurity = true) ::
-          fieldApplications(definition.name, definition.fields)
-      case definition: InterfaceTypeDefinition   =>
-        typeApplication(definition.name, definition.directives, supportsSecurity = true) ::
-          fieldApplications(definition.name, definition.fields)
-      case definition: UnionTypeDefinition       =>
-        typeApplication(definition.name, definition.directives, supportsSecurity = false) :: Nil
-      case definition: EnumTypeDefinition        =>
-        typeApplication(definition.name, definition.directives, supportsSecurity = true) ::
-          enumApplications(definition.name, definition.enumValuesDefinition)
-      case definition: InputObjectTypeDefinition =>
-        typeApplication(definition.name, definition.directives, supportsSecurity = false) ::
-          inputApplications(definition.name, definition.fields)
+    val scalarTypes        = document.typeDefinitions.collect { case value: ScalarTypeDefinition =>
+      value.name -> value.directives
+    } ::: document.typeExtensions.collect { case value: ScalarTypeExtension => value.name -> value.directives }
+    val unionTypes         = document.typeDefinitions.collect { case value: UnionTypeDefinition =>
+      value.name -> value.directives
+    } ::: document.typeExtensions.collect { case value: UnionTypeExtension => value.name -> value.directives }
+    val enumTypes          = document.typeDefinitions.collect { case value: EnumTypeDefinition =>
+      (value.name, value.directives, value.enumValuesDefinition)
+    } ::: document.typeExtensions.collect { case value: EnumTypeExtension =>
+      (value.name, value.directives, value.enumValuesDefinition)
     }
-    val extensions         = document.typeExtensions.flatMap {
-      case extension: SchemaExtension          => Nil
-      case extension: ScalarTypeExtension      =>
-        typeApplication(extension.name, extension.directives, supportsSecurity = true) :: Nil
-      case extension: ObjectTypeExtension      =>
-        typeApplication(extension.name, extension.directives, supportsSecurity = true) ::
-          fieldApplications(extension.name, extension.fields)
-      case extension: InterfaceTypeExtension   =>
-        typeApplication(extension.name, extension.directives, supportsSecurity = true) ::
-          fieldApplications(extension.name, extension.fields)
-      case extension: UnionTypeExtension       =>
-        typeApplication(extension.name, extension.directives, supportsSecurity = false) :: Nil
-      case extension: EnumTypeExtension        =>
-        typeApplication(extension.name, extension.directives, supportsSecurity = true) ::
-          enumApplications(extension.name, extension.enumValuesDefinition)
-      case extension: InputObjectTypeExtension =>
-        typeApplication(extension.name, extension.directives, supportsSecurity = false) ::
-          inputApplications(extension.name, extension.fields)
+    val inputTypes         = document.typeDefinitions.collect { case value: InputObjectTypeDefinition =>
+      (value.name, value.directives, value.fields)
+    } ::: document.typeExtensions.collect { case value: InputObjectTypeExtension =>
+      (value.name, value.directives, value.fields)
+    }
+    val types              = scalarTypes.flatMap { case (name, directives) =>
+      typeApplication(name, directives, supportsSecurity = true) :: Nil
+    } ::: objectLikeEntries(document).flatMap { case (name, directives, fields) =>
+      typeApplication(name, directives, supportsSecurity = true) :: fieldApplications(name, fields)
+    } ::: unionTypes.flatMap { case (name, directives) =>
+      typeApplication(name, directives, supportsSecurity = false) :: Nil
+    } ::: enumTypes.flatMap { case (name, directives, values) =>
+      typeApplication(name, directives, supportsSecurity = true) :: enumApplications(name, values)
+    } ::: inputTypes.flatMap { case (name, directives, fields) =>
+      typeApplication(name, directives, supportsSecurity = false) :: inputApplications(name, fields)
     }
     val directiveArguments = document.directiveDefinitions.flatMap { definition =>
       definition.args.map(argument => unsupported(s"@${definition.name}(${argument.name}:)", argument.directives))
     }
 
-    schemas ::: types ::: extensions ::: directiveArguments
+    schemas ::: types ::: directiveArguments
   }
 
   private def securityApplications(
@@ -1391,15 +1378,15 @@ private[gateway] object SchemaComposition {
       )
     else None
 
-  private def groupedStrings(arguments: Map[String, caliban.InputValue], name: String): Option[List[List[String]]] =
+  private def groupedStrings(arguments: Map[String, InputValue], name: String): Option[List[List[String]]] =
     if (arguments.keySet != Set(name)) None
     else
-      arguments.get(name).collect { case caliban.InputValue.ListValue(groups) => groups }.flatMap { groups =>
+      arguments.get(name).collect { case InputValue.ListValue(groups) => groups }.flatMap { groups =>
         val values = groups.map {
-          case caliban.InputValue.ListValue(entries) =>
+          case InputValue.ListValue(entries) =>
             val strings = entries.collect { case StringValue(value) => value }
             if (strings.size == entries.size) Some(strings) else None
-          case _                                     => None
+          case _                             => None
         }
         if (values.forall(_.nonEmpty)) Some(values.flatten) else None
       }
@@ -1633,7 +1620,7 @@ private[gateway] object SchemaComposition {
     val inaccessible    = schema.mapping.hiddenTypes.contains(name) ||
       schema.federation && hasDirective(directives, names.inaccessible)
     val hiddenFields    = fields.collect {
-      case field if schema.federation && hasDirective(Some(field.directives), names.inaccessible) => field.name
+      case field if schema.federation && hasDirective(field.directives, names.inaccessible) => field.name
     }.toSet ++ schema.mapping.hiddenFields.collect { case (`name`, field) => field }
     val hiddenArgs      = schema.mapping.hiddenArguments.collect { case (`name`, field, argument) =>
       field -> argument
@@ -1911,7 +1898,7 @@ private[gateway] object SchemaComposition {
     inaccessibleTypes: Set[String],
     directives: DirectiveComposition.Result
   ): __Type = {
-    val base          = entries.headOption.map(_.tpe).getOrElse(__Type(__TypeKind.OBJECT))
+    val base          = entries.head.tpe
     val hidden        = hiddenDirectives(entries)
     val fields        = entries
       .flatMap(entry => entry.tpe.allFields.map(field => field.name -> (entry -> field)))
@@ -1954,7 +1941,7 @@ private[gateway] object SchemaComposition {
     inaccessibleTypes: Set[String],
     directives: DirectiveComposition.Result
   ): __Type = {
-    val base    = entries.headOption.map(_.tpe).getOrElse(__Type(__TypeKind.UNION))
+    val base    = entries.head.tpe
     val hidden  = hiddenDirectives(entries)
     val members = mergeReferencedTypes(entries, _.possibleTypes.getOrElse(Nil), inaccessibleTypes)
     directives
@@ -1981,7 +1968,7 @@ private[gateway] object SchemaComposition {
     rewrite: __Type => __Type,
     directives: DirectiveComposition.Result
   ): __Type = {
-    val base        = entries.headOption.map(_.tpe).getOrElse(__Type(__TypeKind.INPUT_OBJECT))
+    val base        = entries.head.tpe
     val hidden      = hiddenDirectives(entries)
     val hiddenNames = entries.iterator.flatMap(_.inaccessibleInputFields).toSet
     val commonNames =
@@ -2012,7 +1999,7 @@ private[gateway] object SchemaComposition {
     rewrite: __Type => __Type,
     directives: DirectiveComposition.Result
   ): __Type = {
-    val base        = entries.headOption.map(_.tpe).getOrElse(__Type(__TypeKind.ENUM))
+    val base        = entries.head.tpe
     val hidden      = hiddenDirectives(entries)
     val hiddenNames = entries.iterator.flatMap(_.inaccessibleEnumValues).toSet
     val visible     = entries.map(_.tpe.allEnumValues.filterNot(value => hiddenNames.contains(value.name)))
@@ -2289,67 +2276,20 @@ private[gateway] object SchemaComposition {
     )
   }
 
-  private def typeSignature(tpe: __Type): String =
-    tpe.toTypeDefinition.fold(tpe.kind.toString)(definition => render(normalize(definition)))
-
-  private def normalize(definition: TypeDefinition): TypeDefinition =
-    definition match {
-      case ObjectTypeDefinition(_, name, interfaces, directives, fields)    =>
-        ObjectTypeDefinition(
-          None,
-          name,
-          interfaces.sortBy(_.name),
-          normalizeDirectives(directives),
-          fields.map(normalize).sortBy(_.name)
-        )
-      case InterfaceTypeDefinition(_, name, interfaces, directives, fields) =>
-        InterfaceTypeDefinition(
-          None,
-          name,
-          interfaces.sortBy(_.name),
-          normalizeDirectives(directives),
-          fields.map(normalize).sortBy(_.name)
-        )
-      case InputObjectTypeDefinition(_, name, directives, fields)           =>
-        InputObjectTypeDefinition(None, name, normalizeDirectives(directives), fields.map(normalize).sortBy(_.name))
-      case EnumTypeDefinition(_, name, directives, values)                  =>
-        EnumTypeDefinition(
-          None,
-          name,
-          normalizeDirectives(directives),
-          values
-            .map(value => value.copy(description = None, directives = normalizeDirectives(value.directives)))
-            .sortBy(
-              _.enumValue
-            )
-        )
-      case UnionTypeDefinition(_, name, directives, members)                =>
-        UnionTypeDefinition(None, name, normalizeDirectives(directives), members.sorted)
-      case ScalarTypeDefinition(_, name, directives)                        =>
-        ScalarTypeDefinition(None, name, normalizeDirectives(directives))
-    }
-
-  private def normalize(field: FieldDefinition): FieldDefinition =
-    field.copy(
-      description = None,
-      args = field.args.map(normalize).sortBy(_.name),
-      directives = normalizeDirectives(field.directives)
+  private def typeSignature(tpe: __Type): (String, Option[String], List[(String, List[(String, String)])]) =
+    (
+      tpe.name.getOrElse(""),
+      tpe.specifiedByURL,
+      tpe.directives
+        .getOrElse(Nil)
+        .map { directive =>
+          directive.name -> directive.arguments.toList.map { case (name, value) => name -> value.toInputString }
+            .sortBy(_._1)
+        }
+        .sortBy { case (name, arguments) =>
+          name -> arguments.iterator.map { case (key, value) => s"$key=$value" }.mkString
+        }
     )
-
-  private def normalize(input: InputValueDefinition): InputValueDefinition =
-    input.copy(description = None, directives = normalizeDirectives(input.directives))
-
-  private def normalizeDirectives(directives: List[Directive]): List[Directive] =
-    directives
-      .map(directive => directive.copy(arguments = ListMap(directive.arguments.toList.sortBy(_._1): _*)))
-      .sortBy(directive =>
-        directive.name -> directive.arguments.iterator.map { case (name, value) =>
-          s"$name=${value.toInputString}"
-        }.mkString
-      )
-
-  private def render(definition: caliban.parsing.adt.Definition): String =
-    DocumentRenderer.renderCompact(Document(definition :: Nil, SourceMapper.empty))
 
   private final case class FederationDirectiveNames(
     key: Set[String],
@@ -2509,9 +2449,9 @@ private[gateway] object SchemaComposition {
         case extension: InterfaceTypeExtension => extension.name -> extension.directives
       }
       val extendedDefinitions = schema.document.typeDefinitions.collect {
-        case definition: ObjectTypeDefinition if hasDirective(Some(definition.directives), names.extendsDirective)    =>
+        case definition: ObjectTypeDefinition if hasDirective(definition.directives, names.extendsDirective)    =>
           definition.name -> definition.directives
-        case definition: InterfaceTypeDefinition if hasDirective(Some(definition.directives), names.extendsDirective) =>
+        case definition: InterfaceTypeDefinition if hasDirective(definition.directives, names.extendsDirective) =>
           definition.name -> definition.directives
       }
 

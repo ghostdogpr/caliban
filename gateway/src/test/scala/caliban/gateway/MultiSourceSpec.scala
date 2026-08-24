@@ -65,10 +65,7 @@ object MultiSourceSpec extends ZIOSpecDefault {
           reviewRequests  <- reviews.requests.get
           productValid    <- ZIO.foreach(productRequests)(validateRequest(productsSchema, _).exit)
           reviewValid     <- ZIO.foreach(reviewRequests)(validateRequest(reviewsSchema, _).exit)
-          names            = response.data match {
-                               case ResponseObjectValue(fields) => fields.map(_._1)
-                               case _                           => Nil
-                             }
+          names            = fieldNames(response.data)
         } yield assertTrue(
           names == List("recent", "featured"),
           field(response.data, "featured").flatMap(field(_, "name")).contains(StringValue("Table")),
@@ -81,7 +78,7 @@ object MultiSourceSpec extends ZIOSpecDefault {
           response.errors.collectFirst { case error: CalibanError.ExecutionError => error.path }.contains(
             List(StringValue("recent"), IntNumber(0), StringValue("body"))
           ),
-          response.errors.collect { case error: CalibanError.ExecutionError => error }.forall(_.locationInfo.isEmpty),
+          executionErrors(response.errors).forall(_.locationInfo.isEmpty),
           productRequests.size == 1,
           reviewRequests.size == 1,
           productRequests.head.operationName.contains("Dashboard"),
@@ -114,7 +111,7 @@ object MultiSourceSpec extends ZIOSpecDefault {
                         )
                         .build
           response <- gateway.execute("{ featured { name } recent { body } }")
-          errors    = response.errors.collect { case error: CalibanError.ExecutionError => error }
+          errors    = executionErrors(response.errors)
         } yield assertTrue(
           field(response.data, "featured").flatMap(field(_, "name")).contains(StringValue("Table")),
           field(response.data, "recent").contains(NullValue),
@@ -132,7 +129,7 @@ object MultiSourceSpec extends ZIOSpecDefault {
           gateway  <- Gateway.compose(Subgraph.graphql("values", source.endpoint, schema)).build
           response <- gateway.execute("{ first { value } second { value } }")
           sent     <- source.requests.get
-          errors    = response.errors.collect { case error: CalibanError.ExecutionError => error }
+          errors    = executionErrors(response.errors)
         } yield assertTrue(
           field(response.data, "first").contains(NullValue),
           field(response.data, "second").flatMap(field(_, "value")).contains(StringValue("ok")),
@@ -180,11 +177,11 @@ object MultiSourceSpec extends ZIOSpecDefault {
         } yield assertTrue(
           responseA.errors.map(_.msg) == List("first failed", "second failed"),
           responseB.errors.map(_.msg) == List("first failed", "second failed"),
-          responseA.errors.collect { case error: CalibanError.ExecutionError => error.path } == List(
+          executionErrors(responseA.errors).map(_.path) == List(
             List(PathValue.Key("first")),
             List(PathValue.Key("second"))
           ),
-          responseB.errors.collect { case error: CalibanError.ExecutionError => error.path } == List(
+          executionErrors(responseB.errors).map(_.path) == List(
             List(PathValue.Key("first")),
             List(PathValue.Key("second"))
           ),
@@ -273,10 +270,7 @@ object MultiSourceSpec extends ZIOSpecDefault {
                          )
           productSent <- products.requests.get
           reviewSent  <- reviews.requests.get
-          names        = response.data match {
-                           case ResponseObjectValue(fields) => fields.map(_._1)
-                           case _                           => Nil
-                         }
+          names        = fieldNames(response.data)
           queryNames   = field(response.data, "__schema")
                            .flatMap(field(_, "queryType"))
                            .flatMap(field(_, "fields"))
@@ -333,10 +327,7 @@ object MultiSourceSpec extends ZIOSpecDefault {
           secondAfter   <- secondStarted.isDone
           productSent   <- products.requests.get
           reviewSent    <- reviews.requests.get
-          names          = response.data match {
-                             case ResponseObjectValue(fields) => fields.map(_._1)
-                             case _                           => Nil
-                           }
+          names          = fieldNames(response.data)
         } yield assertTrue(
           first,
           !secondBefore,
@@ -573,10 +564,7 @@ object MultiSourceSpec extends ZIOSpecDefault {
                        )
           sent      <- products.requests.get
           untouched <- reviews.requests.get
-          names      = response.data match {
-                         case ResponseObjectValue(fields) => fields.map(_._1)
-                         case _                           => Nil
-                       }
+          names      = fieldNames(response.data)
         } yield assertTrue(
           response.errors.isEmpty,
           names == List("updated"),
@@ -641,7 +629,7 @@ object MultiSourceSpec extends ZIOSpecDefault {
     ),
     suite("composition")(
       test("accumulates deterministic source-attributed composition diagnostics") {
-        val endpoint = Uri.unsafeParse("http://127.0.0.1:1/graphql")
+        val endpoint = unreachableEndpoint
         val alpha    = Subgraph.graphql(
           "alpha",
           endpoint,
@@ -670,7 +658,7 @@ object MultiSourceSpec extends ZIOSpecDefault {
         )
       },
       test("rejects compatible duplicate roots from ordinary subgraphs") {
-        val endpoint = Uri.unsafeParse("http://127.0.0.1:1/graphql")
+        val endpoint = unreachableEndpoint
         val schema   = "type Query { duplicate: String }"
         val alpha    = Subgraph.graphql("alpha", endpoint, schema)
         val beta     = Subgraph.graphql("beta", endpoint, schema)

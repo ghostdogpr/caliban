@@ -21,14 +21,10 @@ object CompositionSpec extends ZIOSpecDefault {
     transformations: List[SchemaTransformation] = Nil
   )
 
-  private val endpoint = Uri.unsafeParse("http://127.0.0.1:1/graphql")
+  private val endpoint = unreachableEndpoint
 
-  private def schema(body: String, imports: String): String =
-    s"""
-       |schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: [$imports]) { query: Query }
-       |$authoredFederationDirectives
-       |$body
-       |""".stripMargin
+  private def schema(body: String, imports: String*): String =
+    federationSchemaPreambleWithQueryRoot(imports: _*) + body
 
   private val directiveDefinitions =
     """
@@ -64,25 +60,21 @@ object CompositionSpec extends ZIOSpecDefault {
     val contributions = inputs.toList.foldRight(Right(Nil): Either[List[String], List[SchemaContribution]]) {
       case (input, result) =>
         for {
-          tail       <- result
-          document   <- Parser.parseQuery(input.schema).left.map(error => List(s"[${input.name}] ${error.getMessage}"))
-          sourceRoot <- RemoteSchema
-                          .toRootType(document)
-                          .left
-                          .map(error => List(s"[${input.name}] ${error.getMessage}"))
-          mapping    <- SchemaCoordinateMapping.compile(
-                          input.name,
-                          sourceRoot,
-                          document,
-                          federation = true,
-                          input.transformations
-                        )
-          transformed = mapping.transform(document)
-          rootType   <- RemoteSchema
-                          .toRootType(transformed)
-                          .left
-                          .map(error => List(s"[${input.name}] ${error.getMessage}"))
-        } yield SchemaContribution(input.name, rootType, transformed, federation = true, Nil, mapping) :: tail
+          tail         <- result
+          document     <- Parser.parseQuery(input.schema).left.map(error => List(s"[${input.name}] ${error.getMessage}"))
+          sourceRoot   <- RemoteSchema
+                            .toRootType(document, promoteOrphans = true)
+                            .left
+                            .map(error => List(s"[${input.name}] ${error.getMessage}"))
+          subgraph      = Subgraph.federation(input.name, endpoint, document).transform(input.transformations: _*)
+          contribution <- Gateway.prepareContribution(
+                            subgraph,
+                            sourceRoot,
+                            document,
+                            document,
+                            federation = true
+                          )
+        } yield contribution :: tail
     }
     contributions.flatMap(SchemaComposition.compose)
   }
@@ -93,7 +85,7 @@ object CompositionSpec extends ZIOSpecDefault {
   def spec = suite("CompositionSpec")(
     suite("ownership")(
       test("routes a shareable root field deterministically") {
-        val valueSchema = schema("type Query { value: String @shareable }", "\"@shareable\"")
+        val valueSchema = schema("type Query { value: String @shareable }", "@shareable")
 
         for {
           alpha         <- stub("""{"data":{"value":"alpha"}}""")
@@ -116,15 +108,15 @@ object CompositionSpec extends ZIOSpecDefault {
       test("coalesces compatible partial results for a shareable object root") {
         val namesSchema = schema(
           "type Query { product: Product! @shareable } type Product { id: ID! @shareable name: String! }",
-          "\"@shareable\""
+          "@shareable"
         )
         val priceSchema = schema(
           "type Query { product: Product! @shareable } type Product { id: ID! @shareable price: Int! }",
-          "\"@shareable\""
+          "@shareable"
         )
         val stockSchema = schema(
           "type Query { product: Product! @shareable } type Product { stock: Int! }",
-          "\"@shareable\""
+          "@shareable"
         )
 
         for {
@@ -152,11 +144,13 @@ object CompositionSpec extends ZIOSpecDefault {
       test("retains an entity transition below a multiply provided root") {
         val namesSchema   = schema(
           "type Query { product: Product! @shareable } type Product @key(fields: \"id\") { id: ID! name: String! details: Details! } type Details { value: String! }",
-          "\"@key\", \"@shareable\""
+          "@key",
+          "@shareable"
         )
         val pricesSchema  = schema(
           "type Query { product: Product! @shareable } type Product @key(fields: \"id\") { id: ID! price: Int! }",
-          "\"@key\", \"@shareable\""
+          "@key",
+          "@shareable"
         )
         val reviewsSchema =
           s"""
@@ -199,8 +193,8 @@ object CompositionSpec extends ZIOSpecDefault {
         )
       },
       test("routes an overridden root field only to the overriding source") {
-        val original  = schema("type Query { feed: String }", "\"@override\"")
-        val replacing = schema("type Query { feed: String @override(from: \"products\") }", "\"@override\"")
+        val original  = schema("type Query { feed: String }", "@override")
+        val replacing = schema("type Query { feed: String @override(from: \"products\") }", "@override")
 
         for {
           products        <- stub("""{"data":{"feed":"old"}}""")
@@ -221,7 +215,7 @@ object CompositionSpec extends ZIOSpecDefault {
         )
       },
       test("rejects fields shared without compatible shareability") {
-        val valueSchema = schema("type Query { value: String }", "\"@shareable\"")
+        val valueSchema = schema("type Query { value: String }", "@shareable")
         val result      = Gateway
           .compose(
             Subgraph.federation("alpha", endpoint, valueSchema),
@@ -235,9 +229,9 @@ object CompositionSpec extends ZIOSpecDefault {
       test("requires each Federation 2 provider to make a key field shareable") {
         val keyed = schema(
           "type Query { alpha: Product } type Product @key(fields: \"id\") { id: ID! }",
-          "\"@key\""
+          "@key"
         )
-        val plain = schema("type Query { beta: Product } type Product { id: ID! }", "")
+        val plain = schema("type Query { beta: Product } type Product { id: ID! }")
 
         Gateway
           .compose(
@@ -249,7 +243,7 @@ object CompositionSpec extends ZIOSpecDefault {
           .map(exit => assertTrue(buildDiagnostics(exit).exists(_.contains("shareable"))))
       },
       test("does not treat an unimported custom directive as Federation shareability") {
-        val valueSchema = schema("type Query { value: String @shareable }", "")
+        val valueSchema = schema("type Query { value: String @shareable }")
 
         Gateway
           .compose(
@@ -261,10 +255,11 @@ object CompositionSpec extends ZIOSpecDefault {
           .map(exit => assertTrue(buildDiagnostics(exit).exists(_.contains("shareable"))))
       },
       test("allows an override to name a source that is no longer present") {
-        val base     = schema("type Query { value: String @shareable }", "\"@shareable\"")
+        val base     = schema("type Query { value: String @shareable }", "@shareable")
         val migrated = schema(
           "type Query { value: String @shareable @override(from: \"removed\") }",
-          "\"@shareable\", \"@override\""
+          "@shareable",
+          "@override"
         )
 
         Gateway
@@ -279,11 +274,11 @@ object CompositionSpec extends ZIOSpecDefault {
       test("allows an override of an external-only declaration") {
         val external   = schema(
           "type Query { alpha: Product } type Product { code: String @external }",
-          "\"@external\""
+          "@external"
         )
         val overriding = schema(
           "type Query { beta: Product } type Product { code: String @override(from: \"alpha\") }",
-          "\"@override\""
+          "@override"
         )
 
         Gateway
@@ -298,7 +293,7 @@ object CompositionSpec extends ZIOSpecDefault {
       test("does not expose a field declared only as external") {
         val externalOnly = schema(
           "type Query { product: Product } type Product { id: ID! code: String @external }",
-          "\"@external\""
+          "@external"
         )
 
         for {
@@ -362,11 +357,11 @@ object CompositionSpec extends ZIOSpecDefault {
       test("rejects malformed and unknown Federation keys with source diagnostics") {
         val malformed = schema(
           "type Query { product: Product } type Product @key(fields: \"id(\") { id: ID! }",
-          "\"@key\""
+          "@key"
         )
         val unknown   = schema(
           "type Query { product: Product } type Product @key(fields: \"missing\") { id: ID! }",
-          "\"@key\""
+          "@key"
         )
 
         Gateway
@@ -388,13 +383,13 @@ object CompositionSpec extends ZIOSpecDefault {
           }
       },
       test("rejects incompatible external and overridden declarations") {
-        val idOwner    = schema("type Query { alpha: Product } type Product { id: ID }", "\"@external\"")
+        val idOwner    = schema("type Query { alpha: Product } type Product { id: ID }", "@external")
         val idExternal = schema(
           "type Query { beta: Product } type Product { id: Int @external }",
-          "\"@external\""
+          "@external"
         )
-        val feedOwner  = schema("type Query { feed: String }", "\"@override\"")
-        val feedNext   = schema("type Query { feed: Int @override(from: \"feed-owner\") }", "\"@override\"")
+        val feedOwner  = schema("type Query { feed: String }", "@override")
+        val feedNext   = schema("type Query { feed: Int @override(from: \"feed-owner\") }", "@override")
 
         Gateway
           .compose(
@@ -418,10 +413,10 @@ object CompositionSpec extends ZIOSpecDefault {
           }
       },
       test("attributes competing overrides to their sources") {
-        val original  = schema("type Query { value: String }", "\"@override\"")
+        val original  = schema("type Query { value: String }", "@override")
         val replacing = schema(
           "type Query { value: String @override(from: \"alpha\") }",
-          "\"@override\""
+          "@override"
         )
 
         Gateway
@@ -450,7 +445,7 @@ object CompositionSpec extends ZIOSpecDefault {
             |type Product { id: ID! state: State! internal: String @inaccessible }
             |enum State { ACTIVE HIDDEN @inaccessible }
             |""".stripMargin,
-          "\"@inaccessible\""
+          "@inaccessible"
         )
 
         for {
@@ -476,11 +471,13 @@ object CompositionSpec extends ZIOSpecDefault {
       test("hides an argument when any contribution marks it inaccessible") {
         val visible = schema(
           "type Query { search(term: String): String @shareable }",
-          "\"@shareable\", \"@inaccessible\""
+          "@shareable",
+          "@inaccessible"
         )
         val hidden  = schema(
           "type Query { search(term: String @inaccessible): String @shareable }",
-          "\"@shareable\", \"@inaccessible\""
+          "@shareable",
+          "@inaccessible"
         )
 
         for {
@@ -499,11 +496,11 @@ object CompositionSpec extends ZIOSpecDefault {
       test("rejects visible input coordinates that reference inaccessible types") {
         val argumentSchema = schema(
           "type Query { search(secret: Secret): String } input Secret @inaccessible { value: String }",
-          "\"@inaccessible\""
+          "@inaccessible"
         )
         val inputSchema    = schema(
           "type Query { find(filter: Filter): String } input Filter { secret: Secret } input Secret @inaccessible { value: String }",
-          "\"@inaccessible\""
+          "@inaccessible"
         )
 
         Gateway
@@ -555,7 +552,7 @@ object CompositionSpec extends ZIOSpecDefault {
             |interface HiddenInterface @inaccessible { id: ID! }
             |type Product implements HiddenInterface { id: ID! }
             |""".stripMargin,
-          "\"@inaccessible\""
+          "@inaccessible"
         )
 
         for {
@@ -578,7 +575,7 @@ object CompositionSpec extends ZIOSpecDefault {
             |type Product { id: ID! }
             |type HiddenResult @inaccessible { reason: String! }
             |""".stripMargin,
-          "\"@inaccessible\""
+          "@inaccessible"
         )
 
         for {
@@ -604,7 +601,8 @@ object CompositionSpec extends ZIOSpecDefault {
             |input Filter { term: String secret: HiddenInput @inaccessible }
             |input HiddenInput @inaccessible { value: String }
             |""".stripMargin,
-          "\"@inaccessible\", \"@shareable\""
+          "@inaccessible",
+          "@shareable"
         )
         val visible = schema(
           """
@@ -614,7 +612,8 @@ object CompositionSpec extends ZIOSpecDefault {
             |input Filter { term: String secret: HiddenInput }
             |input HiddenInput { value: String }
             |""".stripMargin,
-          "\"@inaccessible\", \"@shareable\""
+          "@inaccessible",
+          "@shareable"
         )
 
         for {
@@ -803,10 +802,9 @@ object CompositionSpec extends ZIOSpecDefault {
 
         assertTrue(
           result.isRight,
-          result.fold(_ => false, graph => directives(graph.rootType.queryType.directives).exists(_._1 == "mark")),
-          result.fold(
-            _ => false,
-            graph => graph.rootType.mutationType.exists(tpe => directives(tpe.directives).exists(_._1 == "mark"))
+          result.exists(graph => directives(graph.rootType.queryType.directives).exists(_._1 == "mark")),
+          result.exists(graph =>
+            graph.rootType.mutationType.exists(tpe => directives(tpe.directives).exists(_._1 == "mark"))
           )
         )
       },
@@ -834,7 +832,7 @@ object CompositionSpec extends ZIOSpecDefault {
             )
           )
         )
-        val types  = result.fold(_ => Map.empty[String, caliban.introspection.adt.__Type], _.rootType.types)
+        val types  = result.toOption.fold(Map.empty[String, caliban.introspection.adt.__Type])(_.rootType.types)
         val labels = List("Node", "Result", "Code", "State", "Filter").map(name =>
           directives(types.get(name).flatMap(_.directives)).exists(_._1 == "label")
         )
@@ -864,7 +862,7 @@ object CompositionSpec extends ZIOSpecDefault {
             |type Query { value: String @federation__tag(name: "public") @audit__trace(level: "metadata") }
             |""".stripMargin
         val result = compose(CompositionInput("namespaced", sdl))
-        val graph  = result.fold(_ => None, Some(_))
+        val graph  = result.toOption
         val field  = graph.flatMap(_.rootType.queryType.allFields.find(_.name == "value"))
 
         assertTrue(
@@ -898,7 +896,7 @@ object CompositionSpec extends ZIOSpecDefault {
             )
           )
         )
-        val composed = result.fold(_ => None, Some(_))
+        val composed = result.toOption
         val query    = composed.map(_.rootType.queryType)
         val product  = composed.flatMap(_.rootType.types.get("Product"))
         val display  = product.flatMap(_.allFields.find(_.name == "display"))
@@ -956,9 +954,9 @@ object CompositionSpec extends ZIOSpecDefault {
         )
 
         assertTrue(
-          hiddenField.fold(_.exists(_.contains("Options.secret")), _ => false),
-          hiddenType.fold(_.exists(_.contains("SecretOptions")), _ => false),
-          hiddenEnum.fold(_.exists(_.contains("State.BLOCKED")), _ => false)
+          hiddenField.left.exists(_.exists(_.contains("Options.secret"))),
+          hiddenType.left.exists(_.exists(_.contains("SecretOptions"))),
+          hiddenEnum.left.exists(_.exists(_.contains("State.BLOCKED")))
         )
       },
       test("retains an otherwise-unused ID referenced by a directive definition") {
@@ -974,9 +972,8 @@ object CompositionSpec extends ZIOSpecDefault {
 
         assertTrue(
           result.isRight,
-          result.fold(_ => false, _.rootType.types.contains("ID")),
-          result.fold(
-            _ => false,
+          result.exists(_.rootType.types.contains("ID")),
+          result.exists(
             _.rootType.additionalDirectives
               .find(_.name == "audit")
               .exists(
@@ -991,8 +988,7 @@ object CompositionSpec extends ZIOSpecDefault {
           "directive @audit(level: String!) repeatable on FIELD_DEFINITION"
         )
         val result                                                   = compose(CompositionInput("alpha", shared("alpha")), CompositionInput("beta", shared("beta")))
-        val applied: List[(String, Map[String, caliban.InputValue])] = result.fold(
-          _ => Nil,
+        val applied: List[(String, Map[String, caliban.InputValue])] = result.toOption.toList.flatMap(
           _.rootType.queryType.allFields
             .find(_.name == "value")
             .toList
@@ -1035,7 +1031,7 @@ object CompositionSpec extends ZIOSpecDefault {
           CompositionInput("alpha", featureSchema("audit", selected = true)),
           CompositionInput("beta", featureSchema("review", selected = false))
         )
-        val field     = merged.fold(_ => None, _.rootType.queryType.allFields.find(_.name == "value"))
+        val field     = merged.toOption.flatMap(_.rootType.queryType.allFields.find(_.name == "value"))
         val collision = compose(
           CompositionInput("alpha", featureSchema("audit", selected = true, feature = "first")),
           CompositionInput("beta", featureSchema("audit", selected = true, feature = "second"))
@@ -1043,12 +1039,11 @@ object CompositionSpec extends ZIOSpecDefault {
 
         assertTrue(
           merged.isRight,
-          merged.fold(_ => Nil, _.rootType.additionalDirectives.map(_.name)) == List("audit"),
+          merged.toOption.toList.flatMap(_.rootType.additionalDirectives.map(_.name)) == List("audit"),
           directives(field.flatMap(_.directives)).collect { case ("audit", arguments) => arguments("label") } ==
             List[caliban.InputValue](StringValue("audit"), StringValue("review")),
-          collision.fold(
-            _.exists(message => message.contains("first") && message.contains("second") && message.contains("audit")),
-            _ => false
+          collision.left.exists(
+            _.exists(message => message.contains("first") && message.contains("second") && message.contains("audit"))
           )
         )
       },
@@ -1062,8 +1057,7 @@ object CompositionSpec extends ZIOSpecDefault {
             )
           )
         )
-        val applications = result.fold(
-          _ => Nil,
+        val applications = result.toOption.toList.flatMap(
           _.rootType.queryType.allFields
             .find(_.name == "value")
             .toList
@@ -1095,9 +1089,9 @@ object CompositionSpec extends ZIOSpecDefault {
 
         assertTrue(
           equivalent.isRight,
-          invalid.fold(_.exists(_.contains("FIELD_DEFINITION")), _ => false),
-          invalid.fold(_.exists(_.contains("unknown")), _ => false),
-          invalid.fold(_.exists(_.contains("required")), _ => false)
+          invalid.left.exists(_.exists(_.contains("FIELD_DEFINITION"))),
+          invalid.left.exists(_.exists(_.contains("unknown"))),
+          invalid.left.exists(_.exists(_.contains("required")))
         )
       },
       test("canonicalizes built-in scalar directive arguments") {
@@ -1110,8 +1104,7 @@ object CompositionSpec extends ZIOSpecDefault {
           CompositionInput("alpha", scalarSchema("1", "1", selected = true)),
           CompositionInput("beta", scalarSchema("1.0", "\"1\"", selected = false))
         )
-        val audit                                                      = result.fold(
-          _ => None,
+        val audit                                                      = result.toOption.flatMap(
           _.rootType.queryType.allFields
             .find(_.name == "value")
             .flatMap(_.directives)
@@ -1155,9 +1148,8 @@ object CompositionSpec extends ZIOSpecDefault {
         )
 
         assertTrue(
-          result.fold(
-            _.exists(message => message.contains("unknown-input-field") && message.contains("typo")),
-            _ => false
+          result.left.exists(
+            _.exists(message => message.contains("unknown-input-field") && message.contains("typo"))
           )
         )
       },
@@ -1175,12 +1167,10 @@ object CompositionSpec extends ZIOSpecDefault {
 
         assertTrue(
           result.isRight,
-          result.fold(
-            _ => false,
-            graph =>
-              directives(Some(graph.schemaDirectives)).exists { case (name, arguments) =>
-                name == "audit" && arguments.get("label").contains(StringValue("schema"))
-              }
+          result.exists(graph =>
+            directives(Some(graph.schemaDirectives)).exists { case (name, arguments) =>
+              name == "audit" && arguments.get("label").contains(StringValue("schema"))
+            }
           )
         )
       },
@@ -1192,9 +1182,8 @@ object CompositionSpec extends ZIOSpecDefault {
         val result = compose(CompositionInput("old-federation", sdl))
 
         assertTrue(
-          result.fold(
-            _.exists(message => message.contains("old-federation") && message.contains("v2.1")),
-            _ => false
+          result.left.exists(
+            _.exists(message => message.contains("old-federation") && message.contains("v2.1"))
           )
         )
       },
@@ -1211,8 +1200,8 @@ object CompositionSpec extends ZIOSpecDefault {
           CompositionInput("alpha", custom("String", "\"alpha\"")),
           CompositionInput("beta", custom("String", "\"beta\""))
         )
-        val definitionErrors                            = definitionsResult.fold(identity, _ => Nil)
-        val applicationErrors                           = applicationsResult.fold(identity, _ => Nil)
+        val definitionErrors                            = definitionsResult.left.getOrElse(Nil)
+        val applicationErrors                           = applicationsResult.left.getOrElse(Nil)
 
         assertTrue(
           definitionErrors.exists(message =>
@@ -1253,18 +1242,14 @@ object CompositionSpec extends ZIOSpecDefault {
           remote   <- stub("""{"data":{"value":"ok"}}""")
           runtime  <- Gateway.compose(Subgraph.federation("valid", remote.endpoint, valid)).build
           response <- runtime.execute("{ __schema { directives { name isRepeatable locations } } }")
-          names     = field(response.data, "__schema")
-                        .flatMap(field(_, "directives"))
-                        .collect { case ListValue(values) => values }
-                        .getOrElse(Nil)
-                        .flatMap {
-                          case ObjectValue(fields) => fields.collectFirst { case ("name", StringValue(name)) => name }
-                          case _                   => None
-                        }
+          names     = listValues(field(response.data, "__schema").flatMap(field(_, "directives"))).flatMap {
+                        case ObjectValue(fields) => fields.collectFirst { case ("name", StringValue(name)) => name }
+                        case _                   => None
+                      }
         } yield assertTrue(
-          invalid.fold(_.exists(_.contains("must start with '@'")), _ => false),
-          invalid.fold(_.exists(_.contains("@missing")), _ => false),
-          schemaApplication.fold(_ => false, _.schemaDirectives.exists(_.name == "audit")),
+          invalid.left.exists(_.exists(_.contains("must start with '@'"))),
+          invalid.left.exists(_.exists(_.contains("@missing"))),
+          schemaApplication.exists(_.schemaDirectives.exists(_.name == "audit")),
           response.errors.isEmpty,
           names.contains("audit"),
           names.contains("label"),

@@ -54,9 +54,7 @@ object GatewayMetrics {
             requestDuration,
             requests,
             Set.empty,
-            totalOutcome = Some(value => if (value.outcome == Success) "success" else "error"),
-            detailLabels = value =>
-              Set(MetricLabel("operation_type", value.operationType.fold("unknown")(GatewayWrapper.operationTypeLabel)))
+            RequestTracking
           )(effect)(result)
         case Event.Routing               =>
           trackDuration(routingDuration, Set.empty)(effect)(result)
@@ -66,8 +64,7 @@ object GatewayMetrics {
             sourceCallDuration,
             sourceCalls,
             Set(MetricLabel("source", source)),
-            totalOutcome = None,
-            detailLabels = _ => Set.empty
+            SourceCallTracking
           )(effect)(result)
         case attempt: Event.Attempt      =>
           val labels = Set(MetricLabel("source", attempt.source))
@@ -77,12 +74,7 @@ object GatewayMetrics {
               sourceAttemptDuration,
               sourceAttempts,
               labels,
-              totalOutcome = Some(_.outcome.label),
-              detailLabels = _ => Set.empty,
-              after = value =>
-                value.responseBytes.fold[ZIO[Any, Nothing, Unit]](ZIO.unit)(bytes =>
-                  sourceResponseBytes.tagged(labels).update(bytes.toDouble)
-                )
+              AttemptTracking(labels)
             )(effect)(result)
         case Event.Retry(source, _)      => retries.tagged("source", source).update(1L) *> effect
         case Event.Completion            => effect
@@ -104,26 +96,55 @@ object GatewayMetrics {
     duration: Metric.Histogram[Double],
     total: Metric.Counter[Long],
     labels: Set[MetricLabel],
-    totalOutcome: Option[Result => String],
-    detailLabels: Result => Set[MetricLabel],
-    after: Result => ZIO[Any, Nothing, Unit] = (_: Result) => ZIO.unit
-  )(effect: ZIO[R, E, A])(result: Exit[E, A] => Result)(implicit trace: Trace): ZIO[R, E, A] =
+    tracking: Tracking
+  )(effect: ZIO[R, E, A])(result: Exit[E, A] => Result)(implicit
+    trace: Trace
+  ): ZIO[R, E, A] =
     ZIO.uninterruptibleMask { restore =>
       Clock.nanoTime.flatMap { startedAt =>
         active.tagged(labels).increment *>
           restore(effect).onExit { exit =>
             Clock.nanoTime.flatMap { finishedAt =>
-              val value         = result(exit)
-              val outcomeLabels = labels ++ detailLabels(value) + MetricLabel("outcome", value.outcome.label)
-              val totalLabels   = totalOutcome.fold(labels)(render => labels + MetricLabel("outcome", render(value)))
-              duration.tagged(outcomeLabels).update(seconds(finishedAt - startedAt)) *>
-                total.tagged(totalLabels).update(1L) *>
-                after(value) *>
+              val value = result(exit)
+              duration.tagged(labels ++ tracking.detailLabels(value)).update(seconds(finishedAt - startedAt)) *>
+                total.tagged(labels ++ tracking.totalLabels(value)).update(1L) *>
+                tracking.after(value) *>
                 active.tagged(labels).decrement
             }
           }
       }
     }
+
+  private sealed trait Tracking {
+    def detailLabels(result: Result): Set[MetricLabel]
+    def totalLabels(result: Result): Set[MetricLabel]
+    def after(result: Result): ZIO[Any, Nothing, Unit] = ZIO.unit
+  }
+
+  private case object RequestTracking extends Tracking {
+    def detailLabels(result: Result): Set[MetricLabel] =
+      Set(
+        MetricLabel("outcome", result.outcome.label),
+        MetricLabel("operation_type", result.operationType.fold("unknown")(GatewayWrapper.operationTypeLabel))
+      )
+
+    def totalLabels(result: Result): Set[MetricLabel] =
+      Set(MetricLabel("outcome", if (result.outcome == Success) "success" else "error"))
+  }
+
+  private case object SourceCallTracking extends Tracking {
+    def detailLabels(result: Result): Set[MetricLabel] = Set(MetricLabel("outcome", result.outcome.label))
+    def totalLabels(result: Result): Set[MetricLabel]  = Set.empty
+  }
+
+  private final case class AttemptTracking(labels: Set[MetricLabel]) extends Tracking {
+    def detailLabels(result: Result): Set[MetricLabel]          = Set(MetricLabel("outcome", result.outcome.label))
+    def totalLabels(result: Result): Set[MetricLabel]           = detailLabels(result)
+    override def after(result: Result): ZIO[Any, Nothing, Unit] =
+      result.responseBytes.fold[ZIO[Any, Nothing, Unit]](ZIO.unit)(bytes =>
+        sourceResponseBytes.tagged(labels).update(bytes.toDouble)
+      )
+  }
 
   private def trackDuration[R, E, A](duration: Metric.Histogram[Double], labels: Set[MetricLabel])(
     effect: ZIO[R, E, A]

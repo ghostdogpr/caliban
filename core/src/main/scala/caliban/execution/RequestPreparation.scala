@@ -19,25 +19,14 @@ private[caliban] object RequestPreparation {
     document: Document,
     variables: Map[String, InputValue],
     rootType: RootType,
-    skipValidation: Boolean
-  )(implicit trace: Trace): IO[ValidationError, ExecutionRequest] =
-    Configurator.ref.getWith { config =>
-      prepareParsed(request, document, variables, rootType, config, skipValidation, config.validations)
-    }
-
-  private[caliban] def prepareParsed(
-    request: GraphQLRequest,
-    document: Document,
-    variables: Map[String, InputValue],
-    rootType: RootType,
     skipValidation: Boolean,
-    validations: List[Validator.QueryValidation]
+    validations: Option[List[Validator.QueryValidation]] = None
   )(implicit trace: Trace): IO[ValidationError, ExecutionRequest] =
     Configurator.ref.getWith { config =>
-      prepareParsed(request, document, variables, rootType, config, skipValidation, validations)
+      prepare(request, document, variables, rootType, config, skipValidation, validations.getOrElse(config.validations))
     }
 
-  private def prepareParsed(
+  private def prepare(
     request: GraphQLRequest,
     document: Document,
     variables: Map[String, InputValue],

@@ -6,6 +6,7 @@ import caliban.Value.{ EnumValue, NullValue, StringValue }
 import caliban.Hash
 import caliban.Scala3Annotations.threadUnsafe
 import caliban.execution.Field
+import caliban.gateway.traverseOption
 import caliban.gateway.internal.EntityExecutor._
 import caliban.gateway.internal.OperationPlanner._
 import caliban.introspection.adt.__TypeKind
@@ -49,12 +50,12 @@ private[gateway] final class EntityExecutor[-R](
     resolvedRequest: GraphQLRequest,
     caches: PlanCaches
   )(implicit trace: Trace): URIO[R, List[EntityResult]] = {
-    val grouped    = mutable.LinkedHashMap.empty[EntityGroupKey, EntityGroup]
+    val grouped    = mutable.LinkedHashMap.empty[EntityGroupKey, mutable.ListBuffer[EntityRoute]]
     routes.foreach { route =>
       val key = cachedGroupKey(route, caches)
       grouped.get(key) match {
-        case Some(group) => group.additionalRoutes += route
-        case None        => grouped.put(key, EntityGroup(route, mutable.ListBuffer.empty))
+        case Some(group) => group += route
+        case None        => grouped.put(key, mutable.ListBuffer(route))
       }
     }
     val candidates = mutable.HashMap.empty[(RouteId, Vector[String]), List[(List[PathValue], ResponseValue)]]
@@ -74,14 +75,14 @@ private[gateway] final class EntityExecutor[-R](
   }
 
   private def executeGroup(
-    group: EntityGroup,
+    group: mutable.ListBuffer[EntityRoute],
     blocked: Map[RouteId, Set[List[PathValue]]],
     candidates: mutable.HashMap[(RouteId, Vector[String]), List[(List[PathValue], ResponseValue)]],
     resolvedRequest: GraphQLRequest,
     caches: PlanCaches
   )(implicit trace: Trace): URIO[R, EntityResult] = {
-    val route  = group.firstRoute
-    val routes = group.routes
+    val route  = group.head
+    val routes = group.toList
     val batch  = prepareBatch(routes, candidates, blocked, caches)
 
     if (batch.entries.isEmpty) ZIO.succeed(EntityResult(Nil, batch.errors, batch.routes, batch.blocked))
@@ -125,11 +126,11 @@ private[gateway] final class EntityExecutor[-R](
     routes: List[EntityRoute]
   ): EntityCorrelation.Federation = {
     val usedNames = routes.iterator.flatMap(_.fields.iterator.map(_.aliasedName)).toSet
-    val keys      = route.keys.foldLeft((List.empty[CorrelationKey], usedNames)) { case ((values, names), key) =>
-      val alias = privateAlias("_caliban_gateway_entity_key", names)
-      (CorrelationKey(key.field, key.copy(responseName = alias)) :: values, names + alias)
-    }
-    val ordered   = keys._1.reverse
+    val ordered   = correlationKeys(
+      route.keys.map(key => key.field -> key),
+      usedNames,
+      "_caliban_gateway_entity_key"
+    )
     val names     = usedNames ++ ordered.iterator.map(_.selection.responseName)
     EntityCorrelation.Federation(
       IdentitySelections(
@@ -159,19 +160,28 @@ private[gateway] final class EntityExecutor[-R](
           }
         )
         EntityCorrelation.ByKey(
-          IdentitySelections(correlationKeys(configured, usedNames, "_caliban_gateway_lookup_key"), None)
+          IdentitySelections(
+            correlationKeys(
+              configured.map { case (responseField, keyField) =>
+                keyField -> RequiredSelection(responseField, responseField)
+              },
+              usedNames,
+              "_caliban_gateway_lookup_key"
+            ),
+            None
+          )
         )
     }
 
   private def correlationKeys(
-    fields: List[(String, String)],
+    fields: List[(String, RequiredSelection)],
     usedNames: Set[String],
     aliasBase: String
   ): List[CorrelationKey] =
     fields
-      .foldLeft((List.empty[CorrelationKey], usedNames)) { case ((keys, names), (responseField, keyField)) =>
+      .foldLeft((List.empty[CorrelationKey], usedNames)) { case ((keys, names), (keyField, selection)) =>
         val alias = privateAlias(aliasBase, names)
-        (CorrelationKey(keyField, RequiredSelection(responseField, alias)) :: keys, names + alias)
+        (CorrelationKey(keyField, selection.copy(responseName = alias)) :: keys, names + alias)
       }
       ._1
       .reverse
@@ -280,7 +290,7 @@ private[gateway] final class EntityExecutor[-R](
         }
       case ComposedGraph.LookupOperation.GraphQLQuery(field, mappings, ComposedGraph.LookupResult.Single)             =>
         val correlation = EntityCorrelation.Ordered
-        val selections  = traverse(batch.entries.zipWithIndex) { case (entry, index) =>
+        val selections  = traverseOption(batch.entries.zipWithIndex) { case (entry, index) =>
           evaluateArguments(mappings, batch, Some(entry)).map { arguments =>
             val alias = s"_caliban_gateway_lookup_$index"
             Selection.Field(
@@ -355,25 +365,15 @@ private[gateway] final class EntityExecutor[-R](
         ("__typename" -> StringValue(route.lookup.representationType.getOrElse(entry.identity.typename)))
     )
 
-  private def traverse[A, B](values: Iterable[A])(f: A => Option[B]): Option[List[B]] = {
-    val collected = List.newBuilder[B]
-    val iterator  = values.iterator
-    while (iterator.hasNext)
-      f(iterator.next()) match {
-        case Some(value) => collected += value
-        case None        => return None
-      }
-    Some(collected.result())
-  }
-
   private def evaluateArguments(
     arguments: Map[String, ComposedGraph.LookupArgument],
     batch: EntityBatch,
     current: Option[EntityBatchEntry]
   ): Option[Map[String, InputValue]] =
-    traverse(arguments.toList) { case (name, argument) =>
+    traverseOption(arguments.toList) { case (name, argument) =>
       evaluateArgument(argument, batch, current).map(name -> _)
-    }.map(_.toMap)
+    }
+      .map(_.toMap)
 
   private def evaluateArgument(
     argument: ComposedGraph.LookupArgument,
@@ -397,11 +397,12 @@ private[gateway] final class EntityExecutor[-R](
           case value                                                      => value
         }
       case ComposedGraph.LookupArgument.ObjectMapping(fields)    =>
-        traverse(fields) { case (name, value) =>
+        traverseOption(fields) { case (name, value) =>
           evaluateArgument(value, batch, current).map(name -> _)
-        }.map(values => InputObjectValue(values.toMap))
+        }
+          .map(values => InputObjectValue(values.toMap))
       case ComposedGraph.LookupArgument.Batch(value)             =>
-        traverse(batch.entries)(entry => evaluateArgument(value, batch, Some(entry)))
+        traverseOption(batch.entries)(entry => evaluateArgument(value, batch, Some(entry)))
           .map(InputListValue.apply)
     }
 
@@ -411,10 +412,12 @@ private[gateway] final class EntityExecutor[-R](
     blocked: Map[RouteId, Set[List[PathValue]]],
     caches: PlanCaches
   ): EntityBatch = {
-    val entries =
+    val entries                                               =
       mutable.LinkedHashMap.empty[Representation, mutable.ListBuffer[EntityLocation]]
-    val errors  = mutable.ListBuffer.empty[CalibanError]
-    val skipped = mutable.Map.empty[RouteId, mutable.Set[List[PathValue]]]
+    val errors                                                = mutable.ListBuffer.empty[CalibanError]
+    val skipped                                               = mutable.Map.empty[RouteId, mutable.Set[List[PathValue]]]
+    def skip(route: EntityRoute, path: List[PathValue]): Unit =
+      skipped.getOrElseUpdate(route.id, mutable.Set.empty) += path
 
     routes.foreach { route =>
       val blockedPaths = PathIndex(
@@ -425,7 +428,7 @@ private[gateway] final class EntityExecutor[-R](
         case (_, NullValue)           => ()
         case (path, obj: ObjectValue) =>
           if (blockedPaths.containsPrefixOf(path))
-            skipped.getOrElseUpdate(route.id, mutable.Set.empty) += path
+            skip(route, path)
           else if (
             objectType && route.typename.exists { selection =>
               var differs   = false
@@ -444,7 +447,7 @@ private[gateway] final class EntityExecutor[-R](
               differs
             }
           )
-            skipped.getOrElseUpdate(route.id, mutable.Set.empty) += path
+            skip(route, path)
           else
             sourceRepresentation(route, obj, caches) match {
               case Some(representation) =>
@@ -455,11 +458,11 @@ private[gateway] final class EntityExecutor[-R](
                 }
               case None                 =>
                 errors += missingRepresentation(route, path)
-                skipped.getOrElseUpdate(route.id, mutable.Set.empty) += path
+                skip(route, path)
             }
         case (path, _)                =>
           errors += missingRepresentation(route, path)
-          skipped.getOrElseUpdate(route.id, mutable.Set.empty) += path
+          skip(route, path)
       }
     }
 
@@ -538,12 +541,13 @@ private[gateway] final class EntityExecutor[-R](
             case None        => None
           }
         case keys       =>
-          traverse(keys)(key =>
+          traverseOption(keys)(key =>
             value
               .get(key.selection.responseName)
               .flatMap(selectedInput(key.selection, _))
               .map(key.keyField -> _)
-          ).map(EntityIdentity(typename, _))
+          )
+            .map(EntityIdentity(typename, _))
       }
   }
 
@@ -559,7 +563,7 @@ private[gateway] final class EntityExecutor[-R](
         case obj: ObjectValue  =>
           selectedObject(selection.children, selection.runtimeTypeAlias, obj, allowNull)
         case ListValue(values) =>
-          traverse(values)(selectedInput(selection, _, allowNull)).map(InputListValue.apply)
+          traverseOption(values)(selectedInput(selection, _, allowNull)).map(InputListValue.apply)
         case _                 => None
       }
 
@@ -567,9 +571,9 @@ private[gateway] final class EntityExecutor[-R](
     value match {
       case input: InputValue   => Some(input)
       case ObjectValue(fields) =>
-        traverse(fields) { case (name, nested) => responseInput(nested).map(name -> _) }
+        traverseOption(fields) { case (name, nested) => responseInput(nested).map(name -> _) }
           .map(values => InputObjectValue(values.toMap))
-      case ListValue(values)   => traverse(values)(responseInput).map(InputListValue.apply)
+      case ListValue(values)   => traverseOption(values)(responseInput).map(InputListValue.apply)
       case _                   => None
     }
 
@@ -588,12 +592,13 @@ private[gateway] final class EntityExecutor[-R](
         }
     }
     applicable.flatMap(values =>
-      traverse(values)(selection =>
+      traverseOption(values)(selection =>
         fields
           .get(selection.responseName)
           .flatMap(selectedInput(selection, _, allowNull))
           .map(selection.field -> _)
-      ).map(values => InputObjectValue(values.toMap))
+      )
+        .map(values => InputObjectValue(values.toMap))
     )
   }
 
@@ -657,8 +662,7 @@ private[gateway] final class EntityExecutor[-R](
     val resolved       = mutable.Set.empty[Int]
     val patches        = mutable.LinkedHashMap.empty[Int, ResponseValue]
     val protocolErrors = mutable.ListBuffer.empty[CalibanError]
-    val blocked        = mutable.Map.empty[RouteId, mutable.Set[List[PathValue]]]
-    batch.blocked.foreach { case (route, paths) => blocked.put(route, mutable.Set(paths.toSeq: _*)) }
+    val blocked        = mutableBlocked(batch.blocked)
     val values         = lookup.response.values(response.data)
 
     values.foreach {
@@ -715,7 +719,7 @@ private[gateway] final class EntityExecutor[-R](
       merged,
       errors,
       batch.routes,
-      blocked.iterator.map { case (route, paths) => route -> paths.toSet }.toMap
+      immutableBlocked(blocked)
     )
   }
 
@@ -726,11 +730,23 @@ private[gateway] final class EntityExecutor[-R](
     entry.locations.foreach(location => blocked.getOrElseUpdate(location.route.id, mutable.Set.empty) += location.path)
 
   private def blockAll(batch: EntityBatch): Map[RouteId, Set[List[PathValue]]] = {
-    val blocked = mutable.Map.empty[RouteId, mutable.Set[List[PathValue]]]
-    batch.blocked.foreach { case (route, paths) => blocked.put(route, mutable.Set(paths.toSeq: _*)) }
+    val blocked = mutableBlocked(batch.blocked)
     batch.entries.foreach(blockEntry(_, blocked))
-    blocked.iterator.map { case (route, paths) => route -> paths.toSet }.toMap
+    immutableBlocked(blocked)
   }
+
+  private def mutableBlocked(
+    blocked: Map[RouteId, Set[List[PathValue]]]
+  ): mutable.Map[RouteId, mutable.Set[List[PathValue]]] = {
+    val result = mutable.Map.empty[RouteId, mutable.Set[List[PathValue]]]
+    blocked.foreach { case (route, paths) => result.put(route, mutable.Set(paths.toSeq: _*)) }
+    result
+  }
+
+  private def immutableBlocked(
+    blocked: mutable.Map[RouteId, mutable.Set[List[PathValue]]]
+  ): Map[RouteId, Set[List[PathValue]]] =
+    blocked.iterator.map { case (route, paths) => route -> paths.toSet }.toMap
 
   private def relocateErrors(
     route: EntityRoute,
@@ -742,7 +758,7 @@ private[gateway] final class EntityExecutor[-R](
   ): List[CalibanError] =
     errors.flatMap {
       case error: CalibanError.ExecutionError =>
-        lookup.errorIndex(error.path) match {
+        lookup.response.errorIndex(error.path) match {
           case Some((index, tail)) =>
             val locations  = entityLocations(route.entityType, batch, lookup.correlation, values.get(index), index)
             val clientTail = graph.restoreResponsePath(route.fields, lookup.executableFields, tail)
@@ -882,10 +898,6 @@ private[gateway] object EntityExecutor {
       route.selectionKey
     )
 
-  private final case class EntityGroup(firstRoute: EntityRoute, additionalRoutes: mutable.ListBuffer[EntityRoute]) {
-    def routes: List[EntityRoute] = firstRoute :: additionalRoutes.toList
-  }
-
   private sealed trait EntityCorrelation {
     def required: List[RequiredSelection]
   }
@@ -921,9 +933,6 @@ private[gateway] object EntityExecutor {
     responseToClient: ResponseValue => ResponseValue,
     restorer: Option[Map[String, ComposedGraph.ResponseNameMapping]]
   ) {
-    def errorIndex(path: List[PathValue]): Option[(Int, List[PathValue])] =
-      response.errorIndex(path)
-
     def toClient(result: GraphQLResponse[CalibanError], graph: ComposedGraph): GraphQLResponse[CalibanError] =
       result.copy(data = response.map(result.data) { value =>
         val translated = responseToClient(value)

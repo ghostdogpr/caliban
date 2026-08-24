@@ -290,12 +290,10 @@ private[caliban] object GraphQLResponseJsoniter {
         in: JsonReader,
         default: GraphQLResponse[Any]
       ): GraphQLResponse[Any] = {
-        import GraphQLResponse.ResponseField
-
         if (!in.isNextToken('{')) in.decodeError("expected JSON object")
 
-        var data: ResponseField[ResponseValue]            = ResponseField.Missing
-        var errors: ResponseField[List[CalibanError]]     = ResponseField.Missing
+        var data: Option[ResponseValue]                   = None
+        var errors: Option[List[CalibanError]]            = None
         var extensions: Option[ResponseValue.ObjectValue] = None
         var hasNext: Option[Boolean]                      = None
 
@@ -303,12 +301,12 @@ private[caliban] object GraphQLResponseJsoniter {
           in.rollbackToken()
           while ({
             in.readKeyAsString() match {
-              case "data"       => data = ResponseField.Present(ValueJsoniter.responseValueCodec.decodeValue(in, null))
+              case "data"       => data = Some(ValueJsoniter.responseValueCodec.decodeValue(in, null))
               case "errors"     =>
                 ValueJsoniter.responseValueCodec.decodeValue(in, null) match {
                   case ResponseValue.ListValue(values) =>
                     GraphQLResponse.decodeErrors(values) match {
-                      case Some(decoded) => errors = ResponseField.Present(decoded)
+                      case Some(decoded) => errors = Some(decoded)
                       case None          => in.decodeError("invalid GraphQL error")
                     }
                   case _                               => in.decodeError("expected JSON array")

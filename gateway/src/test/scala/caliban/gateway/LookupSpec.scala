@@ -165,7 +165,7 @@ object LookupSpec extends ZIOSpecDefault {
         response <- gateway.execute("{ status products { name reviews { body } } }")
         requests <- reviews.requests.get
         valid    <- ZIO.foreach(requests)(validateRequest(reviewsSchema, _).exit)
-        values    = field(response.data, "products").collect { case ListValue(values) => values }.getOrElse(Nil)
+        values    = listValues(field(response.data, "products"))
       } yield assertTrue(
         response.errors.isEmpty,
         field(response.data, "status").contains(StringValue("available")),
@@ -228,7 +228,7 @@ object LookupSpec extends ZIOSpecDefault {
                       )
                       .build
         response <- gateway.execute("{ products { name reviews { body } } }")
-        values    = field(response.data, "products").collect { case ListValue(values) => values }.getOrElse(Nil)
+        values    = listValues(field(response.data, "products"))
       } yield assertTrue(
         response.errors.isEmpty,
         values.flatMap(field(_, "name")) == List(StringValue("Table"), StringValue("Chair")),
@@ -261,8 +261,8 @@ object LookupSpec extends ZIOSpecDefault {
                        .build
         responseB <- single.execute("{ products { name reviews { body } } }")
         sentB     <- reviewsB.requests.get
-        ordered    = field(responseA.data, "products").collect { case ListValue(values) => values }.getOrElse(Nil)
-        singles    = field(responseB.data, "products").collect { case ListValue(values) => values }.getOrElse(Nil)
+        ordered    = listValues(field(responseA.data, "products"))
+        singles    = listValues(field(responseB.data, "products"))
       } yield assertTrue(
         responseA.errors.isEmpty,
         responseB.errors.isEmpty,
@@ -389,7 +389,7 @@ object LookupSpec extends ZIOSpecDefault {
                        )
                        .build
         responseB <- ordered.execute("{ products { name reviews { body } } }")
-        valuesA    = field(responseA.data, "products").collect { case ListValue(values) => values }.getOrElse(Nil)
+        valuesA    = listValues(field(responseA.data, "products"))
       } yield assertTrue(
         valuesA.size == 2,
         valuesA.lift(1).contains(NullValue),
@@ -412,12 +412,12 @@ object LookupSpec extends ZIOSpecDefault {
                       )
                       .build
         response <- gateway.execute("{ products { name reviews { body } } }")
-        values    = field(response.data, "products").collect { case ListValue(values) => values }.getOrElse(Nil)
+        values    = listValues(field(response.data, "products"))
       } yield assertTrue(
         values.flatMap(reviewBody) == List(StringValue("Table review"), StringValue("Chair review")),
         response.errors.map(_.msg) ==
           List("Entity lookup response contained an unexpected result for 'Product(id, region)'."),
-        response.errors.collect { case error: CalibanError.ExecutionError => error.path } ==
+        executionErrors(response.errors).map(_.path) ==
           List(List(PathValue.Key("products")))
       )
     },
@@ -439,7 +439,7 @@ object LookupSpec extends ZIOSpecDefault {
                       .withConfig(_.withRemoteErrorDisclosure(_.withMessages(true)))
                       .build
         response <- gateway.execute("{ status products { name reviews { body } } }")
-        errors    = response.errors.collect { case error: CalibanError.ExecutionError => error }
+        errors    = executionErrors(response.errors)
       } yield assertTrue(
         field(response.data, "status").contains(StringValue("available")),
         field(response.data, "products").contains(ListValue(List(NullValue))),
@@ -451,7 +451,7 @@ object LookupSpec extends ZIOSpecDefault {
       )
     },
     test("rejects invalid ordinary lookup metadata during gateway build") {
-      val endpoint        = sttp.model.Uri.unsafeParse("http://127.0.0.1:1/graphql")
+      val endpoint        = unreachableEndpoint
       val missingKey      = Lookup.list(
         "Product",
         List("missing"),

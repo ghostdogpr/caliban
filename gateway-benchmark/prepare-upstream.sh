@@ -7,9 +7,9 @@ if [ "$#" -ne 1 ]; then
 fi
 
 SCRIPT_DIR=$(CDPATH= cd -P -- "$(dirname -- "$0")" && pwd)
-REPOSITORY_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 UPSTREAM_DIR=$(CDPATH= cd -- "$1" && pwd)
-EXPECTED_REVISION=$(awk -F'`' '/GraphQL Gateways Benchmark \(published dashboard\)/ { print $2 }' "$REPOSITORY_DIR/gateway-plan/SOURCES.md")
+. "$SCRIPT_DIR/upstream.env"
+EXPECTED_REVISION=$GRAPHQL_GATEWAYS_BENCHMARK_REVISION
 ACTUAL_REVISION=$(git -C "$UPSTREAM_DIR" rev-parse HEAD)
 
 if [ -z "$EXPECTED_REVISION" ] || [ "$ACTUAL_REVISION" != "$EXPECTED_REVISION" ]; then

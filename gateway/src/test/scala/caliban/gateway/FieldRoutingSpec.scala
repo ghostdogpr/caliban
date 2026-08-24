@@ -15,7 +15,7 @@ object FieldRoutingSpec extends ZIOSpecDefault {
   def spec = suite("FieldRoutingSpec")(
     suite("requirements and provided fields")(
       test("rejects invalid requirement and provision field sets with source diagnostics") {
-        val endpoint          = Uri.unsafeParse("http://127.0.0.1:1/graphql")
+        val endpoint          = unreachableEndpoint
         val malformedRequires =
           s"""
              |${federationSchemaPreamble("@key", "@external", "@requires")}
@@ -95,10 +95,7 @@ object FieldRoutingSpec extends ZIOSpecDefault {
         } yield assertTrue(
           response.errors.isEmpty,
           field(response.data, "product").flatMap(field(_, "shippingEstimate")).contains(IntNumber(220)),
-          field(response.data, "product").forall {
-            case ResponseObjectValue(fields) => fields.map(_._1) == List("shippingEstimate")
-            case _                           => false
-          },
+          field(response.data, "product").forall(fieldNames(_) == List("shippingEstimate")),
           sentA.headOption
             .flatMap(_.query)
             .exists(query => query.contains("price(multiplier:2)") && query.contains("weight")),

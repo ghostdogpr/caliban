@@ -2,7 +2,7 @@
 
 This non-published project runs Caliban's production Quick HTTP path against the pinned
 [GraphQL Gateways Benchmark](https://github.com/graphql-hive/graphql-gateways-benchmark). The revision is recorded once in
-[`gateway-plan/SOURCES.md`](../gateway-plan/SOURCES.md); `prepare-upstream.sh` refuses any other checkout.
+[`upstream.env`](upstream.env); `prepare-upstream.sh` refuses any other checkout.
 
 The adapter acquires the four authored Federation schemas from the benchmark subgraphs, builds a normal `GatewayRuntime`, and
 serves it with `QuickAdapter`. It does not consume the benchmark's serialized supergraph. It explicitly enables Caliban's
@@ -14,7 +14,8 @@ separated from general execution speed.
 
 ```sh
 git clone https://github.com/graphql-hive/graphql-gateways-benchmark.git /path/to/graphql-gateways-benchmark
-git -C /path/to/graphql-gateways-benchmark checkout '<revision from gateway-plan/SOURCES.md>'
+. ./gateway-benchmark/upstream.env
+git -C /path/to/graphql-gateways-benchmark checkout "$GRAPHQL_GATEWAYS_BENCHMARK_REVISION"
 ./gateway-benchmark/prepare-upstream.sh /path/to/graphql-gateways-benchmark
 ./gateway-benchmark/install.sh
 ```

@@ -18,44 +18,38 @@ private[gateway] final class RuntimeControl private (
   import RuntimeControl._
 
   def runRequest[R, E, A](effect: ZIO[R, E, A])(
-    onRejected: => ZIO[R, E, Option[A]]
-  )(implicit trace: Trace): ZIO[R, E, Option[A]] =
-    runAcceptedRequest(requests(effect), ZIO.unit, onRejected)
+    onTimeout: => ZIO[R, E, A]
+  )(
+    onRejected: => ZIO[R, E, A]
+  )(implicit trace: Trace): ZIO[R, E, A] =
+    withLease(requests(effect), ZIO.unit)(onTimeout)(onRejected)(identity)
 
   def runObservedRequest[R, E, A](wrapper: GatewayWrapper[R], event: Event.Request)(effect: ZIO[R, E, A])(
     onTimeout: URIO[R, A]
   )(
     onRejected: URIO[R, A]
   )(result: Exit[E, A] => Result)(implicit trace: Trace): ZIO[R, E, A] =
+    withLease(
+      requests.observed(wrapper)(effect),
+      wrapper.wrap(Event.RequestOverdue)(ZIO.unit)(Result.classifyExit)
+    )(onTimeout)(onRejected)(value => wrapper.wrap(event)(value)(result))
+
+  private def withLease[R, E, A](
+    effect: ZIO[R, E, A],
+    onOverdue: URIO[R, Unit]
+  )(
+    onTimeout: => ZIO[R, E, A]
+  )(
+    onRejected: => ZIO[R, E, A]
+  )(
+    observe: ZIO[R, E, A] => ZIO[R, E, A]
+  )(implicit trace: Trace): ZIO[R, E, A] =
     ZIO.uninterruptibleMask { restore =>
       begin.flatMap {
         case Some(lease) =>
-          restore(
-            wrapper.wrap(event)(
-              run(
-                lease,
-                requests.observed(wrapper)(effect),
-                wrapper.wrap(Event.RequestOverdue)(ZIO.unit)(
-                  Result.classifyExit
-                )
-              ).flatMap(_.fold(onTimeout)(ZIO.succeed(_)))
-            )(result)
-          ).ensuring(end(lease.token))
-        case None        => wrapper.wrap(event)(onRejected)(result)
-      }
-    }
-
-  private def runAcceptedRequest[R, E, A](
-    effect: ZIO[R, E, A],
-    onOverdue: URIO[R, Unit],
-    onRejected: => ZIO[R, E, Option[A]]
-  )(implicit
-    trace: Trace
-  ): ZIO[R, E, Option[A]] =
-    ZIO.uninterruptibleMask { restore =>
-      begin.flatMap {
-        case Some(lease) => restore(run(lease, effect, onOverdue)).ensuring(end(lease.token))
-        case None        => onRejected
+          restore(observe(run(lease, effect, onOverdue).flatMap(_.fold(onTimeout)(ZIO.succeed(_)))))
+            .ensuring(end(lease.token))
+        case None        => observe(onRejected)
       }
     }
 

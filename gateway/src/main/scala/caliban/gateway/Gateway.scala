@@ -107,7 +107,12 @@ object Gateway {
   ): ZIO[Scope, GatewayBuildError, GatewayRuntime[R]] =
     for {
       backend      <-
-        if (subgraphs.exists(isRemote))
+        if (
+          subgraphs.exists(_.source match {
+            case _: Source.Remote[_] => true
+            case _                   => false
+          })
+        )
           HttpClientZioBackend
             .scoped()
             .map(Some(_))
@@ -180,11 +185,13 @@ object Gateway {
                               .fromOption(backend)
                               .orElseFail(List(s"[${subgraph.name}] Remote GraphQL transport is unavailable."))
           document       <- RemoteSchemaAcquisition
-                              .document(schema, endpoint, federation, config.acquisition, Some(client))
+                              .document(schema, endpoint, federation, config.acquisition, client)
                               .mapError(error => List(s"[${subgraph.name}] $error"))
           rootDocument    = ensureFederationTransportQuery(document, federation)
           sourceRootType <- toRootType(subgraph.name, rootDocument, promoteOrphans = federation).mapError(_ :: Nil)
-          contribution   <- prepareContribution(subgraph, sourceRootType, rootDocument, document, federation)
+          contribution   <- ZIO.fromEither(
+                              prepareContribution(subgraph, sourceRootType, rootDocument, document, federation)
+                            )
           source         <- RemoteGraphQLSource.make(
                               subgraph.name,
                               endpoint,
@@ -198,7 +205,9 @@ object Gateway {
         val federation = SchemaComposition.isFederation(document)
         for {
           sourceRootType <- toRootType(subgraph.name, document).mapError(_ :: Nil)
-          contribution   <- prepareContribution(subgraph, sourceRootType, document, document, federation)
+          contribution   <- ZIO.fromEither(
+                              prepareContribution(subgraph, sourceRootType, document, document, federation)
+                            )
           interpreter    <- ZIO
                               .fromEither(graph.interpreterEither)
                               .mapError(error => List(s"[${subgraph.name}] ${error.getMessage}"))
@@ -211,12 +220,6 @@ object Gateway {
     maxConcurrentCalls: Int
   )
 
-  private def isRemote[R](subgraph: Subgraph[R]): Boolean =
-    subgraph.source match {
-      case _: Source.Remote[_] => true
-      case _                   => false
-    }
-
   private def toRootType(
     name: String,
     document: Document,
@@ -226,27 +229,28 @@ object Gateway {
       .fromEither(RemoteSchema.toRootType(document, promoteOrphans))
       .mapError(error => s"[$name] ${error.getMessage}")
 
-  private def prepareContribution[R](
+  private[gateway] def prepareContribution[R](
     subgraph: Subgraph[R],
     sourceRootType: RootType,
     rootDocument: Document,
     document: Document,
     federation: Boolean
-  ): IO[List[String], SchemaContribution] =
+  ): Either[List[String], SchemaContribution] =
     for {
-      mapping  <- ZIO.fromEither(
-                    SchemaCoordinateMapping.compile(
-                      subgraph.name,
-                      sourceRootType,
-                      document,
-                      federation,
-                      subgraph.transformations
-                    )
+      mapping  <- SchemaCoordinateMapping.compile(
+                    subgraph.name,
+                    sourceRootType,
+                    document,
+                    federation,
+                    subgraph.transformations
                   )
       rootType <-
         if (mapping.nonEmpty)
-          toRootType(subgraph.name, mapping.transform(rootDocument), promoteOrphans = federation).mapError(_ :: Nil)
-        else ZIO.succeed(sourceRootType)
+          RemoteSchema
+            .toRootType(mapping.transform(rootDocument), promoteOrphans = federation)
+            .left
+            .map(error => List(s"[${subgraph.name}] ${error.getMessage}"))
+        else Right(sourceRootType)
     } yield SchemaContribution(
       subgraph.name,
       rootType,
@@ -269,8 +273,7 @@ object Gateway {
           }
       )
 
-    if (!federation || hasDeclaredQuery) document
-    else if (hasConventionalQuery) document
+    if (!federation || hasDeclaredQuery || hasConventionalQuery) document
     else {
       val names    = document.typeDefinitions.iterator.map(_.name).toSet ++ document.typeExtensions.collect {
         case extension: ObjectTypeExtension => extension.name

@@ -161,10 +161,7 @@ object AbstractOperationSpec extends ZIOSpecDefault {
           result    <- gateway.execute(query)
           requests  <- primary.requests.get
           valid     <- ZIO.foreach(requests)(validateRequest(primaryUnionSchema, _).exit)
-          actions    = field(result.data, "response")
-                         .flatMap(field(_, "actions"))
-                         .collect { case ListValue(values) => values }
-                         .getOrElse(Nil)
+          actions    = listValues(field(result.data, "response").flatMap(field(_, "actions")))
         } yield assertTrue(
           result.errors.isEmpty,
           valid.forall(_.isSuccess),
@@ -367,7 +364,7 @@ object AbstractOperationSpec extends ZIOSpecDefault {
                         .build
           result   <- gateway.execute("{ actors { __typename ... on User { detail } } }")
           requests <- target.requests.get
-          actors    = field(result.data, "actors").collect { case ListValue(values) => values }.getOrElse(Nil)
+          actors    = listValues(field(result.data, "actors"))
         } yield assertTrue(
           result.errors.isEmpty,
           requests.size == 1,
@@ -391,7 +388,7 @@ object AbstractOperationSpec extends ZIOSpecDefault {
                         .build
           result   <- gateway.execute("{ accounts { ... on User { id } ... on Admin { id } } }")
         } yield assertTrue(
-          result.errors.collect { case error: CalibanError.ExecutionError => error.path } ==
+          executionErrors(result.errors).map(_.path) ==
             List(List(PathValue.Key("accounts"), PathValue.Index(0), PathValue.Key("id")))
         )
       },
@@ -414,7 +411,7 @@ object AbstractOperationSpec extends ZIOSpecDefault {
                         "{ users { similarAccounts { ... on User { id } ... on Admin { id } } } }"
                       )
         } yield assertTrue(
-          result.errors.collect { case error: CalibanError.ExecutionError => error.path } ==
+          executionErrors(result.errors).map(_.path) ==
             List(
               List(
                 PathValue.Key("users"),
@@ -497,7 +494,7 @@ object AbstractOperationSpec extends ZIOSpecDefault {
                        )
                        .build
           result  <- gateway.execute("{ outcome { ... on TextResult { text } } }")
-          errors   = result.errors.collect { case error: CalibanError.ExecutionError => error }
+          errors   = executionErrors(result.errors)
         } yield assertTrue(
           field(result.data, "outcome").contains(caliban.Value.NullValue),
           errors.map(_.path) == List(List(PathValue.Key("outcome"))),
@@ -522,7 +519,7 @@ object AbstractOperationSpec extends ZIOSpecDefault {
           result   <- gateway.execute(
                         "{ users { similarAccounts { ... on User { id } ... on Admin { id } } } }"
                       )
-          errors    = result.errors.collect { case error: CalibanError.ExecutionError => error }
+          errors    = executionErrors(result.errors)
         } yield assertTrue(
           errors.exists(
             _.path == List(

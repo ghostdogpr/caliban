@@ -4,6 +4,7 @@ import caliban.InputValue.{ ListValue, ObjectValue => InputObjectValue }
 import caliban.ResponseValue.{ ListValue => ResponseListValue, ObjectValue => ResponseObjectValue }
 import caliban.Value.{ BooleanValue, EnumValue, NullValue, StringValue }
 import caliban.gateway.GatewayTestSupport._
+import caliban.gateway.internal.GatewayRuntimeImpl
 import caliban.parsing.Parser
 import caliban.schema.{ GenericSchema, Schema }
 import caliban.wrappers.ApolloPersistedQueries
@@ -402,7 +403,7 @@ object GatewaySpec extends ZIOSpecDefault {
           remote   <- stub(partialResponse)
           gateway  <- Gateway.compose(Subgraph.graphql("products", remote.endpoint, partialSchema)).build
           response <- gateway.execute("{ catalog: products { label: name } }")
-          errors    = response.errors.collect { case error: CalibanError.ExecutionError => error }
+          errors    = executionErrors(response.errors)
         } yield assertTrue(
           field(response.data, "catalog").contains(
             ResponseListValue(List(NullValue, ResponseObjectValue(List("label" -> StringValue("Desk")))))
@@ -442,7 +443,7 @@ object GatewaySpec extends ZIOSpecDefault {
                         )
                         .build
           response <- gateway.execute("{ first second }")
-          errors    = response.errors.collect { case error: CalibanError.ExecutionError => error }
+          errors    = executionErrors(response.errors)
         } yield assertTrue(
           errors.map(_.msg) == List("global detail", "Remote GraphQL request failed."),
           errors.map(_.path) == List(List(PathValue.Key("first")), List(PathValue.Key("second"))),
@@ -468,7 +469,7 @@ object GatewaySpec extends ZIOSpecDefault {
         } yield assertTrue(
           response.data == NullValue,
           response.errors.map(_.msg) == List("Remote GraphQL request failed."),
-          response.errors.collect { case error: CalibanError.ExecutionError => error.path } == List(
+          executionErrors(response.errors).map(_.path) == List(
             List(PathValue.Key("products"))
           )
         )
@@ -484,7 +485,7 @@ object GatewaySpec extends ZIOSpecDefault {
         } yield assertTrue(
           response.data == NullValue,
           response.errors.map(_.msg) == List("Remote GraphQL request failed."),
-          response.errors.collect { case error: CalibanError.ExecutionError => error.path } == List(
+          executionErrors(response.errors).map(_.path) == List(
             List(PathValue.Key("products"))
           )
         )
@@ -501,7 +502,7 @@ object GatewaySpec extends ZIOSpecDefault {
                         .withConfig(_.withRemoteErrorDisclosure(_.withMessages(true)))
                         .build
           response <- gateway.execute("{ product { name } }")
-          errors    = response.errors.collect { case error: CalibanError.ExecutionError => error }
+          errors    = executionErrors(response.errors)
         } yield assertTrue(
           field(response.data, "product").contains(NullValue),
           errors.map(_.msg) == List("Remote GraphQL request failed."),
@@ -514,7 +515,7 @@ object GatewaySpec extends ZIOSpecDefault {
           remote   <- stub("""{"data":{"value":{}}}""")
           gateway  <- Gateway.compose(Subgraph.graphql("source", remote.endpoint, "type Query { value: String }")).build
           response <- gateway.execute("{ value }")
-          errors    = response.errors.collect { case error: CalibanError.ExecutionError => error }
+          errors    = executionErrors(response.errors)
         } yield assertTrue(
           field(response.data, "value").contains(NullValue),
           errors.map(_.msg) == List("Remote GraphQL request failed."),
@@ -526,7 +527,7 @@ object GatewaySpec extends ZIOSpecDefault {
           remote   <- stub("""{"data":{"value":{}}}""")
           gateway  <- Gateway.compose(Subgraph.graphql("source", remote.endpoint, "type Query { value: String! }")).build
           response <- gateway.execute("{ value }")
-          errors    = response.errors.collect { case error: CalibanError.ExecutionError => error }
+          errors    = executionErrors(response.errors)
         } yield assertTrue(
           response.data == NullValue,
           errors.map(_.msg) == List("Remote GraphQL request failed."),
@@ -541,7 +542,7 @@ object GatewaySpec extends ZIOSpecDefault {
           remote   <- stub(responseBody)
           gateway  <- Gateway.compose(Subgraph.graphql("reviews", remote.endpoint, listSchema)).build
           response <- gateway.execute("{ reviews }")
-          errors    = response.errors.collect { case error: CalibanError.ExecutionError => error }
+          errors    = executionErrors(response.errors)
         } yield assertTrue(
           field(response.data, "reviews").contains(NullValue),
           errors.map(_.msg) == List("Remote GraphQL request failed."),
@@ -556,7 +557,7 @@ object GatewaySpec extends ZIOSpecDefault {
           remote   <- stub(responseBody)
           gateway  <- Gateway.compose(Subgraph.graphql("reviews", remote.endpoint, listSchema)).build
           response <- gateway.execute("{ reviews }")
-          errors    = response.errors.collect { case error: CalibanError.ExecutionError => error }
+          errors    = executionErrors(response.errors)
         } yield assertTrue(
           response.data == NullValue,
           errors.map(_.msg) == List("Remote GraphQL request failed."),
@@ -570,7 +571,7 @@ object GatewaySpec extends ZIOSpecDefault {
           remote   <- stub("""{"data":{"product":"invalid"}}""")
           gateway  <- Gateway.compose(Subgraph.graphql("products", remote.endpoint, objectSchema)).build
           response <- gateway.execute("{ product { name } }")
-          errors    = response.errors.collect { case error: CalibanError.ExecutionError => error }
+          errors    = executionErrors(response.errors)
         } yield assertTrue(
           field(response.data, "product").contains(NullValue),
           errors.map(_.msg) == List("Remote GraphQL request failed."),
@@ -584,7 +585,7 @@ object GatewaySpec extends ZIOSpecDefault {
           remote   <- stub("""{"data":{"product":[]}}""")
           gateway  <- Gateway.compose(Subgraph.graphql("products", remote.endpoint, objectSchema)).build
           response <- gateway.execute("{ product { name } }")
-          errors    = response.errors.collect { case error: CalibanError.ExecutionError => error }
+          errors    = executionErrors(response.errors)
         } yield assertTrue(
           response.data == NullValue,
           errors.map(_.msg) == List("Remote GraphQL request failed."),
@@ -598,7 +599,7 @@ object GatewaySpec extends ZIOSpecDefault {
           remote   <- stub(invalidResponse)
           gateway  <- Gateway.compose(Subgraph.graphql("source", remote.endpoint, nullableRoots)).build
           response <- gateway.execute("{ first second }")
-          errors    = response.errors.collect { case error: CalibanError.ExecutionError => error }
+          errors    = executionErrors(response.errors)
         } yield assertTrue(
           response.data == ResponseObjectValue(List("first" -> NullValue, "second" -> NullValue)),
           errors.map(_.msg) == List("Remote GraphQL request failed.", "Remote GraphQL request failed."),
@@ -609,6 +610,29 @@ object GatewaySpec extends ZIOSpecDefault {
         )
       }
     ),
+    test("merges duplicate fields last-wins on both sides of the wide-object threshold") {
+      def value(size: Int): ResponseObjectValue =
+        ResponseObjectValue(
+          ("duplicate"   -> StringValue("first")) ::
+            List.tabulate(size - 2)(index => s"field$index" -> StringValue(index.toString)) :::
+            ("duplicate" -> StringValue("last")) :: Nil
+        )
+
+      val patch  = ResponseObjectValue(("duplicate" -> StringValue("merged")) :: Nil)
+      val narrow = GatewayRuntimeImpl.mergeObject(value(15), patch)
+      val wide   = GatewayRuntimeImpl.mergeObject(value(16), patch)
+
+      def duplicateValues(value: ResponseValue): List[StringValue] =
+        value match {
+          case ResponseObjectValue(fields) => fields.collect { case ("duplicate", nested: StringValue) => nested }
+          case _                           => Nil
+        }
+
+      assertTrue(
+        duplicateValues(narrow) == List(StringValue("first"), StringValue("merged")),
+        duplicateValues(wide) == List(StringValue("first"), StringValue("merged"))
+      )
+    },
     suite("schema and validation")(
       test("builds SDL and parsed documents through the same validated schema path") {
         for {
@@ -753,10 +777,7 @@ object GatewaySpec extends ZIOSpecDefault {
           response <- gateway.executeRequest(request)
           sent     <- products.requests.get
           valid    <- ZIO.foreach(sent)(validateRequest(customRootSchema, _).exit)
-          names     = response.data match {
-                        case ResponseObjectValue(fields) => fields.map(_._1)
-                        case _                           => Nil
-                      }
+          names     = fieldNames(response.data)
         } yield assertTrue(
           response.errors.isEmpty,
           names == List("featured", "__typename", "__schema", "__type"),

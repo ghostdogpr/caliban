@@ -17,7 +17,7 @@ import caliban.rendering.DocumentRenderer
 import caliban.schema.{ RootSchema, RootType }
 import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, GraphQLResponseContext, PathValue, ResponseValue }
 import caliban.GraphQLResponseContext.ServerFailure
-import zio.{ Exit, IO, Trace, URIO, ZIO }
+import zio.{ Exit, IO, Trace, UIO, URIO, ZIO }
 
 import java.util.concurrent.ConcurrentHashMap
 import scala.collection.mutable
@@ -39,10 +39,8 @@ private[gateway] final class GatewayRuntimeImpl[-R](
     operationType: OperationType,
     operationName: Option[String],
     caches: PlanCaches
-  ): PreparedRoot = {
-    val cached = caches.roots.get(route.id)
-    if (cached != null && cached.operationType == operationType && cached.operationName == operationName) cached
-    else {
+  ): PreparedRoot =
+    PlanCaches.memoize(caches.roots, route.id) {
       val mapping          = graph.mapping(route.source)
       val executable       = route.downstream.map(graph.executableField(route.source, _))
       val downstream       = mapping.fold(executable)(value => executable.map(value.rootFieldToSource))
@@ -62,29 +60,22 @@ private[gateway] final class GatewayRuntimeImpl[-R](
         DocumentRenderer.renderCompact(Document(operation :: Nil, SourceMapper.empty)),
         graph.responseNameRestorer(route.downstream, executable)
       )
-      caches.roots.put(route.id, prepared)
       prepared
     }
-  }
 
   def check(query: String)(implicit trace: Trace): IO[CalibanError, Unit] =
-    control.runRequest(operations.check(query))(ZIO.fail(requestShutdownError)).flatMap {
-      case Some(_) => ZIO.unit
-      case None    => ZIO.fail(requestTimeoutError)
-    }
+    control.runRequest(operations.check(query))(ZIO.fail(requestTimeoutError))(ZIO.fail(requestShutdownError))
 
-  def status(implicit trace: Trace): zio.UIO[GatewayRuntime.Status] =
+  def status(implicit trace: Trace): UIO[GatewayRuntime.Status] =
     operations.cacheStatus.flatMap(control.status)
 
   def explain(request: GraphQLRequest)(implicit trace: Trace): ZIO[R, CalibanError, String] =
     control
       .runRequest(operations.prepare(request).map(prepared => renderPlan(prepared.plan)))(
+        ZIO.fail(requestTimeoutError)
+      )(
         ZIO.fail(requestShutdownError)
       )
-      .flatMap {
-        case Some(value) => ZIO.succeed(value)
-        case None        => ZIO.fail(requestTimeoutError)
-      }
 
   def executeRequest(request: GraphQLRequest)(implicit trace: Trace): URIO[R, GraphQLResponse[CalibanError]] =
     if (wrapper.enabled) executeObservedRequest(request)
@@ -100,15 +91,12 @@ private[gateway] final class GatewayRuntimeImpl[-R](
                   executePlan(prepared.plan, prepared.executionRequest, prepared.request)
             )
         )(
+          GraphQLResponseContext.markServerError(ServerFailure.TimedOut).as(requestTimeoutResponse)
+        )(
           GraphQLResponseContext
             .markServerError(ServerFailure.Unavailable)
-            .as(Some(requestShutdownResponse))
+            .as(requestShutdownResponse)
         )
-        .flatMap {
-          case Some(response) => ZIO.succeed(response)
-          case None           =>
-            GraphQLResponseContext.markServerError(ServerFailure.TimedOut).as(requestTimeoutResponse)
-        }
 
   private def executeObservedRequest(request: GraphQLRequest)(implicit
     trace: Trace
@@ -142,30 +130,21 @@ private[gateway] final class GatewayRuntimeImpl[-R](
           GraphQLResponseContext
             .markServerError(ServerFailure.TimedOut)
             .as(RequestResult(requestTimeoutResponse, Outcome.Timeout, None))
-        )(
-          Result.fromExit(_)(
-            value => Result(value.outcome, errorCount = value.response.errors.size),
-            _ => Result(Outcome.InternalError)
-          )
-        )
+        )(classifyRequestResult(includeOperationType = false))
       )(
         wrapper.wrap(Event.Completion)(
           GraphQLResponseContext
             .markServerError(ServerFailure.Unavailable)
             .as(RequestResult(requestShutdownResponse, Outcome.Http5xx, None))
-        )(
-          Result.fromExit(_)(
-            value => Result(value.outcome, errorCount = value.response.errors.size),
-            _ => Result(Outcome.InternalError)
-          )
-        )
-      )(classifyRequestResult)
+        )(classifyRequestResult(includeOperationType = false))
+      )(classifyRequestResult(includeOperationType = true))
       .map(_.response)
   }
 
-  private def classifyRequestResult(exit: Exit[Nothing, RequestResult]): Result =
+  private def classifyRequestResult(includeOperationType: Boolean)(exit: Exit[Nothing, RequestResult]): Result =
     Result.fromExit(exit)(
-      result => Result(result.outcome, result.operationType, result.response.errors.size),
+      result =>
+        Result(result.outcome, result.operationType.filter(_ => includeOperationType), result.response.errors.size),
       _ => Result(Outcome.InternalError)
     )
 
@@ -420,12 +399,10 @@ private[gateway] final class GatewayRuntimeImpl[-R](
     execution: ExecutionRequest,
     fields: List[Field]
   )(implicit trace: Trace): ZIO[Any, Nothing, GraphQLResponse[CalibanError]] =
-    if (fields.isEmpty) ZIO.succeed(GraphQLResponse(ObjectValue(Nil), Nil))
-    else
-      Executor.executeRequest(
-        execution.copy(field = execution.field.copy(fields = fields)),
-        introspection.query.plan
-      )
+    Executor.executeRequest(
+      execution.copy(field = execution.field.copy(fields = fields)),
+      introspection.query.plan
+    )
 
   private def assemble(
     plan: OperationPlan,
@@ -897,116 +874,6 @@ private[gateway] final class GatewayRuntimeImpl[-R](
     }
   }
 
-  private val rightWins: (ResponseValue, ResponseValue) => ResponseValue = (_, value) => value
-
-  private def mergeObject(left: ResponseValue, right: ResponseValue): ResponseValue =
-    mergeValues(left, right)(rightWins)
-
-  private def mergeRootValue(left: ResponseValue, right: ResponseValue): ResponseValue =
-    mergeValues(left, right) {
-      case (NullValue, value)                                                                     => value
-      case (value, NullValue)                                                                     => value
-      case (ListValue(leftValues), ListValue(rightValues)) if leftValues.size == rightValues.size =>
-        ListValue(leftValues.zip(rightValues).map { case (leftValue, rightValue) =>
-          mergeRootValue(leftValue, rightValue)
-        })
-      case (_, value)                                                                             => value
-    }
-
-  private def mergeValues(
-    left: ResponseValue,
-    right: ResponseValue
-  )(mergeLeaf: (ResponseValue, ResponseValue) => ResponseValue): ResponseValue =
-    (left, right) match {
-      case (leftObj: ObjectValue, rightObj: ObjectValue) =>
-        val leftFields                                                          = leftObj.fields
-        var leftSize                                                            = 0
-        var remaining                                                           = leftFields
-        while (remaining ne Nil) {
-          leftSize += 1
-          remaining = remaining.tail
-        }
-        var positions: java.util.HashMap[String, Integer]                       = null
-        var duplicates: java.util.HashMap[String, java.util.ArrayList[Integer]] = null
-        if (leftSize >= IndexedFields.WideObjectFields) {
-          positions = new java.util.HashMap[String, Integer](leftSize * 2)
-          var position = 0
-          remaining = leftFields
-          while (remaining ne Nil) {
-            val name  = remaining.head._1
-            val boxed = Integer.valueOf(position)
-            positions.get(name) match {
-              case null   =>
-                if ((duplicates eq null) || !duplicates.containsKey(name)) positions.put(name, boxed)
-                else duplicates.get(name).add(boxed)
-              case single =>
-                val duplicated = new java.util.ArrayList[Integer](2)
-                duplicated.add(single)
-                duplicated.add(boxed)
-                if (duplicates eq null)
-                  duplicates = new java.util.HashMap[String, java.util.ArrayList[Integer]]
-                duplicates.put(name, duplicated)
-                positions.remove(name)
-            }
-            position += 1
-            remaining = remaining.tail
-          }
-        }
-        val matches                                                             = new Array[ResponseValue](leftSize)
-        var extras: mutable.ListBuffer[(String, ResponseValue)]                 = null
-        var rightRemaining                                                      = rightObj.fields
-        while (rightRemaining ne Nil) {
-          val field   = rightRemaining.head
-          var matched = false
-          if (positions ne null) {
-            val values = if (duplicates eq null) null else duplicates.get(field._1)
-            if (values ne null) {
-              var i = 0
-              while (i < values.size) {
-                matches(values.get(i).intValue) = field._2
-                i += 1
-              }
-              matched = true
-            } else {
-              val single = positions.get(field._1)
-              if (single ne null) {
-                matches(single.intValue) = field._2
-                matched = true
-              }
-            }
-          } else {
-            var position = 0
-            remaining = leftFields
-            while (remaining ne Nil) {
-              if (remaining.head._1.equals(field._1)) {
-                matches(position) = field._2
-                matched = true
-              }
-              position += 1
-              remaining = remaining.tail
-            }
-          }
-          if (!matched) {
-            if (extras eq null) extras = new mutable.ListBuffer
-            extras += field
-          }
-          rightRemaining = rightRemaining.tail
-        }
-        val merged                                                              = new mutable.ListBuffer[(String, ResponseValue)]
-        var position                                                            = 0
-        remaining = leftFields
-        while (remaining ne Nil) {
-          val field   = remaining.head
-          val matched = matches(position)
-          merged += (if (matched eq null) field else (field._1, mergeValues(field._2, matched)(mergeLeaf)))
-          position += 1
-          remaining = remaining.tail
-        }
-        if (extras ne null) merged ++= extras
-        ObjectValue(merged.toList)
-      case _                                             => mergeLeaf(left, right)
-    }
-
   private def responseFields(response: GraphQLResponse[CalibanError]): List[(String, ResponseValue)] =
     response.data match {
       case ObjectValue(fields) => fields
@@ -1031,17 +898,16 @@ private[gateway] final class GatewayRuntimeImpl[-R](
         val lookup = IndexedFields(obj)
         runtimeTypes.matching.iterator
           .flatMap(selection => lookup.get(selection.responseName))
-          .collectFirst { case StringValue(name) => StringValue(name) }
-          .orElse(runtimeTypes.selectedAliases.iterator.flatMap(lookup.get(_)).collectFirst { case value: StringValue =>
-            value
+          .collectFirst { case StringValue(name) => name }
+          .orElse(runtimeTypes.selectedAliases.iterator.flatMap(lookup.get(_)).collectFirst { case StringValue(name) =>
+            name
           })
-          .orElse(lookup.get("__typename"))
+          .orElse(lookup.get("__typename").collect { case StringValue(name) => name })
           .orElse(
             runtimeTypes.fallback.iterator
               .flatMap(selection => lookup.get(selection.responseName))
-              .collectFirst { case value: StringValue => value }
+              .collectFirst { case StringValue(name) => name }
           )
-          .collect { case StringValue(name) => name }
       case _                => None
     }
 
@@ -1100,13 +966,100 @@ private[gateway] final class GatewayRuntimeImpl[-R](
   }
 }
 
-private object GatewayRuntimeImpl {
+private[gateway] object GatewayRuntimeImpl {
+  private val rightWins: (ResponseValue, ResponseValue) => ResponseValue = (_, value) => value
+
+  private[gateway] def mergeObject(left: ResponseValue, right: ResponseValue): ResponseValue =
+    mergeValues(left, right)(rightWins)
+
+  private def mergeRootValue(left: ResponseValue, right: ResponseValue): ResponseValue =
+    mergeValues(left, right) {
+      case (NullValue, value)                                                                     => value
+      case (value, NullValue)                                                                     => value
+      case (ListValue(leftValues), ListValue(rightValues)) if leftValues.size == rightValues.size =>
+        ListValue(leftValues.zip(rightValues).map { case (leftValue, rightValue) =>
+          mergeRootValue(leftValue, rightValue)
+        })
+      case (_, value)                                                                             => value
+    }
+
+  private def mergeValues(
+    left: ResponseValue,
+    right: ResponseValue
+  )(mergeLeaf: (ResponseValue, ResponseValue) => ResponseValue): ResponseValue =
+    (left, right) match {
+      case (leftObj: ObjectValue, rightObj: ObjectValue) =>
+        val leftFields                                          = leftObj.fields
+        var leftSize                                            = 0
+        var remaining                                           = leftFields
+        while (remaining ne Nil) {
+          leftSize += 1
+          remaining = remaining.tail
+        }
+        var positions: java.util.HashMap[String, Integer]       = null
+        if (leftSize >= IndexedFields.WideObjectFields) {
+          positions = new java.util.HashMap[String, Integer](leftSize * 2)
+          var position = 0
+          remaining = leftFields
+          while (remaining ne Nil) {
+            positions.put(remaining.head._1, Integer.valueOf(position))
+            position += 1
+            remaining = remaining.tail
+          }
+        }
+        val matches                                             = new Array[ResponseValue](leftSize)
+        var extras: mutable.ListBuffer[(String, ResponseValue)] = null
+        var rightRemaining                                      = rightObj.fields
+        while (rightRemaining ne Nil) {
+          val field   = rightRemaining.head
+          var matched = false
+          if (positions ne null) {
+            val position = positions.get(field._1)
+            if (position ne null) {
+              matches(position.intValue) = field._2
+              matched = true
+            }
+          } else {
+            var position        = 0
+            var matchedPosition = -1
+            remaining = leftFields
+            while (remaining ne Nil) {
+              if (remaining.head._1.equals(field._1)) matchedPosition = position
+              position += 1
+              remaining = remaining.tail
+            }
+            if (matchedPosition >= 0) {
+              matches(matchedPosition) = field._2
+              matched = true
+            }
+          }
+          if (!matched) {
+            if (extras eq null) extras = new mutable.ListBuffer
+            extras += field
+          }
+          rightRemaining = rightRemaining.tail
+        }
+        val merged                                              = new mutable.ListBuffer[(String, ResponseValue)]
+        var position                                            = 0
+        remaining = leftFields
+        while (remaining ne Nil) {
+          val field   = remaining.head
+          val matched = matches(position)
+          merged += (if (matched eq null) field else (field._1, mergeValues(field._2, matched)(mergeLeaf)))
+          position += 1
+          remaining = remaining.tail
+        }
+        if (extras ne null) merged ++= extras
+        ObjectValue(merged.toList)
+      case _                                             => mergeLeaf(left, right)
+    }
+
   private val requestTimeoutError = CalibanError.ExecutionError("Gateway request timed out.")
 
   private val requestShutdownError = CalibanError.ExecutionError("Gateway is shutting down.")
 
   private val requestTimeoutResponse =
-    GraphQLResponse(NullValue, List(CalibanError.ExecutionError("Gateway request timed out.")))
+    GraphQLResponse(NullValue, requestTimeoutError :: Nil)
 
   private val requestShutdownResponse =
     GraphQLResponse(NullValue, requestShutdownError :: Nil)
@@ -1117,7 +1070,7 @@ private object GatewayRuntimeImpl {
     operationType: Option[OperationType]
   )
 
-  final case class RootResult(route: RootRoute, response: GraphQLResponse[CalibanError])
+  private final case class RootResult(route: RootRoute, response: GraphQLResponse[CalibanError])
 
   private[internal] final case class PreparedRoot(
     operationType: OperationType,

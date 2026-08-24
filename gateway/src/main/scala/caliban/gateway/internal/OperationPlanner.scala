@@ -3,6 +3,7 @@ package caliban.gateway.internal
 import caliban.InputValue
 import caliban.Value.NullValue
 import caliban.execution.{ isIntrospectionField, isMetaField, ExecutionRequest, Field, Fragment }
+import caliban.gateway.traverseOption
 import caliban.gateway.internal.OperationPlanner._
 import caliban.introspection.adt.{ __Field, __Type, __TypeKind }
 import caliban.parsing.SourceMapper
@@ -70,11 +71,7 @@ private[gateway] final class OperationPlanner(
             val entities = enrichmentDependencies(entityRoutes(planned.assignments, planned.routes.size))
             validateDependencies(entities).map(_ => PlannedCandidate(roots, planned, entities))
           }
-          .flatMap {
-            case candidate :: Nil  => Right(candidate)
-            case candidate :: rest => Right(best(candidate, rest)(routeCost))
-            case Nil               => Left(PlanningFailure("No complete route candidate was found."))
-          }
+          .map(_.minBy(routeCost))
       )
 
   private def planRootOptions(
@@ -130,14 +127,6 @@ private[gateway] final class OperationPlanner(
     } yield options
   }
 
-  private def best[A](candidate: A, alternatives: List[A])(cost: A => StructuralCost): A =
-    alternatives
-      .foldLeft(candidate -> cost(candidate)) { case ((selected, selectedCost), alternative) =>
-        val alternativeCost = cost(alternative)
-        if (alternativeCost.betterThan(selectedCost)) alternative -> alternativeCost else selected -> selectedCost
-      }
-      ._1
-
   private def rootRoutes(roots: List[PlannedRoot], operationType: OperationType): PlannedRoutes =
     if (operationType == OperationType.Mutation) {
       val routes = roots.zipWithIndex.map { case (root, index) =>
@@ -155,39 +144,19 @@ private[gateway] final class OperationPlanner(
       PlannedRoutes(routes, roots.flatMap(root => bySource.get(root.source).map(root -> _)))
     }
 
-  private def entityRoutes(assignments: List[(PlannedRoot, RouteId)], firstId: Int): List[EntityRoute] =
-    flattenEntityGroups(assignments.map { case (planned, root) => planned.entities -> root }, firstId)
-
-  private def flattenEntityGroups(
-    groups: List[(List[PlannedEntity], RouteId)],
-    firstId: Int
-  ): List[EntityRoute] = {
+  private def entityRoutes(assignments: List[(PlannedRoot, RouteId)], firstId: Int): List[EntityRoute] = {
     var nextRouteId = firstId
 
     def flatten(values: List[PlannedEntity], root: RouteId, dependencies: Set[RouteId]): List[EntityRoute] =
       values.flatMap { entity =>
         val id       = RouteId(nextRouteId)
         nextRouteId += 1
-        val current  = EntityRoute(
-          id,
-          root,
-          entity.source,
-          dependencies,
-          entity.dependencySource,
-          entity.mergePath,
-          entity.entityType,
-          entity.keys,
-          entity.requirements,
-          entity.typename,
-          entity.lookup,
-          entity.fields,
-          entity.requiresKeyEnrichment
-        )
+        val current  = entity.toRoute(id, root, dependencies)
         val children = flatten(entity.entities, root, Set(id))
         current :: children
       }
 
-    groups.flatMap { case (values, root) => flatten(values, root, Set(root)) }
+    assignments.flatMap { case (planned, root) => flatten(planned.entities, root, Set(root)) }
   }
 
   private def enrichmentDependencies(routes: List[EntityRoute]): List[EntityRoute] = {
@@ -764,17 +733,11 @@ private[gateway] final class OperationPlanner(
                                            val enrichedDownstream           = mergeFields(
                                              state.downstream.toList ::: requirementPlan.downstream.fields
                                            ).toVector
-                                           val keySelection                 = resolved.selection match {
-                                             case LookupSelection.Static(_, fields) => fields                       -> List.empty[RequiredSelection]
-                                             case LookupSelection.Client(_, fields) => List.empty[RequiredKeyField] -> fields
-                                           }
                                            val keyData                      = injectKeyFields(
                                              entityField,
                                              resolved.parentType,
                                              enrichedDownstream,
-                                             keySelection._1,
-                                             keySelection._2,
-                                             resolved.selection.lookup,
+                                             resolved.selection,
                                              transitionTarget(context.parentType, resolved.entityType)
                                            )
                                            val (downstream, keys, typename) = keyData
@@ -868,7 +831,7 @@ private[gateway] final class OperationPlanner(
     parentType: __Type,
     keys: List[ComposedGraph.KeyField]
   ): Option[List[RequiredSelection]] =
-    traverse(keys)(clientKeySelection(fields, parentType, _))
+    traverseOption(keys)(clientKeySelection(fields, parentType, _))
 
   private def clientKeySelection(
     fields: List[Field],
@@ -878,17 +841,9 @@ private[gateway] final class OperationPlanner(
     fields.find(_.name == key.name).flatMap { selected =>
       val nestedType = Option(parentType.getFieldOrNull(key.name)).map(_._type.innerType)
       nestedType.flatMap(value =>
-        traverse(key.children)(clientKeySelection(selected.collectFields(value.name.getOrElse("")), value, _))
+        traverseOption(key.children)(clientKeySelection(selected.collectFields(value.name.getOrElse("")), value, _))
           .map(children => RequiredSelection(key.name, selected.aliasedName, children))
       )
-    }
-
-  private def traverse[A, B](values: List[A])(f: A => Option[B]): Option[List[B]] =
-    values.foldRight(Option(List.empty[B])) { case (value, result) =>
-      for {
-        next <- f(value)
-        rest <- result
-      } yield next :: rest
     }
 
   private def fieldSetFields(selections: List[Selection], parentType: __Type): List[Field] =
@@ -1047,13 +1002,15 @@ private[gateway] final class OperationPlanner(
     field: Field,
     parentType: __Type,
     selected: Vector[Field],
-    keyFields: List[RequiredKeyField],
-    keys: List[RequiredSelection],
-    lookup: ComposedGraph.EntityLookup,
+    selection: LookupSelection,
     targets: Option[Set[String]]
   ): (Vector[Field], List[RequiredSelection], Option[RequiredSelection]) = {
-    val usedNames    = field.fields.iterator.map(_.aliasedName).toSet ++ selected.iterator.map(_.aliasedName)
-    val keyData      = keyFields.foldLeft(
+    val (keyFields, keys) = selection match {
+      case LookupSelection.Static(_, fields) => fields                       -> List.empty[RequiredSelection]
+      case LookupSelection.Client(_, fields) => List.empty[RequiredKeyField] -> fields
+    }
+    val usedNames         = field.fields.iterator.map(_.aliasedName).toSet ++ selected.iterator.map(_.aliasedName)
+    val keyData           = keyFields.foldLeft(
       (List.empty[RequiredSelection], Vector.empty[Field], usedNames)
     ) { case ((selections, fields, names), keyField) =>
       val alias = privateAlias("_caliban_gateway_key", names)
@@ -1063,13 +1020,13 @@ private[gateway] final class OperationPlanner(
         names + alias
       )
     }
-    val injectedKeys = keyData._1.reverse
-    val selections   = if (injectedKeys.isEmpty) keys else keys ::: injectedKeys
-    val runtimeType  =
-      if (lookup.operation.requiresTypename || targets.nonEmpty)
+    val injectedKeys      = keyData._1.reverse
+    val selections        = if (injectedKeys.isEmpty) keys else keys ::: injectedKeys
+    val runtimeType       =
+      if (selection.lookup.operation.requiresTypename || targets.nonEmpty)
         Some(privateTypename("_caliban_gateway_typename", parentType, keyData._3))
       else None
-    val typename     = runtimeType.map { case (alias, _) => RequiredSelection("__typename", alias) }
+    val typename          = runtimeType.map { case (alias, _) => RequiredSelection("__typename", alias) }
     (selected ++ keyData._2 ++ runtimeType.map(_._2), selections, typename)
   }
 
@@ -1238,8 +1195,8 @@ private[gateway] final class OperationPlanner(
         entity.typename.size
     }
 
-  private def routeCost(candidate: PlannedCandidate): StructuralCost =
-    StructuralCost(
+  private def routeCost(candidate: PlannedCandidate): (Int, Int, Int) =
+    (
       candidate.planned.routes.size + EntityExecutor.logicalCallCount(candidate.entities),
       entityDepth(candidate.entities),
       internalSelectionCount(candidate.entities)
@@ -1361,13 +1318,6 @@ private[gateway] object OperationPlanner {
 
     private def exhausted(message: String): Either[PlanningFailure, Unit] =
       Left(PlanningFailure(message, exhausted = true))
-  }
-
-  private final case class StructuralCost(calls: Int, depth: Int, internalSelections: Int) {
-    def betterThan(other: StructuralCost): Boolean =
-      calls < other.calls ||
-        calls == other.calls && depth < other.depth ||
-        calls == other.calls && depth == other.depth && internalSelections < other.internalSelections
   }
 
   private sealed trait RootStrategy
@@ -1508,7 +1458,24 @@ private[gateway] object OperationPlanner {
     fields: List[Field],
     entities: List[PlannedEntity],
     requiresKeyEnrichment: Boolean
-  )
+  ) {
+    def toRoute(id: RouteId, root: RouteId, dependencies: Set[RouteId]): EntityRoute =
+      EntityRoute(
+        id,
+        root,
+        source,
+        dependencies,
+        dependencySource,
+        mergePath,
+        entityType,
+        keys,
+        requirements,
+        typename,
+        lookup,
+        fields,
+        requiresKeyEnrichment
+      )
+  }
 
   final case class RootRoute(id: RouteId, source: String, client: List[Field], downstream: List[Field])
 

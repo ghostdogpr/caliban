@@ -518,7 +518,7 @@ object EntityRoutingSpec extends ZIOSpecDefault {
         )
       },
       test("hides imported Federation directive aliases from the client schema") {
-        val endpoint = Uri.unsafeParse("http://127.0.0.1:1/graphql")
+        val endpoint = unreachableEndpoint
         val products = productsFederationSchema
           .replace("import: [\"@key\"]", "import: [{ name: \"@key\", as: \"@entityKey\" }]")
           .replace("directive @key", "directive @entityKey")

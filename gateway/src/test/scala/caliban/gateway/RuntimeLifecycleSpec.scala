@@ -28,18 +28,8 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
   )(predicate: GatewayRuntime.Status => Boolean): UIO[GatewayRuntime.Status] =
     (ZIO.yieldNow *> control.status(operationCacheStatus)).repeatUntil(predicate)
 
-  private def retryEndpoint(calls: Ref[Int]): ZIO[Server, Nothing, Uri] =
-    for {
-      server <- ZIO.service[Server]
-      _      <- server.install(
-                  Routes(
-                    Method.POST / "runtime-lifecycle-retry" -> Handler.fromZIO(
-                      calls.update(_ + 1).as(Response.status(Status.ServiceUnavailable))
-                    )
-                  )
-                )
-      port   <- server.port
-    } yield Uri.unsafeParse(s"http://127.0.0.1:$port/runtime-lifecycle-retry")
+  private def retryEndpoint(calls: Ref[Int]): ZIO[Server with Ref[Int], Nothing, Uri] =
+    postEndpoint("runtime-lifecycle-retry")(_ => calls.update(_ + 1).as(Response.status(Status.ServiceUnavailable)))
 
   def spec = suite("RuntimeLifecycleSpec")(
     test("applies one deadline to operation resolution before source execution") {
@@ -139,11 +129,11 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
         release      <- Promise.make[Nothing, Unit]
         first        <- control
                           .runRequest(started.succeed(()).unit *> ZIO.uninterruptible(release.await).as("first"))(
-                            ZIO.interrupt
-                          )
+                            ZIO.succeed("timeout")
+                          )(ZIO.interrupt)
                           .fork
         _            <- started.await
-        second       <- control.runRequest(ZIO.succeed("second"))(ZIO.interrupt).fork
+        second       <- control.runRequest(ZIO.succeed("second"))(ZIO.succeed("timeout"))(ZIO.interrupt).fork
         queued       <- waitForControl(control)(_.requests.waiting == 1)
         _            <- TestClock.adjust(1.second)
         secondResult <- second.join
@@ -154,9 +144,9 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
         _            <- scope.close(Exit.unit)
       } yield assertTrue(
         queued.lifecycle.active == 2,
-        secondResult.isEmpty,
+        secondResult == "timeout",
         overdue.lifecycle.active == 1,
-        firstResult.isEmpty,
+        firstResult == "timeout",
         done.lifecycle.active == 0
       )
     },
@@ -168,8 +158,8 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
         release    <- Promise.make[Nothing, Unit]
         fiber      <- control
                         .runRequest(completing.succeed(()).unit *> ZIO.uninterruptible(release.await).as("late"))(
-                          ZIO.interrupt
-                        )
+                          ZIO.succeed("timeout")
+                        )(ZIO.interrupt)
                         .fork
         _          <- completing.await
         _          <- TestClock.adjust(1.second)
@@ -239,20 +229,22 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
         started  <- Promise.make[Nothing, Unit]
         release  <- Promise.make[Nothing, Unit]
         accepted <- control
-                      .runRequest(started.succeed(()).unit *> release.await.as("done"))(ZIO.interrupt)
+                      .runRequest(started.succeed(()).unit *> release.await.as("done"))(ZIO.succeed("timeout"))(
+                        ZIO.interrupt
+                      )
                       .fork
         _        <- started.await
         closing  <- scope.close(Exit.unit).fork
         draining <- waitForControl(control)(_.lifecycle.state == LifecycleState.Draining)
-        rejected <- control.runRequest(ZIO.succeed("late"))(ZIO.some("rejected"))
+        rejected <- control.runRequest(ZIO.succeed("late"))(ZIO.succeed("timeout"))(ZIO.succeed("rejected"))
         _        <- release.succeed(())
         result   <- accepted.join
         _        <- closing.join
         closed   <- control.status(operationCacheStatus)
       } yield assertTrue(
         draining.lifecycle.active == 1,
-        rejected.contains("rejected"),
-        result.contains("done"),
+        rejected == "rejected",
+        result == "done",
         closed.lifecycle.state == LifecycleState.Closed,
         closed.lifecycle.active == 0
       )
@@ -291,7 +283,7 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
         running     <- control
                          .runRequest(
                            (started.succeed(()).unit *> ZIO.never).onInterrupt(interrupted.succeed(()).unit)
-                         )(ZIO.interrupt)
+                         )(ZIO.interrupt)(ZIO.interrupt)
                          .fork
         _           <- started.await
         closing     <- scope.close(Exit.unit).fork
@@ -398,5 +390,5 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
           )
       )
     }
-  ).provideSomeShared[Scope](GatewayTestSupport.testServer) @@ TestAspect.sequential
+  ).provideSomeShared[Scope](testServer, stubIds) @@ TestAspect.sequential
 }

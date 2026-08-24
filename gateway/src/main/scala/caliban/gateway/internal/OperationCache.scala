@@ -20,7 +20,7 @@ private[gateway] final class OperationCache[K, E, V, -R] private (
   def getOrCompute[R0](key: K)(compute: => ZIO[R0, E, Weighted[V]])(implicit trace: Trace): ZIO[R with R0, E, V] =
     state.get.flatMap { current =>
       current.entries.get(key) match {
-        case Some(entry) => ZIO.succeed(hits.increment()) *> observe(CacheResult.Hit)(ZIO.succeed(entry.value))
+        case Some(entry) => hit(entry.value)
         case None        => miss(key)(compute)
       }
     }
@@ -53,12 +53,12 @@ private[gateway] final class OperationCache[K, E, V, -R] private (
         }
         .flatMap {
           case Decision.Hit(value)       =>
-            ZIO.succeed(hits.increment()) *> observe(CacheResult.Hit)(ZIO.succeed(value))
+            hit(value)
           case Decision.Await(promise)   =>
             observe(CacheResult.Wait)(
               promise.await.flatMap {
                 case Exit.Failure(cause) if cause.isInterrupted => getOrCompute(key)(compute)
-                case exit                                       => ZIO.suspendSucceed[Any, E, V](exit)
+                case exit                                       => exit
               }
             )
           case Decision.Compute(promise) => observe(CacheResult.Miss)(complete(key, promise, compute))
@@ -82,9 +82,12 @@ private[gateway] final class OperationCache[K, E, V, -R] private (
             case Exit.Success(weighted) => withoutFlight.insert(key, weighted, maxWeight)
             case Exit.Failure(_)        => withoutFlight
           }
-        } *> promise.succeed(result).unit *> ZIO.suspendSucceed[Any, E, V](result)
+        } *> promise.succeed(result).unit *> result
       }
     }
+
+  private def hit(value: V)(implicit trace: Trace): ZIO[R, Nothing, V] =
+    ZIO.succeed(hits.increment()) *> observe(CacheResult.Hit)(ZIO.succeed(value))
 
   private def observe[R0, E0, A](value: CacheResult)(effect: ZIO[R0, E0, A])(implicit
     trace: Trace

@@ -1,5 +1,6 @@
 package caliban.gateway.internal
 
+import caliban.InputValue
 import caliban.InputValue.{ ListValue => InputListValue, ObjectValue => InputObjectValue }
 import caliban.Value._
 import caliban.introspection.adt._
@@ -181,7 +182,7 @@ private[gateway] object DirectiveComposition {
         directive: String,
         context: String,
         expected: __Type,
-        value: caliban.InputValue
+        value: InputValue
       ): List[String] = {
         val found  = SchemaCoordinateMapping.inputCoordinateReferences(expected, value)
         val types  = found.inputTypes.toList.sorted.collect {
@@ -248,7 +249,7 @@ private[gateway] object DirectiveComposition {
       definitions.iterator.collect {
         case definition if definition.key == DirectiveKey(FederationIdentity, "tag") =>
           definition.key
-      }.toSet ++ declarations.collect { case Right(value) => value.key }
+      }.toSet ++ declarations.collect { case Right(value) => value }
     val selected              = definitions.filter(definition => selectedKeys(definition.key))
     val composedNames         = selected
       .groupBy(_.key)
@@ -287,47 +288,44 @@ private[gateway] object DirectiveComposition {
     val definitionByKey       = selectedDefinitions.groupBy(_.key).flatMap { case (key, values) =>
       values.sortBy(_.source).headOption.map(key -> _.definition)
     }
-    val mergedApplications    = validApplications
+    val applicationsByKey     = validApplications
       .groupBy(application => application.coordinate -> application.key)
       .toList
-      .map { case ((coordinate, key), values) =>
-        val definition = definitionByKey.get(key)
-        val sorted     = values.sortBy(value => (value.source, value.ordinal))
-        val selected   =
-          if (definition.exists(_.isRepeatable)) sorted
-          else sorted.headOption.toList
-        coordinate -> selected.map(_.directive)
-      }
+    val mergedApplications    = applicationsByKey.map { case ((coordinate, key), values) =>
+      val definition = definitionByKey.get(key)
+      val sorted     = values.sortBy(value => (value.source, value.ordinal))
+      val selected   =
+        if (definition.exists(_.isRepeatable)) sorted
+        else sorted.headOption.toList
+      coordinate -> selected.map(_.directive)
+    }
       .groupBy(_._1)
       .map { case (coordinate, values) => coordinate -> values.flatMap(_._2) }
-    val deferredDiagnostics   = validApplications
-      .groupBy(application => application.coordinate -> application.key)
-      .toList
-      .flatMap { case ((coordinate, key), values) =>
-        definitionByKey.get(key).toList.flatMap { definition =>
-          if (definition.isRepeatable) Nil
-          else {
-            val bySourceDuplicates = values
-              .groupBy(_.source)
-              .collect {
-                case (source, occurrences) if occurrences.size > 1 =>
-                  coordinate ->
-                    s"[$source] Non-repeatable directive '@${definition.name}' is applied more than once at '${coordinate.display}'."
-              }
-              .toList
-            val signatures         = values.map(value => applicationSignature(value.directive)).distinct
-            val incompatible       =
-              if (signatures.size <= 1) Nil
-              else
-                List(
-                  coordinate ->
-                    s"[${coordinate.display}] Non-repeatable directive '@${definition.name}' has incompatible applications between subgraphs: ${SchemaComposition
-                        .formatSources(values.map(_.source))}."
-                )
-            bySourceDuplicates ::: incompatible
-          }
+    val deferredDiagnostics   = applicationsByKey.flatMap { case ((coordinate, key), values) =>
+      definitionByKey.get(key).toList.flatMap { definition =>
+        if (definition.isRepeatable) Nil
+        else {
+          val bySourceDuplicates = values
+            .groupBy(_.source)
+            .collect {
+              case (source, occurrences) if occurrences.size > 1 =>
+                coordinate ->
+                  s"[$source] Non-repeatable directive '@${definition.name}' is applied more than once at '${coordinate.display}'."
+            }
+            .toList
+          val signatures         = values.map(value => applicationSignature(value.directive)).distinct
+          val incompatible       =
+            if (signatures.size <= 1) Nil
+            else
+              List(
+                coordinate ->
+                  s"[${coordinate.display}] Non-repeatable directive '@${definition.name}' has incompatible applications between subgraphs: ${SchemaComposition
+                      .formatSources(values.map(_.source))}."
+              )
+          bySourceDuplicates ::: incompatible
         }
       }
+    }
     val hidden                = sourceInfo.map { case (source, info) =>
       source -> (info.source.protocolDirectives ++ info.definitions.map(_.localName))
     }
@@ -393,7 +391,6 @@ private[gateway] object DirectiveComposition {
     definition: __Directive
   )
   private final case class SelectedDefinition(source: String, key: DirectiveKey, definition: __Directive)
-  private final case class Selection(key: DirectiveKey)
   private final case class RawApplication(
     source: String,
     key: DirectiveKey,
@@ -425,7 +422,6 @@ private[gateway] object DirectiveComposition {
       val keys = byLocal.getOrElse(definition.name, Nil)
       definition.name -> (keys match {
         case key :: Nil => key
-        case Nil        => DirectiveKey("", definition.name)
         case _          => DirectiveKey("", definition.name)
       })
     }.toMap
@@ -443,7 +439,7 @@ private[gateway] object DirectiveComposition {
     val ordinarySelections: Set[DirectiveKey] =
       if (schema.federation) Set.empty else definitions.map(_.key).toSet
 
-    val composeDeclarations: List[Either[String, Selection]] = {
+    val composeDeclarations: List[Either[String, DirectiveKey]] = {
       val federation = features.filter(_.identity == FederationIdentity)
       schemaDirectives(schema.document).flatMap { directive =>
         val members = federation.flatMap(feature => feature.sourceDirective(directive.name).map(feature -> _))
@@ -471,7 +467,7 @@ private[gateway] object DirectiveComposition {
                           ReservedFeatureIdentities(definition.key.identity)
                         )
                           Left(s"[${schema.name}] Federation transport directive '@$localName' cannot be composed.")
-                        else Right(Selection(definition.key))
+                        else Right(definition.key)
                     }
                   case _                                                               =>
                     Left(
@@ -617,7 +613,7 @@ private[gateway] object DirectiveComposition {
           )
     }
 
-  private def canonicalValue(tpe: __Type, value: caliban.InputValue): caliban.InputValue =
+  private def canonicalValue(tpe: __Type, value: InputValue): InputValue =
     tpe.kind match {
       case __TypeKind.NON_NULL                             => tpe.ofType.fold(value)(canonicalValue(_, value))
       case __TypeKind.LIST                                 =>
@@ -654,7 +650,7 @@ private[gateway] object DirectiveComposition {
       case _                                               => value
     }
 
-  private def defaultValue(value: __InputValue): Option[caliban.InputValue] =
+  private def defaultValue(value: __InputValue): Option[InputValue] =
     value.defaultValue.flatMap(Parser.parseInputValue(_).toOption)
 
   private def canonicalDecimal(value: BigDecimal): BigDecimal =
@@ -695,7 +691,7 @@ private[gateway] object DirectiveComposition {
   private final case class DefinitionArgumentSignature(
     name: String,
     typeName: String,
-    defaultValue: Option[caliban.InputValue],
+    defaultValue: Option[InputValue],
     deprecated: Boolean,
     deprecationReason: Option[String]
   )
@@ -719,10 +715,10 @@ private[gateway] object DirectiveComposition {
     DefinitionSignature(definition.isRepeatable, definition.locations, arguments)
   }
 
-  private def applicationSignature(directive: Directive): List[(String, caliban.InputValue)] =
+  private def applicationSignature(directive: Directive): List[(String, InputValue)] =
     directive.arguments.toList.sortBy(_._1)
 
-  private def importedName(value: caliban.InputValue): Option[ImportedName] =
+  private def importedName(value: InputValue): Option[ImportedName] =
     value match {
       case StringValue(name)        =>
         Some(ImportedName(name.stripPrefix("@"), name.stripPrefix("@"), name.startsWith("@")))

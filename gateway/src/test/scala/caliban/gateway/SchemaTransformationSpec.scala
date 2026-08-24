@@ -265,7 +265,7 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
            |type Query { status: String }
            |type Details { price: Int! }
            |""".stripMargin
-      val endpoint      = Uri.unsafeParse("http://127.0.0.1:1/graphql")
+      val endpoint      = unreachableEndpoint
 
       Gateway
         .compose(
@@ -431,7 +431,7 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
     test("attributes transformations that leave composed types structurally invalid") {
       val schema   =
         "type Query { empty: Empty state: Status search(input: Only): String } type Empty { value: String } input Only { value: String } enum Status { ACTIVE }"
-      val endpoint = Uri.unsafeParse("http://127.0.0.1:1/graphql")
+      val endpoint = unreachableEndpoint
 
       Gateway
         .compose(
@@ -462,7 +462,7 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
            |type Query { product: Product }
            |type Product @key(fields: "id") { id: ID! }
            |""".stripMargin
-      val endpoint = Uri.unsafeParse("http://127.0.0.1:1/graphql")
+      val endpoint = unreachableEndpoint
 
       Gateway
         .compose(
@@ -512,7 +512,7 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
     test("rejects hidden enum values referenced by directives or defaults") {
       val schema   =
         "directive @flag(status: Status = ACTIVE) on FIELD_DEFINITION type Query { value(state: Status = ACTIVE): String @flag(status: ACTIVE) } enum Status { ACTIVE OTHER }"
-      val endpoint = Uri.unsafeParse("http://127.0.0.1:1/graphql")
+      val endpoint = unreachableEndpoint
 
       Gateway
         .compose(
@@ -534,7 +534,7 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
     test("rejects hidden input fields referenced by directives or defaults") {
       val schema   =
         "directive @flag(filter: Filter = { hidden: \"directive-default\" }) on FIELD_DEFINITION input Filter { visible: String hidden: String } type Query { value(filter: Filter = { hidden: \"field-default\" }): String @flag(filter: { hidden: \"applied\" }) }"
-      val endpoint = Uri.unsafeParse("http://127.0.0.1:1/graphql")
+      val endpoint = unreachableEndpoint
 
       Gateway
         .compose(
@@ -554,7 +554,7 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
         }
     },
     test("rejects invalid and colliding transformations with source diagnostics") {
-      val endpoint = Uri.unsafeParse("http://127.0.0.1:1/graphql")
+      val endpoint = unreachableEndpoint
       val subgraph = Subgraph
         .graphql("products", endpoint, remoteSchema)
         .transform(

@@ -25,10 +25,9 @@ private[gateway] final class OperationPreparation[-R] private (
 
   def check(query: String)(implicit trace: Trace): IO[CalibanError, Unit] =
     for {
-      _        <- ZIO.fromEither(limits.textWeight(query).left.map(limitFailure))
-      document <- RequestPreparation.parse(query)
-      _        <- ZIO.fromEither(limits.documentWeight(document).left.map(limitFailure))
-      _        <- Validator.validate(document, rootType)
+      parsed  <- parseWithinLimits(query)
+      document = parsed.document
+      _       <- Validator.validate(document, rootType)
     } yield ()
 
   def prepare(request: GraphQLRequest)(implicit trace: Trace): ZIO[R, CalibanError, Prepared] =
@@ -49,45 +48,48 @@ private[gateway] final class OperationPreparation[-R] private (
                               policy,
                               preparation
                             )
-                          )(
-                            ZIO
-                              .fromEither(limits.textWeight(query).left.map(limitFailure))
-                              .flatMap(computeWeighted(resolved, _, preparation))
-                          )
+                          )(parseWithinLimits(query).flatMap { parsed =>
+                            computeWeighted(
+                              resolved,
+                              parsed.document,
+                              parsed.textWeight,
+                              parsed.nodeCount,
+                              preparation
+                            )
+                          })
                           .flatMap(materialize(resolved, _))
                       case _                                                    =>
-                        checkedUncached(resolved, query, config.validations)
+                        prepareUncached(resolved, query, config.validations)
                     }
       _          <- hooks.evaluatePolicy(resolved, prepared.document, prepared.executionRequest)
     } yield prepared
 
-  private def checkedUncached(
-    resolved: GraphQLRequest,
-    query: String,
-    validations: List[Validator.QueryValidation]
-  )(implicit
-    trace: Trace
-  ): IO[CalibanError, Prepared] =
-    ZIO.fromEither(limits.textWeight(query).left.map(limitFailure)) *> prepareUncached(resolved, validations)
-
   def cacheStatus(implicit trace: Trace): UIO[OperationCacheStatus] = cache.status
+
+  private def parseWithinLimits(query: String)(implicit trace: Trace): IO[CalibanError, ParsedWithinLimits] =
+    for {
+      textWeight <- ZIO.fromEither(limits.textWeight(query).left.map(limitFailure))
+      document   <- RequestPreparation.parse(query)
+      nodeCount  <- ZIO.fromEither(limits.documentWeight(document).left.map(limitFailure))
+    } yield ParsedWithinLimits(document, textWeight, nodeCount)
 
   private def computeWeighted(
     request: GraphQLRequest,
+    document: Document,
     textWeight: Int,
+    nodes: Int,
     preparation: PreparationConfig
   )(implicit trace: Trace): IO[CalibanError, Weighted[CachedOperation]] =
-    computeCached(request, preparation).map { case (cached, nodes) =>
+    computeCached(request, document, preparation).map { cached =>
       Weighted(cached, operationWeight(textWeight, nodes, cached.plan, request.operationName))
     }
 
   private def computeCached(
     request: GraphQLRequest,
+    document: Document,
     preparation: PreparationConfig
-  )(implicit trace: Trace): IO[CalibanError, (CachedOperation, Int)] =
+  )(implicit trace: Trace): IO[CalibanError, CachedOperation] =
     for {
-      document <- RequestPreparation.parse(request.query.getOrElse(""))
-      nodes    <- ZIO.fromEither(limits.documentWeight(document).left.map(limitFailure))
       _        <- Validator.validate(document, rootType).unless(preparation.skipValidation)
       variables = symbolicVariables(document)
       planned  <-
@@ -100,7 +102,7 @@ private[gateway] final class OperationPreparation[-R] private (
                            variables,
                            rootType,
                            skipValidation = true,
-                           validations = AllValidations
+                           validations = Some(AllValidations)
                          )
             plan      <- ZIO.fromEither(planner.plan(document, execution)).mapError(planningFailure)
           } yield Some((execution, plan))
@@ -108,16 +110,17 @@ private[gateway] final class OperationPreparation[-R] private (
       val execution =
         if (variables.isEmpty && !planned.exists(_._2.hasVariableReferences)) planned.map(_._1)
         else None
-      CachedOperation(document, planned.map(_._2), execution) -> nodes
+      CachedOperation(document, planned.map(_._2), execution)
     }
 
   private def prepareUncached(
     request: GraphQLRequest,
+    query: String,
     validations: List[Validator.QueryValidation]
   )(implicit trace: Trace): IO[CalibanError, Prepared] =
     for {
-      document  <- RequestPreparation.parse(request.query.getOrElse(""))
-      _         <- ZIO.fromEither(limits.documentWeight(document).left.map(limitFailure))
+      parsed    <- parseWithinLimits(query)
+      document   = parsed.document
       variables <- RequestPreparation.coerceVariables(document, request, rootType)
       execution <- RequestPreparation.prepareParsed(
                      request,
@@ -125,7 +128,7 @@ private[gateway] final class OperationPreparation[-R] private (
                      variables,
                      rootType,
                      skipValidation = false,
-                     validations = validations
+                     validations = Some(validations)
                    )
       plan      <- ZIO.fromEither(planner.plan(document, execution)).mapError(planningFailure)
     } yield Prepared(request, document, execution, plan)
@@ -146,7 +149,7 @@ private[gateway] final class OperationPreparation[-R] private (
                          variables,
                          rootType,
                          skipValidation = false,
-                         validations = List(Validator.validateVariables)
+                         validations = Some(List(Validator.validateVariables))
                        )
           plan      <- cached.plan match {
                          case Some(value) if !value.hasVariableReferences => Exit.succeed(value)
@@ -196,6 +199,8 @@ private[gateway] final class OperationPreparation[-R] private (
 }
 
 private[gateway] object OperationPreparation {
+
+  private final case class ParsedWithinLimits(document: Document, textWeight: Int, nodeCount: Int)
 
   final case class Prepared(
     request: GraphQLRequest,

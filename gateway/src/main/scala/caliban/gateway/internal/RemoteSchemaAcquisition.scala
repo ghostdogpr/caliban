@@ -30,19 +30,13 @@ private[gateway] object RemoteSchemaAcquisition {
     endpoint: Uri,
     federation: Boolean,
     config: RemoteGraphQLConfig.Acquisition,
-    backend: Option[SttpClient]
+    backend: SttpClient
   )(implicit trace: Trace): IO[String, Document] =
     input match {
       case SchemaInput.Sdl(value)    => ZIO.fromEither(Parser.parseQuery(value)).mapError(_.getMessage)
       case SchemaInput.Parsed(value) => ZIO.succeed(value)
       case SchemaInput.Acquired      =>
-        val diagnostics = config.diagnostics
-        if (diagnostics.nonEmpty) ZIO.fail(diagnostics.mkString(" "))
-        else
-          ZIO
-            .fromOption(backend)
-            .orElseFail("Remote GraphQL transport is unavailable.")
-            .flatMap(acquire(endpoint, federation, config, _))
+        acquire(endpoint, federation, config, backend)
     }
 
   private def acquire(

@@ -144,16 +144,18 @@ object RemoteSchema {
                           definitions.map(_.subscription) ::: extensions.map(_.subscription)
                         )
       } yield {
-        val conventional                                                     = document.typeDefinitions.iterator.map(_.name).toSet
-        def inferred(declared: Option[String], name: String): Option[String] =
-          declared.orElse(if (definitions.isEmpty && conventional.contains(name)) Some(name) else None)
-
+        val roots = inferConventionalRoots(
+          document,
+          RootNames(query, mutation, subscription),
+          enabled = definitions.isEmpty,
+          requireQuery = false
+        )
         Some(
           SchemaDefinition(
             definitions.flatMap(_.directives) ::: extensions.flatMap(_.directives),
-            inferred(query, "Query"),
-            inferred(mutation, "Mutation"),
-            inferred(subscription, "Subscription"),
+            roots.query,
+            roots.mutation,
+            roots.subscription,
             definitions.flatMap(_.description).headOption
           )
         )
@@ -288,12 +290,23 @@ object RemoteSchema {
       case Some(SchemaDefinition(_, query, mutation, subscription, _)) =>
         RootNames(query, mutation, subscription)
       case None                                                        =>
-        val names = document.typeDefinitions.iterator.map(_.name).toSet
-        RootNames(
-          Some("Query"),
-          if (names.contains("Mutation")) Some("Mutation") else None,
-          if (names.contains("Subscription")) Some("Subscription") else None
-        )
+        inferConventionalRoots(document, RootNames(None, None, None), enabled = true, requireQuery = true)
+    }
+
+  private def inferConventionalRoots(
+    document: Document,
+    declared: RootNames,
+    enabled: Boolean,
+    requireQuery: Boolean
+  ): RootNames =
+    if (!enabled) declared
+    else {
+      val names = document.typeDefinitions.iterator.map(_.name).toSet
+      declared.copy(
+        query = declared.query.orElse(if (requireQuery || names.contains("Query")) Some("Query") else None),
+        mutation = declared.mutation.orElse(if (names.contains("Mutation")) Some("Mutation") else None),
+        subscription = declared.subscription.orElse(if (names.contains("Subscription")) Some("Subscription") else None)
+      )
     }
 
   private def toObjectType(

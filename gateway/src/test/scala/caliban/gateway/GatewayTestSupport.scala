@@ -14,6 +14,7 @@ import sttp.model.Uri
 import zio._
 import zio.http.{ Body, Handler, Header, Headers, MediaType, Method, Request, Response, Routes, Server, Status }
 import zio.http.netty.NettyConfig
+import zio.metrics.Metric
 
 private[gateway] object GatewayTestSupport {
 
@@ -26,7 +27,8 @@ private[gateway] object GatewayTestSupport {
     headers: Ref[Vector[Headers]]
   )
 
-  val invalidResponse = """{"unexpected":true}"""
+  val invalidResponse          = """{"unexpected":true}"""
+  val unreachableEndpoint: Uri = Uri.unsafeParse("http://127.0.0.1:1/graphql")
 
   private val baseFederationDirectives =
     """
@@ -96,17 +98,14 @@ private[gateway] object GatewayTestSupport {
     stubWith(ZIO.unit, responses: _*)
 
   def stubWith(beforeResponse: UIO[Unit], responses: String*): ZIO[Server with Ref[Int], Nothing, Stub] =
-    stubResponding(beforeResponse)((_, index) => Status.Ok -> responses(math.min(index, responses.size - 1)))
+    stubResponding(beforeResponse)((_, index) => responses(math.min(index, responses.size - 1)))
 
   def stubByRequest(response: GraphQLRequest => String): ZIO[Server with Ref[Int], Nothing, Stub] =
-    stubResponding(ZIO.unit)((request, _) => Status.Ok -> response(request))
-
-  def stubWithStatuses(responses: (Status, String)*): ZIO[Server with Ref[Int], Nothing, Stub] =
-    stubResponding(ZIO.unit)((_, index) => responses(math.min(index, responses.size - 1)))
+    stubResponding(ZIO.unit)((request, _) => response(request))
 
   private def stubResponding(
     beforeResponse: UIO[Unit]
-  )(response: (GraphQLRequest, Int) => (Status, String)): ZIO[Server with Ref[Int], Nothing, Stub] =
+  )(response: (GraphQLRequest, Int) => String): ZIO[Server with Ref[Int], Nothing, Stub] =
     for {
       requests <- Ref.make(Vector.empty[GraphQLRequest])
       headers  <- Ref.make(Vector.empty[Headers])
@@ -123,15 +122,24 @@ private[gateway] object GatewayTestSupport {
                       next    <- index.getAndUpdate(_ + 1)
                       result   = response(decoded, next)
                     } yield Response(
-                      result._1,
+                      Status.Ok,
                       Headers(Header.ContentType(MediaType("application", "graphql-response+json")).untyped),
-                      Body.fromString(result._2)
+                      Body.fromString(result)
                     )
                   }
       server   <- ZIO.service[Server]
       _        <- server.install(Routes(Method.POST / path -> handler))
       port     <- server.port
     } yield Stub(Uri.unsafeParse(s"http://127.0.0.1:$port/$path"), requests, headers)
+
+  def postEndpoint(prefix: String)(handler: Request => UIO[Response]): ZIO[Server with Ref[Int], Nothing, Uri] =
+    for {
+      id     <- ZIO.serviceWithZIO[Ref[Int]](_.updateAndGet(_ + 1))
+      path    = s"$prefix-$id"
+      server <- ZIO.service[Server]
+      _      <- server.install(Routes(Method.POST / path -> Handler.fromFunctionZIO(handler)))
+      port   <- server.port
+    } yield Uri.unsafeParse(s"http://127.0.0.1:$port/$path")
 
   val testServer: ZLayer[Any, Throwable, Server] = {
     val config = Server.Config.default
@@ -148,6 +156,34 @@ private[gateway] object GatewayTestSupport {
       case ObjectValue(fields) => fields.collectFirst { case (`name`, value) => value }
       case _                   => None
     }
+
+  def executionErrors(errors: List[CalibanError]): List[CalibanError.ExecutionError] =
+    errors.collect { case error: CalibanError.ExecutionError => error }
+
+  def listValues(value: Option[ResponseValue]): List[ResponseValue] =
+    value.collect { case ResponseValue.ListValue(values) => values }.getOrElse(Nil)
+
+  def fieldNames(value: ResponseValue): List[String] =
+    value match {
+      case ObjectValue(fields) => fields.map(_._1)
+      case _                   => Nil
+    }
+
+  def counter(name: String, label: String, value: String): UIO[Double] =
+    Metric.counter(name).tagged(label, value).value.map(_.count)
+
+  def gauge(name: String): UIO[Double] = Metric.gauge(name).value.map(_.value)
+
+  def gauge(name: String, label: String, value: String): UIO[Double] =
+    Metric.gauge(name).tagged(label, value).value.map(_.value)
+
+  def histogram(name: String, labels: (String, String)*): UIO[Long] =
+    labels
+      .foldLeft(Metric.histogram(name, GatewayMetrics.durationBuckets)) { case (metric, (label, value)) =>
+        metric.tagged(label, value)
+      }
+      .value
+      .map(_.count)
 
   def localGraph(effect: UIO[String]) = {
     object LocalApi extends GenericSchema[Any] {
@@ -187,7 +223,7 @@ private[gateway] object GatewayTestSupport {
                           variables,
                           validationRoot,
                           skipValidation = false,
-                          validations = Validator.AllValidations
+                          validations = Some(Validator.AllValidations)
                         )
     } yield ()
 }
