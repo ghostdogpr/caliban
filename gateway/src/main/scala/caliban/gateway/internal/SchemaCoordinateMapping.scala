@@ -8,7 +8,7 @@ import caliban.gateway.{ Lookup, SchemaTransformation }
 import caliban.gateway.SchemaTransformation._
 import caliban.gateway.internal.OperationPlanner._
 import caliban.introspection.adt.{ __Field, __InputValue, __Type, __TypeKind }
-import caliban.parsing.SourceMapper
+import caliban.parsing.{ Parser, SourceMapper }
 import caliban.parsing.adt.Definition.ExecutableDefinition.OperationDefinition
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
 import caliban.parsing.adt.Definition.TypeSystemDefinition._
@@ -122,17 +122,17 @@ private[gateway] final class SchemaCoordinateMapping private (
           Lookup.Argument.batch(argument(value, expected.flatMap(listElement)))
       }
 
-    val sourceLookup = originalRootType.queryType.allFields.find(_.name == lookup.field)
+    val sourceLookup = Option(originalRootType.queryType.getFieldOrNull(lookup.field))
     val arguments    = lookup.arguments.iterator.map { case (name, value) =>
       val definition = sourceLookup.flatMap(_.allArgs.find(_.name == name))
       clientArgument(sourceQueryName, lookup.field, name) -> argument(value, definition.map(_._type))
-    }.toMap
+    }.toList
     val typeName     = clientType(lookup.typeName)
     val field        = clientField(sourceQueryName, lookup.field)
     val keys         = lookup.keyFields.map(clientField(lookup.typeName, _))
 
     lookup match {
-      case _: Lookup.Single         => Lookup.single(typeName, keys, field, arguments)
+      case _: Lookup.Single         => Lookup.single(typeName, keys, field, arguments: _*)
       case value: Lookup.ListLookup =>
         val correlation = value.correlation match {
           case Lookup.Correlation.Ordered       => Lookup.Correlation.ordered
@@ -141,7 +141,7 @@ private[gateway] final class SchemaCoordinateMapping private (
               clientField(lookup.typeName, response) -> clientField(lookup.typeName, key)
             }.toMap)
         }
-        Lookup.list(typeName, keys, field, arguments, correlation)
+        Lookup.list(typeName, keys, field, correlation, arguments: _*)
     }
   }
 
@@ -203,7 +203,7 @@ private[gateway] final class SchemaCoordinateMapping private (
       case (name, nested)                    =>
         val fieldName  = sourceField(typeName, name)
         val translated = definition
-          .flatMap(_.allFields.find(_.name == fieldName))
+          .flatMap(tpe => Option(tpe.getFieldOrNull(fieldName)))
           .fold(nested)(field => representationValueToSource(field._type, nested))
         fieldName -> translated
     }.toMap)
@@ -287,7 +287,7 @@ private[gateway] final class SchemaCoordinateMapping private (
               }
             else {
               val sourceName = sourceField(typeName, selection.field)
-              val childType  = source.flatMap(_.allFields.find(_.name == sourceName)).map(_._type)
+              val childType  = source.flatMap(tpe => Option(tpe.getFieldOrNull(sourceName))).map(_._type)
               if (selection.children.isEmpty) childType.fold(nested)(responseValueToClient(_, Nil, nested))
               else {
                 val childName = childType.flatMap(_.innerType.name).map(clientType).getOrElse("")
@@ -541,7 +541,7 @@ private[gateway] final class SchemaCoordinateMapping private (
     tpe.copy(name = clientType(tpe.name))
 
   private def sourceFieldDefinition(typeName: String, field: String): Option[__Field] =
-    originalRootType.types.get(typeName).flatMap(_.allFields.find(_.name == field))
+    originalRootType.types.get(typeName).flatMap(tpe => Option(tpe.getFieldOrNull(field)))
 
   private def inputToClient(tpe: __Type, value: InputValue): InputValue =
     mapInputValue(tpe, value, ToClient)
@@ -589,7 +589,7 @@ private[gateway] final class SchemaCoordinateMapping private (
             InputObjectValue(fields.iterator.map { case (name, nested) =>
               val fieldName  = sourceField(clientName, name)
               val translated = definition
-                .flatMap(_.allFields.find(_.name == fieldName))
+                .flatMap(tpe => Option(tpe.getFieldOrNull(fieldName)))
                 .fold(nested)(field => representationValueToSource(field._type, nested))
               fieldName -> translated
             }.toMap)
@@ -749,11 +749,17 @@ private[gateway] object SchemaCoordinateMapping {
     val currentName = name
 
     private def definition(context: CoordinateContext): Option[__InputValue] =
-      context.types.get(typeName).flatMap(_.allFields.find(_.name == field)).flatMap(_.allArgs.find(_.name == name))
+      context.types
+        .get(typeName)
+        .flatMap(tpe => Option(tpe.getFieldOrNull(field)))
+        .flatMap(_.allArgs.find(_.name == name))
 
     def exists(context: CoordinateContext): Boolean                       = definition(context).nonEmpty
     def targetExists(context: CoordinateContext, target: String): Boolean =
-      context.types.get(typeName).flatMap(_.allFields.find(_.name == field)).exists(_.allArgs.exists(_.name == target))
+      context.types
+        .get(typeName)
+        .flatMap(tpe => Option(tpe.getFieldOrNull(field)))
+        .exists(_.allArgs.exists(_.name == target))
     def targetDescription(target: String): String                         = s"argument '$target'"
 
     def restrictions(change: Change, context: CoordinateContext, prefix: String): List[String] = {
@@ -932,6 +938,13 @@ private[gateway] object SchemaCoordinateMapping {
     val hiddenInputFieldReferences = hiddenReferences.inputFields.toList.sorted.map { case (tpe, field) =>
       s"$prefix Hidden input field '$tpe.$field' is referenced by a directive or default value."
     }
+    val invalidRenameTargets       = renames.flatMap { case (coordinate, target) =>
+      if (Parser.parseName(target).isLeft)
+        List(s"$prefix ${coordinate.display} cannot be transformed to invalid GraphQL name '$target'.")
+      else if (target.startsWith("__"))
+        List(s"$prefix ${coordinate.display} cannot be transformed to reserved GraphQL name '$target'.")
+      else Nil
+    }
     val collisions                 = renames.flatMap { case (coordinate, target) => coordinate.collision(context, target, prefix) }
     val transformedCollisions      = renames.groupBy { case (coordinate, target) =>
       coordinate.targetScope -> target
@@ -949,8 +962,8 @@ private[gateway] object SchemaCoordinateMapping {
       }
       .toList
     val diagnostics                =
-      (missing ::: restrictions ::: hiddenEnumReferences ::: hiddenInputFieldReferences ::: collisions ::: transformedCollisions :::
-        conflictingTransformations).distinct.sorted
+      (missing ::: restrictions ::: hiddenEnumReferences ::: hiddenInputFieldReferences ::: invalidRenameTargets :::
+        collisions ::: transformedCollisions ::: conflictingTransformations).distinct.sorted
 
     if (diagnostics.nonEmpty) Left(diagnostics)
     else

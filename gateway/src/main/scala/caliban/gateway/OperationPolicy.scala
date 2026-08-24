@@ -64,8 +64,12 @@ object OperationPolicy {
   }
 
   sealed trait Decision
-  case object Allow  extends Decision
-  case object Reject extends Decision
+  case object Allow extends Decision
+
+  /**
+   * Rejects an operation. Omit `reason` to use the default public message.
+   */
+  final case class Reject(reason: String = "Operation rejected by gateway policy.") extends Decision
 
   /**
    * Creates a policy whose stable discriminator can participate in operation cache keys.

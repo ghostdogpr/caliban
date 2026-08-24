@@ -5,7 +5,7 @@ import scala.util.control.NoStackTrace
 /**
  * Indicates that a [[Gateway]] could not be built.
  */
-final class GatewayBuildError private[gateway] (private[gateway] val diagnostics: List[String]) extends NoStackTrace {
+final class GatewayBuildError private[gateway] (val diagnostics: List[String]) extends NoStackTrace {
   override def getMessage: String = diagnostics.mkString("\n")
 }
 

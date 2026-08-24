@@ -178,22 +178,20 @@ object RoutePlanningSpec extends ZIOSpecDefault {
         "Product",
         List("id"),
         "productsByIds",
-        Map("ids" -> Lookup.Argument.batch(Lookup.Argument.key("id"))),
-        Lookup.Correlation.byKey(Map("id" -> "id"))
+        Lookup.Correlation.byKey(Map("id" -> "id")),
+        "ids" -> Lookup.Argument.batch(Lookup.Argument.key("id"))
       )
       val byRef          = Lookup.list(
         "Product",
         List("id", "region"),
         "productsByRefs",
-        Map(
-          "refs" -> Lookup.Argument.batch(
-            Lookup.Argument.obj(
-              "id"     -> Lookup.Argument.key("id"),
-              "region" -> Lookup.Argument.key("region")
-            )
+        Lookup.Correlation.byKey(Map("id" -> "id", "region" -> "region")),
+        "refs" -> Lookup.Argument.batch(
+          Lookup.Argument.obj(
+            "id"     -> Lookup.Argument.key("id"),
+            "region" -> Lookup.Argument.key("region")
           )
-        ),
-        Lookup.Correlation.byKey(Map("id" -> "id", "region" -> "region"))
+        )
       )
 
       for {

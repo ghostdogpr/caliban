@@ -8,10 +8,10 @@ import zio.{ Duration, ZIO }
  * Immutable acquisition, execution, and error-disclosure configuration for one remote GraphQL-over-HTTP source.
  */
 final class RemoteGraphQLConfig[-R] private (
-  private[gateway] val acquisition: RemoteGraphQLConfig.Acquisition,
-  private[gateway] val execution: RemoteGraphQLConfig.Execution,
-  private[gateway] val effectfulHeaders: ZIO[R, Throwable, List[Header]],
-  private[gateway] val errorDisclosure: Option[RemoteGraphQLConfig.ErrorDisclosure]
+  val acquisition: RemoteGraphQLConfig.Acquisition,
+  val execution: RemoteGraphQLConfig.Execution,
+  val effectfulHeaders: ZIO[R, Throwable, List[Header]],
+  val errorDisclosure: Option[RemoteGraphQLConfig.ErrorDisclosure]
 ) {
 
   /**
@@ -62,8 +62,8 @@ object RemoteGraphQLConfig {
    * Controls which untrusted remote GraphQL error details may be returned to clients.
    */
   final class ErrorDisclosure private (
-    private[gateway] val includeMessages: Boolean,
-    private[gateway] val extensionKeys: Set[String]
+    val includeMessages: Boolean,
+    val extensionKeys: Set[String]
   ) {
 
     /**
@@ -91,10 +91,10 @@ object RemoteGraphQLConfig {
    * Finite schema-acquisition configuration for one remote GraphQL source.
    */
   final class Acquisition private (
-    private[gateway] val timeout: Duration,
-    private[gateway] val maxResponseBytes: Int,
-    private[gateway] val maxParsingDepth: Int,
-    private[gateway] val headers: List[Header]
+    val timeout: Duration,
+    val maxResponseBytes: Int,
+    val maxParsingDepth: Int,
+    val headers: List[Header]
   ) {
 
     /**
@@ -155,16 +155,16 @@ object RemoteGraphQLConfig {
    * configured static headers, effectful headers, and GraphQL transport headers.
    */
   final class Execution private (
-    private[gateway] val timeout: Duration,
-    private[gateway] val maxRequestBytes: Int,
-    private[gateway] val maxResponseBytes: Int,
-    private[gateway] val retries: Int,
-    private[gateway] val retryBackoff: Duration,
-    private[gateway] val maxConcurrentCalls: Int,
-    private[gateway] val inFlightQueryDeduplication: Boolean,
-    private[gateway] val headers: List[Header],
-    private[gateway] val forwardedHeaders: Set[String],
-    private[gateway] val forwardAll: Boolean
+    val timeout: Duration,
+    val maxRequestBytes: Int,
+    val maxResponseBytes: Int,
+    val retries: Int,
+    val retryBackoff: Duration,
+    val maxConcurrentCalls: Int,
+    val inFlightQueryDeduplication: Boolean,
+    val headers: List[Header],
+    val forwardedHeaders: Set[String],
+    val forwardsAllIncomingHeaders: Boolean
   ) {
 
     /**
@@ -213,13 +213,13 @@ object RemoteGraphQLConfig {
      * Selects incoming request headers to forward by case-insensitive name.
      */
     def forwardIncomingHeaders(names: String*): Execution =
-      copy(forwardedHeaders = names.iterator.map(normalize).toSet, forwardAll = false)
+      copy(forwardedHeaders = names.iterator.map(normalize).toSet, forwardsAllIncomingHeaders = false)
 
     /**
      * Explicitly enables forwarding of all incoming headers except transport-owned headers.
      */
     def forwardAllIncomingHeaders: Execution =
-      copy(forwardedHeaders = Set.empty, forwardAll = true)
+      copy(forwardedHeaders = Set.empty, forwardsAllIncomingHeaders = true)
 
     private[gateway] def diagnostics: List[String] = {
       val timeoutError            = finitePositive(timeout, "Source execution timeout must be finite and positive.")
@@ -253,7 +253,7 @@ object RemoteGraphQLConfig {
       inFlightQueryDeduplication: Boolean = inFlightQueryDeduplication,
       headers: List[Header] = headers,
       forwardedHeaders: Set[String] = forwardedHeaders,
-      forwardAll: Boolean = forwardAll
+      forwardsAllIncomingHeaders: Boolean = forwardsAllIncomingHeaders
     ): Execution =
       new Execution(
         timeout,
@@ -265,7 +265,7 @@ object RemoteGraphQLConfig {
         inFlightQueryDeduplication,
         headers,
         forwardedHeaders,
-        forwardAll
+        forwardsAllIncomingHeaders
       )
   }
 
@@ -285,7 +285,7 @@ object RemoteGraphQLConfig {
         inFlightQueryDeduplication = false,
         headers = Nil,
         forwardedHeaders = Set.empty,
-        forwardAll = false
+        forwardsAllIncomingHeaders = false
       )
   }
 

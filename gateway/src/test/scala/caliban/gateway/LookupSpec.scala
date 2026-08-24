@@ -77,26 +77,26 @@ object LookupSpec extends ZIOSpecDefault {
   )
 
   private val keyedLookup = Lookup.list(
-    typeName = "Product",
-    keyFields = keyFields,
-    field = "productsByRefs",
-    arguments = Map("refs" -> Lookup.Argument.batch(refArgument)),
-    correlation = Lookup.Correlation.byKey(Map("id" -> "id", "region" -> "region"))
+    "Product",
+    keyFields,
+    "productsByRefs",
+    Lookup.Correlation.byKey(Map("id" -> "id", "region" -> "region")),
+    "refs" -> Lookup.Argument.batch(refArgument)
   )
 
   private val orderedLookup = Lookup.list(
-    typeName = "Product",
-    keyFields = keyFields,
-    field = "productsByRefs",
-    arguments = Map("refs" -> Lookup.Argument.batch(refArgument)),
-    correlation = Lookup.Correlation.ordered
+    "Product",
+    keyFields,
+    "productsByRefs",
+    Lookup.Correlation.ordered,
+    "refs" -> Lookup.Argument.batch(refArgument)
   )
 
   private val singleLookup = Lookup.single(
-    typeName = "Product",
-    keyFields = keyFields,
-    field = "productByRef",
-    arguments = Map("ref" -> refArgument)
+    "Product",
+    keyFields,
+    "productByRef",
+    "ref" -> refArgument
   )
 
   private val productsResponse =
@@ -210,15 +210,13 @@ object LookupSpec extends ZIOSpecDefault {
       val localProductsResponse =
         """{"data":{"products":[{"name":"Table","_caliban_gateway_key":"p1"},{"name":"Chair","_caliban_gateway_key":"p2"}]}}"""
       val localLookup           = Lookup.list(
-        typeName = "Product",
-        keyFields = List("id"),
-        field = "productsByRefs",
-        arguments = Map(
-          "refs" -> Lookup.Argument.batch(
-            Lookup.Argument.obj("productId" -> Lookup.Argument.key("id"))
-          )
-        ),
-        correlation = Lookup.Correlation.byKey(Map("id" -> "id"))
+        "Product",
+        List("id"),
+        "productsByRefs",
+        Lookup.Correlation.byKey(Map("id" -> "id")),
+        "refs" -> Lookup.Argument.batch(
+          Lookup.Argument.obj("productId" -> Lookup.Argument.key("id"))
+        )
       )
 
       for {
@@ -330,15 +328,13 @@ object LookupSpec extends ZIOSpecDefault {
         "Product",
         List("id", "region"),
         "productsByRefs",
-        Map(
-          "refs" -> Lookup.Argument.batch(
-            Lookup.Argument.obj(
-              "productId" -> Lookup.Argument.key("id"),
-              "region"    -> Lookup.Argument.obj("code" -> Lookup.Argument.key("region"))
-            )
+        Lookup.Correlation.byKey(Map("id" -> "id", "region" -> "region")),
+        "refs" -> Lookup.Argument.batch(
+          Lookup.Argument.obj(
+            "productId" -> Lookup.Argument.key("id"),
+            "region"    -> Lookup.Argument.obj("code" -> Lookup.Argument.key("region"))
           )
-        ),
-        Lookup.Correlation.byKey(Map("id" -> "id", "region" -> "region"))
+        )
       )
       val transformation = SchemaTransformation.renameEnumValue("Region", "US", "NORTH_AMERICA")
 
@@ -460,75 +456,69 @@ object LookupSpec extends ZIOSpecDefault {
         "Product",
         List("missing"),
         "productsByRefs",
-        Map("refs" -> Lookup.Argument.batch(Lookup.Argument.obj("productId" -> Lookup.Argument.key("missing")))),
-        Lookup.Correlation.ordered
+        Lookup.Correlation.ordered,
+        "refs" -> Lookup.Argument.batch(Lookup.Argument.obj("productId" -> Lookup.Argument.key("missing")))
       )
-      val wrongShape      = Lookup.single("Product", keyFields, "productsByRefs", Map("refs" -> refArgument))
+      val wrongShape      = Lookup.single("Product", keyFields, "productsByRefs", "refs" -> refArgument)
       val missingBatch    = Lookup.list(
         "Product",
         keyFields,
         "productsByRefs",
-        Map("refs" -> refArgument),
-        Lookup.Correlation.ordered
+        Lookup.Correlation.ordered,
+        "refs" -> refArgument
       )
       val badCorrelation  = Lookup.list(
         "Product",
         keyFields,
         "productsByRefs",
-        Map("refs" -> Lookup.Argument.batch(refArgument)),
-        Lookup.Correlation.byKey(Map("missing" -> "id"))
+        Lookup.Correlation.byKey(Map("missing" -> "id")),
+        "refs" -> Lookup.Argument.batch(refArgument)
       )
       val unknownArgument = Lookup.single(
         "Product",
         keyFields,
         "productByRef",
-        Map("missing" -> refArgument)
+        "missing" -> refArgument
       )
       val singleBatch     = Lookup.single(
         "Product",
         keyFields,
         "productByRef",
-        Map("ref" -> Lookup.Argument.batch(refArgument))
+        "ref" -> Lookup.Argument.batch(refArgument)
       )
       val keyOutsideBatch = Lookup.list(
         "Product",
         keyFields,
         "productsByRefs",
-        Map(
-          "refs" -> Lookup.Argument.obj(
-            "productId"  -> Lookup.Argument.key("id"),
-            "regionCode" -> Lookup.Argument.batch(Lookup.Argument.key("region"))
-          )
-        ),
-        Lookup.Correlation.ordered
+        Lookup.Correlation.ordered,
+        "refs" -> Lookup.Argument.obj(
+          "productId"  -> Lookup.Argument.key("id"),
+          "regionCode" -> Lookup.Argument.batch(Lookup.Argument.key("region"))
+        )
       )
       val wrongTypes      = Lookup.single(
         "Product",
         keyFields,
         "productByRef",
-        Map(
-          "ref" -> Lookup.Argument.obj(
-            "productId"  -> Lookup.Argument.key("region"),
-            "regionCode" -> Lookup.Argument.key("id")
-          )
+        "ref" -> Lookup.Argument.obj(
+          "productId"  -> Lookup.Argument.key("region"),
+          "regionCode" -> Lookup.Argument.key("id")
         )
       )
       val nestedBatch     = Lookup.list(
         "Product",
         keyFields,
         "productsByRefs",
-        Map("refs" -> Lookup.Argument.batch(Lookup.Argument.batch(refArgument))),
-        Lookup.Correlation.ordered
+        Lookup.Correlation.ordered,
+        "refs" -> Lookup.Argument.batch(Lookup.Argument.batch(refArgument))
       )
       val partialKeys     = Lookup.single(
         "Product",
         keyFields,
         "productByRef",
-        Map(
-          "ref" -> Lookup.Argument.obj(
-            "productId"  -> Lookup.Argument.key("id"),
-            "regionCode" -> Lookup.Argument.key("id")
-          )
+        "ref" -> Lookup.Argument.obj(
+          "productId"  -> Lookup.Argument.key("id"),
+          "regionCode" -> Lookup.Argument.key("id")
         )
       )
 

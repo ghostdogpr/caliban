@@ -111,7 +111,9 @@ object Gateway {
           HttpClientZioBackend
             .scoped()
             .map(Some(_))
-            .mapError(_ => GatewayBuildError("Unable to initialize the remote GraphQL transport."))
+            .mapError(error =>
+              GatewayBuildError(s"Unable to initialize the remote GraphQL transport: ${error.getMessage}")
+            )
         else ZIO.none
       loaded       <- ZIO.foreachPar(subgraphs)(
                         load(_, backend, config.maxConcurrentLocalCalls, config.remoteErrorDisclosure, wrapper).either

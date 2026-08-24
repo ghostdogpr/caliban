@@ -1,7 +1,7 @@
 package caliban
 
 import caliban.Configurator.ExecutionConfiguration
-import caliban.GraphQLResponseContext.Outcome
+import caliban.GraphQLResponseContext.{ Outcome, ServerFailure }
 import caliban.HttpUtils.{ DeferMultipart, ServerSentEvents }
 import caliban.ResponseValue.StreamValue
 import caliban.interop.jsoniter.{ GraphQLResponseJsoniter, ValueJsoniter }
@@ -83,7 +83,7 @@ final private class QuickRequestHandler[R] private (
     if (request.method != Method.GET && request.method != Method.POST)
       ZIO.succeed(methodNotAllowed("GET, POST"))
     else if (responseEncoding(request).isEmpty)
-      ZIO.succeed(Response.status(Status.NotAcceptable))
+      ZIO.succeed(errorResponse(Status.NotAcceptable, "No acceptable GraphQL response encoding."))
     else if (request.body.mediaType.exists(MediaType.multipart.`form-data`.matches(_, ignoreParameters = true))) {
       handleUploadRequest(request)
     } else {
@@ -244,15 +244,19 @@ final private class QuickRequestHandler[R] private (
     val outcome        = result.outcome
     val encoding       = responseEncoding(httpReq).getOrElse(ResponseEncoding.Json)
     val cacheDirective = response.extensions.flatMap(HttpUtils.computeCacheDirective)
-    val mutationOnGet  = outcome == Outcome.MethodNotAllowed
+    val mutationOnGet  =
+      httpReq.method == Method.GET && response.errors.contains(HttpUtils.MutationOverGetError)
 
     def responseStatus(requestErrorsAreBadRequests: Boolean): Status =
-      outcome match {
-        case Outcome.ServerError(status)                         => Status.fromInt(status)
-        case Outcome.MethodNotAllowed                            => Status.MethodNotAllowed
-        case Outcome.RequestError if requestErrorsAreBadRequests => Status.BadRequest
-        case _                                                   => Status.Ok
-      }
+      if (mutationOnGet) Status.MethodNotAllowed
+      else
+        outcome match {
+          case Outcome.ServerError(ServerFailure.Internal)         => Status.InternalServerError
+          case Outcome.ServerError(ServerFailure.Unavailable)      => Status.ServiceUnavailable
+          case Outcome.ServerError(ServerFailure.TimedOut)         => Status.GatewayTimeout
+          case Outcome.RequestError if requestErrorsAreBadRequests => Status.BadRequest
+          case _                                                   => Status.Ok
+        }
 
     response match {
       case resp @ GraphQLResponse(StreamValue(stream), _, _, _) =>
@@ -306,8 +310,10 @@ final private class QuickRequestHandler[R] private (
     try
       Right(GraphQLResponseJsoniter.writeToArray(resp, maxResponseBodyBytes, codec))
     catch {
-      case GraphQLResponseJsoniter.ResponseLimitExceeded => Left(Response.status(Status.InternalServerError))
-      case NonFatal(_)                                   => Left(Response.status(Status.InternalServerError))
+      case GraphQLResponseJsoniter.ResponseLimitExceeded =>
+        Left(errorResponse(Status.InternalServerError, "Encoded GraphQL response exceeds the configured limit."))
+      case NonFatal(_)                                   =>
+        Left(errorResponse(Status.InternalServerError, "Failed to encode GraphQL response."))
     }
   }
 
@@ -523,10 +529,14 @@ object QuickRequestHandler {
   }
 
   private def badRequest(msg: String) =
-    Response(Status.BadRequest, body = Body.fromString(msg))
+    errorResponse(Status.BadRequest, msg)
+
+  private def errorResponse(status: Status, message: String) =
+    Response(status, body = Body.fromString(message))
 
   private def methodNotAllowed(allow: String) =
-    Response(Status.MethodNotAllowed, headers = Headers(Header.Custom("Allow", allow)))
+    errorResponse(Status.MethodNotAllowed, "Method not allowed.")
+      .addHeader(Header.Custom("Allow", allow))
 
   private def allowPost(enabled: Boolean): Headers =
     if (enabled) Headers(Header.Custom("Allow", "POST")) else Headers.empty
@@ -549,10 +559,10 @@ object QuickRequestHandler {
     badRequest("No GraphQL query to execute")
 
   private val RequestEntityTooLargeResponse =
-    Response.status(Status.RequestEntityTooLarge)
+    errorResponse(Status.RequestEntityTooLarge, "GraphQL request body exceeds the configured limit.")
 
   private val UnsupportedMediaTypeResponse =
-    Response.status(Status.UnsupportedMediaType)
+    errorResponse(Status.UnsupportedMediaType, "Unsupported GraphQL request media type.")
 
   private implicit val inputObjectCodec: JsonValueCodec[InputValue.ObjectValue] =
     new JsonValueCodec[InputValue.ObjectValue] {

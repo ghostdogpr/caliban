@@ -133,7 +133,7 @@ object SecurityPolicySpec extends ZIOSpecDefault {
         alpha     <- stub("""{"data":{"value":"alpha"}}""")
         beta      <- stub("""{"data":{"value":"beta"}}""")
         observed  <- Ref.make(List.empty[SecurityRequirement])
-        policy     = OperationPolicy.uncached[Any](operation => observed.set(operation.securityRequirements).as(Reject))
+        policy     = OperationPolicy.uncached[Any](operation => observed.set(operation.securityRequirements).as(Reject()))
         runtime   <- Gateway
                        .compose(
                          Subgraph.federation("alpha", alpha.endpoint, authenticatedSchema),
@@ -164,7 +164,7 @@ object SecurityPolicySpec extends ZIOSpecDefault {
         remote          <- stub("""{"data":{"node":null}}""")
         observed        <- Ref.make(Vector.empty[List[SecurityRequirement]])
         policy           = OperationPolicy.stable[Any]("security-v1") { operation =>
-                             observed.update(_ :+ operation.securityRequirements).as(Reject)
+                             observed.update(_ :+ operation.securityRequirements).as(Reject())
                            }
         runtime         <- Gateway
                              .compose(Subgraph.federation("secure", remote.endpoint, securitySchema))
@@ -241,7 +241,7 @@ object SecurityPolicySpec extends ZIOSpecDefault {
       for {
         remote   <- stub("""{"data":{"node":null}}""")
         observed <- Ref.make(List.empty[SecurityRequirement])
-        policy    = OperationPolicy.uncached[Any](operation => observed.set(operation.securityRequirements).as(Reject))
+        policy    = OperationPolicy.uncached[Any](operation => observed.set(operation.securityRequirements).as(Reject()))
         runtime  <- Gateway
                       .compose(Subgraph.federation("nested", remote.endpoint, schema))
                       .withOperationPolicy(policy)
@@ -281,7 +281,7 @@ object SecurityPolicySpec extends ZIOSpecDefault {
       for {
         remote   <- stub("""{"data":{"node":null}}""")
         observed <- Ref.make(List.empty[SecurityRequirement])
-        policy    = OperationPolicy.uncached[Any](operation => observed.set(operation.securityRequirements).as(Reject))
+        policy    = OperationPolicy.uncached[Any](operation => observed.set(operation.securityRequirements).as(Reject()))
         runtime  <- Gateway
                       .compose(Subgraph.federation("interfaces", remote.endpoint, schema))
                       .withOperationPolicy(policy)

@@ -576,6 +576,6 @@ object RemoteSchema {
           .collect { case StringValue(value) =>
             value
           }
-          .getOrElse("No longer supported")
+          .getOrElse(Directives.DefaultDeprecationReason)
     }
 }

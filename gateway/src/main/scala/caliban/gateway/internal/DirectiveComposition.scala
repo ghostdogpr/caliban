@@ -276,7 +276,7 @@ private[gateway] object DirectiveComposition {
       .collect {
         case (_, values) if values.map(value => definitionSignature(value.definition)).distinct.size > 1 =>
           val name    = values.headOption.map(_.definition.name).getOrElse("")
-          val sources = formatSources(values.map(_.source))
+          val sources = SchemaComposition.formatSources(values.map(_.source))
           s"[directive @$name] Definitions are incompatible between subgraphs: $sources."
       }
       .toList
@@ -321,7 +321,8 @@ private[gateway] object DirectiveComposition {
               else
                 List(
                   coordinate ->
-                    s"[${coordinate.display}] Non-repeatable directive '@${definition.name}' has incompatible applications between subgraphs: ${formatSources(values.map(_.source))}."
+                    s"[${coordinate.display}] Non-repeatable directive '@${definition.name}' has incompatible applications between subgraphs: ${SchemaComposition
+                        .formatSources(values.map(_.source))}."
                 )
             bySourceDuplicates ::: incompatible
           }
@@ -720,9 +721,6 @@ private[gateway] object DirectiveComposition {
 
   private def applicationSignature(directive: Directive): List[(String, caliban.InputValue)] =
     directive.arguments.toList.sortBy(_._1)
-
-  private def formatSources(values: Iterable[String]): String =
-    values.toList.distinct.sorted.map(value => s"'$value'").mkString(" and ")
 
   private def importedName(value: caliban.InputValue): Option[ImportedName] =
     value match {

@@ -1,5 +1,7 @@
 package caliban.gateway
 
+import scala.collection.immutable.ListMap
+
 /**
  * Describes how a subgraph recalls an object through an ordinary GraphQL query field.
  */
@@ -13,27 +15,28 @@ sealed trait Lookup {
 object Lookup {
 
   /**
-   * Describes a lookup field that returns one object for one key.
+   * Describes a lookup field that returns one object for one key using deterministically ordered argument mappings.
    */
   def single(
     typeName: String,
     keyFields: List[String],
     field: String,
-    arguments: Map[String, Argument]
+    arguments: (String, Argument)*
   ): Lookup =
-    Single(typeName, keyFields, field, arguments)
+    Single(typeName, keyFields, field, ListMap(arguments: _*))
 
   /**
-   * Describes a lookup field that returns a list of objects for a batch of keys.
+   * Describes a lookup field that returns a list of objects for a batch of keys using deterministically ordered
+   * argument mappings.
    */
   def list(
     typeName: String,
     keyFields: List[String],
     field: String,
-    arguments: Map[String, Argument],
-    correlation: Correlation
+    correlation: Correlation,
+    arguments: (String, Argument)*
   ): Lookup =
-    ListLookup(typeName, keyFields, field, arguments, correlation)
+    ListLookup(typeName, keyFields, field, ListMap(arguments: _*), correlation)
 
   /**
    * A declarative lookup-argument mapping.

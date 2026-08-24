@@ -17,11 +17,15 @@ private[gateway] final class RuntimeControl private (
 ) {
   import RuntimeControl._
 
-  def runRequest[R, E, A](effect: ZIO[R, E, A])(implicit trace: Trace): ZIO[R, E, Option[A]] =
-    runRequest(requests(effect), ZIO.unit)
+  def runRequest[R, E, A](effect: ZIO[R, E, A])(
+    onRejected: => ZIO[R, E, Option[A]]
+  )(implicit trace: Trace): ZIO[R, E, Option[A]] =
+    runAcceptedRequest(requests(effect), ZIO.unit, onRejected)
 
   def runObservedRequest[R, E, A](wrapper: GatewayWrapper[R], event: Event.Request)(effect: ZIO[R, E, A])(
     onTimeout: URIO[R, A]
+  )(
+    onRejected: URIO[R, A]
   )(result: Exit[E, A] => Result)(implicit trace: Trace): ZIO[R, E, A] =
     ZIO.uninterruptibleMask { restore =>
       begin.flatMap {
@@ -37,17 +41,21 @@ private[gateway] final class RuntimeControl private (
               ).flatMap(_.fold(onTimeout)(ZIO.succeed(_)))
             )(result)
           ).ensuring(end(lease.token))
-        case None        => ZIO.interrupt
+        case None        => wrapper.wrap(event)(onRejected)(result)
       }
     }
 
-  private def runRequest[R, E, A](effect: ZIO[R, E, A], onOverdue: URIO[R, Unit])(implicit
+  private def runAcceptedRequest[R, E, A](
+    effect: ZIO[R, E, A],
+    onOverdue: URIO[R, Unit],
+    onRejected: => ZIO[R, E, Option[A]]
+  )(implicit
     trace: Trace
   ): ZIO[R, E, Option[A]] =
     ZIO.uninterruptibleMask { restore =>
       begin.flatMap {
         case Some(lease) => restore(run(lease, effect, onOverdue)).ensuring(end(lease.token))
-        case None        => ZIO.interrupt
+        case None        => onRejected
       }
     }
 
@@ -202,9 +210,9 @@ private[gateway] object RuntimeControl {
     drainTimeout: Duration
   )(implicit trace: Trace): ZIO[Scope, Nothing, RuntimeControl] =
     for {
-      requests  <- ExecutionGate.make(requestLimit, Some(AdmissionKind.Request))
+      requests  <- ExecutionGate.make(requestLimit, AdmissionKind.Request)
       sources   <- ZIO.foreach(sourceLimits) { case (name, limit) =>
-                     ExecutionGate.make(limit, Some(AdmissionKind.Source)).map(name -> _)
+                     ExecutionGate.make(limit, AdmissionKind.Source).map(name -> _)
                    }
       state     <- Ref.make(State(GatewayRuntime.LifecycleState.Running, Map.empty, None))
       drained   <- Promise.make[Nothing, Unit]

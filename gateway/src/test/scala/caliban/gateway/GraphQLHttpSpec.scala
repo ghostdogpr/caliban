@@ -5,6 +5,7 @@ import caliban.Value.StringValue
 import caliban.gateway.GatewayTestSupport._
 import caliban.gateway.internal.GraphQLSource._
 import caliban.gateway.internal.RemoteGraphQLSource
+import caliban.gateway.internal.unmanagedRemoteGraphQLSource
 import caliban.parsing.adt.OperationType
 import caliban.{ GraphQLRequest, IncomingRequestHeaders, ResponseValue }
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromArray
@@ -121,21 +122,27 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
                                    )
                                  )
                                )
-        graphQlResult       <- RemoteGraphQLSource(graphQlError, backend, disclosed)
+        graphQlResult       <- unmanagedRemoteGraphQLSource(graphQlError, backend, disclosed)
                                  .execute(request, OperationType.Query)
                                  .either
-        legacyResult        <- RemoteGraphQLSource(legacySuccess, backend).execute(request, OperationType.Query).either
-        statusResult        <- RemoteGraphQLSource(legacyFailure, backend).execute(request, OperationType.Query).either
-        textStatusResult    <- RemoteGraphQLSource(textFailure, backend).execute(request, OperationType.Query).either
-        untypedStatusResult <- RemoteGraphQLSource(untypedFailure, backend).execute(request, OperationType.Query).either
-        malformedResult     <- RemoteGraphQLSource(malformed, backend).execute(request, OperationType.Query).either
-        metadataResult      <- RemoteGraphQLSource(malformedMetadata, backend)
+        legacyResult        <-
+          unmanagedRemoteGraphQLSource(legacySuccess, backend).execute(request, OperationType.Query).either
+        statusResult        <-
+          unmanagedRemoteGraphQLSource(legacyFailure, backend).execute(request, OperationType.Query).either
+        textStatusResult    <-
+          unmanagedRemoteGraphQLSource(textFailure, backend).execute(request, OperationType.Query).either
+        untypedStatusResult <-
+          unmanagedRemoteGraphQLSource(untypedFailure, backend).execute(request, OperationType.Query).either
+        malformedResult     <- unmanagedRemoteGraphQLSource(malformed, backend).execute(request, OperationType.Query).either
+        metadataResult      <- unmanagedRemoteGraphQLSource(malformedMetadata, backend)
                                  .execute(request, OperationType.Query)
                                  .either
-        incrementalResult   <- RemoteGraphQLSource(incremental, backend).execute(request, OperationType.Query).either
-        emptyResult         <- RemoteGraphQLSource(empty, backend).execute(request, OperationType.Query).either
-        unsupportedResult   <- RemoteGraphQLSource(unsupported, backend).execute(request, OperationType.Query).either
-        redirectResult      <- RemoteGraphQLSource(redirect, backend).execute(request, OperationType.Query).either
+        incrementalResult   <-
+          unmanagedRemoteGraphQLSource(incremental, backend).execute(request, OperationType.Query).either
+        emptyResult         <- unmanagedRemoteGraphQLSource(empty, backend).execute(request, OperationType.Query).either
+        unsupportedResult   <-
+          unmanagedRemoteGraphQLSource(unsupported, backend).execute(request, OperationType.Query).either
+        redirectResult      <- unmanagedRemoteGraphQLSource(redirect, backend).execute(request, OperationType.Query).either
         followed            <- redirectCalls.get
       } yield assertTrue(
         graphQlResult.exists(_.errors.map(_.msg) == List("unavailable")),
@@ -187,15 +194,21 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
                              """{"data":{"value":[0,1,2,3,4,5,6,7,8,9,10,11]}}"""
                            )
         largeRequest     = request.copy(variables = Some(Map("secret" -> StringValue("x" * 200))))
-        requestResult   <- RemoteGraphQLSource(requestEndpoint, backend, config, structural)
+        requestResult   <- unmanagedRemoteGraphQLSource(requestEndpoint, backend, config, structural)
                              .execute(largeRequest, OperationType.Query)
                              .either
         responseResult  <-
-          RemoteGraphQLSource(oversizedBody, backend, config, structural).execute(request, OperationType.Query).either
+          unmanagedRemoteGraphQLSource(oversizedBody, backend, config, structural)
+            .execute(request, OperationType.Query)
+            .either
         nestingResult   <-
-          RemoteGraphQLSource(nestedBody, backend, config, structural).execute(request, OperationType.Query).either
+          unmanagedRemoteGraphQLSource(nestedBody, backend, config, structural)
+            .execute(request, OperationType.Query)
+            .either
         structureResult <-
-          RemoteGraphQLSource(structuredBody, backend, config, structural).execute(request, OperationType.Query).either
+          unmanagedRemoteGraphQLSource(structuredBody, backend, config, structural)
+            .execute(request, OperationType.Query)
+            .either
         calls           <- requestCalls.get
       } yield assertTrue(
         requestResult == Left(RequestTooLarge),
@@ -254,17 +267,18 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
           successEndpoint     <- streaming(
                                    finite("""{"data":{"value":"ok"}}""", successReleases, successReleased)
                                  )
-          success             <- RemoteGraphQLSource(successEndpoint, backend).execute(request, OperationType.Query).either
+          success             <- unmanagedRemoteGraphQLSource(successEndpoint, backend).execute(request, OperationType.Query).either
           _                   <- successReleased.await
           failureReleases     <- Ref.make(0)
           failureReleased     <- Promise.make[Nothing, Unit]
           failureEndpoint     <- streaming(finite("not-json", failureReleases, failureReleased))
-          failure             <- RemoteGraphQLSource(failureEndpoint, backend).execute(request, OperationType.Query).either
+          failure             <- unmanagedRemoteGraphQLSource(failureEndpoint, backend).execute(request, OperationType.Query).either
           _                   <- failureReleased.await
           sizeReleases        <- Ref.make(0)
           sizeReleased        <- Promise.make[Nothing, Unit]
           sizeEndpoint        <- streaming(finite("x" * 128, sizeReleases, sizeReleased))
-          sizeFailure         <- RemoteGraphQLSource(sizeEndpoint, backend, small).execute(request, OperationType.Query).either
+          sizeFailure         <-
+            unmanagedRemoteGraphQLSource(sizeEndpoint, backend, small).execute(request, OperationType.Query).either
           _                   <- sizeReleased.await
           timeoutStarted      <- Promise.make[Nothing, Unit]
           timeoutReleases     <- Ref.make(0)
@@ -274,7 +288,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
                                      .ensuring(timeoutReleases.update(_ + 1) *> timeoutReleased.succeed(()).unit)
                                  )
           timeoutFailure      <-
-            RemoteGraphQLSource(timeoutEndpoint, backend, short).execute(request, OperationType.Query).either
+            unmanagedRemoteGraphQLSource(timeoutEndpoint, backend, short).execute(request, OperationType.Query).either
           _                   <- timeoutStarted.await
           _                   <- timeoutReleased.await
           interruptStarted    <- Promise.make[Nothing, Unit]
@@ -286,7 +300,8 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
                                      ZStream.fromZIO(interruptComplete.await).drain)
                                      .ensuring(interruptReleases.update(_ + 1) *> interruptReleased.succeed(()).unit)
                                  )
-          interruptFiber      <- RemoteGraphQLSource(interruptEndpoint, backend).execute(request, OperationType.Query).fork
+          interruptFiber      <-
+            unmanagedRemoteGraphQLSource(interruptEndpoint, backend).execute(request, OperationType.Query).fork
           _                   <- interruptStarted.await
           _                   <- interruptFiber.interruptFork
           _                   <- interruptComplete.succeed(())
@@ -511,7 +526,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
                           case _ => ZIO.succeed(Response.json("""{"data":{"value":"ok"}}"""))
                         }
                       }
-        source     <- RemoteGraphQLSource.make(remote, backend, config)
+        source     <- RemoteGraphQLSource.make("remote", remote, backend, config, GatewayWrapper.empty)
         fibers     <- ZIO.foreach(1 to 20)(_ => source.execute(request, OperationType.Query).either.fork)
         _          <- started.await
         _          <- Live.live(ZIO.sleep(250.millis))
@@ -558,7 +573,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
                           }
                         }
         backend      <- HttpClientZioBackend.scoped()
-        source       <- RemoteGraphQLSource.make(remote, backend, config)
+        source       <- RemoteGraphQLSource.make("remote", remote, backend, config, GatewayWrapper.empty)
         fibers       <- ZIO.foreach(1 to callers)(_ => source.execute(request, OperationType.Query).either.fork)
         _            <- firstStarted.await
         _            <- Live.live(ZIO.sleep(100.millis))
@@ -578,7 +593,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
       for {
         backend     <- HttpClientZioBackend.scoped()
         remote      <- blockedEndpoint(expectedCalls = 1)
-        source      <- RemoteGraphQLSource.make(remote.uri, backend, config)
+        source      <- RemoteGraphQLSource.make("remote", remote.uri, backend, config, GatewayWrapper.empty)
         owner       <- source.execute(request, OperationType.Query).fork
         _           <- remote.started.await
         waiter      <- source.execute(request, OperationType.Query).fork
@@ -599,7 +614,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
       for {
         backend      <- HttpClientZioBackend.scoped()
         remote       <- blockedEndpoint(expectedCalls = 1)
-        source       <- RemoteGraphQLSource.make(remote.uri, backend, config)
+        source       <- RemoteGraphQLSource.make("remote", remote.uri, backend, config, GatewayWrapper.empty)
         owner        <- Live.live(source.execute(request, OperationType.Query).timeout(100.millis)).fork
         _            <- remote.started.await
         waiter       <- Live.live(source.execute(request, OperationType.Query).timeout(2.seconds)).fork
@@ -620,7 +635,9 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
         backend    <- HttpClientZioBackend.scoped()
         remote     <- blockedEndpoint(expectedCalls = 1)
         scope      <- Scope.make
-        source     <- scope.extend(RemoteGraphQLSource.make(remote.uri, backend, config))
+        source     <- scope.extend(
+                        RemoteGraphQLSource.make("remote", remote.uri, backend, config, GatewayWrapper.empty)
+                      )
         owner      <- source.execute(request, OperationType.Query).fork
         _          <- remote.started.await
         waiter     <- source.execute(request, OperationType.Query).fork
@@ -642,7 +659,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
       for {
         backend          <- HttpClientZioBackend.scoped()
         mutations        <- blockedEndpoint(expectedCalls = 2)
-        mutationSource   <- RemoteGraphQLSource.make(mutations.uri, backend, config)
+        mutationSource   <- RemoteGraphQLSource.make("remote", mutations.uri, backend, config, GatewayWrapper.empty)
         mutationFibers   <- ZIO.foreach(1 to 2)(_ => mutationSource.execute(request, OperationType.Mutation).fork)
         mutationsReady   <- Live.live(mutations.started.await.timeout(2.seconds))
         _                <- mutations.release.succeed(())
@@ -655,7 +672,13 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
                                 .updateAndGet(_ + 1)
                                 .map(value => List(SttpHeader("X-Request-Identity", value.toString)))
                             )
-        headerSource     <- RemoteGraphQLSource.make(headers.uri, backend, headerConfig)
+        headerSource     <- RemoteGraphQLSource.make(
+                              "remote",
+                              headers.uri,
+                              backend,
+                              headerConfig,
+                              GatewayWrapper.empty
+                            )
         headerFibers     <- ZIO.foreach(1 to 2)(_ => headerSource.execute(request, OperationType.Query).fork)
         headersReady     <- Live.live(headers.started.await.timeout(2.seconds))
         _                <- headers.release.succeed(())
@@ -664,9 +687,11 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
         evaluatedHeaders <- headerRuns.get
         incoming         <- blockedEndpoint(expectedCalls = 2)
         incomingSource   <- RemoteGraphQLSource.make(
+                              "remote",
                               incoming.uri,
                               backend,
-                              config.withExecution(_.forwardIncomingHeaders("X-Tenant"))
+                              config.withExecution(_.forwardIncomingHeaders("X-Tenant")),
+                              GatewayWrapper.empty
                             )
         incomingFibers   <- ZIO.foreach(List("one", "two"))(tenant =>
                               IncomingRequestHeaders
@@ -680,7 +705,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
         _                <- ZIO.foreach(incomingFibers)(_.join)
         incomingTotal    <- incoming.calls.get
         bodies           <- blockedEndpoint(expectedCalls = 3)
-        bodySource       <- RemoteGraphQLSource.make(bodies.uri, backend, config)
+        bodySource       <- RemoteGraphQLSource.make("remote", bodies.uri, backend, config, GatewayWrapper.empty)
         bodyRequests      = List(
                               request.copy(variables = Some(Map("input" -> StringValue("one")))),
                               request.copy(variables = Some(Map("input" -> StringValue("two")))),
@@ -731,14 +756,18 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
                               headerCalls.updateAndGet(_ + 1).as(List(SttpHeader("Authorization", "secret")))
                             )
         queryResult      <-
-          RemoteGraphQLSource(queryEndpoint, backend, countedPolicy).execute(request, OperationType.Query).either
+          unmanagedRemoteGraphQLSource(queryEndpoint, backend, countedPolicy)
+            .execute(request, OperationType.Query)
+            .either
         queryAttempts    <- queryCalls.get
         policyRuns       <- headerCalls.get
         mutationCalls    <- Ref.make(0)
         mutationEndpoint <- endpoint(_ => mutationCalls.update(_ + 1).as(unavailable))
         mutationRequest   = GraphQLRequest(query = Some("mutation Update { value }"), operationName = Some("Update"))
         mutationResult   <-
-          RemoteGraphQLSource(mutationEndpoint, backend, policy).execute(mutationRequest, OperationType.Mutation).either
+          unmanagedRemoteGraphQLSource(mutationEndpoint, backend, policy)
+            .execute(mutationRequest, OperationType.Mutation)
+            .either
         mutationAttempts <- mutationCalls.get
         rejectedCalls    <- Ref.make(0)
         rejectedEndpoint <- endpoint(_ =>
@@ -753,7 +782,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
                                 )
                             )
         rejectedResult   <-
-          RemoteGraphQLSource(rejectedEndpoint, backend, policy).execute(request, OperationType.Query).either
+          unmanagedRemoteGraphQLSource(rejectedEndpoint, backend, policy).execute(request, OperationType.Query).either
         rejectedAttempts <- rejectedCalls.get
         envelopeCalls    <- Ref.make(0)
         envelopeEndpoint <- endpoint(_ =>
@@ -768,7 +797,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
                                 )
                             )
         envelopeResult   <-
-          RemoteGraphQLSource(envelopeEndpoint, backend, policy.withErrorDisclosure(_.withMessages(true)))
+          unmanagedRemoteGraphQLSource(envelopeEndpoint, backend, policy.withErrorDisclosure(_.withMessages(true)))
             .execute(request, OperationType.Query)
             .either
         envelopeAttempts <- envelopeCalls.get

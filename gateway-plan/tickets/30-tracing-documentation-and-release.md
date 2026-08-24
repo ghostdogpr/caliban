@@ -27,3 +27,10 @@ The existing audit pin was reviewed unchanged after the upstream project moved t
 cases. Gateway and gateway-tracing are enabled for publication by maintainer direction; the broader performance target remains
 tracked by ticket 28. Runnable examples remain a non-published project. Metrics and tracing are installed explicitly as composable
 `GatewayWrapper` integrations, leaving the empty-wrapper runtime path free of telemetry collection costs.
+
+Compatibility notes for the containing Caliban release:
+
+- GraphQL `ID` input validation now accepts integer literals, including values represented as `Long` or `BigInt`, as
+  required by the GraphQL specification.
+- Remote-schema conversion now reports the standard `No longer supported` reason when `@deprecated` omits `reason`.
+  This affects both `RemoteSchema.toRootType` and the existing `RemoteSchema.parseRemoteSchema` view.

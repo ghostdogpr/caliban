@@ -97,9 +97,6 @@ private[gateway] object OperationCache {
 
   final case class Weighted[+A](value: A, weight: Long)
 
-  def make[K, E, V](maxWeight: Long)(implicit trace: Trace): UIO[OperationCache[K, E, V, Any]] =
-    make(maxWeight, GatewayWrapper.empty)
-
   def make[K, E, V, R](maxWeight: Long, wrapper: GatewayWrapper[R])(implicit
     trace: Trace
   ): UIO[OperationCache[K, E, V, R]] =

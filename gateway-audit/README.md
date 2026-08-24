@@ -11,6 +11,7 @@ upstream repository:
 
 ```sh
 CALIBAN_ROOT=/path/to/caliban
+. "$CALIBAN_ROOT/gateway-audit/upstream.env"
 "$CALIBAN_ROOT/gateway-audit/install.sh"
 npm start -- test \
   --cwd "$CALIBAN_ROOT/gateway-audit" \
@@ -18,6 +19,5 @@ npm start -- test \
   --graphql http://127.0.0.1:4000/graphql \
   --healthcheck http://127.0.0.1:4000/health \
   --write "$CALIBAN_ROOT/gateway-audit/results.txt"
-. "$CALIBAN_ROOT/gateway-audit/upstream.env"
 "$CALIBAN_ROOT/gateway-audit/verify-results.sh" "$CALIBAN_ROOT/gateway-audit/results.txt"
 ```

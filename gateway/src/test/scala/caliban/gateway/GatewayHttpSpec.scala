@@ -260,7 +260,10 @@ object GatewayHttpSpec extends ZIOSpecDefault {
                         .api
                         .runZIO(post(URL.empty, """{"query":"{ greeting }"}"""))
           body     <- response.body.asString.orDie
-        } yield assertTrue(response.status == Status.InternalServerError, body.isEmpty)
+        } yield assertTrue(
+          response.status == Status.InternalServerError,
+          body == "Encoded GraphQL response exceeds the configured limit."
+        )
       }
     ),
     suite("GraphQL over HTTP")(

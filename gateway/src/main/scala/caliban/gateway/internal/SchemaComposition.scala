@@ -2206,7 +2206,7 @@ private[gateway] object SchemaComposition {
   private def sources(entries: List[TypeEntry]): String =
     formatSources(entries.map(_.source))
 
-  private def formatSources(sources: Iterable[String]): String =
+  private[internal] def formatSources(sources: Iterable[String]): String =
     sources.toList.distinct.sorted.map(source => s"'$source'").mkString(", ")
 
   private def hasDirective(directives: List[Directive], names: Set[String]): Boolean =

@@ -7,18 +7,18 @@ import zio.Duration
  * Operation-preparation, planning, admission, lifecycle, and remote-error disclosure configuration for one built gateway runtime.
  */
 final class GatewayConfig private (
-  private[gateway] val maxOperationCacheWeight: Long,
-  private[gateway] val maxOperationTextBytes: Int,
-  private[gateway] val maxOperationNesting: Int,
-  private[gateway] val maxParsedOperationNodes: Int,
-  private[gateway] val maxPlanningCandidates: Int,
-  private[gateway] val maxPlanningExpansions: Int,
-  private[gateway] val planningTimeout: Duration,
-  private[gateway] val maxConcurrentRequests: Int,
-  private[gateway] val maxConcurrentLocalCalls: Int,
-  private[gateway] val requestTimeout: Duration,
-  private[gateway] val drainTimeout: Duration,
-  private[gateway] val remoteErrorDisclosure: RemoteGraphQLConfig.ErrorDisclosure
+  val maxOperationCacheWeight: Long,
+  val maxOperationTextBytes: Int,
+  val maxOperationNesting: Int,
+  val maxParsedOperationNodes: Int,
+  val maxPlanningCandidates: Int,
+  val maxPlanningExpansions: Int,
+  val planningTimeout: Duration,
+  val maxConcurrentRequests: Int,
+  val maxConcurrentLocalCalls: Int,
+  val requestTimeout: Duration,
+  val drainTimeout: Duration,
+  val remoteErrorDisclosure: RemoteGraphQLConfig.ErrorDisclosure
 ) {
 
   /**

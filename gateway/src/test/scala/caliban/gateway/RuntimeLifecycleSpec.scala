@@ -1,5 +1,7 @@
 package caliban.gateway
 
+import caliban.GraphQLResponseContext
+import caliban.GraphQLResponseContext.{ Outcome, ServerFailure }
 import caliban.gateway.GatewayRuntime.LifecycleState
 import caliban.gateway.GatewayTestSupport._
 import caliban.gateway.internal.RuntimeControl
@@ -136,10 +138,12 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
         started      <- Promise.make[Nothing, Unit]
         release      <- Promise.make[Nothing, Unit]
         first        <- control
-                          .runRequest(started.succeed(()).unit *> ZIO.uninterruptible(release.await).as("first"))
+                          .runRequest(started.succeed(()).unit *> ZIO.uninterruptible(release.await).as("first"))(
+                            ZIO.interrupt
+                          )
                           .fork
         _            <- started.await
-        second       <- control.runRequest(ZIO.succeed("second")).fork
+        second       <- control.runRequest(ZIO.succeed("second"))(ZIO.interrupt).fork
         queued       <- waitForControl(control)(_.requests.waiting == 1)
         _            <- TestClock.adjust(1.second)
         secondResult <- second.join
@@ -163,7 +167,9 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
         completing <- Promise.make[Nothing, Unit]
         release    <- Promise.make[Nothing, Unit]
         fiber      <- control
-                        .runRequest(completing.succeed(()).unit *> ZIO.uninterruptible(release.await).as("late"))
+                        .runRequest(completing.succeed(()).unit *> ZIO.uninterruptible(release.await).as("late"))(
+                          ZIO.interrupt
+                        )
                         .fork
         _          <- completing.await
         _          <- TestClock.adjust(1.second)
@@ -232,21 +238,48 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
         control  <- makeControl(scope, requestTimeout = 1.hour, drainTimeout = 1.hour)
         started  <- Promise.make[Nothing, Unit]
         release  <- Promise.make[Nothing, Unit]
-        accepted <- control.runRequest(started.succeed(()).unit *> release.await.as("done")).fork
+        accepted <- control
+                      .runRequest(started.succeed(()).unit *> release.await.as("done"))(ZIO.interrupt)
+                      .fork
         _        <- started.await
         closing  <- scope.close(Exit.unit).fork
         draining <- waitForControl(control)(_.lifecycle.state == LifecycleState.Draining)
-        rejected <- control.runRequest(ZIO.succeed("late")).exit
+        rejected <- control.runRequest(ZIO.succeed("late"))(ZIO.some("rejected"))
         _        <- release.succeed(())
         result   <- accepted.join
         _        <- closing.join
         closed   <- control.status(operationCacheStatus)
       } yield assertTrue(
         draining.lifecycle.active == 1,
-        rejected.isInterrupted,
+        rejected.contains("rejected"),
         result.contains("done"),
         closed.lifecycle.state == LifecycleState.Closed,
         closed.lifecycle.active == 0
+      )
+    },
+    test("returns a service-unavailable response to requests arriving while draining") {
+      for {
+        scope    <- Scope.make
+        started  <- Promise.make[Nothing, Unit]
+        release  <- Promise.make[Nothing, Unit]
+        runtime  <-
+          scope.extend(
+            Gateway
+              .compose(Subgraph.local("local", localGraph(started.succeed(()).unit *> release.await.as("done"))))
+              .withConfig(_.withRequestTimeout(1.hour).withDrainTimeout(1.hour))
+              .build
+          )
+        accepted <- runtime.execute("{ value }").fork
+        _        <- started.await
+        closing  <- scope.close(Exit.unit).fork
+        _        <- waitForStatus(runtime)(_.lifecycle.state == LifecycleState.Draining)
+        rejected <- GraphQLResponseContext.capture(runtime.execute("{ value }"))
+        _        <- release.succeed(())
+        _        <- accepted.join
+        _        <- closing.join
+      } yield assertTrue(
+        rejected.value.errors.map(_.msg) == List("Gateway is shutting down."),
+        rejected.outcome == Outcome.ServerError(ServerFailure.Unavailable)
       )
     },
     test("interrupts cooperative work after the drain timeout without detaching it") {
@@ -258,7 +291,7 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
         running     <- control
                          .runRequest(
                            (started.succeed(()).unit *> ZIO.never).onInterrupt(interrupted.succeed(()).unit)
-                         )
+                         )(ZIO.interrupt)
                          .fork
         _           <- started.await
         closing     <- scope.close(Exit.unit).fork

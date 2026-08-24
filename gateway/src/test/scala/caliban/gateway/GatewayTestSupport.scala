@@ -12,7 +12,7 @@ import caliban.{ graphQL, CalibanError, GraphQLRequest, RootResolver }
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromArray
 import sttp.model.Uri
 import zio._
-import zio.http.{ Body, Handler, Header, Headers, Method, Request, Response, Routes, Server, Status }
+import zio.http.{ Body, Handler, Header, Headers, MediaType, Method, Request, Response, Routes, Server, Status }
 import zio.http.netty.NettyConfig
 
 private[gateway] object GatewayTestSupport {
@@ -124,7 +124,7 @@ private[gateway] object GatewayTestSupport {
                       result   = response(decoded, next)
                     } yield Response(
                       result._1,
-                      Headers(Header.Custom("Content-Type", "application/graphql-response+json")),
+                      Headers(Header.ContentType(MediaType("application", "graphql-response+json")).untyped),
                       Body.fromString(result._2)
                     )
                   }

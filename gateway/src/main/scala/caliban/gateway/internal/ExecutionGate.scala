@@ -8,7 +8,7 @@ import zio.{ Semaphore, Trace, UIO, ZIO }
 private[gateway] final class ExecutionGate private (
   limit: Int,
   semaphore: Semaphore,
-  kind: Option[AdmissionKind]
+  kind: AdmissionKind
 ) {
 
   def apply[R, E, A](effect: ZIO[R, E, A])(implicit trace: Trace): ZIO[R, E, A] =
@@ -19,17 +19,13 @@ private[gateway] final class ExecutionGate private (
   ): ZIO[R, E, A] =
     if (!wrapper.enabled) apply(effect)
     else
-      kind match {
-        case Some(value) =>
-          ZIO.scoped[R] {
-            wrapper.wrap(Event.AdmissionWait(value))(semaphore.withPermitScoped)(
-              Result.classifyExit
-            ) *>
-              wrapper.wrap(Event.Admission(value))(effect)(
-                Result.classifyExit
-              )
-          }
-        case None        => apply(effect)
+      ZIO.scoped[R] {
+        wrapper.wrap(Event.AdmissionWait(kind))(semaphore.withPermitScoped)(
+          Result.classifyExit
+        ) *>
+          wrapper.wrap(Event.Admission(kind))(effect)(
+            Result.classifyExit
+          )
       }
 
   def status(implicit trace: Trace): UIO[AdmissionStatus] =
@@ -43,6 +39,6 @@ private[gateway] final class ExecutionGate private (
 }
 
 private[gateway] object ExecutionGate {
-  def make(limit: Int, kind: Option[AdmissionKind] = None)(implicit trace: Trace): UIO[ExecutionGate] =
+  def make(limit: Int, kind: AdmissionKind)(implicit trace: Trace): UIO[ExecutionGate] =
     Semaphore.make(limit.toLong).map(new ExecutionGate(limit, _, kind))
 }

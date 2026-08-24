@@ -146,7 +146,7 @@ private[gateway] final class RemoteGraphQLSource[-R](
       .toSet
 
     val forwarded = incoming.filter { header =>
-      execution.forwardAll || execution.forwardedHeaders.contains(normalize(header))
+      execution.forwardsAllIncomingHeaders || execution.forwardedHeaders.contains(normalize(header))
     }
     mergeHeaders(mergeHeaders(mergeHeaders(Nil, forwarded), execution.headers), effectful)
       .filterNot(header =>
@@ -307,30 +307,6 @@ private[gateway] object RemoteGraphQLSource {
     statusCode: Option[Int],
     responseBytes: Option[Long]
   )
-
-  def apply[R](
-    endpoint: Uri,
-    backend: SttpClient,
-    config: RemoteGraphQLConfig[R] = RemoteGraphQLConfig.default,
-    structuralLimits: StructuralLimits = StructuralLimits.default
-  ): RemoteGraphQLSource[R] =
-    new RemoteGraphQLSource(
-      "remote",
-      endpoint,
-      backend,
-      config,
-      structuralLimits,
-      None,
-      None,
-      GatewayWrapper.empty
-    )
-
-  def make[R](
-    endpoint: Uri,
-    backend: SttpClient,
-    config: RemoteGraphQLConfig[R]
-  )(implicit trace: Trace): ZIO[Scope, Nothing, RemoteGraphQLSource[R]] =
-    make("remote", endpoint, backend, config, GatewayWrapper.empty)
 
   def make[R](
     name: String,

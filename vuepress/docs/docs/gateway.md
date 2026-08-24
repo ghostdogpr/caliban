@@ -4,6 +4,11 @@
 subgraphs, and in-process Caliban APIs into a scoped `GatewayRuntime`. The runtime is a `GraphQLInterpreter`, so it can
 be passed directly to `QuickAdapter` or any other Caliban HTTP integration.
 
+The HTTP adapter remains part of the public transport contract. `QuickAdapter` quality-negotiates response media types
+and returns `405`, `406`, `413`, or `415` at its stricter GraphQL-over-HTTP boundary. Tapir-based integrations retain
+their legacy behavior, including `400` for mutations over GET and JSON fallback when no GraphQL-specific response
+encoding is selected.
+
 ## Dependencies and construction
 
 ```scala
@@ -65,6 +70,40 @@ All default work is finite and configurable through `Gateway.withConfig` and `Re
 `runtime.status` exposes lifecycle, admission, overdue-work, and operation-cache snapshots. The Quick adapter separately
 bounds HTTP request and encoded response bodies; its default encoded response limit is 16 MiB.
 
+```scala
+val configuredGateway = Gateway
+  .compose(products, reviews)
+  .withConfig(
+    _.withMaxConcurrentRequests(256)
+      .withMaxConcurrentLocalCalls(32)
+      .withRequestTimeout(10.seconds)
+      .withDrainTimeout(20.seconds)
+  )
+```
+
+For an ordinary GraphQL source, declare cross-source object recall explicitly with a `Lookup`. Argument mappings are
+ordered pairs; `Argument.batch` evaluates its nested mapping once per requested key. `Correlation.byKey` maps fields in
+the returned object to the declared key fields. Transformations use source coordinates and are applied before
+composition while requests and responses are translated automatically.
+
+```scala
+val reviewsByProduct = Subgraph
+  .graphql("reviews", Uri.unsafeParse("http://reviews/graphql"), reviewsSdl)
+  .withLookup(
+    Lookup.list(
+      "Product",
+      List("id"),
+      "productsByIds",
+      Lookup.Correlation.byKey(Map("id" -> "id")),
+      "ids" -> Lookup.Argument.batch(Lookup.Argument.key("id"))
+    )
+  )
+  .transform(
+    SchemaTransformation.renameField("Product", "reviews", "customerReviews"),
+    SchemaTransformation.hideField("Product", "internalScore")
+  )
+```
+
 ## Errors, security, and introspection
 
 Remote error messages are untrusted and are redacted by default. Only the `code` extension is retained. Opt in narrowly
@@ -75,6 +114,37 @@ Federation security directives such as `@authenticated`, `@requiresScopes`, and 
 operation requirements. A graph containing those requirements fails to build unless an `OperationPolicy` is installed.
 The policy receives the selected response paths, runtime type conditions, and conjunctive directive requirements. This
 fail-closed rule prevents publishing security metadata without enforcing it.
+
+An `OperationResolver` can replace an operation identifier with canonical GraphQL text before parsing. An
+`OperationPolicy` runs after validation and variable coercion; use a stable discriminator only when its result is stable
+for the corresponding cache identity. `Reject()` uses a generic public message, while `Reject(reason)` returns the explicit
+reason to the client.
+
+```scala
+trait OperationRegistry {
+  def resolve(request: GraphQLRequest): Task[String]
+}
+
+trait Authorization {
+  def allows(operation: OperationPolicy.ValidatedOperation): UIO[Boolean]
+}
+
+val resolver = OperationResolver.stable[OperationRegistry]("registry-v1") { request =>
+  ZIO.serviceWithZIO[OperationRegistry](_.resolve(request))
+}
+
+val policy = OperationPolicy.uncached[Authorization] { operation =>
+  ZIO.serviceWithZIO[Authorization](_.allows(operation)).map {
+    case true  => OperationPolicy.Allow
+    case false => OperationPolicy.Reject("Operation is not authorized.")
+  }
+}
+
+val securedGateway = Gateway
+  .compose(products, reviews)
+  .withOperationResolver(resolver)
+  .withOperationPolicy(policy)
+```
 
 The composed schema includes gateway-owned introspection. Disable it at the Quick boundary with
 `QuickAdapter(runtime).configure(ExecutionConfiguration(enableIntrospection = false))`, or apply finer access control in
@@ -168,6 +238,16 @@ Migrate incrementally: start with one pinned ordinary source, verify `explain` o
 ordinary lookups or Federation sources, then introduce policies, forwarded headers, and schema acquisition. Treat
 composition diagnostics and `explain` output as review artifacts. A Caliban local API can replace a remote source without
 changing the runtime or HTTP integration.
+
+```scala
+val plan = runtime.explain(
+  caliban.GraphQLRequest(
+    query = Some("query Product($id: ID!) { product(id: $id) { name customerReviews { body } } }"),
+    operationName = Some("Product"),
+    variables = Some(Map("id" -> caliban.Value.StringValue("p1")))
+  )
+)
+```
 
 This release supports queries and mutations over unary GraphQL-over-HTTP. Subscriptions, incremental delivery,
 standalone routing, serialized graph packages, hot reload, Composite Schemas conformance, non-GraphQL source protocols,

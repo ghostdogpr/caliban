@@ -40,7 +40,7 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
       test("single-flights concurrent misses") {
         val requests = 32
         for {
-          cache        <- OperationCache.make[String, String, Int](64)
+          cache        <- OperationCache.make[String, String, Int, Any](64, GatewayWrapper.empty)
           ready        <- Ref.make(0)
           start        <- Promise.make[Nothing, Unit]
           computing    <- Promise.make[Nothing, Unit]
@@ -71,7 +71,7 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
       },
       test("evicts entries by total weight") {
         for {
-          cache  <- OperationCache.make[String, String, Int](5)
+          cache  <- OperationCache.make[String, String, Int, Any](5, GatewayWrapper.empty)
           runs   <- Ref.make(0)
           _      <- cache.getOrCompute("first")(runs.update(_ + 1).as(Weighted(1, 3)))
           _      <- cache.getOrCompute("second")(runs.update(_ + 1).as(Weighted(2, 3)))
@@ -87,7 +87,7 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
       },
       test("allows an interrupted waiter to leave without cancelling the shared computation") {
         for {
-          cache        <- OperationCache.make[String, String, Int](32)
+          cache        <- OperationCache.make[String, String, Int, Any](32, GatewayWrapper.empty)
           computing    <- Promise.make[Nothing, Unit]
           release      <- Promise.make[Nothing, Unit]
           computations <- Ref.make(0)
@@ -590,7 +590,7 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
       },
       test("releases a source permit when the current call is interrupted") {
         for {
-          gate          <- ExecutionGate.make(1)
+          gate          <- ExecutionGate.make(1, GatewayWrapper.AdmissionKind.Request)
           firstStarted  <- Promise.make[Nothing, Unit]
           secondStarted <- Promise.make[Nothing, Unit]
           first         <- gate(firstStarted.succeed(()).unit *> ZIO.never).fork

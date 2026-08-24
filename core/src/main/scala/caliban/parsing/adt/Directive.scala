@@ -11,12 +11,13 @@ case class Directive(
 
 object Directives {
 
-  final val Defer               = "defer"
-  final val DeprecatedDirective = "deprecated"
-  final val LazyDirective       = "lazy"
-  final val NewtypeDirective    = "newtype"
-  final val OneOf               = "oneOf"
-  final val Stream              = "stream"
+  final val Defer                    = "defer"
+  final val DefaultDeprecationReason = "No longer supported"
+  final val DeprecatedDirective      = "deprecated"
+  final val LazyDirective            = "lazy"
+  final val NewtypeDirective         = "newtype"
+  final val OneOf                    = "oneOf"
+  final val Stream                   = "stream"
 
   def isDeprecated(directives: List[Directive]): Boolean =
     directives.exists(_.name == DeprecatedDirective)

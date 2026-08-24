@@ -16,6 +16,7 @@ import caliban.parsing.adt.{ Document, OperationType }
 import caliban.rendering.DocumentRenderer
 import caliban.schema.{ RootSchema, RootType }
 import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, GraphQLResponseContext, PathValue, ResponseValue }
+import caliban.GraphQLResponseContext.ServerFailure
 import zio.{ IO, Trace, URIO, ZIO }
 
 import java.util.concurrent.ConcurrentHashMap
@@ -65,7 +66,7 @@ private[gateway] final class GatewayRuntimeImpl[-R](
   }
 
   def check(query: String)(implicit trace: Trace): IO[CalibanError, Unit] =
-    control.runRequest(operations.check(query)).flatMap {
+    control.runRequest(operations.check(query))(ZIO.fail(requestShutdownError)).flatMap {
       case Some(_) => ZIO.unit
       case None    => ZIO.fail(requestTimeoutError)
     }
@@ -74,10 +75,14 @@ private[gateway] final class GatewayRuntimeImpl[-R](
     operations.cacheStatus.flatMap(control.status)
 
   def explain(request: GraphQLRequest)(implicit trace: Trace): ZIO[R, CalibanError, String] =
-    control.runRequest(operations.prepare(request).map(prepared => renderPlan(prepared.plan))).flatMap {
-      case Some(value) => ZIO.succeed(value)
-      case None        => ZIO.fail(requestTimeoutError)
-    }
+    control
+      .runRequest(operations.prepare(request).map(prepared => renderPlan(prepared.plan)))(
+        ZIO.fail(requestShutdownError)
+      )
+      .flatMap {
+        case Some(value) => ZIO.succeed(value)
+        case None        => ZIO.fail(requestTimeoutError)
+      }
 
   def executeRequest(request: GraphQLRequest)(implicit trace: Trace): URIO[R, GraphQLResponse[CalibanError]] =
     if (wrapper.enabled) executeObservedRequest(request)
@@ -90,10 +95,15 @@ private[gateway] final class GatewayRuntimeImpl[-R](
               error => GraphQLResponseContext.markRequestError(error) *> Executor.fail(error),
               prepared => executePlan(prepared.plan, prepared.executionRequest, prepared.request)
             )
+        )(
+          GraphQLResponseContext
+            .markServerError(ServerFailure.Unavailable)
+            .as(Some(requestShutdownResponse))
         )
         .flatMap {
           case Some(response) => ZIO.succeed(response)
-          case None           => GraphQLResponseContext.markServerError(504).as(requestTimeoutResponse)
+          case None           =>
+            GraphQLResponseContext.markServerError(ServerFailure.TimedOut).as(requestTimeoutResponse)
         }
 
   private def executeObservedRequest(request: GraphQLRequest)(implicit
@@ -127,8 +137,19 @@ private[gateway] final class GatewayRuntimeImpl[-R](
       )(
         wrapper.wrap(Event.Completion)(
           GraphQLResponseContext
-            .markServerError(504)
+            .markServerError(ServerFailure.TimedOut)
             .as(RequestResult(requestTimeoutResponse, Outcome.Timeout, None))
+        )(
+          Result.fromExit(_)(
+            value => Result(value.outcome, errorCount = value.response.errors.size),
+            _ => Result(Outcome.InternalError)
+          )
+        )
+      )(
+        wrapper.wrap(Event.Completion)(
+          GraphQLResponseContext
+            .markServerError(ServerFailure.Unavailable)
+            .as(RequestResult(requestShutdownResponse, Outcome.Http5xx, None))
         )(
           Result.fromExit(_)(
             value => Result(value.outcome, errorCount = value.response.errors.size),
@@ -973,10 +994,15 @@ private[gateway] final class GatewayRuntimeImpl[-R](
 }
 
 private object GatewayRuntimeImpl {
-  private val requestTimeoutError = CalibanError.ValidationError("Gateway request timed out.", "")
+  private val requestTimeoutError = CalibanError.ExecutionError("Gateway request timed out.")
+
+  private val requestShutdownError = CalibanError.ExecutionError("Gateway is shutting down.")
 
   private val requestTimeoutResponse =
     GraphQLResponse(NullValue, List(CalibanError.ExecutionError("Gateway request timed out.")))
+
+  private val requestShutdownResponse =
+    GraphQLResponse(NullValue, requestShutdownError :: Nil)
 
   private final case class RequestResult(
     response: GraphQLResponse[CalibanError],

@@ -117,11 +117,11 @@ object AbstractOperationSpec extends ZIOSpecDefault {
       |""".stripMargin
 
   private val abstractLookup = Lookup.list(
-    typeName = "User",
-    keyFields = List("id"),
-    field = "usersByIds",
-    arguments = Map("ids" -> Lookup.Argument.batch(Lookup.Argument.key("id"))),
-    correlation = Lookup.Correlation.ordered
+    "User",
+    List("id"),
+    "usersByIds",
+    Lookup.Correlation.ordered,
+    "ids" -> Lookup.Argument.batch(Lookup.Argument.key("id"))
   )
 
   private val nullableAbstractSchema =

@@ -375,12 +375,10 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
         "Product",
         List("id"),
         "productsByRefs",
-        Map(
-          "refs" -> Lookup.Argument.batch(
-            Lookup.Argument.obj("productId" -> Lookup.Argument.key("id"))
-          )
-        ),
-        Lookup.Correlation.byKey(Map("id" -> "id"))
+        Lookup.Correlation.byKey(Map("id" -> "id")),
+        "refs" -> Lookup.Argument.batch(
+          Lookup.Argument.obj("productId" -> Lookup.Argument.key("id"))
+        )
       )
       val productTransforms = List(
         SchemaTransformation.renameType("Product", "Item"),
@@ -566,7 +564,9 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
           SchemaTransformation.renameType("Query", "EntryPoint"),
           SchemaTransformation.renameArgument("Query", "product", "missing", "value"),
           SchemaTransformation.hideArgument("Query", "product", "id"),
-          SchemaTransformation.hideType("Query")
+          SchemaTransformation.hideType("Query"),
+          SchemaTransformation.renameEnumValue("Status", "ACTIVE", "a b"),
+          SchemaTransformation.renameEnumValue("Status", "LEGACY", "__LEGACY")
         )
 
       Gateway
@@ -583,7 +583,9 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
             diagnostics.exists(_.contains("Operation root type 'Query' cannot be renamed")),
             diagnostics.exists(_.contains("Argument 'Query.product(missing:)' does not exist")),
             diagnostics.exists(_.contains("Required argument 'Query.product(id:)' cannot be hidden")),
-            diagnostics.exists(_.contains("Operation root type 'Query' cannot be hidden"))
+            diagnostics.exists(_.contains("Operation root type 'Query' cannot be hidden")),
+            diagnostics.exists(_.contains("invalid GraphQL name 'a b'")),
+            diagnostics.exists(_.contains("reserved GraphQL name '__LEGACY'"))
           )
         }
     }

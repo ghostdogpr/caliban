@@ -58,7 +58,7 @@ object OperationHooksSpec extends ZIOSpecDefault {
                          value   <- context.get
                          _       <- observed.update(value :: _)
                          allowed <- ZIO.serviceWithZIO[Decisions](_.allow(operation.executionRequest.operationName))
-                       } yield if (allowed) Allow else Reject
+                       } yield if (allowed) Allow else Reject()
                      }
         gateway    = (Gateway
                        .compose(Subgraph.graphql("remote", remote.endpoint, schema))
@@ -98,7 +98,7 @@ object OperationHooksSpec extends ZIOSpecDefault {
         remote    <- stub(response)
         calls     <- Ref.make(0)
         policy     = OperationPolicy.stable[Any]("reject-v1") { _ =>
-                       calls.update(_ + 1).as(Reject)
+                       calls.update(_ + 1).as(Reject())
                      }
         runtime   <- Gateway
                        .compose(Subgraph.graphql("remote", remote.endpoint, schema))
@@ -118,6 +118,17 @@ object OperationHooksSpec extends ZIOSpecDefault {
         runs == 1,
         sent.isEmpty
       )
+    },
+    test("returns an explicit public policy rejection reason") {
+      for {
+        remote  <- stub(response)
+        runtime <- Gateway
+                     .compose(Subgraph.graphql("remote", remote.endpoint, schema))
+                     .withOperationPolicy(OperationPolicy.uncached[Any](_ => ZIO.succeed(Reject("Operation denied."))))
+                     .build
+        result  <- runtime.executeRequest(request)
+        sent    <- remote.requests.get
+      } yield assertTrue(result.errors.map(_.msg) == List("Operation denied."), sent.isEmpty)
     },
     test("masks resolver failures and policy defects") {
       val secretResolver = "resolver-secret"

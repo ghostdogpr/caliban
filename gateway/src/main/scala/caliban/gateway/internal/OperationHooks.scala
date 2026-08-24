@@ -52,9 +52,9 @@ private[gateway] final class OperationHooks[-R](
         OperationHooks
           .run(policy.evaluate(operation), OperationHooks.PolicyFailure)
           .flatMap {
-            case Allow  => ZIO.unit
-            case Reject => ZIO.fail(OperationHooks.PolicyRejection)
-            case null   => ZIO.fail(OperationHooks.PolicyFailure)
+            case Allow          => ZIO.unit
+            case Reject(reason) => ZIO.fail(OperationHooks.policyRejection(reason))
+            case null           => ZIO.fail(OperationHooks.PolicyFailure)
           }
       case None         => ZIO.unit
     }
@@ -63,7 +63,11 @@ private[gateway] final class OperationHooks[-R](
 private[gateway] object OperationHooks {
   private val ResolutionFailure = CalibanError.ValidationError("Operation resolution failed.", "")
   private val PolicyFailure     = CalibanError.ValidationError("Operation policy failed.", "")
-  private val PolicyRejection   = CalibanError.ValidationError("Operation rejected by gateway policy.", "")
+
+  private def policyRejection(reason: String): CalibanError.ValidationError =
+    if (reason == null || reason.isEmpty)
+      CalibanError.ValidationError("Operation rejected by gateway policy.", "")
+    else CalibanError.ValidationError(reason, "")
 
   private def run[R, A](
     effect: => ZIO[R, Throwable, A],
