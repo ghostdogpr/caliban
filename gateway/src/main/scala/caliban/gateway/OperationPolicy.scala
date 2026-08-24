@@ -9,8 +9,7 @@ import zio.ZIO
  * Allows or rejects an already validated gateway operation without changing its execution.
  */
 final class OperationPolicy[-R] private[gateway] (
-  private[gateway] val evaluate: OperationPolicy.ValidatedOperation => ZIO[R, Throwable, OperationPolicy.Decision],
-  private[gateway] val cacheBehavior: OperationHookCacheBehavior
+  private[gateway] val evaluate: OperationPolicy.ValidatedOperation => ZIO[R, Throwable, OperationPolicy.Decision]
 )
 
 object OperationPolicy {
@@ -71,17 +70,6 @@ object OperationPolicy {
    */
   final case class Reject(reason: String = "Operation rejected by gateway policy.") extends Decision
 
-  /**
-   * Creates a policy whose stable discriminator can participate in operation cache keys.
-   */
-  def stable[R](
-    discriminator: String
-  )(evaluate: ValidatedOperation => ZIO[R, Throwable, Decision]): OperationPolicy[R] =
-    new OperationPolicy(evaluate, OperationHookCacheBehavior.Stable(discriminator))
-
-  /**
-   * Creates a policy whose operations must bypass operation caches.
-   */
-  def uncached[R](evaluate: ValidatedOperation => ZIO[R, Throwable, Decision]): OperationPolicy[R] =
-    new OperationPolicy(evaluate, OperationHookCacheBehavior.Bypass)
+  def apply[R](evaluate: ValidatedOperation => ZIO[R, Throwable, Decision]): OperationPolicy[R] =
+    new OperationPolicy(evaluate)
 }

@@ -14,7 +14,7 @@ private[gateway] final class OperationLimits(
   def textWeight(query: String): Either[OperationLimits.Failure, Int] = {
     val bytes = utf8Length(query)
     if (bytes > maxTextBytes.toLong) Left(OperationLimits.TextTooLarge)
-    else if (!nestingWithinLimit(query)) Left(OperationLimits.NestingTooDeep)
+    else if (!OperationLimits.graphQLNestingWithinLimit(query, maxNesting)) Left(OperationLimits.NestingTooDeep)
     else Right(bytes.toInt)
   }
 
@@ -79,7 +79,15 @@ private[gateway] final class OperationLimits(
     if (withinLimit) Right(nodes) else Left(OperationLimits.TooManyNodes)
   }
 
-  private def nestingWithinLimit(query: String): Boolean = {
+}
+
+private[gateway] object OperationLimits {
+  private val NormalState      = 0
+  private val CommentState     = 1
+  private val StringState      = 2
+  private val BlockStringState = 3
+
+  def graphQLNestingWithinLimit(query: String, maxNesting: Int): Boolean = {
     var index   = 0
     var depth   = 0
     var state   = OperationLimits.NormalState
@@ -122,16 +130,8 @@ private[gateway] final class OperationLimits(
     }
     true
   }
-}
-
-private[gateway] object OperationLimits {
-  private val NormalState      = 0
-  private val CommentState     = 1
-  private val StringState      = 2
-  private val BlockStringState = 3
-
   sealed trait Failure
-  case object TextTooLarge   extends Failure
+  case object TextTooLarge extends Failure
   case object NestingTooDeep extends Failure
   case object TooManyNodes   extends Failure
 }

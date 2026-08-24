@@ -281,7 +281,7 @@ object AbstractOperationSpec extends ZIOSpecDefault {
         for {
           a       <-
             stub(
-              """{"data":{"rootA":{"wrapper":{"actions":[{"__typename":"Common","_caliban_gateway_runtime_typename":"Common","label":"common"},{"__typename":"OnlyA","_caliban_gateway_runtime_typename":"OnlyA","a":null}]}}}}"""
+              """{"data":{"rootA":{"wrapper":{"actions":[{"__typename":"Common","_caliban_gateway_runtime_typename":"Common","label":"common"},{"__typename":"OnlyA","_caliban_gateway_runtime_typename":"OnlyA","a":"only-a"}]}}}}"""
             )
           b       <- stub("""{"data":{}}""")
           gateway <- Gateway
@@ -297,9 +297,12 @@ object AbstractOperationSpec extends ZIOSpecDefault {
         } yield assertTrue(
           result.errors.isEmpty,
           valid.forall(_.isSuccess),
-          queries.forall(!_.contains("OnlyA")),
+          queries.exists(_.contains("OnlyA")),
+          queries.forall(!_.contains("OnlyB")),
           field(result.data, "rootA").flatMap(field(_, "wrapper")).flatMap(field(_, "actions")).exists {
-            case ListValue(values) => values.forall(field(_, "__typename").exists(_ != caliban.Value.NullValue))
+            case ListValue(values) =>
+              values.forall(field(_, "__typename").exists(_ != caliban.Value.NullValue)) &&
+              values.exists(field(_, "a").contains(StringValue("only-a")))
             case _                 => false
           }
         )

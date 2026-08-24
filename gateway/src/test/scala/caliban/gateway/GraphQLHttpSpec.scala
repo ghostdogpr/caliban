@@ -16,16 +16,19 @@ import zio.http.{ Body, Handler, Header, Headers, Method, Request, Response, Rou
 import zio.stream.ZStream
 import zio.test._
 
-import java.nio.charset.StandardCharsets
-
 object GraphQLHttpSpec extends ZIOSpecDefault {
 
   private trait RuntimeHeaders {
     def values: UIO[List[SttpHeader]]
   }
 
-  private val schema  = "type Query { value(input: String): String }"
-  private val request = GraphQLRequest(query = Some("query Value { value }"), operationName = Some("Value"))
+  private val schema      = "type Query { value(input: String): String }"
+  private val request     = GraphQLRequest(query = Some("query Value { value }"), operationName = Some("Value"))
+  private val unavailable = Response(
+    Status.ServiceUnavailable,
+    Headers(Header.Custom("Content-Type", "text/plain")),
+    Body.fromString("unavailable")
+  )
 
   private def call(endpoint: Uri, backend: SttpClient) =
     unmanagedRemoteGraphQLSource(endpoint, backend).execute(request, OperationType.Query).either
@@ -48,26 +51,6 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
       val headers = mediaType.fold(Headers.empty)(value => Headers(Header.Custom("Content-Type", value)))
       ZIO.succeed(Response(status, headers, Body.fromString(body)))
     }
-
-  private def streaming(
-    stream: ZStream[Any, Throwable, Byte],
-    status: Status = Status.Ok,
-    mediaType: String = "application/graphql-response+json"
-  ): ZIO[Server with Ref[Int], Nothing, Uri] =
-    endpoint(_ =>
-      ZIO.succeed(
-        Response(
-          status,
-          Headers(Header.Custom("Content-Type", mediaType)),
-          Body.fromStreamChunked(stream)
-        )
-      )
-    )
-
-  private def finite(body: String, releases: Ref[Int], released: Promise[Nothing, Unit]) =
-    ZStream
-      .fromChunk(Chunk.fromArray(body.getBytes(StandardCharsets.UTF_8)))
-      .ensuring(releases.update(_ + 1) *> released.succeed(()).unit)
 
   private final case class BlockedEndpoint(
     uri: Uri,
@@ -247,57 +230,55 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
 
       Live.live {
         for {
-          backend             <- HttpClientZioBackend.scoped()
-          successReleases     <- Ref.make(0)
-          successReleased     <- Promise.make[Nothing, Unit]
-          successEndpoint     <- streaming(
-                                   finite("""{"data":{"value":"ok"}}""", successReleases, successReleased)
-                                 )
-          success             <- call(successEndpoint, backend)
-          _                   <- successReleased.await
-          failureReleases     <- Ref.make(0)
-          failureReleased     <- Promise.make[Nothing, Unit]
-          failureEndpoint     <- streaming(finite("not-json", failureReleases, failureReleased))
-          failure             <- call(failureEndpoint, backend)
-          _                   <- failureReleased.await
-          sizeReleases        <- Ref.make(0)
-          sizeReleased        <- Promise.make[Nothing, Unit]
-          sizeEndpoint        <- streaming(finite("x" * 128, sizeReleases, sizeReleased))
-          sizeFailure         <-
+          backend                                          <- HttpClientZioBackend.scoped()
+          successTracked                                   <- tracked("""{"data":{"value":"ok"}}""")
+          (successStream, successReleases, successReleased) = successTracked
+          successEndpoint                                  <- streamingEndpoint(successStream)
+          success                                          <- call(successEndpoint, backend)
+          _                                                <- successReleased.await
+          failureTracked                                   <- tracked("not-json")
+          (failureStream, failureReleases, failureReleased) = failureTracked
+          failureEndpoint                                  <- streamingEndpoint(failureStream)
+          failure                                          <- call(failureEndpoint, backend)
+          _                                                <- failureReleased.await
+          sizeTracked                                      <- tracked("x" * 128)
+          (sizeStream, sizeReleases, sizeReleased)          = sizeTracked
+          sizeEndpoint                                     <- streamingEndpoint(sizeStream)
+          sizeFailure                                      <-
             call(sizeEndpoint, backend, small)
-          _                   <- sizeReleased.await
-          timeoutStarted      <- Promise.make[Nothing, Unit]
-          timeoutReleases     <- Ref.make(0)
-          timeoutReleased     <- Promise.make[Nothing, Unit]
-          timeoutEndpoint     <- streaming(
-                                   (ZStream.fromZIO(timeoutStarted.succeed(()).unit).drain ++ ZStream.never)
-                                     .ensuring(timeoutReleases.update(_ + 1) *> timeoutReleased.succeed(()).unit)
-                                 )
-          timeoutFailure      <-
+          _                                                <- sizeReleased.await
+          timeoutStarted                                   <- Promise.make[Nothing, Unit]
+          timeoutReleases                                  <- Ref.make(0)
+          timeoutReleased                                  <- Promise.make[Nothing, Unit]
+          timeoutEndpoint                                  <- streamingEndpoint(
+                                                                (ZStream.fromZIO(timeoutStarted.succeed(()).unit).drain ++ ZStream.never)
+                                                                  .ensuring(timeoutReleases.update(_ + 1) *> timeoutReleased.succeed(()).unit)
+                                                              )
+          timeoutFailure                                   <-
             call(timeoutEndpoint, backend, short)
-          _                   <- timeoutStarted.await
-          _                   <- timeoutReleased.await
-          interruptStarted    <- Promise.make[Nothing, Unit]
-          interruptComplete   <- Promise.make[Nothing, Unit]
-          interruptReleases   <- Ref.make(0)
-          interruptReleased   <- Promise.make[Nothing, Unit]
-          interruptEndpoint   <- streaming(
-                                   (ZStream.fromZIO(interruptStarted.succeed(()).unit).drain ++
-                                     ZStream.fromZIO(interruptComplete.await).drain)
-                                     .ensuring(interruptReleases.update(_ + 1) *> interruptReleased.succeed(()).unit)
-                                 )
-          interruptFiber      <-
+          _                                                <- timeoutStarted.await
+          _                                                <- timeoutReleased.await
+          interruptStarted                                 <- Promise.make[Nothing, Unit]
+          interruptComplete                                <- Promise.make[Nothing, Unit]
+          interruptReleases                                <- Ref.make(0)
+          interruptReleased                                <- Promise.make[Nothing, Unit]
+          interruptEndpoint                                <- streamingEndpoint(
+                                                                (ZStream.fromZIO(interruptStarted.succeed(()).unit).drain ++
+                                                                  ZStream.fromZIO(interruptComplete.await).drain)
+                                                                  .ensuring(interruptReleases.update(_ + 1) *> interruptReleased.succeed(()).unit)
+                                                              )
+          interruptFiber                                   <-
             unmanagedRemoteGraphQLSource(interruptEndpoint, backend).execute(request, OperationType.Query).fork
-          _                   <- interruptStarted.await
-          _                   <- interruptFiber.interruptFork
-          _                   <- interruptComplete.succeed(())
-          interrupted         <- interruptFiber.await
-          _                   <- interruptReleased.await
-          successReleaseCount <- successReleases.get
-          failureReleaseCount <- failureReleases.get
-          sizeReleaseCount    <- sizeReleases.get
-          timeoutReleaseCount <- timeoutReleases.get
-          interruptCount      <- interruptReleases.get
+          _                                                <- interruptStarted.await
+          _                                                <- interruptFiber.interruptFork
+          _                                                <- interruptComplete.succeed(())
+          interrupted                                      <- interruptFiber.await
+          _                                                <- interruptReleased.await
+          successReleaseCount                              <- successReleases.get
+          failureReleaseCount                              <- failureReleases.get
+          sizeReleaseCount                                 <- sizeReleases.get
+          timeoutReleaseCount                              <- timeoutReleases.get
+          interruptCount                                   <- interruptReleases.get
         } yield assertTrue(
           success.isRight,
           failure == Left(InvalidResponse),
@@ -523,12 +504,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
       )
     },
     test("shares failures and removes the in-flight entry before a retry") {
-      val config  = RemoteGraphQLConfig.default.withExecution(_.withInFlightQueryDeduplication(true))
-      val failure = Response(
-        Status.ServiceUnavailable,
-        Headers(Header.Custom("Content-Type", "text/plain")),
-        Body.fromString("unavailable")
-      )
+      val config = RemoteGraphQLConfig.default.withExecution(_.withInFlightQueryDeduplication(true))
 
       for {
         backend    <- HttpClientZioBackend.scoped()
@@ -537,7 +513,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
         release    <- Promise.make[Nothing, Unit]
         remote     <- endpoint { _ =>
                         calls.updateAndGet(_ + 1).flatMap {
-                          case 1 => started.succeed(()).unit *> release.await.as(failure)
+                          case 1 => started.succeed(()).unit *> release.await.as(unavailable)
                           case _ => ZIO.succeed(Response.json("""{"data":{"value":"ok"}}"""))
                         }
                       }
@@ -573,17 +549,12 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
                               .flatMap(count => ready.succeed(()).unit.when(count == callers)) *>
                               ready.await.as(Nil)
                           )
-        failure       = Response(
-                          Status.ServiceUnavailable,
-                          Headers(Header.Custom("Content-Type", "text/plain")),
-                          Body.fromString("unavailable")
-                        )
         calls        <- Ref.make(0)
         firstStarted <- Promise.make[Nothing, Unit]
         releaseFirst <- Promise.make[Nothing, Unit]
         remote       <- endpoint { _ =>
                           calls.updateAndGet(_ + 1).flatMap {
-                            case 1 => firstStarted.succeed(()).unit *> releaseFirst.await.as(failure)
+                            case 1 => firstStarted.succeed(()).unit *> releaseFirst.await.as(unavailable)
                             case _ => ZIO.succeed(Response.json("""{"data":{"value":"ok"}}"""))
                           }
                         }
@@ -750,13 +721,6 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
       val policy = RemoteGraphQLConfig.default.withExecution(
         _.withRetries(2, Duration.Zero)
       )
-
-      def unavailable: Response =
-        Response(
-          Status.ServiceUnavailable,
-          Headers(Header.Custom("Content-Type", "text/plain")),
-          Body.fromString("unavailable")
-        )
 
       for {
         backend          <- HttpClientZioBackend.scoped()

@@ -267,8 +267,6 @@ private[caliban] object ErrorJsoniter {
 }
 
 private[caliban] object GraphQLResponseJsoniter {
-  case object ResponseLimitExceeded extends RuntimeException with NoStackTrace
-
   val graphQLResponseCodec: JsonValueCodec[GraphQLResponse[Any]] = codec()
 
   def writeToArray(
@@ -309,14 +307,21 @@ private[caliban] object GraphQLResponseJsoniter {
                       case Some(decoded) => errors = Some(decoded)
                       case None          => in.decodeError("invalid GraphQL error")
                     }
+                  case NullValue                       => ()
                   case _                               => in.decodeError("expected JSON array")
                 }
               case "extensions" =>
                 ValueJsoniter.responseValueCodec.decodeValue(in, null) match {
                   case value: ResponseValue.ObjectValue => extensions = Some(value)
+                  case NullValue                        => ()
                   case _                                => in.decodeError("expected JSON object")
                 }
-              case "hasNext"    => hasNext = Some(in.readBoolean())
+              case "hasNext"    =>
+                ValueJsoniter.responseValueCodec.decodeValue(in, null) match {
+                  case BooleanValue(value) => hasNext = Some(value)
+                  case NullValue           => ()
+                  case _                   => in.decodeError("expected JSON boolean")
+                }
               case _            => in.skip()
             }
             in.isNextToken(',')
@@ -381,32 +386,39 @@ private[caliban] object GraphQLResponseJsoniter {
         null.asInstanceOf[GraphQLResponse[Any]]
     }
 
-  private final class BoundedOutputStream(maxBytes: Int) extends OutputStream {
-    private var bytes = new Array[Byte](0)
-    private var size  = 0
+}
 
-    override def write(value: Int): Unit = {
-      ensureCapacity(1)
-      bytes(size) = value.toByte
-      size += 1
-    }
+private[caliban] final class BoundedOutputStream(maxBytes: Int) extends OutputStream {
+  import BoundedOutputStream.LimitExceeded
 
-    override def write(values: Array[Byte], offset: Int, length: Int): Unit = {
-      ensureCapacity(length)
-      java.lang.System.arraycopy(values, offset, bytes, size, length)
-      size += length
-    }
+  private var bytes = Array.emptyByteArray
+  private var size  = 0
 
-    def toByteArray: Array[Byte] =
-      if (size == bytes.length) bytes else java.util.Arrays.copyOf(bytes, size)
+  override def write(value: Int): Unit = {
+    ensureCapacity(1)
+    bytes(size) = value.toByte
+    size += 1
+  }
 
-    private def ensureCapacity(additionalBytes: Int): Unit = {
-      val required = size + additionalBytes
-      if (additionalBytes < 0 || required < size || required > maxBytes) throw ResponseLimitExceeded
-      if (required > bytes.length) {
-        val next = math.min(maxBytes.toLong, math.max(required.toLong, bytes.length.toLong * 2L)).toInt
-        bytes = java.util.Arrays.copyOf(bytes, next)
-      }
+  override def write(values: Array[Byte], offset: Int, length: Int): Unit = {
+    ensureCapacity(length)
+    java.lang.System.arraycopy(values, offset, bytes, size, length)
+    size += length
+  }
+
+  def toByteArray: Array[Byte] =
+    if (size == bytes.length) bytes else java.util.Arrays.copyOf(bytes, size)
+
+  private def ensureCapacity(additionalBytes: Int): Unit = {
+    val required = size + additionalBytes
+    if (additionalBytes < 0 || required < size || required > maxBytes) throw LimitExceeded
+    if (required > bytes.length) {
+      val next = math.min(maxBytes.toLong, math.max(required.toLong, bytes.length.toLong * 2L)).toInt
+      bytes = java.util.Arrays.copyOf(bytes, next)
     }
   }
+}
+
+private[caliban] object BoundedOutputStream {
+  case object LimitExceeded extends RuntimeException with NoStackTrace
 }

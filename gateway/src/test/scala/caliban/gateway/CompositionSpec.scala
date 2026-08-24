@@ -693,6 +693,20 @@ object CompositionSpec extends ZIOSpecDefault {
                       )
         } yield assertTrue(response.errors.isEmpty)
       },
+      test("drops types reachable only from subscription roots") {
+        val result = compose(
+          CompositionInput(
+            "alpha",
+            "type Query { alpha: String } type Subscription { alphaEvents: Event } type Event { value: String }"
+          ),
+          CompositionInput(
+            "beta",
+            "type Query { beta: String } type Subscription { betaEvents: Event } type Event { value: Int }"
+          )
+        )
+
+        assertTrue(result.isRight, result.toOption.forall(!_.rootType.types.contains("Event")))
+      },
       test("resolves interface and union references to composed types") {
         val alphaSchema =
           "type Query { search: Search product: Product } interface Node { id: ID! } union Search = Product type Product implements Node { id: ID! }"
@@ -1003,7 +1017,7 @@ object CompositionSpec extends ZIOSpecDefault {
             Set[caliban.InputValue](StringValue("alpha"), StringValue("beta"))
         )
       },
-      test("selects and merges directives graph-wide by linked feature identity") {
+      test("selects linked directives independently for each source") {
         def featureSchema(sourceDirective: String, selected: Boolean, feature: String = "audit") = {
           val selection = if (selected) s"""@compose(name: "@$sourceDirective")""" else ""
           s"""
@@ -1041,7 +1055,7 @@ object CompositionSpec extends ZIOSpecDefault {
           merged.isRight,
           merged.toOption.toList.flatMap(_.rootType.additionalDirectives.map(_.name)) == List("audit"),
           directives(field.flatMap(_.directives)).collect { case ("audit", arguments) => arguments("label") } ==
-            List[caliban.InputValue](StringValue("audit"), StringValue("review")),
+            List[caliban.InputValue](StringValue("audit")),
           collision.left.exists(
             _.exists(message => message.contains("first") && message.contains("second") && message.contains("audit"))
           )

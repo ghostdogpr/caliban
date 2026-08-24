@@ -1,7 +1,5 @@
 package caliban.gateway
 
-import scala.collection.immutable.ListMap
-
 /**
  * Describes how a subgraph recalls an object through an ordinary GraphQL query field.
  */
@@ -9,7 +7,7 @@ sealed trait Lookup {
   private[gateway] def typeName: String
   private[gateway] def keyFields: List[String]
   private[gateway] def field: String
-  private[gateway] def arguments: Map[String, Lookup.Argument]
+  private[gateway] def arguments: List[(String, Lookup.Argument)]
 }
 
 object Lookup {
@@ -23,7 +21,7 @@ object Lookup {
     field: String,
     arguments: (String, Argument)*
   ): Lookup =
-    Single(typeName, keyFields, field, ListMap(arguments: _*))
+    Single(typeName, keyFields, field, arguments.toList)
 
   /**
    * Describes a lookup field that returns a list of objects for a batch of keys using deterministically ordered
@@ -36,7 +34,7 @@ object Lookup {
     correlation: Correlation,
     arguments: (String, Argument)*
   ): Lookup =
-    ListLookup(typeName, keyFields, field, ListMap(arguments: _*), correlation)
+    ListLookup(typeName, keyFields, field, arguments.toList, correlation)
 
   /**
    * A declarative lookup-argument mapping.
@@ -92,14 +90,14 @@ object Lookup {
     typeName: String,
     keyFields: List[String],
     field: String,
-    arguments: Map[String, Argument]
+    arguments: List[(String, Argument)]
   ) extends Lookup
 
   private[gateway] final case class ListLookup(
     typeName: String,
     keyFields: List[String],
     field: String,
-    arguments: Map[String, Argument],
+    arguments: List[(String, Argument)],
     correlation: Correlation
   ) extends Lookup
 }

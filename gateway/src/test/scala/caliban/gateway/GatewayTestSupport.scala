@@ -15,6 +15,9 @@ import zio._
 import zio.http.{ Body, Handler, Header, Headers, MediaType, Method, Request, Response, Routes, Server, Status }
 import zio.http.netty.NettyConfig
 import zio.metrics.Metric
+import zio.stream.ZStream
+
+import java.nio.charset.StandardCharsets
 
 private[gateway] object GatewayTestSupport {
 
@@ -144,6 +147,32 @@ private[gateway] object GatewayTestSupport {
       port   <- server.port
     } yield Uri.unsafeParse(s"http://127.0.0.1:$port/$path")
 
+  def streamingEndpoint(
+    stream: ZStream[Any, Throwable, Byte],
+    status: Status = Status.Ok,
+    mediaType: String = "application/graphql-response+json"
+  ): ZIO[Server with Ref[Int], Nothing, Uri] =
+    postEndpoint("streaming")(_ =>
+      ZIO.succeed(
+        Response(
+          status,
+          Headers(Header.Custom("Content-Type", mediaType)),
+          Body.fromStreamChunked(stream)
+        )
+      )
+    )
+
+  def tracked(
+    body: String
+  ): UIO[(ZStream[Any, Throwable, Byte], Ref[Int], Promise[Nothing, Unit])] =
+    for {
+      releases <- Ref.make(0)
+      released <- Promise.make[Nothing, Unit]
+      stream    = ZStream
+                    .fromChunk(Chunk.fromArray(body.getBytes(StandardCharsets.UTF_8)))
+                    .ensuring(releases.update(_ + 1) *> released.succeed(()).unit)
+    } yield (stream, releases, released)
+
   val testServer: ZLayer[Any, Throwable, Server] = {
     val config = Server.Config.default
       .binding("127.0.0.1", 0)
@@ -165,6 +194,18 @@ private[gateway] object GatewayTestSupport {
 
   def listValues(value: Option[ResponseValue]): List[ResponseValue] =
     value.collect { case ResponseValue.ListValue(values) => values }.getOrElse(Nil)
+
+  def onlyNested(value: Option[ResponseValue], child: String): Option[List[(String, ResponseValue)]] =
+    value
+      .flatMap(field(_, child))
+      .collect { case ResponseValue.ListValue(ObjectValue(fields) :: Nil) => fields }
+
+  def firstNestedObject(
+    value: ResponseValue,
+    root: String,
+    child: String
+  ): Option[List[(String, ResponseValue)]] =
+    listValues(field(value, root)).headOption.flatMap(value => onlyNested(Some(value), child))
 
   def fieldNames(value: ResponseValue): List[String] =
     value match {

@@ -23,7 +23,6 @@ private[gateway] object DirectiveComposition {
   }
 
   final case class LinkedFeature private[DirectiveComposition] (
-    directive: Directive,
     identity: String,
     name: String,
     version: FeatureVersion,
@@ -106,6 +105,9 @@ private[gateway] object DirectiveComposition {
         .filter(tpe => tpe.kind == __TypeKind.SCALAR && tpe.name.contains("ID"))
         .take(1)
 
+    def referencedInputTypes: Set[String] =
+      selectedDefinitions.iterator.flatMap(_.definition.allArgs.iterator.flatMap(_._type.innerType.name)).toSet
+
     def definitions(rewrite: __Type => __Type): List[__Directive] =
       selectedDefinitions
         .groupBy(_.key)
@@ -123,7 +125,9 @@ private[gateway] object DirectiveComposition {
                   argument.copy(
                     `type` = () => rewrite(argument._type),
                     directives = attach(
-                      argument.directives,
+                      argument.directives
+                        .map(_.filterNot(directive => hidden(selected.source).contains(directive.name)))
+                        .filter(_.nonEmpty),
                       DirectiveArgumentCoordinate(definition.name, argument.name)
                     )
                   )
@@ -241,16 +245,20 @@ private[gateway] object DirectiveComposition {
   }
 
   def compile(sources: List[Source]): Result = {
-    val ordered               = sources.sortBy(_.schema.name)
-    val sourceInfo            = ordered.map(source => source.schema.name -> SourceInfo(source)).toMap
-    val definitions           = sourceInfo.valuesIterator.toList.flatMap(_.definitions)
-    val declarations          = sourceInfo.valuesIterator.toList.flatMap(_.composeDeclarations)
-    val selectedKeys          = sourceInfo.valuesIterator.flatMap(_.ordinarySelections).toSet ++
-      definitions.iterator.collect {
-        case definition if definition.key == DirectiveKey(FederationIdentity, "tag") =>
-          definition.key
-      }.toSet ++ declarations.collect { case Right(value) => value }
-    val selected              = definitions.filter(definition => selectedKeys(definition.key))
+    val sourceInfos           = sources.sortBy(_.schema.name).map(SourceInfo(_))
+    val sourceInfo            = sourceInfos.map(info => info.source.schema.name -> info).toMap
+    val definitions           = sourceInfos.flatMap(_.definitions)
+    val declarations          = sourceInfos.flatMap(_.composeDeclarations)
+    val selectedBySource      = sourceInfos.map { info =>
+      val selected = info.ordinarySelections ++
+        (if (info.source.schema.federation)
+           info.definitions.iterator.collect {
+             case definition if definition.key == DirectiveKey(FederationIdentity, "tag") => definition.key
+           }.toSet
+         else Set.empty) ++ info.composeDeclarations.collect { case Right(value) => value }
+      info.source.schema.name -> selected
+    }.toMap
+    val selected              = definitions.filter(definition => selectedBySource(definition.source)(definition.key))
     val composedNames         = selected
       .groupBy(_.key)
       .map { case (key, values) =>
@@ -281,7 +289,8 @@ private[gateway] object DirectiveComposition {
           s"[directive @$name] Definitions are incompatible between subgraphs: $sources."
       }
       .toList
-    val rawApplications       = sourceInfo.valuesIterator.toList.flatMap(_.applications(selectedKeys, composedNames))
+    val rawApplications       =
+      sourceInfos.flatMap(info => info.applications(selectedBySource(info.source.schema.name), composedNames))
     val compiled              = rawApplications.map(compileApplication)
     val applicationErrors     = compiled.collect { case Left(errors) => errors }.flatten
     val validApplications     = compiled.collect { case Right(value) => value }
@@ -291,7 +300,9 @@ private[gateway] object DirectiveComposition {
     val applicationsByKey     = validApplications
       .groupBy(application => application.coordinate -> application.key)
       .toList
-    val mergedApplications    = applicationsByKey.map { case ((coordinate, key), values) =>
+    val mergedApplications    = applicationsByKey.sortBy { case ((coordinate, key), _) =>
+      (coordinate.display, coordinate.location.toString, composedNames.getOrElse(key, key.member))
+    }.map { case ((coordinate, key), values) =>
       val definition = definitionByKey.get(key)
       val sorted     = values.sortBy(value => (value.source, value.ordinal))
       val selected   =
@@ -340,10 +351,12 @@ private[gateway] object DirectiveComposition {
         }
       }
     }
-    val hidden                = sourceInfo.map { case (source, info) =>
-      source -> (info.source.protocolDirectives ++ info.definitions.map(_.localName))
-    }
-    val diagnostics           = (sourceInfo.valuesIterator.flatMap(_.diagnostics).toList :::
+    val hidden                = sourceInfos.map { info =>
+      info.source.schema.name -> (info.source.protocolDirectives ++ info.definitions.iterator
+        .map(_.localName)
+        .filterNot(BuiltInDirectiveNames))
+    }.toMap
+    val diagnostics           = (sourceInfos.flatMap(_.diagnostics) :::
       declarations.collect { case Left(error) => error } ::: nameCollisions ::: definitionDiagnostics :::
       applicationErrors).distinct.sorted
 
@@ -383,7 +396,6 @@ private[gateway] object DirectiveComposition {
               .getOrElse(name)
             Some(
               LinkedFeature(
-                directive,
                 identity,
                 name,
                 FeatureVersion(major.toInt, minor.toInt),
@@ -410,7 +422,7 @@ private[gateway] object DirectiveComposition {
     key: DirectiveKey,
     coordinate: Coordinate,
     directive: Directive,
-    definition: Option[__Directive],
+    definition: __Directive,
     ordinal: Int
   )
   private final case class CompiledApplication(
@@ -423,30 +435,30 @@ private[gateway] object DirectiveComposition {
   )
 
   private final case class SourceInfo(source: Source) {
-    private val schema                    = source.schema
-    private val features                  = linkedFeatures(schema.document)
-    private val interfaceObjectDirectives = features
+    private val schema                        = source.schema
+    private val features                      = linkedFeatures(schema.document)
+    private val federationTransportDirectives =
+      if (features.exists(_.identity == FederationIdentity)) FederationTransportDirectiveNames else Set.empty[String]
+    private val interfaceObjectDirectives     = features
       .filter(_.identity == FederationIdentity)
       .flatMap(_.directiveNames("interfaceObject"))
       .toSet
-    private val byLocal                   = features.flatMap { feature =>
+    private val byLocal                       = features.flatMap { feature =>
       schema.rootType.additionalDirectives.flatMap { definition =>
         feature
           .sourceDirective(definition.name)
           .map(member => definition.name -> DirectiveKey(feature.identity, member))
       }
     }.groupBy(_._1).map { case (name, values) => name -> values.map(_._2).distinct }
-    private val localDefinitions          = schema.rootType.additionalDirectives.map { definition =>
+    val definitions: List[LocalDefinition]    = schema.rootType.additionalDirectives.map { definition =>
       val keys = byLocal.getOrElse(definition.name, Nil)
-      definition.name -> (keys match {
+      val key  = keys match {
         case key :: Nil => key
         case _          => DirectiveKey("", definition.name)
-      })
-    }.toMap
-
-    val definitions: List[LocalDefinition] = schema.rootType.additionalDirectives.map { definition =>
-      LocalDefinition(schema.name, definition.name, localDefinitions(definition.name), definition)
+      }
+      LocalDefinition(schema.name, definition.name, key, definition)
     }
+    private val definitionsByName             = definitions.iterator.map(definition => definition.localName -> definition).toMap
 
     val diagnostics: List[String] = byLocal.toList.collect {
       case (name, keys) if keys.size > 1 =>
@@ -455,7 +467,16 @@ private[gateway] object DirectiveComposition {
     }
 
     val ordinarySelections: Set[DirectiveKey] =
-      if (schema.federation) Set.empty else definitions.map(_.key).toSet
+      if (schema.federation) Set.empty
+      else
+        definitions.iterator
+          .filterNot(value =>
+            BuiltInDirectiveNames(value.localName) || source.protocolDirectives(value.localName) ||
+              federationTransportDirectives(value.localName) || ReservedFeatureIdentities(value.key.identity) ||
+              value.key.identity == FederationIdentity
+          )
+          .map(_.key)
+          .toSet
 
     val composeDeclarations: List[Either[String, DirectiveKey]] = {
       val federation = features.filter(_.identity == FederationIdentity)
@@ -472,7 +493,7 @@ private[gateway] object DirectiveComposition {
                 arguments("name") match {
                   case StringValue(value) if value.startsWith("@") && value.length > 1 =>
                     val localName = value.drop(1)
-                    definitions.find(_.localName == localName) match {
+                    definitionsByName.get(localName) match {
                       case None             =>
                         Left(s"[${schema.name}] Composed directive '@$localName' is not defined by this subgraph.")
                       case Some(definition) =>
@@ -511,14 +532,14 @@ private[gateway] object DirectiveComposition {
 
       def selectedDirectives(directives: Option[List[Directive]], coordinate: Coordinate): List[RawApplication] =
         directives.getOrElse(Nil).zipWithIndex.flatMap { case (directive, ordinal) =>
-          localDefinitions.get(directive.name).toList.collect {
-            case key if selected(key) =>
+          definitionsByName.get(directive.name).toList.collect {
+            case definition if selected(definition.key) =>
               RawApplication(
                 schema.name,
-                key,
+                definition.key,
                 coordinate,
-                directive.copy(name = composedNames.getOrElse(key, directive.name)),
-                definitions.find(_.key == key).map(_.definition),
+                directive.copy(name = composedNames.getOrElse(definition.key, directive.name)),
+                definition.definition,
                 ordinal
               )
           }
@@ -554,14 +575,14 @@ private[gateway] object DirectiveComposition {
                   .flatMap(value => selectedDirectives(value.directives, EnumValueCoordinate(typeName, value.name)))
             }
         }
-      val directiveArgumentApps = schema.rootType.additionalDirectives.flatMap { definition =>
+      val directiveArgumentApps = definitions.flatMap { local =>
         inputApplications(
           argument =>
             DirectiveArgumentCoordinate(
-              composedNames.getOrElse(localDefinitions(definition.name), definition.name),
+              composedNames.getOrElse(local.key, local.localName),
               argument.name
             ),
-          definition.allArgs
+          local.definition.allArgs
         )
       }
 
@@ -569,73 +590,66 @@ private[gateway] object DirectiveComposition {
     }
   }
 
-  private def compileApplication(application: RawApplication): Either[List[String], CompiledApplication] =
-    application.definition match {
-      case None             =>
-        Left(
-          List(
-            s"[${application.source}] Directive '@${application.directive.name}' applied at '${application.coordinate.display}' is not defined by this subgraph."
-          )
-        )
-      case Some(definition) =>
-        val arguments      = definition.allArgs.map(argument => argument.name -> argument).toMap
-        val unknown        = application.directive.arguments.keySet
-          .diff(arguments.keySet)
-          .toList
-          .sorted
-          .map(name =>
-            s"[${application.source}] Unknown argument '$name' on composed directive '@${application.directive.name}' at '${application.coordinate.display}'."
-          )
-        val missing        = definition.allArgs.collect {
-          case argument
-              if argument._type.kind == __TypeKind.NON_NULL && argument.defaultValue.isEmpty &&
-                !application.directive.arguments.contains(argument.name) =>
-            s"[${application.source}] Required argument '${argument.name}' is missing on composed directive '@${application.directive.name}' at '${application.coordinate.display}'."
-        }
-        val location       =
-          if (definition.locations(application.coordinate.location)) Nil
-          else
-            List(
-              s"[${application.source}] Composed directive '@${application.directive.name}' does not support ${application.coordinate.location} at '${application.coordinate.display}'."
-            )
-        val valueErrors    = application.directive.arguments.toList.flatMap { case (name, value) =>
-          arguments
-            .get(name)
-            .toList
-            .flatMap(argument =>
-              Validator
-                .validateInputValues(
-                  argument,
-                  value,
-                  Context.empty,
-                  s"Argument '$name' of directive '@${application.directive.name}'"
-                )
-                .left
-                .toOption
-                .map(error => s"[${application.source}] ${error.getMessage}")
-            )
-        }
-        val errors         = unknown ::: missing ::: location ::: valueErrors
-        val normalizedArgs = definition.allArgs.flatMap { argument =>
-          application.directive.arguments
-            .get(argument.name)
-            .orElse(defaultValue(argument))
-            .map(value => argument.name -> canonicalValue(argument._type, value))
-        }
-
-        if (errors.nonEmpty) Left(errors)
-        else
-          Right(
-            CompiledApplication(
-              application.source,
-              application.key,
-              application.coordinate,
-              application.directive.copy(arguments = ListMap(normalizedArgs: _*)),
-              definition,
-              application.ordinal
-            )
-          )
+  private def compileApplication(application: RawApplication): Either[List[String], CompiledApplication] = {
+    val definition     = application.definition
+    val arguments      = definition.allArgs.map(argument => argument.name -> argument).toMap
+    val unknown        = application.directive.arguments.keySet
+      .diff(arguments.keySet)
+      .toList
+      .sorted
+      .map(name =>
+        s"[${application.source}] Unknown argument '$name' on composed directive '@${application.directive.name}' at '${application.coordinate.display}'."
+      )
+    val missing        = definition.allArgs.collect {
+      case argument
+          if argument._type.kind == __TypeKind.NON_NULL && argument.defaultValue.isEmpty &&
+            !application.directive.arguments.contains(argument.name) =>
+        s"[${application.source}] Required argument '${argument.name}' is missing on composed directive '@${application.directive.name}' at '${application.coordinate.display}'."
     }
+    val location       =
+      if (definition.locations(application.coordinate.location)) Nil
+      else
+        List(
+          s"[${application.source}] Composed directive '@${application.directive.name}' does not support ${application.coordinate.location} at '${application.coordinate.display}'."
+        )
+    val valueErrors    = application.directive.arguments.toList.flatMap { case (name, value) =>
+      arguments
+        .get(name)
+        .toList
+        .flatMap(argument =>
+          Validator
+            .validateInputValues(
+              argument,
+              value,
+              Context.empty,
+              s"Argument '$name' of directive '@${application.directive.name}'"
+            )
+            .left
+            .toOption
+            .map(error => s"[${application.source}] ${error.getMessage}")
+        )
+    }
+    val errors         = unknown ::: missing ::: location ::: valueErrors
+    val normalizedArgs = definition.allArgs.flatMap { argument =>
+      application.directive.arguments
+        .get(argument.name)
+        .orElse(defaultValue(argument))
+        .map(value => argument.name -> canonicalValue(argument._type, value))
+    }
+
+    if (errors.nonEmpty) Left(errors)
+    else
+      Right(
+        CompiledApplication(
+          application.source,
+          application.key,
+          application.coordinate,
+          application.directive.copy(arguments = ListMap(normalizedArgs: _*)),
+          definition,
+          application.ordinal
+        )
+      )
+  }
 
   private def canonicalValue(tpe: __Type, value: InputValue): InputValue =
     tpe.kind match {
@@ -754,8 +768,28 @@ private[gateway] object DirectiveComposition {
       case _                        => None
     }
 
-  private val VersionPattern            = "v([0-9]+)\\.([0-9]+)".r
-  private val ReservedFeatureIdentities = Set(
+  private val VersionPattern                    = "v([0-9]+)\\.([0-9]+)".r
+  private val BuiltInDirectiveNames             = Set("skip", "include", "deprecated", "specifiedBy", "oneOf")
+  private val FederationTransportDirectiveNames = Set(
+    "link",
+    "key",
+    "external",
+    "extends",
+    "shareable",
+    "inaccessible",
+    "override",
+    "requires",
+    "provides",
+    "interfaceObject",
+    "tag",
+    "composeDirective",
+    "authenticated",
+    "requiresScopes",
+    "policy",
+    "context",
+    "fromContext"
+  )
+  private val ReservedFeatureIdentities         = Set(
     "https://specs.apollo.dev/link",
     "https://specs.apollo.dev/authenticated",
     "https://specs.apollo.dev/requiresScopes",

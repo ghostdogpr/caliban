@@ -451,42 +451,42 @@ object LookupSpec extends ZIOSpecDefault {
       )
     },
     test("rejects invalid ordinary lookup metadata during gateway build") {
-      val endpoint        = unreachableEndpoint
-      val missingKey      = Lookup.list(
+      val endpoint           = unreachableEndpoint
+      val missingKey         = Lookup.list(
         "Product",
         List("missing"),
         "productsByRefs",
         Lookup.Correlation.ordered,
         "refs" -> Lookup.Argument.batch(Lookup.Argument.obj("productId" -> Lookup.Argument.key("missing")))
       )
-      val wrongShape      = Lookup.single("Product", keyFields, "productsByRefs", "refs" -> refArgument)
-      val missingBatch    = Lookup.list(
+      val wrongShape         = Lookup.single("Product", keyFields, "productsByRefs", "refs" -> refArgument)
+      val missingBatch       = Lookup.list(
         "Product",
         keyFields,
         "productsByRefs",
         Lookup.Correlation.ordered,
         "refs" -> refArgument
       )
-      val badCorrelation  = Lookup.list(
+      val badCorrelation     = Lookup.list(
         "Product",
         keyFields,
         "productsByRefs",
         Lookup.Correlation.byKey(Map("missing" -> "id")),
         "refs" -> Lookup.Argument.batch(refArgument)
       )
-      val unknownArgument = Lookup.single(
+      val unknownArgument    = Lookup.single(
         "Product",
         keyFields,
         "productByRef",
         "missing" -> refArgument
       )
-      val singleBatch     = Lookup.single(
+      val singleBatch        = Lookup.single(
         "Product",
         keyFields,
         "productByRef",
         "ref" -> Lookup.Argument.batch(refArgument)
       )
-      val keyOutsideBatch = Lookup.list(
+      val keyOutsideBatch    = Lookup.list(
         "Product",
         keyFields,
         "productsByRefs",
@@ -496,7 +496,7 @@ object LookupSpec extends ZIOSpecDefault {
           "regionCode" -> Lookup.Argument.batch(Lookup.Argument.key("region"))
         )
       )
-      val wrongTypes      = Lookup.single(
+      val wrongTypes         = Lookup.single(
         "Product",
         keyFields,
         "productByRef",
@@ -505,14 +505,14 @@ object LookupSpec extends ZIOSpecDefault {
           "regionCode" -> Lookup.Argument.key("id")
         )
       )
-      val nestedBatch     = Lookup.list(
+      val nestedBatch        = Lookup.list(
         "Product",
         keyFields,
         "productsByRefs",
         Lookup.Correlation.ordered,
         "refs" -> Lookup.Argument.batch(Lookup.Argument.batch(refArgument))
       )
-      val partialKeys     = Lookup.single(
+      val partialKeys        = Lookup.single(
         "Product",
         keyFields,
         "productByRef",
@@ -520,6 +520,13 @@ object LookupSpec extends ZIOSpecDefault {
           "productId"  -> Lookup.Argument.key("id"),
           "regionCode" -> Lookup.Argument.key("id")
         )
+      )
+      val duplicateArguments = Lookup.single(
+        "Product",
+        keyFields,
+        "productByRef",
+        "ref" -> refArgument,
+        "ref" -> refArgument
       )
 
       def buildDiagnostics(lookup: Lookup, schema: String = reviewsSchema) =
@@ -544,6 +551,7 @@ object LookupSpec extends ZIOSpecDefault {
         types       <- buildDiagnostics(wrongTypes)
         nested      <- buildDiagnostics(nestedBatch)
         coverage    <- buildDiagnostics(partialKeys)
+        repeated    <- buildDiagnostics(duplicateArguments)
         nonScalar   <- buildDiagnostics(keyedLookup, reviewsSchema.replace("region: String!", "region: Review!"))
         listKey     <- buildDiagnostics(keyedLookup, reviewsSchema.replace("region: String!", "region: [String!]!"))
         duplicate   <- Gateway
@@ -578,6 +586,7 @@ object LookupSpec extends ZIOSpecDefault {
         types.count(_.contains("is incompatible with key field")) == 2,
         nested.exists(_.contains("[reviews] Lookup argument 'refs' cannot nest a batch mapping")),
         coverage.exists(_.contains("[reviews] Lookup argument mappings must use every declared key field")),
+        repeated.exists(_.contains("Lookup argument 'productByRef.ref' is mapped more than once")),
         nonScalar.exists(_.contains("[reviews] Lookup key field 'Product.region' must be a scalar or enum")),
         listKey.exists(_.contains("[reviews] Lookup key field 'Product.region' must be a scalar or enum")),
         duplicate.exists(_.contains("[reviews] More than one lookup is declared for type 'Product'")),

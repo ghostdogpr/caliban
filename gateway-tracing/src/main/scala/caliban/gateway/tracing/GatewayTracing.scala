@@ -9,7 +9,7 @@ import sttp.model.Header
 import zio.telemetry.opentelemetry.context.{ IncomingContextCarrier, OutgoingContextCarrier }
 import zio.telemetry.opentelemetry.tracing.{ StatusMapper, Tracing }
 import zio.telemetry.opentelemetry.tracing.propagation.TraceContextPropagator
-import zio.{ Exit, Trace, UIO, URIO, ZIO }
+import zio.{ Exit, Trace, URIO, ZIO }
 
 import java.util.Locale
 import scala.collection.mutable
@@ -24,7 +24,7 @@ object GatewayTracing {
     def wrap[R0, E, A](event: GatewayWrapper.Event)(effect: ZIO[R0, E, A])(
       result: Exit[E, A] => Result
     )(implicit trace: Trace): ZIO[Tracing with R0, E, A] = {
-      val observed = effect.onExit(exit => complete(event, result(exit)))
+      def observed = effect.onExit(exit => complete(event, result(exit)))
       event match {
         case Event.Request(operationName)            => request(operationName)(observed)
         case Event.Routing                           => span("caliban.gateway.routing", SpanKind.INTERNAL)(observed)
@@ -67,32 +67,35 @@ object GatewayTracing {
 
     private def complete(event: Event, result: Result)(implicit trace: Trace): URIO[Tracing, Unit] =
       ZIO.serviceWithZIO[Tracing] { tracing =>
-        val attributes = event match {
-          case _: Event.Request    =>
-            result.operationType.fold[UIO[Unit]](ZIO.unit)(operationType =>
-              tracing.setAttribute("graphql.operation.type", GatewayWrapper.operationTypeLabel(operationType))
-            ) *>
-              tracing.setAttribute("graphql.response.error.count", result.errorCount.toLong) *>
-              tracing.setAttribute("caliban.gateway.request.outcome", result.outcome.label)
-          case _: Event.SourceCall =>
-            tracing.setAttribute("graphql.response.error.count", result.errorCount.toLong) *>
-              tracing.setAttribute("caliban.gateway.source.outcome", result.outcome.label)
-          case _: Event.Attempt    =>
-            result.statusCode.fold[UIO[Unit]](ZIO.unit)(code =>
-              tracing.setAttribute("http.response.status_code", code.toLong)
-            ) *>
-              result.responseBytes.fold[UIO[Unit]](ZIO.unit)(bytes =>
-                tracing.setAttribute("http.response.body.size", bytes)
-              ) *>
-              tracing.setAttribute("caliban.gateway.source.attempt.outcome", result.outcome.label)
-          case _                   => ZIO.unit
-        }
+        tracing.getCurrentSpanUnsafe.flatMap { span =>
+          val attributes = Attributes.builder()
 
-        attributes *>
-          ZIO.whenDiscard(result.outcome != Outcome.Success) {
-            tracing.setAttribute("error.type", result.outcome.label) *>
-              tracing.getCurrentSpanUnsafe.flatMap(span => ZIO.succeed(span.setStatus(StatusCode.ERROR)))
+          event match {
+            case _: Event.Request    =>
+              result.operationType.foreach(operationType =>
+                attributes.put("graphql.operation.type", GatewayWrapper.operationTypeLabel(operationType))
+              )
+              attributes
+                .put("graphql.response.error.count", result.errorCount.toLong)
+                .put("caliban.gateway.request.outcome", result.outcome.label)
+            case _: Event.SourceCall =>
+              attributes
+                .put("graphql.response.error.count", result.errorCount.toLong)
+                .put("caliban.gateway.source.outcome", result.outcome.label)
+            case _: Event.Attempt    =>
+              result.statusCode.foreach(code => attributes.put("http.response.status_code", code.toLong))
+              result.responseBytes.foreach(bytes => attributes.put("http.response.body.size", bytes))
+              attributes.put("caliban.gateway.source.attempt.outcome", result.outcome.label)
+            case _                   => ()
           }
+
+          if (result.outcome != Outcome.Success) {
+            attributes.put("error.type", result.outcome.label)
+            span.setStatus(StatusCode.ERROR)
+          }
+
+          ZIO.succeed(span.setAllAttributes(attributes.build()))
+        }
       }
 
     override def attemptHeaders(source: String, attempt: Int, headers: List[Header])(implicit
@@ -119,22 +122,23 @@ object GatewayTracing {
       trace: Trace
     ): ZIO[R with Tracing, E, A] =
       IncomingRequestHeaders.get.flatMap { headers =>
-        val carrier    = IncomingContextCarrier.default(
-          mutable.Map(headers.iterator.map { case (name, value) => normalize(name) -> value }.toSeq: _*)
-        )
+        val normalized = mutable.Map(headers.iterator.map { case (name, value) => normalize(name) -> value }.toSeq: _*)
         val attributes = operationName.fold(Attributes.empty())(name =>
           Attributes.builder().put("graphql.operation.name", name).build()
         )
-        ZIO.serviceWithZIO[Tracing](
-          _.extractSpan(
-            propagation,
-            carrier,
-            "caliban.gateway.request",
-            SpanKind.SERVER,
-            attributes,
-            failureStatus
-          )(effect)
-        )
+        if (normalized.contains("traceparent")) {
+          val carrier = IncomingContextCarrier.default(normalized)
+          ZIO.serviceWithZIO[Tracing](
+            _.extractSpan(
+              propagation,
+              carrier,
+              "caliban.gateway.request",
+              SpanKind.SERVER,
+              attributes,
+              failureStatus
+            )(effect)
+          )
+        } else span("caliban.gateway.request", SpanKind.SERVER, attributes)(effect)
       }
 
     private def span[R, E, A](

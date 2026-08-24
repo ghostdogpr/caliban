@@ -107,22 +107,16 @@ object ResponseValue {
       }
 
     private[caliban] def getOrNull(name: String): ResponseValue = {
-      var result: ResponseValue = null
-      var remaining             = fields
+      var remaining = fields
       while (remaining ne Nil) {
         val head = remaining.head
-        if (head._1.equals(name)) result = head._2
+        if (head._1.equals(name)) return head._2
         remaining = remaining.tail
       }
-      result
+      null
     }
 
     private[caliban] def get(name: String): Option[ResponseValue] = Option(getOrNull(name))
-
-    private[caliban] def getOrNullValue(name: String): ResponseValue = {
-      val value = getOrNull(name)
-      if (value eq null) Value.NullValue else value
-    }
 
   }
   object ObjectValue {

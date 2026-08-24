@@ -1,7 +1,6 @@
 package caliban.gateway.internal
 
 import caliban.execution.ExecutionRequest
-import caliban.gateway.OperationHookCacheBehavior.{ Bypass => BypassCache, Stable }
 import caliban.gateway.OperationPolicy.{ Allow, Reject, SecurityRequirement, ValidatedOperation }
 import caliban.gateway.{ OperationPolicy, OperationResolver }
 import caliban.parsing.adt.Document
@@ -15,14 +14,7 @@ private[gateway] final class OperationHooks[-R](
 ) {
 
   val cacheDirective: OperationCacheDirective =
-    (resolver.map(_.cacheBehavior), policy.map(_.cacheBehavior)) match {
-      case (Some(BypassCache), _) | (_, Some(BypassCache)) => OperationCacheDirective.Bypass
-      case (resolverBehavior, policyBehavior)              =>
-        OperationCacheDirective.Cacheable(
-          resolverBehavior.collect { case Stable(value) => value },
-          policyBehavior.collect { case Stable(value) => value }
-        )
-    }
+    if (resolver.exists(!_.cacheable)) OperationCacheDirective.Bypass else OperationCacheDirective.Cacheable
 
   private[gateway] def resolve(request: GraphQLRequest)(implicit trace: Trace): ZIO[R, CalibanError, GraphQLRequest] =
     resolver match {
@@ -60,6 +52,13 @@ private[gateway] object OperationHooks {
   private val ResolutionFailure = "Operation resolution failed."
   private val PolicyFailure     = "Operation policy failed."
 
+  def isInternalFailure(error: CalibanError): Boolean =
+    error match {
+      case CalibanError.ExecutionError(message, _, _, Some(_), _) =>
+        message == ResolutionFailure || message == PolicyFailure
+      case _                                                      => false
+    }
+
   private def run[R, A](
     effect: => ZIO[R, Throwable, A],
     failureMessage: String
@@ -78,9 +77,6 @@ private[gateway] object OperationHooks {
 private[gateway] sealed trait OperationCacheDirective
 
 private[gateway] object OperationCacheDirective {
-  final case class Cacheable(
-    resolver: Option[String],
-    policy: Option[String]
-  ) extends OperationCacheDirective
-  case object Bypass extends OperationCacheDirective
+  case object Cacheable extends OperationCacheDirective
+  case object Bypass    extends OperationCacheDirective
 }

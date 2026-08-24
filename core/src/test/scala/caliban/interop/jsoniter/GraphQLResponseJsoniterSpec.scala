@@ -152,19 +152,26 @@ object GraphQLResponseJsoniterSpec extends ZIOSpecDefault {
           emptyErrors.toOption.contains(GraphQLResponse(NullValue, Nil))
         )
       },
-      test("rejects null or malformed response metadata [jsoniter]") {
-        val invalid = List(
+      test("accepts null response metadata and rejects malformed values [jsoniter]") {
+        val nullMetadata = List(
+          """{"data":null,"errors":null}""",
+          """{"data":null,"extensions":null}""",
+          """{"data":null,"hasNext":null}"""
+        )
+        val invalid      = List(
           """{}""",
-          """{"errors":null}""",
           """{"errors":{}}""",
           """{"errors":[null]}""",
-          """{"data":null,"extensions":null}""",
           """{"data":null,"extensions":[]}""",
-          """{"data":null,"hasNext":null}""",
           """{"data":null,"hasNext":"false"}"""
         )
 
-        assertTrue(invalid.forall(value => Try(readFromString[GraphQLResponse[CalibanError]](value)).isFailure))
+        assertTrue(
+          nullMetadata.forall(value =>
+            Try(readFromString[GraphQLResponse[CalibanError]](value)).toOption.contains(GraphQLResponse(NullValue, Nil))
+          ),
+          invalid.forall(value => Try(readFromString[GraphQLResponse[CalibanError]](value)).isFailure)
+        )
       },
       test("should correctly write keys containing UTF-8") {
         val response = GraphQLResponse(ObjectValue(List("utf8〜key" -> StringValue("any"))), Nil)

@@ -1,7 +1,7 @@
 package caliban.gateway
 
 import caliban.InputValue.{ ListValue, ObjectValue => InputObjectValue }
-import caliban.ResponseValue.{ ListValue => ResponseListValue, ObjectValue => ResponseObjectValue }
+import caliban.ResponseValue.{ ListValue => ResponseListValue }
 import caliban.Value.IntValue.IntNumber
 import caliban.Value.{ NullValue, StringValue }
 import caliban.gateway.GatewayTestSupport._
@@ -73,11 +73,8 @@ object EntityRoutingSpec extends ZIOSpecDefault {
         } yield assertTrue(
           response.errors.isEmpty,
           field(response.data, "product").flatMap(field(_, "id")).contains(StringValue("p1")),
-          field(response.data, "product").flatMap(field(_, "reviews")).exists {
-            case ResponseListValue(ResponseObjectValue(review) :: Nil) =>
-              review.contains("body" -> StringValue("Solid"))
-            case _                                                     => false
-          },
+          onlyNested(field(response.data, "product"), "reviews")
+            .exists(_.contains("body" -> StringValue("Solid"))),
           sent.headOption
             .flatMap(_.variables)
             .contains(
@@ -249,11 +246,8 @@ object EntityRoutingSpec extends ZIOSpecDefault {
         } yield assertTrue(
           response.errors.isEmpty,
           field(response.data, "product").flatMap(field(_, "price")).contains(IntNumber(100)),
-          field(response.data, "product").flatMap(field(_, "reviews")).exists {
-            case ResponseListValue(ResponseObjectValue(review) :: Nil) =>
-              review.contains("body" -> StringValue("Solid"))
-            case _                                                     => false
-          }
+          onlyNested(field(response.data, "product"), "reviews")
+            .exists(_.contains("body" -> StringValue("Solid")))
         )
       } @@ TestAspect.timeout(5.seconds),
       test("routes an interface key using the concrete runtime typename") {
@@ -445,11 +439,8 @@ object EntityRoutingSpec extends ZIOSpecDefault {
           response.errors.isEmpty,
           metadata.errors.isEmpty,
           field(response.data, "product").flatMap(field(_, "name")).contains(StringValue("Table")),
-          field(response.data, "product").flatMap(field(_, "reviews")).exists {
-            case ResponseListValue(ResponseObjectValue(review) :: Nil) =>
-              review.contains("body" -> StringValue("Solid"))
-            case _                                                     => false
-          },
+          onlyNested(field(response.data, "product"), "reviews")
+            .exists(_.contains("body" -> StringValue("Solid"))),
           field(metadata.data, "transport").contains(NullValue),
           directives.exists(names => !names.contains("fed__key") && !names.contains("fed__external")),
           sentA.size == 1,
@@ -496,11 +487,8 @@ object EntityRoutingSpec extends ZIOSpecDefault {
           sent     <- reviews.requests.get
         } yield assertTrue(
           response.errors.isEmpty,
-          field(response.data, "product").flatMap(field(_, "reviews")).exists {
-            case ResponseListValue(ResponseObjectValue(review) :: Nil) =>
-              review.contains("body" -> StringValue("Solid"))
-            case _                                                     => false
-          },
+          onlyNested(field(response.data, "product"), "reviews")
+            .exists(_.contains("body" -> StringValue("Solid"))),
           sent.headOption
             .flatMap(_.variables)
             .contains(

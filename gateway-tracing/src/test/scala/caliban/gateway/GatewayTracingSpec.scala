@@ -27,6 +27,8 @@ object GatewayTracingSpec extends ZIOSpecDefault {
         sentHeaders   <- remote.headers.get
         spans         <- TracingMock.getFinishedSpans
         gatewaySpans   = spans.filter(_.getName.startsWith("caliban.gateway."))
+        callerSpan     = spans.find(_.getName == "caller")
+        requestSpan    = gatewaySpans.find(_.getName == "caliban.gateway.request")
         attributeNames = gatewaySpans.flatMap(_.getAttributes.asMap.keySet.asScala.map(_.getKey))
       } yield assertTrue(
         response.errors.isEmpty,
@@ -37,12 +39,11 @@ object GatewayTracingSpec extends ZIOSpecDefault {
           "caliban.gateway.source.attempt",
           "caliban.gateway.completion"
         ),
-        gatewaySpans
-          .find(_.getName == "caliban.gateway.request")
-          .exists(span =>
-            span.getAttributes.get(AttributeKey.stringKey("graphql.operation.type")) == "query" &&
-              span.getAttributes.get(AttributeKey.stringKey("caliban.gateway.request.outcome")) == "success"
-          ),
+        requestSpan.exists(span =>
+          span.getAttributes.get(AttributeKey.stringKey("graphql.operation.type")) == "query" &&
+            span.getAttributes.get(AttributeKey.stringKey("caliban.gateway.request.outcome")) == "success"
+        ),
+        requestSpan.map(_.getParentSpanId) == callerSpan.map(_.getSpanId),
         gatewaySpans
           .find(_.getName == "caliban.gateway.source")
           .exists(_.getKind == io.opentelemetry.api.trace.SpanKind.INTERNAL),

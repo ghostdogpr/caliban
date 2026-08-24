@@ -19,14 +19,6 @@ object EntityExecutionSpec extends ZIOSpecDefault {
   private val listProductsFederationSchema =
     productsFederationSchema.replace("product(id: ID!): Product", "products: [Product!]!")
 
-  private def firstNestedObject(
-    value: ResponseValue,
-    root: String,
-    child: String
-  ): Option[List[(String, ResponseValue)]] =
-    field(value, root).collect { case ResponseListValue(ResponseObjectValue(parent) :: _) => parent }
-      .flatMap(_.collectFirst { case (`child`, ResponseListValue(ResponseObjectValue(nested) :: _)) => nested })
-
   private trait Pricing {
     def currency: UIO[String]
     def price(id: String): UIO[Int]
@@ -115,11 +107,7 @@ object EntityExecutionSpec extends ZIOSpecDefault {
           field(response.data, "currency").contains(StringValue("USD")),
           product.flatMap(field(_, "name")).contains(StringValue("Table")),
           product.flatMap(field(_, "price")).contains(IntNumber(125)),
-          product.flatMap(field(_, "reviews")).exists {
-            case ResponseListValue(ResponseObjectValue(fields) :: Nil) =>
-              fields.contains("body" -> StringValue("Solid"))
-            case _                                                     => false
-          }
+          onlyNested(product, "reviews").exists(_.contains("body" -> StringValue("Solid")))
         ))
       },
       test("preserves local entity failures while retaining independent remote data") {
@@ -241,11 +229,7 @@ object EntityExecutionSpec extends ZIOSpecDefault {
         } yield assertTrue(
           response.errors.isEmpty,
           product.flatMap(field(_, "name")).contains(StringValue("Table")),
-          product.flatMap(field(_, "reviews")).exists {
-            case ResponseListValue(ResponseObjectValue(review) :: Nil) =>
-              review.contains("body" -> StringValue("Solid"))
-            case _                                                     => false
-          },
+          onlyNested(product, "reviews").exists(_.contains("body" -> StringValue("Solid"))),
           product.flatMap(field(_, "id")).isEmpty,
           product.flatMap(field(_, "__typename")).isEmpty,
           explicitProduct.flatMap(field(_, "productId")).contains(StringValue("p1")),
@@ -476,13 +460,8 @@ object EntityExecutionSpec extends ZIOSpecDefault {
           negativeErrors = executionErrors(negative.errors)
         } yield assertTrue(
           field(response.data, "product").flatMap(field(_, "name")).contains(StringValue("Table")),
-          field(response.data, "product")
-            .flatMap(field(_, "reviews"))
-            .exists {
-              case ResponseListValue(ResponseObjectValue(review) :: Nil) =>
-                review.contains("body" -> StringValue("Solid"))
-              case _                                                     => false
-            },
+          onlyNested(field(response.data, "product"), "reviews")
+            .exists(_.contains("body" -> StringValue("Solid"))),
           errors.map(_.msg) == List("Remote GraphQL request failed."),
           errors.map(_.path) == List(List(PathValue.Key("product"))),
           indexedErrors.map(_.msg) == List("Remote GraphQL request failed."),
@@ -521,12 +500,11 @@ object EntityExecutionSpec extends ZIOSpecDefault {
             StringValue("Second"),
             StringValue("First again")
           ),
-          values
-            .flatMap(field(_, "reviews"))
-            .collect { case ResponseListValue(ResponseObjectValue(review) :: Nil) =>
-              review.collectFirst { case ("body", StringValue(body)) => body }
-            }
-            .flatten == List("First review", "Second review", "First review"),
+          values.flatMap(value =>
+            onlyNested(Some(value), "reviews").flatMap(
+              _.collectFirst { case ("body", StringValue(body)) => body }
+            )
+          ) == List("First review", "Second review", "First review"),
           values.forall(value =>
             field(value, "id").isEmpty &&
               field(value, "__typename").isEmpty &&
@@ -748,11 +726,7 @@ object EntityExecutionSpec extends ZIOSpecDefault {
         } yield assertTrue(
           values.flatMap(field(_, "name")) == List(StringValue("First"), StringValue("Second"), StringValue("Third")),
           values.headOption.flatMap(field(_, "reviews")).contains(NullValue),
-          values.lift(1).flatMap(field(_, "reviews")).exists {
-            case ResponseListValue(ResponseObjectValue(review) :: Nil) =>
-              review.contains("body" -> StringValue("Second review"))
-            case _                                                     => false
-          },
+          onlyNested(values.lift(1), "reviews").exists(_.contains("body" -> StringValue("Second review"))),
           values.lift(2).flatMap(field(_, "reviews")).contains(NullValue),
           errors.map(_.msg) == List(
             "Entity lookup response contained a duplicate result for 'Product(id)'.",

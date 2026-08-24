@@ -4,7 +4,7 @@ import caliban.Configurator.ExecutionConfiguration
 import caliban.GraphQLResponseContext.{ Outcome, ServerFailure }
 import caliban.HttpUtils.{ DeferMultipart, ServerSentEvents }
 import caliban.ResponseValue.StreamValue
-import caliban.interop.jsoniter.{ GraphQLResponseJsoniter, ValueJsoniter }
+import caliban.interop.jsoniter.{ BoundedOutputStream, GraphQLResponseJsoniter, ValueJsoniter }
 import caliban.uploads.{ FileMeta, GraphQLUploadRequest, Uploads }
 import caliban.wrappers.Caching
 import caliban.ws.Protocol
@@ -326,7 +326,7 @@ final private class QuickRequestHandler[R] private (
     try
       Right(GraphQLResponseJsoniter.writeToArray(resp, maxResponseBodyBytes, codec))
     catch {
-      case GraphQLResponseJsoniter.ResponseLimitExceeded =>
+      case BoundedOutputStream.LimitExceeded =>
         Left(errorResponse(Status.InternalServerError, "Encoded GraphQL response exceeds the configured limit."))
     }
   }
@@ -340,7 +340,7 @@ final private class QuickRequestHandler[R] private (
 
     stream
       .via(pipeline)
-      .map(writeToArray(_))
+      .map(encodeResponseValue)
       .intersperse(InnerBoundary.getBytes(UTF_8), InnerBoundary.getBytes(UTF_8), EndBoundary.getBytes(UTF_8))
       .mapConcatChunk(Chunk.fromArray)
   }
@@ -350,10 +350,16 @@ final private class QuickRequestHandler[R] private (
   )(implicit trace: Trace): UStream[ServerSentEvent[String]] =
     ServerSentEvents.transformResponse(
       resp,
-      v => ServerSentEvent(writeToString(v), Some("next")),
+      v => ServerSentEvent(new String(encodeResponseValue(v), UTF_8), Some("next")),
       CompleteSse,
       sseConfig.heartbeatInterval.map(d => ZStream.succeed(ServerSentEvent.heartbeat).repeat(Schedule.fixed(d)))
     )
+
+  private def encodeResponseValue(value: ResponseValue): Array[Byte] = {
+    val output = new BoundedOutputStream(maxResponseBodyBytes)
+    writeToStream(value, output)(ValueJsoniter.responseValueCodec)
+    output.toByteArray
+  }
 
   private def isFtv1Request(req: Request) =
     req.headers.get(GraphQLRequest.`apollo-federation-include-trace`) match {
@@ -484,7 +490,12 @@ object QuickRequestHandler {
     case object Multipart   extends ResponseEncoding
 
     private final case class Supported(value: ResponseEncoding, mediaType: MediaType)
-    private final case class Negotiated(value: ResponseEncoding, quality: Double, preference: Int)
+    private final case class Negotiated(
+      value: ResponseEncoding,
+      quality: Double,
+      specificity: Int,
+      preference: Int
+    )
     private final case class MatchedRange(
       value: Header.Accept.MediaTypeWithQFactor,
       specificity: Int,
@@ -508,13 +519,17 @@ object QuickRequestHandler {
       else
         supported.zipWithIndex.flatMap { case (candidate, preference) =>
           bestMatch(candidate.mediaType, ranges).flatMap { range =>
-            val quality = range.qFactor.getOrElse(1d)
-            if (quality > 0d && quality <= 1d) Some(Negotiated(candidate.value, quality, preference)) else None
+            val quality = range.value.qFactor.getOrElse(1d)
+            if (quality > 0d && quality <= 1d)
+              Some(Negotiated(candidate.value, quality, range.specificity, preference))
+            else None
           }
         }.reduceOption { (current, candidate) =>
           if (
             candidate.quality > current.quality ||
-            (candidate.quality == current.quality && candidate.preference < current.preference)
+            (candidate.quality == current.quality && candidate.specificity > current.specificity) ||
+            (candidate.quality == current.quality && candidate.specificity == current.specificity &&
+              candidate.preference < current.preference)
           ) candidate
           else current
         }.map(_.value)
@@ -522,7 +537,7 @@ object QuickRequestHandler {
     private def bestMatch(
       candidate: MediaType,
       ranges: List[Header.Accept.MediaTypeWithQFactor]
-    ): Option[Header.Accept.MediaTypeWithQFactor] =
+    ): Option[MatchedRange] =
       ranges.zipWithIndex.collect {
         case (range, position) if matches(candidate, range.mediaType) =>
           MatchedRange(range, specificity(range.mediaType), position)
@@ -532,7 +547,7 @@ object QuickRequestHandler {
           (matched.specificity == current.specificity && matched.position < current.position)
         ) matched
         else current
-      }.map(_.value)
+      }
 
     private def matches(candidate: MediaType, range: MediaType): Boolean = {
       val parameters = range.parameters - "q"

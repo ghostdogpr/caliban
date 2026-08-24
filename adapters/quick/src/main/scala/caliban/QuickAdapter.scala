@@ -36,7 +36,8 @@ final class QuickAdapter[R] private (requestHandler: QuickRequestHandler[R]) {
     webSocketPath: Option[String] = None
   ): Routes[R, Nothing] = {
     val apiRoutes     = List(
-      RoutePattern(Method.ANY, apiPath) -> handlers.api
+      RoutePattern(Method.GET, apiPath)  -> handlers.api,
+      RoutePattern(Method.POST, apiPath) -> handlers.api
     )
     val graphiqlRoute = graphiqlPath.toList.map { uiPath =>
       RoutePattern(Method.GET, uiPath) -> GraphiQLHandler.handler(apiPath, webSocketPath)

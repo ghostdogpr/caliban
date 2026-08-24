@@ -8,29 +8,17 @@ import zio.ZIO
  */
 final class OperationResolver[-R] private[gateway] (
   private[gateway] val resolve: GraphQLRequest => ZIO[R, Throwable, String],
-  private[gateway] val cacheBehavior: OperationHookCacheBehavior
+  private[gateway] val cacheable: Boolean
 )
 
 object OperationResolver {
 
-  /**
-   * Creates a resolver whose stable discriminator can participate in operation cache keys.
-   */
-  def stable[R](
-    discriminator: String
-  )(resolve: GraphQLRequest => ZIO[R, Throwable, String]): OperationResolver[R] =
-    new OperationResolver(resolve, OperationHookCacheBehavior.Stable(discriminator))
+  def apply[R](resolve: GraphQLRequest => ZIO[R, Throwable, String]): OperationResolver[R] =
+    new OperationResolver(resolve, cacheable = true)
 
   /**
    * Creates a resolver whose operations must bypass operation caches.
    */
   def uncached[R](resolve: GraphQLRequest => ZIO[R, Throwable, String]): OperationResolver[R] =
-    new OperationResolver(resolve, OperationHookCacheBehavior.Bypass)
-}
-
-private[gateway] sealed trait OperationHookCacheBehavior
-
-private[gateway] object OperationHookCacheBehavior {
-  final case class Stable(discriminator: String) extends OperationHookCacheBehavior
-  case object Bypass                             extends OperationHookCacheBehavior
+    new OperationResolver(resolve, cacheable = false)
 }

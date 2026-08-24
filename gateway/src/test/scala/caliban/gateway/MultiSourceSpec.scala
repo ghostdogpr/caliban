@@ -1,6 +1,6 @@
 package caliban.gateway
 
-import caliban.ResponseValue.{ ListValue => ResponseListValue, ObjectValue => ResponseObjectValue }
+import caliban.ResponseValue.{ ListValue => ResponseListValue }
 import caliban.Value.IntValue.IntNumber
 import caliban.Value.{ NullValue, StringValue }
 import caliban.gateway.GatewayTestSupport._
@@ -69,11 +69,7 @@ object MultiSourceSpec extends ZIOSpecDefault {
         } yield assertTrue(
           names == List("recent", "featured"),
           field(response.data, "featured").flatMap(field(_, "name")).contains(StringValue("Table")),
-          field(response.data, "recent").exists {
-            case ResponseListValue(ResponseObjectValue(review) :: Nil) =>
-              review.contains("body" -> StringValue("Solid"))
-            case _                                                     => false
-          },
+          onlyNested(Some(response.data), "recent").exists(_.contains("body" -> StringValue("Solid"))),
           response.errors.map(_.msg) == List("review warning"),
           response.errors.collectFirst { case error: CalibanError.ExecutionError => error.path }.contains(
             List(StringValue("recent"), IntNumber(0), StringValue("body"))

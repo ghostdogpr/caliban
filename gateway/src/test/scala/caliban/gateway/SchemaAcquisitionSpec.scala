@@ -7,7 +7,7 @@ import caliban.schema.{ GenericSchema, Schema }
 import caliban.tools.IntrospectionClient
 import caliban.{ graphQL, GraphQLResponse, RootResolver }
 import com.github.plokhotnyuk.jsoniter_scala.core.writeToString
-import sttp.model.{ Header => SttpHeader, Uri }
+import sttp.model.{ Header => SttpHeader }
 import zio._
 import zio.http.{ Body, Handler, Header, Headers, Method, Request, Response, Routes, Server, Status }
 import zio.stream.ZStream
@@ -59,17 +59,6 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
         Nil,
         None,
         None
-      )
-    )
-
-  private def streamingEndpoint(stream: ZStream[Any, Throwable, Byte]): ZIO[Server with Ref[Int], Nothing, Uri] =
-    postEndpoint("acquisition")(_ =>
-      ZIO.succeed(
-        Response(
-          Status.Ok,
-          Headers(Header.Custom("Content-Type", "application/graphql-response+json")),
-          Body.fromStreamChunked(stream)
-        )
       )
     )
 
@@ -183,6 +172,17 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
         brokenCalls.size == 1
       )
     },
+    test("rejects a Federation schema response containing GraphQL errors") {
+      val response = serviceResponse(reviewsSchema).dropRight(1) +
+        ""","errors":[{"message":"schema acquisition failed"}]}"""
+
+      for {
+        remote <- stub(response)
+        result <- Gateway.compose(Subgraph.federation("reviews", remote.endpoint)).build.either
+      } yield assertTrue(
+        result.left.exists(_.diagnostics == List("[reviews] Federation service response was invalid."))
+      )
+    },
     test("enforces acquisition headers, redirects, and finite response and parsing limits") {
       val headersConfig   = RemoteGraphQLConfig.default.withAcquisition(
         _.withHeaders(SttpHeader("Authorization", "Bearer schema"))
@@ -283,62 +283,67 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
       )
     },
     test("releases acquisition response streams on success, failure, timeout, and interruption") {
-      def finite(body: String, released: Promise[Nothing, Unit]): ZStream[Any, Throwable, Byte] =
-        ZStream
-          .fromChunk(Chunk.fromArray(body.getBytes(java.nio.charset.StandardCharsets.UTF_8)))
-          .ensuring(
-            released.succeed(()).unit
-          )
-
       val timeoutConfig = RemoteGraphQLConfig.default.withAcquisition(
         _.withTimeout(1.second)
       )
 
       for {
-        successReleased   <- Promise.make[Nothing, Unit]
-        successEndpoint   <- streamingEndpoint(finite(serviceResponse(reviewsSchema), successReleased))
-        success           <- Gateway.compose(Subgraph.federation("success", successEndpoint)).build.either
-        _                 <- successReleased.await
-        failureReleased   <- Promise.make[Nothing, Unit]
-        failureEndpoint   <- streamingEndpoint(finite(invalidResponse, failureReleased))
-        failure           <- Gateway.compose(Subgraph.federation("failure", failureEndpoint)).build.either
-        _                 <- failureReleased.await
-        timeoutStarted    <- Promise.make[Nothing, Unit]
-        timeoutReleased   <- Promise.make[Nothing, Unit]
-        timeoutEndpoint   <- streamingEndpoint(
-                               (ZStream.fromZIO(timeoutStarted.succeed(()).unit).drain ++ ZStream.never).ensuring(
-                                 timeoutReleased.succeed(()).unit
-                               )
-                             )
-        timeoutFiber      <- Gateway
-                               .compose(Subgraph.federation("timeout", timeoutEndpoint, timeoutConfig))
-                               .build
-                               .either
-                               .fork
-        _                 <- timeoutStarted.await
-        _                 <- TestClock.adjust(2.seconds)
-        timeoutResult     <- timeoutFiber.join
-        _                 <- timeoutReleased.await
-        interruptStarted  <- Promise.make[Nothing, Unit]
-        responseComplete  <- Promise.make[Nothing, Unit]
-        interruptReleased <- Promise.make[Nothing, Unit]
-        interruptEndpoint <- streamingEndpoint(
-                               (ZStream.fromZIO(interruptStarted.succeed(()).unit).drain ++
-                                 ZStream.fromZIO(responseComplete.await).drain).ensuring(
-                                 interruptReleased.succeed(()).unit
-                               )
-                             )
-        interruptFiber    <- Gateway.compose(Subgraph.federation("interrupt", interruptEndpoint)).build.fork
-        _                 <- interruptStarted.await
-        _                 <- interruptFiber.interruptFork
-        _                 <- responseComplete.succeed(())
-        interrupted       <- interruptFiber.await
-        _                 <- interruptReleased.await
+        successTracked                                   <- tracked(serviceResponse(reviewsSchema))
+        (successStream, successReleases, successReleased) = successTracked
+        successEndpoint                                  <- streamingEndpoint(successStream)
+        success                                          <- Gateway.compose(Subgraph.federation("success", successEndpoint)).build.either
+        _                                                <- successReleased.await
+        failureTracked                                   <- tracked(invalidResponse)
+        (failureStream, failureReleases, failureReleased) = failureTracked
+        failureEndpoint                                  <- streamingEndpoint(failureStream)
+        failure                                          <- Gateway.compose(Subgraph.federation("failure", failureEndpoint)).build.either
+        _                                                <- failureReleased.await
+        timeoutStarted                                   <- Promise.make[Nothing, Unit]
+        timeoutReleases                                  <- Ref.make(0)
+        timeoutReleased                                  <- Promise.make[Nothing, Unit]
+        timeoutEndpoint                                  <- streamingEndpoint(
+                                                              (ZStream.fromZIO(timeoutStarted.succeed(()).unit).drain ++ ZStream.never).ensuring(
+                                                                timeoutReleases.update(_ + 1) *> timeoutReleased.succeed(()).unit
+                                                              )
+                                                            )
+        timeoutFiber                                     <- Gateway
+                                                              .compose(Subgraph.federation("timeout", timeoutEndpoint, timeoutConfig))
+                                                              .build
+                                                              .either
+                                                              .fork
+        _                                                <- timeoutStarted.await
+        _                                                <- TestClock.adjust(2.seconds)
+        timeoutResult                                    <- timeoutFiber.join
+        _                                                <- timeoutReleased.await
+        interruptStarted                                 <- Promise.make[Nothing, Unit]
+        responseComplete                                 <- Promise.make[Nothing, Unit]
+        interruptReleases                                <- Ref.make(0)
+        interruptReleased                                <- Promise.make[Nothing, Unit]
+        interruptEndpoint                                <- streamingEndpoint(
+                                                              (ZStream.fromZIO(interruptStarted.succeed(()).unit).drain ++
+                                                                ZStream.fromZIO(responseComplete.await).drain).ensuring(
+                                                                interruptReleases.update(_ + 1) *> interruptReleased.succeed(()).unit
+                                                              )
+                                                            )
+        interruptFiber                                   <- Gateway.compose(Subgraph.federation("interrupt", interruptEndpoint)).build.fork
+        _                                                <- interruptStarted.await
+        _                                                <- interruptFiber.interruptFork
+        _                                                <- responseComplete.succeed(())
+        interrupted                                      <- interruptFiber.await
+        _                                                <- interruptReleased.await
+        successCount                                     <- successReleases.get
+        failureCount                                     <- failureReleases.get
+        timeoutCount                                     <- timeoutReleases.get
+        interruptCount                                   <- interruptReleases.get
       } yield assertTrue(
         success.isRight,
         failure.isLeft,
         timeoutResult.left.exists(_.diagnostics.exists(_.contains("timed out"))),
-        interrupted.isInterrupted
+        interrupted.isInterrupted,
+        successCount == 1,
+        failureCount == 1,
+        timeoutCount == 1,
+        interruptCount == 1
       )
     },
     test("does not retain failed or interrupted build resources in the caller scope") {

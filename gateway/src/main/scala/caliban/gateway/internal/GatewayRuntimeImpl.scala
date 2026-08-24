@@ -52,15 +52,12 @@ private[gateway] final class GatewayRuntimeImpl[-R](
         Nil,
         downstream.map(_.toSelection)
       )
-      val prepared         = PreparedRoot(
-        operationType,
-        operationName,
+      PreparedRoot(
         executable,
         responseToClient,
         DocumentRenderer.renderCompact(Document(operation :: Nil, SourceMapper.empty)),
         graph.responseNameRestorer(route.downstream, executable)
       )
-      prepared
     }
 
   def check(query: String)(implicit trace: Trace): IO[CalibanError, Unit] =
@@ -85,7 +82,7 @@ private[gateway] final class GatewayRuntimeImpl[-R](
           operations
             .prepare(request)
             .foldZIO(
-              error => GraphQLResponseContext.markRequestError(error) *> Executor.fail(error),
+              failPreparation,
               prepared =>
                 GraphQLResponseContext.markExecuted *>
                   executePlan(prepared.plan, prepared.executionRequest, prepared.request)
@@ -106,13 +103,11 @@ private[gateway] final class GatewayRuntimeImpl[-R](
         .wrap(Event.Routing)(operations.prepare(request))(
           Result.fromExit(_)(
             _ => Result(Outcome.Success),
-            _ => Result(Outcome.RequestError)
+            error => Result(preparationOutcome(error))
           )
         )
         .foldZIO(
-          error =>
-            observeCompletion(GraphQLResponseContext.markRequestError(error) *> Executor.fail(error))
-              .map(RequestResult(_, Outcome.RequestError, None)),
+          error => observeCompletion(failPreparation(error)).map(RequestResult(_, preparationOutcome(error), None)),
           prepared =>
             (GraphQLResponseContext.markExecuted *>
               executePlan(prepared.plan, prepared.executionRequest, prepared.request)).map { response =>
@@ -140,6 +135,14 @@ private[gateway] final class GatewayRuntimeImpl[-R](
       )(classifyRequestResult(includeOperationType = true))
       .map(_.response)
   }
+
+  private def failPreparation(error: CalibanError)(implicit trace: Trace): UIO[GraphQLResponse[CalibanError]] =
+    (if (OperationHooks.isInternalFailure(error))
+       GraphQLResponseContext.markServerError(ServerFailure.Internal)
+     else GraphQLResponseContext.markRequestError(error)) *> Executor.fail(error)
+
+  private def preparationOutcome(error: CalibanError): Outcome =
+    if (OperationHooks.isInternalFailure(error)) Outcome.InternalError else Outcome.RequestError
 
   private def classifyRequestResult(includeOperationType: Boolean)(exit: Exit[Nothing, RequestResult]): Result =
     Result.fromExit(exit)(
@@ -850,54 +853,39 @@ private[gateway] final class GatewayRuntimeImpl[-R](
       case other                                                => other
     }
 
-  private def mergeAt(value: ResponseValue, path: List[PathValue], patch: ResponseValue): ResponseValue =
+  private def mergeAt(
+    value: ResponseValue,
+    path: List[PathValue],
+    patch: ResponseValue,
+    missingWins: Boolean = false
+  ): ResponseValue =
     path match {
-      case Nil          => mergeObject(value, patch)
+      case Nil          => if (missingWins) mergeObject(patch, value) else mergeObject(value, patch)
       case head :: tail =>
         head match {
           case StringValue(key)          =>
             value match {
-              case ObjectValue(fields) => ObjectValue(updateFieldAt(fields, key, tail, patch))
+              case ObjectValue(fields) => ObjectValue(updateFieldAt(fields, key, tail, patch, missingWins))
               case other               => other
             }
           case IntValue.IntNumber(index) =>
             value match {
-              case ListValue(values) if index >= 0 => ListValue(updateValueAt(values, index, tail, patch))
+              case ListValue(values) if index >= 0 =>
+                ListValue(updateValueAt(values, index, tail, patch, missingWins))
               case other                           => other
             }
         }
     }
 
   private def mergeMissingAt(value: ResponseValue, path: List[PathValue], patch: ResponseValue): ResponseValue =
-    path match {
-      case Nil          => mergeObject(patch, value)
-      case head :: tail =>
-        head match {
-          case StringValue(key)          =>
-            value match {
-              case ObjectValue(fields) =>
-                ObjectValue(fields.map {
-                  case (`key`, nested) => key -> mergeMissingAt(nested, tail, patch)
-                  case field           => field
-                })
-              case other               => other
-            }
-          case IntValue.IntNumber(index) =>
-            value match {
-              case ListValue(values) if index >= 0 =>
-                ListValue(values.zipWithIndex.map { case (nested, position) =>
-                  if (position == index) mergeMissingAt(nested, tail, patch) else nested
-                })
-              case other                           => other
-            }
-        }
-    }
+    mergeAt(value, path, patch, missingWins = true)
 
   private def updateFieldAt(
     fields: List[(String, ResponseValue)],
     key: String,
     path: List[PathValue],
-    patch: ResponseValue
+    patch: ResponseValue,
+    missingWins: Boolean
   ): List[(String, ResponseValue)] = {
     val updated   = new mutable.ListBuffer[(String, ResponseValue)]
     var found     = false
@@ -906,7 +894,7 @@ private[gateway] final class GatewayRuntimeImpl[-R](
       val field = remaining.head
       if (field._1.equals(key)) {
         found = true
-        updated += ((key, mergeAt(field._2, path, patch)))
+        updated += ((key, mergeAt(field._2, path, patch, missingWins)))
       } else updated += field
       remaining = remaining.tail
     }
@@ -917,7 +905,8 @@ private[gateway] final class GatewayRuntimeImpl[-R](
     values: List[ResponseValue],
     index: Int,
     path: List[PathValue],
-    patch: ResponseValue
+    patch: ResponseValue,
+    missingWins: Boolean
   ): List[ResponseValue] = {
     var reversedPrefix: List[ResponseValue] = Nil
     var remaining                           = values
@@ -928,7 +917,7 @@ private[gateway] final class GatewayRuntimeImpl[-R](
       position += 1
     }
     remaining match {
-      case nested :: tail => reversedPrefix reverse_::: (mergeAt(nested, path, patch) :: tail)
+      case nested :: tail => reversedPrefix reverse_::: (mergeAt(nested, path, patch, missingWins) :: tail)
       case Nil            => values
     }
   }
@@ -1026,10 +1015,17 @@ private[gateway] final class GatewayRuntimeImpl[-R](
 }
 
 private[gateway] object GatewayRuntimeImpl {
-  private val rightWins: (ResponseValue, ResponseValue) => ResponseValue = (_, value) => value
-
   private[gateway] def mergeObject(left: ResponseValue, right: ResponseValue): ResponseValue =
-    mergeValues(left, right)(rightWins)
+    mergePatchValue(left, right)
+
+  private def mergePatchValue(left: ResponseValue, right: ResponseValue): ResponseValue =
+    mergeValues(left, right) {
+      case (ListValue(leftValues), ListValue(rightValues)) if leftValues.size == rightValues.size =>
+        ListValue(leftValues.zip(rightValues).map { case (leftValue, rightValue) =>
+          mergePatchValue(leftValue, rightValue)
+        })
+      case (_, value)                                                                             => value
+    }
 
   private def mergeRootValue(left: ResponseValue, right: ResponseValue): ResponseValue =
     mergeValues(left, right) {
@@ -1132,8 +1128,6 @@ private[gateway] object GatewayRuntimeImpl {
   private final case class RootResult(route: RootRoute, response: GraphQLResponse[CalibanError])
 
   private[internal] final case class PreparedRoot(
-    operationType: OperationType,
-    operationName: Option[String],
     executable: List[Field],
     responseToClient: Option[GraphQLResponse[CalibanError] => GraphQLResponse[CalibanError]],
     query: String,

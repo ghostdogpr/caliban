@@ -133,7 +133,7 @@ object SecurityPolicySpec extends ZIOSpecDefault {
         alpha     <- stub("""{"data":{"value":"alpha"}}""")
         beta      <- stub("""{"data":{"value":"beta"}}""")
         observed  <- Ref.make(List.empty[SecurityRequirement])
-        policy     = OperationPolicy.uncached[Any](operation => observed.set(operation.securityRequirements).as(Reject()))
+        policy     = OperationPolicy[Any](operation => observed.set(operation.securityRequirements).as(Reject()))
         runtime   <- Gateway
                        .compose(
                          Subgraph.federation("alpha", alpha.endpoint, authenticatedSchema),
@@ -163,7 +163,7 @@ object SecurityPolicySpec extends ZIOSpecDefault {
       for {
         remote          <- stub("""{"data":{"node":null}}""")
         observed        <- Ref.make(Vector.empty[List[SecurityRequirement]])
-        policy           = OperationPolicy.stable[Any]("security-v1") { operation =>
+        policy           = OperationPolicy[Any] { operation =>
                              observed.update(_ :+ operation.securityRequirements).as(Reject())
                            }
         runtime         <- Gateway
@@ -241,7 +241,7 @@ object SecurityPolicySpec extends ZIOSpecDefault {
       for {
         remote   <- stub("""{"data":{"node":null}}""")
         observed <- Ref.make(List.empty[SecurityRequirement])
-        policy    = OperationPolicy.uncached[Any](operation => observed.set(operation.securityRequirements).as(Reject()))
+        policy    = OperationPolicy[Any](operation => observed.set(operation.securityRequirements).as(Reject()))
         runtime  <- Gateway
                       .compose(Subgraph.federation("nested", remote.endpoint, schema))
                       .withOperationPolicy(policy)
@@ -281,7 +281,7 @@ object SecurityPolicySpec extends ZIOSpecDefault {
       for {
         remote   <- stub("""{"data":{"node":null}}""")
         observed <- Ref.make(List.empty[SecurityRequirement])
-        policy    = OperationPolicy.uncached[Any](operation => observed.set(operation.securityRequirements).as(Reject()))
+        policy    = OperationPolicy[Any](operation => observed.set(operation.securityRequirements).as(Reject()))
         runtime  <- Gateway
                       .compose(Subgraph.federation("interfaces", remote.endpoint, schema))
                       .withOperationPolicy(policy)
@@ -322,7 +322,7 @@ object SecurityPolicySpec extends ZIOSpecDefault {
 
       for {
         remote     <- stub("""{"data":{"product":null}}""")
-        policy      = OperationPolicy.uncached[Any](_ => ZIO.succeed(OperationPolicy.Allow))
+        policy      = OperationPolicy[Any](_ => ZIO.succeed(OperationPolicy.Allow))
         exit       <- Gateway
                         .compose(Subgraph.federation("hidden", remote.endpoint, schema))
                         .withOperationPolicy(policy)
@@ -356,7 +356,7 @@ object SecurityPolicySpec extends ZIOSpecDefault {
 
       for {
         remote     <- stub("""{"data":{"product":null}}""")
-        policy      = OperationPolicy.uncached[Any](_ => ZIO.succeed(OperationPolicy.Allow))
+        policy      = OperationPolicy[Any](_ => ZIO.succeed(OperationPolicy.Allow))
         exit       <- Gateway
                         .compose(Subgraph.federation("transitive", remote.endpoint, schema))
                         .withOperationPolicy(policy)
@@ -398,7 +398,7 @@ object SecurityPolicySpec extends ZIOSpecDefault {
 
       for {
         remote <- stub("""{"data":{"product":null}}""")
-        policy  = OperationPolicy.uncached[Any](_ => ZIO.succeed(OperationPolicy.Allow))
+        policy  = OperationPolicy[Any](_ => ZIO.succeed(OperationPolicy.Allow))
         exit   <- Gateway
                     .compose(Subgraph.federation("transitive-authentication", remote.endpoint, schema))
                     .withOperationPolicy(policy)
@@ -428,7 +428,7 @@ object SecurityPolicySpec extends ZIOSpecDefault {
 
       for {
         remote <- stub("""{"data":{"product":null}}""")
-        policy  = OperationPolicy.uncached[Any](_ => ZIO.succeed(OperationPolicy.Allow))
+        policy  = OperationPolicy[Any](_ => ZIO.succeed(OperationPolicy.Allow))
         exit   <- Gateway
                     .compose(Subgraph.federation("sufficient", remote.endpoint, schema))
                     .withOperationPolicy(policy)

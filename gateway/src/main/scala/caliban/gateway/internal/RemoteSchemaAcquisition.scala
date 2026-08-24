@@ -1,7 +1,7 @@
 package caliban.gateway.internal
 
 import caliban.ResponseValue.ObjectValue
-import caliban.Value.StringValue
+import caliban.Value.{ NullValue, StringValue }
 import caliban.client.Operations.RootQuery
 import caliban.client.SelectionBuilder
 import caliban.gateway.{ RemoteGraphQLConfig, SchemaInput }
@@ -63,22 +63,24 @@ private[gateway] object RemoteSchemaAcquisition {
 
     send(endpoint, writeToArray(request), config, backend).flatMap { bytes =>
       if (!withinJsonDepth(bytes, config.maxParsingDepth)) parsingDepthFailure(config.maxParsingDepth)
-      else
+      else {
+        val array = bytes.toArray
         for {
           response <- ZIO
-                        .attemptBlockingInterrupt(readFromArray[ResponseValue](bytes.toArray))
+                        .attemptBlockingInterrupt(readFromArray[ResponseValue](array))
                         .mapError(_ => "Introspection response could not be decoded.")
           _        <- if (defaultValuesWithinDepth(response, config.maxParsingDepth)) ZIO.unit
                       else parsingDepthFailure(config.maxParsingDepth)
           decoded  <- ZIO
                         .attemptBlockingInterrupt(
-                          selection.decode(new String(bytes.toArray, StandardCharsets.UTF_8))
+                          selection.decode(new String(array, StandardCharsets.UTF_8))
                         )
                         .mapError(_ => "Introspection response could not be decoded.")
           document <- ZIO
                         .fromEither(decoded.map(_._1))
                         .mapError(_ => "Introspection response could not be decoded.")
         } yield document
+      }
     }
   }
 
@@ -97,7 +99,7 @@ private[gateway] object RemoteSchemaAcquisition {
                       .attemptBlockingInterrupt(decodeServiceSdl(bytes))
                       .mapError(_ => "Federation service response was invalid.")
         sdl      <- ZIO.fromEither(decoded).mapError(_ => "Federation service response was invalid.")
-        _        <- if (withinGraphQLDepth(sdl, config.maxParsingDepth)) ZIO.unit
+        _        <- if (OperationLimits.graphQLNestingWithinLimit(sdl, config.maxParsingDepth)) ZIO.unit
                     else parsingDepthFailure(config.maxParsingDepth)
         parsed   <- ZIO
                       .attemptBlockingInterrupt(Parser.parseQuery(sdl))
@@ -156,13 +158,13 @@ private[gateway] object RemoteSchemaAcquisition {
   private def decodeServiceSdl(bytes: Chunk[Byte]): Either[Unit, String] =
     try
       readFromArray[ResponseValue](bytes.toArray) match {
-        case value: ObjectValue =>
+        case value: ObjectValue if !hasErrors(value) =>
           for {
             data    <- objectField(value, "data")
             service <- objectField(data, "_service")
             sdl     <- service.fields.collectFirst { case ("sdl", StringValue(value)) => value }.toRight(())
           } yield sdl
-        case _                  => Left(())
+        case _                                       => Left(())
       }
     catch {
       case NonFatal(_) => Left(())
@@ -171,6 +173,13 @@ private[gateway] object RemoteSchemaAcquisition {
   private def objectField(value: ObjectValue, name: String): Either[Unit, ObjectValue] =
     value.fields.collectFirst { case (`name`, nested: ObjectValue) => nested }.toRight(())
 
+  private def hasErrors(value: ObjectValue): Boolean =
+    value.fields.collectFirst {
+      case ("errors", ResponseValue.ListValue(errors)) => errors.nonEmpty
+      case ("errors", NullValue)                       => false
+      case ("errors", _)                               => true
+    }.getOrElse(false)
+
   private def parsingDepthFailure(maxDepth: Int): IO[String, Nothing] =
     ZIO.fail(s"Schema acquisition parsing depth exceeded $maxDepth.")
 
@@ -178,7 +187,8 @@ private[gateway] object RemoteSchemaAcquisition {
     value match {
       case ObjectValue(fields)             =>
         fields.forall {
-          case ("defaultValue", StringValue(defaultValue)) => withinGraphQLDepth(defaultValue, maxDepth)
+          case ("defaultValue", StringValue(defaultValue)) =>
+            OperationLimits.graphQLNestingWithinLimit(defaultValue, maxDepth)
           case (_, nested)                                 => defaultValuesWithinDepth(nested, maxDepth)
         }
       case ResponseValue.ListValue(values) => values.forall(defaultValuesWithinDepth(_, maxDepth))
@@ -201,47 +211,6 @@ private[gateway] object RemoteSchemaAcquisition {
       }
       index += 1
     }
-    depth <= maxDepth
-  }
-
-  private def withinGraphQLDepth(value: String, maxDepth: Int): Boolean = {
-    var depth   = 0
-    var index   = 0
-    var escaped = false
-    var string  = false
-    var block   = false
-    var comment = false
-    while (index < value.length && depth <= maxDepth)
-      if (comment) {
-        if (value.charAt(index) == '\n' || value.charAt(index) == '\r') comment = false
-        index += 1
-      } else if (block) {
-        if (value.startsWith("\\\"\"\"", index)) index += 4
-        else if (value.startsWith("\"\"\"", index)) {
-          block = false
-          index += 3
-        } else index += 1
-      } else if (string) {
-        value.charAt(index) match {
-          case _ if escaped => escaped = false
-          case '\\'         => escaped = true
-          case '"'          => string = false
-          case _            => ()
-        }
-        index += 1
-      } else if (value.startsWith("\"\"\"", index)) {
-        block = true
-        index += 3
-      } else {
-        value.charAt(index) match {
-          case '#'             => comment = true
-          case '"'             => string = true
-          case '{' | '[' | '(' => depth += 1
-          case '}' | ']' | ')' => depth -= 1
-          case _               => ()
-        }
-        index += 1
-      }
     depth <= maxDepth
   }
 

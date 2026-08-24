@@ -64,7 +64,7 @@ object QuickAdapterSpec extends ZIOSpecDefault {
   private val regressionSuite = suite("HTTP compatibility and limits")(
     test("treats Accept */* like an absent Accept header") {
       val endpoint = uri"http://localhost:8090/api/graphql"
-      val body     = """{"query":"{ characters { name }"}"""
+      val body     = """{"query":"{ characters { name } }"}"""
 
       def send(accept: Option[String]) = {
         val request = basicRequest
@@ -72,89 +72,72 @@ object QuickAdapterSpec extends ZIOSpecDefault {
           .contentType("application/json")
           .body(body)
           .response(asStringAlways)
-        ZIO.scoped {
-          HttpClientZioBackend.scoped().flatMap(accept.fold(request)(request.header("Accept", _)).send(_))
-        }
+        execute(accept.fold(request)(request.header("Accept", _)))
       }
 
       for {
-        absent   <- send(None)
-        wildcard <- send(Some("*/*"))
+        absent       <- send(None)
+        wildcard     <- send(Some("*/*"))
+        explicitJson <- send(Some("application/json, text/plain, */*"))
+        eventStream  <- send(Some("text/event-stream, */*"))
       } yield assertTrue(
         absent.code == wildcard.code,
         absent.contentType == wildcard.contentType,
         absent.contentType.contains("application/json"),
-        absent.body == wildcard.body
+        absent.body.contains("\"data\""),
+        wildcard.body.contains("\"data\""),
+        explicitJson.contentType.contains("application/json"),
+        eventStream.contentType.contains("text/event-stream")
       )
     },
     test("accepts the legacy application/graphql+json POST media type") {
       val body = """{"query":"{ characters { name } }"}"""
 
       for {
-        response <- ZIO.scoped {
-                      HttpClientZioBackend
-                        .scoped()
-                        .flatMap(
-                          basicRequest
-                            .post(uri"http://localhost:8090/api/graphql")
-                            .contentType("application/graphql+json")
-                            .body(body)
-                            .response(asStringAlways)
-                            .send(_)
-                        )
-                    }
+        response <- execute(
+                      basicRequest
+                        .post(uri"http://localhost:8090/api/graphql")
+                        .contentType("application/graphql+json")
+                        .body(body)
+                        .response(asStringAlways)
+                    )
       } yield assertTrue(response.is200, response.body.contains("\"data\""))
     },
     test("accepts a known-length JSON body within the configured limit") {
       val body = """{"query":"{ characters { name } }"}"""
 
       for {
-        response <- ZIO.scoped {
-                      HttpClientZioBackend
-                        .scoped()
-                        .flatMap(
-                          basicRequest
-                            .post(uri"http://localhost:8090/api/graphql-default")
-                            .contentType("application/json")
-                            .body(body)
-                            .contentLength(body.getBytes.length.toLong)
-                            .response(asStringAlways)
-                            .send(_)
-                        )
-                    }
+        response <- execute(
+                      basicRequest
+                        .post(uri"http://localhost:8090/api/graphql-default")
+                        .contentType("application/json")
+                        .body(body)
+                        .contentLength(body.getBytes.length.toLong)
+                        .response(asStringAlways)
+                    )
       } yield assertTrue(response.is200, response.body.contains("\"data\""))
     },
     test("returns 406 for an upload route with an unacceptable response type") {
       for {
-        response <- ZIO.scoped {
-                      HttpClientZioBackend
-                        .scoped()
-                        .flatMap(
-                          basicRequest
-                            .post(uri"http://localhost:8090/upload/graphql")
-                            .header("Accept", "text/plain")
-                            .multipartBody(uploadParts("content".getBytes))
-                            .response(asStringAlways)
-                            .send(_)
-                        )
-                    }
+        response <- execute(
+                      basicRequest
+                        .post(uri"http://localhost:8090/upload/graphql")
+                        .header("Accept", "text/plain")
+                        .multipartBody(uploadParts("content".getBytes))
+                        .response(asStringAlways)
+                    )
       } yield assertTrue(response.code.code == 406)
     },
     test("does not apply the one-megabyte JSON default to uploads") {
       val largeFile = Array.fill[Byte](1024 * 1024 + 1)('x'.toByte)
 
       for {
-        response <- ZIO.scoped {
-                      HttpClientZioBackend
-                        .scoped()
-                        .flatMap(
-                          basicRequest
-                            .post(uri"http://localhost:8090/upload/graphql-default")
-                            .multipartBody(uploadParts(largeFile))
-                            .response(asStringAlways)
-                            .send(_)
-                        )
-                    }
+        response <- execute(
+                      basicRequest
+                        .post(uri"http://localhost:8090/upload/graphql-default")
+                        .multipartBody(uploadParts(largeFile))
+                        .response(asStringAlways)
+                    )
       } yield assertTrue(response.is200)
     },
     test("uses query parameters for POST when query is present") {
@@ -162,31 +145,20 @@ object QuickAdapterSpec extends ZIOSpecDefault {
       val endpoint = uri"http://localhost:8090/api/graphql?query=$query"
 
       for {
-        response <- ZIO.scoped {
-                      HttpClientZioBackend
-                        .scoped()
-                        .flatMap(
-                          basicRequest.post(endpoint).response(asStringAlways).send(_)
-                        )
-                    }
+        response <- execute(basicRequest.post(endpoint).response(asStringAlways))
       } yield assertTrue(response.is200, response.body.contains("\"data\""))
     },
     test("returns an observable error when response encoding exceeds its limit") {
       val body = """{"query":"{ characters { name } }"}"""
 
       for {
-        response <- ZIO.scoped {
-                      HttpClientZioBackend
-                        .scoped()
-                        .flatMap(
-                          basicRequest
-                            .post(uri"http://localhost:8090/api/graphql-small-response")
-                            .contentType("application/json")
-                            .body(body)
-                            .response(asStringAlways)
-                            .send(_)
-                        )
-                    }
+        response <- execute(
+                      basicRequest
+                        .post(uri"http://localhost:8090/api/graphql-small-response")
+                        .contentType("application/json")
+                        .body(body)
+                        .response(asStringAlways)
+                    )
       } yield assertTrue(
         response.code.code == 500,
         response.body.nonEmpty,
@@ -194,6 +166,9 @@ object QuickAdapterSpec extends ZIOSpecDefault {
       )
     }
   )
+
+  private def execute[T](request: sttp.client4.Request[T]) =
+    ZIO.scoped(HttpClientZioBackend.scoped().flatMap(request.send(_)))
 
   private def uploadParts(file: Array[Byte]) = {
     val operations =

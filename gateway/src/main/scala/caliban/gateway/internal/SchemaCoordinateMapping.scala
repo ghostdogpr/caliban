@@ -264,7 +264,7 @@ private[gateway] final class SchemaCoordinateMapping private (
     var remaining = fields
     while (remaining ne Nil) {
       val field = remaining.head
-      selected.put(field.aliasedName, fieldResponseMapper(field))
+      addResponseMapper(selected, field.aliasedName, fieldResponseMapper(field))
       remaining = remaining.tail
     }
     shallowSelectedResponseMapper(selected)
@@ -321,12 +321,21 @@ private[gateway] final class SchemaCoordinateMapping private (
               requiredResponseMapper(childName, selection.children)
             }
           }
-        selected.put(selection.responseName, mapper)
+        addResponseMapper(selected, selection.responseName, mapper)
         remaining = remaining.tail
       }
 
       recursiveSelectedResponseMapper(selected)
     }
+
+  private def addResponseMapper(
+    selected: java.util.HashMap[String, ResponseValue => ResponseValue],
+    name: String,
+    mapper: ResponseValue => ResponseValue
+  ): Unit = {
+    val existing = selected.get(name)
+    selected.put(name, if (existing eq null) mapper else mapper.compose(existing))
+  }
 
   private def transformDefinition(definition: Definition, fieldSets: FieldSetDirectives): Definition =
     definition match {

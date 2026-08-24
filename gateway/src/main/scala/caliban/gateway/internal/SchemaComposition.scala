@@ -14,7 +14,7 @@ import caliban.parsing.adt.Definition.TypeSystemExtension.SchemaExtension
 import caliban.parsing.adt.Definition.TypeSystemExtension.TypeExtension._
 import caliban.parsing.adt.{ Directive, Document, OperationType, Selection }
 import caliban.rendering.DocumentRenderer
-import caliban.schema.RootType
+import caliban.schema.{ RootType, Types }
 import caliban.validation.{ SchemaValidator, Validator }
 
 import scala.collection.immutable.ListMap
@@ -55,6 +55,17 @@ private[gateway] final class ComposedGraph private[internal] (
     case application if application.fieldName.isEmpty =>
       application.typeName
   }.distinct.sorted
+  private val sourceFieldSources   = sourceFields.keysIterator.map { case (source, owner, name) =>
+    (owner -> name) -> source
+  }.toList
+    .groupBy(_._1)
+    .map { case (coordinate, values) => coordinate -> values.map(_._2).distinct.sorted }
+  private val lookupSourcesByType  = entityLookups.keysIterator.collect {
+    case (source, typeName) if !interfaceObjects.contains(source -> typeName) => typeName -> source
+  }.toList
+    .groupBy(_._1)
+    .map { case (typeName, values) => typeName -> values.map(_._2).distinct.sorted }
+  private val lookupTypes          = entityLookups.keysIterator.map(_._2).toSet
 
   def sources(operation: OperationType, field: String): List[String] =
     routes.getOrElse(operation -> field, Nil)
@@ -96,103 +107,103 @@ private[gateway] final class ComposedGraph private[internal] (
       .distinct
       .sorted
 
-  def securityRequirements(execution: ExecutionRequest): List[SecurityRequirement] = {
-    def applications(typeName: String, fieldName: Option[String]): List[SecurityDirective] =
-      securityByCoordinate.getOrElse(typeName -> fieldName, Nil).map(_.directive)
+  def securityRequirements(execution: ExecutionRequest): List[SecurityRequirement] =
+    if (securityApplications.isEmpty) Nil
+    else {
+      def applications(typeName: String, fieldName: Option[String]): List[SecurityDirective] =
+        securityByCoordinate.getOrElse(typeName -> fieldName, Nil).map(_.directive).distinct
 
-    def condition(path: List[String], types: Option[Set[String]]): List[RuntimeTypeCondition] =
-      types.filter(_.nonEmpty).map(RuntimeTypeCondition(path, _) :: Nil).getOrElse(Nil)
+      def condition(path: List[String], types: Option[Set[String]]): List[RuntimeTypeCondition] =
+        types.filter(_.nonEmpty).map(RuntimeTypeCondition(path, _) :: Nil).getOrElse(Nil)
 
-    def runtimeTypes(typeName: String): Set[String] =
-      runtimeTypesByName.getOrElse(typeName, Set.empty)
+      def runtimeTypes(typeName: String): Set[String] =
+        runtimeTypesByName.getOrElse(typeName, Set.empty)
 
-    def candidateConditions(
-      path: List[String],
-      selectedType: String,
-      candidateType: String,
-      selection: Option[Set[String]]
-    ): Option[List[RuntimeTypeCondition]] = {
-      val selected   = selection.getOrElse(runtimeTypes(selectedType))
-      val applicable = selected intersect runtimeTypes(candidateType)
-      if (applicable.isEmpty) None
-      else if (applicable == selected) Some(Nil)
-      else Some(RuntimeTypeCondition(path, applicable) :: Nil)
-    }
+      def candidateConditions(
+        path: List[String],
+        selectedType: String,
+        candidateType: String,
+        selection: Option[Set[String]]
+      ): Option[List[RuntimeTypeCondition]] = {
+        val selected   = selection.getOrElse(runtimeTypes(selectedType))
+        val applicable = selected intersect runtimeTypes(candidateType)
+        if (applicable.isEmpty) None
+        else if (applicable == selected) Some(Nil)
+        else Some(RuntimeTypeCondition(path, applicable) :: Nil)
+      }
 
-    def selected(
-      responsePath: List[String],
-      typeName: String,
-      fieldName: Option[String],
-      runtimeTypeConditions: List[RuntimeTypeCondition]
-    ): List[SecurityRequirement] = {
-      val values = applications(typeName, fieldName)
-      if (values.isEmpty) Nil
-      else SecurityRequirement(responsePath, typeName, fieldName, runtimeTypeConditions, values) :: Nil
-    }
+      def selected(
+        responsePath: List[String],
+        typeName: String,
+        fieldName: Option[String],
+        runtimeTypeConditions: List[RuntimeTypeCondition]
+      ): List[SecurityRequirement] = {
+        val values = applications(typeName, fieldName)
+        if (values.isEmpty) Nil
+        else SecurityRequirement(responsePath, typeName, fieldName, runtimeTypeConditions, values) :: Nil
+      }
 
-    def loop(
-      fields: List[Field],
-      parentPath: Vector[String],
-      root: Boolean,
-      inheritedConditions: List[RuntimeTypeCondition]
-    ): List[SecurityRequirement] =
-      fields.flatMap { field =>
-        if (isMetaField(field)) Nil
-        else {
-          val responsePath     = parentPath :+ field.aliasedName
-          val parentType       = field.parentType.flatMap(_.innerType.name).getOrElse("")
-          val outputType       = field.fieldType.innerType.name.getOrElse("")
-          val parentConditions = (inheritedConditions ::: condition(parentPath.toList, field._condition)).distinct
-          val direct           = selected(responsePath.toList, parentType, Some(field.name), parentConditions)
-          val rootRequirements =
-            if (root) selected(responsePath.toList, parentType, None, parentConditions)
-            else Nil
-          val relatedFields    = securedFieldTypes.getOrElse(field.name, Nil).flatMap { typeName =>
-            if (typeName == parentType) Nil
-            else
-              candidateConditions(parentPath.toList, parentType, typeName, field._condition).toList.flatMap {
-                conditions =>
+      def loop(
+        fields: List[Field],
+        parentPath: Vector[String],
+        root: Boolean,
+        inheritedConditions: List[RuntimeTypeCondition]
+      ): List[SecurityRequirement] =
+        fields.flatMap { field =>
+          if (isMetaField(field)) Nil
+          else {
+            val responsePath     = parentPath :+ field.aliasedName
+            val parentType       = field.parentType.flatMap(_.innerType.name).getOrElse("")
+            val outputType       = field.fieldType.innerType.name.getOrElse("")
+            val parentConditions = (inheritedConditions ::: condition(parentPath.toList, field._condition)).distinct
+            val direct           = selected(responsePath.toList, parentType, Some(field.name), parentConditions)
+            val rootRequirements =
+              if (root) selected(responsePath.toList, parentType, None, parentConditions)
+              else Nil
+            val relatedFields    = securedFieldTypes.getOrElse(field.name, Nil).flatMap { typeName =>
+              if (typeName == parentType) Nil
+              else
+                candidateConditions(parentPath.toList, parentType, typeName, field._condition).toList.flatMap {
+                  conditions =>
+                    selected(
+                      responsePath.toList,
+                      typeName,
+                      Some(field.name),
+                      (parentConditions ::: conditions).distinct
+                    )
+                }
+            }
+            val output           = selected(responsePath.toList, outputType, None, parentConditions)
+            val relatedOutput    = securedTypes.flatMap { typeName =>
+              if (typeName == outputType) Nil
+              else
+                candidateConditions(responsePath.toList, outputType, typeName, None).toList.flatMap { conditions =>
                   selected(
                     responsePath.toList,
                     typeName,
-                    Some(field.name),
+                    None,
                     (parentConditions ::: conditions).distinct
                   )
-              }
-          }
-          val output           = selected(responsePath.toList, outputType, None, parentConditions)
-          val relatedOutput    = securedTypes.flatMap { typeName =>
-            if (typeName == outputType) Nil
-            else
-              candidateConditions(responsePath.toList, outputType, typeName, None).toList.flatMap { conditions =>
-                selected(
-                  responsePath.toList,
-                  typeName,
-                  None,
-                  (parentConditions ::: conditions).distinct
-                )
-              }
-          }
+                }
+            }
 
-          rootRequirements ::: direct ::: relatedFields ::: output ::: relatedOutput ::: loop(
-            field.fields,
-            responsePath,
-            root = false,
-            parentConditions
-          )
+            rootRequirements ::: direct ::: relatedFields ::: output ::: relatedOutput ::: loop(
+              field.fields,
+              responsePath,
+              root = false,
+              parentConditions
+            )
+          }
         }
-      }
 
-    loop(execution.field.fields, Vector.empty, root = true, Nil)
-  }
+      loop(execution.field.fields, Vector.empty, root = true, Nil)
+    }
 
   def isInterfaceObject(source: String, typeName: String): Boolean =
     interfaceObjects.contains(source -> typeName)
 
   def runtimeTypeSource(typeName: String, preferred: String): Option[String] = {
-    val candidates = entityLookups.keysIterator.collect {
-      case (source, `typeName`) if !isInterfaceObject(source, typeName) => source
-    }.toList.distinct.sorted
+    val candidates = lookupSourcesByType.getOrElse(typeName, Nil)
     if (candidates.contains(preferred)) Some(preferred) else candidates.headOption
   }
 
@@ -204,7 +215,7 @@ private[gateway] final class ComposedGraph private[internal] (
     if (providers.isEmpty) current
     else {
       val constrained = current intersect providers
-      if (entityLookups.keysIterator.exists(_._2 == parentType) || constrained.isEmpty) providers else constrained
+      if (lookupTypes.contains(parentType) || constrained.isEmpty) providers else constrained
     }
   }
 
@@ -215,7 +226,10 @@ private[gateway] final class ComposedGraph private[internal] (
     field: String,
     outputType: String
   ): Set[String] = {
-    val candidates = if (sources.nonEmpty) sources.toList.sorted else source :: Nil
+    val candidates =
+      if (sources.contains(source)) source :: Nil
+      else if (sources.nonEmpty) sources.toList.sorted
+      else source :: Nil
     val available  = candidates.flatMap { candidate =>
       sourceFields
         .get((candidate, parentType, field))
@@ -247,16 +261,6 @@ private[gateway] final class ComposedGraph private[internal] (
     field: Field
   ): Field =
     executableField(source, Some(entityType), field)
-
-  def restoreResponseNames(
-    clientFields: List[Field],
-    executableFields: List[Field],
-    value: ResponseValue
-  ): ResponseValue =
-    responseNameRestorer(clientFields, executableFields) match {
-      case Some(mappings) => restoreResponseNames(mappings, value)
-      case None           => value
-    }
 
   def responseNameRestorer(
     clientFields: List[Field],
@@ -421,9 +425,7 @@ private[gateway] final class ComposedGraph private[internal] (
     }
 
   private def sourcesForKeyField(typeName: String, field: ComposedGraph.KeyField): List[String] = {
-    val sources = sourceFields.keysIterator.collect {
-      case (source, owner, name) if owner == typeName && name == field.name => source
-    }.toList.sorted
+    val sources = sourceFieldSources.getOrElse(typeName -> field.name, Nil)
     if (field.children.isEmpty) sources
     else
       sources.filter(source =>
@@ -539,7 +541,7 @@ private[gateway] object SchemaComposition {
     }
     val queryEntries       = rootFields(prepared, OperationType.Query)
     val mutationEntries    = rootFields(prepared, OperationType.Mutation)
-    val types              = nonRootTypes(prepared)
+    val types              = nonRootTypes(prepared, composedDirectives.referencedInputTypes)
     val enumUsages         = enumUsageByName(schemas)
     val compiledFieldSets  = prepared.map(federationFieldSets)
     val compiledSecurity   = prepared.map(securityApplications)
@@ -588,9 +590,10 @@ private[gateway] object SchemaComposition {
       val fieldDefinitions                                   = types
         .flatMap(entry => entry.tpe.allFields.map(field => (entry.name -> field.name) -> entry))
         .groupBy(_._1)
+      val interfaceOverrides                                 = interfaceOverrideTargets(types)
       val fieldRoutes                                        = fieldDefinitions.flatMap { case (coordinate, definitions) =>
         val declared        = definitions.map(_._2)
-        val overrideTargets = interfaceOverrideTargets(coordinate._1, coordinate._2, types)
+        val overrideTargets = interfaceOverrides.getOrElse(coordinate, Set.empty)
         val owned           =
           effectiveFieldProviders(coordinate._2, declared).filterNot(entry => overrideTargets.contains(entry.source))
         if (owned.nonEmpty) Some(coordinate -> owned.map(_.source).distinct.sorted) else None
@@ -904,33 +907,43 @@ private[gateway] object SchemaComposition {
     keys: Map[String, __Field]
   ): List[String] = {
     val arguments   = field.allArgs.map(argument => argument.name -> argument).toMap
-    val unknown     = lookup.arguments.keysIterator
+    val unknown     = lookup.arguments.iterator
+      .map(_._1)
       .filterNot(arguments.contains)
       .map(name => s"$prefix Lookup field '$rootName.${lookup.field}' has no argument '$name'.")
       .toList
+    val duplicates  = lookup.arguments
+      .groupBy(_._1)
+      .collect {
+        case (name, values) if values.size > 1 =>
+          s"$prefix Lookup argument '${lookup.field}.$name' is mapped more than once."
+      }
+      .toList
     val missing     = field.allArgs.collect {
       case argument
-          if !lookup.arguments.contains(argument.name) && !argument._type.isNullable && argument.defaultValue.isEmpty =>
+          if !lookup.arguments.exists(
+            _._1 == argument.name
+          ) && !argument._type.isNullable && argument.defaultValue.isEmpty =>
         s"$prefix Required lookup argument '${lookup.field}.${argument.name}' has no mapping."
     }
-    val mappings    = lookup.arguments.toList.flatMap { case (name, mapping) =>
+    val mappings    = lookup.arguments.flatMap { case (name, mapping) =>
       arguments.get(name).toList.flatMap(argument => validateArgument(prefix, name, mapping, argument._type, keys))
     }
     val batch       = lookup match {
-      case _: Lookup.Single if lookup.arguments.values.exists(containsBatch)                               =>
+      case _: Lookup.Single if lookup.arguments.exists(value => containsBatch(value._2))                            =>
         List(s"$prefix Single lookup argument mappings cannot contain a batch mapping.")
-      case _: Lookup.ListLookup if !lookup.arguments.values.exists(containsBatch)                          =>
+      case _: Lookup.ListLookup if !lookup.arguments.exists(value => containsBatch(value._2))                       =>
         List(s"$prefix List lookup argument mappings must contain a batch mapping.")
-      case _: Lookup.ListLookup if lookup.arguments.values.exists(keyOutsideBatch(_, insideBatch = false)) =>
+      case _: Lookup.ListLookup if lookup.arguments.exists(value => keyOutsideBatch(value._2, insideBatch = false)) =>
         List(s"$prefix List lookup key mappings must be nested inside a batch mapping.")
-      case _                                                                                               => Nil
+      case _                                                                                                        => Nil
     }
-    val mappedKeys  = lookup.arguments.valuesIterator.flatMap(argumentKeys).toSet
+    val mappedKeys  = lookup.arguments.iterator.flatMap(value => argumentKeys(value._2)).toSet
     val keyCoverage =
       if (mappedKeys == lookup.keyFields.toSet) Nil
       else List(s"$prefix Lookup argument mappings must use every declared key field.")
 
-    unknown ::: missing ::: mappings ::: batch ::: keyCoverage
+    unknown ::: duplicates ::: missing ::: mappings ::: batch ::: keyCoverage
   }
 
   private def validateArgument(
@@ -1535,7 +1548,48 @@ private[gateway] object SchemaComposition {
     Validator.validateAll(document, schema.rootType.copy(queryType = parent)).left.map(_.msg)
   }
 
-  private def nonRootTypes(schemas: List[PreparedSchema]): List[TypeEntry] =
+  private def nonRootTypes(schemas: List[PreparedSchema], initialTypes: Set[String]): List[TypeEntry] = {
+    val allTypes        = schemas.flatMap(metadata => metadata.schema.rootType.types.valuesIterator.toList)
+    val byName          = allTypes.flatMap(tpe => tpe.name.map(_ -> tpe)).groupBy(_._1).map { case (name, values) =>
+      name -> values.map(_._2)
+    }
+    val implementations = allTypes
+      .filter(_.kind == __TypeKind.OBJECT)
+      .flatMap(tpe =>
+        tpe.interfaces().getOrElse(Nil).flatMap(_.name).flatMap(interface => tpe.name.map(interface -> _))
+      )
+      .groupBy(_._1)
+      .map { case (interface, values) => interface -> values.map(_._2).distinct }
+    val reachable       = scala.collection.mutable.Set.empty[String]
+    val pending         = scala.collection.mutable.Queue.empty[String]
+
+    def enqueue(name: String): Unit =
+      if (reachable.add(name)) pending.enqueue(name)
+
+    def enqueueReferences(tpe: __Type): Unit = {
+      tpe.allFields.foreach { field =>
+        field._type.innerType.name.foreach(enqueue)
+        field.allArgs.foreach(_._type.innerType.name.foreach(enqueue))
+      }
+      tpe.allInputFields.foreach(_._type.innerType.name.foreach(enqueue))
+      tpe.interfaces().getOrElse(Nil).foreach(_.name.foreach(enqueue))
+      tpe.possibleTypes.getOrElse(Nil).foreach(_.name.foreach(enqueue))
+    }
+
+    initialTypes.foreach(enqueue)
+
+    schemas.foreach { metadata =>
+      val rootType = metadata.schema.rootType
+      rootType.queryType.name.foreach(enqueue)
+      rootType.mutationType.flatMap(_.name).foreach(enqueue)
+    }
+
+    while (pending.nonEmpty) {
+      val name = pending.dequeue()
+      byName.getOrElse(name, Nil).foreach(enqueueReferences)
+      implementations.getOrElse(name, Nil).foreach(enqueue)
+    }
+
     schemas.flatMap { metadata =>
       val schema    = metadata.schema
       val rootNames =
@@ -1545,14 +1599,15 @@ private[gateway] object SchemaComposition {
 
       schema.rootType.types.valuesIterator
         .filterNot(tpe =>
-          tpe.name.exists(name =>
-            rootNames.contains(name) ||
+          tpe.name.forall(name =>
+            !reachable.contains(name) || rootNames.contains(name) ||
               schema.federation && metadata.directives.hiddenTypes.contains(name)
           )
         )
         .flatMap(tpe => tpe.name.map(name => typeEntry(metadata, name, tpe)))
         .toList
     }
+  }
 
   private def typeEntry(metadata: PreparedSchema, name: String, tpe: __Type): TypeEntry = {
     val schema          = metadata.schema
@@ -2031,17 +2086,17 @@ private[gateway] object SchemaComposition {
     owned.filterNot(entry => overridden.contains(entry.source))
   }
 
-  private def interfaceOverrideTargets(parent: String, field: String, entries: List[TypeEntry]): Set[String] = {
-    val implementations = entries.collect {
-      case entry
-          if entry.tpe.kind == __TypeKind.OBJECT && entry.tpe.interfaces().exists(_.exists(_.name.contains(parent))) =>
-        entry.name
-    }.toSet
+  private def interfaceOverrideTargets(entries: List[TypeEntry]): Map[(String, String), Set[String]] =
     entries.iterator
-      .filter(entry => implementations.contains(entry.name))
-      .flatMap(_.overrideFields.get(field))
-      .toSet
-  }
+      .filter(_.tpe.kind == __TypeKind.OBJECT)
+      .flatMap { entry =>
+        entry.tpe.interfaces().getOrElse(Nil).iterator.flatMap(_.name).flatMap { interfaceName =>
+          entry.overrideFields.iterator.map { case (field, source) => (interfaceName -> field) -> source }
+        }
+      }
+      .toList
+      .groupBy(_._1)
+      .map { case (coordinate, values) => coordinate -> values.iterator.map(_._2).toSet }
 
   private def overrideDiagnostics(prefix: String, declarations: List[(String, Option[String])]): List[String] = {
     val overrides         = declarations.collect { case (source, Some(from)) => source -> from }

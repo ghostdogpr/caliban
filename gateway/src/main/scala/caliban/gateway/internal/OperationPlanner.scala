@@ -612,12 +612,16 @@ private[gateway] final class OperationPlanner(
         result.flatMap(states =>
           search
             .evaluate(states) { current =>
-              val selected = candidate.copy(
-                fields = candidate.fields.filter(_._condition.forall(_.contains(entityType))),
-                requirements =
-                  candidate.fields.flatMap(child => graph.required(candidate.source, entityType, child.name))
-              )
-              applyTransitionCandidates(context, current, selected, concrete.filter(_.entityType == entityType))
+              val fields = candidate.fields.filter(_._condition.forall(_.contains(entityType)))
+              if (fields.isEmpty) Right(List(current))
+              else {
+                val selected = candidate.copy(
+                  fields = fields,
+                  requirements =
+                    fields.flatMap(child => graph.required(candidate.source, entityType, child.name)).distinct
+                )
+                applyTransitionCandidates(context, current, selected, concrete.filter(_.entityType == entityType))
+              }
             }
             .map(_.flatten)
         )
@@ -889,13 +893,19 @@ private[gateway] final class OperationPlanner(
     requirements
       .foldLeft((List.empty[Field], List.empty[RequiredSelection], usedNames)) {
         case ((fields, selections, names), requirement) =>
-          val alias                = privateAlias(requirementAliasBase(requirement), names)
-          val (aliased, selection) = requirementSelection(requirement.copy(alias = Some(alias)))
-          (
-            aliased :: fields,
-            selection :: selections,
-            names + alias
-          )
+          val base     = requirementAliasBase(requirement)
+          val existing = (selected.iterator ++ fields.iterator).find { field =>
+            field.aliasedName.startsWith(base) && field.copy(alias = None) == requirement.copy(alias = None)
+          }
+          existing match {
+            case Some(field) =>
+              val (_, selection) = requirementSelection(field)
+              (fields, selection :: selections, names)
+            case None        =>
+              val alias                = privateAlias(base, names)
+              val (aliased, selection) = requirementSelection(requirement.copy(alias = Some(alias)))
+              (aliased :: fields, selection :: selections, names + alias)
+          }
       } match {
       case (fields, selections, _) => fields.reverse -> selections.reverse
     }

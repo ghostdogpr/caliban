@@ -2,7 +2,6 @@ package caliban.gateway.internal
 
 import caliban.ResponseValue
 import caliban.ResponseValue.ObjectValue
-import caliban.Value.NullValue
 import caliban.PathValue
 
 import scala.collection.mutable
@@ -18,12 +17,6 @@ private[internal] final class IndexedFields private (
   def getOrNull(name: String): ResponseValue =
     if (index eq null) value.getOrNull(name) else index.get(name)
 
-  def getOrNullValue(name: String): ResponseValue =
-    if (index eq null) value.getOrNullValue(name)
-    else {
-      val found = index.get(name)
-      if (found eq null) NullValue else found
-    }
 }
 
 private[internal] object IndexedFields {
@@ -34,7 +27,7 @@ private[internal] object IndexedFields {
     val fields                                          = value.fields
     var index: java.util.HashMap[String, ResponseValue] = null
     if (fields.lengthCompare(WideObjectFields) >= 0) {
-      index = new java.util.HashMap
+      index = new java.util.HashMap(math.ceil(fields.size / 0.75d).toInt)
       var scan = fields
       while (scan ne Nil) {
         index.put(scan.head._1, scan.head._2)

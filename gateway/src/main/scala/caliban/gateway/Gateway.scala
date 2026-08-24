@@ -106,7 +106,7 @@ object Gateway {
     trace: Trace
   ): ZIO[Scope, GatewayBuildError, GatewayRuntime[R]] =
     for {
-      backend      <-
+      backend     <-
         if (
           subgraphs.exists(_.source match {
             case _: Source.Remote[_] => true
@@ -120,49 +120,49 @@ object Gateway {
               GatewayBuildError(s"Unable to initialize the remote GraphQL transport: ${error.getMessage}")
             )
         else ZIO.none
-      loaded       <- ZIO.foreachPar(subgraphs)(
-                        load(_, backend, config.maxConcurrentLocalCalls, config.remoteErrorDisclosure, wrapper).either
-                      )
-      contributions = loaded.collect { case Right(value) => value.contribution }
-      diagnostics   = nameDiagnostics(subgraphs) ::: loaded.collect { case Left(diagnostics) => diagnostics }.flatten
-      composed      =
-        if (contributions.nonEmpty) SchemaComposition.compose(contributions)
-        else Left(Nil)
-      graph        <- composed match {
-                        case Right(graph) if diagnostics.isEmpty => ZIO.succeed(graph)
-                        case result                              =>
-                          ZIO.fail(GatewayBuildError((diagnostics ::: result.left.getOrElse(Nil)).distinct.sorted))
-                      }
-      _            <- ZIO
-                        .fail(GatewayBuildError(graph.securityPolicyDiagnostics))
-                        .when(policy.isEmpty && graph.hasSecurityRequirements)
-      rawSources    = loaded.collect { case Right(value) => value.contribution.name -> value.source }.toMap
-      sourceLimits  = loaded.collect { case Right(value) => value.contribution.name -> value.maxConcurrentCalls }.toMap
-      control      <- RuntimeControl.make(
-                        config.maxConcurrentRequests,
-                        sourceLimits,
-                        config.requestTimeout,
-                        config.drainTimeout
-                      )
-      sources       = rawSources.map { case (name, source) =>
-                        name -> new ObservedGraphQLSource(name, control.source(name, source, wrapper), wrapper)
-                      }
-      requestRoot   = Introspector.withIntrospection(graph.rootType)
-      operations   <- OperationPreparation.make(
-                        requestRoot,
-                        new OperationPlanner(
-                          graph,
-                          sources.size,
-                          OperationPlanner.Limits(
-                            config.maxPlanningCandidates,
-                            config.maxPlanningExpansions,
-                            config.planningTimeout
-                          )
-                        ),
-                        new OperationHooks(graph.securityRequirements, resolver, policy),
-                        config,
-                        wrapper
-                      )
+      loaded      <- ZIO.foreachPar(subgraphs)(
+                       load(_, backend, config.maxConcurrentLocalCalls, config.remoteErrorDisclosure, wrapper).either
+                     )
+      partitioned  = loaded.foldRight((List.empty[List[String]], List.empty[LoadedSubgraph[R]])) {
+                       case (Left(errors), (failures, successes)) => (errors :: failures, successes)
+                       case (Right(value), (failures, successes)) => (failures, value :: successes)
+                     }
+      failures     = nameDiagnostics(subgraphs) ::: partitioned._1.flatten
+      _           <- ZIO.fail(GatewayBuildError(failures.distinct.sorted)).when(failures.nonEmpty)
+      successes    = partitioned._2
+      graph       <- ZIO
+                       .fromEither(SchemaComposition.compose(successes.map(_.contribution)))
+                       .mapError(errors => GatewayBuildError(errors.distinct.sorted))
+      _           <- ZIO
+                       .fail(GatewayBuildError(graph.securityPolicyDiagnostics))
+                       .when(policy.isEmpty && graph.hasSecurityRequirements)
+      rawSources   = successes.map(value => value.contribution.name -> value.source).toMap
+      sourceLimits = successes.map(value => value.contribution.name -> value.maxConcurrentCalls).toMap
+      control     <- RuntimeControl.make(
+                       config.maxConcurrentRequests,
+                       sourceLimits,
+                       config.requestTimeout,
+                       config.drainTimeout
+                     )
+      sources      = rawSources.map { case (name, source) =>
+                       name -> new ObservedGraphQLSource(name, control.source(name, source, wrapper), wrapper)
+                     }
+      requestRoot  = Introspector.withIntrospection(graph.rootType)
+      operations  <- OperationPreparation.make(
+                       requestRoot,
+                       new OperationPlanner(
+                         graph,
+                         sources.size,
+                         OperationPlanner.Limits(
+                           config.maxPlanningCandidates,
+                           config.maxPlanningExpansions,
+                           config.planningTimeout
+                         )
+                       ),
+                       new OperationHooks(graph.securityRequirements, resolver, policy),
+                       config,
+                       wrapper
+                     )
     } yield new GatewayRuntimeImpl[R](graph, sources, operations, control, wrapper)
 
   private def load[R](

@@ -47,13 +47,13 @@ object OperationHooksSpec extends ZIOSpecDefault {
         remote    <- stub(response)
         observed  <- Ref.make(List.empty[String])
         context   <- FiberRef.make("missing")
-        resolver   = OperationResolver.stable[Documents]("documents-v1") { request =>
+        resolver   = OperationResolver[Documents] { request =>
                        request.extensions.flatMap(_.get("operationId")) match {
                          case Some(StringValue(id)) => ZIO.serviceWithZIO[Documents](_.resolve(id))
                          case _                     => ZIO.fail(new IllegalArgumentException("operationId is required"))
                        }
                      }
-        policy     = OperationPolicy.stable[Decisions]("policy-v1") { operation =>
+        policy     = OperationPolicy[Decisions] { operation =>
                        for {
                          value   <- context.get
                          _       <- observed.update(value :: _)
@@ -97,7 +97,7 @@ object OperationHooksSpec extends ZIOSpecDefault {
       for {
         remote    <- stub(response)
         calls     <- Ref.make(0)
-        policy     = OperationPolicy.stable[Any]("reject-v1") { _ =>
+        policy     = OperationPolicy[Any] { _ =>
                        calls.update(_ + 1).as(Reject())
                      }
         runtime   <- Gateway
@@ -124,7 +124,7 @@ object OperationHooksSpec extends ZIOSpecDefault {
         remote  <- stub(response)
         runtime <- Gateway
                      .compose(Subgraph.graphql("remote", remote.endpoint, schema))
-                     .withOperationPolicy(OperationPolicy.uncached[Any](_ => ZIO.succeed(Reject("Operation denied."))))
+                     .withOperationPolicy(OperationPolicy[Any](_ => ZIO.succeed(Reject("Operation denied."))))
                      .build
         result  <- runtime.executeRequest(request)
         sent    <- remote.requests.get
@@ -146,7 +146,7 @@ object OperationHooksSpec extends ZIOSpecDefault {
         policyRuntime   <- Gateway
                              .compose(Subgraph.graphql("policy", remote.endpoint, schema))
                              .withOperationPolicy(
-                               OperationPolicy.uncached[Any](_ => ZIO.dieMessage(secretPolicy))
+                               OperationPolicy[Any](_ => ZIO.dieMessage(secretPolicy))
                              )
                              .build
         policyResult    <- policyRuntime.executeRequest(request)
@@ -172,7 +172,7 @@ object OperationHooksSpec extends ZIOSpecDefault {
       for {
         remote  <- stub(response)
         started <- Promise.make[Nothing, Unit]
-        policy   = OperationPolicy.uncached[Any](_ =>
+        policy   = OperationPolicy[Any](_ =>
                      started.succeed(()).unit *> ZIO.never.ensuring(ZIO.dieMessage("hook-finalizer-secret"))
                    )
         runtime <- Gateway
@@ -183,13 +183,13 @@ object OperationHooksSpec extends ZIOSpecDefault {
         _       <- started.await
         exit    <- fiber.interrupt
         sent    <- remote.requests.get
-      } yield assertTrue(exit.isInterrupted, sent.isEmpty)
+      } yield assertTrue(exit.causeOption.exists(_.isInterruptedOnly), sent.isEmpty)
     },
-    test("keeps stable hook discriminators or signals cache bypass") {
+    test("only uncached resolvers bypass the operation cache") {
       val stable = new OperationHooks[Any](
         _ => Nil,
-        Some(OperationResolver.stable[Any]("documents-v1")(_ => ZIO.succeed(query))),
-        Some(OperationPolicy.stable[Any]("policy-v1")(_ => ZIO.succeed(Allow)))
+        Some(OperationResolver[Any](_ => ZIO.succeed(query))),
+        Some(OperationPolicy[Any](_ => ZIO.succeed(Allow)))
       )
       val bypass = new OperationHooks[Any](
         _ => Nil,
@@ -198,10 +198,7 @@ object OperationHooksSpec extends ZIOSpecDefault {
       )
 
       assertTrue(
-        stable.cacheDirective == OperationCacheDirective.Cacheable(
-          resolver = Some("documents-v1"),
-          policy = Some("policy-v1")
-        ),
+        stable.cacheDirective == OperationCacheDirective.Cacheable,
         bypass.cacheDirective == OperationCacheDirective.Bypass
       )
     }

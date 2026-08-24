@@ -37,15 +37,13 @@ private[gateway] final class OperationPreparation[-R] private (
       config     <- Configurator.ref.get
       preparation = PreparationConfig.from(config)
       prepared   <- hooks.cacheDirective match {
-                      case Cacheable(resolver, policy) if preparation.cacheable =>
+                      case Cacheable if preparation.cacheable =>
                         cache
                           .getOrCompute(
                             CacheKey(
                               query,
                               resolved.operationName,
                               resolved.isHttpGetRequest,
-                              resolver,
-                              policy,
                               preparation
                             )
                           )(parseWithinLimits(query).flatMap { parsed =>
@@ -58,7 +56,7 @@ private[gateway] final class OperationPreparation[-R] private (
                             )
                           })
                           .flatMap(materialize(resolved, _))
-                      case _                                                    =>
+                      case _                                  =>
                         prepareUncached(resolved, query, config.validations)
                     }
       _          <- hooks.evaluatePolicy(resolved, prepared.document, prepared.executionRequest)
@@ -104,7 +102,7 @@ private[gateway] final class OperationPreparation[-R] private (
                            skipValidation = true,
                            validations = Some(AllValidations)
                          )
-            plan      <- ZIO.fromEither(planner.plan(document, execution)).mapError(planningFailure)
+            plan      <- plan(document, execution)
           } yield Some((execution, plan))
     } yield {
       val execution =
@@ -130,7 +128,7 @@ private[gateway] final class OperationPreparation[-R] private (
                      skipValidation = false,
                      validations = Some(validations)
                    )
-      plan      <- ZIO.fromEither(planner.plan(document, execution)).mapError(planningFailure)
+      plan      <- plan(document, execution)
     } yield Prepared(request, document, execution, plan)
 
   private def materialize(
@@ -154,11 +152,15 @@ private[gateway] final class OperationPreparation[-R] private (
           plan      <- cached.plan match {
                          case Some(value) if !value.hasVariableReferences => Exit.succeed(value)
                          case Some(value)                                 => Exit.succeed(value.bind(variables))
-                         case None                                        =>
-                           Exit.fromEither(planner.plan(cached.document, execution)).mapError(planningFailure)
+                         case None                                        => plan(cached.document, execution)
                        }
         } yield Prepared(request, cached.document, execution, plan)
     }
+
+  private def plan(document: Document, execution: ExecutionRequest)(implicit
+    trace: Trace
+  ): IO[CalibanError, OperationPlan] =
+    ZIO.blocking(ZIO.fromEither(planner.plan(document, execution))).mapError(planningFailure)
 
   private def operationWeight(
     text: Int,
@@ -219,8 +221,6 @@ private[gateway] object OperationPreparation {
     query: String,
     operationName: Option[String],
     isHttpGetRequest: Boolean,
-    resolver: Option[String],
-    policy: Option[String],
     preparation: PreparationConfig
   )
 

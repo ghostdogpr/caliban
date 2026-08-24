@@ -44,7 +44,7 @@ class JsonEncodingBenchmark {
     }
   }
 
-  private val testData: GraphQLResponse[Any] = GraphQLResponse(mkObject(5, 20), Nil, None)
+  private val testData: GraphQLResponse[Any]      = GraphQLResponse(mkObject(5, 20), Nil, None)
   private val smallResponse: GraphQLResponse[Any] = GraphQLResponse(
     ResponseValue.ObjectValue(List("name" -> StringValue("Ada"), "active" -> BooleanValue(true))),
     Nil,

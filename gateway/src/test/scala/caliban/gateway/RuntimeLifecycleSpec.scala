@@ -165,7 +165,7 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
         _          <- TestClock.adjust(1.second)
         overdue    <- waitForControl(control)(_.lifecycle.overdue == 1)
         cancelling <- fiber.interrupt.fork
-        pending    <- cancelling.poll
+        pending    <- ZIO.yieldNow.repeatN(20) *> cancelling.poll
         _          <- release.succeed(())
         exit       <- cancelling.join
         done       <- control.status(operationCacheStatus)
@@ -379,15 +379,10 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
                   .build
                   .exit
       } yield assertTrue(
-        exit.causeOption
-          .flatMap(_.failureOption)
-          .map(_.diagnostics)
-          .contains(
-            List(
-              "Gateway request timeout must be finite and positive.",
-              "Gateway drain timeout must be finite and positive."
-            )
-          )
+        buildDiagnostics(exit) == List(
+          "Gateway request timeout must be finite and positive.",
+          "Gateway drain timeout must be finite and positive."
+        )
       )
     }
   ).provideSomeShared[Scope](testServer, stubIds) @@ TestAspect.sequential

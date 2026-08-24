@@ -214,9 +214,9 @@ private[gateway] final class EntityExecutor[-R](
           else EntityCorrelation.Ordered
         val variables   = Map(
           "representations" -> InputListValue(
-            batch.entries.map(entry =>
-              mapping.representationToSource(route.entityType, federationRepresentation(route, entry))
-            )
+            batch.entries
+              .map(entry => mapping.representationToSource(route.entityType, federationRepresentation(route, entry)))
+              .toList
           )
         )
         val selections  = sourceSelections ::: correlation.required
@@ -472,7 +472,7 @@ private[gateway] final class EntityExecutor[-R](
     EntityBatch(
       entries.iterator.map { case (representation, locations) =>
         EntityBatchEntry(representation.identity, representation.requirements.toMap, locations.toList)
-      }.toList,
+      }.toVector,
       errors.toList,
       skipped.iterator.map { case (route, paths) => route -> paths.toSet }.toMap,
       routes.map(_.id).toSet
@@ -661,9 +661,13 @@ private[gateway] final class EntityExecutor[-R](
     response: GraphQLResponse[CalibanError],
     errorPolicy: GraphQLSource.ErrorPolicy
   ): EntityResult = {
-    val expected       = batch.entries.iterator.zipWithIndex.map { case (entry, index) =>
-      correlationIdentity(route, entry.identity) -> index
-    }.toMap
+    val expected       = lookup.correlation match {
+      case _: EntityCorrelation.Keyed =>
+        batch.entries.iterator.zipWithIndex.map { case (entry, index) =>
+          correlationIdentity(route, entry.identity) -> index
+        }.toMap
+      case EntityCorrelation.Ordered  => Map.empty[EntityIdentity, Int]
+    }
     val resolved       = mutable.Set.empty[Int]
     val patches        = mutable.LinkedHashMap.empty[Int, ResponseValue]
     val protocolErrors = mutable.ListBuffer.empty[CalibanError]
@@ -723,7 +727,7 @@ private[gateway] final class EntityExecutor[-R](
           case EntityCorrelation.Ordered | _: EntityCorrelation.Federation =>
             missing.flatMap { case (entry, _) =>
               entry.locations.map(location => missingEntityResult(location.route, location.path))
-            }
+            }.toList
         }
     val errors         = batch.errors :::
       relocated :::
@@ -731,7 +735,7 @@ private[gateway] final class EntityExecutor[-R](
       missingErrors
 
     EntityResult(
-      merged,
+      merged.toList,
       errors,
       batch.routes,
       immutableBlocked(blocked)
@@ -1085,7 +1089,7 @@ private[gateway] object EntityExecutor {
   )
 
   private final case class EntityBatch(
-    entries: List[EntityBatchEntry],
+    entries: Vector[EntityBatchEntry],
     errors: List[CalibanError],
     blocked: Map[RouteId, Set[List[PathValue]]],
     routes: Set[RouteId]

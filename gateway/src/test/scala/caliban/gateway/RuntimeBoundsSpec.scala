@@ -104,36 +104,25 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
       }
     ),
     suite("operation preparation")(
-      test("caches stable prepared plans and bypasses caching for unstable policy") {
+      test("caches prepared plans independently of policy evaluation") {
         for {
           policyCalls  <- Ref.make(0)
           stableRemote <- stub(response)
           stable       <- Gateway
                             .compose(Subgraph.graphql("stable", stableRemote.endpoint, schema))
                             .withOperationPolicy(
-                              OperationPolicy.stable[Any]("policy-v1")(_ => policyCalls.update(_ + 1).as(Allow))
+                              OperationPolicy[Any](_ => policyCalls.update(_ + 1).as(Allow))
                             )
                             .build
           _            <- stable.executeRequest(request)
           _            <- stable.executeRequest(request)
           stableStatus <- stable.status
           policyRuns   <- policyCalls.get
-          bypassRemote <- stub(response)
-          bypass       <- Gateway
-                            .compose(Subgraph.graphql("bypass", bypassRemote.endpoint, schema))
-                            .withOperationPolicy(OperationPolicy.uncached[Any](_ => ZIO.succeed(Allow)))
-                            .build
-          _            <- bypass.executeRequest(request)
-          _            <- bypass.executeRequest(request)
-          bypassStatus <- bypass.status
         } yield assertTrue(
           stableStatus.operationCache.entries == 1,
           stableStatus.operationCache.misses == 1,
           stableStatus.operationCache.hits == 1,
-          policyRuns == 2,
-          bypassStatus.operationCache.entries == 0,
-          bypassStatus.operationCache.misses == 0,
-          bypassStatus.operationCache.hits == 0
+          policyRuns == 2
         )
       },
       test("isolates cached preparations by the Caliban introspection setting") {
@@ -367,7 +356,7 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
           started <- Promise.make[Nothing, Unit]
           release <- Promise.make[Nothing, Unit]
           calls   <- Ref.make(0)
-          resolver = OperationResolver.stable[Any]("explain-v1")(_ =>
+          resolver = OperationResolver[Any](_ =>
                        calls.updateAndGet(_ + 1).flatMap { index =>
                          if (index == 1) started.succeed(()).unit *> release.await.as("{ localValue }")
                          else ZIO.succeed("{ localValue }")

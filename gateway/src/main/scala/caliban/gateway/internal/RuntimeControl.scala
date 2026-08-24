@@ -4,7 +4,7 @@ import caliban.gateway.GatewayRuntime
 import caliban.gateway.GatewayWrapper
 import caliban.gateway.GatewayRuntime.{ LifecycleStatus, OperationCacheStatus, Status }
 import caliban.gateway.GatewayWrapper.{ AdmissionKind, Event, Result }
-import zio.{ Clock, Duration, Exit, Fiber, Promise, Ref, Scope, Trace, UIO, URIO, ZIO }
+import zio.{ Clock, Duration, Exit, Fiber, IO, Promise, Ref, Scope, Trace, UIO, URIO, ZIO }
 
 private[gateway] final class RuntimeControl private (
   requests: ExecutionGate,
@@ -102,7 +102,7 @@ private[gateway] final class RuntimeControl private (
     val work: ZIO[R, E, Option[A]] = effect.map(Some(_))
 
     work.raceWith(stop)(
-      (exit, stopFiber) => finishBeforeStop(lease, exit, stopFiber, onOverdue),
+      (exit, stopFiber) => finishBeforeStop(exit, stopFiber),
       (exit, workFiber) =>
         exit match {
           case Exit.Success(stop)  =>
@@ -121,21 +121,14 @@ private[gateway] final class RuntimeControl private (
     )
   }
 
-  private def finishBeforeStop[R, E, A](
-    lease: Lease,
+  private def finishBeforeStop[E, A](
     result: Exit[E, Option[A]],
-    stopFiber: Fiber[E, Stop],
-    onOverdue: URIO[R, Unit]
-  )(implicit trace: Trace): ZIO[R, E, Option[A]] =
-    stopFiber.interrupt *> currentStop(lease).flatMap {
-      case Some(Stop.Deadline) => markOverdue(lease.token, onOverdue) *> ZIO.none
-      case Some(Stop.Drain)    => markOverdue(lease.token, onOverdue) *> ZIO.interrupt
-      case None                =>
-        result match {
-          case Exit.Success(value) => ZIO.succeed(value)
-          case Exit.Failure(cause) => ZIO.failCause(cause)
-        }
-    }
+    stopFiber: Fiber[E, Stop]
+  )(implicit trace: Trace): IO[E, Option[A]] =
+    stopFiber.interrupt *> (result match {
+      case Exit.Success(value) => ZIO.succeed(value)
+      case Exit.Failure(cause) => ZIO.failCause(cause)
+    })
 
   private def stopAt(lease: Lease)(implicit trace: Trace): UIO[Stop] =
     remaining(lease).flatMap { value =>

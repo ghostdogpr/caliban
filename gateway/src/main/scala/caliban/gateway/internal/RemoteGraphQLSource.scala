@@ -4,6 +4,7 @@ import caliban.ResponseValue.ObjectValue
 import caliban.Value.NullValue
 import caliban.gateway.{ GatewayWrapper, RemoteGraphQLConfig }
 import caliban.gateway.GatewayWrapper.{ DeduplicationResult, Event, Outcome, Result }
+import caliban.interop.jsoniter.BoundedOutputStream
 import caliban.parsing.adt.OperationType
 import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, IncomingRequestHeaders, ResponseValue }
 import com.github.plokhotnyuk.jsoniter_scala.core._
@@ -14,10 +15,9 @@ import sttp.model.{ Header, Uri }
 import zio._
 import zio.stream.ZStream
 
-import java.io.OutputStream
 import java.util.Arrays
 import scala.collection.mutable
-import scala.util.control.{ NoStackTrace, NonFatal }
+import scala.util.control.NonFatal
 
 private[gateway] final class RemoteGraphQLSource[-R](
   name: String,
@@ -179,8 +179,8 @@ private[gateway] final class RemoteGraphQLSource[-R](
       writeToStream(request, output)
       Right(output.toByteArray)
     } catch {
-      case RequestLimitExceeded => Left(GraphQLSource.RequestTooLarge)
-      case NonFatal(_)          => Left(GraphQLSource.InvalidRequest)
+      case BoundedOutputStream.LimitExceeded => Left(GraphQLSource.RequestTooLarge)
+      case NonFatal(_)                       => Left(GraphQLSource.InvalidRequest)
     }
   }
 
@@ -317,14 +317,15 @@ private[gateway] object RemoteGraphQLSource {
     config: RemoteGraphQLConfig[R],
     wrapper: GatewayWrapper[R]
   )(implicit trace: Trace): ZIO[Scope, Nothing, RemoteGraphQLSource[R]] =
-    ZIO.scopeWith { scope =>
+    Scope.make.flatMap { deduplicationScope =>
       val deduplicator =
         if (config.execution.inFlightQueryDeduplication)
-          InFlightQueryDeduplicator.make(scope, config.execution.maxConcurrentCalls).map(Some(_))
+          InFlightQueryDeduplicator.make(deduplicationScope, config.execution.maxConcurrentCalls).map(Some(_))
         else ZIO.none
-      deduplicator.map(
-        new RemoteGraphQLSource(name, endpoint, backend, config, StructuralLimits.default, _, None, wrapper)
-      )
+      ZIO.addFinalizer(deduplicationScope.close(Exit.unit)) *>
+        deduplicator.map(
+          new RemoteGraphQLSource(name, endpoint, backend, config, StructuralLimits.default, _, None, wrapper)
+        )
     }
 
   final case class StructuralLimits(
@@ -491,34 +492,4 @@ private[gateway] object RemoteGraphQLSource {
       } yield new InFlightQueryDeduplicator(scope, state)
   }
 
-  private case object RequestLimitExceeded extends RuntimeException with NoStackTrace
-
-  private final class BoundedOutputStream(maxBytes: Int) extends OutputStream {
-    private var bytes = Array.emptyByteArray
-    private var size  = 0
-
-    override def write(value: Int): Unit = {
-      ensureCapacity(1)
-      bytes(size) = value.toByte
-      size += 1
-    }
-
-    override def write(values: Array[Byte], offset: Int, length: Int): Unit = {
-      ensureCapacity(length)
-      java.lang.System.arraycopy(values, offset, bytes, size, length)
-      size += length
-    }
-
-    def toByteArray: Array[Byte] =
-      if (size == bytes.length) bytes else java.util.Arrays.copyOf(bytes, size)
-
-    private def ensureCapacity(additionalBytes: Int): Unit = {
-      val required = size + additionalBytes
-      if (additionalBytes < 0 || required < size || required > maxBytes) throw RequestLimitExceeded
-      if (required > bytes.length) {
-        val next = math.min(maxBytes.toLong, math.max(required.toLong, bytes.length.toLong * 2L)).toInt
-        bytes = java.util.Arrays.copyOf(bytes, next)
-      }
-    }
-  }
 }
