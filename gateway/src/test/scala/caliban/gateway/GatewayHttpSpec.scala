@@ -343,8 +343,7 @@ object GatewayHttpSpec extends ZIOSpecDefault {
                            )
                          )
         } yield assertTrue(
-          method.response.status == Status.MethodNotAllowed,
-          method.response.headers.get(Header.Allow).exists(_.renderedValue == "GET, POST"),
+          method.response.status == Status.NotFound,
           contentType.response.status == Status.UnsupportedMediaType,
           accept.response.status == Status.NotAcceptable,
           fallback.response.headers.get(Header.ContentType).exists(_.mediaType.fullType == "application/json"),

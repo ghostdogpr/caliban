@@ -167,8 +167,8 @@ object QuickAdapterSpec extends ZIOSpecDefault {
     }
   )
 
-  private def execute[T](request: sttp.client4.Request[T]) =
-    ZIO.scoped(HttpClientZioBackend.scoped().flatMap(request.send(_)))
+  private def execute[T](request: sttp.client4.Request[T]): Task[sttp.client4.Response[T]] =
+    ZIO.scoped[Any](HttpClientZioBackend.scoped().flatMap(request.send(_)))
 
   private def uploadParts(file: Array[Byte]) = {
     val operations =
