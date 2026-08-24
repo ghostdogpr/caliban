@@ -38,7 +38,7 @@ object MainSpec extends ZIOSpecDefault {
 
       val result = Main.decodeSubgraphs(missingSdl.getBytes(StandardCharsets.UTF_8))
 
-      assertTrue(result == Left("Missing string field 'sdl'."))
+      assertTrue(result == Left("Audit fixture subgraphs were not valid JSON."))
     }
   )
 }

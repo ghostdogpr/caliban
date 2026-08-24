@@ -42,8 +42,8 @@ abstract class GatewayWrapper[-R] { self =>
    * Combines wrappers. Effects and outbound header transforms are applied from left to right.
    */
   final def |+|[R1](that: GatewayWrapper[R1]): GatewayWrapper[R with R1] =
-    if (!self.enabled) that.asInstanceOf[GatewayWrapper[R with R1]]
-    else if (!that.enabled) self.asInstanceOf[GatewayWrapper[R with R1]]
+    if (!self.enabled) that
+    else if (!that.enabled) self
     else
       new GatewayWrapper[R with R1] {
         def wrap[R0, E, A](event: GatewayWrapper.Event)(effect: ZIO[R0, E, A])(
@@ -121,6 +121,12 @@ object GatewayWrapper {
   )
 
   object Result {
+    private[gateway] def fromResponse(response: caliban.GraphQLResponse[_]): Result =
+      Result(
+        if (response.errors.isEmpty) Outcome.Success else Outcome.GraphQLError,
+        errorCount = response.errors.size
+      )
+
     private[gateway] def classifyExit[E, A](exit: Exit[E, A]): Result =
       fromExit(exit)(_ => Result(Outcome.Success), _ => Result(Outcome.InternalError))
 

@@ -30,56 +30,51 @@ final private class QuickRequestHandler[R] private (
   import QuickRequestHandler._
   import ValueJsoniter.stringListCodec
 
-  def configure(config: ExecutionConfiguration)(implicit trace: Trace): QuickRequestHandler[R] =
-    new QuickRequestHandler[R](
-      interpreter.wrapExecutionWith[R, Any](Configurator.locally(config)(_)),
-      requestExecution.configure(config),
+  private def copy[R1 <: R](
+    interpreter: GraphQLInterpreter[R1, Any] = this.interpreter,
+    requestExecution: RequestExecution[R1] = this.requestExecution,
+    wsConfig: quick.WebSocketConfig[R1] = this.wsConfig,
+    sseConfig: quick.SseConfig = this.sseConfig,
+    maxRequestBodyBytes: Int = this.maxRequestBodyBytes,
+    maxResponseBodyBytes: Int = this.maxResponseBodyBytes
+  ): QuickRequestHandler[R1] =
+    new QuickRequestHandler(
+      interpreter,
+      requestExecution,
       wsConfig,
       sseConfig,
       maxRequestBodyBytes,
       maxResponseBodyBytes
+    )
+
+  def configure(config: ExecutionConfiguration)(implicit trace: Trace): QuickRequestHandler[R] =
+    copy(
+      interpreter = interpreter.wrapExecutionWith[R, Any](Configurator.locally(config)(_)),
+      requestExecution = requestExecution.configure(config)
     )
 
   def configure[R1](configurator: QuickAdapter.Configurator[R1])(implicit
     trace: Trace
   ): QuickRequestHandler[R & R1] =
-    new QuickRequestHandler[R & R1](
-      interpreter.wrapExecutionWith[R & R1, Any](exec => ZIO.scoped[R1 & R](configurator *> exec)),
-      requestExecution.configure(configurator),
-      wsConfig,
-      sseConfig,
-      maxRequestBodyBytes,
-      maxResponseBodyBytes
+    copy[R & R1](
+      interpreter = interpreter.wrapExecutionWith[R & R1, Any](exec => ZIO.scoped[R1 & R](configurator *> exec)),
+      requestExecution = requestExecution.configure(configurator)
     )
 
   def configureWebSocket[R1](config: quick.WebSocketConfig[R1]): QuickRequestHandler[R & R1] =
-    new QuickRequestHandler[R & R1](
-      interpreter,
-      requestExecution,
-      config,
-      sseConfig,
-      maxRequestBodyBytes,
-      maxResponseBodyBytes
-    )
+    copy[R & R1](wsConfig = config)
 
   def configureSse(config: quick.SseConfig): QuickRequestHandler[R] =
-    new QuickRequestHandler[R](
-      interpreter,
-      requestExecution,
-      wsConfig,
-      config,
-      maxRequestBodyBytes,
-      maxResponseBodyBytes
-    )
+    copy(sseConfig = config)
 
   def withMaxRequestBodyBytes(value: Int): QuickRequestHandler[R] = {
     require(value > 0, "Maximum request-body size must be positive.")
-    new QuickRequestHandler[R](interpreter, requestExecution, wsConfig, sseConfig, value, maxResponseBodyBytes)
+    copy(maxRequestBodyBytes = value)
   }
 
   def withMaxResponseBodyBytes(value: Int): QuickRequestHandler[R] = {
     require(value > 0, "Maximum response-body size must be positive.")
-    new QuickRequestHandler[R](interpreter, requestExecution, wsConfig, sseConfig, maxRequestBodyBytes, value)
+    copy(maxResponseBodyBytes = value)
   }
 
   def handleHttpRequest(request: Request)(implicit
@@ -97,7 +92,7 @@ final private class QuickRequestHandler[R] private (
           .flatMap(req => executeRequest(request, req))
           .foldZIO(
             Exit.succeed,
-            result => Exit.succeed(transformResponse(request, result))
+            Exit.succeed
           )
       }
     }
@@ -107,7 +102,7 @@ final private class QuickRequestHandler[R] private (
       executeRequest(request, req).provideSomeLayer[R](fileHandle)
     }.foldZIO(
       Exit.succeed,
-      result => Exit.succeed(transformResponse(request, result))
+      Exit.succeed
     )
   }
 
@@ -224,13 +219,13 @@ final private class QuickRequestHandler[R] private (
 
   private def executeRequest(httpRequest: Request, req: GraphQLRequest)(implicit
     trace: Trace
-  ): ZIO[R, Response, PreparedResponse] =
+  ): ZIO[R, Response, Response] =
     IncomingRequestHeaders
       .locally(
         httpRequest.headers.iterator.map(header => header.headerName -> header.renderedValue).toList
       )(
         requestExecution.execute(if (httpRequest.method == Method.GET) req.asHttpGetRequest else req) { result =>
-          prepareResponse(httpRequest, result)
+          buildResponse(httpRequest, result)
         }
       )
       .absolve
@@ -241,12 +236,14 @@ final private class QuickRequestHandler[R] private (
       case Some(h) => headers.addHeader(Header.CacheControl.name, h)
     }
 
-  private def transformResponse(httpReq: Request, prepared: PreparedResponse)(implicit
-    trace: Trace
-  ): Response = {
-    val outcome        = prepared.outcome
-    val encoding       = prepared.encoding
-    val cacheDirective = prepared.cacheDirective
+  private def buildResponse(
+    httpReq: Request,
+    result: GraphQLResponseContext.Classified[GraphQLResponse[Any]]
+  )(implicit trace: Trace): Either[Response, Response] = {
+    val response       = result.value
+    val outcome        = result.outcome
+    val encoding       = responseEncoding(httpReq).getOrElse(ResponseEncoding.Json)
+    val cacheDirective = response.extensions.flatMap(HttpUtils.computeCacheDirective)
     val mutationOnGet  = outcome == Outcome.MethodNotAllowed
 
     def responseStatus(requestErrorsAreBadRequests: Boolean): Status =
@@ -257,56 +254,44 @@ final private class QuickRequestHandler[R] private (
         case _                                                   => Status.Ok
       }
 
-    prepared match {
-      case EncodedResponse(bytes, _, _, _)                                                   =>
-        val contentType = if (encoding == ResponseEncoding.GraphQLJson) ContentTypeGql else ContentTypeJson
-        Response(
-          status = responseStatus(requestErrorsAreBadRequests = encoding == ResponseEncoding.GraphQLJson),
-          headers = responseHeaders(contentType, cacheDirective) ++ allowPost(mutationOnGet),
-          body = Body.fromArray(bytes)
-        )
-      case StructuredResponse(resp @ GraphQLResponse(StreamValue(stream), _, _, _), _, _, _) =>
-        Response(
-          Status.Ok,
-          headers = responseHeaders(ContentTypeMultipart, None),
-          body = Body.fromStreamChunked(encodeMultipartMixedResponse(resp, stream))
-        )
-      case StructuredResponse(resp, _, _, _) if encoding == ResponseEncoding.EventStream     =>
-        val response = Response.fromServerSentEvents(encodeTextEventStream(resp))
-        response.copy(
-          status = responseStatus(requestErrorsAreBadRequests = true),
-          headers = response.headers ++ allowPost(mutationOnGet)
-        )
-      case StructuredResponse(resp, _, _, _) if encoding == ResponseEncoding.Multipart       =>
-        Response(
-          responseStatus(requestErrorsAreBadRequests = true),
-          headers = responseHeaders(ContentTypeMultipart, cacheDirective) ++ allowPost(mutationOnGet),
-          body = Body.fromStreamChunked(encodeMultipartMixedResponse(resp, ZStream.succeed(resp.data)))
-        )
-      case StructuredResponse(_, _, _, _)                                                    =>
-        Response.internalServerError
-    }
-  }
-
-  private def prepareResponse(
-    httpReq: Request,
-    result: GraphQLResponseContext.Classified[GraphQLResponse[Any]]
-  ): Either[Response, PreparedResponse] = {
-    val response       = result.value
-    val encoding       = responseEncoding(httpReq).getOrElse(ResponseEncoding.Json)
-    val cacheDirective = response.extensions.flatMap(HttpUtils.computeCacheDirective)
-
     response match {
-      case resp @ GraphQLResponse(StreamValue(_), _, _, _)                                            =>
-        Right(StructuredResponse(resp, result.outcome, encoding, cacheDirective))
-      case resp if encoding == ResponseEncoding.EventStream || encoding == ResponseEncoding.Multipart =>
-        Right(StructuredResponse(resp, result.outcome, encoding, cacheDirective))
-      case resp                                                                                       =>
+      case resp @ GraphQLResponse(StreamValue(stream), _, _, _) =>
+        Right(
+          Response(
+            Status.Ok,
+            headers = responseHeaders(ContentTypeMultipart, None),
+            body = Body.fromStreamChunked(encodeMultipartMixedResponse(resp, stream))
+          )
+        )
+      case resp if encoding == ResponseEncoding.EventStream     =>
+        val encoded = Response.fromServerSentEvents(encodeTextEventStream(resp))
+        Right(
+          encoded.copy(
+            status = responseStatus(requestErrorsAreBadRequests = true),
+            headers = encoded.headers ++ allowPost(mutationOnGet)
+          )
+        )
+      case resp if encoding == ResponseEncoding.Multipart       =>
+        Right(
+          Response(
+            responseStatus(requestErrorsAreBadRequests = true),
+            headers = responseHeaders(ContentTypeMultipart, cacheDirective) ++ allowPost(mutationOnGet),
+            body = Body.fromStreamChunked(encodeMultipartMixedResponse(resp, ZStream.succeed(resp.data)))
+          )
+        )
+      case resp                                                 =>
+        val contentType = if (encoding == ResponseEncoding.GraphQLJson) ContentTypeGql else ContentTypeJson
         encodeSingleResponse(
           resp,
-          keepDataOnErrors = encoding != ResponseEncoding.GraphQLJson || result.outcome == Outcome.Executed,
+          keepDataOnErrors = encoding != ResponseEncoding.GraphQLJson || outcome == Outcome.Executed,
           hasCacheDirective = cacheDirective.isDefined
-        ).map(EncodedResponse(_, result.outcome, encoding, cacheDirective))
+        ).map(bytes =>
+          Response(
+            status = responseStatus(requestErrorsAreBadRequests = encoding == ResponseEncoding.GraphQLJson),
+            headers = responseHeaders(contentType, cacheDirective) ++ allowPost(mutationOnGet),
+            body = Body.fromArray(bytes)
+          )
+        )
     }
   }
 
@@ -459,26 +444,6 @@ object QuickRequestHandler {
       maxRequestBodyBytes,
       maxResponseBodyBytes
     )
-
-  private sealed trait PreparedResponse {
-    def outcome: Outcome
-    def encoding: ResponseEncoding
-    def cacheDirective: Option[String]
-  }
-
-  private final case class EncodedResponse(
-    bytes: Array[Byte],
-    outcome: Outcome,
-    encoding: ResponseEncoding,
-    cacheDirective: Option[String]
-  ) extends PreparedResponse
-
-  private final case class StructuredResponse(
-    response: GraphQLResponse[Any],
-    outcome: Outcome,
-    encoding: ResponseEncoding,
-    cacheDirective: Option[String]
-  ) extends PreparedResponse
 
   private sealed trait ResponseEncoding
 

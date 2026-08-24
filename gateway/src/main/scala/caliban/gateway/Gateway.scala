@@ -6,6 +6,7 @@ import caliban.introspection.Introspector
 import caliban.parsing.adt.Definition.TypeSystemDefinition.SchemaDefinition
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
 import caliban.parsing.adt.Definition.TypeSystemExtension.SchemaExtension
+import caliban.parsing.adt.Definition.TypeSystemExtension.TypeExtension.ObjectTypeExtension
 import caliban.parsing.adt.Type.NamedType
 import caliban.parsing.adt.Document
 import caliban.schema.RootType
@@ -120,14 +121,11 @@ object Gateway {
       composed      =
         if (contributions.nonEmpty) SchemaComposition.compose(contributions)
         else Left(Nil)
-      graph        <- ZIO
-                        .fromEither(
-                          composed.left.map(errors => GatewayBuildError((diagnostics ::: errors).distinct.sorted))
-                        )
-                        .flatMap { graph =>
-                          if (diagnostics.isEmpty) ZIO.succeed(graph)
-                          else ZIO.fail(GatewayBuildError(diagnostics.distinct.sorted))
-                        }
+      graph        <- composed match {
+                        case Right(graph) if diagnostics.isEmpty => ZIO.succeed(graph)
+                        case result                              =>
+                          ZIO.fail(GatewayBuildError((diagnostics ::: result.left.getOrElse(Nil)).distinct.sorted))
+                      }
       _            <- ZIO
                         .fail(GatewayBuildError(graph.securityPolicyDiagnostics))
                         .when(policy.isEmpty && graph.hasSecurityRequirements)
@@ -175,24 +173,23 @@ object Gateway {
           .diagnostics(schema == SchemaInput.Acquired)
           .map(message => s"[${subgraph.name}] $message")
         for {
-          _                 <- ZIO.fail(policyDiagnostics).when(policyDiagnostics.nonEmpty)
-          client            <- ZIO
-                                 .fromOption(backend)
-                                 .orElseFail(List(s"[${subgraph.name}] Remote GraphQL transport is unavailable."))
-          document          <- RemoteSchemaAcquisition
-                                 .document(schema, endpoint, federation, config.acquisition, Some(client))
-                                 .mapError(error => List(s"[${subgraph.name}] $error"))
-          normalizedDocument = if (federation) RemoteSchema.promoteOrphanTypeExtensions(document) else document
-          rootDocument       = ensureFederationTransportQuery(normalizedDocument, federation)
-          sourceRootType    <- toRootType(subgraph.name, rootDocument).mapError(_ :: Nil)
-          contribution      <- prepareContribution(subgraph, sourceRootType, rootDocument, document, federation)
-          source            <- RemoteGraphQLSource.make(
-                                 subgraph.name,
-                                 endpoint,
-                                 client,
-                                 config.withDefaultErrorDisclosure(remoteErrorDisclosure),
-                                 wrapper
-                               )
+          _              <- ZIO.fail(policyDiagnostics).when(policyDiagnostics.nonEmpty)
+          client         <- ZIO
+                              .fromOption(backend)
+                              .orElseFail(List(s"[${subgraph.name}] Remote GraphQL transport is unavailable."))
+          document       <- RemoteSchemaAcquisition
+                              .document(schema, endpoint, federation, config.acquisition, Some(client))
+                              .mapError(error => List(s"[${subgraph.name}] $error"))
+          rootDocument    = ensureFederationTransportQuery(document, federation)
+          sourceRootType <- toRootType(subgraph.name, rootDocument, promoteOrphans = federation).mapError(_ :: Nil)
+          contribution   <- prepareContribution(subgraph, sourceRootType, rootDocument, document, federation)
+          source         <- RemoteGraphQLSource.make(
+                              subgraph.name,
+                              endpoint,
+                              client,
+                              config.withDefaultErrorDisclosure(remoteErrorDisclosure),
+                              wrapper
+                            )
         } yield LoadedSubgraph(contribution, source, config.execution.maxConcurrentCalls)
       case Source.Local(graph)                                 =>
         val document   = graph.toDocument
@@ -218,9 +215,13 @@ object Gateway {
       case _                   => false
     }
 
-  private def toRootType(name: String, document: Document): IO[String, RootType] =
+  private def toRootType(
+    name: String,
+    document: Document,
+    promoteOrphans: Boolean = false
+  ): IO[String, RootType] =
     ZIO
-      .fromEither(RemoteSchema.toRootType(document))
+      .fromEither(RemoteSchema.toRootType(document, promoteOrphans))
       .mapError(error => s"[$name] ${error.getMessage}")
 
   private def prepareContribution[R](
@@ -242,7 +243,7 @@ object Gateway {
                   )
       rootType <-
         if (mapping.nonEmpty)
-          toRootType(subgraph.name, mapping.transform(rootDocument)).mapError(_ :: Nil)
+          toRootType(subgraph.name, mapping.transform(rootDocument), promoteOrphans = federation).mapError(_ :: Nil)
         else ZIO.succeed(sourceRootType)
     } yield SchemaContribution(
       subgraph.name,
@@ -258,12 +259,20 @@ object Gateway {
     val hasDeclaredQuery     =
       document.schemaDefinition.flatMap(_.query).nonEmpty || schemaExtensions.exists(_.query.nonEmpty)
     val hasConventionalQuery =
-      document.schemaDefinition.isEmpty && document.objectTypeDefinitions.exists(_.name == "Query")
+      document.schemaDefinition.isEmpty && (
+        document.objectTypeDefinitions.exists(_.name == "Query") ||
+          document.typeExtensions.exists {
+            case extension: ObjectTypeExtension => extension.name == "Query"
+            case _                              => false
+          }
+      )
 
     if (!federation || hasDeclaredQuery) document
     else if (hasConventionalQuery) document
     else {
-      val names    = document.typeDefinitions.iterator.map(_.name).toSet
+      val names    = document.typeDefinitions.iterator.map(_.name).toSet ++ document.typeExtensions.collect {
+        case extension: ObjectTypeExtension => extension.name
+      }
       val rootName = Iterator
         .from(1)
         .map(index => if (index == 1) "CalibanGatewayFederationQuery" else s"CalibanGatewayFederationQuery$index")

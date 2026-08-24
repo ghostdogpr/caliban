@@ -5,13 +5,13 @@ import caliban.execution.{ ExecutionRequest, Field, RequestPreparation }
 import caliban.gateway.GatewayRuntime.OperationCacheStatus
 import caliban.gateway.{ GatewayConfig, GatewayWrapper }
 import caliban.gateway.internal.OperationCache.Weighted
-import caliban.gateway.internal.OperationCacheDirective.{ Bypass, Cacheable }
+import caliban.gateway.internal.OperationCacheDirective.Cacheable
 import caliban.gateway.internal.OperationPreparation._
 import caliban.gateway.internal.OperationPlanner.{ OperationPlan, PlanningFailure }
 import caliban.parsing.adt.{ Directive, Document, Selection }
 import caliban.schema.RootType
 import caliban.validation.Validator
-import caliban.validation.Validator.{ AllValidations, QueryValidation }
+import caliban.validation.Validator.AllValidations
 import caliban.{ CalibanError, Configurator, GraphQLRequest, InputValue }
 import zio.{ Exit, IO, Trace, UIO, ZIO }
 
@@ -33,37 +33,42 @@ private[gateway] final class OperationPreparation[-R] private (
 
   def prepare(request: GraphQLRequest)(implicit trace: Trace): ZIO[R, CalibanError, Prepared] =
     for {
-      resolved    <- hooks.resolve(request)
-      query        = resolved.query.getOrElse("")
-      preparation <- Configurator.ref.get.map(PreparationConfig.from)
-      prepared    <- hooks.cacheDirective match {
-                       case Bypass                                               => checkedUncached(resolved, query)
-                       case Cacheable(resolver, policy) if preparation.cacheable =>
-                         cache
-                           .getOrCompute(
-                             CacheKey(
-                               query,
-                               resolved.operationName,
-                               resolved.isHttpGetRequest,
-                               resolver,
-                               policy,
-                               preparation
-                             )
-                           )(
-                             ZIO
-                               .fromEither(limits.textWeight(query).left.map(limitFailure))
-                               .flatMap(computeWeighted(resolved, _, preparation))
-                           )
-                           .flatMap(materialize(resolved, _))
-                       case _: Cacheable                                         => checkedUncached(resolved, query)
-                     }
-      _           <- hooks.evaluatePolicy(resolved, prepared.document, prepared.executionRequest)
+      resolved   <- hooks.resolve(request)
+      query       = resolved.query.getOrElse("")
+      config     <- Configurator.ref.get
+      preparation = PreparationConfig.from(config)
+      prepared   <- hooks.cacheDirective match {
+                      case Cacheable(resolver, policy) if preparation.cacheable =>
+                        cache
+                          .getOrCompute(
+                            CacheKey(
+                              query,
+                              resolved.operationName,
+                              resolved.isHttpGetRequest,
+                              resolver,
+                              policy,
+                              preparation
+                            )
+                          )(
+                            ZIO
+                              .fromEither(limits.textWeight(query).left.map(limitFailure))
+                              .flatMap(computeWeighted(resolved, _, preparation))
+                          )
+                          .flatMap(materialize(resolved, _))
+                      case _                                                    =>
+                        checkedUncached(resolved, query, config.validations)
+                    }
+      _          <- hooks.evaluatePolicy(resolved, prepared.document, prepared.executionRequest)
     } yield prepared
 
-  private def checkedUncached(resolved: GraphQLRequest, query: String)(implicit
+  private def checkedUncached(
+    resolved: GraphQLRequest,
+    query: String,
+    validations: List[Validator.QueryValidation]
+  )(implicit
     trace: Trace
   ): IO[CalibanError, Prepared] =
-    ZIO.fromEither(limits.textWeight(query).left.map(limitFailure)) *> prepareUncached(resolved)
+    ZIO.fromEither(limits.textWeight(query).left.map(limitFailure)) *> prepareUncached(resolved, validations)
 
   def cacheStatus(implicit trace: Trace): UIO[OperationCacheStatus] = cache.status
 
@@ -84,33 +89,46 @@ private[gateway] final class OperationPreparation[-R] private (
       document <- RequestPreparation.parse(request.query.getOrElse(""))
       nodes    <- ZIO.fromEither(limits.documentWeight(document).left.map(limitFailure))
       _        <- Validator.validate(document, rootType).unless(preparation.skipValidation)
+      variables = symbolicVariables(document)
       planned  <-
         if (hasVariableCondition(document, request.operationName)) ZIO.none
         else
           for {
-            execution <- RequestPreparation.prepareParsedWithVariables(
+            execution <- RequestPreparation.prepareParsed(
                            request,
                            document,
-                           symbolicVariables(document),
+                           variables,
                            rootType,
-                           documentIsValid = true
+                           skipValidation = true,
+                           validations = AllValidations
                          )
             plan      <- ZIO.fromEither(planner.plan(document, execution)).mapError(planningFailure)
           } yield Some((execution, plan))
     } yield {
       val execution =
-        if (symbolicVariables(document).isEmpty && !planned.exists(_._2.hasVariableReferences)) planned.map(_._1)
+        if (variables.isEmpty && !planned.exists(_._2.hasVariableReferences)) planned.map(_._1)
         else None
       CachedOperation(document, planned.map(_._2), execution) -> nodes
     }
 
-  private def prepareUncached(request: GraphQLRequest)(implicit trace: Trace): IO[CalibanError, Prepared] =
+  private def prepareUncached(
+    request: GraphQLRequest,
+    validations: List[Validator.QueryValidation]
+  )(implicit trace: Trace): IO[CalibanError, Prepared] =
     for {
-      document <- RequestPreparation.parse(request.query.getOrElse(""))
-      _        <- ZIO.fromEither(limits.documentWeight(document).left.map(limitFailure))
-      prepared <- RequestPreparation.prepareParsedWithIntrospection(request, document, rootType)
-      plan     <- ZIO.fromEither(planner.plan(document, prepared.executionRequest)).mapError(planningFailure)
-    } yield Prepared(request, document, prepared.executionRequest, plan)
+      document  <- RequestPreparation.parse(request.query.getOrElse(""))
+      _         <- ZIO.fromEither(limits.documentWeight(document).left.map(limitFailure))
+      variables <- RequestPreparation.coerceVariables(document, request, rootType)
+      execution <- RequestPreparation.prepareParsed(
+                     request,
+                     document,
+                     variables,
+                     rootType,
+                     skipValidation = false,
+                     validations = validations
+                   )
+      plan      <- ZIO.fromEither(planner.plan(document, execution)).mapError(planningFailure)
+    } yield Prepared(request, document, execution, plan)
 
   private def materialize(
     request: GraphQLRequest,
@@ -122,11 +140,13 @@ private[gateway] final class OperationPreparation[-R] private (
       case _                             =>
         for {
           variables <- RequestPreparation.coerceVariables(cached.document, request, rootType)
-          execution <- RequestPreparation.prepareParsedWithVariableValidation(
+          execution <- RequestPreparation.prepareParsed(
                          request,
                          cached.document,
                          variables,
-                         rootType
+                         rootType,
+                         skipValidation = false,
+                         validations = List(Validator.validateVariables)
                        )
           plan      <- cached.plan match {
                          case Some(value) if !value.hasVariableReferences => Exit.succeed(value)
@@ -203,10 +223,8 @@ private[gateway] object OperationPreparation {
     skipValidation: Boolean,
     enableIntrospection: Boolean,
     allowMutationsOverGetRequests: Boolean,
-    validations: List[QueryValidation]
-  ) {
-    val cacheable: Boolean = skipValidation || validations == AllValidations
-  }
+    cacheable: Boolean
+  )
 
   private object PreparationConfig {
     def from(config: Configurator.ExecutionConfiguration): PreparationConfig =
@@ -214,7 +232,7 @@ private[gateway] object OperationPreparation {
         config.skipValidation,
         config.enableIntrospection,
         config.allowMutationsOverGetRequests,
-        if (config.skipValidation) Nil else config.validations
+        config.skipValidation || config.validations == AllValidations
       )
   }
 

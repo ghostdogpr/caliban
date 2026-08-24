@@ -9,7 +9,9 @@ object MainSpec extends ZIOSpecDefault {
       val sources = Main.benchmarkSubgraphs("http://127.0.0.1:4200/")
 
       assertTrue(
-        sources.map(_.map(_.name)) == Right(List("accounts", "inventory", "products", "reviews")),
+        sources.map { case (accounts, inventory, products, reviews) =>
+          List(accounts.name, inventory.name, products.name, reviews.name)
+        } == Right(List("accounts", "inventory", "products", "reviews")),
         sources.isRight,
         Main.benchmarkSubgraphs("not a uri").isLeft
       )

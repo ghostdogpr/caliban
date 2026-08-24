@@ -26,16 +26,10 @@ private[internal] object IndexedFields {
 
   def apply(value: ObjectValue): IndexedFields = {
     val fields                                          = value.fields
-    var count                                           = 0
-    var scan                                            = fields
-    while ((scan ne Nil) && count < WideObjectFields) {
-      count += 1
-      scan = scan.tail
-    }
     var index: java.util.HashMap[String, ResponseValue] = null
-    if (count >= WideObjectFields) {
+    if (fields.lengthCompare(WideObjectFields) >= 0) {
       index = new java.util.HashMap
-      scan = fields
+      var scan = fields
       while (scan ne Nil) {
         index.put(scan.head._1, scan.head._2)
         scan = scan.tail

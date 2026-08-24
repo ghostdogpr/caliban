@@ -1,9 +1,8 @@
 package caliban.gateway
 
 import caliban.gateway.GatewayRuntime.LifecycleState
+import caliban.gateway.GatewayTestSupport._
 import caliban.gateway.internal.RuntimeControl
-import caliban.schema.{ GenericSchema, Schema }
-import caliban.{ graphQL, RootResolver }
 import sttp.model.Uri
 import zio._
 import zio.http.{ Handler, Method, Response, Routes, Server, Status }
@@ -14,16 +13,6 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
   private val operationCacheStatus =
     GatewayRuntime.OperationCacheStatus(1L, 0L, 0, 0L, 0L, 0L, 0)
 
-  private def localGraph(effect: UIO[String]) = {
-    object LocalApi extends GenericSchema[Any] {
-      import auto._
-      final case class Query(value: UIO[String])
-      implicit val querySchema: Schema[Any, Query] = gen
-      val api                                      = graphQL(RootResolver(Query(effect)))
-    }
-    LocalApi.api
-  }
-
   private def makeControl(
     scope: Scope.Closeable,
     requestTimeout: Duration = 1.second,
@@ -31,11 +20,6 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
     requestLimit: Int = 1
   ): UIO[RuntimeControl] =
     scope.extend(RuntimeControl.make(requestLimit, Map.empty, requestTimeout, drainTimeout))
-
-  private def waitForStatus(
-    runtime: GatewayRuntime[Any]
-  )(predicate: GatewayRuntime.Status => Boolean): UIO[GatewayRuntime.Status] =
-    (ZIO.yieldNow *> runtime.status).repeatUntil(predicate)
 
   private def waitForControl(
     control: RuntimeControl

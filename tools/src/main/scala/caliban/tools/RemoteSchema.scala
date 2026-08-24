@@ -46,51 +46,58 @@ object RemoteSchema {
       )
   }
 
-  private[caliban] def toRootType(document: Document): Either[ValidationError, RootType] =
+  private[caliban] def toRootType(
+    document: Document,
+    promoteOrphans: Boolean = false
+  ): Either[ValidationError, RootType] =
     for {
-      normalized <- normalizeExtensions(document)
+      normalized <- normalizeExtensions(document, promoteOrphans)
       roots       = rootNames(normalized)
       _          <- SchemaValidator.validateDocument(normalized, roots.query, roots.mutation, roots.subscription)
-      rootType    = buildRootType(normalized)
+      rootType    = buildRootType(normalized, roots)
       _          <- SchemaValidator.validateRootType(rootType)
     } yield rootType
 
-  private[caliban] def promoteOrphanTypeExtensions(document: Document): Document = {
-    val known      = document.typeDefinitions.iterator.map(_.name).toSet
-    val normalized = document.definitions.foldLeft((known, List.empty[Definition])) {
-      case ((names, definitions), extension: TypeExtension) if !names.contains(extensionName(extension)) =>
-        val definition = extension match {
-          case ScalarTypeExtension(name, directives)                     =>
-            ScalarTypeDefinition(None, name, directives)
-          case ObjectTypeExtension(name, interfaces, directives, fields) =>
-            ObjectTypeDefinition(None, name, interfaces, directives, fields)
-          case InterfaceTypeExtension(name, directives, fields)          =>
-            InterfaceTypeDefinition(None, name, Nil, directives, fields)
-          case UnionTypeExtension(name, directives, members)             =>
-            UnionTypeDefinition(None, name, directives, members)
-          case EnumTypeExtension(name, directives, values)               =>
-            EnumTypeDefinition(None, name, directives, values)
-          case InputObjectTypeExtension(name, directives, fields)        =>
-            InputObjectTypeDefinition(None, name, directives, fields)
+  private def normalizeExtensions(
+    document: Document,
+    promoteOrphans: Boolean
+  ): Either[ValidationError, Document] = {
+    val initialNames           = document.typeDefinitions.iterator.map(_.name).toSet
+    val (knownTypes, promoted) =
+      if (promoteOrphans)
+        document.definitions
+          .foldLeft((initialNames, List.empty[Definition])) {
+            case ((names, definitions), extension: TypeExtension) if !names.contains(extensionName(extension)) =>
+              val definition = extension match {
+                case ScalarTypeExtension(name, directives)                     =>
+                  ScalarTypeDefinition(None, name, directives)
+                case ObjectTypeExtension(name, interfaces, directives, fields) =>
+                  ObjectTypeDefinition(None, name, interfaces, directives, fields)
+                case InterfaceTypeExtension(name, directives, fields)          =>
+                  InterfaceTypeDefinition(None, name, Nil, directives, fields)
+                case UnionTypeExtension(name, directives, members)             =>
+                  UnionTypeDefinition(None, name, directives, members)
+                case EnumTypeExtension(name, directives, values)               =>
+                  EnumTypeDefinition(None, name, directives, values)
+                case InputObjectTypeExtension(name, directives, fields)        =>
+                  InputObjectTypeDefinition(None, name, directives, fields)
+              }
+              (names + definition.name, definition :: definitions)
+            case ((names, definitions), definition)                                                            =>
+              (names, definition :: definitions)
+          } match {
+          case (names, definitions) => names -> Document(definitions.reverse, document.sourceMapper)
         }
-        (names + definition.name, definition :: definitions)
-      case ((names, definitions), definition)                                                            =>
-        (names, definition :: definitions)
-    }
-    Document(normalized._2.reverse, document.sourceMapper)
-  }
-
-  private def normalizeExtensions(document: Document): Either[ValidationError, Document] = {
-    val typeExtensions = document.typeExtensions.collect { case extension: TypeExtension => extension }
+      else initialNames -> document
+    val typeExtensions         = promoted.typeExtensions.collect { case extension: TypeExtension => extension }
       .groupBy(extensionName)
-    val knownTypes     = document.typeDefinitions.iterator.map(_.name).toSet
-    val unknown        = typeExtensions.keys.find(!knownTypes.contains(_))
+    val unknown                = typeExtensions.keys.find(!knownTypes.contains(_))
 
     unknown match {
       case Some(name) => Left(ValidationError(s"Schema extends undefined type '$name'.", ""))
       case None       =>
         val normalizedTypes =
-          document.typeDefinitions.foldLeft[Either[ValidationError, List[TypeDefinition]]](Right(Nil)) {
+          promoted.typeDefinitions.foldLeft[Either[ValidationError, List[TypeDefinition]]](Right(Nil)) {
             case (result, definition) =>
               for {
                 definitions <- result
@@ -100,15 +107,15 @@ object RemoteSchema {
 
         for {
           types            <- normalizedTypes
-          schemaDefinition <- mergeSchemaDeclarations(document)
+          schemaDefinition <- mergeSchemaDeclarations(promoted)
         } yield {
-          val retained = document.definitions.filter {
+          val retained = promoted.definitions.filter {
             case _: TypeDefinition                        => false
             case _: TypeExtension                         => false
             case _: SchemaDefinition | _: SchemaExtension => false
             case _                                        => true
           }
-          Document(schemaDefinition.toList ::: types.reverse ::: retained, document.sourceMapper)
+          Document(schemaDefinition.toList ::: types.reverse ::: retained, promoted.sourceMapper)
         }
     }
   }
@@ -242,8 +249,7 @@ object RemoteSchema {
       case InputObjectTypeExtension(name, _, _) => name
     }
 
-  private def buildRootType(document: Document): RootType = {
-    val roots         = rootNames(document)
+  private def buildRootType(document: Document, roots: RootNames): RootType = {
     val definitions   = document.typeDefinitions
     val rootTypeNames = roots.query.toSet ++ roots.mutation ++ roots.subscription
 
@@ -258,43 +264,10 @@ object RemoteSchema {
       definitions
         .filterNot(definition => rootTypeNames.contains(definition.name))
         .map(definition => toTypeDefinition(definition, definitions)),
-      document.directiveDefinitions.map(definition =>
-        withStandardDeprecationDefault(toDirective(definition, definitions))
-      ),
+      document.directiveDefinitions.map(toDirective(_, definitions)),
       document.schemaDefinition.flatMap(_.description)
     )
   }
-
-  private def withStandardDeprecationDefault(tpe: __Type): __Type = {
-    def default(args: __DeprecatedArgs): __DeprecatedArgs =
-      if (args.includeDeprecated.isEmpty) args.copy(includeDeprecated = Some(false)) else args
-
-    tpe.copy(
-      fields = args => tpe.fields(default(args)),
-      enumValues = args => tpe.enumValues(default(args)),
-      inputFields = args => tpe.inputFields(default(args))
-    )
-  }
-
-  private def withTypeMetadata(definition: TypeDefinition, tpe: __Type): __Type = {
-    val converted = withStandardDeprecationDefault(tpe)
-    definition match {
-      case ScalarTypeDefinition(_, _, directives) =>
-        converted.copy(specifiedByURL = directives.collectFirst {
-          case directive if directive.name == "specifiedBy" =>
-            directive.arguments.get("url").collect { case StringValue(value) => value }
-        }.flatten)
-      case _                                      => converted
-    }
-  }
-
-  private def withStandardDeprecationDefault(directive: __Directive): __Directive =
-    directive.copy(args =
-      args =>
-        directive.args {
-          if (args.includeDeprecated.isEmpty) args.copy(includeDeprecated = Some(false)) else args
-        }
-    )
 
   private def rootNames(document: Document): RootNames =
     document.schemaDefinition match {
@@ -521,14 +494,18 @@ object RemoteSchema {
       kind = __TypeKind.SCALAR,
       name = Some(definition.name),
       description = definition.description,
-      directives = toDirectives(definition.directives)
+      directives = toDirectives(definition.directives),
+      specifiedByURL = definition.directives.collectFirst {
+        case directive if directive.name == "specifiedBy" =>
+          directive.arguments.get("url").collect { case StringValue(value) => value }
+      }.flatten
     )
 
   private def toTypeDefinition(
     definition: Definition.TypeSystemDefinition.TypeDefinition,
     definitions: List[Definition.TypeSystemDefinition.TypeDefinition]
-  ): __Type = {
-    val converted = definition match {
+  ): __Type =
+    definition match {
       case o: ObjectTypeDefinition      => toObjectType(o, definitions)
       case s: ScalarTypeDefinition      => toScalar(s)
       case e: EnumTypeDefinition        => toEnumType(e)
@@ -536,8 +513,6 @@ object RemoteSchema {
       case i: InterfaceTypeDefinition   => toInterfaceType(i, definitions)
       case i: InputObjectTypeDefinition => toInputObjectType(i, definitions)
     }
-    withTypeMetadata(definition, converted)
-  }
 
   private def toDirective(
     definition: Definition.TypeSystemDefinition.DirectiveDefinition,
@@ -579,15 +554,15 @@ object RemoteSchema {
     }
 
   private def filterDeprecated(x: __Field, deprecated: __DeprecatedArgs): Boolean =
-    if (deprecated.includeDeprecated.getOrElse(true)) true
+    if (deprecated.includeDeprecated.getOrElse(false)) true
     else !x.isDeprecated
 
   private def filterDeprecated(x: __EnumValue, deprecated: __DeprecatedArgs): Boolean =
-    if (deprecated.includeDeprecated.getOrElse(true)) true
+    if (deprecated.includeDeprecated.getOrElse(false)) true
     else !x.isDeprecated
 
   private def filterDeprecated(x: __InputValue, deprecated: __DeprecatedArgs): Boolean =
-    if (deprecated.includeDeprecated.getOrElse(true)) true
+    if (deprecated.includeDeprecated.getOrElse(false)) true
     else !x.isDeprecated
 
   private def isDeprecated(directives: List[Directive]): Boolean =

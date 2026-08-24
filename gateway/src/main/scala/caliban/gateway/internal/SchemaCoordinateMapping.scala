@@ -46,6 +46,8 @@ private[gateway] final class SchemaCoordinateMapping private (
   private val sourceRootNames = sourceRootTypes.iterator.flatMap { case (operation, tpe) =>
     tpe.name.map(_ -> operation)
   }.toMap
+  private val sourceQueryName = originalRootType.queryType.name.getOrElse("Query")
+  private val clientQueryName = clientType(sourceQueryName)
 
   private def clientOwners(sourceType: String): List[String] =
     clientType(sourceType) :: sourceRootNames.get(sourceType).toList
@@ -104,8 +106,6 @@ private[gateway] final class SchemaCoordinateMapping private (
     if (nonEmpty) transformLookup(lookup) else lookup
 
   private def transformLookup(lookup: Lookup): Lookup = {
-    val sourceQuery = originalRootType.queryType.name.getOrElse("Query")
-
     def argument(value: Lookup.Argument, expected: Option[__Type]): Lookup.Argument =
       value match {
         case Lookup.Argument.Key(field)            => Lookup.Argument.key(clientField(lookup.typeName, field))
@@ -125,10 +125,10 @@ private[gateway] final class SchemaCoordinateMapping private (
     val sourceLookup = originalRootType.queryType.allFields.find(_.name == lookup.field)
     val arguments    = lookup.arguments.iterator.map { case (name, value) =>
       val definition = sourceLookup.flatMap(_.allArgs.find(_.name == name))
-      clientArgument(sourceQuery, lookup.field, name) -> argument(value, definition.map(_._type))
+      clientArgument(sourceQueryName, lookup.field, name) -> argument(value, definition.map(_._type))
     }.toMap
     val typeName     = clientType(lookup.typeName)
-    val field        = clientField(sourceQuery, lookup.field)
+    val field        = clientField(sourceQueryName, lookup.field)
     val keys         = lookup.keyFields.map(clientField(lookup.typeName, _))
 
     lookup match {
@@ -150,13 +150,12 @@ private[gateway] final class SchemaCoordinateMapping private (
     val sourceParent = sourceRootTypes.get(clientParent).flatMap(_.name).getOrElse(sourceType(clientParent))
     val sourceName   = sourceField(clientParent, field.name)
     val definition   = sourceFieldDefinition(sourceParent, sourceName)
-    val arguments    = field.arguments.iterator.map { case (name, value) =>
-      val sourceName = sourceArguments.getOrElse((clientParent, field.name, name), name)
-      val translated = definition
-        .flatMap(_.allArgs.find(_.name == sourceName))
-        .fold(value)(argument => inputToSource(argument._type, value))
-      sourceName -> translated
-    }.toMap
+    val arguments    = translateArguments(
+      definition.toList.flatMap(_.allArgs),
+      field.arguments,
+      name => sourceArguments.getOrElse((clientParent, field.name, name), name),
+      ToSource
+    )
     val alias        =
       if (field.alias.isEmpty && sourceName != field.name) Some(field.name)
       else field.alias
@@ -181,23 +180,18 @@ private[gateway] final class SchemaCoordinateMapping private (
     )
   }
 
-  def sourceLookupField(field: String): String = {
-    val query = clientType(originalRootType.queryType.name.getOrElse("Query"))
-    sourceField(query, field)
-  }
+  def sourceLookupField(field: String): String =
+    sourceField(clientQueryName, field)
 
   def sourceLookupArguments(field: String, arguments: Map[String, InputValue]): Map[String, InputValue] = {
-    val sourceQuery = originalRootType.queryType.name.getOrElse("Query")
-    val clientQuery = clientType(sourceQuery)
-    val sourceName  = sourceField(clientQuery, field)
-    val definition  = sourceFieldDefinition(sourceQuery, sourceName)
-    arguments.iterator.map { case (name, value) =>
-      val argumentName = sourceArguments.getOrElse((clientQuery, field, name), name)
-      val translated   = definition
-        .flatMap(_.allArgs.find(_.name == argumentName))
-        .fold(value)(argument => inputToSource(argument._type, value))
-      argumentName -> translated
-    }.toMap
+    val sourceName = sourceField(clientQueryName, field)
+    val definition = sourceFieldDefinition(sourceQueryName, sourceName)
+    translateArguments(
+      definition.toList.flatMap(_.allArgs),
+      arguments,
+      name => sourceArguments.getOrElse((clientQueryName, field, name), name),
+      ToSource
+    )
   }
 
   def representationToSource(typeName: String, value: InputObjectValue): InputObjectValue = {
@@ -422,13 +416,12 @@ private[gateway] final class SchemaCoordinateMapping private (
     field.copy(
       name = clientField(typeName, field.name),
       args = field.args.map { argument =>
-        val defaultValue = sourceDefinition
-          .flatMap(_.allArgs.find(_.name == argument.name))
-          .flatMap(value => argument.defaultValue.map(inputToClient(value._type, _)))
-        transformInputValueDefinition("", argument, fieldSets).copy(
-          name = clientArgument(typeName, field.name, argument.name),
-          defaultValue = defaultValue
-        )
+        transformInputValueDefinition(
+          "",
+          argument,
+          fieldSets,
+          sourceDefinition.flatMap(_.allArgs.find(_.name == argument.name)).map(_._type)
+        ).copy(name = clientArgument(typeName, field.name, argument.name))
       },
       ofType = transformType(field.ofType),
       directives = transformDirectives(field.directives, typeName :: outputType, fieldSets)
@@ -441,13 +434,8 @@ private[gateway] final class SchemaCoordinateMapping private (
     fieldSets: FieldSetDirectives
   ): List[Directive] =
     directives.map { directive =>
-      val definition  = originalRootType.additionalDirectives.find(_.name == directive.name)
-      val arguments   = directive.arguments.iterator.map { case (name, value) =>
-        val transformed = definition
-          .flatMap(_.allArgs.find(_.name == name))
-          .fold(value)(argument => inputToClient(argument._type, value))
-        name -> transformed
-      }.toMap
+      val definitions = originalRootType.additionalDirectives.find(_.name == directive.name).toList.flatMap(_.allArgs)
+      val arguments   = translateArguments(definitions, directive.arguments, identity, ToClient)
       val transformed = directive.copy(arguments = arguments)
 
       if (!fieldSets.names.contains(directive.name)) transformed
@@ -497,13 +485,12 @@ private[gateway] final class SchemaCoordinateMapping private (
     selection match {
       case field: Selection.Field             =>
         val definition = sourceFieldDefinition(parentType, field.name)
-        val arguments  = field.arguments.iterator.map { case (name, value) =>
-          val argumentName = clientArgument(parentType, field.name, name)
-          val translated   = definition
-            .flatMap(_.allArgs.find(_.name == name))
-            .fold(value)(argument => inputToClient(argument._type, value))
-          argumentName -> translated
-        }.toMap
+        val arguments  = translateArguments(
+          definition.toList.flatMap(_.allArgs),
+          field.arguments,
+          clientArgument(parentType, field.name, _),
+          ToClient
+        )
         val childType  = definition.flatMap(_._type.innerType.name).getOrElse("")
         field.copy(
           name = clientField(parentType, field.name),
@@ -537,7 +524,7 @@ private[gateway] final class SchemaCoordinateMapping private (
       originalRootType.types.get(typeName).flatMap(_.allInputFields.find(_.name == value.name)).map(_._type)
     )
     value.copy(
-      name = if (typeName.isEmpty) value.name else clientInputField(typeName, value.name),
+      name = clientInputField(typeName, value.name),
       ofType = transformType(value.ofType),
       defaultValue = value.defaultValue.map(input => sourceType.fold(input)(inputToClient(_, input))),
       directives = transformDirectives(value.directives, Nil, fieldSets)
@@ -561,6 +548,21 @@ private[gateway] final class SchemaCoordinateMapping private (
 
   private def inputToSource(tpe: __Type, value: InputValue): InputValue =
     mapInputValue(tpe, value, ToSource)
+
+  private def translateArguments(
+    definitions: List[__InputValue],
+    arguments: Map[String, InputValue],
+    rename: String => String,
+    direction: MappingDirection
+  ): Map[String, InputValue] =
+    arguments.iterator.map { case (name, value) =>
+      val translatedName = rename(name)
+      val sourceName     = if (direction == ToClient) name else translatedName
+      val translated     = definitions
+        .find(_.name == sourceName)
+        .fold(value)(definition => mapInputValue(definition._type, value, direction))
+      translatedName -> translated
+    }.toMap
 
   private def representationValueToSource(tpe: __Type, value: InputValue): InputValue =
     tpe.kind match {

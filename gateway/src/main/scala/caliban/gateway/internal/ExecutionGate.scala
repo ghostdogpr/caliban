@@ -43,9 +43,6 @@ private[gateway] final class ExecutionGate private (
 }
 
 private[gateway] object ExecutionGate {
-  def make(limit: Int)(implicit trace: Trace): UIO[ExecutionGate] =
-    Semaphore.make(limit.toLong).map(new ExecutionGate(limit, _, None))
-
-  def make(limit: Int, kind: AdmissionKind)(implicit trace: Trace): UIO[ExecutionGate] =
-    Semaphore.make(limit.toLong).map(new ExecutionGate(limit, _, Some(kind)))
+  def make(limit: Int, kind: Option[AdmissionKind] = None)(implicit trace: Trace): UIO[ExecutionGate] =
+    Semaphore.make(limit.toLong).map(new ExecutionGate(limit, _, kind))
 }

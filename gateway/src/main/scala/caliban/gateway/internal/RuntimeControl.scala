@@ -202,9 +202,9 @@ private[gateway] object RuntimeControl {
     drainTimeout: Duration
   )(implicit trace: Trace): ZIO[Scope, Nothing, RuntimeControl] =
     for {
-      requests  <- ExecutionGate.make(requestLimit, AdmissionKind.Request)
+      requests  <- ExecutionGate.make(requestLimit, Some(AdmissionKind.Request))
       sources   <- ZIO.foreach(sourceLimits) { case (name, limit) =>
-                     ExecutionGate.make(limit, AdmissionKind.Source).map(name -> _)
+                     ExecutionGate.make(limit, Some(AdmissionKind.Source)).map(name -> _)
                    }
       state     <- Ref.make(State(GatewayRuntime.LifecycleState.Running, Map.empty, None))
       drained   <- Promise.make[Nothing, Unit]

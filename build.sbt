@@ -75,6 +75,28 @@ addCommandAlias(
   "all scalafmtSbtCheck scalafmtCheck test:scalafmtCheck"
 )
 
+def assemblyAppSettings(jar: String, main: String) = Def.settings(
+  assembly / assemblyJarName       := jar,
+  assembly / mainClass             := Some(main),
+  assembly / assemblyOutputPath    := {
+    (assembly / baseDirectory).value / "target" / (assembly / assemblyJarName).value
+  },
+  assembly / test                  := {},
+  assembly / assemblyMergeStrategy := {
+    case x if Assembly.isConfigFile(x)                                                            => MergeStrategy.concat
+    case PathList("META-INF", "MANIFEST.MF")                                                      => MergeStrategy.discard
+    case PathList("META-INF", x) if x.endsWith(".SF") || x.endsWith(".DSA") || x.endsWith(".RSA") =>
+      MergeStrategy.discard
+    case _                                                                                        => MergeStrategy.first
+  }
+)
+
+lazy val scala213OnlySettings = Def.settings(
+  skip               := (scalaVersion.value != scala213),
+  ideSkipProject     := (scalaVersion.value != scala213),
+  crossScalaVersions := Seq(scala213)
+)
+
 lazy val allProjects: Seq[ProjectReference] =
   List(
     macros,
@@ -582,10 +604,8 @@ lazy val examples = project
     run / fork         := true,
     run / connectInput := true
   )
+  .settings(scala213OnlySettings)
   .settings(
-    skip               := (scalaVersion.value != scala213),
-    ideSkipProject     := (scalaVersion.value != scala213),
-    crossScalaVersions := Seq(scala213),
     libraryDependencies ++= Seq(
       "org.typelevel"                         %% "cats-mtl"                % catsMtlVersion,
       "org.http4s"                            %% "http4s-ember-server"     % http4sVersion,
@@ -629,21 +649,7 @@ lazy val apolloCompatibility =
       ideSkipProject     := (scalaVersion.value == scala212),
       crossScalaVersions := Seq(scala213, scala3Lts)
     )
-    .settings(
-      assembly / assemblyJarName       := s"apollo-subgraph-compatibility.jar",
-      assembly / mainClass             := Some("Main"),
-      assembly / assemblyOutputPath    := {
-        (assembly / baseDirectory).value / "target" / (assembly / assemblyJarName).value
-      },
-      assembly / test                  := {},
-      assembly / assemblyMergeStrategy := {
-        case x if Assembly.isConfigFile(x)                                                            => MergeStrategy.concat
-        case PathList("META-INF", "MANIFEST.MF")                                                      => MergeStrategy.discard
-        case PathList("META-INF", x) if x.endsWith(".SF") || x.endsWith(".DSA") || x.endsWith(".RSA") =>
-          MergeStrategy.discard
-        case _                                                                                        => MergeStrategy.first
-      }
-    )
+    .settings(assemblyAppSettings("apollo-subgraph-compatibility.jar", "Main"))
     .dependsOn(federation, core, quickAdapter)
 
 lazy val reporting = project
@@ -747,56 +753,29 @@ lazy val gatewayTracing = project
 lazy val gatewayAudit = project
   .in(file("gateway-audit"))
   .settings(commonSettings)
+  .settings(scala213OnlySettings)
+  .settings(assemblyAppSettings("caliban-gateway-audit.jar", "caliban.gateway.audit.Main"))
   .settings(
-    name                             := "caliban-gateway-audit",
-    publish / skip                   := true,
-    skip                             := (scalaVersion.value != scala213),
-    ideSkipProject                   := (scalaVersion.value != scala213),
-    crossScalaVersions               := Seq(scala213),
-    assembly / assemblyJarName       := "caliban-gateway-audit.jar",
-    assembly / mainClass             := Some("caliban.gateway.audit.Main"),
-    assembly / assemblyOutputPath    := {
-      (assembly / baseDirectory).value / "target" / (assembly / assemblyJarName).value
-    },
-    assembly / test                  := {},
-    assembly / assemblyMergeStrategy := {
-      case x if Assembly.isConfigFile(x)                                                            => MergeStrategy.concat
-      case PathList("META-INF", "MANIFEST.MF")                                                      => MergeStrategy.discard
-      case PathList("META-INF", x) if x.endsWith(".SF") || x.endsWith(".DSA") || x.endsWith(".RSA") =>
-        MergeStrategy.discard
-      case _                                                                                        => MergeStrategy.first
-    },
+    name           := "caliban-gateway-audit",
+    publish / skip := true,
     libraryDependencies ++= Seq(
-      "com.softwaremill.sttp.client4" %% "zio"          % sttpVersion,
-      "dev.zio"                       %% "zio-http"     % zioHttpVersion,
-      "dev.zio"                       %% "zio-test"     % zioVersion % Test,
-      "dev.zio"                       %% "zio-test-sbt" % zioVersion % Test
+      "com.softwaremill.sttp.client4"         %% "zio"                   % sttpVersion,
+      "dev.zio"                               %% "zio-http"              % zioHttpVersion,
+      "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros" % jsoniterVersion,
+      "dev.zio"                               %% "zio-test"              % zioVersion % Test,
+      "dev.zio"                               %% "zio-test-sbt"          % zioVersion % Test
     )
   )
-  .dependsOn(gateway)
+  .dependsOn(gateway, quickAdapter)
 
 lazy val gatewayBenchmark = project
   .in(file("gateway-benchmark"))
   .settings(commonSettings)
+  .settings(scala213OnlySettings)
+  .settings(assemblyAppSettings("caliban-gateway-benchmark.jar", "caliban.gateway.benchmark.Main"))
   .settings(
-    name                             := "caliban-gateway-benchmark",
-    publish / skip                   := true,
-    skip                             := (scalaVersion.value != scala213),
-    ideSkipProject                   := (scalaVersion.value != scala213),
-    crossScalaVersions               := Seq(scala213),
-    assembly / assemblyJarName       := "caliban-gateway-benchmark.jar",
-    assembly / mainClass             := Some("caliban.gateway.benchmark.Main"),
-    assembly / assemblyOutputPath    := {
-      (assembly / baseDirectory).value / "target" / (assembly / assemblyJarName).value
-    },
-    assembly / test                  := {},
-    assembly / assemblyMergeStrategy := {
-      case x if Assembly.isConfigFile(x)                                                            => MergeStrategy.concat
-      case PathList("META-INF", "MANIFEST.MF")                                                      => MergeStrategy.discard
-      case PathList("META-INF", x) if x.endsWith(".SF") || x.endsWith(".DSA") || x.endsWith(".RSA") =>
-        MergeStrategy.discard
-      case _                                                                                        => MergeStrategy.first
-    },
+    name           := "caliban-gateway-benchmark",
+    publish / skip := true,
     libraryDependencies ++= Seq(
       "dev.zio" %% "zio-http"     % zioHttpVersion,
       "dev.zio" %% "zio-test"     % zioVersion % Test,

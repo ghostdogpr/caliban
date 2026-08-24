@@ -11,6 +11,7 @@ import caliban.rendering.{ DocumentRenderer, Renderer }
 import caliban.schema._
 import caliban.transformers.Transformer
 import caliban.validation.SchemaValidator
+import caliban.validation.Validator
 import caliban.wrappers.Wrapper
 import caliban.wrappers.Wrapper._
 import zio.stacktracer.TracingImplicits.disableAutoTrace
@@ -122,13 +123,13 @@ trait GraphQL[-R] { self =>
           RootSchema(query, schema.mutation, schema.subscription)
         }
         private lazy val rootTypeWithIntrospection: RootType    =
-          rootType.copy(queryType = schemaWithIntrospection.query.opType)
+          Introspector.withIntrospection(rootType)
 
         private def parseZIO(query: String): IO[CalibanError.ParsingError, Document] =
           RequestPreparation.parse(query)
 
         override def check(query: String)(implicit trace: Trace): IO[CalibanError, Unit] =
-          RequestPreparation.checkWithIntrospection(query, rootTypeWithIntrospection)
+          RequestPreparation.parse(query).flatMap(Validator.validate(_, rootTypeWithIntrospection))
 
         override def executeRequest(request: GraphQLRequest)(implicit
           trace: Trace
@@ -138,7 +139,7 @@ trait GraphQL[-R] { self =>
               wrap((request: GraphQLRequest) =>
                 (for {
                   doc          <- wrap(parseZIO)(parsingWrappers, request.query.getOrElse(""))
-                  coercedVars  <- coerceVariables(doc, request.variables.getOrElse(Map.empty), request.operationName)
+                  coercedVars  <- RequestPreparation.coerceVariables(doc, request, rootTypeWithIntrospection)
                   executionReq <- wrap(validation(request, coercedVars))(validationWrappers, doc)
                   result       <- wrap(execution(fieldWrappers))(executionWrappers, executionReq)
                 } yield result).catchAll(error =>
@@ -147,20 +148,17 @@ trait GraphQL[-R] { self =>
               )(overallWrappers, request)
           }
 
-        private def coerceVariables(doc: Document, variables: Map[String, InputValue], operationName: Option[String])(
-          implicit trace: Trace
-        ): IO[ValidationError, Map[String, InputValue]] =
-          RequestPreparation.coerceVariables(
-            doc,
-            GraphQLRequest(operationName = operationName, variables = Some(variables)),
-            rootTypeWithIntrospection
-          )
-
         private def validation(
           req: GraphQLRequest,
           coercedVars: Map[String, InputValue]
         )(doc: Document)(implicit trace: Trace): IO[ValidationError, ExecutionRequest] =
-          RequestPreparation.validate(doc, req, coercedVars, rootTypeWithIntrospection)
+          RequestPreparation.prepareParsed(
+            req,
+            doc,
+            coercedVars,
+            rootTypeWithIntrospection,
+            skipValidation = false
+          )
 
         private def execution[R1 <: R](
           fieldWrappers: List[FieldWrapper[R1]]

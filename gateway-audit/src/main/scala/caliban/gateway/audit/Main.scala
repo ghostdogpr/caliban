@@ -1,17 +1,16 @@
 package caliban.gateway.audit
 
-import caliban.ResponseValue._
-import caliban.Value.StringValue
+import caliban.QuickAdapter
 import caliban.gateway.{ Gateway, GatewayRuntime, Subgraph }
-import caliban.{ GraphQLRequest, ResponseValue }
-import com.github.plokhotnyuk.jsoniter_scala.core.{ readFromArray, writeToArray }
+import com.github.plokhotnyuk.jsoniter_scala.core.{ readFromArray, JsonValueCodec }
+import com.github.plokhotnyuk.jsoniter_scala.macros.JsonCodecMaker
 import sttp.client4.{ asByteArrayAlways, basicRequest }
 import sttp.client4.httpclient.zio.{ HttpClientZioBackend, SttpClient }
 import sttp.model.Uri
 import zio._
 import zio.http._
 
-import scala.util.control.NonFatal
+import scala.util.Try
 
 object Main extends ZIOAppDefault {
 
@@ -19,6 +18,7 @@ object Main extends ZIOAppDefault {
   private val GatewayPort     = 4000
 
   private[audit] final case class SubgraphInput(name: String, url: String, sdl: String)
+  private implicit val subgraphInputsCodec: JsonValueCodec[List[SubgraphInput]] = JsonCodecMaker.make
 
   override def run =
     program.tapErrorCause(cause => ZIO.logErrorCause("Federation audit adapter failed.", cause))
@@ -68,62 +68,15 @@ object Main extends ZIOAppDefault {
       case Nil           => ZIO.fail(new IllegalArgumentException("Audit fixture returned no subgraphs."))
     }
 
-  private def serve(runtime: GatewayRuntime[Any]): ZIO[Any, Throwable, Nothing] = {
-    val graphql = Handler.fromFunctionZIO[Request] { request =>
-      (for {
-        bytes    <- request.body.asArray
-        decoded  <- ZIO.attempt(readFromArray[GraphQLRequest](bytes))
-        response <- runtime.executeRequest(decoded)
-      } yield Response(
-        Status.Ok,
-        Headers(Header.Custom("Content-Type", "application/graphql-response+json")),
-        Body.fromArray(writeToArray(response))
-      )).catchAll(error =>
-        ZIO.succeed(
-          Response(Status.BadRequest, body = Body.fromString(s"Invalid GraphQL request: ${error.getMessage}"))
-        )
-      )
-    }
-
+  private def serve(runtime: GatewayRuntime[Any]): ZIO[Any, Throwable, Nothing] =
     Server
       .serve(
-        Routes(
-          Method.GET / "health"   -> Handler.ok,
-          Method.POST / "graphql" -> graphql
-        )
+        QuickAdapter(runtime).routes("/graphql") ++ Routes(Method.GET / "health" -> Handler.ok)
       )
       .provide(Server.defaultWithPort(GatewayPort))
-  }
 
   private[audit] def decodeSubgraphs(bytes: Array[Byte]): Either[String, List[SubgraphInput]] =
-    try
-      readFromArray[ResponseValue](bytes) match {
-        case ListValue(values) =>
-          values
-            .foldLeft[Either[String, List[SubgraphInput]]](Right(Nil)) { (result, value) =>
-              for {
-                inputs <- result
-                input  <- decodeSubgraph(value)
-              } yield input :: inputs
-            }
-            .map(_.reverse)
-        case _                 => Left("Audit fixture subgraphs must be a JSON array.")
-      }
-    catch {
-      case NonFatal(_) => Left("Audit fixture subgraphs were not valid JSON.")
-    }
-
-  private def decodeSubgraph(value: ResponseValue): Either[String, SubgraphInput] =
-    value match {
-      case ObjectValue(fields) =>
-        for {
-          name <- stringField(fields, "name")
-          url  <- stringField(fields, "url")
-          sdl  <- stringField(fields, "sdl")
-        } yield SubgraphInput(name, url, sdl)
-      case _                   => Left("Each audit fixture subgraph must be a JSON object.")
-    }
-
-  private def stringField(fields: List[(String, ResponseValue)], name: String): Either[String, String] =
-    fields.collectFirst { case (`name`, StringValue(value)) => value }.toRight(s"Missing string field '$name'.")
+    Try(readFromArray[List[SubgraphInput]](bytes)).toEither.left.map(_ =>
+      "Audit fixture subgraphs were not valid JSON."
+    )
 }

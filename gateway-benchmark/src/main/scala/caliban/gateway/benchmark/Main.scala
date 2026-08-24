@@ -43,14 +43,10 @@ object Main extends ZIOAppDefault {
         subgraphs    <- ZIO
                           .fromEither(benchmarkSubgraphs(subgraphsUrl, config))
                           .mapError(new IllegalArgumentException(_))
-        runtime      <- subgraphs match {
-                          case head :: tail =>
-                            Gateway
-                              .compose(head, tail: _*)
-                              .build
-                              .mapError(error => new IllegalArgumentException(error.diagnostics.mkString(" ")))
-                          case Nil          => ZIO.dieMessage("The benchmark must define at least one subgraph.")
-                        }
+        runtime      <- Gateway
+                          .compose(subgraphs._1, subgraphs._2, subgraphs._3, subgraphs._4)
+                          .build
+                          .mapError(error => new IllegalArgumentException(error.diagnostics.mkString(" ")))
         routes        = QuickAdapter(runtime).routes("/graphql") ++ Routes(
                           Method.GET / "health" -> Handler.ok
                         )
@@ -59,26 +55,21 @@ object Main extends ZIOAppDefault {
       } yield ()
     }
 
-  private[benchmark] def benchmarkSubgraphs(baseUrl: String): Either[String, List[Subgraph[Any]]] =
-    benchmarkSubgraphs(baseUrl, BenchmarkConfig)
-
-  private def benchmarkSubgraphs(
+  private[benchmark] def benchmarkSubgraphs(
     baseUrl: String,
-    config: RemoteGraphQLConfig[Any]
-  ): Either[String, List[Subgraph[Any]]] =
-    List("accounts", "inventory", "products", "reviews")
-      .foldLeft[Either[String, List[Subgraph[Any]]]](
-        Right(Nil)
-      ) { (result, name) =>
-        for {
-          subgraphs <- result
-          endpoint  <- Uri.parse(s"${baseUrl.stripSuffix("/")}/$name")
-          _         <- Either.cond(
-                         endpoint.scheme.exists(value => value == "http" || value == "https") && endpoint.host.nonEmpty,
-                         (),
-                         s"Benchmark subgraph endpoint for '$name' must be an absolute HTTP URL."
-                       )
-        } yield Subgraph.federation(name, endpoint, config) :: subgraphs
-      }
-      .map(_.reverse)
+    config: RemoteGraphQLConfig[Any] = BenchmarkConfig
+  ): Either[String, (Subgraph[Any], Subgraph[Any], Subgraph[Any], Subgraph[Any])] =
+    for {
+      endpoint <- Uri.parse(baseUrl.stripSuffix("/"))
+      _        <- Either.cond(
+                    endpoint.scheme.exists(value => value == "http" || value == "https") && endpoint.host.nonEmpty,
+                    (),
+                    "Benchmark subgraph base endpoint must be an absolute HTTP URL."
+                  )
+    } yield (
+      Subgraph.federation("accounts", endpoint.addPath("accounts"), config),
+      Subgraph.federation("inventory", endpoint.addPath("inventory"), config),
+      Subgraph.federation("products", endpoint.addPath("products"), config),
+      Subgraph.federation("reviews", endpoint.addPath("reviews"), config)
+    )
 }

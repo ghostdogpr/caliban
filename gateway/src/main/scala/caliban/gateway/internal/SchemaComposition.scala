@@ -31,6 +31,7 @@ private[gateway] final case class SchemaContribution(
 
 private[gateway] final class ComposedGraph private[internal] (
   val rootType: RootType,
+  private val runtimeTypesByName: Map[String, Set[String]],
   private val routes: Map[(OperationType, String), List[String]],
   private val fieldRoutes: Map[(String, String), List[String]],
   private val sourceFields: Map[(String, String, String), __Field],
@@ -45,12 +46,6 @@ private[gateway] final class ComposedGraph private[internal] (
 ) {
   private val securityByCoordinate =
     securityApplications.groupBy(application => application.typeName -> application.fieldName)
-  private val runtimeTypesByName   = rootType.types.iterator.map { case (name, tpe) =>
-    val runtimeTypes =
-      if (tpe.kind == __TypeKind.OBJECT) Set(name)
-      else tpe.possibleTypes.getOrElse(Nil).flatMap(_.name).toSet
-    name -> runtimeTypes
-  }.toMap
   private val securedFieldTypes    = securityApplications.iterator
     .flatMap(application => application.fieldName.map(_ -> application.typeName))
     .toList
@@ -521,7 +516,7 @@ private[gateway] object SchemaComposition {
     if (federation) federationDirectiveNames(document).hiddenTypes else Set.empty
 
   private def hasFederationTransport(document: Document): Boolean =
-    federationLinks(document).nonEmpty || {
+    isFederation2(document) || {
       val typeNames = document.typeDefinitions.iterator.map(_.name).toSet
       typeNames.contains("_Any") && typeNames.contains("_Entity") &&
       document.objectTypeDefinitions.exists(_.fields.exists(_.name == "_entities"))
@@ -533,13 +528,16 @@ private[gateway] object SchemaComposition {
     val composedDirectives =
       DirectiveComposition.compile(schemas.map(schema => Source(schema, namesBySource(schema.name).hidden)))
     val prepared           = schemas.map { schema =>
-      val names = namesBySource(schema.name)
+      val names       = namesBySource(schema.name)
+      val federation2 = isFederation2(schema.document)
       PreparedSchema(
         schema,
         names,
         federationKeyCoordinates(schema, names),
-        federation1ExtensionKeyCoordinates(schema, names),
-        composedDirectives.hidden(schema.name)
+        federation1ExtensionKeyCoordinates(schema, names, federation2),
+        composedDirectives.hidden(schema.name),
+        federation2,
+        typeSystemDirectiveApplications(schema.document, composedTypeName(schema, _))
       )
     }
     val queryEntries       = rootFields(prepared, OperationType.Query)
@@ -581,6 +579,9 @@ private[gateway] object SchemaComposition {
         additional,
         composedDirectives.definitions(rewrite)
       )
+      val runtimeTypesByName                                 = rootType.types.iterator.map { case (name, tpe) =>
+        name -> tpe.possibleTypeNames
+      }.toMap
       val transformationDiagnostics                          = invalidTransformationDiagnostics(schemas, rootType)
       val directiveDiagnostics                               = composedDirectives.finalDiagnostics(rootType)
       val allSecurity                                        = compiledSecurity.flatMap(_.toOption).flatten
@@ -610,6 +611,7 @@ private[gateway] object SchemaComposition {
       val transitiveSecurityDiagnostics                      = missingTransitiveSecurityDiagnostics(
         requirements,
         allSecurity,
+        runtimeTypesByName,
         rootType,
         schemas
       )
@@ -630,6 +632,7 @@ private[gateway] object SchemaComposition {
           .map(_ =>
             new ComposedGraph(
               rootType,
+              runtimeTypesByName,
               routes,
               fieldRoutes,
               sourceFields,
@@ -639,10 +642,7 @@ private[gateway] object SchemaComposition {
               types.iterator.filter(_.interfaceObject).map(entry => entry.source -> entry.name).toSet,
               schemas.iterator.flatMap { schema =>
                 schema.rootType.types.iterator.map { case (name, tpe) =>
-                  val runtimeTypes =
-                    if (tpe.kind == __TypeKind.OBJECT) Set(name)
-                    else tpe.possibleTypes.getOrElse(Nil).flatMap(_.name).toSet
-                  (schema.name -> name) -> runtimeTypes
+                  (schema.name -> name) -> tpe.possibleTypeNames
                 }
               }.toMap,
               schemas.iterator.map(schema => schema.name -> schema.mapping).toMap,
@@ -719,16 +719,11 @@ private[gateway] object SchemaComposition {
   private def missingTransitiveSecurityDiagnostics(
     requirements: Map[(String, String, String), List[Selection]],
     applications: List[ComposedGraph.SecurityApplication],
+    runtimeTypesByName: Map[String, Set[String]],
     rootType: RootType,
     schemas: List[SchemaContribution]
   ): List[String] = {
-    val schemaByName       = schemas.iterator.map(schema => schema.name -> schema).toMap
-    val runtimeTypesByName = rootType.types.iterator.map { case (name, tpe) =>
-      val runtimeTypes =
-        if (tpe.kind == __TypeKind.OBJECT) Set(name)
-        else tpe.possibleTypes.getOrElse(Nil).flatMap(_.name).toSet
-      name -> runtimeTypes
-    }.toMap
+    val schemaByName = schemas.iterator.map(schema => schema.name -> schema).toMap
 
     def applicable(selectedType: String, candidateType: String): Boolean =
       selectedType == candidateType || {
@@ -1087,7 +1082,7 @@ private[gateway] object SchemaComposition {
                 schema.federation && hasDirective(field.directives, names.inaccessible),
               if (schema.federation) directiveString(field.directives, names.overrideDirective, "from") else None,
               schema.federation,
-              federationLinks(schema.document).nonEmpty,
+              metadata.federation2,
               (field.allArgs
                 .filter(argument => schema.federation && hasDirective(argument.directives, names.inaccessible))
                 .map(_.name)
@@ -1188,7 +1183,9 @@ private[gateway] object SchemaComposition {
     directives: FederationDirectiveNames,
     keyCoordinates: Set[(String, String)],
     federation1ExtensionKeyCoordinates: Set[(String, String)],
-    hiddenDirectives: Set[String]
+    hiddenDirectives: Set[String],
+    federation2: Boolean,
+    directiveApplications: List[TypeSystemDirectiveApplication]
   )
 
   private final case class TypeEntry(
@@ -1344,22 +1341,21 @@ private[gateway] object SchemaComposition {
   ): Either[List[String], List[ComposedGraph.SecurityApplication]] = {
     val schema   = metadata.schema
     val names    = metadata.directives
-    val compiled = typeSystemDirectiveApplications(schema.document, composedTypeName(schema, _)).flatMap {
-      application =>
-        application.securityCoordinate.toList.flatMap { securityCoordinate =>
-          application.directives.flatMap(directive =>
-            compileSecurityDirective(schema.name, application.coordinate, directive, names).map(
-              _.map { value =>
-                ComposedGraph.SecurityApplication(
-                  schema.name,
-                  securityCoordinate.typeName,
-                  securityCoordinate.fieldName,
-                  value
-                )
-              }
-            )
+    val compiled = metadata.directiveApplications.flatMap { application =>
+      application.securityCoordinate.toList.flatMap { securityCoordinate =>
+        application.directives.flatMap(directive =>
+          compileSecurityDirective(schema.name, application.coordinate, directive, names).map(
+            _.map { value =>
+              ComposedGraph.SecurityApplication(
+                schema.name,
+                securityCoordinate.typeName,
+                securityCoordinate.fieldName,
+                value
+              )
+            }
           )
-        }
+        )
+      }
     }
     val errors   = compiled.collect { case Left(error) => error }
 
@@ -1414,7 +1410,7 @@ private[gateway] object SchemaComposition {
   private def unsupportedFederationDiagnostics(metadata: PreparedSchema): List[String] = {
     val schema = metadata.schema
     val names  = metadata.directives
-    typeSystemDirectiveApplications(schema.document, composedTypeName(schema, _)).flatMap { application =>
+    metadata.directiveApplications.flatMap { application =>
       application.directives.flatMap { directive =>
         val security          = securityDirectiveName(directive.name, names).collect {
           case name if application.securityCoordinate.isEmpty =>
@@ -1670,7 +1666,7 @@ private[gateway] object SchemaComposition {
       hiddenInputs,
       hiddenEnums,
       overrides,
-      federationLinks(schema.document).nonEmpty,
+      metadata.federation2,
       names.inaccessible,
       metadata.hiddenDirectives
     )
@@ -2467,12 +2463,12 @@ private[gateway] object SchemaComposition {
     )
   }
 
-  private val AuthenticatedIdentity                                = "https://specs.apollo.dev/authenticated"
-  private val RequiresScopesIdentity                               = "https://specs.apollo.dev/requiresScopes"
-  private val PolicyIdentity                                       = "https://specs.apollo.dev/policy"
-  private val SecurityFeatureIdentities                            = Set(AuthenticatedIdentity, RequiresScopesIdentity, PolicyIdentity)
-  private def federationLinks(document: Document): List[Directive] =
-    linkedFeatures(document).collect { case feature if feature.identity == FederationIdentity => feature.directive }
+  private val AuthenticatedIdentity                      = "https://specs.apollo.dev/authenticated"
+  private val RequiresScopesIdentity                     = "https://specs.apollo.dev/requiresScopes"
+  private val PolicyIdentity                             = "https://specs.apollo.dev/policy"
+  private val SecurityFeatureIdentities                  = Set(AuthenticatedIdentity, RequiresScopesIdentity, PolicyIdentity)
+  private def isFederation2(document: Document): Boolean =
+    linkedFeatures(document).exists(_.identity == FederationIdentity)
 
   private def keyDirective(
     directive: Directive,
@@ -2500,9 +2496,10 @@ private[gateway] object SchemaComposition {
 
   private def federation1ExtensionKeyCoordinates(
     schema: SchemaContribution,
-    names: FederationDirectiveNames
+    names: FederationDirectiveNames,
+    federation2: Boolean
   ): Set[(String, String)] =
-    if (federationLinks(schema.document).nonEmpty) Set.empty
+    if (federation2) Set.empty
     else {
       val extensions          = schema.document.typeExtensions.collect {
         case extension: ObjectTypeExtension    => extension.name -> extension.directives

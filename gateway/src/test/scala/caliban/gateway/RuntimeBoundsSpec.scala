@@ -6,8 +6,7 @@ import caliban.gateway.GatewayTestSupport._
 import caliban.gateway.OperationPolicy.Allow
 import caliban.gateway.internal.OperationCache.Weighted
 import caliban.gateway.internal._
-import caliban.schema.{ GenericSchema, Schema }
-import caliban.{ graphQL, Configurator, GraphQLRequest, InputValue, RootResolver }
+import caliban.{ Configurator, GraphQLRequest, InputValue }
 import sttp.model.Uri
 import zio._
 import zio.http.{ Body, Handler, Header, Headers, Method, Request, Response, Routes, Server, Status }
@@ -19,16 +18,6 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
   private val response = """{"data":{"value":"ok"}}"""
   private val schema   = "type Query { value: String }"
   private val request  = GraphQLRequest(query = Some("query Value { value }"), operationName = Some("Value"))
-
-  private def localGraph(effect: UIO[String]) = {
-    object LocalApi extends GenericSchema[Any] {
-      import auto._
-      final case class Query(localValue: UIO[String])
-      implicit val querySchema: Schema[Any, Query] = gen
-      val api                                      = graphQL(RootResolver(Query(effect)))
-    }
-    LocalApi.api
-  }
 
   private def endpoint(handler: Request => UIO[Response]): ZIO[Server with Ref[Int], Nothing, Uri] =
     for {
@@ -45,11 +34,6 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
       Headers(Header.Custom("Content-Type", "application/graphql-response+json")),
       Body.fromString(value)
     )
-
-  private def waitForStatus(
-    runtime: GatewayRuntime[Any]
-  )(predicate: GatewayRuntime.Status => Boolean): UIO[GatewayRuntime.Status] =
-    (ZIO.yieldNow *> runtime.status).repeatUntil(predicate)
 
   def spec = suite("RuntimeBoundsSpec")(
     suite("operation cache")(
@@ -320,7 +304,7 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
       test("rejects invalid gateway bounds before constructing a runtime") {
         for {
           exit <- Gateway
-                    .compose(Subgraph.local("local", localGraph(ZIO.succeed("ok"))))
+                    .compose(Subgraph.local("local", localValueGraph(ZIO.succeed("ok"))))
                     .withConfig(
                       _.withMaxOperationNesting(0)
                         .withMaxPlanningCandidates(0)
@@ -360,7 +344,7 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
                        else ZIO.succeed("next")
                      }
           runtime <- Gateway
-                       .compose(Subgraph.local("local", localGraph(effect)))
+                       .compose(Subgraph.local("local", localValueGraph(effect)))
                        .withConfig(_.withMaxConcurrentRequests(1))
                        .build
           first   <- runtime.execute("{ localValue }").fork
@@ -396,7 +380,7 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
                        }
                      )
           runtime <- Gateway
-                       .compose(Subgraph.local("local", localGraph(ZIO.succeed("value"))))
+                       .compose(Subgraph.local("local", localValueGraph(ZIO.succeed("value"))))
                        .withOperationResolver(resolver)
                        .withConfig(_.withMaxConcurrentRequests(1))
                        .build
@@ -424,7 +408,7 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
                         .compose(
                           Subgraph.local(
                             "local",
-                            localGraph(started.succeed(()).unit *> release.await.as("value"))
+                            localValueGraph(started.succeed(()).unit *> release.await.as("value"))
                           )
                         )
                         .withConfig(_.withMaxConcurrentRequests(1))
@@ -454,7 +438,7 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
                              .compose(
                                Subgraph.local(
                                  "local",
-                                 localGraph(localStarted.succeed(()).unit *> release.await.as("local"))
+                                 localValueGraph(localStarted.succeed(()).unit *> release.await.as("local"))
                                ),
                                Subgraph.graphql("remote", remote.endpoint, schema)
                              )
@@ -529,10 +513,9 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
                              started.succeed(()).unit *>
                              release.await.as(graphQLResponse(response))
                          )
-          runtime     <- Gateway
+          runtime     <- (Gateway
                            .compose(Subgraph.graphql("remote", remote, schema, config))
-                           .withConfig(_.withMaxConcurrentRequests(32))
-                           .build
+                           .withConfig(_.withMaxConcurrentRequests(32)) @@ GatewayMetrics.wrapper).build
           startBefore <- Metric
                            .counter("caliban_gateway_in_flight_deduplication_total")
                            .tagged("result", "start")

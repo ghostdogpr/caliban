@@ -3,9 +3,12 @@ package caliban.gateway
 import caliban.ResponseValue
 import caliban.ResponseValue.ObjectValue
 import caliban.execution.RequestPreparation
+import caliban.introspection.Introspector
 import caliban.parsing.Parser
+import caliban.schema.{ GenericSchema, Schema }
 import caliban.tools.RemoteSchema
-import caliban.{ CalibanError, GraphQLRequest }
+import caliban.validation.Validator
+import caliban.{ graphQL, CalibanError, GraphQLRequest, RootResolver }
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromArray
 import sttp.model.Uri
 import zio._
@@ -25,19 +28,23 @@ private[gateway] object GatewayTestSupport {
 
   val invalidResponse = """{"unexpected":true}"""
 
-  val authoredFederationDirectives =
+  private val baseFederationDirectives =
     """
       |directive @link(url: String!, as: String, import: [link__Import], for: link__Purpose) repeatable on SCHEMA
       |directive @key(fields: federation__FieldSet!, resolvable: Boolean = true) repeatable on OBJECT | INTERFACE
       |directive @external on FIELD_DEFINITION
       |directive @shareable repeatable on OBJECT | FIELD_DEFINITION
-      |directive @inaccessible on FIELD_DEFINITION | OBJECT | INTERFACE | UNION | ARGUMENT_DEFINITION | SCALAR | ENUM | ENUM_VALUE | INPUT_OBJECT | INPUT_FIELD_DEFINITION
-      |directive @override(from: String!) on FIELD_DEFINITION
-      |directive @interfaceObject on OBJECT
       |scalar link__Import
       |enum link__Purpose { SECURITY EXECUTION }
       |scalar federation__FieldSet
       |""".stripMargin
+
+  val authoredFederationDirectives =
+    s"""$baseFederationDirectives
+       |directive @inaccessible on FIELD_DEFINITION | OBJECT | INTERFACE | UNION | ARGUMENT_DEFINITION | SCALAR | ENUM | ENUM_VALUE | INPUT_OBJECT | INPUT_FIELD_DEFINITION
+       |directive @override(from: String!) on FIELD_DEFINITION
+       |directive @interfaceObject on OBJECT
+       |""".stripMargin
 
   def federationSchemaPreamble(imports: String*): String =
     federationSchemaPreamble("extend schema", "", imports)
@@ -52,19 +59,12 @@ private[gateway] object GatewayTestSupport {
   }
 
   val federationDirectives =
-    """
-      |directive @link(url: String!, as: String, import: [link__Import], for: link__Purpose) repeatable on SCHEMA
-      |directive @key(fields: federation__FieldSet!, resolvable: Boolean = true) repeatable on OBJECT | INTERFACE
-      |directive @external on FIELD_DEFINITION
-      |directive @shareable repeatable on OBJECT | FIELD_DEFINITION
-      |directive @requires(fields: federation__FieldSet!) on FIELD_DEFINITION
-      |directive @provides(fields: federation__FieldSet!) on FIELD_DEFINITION
-      |scalar link__Import
-      |enum link__Purpose { SECURITY EXECUTION }
-      |scalar federation__FieldSet
-      |scalar _Any
-      |type _Service { sdl: String! }
-      |""".stripMargin
+    s"""$baseFederationDirectives
+       |directive @requires(fields: federation__FieldSet!) on FIELD_DEFINITION
+       |directive @provides(fields: federation__FieldSet!) on FIELD_DEFINITION
+       |scalar _Any
+       |type _Service { sdl: String! }
+       |""".stripMargin
 
   val productsFederationSchema =
     s"""
@@ -96,20 +96,15 @@ private[gateway] object GatewayTestSupport {
     stubWith(ZIO.unit, responses: _*)
 
   def stubWith(beforeResponse: UIO[Unit], responses: String*): ZIO[Server with Ref[Int], Nothing, Stub] =
-    stubResponding(beforeResponse)((_, index) => responses(math.min(index, responses.size - 1)))
+    stubResponding(beforeResponse)((_, index) => Status.Ok -> responses(math.min(index, responses.size - 1)))
 
   def stubByRequest(response: GraphQLRequest => String): ZIO[Server with Ref[Int], Nothing, Stub] =
-    stubResponding(ZIO.unit)((request, _) => response(request))
+    stubResponding(ZIO.unit)((request, _) => Status.Ok -> response(request))
 
   def stubWithStatuses(responses: (Status, String)*): ZIO[Server with Ref[Int], Nothing, Stub] =
-    stubRespondingWithStatus(ZIO.unit)((_, index) => responses(math.min(index, responses.size - 1)))
+    stubResponding(ZIO.unit)((_, index) => responses(math.min(index, responses.size - 1)))
 
   private def stubResponding(
-    beforeResponse: UIO[Unit]
-  )(response: (GraphQLRequest, Int) => String): ZIO[Server with Ref[Int], Nothing, Stub] =
-    stubRespondingWithStatus(beforeResponse)((request, index) => Status.Ok -> response(request, index))
-
-  private def stubRespondingWithStatus(
     beforeResponse: UIO[Unit]
   )(response: (GraphQLRequest, Int) => (Status, String)): ZIO[Server with Ref[Int], Nothing, Stub] =
     for {
@@ -154,10 +149,45 @@ private[gateway] object GatewayTestSupport {
       case _                   => None
     }
 
+  def localGraph(effect: UIO[String]) = {
+    object LocalApi extends GenericSchema[Any] {
+      import auto._
+      final case class Query(value: UIO[String])
+      implicit val querySchema: Schema[Any, Query] = gen
+      val api                                      = graphQL(RootResolver(Query(effect)))
+    }
+    LocalApi.api
+  }
+
+  def localValueGraph(effect: UIO[String]) = {
+    object LocalApi extends GenericSchema[Any] {
+      import auto._
+      final case class Query(localValue: UIO[String])
+      implicit val querySchema: Schema[Any, Query] = gen
+      val api                                      = graphQL(RootResolver(Query(effect)))
+    }
+    LocalApi.api
+  }
+
+  def waitForStatus(
+    runtime: GatewayRuntime[Any]
+  )(predicate: GatewayRuntime.Status => Boolean): UIO[GatewayRuntime.Status] =
+    (ZIO.yieldNow *> runtime.status).repeatUntil(predicate)
+
   def validateRequest(schema: String, request: GraphQLRequest): IO[CalibanError, Unit] =
     for {
-      document <- ZIO.fromEither(Parser.parseQuery(schema))
-      rootType <- ZIO.fromEither(RemoteSchema.toRootType(document))
-      _        <- RequestPreparation.prepare(request, rootType)
+      schemaDocument <- ZIO.fromEither(Parser.parseQuery(schema))
+      rootType       <- ZIO.fromEither(RemoteSchema.toRootType(schemaDocument))
+      validationRoot  = Introspector.withIntrospection(rootType)
+      document       <- RequestPreparation.parse(request.query.getOrElse(""))
+      variables      <- RequestPreparation.coerceVariables(document, request, validationRoot)
+      _              <- RequestPreparation.prepareParsed(
+                          request,
+                          document,
+                          variables,
+                          validationRoot,
+                          skipValidation = false,
+                          validations = Validator.AllValidations
+                        )
     } yield ()
 }

@@ -5,9 +5,7 @@ import caliban.gateway.GatewayWrapper.{ AdmissionKind, CacheResult, Event }
 import caliban.gateway.internal.OperationCache
 import caliban.gateway.internal.OperationCache.Weighted
 import caliban.parsing.adt.OperationType
-import caliban.schema.{ GenericSchema, Schema }
 import caliban.GraphQLRequest
-import caliban.{ graphQL, RootResolver }
 import sttp.model.Header
 import zio.metrics.Metric
 import zio.{ Duration, Exit, Promise, Ref, Scope, Trace, UIO, URIO, ZIO }
@@ -185,15 +183,5 @@ object GatewayWrapperSpec extends ZIOSpecDefault {
       }
       .value
       .map(_.count)
-
-  private def localGraph(effect: UIO[String]) = {
-    object LocalApi extends GenericSchema[Any] {
-      import auto._
-      final case class Query(value: UIO[String])
-      implicit val querySchema: Schema[Any, Query] = gen
-      val api                                      = graphQL(RootResolver(Query(effect)))
-    }
-    LocalApi.api
-  }
 
 }

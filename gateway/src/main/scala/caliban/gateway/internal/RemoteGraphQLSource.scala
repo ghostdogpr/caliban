@@ -1,6 +1,6 @@
 package caliban.gateway.internal
 
-import caliban.ResponseValue.{ ListValue, ObjectValue }
+import caliban.ResponseValue.ObjectValue
 import caliban.Value.NullValue
 import caliban.gateway.{ GatewayWrapper, RemoteGraphQLConfig }
 import caliban.gateway.GatewayWrapper.{ DeduplicationResult, Event, Outcome, Result }
@@ -96,14 +96,7 @@ private[gateway] final class RemoteGraphQLSource[-R](
       if (attempt == 0 || !wrapper.enabled) sendAttempt
       else
         wrapper.wrap(Event.Retry(name, attempt))(sendAttempt)(
-          Result.fromExit(_)(
-            response =>
-              Result(
-                if (response.errors.isEmpty) Outcome.Success else Outcome.GraphQLError,
-                errorCount = response.errors.size
-              ),
-            failure => Result(GraphQLSource.failureOutcome(failure))
-          )
+          Result.fromExit(_)(Result.fromResponse, failure => Result(GraphQLSource.failureOutcome(failure)))
         )
 
     call.catchAll { failure =>
@@ -283,29 +276,21 @@ private[gateway] final class RemoteGraphQLSource[-R](
   }
 
   private def decodeEnvelope(value: ObjectValue): Option[GraphQLResponse[CalibanError]] = {
-    val data            = value.fields.collectFirst { case ("data", value) => value }
-    val errors          = value.fields.collectFirst { case ("errors", value) => value }
-    val extensions      = value.fields.collectFirst { case ("extensions", value) => value }
-    val validData       = data.forall {
+    val data      = value.fields.collectFirst { case ("data", value) => value }
+    val hasErrors = value.fields.exists(_._1 == "errors")
+    val validData = data.forall {
       case _: ObjectValue => true
       case NullValue      => true
       case _              => false
     }
-    val validErrors     = errors.forall {
-      case ListValue(values) => values.nonEmpty
-      case _                 => false
-    }
-    val validExtensions = extensions.forall(_.isInstanceOf[ObjectValue])
 
-    if (
-      (data.nonEmpty || errors.nonEmpty) && validData && validErrors && validExtensions &&
-      !(data.contains(NullValue) && errors.isEmpty)
-    )
-      GraphQLResponse
-        .fromResponseValue(value)
-        .filter(_.hasNext.isEmpty)
-        .map(response => response.copy(errors = response.errors.map(RemoteError.disclose(_, disclosure))))
-    else None
+    GraphQLResponse
+      .fromResponseValue(value)
+      .filter(response =>
+        (data.nonEmpty || hasErrors) && validData && (!hasErrors || response.errors.nonEmpty) &&
+          !(data.contains(NullValue) && response.errors.isEmpty) && response.hasNext.isEmpty
+      )
+      .map(response => response.copy(errors = response.errors.map(RemoteError.disclose(_, disclosure))))
   }
 }
 
@@ -323,39 +308,11 @@ private[gateway] object RemoteGraphQLSource {
     responseBytes: Option[Long]
   )
 
-  def apply(endpoint: Uri, backend: SttpClient): RemoteGraphQLSource[Any] =
-    new RemoteGraphQLSource(
-      "remote",
-      endpoint,
-      backend,
-      RemoteGraphQLConfig.default,
-      StructuralLimits.default,
-      None,
-      None,
-      GatewayWrapper.empty
-    )
-
   def apply[R](
     endpoint: Uri,
     backend: SttpClient,
-    config: RemoteGraphQLConfig[R]
-  ): RemoteGraphQLSource[R] =
-    new RemoteGraphQLSource(
-      "remote",
-      endpoint,
-      backend,
-      config,
-      StructuralLimits.default,
-      None,
-      None,
-      GatewayWrapper.empty
-    )
-
-  def apply[R](
-    endpoint: Uri,
-    backend: SttpClient,
-    config: RemoteGraphQLConfig[R],
-    structuralLimits: StructuralLimits
+    config: RemoteGraphQLConfig[R] = RemoteGraphQLConfig.default,
+    structuralLimits: StructuralLimits = StructuralLimits.default
   ): RemoteGraphQLSource[R] =
     new RemoteGraphQLSource(
       "remote",

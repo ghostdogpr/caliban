@@ -112,7 +112,7 @@ private[gateway] final class GatewayRuntimeImpl[-R](
             error =>
               wrapper
                 .wrap(Event.Completion)(GraphQLResponseContext.markRequestError(error) *> Executor.fail(error))(
-                  Result.fromExit(_)(responseResult, _ => Result(Outcome.InternalError))
+                  Result.fromExit(_)(Result.fromResponse, _ => Result(Outcome.InternalError))
                 )
                 .map(RequestResult(_, Outcome.RequestError, None)),
             prepared =>
@@ -192,14 +192,8 @@ private[gateway] final class GatewayRuntimeImpl[-R](
     if (!wrapper.enabled) effect
     else
       wrapper.wrap(Event.Completion)(effect)(
-        Result.fromExit(_)(responseResult, _ => Result(Outcome.InternalError))
+        Result.fromExit(_)(Result.fromResponse, _ => Result(Outcome.InternalError))
       )
-
-  private def responseResult(response: GraphQLResponse[_]): Result =
-    Result(
-      if (response.errors.isEmpty) Outcome.Success else Outcome.GraphQLError,
-      errorCount = response.errors.size
-    )
 
   private def executeRemote(
     plan: OperationPlan,
@@ -253,23 +247,26 @@ private[gateway] final class GatewayRuntimeImpl[-R](
             resolvedRequest,
             plan.caches
           ).flatMap { entityExecution =>
-            val updated   = root.copy(
+            val updated       = root.copy(
               response = root.response.copy(
                 data = entityExecution.roots.getOrElse(route.id, rootData)
               )
             )
-            val errors    = updated.response.errors ::: entityExecution.results.flatMap(_.errors)
-            val completed = completeObject(
+            val errors        = updated.response.errors ::: entityExecution.results.flatMap(_.errors)
+            val completed     = completeObject(
               route.client,
               updated.response.data,
               Nil,
               errors,
               plan.runtimeTypes
             )
+            val completedRoot = updated.copy(
+              response = updated.response.copy(data = completed.value.getOrElse(NullValue))
+            )
             if (completed.value.isEmpty)
               ZIO.succeed(
                 RemoteExecution(
-                  updated :: Nil,
+                  completedRoot :: Nil,
                   entityExecution.results,
                   completed.errors,
                   aborted = true
@@ -278,7 +275,7 @@ private[gateway] final class GatewayRuntimeImpl[-R](
             else
               executeMutations(plan, tail, execution, resolvedRequest).map(next =>
                 next.copy(
-                  roots = updated :: next.roots,
+                  roots = completedRoot :: next.roots,
                   entities = entityExecution.results ::: next.entities,
                   completionErrors = completed.errors ::: next.completionErrors
                 )
@@ -430,6 +427,7 @@ private[gateway] final class GatewayRuntimeImpl[-R](
     val errors      =
       local.errors ::: roots.flatMap(_.response.errors) ::: entities.flatMap(_.errors) ::: remote.completionErrors
     if (remote.aborted) GraphQLResponse(NullValue, errors)
+    else if (plan.operation == OperationType.Mutation) GraphQLResponse(data, errors)
     else {
       val completed = completeObject(plan.fields, data, Nil, errors, plan.runtimeTypes)
       GraphQLResponse(completed.value.getOrElse(NullValue), errors ::: completed.errors)

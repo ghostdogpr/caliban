@@ -37,14 +37,7 @@ private[gateway] final class ObservedGraphQLSource[R](
     if (!wrapper.enabled) underlying.execute(request, operationType)
     else
       wrapper.wrap(Event.SourceCall(name, operationType))(underlying.execute(request, operationType))(
-        Result.fromExit(_)(
-          response =>
-            Result(
-              if (response.errors.isEmpty) Outcome.Success else Outcome.GraphQLError,
-              errorCount = response.errors.size
-            ),
-          failure => Result(GraphQLSource.failureOutcome(failure))
-        )
+        Result.fromExit(_)(Result.fromResponse, failure => Result(GraphQLSource.failureOutcome(failure)))
       )
 
 }

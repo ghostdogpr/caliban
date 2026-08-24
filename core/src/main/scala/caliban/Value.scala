@@ -128,14 +128,6 @@ object ResponseValue {
       result
     }
 
-    private[caliban] def has(name: String): Boolean = {
-      var remaining = fields
-      while (remaining ne Nil) {
-        if (remaining.head._1.equals(name)) return true
-        remaining = remaining.tail
-      }
-      false
-    }
   }
   object ObjectValue {
     val empty: ObjectValue = ObjectValue(Nil)
