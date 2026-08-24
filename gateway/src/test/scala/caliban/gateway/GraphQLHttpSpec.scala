@@ -421,6 +421,35 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
         headers.flatMap(_.get("Accept")).exists(_.contains("application/graphql-response+json"))
       )
     },
+    test("does not let an incoming Connection header strip trusted headers") {
+      val config = RemoteGraphQLConfig.default
+        .withExecution(
+          _.forwardAllIncomingHeaders
+            .withHeaders(SttpHeader("Authorization", "Bearer configured"))
+        )
+        .withExecutionHeadersZIO(ZIO.succeed(List(SttpHeader("X-Trusted", "effectful"))))
+
+      for {
+        remote  <- stub("""{"data":{"value":"ok"}}""")
+        gateway <- Gateway.compose(Subgraph.graphql("remote", remote.endpoint, schema, config)).build
+        _       <- gateway.executeRequest(
+                     request,
+                     List(
+                       SttpHeader("Connection", "Authorization, X-Trusted"),
+                       SttpHeader("Authorization", "Bearer incoming"),
+                       SttpHeader("X-Trusted", "incoming")
+                     )
+                   )
+        sent    <- remote.headers.get
+        headers  = sent.headOption
+      } yield assertTrue(
+        headers.flatMap(_.get("Authorization")).contains("Bearer configured"),
+        headers.flatMap(_.get("X-Trusted")).contains("effectful"),
+        headers
+          .flatMap(_.get("Connection"))
+          .forall(value => !value.contains("Authorization") && !value.contains("X-Trusted"))
+      )
+    },
     test("forwards all incoming headers only when explicitly enabled") {
       val config = RemoteGraphQLConfig.default
         .withExecution(_.forwardAllIncomingHeaders)

@@ -676,22 +676,25 @@ private[gateway] object SchemaComposition {
   }
 
   private object SecurityProfile {
-    def apply(applications: List[ComposedGraph.SecurityApplication]): SecurityProfile =
+    def apply(applications: List[ComposedGraph.SecurityApplication]): SecurityProfile = {
+      val scopes   = conjunction(applications.flatMap { application =>
+        application.directive match {
+          case SecurityDirective.RequiresScopes(values) => Some(values)
+          case _                                        => None
+        }
+      })
+      val policies = conjunction(applications.flatMap { application =>
+        application.directive match {
+          case SecurityDirective.Policy(values) => Some(values)
+          case _                                => None
+        }
+      })
       SecurityProfile(
-        applications.exists(_.directive == SecurityDirective.Authenticated),
-        conjunction(applications.flatMap { application =>
-          application.directive match {
-            case SecurityDirective.RequiresScopes(values) => Some(values)
-            case _                                        => None
-          }
-        }),
-        conjunction(applications.flatMap { application =>
-          application.directive match {
-            case SecurityDirective.Policy(values) => Some(values)
-            case _                                => None
-          }
-        })
+        applications.exists(_.directive == SecurityDirective.Authenticated) || scopes.nonEmpty || policies.nonEmpty,
+        scopes,
+        policies
       )
+    }
 
     private def conjunction(expressions: List[List[List[String]]]): Option[List[Set[String]]] =
       if (expressions.isEmpty) None

@@ -318,7 +318,7 @@ object GatewayHttpSpec extends ZIOSpecDefault {
           contentType <- execute(
                            Request
                              .post(
-                               url.addQueryParam("query", "{ greeting }"),
+                               url,
                                Body.fromString("{ greeting }").contentType(MediaType.text.plain)
                              )
                              .addHeader(Header.Custom("Accept", "application/graphql-response+json"))

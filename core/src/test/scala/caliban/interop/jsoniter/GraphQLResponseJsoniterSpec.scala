@@ -143,17 +143,18 @@ object GraphQLResponseJsoniterSpec extends ZIOSpecDefault {
           response.hasNext.contains(false)
         )
       },
-      test("distinguishes explicit null data from a missing data field [jsoniter]") {
+      test("accepts explicit null data and an empty errors list [jsoniter]") {
         val explicitNull = readFromString[GraphQLResponse[CalibanError]]("""{"data":null}""")
         val emptyErrors  = Try(readFromString[GraphQLResponse[CalibanError]]("""{"errors":[]}"""))
 
         assertTrue(
           explicitNull == GraphQLResponse(NullValue, Nil),
-          emptyErrors.isFailure
+          emptyErrors.toOption.contains(GraphQLResponse(NullValue, Nil))
         )
       },
       test("rejects null or malformed response metadata [jsoniter]") {
         val invalid = List(
+          """{}""",
           """{"errors":null}""",
           """{"errors":{}}""",
           """{"errors":[null]}""",

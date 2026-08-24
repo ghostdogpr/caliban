@@ -1,7 +1,7 @@
 package caliban.gateway.internal
 
 import caliban.ResponseValue.{ ListValue, ObjectValue }
-import caliban.Value.{ EnumValue, IntValue, NullValue, StringValue }
+import caliban.Value.{ BooleanValue, EnumValue, FloatValue, IntValue, NullValue, StringValue }
 import caliban.execution.{ ExecutionRequest, Executor, Field }
 import caliban.gateway.{ GatewayRuntime, GatewayWrapper }
 import caliban.gateway.GatewayWrapper.{ Event, Outcome, Result }
@@ -17,7 +17,7 @@ import caliban.rendering.DocumentRenderer
 import caliban.schema.{ RootSchema, RootType }
 import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, GraphQLResponseContext, PathValue, ResponseValue }
 import caliban.GraphQLResponseContext.ServerFailure
-import zio.{ IO, Trace, URIO, ZIO }
+import zio.{ Exit, IO, Trace, URIO, ZIO }
 
 import java.util.concurrent.ConcurrentHashMap
 import scala.collection.mutable
@@ -93,7 +93,9 @@ private[gateway] final class GatewayRuntimeImpl[-R](
             .prepare(request)
             .foldZIO(
               error => GraphQLResponseContext.markRequestError(error) *> Executor.fail(error),
-              prepared => executePlan(prepared.plan, prepared.executionRequest, prepared.request)
+              prepared =>
+                GraphQLResponseContext.markExecuted *>
+                  executePlan(prepared.plan, prepared.executionRequest, prepared.request)
             )
         )(
           GraphQLResponseContext
@@ -108,33 +110,32 @@ private[gateway] final class GatewayRuntimeImpl[-R](
 
   private def executeObservedRequest(request: GraphQLRequest)(implicit
     trace: Trace
-  ): URIO[R, GraphQLResponse[CalibanError]] =
+  ): URIO[R, GraphQLResponse[CalibanError]] = {
+    val execution =
+      wrapper
+        .wrap(Event.Routing)(operations.prepare(request))(
+          Result.fromExit(_)(
+            _ => Result(Outcome.Success),
+            _ => Result(Outcome.RequestError)
+          )
+        )
+        .foldZIO(
+          error =>
+            observeCompletion(GraphQLResponseContext.markRequestError(error) *> Executor.fail(error))
+              .map(RequestResult(_, Outcome.RequestError, None)),
+          prepared =>
+            (GraphQLResponseContext.markExecuted *>
+              executePlan(prepared.plan, prepared.executionRequest, prepared.request)).map { response =>
+              RequestResult(
+                response,
+                if (response.errors.isEmpty) Outcome.Success else Outcome.GraphQLError,
+                Some(prepared.plan.operation)
+              )
+            }
+        )
+
     control
-      .runObservedRequest(wrapper, Event.Request(request.operationName))(
-        wrapper
-          .wrap(Event.Routing)(operations.prepare(request))(
-            Result.fromExit(_)(
-              _ => Result(Outcome.Success),
-              _ => Result(Outcome.RequestError)
-            )
-          )
-          .foldZIO(
-            error =>
-              wrapper
-                .wrap(Event.Completion)(GraphQLResponseContext.markRequestError(error) *> Executor.fail(error))(
-                  Result.fromExit(_)(Result.fromResponse, _ => Result(Outcome.InternalError))
-                )
-                .map(RequestResult(_, Outcome.RequestError, None)),
-            prepared =>
-              executePlan(prepared.plan, prepared.executionRequest, prepared.request).map { response =>
-                RequestResult(
-                  response,
-                  if (response.errors.isEmpty) Outcome.Success else Outcome.GraphQLError,
-                  Some(prepared.plan.operation)
-                )
-              }
-          )
-      )(
+      .runObservedRequest(wrapper, Event.Request(request.operationName))(execution)(
         wrapper.wrap(Event.Completion)(
           GraphQLResponseContext
             .markServerError(ServerFailure.TimedOut)
@@ -156,13 +157,15 @@ private[gateway] final class GatewayRuntimeImpl[-R](
             _ => Result(Outcome.InternalError)
           )
         )
-      )(
-        Result.fromExit(_)(
-          result => Result(result.outcome, result.operationType, result.response.errors.size),
-          _ => Result(Outcome.InternalError)
-        )
-      )
+      )(classifyRequestResult)
       .map(_.response)
+  }
+
+  private def classifyRequestResult(exit: Exit[Nothing, RequestResult]): Result =
+    Result.fromExit(exit)(
+      result => Result(result.outcome, result.operationType, result.response.errors.size),
+      _ => Result(Outcome.InternalError)
+    )
 
   private def executePlan(
     plan: OperationPlan,
@@ -597,6 +600,32 @@ private[gateway] final class GatewayRuntimeImpl[-R](
               }
             CompletedValue(Some(NullValue), errors)
         }
+      case __TypeKind.SCALAR                       =>
+        val valid = fieldType.name match {
+          case Some("String") | Some("ID") =>
+            value match {
+              case _: StringValue => true
+              case _              => false
+            }
+          case Some("Int")                 =>
+            value match {
+              case _: IntValue => true
+              case _           => false
+            }
+          case Some("Float")               =>
+            value match {
+              case _: IntValue | _: FloatValue => true
+              case _                           => false
+            }
+          case Some("Boolean")             =>
+            value match {
+              case _: BooleanValue => true
+              case _               => false
+            }
+          case _                           => true
+        }
+        if (valid) CompletedValue(Some(value), Nil)
+        else CompletedValue(Some(NullValue), invalidSourceValueErrors(path.reverse, sourceErrors))
       case _                                       => CompletedValue(Some(value), Nil)
     }
 
@@ -633,7 +662,7 @@ private[gateway] final class GatewayRuntimeImpl[-R](
     path: List[PathValue],
     errors: List[CalibanError]
   ): List[CalibanError.ExecutionError] =
-    if (hasErrorAt(errors, path)) Nil else List(RemoteError.at(path))
+    if ((path.isEmpty && errors.nonEmpty) || hasErrorAt(errors, path)) Nil else List(RemoteError.at(path))
 
   private def hasErrorAt(errors: List[CalibanError], path: List[PathValue]): Boolean =
     errors.exists {
@@ -812,57 +841,60 @@ private[gateway] final class GatewayRuntimeImpl[-R](
   )(mergeLeaf: (ResponseValue, ResponseValue) => ResponseValue): ResponseValue =
     (left, right) match {
       case (leftObj: ObjectValue, rightObj: ObjectValue) =>
-        val leftFields                                          = leftObj.fields
-        var leftSize                                            = 0
-        var remaining                                           = leftFields
+        val leftFields                                                          = leftObj.fields
+        var leftSize                                                            = 0
+        var remaining                                                           = leftFields
         while (remaining ne Nil) {
           leftSize += 1
           remaining = remaining.tail
         }
-        var positions: java.util.HashMap[String, AnyRef]        = null
+        var positions: java.util.HashMap[String, Integer]                       = null
+        var duplicates: java.util.HashMap[String, java.util.ArrayList[Integer]] = null
         if (leftSize >= IndexedFields.WideObjectFields) {
-          positions = new java.util.HashMap(leftSize * 2)
+          positions = new java.util.HashMap[String, Integer](leftSize * 2)
           var position = 0
           remaining = leftFields
           while (remaining ne Nil) {
             val name  = remaining.head._1
             val boxed = Integer.valueOf(position)
             positions.get(name) match {
-              case null                               => positions.put(name, boxed)
-              case single: Integer                    =>
+              case null   =>
+                if ((duplicates eq null) || !duplicates.containsKey(name)) positions.put(name, boxed)
+                else duplicates.get(name).add(boxed)
+              case single =>
                 val duplicated = new java.util.ArrayList[Integer](2)
                 duplicated.add(single)
                 duplicated.add(boxed)
-                positions.put(name, duplicated)
-              case duplicated: java.util.ArrayList[_] =>
-                duplicated.asInstanceOf[java.util.ArrayList[Integer]].add(boxed)
-              case _                                  => ()
+                if (duplicates eq null)
+                  duplicates = new java.util.HashMap[String, java.util.ArrayList[Integer]]
+                duplicates.put(name, duplicated)
+                positions.remove(name)
             }
             position += 1
             remaining = remaining.tail
           }
         }
-        val matches                                             = new Array[ResponseValue](leftSize)
-        var extras: mutable.ListBuffer[(String, ResponseValue)] = null
-        var rightRemaining                                      = rightObj.fields
+        val matches                                                             = new Array[ResponseValue](leftSize)
+        var extras: mutable.ListBuffer[(String, ResponseValue)]                 = null
+        var rightRemaining                                                      = rightObj.fields
         while (rightRemaining ne Nil) {
           val field   = rightRemaining.head
           var matched = false
           if (positions ne null) {
-            positions.get(field._1) match {
-              case null                               => ()
-              case single: Integer                    =>
+            val values = if (duplicates eq null) null else duplicates.get(field._1)
+            if (values ne null) {
+              var i = 0
+              while (i < values.size) {
+                matches(values.get(i).intValue) = field._2
+                i += 1
+              }
+              matched = true
+            } else {
+              val single = positions.get(field._1)
+              if (single ne null) {
                 matches(single.intValue) = field._2
                 matched = true
-              case duplicated: java.util.ArrayList[_] =>
-                val values = duplicated.asInstanceOf[java.util.ArrayList[Integer]]
-                var i      = 0
-                while (i < values.size) {
-                  matches(values.get(i).intValue) = field._2
-                  i += 1
-                }
-                matched = true
-              case _                                  => ()
+              }
             }
           } else {
             var position = 0
@@ -882,8 +914,8 @@ private[gateway] final class GatewayRuntimeImpl[-R](
           }
           rightRemaining = rightRemaining.tail
         }
-        val merged                                              = new mutable.ListBuffer[(String, ResponseValue)]
-        var position                                            = 0
+        val merged                                                              = new mutable.ListBuffer[(String, ResponseValue)]
+        var position                                                            = 0
         remaining = leftFields
         while (remaining ne Nil) {
           val field   = remaining.head

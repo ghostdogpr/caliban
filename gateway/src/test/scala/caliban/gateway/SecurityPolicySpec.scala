@@ -372,6 +372,41 @@ object SecurityPolicySpec extends ZIOSpecDefault {
         sent.isEmpty
       )
     },
+    test("treats scopes and policies as authenticated transitive requirements") {
+      val schema =
+        s"""
+           |extend schema @link(
+           |  url: "https://specs.apollo.dev/federation/v2.9"
+           |  import: ["@authenticated", "@requiresScopes", "@policy", "@requires"]
+           |)
+           |$linkDefinitions
+           |directive @authenticated on FIELD_DEFINITION | OBJECT
+           |directive @requiresScopes(scopes: [[fed__Scope!]!]!) on FIELD_DEFINITION | OBJECT
+           |directive @policy(policies: [[fed__Policy!]!]!) on FIELD_DEFINITION | OBJECT
+           |directive @requires(fields: String!) on FIELD_DEFINITION
+           |type Query { product: Product }
+           |type Product {
+           |  secret: String @authenticated
+           |  scopedShipping: String
+           |    @requires(fields: "secret")
+           |    @requiresScopes(scopes: [["read:shipping"]])
+           |  governedShipping: String
+           |    @requires(fields: "secret")
+           |    @policy(policies: [["shipping-policy"]])
+           |}
+           |""".stripMargin
+
+      for {
+        remote <- stub("""{"data":{"product":null}}""")
+        policy  = OperationPolicy.uncached[Any](_ => ZIO.succeed(OperationPolicy.Allow))
+        exit   <- Gateway
+                    .compose(Subgraph.federation("transitive-authentication", remote.endpoint, schema))
+                    .withOperationPolicy(policy)
+                    .build
+                    .exit
+        sent   <- remote.requests.get
+      } yield assertTrue(exit.isSuccess, sent.isEmpty)
+    },
     test("accepts fields carrying sufficient transitive security requirements") {
       val schema =
         s"""

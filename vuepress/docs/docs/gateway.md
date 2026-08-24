@@ -2,7 +2,9 @@
 
 `caliban-gateway` is an embedded, code-first GraphQL gateway. It composes ordinary GraphQL services, Federation
 subgraphs, and in-process Caliban APIs into a scoped `GatewayRuntime`. The runtime is a `GraphQLInterpreter`, so it can
-be passed directly to `QuickAdapter` or any other Caliban HTTP integration.
+be passed directly to `QuickAdapter` or another Caliban HTTP integration for ordinary execution. Incoming-header
+forwarding and trace-context extraction additionally require the transport to supply request headers; `QuickAdapter`
+does this automatically.
 
 The HTTP adapter remains part of the public transport contract. `QuickAdapter` quality-negotiates response media types
 and returns `405`, `406`, `413`, or `415` at its stricter GraphQL-over-HTTP boundary. Tapir-based integrations retain
@@ -160,6 +162,11 @@ than silently discarding semantics.
 Execution headers have deterministic precedence: selected incoming headers, static source headers, effectful headers,
 then GraphQL transport-owned headers. Forwarding is case-insensitive. Transport headers cannot be configured or
 forwarded, and `forwardAllIncomingHeaders` remains an explicit opt-in.
+
+Automatic incoming-header propagation is currently provided by `QuickAdapter`. A custom transport can preserve the
+same behavior by calling `runtime.executeRequest(request, headers)`. Passing the runtime directly to Tapir, http4s,
+Play, or Pekko executes normally, but those adapters do not currently expose their request headers to gateway forwarding
+or tracing.
 
 ```scala
 trait Credentials { def token: UIO[String] }

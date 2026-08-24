@@ -1,12 +1,14 @@
 package caliban.gateway
 
-import caliban.InputValue.ListValue
+import caliban.InputValue.{ ListValue, ObjectValue => InputObjectValue }
 import caliban.ResponseValue.{ ListValue => ResponseListValue, ObjectValue => ResponseObjectValue }
 import caliban.Value.{ BooleanValue, EnumValue, NullValue, StringValue }
 import caliban.gateway.GatewayTestSupport._
 import caliban.parsing.Parser
 import caliban.schema.{ GenericSchema, Schema }
-import caliban.{ graphQL, CalibanError, GraphQLInterpreter, GraphQLRequest, PathValue, ResponseValue, RootResolver }
+import caliban.wrappers.ApolloPersistedQueries
+import caliban.wrappers.Wrappers.maxDepth
+import caliban._
 import zio._
 import zio.test._
 
@@ -226,6 +228,45 @@ object GatewaySpec extends ZIOSpecDefault {
           field(response.data, "failure").contains(NullValue),
           response.errors.collect { case error: CalibanError.ExecutionError => error.msg } == List("local failure"),
           response.errors == direct.errors
+        )
+      },
+      test("isolates local request-error classification from the gateway request") {
+        for {
+          gateway    <- Gateway
+                          .compose(Subgraph.local("local", localGraph(ZIO.succeed("ok")) @@ maxDepth(0)))
+                          .build
+          classified <- GraphQLResponseContext.capture(gateway.execute("{ value }"))
+        } yield assertTrue(
+          classified.value.data == NullValue,
+          classified.value.errors.map(_.msg) == List("Query is too deep: 1. Max depth: 0."),
+          classified.outcome == GraphQLResponseContext.Outcome.Executed
+        )
+      },
+      test("strips client extensions before executing a local subgraph") {
+        val request = GraphQLRequest(
+          query = Some("{ value }"),
+          extensions = Some(
+            Map(
+              "persistedQuery" -> InputObjectValue(
+                Map("sha256Hash" -> StringValue("client-query-hash"))
+              )
+            )
+          )
+        )
+
+        for {
+          gateway  <- Gateway
+                        .compose(
+                          Subgraph.local(
+                            "local",
+                            localGraph(ZIO.succeed("ok")) @@ ApolloPersistedQueries.wrapper
+                          )
+                        )
+                        .build
+          response <- gateway.executeRequest(request)
+        } yield assertTrue(
+          response.errors.isEmpty,
+          field(response.data, "value").contains(StringValue("ok"))
         )
       },
       test("preserves interruption of local Caliban execution") {
@@ -466,6 +507,30 @@ object GatewaySpec extends ZIOSpecDefault {
           errors.map(_.msg) == List("Remote GraphQL request failed."),
           errors.map(_.path) == List(List(PathValue.Key("product"))),
           errors.forall(_.locationInfo.isEmpty)
+        )
+      },
+      test("completes a malformed nullable built-in scalar to null") {
+        for {
+          remote   <- stub("""{"data":{"value":{}}}""")
+          gateway  <- Gateway.compose(Subgraph.graphql("source", remote.endpoint, "type Query { value: String }")).build
+          response <- gateway.execute("{ value }")
+          errors    = response.errors.collect { case error: CalibanError.ExecutionError => error }
+        } yield assertTrue(
+          field(response.data, "value").contains(NullValue),
+          errors.map(_.msg) == List("Remote GraphQL request failed."),
+          errors.map(_.path) == List(List(PathValue.Key("value")))
+        )
+      },
+      test("bubbles a malformed non-null built-in scalar") {
+        for {
+          remote   <- stub("""{"data":{"value":{}}}""")
+          gateway  <- Gateway.compose(Subgraph.graphql("source", remote.endpoint, "type Query { value: String! }")).build
+          response <- gateway.execute("{ value }")
+          errors    = response.errors.collect { case error: CalibanError.ExecutionError => error }
+        } yield assertTrue(
+          response.data == NullValue,
+          errors.map(_.msg) == List("Remote GraphQL request failed."),
+          errors.map(_.path) == List(List(PathValue.Key("value")))
         )
       },
       test("completes a malformed nullable list to null") {

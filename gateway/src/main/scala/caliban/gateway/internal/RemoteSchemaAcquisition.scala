@@ -137,6 +137,8 @@ private[gateway] object RemoteSchemaAcquisition {
       .flatMap { response =>
         if (response.body.limitExceeded)
           ZIO.fail(s"Schema acquisition response exceeded ${config.maxResponseBytes} bytes.")
+        else if (response.code.isRedirect)
+          ZIO.fail("Schema acquisition response had an unsupported status or media type.")
         else if (!allowedMediaType(response))
           ZIO.fail("Schema acquisition response had an unsupported status or media type.")
         else ZIO.succeed(response.body.bytes)

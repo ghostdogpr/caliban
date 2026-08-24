@@ -87,6 +87,23 @@ object GatewayWrapperSpec extends ZIOSpecDefault {
         hitAfter == hitBefore + 1.0
       )
     },
+    test("decrements the admission waiting gauge when waiting is interrupted") {
+      val waiting = "caliban_gateway_admission_waiting"
+
+      for {
+        entered <- Promise.make[Nothing, Unit]
+        before  <- gauge(waiting, "kind", "request")
+        fiber   <- GatewayMetrics.wrapper
+                     .wrap(Event.AdmissionWait(AdmissionKind.Request))(
+                       entered.succeed(()).unit *> ZIO.never
+                     )(_ => GatewayWrapper.Result(GatewayWrapper.Outcome.Cancelled))
+                     .fork
+        _       <- entered.await
+        active  <- gauge(waiting, "kind", "request")
+        _       <- fiber.interrupt
+        after   <- gauge(waiting, "kind", "request")
+      } yield assertTrue(active == before + 1.0, after == before)
+    },
     test("records request, admission, source, and overdue metrics through the wrapper") {
       for {
         started        <- Promise.make[Nothing, Unit]

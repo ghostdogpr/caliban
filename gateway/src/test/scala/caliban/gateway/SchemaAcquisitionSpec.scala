@@ -263,8 +263,11 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
                                    .as(
                                      Response(
                                        Status.TemporaryRedirect,
-                                       Headers(Header.Custom("Location", redirectTarget.endpoint.toString)),
-                                       Body.empty
+                                       Headers(
+                                         Header.Custom("Location", redirectTarget.endpoint.toString),
+                                         Header.Custom("Content-Type", "application/graphql-response+json")
+                                       ),
+                                       Body.fromString(serviceResponse(reviewsSchema))
                                      )
                                    )
                                )

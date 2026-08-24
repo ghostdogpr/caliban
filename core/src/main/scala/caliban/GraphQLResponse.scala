@@ -71,7 +71,6 @@ object GraphQLResponse {
     hasNext: Option[Boolean]
   ): Option[GraphQLResponse[CalibanError]] =
     (data, errors) match {
-      case (_, ResponseField.Present(Nil))                => None
       case (ResponseField.Missing, ResponseField.Missing) => None
       case _                                              =>
         Some(

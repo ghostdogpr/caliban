@@ -90,8 +90,7 @@ object GatewayMetrics {
         case Event.AdmissionWait(kind)   =>
           val labels  = Set(MetricLabel("kind", kind.label))
           val waiting = admissionWaiting.tagged(labels)
-          waiting.increment *>
-            trackDuration(admissionWait, labels)(effect)(result).ensuring(waiting.decrement)
+          withActive(waiting)(trackDuration(admissionWait, labels)(effect)(result))
         case Event.Admission(kind)       =>
           admission.tagged("kind", kind.label).update(1L) *>
             withActive(admissionActive.tagged("kind", kind.label))(effect)

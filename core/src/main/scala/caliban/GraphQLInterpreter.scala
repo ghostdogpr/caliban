@@ -34,7 +34,7 @@ trait GraphQLInterpreter[-R, +E] { self =>
   private[caliban] def executeRequestWith[A](
     request: GraphQLRequest
   )(f: GraphQLResponseContext.Classified[GraphQLResponse[E]] => A)(implicit trace: Trace): URIO[R, A] =
-    GraphQLResponseContext.capture(executeRequest(request)).map(f)
+    GraphQLResponseContext.captureResponse(executeRequest(request)).map(f)
 
   /**
    * Parses, validates and finally runs the provided query against this interpreter.

@@ -3,7 +3,7 @@ package caliban.gateway.internal
 import caliban.gateway.GatewayRuntime.AdmissionStatus
 import caliban.gateway.GatewayWrapper
 import caliban.gateway.GatewayWrapper.{ AdmissionKind, Event, Result }
-import zio.{ Semaphore, Trace, UIO, ZIO }
+import zio.{ Scope, Semaphore, Trace, UIO, URIO, ZIO }
 
 private[gateway] final class ExecutionGate private (
   limit: Int,
@@ -18,15 +18,14 @@ private[gateway] final class ExecutionGate private (
     trace: Trace
   ): ZIO[R, E, A] =
     if (!wrapper.enabled) apply(effect)
-    else
+    else {
+      val waiting: URIO[Scope with R, Unit] =
+        wrapper.wrap(Event.AdmissionWait(kind))(semaphore.withPermitScoped)(Result.classifyExit)
+
       ZIO.scoped[R] {
-        wrapper.wrap(Event.AdmissionWait(kind))(semaphore.withPermitScoped)(
-          Result.classifyExit
-        ) *>
-          wrapper.wrap(Event.Admission(kind))(effect)(
-            Result.classifyExit
-          )
+        waiting *> wrapper.wrap(Event.Admission(kind))(effect)(Result.classifyExit)
       }
+    }
 
   def status(implicit trace: Trace): UIO[AdmissionStatus] =
     semaphore.available.zipWith(semaphore.awaiting) { (available, waiting) =>

@@ -37,11 +37,19 @@ object RemoteSchema {
       .map(queries =>
         __Schema(
           description = doc.schemaDefinition.flatMap(_.description),
-          queryType = toTypeDefinition(queries, doc.typeDefinitions),
-          mutationType = mutations.map(toTypeDefinition(_, doc.typeDefinitions)),
-          subscriptionType = subscriptions.map(toTypeDefinition(_, doc.typeDefinitions)),
-          types = doc.typeDefinitions.map(toTypeDefinition(_, doc.typeDefinitions)),
-          directives = doc.directiveDefinitions.map(toDirective(_, doc.typeDefinitions))
+          queryType = toTypeDefinition(queries, doc.typeDefinitions, includeDeprecatedByDefault = true),
+          mutationType = mutations.map(definition =>
+            toTypeDefinition(definition, doc.typeDefinitions, includeDeprecatedByDefault = true)
+          ),
+          subscriptionType = subscriptions.map(definition =>
+            toTypeDefinition(definition, doc.typeDefinitions, includeDeprecatedByDefault = true)
+          ),
+          types = doc.typeDefinitions.map(definition =>
+            toTypeDefinition(definition, doc.typeDefinitions, includeDeprecatedByDefault = true)
+          ),
+          directives = doc.directiveDefinitions.map(definition =>
+            toDirective(definition, doc.typeDefinitions, includeDeprecatedByDefault = true)
+          )
         )
       )
   }
@@ -254,17 +262,23 @@ object RemoteSchema {
     val rootTypeNames = roots.query.toSet ++ roots.mutation ++ roots.subscription
 
     RootType(
-      toTypeDefinition(document.objectTypeDefinition(roots.query.get).get, definitions),
+      toTypeDefinition(
+        document.objectTypeDefinition(roots.query.get).get,
+        definitions,
+        includeDeprecatedByDefault = false
+      ),
       roots.mutation
         .flatMap(document.objectTypeDefinition)
-        .map(definition => toTypeDefinition(definition, definitions)),
+        .map(definition => toTypeDefinition(definition, definitions, includeDeprecatedByDefault = false)),
       roots.subscription
         .flatMap(document.objectTypeDefinition)
-        .map(definition => toTypeDefinition(definition, definitions)),
+        .map(definition => toTypeDefinition(definition, definitions, includeDeprecatedByDefault = false)),
       definitions
         .filterNot(definition => rootTypeNames.contains(definition.name))
-        .map(definition => toTypeDefinition(definition, definitions)),
-      document.directiveDefinitions.map(toDirective(_, definitions)),
+        .map(definition => toTypeDefinition(definition, definitions, includeDeprecatedByDefault = false)),
+      document.directiveDefinitions.map(definition =>
+        toDirective(definition, definitions, includeDeprecatedByDefault = false)
+      ),
       document.schemaDefinition.flatMap(_.description)
     )
   }
@@ -284,36 +298,38 @@ object RemoteSchema {
 
   private def toObjectType(
     definition: Definition.TypeSystemDefinition.TypeDefinition.ObjectTypeDefinition,
-    definitions: List[Definition.TypeSystemDefinition.TypeDefinition]
+    definitions: List[Definition.TypeSystemDefinition.TypeDefinition],
+    includeDeprecatedByDefault: Boolean
   ): __Type =
     __Type(
       kind = __TypeKind.OBJECT,
       name = Some(definition.name),
       description = definition.description,
-      interfaces = toInterfaces(definition.implements, definitions),
+      interfaces = toInterfaces(definition.implements, definitions, includeDeprecatedByDefault),
       directives = toDirectives(definition.directives),
       fields = (args: __DeprecatedArgs) =>
         if (definition.fields.nonEmpty)
           Some(
             definition.fields
-              .map(toField(_, definitions))
-              .filter(filterDeprecated(_, args))
+              .map(toField(_, definitions, includeDeprecatedByDefault))
+              .filter(filterDeprecated(_, args, includeDeprecatedByDefault))
           )
         else None
     )
 
   private def toField(
     definition: Definition.TypeSystemDefinition.TypeDefinition.FieldDefinition,
-    definitions: List[Definition.TypeSystemDefinition.TypeDefinition]
+    definitions: List[Definition.TypeSystemDefinition.TypeDefinition],
+    includeDeprecatedByDefault: Boolean
   ): __Field =
     __Field(
       name = definition.name,
       description = definition.description,
       args = (args: __DeprecatedArgs) =>
         definition.args
-          .map(toInputValue(_, definitions))
-          .filter(filterDeprecated(_, args)),
-      `type` = toType(definition.ofType, definitions),
+          .map(toInputValue(_, definitions, includeDeprecatedByDefault))
+          .filter(filterDeprecated(_, args, includeDeprecatedByDefault)),
+      `type` = toType(definition.ofType, definitions, includeDeprecatedByDefault),
       isDeprecated = isDeprecated(definition.directives),
       deprecationReason = deprecationReason(definition.directives),
       directives = toDirectives(definition.directives)
@@ -321,7 +337,8 @@ object RemoteSchema {
 
   private def toType(
     definition: Type,
-    definitions: List[Definition.TypeSystemDefinition.TypeDefinition]
+    definitions: List[Definition.TypeSystemDefinition.TypeDefinition],
+    includeDeprecatedByDefault: Boolean
   ): () => __Type = { () =>
     definition match {
       case Type.ListType(t, nonNull) =>
@@ -332,7 +349,7 @@ object RemoteSchema {
               __Type(
                 kind = __TypeKind.LIST,
                 ofType = Some(
-                  toType(t, definitions)()
+                  toType(t, definitions, includeDeprecatedByDefault)()
                 )
               )
             )
@@ -341,7 +358,7 @@ object RemoteSchema {
           __Type(
             kind = __TypeKind.LIST,
             ofType = Some(
-              toType(t, definitions)()
+              toType(t, definitions, includeDeprecatedByDefault)()
             )
           )
 
@@ -350,20 +367,21 @@ object RemoteSchema {
           __Type(
             kind = __TypeKind.NON_NULL,
             ofType = Some(
-              toType(name, definitions)
+              toType(name, definitions, includeDeprecatedByDefault)
             )
           )
         else
-          toType(name, definitions)
+          toType(name, definitions, includeDeprecatedByDefault)
     }
   }
 
   private def toType(
     name: String,
-    definitions: List[Definition.TypeSystemDefinition.TypeDefinition]
+    definitions: List[Definition.TypeSystemDefinition.TypeDefinition],
+    includeDeprecatedByDefault: Boolean
   ) =
     definitions.find(_.name == name) match {
-      case Some(value) => toTypeDefinition(value, definitions)
+      case Some(value) => toTypeDefinition(value, definitions, includeDeprecatedByDefault)
       case None        => __Type(kind = __TypeKind.SCALAR, name = Some(name))
     }
 
@@ -376,35 +394,37 @@ object RemoteSchema {
 
   private def toInterfaces(
     interfaces: List[Type.NamedType],
-    definitions: List[Definition.TypeSystemDefinition.TypeDefinition]
+    definitions: List[Definition.TypeSystemDefinition.TypeDefinition],
+    includeDeprecatedByDefault: Boolean
   ): () => Some[List[__Type]] = { () =>
     Some(
       interfaces
-        .map(t => toType(t.name, definitions))
+        .map(t => toType(t.name, definitions, includeDeprecatedByDefault))
     )
   }
 
   private def toInterfaceType(
     definition: Definition.TypeSystemDefinition.TypeDefinition.InterfaceTypeDefinition,
-    definitions: List[Definition.TypeSystemDefinition.TypeDefinition]
+    definitions: List[Definition.TypeSystemDefinition.TypeDefinition],
+    includeDeprecatedByDefault: Boolean
   ): __Type = {
     val implementations = definitions.collect {
       case t @ ObjectTypeDefinition(_, _, implements, _, _) if implements.map(_.name).toSet.contains(definition.name) =>
-        toTypeDefinition(t, definitions)
+        toTypeDefinition(t, definitions, includeDeprecatedByDefault)
     }
 
     __Type(
       kind = __TypeKind.INTERFACE,
       name = Some(definition.name),
       description = definition.description,
-      interfaces = toInterfaces(definition.implements, definitions),
+      interfaces = toInterfaces(definition.implements, definitions, includeDeprecatedByDefault),
       possibleTypes = Some(implementations),
       fields = (args: __DeprecatedArgs) =>
         if (definition.fields.nonEmpty)
           Some(
             definition.fields
-              .map(t => toField(t, definitions))
-              .filter(filterDeprecated(_, args))
+              .map(t => toField(t, definitions, includeDeprecatedByDefault))
+              .filter(filterDeprecated(_, args, includeDeprecatedByDefault))
           )
         else None,
       directives = toDirectives(definition.directives)
@@ -413,12 +433,13 @@ object RemoteSchema {
 
   private def toInputValue(
     definition: Definition.TypeSystemDefinition.TypeDefinition.InputValueDefinition,
-    definitions: List[Definition.TypeSystemDefinition.TypeDefinition]
+    definitions: List[Definition.TypeSystemDefinition.TypeDefinition],
+    includeDeprecatedByDefault: Boolean
   ): __InputValue =
     __InputValue(
       name = definition.name,
       description = definition.description,
-      `type` = toType(definition.ofType, definitions),
+      `type` = toType(definition.ofType, definitions, includeDeprecatedByDefault),
       isDeprecated = isDeprecated(definition.directives),
       deprecationReason = deprecationReason(definition.directives),
       defaultValue = definition.defaultValue.map(_.toInputString),
@@ -426,14 +447,19 @@ object RemoteSchema {
     )
 
   private def toEnumType(
-    definition: Definition.TypeSystemDefinition.TypeDefinition.EnumTypeDefinition
+    definition: Definition.TypeSystemDefinition.TypeDefinition.EnumTypeDefinition,
+    includeDeprecatedByDefault: Boolean
   ): __Type =
     __Type(
       kind = __TypeKind.ENUM,
       name = Some(definition.name),
       enumValues = (args: __DeprecatedArgs) =>
         if (definition.enumValuesDefinition.nonEmpty)
-          Some(definition.enumValuesDefinition.map(toEnumValue).filter(filterDeprecated(_, args)))
+          Some(
+            definition.enumValuesDefinition
+              .map(toEnumValue)
+              .filter(filterDeprecated(_, args, includeDeprecatedByDefault))
+          )
         else None,
       directives = toDirectives(definition.directives)
     )
@@ -451,7 +477,8 @@ object RemoteSchema {
 
   private def toInputObjectType(
     definition: Definition.TypeSystemDefinition.TypeDefinition.InputObjectTypeDefinition,
-    definitions: List[Definition.TypeSystemDefinition.TypeDefinition]
+    definitions: List[Definition.TypeSystemDefinition.TypeDefinition],
+    includeDeprecatedByDefault: Boolean
   ): __Type =
     __Type(
       kind = __TypeKind.INPUT_OBJECT,
@@ -461,8 +488,8 @@ object RemoteSchema {
         if (definition.fields.nonEmpty)
           Some(
             definition.fields
-              .map(toInputValue(_, definitions))
-              .filter(filterDeprecated(_, args))
+              .map(toInputValue(_, definitions, includeDeprecatedByDefault))
+              .filter(filterDeprecated(_, args, includeDeprecatedByDefault))
           )
         else None,
       directives = toDirectives(definition.directives),
@@ -471,7 +498,8 @@ object RemoteSchema {
 
   private def toUnionType(
     definition: Definition.TypeSystemDefinition.TypeDefinition.UnionTypeDefinition,
-    definitions: List[Definition.TypeSystemDefinition.TypeDefinition]
+    definitions: List[Definition.TypeSystemDefinition.TypeDefinition],
+    includeDeprecatedByDefault: Boolean
   ): __Type =
     __Type(
       kind = __TypeKind.UNION,
@@ -481,7 +509,7 @@ object RemoteSchema {
         if (definition.memberTypes.nonEmpty)
           Some(
             definition.memberTypes
-              .map(t => toType(t, definitions))
+              .map(t => toType(t, definitions, includeDeprecatedByDefault))
           )
         else None,
       directives = toDirectives(definition.directives)
@@ -503,28 +531,30 @@ object RemoteSchema {
 
   private def toTypeDefinition(
     definition: Definition.TypeSystemDefinition.TypeDefinition,
-    definitions: List[Definition.TypeSystemDefinition.TypeDefinition]
+    definitions: List[Definition.TypeSystemDefinition.TypeDefinition],
+    includeDeprecatedByDefault: Boolean
   ): __Type =
     definition match {
-      case o: ObjectTypeDefinition      => toObjectType(o, definitions)
+      case o: ObjectTypeDefinition      => toObjectType(o, definitions, includeDeprecatedByDefault)
       case s: ScalarTypeDefinition      => toScalar(s)
-      case e: EnumTypeDefinition        => toEnumType(e)
-      case u: UnionTypeDefinition       => toUnionType(u, definitions)
-      case i: InterfaceTypeDefinition   => toInterfaceType(i, definitions)
-      case i: InputObjectTypeDefinition => toInputObjectType(i, definitions)
+      case e: EnumTypeDefinition        => toEnumType(e, includeDeprecatedByDefault)
+      case u: UnionTypeDefinition       => toUnionType(u, definitions, includeDeprecatedByDefault)
+      case i: InterfaceTypeDefinition   => toInterfaceType(i, definitions, includeDeprecatedByDefault)
+      case i: InputObjectTypeDefinition => toInputObjectType(i, definitions, includeDeprecatedByDefault)
     }
 
   private def toDirective(
     definition: Definition.TypeSystemDefinition.DirectiveDefinition,
-    definitions: List[Definition.TypeSystemDefinition.TypeDefinition]
+    definitions: List[Definition.TypeSystemDefinition.TypeDefinition],
+    includeDeprecatedByDefault: Boolean
   ): __Directive =
     __Directive(
       name = definition.name,
       description = definition.description,
       args = (args: __DeprecatedArgs) =>
         definition.args
-          .map(toInputValue(_, definitions))
-          .filter(filterDeprecated(_, args)),
+          .map(toInputValue(_, definitions, includeDeprecatedByDefault))
+          .filter(filterDeprecated(_, args, includeDeprecatedByDefault)),
       isRepeatable = definition.isRepeatable,
       locations = definition.locations.map(toDirectiveLocation)
     )
@@ -553,16 +583,28 @@ object RemoteSchema {
       case DirectiveLocation.TypeSystemDirectiveLocation.VARIABLE_DEFINITION    => __DirectiveLocation.VARIABLE_DEFINITION
     }
 
-  private def filterDeprecated(x: __Field, deprecated: __DeprecatedArgs): Boolean =
-    if (deprecated.includeDeprecated.getOrElse(false)) true
+  private def filterDeprecated(
+    x: __Field,
+    deprecated: __DeprecatedArgs,
+    includeDeprecatedByDefault: Boolean
+  ): Boolean =
+    if (deprecated.includeDeprecated.getOrElse(includeDeprecatedByDefault)) true
     else !x.isDeprecated
 
-  private def filterDeprecated(x: __EnumValue, deprecated: __DeprecatedArgs): Boolean =
-    if (deprecated.includeDeprecated.getOrElse(false)) true
+  private def filterDeprecated(
+    x: __EnumValue,
+    deprecated: __DeprecatedArgs,
+    includeDeprecatedByDefault: Boolean
+  ): Boolean =
+    if (deprecated.includeDeprecated.getOrElse(includeDeprecatedByDefault)) true
     else !x.isDeprecated
 
-  private def filterDeprecated(x: __InputValue, deprecated: __DeprecatedArgs): Boolean =
-    if (deprecated.includeDeprecated.getOrElse(false)) true
+  private def filterDeprecated(
+    x: __InputValue,
+    deprecated: __DeprecatedArgs,
+    includeDeprecatedByDefault: Boolean
+  ): Boolean =
+    if (deprecated.includeDeprecated.getOrElse(includeDeprecatedByDefault)) true
     else !x.isDeprecated
 
   private def isDeprecated(directives: List[Directive]): Boolean =

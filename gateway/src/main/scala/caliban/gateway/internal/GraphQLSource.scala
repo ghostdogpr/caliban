@@ -5,7 +5,7 @@ import caliban.gateway.GatewayWrapper
 import caliban.gateway.GatewayWrapper.{ Event, Outcome, Result }
 import caliban.gateway.internal.GraphQLSource.ErrorPolicy
 import caliban.parsing.adt.OperationType
-import caliban.{ CalibanError, GraphQLInterpreter, GraphQLRequest, GraphQLResponse, PathValue }
+import caliban.{ CalibanError, GraphQLInterpreter, GraphQLRequest, GraphQLResponse, GraphQLResponseContext, PathValue }
 import zio.{ Trace, ZIO }
 
 import scala.util.control.NoStackTrace
@@ -135,5 +135,5 @@ private[gateway] final class LocalGraphQLSource[-R](interpreter: GraphQLInterpre
   def execute(request: GraphQLRequest, operationType: OperationType)(implicit
     trace: Trace
   ): ZIO[R, GraphQLSource.Failure, GraphQLResponse[CalibanError]] =
-    interpreter.executeRequest(request)
+    GraphQLResponseContext.capture(interpreter.executeRequest(request.copy(extensions = None))).map(_.value)
 }

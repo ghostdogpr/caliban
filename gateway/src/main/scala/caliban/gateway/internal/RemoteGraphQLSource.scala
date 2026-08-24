@@ -137,21 +137,23 @@ private[gateway] final class RemoteGraphQLSource[-R](
   }
 
   private def outboundHeaders(incoming: List[Header], effectful: List[Header]): List[Header] = {
-    val connectionDeclaredHeaderNames = (incoming ::: execution.headers ::: effectful).iterator
+    val forwarded = sanitizeLayer(incoming).filter { header =>
+      execution.forwardsAllIncomingHeaders || execution.forwardedHeaders.contains(normalize(header))
+    }
+    mergeHeaders(mergeHeaders(mergeHeaders(Nil, forwarded), sanitizeLayer(execution.headers)), sanitizeLayer(effectful))
+  }
+
+  private def sanitizeLayer(headers: List[Header]): List[Header] = {
+    val connectionDeclaredHeaderNames = headers.iterator
       .filter(header => normalize(header) == "connection")
       .flatMap(_.value.split(',').iterator)
       .map(_.trim)
       .filter(_.nonEmpty)
       .map(RemoteGraphQLConfig.normalize)
       .toSet
-
-    val forwarded = incoming.filter { header =>
-      execution.forwardsAllIncomingHeaders || execution.forwardedHeaders.contains(normalize(header))
-    }
-    mergeHeaders(mergeHeaders(mergeHeaders(Nil, forwarded), execution.headers), effectful)
-      .filterNot(header =>
-        RemoteGraphQLConfig.isProtocolHeader(header.name) || connectionDeclaredHeaderNames.contains(normalize(header))
-      )
+    headers.filterNot(header =>
+      RemoteGraphQLConfig.isProtocolHeader(header.name) || connectionDeclaredHeaderNames.contains(normalize(header))
+    )
   }
 
   private def mergeHeaders(lower: List[Header], higher: List[Header]): List[Header] =

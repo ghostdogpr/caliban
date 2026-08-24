@@ -126,6 +126,31 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
         remoteSchema.subscriptionType.flatMap(_.fields(__DeprecatedArgs()).map(_.map(_.name))).contains(List("tick"))
       )
     },
+    test("parseRemoteSchema preserves deprecated fields and arguments by default") {
+      val schema =
+        """
+          |schema { query: Query }
+          |type Query {
+          |  legacy(old: String @deprecated): String @deprecated
+          |}
+          |""".stripMargin
+
+      for {
+        document     <- ZIO.fromEither(Parser.parseQuery(schema))
+        remoteSchema <- ZIO.fromOption(RemoteSchema.parseRemoteSchema(document))
+        defaultFields = remoteSchema.queryType.fields(__DeprecatedArgs()).getOrElse(Nil)
+        allFields     = remoteSchema.queryType.fields(__DeprecatedArgs(Some(true))).getOrElse(Nil)
+        hiddenFields  = remoteSchema.queryType.fields(__DeprecatedArgs(Some(false))).getOrElse(Nil)
+        legacy        = allFields.find(_.name == "legacy")
+        defaultArgs   = legacy.toList.flatMap(_.args(__DeprecatedArgs()))
+        hiddenArgs    = legacy.toList.flatMap(_.args(__DeprecatedArgs(Some(false))))
+      } yield assertTrue(
+        defaultFields.exists(_.name == "legacy"),
+        defaultArgs.exists(_.name == "old"),
+        !hiddenFields.exists(_.name == "legacy"),
+        !hiddenArgs.exists(_.name == "old")
+      )
+    },
     test("preserves interface-implements-interface relationships") {
       val schema =
         """
