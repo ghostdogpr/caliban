@@ -14,7 +14,7 @@ import sttp.model.{ Header, Uri }
 import zio._
 import zio.stream.ZStream
 
-import java.io.{ ByteArrayOutputStream, OutputStream }
+import java.io.OutputStream
 import java.util.Arrays
 import scala.collection.mutable
 import scala.util.control.{ NoStackTrace, NonFatal }
@@ -494,21 +494,31 @@ private[gateway] object RemoteGraphQLSource {
   private case object RequestLimitExceeded extends RuntimeException with NoStackTrace
 
   private final class BoundedOutputStream(maxBytes: Int) extends OutputStream {
-    private val underlying = new ByteArrayOutputStream(math.min(maxBytes, 8192))
+    private var bytes = Array.emptyByteArray
+    private var size  = 0
 
     override def write(value: Int): Unit = {
       ensureCapacity(1)
-      underlying.write(value)
+      bytes(size) = value.toByte
+      size += 1
     }
 
     override def write(values: Array[Byte], offset: Int, length: Int): Unit = {
       ensureCapacity(length)
-      underlying.write(values, offset, length)
+      java.lang.System.arraycopy(values, offset, bytes, size, length)
+      size += length
     }
 
-    def toByteArray: Array[Byte] = underlying.toByteArray
+    def toByteArray: Array[Byte] =
+      if (size == bytes.length) bytes else java.util.Arrays.copyOf(bytes, size)
 
-    private def ensureCapacity(additionalBytes: Int): Unit =
-      if (additionalBytes > maxBytes - underlying.size()) throw RequestLimitExceeded
+    private def ensureCapacity(additionalBytes: Int): Unit = {
+      val required = size + additionalBytes
+      if (additionalBytes < 0 || required < size || required > maxBytes) throw RequestLimitExceeded
+      if (required > bytes.length) {
+        val next = math.min(maxBytes.toLong, math.max(required.toLong, bytes.length.toLong * 2L)).toInt
+        bytes = java.util.Arrays.copyOf(bytes, next)
+      }
+    }
   }
 }

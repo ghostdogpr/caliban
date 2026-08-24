@@ -1546,25 +1546,37 @@ private[gateway] object OperationPlanner {
     def canonicalDirective(directive: Directive): Directive =
       directive.copy(arguments = ListMap(directive.arguments.toList.sortBy(_._1): _*), index = 0)
 
+    def canonicalSelections(selections: List[Selection]): List[Selection] = {
+      val canonical = selections.map(canonicalSelection)
+      canonical match {
+        case Nil | _ :: Nil => canonical
+        case _              =>
+          canonical
+            .map(selection => renderSelection(selection) -> selection)
+            .sortBy(_._1)
+            .map(_._2)
+      }
+    }
+
     def canonicalSelection(selection: Selection): Selection =
       selection match {
         case field: Selection.Field             =>
           field.copy(
             arguments = ListMap(field.arguments.toList.sortBy(_._1): _*),
             directives = field.directives.map(canonicalDirective),
-            selectionSet = field.selectionSet.map(canonicalSelection).sortBy(renderSelection),
+            selectionSet = canonicalSelections(field.selectionSet),
             index = 0
           )
         case fragment: Selection.InlineFragment =>
           fragment.copy(
             dirs = fragment.dirs.map(canonicalDirective),
-            selectionSet = fragment.selectionSet.map(canonicalSelection).sortBy(renderSelection)
+            selectionSet = canonicalSelections(fragment.selectionSet)
           )
         case fragment: Selection.FragmentSpread =>
           fragment.copy(directives = fragment.directives.map(canonicalDirective))
       }
 
-    val selections = fields.map(field => canonicalSelection(field.toSelection)).sortBy(renderSelection)
+    val selections = canonicalSelections(fields.map(_.toSelection))
     DocumentRenderer.renderCompact(
       Document(
         Definition.ExecutableDefinition.OperationDefinition(OperationType.Query, None, Nil, Nil, selections) :: Nil,
@@ -1630,13 +1642,20 @@ private[gateway] object OperationPlanner {
           fragment = field.fragment.map(bindFragment)
         )
 
+      def bindRoot(route: RootRoute): RootRoute =
+        if (route.client.exists(fieldReferences) || route.downstream.exists(fieldReferences))
+          route.copy(client = route.client.map(bindField), downstream = route.downstream.map(bindField))
+        else route
+
+      def bindEntity(route: EntityRoute): EntityRoute =
+        if (route.fields.exists(fieldReferences)) route.copy(fields = route.fields.map(bindField))
+        else route
+
       plan.copy(
         fields = plan.fields.map(bindField),
         localFields = plan.localFields.map(bindField),
-        roots = plan.roots.map(route =>
-          route.copy(client = route.client.map(bindField), downstream = route.downstream.map(bindField))
-        ),
-        entities = plan.entities.map(route => route.copy(fields = route.fields.map(bindField)))
+        roots = plan.roots.map(bindRoot),
+        entities = plan.entities.map(bindEntity)
       )
     }
 

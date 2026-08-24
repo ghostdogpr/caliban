@@ -37,6 +37,7 @@ private[gateway] final class EntityExecutor[-R](
       PreparedLookup(
         executableFields,
         executableFields.map(mapping.rootFieldToSource).flatMap(fieldSelection),
+        mapping.entityFieldsResponseMapper(route.entityType, executableFields),
         graph.responseNameRestorer(route.fields, executableFields)
       )
     }
@@ -107,7 +108,7 @@ private[gateway] final class EntityExecutor[-R](
                     route,
                     batch,
                     lookup,
-                    lookup.toClient(route, response, mapping, graph),
+                    lookup.toClient(response, graph),
                     source.errorPolicy
                   )
                 )
@@ -187,6 +188,11 @@ private[gateway] final class EntityExecutor[-R](
     val executableFields = prepared.executableFields
     val sourceSelections = prepared.sourceSelections
 
+    def responseToClient(correlation: EntityCorrelation): ResponseValue => ResponseValue = {
+      val requiredToClient = mapping.requiredResponseMapper(route.entityType, correlation.required)
+      value => requiredToClient(prepared.fieldsToClient(value))
+    }
+
     route.lookup.operation match {
       case ComposedGraph.LookupOperation.FederationEntities(correlationKey)                                           =>
         val correlation =
@@ -237,6 +243,7 @@ private[gateway] final class EntityExecutor[-R](
             correlation,
             LookupResponse.ListRoot("_entities"),
             executableFields,
+            responseToClient(correlation),
             prepared.restorer
           )
         )
@@ -267,6 +274,7 @@ private[gateway] final class EntityExecutor[-R](
             correlation,
             LookupResponse.ListRoot(alias),
             executableFields,
+            responseToClient(correlation),
             prepared.restorer
           )
         }
@@ -299,6 +307,7 @@ private[gateway] final class EntityExecutor[-R](
             correlation,
             LookupResponse.Aliases(indices.toMap),
             executableFields,
+            responseToClient(correlation),
             prepared.restorer
           )
         }
@@ -408,17 +417,17 @@ private[gateway] final class EntityExecutor[-R](
     val skipped = mutable.Map.empty[RouteId, mutable.Set[List[PathValue]]]
 
     routes.foreach { route =>
+      val blockedPaths = PathIndex(
+        route.dependencies.iterator.flatMap(dependency => blocked.getOrElse(dependency, Set.empty).iterator)
+      )
+      val objectType   = graph.isObjectType(route.entityType)
       candidates.getOrElse((route.root, route.mergePath), Nil).foreach {
         case (_, NullValue)           => ()
         case (path, obj: ObjectValue) =>
-          if (
-            route.dependencies.exists(dependency =>
-              blocked.getOrElse(dependency, Set.empty).exists(blockedPath => path.startsWith(blockedPath))
-            )
-          )
+          if (blockedPaths.containsPrefixOf(path))
             skipped.getOrElseUpdate(route.id, mutable.Set.empty) += path
           else if (
-            graph.isObjectType(route.entityType) && route.typename.exists { selection =>
+            objectType && route.typename.exists { selection =>
               var differs   = false
               var found     = false
               var remaining = obj.fields
@@ -817,6 +826,7 @@ private[gateway] object EntityExecutor {
   private[internal] final case class PreparedLookup(
     executableFields: List[Field],
     sourceSelections: List[Selection],
+    fieldsToClient: ResponseValue => ResponseValue,
     restorer: Option[Map[String, ComposedGraph.ResponseNameMapping]]
   )
 
@@ -908,24 +918,15 @@ private[gateway] object EntityExecutor {
     correlation: EntityCorrelation,
     response: LookupResponse,
     executableFields: List[Field],
+    responseToClient: ResponseValue => ResponseValue,
     restorer: Option[Map[String, ComposedGraph.ResponseNameMapping]]
   ) {
     def errorIndex(path: List[PathValue]): Option[(Int, List[PathValue])] =
       response.errorIndex(path)
 
-    def toClient(
-      route: EntityRoute,
-      result: GraphQLResponse[CalibanError],
-      mapping: SchemaCoordinateMapping,
-      graph: ComposedGraph
-    ): GraphQLResponse[CalibanError] =
+    def toClient(result: GraphQLResponse[CalibanError], graph: ComposedGraph): GraphQLResponse[CalibanError] =
       result.copy(data = response.map(result.data) { value =>
-        val translated = mapping.entityResponseToClient(
-          route.entityType,
-          executableFields,
-          correlation.required,
-          value
-        )
+        val translated = responseToClient(value)
         restorer.fold(translated)(graph.restoreResponseNames(_, translated))
       })
   }

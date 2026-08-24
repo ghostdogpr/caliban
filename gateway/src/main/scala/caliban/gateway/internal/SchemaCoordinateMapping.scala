@@ -215,89 +215,141 @@ private[gateway] final class SchemaCoordinateMapping private (
     selections: List[RequiredSelection],
     value: ResponseValue
   ): ResponseValue =
-    if (renamesNothing) value
-    else {
-      val mapped = originalRootType.types
-        .get(sourceType(typeName))
-        .fold(value)(responseValueToClient(_, fields, value))
-      requiredResponseToClient(typeName, selections, mapped)
-    }
+    entityResponseMapper(typeName, fields, selections)(value)
 
   def rootResponseToClient(
     fields: List[Field],
     response: GraphQLResponse[CalibanError]
   ): GraphQLResponse[CalibanError] =
-    if (renamesNothing) response
-    else response.copy(data = objectResponseToClient(fields, response.data))
+    rootResponseMapper(fields)(response)
 
-  private def objectResponseToClient(fields: List[Field], value: ResponseValue): ResponseValue =
-    value match {
-      case ObjectValue(values) =>
-        val selected = fields.iterator.map(field => field.aliasedName -> field).toMap
-        ObjectValue(values.map { case (name, nested) =>
-          name -> selected.get(name).fold(nested)(field => fieldResponseToClient(field, nested))
-        })
-      case other               => other
+  private[internal] def rootResponseMapper(
+    fields: List[Field]
+  ): GraphQLResponse[CalibanError] => GraphQLResponse[CalibanError] =
+    if (renamesNothing) identity
+    else {
+      val mapData = objectResponseMapper(fields)
+      response => response.copy(data = mapData(response.data))
     }
 
-  private def fieldResponseToClient(field: Field, value: ResponseValue): ResponseValue =
-    if (field.name == "__typename")
-      value match {
-        case StringValue(name) => StringValue(clientType(name))
-        case other             => other
-      }
-    else responseValueToClient(field.fieldType, field.fields, value)
+  private[internal] def entityResponseMapper(
+    typeName: String,
+    fields: List[Field],
+    selections: List[RequiredSelection]
+  ): ResponseValue => ResponseValue =
+    if (renamesNothing) identity
+    else {
+      val fieldsToClient   = entityFieldsResponseMapper(typeName, fields)
+      val requiredToClient = requiredResponseMapper(typeName, selections)
+      value => requiredToClient(fieldsToClient(value))
+    }
 
-  private def responseValueToClient(tpe: __Type, fields: List[Field], value: ResponseValue): ResponseValue =
+  private[internal] def entityFieldsResponseMapper(
+    typeName: String,
+    fields: List[Field]
+  ): ResponseValue => ResponseValue =
+    if (renamesNothing) identityResponse
+    else
+      originalRootType.types
+        .get(sourceType(typeName))
+        .fold(identityResponse)(responseValueMapper(_, fields))
+
+  private val identityResponse: ResponseValue => ResponseValue = identity
+
+  private def objectResponseMapper(fields: List[Field]): ResponseValue => ResponseValue = {
+    val selected  = new java.util.HashMap[String, ResponseValue => ResponseValue]
+    var remaining = fields
+    while (remaining ne Nil) {
+      val field = remaining.head
+      selected.put(field.aliasedName, fieldResponseMapper(field))
+      remaining = remaining.tail
+    }
+    value =>
+      value match {
+        case ObjectValue(values) =>
+          ObjectValue(values.map { case (name, nested) =>
+            val mapper = selected.get(name)
+            name -> (if (mapper eq null) nested else mapper(nested))
+          })
+        case other               => other
+      }
+  }
+
+  private def fieldResponseMapper(field: Field): ResponseValue => ResponseValue =
+    if (field.name == "__typename")
+      value =>
+        value match {
+          case StringValue(name) => StringValue(clientType(name))
+          case other             => other
+        }
+    else responseValueMapper(field.fieldType, field.fields)
+
+  private def responseValueMapper(tpe: __Type, fields: List[Field]): ResponseValue => ResponseValue =
     tpe.kind match {
       case __TypeKind.NON_NULL                                         =>
-        tpe.ofType.fold(value)(responseValueToClient(_, fields, value))
+        tpe.ofType.fold(identityResponse)(responseValueMapper(_, fields))
       case __TypeKind.LIST                                             =>
-        value match {
-          case ListValue(values) =>
-            ListValue(values.map(item => tpe.ofType.fold(item)(responseValueToClient(_, fields, item))))
-          case other             => other
-        }
+        val mapItem = tpe.ofType.fold(identityResponse)(responseValueMapper(_, fields))
+        value =>
+          value match {
+            case ListValue(values) => ListValue(values.map(mapItem))
+            case other             => other
+          }
       case __TypeKind.ENUM                                             =>
         val typeName = tpe.name.getOrElse("")
-        value match {
-          case StringValue(name) => StringValue(clientEnumValue(sourceType(typeName), name))
-          case EnumValue(name)   => EnumValue(clientEnumValue(sourceType(typeName), name))
-          case other             => other
-        }
-      case __TypeKind.OBJECT | __TypeKind.INTERFACE | __TypeKind.UNION => objectResponseToClient(fields, value)
-      case _                                                           => value
+        value =>
+          value match {
+            case StringValue(name) => StringValue(clientEnumValue(sourceType(typeName), name))
+            case EnumValue(name)   => EnumValue(clientEnumValue(sourceType(typeName), name))
+            case other             => other
+          }
+      case __TypeKind.OBJECT | __TypeKind.INTERFACE | __TypeKind.UNION => objectResponseMapper(fields)
+      case _                                                           => identityResponse
     }
 
-  private def requiredResponseToClient(
+  private[internal] def requiredResponseMapper(
     typeName: String,
-    selections: List[RequiredSelection],
-    value: ResponseValue
-  ): ResponseValue =
-    value match {
-      case ObjectValue(values) =>
-        val selected = selections.iterator.map(selection => selection.responseName -> selection).toMap
-        val source   = originalRootType.types.get(sourceType(typeName))
-        ObjectValue(values.map { case (name, nested) =>
-          name -> selected.get(name).fold(nested) { selection =>
-            if (selection.field == "__typename")
-              nested match {
-                case StringValue(value) => StringValue(clientType(value))
-                case other              => other
+    selections: List[RequiredSelection]
+  ): ResponseValue => ResponseValue =
+    if (selections.isEmpty) identityResponse
+    else {
+      val selected  = new java.util.HashMap[String, ResponseValue => ResponseValue]
+      val source    = originalRootType.types.get(sourceType(typeName))
+      var remaining = selections
+      while (remaining ne Nil) {
+        val selection = remaining.head
+        val mapper    =
+          if (selection.field == "__typename")
+            (value: ResponseValue) =>
+              value match {
+                case StringValue(name) => StringValue(clientType(name))
+                case other             => other
               }
+          else {
+            val sourceName = sourceField(typeName, selection.field)
+            val childType  = source.flatMap(tpe => Option(tpe.getFieldOrNull(sourceName))).map(_._type)
+            if (selection.children.isEmpty) childType.fold(identityResponse)(responseValueMapper(_, Nil))
             else {
-              val sourceName = sourceField(typeName, selection.field)
-              val childType  = source.flatMap(tpe => Option(tpe.getFieldOrNull(sourceName))).map(_._type)
-              if (selection.children.isEmpty) childType.fold(nested)(responseValueToClient(_, Nil, nested))
-              else {
-                val childName = childType.flatMap(_.innerType.name).map(clientType).getOrElse("")
-                requiredResponseToClient(childName, selection.children, nested)
-              }
+              val childName = childType.flatMap(_.innerType.name).map(clientType).getOrElse("")
+              requiredResponseMapper(childName, selection.children)
             }
           }
-        })
-      case ListValue(values)   => ListValue(values.map(requiredResponseToClient(typeName, selections, _)))
-      case other               => other
+        selected.put(selection.responseName, mapper)
+        remaining = remaining.tail
+      }
+
+      def map(value: ResponseValue): ResponseValue =
+        value match {
+          case ObjectValue(values) =>
+            ObjectValue(values.map { case (name, nested) =>
+              val mapper = selected.get(name)
+              name -> (if (mapper eq null) nested else mapper(nested))
+            })
+          case ListValue(values)   => ListValue(values.map(map))
+          case other               => other
+        }
+
+      map
     }
 
   private def transformDefinition(definition: Definition, fieldSets: FieldSetDirectives): Definition =

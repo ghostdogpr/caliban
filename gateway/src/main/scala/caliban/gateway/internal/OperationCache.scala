@@ -5,12 +5,14 @@ import caliban.gateway.GatewayWrapper
 import caliban.gateway.GatewayWrapper.{ CacheResult, Event, Result }
 import zio.{ Exit, Promise, Ref, Trace, UIO, ZIO }
 
+import java.util.concurrent.atomic.LongAdder
 import scala.annotation.tailrec
 import scala.collection.immutable.Queue
 
 private[gateway] final class OperationCache[K, E, V, -R] private (
   maxWeight: Long,
   state: Ref[OperationCache.State[K, E, V]],
+  hits: LongAdder,
   wrapper: GatewayWrapper[R]
 ) {
   import OperationCache._
@@ -18,7 +20,7 @@ private[gateway] final class OperationCache[K, E, V, -R] private (
   def getOrCompute[R0](key: K)(compute: => ZIO[R0, E, Weighted[V]])(implicit trace: Trace): ZIO[R with R0, E, V] =
     state.get.flatMap { current =>
       current.entries.get(key) match {
-        case Some(entry) => state.update(_.recordHit) *> observe(CacheResult.Hit)(ZIO.succeed(entry.value))
+        case Some(entry) => ZIO.succeed(hits.increment()) *> observe(CacheResult.Hit)(ZIO.succeed(entry.value))
         case None        => miss(key)(compute)
       }
     }
@@ -29,7 +31,7 @@ private[gateway] final class OperationCache[K, E, V, -R] private (
         maxWeight,
         current.weight,
         current.entries.size,
-        current.hits,
+        hits.sum(),
         current.misses,
         current.evictions,
         current.inFlight.size
@@ -41,7 +43,7 @@ private[gateway] final class OperationCache[K, E, V, -R] private (
       state
         .modify[Decision[E, V]] { current =>
           current.entries.get(key) match {
-            case Some(entry) => Decision.Hit[E, V](entry.value) -> current.recordHit
+            case Some(entry) => Decision.Hit[E, V](entry.value) -> current
             case None        =>
               current.inFlight.get(key) match {
                 case Some(existing) => Decision.Await[E, V](existing) -> current.recordMiss
@@ -50,7 +52,8 @@ private[gateway] final class OperationCache[K, E, V, -R] private (
           }
         }
         .flatMap {
-          case Decision.Hit(value)       => observe(CacheResult.Hit)(ZIO.succeed(value))
+          case Decision.Hit(value)       =>
+            ZIO.succeed(hits.increment()) *> observe(CacheResult.Hit)(ZIO.succeed(value))
           case Decision.Await(promise)   =>
             observe(CacheResult.Wait)(
               promise.await.flatMap {
@@ -100,7 +103,7 @@ private[gateway] object OperationCache {
   def make[K, E, V, R](maxWeight: Long, wrapper: GatewayWrapper[R])(implicit
     trace: Trace
   ): UIO[OperationCache[K, E, V, R]] =
-    Ref.make(State.empty[K, E, V]).map(new OperationCache(maxWeight, _, wrapper))
+    Ref.make(State.empty[K, E, V]).map(new OperationCache(maxWeight, _, new LongAdder, wrapper))
 
   private final case class Entry[+V](value: V, weight: Long)
 
@@ -109,12 +112,9 @@ private[gateway] object OperationCache {
     order: Queue[K],
     weight: Long,
     inFlight: Map[K, Promise[Nothing, Exit[E, V]]],
-    hits: Long,
     misses: Long,
     evictions: Long
   ) {
-
-    def recordHit: State[K, E, V] = copy(hits = hits + 1L)
 
     def recordMiss: State[K, E, V] = copy(misses = misses + 1L)
 
@@ -162,7 +162,7 @@ private[gateway] object OperationCache {
 
   private object State {
     def empty[K, E, V]: State[K, E, V] =
-      State(Map.empty, Queue.empty, 0L, Map.empty, 0L, 0L, 0L)
+      State(Map.empty, Queue.empty, 0L, Map.empty, 0L, 0L)
   }
 
   private sealed trait Decision[E, V]
