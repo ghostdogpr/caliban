@@ -82,7 +82,7 @@ private[gateway] final class OperationCache[K, E, V, -R] private (
             case Exit.Success(weighted) => withoutFlight.insert(key, weighted, maxWeight)
             case Exit.Failure(_)        => withoutFlight
           }
-        } *> promise.succeed(result).unit *> result
+        } *> promise.succeed(result).unit *> (result: ZIO[Any, E, V])
       }
     }
 
