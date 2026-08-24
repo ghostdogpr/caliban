@@ -1050,9 +1050,16 @@ object CompositionSpec extends ZIOSpecDefault {
       test("preserves authored multiplicity for repeatable directives") {
         val result       = compose(
           CompositionInput(
-            "repeatable",
+            "alpha",
             directiveSchema(
-              "type Query { value: String @audit(label: \"same\") @audit(label: \"same\") }",
+              "type Query { value: String @shareable @audit(label: \"same\") }",
+              "directive @audit(label: String!) repeatable on FIELD_DEFINITION"
+            )
+          ),
+          CompositionInput(
+            "beta",
+            directiveSchema(
+              "type Query { value: String @shareable @audit(label: \"same\") @audit(label: \"same\") }",
               "directive @audit(label: String!) repeatable on FIELD_DEFINITION"
             )
           )
@@ -1066,6 +1073,25 @@ object CompositionSpec extends ZIOSpecDefault {
         )
 
         assertTrue(result.isRight, applications.size == 2)
+      },
+      test("retains composed type directives on interface objects") {
+        val sdl    =
+          s"""
+             |${federationSchemaPreamble("@key", "@interfaceObject", "@tag")}
+             |directive @tag(name: String!) repeatable on OBJECT | INTERFACE | FIELD_DEFINITION
+             |type Query { node: Node }
+             |type Node @key(fields: "id") @interfaceObject @tag(name: "metadata") { id: ID! }
+             |""".stripMargin
+        val result = compose(CompositionInput("nodes", sdl))
+        val node   = result.toOption.flatMap(_.rootType.types.get("Node"))
+
+        assertTrue(
+          result.isRight,
+          node.exists(_.kind == caliban.introspection.adt.__TypeKind.INTERFACE),
+          directives(node.flatMap(_.directives)).exists { case (name, arguments) =>
+            name == "tag" && arguments.get("name").contains(StringValue("metadata"))
+          }
+        )
       },
       test("validates and compares applications with GraphQL input semantics") {
         def defaultSchema(value: String, selected: Boolean) = directiveSchema(

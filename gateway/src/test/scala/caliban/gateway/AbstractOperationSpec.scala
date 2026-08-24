@@ -61,7 +61,12 @@ object AbstractOperationSpec extends ZIOSpecDefault {
   private val interfaceObjectSchema =
     s"""
        |${federationSchemaPreamble("@key", "@interfaceObject")}
-       |type Query { anotherUsers: [NodeWithName] }
+       |scalar _Any
+       |union _Entity = NodeWithName
+       |type Query {
+       |  anotherUsers: [NodeWithName]
+       |  _entities(representations: [_Any!]!): [_Entity]!
+       |}
        |type NodeWithName @key(fields: "id") @interfaceObject { id: ID! username: String }
        |""".stripMargin
 
@@ -239,7 +244,7 @@ object AbstractOperationSpec extends ZIOSpecDefault {
           interface      <-
             stubByRequest { request =>
               if (request.query.exists(_.contains("_entities")))
-                """{"data":{"_entities":[{"__typename":"NodeWithName","id":"u1","name":"Ada","username":"ada","_caliban_gateway_key":"u1","_caliban_gateway_typename":"User","_caliban_gateway_requirement_name":"Ada"}]}}"""
+                """{"data":{"_entities":[{"__typename":"NodeWithName","id":"u1","name":"Ada","username":"ada","_caliban_gateway_key":"u1","_caliban_gateway_typename":"User","_caliban_gateway_requirement_name":"Ada","_caliban_gateway_entity_key":"u1","_caliban_gateway_entity_typename":"NodeWithName"}]}}"""
               else
                 """{"data":{"anotherUsers":[{"__typename":"User","id":"u1","username":"ada","_caliban_gateway_key":"u1","_caliban_gateway_typename":"User","_caliban_gateway_runtime_typename":"User"}]}}"""
             }
@@ -349,7 +354,7 @@ object AbstractOperationSpec extends ZIOSpecDefault {
       },
       test("gates an ordinary concrete lookup by the abstract runtime type") {
         val sourceResponse =
-          """{"data":{"actors":[{"_caliban_gateway_key":"u1","_caliban_gateway_typename":"User","_caliban_gateway_runtime_typename":"User"},{"_caliban_gateway_typename":"Admin","_caliban_gateway_runtime_typename":"Admin"}]}}"""
+          """{"data":{"actors":[{"__typename":"User","_caliban_gateway_key":"u1","_caliban_gateway_typename":"User","_caliban_gateway_runtime_typename":"User"},{"__typename":"Admin","_caliban_gateway_typename":"Admin","_caliban_gateway_runtime_typename":"Admin"}]}}"""
 
         for {
           source   <- stub(sourceResponse)

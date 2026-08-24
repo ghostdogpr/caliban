@@ -184,14 +184,14 @@ object FieldRoutingSpec extends ZIOSpecDefault {
              |type Product @key(fields: "id") {
              |  id: ID! @external
              |  details: ProductDetails! @external
-             |  shippingEstimate: Int! @requires(fields: "details { code ... on PhysicalDetails { dimensions } ... on DigitalDetails { downloadSize } }")
+             |  shippingEstimate: Int! @requires(fields: "details { __typename code ... on PhysicalDetails { dimensions } ... on DigitalDetails { downloadSize } }")
              |}
              |interface ProductDetails { code: String! }
              |type PhysicalDetails implements ProductDetails @shareable { code: String! dimensions: Int! }
              |type DigitalDetails implements ProductDetails @shareable { code: String! downloadSize: Int! }
              |""".stripMargin
         val productResponse   =
-          """{"data":{"product":{"_caliban_gateway_requirement_details_code_dimensions_PhysicalDetails_downloadSize_DigitalDetails":{"code":"box","_caliban_gateway_requirement_typename":"PhysicalDetails","dimensions":4},"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}}}"""
+          """{"data":{"product":{"_caliban_gateway_requirement_details___typename_code_dimensions_PhysicalItem_downloadSize_DigitalDetails":{"__typename":"PhysicalDetails","code":"box","_caliban_gateway_requirement_typename":"PhysicalDetails","_caliban_gateway_runtime_typename":"PhysicalDetails","dimensions":4},"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}}}"""
         val inventoryResponse =
           """{"data":{"_entities":[{"shippingEstimate":40}]}}"""
 
@@ -200,8 +200,12 @@ object FieldRoutingSpec extends ZIOSpecDefault {
           inventory <- stub(inventoryResponse)
           gateway   <- Gateway
                          .compose(
-                           Subgraph.federation("products", products.endpoint, productsSchema),
-                           Subgraph.federation("inventory", inventory.endpoint, inventorySchema)
+                           Subgraph
+                             .federation("products", products.endpoint, productsSchema)
+                             .transform(SchemaTransformation.renameType("PhysicalDetails", "PhysicalItem")),
+                           Subgraph
+                             .federation("inventory", inventory.endpoint, inventorySchema)
+                             .transform(SchemaTransformation.renameType("PhysicalDetails", "PhysicalItem"))
                          )
                          .build
           response  <- gateway.execute("{ product { shippingEstimate } }")
@@ -222,7 +226,13 @@ object FieldRoutingSpec extends ZIOSpecDefault {
                     Map(
                       "__typename" -> StringValue("Product"),
                       "id"         -> StringValue("p1"),
-                      "details"    -> InputObjectValue(Map("code" -> StringValue("box"), "dimensions" -> IntNumber(4)))
+                      "details"    -> InputObjectValue(
+                        Map(
+                          "__typename" -> StringValue("PhysicalDetails"),
+                          "code"       -> StringValue("box"),
+                          "dimensions" -> IntNumber(4)
+                        )
+                      )
                     )
                   ) :: Nil
                 )

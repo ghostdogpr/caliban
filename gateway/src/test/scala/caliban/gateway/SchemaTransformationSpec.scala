@@ -115,6 +115,34 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
         )
       )
     },
+    test("reverses enum and input-field renames for singleton list coercion") {
+      val schema =
+        "type Query { search(statuses: [Status!]!, filters: [Filter!]!): String } input Filter { term: String! } enum Status { ACTIVE }"
+
+      for {
+        remote   <- stub("""{"data":{"search":"ok"}}""")
+        gateway  <- Gateway
+                      .compose(
+                        Subgraph
+                          .graphql("search", remote.endpoint, schema)
+                          .transform(
+                            SchemaTransformation.renameEnumValue("Status", "ACTIVE", "AVAILABLE"),
+                            SchemaTransformation.renameInputField("Filter", "term", "query")
+                          )
+                      )
+                      .build
+        result   <- gateway.execute("{ search(statuses: AVAILABLE, filters: { query: \"wood\" }) }")
+        requests <- remote.requests.get
+      } yield assertTrue(
+        result.errors.isEmpty,
+        field(result.data, "search").contains(StringValue("ok")),
+        requests.headOption
+          .flatMap(_.query)
+          .exists(
+            _.contains("search(statuses:ACTIVE,filters:{term:\"wood\"})")
+          )
+      )
+    },
     test("uses the same coordinate translation for local subgraphs") {
       val transformations = List(
         SchemaTransformation.renameType("EchoResult", "Reply"),
@@ -285,8 +313,9 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
     test("keeps Federation keys and requirements aligned with transformed coordinates") {
       val productsSchema  =
         s"""
-           |${federationSchemaPreambleWithQueryRoot("@key", "@external", "@provides")}
-           |type Query { product(id: ID!): Product @provides(fields: "price") }
+           |schema { query: Queries }
+           |${federationSchemaPreamble("@key", "@external", "@provides")}
+           |type Queries { product(id: ID!): Product @provides(fields: "price") }
            |type Product @key(fields: "id") { id: ID! price: Int! @external }
            |""".stripMargin
       val pricesSchema    =

@@ -15,6 +15,9 @@ private[internal] final class IndexedFields private (
   def get(name: String): Option[ResponseValue] =
     if (index eq null) value.get(name) else Option(index.get(name))
 
+  def getOrNull(name: String): ResponseValue =
+    if (index eq null) value.getOrNull(name) else index.get(name)
+
   def getOrNullValue(name: String): ResponseValue =
     if (index eq null) value.getOrNullValue(name)
     else {

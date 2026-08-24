@@ -1462,10 +1462,10 @@ private[gateway] object SchemaComposition {
       if (errors.nonEmpty) Left(errors)
       else {
         val compiledRequirements = requirements.collect { case Right(selections) =>
-          (schema.name, selections._1, selections._2) -> selections._3
+          (schema.name, composedTypeName(schema, selections._1), selections._2) -> selections._3
         }
         val compiledProvisions   = provisions.collect { case Right(selections) =>
-          (schema.name, selections._1, selections._2) -> selections._3
+          (schema.name, composedTypeName(schema, selections._1), selections._2) -> selections._3
         }
         Right(FederationFieldSets(compiledRequirements, compiledProvisions))
       }

@@ -295,8 +295,22 @@ private[gateway] object DirectiveComposition {
       val definition = definitionByKey.get(key)
       val sorted     = values.sortBy(value => (value.source, value.ordinal))
       val selected   =
-        if (definition.exists(_.isRepeatable)) sorted
-        else sorted.headOption.toList
+        if (definition.exists(_.isRepeatable)) {
+          val maximumBySignature  = sorted
+            .groupBy(value => value.source -> applicationSignature(value.directive))
+            .toList
+            .groupBy(_._1._2)
+            .map { case (signature, occurrences) => signature -> occurrences.map(_._2.size).max }
+          var retainedBySignature = Map.empty[List[(String, InputValue)], Int]
+          sorted.filter { value =>
+            val signature = applicationSignature(value.directive)
+            val retained  = retainedBySignature.getOrElse(signature, 0)
+            if (retained < maximumBySignature(signature)) {
+              retainedBySignature = retainedBySignature.updated(signature, retained + 1)
+              true
+            } else false
+          }
+        } else sorted.headOption.toList
       coordinate -> selected.map(_.directive)
     }
       .groupBy(_._1)
@@ -409,16 +423,20 @@ private[gateway] object DirectiveComposition {
   )
 
   private final case class SourceInfo(source: Source) {
-    private val schema           = source.schema
-    private val features         = linkedFeatures(schema.document)
-    private val byLocal          = features.flatMap { feature =>
+    private val schema                    = source.schema
+    private val features                  = linkedFeatures(schema.document)
+    private val interfaceObjectDirectives = features
+      .filter(_.identity == FederationIdentity)
+      .flatMap(_.directiveNames("interfaceObject"))
+      .toSet
+    private val byLocal                   = features.flatMap { feature =>
       schema.rootType.additionalDirectives.flatMap { definition =>
         feature
           .sourceDirective(definition.name)
           .map(member => definition.name -> DirectiveKey(feature.identity, member))
       }
     }.groupBy(_._1).map { case (name, values) => name -> values.map(_._2).distinct }
-    private val localDefinitions = schema.rootType.additionalDirectives.map { definition =>
+    private val localDefinitions          = schema.rootType.additionalDirectives.map { definition =>
       val keys = byLocal.getOrElse(definition.name, Nil)
       definition.name -> (keys match {
         case key :: Nil => key
@@ -517,7 +535,13 @@ private[gateway] object DirectiveComposition {
         schema.rootType.types.valuesIterator.toList.sortBy(_.name).flatMap(tpe => tpe.name.map(_ -> tpe)).flatMap {
           case (sourceName, tpe) =>
             rootNames.getOrElse(sourceName, sourceName :: Nil).flatMap { typeName =>
-              val coordinate = TypeCoordinate(typeName, typeLocation(tpe.kind))
+              val location   =
+                if (
+                  tpe.kind == __TypeKind.OBJECT &&
+                  tpe.directives.exists(_.exists(directive => interfaceObjectDirectives(directive.name)))
+                ) __DirectiveLocation.INTERFACE
+                else typeLocation(tpe.kind)
+              val coordinate = TypeCoordinate(typeName, location)
               selectedDirectives(tpe.directives, coordinate) :::
                 tpe.allFields.flatMap { field =>
                   selectedDirectives(field.directives, FieldCoordinate(typeName, field.name)) :::

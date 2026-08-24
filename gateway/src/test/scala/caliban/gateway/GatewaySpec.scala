@@ -2,7 +2,7 @@ package caliban.gateway
 
 import caliban.InputValue.{ ListValue, ObjectValue => InputObjectValue }
 import caliban.ResponseValue.{ ListValue => ResponseListValue, ObjectValue => ResponseObjectValue }
-import caliban.Value.{ BooleanValue, EnumValue, NullValue, StringValue }
+import caliban.Value.{ BooleanValue, EnumValue, IntValue, NullValue, StringValue }
 import caliban.gateway.GatewayTestSupport._
 import caliban.gateway.internal.GatewayRuntimeImpl
 import caliban.parsing.Parser
@@ -520,6 +520,43 @@ object GatewaySpec extends ZIOSpecDefault {
           field(response.data, "value").contains(NullValue),
           errors.map(_.msg) == List("Remote GraphQL request failed."),
           errors.map(_.path) == List(List(PathValue.Key("value")))
+        )
+      },
+      test("reports absent response fields without confusing explicit nulls") {
+        val sourceSchema =
+          "type Query { absent: String explicit: String nested: Nested } type Nested { present: String absent: String }"
+
+        for {
+          remote   <- stub("""{"data":{"explicit":null,"nested":{"present":"ok"}}}""")
+          gateway  <- Gateway.compose(Subgraph.graphql("source", remote.endpoint, sourceSchema)).build
+          response <- gateway.execute("{ absent explicit nested { present absent } }")
+          errors    = executionErrors(response.errors)
+        } yield assertTrue(
+          response.data == ResponseObjectValue(
+            List(
+              "absent"   -> NullValue,
+              "explicit" -> NullValue,
+              "nested"   -> ResponseObjectValue(List("present" -> StringValue("ok"), "absent" -> NullValue))
+            )
+          ),
+          errors.map(_.msg) == List("Remote GraphQL request failed.", "Remote GraphQL request failed."),
+          errors.map(_.path) == List(
+            List(PathValue.Key("absent")),
+            List(PathValue.Key("nested"), PathValue.Key("absent"))
+          )
+        )
+      },
+      test("rejects out-of-range Int values returned by a source") {
+        for {
+          remote   <- stub("""{"data":{"value":2147483648}}""")
+          gateway  <- Gateway.compose(Subgraph.graphql("source", remote.endpoint, "type Query { value: Int }")).build
+          response <- gateway.execute("{ value }")
+          errors    = executionErrors(response.errors)
+        } yield assertTrue(
+          field(response.data, "value").contains(NullValue),
+          errors.map(_.msg) == List("Remote GraphQL request failed."),
+          errors.map(_.path) == List(List(PathValue.Key("value"))),
+          !field(response.data, "value").contains(IntValue(2147483648L))
         )
       },
       test("bubbles a malformed non-null built-in scalar") {

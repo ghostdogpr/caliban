@@ -29,10 +29,7 @@ private[gateway] final class OperationHooks[-R](
       case Some(resolver) =>
         OperationHooks
           .run(resolver.resolve(request), OperationHooks.ResolutionFailure)
-          .flatMap(query =>
-            if (query eq null) ZIO.fail(OperationHooks.ResolutionFailure)
-            else ZIO.succeed(request.copy(query = Some(query)))
-          )
+          .map(query => request.copy(query = Some(query)))
       case None           => ZIO.succeed(request)
     }
 
@@ -53,30 +50,27 @@ private[gateway] final class OperationHooks[-R](
           .run(policy.evaluate(operation), OperationHooks.PolicyFailure)
           .flatMap {
             case Allow          => ZIO.unit
-            case Reject(reason) => ZIO.fail(OperationHooks.policyRejection(reason))
-            case null           => ZIO.fail(OperationHooks.PolicyFailure)
+            case Reject(reason) => ZIO.fail(CalibanError.ValidationError(reason, ""))
           }
       case None         => ZIO.unit
     }
 }
 
 private[gateway] object OperationHooks {
-  private val ResolutionFailure = CalibanError.ValidationError("Operation resolution failed.", "")
-  private val PolicyFailure     = CalibanError.ValidationError("Operation policy failed.", "")
-
-  private def policyRejection(reason: String): CalibanError.ValidationError =
-    if (reason == null || reason.isEmpty)
-      CalibanError.ValidationError("Operation rejected by gateway policy.", "")
-    else CalibanError.ValidationError(reason, "")
+  private val ResolutionFailure = "Operation resolution failed."
+  private val PolicyFailure     = "Operation policy failed."
 
   private def run[R, A](
     effect: => ZIO[R, Throwable, A],
-    failure: CalibanError
+    failureMessage: String
   )(implicit trace: Trace): ZIO[R, CalibanError, A] =
     ZIO
       .suspendSucceed(effect)
       .foldCauseZIO(
-        cause => cause.interruptOption.fold(ZIO.fail(failure))(fiberId => ZIO.failCause(Cause.interrupt(fiberId))),
+        cause =>
+          cause.interruptOption.fold(
+            ZIO.fail(CalibanError.ExecutionError(failureMessage, innerThrowable = Some(cause.squash)))
+          )(fiberId => ZIO.failCause(Cause.interrupt(fiberId))),
         ZIO.succeed(_)
       )
 }

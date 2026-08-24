@@ -206,7 +206,10 @@ private[gateway] final class EntityExecutor[-R](
     route.lookup.operation match {
       case ComposedGraph.LookupOperation.FederationEntities(correlationKey)                                           =>
         val correlation =
-          if (correlationKey.nonEmpty && batch.entries.map(_.identity).distinct.size == batch.entries.size)
+          if (
+            correlationKey.nonEmpty &&
+            batch.entries.map(entry => correlationIdentity(route, entry.identity)).distinct.size == batch.entries.size
+          )
             federationCorrelation(route, routes)
           else EntityCorrelation.Ordered
         val variables   = Map(
@@ -658,7 +661,9 @@ private[gateway] final class EntityExecutor[-R](
     response: GraphQLResponse[CalibanError],
     errorPolicy: GraphQLSource.ErrorPolicy
   ): EntityResult = {
-    val expected       = batch.entries.iterator.zipWithIndex.map { case (entry, index) => entry.identity -> index }.toMap
+    val expected       = batch.entries.iterator.zipWithIndex.map { case (entry, index) =>
+      correlationIdentity(route, entry.identity) -> index
+    }.toMap
     val resolved       = mutable.Set.empty[Int]
     val patches        = mutable.LinkedHashMap.empty[Int, ResponseValue]
     val protocolErrors = mutable.ListBuffer.empty[CalibanError]
@@ -681,7 +686,9 @@ private[gateway] final class EntityExecutor[-R](
         val resolvedIndex = lookup.correlation match {
           case EntityCorrelation.Ordered      => batch.entries.lift(index).map(_ => index)
           case keyed: EntityCorrelation.Keyed =>
-            readIdentity(route.entityType, keyed.identity, IndexedFields(value)).flatMap(expected.get)
+            readIdentity(route.entityType, keyed.identity, IndexedFields(value))
+              .map(correlationIdentity(route, _))
+              .flatMap(expected.get)
         }
         resolvedIndex match {
           case Some(entryIndex) if resolved.add(entryIndex) =>
@@ -695,23 +702,31 @@ private[gateway] final class EntityExecutor[-R](
         protocolErrors += unexpectedEntityResult(route)
     }
 
-    val missing       = batch.entries.zipWithIndex.filterNot { case (_, index) => resolved.contains(index) }
+    val missing        = batch.entries.zipWithIndex.filterNot { case (_, index) => resolved.contains(index) }
     missing.foreach { case (entry, _) => blockEntry(entry, blocked) }
-    val merged        = batch.entries.zipWithIndex.flatMap { case (entry, index) =>
+    val merged         = batch.entries.zipWithIndex.flatMap { case (entry, index) =>
       patches
         .get(index)
         .toList
         .flatMap(patch => entry.locations.map(location => EntityPatch(location.route, location.path, patch)))
     }
-    val missingErrors = lookup.correlation match {
-      case _: EntityCorrelation.ByKey                                  => Nil
-      case EntityCorrelation.Ordered | _: EntityCorrelation.Federation =>
-        missing.flatMap { case (entry, _) =>
-          entry.locations.map(location => missingEntityResult(location.route, location.path))
-        }
+    val relocated      = relocateErrors(route, batch, lookup, values.toMap, response.errors, errorPolicy)
+    val unindexedError = response.errors.exists {
+      case error: CalibanError.ExecutionError => lookup.response.errorIndex(error.path).isEmpty
+      case _                                  => false
     }
-    val errors        = batch.errors :::
-      relocateErrors(route, batch, lookup, values.toMap, response.errors, errorPolicy) :::
+    val missingErrors  =
+      if (unindexedError) Nil
+      else
+        lookup.correlation match {
+          case _: EntityCorrelation.ByKey                                  => Nil
+          case EntityCorrelation.Ordered | _: EntityCorrelation.Federation =>
+            missing.flatMap { case (entry, _) =>
+              entry.locations.map(location => missingEntityResult(location.route, location.path))
+            }
+        }
+    val errors         = batch.errors :::
+      relocated :::
       protocolErrors.toList :::
       missingErrors
 
@@ -760,7 +775,7 @@ private[gateway] final class EntityExecutor[-R](
       case error: CalibanError.ExecutionError =>
         lookup.response.errorIndex(error.path) match {
           case Some((index, tail)) =>
-            val locations  = entityLocations(route.entityType, batch, lookup.correlation, values.get(index), index)
+            val locations  = entityLocations(route, batch, lookup.correlation, values.get(index), index)
             val clientTail = graph.restoreResponsePath(route.fields, lookup.executableFields, tail)
             if (locations.isEmpty) mergePaths(route, batch).map(errorPolicy.unusableEntity(error, _))
             else
@@ -776,7 +791,7 @@ private[gateway] final class EntityExecutor[-R](
     }
 
   private def entityLocations(
-    entityType: String,
+    route: EntityRoute,
     batch: EntityBatch,
     correlation: EntityCorrelation,
     value: Option[ResponseValue],
@@ -786,9 +801,10 @@ private[gateway] final class EntityExecutor[-R](
       case EntityCorrelation.Ordered      => batch.entries.lift(index).map(_.locations).getOrElse(Nil)
       case keyed: EntityCorrelation.Keyed =>
         val byIdentity = value.collect { case obj: ObjectValue =>
-          readIdentity(entityType, keyed.identity, IndexedFields(obj))
+          readIdentity(route.entityType, keyed.identity, IndexedFields(obj))
         }.flatten
-          .flatMap(identity => batch.entries.find(_.identity == identity))
+          .map(correlationIdentity(route, _))
+          .flatMap(identity => batch.entries.find(entry => correlationIdentity(route, entry.identity) == identity))
           .map(_.locations)
         val positional = keyed match {
           case _: EntityCorrelation.Federation => batch.entries.lift(index).map(_.locations)
@@ -796,6 +812,9 @@ private[gateway] final class EntityExecutor[-R](
         }
         byIdentity.orElse(positional).getOrElse(Nil)
     }
+
+  private def correlationIdentity(route: EntityRoute, identity: EntityIdentity): EntityIdentity =
+    route.lookup.representationType.fold(identity)(typename => identity.copy(typename = typename))
 
   private def mergePaths(route: EntityRoute, batch: EntityBatch): List[List[PathValue]] = {
     val paths = mutable.LinkedHashSet.empty[List[PathValue]]

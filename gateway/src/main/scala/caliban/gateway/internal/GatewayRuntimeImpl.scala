@@ -327,12 +327,39 @@ private[gateway] final class GatewayRuntimeImpl[-R](
               patchesByRoot.getOrElseUpdate(patch.route.root, mutable.ListBuffer.empty) += (patch.path -> patch.value)
             )
           )
-          val nextRoots     = patchesByRoot.foldLeft(roots) { case (values, (rootId, patches)) =>
+          val patchedRoots  = patchesByRoot.foldLeft(roots) { case (values, (rootId, patches)) =>
             values.get(rootId) match {
               case Some(root) => values.updated(rootId, applyPatches(root, patches.toList))
               case None       => values
             }
           }
+          val nextRoots     =
+            if (!results.exists(_.blocked.nonEmpty)) patchedRoots
+            else {
+              val blockedByRoot =
+                mutable.LinkedHashMap.empty[RouteId, mutable.ListBuffer[(List[PathValue], ResponseValue)]]
+              val routesById    = pending.iterator.map(route => route.id -> route).toMap
+              results.foreach(
+                _.blocked.foreach { case (routeId, paths) =>
+                  routesById.get(routeId).foreach { route =>
+                    val patch = ObjectValue(route.fields.map(field => field.aliasedName -> NullValue))
+                    paths.foreach(path =>
+                      blockedByRoot.getOrElseUpdate(route.root, mutable.ListBuffer.empty) += (path -> patch)
+                    )
+                  }
+                }
+              )
+              blockedByRoot.foldLeft(patchedRoots) { case (values, (rootId, patches)) =>
+                values.get(rootId) match {
+                  case Some(root) =>
+                    values.updated(
+                      rootId,
+                      patches.foldLeft(root) { case (value, (path, patch)) => mergeMissingAt(value, path, patch) }
+                    )
+                  case None       => values
+                }
+              }
+            }
           val nextCompleted = completed ++ results.iterator.flatMap(_.completed)
           val nextBlocked   = results.flatMap(_.blocked).foldLeft(blocked) { case (values, (route, paths)) =>
             values.updated(route, values.getOrElse(route, Set.empty) ++ paths)
@@ -453,17 +480,22 @@ private[gateway] final class GatewayRuntimeImpl[-R](
         val lookup = IndexedFields(obj)
 
         while (remaining ne Nil) {
-          val field  = remaining.head
-          val name   = field.aliasedName
-          val value  = lookup.getOrNullValue(name)
-          val result = completeValue(
-            field.fieldType,
-            field,
-            value,
-            PathValue.Key(name) :: path,
-            sourceErrors,
-            runtimeTypes
-          )
+          val field     = remaining.head
+          val name      = field.aliasedName
+          val fieldPath = PathValue.Key(name) :: path
+          val value     = lookup.getOrNull(name)
+          val result    =
+            if (value ne null)
+              completeValue(field.fieldType, field, value, fieldPath, sourceErrors, runtimeTypes)
+            else {
+              val invalid = CompletedValue(
+                Some(NullValue),
+                invalidSourceValueErrors(fieldPath.reverse, sourceErrors)
+              )
+              if (field.fieldType.kind == __TypeKind.NON_NULL)
+                enforceNonNull(invalid, field, fieldPath, sourceErrors)
+              else invalid
+            }
           if (result.errors ne Nil) errors ++= result.errors
           result.value match {
             case Some(completedValue) => completed += (name -> completedValue)
@@ -573,8 +605,10 @@ private[gateway] final class GatewayRuntimeImpl[-R](
             }
           case Some("Int")                 =>
             value match {
-              case _: IntValue => true
-              case _           => false
+              case _: IntValue.IntNumber                              => true
+              case IntValue.LongNumber(number) if number.isValidInt   => true
+              case IntValue.BigIntNumber(number) if number.isValidInt => true
+              case _                                                  => false
             }
           case Some("Float")               =>
             value match {
@@ -829,6 +863,31 @@ private[gateway] final class GatewayRuntimeImpl[-R](
           case IntValue.IntNumber(index) =>
             value match {
               case ListValue(values) if index >= 0 => ListValue(updateValueAt(values, index, tail, patch))
+              case other                           => other
+            }
+        }
+    }
+
+  private def mergeMissingAt(value: ResponseValue, path: List[PathValue], patch: ResponseValue): ResponseValue =
+    path match {
+      case Nil          => mergeObject(patch, value)
+      case head :: tail =>
+        head match {
+          case StringValue(key)          =>
+            value match {
+              case ObjectValue(fields) =>
+                ObjectValue(fields.map {
+                  case (`key`, nested) => key -> mergeMissingAt(nested, tail, patch)
+                  case field           => field
+                })
+              case other               => other
+            }
+          case IntValue.IntNumber(index) =>
+            value match {
+              case ListValue(values) if index >= 0 =>
+                ListValue(values.zipWithIndex.map { case (nested, position) =>
+                  if (position == index) mergeMissingAt(nested, tail, patch) else nested
+                })
               case other                           => other
             }
         }

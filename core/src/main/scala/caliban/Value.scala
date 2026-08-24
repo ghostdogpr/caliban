@@ -106,7 +106,7 @@ object ResponseValue {
         case _              => false
       }
 
-    private def getOrNull(name: String): ResponseValue = {
+    private[caliban] def getOrNull(name: String): ResponseValue = {
       var result: ResponseValue = null
       var remaining             = fields
       while (remaining ne Nil) {

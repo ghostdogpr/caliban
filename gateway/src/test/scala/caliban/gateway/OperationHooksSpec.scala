@@ -5,7 +5,7 @@ import caliban.InputValue.ObjectValue
 import caliban.gateway.GatewayTestSupport._
 import caliban.gateway.OperationPolicy.{ Allow, Reject }
 import caliban.gateway.internal.{ OperationCacheDirective, OperationHooks }
-import caliban.GraphQLRequest
+import caliban.{ CalibanError, GraphQLRequest }
 import zio._
 import zio.test._
 
@@ -152,9 +152,17 @@ object OperationHooksSpec extends ZIOSpecDefault {
         policyResult    <- policyRuntime.executeRequest(request)
         sent            <- remote.requests.get
         messages         = (resolverResult.errors ::: policyResult.errors).map(_.msg)
+        resolverCause    = resolverResult.errors.collectFirst { case error: CalibanError.ExecutionError =>
+                             error.innerThrowable
+                           }.flatten
+        policyCause      = policyResult.errors.collectFirst { case error: CalibanError.ExecutionError =>
+                             error.innerThrowable
+                           }.flatten
       } yield assertTrue(
         resolverResult.errors.map(_.msg) == List("Operation resolution failed."),
         policyResult.errors.map(_.msg) == List("Operation policy failed."),
+        resolverCause.exists(_.getMessage == secretResolver),
+        policyCause.exists(_.getMessage == secretPolicy),
         !messages.exists(_.contains(secretResolver)),
         !messages.exists(_.contains(secretPolicy)),
         sent.isEmpty

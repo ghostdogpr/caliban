@@ -703,6 +703,28 @@ object EntityExecutionSpec extends ZIOSpecDefault {
           }
         )
       },
+      test("does not duplicate an unindexed lookup failure with missing-result errors") {
+        val productResponse =
+          """{"data":{"products":[{"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"},{"_caliban_gateway_key":"p2","_caliban_gateway_typename":"Product"}]}}"""
+        val reviewResponse  =
+          """{"data":null,"errors":[{"message":"reviews unavailable"}]}"""
+
+        for {
+          products <- stub(productResponse)
+          reviews  <- stub(reviewResponse)
+          gateway  <- Gateway
+                        .compose(
+                          Subgraph.federation("products", products.endpoint, listProductsFederationSchema),
+                          Subgraph.federation("reviews", reviews.endpoint, reviewsFederationSchema)
+                        )
+                        .build
+          response <- gateway.execute("{ products { reviews { body } } }")
+          errors    = executionErrors(response.errors)
+        } yield assertTrue(
+          errors.map(_.msg) == List("Remote GraphQL request failed."),
+          errors.map(_.path) == List(List(PathValue.Key("products")))
+        )
+      },
       test("handles null, missing, extra, and duplicate entity results deterministically") {
         val nullableReviews = reviewsFederationSchema.replace("reviews: [Review!]!", "reviews: [Review!]")
         val productResponse =
