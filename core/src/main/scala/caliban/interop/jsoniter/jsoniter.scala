@@ -2,7 +2,6 @@ package caliban.interop.jsoniter
 
 import caliban.Value._
 import caliban._
-import caliban.parsing.adt.LocationInfo
 import com.github.plokhotnyuk.jsoniter_scala.core._
 import com.github.plokhotnyuk.jsoniter_scala.macros._
 
@@ -269,13 +268,13 @@ private[caliban] object ErrorJsoniter {
 private[caliban] object GraphQLResponseJsoniter {
   val graphQLResponseCodec: JsonValueCodec[GraphQLResponse[Any]] = codec()
 
-  def writeToArray(
-    response: GraphQLResponse[Any],
+  def writeToArray[A](
+    value: A,
     maxBytes: Int,
-    responseCodec: JsonValueCodec[GraphQLResponse[Any]]
+    codec: JsonValueCodec[A]
   ): Array[Byte] = {
     val output = new BoundedOutputStream(maxBytes)
-    writeToStream(response, output)(responseCodec)
+    writeToStream(value, output)(codec)
     output.toByteArray
   }
 

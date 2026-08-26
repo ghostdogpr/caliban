@@ -173,6 +173,15 @@ object GraphQLResponseJsoniterSpec extends ZIOSpecDefault {
           invalid.forall(value => Try(readFromString[GraphQLResponse[CalibanError]](value)).isFailure)
         )
       },
+      test("accepts explicit null error metadata [jsoniter]") {
+        val response = readFromString[GraphQLResponse[CalibanError]](
+          """{"errors":[{"message":"boom","path":null,"locations":null,"extensions":null}]}"""
+        )
+
+        assertTrue(
+          response.errors == List(CalibanError.ExecutionError("boom"))
+        )
+      },
       test("should correctly write keys containing UTF-8") {
         val response = GraphQLResponse(ObjectValue(List("utf8〜key" -> StringValue("any"))), Nil)
         assertTrue(writeToString(response) == """{"data":{"utf8〜key":"any"}}""")

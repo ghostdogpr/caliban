@@ -173,12 +173,14 @@ private[gateway] object DirectiveComposition {
     }
 
     private def visibilityDiagnostics(rootType: RootType): List[String] = {
-      def namedType(tpe: __Type): __Type                                                            = tpe.ofType.fold(tpe)(namedType)
+      def hiddenTypeMessage(source: String, directive: String, context: String, name: String): String =
+        s"[$source] Composed directive '@$directive' at '$context' references non-visible input type '$name'."
+
       def hiddenType(source: String, directive: String, context: String, tpe: __Type): List[String] = {
-        val named = namedType(tpe)
+        val named = tpe.innerType
         named.name.toList.collect {
           case name if !rootType.types.contains(name) =>
-            s"[$source] Composed directive '@$directive' at '$context' references non-visible input type '$name'."
+            hiddenTypeMessage(source, directive, context, name)
         }
       }
       def references(
@@ -191,7 +193,7 @@ private[gateway] object DirectiveComposition {
         val found  = SchemaCoordinateMapping.inputCoordinateReferences(expected, value)
         val types  = found.inputTypes.toList.sorted.collect {
           case name if !rootType.types.contains(name) =>
-            s"[$source] Composed directive '@$directive' at '$context' references non-visible input type '$name'."
+            hiddenTypeMessage(source, directive, context, name)
         }
         val fields = found.inputFields.toList.sorted.collect {
           case (typeName, fieldName)
@@ -246,7 +248,6 @@ private[gateway] object DirectiveComposition {
 
   def compile(sources: List[Source]): Result = {
     val sourceInfos           = sources.sortBy(_.schema.name).map(SourceInfo(_))
-    val sourceInfo            = sourceInfos.map(info => info.source.schema.name -> info).toMap
     val definitions           = sourceInfos.flatMap(_.definitions)
     val declarations          = sourceInfos.flatMap(_.composeDeclarations)
     val selectedBySource      = sourceInfos.map { info =>
@@ -332,6 +333,7 @@ private[gateway] object DirectiveComposition {
         else {
           val bySourceDuplicates = values
             .groupBy(_.source)
+            .toList
             .collect {
               case (source, occurrences) if occurrences.size > 1 =>
                 coordinate ->
@@ -575,7 +577,7 @@ private[gateway] object DirectiveComposition {
                   .flatMap(value => selectedDirectives(value.directives, EnumValueCoordinate(typeName, value.name)))
             }
         }
-      val directiveArgumentApps = definitions.flatMap { local =>
+      val directiveArgumentApps = definitions.filter(local => selected(local.key)).flatMap { local =>
         inputApplications(
           argument =>
             DirectiveArgumentCoordinate(

@@ -4,6 +4,7 @@ import caliban.ResponseValue.ObjectValue
 import caliban.Value.StringValue
 import caliban.gateway.GatewayTestSupport._
 import caliban.gateway.internal.GraphQLSource._
+import caliban.gateway.internal.ExecutionGate
 import caliban.gateway.internal.RemoteGraphQLSource
 import caliban.gateway.internal.unmanagedRemoteGraphQLSource
 import caliban.parsing.adt.OperationType
@@ -439,6 +440,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
                        SttpHeader("X-Incoming", "forwarded"),
                        SttpHeader("Connection", "keep-alive, X-Internal"),
                        SttpHeader("X-Internal", "hop-by-hop"),
+                       SttpHeader("Accept-Encoding", "br, gzip"),
                        SttpHeader("Accept", "text/plain")
                      )
                    )
@@ -449,6 +451,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
         headers.flatMap(_.get("X-Incoming")).contains("forwarded"),
         headers.flatMap(_.get("X-Internal")).isEmpty,
         headers.flatMap(_.get("X-Effect-Hop")).isEmpty,
+        headers.flatMap(_.get("Accept-Encoding")).forall(!_.contains("br")),
         headers.flatMap(_.get("Accept")).exists(_.contains("application/graphql-response+json"))
       )
     },
@@ -501,6 +504,37 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
         responses.forall(response =>
           response.errors.isEmpty && response.data == ObjectValue(List("value" -> StringValue("ok")))
         )
+      )
+    },
+    test("times out a deduplicated query while it waits for source admission") {
+      val config = RemoteGraphQLConfig.default.withExecution(
+        _.withInFlightQueryDeduplication(true).withTimeout(100.millis)
+      )
+
+      for {
+        backend        <- HttpClientZioBackend.scoped()
+        calls          <- Ref.make(0)
+        remote         <- endpoint(_ => calls.update(_ + 1).as(Response.json("""{"data":{"value":"ok"}}""")))
+        gate           <- ExecutionGate.make(1, GatewayWrapper.AdmissionKind.Source)
+        blockerStarted <- Promise.make[Nothing, Unit]
+        releaseBlocker <- Promise.make[Nothing, Unit]
+        blocker        <- gate(blockerStarted.succeed(()).unit *> releaseBlocker.await).fork
+        _              <- blockerStarted.await
+        source         <- RemoteGraphQLSource
+                            .make("remote", remote, backend, config, GatewayWrapper.empty)
+                            .map(_.admittedBy(gate, GatewayWrapper.empty))
+        first          <- Live.live(source.execute(request, OperationType.Query).either)
+        _              <- releaseBlocker.succeed(())
+        _              <- blocker.join
+        _              <- Live.live(ZIO.sleep(150.millis))
+        callsAfterWait <- calls.get
+        second         <- source.execute(request, OperationType.Query).either
+        totalCalls     <- calls.get
+      } yield assertTrue(
+        first == Left(TimeoutFailure),
+        callsAfterWait == 0,
+        second.isRight,
+        totalCalls == 1
       )
     },
     test("shares failures and removes the in-flight entry before a retry") {

@@ -38,7 +38,7 @@ private[gateway] final class EntityExecutor[-R](
       PreparedLookup(
         executableFields,
         executableFields.map(mapping.rootFieldToSource).flatMap(fieldSelection),
-        mapping.entityFieldsResponseMapper(route.entityType, executableFields),
+        mapping.entityFieldsResponseMapper(executableFields),
         graph.responseNameRestorer(route.fields, executableFields)
       )
     }
@@ -203,6 +203,25 @@ private[gateway] final class EntityExecutor[-R](
       value => requiredToClient(prepared.fieldsToClient(value))
     }
 
+    def sourceSelectionsFor(correlation: EntityCorrelation): List[Selection] =
+      sourceSelections ::: correlation.required
+        .map(value => requiredSelection(mapping.requiredSelectionToSource(route.entityType, value)))
+
+    def lookupExecution(
+      operation: OperationDefinition,
+      variables: Option[Map[String, InputValue]],
+      correlation: EntityCorrelation,
+      response: LookupResponse
+    ): LookupExecution =
+      LookupExecution(
+        request(operation, variables, resolvedRequest),
+        correlation,
+        response,
+        executableFields,
+        responseToClient(correlation),
+        prepared.restorer
+      )
+
     route.lookup.operation match {
       case ComposedGraph.LookupOperation.FederationEntities(correlationKey)                                           =>
         val correlation =
@@ -219,9 +238,6 @@ private[gateway] final class EntityExecutor[-R](
               .toList
           )
         )
-        val selections  = sourceSelections ::: correlation.required
-          .map(mapping.requiredSelectionToSource(route.entityType, _))
-          .map(requiredSelection)
         val entityField = Selection.Field(
           None,
           "_entities",
@@ -231,7 +247,7 @@ private[gateway] final class EntityExecutor[-R](
             Selection.InlineFragment(
               Some(NamedType(mapping.sourceType(route.entityType), nonNull = false)),
               Nil,
-              selections
+              sourceSelectionsFor(correlation)
             )
           ),
           0
@@ -250,16 +266,7 @@ private[gateway] final class EntityExecutor[-R](
           Nil,
           List(entityField)
         )
-        Some(
-          LookupExecution(
-            request(operation, Some(variables), resolvedRequest),
-            correlation,
-            LookupResponse.ListRoot("_entities"),
-            executableFields,
-            responseToClient(correlation),
-            prepared.restorer
-          )
-        )
+        Some(lookupExecution(operation, Some(variables), correlation, LookupResponse.ListRoot("_entities")))
       case ComposedGraph.LookupOperation.GraphQLQuery(field, mappings, result: ComposedGraph.LookupResult.ListResult) =>
         val correlation = graphqlCorrelation(route, routes, result)
         evaluateArguments(mappings, batch, None).map { arguments =>
@@ -270,9 +277,7 @@ private[gateway] final class EntityExecutor[-R](
             mapping.sourceLookupField(field),
             sourceArguments,
             Nil,
-            sourceSelections ::: correlation.required
-              .map(mapping.requiredSelectionToSource(route.entityType, _))
-              .map(requiredSelection),
+            sourceSelectionsFor(correlation),
             0
           )
           val operation       = OperationDefinition(
@@ -282,14 +287,7 @@ private[gateway] final class EntityExecutor[-R](
             Nil,
             List(selection)
           )
-          LookupExecution(
-            request(operation, None, resolvedRequest),
-            correlation,
-            LookupResponse.ListRoot(alias),
-            executableFields,
-            responseToClient(correlation),
-            prepared.restorer
-          )
+          lookupExecution(operation, None, correlation, LookupResponse.ListRoot(alias))
         }
       case ComposedGraph.LookupOperation.GraphQLQuery(field, mappings, ComposedGraph.LookupResult.Single)             =>
         val correlation = EntityCorrelation.Ordered
@@ -301,7 +299,7 @@ private[gateway] final class EntityExecutor[-R](
               mapping.sourceLookupField(field),
               mapping.sourceLookupArguments(field, arguments),
               Nil,
-              sourceSelections,
+              sourceSelectionsFor(correlation),
               0
             ) -> (alias -> index)
           }
@@ -315,14 +313,7 @@ private[gateway] final class EntityExecutor[-R](
             Nil,
             values
           )
-          LookupExecution(
-            request(operation, None, resolvedRequest),
-            correlation,
-            LookupResponse.Aliases(indices.toMap),
-            executableFields,
-            responseToClient(correlation),
-            prepared.restorer
-          )
+          lookupExecution(operation, None, correlation, LookupResponse.Aliases(indices.toMap))
         }
     }
   }
@@ -388,7 +379,7 @@ private[gateway] final class EntityExecutor[-R](
         current.flatMap { entry =>
           var result: Option[InputValue] = None
           var remaining                  = entry.identity.keys
-          while (remaining ne Nil) {
+          while ((remaining ne Nil) && result.isEmpty) {
             val head = remaining.head
             if (head._1 == field) result = Some(head._2)
             remaining = remaining.tail
@@ -614,44 +605,30 @@ private[gateway] final class EntityExecutor[-R](
     reversedPath: List[PathValue],
     collected: mutable.ListBuffer[(List[PathValue], ResponseValue)]
   ): Unit =
-    fields match {
-      case Nil          =>
-        value match {
-          case ListValue(values) =>
-            var index     = 0
-            var remaining = values
-            while (remaining ne Nil) {
-              entityCandidates(remaining.head, Nil, PathValue.Index(index) :: reversedPath, collected)
-              index += 1
-              remaining = remaining.tail
-            }
-          case NullValue         => ()
-          case other             => collected += (reversedPath.reverse -> other)
+    value match {
+      case ObjectValue(values) if fields ne Nil =>
+        val head      = fields.head
+        val tail      = fields.tail
+        var remaining = values
+        var found     = false
+        while (!found && (remaining ne Nil)) {
+          val field = remaining.head
+          if (field._1 == head) {
+            found = true
+            entityCandidates(field._2, tail, PathValue.Key(head) :: reversedPath, collected)
+          }
+          remaining = remaining.tail
         }
-      case head :: tail =>
-        value match {
-          case ObjectValue(values) =>
-            var remaining = values
-            var found     = false
-            while (!found && (remaining ne Nil)) {
-              val field = remaining.head
-              if (field._1 == head) {
-                found = true
-                entityCandidates(field._2, tail, PathValue.Key(head) :: reversedPath, collected)
-              }
-              remaining = remaining.tail
-            }
-          case ListValue(values)   =>
-            var index     = 0
-            var remaining = values
-            while (remaining ne Nil) {
-              entityCandidates(remaining.head, fields, PathValue.Index(index) :: reversedPath, collected)
-              index += 1
-              remaining = remaining.tail
-            }
-          case NullValue           => ()
-          case other               => collected += (reversedPath.reverse -> other)
+      case ListValue(values)                    =>
+        var index     = 0
+        var remaining = values
+        while (remaining ne Nil) {
+          entityCandidates(remaining.head, fields, PathValue.Index(index) :: reversedPath, collected)
+          index += 1
+          remaining = remaining.tail
         }
+      case NullValue                            => ()
+      case other                                => collected += (reversedPath.reverse -> other)
     }
 
   private def correlateResponse(
@@ -758,7 +735,7 @@ private[gateway] final class EntityExecutor[-R](
     blocked: Map[RouteId, Set[List[PathValue]]]
   ): mutable.Map[RouteId, mutable.Set[List[PathValue]]] = {
     val result = mutable.Map.empty[RouteId, mutable.Set[List[PathValue]]]
-    blocked.foreach { case (route, paths) => result.put(route, mutable.Set(paths.toSeq: _*)) }
+    blocked.foreach { case (route, paths) => result.put(route, mutable.Set.empty ++= paths) }
     result
   }
 
@@ -774,14 +751,15 @@ private[gateway] final class EntityExecutor[-R](
     values: Map[Int, ResponseValue],
     errors: List[CalibanError],
     errorPolicy: GraphQLSource.ErrorPolicy
-  ): List[CalibanError] =
+  ): List[CalibanError] = {
+    lazy val mergedPaths = mergePaths(route, batch)
     errors.flatMap {
       case error: CalibanError.ExecutionError =>
         lookup.response.errorIndex(error.path) match {
           case Some((index, tail)) =>
             val locations  = entityLocations(route, batch, lookup.correlation, values.get(index), index)
             val clientTail = graph.restoreResponsePath(route.fields, lookup.executableFields, tail)
-            if (locations.isEmpty) mergePaths(route, batch).map(errorPolicy.unusableEntity(error, _))
+            if (locations.isEmpty) mergedPaths.map(errorPolicy.unusableEntity(error, _))
             else
               locations.map { location =>
                 if (clientTail.isEmpty || RemoteError.hasClientPath(location.route.fields, clientTail))
@@ -789,10 +767,11 @@ private[gateway] final class EntityExecutor[-R](
                 else errorPolicy.unusableEntity(error, location.path)
               }
           case None                =>
-            mergePaths(route, batch).map(errorPolicy.unusableEntity(error, _))
+            mergedPaths.map(errorPolicy.unusableEntity(error, _))
         }
       case error                              => List(error)
     }
+  }
 
   private def entityLocations(
     route: EntityRoute,
@@ -900,12 +879,14 @@ private[gateway] object EntityExecutor {
       else {
         val ready = pending.filter(route => route.dependencies.forall(id => completed.contains(id) || !routeIds(id)))
         if (ready.isEmpty) calls
-        else
+        else {
+          val readyIds = ready.iterator.map(_.id).toSet
           count(
-            pending.filterNot(ready.toSet),
-            completed ++ ready.iterator.map(_.id),
+            pending.filterNot(route => readyIds.contains(route.id)),
+            completed ++ readyIds,
             calls + ready.iterator.map(entityGroupKey).toSet.size
           )
+        }
       }
 
     count(routes, Set.empty, 0)

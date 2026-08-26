@@ -424,6 +424,61 @@ object FieldRoutingSpec extends ZIOSpecDefault {
           prices == Set[InputValue](IntNumber(10), IntNumber(20))
         )
       },
+      test("reuses an identical requirement across entity transitions") {
+        val productsSchema  =
+          s"""
+             |${federationSchemaPreamble("@key")}
+             |type Query { product: Product }
+             |type Product @key(fields: "id") { id: ID! price: Int! }
+             |""".stripMargin
+        val shippingSchema  =
+          s"""
+             |${federationSchemaPreamble("@key", "@external", "@requires")}
+             |type Product @key(fields: "id") {
+             |  id: ID! @external
+             |  price: Int! @external
+             |  shipping: Int! @requires(fields: "price")
+             |}
+             |""".stripMargin
+        val taxSchema       =
+          s"""
+             |${federationSchemaPreamble("@key", "@external", "@requires")}
+             |type Product @key(fields: "id") {
+             |  id: ID! @external
+             |  price: Int! @external
+             |  tax: Int! @requires(fields: "price")
+             |}
+             |""".stripMargin
+        val productResponse =
+          """{"data":{"product":{"_caliban_gateway_requirement_price":10,"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product","_caliban_gateway_key_2":"p1","_caliban_gateway_typename_2":"Product"}}}"""
+
+        for {
+          products <- stub(productResponse)
+          shipping <- stub("""{"data":{"_entities":[{"shipping":20}]}}""")
+          tax      <- stub("""{"data":{"_entities":[{"tax":3}]}}""")
+          gateway  <- Gateway
+                        .compose(
+                          Subgraph.federation("products", products.endpoint, productsSchema),
+                          Subgraph.federation("shipping", shipping.endpoint, shippingSchema),
+                          Subgraph.federation("tax", tax.endpoint, taxSchema)
+                        )
+                        .build
+          response <- gateway.execute("{ product { shipping tax } }")
+          sentA    <- products.requests.get
+          sentB    <- shipping.requests.get
+          sentC    <- tax.requests.get
+          query     = sentA.headOption.flatMap(_.query).getOrElse("")
+          alias     = "_caliban_gateway_requirement_price:price"
+        } yield assertTrue(
+          response.errors.isEmpty,
+          field(response.data, "product").flatMap(field(_, "shipping")).contains(IntNumber(20)),
+          field(response.data, "product").flatMap(field(_, "tax")).contains(IntNumber(3)),
+          query.sliding(alias.length).count(_ == alias) == 1,
+          !query.contains("_caliban_gateway_requirement_price_2"),
+          sentB.size == 1,
+          sentC.size == 1
+        )
+      },
       test("orders recursive requirements before their dependents") {
         val rootsSchema    =
           s"""

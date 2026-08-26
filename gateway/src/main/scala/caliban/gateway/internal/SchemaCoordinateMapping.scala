@@ -37,15 +37,12 @@ private[gateway] final class SchemaCoordinateMapping private (
   val hiddenEnumValues        = mappings.hiddenEnumValues
   private val renamesNothing  = mappings.renamesNothing
 
-  private val sourceRootTypes =
-    Map("Query" -> originalRootType.queryType) ++
-      originalRootType.mutationType.map("Mutation" -> _).toMap ++
-      originalRootType.subscriptionType.map("Subscription" -> _).toMap
-  private val sourceRootNames = sourceRootTypes.iterator.flatMap { case (operation, tpe) =>
-    tpe.name.map(_ -> operation)
-  }.toMap
-  private val sourceQueryName = originalRootType.queryType.name.getOrElse("Query")
-  private val clientQueryName = clientType(sourceQueryName)
+  private val sourceRootNamesByOperation =
+    Map("Query" -> originalRootType.queryType.name.getOrElse("Query")) ++
+      originalRootType.mutationType.flatMap(_.name).map("Mutation" -> _).toMap ++
+      originalRootType.subscriptionType.flatMap(_.name).map("Subscription" -> _).toMap
+  private val sourceRootNames            = sourceRootNamesByOperation.map(_.swap)
+  private val sourceQueryName            = originalRootType.queryType.name.getOrElse("Query")
 
   private def clientOwners(sourceType: String): List[String] =
     clientType(sourceType) :: sourceRootNames.get(sourceType).toList
@@ -142,7 +139,7 @@ private[gateway] final class SchemaCoordinateMapping private (
 
   def rootFieldToSource(field: Field): Field = {
     val clientParent = field.parentType.flatMap(_.innerType.name).getOrElse("")
-    val sourceParent = sourceRootTypes.get(clientParent).flatMap(_.name).getOrElse(sourceType(clientParent))
+    val sourceParent = sourceRootNamesByOperation.getOrElse(clientParent, sourceType(clientParent))
     val sourceName   = sourceField(clientParent, field.name)
     val definition   = sourceFieldDefinition(sourceParent, sourceName)
     val arguments    = translateArguments(
@@ -158,6 +155,7 @@ private[gateway] final class SchemaCoordinateMapping private (
     field.copy(
       name = sourceName,
       alias = alias,
+      parentType = originalRootType.types.get(sourceParent),
       fields = field.fields.map(rootFieldToSource),
       targets = field.targets.map(_.map(sourceType)),
       arguments = arguments
@@ -168,23 +166,23 @@ private[gateway] final class SchemaCoordinateMapping private (
     val sourceParent = sourceType(parentType)
     val sourceName   = sourceField(parentType, selection.field)
     val childType    = sourceFieldDefinition(sourceParent, sourceName).flatMap(_._type.innerType.name).getOrElse("")
-    selection.copy(
-      field = sourceName,
-      children = selection.children.map(requiredSelectionToSource(clientType(childType), _)),
-      conditions = selection.conditions.map(_.map(sourceType))
+    RequiredSelection(
+      sourceName,
+      selection.responseName,
+      selection.children.map(requiredSelectionToSource(clientType(childType), _))
     )
   }
 
   def sourceLookupField(field: String): String =
-    sourceField(clientQueryName, field)
+    sourceField(sourceQueryName, field)
 
   def sourceLookupArguments(field: String, arguments: Map[String, InputValue]): Map[String, InputValue] = {
-    val sourceName = sourceField(clientQueryName, field)
+    val sourceName = sourceField(sourceQueryName, field)
     val definition = sourceFieldDefinition(sourceQueryName, sourceName)
     translateArguments(
       definition.toList.flatMap(_.allArgs),
       arguments,
-      name => sourceArguments.getOrElse((clientQueryName, field, name), name),
+      name => sourceArguments.getOrElse((sourceQueryName, field, name), name),
       ToSource
     )
   }
@@ -214,14 +212,10 @@ private[gateway] final class SchemaCoordinateMapping private (
     }
 
   private[internal] def entityFieldsResponseMapper(
-    typeName: String,
     fields: List[Field]
   ): ResponseValue => ResponseValue =
     if (renamesNothing) identityResponse
-    else
-      originalRootType.types
-        .get(sourceType(typeName))
-        .fold(identityResponse)(responseValueMapper(_, fields))
+    else objectResponseMapper(fields)
 
   private val identityResponse: ResponseValue => ResponseValue = identity
 
@@ -632,7 +626,7 @@ private[gateway] final class SchemaCoordinateMapping private (
                   if (direction == ToClient) clientInputField(sourceTypeName, sourceName)
                   else sourceName
                 val translated = definition.flatMap { tpe =>
-                  if (kind == __TypeKind.INPUT_OBJECT) tpe.allInputFields.find(_.name == sourceName).map(_._type)
+                  if (kind == __TypeKind.INPUT_OBJECT) Option(tpe.getInputFieldOrNull(sourceName)).map(_._type)
                   else Option(tpe.getFieldOrNull(sourceName)).map(_._type)
                 }
                   .fold(nested)(mapInputValue(_, nested, direction))

@@ -125,14 +125,14 @@ private[gateway] final class GatewayRuntimeImpl[-R](
           GraphQLResponseContext
             .markServerError(ServerFailure.TimedOut)
             .as(RequestResult(requestTimeoutResponse, Outcome.Timeout, None))
-        )(classifyRequestResult(includeOperationType = false))
+        )(classifyRequestResult)
       )(
         wrapper.wrap(Event.Completion)(
           GraphQLResponseContext
             .markServerError(ServerFailure.Unavailable)
             .as(RequestResult(requestShutdownResponse, Outcome.Http5xx, None))
-        )(classifyRequestResult(includeOperationType = false))
-      )(classifyRequestResult(includeOperationType = true))
+        )(classifyRequestResult)
+      )(classifyRequestResult)
       .map(_.response)
   }
 
@@ -144,10 +144,9 @@ private[gateway] final class GatewayRuntimeImpl[-R](
   private def preparationOutcome(error: CalibanError): Outcome =
     if (OperationHooks.isInternalFailure(error)) Outcome.InternalError else Outcome.RequestError
 
-  private def classifyRequestResult(includeOperationType: Boolean)(exit: Exit[Nothing, RequestResult]): Result =
+  private def classifyRequestResult(exit: Exit[Nothing, RequestResult]): Result =
     Result.fromExit(exit)(
-      result =>
-        Result(result.outcome, result.operationType.filter(_ => includeOperationType), result.response.errors.size),
+      result => Result(result.outcome, result.operationType, result.response.errors.size),
       _ => Result(Outcome.InternalError)
     )
 
@@ -1016,13 +1015,10 @@ private[gateway] final class GatewayRuntimeImpl[-R](
 
 private[gateway] object GatewayRuntimeImpl {
   private[gateway] def mergeObject(left: ResponseValue, right: ResponseValue): ResponseValue =
-    mergePatchValue(left, right)
-
-  private def mergePatchValue(left: ResponseValue, right: ResponseValue): ResponseValue =
     mergeValues(left, right) {
       case (ListValue(leftValues), ListValue(rightValues)) if leftValues.size == rightValues.size =>
         ListValue(leftValues.zip(rightValues).map { case (leftValue, rightValue) =>
-          mergePatchValue(leftValue, rightValue)
+          mergeObject(leftValue, rightValue)
         })
       case (_, value)                                                                             => value
     }

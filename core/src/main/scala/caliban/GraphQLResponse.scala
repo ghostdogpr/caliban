@@ -52,6 +52,14 @@ case class GraphQLResponse[+E](
 }
 
 object GraphQLResponse {
+  private[caliban] def optional[A](value: ObjectValue, name: String)(
+    decode: PartialFunction[ResponseValue, A]
+  ): Option[Option[A]] = {
+    val field = value.getOrNull(name)
+    if ((field eq null) || field == NullValue) Some(None)
+    else decode.lift(field).map(Some(_))
+  }
+
   private[caliban] def decodeErrors(values: List[ResponseValue]): Option[List[CalibanError]] = {
     val decoded = values.map(CalibanError.fromResponseValue)
     if (decoded.forall(_.nonEmpty)) Some(decoded.flatten) else None
@@ -70,24 +78,16 @@ object GraphQLResponse {
 
   private[caliban] def fromResponseValue(value: ResponseValue): Option[GraphQLResponse[CalibanError]] =
     value match {
-      case ObjectValue(fields) =>
+      case value @ ObjectValue(fields) =>
         val data       = fields.collectFirst { case ("data", value) => value }
         val errors     = fields.collectFirst { case ("errors", value) => value } match {
-          case None                    => Some(None)
+          case None | Some(NullValue)  => Some(None)
           case Some(ListValue(values)) =>
             decodeErrors(values).map(Some(_))
           case _                       => None
         }
-        val extensions = fields.collectFirst { case ("extensions", value) => value } match {
-          case None                     => Some(None)
-          case Some(value: ObjectValue) => Some(Some(value))
-          case _                        => None
-        }
-        val hasNext    = fields.collectFirst { case ("hasNext", value) => value } match {
-          case None                      => Some(None)
-          case Some(BooleanValue(value)) => Some(Some(value))
-          case _                         => None
-        }
+        val extensions = optional(value, "extensions") { case value: ObjectValue => value }
+        val hasNext    = optional(value, "hasNext") { case BooleanValue(value) => value }
         for {
           decodedErrors <- errors
           extension     <- extensions
@@ -99,7 +99,7 @@ object GraphQLResponse {
                              next
                            )
         } yield response
-      case _                   => None
+      case _                           => None
     }
 
   implicit def tapirSchema[F[_]: IsTapirSchema, E]: F[GraphQLResponse[E]] =

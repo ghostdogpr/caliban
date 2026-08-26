@@ -518,6 +518,18 @@ object CompositionSpec extends ZIOSpecDefault {
             )
           }
       },
+      test("allows inaccessible owners to reference inaccessible types") {
+        val hiddenSchema = schema(
+          "type Query { visible: String hidden(secret: Secret): Hidden @inaccessible } type Hidden @inaccessible { value: String } input Secret @inaccessible { value: String }",
+          "@inaccessible"
+        )
+
+        Gateway
+          .compose(Subgraph.federation("hidden", endpoint, hiddenSchema))
+          .build
+          .exit
+          .map(exit => assertTrue(exit.isSuccess))
+      },
       test("keeps query and mutation argument visibility separate") {
         val operationSchema =
           s"""
@@ -1250,6 +1262,22 @@ object CompositionSpec extends ZIOSpecDefault {
           applicationErrors.exists(message =>
             message.contains("Query.value") && message.contains("'alpha'") && message.contains("'beta'")
           )
+        )
+      },
+      test("reports non-repeatable duplicates from every source") {
+        def duplicated(source: String) = directiveSchema(
+          s"""type Query { value: String @shareable @audit(level: "$source") @audit(level: "$source") }""",
+          "directive @audit(level: String!) on FIELD_DEFINITION"
+        )
+        val errors                     = compose(
+          CompositionInput("alpha", duplicated("alpha")),
+          CompositionInput("beta", duplicated("beta"))
+        ).left.getOrElse(Nil)
+
+        assertTrue(
+          errors.count(_.contains("Non-repeatable directive '@audit' is applied more than once")) == 2,
+          errors.exists(_.startsWith("[alpha]")),
+          errors.exists(_.startsWith("[beta]"))
         )
       },
       test("validates compose declarations and exposes only retained definitions through introspection") {

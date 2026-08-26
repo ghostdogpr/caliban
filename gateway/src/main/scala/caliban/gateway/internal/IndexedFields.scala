@@ -12,7 +12,7 @@ private[internal] final class IndexedFields private (
 ) {
 
   def get(name: String): Option[ResponseValue] =
-    if (index eq null) value.get(name) else Option(index.get(name))
+    Option(getOrNull(name))
 
   def getOrNull(name: String): ResponseValue =
     if (index eq null) value.getOrNull(name) else index.get(name)
@@ -25,9 +25,10 @@ private[internal] object IndexedFields {
 
   def apply(value: ObjectValue): IndexedFields = {
     val fields                                          = value.fields
+    val size                                            = fields.size
     var index: java.util.HashMap[String, ResponseValue] = null
-    if (fields.lengthCompare(WideObjectFields) >= 0) {
-      index = new java.util.HashMap(math.ceil(fields.size / 0.75d).toInt)
+    if (size >= WideObjectFields) {
+      index = new java.util.HashMap(math.ceil(size / 0.75d).toInt)
       var scan = fields
       while (scan ne Nil) {
         index.put(scan.head._1, scan.head._2)
@@ -84,7 +85,7 @@ private[internal] object PathIndex {
   def apply(paths: Iterator[List[PathValue]]): PathIndex = {
     val initial = new mutable.ListBuffer[List[PathValue]]
     while (initial.size <= LinearLimit && paths.hasNext) initial += paths.next()
-    if (!paths.hasNext && initial.size <= LinearLimit)
+    if (initial.size <= LinearLimit)
       if (initial.isEmpty) Empty else new PathIndex(null, initial.toList)
     else {
       val root     = new Node

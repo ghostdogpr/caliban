@@ -14,6 +14,8 @@ import caliban.Macros.gqldoc
 import caliban.execution.Feature
 import caliban.transformers.Transformer
 
+import scala.util.Try
+
 object RemoteSchemaSpec extends ZIOSpecDefault {
   sealed trait EnumType  extends Product with Serializable
   case object EnumValue1 extends EnumType
@@ -55,6 +57,15 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
   )
 
   def spec = suite("RemoteSchemaSpec")(
+    test("reports a built-in scalar used as a root type without throwing") {
+      val result = Try {
+        Parser
+          .parseQuery("schema { query: String } type Foo { id: ID }")
+          .flatMap(RemoteSchema.toRootType(_))
+      }
+
+      assertTrue(result.isSuccess, result.toOption.exists(_.isLeft))
+    },
     test("is isomorphic") {
       for {
         introspected <- SchemaLoader.fromCaliban(api).load

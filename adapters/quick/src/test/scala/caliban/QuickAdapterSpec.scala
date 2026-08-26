@@ -164,6 +164,38 @@ object QuickAdapterSpec extends ZIOSpecDefault {
         response.body.nonEmpty,
         response.body.contains("exceeds the configured limit")
       )
+    },
+    test("keeps GraphQL request errors on an SSE response at status 200") {
+      for {
+        response <- execute(
+                      basicRequest
+                        .get(uri"http://localhost:8090/api/graphql?query=%7B")
+                        .header("Accept", "text/event-stream")
+                        .response(asStringAlways)
+                    )
+      } yield assertTrue(
+        response.code.code == 200,
+        response.body.contains("event: next"),
+        response.body.contains("errors")
+      )
+    },
+    test("emits an SSE error event when response encoding exceeds its limit") {
+      val body = """{"query":"{ characters { name } }"}"""
+
+      for {
+        response <- execute(
+                      basicRequest
+                        .post(uri"http://localhost:8090/api/graphql-small-response")
+                        .contentType("application/json")
+                        .header("Accept", "text/event-stream")
+                        .body(body)
+                        .response(asStringAlways)
+                    )
+      } yield assertTrue(
+        response.code.code == 200,
+        response.body.contains("event: next"),
+        response.body.contains("exceeds the configured limit")
+      )
     }
   )
 

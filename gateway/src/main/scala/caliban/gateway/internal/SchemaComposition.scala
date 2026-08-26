@@ -45,7 +45,9 @@ private[gateway] final class ComposedGraph private[internal] (
   private[gateway] val schemaDirectives: List[Directive]
 ) {
   private val securityByCoordinate =
-    securityApplications.groupBy(application => application.typeName -> application.fieldName)
+    securityApplications
+      .groupBy(application => application.typeName -> application.fieldName)
+      .map { case (coordinate, values) => coordinate -> values.map(_.directive).distinct }
   private val securedFieldTypes    = securityApplications.iterator
     .flatMap(application => application.fieldName.map(_ -> application.typeName))
     .toList
@@ -111,7 +113,7 @@ private[gateway] final class ComposedGraph private[internal] (
     if (securityApplications.isEmpty) Nil
     else {
       def applications(typeName: String, fieldName: Option[String]): List[SecurityDirective] =
-        securityByCoordinate.getOrElse(typeName -> fieldName, Nil).map(_.directive).distinct
+        securityByCoordinate.getOrElse(typeName -> fieldName, Nil)
 
       def condition(path: List[String], types: Option[Set[String]]): List[RuntimeTypeCondition] =
         types.filter(_.nonEmpty).map(RuntimeTypeCondition(path, _) :: Nil).getOrElse(Nil)
@@ -342,7 +344,6 @@ private[gateway] final class ComposedGraph private[internal] (
         ListValue(leftValues.zip(rightValues).map { case (leftValue, rightValue) =>
           mergeResponseValues(leftValue, rightValue)
         })
-      case (NullValue, value)                                                                     => value
       case (value, NullValue)                                                                     => value
       case (_, value)                                                                             => value
     }
@@ -612,8 +613,7 @@ private[gateway] object SchemaComposition {
         requirements,
         allSecurity,
         runtimeTypesByName,
-        rootType,
-        schemas
+        rootType
       )
       if (
         transformationDiagnostics.nonEmpty || directiveDiagnostics.nonEmpty ||
@@ -723,11 +723,8 @@ private[gateway] object SchemaComposition {
     requirements: Map[(String, String, String), List[Selection]],
     applications: List[ComposedGraph.SecurityApplication],
     runtimeTypesByName: Map[String, Set[String]],
-    rootType: RootType,
-    schemas: List[SchemaContribution]
+    rootType: RootType
   ): List[String] = {
-    val schemaByName = schemas.iterator.map(schema => schema.name -> schema).toMap
-
     def applicable(selectedType: String, candidateType: String): Boolean =
       selectedType == candidateType || {
         val selected  = runtimeTypesByName.getOrElse(selectedType, Set.empty)
@@ -772,7 +769,7 @@ private[gateway] object SchemaComposition {
       }
 
     requirements.toList.flatMap { case ((source, sourceType, fieldName), selections) =>
-      val typeName  = schemaByName.get(source).fold(sourceType)(composedTypeName(_, sourceType))
+      val typeName  = sourceType
       val available = profile(typeName, Some(fieldName))
       dependencies(selections, typeName).collect {
         case (dependency, required) if !available.implies(required) =>
@@ -1126,8 +1123,8 @@ private[gateway] object SchemaComposition {
              List(s"$prefix Field is resolved by multiple ordinary subgraphs: $sources.")
            } else Nil) :::
           (if (
-             compatible && providers.size > 1 && providers.forall(_.federation) && providers.exists(_.federation2) &&
-             !providers.forall(entry => !entry.federation2 || entry.shareable)
+             compatible && providers.size > 1 && providers.forall(_.federation) &&
+             providers.exists(entry => entry.federation2 && !entry.shareable)
            ) {
              val sources = formatSources(providers.map(_.source))
              List(
@@ -1216,7 +1213,6 @@ private[gateway] object SchemaComposition {
     inaccessibleEnumValues: Set[String],
     overrideFields: Map[String, String],
     federation2: Boolean,
-    inaccessibleDirectives: Set[String],
     hiddenDirectives: Set[String]
   )
 
@@ -1321,12 +1317,12 @@ private[gateway] object SchemaComposition {
     } ::: document.typeExtensions.collect { case value: InputObjectTypeExtension =>
       (value.name, value.directives, value.fields)
     }
-    val types              = scalarTypes.flatMap { case (name, directives) =>
-      typeApplication(name, directives, supportsSecurity = true) :: Nil
+    val types              = scalarTypes.map { case (name, directives) =>
+      typeApplication(name, directives, supportsSecurity = true)
     } ::: objectLikeEntries(document).flatMap { case (name, directives, fields) =>
       typeApplication(name, directives, supportsSecurity = true) :: fieldApplications(name, fields)
-    } ::: unionTypes.flatMap { case (name, directives) =>
-      typeApplication(name, directives, supportsSecurity = false) :: Nil
+    } ::: unionTypes.map { case (name, directives) =>
+      typeApplication(name, directives, supportsSecurity = false)
     } ::: enumTypes.flatMap { case (name, directives, values) =>
       typeApplication(name, directives, supportsSecurity = true) :: enumApplications(name, values)
     } ::: inputTypes.flatMap { case (name, directives, fields) =>
@@ -1712,7 +1708,6 @@ private[gateway] object SchemaComposition {
       hiddenEnums,
       overrides,
       metadata.federation2,
-      names.inaccessible,
       metadata.hiddenDirectives
     )
   }
@@ -2028,10 +2023,10 @@ private[gateway] object SchemaComposition {
     val hiddenNames = entries.iterator.flatMap(_.inaccessibleInputFields).toSet
     val commonNames =
       entries.map(_.tpe.allInputFields.map(_.name).toSet).reduceOption(_ intersect _).getOrElse(Set.empty)
-    val fields      = commonNames.toList.sorted.flatMap { name =>
+    val fields      = commonNames.diff(hiddenNames).toList.sorted.flatMap { name =>
       entries.iterator
         .flatMap(_.tpe.allInputFields)
-        .find(field => field.name == name && !hiddenNames.contains(name))
+        .find(_.name == name)
         .map { field =>
           val sanitized = field.copy(
             `type` = () => rewrite(field._type),
@@ -2144,12 +2139,14 @@ private[gateway] object SchemaComposition {
     val rootArgumentErrors  = roots.flatMap { entry =>
       entry.field.allArgs.collect {
         case argument
-            if !rootHiddenArguments.getOrElse(entry.operation -> entry.field.name, Set.empty).contains(argument.name) &&
+            if !inaccessibleRoots.contains(entry.operation -> entry.field.name) &&
+              !rootHiddenArguments.getOrElse(entry.operation -> entry.field.name, Set.empty).contains(argument.name) &&
               argument._type.innerType.name.exists(inaccessibleTypes.contains) =>
           s"[${entry.source}] Argument '${entry.field.name}.${argument.name}' must be @inaccessible because its input type is inaccessible."
       }
     }
-    val fieldOutputErrors   = types.flatMap { entry =>
+    val accessibleTypes     = types.filterNot(_.inaccessible)
+    val fieldOutputErrors   = accessibleTypes.flatMap { entry =>
       entry.tpe.allFields.collect {
         case field
             if !inaccessibleFields.contains(entry.name -> field.name) &&
@@ -2157,8 +2154,8 @@ private[gateway] object SchemaComposition {
           s"[${entry.source}] Field '${entry.name}.${field.name}' must be @inaccessible because its return type is inaccessible."
       }
     }
-    val fieldArgumentErrors = types.flatMap { entry =>
-      entry.tpe.allFields.flatMap { field =>
+    val fieldArgumentErrors = accessibleTypes.flatMap { entry =>
+      entry.tpe.allFields.filterNot(field => inaccessibleFields.contains(entry.name -> field.name)).flatMap { field =>
         field.allArgs.collect {
           case argument
               if !hiddenArguments.contains((entry.name, field.name, argument.name)) &&
@@ -2167,7 +2164,7 @@ private[gateway] object SchemaComposition {
         }
       }
     }
-    val inputFieldErrors    = types.flatMap { entry =>
+    val inputFieldErrors    = accessibleTypes.flatMap { entry =>
       entry.tpe.allInputFields.collect {
         case field
             if !inaccessibleInputs.contains(entry.name -> field.name) &&

@@ -93,6 +93,14 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
         federationCalls.headOption.flatMap(_.query).exists(_.contains("_service"))
       )
     },
+    test("rejects an introspection response that contains GraphQL errors") {
+      for {
+        introspection <- introspectionResponse
+        response       = introspection.dropRight(1) + ",\"errors\":[{\"message\":\"introspection failed\"}]}"
+        source        <- stub(response)
+        exit          <- Gateway.compose(Subgraph.graphql("products", source.endpoint)).build.exit
+      } yield assertTrue(exit.isFailure)
+    },
     test("preserves referenced deprecation and specifiedBy metadata from acquired SDL") {
       val metadataSchema =
         """

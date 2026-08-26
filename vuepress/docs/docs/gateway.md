@@ -117,10 +117,10 @@ operation requirements. A graph containing those requirements fails to build unl
 The policy receives the selected response paths, runtime type conditions, and conjunctive directive requirements. This
 fail-closed rule prevents publishing security metadata without enforcing it.
 
-An `OperationResolver` can replace an operation identifier with canonical GraphQL text before parsing. An
-`OperationPolicy` runs after validation and variable coercion; use a stable discriminator only when its result is stable
-for the corresponding cache identity. `Reject()` uses a generic public message, while `Reject(reason)` returns the explicit
-reason to the client.
+An `OperationResolver` can replace an operation identifier with canonical GraphQL text before parsing. Use
+`OperationResolver.uncached` when resolution must bypass the operation cache. An `OperationPolicy` runs after validation
+and variable coercion. `Reject()` uses a generic public message, while `Reject(reason)` returns the explicit reason to the
+client.
 
 ```scala
 trait OperationRegistry {
@@ -131,11 +131,11 @@ trait Authorization {
   def allows(operation: OperationPolicy.ValidatedOperation): UIO[Boolean]
 }
 
-val resolver = OperationResolver.stable[OperationRegistry]("registry-v1") { request =>
+val resolver = OperationResolver[OperationRegistry] { request =>
   ZIO.serviceWithZIO[OperationRegistry](_.resolve(request))
 }
 
-val policy = OperationPolicy.uncached[Authorization] { operation =>
+val policy = OperationPolicy[Authorization] { operation =>
   ZIO.serviceWithZIO[Authorization](_.allows(operation)).map {
     case true  => OperationPolicy.Allow
     case false => OperationPolicy.Reject("Operation is not authorized.")

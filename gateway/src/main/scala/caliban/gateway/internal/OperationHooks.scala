@@ -65,12 +65,10 @@ private[gateway] object OperationHooks {
   )(implicit trace: Trace): ZIO[R, CalibanError, A] =
     ZIO
       .suspendSucceed(effect)
-      .foldCauseZIO(
-        cause =>
-          cause.interruptOption.fold(
-            ZIO.fail(CalibanError.ExecutionError(failureMessage, innerThrowable = Some(cause.squash)))
-          )(fiberId => ZIO.failCause(Cause.interrupt(fiberId))),
-        ZIO.succeed(_)
+      .mapErrorCause(cause =>
+        cause.interruptOption.fold[Cause[CalibanError]](
+          Cause.fail(CalibanError.ExecutionError(failureMessage, innerThrowable = Some(cause.squash)))
+        )(fiberId => Cause.interrupt(fiberId))
       )
 }
 

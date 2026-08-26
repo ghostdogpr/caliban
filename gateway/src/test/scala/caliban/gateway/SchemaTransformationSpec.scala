@@ -67,6 +67,26 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
   )
 
   def spec = suite("SchemaTransformationSpec")(
+    test("does not forward field-definition directives after a field rename") {
+      val schema =
+        "directive @sql(fields: String!) on FIELD_DEFINITION type Query { product: Product @sql(fields: \"name\") } type Product { name: String }"
+
+      for {
+        remote   <- stub("""{"data":{"item":{"name":"Table"}}}""")
+        gateway  <- Gateway
+                      .compose(
+                        Subgraph
+                          .graphql("products", remote.endpoint, schema)
+                          .transform(SchemaTransformation.renameField("Query", "product", "item"))
+                      )
+                      .build
+        result   <- gateway.execute("{ item { name } }")
+        requests <- remote.requests.get
+      } yield assertTrue(
+        result.errors.isEmpty,
+        requests.headOption.flatMap(_.query).exists(query => query.contains("item:product") && !query.contains("@sql"))
+      )
+    },
     test("renames and hides remote schema coordinates while translating execution") {
       val response = """{"data":{"item":{"id":"p1","title":"Table","status":"ACTIVE"}}}"""
 

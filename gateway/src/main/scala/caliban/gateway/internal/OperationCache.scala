@@ -40,29 +40,35 @@ private[gateway] final class OperationCache[K, E, V, -R] private (
 
   private def miss[R0](key: K)(compute: => ZIO[R0, E, Weighted[V]])(implicit trace: Trace): ZIO[R with R0, E, V] =
     Promise.make[Nothing, Exit[E, V]].flatMap { fresh =>
-      state
-        .modify[Decision[E, V]] { current =>
-          current.entries.get(key) match {
-            case Some(entry) => Decision.Hit[E, V](entry.value) -> current
-            case None        =>
-              current.inFlight.get(key) match {
-                case Some(existing) => Decision.Await[E, V](existing) -> current.recordMiss
-                case None           => Decision.Compute[E, V](fresh)  -> current.start(key, fresh)
-              }
+      ZIO.uninterruptibleMask { restore =>
+        state
+          .modify[Decision[E, V]] { current =>
+            current.entries.get(key) match {
+              case Some(entry) => Decision.Hit[E, V](entry.value) -> current
+              case None        =>
+                current.inFlight.get(key) match {
+                  case Some(existing) => Decision.Await[E, V](existing) -> current.recordMiss
+                  case None           => Decision.Compute[E, V](fresh)  -> current.start(key, fresh)
+                }
+            }
           }
-        }
-        .flatMap {
-          case Decision.Hit(value)       =>
-            hit(value)
-          case Decision.Await(promise)   =>
-            observe(CacheResult.Wait)(
-              promise.await.flatMap {
-                case Exit.Failure(cause) if cause.isInterrupted => getOrCompute(key)(compute)
-                case exit                                       => exit
-              }
-            )
-          case Decision.Compute(promise) => observe(CacheResult.Miss)(complete(key, promise, compute))
-        }
+          .flatMap {
+            case Decision.Hit(value)       => restore(hit(value))
+            case Decision.Await(promise)   =>
+              restore(
+                observe(CacheResult.Wait)(
+                  promise.await.flatMap {
+                    case Exit.Failure(cause) if cause.isInterrupted => getOrCompute(key)(compute)
+                    case exit                                       => exit
+                  }
+                )
+              )
+            case Decision.Compute(promise) =>
+              restore(observe(CacheResult.Miss)(complete(key, promise, compute))).onInterrupt(
+                state.update(_.finish(key, promise)) *> promise.interrupt.unit
+              )
+          }
+      }
     }
 
   private def complete[R0](
@@ -77,7 +83,7 @@ private[gateway] final class OperationCache[K, E, V, -R] private (
           case Exit.Failure(cause)    => Exit.failCause(cause)
         }
         state.update { current =>
-          val withoutFlight = current.finish(key)
+          val withoutFlight = current.finish(key, promise)
           exit match {
             case Exit.Success(weighted) => withoutFlight.insert(key, weighted, maxWeight)
             case Exit.Failure(_)        => withoutFlight
@@ -124,7 +130,9 @@ private[gateway] object OperationCache {
     def start(key: K, promise: Promise[Nothing, Exit[E, V]]): State[K, E, V] =
       copy(inFlight = inFlight.updated(key, promise), misses = misses + 1L)
 
-    def finish(key: K): State[K, E, V] = copy(inFlight = inFlight - key)
+    def finish(key: K, promise: Promise[Nothing, Exit[E, V]]): State[K, E, V] =
+      if (inFlight.get(key).contains(promise)) copy(inFlight = inFlight - key)
+      else this
 
     def insert(key: K, weighted: Weighted[V], maxWeight: Long): State[K, E, V] = {
       val entryWeight = math.max(1L, weighted.weight)

@@ -481,6 +481,47 @@ object RoutePlanningSpec extends ZIOSpecDefault {
         remote.isEmpty
       )
     },
+    test("fails rather than dropping a fragment for an unresolved concrete type") {
+      val rootsSchema   =
+        s"""
+           |${federationSchemaPreamble("@key", "@shareable")}
+           |type Query { nodes: [Node!]! }
+           |interface Node { id: ID! @shareable }
+           |type A implements Node @key(fields: "id") { id: ID! @shareable }
+           |type B implements Node @key(fields: "id") { id: ID! @shareable }
+           |type C implements Node @key(fields: "id") { id: ID! @shareable }
+           |""".stripMargin
+      val detailsSchema =
+        s"""
+           |${federationSchemaPreamble("@key", "@external", "@shareable")}
+           |interface Node { id: ID! @shareable }
+           |type A implements Node @key(fields: "id") { id: ID! @external detail: String! }
+           |type B implements Node @key(fields: "id") { id: ID! @external detail: String! }
+           |type C implements Node @key(fields: "slug") {
+           |  id: ID! @external
+           |  slug: ID!
+           |  detail: String!
+           |}
+           |""".stripMargin
+
+      for {
+        roots    <- stub("""{"data":{"nodes":[]}}""")
+        details  <- stub("""{"data":{"_entities":[]}}""")
+        gateway  <- Gateway
+                      .compose(
+                        Subgraph.federation("roots", roots.endpoint, rootsSchema),
+                        Subgraph.federation("details", details.endpoint, detailsSchema)
+                      )
+                      .build
+        response <- gateway.execute("{ nodes { ... on C { detail } } }")
+        rootSent <- roots.requests.get
+        sent     <- details.requests.get
+      } yield assertTrue(
+        response.errors.nonEmpty,
+        rootSent.isEmpty,
+        sent.isEmpty
+      )
+    },
     test("fails safely before source work when planning guardrails are exhausted") {
       for {
         root             <- stub("""{"data":{"product":null}}""")

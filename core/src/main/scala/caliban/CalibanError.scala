@@ -1,7 +1,7 @@
 package caliban
 
 import caliban.ResponseValue.{ ListValue, ObjectValue }
-import caliban.Value.{ IntValue, StringValue }
+import caliban.Value.{ IntValue, NullValue, StringValue }
 import caliban.parsing.adt.LocationInfo
 import com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec
 
@@ -21,10 +21,10 @@ object CalibanError {
 
   private[caliban] def fromResponseValue(value: ResponseValue): Option[CalibanError] =
     value match {
-      case ObjectValue(fields) =>
+      case value @ ObjectValue(fields) =>
         val message    = fields.collectFirst { case ("message", StringValue(value)) => value }
         val path       = fields.collectFirst { case ("path", value) => value } match {
-          case None                    => Some(Nil)
+          case None | Some(NullValue)  => Some(Nil)
           case Some(ListValue(values)) =>
             val decoded = values.map {
               case value: StringValue        => Some(value: PathValue)
@@ -35,7 +35,7 @@ object CalibanError {
           case _                       => None
         }
         val locations  = fields.collectFirst { case ("locations", value) => value } match {
-          case None                    => Some(None)
+          case None | Some(NullValue)  => Some(None)
           case Some(ListValue(values)) =>
             val decoded = values.map {
               case ObjectValue(location) =>
@@ -48,18 +48,14 @@ object CalibanError {
             if (decoded.forall(_.nonEmpty)) Some(decoded.flatten.headOption) else None
           case _                       => None
         }
-        val extensions = fields.collectFirst { case ("extensions", value) => value } match {
-          case None                     => Some(None)
-          case Some(value: ObjectValue) => Some(Some(value))
-          case _                        => None
-        }
+        val extensions = GraphQLResponse.optional(value, "extensions") { case value: ObjectValue => value }
         for {
           msg       <- message
           path      <- path
           location  <- locations
           extension <- extensions
         } yield ExecutionError(msg, path, location, extensions = extension)
-      case _                   => None
+      case _                           => None
     }
 
   /**

@@ -7,7 +7,7 @@ import caliban.gateway.traverseOption
 import caliban.gateway.internal.OperationPlanner._
 import caliban.introspection.adt.{ __Field, __Type, __TypeKind }
 import caliban.parsing.SourceMapper
-import caliban.parsing.adt.{ Definition, Directive, Document, OperationType, Selection }
+import caliban.parsing.adt.{ Directive, Document, OperationType, Selection }
 import caliban.rendering.DocumentRenderer
 import caliban.schema.Types
 import zio.Duration
@@ -25,11 +25,11 @@ private[gateway] final class OperationPlanner(
     implicit val search: PlanningSearch = new PlanningSearch(limits)
     val rootName                        = operationRootName(execution.operationType)
     val fields                          = execution.field.collectFields(rootName)
-    val localFields                     = fields.filter(isMetaField)
+    val (localFields, remoteFields)     = fields.partition(isMetaField)
 
     for {
       _          <- search.check
-      candidate  <- planRoots(fields.filterNot(isMetaField), execution.operationType)
+      candidate  <- planRoots(remoteFields, execution.operationType)
       runtime     = runtimeTypeSelections(candidate.roots, candidate.entities)
       passthrough = passthroughSource(candidate.planned.routes, candidate.entities, runtime, localFields)
       _          <- Either.cond(
@@ -206,11 +206,13 @@ private[gateway] final class OperationPlanner(
     runtimeTypes: List[RuntimeTypeSelection],
     localFields: List[Field]
   ): Option[String] =
-    if (
-      sourceCount == 1 && routes.size == 1 && entities.isEmpty && runtimeTypes.isEmpty && localFields.isEmpty &&
-      routes.headOption.forall(route => graph.mapping(route.source).forall(!_.nonEmpty))
-    ) routes.headOption.map(_.source)
-    else None
+    routes match {
+      case route :: Nil
+          if sourceCount == 1 && entities.isEmpty && runtimeTypes.isEmpty && localFields.isEmpty &&
+            graph.mapping(route.source).forall(!_.nonEmpty) =>
+        Some(route.source)
+      case _ => None
+    }
 
   private def planRootsAtSource(
     client: Field,
@@ -240,8 +242,10 @@ private[gateway] final class OperationPlanner(
           if (hasRootWork(planned))
             List(PlannedRoot(source, client, planned.downstream, planned.entities, planned.runtimeTypes))
           else if (
-            addRuntimeTypeFallback && Set[__TypeKind](__TypeKind.INTERFACE, __TypeKind.UNION)
-              .contains(selected.fieldType.innerType.kind)
+            addRuntimeTypeFallback && (selected.fieldType.innerType.kind match {
+              case __TypeKind.INTERFACE | __TypeKind.UNION => true
+              case _                                       => false
+            })
           ) {
             val (alias, typename) = privateTypename(
               "_caliban_gateway_runtime_typename",
@@ -338,30 +342,29 @@ private[gateway] final class OperationPlanner(
     provided: List[Field],
     satisfiedRequirements: Set[(String, String)]
   )(implicit search: PlanningSearch): Either[PlanningFailure, List[PlannedField]] = {
-    val parentType     = field.fieldType.innerType
-    val typeName       = parentType.name.getOrElse("")
-    val sourceTypeName = field.parentType
-      .flatMap(_.name)
+    val parentType      = field.fieldType.innerType
+    val typeName        = parentType.name.getOrElse("")
+    val fieldParentType = field.parentType.flatMap(_.name)
+    val sourceTypeName  = fieldParentType
       .flatMap(graph.field(source, _, field.name))
       .flatMap(_._type.innerType.name)
       .getOrElse(typeName)
-    val possibleTypes  = field.parentType
-      .flatMap(_.name)
+    val possibleTypes   = fieldParentType
       .map(graph.runtimeTypesForField(runtimeSources, source, _, field.name, sourceTypeName))
       .getOrElse(graph.runtimeTypes(source, sourceTypeName).toSet)
-    val scoped         = mergeFields(
+    val scoped          = mergeFields(
       provided ::: fieldSetFields(
-        graph.provided(source, field.parentType.flatMap(_.name).getOrElse(""), field.name),
+        graph.provided(source, fieldParentType.getOrElse(""), field.name),
         field.fieldType
       )
     )
-    val selections     = selectedFields(field, parentType, typeName)
+    val selections      = selectedFields(field, parentType, typeName)
       .filter(graph.appliesOnSource(source, sourceTypeName, _))
       .filter(child =>
         graph.isInterfaceObject(source, sourceTypeName) ||
           child._condition.forall(condition => possibleTypes.isEmpty || condition.exists(possibleTypes))
       )
-    val runtimeType    =
+    val runtimeType     =
       if (
         graph.isInterfaceObject(source, typeName) && selections.exists(_.targets.nonEmpty) &&
         !selections.exists(_.name == "__typename")
@@ -374,7 +377,7 @@ private[gateway] final class OperationPlanner(
           )
         )
       else None
-    val routed         = selections ::: runtimeType.toList.map(_._2)
+    val routed          = selections ::: runtimeType.toList.map(_._2)
 
     val routedSelections = routed.flatMap { child =>
       val childParent                                   = child.parentType.flatMap(_.name).getOrElse(typeName)
@@ -403,29 +406,35 @@ private[gateway] final class OperationPlanner(
           .fold(candidates)(List(_))
       }
 
-      val directProviders = providers(childParent)
-      val conditions      =
+      val directProviders      = providers(childParent)
+      val conditionalProviders =
         if (
           child.name != "__typename" && !graph.isInterfaceObject(source, typeName) &&
           (childParent == typeName || directProviders.isEmpty) &&
-          Set[__TypeKind](__TypeKind.INTERFACE, __TypeKind.UNION).contains(parentType.kind)
+          (parentType.kind match {
+            case __TypeKind.INTERFACE | __TypeKind.UNION => true
+            case _                                       => false
+          })
         )
           child._condition
             .fold(possibleTypes)(condition =>
               if (possibleTypes.isEmpty) condition else condition intersect possibleTypes
             )
-            .filter(condition => providers(condition).nonEmpty)
+            .flatMap { condition =>
+              val values = providers(condition)
+              if (values.nonEmpty) Some(condition -> values) else None
+            }
             .toList
-            .sorted
+            .sortBy(_._1)
         else Nil
 
-      if (conditions.isEmpty) RoutedSelection(child, supplied, directProviders) :: Nil
+      if (conditionalProviders.isEmpty) RoutedSelection(child, supplied, directProviders) :: Nil
       else
-        conditions.map { condition =>
+        conditionalProviders.map { case (condition, values) =>
           RoutedSelection(
             child.copy(_condition = Some(Set(condition)), targets = Some(Set(condition))),
             supplied,
-            providers(condition)
+            values
           )
         }
     }
@@ -607,26 +616,44 @@ private[gateway] final class OperationPlanner(
     if (
       resolution.lookups.headOption.forall(_.entityType != context.typeName) &&
       types.size > 1
-    )
-      types.foldLeft[Either[PlanningFailure, List[TransitionState]]](Right(List(state))) { case (result, entityType) =>
-        result.flatMap(states =>
-          search
-            .evaluate(states) { current =>
-              val fields = candidate.fields.filter(_._condition.forall(_.contains(entityType)))
-              if (fields.isEmpty) Right(List(current))
-              else {
-                val selected = candidate.copy(
-                  fields = fields,
-                  requirements =
-                    fields.flatMap(child => graph.required(candidate.source, entityType, child.name)).distinct
-                )
-                applyTransitionCandidates(context, current, selected, concrete.filter(_.entityType == entityType))
+    ) {
+      val resolved         = types.foldLeft[Either[PlanningFailure, List[TransitionState]]](Right(List(state))) {
+        case (result, entityType) =>
+          result.flatMap(states =>
+            search
+              .evaluate(states) { current =>
+                val fields = candidate.fields.filter(_._condition.forall(_.contains(entityType)))
+                if (fields.isEmpty) Right(List(current))
+                else {
+                  val selected = candidate.copy(
+                    fields = fields,
+                    requirements =
+                      fields.flatMap(child => graph.required(candidate.source, entityType, child.name)).distinct
+                  )
+                  applyTransitionCandidates(context, current, selected, concrete.filter(_.entityType == entityType))
+                }
               }
-            }
-            .map(_.flatten)
-        )
+              .map(_.flatten)
+          )
       }
-    else {
+      val unresolvedFields = candidate.fields.flatMap { field =>
+        field._condition.flatMap { condition =>
+          val unresolved = condition -- types
+          if (unresolved.isEmpty) None else Some(field.copy(_condition = Some(unresolved)))
+        }
+      }
+      if (unresolvedFields.isEmpty) resolved
+      else
+        resolved.flatMap { states =>
+          val pending    = candidate.copy(fields = unresolvedFields)
+          val transition = TransitionKey(context.source, candidate.source, context.typeName, flatten(unresolvedFields))
+          search
+            .evaluate(states)(
+              planBridgeCandidates(context, _, pending, resolution.lookupTypes, transition)
+            )
+            .map(_.flatten)
+        }
+    } else {
       val entityType = resolution.lookups.headOption.map(_.entityType).getOrElse(context.typeName)
       val transition = TransitionKey(context.source, candidate.source, entityType, flatten(candidate.fields))
       if (context.trail.contains(transition))
@@ -693,13 +720,12 @@ private[gateway] final class OperationPlanner(
     transition: TransitionKey
   )(implicit search: PlanningSearch): Either[PlanningFailure, List[TransitionState]] = {
     val entityField                    = context.field.copy(fieldType = resolved.parentType)
-    val requirementData                =
+    val (requiredFields, requirements) =
       injectRequirementFields(
         entityField,
         state.downstream,
         fieldSetFields(candidate.requirements, resolved.parentType)
       )
-    val (requiredFields, requirements) = requirementData
     for {
       requirementPlans <- planRequirementCandidates(
                             entityField,
@@ -737,14 +763,13 @@ private[gateway] final class OperationPlanner(
                                            val enrichedDownstream           = mergeFields(
                                              state.downstream.toList ::: requirementPlan.downstream.fields
                                            ).toVector
-                                           val keyData                      = injectKeyFields(
+                                           val (downstream, keys, typename) = injectKeyFields(
                                              entityField,
                                              resolved.parentType,
                                              enrichedDownstream,
                                              resolved.selection,
                                              transitionTarget(context.parentType, resolved.entityType)
                                            )
-                                           val (downstream, keys, typename) = keyData
                                            val entity                       = PlannedEntity(
                                              candidate.source,
                                              context.source,
@@ -895,7 +920,8 @@ private[gateway] final class OperationPlanner(
         case ((fields, selections, names), requirement) =>
           val base     = requirementAliasBase(requirement)
           val existing = (selected.iterator ++ fields.iterator).find { field =>
-            field.aliasedName.startsWith(base) && field.copy(alias = None) == requirement.copy(alias = None)
+            field.aliasedName.startsWith(base) &&
+            field.copy(alias = None).toSelection == requirement.copy(alias = None).toSelection
           }
           existing match {
             case Some(field) =>
@@ -1015,12 +1041,12 @@ private[gateway] final class OperationPlanner(
     selection: LookupSelection,
     targets: Option[Set[String]]
   ): (Vector[Field], List[RequiredSelection], Option[RequiredSelection]) = {
-    val (keyFields, keys) = selection match {
+    val (keyFields, keys)                 = selection match {
       case LookupSelection.Static(_, fields) => fields                       -> List.empty[RequiredSelection]
       case LookupSelection.Client(_, fields) => List.empty[RequiredKeyField] -> fields
     }
-    val usedNames         = field.fields.iterator.map(_.aliasedName).toSet ++ selected.iterator.map(_.aliasedName)
-    val keyData           = keyFields.foldLeft(
+    val usedNames                         = field.fields.iterator.map(_.aliasedName).toSet ++ selected.iterator.map(_.aliasedName)
+    val (injected, injectedFields, names) = keyFields.foldLeft(
       (List.empty[RequiredSelection], Vector.empty[Field], usedNames)
     ) { case ((selections, fields, names), keyField) =>
       val alias = privateAlias("_caliban_gateway_key", names)
@@ -1030,14 +1056,14 @@ private[gateway] final class OperationPlanner(
         names + alias
       )
     }
-    val injectedKeys      = keyData._1.reverse
-    val selections        = if (injectedKeys.isEmpty) keys else keys ::: injectedKeys
-    val runtimeType       =
+    val injectedKeys                      = injected.reverse
+    val selections                        = keys ::: injectedKeys
+    val runtimeType                       =
       if (selection.lookup.operation.requiresTypename || targets.nonEmpty)
-        Some(privateTypename("_caliban_gateway_typename", parentType, keyData._3))
+        Some(privateTypename("_caliban_gateway_typename", parentType, names))
       else None
-    val typename          = runtimeType.map { case (alias, _) => RequiredSelection("__typename", alias) }
-    (selected ++ keyData._2 ++ runtimeType.map(_._2), selections, typename)
+    val typename                          = runtimeType.map { case (alias, _) => RequiredSelection("__typename", alias) }
+    (selected ++ injectedFields ++ runtimeType.map(_._2), selections, typename)
   }
 
   private def privateTypename(base: String, parentType: __Type, used: Set[String]): (String, Field) = {
@@ -1265,14 +1291,13 @@ private[gateway] object OperationPlanner {
         exhausted("Route planning exceeded the configured duration limit.")
       else Right(())
 
-    def combine[A, B, C](left: List[A], right: List[B])(combine: (A, B) => C): Either[PlanningFailure, List[C]] = {
-      val count = left.size.toLong * right.size.toLong
-      (left, right) match {
-        case (a :: Nil, b :: Nil) => check.map(_ => combine(a, b) :: Nil)
-        case (Nil, _) | (_, Nil)  => check.map(_ => Nil)
-        case _                    => capacity(count).map(_ => left.flatMap(a => right.map(combine(a, _))))
+    def combine[A, B, C](left: List[A], right: List[B])(combine: (A, B) => C): Either[PlanningFailure, List[C]] =
+      if (left.isEmpty || right.isEmpty) check.map(_ => Nil)
+      else if (left.tail.isEmpty && right.tail.isEmpty) check.map(_ => combine(left.head, right.head) :: Nil)
+      else {
+        val count = left.size.toLong * right.size.toLong
+        capacity(count).map(_ => left.flatMap(a => right.map(combine(a, _))))
       }
-    }
 
     def evaluate[A, B](values: List[A])(
       evaluate: A => Either[PlanningFailure, B]
@@ -1512,13 +1537,7 @@ private[gateway] object OperationPlanner {
 
   private[internal] def canonicalSelectionKey(fields: List[Field]): String = {
     def renderSelection(selection: Selection): String =
-      DocumentRenderer.renderCompact(
-        Document(
-          Definition.ExecutableDefinition
-            .OperationDefinition(OperationType.Query, None, Nil, Nil, selection :: Nil) :: Nil,
-          SourceMapper.empty
-        )
-      )
+      DocumentRenderer.selectionsRenderer.renderCompact(selection :: Nil)
 
     def canonicalDirective(directive: Directive): Directive =
       directive.copy(arguments = ListMap(directive.arguments.toList.sortBy(_._1): _*), index = 0)
@@ -1554,12 +1573,7 @@ private[gateway] object OperationPlanner {
       }
 
     val selections = canonicalSelections(fields.map(_.toSelection))
-    DocumentRenderer.renderCompact(
-      Document(
-        Definition.ExecutableDefinition.OperationDefinition(OperationType.Query, None, Nil, Nil, selections) :: Nil,
-        SourceMapper.empty
-      )
-    )
+    DocumentRenderer.selectionsRenderer.renderCompact(selections)
   }
 
   final case class OperationPlan(

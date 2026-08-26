@@ -4,6 +4,7 @@ import caliban.Configurator.ExecutionConfiguration
 import caliban.GraphQLResponseContext.{ Outcome, ServerFailure }
 import caliban.HttpUtils.{ DeferMultipart, ServerSentEvents }
 import caliban.ResponseValue.StreamValue
+import caliban.Value.NullValue
 import caliban.interop.jsoniter.{ BoundedOutputStream, GraphQLResponseJsoniter, ValueJsoniter }
 import caliban.uploads.{ FileMeta, GraphQLUploadRequest, Uploads }
 import caliban.wrappers.Caching
@@ -287,7 +288,7 @@ final private class QuickRequestHandler[R] private (
         val encoded = Response.fromServerSentEvents(encodeTextEventStream(resp))
         Right(
           encoded.copy(
-            status = responseStatus(requestErrorsAreBadRequests = true),
+            status = responseStatus(requestErrorsAreBadRequests = false),
             headers = encoded.headers ++ allowPost(mutationOnGet)
           )
         )
@@ -341,6 +342,10 @@ final private class QuickRequestHandler[R] private (
     stream
       .via(pipeline)
       .map(encodeResponseValue)
+      .catchAllCause { cause =>
+        if (responseLimitExceeded(cause)) ZStream.succeed(responseLimitErrorBytes)
+        else ZStream.failCause(cause)
+      }
       .intersperse(InnerBoundary.getBytes(UTF_8), InnerBoundary.getBytes(UTF_8), EndBoundary.getBytes(UTF_8))
       .mapConcatChunk(Chunk.fromArray)
   }
@@ -348,18 +353,35 @@ final private class QuickRequestHandler[R] private (
   private def encodeTextEventStream(
     resp: GraphQLResponse[Any]
   )(implicit trace: Trace): UStream[ServerSentEvent[String]] =
-    ServerSentEvents.transformResponse(
-      resp,
-      v => ServerSentEvent(new String(encodeResponseValue(v), UTF_8), Some("next")),
-      CompleteSse,
-      sseConfig.heartbeatInterval.map(d => ZStream.succeed(ServerSentEvent.heartbeat).repeat(Schedule.fixed(d)))
-    )
+    ServerSentEvents
+      .transformResponse(
+        resp,
+        v => ServerSentEvent(new String(encodeResponseValue(v), UTF_8), Some("next")),
+        CompleteSse,
+        sseConfig.heartbeatInterval.map(d => ZStream.succeed(ServerSentEvent.heartbeat).repeat(Schedule.fixed(d)))
+      )
+      .catchAllCause { cause =>
+        if (responseLimitExceeded(cause))
+          ZStream.succeed(responseLimitErrorSse) ++ ZStream.succeed(CompleteSse)
+        else ZStream.failCause(cause)
+      }
 
-  private def encodeResponseValue(value: ResponseValue): Array[Byte] = {
-    val output = new BoundedOutputStream(maxResponseBodyBytes)
-    writeToStream(value, output)(ValueJsoniter.responseValueCodec)
-    output.toByteArray
-  }
+  private def responseLimitExceeded(cause: Cause[Any]): Boolean =
+    cause.defects.contains(BoundedOutputStream.LimitExceeded)
+
+  private def encodeResponseValue(value: ResponseValue): Array[Byte] =
+    GraphQLResponseJsoniter.writeToArray(value, maxResponseBodyBytes, ValueJsoniter.responseValueCodec)
+
+  private lazy val responseLimitErrorBytes: Array[Byte] =
+    writeToArray(
+      GraphQLResponse(
+        NullValue,
+        List(CalibanError.ExecutionError("Encoded GraphQL response exceeds the configured limit."))
+      ).toResponseValue
+    )(ValueJsoniter.responseValueCodec)
+
+  private lazy val responseLimitErrorSse: ServerSentEvent[String] =
+    ServerSentEvent(new String(responseLimitErrorBytes, UTF_8), Some("next"))
 
   private def isFtv1Request(req: Request) =
     req.headers.get(GraphQLRequest.`apollo-federation-include-trace`) match {

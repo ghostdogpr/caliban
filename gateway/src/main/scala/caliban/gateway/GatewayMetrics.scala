@@ -1,6 +1,6 @@
 package caliban.gateway
 
-import caliban.gateway.GatewayWrapper.{ Event, Outcome, Result }
+import caliban.gateway.GatewayWrapper.{ Event, Result }
 import caliban.gateway.GatewayWrapper.Outcome.Success
 import zio.metrics.MetricKeyType.Histogram
 import zio.metrics.{ Metric, MetricLabel }

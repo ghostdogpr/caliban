@@ -33,41 +33,37 @@ private[caliban] object SchemaValidator {
     subscriptionType: Option[String]
   ): Either[ValidationError, Unit] = {
     val duplicate   = document.typeDefinitions.groupBy(_.name).collectFirst { case (name, _ :: _ :: _) => name }
-    val known       = document.typeDefinitions.iterator.map(_.name).toSet
+    val byName      = document.typeDefinitions.iterator.map(definition => definition.name -> definition).toMap
     val references  =
-      queryType.toList ::: mutationType.toList ::: subscriptionType.toList :::
-        document.typeDefinitions.flatMap(typeReferences) :::
-        document.directiveDefinitions.flatMap(_.args.map(argument => Type.innerType(argument.ofType)))
-    val missing     = references.find(name => !known.contains(name) && !DocumentRenderer.isBuiltinScalar(name))
+      queryType.iterator ++ mutationType.iterator ++ subscriptionType.iterator ++
+        document.typeDefinitions.iterator.flatMap(typeReferences) ++
+        document.directiveDefinitions.iterator.flatMap(_.args.iterator.map(argument => Type.innerType(argument.ofType)))
+    val missing     = references.find(name => !byName.contains(name) && !DocumentRenderer.isBuiltinScalar(name))
     val invalidRoot = List(
       "query"        -> queryType,
       "mutation"     -> mutationType,
       "subscription" -> subscriptionType
     ).collectFirst {
-      case (operation, Some(name))
-          if document.typeDefinitions.find(_.name == name).exists(!_.isInstanceOf[ObjectTypeDefinition]) =>
+      case (operation, Some(name)) if !byName.get(name).exists(_.isInstanceOf[ObjectTypeDefinition]) =>
         operation -> name
     }
 
-    if (queryType.isEmpty)
-      failValidation(
-        "The query root operation is missing.",
-        "The query root operation type must be provided and must be an Object type."
-      )
-    else
-      duplicate match {
-        case Some(name) => Left(ValidationError(s"Type '$name' is defined multiple times.", ""))
-        case None       =>
-          missing match {
-            case Some(name) => Left(ValidationError(s"Schema references undefined type '$name'.", ""))
-            case None       =>
-              invalidRoot match {
-                case Some((operation, name)) =>
-                  Left(ValidationError(s"The $operation root type '$name' must be an object type.", ""))
-                case None                    => Right(())
-              }
-          }
-      }
+    val error =
+      (if (queryType.isEmpty)
+         Some(
+           ValidationError(
+             "The query root operation is missing.",
+             "The query root operation type must be provided and must be an Object type."
+           )
+         )
+       else None)
+        .orElse(duplicate.map(name => ValidationError(s"Type '$name' is defined multiple times.", "")))
+        .orElse(missing.map(name => ValidationError(s"Schema references undefined type '$name'.", "")))
+        .orElse(invalidRoot.map { case (operation, name) =>
+          ValidationError(s"The $operation root type '$name' must be an object type.", "")
+        })
+
+    error.fold[Either[ValidationError, Unit]](Right(()))(Left(_))
   }
 
   private[caliban] def validateRootType(rootType: RootType): Either[ValidationError, Unit] = {

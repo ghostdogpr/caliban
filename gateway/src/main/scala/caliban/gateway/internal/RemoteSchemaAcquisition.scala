@@ -15,7 +15,7 @@ import sttp.client4._
 import sttp.client4.httpclient.zio.SttpClient
 import sttp.model.Uri
 import zio.stream.ZStream
-import zio.{ Chunk, IO, Task, Trace, ZIO }
+import zio.{ IO, Task, Trace, ZIO }
 
 import java.nio.charset.StandardCharsets
 import scala.util.control.NonFatal
@@ -64,20 +64,15 @@ private[gateway] object RemoteSchemaAcquisition {
     send(endpoint, writeToArray(request), config, backend).flatMap { bytes =>
       if (!withinJsonDepth(bytes, config.maxParsingDepth)) parsingDepthFailure(config.maxParsingDepth)
       else {
-        val array = bytes.toArray
         for {
           response <- ZIO
-                        .attemptBlockingInterrupt(readFromArray[ResponseValue](array))
+                        .attemptBlockingInterrupt(readFromArray[ResponseValue](bytes))
                         .mapError(_ => "Introspection response could not be decoded.")
           _        <- if (defaultValuesWithinDepth(response, config.maxParsingDepth)) ZIO.unit
                       else parsingDepthFailure(config.maxParsingDepth)
-          decoded  <- ZIO
-                        .attemptBlockingInterrupt(
-                          selection.decode(new String(array, StandardCharsets.UTF_8))
-                        )
-                        .mapError(_ => "Introspection response could not be decoded.")
           document <- ZIO
-                        .fromEither(decoded.map(_._1))
+                        .attemptBlockingInterrupt(selection.decode(new String(bytes, StandardCharsets.UTF_8)))
+                        .flatMap(decoded => ZIO.fromEither(decoded.filterOrElse(_._2.isEmpty, ()).map(_._1)))
                         .mapError(_ => "Introspection response could not be decoded.")
         } yield document
       }
@@ -116,7 +111,7 @@ private[gateway] object RemoteSchemaAcquisition {
     body: Array[Byte],
     config: RemoteGraphQLConfig.Acquisition,
     backend: SttpClient
-  )(implicit trace: Trace): IO[String, Chunk[Byte]] = {
+  )(implicit trace: Trace): IO[String, Array[Byte]] = {
     val request = config.headers.foldLeft(
       basicRequest
         .post(endpoint)
@@ -133,9 +128,7 @@ private[gateway] object RemoteSchemaAcquisition {
       .flatMap { response =>
         if (response.body.limitExceeded)
           ZIO.fail(s"Schema acquisition response exceeded ${config.maxResponseBytes} bytes.")
-        else if (response.code.isRedirect)
-          ZIO.fail("Schema acquisition response had an unsupported status or media type.")
-        else if (!allowedMediaType(response))
+        else if (response.code.isRedirect || !allowedMediaType(response))
           ZIO.fail("Schema acquisition response had an unsupported status or media type.")
         else ZIO.succeed(response.body.bytes)
       }
@@ -147,7 +140,10 @@ private[gateway] object RemoteSchemaAcquisition {
     stream
       .take(maxBytes.toLong + 1L)
       .runCollect
-      .map(bytes => BoundedBody(bytes, bytes.length > maxBytes))
+      .map { bytes =>
+        val array = bytes.toArray
+        BoundedBody(array, array.length > maxBytes)
+      }
 
   private def allowedMediaType(response: Response[BoundedBody]): Boolean = {
     val mediaType = response.contentType.map(_.takeWhile(_ != ';').trim.toLowerCase(java.util.Locale.ROOT))
@@ -155,9 +151,9 @@ private[gateway] object RemoteSchemaAcquisition {
     response.code.isSuccess && mediaType.contains("application/json")
   }
 
-  private def decodeServiceSdl(bytes: Chunk[Byte]): Either[Unit, String] =
+  private def decodeServiceSdl(bytes: Array[Byte]): Either[Unit, String] =
     try
-      readFromArray[ResponseValue](bytes.toArray) match {
+      readFromArray[ResponseValue](bytes) match {
         case value: ObjectValue if !hasErrors(value) =>
           for {
             data    <- objectField(value, "data")
@@ -195,7 +191,7 @@ private[gateway] object RemoteSchemaAcquisition {
       case _                               => true
     }
 
-  private def withinJsonDepth(bytes: Chunk[Byte], maxDepth: Int): Boolean = {
+  private def withinJsonDepth(bytes: Array[Byte], maxDepth: Int): Boolean = {
     var depth   = 0
     var index   = 0
     var escaped = false
@@ -214,5 +210,5 @@ private[gateway] object RemoteSchemaAcquisition {
     depth <= maxDepth
   }
 
-  private final case class BoundedBody(bytes: Chunk[Byte], limitExceeded: Boolean)
+  private final case class BoundedBody(bytes: Array[Byte], limitExceeded: Boolean)
 }

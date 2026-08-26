@@ -31,8 +31,10 @@ private[gateway] final class RemoteGraphQLSource[-R](
 ) extends GraphQLSource[R] {
   import RemoteGraphQLSource._
 
-  private val execution  = config.execution
-  private val disclosure = config.errorDisclosure.getOrElse(RemoteGraphQLConfig.ErrorDisclosure.default)
+  private val execution        = config.execution
+  private val disclosure       = config.errorDisclosure.getOrElse(RemoteGraphQLConfig.ErrorDisclosure.default)
+  private val staticHeaders    = sanitizeLayer(execution.headers)
+  private val forwardsIncoming = execution.forwardsAllIncomingHeaders || execution.forwardedHeaders.nonEmpty
 
   val errorPolicy: GraphQLSource.ErrorPolicy = GraphQLSource.ErrorPolicy.Remote
 
@@ -42,19 +44,23 @@ private[gateway] final class RemoteGraphQLSource[-R](
     val logicalCall =
       for {
         body      <- ZIO.fromEither(encode(request.copy(extensions = None)))
-        incoming  <- IncomingRequestHeaders.get.map(_.map { case (name, value) => Header(name, value) })
+        incoming  <-
+          if (forwardsIncoming)
+            IncomingRequestHeaders.get.map(_.map { case (name, value) => Header(name, value) })
+          else ZIO.succeed(Nil)
         effectful <- config.effectfulHeaders.mapError(_ => GraphQLSource.HeaderFailure)
         headers   <- wrapper.outboundHeaders(name, outboundHeaders(incoming, effectful))
         replaySafe = execution.retries > 0 && operationType == OperationType.Query
         rawCall    = executeAttempts(body, headers, replaySafe, execution.retries, attempt = 0)
+        admitted   = admission.fold(rawCall)(_.observed(wrapper)(rawCall))
         response  <-
           if (operationType == OperationType.Query)
-            queryCalls.fold(admission.fold(rawCall)(_.observed(wrapper)(rawCall)))(
-              _.execute(QueryCallIdentity(body, headers), admission, wrapper)(
-                rawCall.timeoutFail(GraphQLSource.TimeoutFailure)(execution.timeout)
+            queryCalls.fold(admitted)(
+              _.execute(QueryCallIdentity(body, headers), None, wrapper)(
+                admitted.timeoutFail(GraphQLSource.TimeoutFailure)(execution.timeout)
               )
             )
-          else admission.fold(rawCall)(_.observed(wrapper)(rawCall))
+          else admitted
       } yield response
 
     logicalCall.timeoutFail(GraphQLSource.TimeoutFailure)(execution.timeout)
@@ -140,7 +146,7 @@ private[gateway] final class RemoteGraphQLSource[-R](
     val forwarded = sanitizeLayer(incoming).filter { header =>
       execution.forwardsAllIncomingHeaders || execution.forwardedHeaders.contains(normalize(header))
     }
-    mergeHeaders(mergeHeaders(mergeHeaders(Nil, forwarded), sanitizeLayer(execution.headers)), sanitizeLayer(effectful))
+    mergeHeaders(mergeHeaders(forwarded, staticHeaders), sanitizeLayer(effectful))
   }
 
   private def sanitizeLayer(headers: List[Header]): List[Header] = {
@@ -398,7 +404,8 @@ private[gateway] object RemoteGraphQLSource {
               decide(key, candidate).flatMap {
                 case QueryCallDecision.Start          =>
                   observe(DeduplicationResult.Start, wrapper)(
-                    runCandidate(key, candidate, admission, wrapper, call).interruptible.forkIn(scope) *>
+                    complete(key, candidate, admission.fold(call)(_.observed(wrapper)(call))).interruptible
+                      .forkIn(scope) *>
                       await(candidate).interruptible
                   )
                 case QueryCallDecision.Join(existing) =>
@@ -416,15 +423,6 @@ private[gateway] object RemoteGraphQLSource {
             }
         }
       }
-
-    private def runCandidate[R](
-      key: QueryCallIdentity,
-      candidate: QueryCallPromise,
-      admission: Option[ExecutionGate],
-      wrapper: GatewayWrapper[R],
-      call: => ZIO[R, GraphQLSource.Failure, GraphQLResponse[CalibanError]]
-    )(implicit trace: Trace): URIO[R, Unit] =
-      complete(key, candidate, admission.fold(call)(_.observed(wrapper)(call)))
 
     private def observe[R, E, A](value: DeduplicationResult, wrapper: GatewayWrapper[R])(effect: ZIO[R, E, A])(implicit
       trace: Trace

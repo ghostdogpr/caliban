@@ -303,6 +303,7 @@ object RemoteGraphQLConfig {
 
   private val ProtocolHeaders = Set(
     "accept",
+    "accept-encoding",
     "connection",
     "content-encoding",
     "content-length",

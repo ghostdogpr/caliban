@@ -88,10 +88,8 @@ object Gateway {
         ZIO.uninterruptibleMask { restore =>
           for {
             child   <- parent.fork
-            runtime <- restore(child.extend(buildRuntime(subgraphs, resolver, policy, config, wrapper))).onExit {
-                         case failure @ Exit.Failure(_) => child.close(failure)
-                         case Exit.Success(_)           => ZIO.unit
-                       }
+            runtime <- restore(child.extend(buildRuntime(subgraphs, resolver, policy, config, wrapper)))
+                         .onError(cause => child.close(Exit.failCause(cause)))
           } yield runtime
         }
       }
@@ -188,7 +186,9 @@ object Gateway {
                               .document(schema, endpoint, federation, config.acquisition, client)
                               .mapError(error => List(s"[${subgraph.name}] $error"))
           rootDocument    = ensureFederationTransportQuery(document, federation)
-          sourceRootType <- toRootType(subgraph.name, rootDocument, promoteOrphans = federation).mapError(_ :: Nil)
+          sourceRootType <- ZIO
+                              .fromEither(toRootType(subgraph.name, rootDocument, promoteOrphans = federation))
+                              .mapError(_ :: Nil)
           contribution   <- ZIO.fromEither(
                               prepareContribution(subgraph, sourceRootType, rootDocument, document, federation)
                             )
@@ -204,7 +204,7 @@ object Gateway {
         val document   = graph.toDocument
         val federation = SchemaComposition.isFederation(document)
         for {
-          sourceRootType <- toRootType(subgraph.name, document).mapError(_ :: Nil)
+          sourceRootType <- ZIO.fromEither(toRootType(subgraph.name, document)).mapError(_ :: Nil)
           contribution   <- ZIO.fromEither(
                               prepareContribution(subgraph, sourceRootType, document, document, federation)
                             )
@@ -224,10 +224,8 @@ object Gateway {
     name: String,
     document: Document,
     promoteOrphans: Boolean = false
-  ): IO[String, RootType] =
-    ZIO
-      .fromEither(RemoteSchema.toRootType(document, promoteOrphans))
-      .mapError(error => s"[$name] ${error.getMessage}")
+  ): Either[String, RootType] =
+    RemoteSchema.toRootType(document, promoteOrphans).left.map(error => s"[$name] ${error.getMessage}")
 
   private[gateway] def prepareContribution[R](
     subgraph: Subgraph[R],
@@ -246,10 +244,7 @@ object Gateway {
                   )
       rootType <-
         if (mapping.nonEmpty)
-          RemoteSchema
-            .toRootType(mapping.transform(rootDocument), promoteOrphans = federation)
-            .left
-            .map(error => List(s"[${subgraph.name}] ${error.getMessage}"))
+          toRootType(subgraph.name, mapping.transform(rootDocument), promoteOrphans = federation).left.map(_ :: Nil)
         else Right(sourceRootType)
     } yield SchemaContribution(
       subgraph.name,

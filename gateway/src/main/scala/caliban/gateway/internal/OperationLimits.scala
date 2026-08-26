@@ -41,8 +41,8 @@ private[gateway] final class OperationLimits(
   def documentWeight(document: Document): Either[OperationLimits.Failure, Int] = {
     var nodes = 0
 
-    def add(value: Int = 1): Boolean = {
-      nodes += value
+    def add(): Boolean = {
+      nodes += 1
       nodes <= maxNodes
     }
 

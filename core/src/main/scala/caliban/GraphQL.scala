@@ -125,9 +125,6 @@ trait GraphQL[-R] { self =>
         private lazy val rootTypeWithIntrospection: RootType    =
           Introspector.withIntrospection(rootType)
 
-        private def parseZIO(query: String): IO[CalibanError.ParsingError, Document] =
-          RequestPreparation.parse(query)
-
         override def check(query: String)(implicit trace: Trace): IO[CalibanError, Unit] =
           RequestPreparation.parse(query).flatMap(Validator.validate(_, rootTypeWithIntrospection))
 
@@ -138,7 +135,7 @@ trait GraphQL[-R] { self =>
             case (overallWrappers, parsingWrappers, validationWrappers, executionWrappers, fieldWrappers, _) =>
               wrap((request: GraphQLRequest) =>
                 (for {
-                  doc          <- wrap(parseZIO)(parsingWrappers, request.query.getOrElse(""))
+                  doc          <- wrap(RequestPreparation.parse)(parsingWrappers, request.query.getOrElse(""))
                   coercedVars  <- RequestPreparation.coerceVariables(doc, request, rootTypeWithIntrospection)
                   executionReq <- wrap(validation(request, coercedVars))(validationWrappers, doc)
                   result       <- wrap(execution(fieldWrappers))(executionWrappers, executionReq)

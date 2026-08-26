@@ -101,6 +101,32 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
           cached       <- cache.getOrCompute("same")(ZIO.dieMessage("cache missed"))
           runs         <- computations.get
         } yield assertTrue(waiterExit.isInterrupted, leaderValue == 1, cached == 1, runs == 1)
+      },
+      test("cleans up an in-flight entry when the miss wrapper interrupts") {
+        for {
+          interrupt   <- Ref.make(true)
+          wrapper      = new GatewayWrapper[Any] {
+                           def wrap[R0, E, A](event: GatewayWrapper.Event)(effect: ZIO[R0, E, A])(
+                             result: Exit[E, A] => GatewayWrapper.Result
+                           )(implicit trace: Trace): ZIO[R0, E, A] =
+                             event match {
+                               case GatewayWrapper.Event.CacheAccess(GatewayWrapper.CacheResult.Miss) =>
+                                 interrupt.getAndSet(false).flatMap(if (_) ZIO.interrupt else effect)
+                               case _                                                                 => effect
+                             }
+                         }
+          cache       <- OperationCache.make[String, String, Int, Any](32, wrapper)
+          first       <- cache.getOrCompute("same")(ZIO.succeed(Weighted(1, 4))).exit
+          afterFirst  <- cache.status
+          second      <- cache.getOrCompute("same")(ZIO.succeed(Weighted(2, 4)))
+          afterSecond <- cache.status
+        } yield assertTrue(
+          first.isInterrupted,
+          afterFirst.inFlight == 0,
+          second == 2,
+          afterSecond.inFlight == 0,
+          afterSecond.entries == 1
+        )
       }
     ),
     suite("operation preparation")(
