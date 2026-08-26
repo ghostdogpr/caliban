@@ -3,12 +3,15 @@ package caliban.gateway.internal
 import caliban.ResponseValue.ObjectValue
 import caliban.Value.{ NullValue, StringValue }
 import caliban.client.Operations.RootQuery
+import caliban.client.CalibanClientError.ServerError
 import caliban.client.SelectionBuilder
-import caliban.gateway.{ RemoteGraphQLConfig, SchemaInput }
+import caliban.gateway.SchemaAcquisitionError._
+import caliban.gateway.SchemaAcquisitionError.InvalidFederationResponse._
+import caliban.gateway.{ RemoteGraphQLConfig, SchemaAcquisitionError, SchemaInput }
 import caliban.parsing.Parser
 import caliban.parsing.adt.Document
 import caliban.tools.IntrospectionClient
-import caliban.{ GraphQLRequest, ResponseValue }
+import caliban.{ CalibanError, GraphQLRequest, ResponseValue }
 import com.github.plokhotnyuk.jsoniter_scala.core.{ readFromArray, writeToArray }
 import sttp.capabilities.zio.ZioStreams
 import sttp.client4._
@@ -18,7 +21,6 @@ import zio.stream.ZStream
 import zio.{ IO, Task, Trace, ZIO }
 
 import java.nio.charset.StandardCharsets
-import scala.util.control.NonFatal
 
 private[gateway] object RemoteSchemaAcquisition {
 
@@ -31,12 +33,11 @@ private[gateway] object RemoteSchemaAcquisition {
     federation: Boolean,
     config: RemoteGraphQLConfig.Acquisition,
     backend: SttpClient
-  )(implicit trace: Trace): IO[String, Document] =
+  )(implicit trace: Trace): IO[SchemaAcquisitionError, Document] =
     input match {
-      case SchemaInput.Sdl(value)    => ZIO.fromEither(Parser.parseQuery(value)).mapError(_.getMessage)
+      case SchemaInput.Sdl(value)    => ZIO.fromEither(Parser.parseQuery(value)).mapError(InvalidProvidedSchema(_))
       case SchemaInput.Parsed(value) => ZIO.succeed(value)
-      case SchemaInput.Acquired      =>
-        acquire(endpoint, federation, config, backend)
+      case SchemaInput.Acquired      => acquire(endpoint, federation, config, backend)
     }
 
   private def acquire(
@@ -44,19 +45,19 @@ private[gateway] object RemoteSchemaAcquisition {
     federation: Boolean,
     config: RemoteGraphQLConfig.Acquisition,
     backend: SttpClient
-  )(implicit trace: Trace): IO[String, Document] = {
+  )(implicit trace: Trace): IO[SchemaAcquisitionError, Document] = {
     val acquisition =
       if (federation) acquireFederation(endpoint, config, backend)
       else acquireIntrospection(endpoint, config, backend)
 
-    acquisition.timeoutFail("Schema acquisition timed out.")(config.timeout)
+    acquisition.timeoutFail(TimedOut(config.timeout))(config.timeout)
   }
 
   private def acquireIntrospection(
     endpoint: Uri,
     config: RemoteGraphQLConfig.Acquisition,
     backend: SttpClient
-  )(implicit trace: Trace): IO[String, Document] = {
+  )(implicit trace: Trace): IO[SchemaAcquisitionError, Document] = {
     implicit val introspectionConfig: IntrospectionClient.Config = IntrospectionClient.Config.default
     val selection: SelectionBuilder[RootQuery, Document]         = IntrospectionClient.introspection
     val request                                                  = selection.toGraphQL(dropNullInputValues = true)
@@ -65,15 +66,20 @@ private[gateway] object RemoteSchemaAcquisition {
       if (!withinJsonDepth(bytes, config.maxParsingDepth)) parsingDepthFailure(config.maxParsingDepth)
       else {
         for {
-          response <- ZIO
-                        .attemptBlockingInterrupt(readFromArray[ResponseValue](bytes))
-                        .mapError(_ => "Introspection response could not be decoded.")
-          _        <- if (defaultValuesWithinDepth(response, config.maxParsingDepth)) ZIO.unit
-                      else parsingDepthFailure(config.maxParsingDepth)
-          document <- ZIO
-                        .attemptBlockingInterrupt(selection.decode(new String(bytes, StandardCharsets.UTF_8)))
-                        .flatMap(decoded => ZIO.fromEither(decoded.filterOrElse(_._2.isEmpty, ()).map(_._1)))
-                        .mapError(_ => "Introspection response could not be decoded.")
+          response             <- ZIO
+                                    .attempt(readFromArray[ResponseValue](bytes))
+                                    .mapError(IntrospectionResponseDecodingFailed(_))
+          _                    <- if (defaultValuesWithinDepth(response, config.maxParsingDepth)) ZIO.unit
+                                  else parsingDepthFailure(config.maxParsingDepth)
+          decoded              <- ZIO
+                                    .attempt(selection.decode(new String(bytes, StandardCharsets.UTF_8)))
+                                    .mapError(IntrospectionResponseDecodingFailed(_))
+          result               <- ZIO.fromEither(decoded).mapError {
+                                    case ServerError(errors) => IntrospectionErrors(errors)
+                                    case error               => InvalidIntrospectionResponse(error)
+                                  }
+          (document, errors, _) = result
+          _                    <- ZIO.fail(IntrospectionErrors(errors)).when(errors.nonEmpty)
         } yield document
       }
     }
@@ -83,7 +89,7 @@ private[gateway] object RemoteSchemaAcquisition {
     endpoint: Uri,
     config: RemoteGraphQLConfig.Acquisition,
     backend: SttpClient
-  )(implicit trace: Trace): IO[String, Document] = {
+  )(implicit trace: Trace): IO[SchemaAcquisitionError, Document] = {
     val request = GraphQLRequest(query = Some(ServiceQuery), operationName = Some("__CalibanGatewayServiceSchema"))
 
     send(endpoint, writeToArray(request), config, backend).flatMap { bytes =>
@@ -91,17 +97,12 @@ private[gateway] object RemoteSchemaAcquisition {
         _        <- if (withinJsonDepth(bytes, config.maxParsingDepth)) ZIO.unit
                     else parsingDepthFailure(config.maxParsingDepth)
         decoded  <- ZIO
-                      .attemptBlockingInterrupt(decodeServiceSdl(bytes))
-                      .mapError(_ => "Federation service response was invalid.")
-        sdl      <- ZIO.fromEither(decoded).mapError(_ => "Federation service response was invalid.")
+                      .attempt(readFromArray[ResponseValue](bytes))
+                      .mapError(FederationResponseDecodingFailed(_))
+        sdl      <- ZIO.fromEither(decodeServiceSdl(decoded))
         _        <- if (OperationLimits.graphQLNestingWithinLimit(sdl, config.maxParsingDepth)) ZIO.unit
                     else parsingDepthFailure(config.maxParsingDepth)
-        parsed   <- ZIO
-                      .attemptBlockingInterrupt(Parser.parseQuery(sdl))
-                      .mapError(_ => "Federation service schema could not be parsed.")
-        document <- ZIO
-                      .fromEither(parsed)
-                      .mapError(error => s"Federation service schema could not be parsed: ${error.getMessage}")
+        document <- ZIO.fromEither(Parser.parseQuery(sdl)).mapError(InvalidFederationSchema(_))
       } yield document
     }
   }
@@ -111,12 +112,9 @@ private[gateway] object RemoteSchemaAcquisition {
     body: Array[Byte],
     config: RemoteGraphQLConfig.Acquisition,
     backend: SttpClient
-  )(implicit trace: Trace): IO[String, Array[Byte]] = {
-    val request = config.headers.foldLeft(
-      basicRequest
-        .post(endpoint)
-        .body(body)
-    )((current, header) => current.header(header))
+  )(implicit trace: Trace): IO[SchemaAcquisitionError, Array[Byte]] = {
+    val request =
+      config.headers.foldLeft(basicRequest.post(endpoint).body(body))((current, header) => current.header(header))
 
     request
       .contentType("application/json; charset=utf-8")
@@ -124,19 +122,19 @@ private[gateway] object RemoteSchemaAcquisition {
       .followRedirects(false)
       .response(asStreamAlways(ZioStreams)(readBounded(config.maxResponseBytes)))
       .send(backend)
-      .mapError(_ => "Schema acquisition request failed.")
+      .mapError(RequestFailed(_))
       .flatMap { response =>
         if (response.body.limitExceeded)
-          ZIO.fail(s"Schema acquisition response exceeded ${config.maxResponseBytes} bytes.")
+          ZIO.fail(ResponseTooLarge(config.maxResponseBytes))
         else if (response.code.isRedirect || !allowedMediaType(response))
-          ZIO.fail("Schema acquisition response had an unsupported status or media type.")
+          ZIO.fail(UnexpectedResponse(response.code, response.contentType))
         else ZIO.succeed(response.body.bytes)
       }
   }
 
-  private def readBounded(maxBytes: Int)(stream: ZStream[Any, Throwable, Byte])(implicit
-    trace: Trace
-  ): Task[BoundedBody] =
+  private def readBounded(
+    maxBytes: Int
+  )(stream: ZStream[Any, Throwable, Byte])(implicit trace: Trace): Task[BoundedBody] =
     stream
       .take(maxBytes.toLong + 1L)
       .runCollect
@@ -151,33 +149,40 @@ private[gateway] object RemoteSchemaAcquisition {
     response.code.isSuccess && mediaType.contains("application/json")
   }
 
-  private def decodeServiceSdl(bytes: Array[Byte]): Either[Unit, String] =
-    try
-      readFromArray[ResponseValue](bytes) match {
-        case value: ObjectValue if !hasErrors(value) =>
-          for {
-            data    <- objectField(value, "data")
-            service <- objectField(data, "_service")
-            sdl     <- service.fields.collectFirst { case ("sdl", StringValue(value)) => value }.toRight(())
-          } yield sdl
-        case _                                       => Left(())
-      }
-    catch {
-      case NonFatal(_) => Left(())
+  private def decodeServiceSdl(value: ResponseValue): Either[SchemaAcquisitionError, String] =
+    value match {
+      case objectValue: ObjectValue =>
+        for {
+          errors  <- federationErrors(objectValue)
+          _       <- if (errors.isEmpty) Right(()) else Left(FederationErrors(errors))
+          data    <- objectField(objectValue, "data", MissingData)
+          service <- objectField(data, "_service", MissingService)
+          sdl     <- service.fields.collectFirst { case ("sdl", StringValue(value)) => value }
+                       .toRight(InvalidFederationResponse(MissingSdl))
+        } yield sdl
+      case _                        => Left(InvalidFederationResponse(ExpectedResponseObject))
     }
 
-  private def objectField(value: ObjectValue, name: String): Either[Unit, ObjectValue] =
-    value.fields.collectFirst { case (`name`, nested: ObjectValue) => nested }.toRight(())
-
-  private def hasErrors(value: ObjectValue): Boolean =
+  private def federationErrors(value: ObjectValue): Either[SchemaAcquisitionError, List[CalibanError]] =
     value.fields.collectFirst {
-      case ("errors", ResponseValue.ListValue(errors)) => errors.nonEmpty
-      case ("errors", NullValue)                       => false
-      case ("errors", _)                               => true
-    }.getOrElse(false)
+      case ("errors", ResponseValue.ListValue(values)) =>
+        val decoded = values.map(CalibanError.fromResponseValue)
+        if (decoded.forall(_.nonEmpty)) Right(decoded.flatten)
+        else Left(InvalidFederationResponse(InvalidErrors))
+      case ("errors", NullValue)                       => Right(Nil)
+      case ("errors", _)                               => Left(InvalidFederationResponse(InvalidErrors))
+    }.getOrElse(Right(Nil))
 
-  private def parsingDepthFailure(maxDepth: Int): IO[String, Nothing] =
-    ZIO.fail(s"Schema acquisition parsing depth exceeded $maxDepth.")
+  private def objectField(
+    value: ObjectValue,
+    name: String,
+    missing: InvalidFederationResponse.Reason
+  ): Either[SchemaAcquisitionError, ObjectValue] =
+    value.fields.collectFirst { case (`name`, nested: ObjectValue) => nested }
+      .toRight(InvalidFederationResponse(missing))
+
+  private def parsingDepthFailure(maxDepth: Int): IO[SchemaAcquisitionError, Nothing] =
+    ZIO.fail(ParsingDepthExceeded(maxDepth))
 
   private def defaultValuesWithinDepth(value: ResponseValue, maxDepth: Int): Boolean =
     value match {

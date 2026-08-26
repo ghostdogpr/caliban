@@ -67,13 +67,16 @@ object CompositionSpec extends ZIOSpecDefault {
                             .left
                             .map(error => List(s"[${input.name}] ${error.getMessage}"))
           subgraph      = Subgraph.federation(input.name, endpoint, document).transform(input.transformations: _*)
-          contribution <- Gateway.prepareContribution(
-                            subgraph,
-                            sourceRoot,
-                            document,
-                            document,
-                            federation = true
-                          )
+          contribution <- Gateway
+                            .prepareContribution(
+                              subgraph,
+                              sourceRoot,
+                              document,
+                              document,
+                              federation = true
+                            )
+                            .left
+                            .map(_.flatMap(SubgraphError(input.name, _).diagnostics))
         } yield contribution :: tail
     }
     contributions.flatMap(SchemaComposition.compose)

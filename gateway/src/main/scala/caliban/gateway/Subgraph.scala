@@ -116,7 +116,12 @@ object Subgraph {
   ): Subgraph[R] =
     new Subgraph[R](name, Source.Remote(endpoint, schema, federation, config), Nil, Nil)
 
-  private[gateway] sealed trait Source[-R]
+  private[gateway] sealed trait Source[-R] {
+    def isRemote: Boolean = this match {
+      case _: Source.Remote[_] => true
+      case _                   => false
+    }
+  }
 
   private[gateway] object Source {
     final case class Remote[R](

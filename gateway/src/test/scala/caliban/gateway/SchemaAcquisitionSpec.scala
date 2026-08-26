@@ -2,6 +2,7 @@ package caliban.gateway
 
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ BooleanValue, StringValue }
+import caliban.client.CalibanClientError
 import caliban.gateway.GatewayTestSupport._
 import caliban.schema.{ GenericSchema, Schema }
 import caliban.tools.IntrospectionClient
@@ -62,6 +63,17 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
       )
     )
 
+  private def introspectionErrorMessages(result: Either[GatewayBuildError, Any]): List[String] =
+    result match {
+      case Left(
+            GatewayBuildError.SubgraphLoadingFailed(
+              List(SubgraphError(_, SchemaAcquisitionError.IntrospectionErrors(errors)))
+            )
+          ) =>
+        errors.map(_.message)
+      case _ => Nil
+    }
+
   def spec = suite("SchemaAcquisitionSpec")(
     test("acquires ordinary introspection and Federation service SDL through pinned composition") {
       for {
@@ -93,13 +105,20 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
         federationCalls.headOption.flatMap(_.query).exists(_.contains("_service"))
       )
     },
-    test("rejects an introspection response that contains GraphQL errors") {
+    test("classifies introspection GraphQL errors when data is present or null") {
+      val nullDataResponse = """{"data":null,"errors":[{"message":"introspection failed"}]}"""
+
       for {
         introspection <- introspectionResponse
-        response       = introspection.dropRight(1) + ",\"errors\":[{\"message\":\"introspection failed\"}]}"
-        source        <- stub(response)
-        exit          <- Gateway.compose(Subgraph.graphql("products", source.endpoint)).interpreter.exit
-      } yield assertTrue(exit.isFailure)
+        dataResponse   = introspection.dropRight(1) + ",\"errors\":[{\"message\":\"introspection failed\"}]}"
+        dataSource    <- stub(dataResponse)
+        nullSource    <- stub(nullDataResponse)
+        dataResult    <- Gateway.compose(Subgraph.graphql("data", dataSource.endpoint)).interpreter.either
+        nullResult    <- Gateway.compose(Subgraph.graphql("null", nullSource.endpoint)).interpreter.either
+      } yield assertTrue(
+        introspectionErrorMessages(dataResult) == List("introspection failed"),
+        introspectionErrorMessages(nullResult) == List("introspection failed")
+      )
     },
     test("preserves referenced deprecation and specifiedBy metadata from acquired SDL") {
       val metadataSchema =
@@ -188,7 +207,87 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
         remote <- stub(response)
         result <- Gateway.compose(Subgraph.federation("reviews", remote.endpoint)).interpreter.either
       } yield assertTrue(
-        result.left.exists(_.diagnostics == List("[reviews] Federation service response was invalid."))
+        result.left.exists(
+          _.diagnostics == List("[reviews] Federation service returned GraphQL errors: schema acquisition failed")
+        ),
+        result.left.exists {
+          case GatewayBuildError.SubgraphLoadingFailed(
+                List(SubgraphError("reviews", SchemaAcquisitionError.FederationErrors(errors)))
+              ) =>
+            errors.nonEmpty
+          case _ => false
+        }
+      )
+    },
+    test("classifies malformed Federation service responses") {
+      import SchemaAcquisitionError.InvalidFederationResponse._
+
+      val cases = List(
+        "[]"                           -> ExpectedResponseObject,
+        """{"errors":true}"""          -> InvalidErrors,
+        invalidResponse                -> MissingData,
+        """{"data":{}}"""              -> MissingService,
+        """{"data":{"_service":{}}}""" -> MissingSdl
+      )
+
+      ZIO
+        .foreach(cases) { case (response, expected) =>
+          for {
+            remote <- stub(response)
+            result <- Gateway.compose(Subgraph.federation("reviews", remote.endpoint)).interpreter.either
+          } yield result.left.toOption.collect {
+            case GatewayBuildError.SubgraphLoadingFailed(
+                  List(SubgraphError("reviews", SchemaAcquisitionError.InvalidFederationResponse(reason)))
+                ) =>
+              reason
+          }.contains(expected)
+        }
+        .map(results => assertTrue(results.forall(value => value)))
+    },
+    test("accumulates invalid names with remote acquisition failures") {
+      for {
+        valid          <- stub(serviceResponse(reviewsSchema))
+        broken         <- stub(invalidResponse)
+        result         <- Gateway
+                            .compose(
+                              Subgraph.federation("reviews", valid.endpoint),
+                              Subgraph.federation("reviews", broken.endpoint)
+                            )
+                            .interpreter
+                            .either
+        validRequests  <- valid.requests.get
+        brokenRequests <- broken.requests.get
+      } yield assertTrue(
+        result.left.exists {
+          case GatewayBuildError.CombinedFailures(errors) =>
+            errors.exists(_.isInstanceOf[GatewayBuildError.InvalidConfiguration]) &&
+            errors.exists(_.isInstanceOf[GatewayBuildError.SubgraphLoadingFailed])
+          case _                                          => false
+        },
+        result.left.exists(_.diagnostics.exists(_.contains("Name is used more than once"))),
+        result.left.exists(_.diagnostics.exists(_.contains("'data' field was missing"))),
+        validRequests.size == 1,
+        brokenRequests.size == 1
+      )
+    },
+    test("retains request failure causes without exposing their messages in diagnostics") {
+      val cause = new RuntimeException("secret endpoint and response details")
+      val error = SchemaAcquisitionError.RequestFailed(cause)
+
+      assertTrue(
+        error.getCause eq cause,
+        !error.diagnostics.exists(_.contains(cause.getMessage))
+      )
+    },
+    test("retains client decoding errors without exposing their messages in diagnostics") {
+      val cause       = new RuntimeException("secret response details")
+      val clientError = CalibanClientError.DecodingError("secret decoder context", Some(cause))
+      val error       = SchemaAcquisitionError.InvalidIntrospectionResponse(clientError)
+
+      assertTrue(
+        error.getCause eq clientError,
+        !error.diagnostics.exists(_.contains(clientError.msg)),
+        !error.diagnostics.exists(_.contains(cause.getMessage))
       )
     },
     test("enforces acquisition headers, redirects, and finite response and parsing limits") {

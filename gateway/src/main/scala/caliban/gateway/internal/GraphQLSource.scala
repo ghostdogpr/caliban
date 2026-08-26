@@ -58,9 +58,9 @@ private[gateway] final class GatedGraphQLSource[-R](
 private[gateway] object GraphQLSource {
   def failureOutcome(failure: Failure): Outcome =
     failure match {
-      case TransportFailure                                                                        => Outcome.TransportError
+      case TransportFailure(_)                                                                     => Outcome.TransportError
       case TimeoutFailure                                                                          => Outcome.Timeout
-      case HeaderFailure | InvalidRequest                                                          => Outcome.RequestError
+      case HeaderFailure(_) | InvalidRequest                                                       => Outcome.RequestError
       case RequestTooLarge | ResponseTooLarge | ResponseNestingTooDeep | ResponseStructureTooLarge =>
         Outcome.LimitExceeded
       case HttpFailure(status) if status >= 400 && status < 500                                    => Outcome.Http4xx
@@ -119,19 +119,23 @@ private[gateway] object GraphQLSource {
     }
   }
 
-  sealed trait Failure                          extends NoStackTrace
-  case object TransportFailure                  extends Failure
-  case object TimeoutFailure                    extends Failure
-  case object HeaderFailure                     extends Failure
-  case object InvalidRequest                    extends Failure
-  case object RequestTooLarge                   extends Failure
-  final case class HttpFailure(statusCode: Int) extends Failure
-  case object RedirectResponse                  extends Failure
-  case object UnsupportedMediaType              extends Failure
-  case object ResponseTooLarge                  extends Failure
-  case object ResponseNestingTooDeep            extends Failure
-  case object ResponseStructureTooLarge         extends Failure
-  case object InvalidResponse                   extends Failure
+  sealed trait Failure                                extends NoStackTrace
+  final case class TransportFailure(error: Throwable) extends Failure {
+    override def getCause: Throwable = error
+  }
+  case object TimeoutFailure                          extends Failure
+  final case class HeaderFailure(error: Throwable)    extends Failure {
+    override def getCause: Throwable = error
+  }
+  case object InvalidRequest                          extends Failure
+  case object RequestTooLarge                         extends Failure
+  final case class HttpFailure(statusCode: Int)       extends Failure
+  case object RedirectResponse                        extends Failure
+  case object UnsupportedMediaType                    extends Failure
+  case object ResponseTooLarge                        extends Failure
+  case object ResponseNestingTooDeep                  extends Failure
+  case object ResponseStructureTooLarge               extends Failure
+  case object InvalidResponse                         extends Failure
 }
 
 private[gateway] final class LocalGraphQLSource[-R](interpreter: GraphQLInterpreter[R, CalibanError])

@@ -473,6 +473,26 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
         !rendered.contains(secret)
       )
     },
+    test("retains effectful header and transport failure causes") {
+      val headerCause = new RuntimeException("header failure")
+      val config      = RemoteGraphQLConfig.default.withExecutionHeadersZIO(ZIO.fail(headerCause))
+
+      for {
+        backend         <- HttpClientZioBackend.scoped()
+        remote          <- stub("""{"data":{"value":"ok"}}""")
+        headerResult    <- call(remote.endpoint, backend, config)
+        transportResult <- call(unreachableEndpoint, backend)
+      } yield assertTrue(
+        headerResult.left.exists {
+          case failure @ HeaderFailure(error) => (error eq headerCause) && (failure.getCause eq headerCause)
+          case _                              => false
+        },
+        transportResult.left.exists {
+          case failure @ TransportFailure(error) => failure.getCause eq error
+          case _                                 => false
+        }
+      )
+    },
     test("deduplicates concurrent identical remote queries") {
       val callers = 20
 

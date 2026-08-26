@@ -48,7 +48,7 @@ private[gateway] final class RemoteGraphQLSource[-R](
           if (forwardsIncoming)
             IncomingRequestHeaders.get.map(_.map { case (name, value) => Header(name, value) })
           else ZIO.succeed(Nil)
-        effectful <- config.effectfulHeaders.mapError(_ => GraphQLSource.HeaderFailure)
+        effectful <- config.effectfulHeaders.mapError(GraphQLSource.HeaderFailure(_))
         headers   <- wrapper.outboundHeaders(name, outboundHeaders(incoming, effectful))
         replaySafe = execution.retries > 0 && operationType == OperationType.Query
         rawCall    = executeAttempts(body, headers, replaySafe, execution.retries, attempt = 0)
@@ -129,7 +129,7 @@ private[gateway] final class RemoteGraphQLSource[-R](
       .followRedirects(false)
       .response(asStreamAlways(ZioStreams)(readBounded))
       .send(backend)
-      .mapError(_ => AttemptFailure(GraphQLSource.TransportFailure, None, None))
+      .mapError(error => AttemptFailure(GraphQLSource.TransportFailure(error), None, None))
 
     response.flatMap { value =>
       val responseBytes = value.body.bytes.length.toLong
@@ -174,7 +174,7 @@ private[gateway] final class RemoteGraphQLSource[-R](
 
   private def retryable(failure: GraphQLSource.Failure): Boolean =
     failure match {
-      case GraphQLSource.TransportFailure             => true
+      case GraphQLSource.TransportFailure(_)          => true
       case GraphQLSource.HttpFailure(502 | 503 | 504) => true
       case _                                          => false
     }
