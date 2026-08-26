@@ -2,7 +2,7 @@ package caliban.gateway.internal
 
 import caliban.InputValue.VariableValue
 import caliban.execution.{ ExecutionRequest, Field, RequestPreparation }
-import caliban.gateway.GatewayRuntime.OperationCacheStatus
+import caliban.gateway.GatewayInterpreter.OperationCacheStatus
 import caliban.gateway.{ GatewayConfig, GatewayWrapper }
 import caliban.gateway.internal.OperationCache.Weighted
 import caliban.gateway.internal.OperationCacheDirective.Cacheable

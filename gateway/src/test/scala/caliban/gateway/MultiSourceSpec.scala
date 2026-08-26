@@ -53,7 +53,7 @@ object MultiSourceSpec extends ZIOSpecDefault {
                                  Subgraph.graphql("reviews", reviews.endpoint, reviewsSchema)
                                )
                                .withConfig(_.withRemoteErrorDisclosure(_.withMessages(true)))
-                               .build
+                               .interpreter
           request          = GraphQLRequest(
                                query = Some(query),
                                operationName = Some("Dashboard"),
@@ -105,7 +105,7 @@ object MultiSourceSpec extends ZIOSpecDefault {
                           Subgraph.graphql("products", products.endpoint, productsSchema),
                           Subgraph.graphql("reviews", reviews.endpoint, reviewsSchema)
                         )
-                        .build
+                        .interpreter
           response <- gateway.execute("{ featured { name } recent { body } }")
           errors    = executionErrors(response.errors)
         } yield assertTrue(
@@ -122,7 +122,7 @@ object MultiSourceSpec extends ZIOSpecDefault {
 
         for {
           source   <- stub(result)
-          gateway  <- Gateway.compose(Subgraph.graphql("values", source.endpoint, schema)).build
+          gateway  <- Gateway.compose(Subgraph.graphql("values", source.endpoint, schema)).interpreter
           response <- gateway.execute("{ first { value } second { value } }")
           sent     <- source.requests.get
           errors    = executionErrors(response.errors)
@@ -154,7 +154,7 @@ object MultiSourceSpec extends ZIOSpecDefault {
                                 Subgraph.graphql("second", fastSecondA.endpoint, secondSchema)
                               )
                               .withConfig(_.withRemoteErrorDisclosure(_.withMessages(true)))
-                              .build
+                              .interpreter
           responseA      <- gatewayA.execute("{ first second }")
           firstStartedB  <- Promise.make[Nothing, Unit]
           fastFirstB     <- stubWith(firstStartedB.succeed(()).unit, firstFailure)
@@ -168,7 +168,7 @@ object MultiSourceSpec extends ZIOSpecDefault {
                                 Subgraph.graphql("second", slowSecondB.endpoint, secondSchema)
                               )
                               .withConfig(_.withRemoteErrorDisclosure(_.withMessages(true)))
-                              .build
+                              .interpreter
           responseB      <- gatewayB.execute("{ first second }")
         } yield assertTrue(
           responseA.errors.map(_.msg) == List("first failed", "second failed"),
@@ -198,7 +198,7 @@ object MultiSourceSpec extends ZIOSpecDefault {
                               Subgraph.graphql("products", products.endpoint, productsSchema),
                               Subgraph.graphql("reviews", reviews.endpoint, reviewsSchema)
                             )
-                            .build
+                            .interpreter
           response     <- gateway.execute(
                             """{
                           |  __schema {
@@ -235,7 +235,7 @@ object MultiSourceSpec extends ZIOSpecDefault {
 
         for {
           source   <- stub("""{"data":{"value":"ok"}}""")
-          gateway  <- Gateway.compose(Subgraph.graphql("values", source.endpoint, schema)).build
+          gateway  <- Gateway.compose(Subgraph.graphql("values", source.endpoint, schema)).interpreter
           response <- gateway.execute("{ __schema { subscriptionType { name } } }")
           sent     <- source.requests.get
         } yield assertTrue(
@@ -256,7 +256,7 @@ object MultiSourceSpec extends ZIOSpecDefault {
                              Subgraph.graphql("products", products.endpoint, productsSchema),
                              Subgraph.graphql("reviews", reviews.endpoint, reviewsSchema)
                            )
-                           .build
+                           .interpreter
           response    <- gateway.execute(
                            """{
                           |  product
@@ -306,7 +306,7 @@ object MultiSourceSpec extends ZIOSpecDefault {
                                Subgraph.graphql("products", products.endpoint, productsSchema),
                                Subgraph.graphql("reviews", reviews.endpoint, reviewsSchema)
                              )
-                             .build
+                             .interpreter
           execution     <- gateway
                              .execute(
                                """mutation Changes {
@@ -342,7 +342,7 @@ object MultiSourceSpec extends ZIOSpecDefault {
 
         for {
           backend  <- stub("""{"data":{"incremented":1}}""", """{"data":{"assigned":10}}""")
-          gateway  <- Gateway.compose(Subgraph.graphql("counter", backend.endpoint, schema)).build
+          gateway  <- Gateway.compose(Subgraph.graphql("counter", backend.endpoint, schema)).interpreter
           response <- gateway.execute(
                         """mutation {
                           |  incremented: increment(by: 1)
@@ -400,7 +400,7 @@ object MultiSourceSpec extends ZIOSpecDefault {
                           Subgraph.federation("products", products.endpoint, productsSchema),
                           Subgraph.federation("reviews", reviews.endpoint, reviewsSchema)
                         )
-                        .build
+                        .interpreter
           response <- gateway.execute(
                         """mutation {
                           |  updated: updateProduct { price isExpensive isAvailable }
@@ -439,7 +439,7 @@ object MultiSourceSpec extends ZIOSpecDefault {
                           Subgraph.graphql("reviews", reviews.endpoint, reviewsSchema)
                         )
                         .withConfig(_.withRemoteErrorDisclosure(_.withMessages(true)))
-                        .build
+                        .interpreter
           response <- gateway.execute("mutation { updated: updateProduct added: addReview }")
           sent     <- reviews.requests.get
         } yield assertTrue(
@@ -466,7 +466,7 @@ object MultiSourceSpec extends ZIOSpecDefault {
                           Subgraph.graphql("reviews", reviews.endpoint, reviewsSchema)
                         )
                         .withConfig(_.withRemoteErrorDisclosure(_.withMessages(true)))
-                        .build
+                        .interpreter
           response <- gateway.execute("mutation { updated: updateProduct added: addReview }")
           sent     <- reviews.requests.get
         } yield assertTrue(
@@ -493,7 +493,7 @@ object MultiSourceSpec extends ZIOSpecDefault {
                           Subgraph.graphql("reviews", reviews.endpoint, reviewsSchema)
                         )
                         .withConfig(_.withRemoteErrorDisclosure(_.withMessages(true)))
-                        .build
+                        .interpreter
           response <- gateway.execute("mutation { status failed: fail added: addReview }")
           sent     <- reviews.requests.get
         } yield assertTrue(
@@ -526,7 +526,7 @@ object MultiSourceSpec extends ZIOSpecDefault {
                            Subgraph.federation("alpha", alpha.endpoint, alphaSchema),
                            Subgraph.federation("beta", beta.endpoint, betaSchema)
                          )
-                         .build
+                         .interpreter
           response  <- gateway.execute("mutation { published: publish { title } }")
           alphaSent <- alpha.requests.get
           betaSent  <- beta.requests.get
@@ -551,7 +551,7 @@ object MultiSourceSpec extends ZIOSpecDefault {
                            Subgraph.graphql("products", products.endpoint, productsSchema),
                            Subgraph.graphql("reviews", reviews.endpoint, reviewsSchema)
                          )
-                         .build
+                         .interpreter
           response  <- gateway.execute(
                          """mutation {
                           |  updated: updateProduct(id: "p1")
@@ -582,7 +582,7 @@ object MultiSourceSpec extends ZIOSpecDefault {
                              Subgraph.graphql("products", products.endpoint, productsSchema),
                              Subgraph.graphql("reviews", reviews.endpoint, reviewsSchema)
                            )
-                           .build
+                           .interpreter
           response    <- gateway.execute(
                            """query Traced @trace(label: "client") { product reviews }""",
                            Some("Traced")
@@ -610,7 +610,7 @@ object MultiSourceSpec extends ZIOSpecDefault {
                              Subgraph.graphql("products", products.endpoint, productsSchema),
                              Subgraph.graphql("reviews", reviews.endpoint, reviewsSchema)
                            )
-                           .build
+                           .interpreter
           response    <- gateway.execute(
                            """query { ...Fields } fragment Fields on Query @trace { product reviews }"""
                          )
@@ -638,8 +638,8 @@ object MultiSourceSpec extends ZIOSpecDefault {
         )
 
         for {
-          forward <- Gateway.compose(alpha, beta).build.exit
-          reverse <- Gateway.compose(beta, alpha).build.exit
+          forward <- Gateway.compose(alpha, beta).interpreter.exit
+          reverse <- Gateway.compose(beta, alpha).interpreter.exit
           first    = buildDiagnostics(forward)
           second   = buildDiagnostics(reverse)
         } yield assertTrue(
@@ -660,8 +660,8 @@ object MultiSourceSpec extends ZIOSpecDefault {
         val beta     = Subgraph.graphql("beta", endpoint, schema)
 
         for {
-          forward <- Gateway.compose(alpha, beta).build.exit
-          reverse <- Gateway.compose(beta, alpha).build.exit
+          forward <- Gateway.compose(alpha, beta).interpreter.exit
+          reverse <- Gateway.compose(beta, alpha).interpreter.exit
           first    = buildDiagnostics(forward)
           second   = buildDiagnostics(reverse)
         } yield assertTrue(

@@ -88,7 +88,7 @@ object GatewayHttpSpec extends ZIOSpecDefault {
                                .withExecutionHeadersZIO(
                                  executionHeader.get.map(value => List(SttpHeader("X-Fiber", value)))
                                )
-          runtime         <- Gateway.compose(Subgraph.graphql("service", source.endpoint, schema, config)).build
+          runtime         <- Gateway.compose(Subgraph.graphql("service", source.endpoint, schema, config)).interpreter
           url             <- install(
                                QuickAdapter(runtime).configure(executionHeader.locallyScoped("configured"))
                              )
@@ -116,7 +116,7 @@ object GatewayHttpSpec extends ZIOSpecDefault {
       test("preserves disabled introspection through Quick configuration") {
         for {
           source  <- stub("""{"data":{"greeting":"hello"}}""")
-          runtime <- Gateway.compose(Subgraph.graphql("service", source.endpoint, schema)).build
+          runtime <- Gateway.compose(Subgraph.graphql("service", source.endpoint, schema)).interpreter
           url     <- install(QuickAdapter(runtime).configure(ExecutionConfiguration(enableIntrospection = false)))
           result  <- execute(post(url, """{"query":"{ __schema { queryType { name } } }"}"""))
           calls   <- source.requests.get
@@ -131,7 +131,7 @@ object GatewayHttpSpec extends ZIOSpecDefault {
           runtime        <- Gateway
                               .compose(Subgraph.local("service", TimeoutApi.api))
                               .withConfig(_.withRequestTimeout(20.millis))
-                              .build
+                              .interpreter
           gqlFiber       <- QuickAdapter(runtime).handlers.api
                               .runZIO(post(URL.empty, """{"query":"{ delayed }"}"""))
                               .fork
@@ -228,7 +228,7 @@ object GatewayHttpSpec extends ZIOSpecDefault {
                                     Subgraph.federation("products", products.endpoint, parityProductsSchema),
                                     Subgraph.federation("reviews", reviews.endpoint, parityReviewsSchema)
                                   )
-                                  .build
+                                  .interpreter
           url                <- install(QuickAdapter(runtime))
           structuredQuery    <- runtime.executeRequest(GraphQLRequest(query = Some(query)))
           encodedQueryResult <- execute(post(url, writeToString(GraphQLRequest(query = Some(query)))))
@@ -253,7 +253,7 @@ object GatewayHttpSpec extends ZIOSpecDefault {
       test("enforces the configured encoded response limit") {
         for {
           source   <- stub("""{"data":{"greeting":"hello"}}""")
-          runtime  <- Gateway.compose(Subgraph.graphql("service", source.endpoint, schema)).build
+          runtime  <- Gateway.compose(Subgraph.graphql("service", source.endpoint, schema)).interpreter
           response <- QuickAdapter(runtime)
                         .withMaxResponseBodyBytes(16)
                         .handlers
@@ -274,7 +274,7 @@ object GatewayHttpSpec extends ZIOSpecDefault {
                            """{"data":{"failing":null},"errors":[{"message":"source failed","path":["failing"]}]}"""
                          else """{"data":{"greeting":"hello"}}"""
                        }
-          runtime   <- Gateway.compose(Subgraph.graphql("service", source.endpoint, schema)).build
+          runtime   <- Gateway.compose(Subgraph.graphql("service", source.endpoint, schema)).interpreter
           url       <- install(QuickAdapter(runtime))
           gqlParse  <- execute(post(url, """{"query":"query {"}"""))
           legacy    <- execute(post(url, """{"query":"{ unknown }"}""", "application/json"))
@@ -295,7 +295,7 @@ object GatewayHttpSpec extends ZIOSpecDefault {
       test("rejects mutations over GET with Allow POST") {
         for {
           source  <- stub("""{"data":{"setValue":"saved"}}""")
-          runtime <- Gateway.compose(Subgraph.graphql("service", source.endpoint, schema)).build
+          runtime <- Gateway.compose(Subgraph.graphql("service", source.endpoint, schema)).interpreter
           url     <- install(QuickAdapter(runtime))
           request  = Request
                        .get(url.addQueryParam("query", "mutation { setValue(value: \"next\") }"))
@@ -312,7 +312,7 @@ object GatewayHttpSpec extends ZIOSpecDefault {
       test("rejects unsupported methods, media types, and response encodings") {
         for {
           source      <- stub("""{"data":{"greeting":"hello"}}""")
-          runtime     <- Gateway.compose(Subgraph.graphql("service", source.endpoint, schema)).build
+          runtime     <- Gateway.compose(Subgraph.graphql("service", source.endpoint, schema)).interpreter
           url         <- install(QuickAdapter(runtime))
           method      <- execute(Request(method = Method.DELETE, url = url))
           contentType <- execute(
@@ -376,7 +376,7 @@ object GatewayHttpSpec extends ZIOSpecDefault {
       test("rejects request bodies larger than the finite default") {
         for {
           source  <- stub("""{"data":{"greeting":"hello"}}""")
-          runtime <- Gateway.compose(Subgraph.graphql("service", source.endpoint, schema)).build
+          runtime <- Gateway.compose(Subgraph.graphql("service", source.endpoint, schema)).interpreter
           url     <- install(QuickAdapter(runtime))
           body     = """{"query":"{ greeting }"}""" + (" " * (1024 * 1024))
           result  <- execute(post(url.addQueryParam("query", "{ greeting }"), body))

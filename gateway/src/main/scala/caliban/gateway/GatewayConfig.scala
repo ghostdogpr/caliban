@@ -4,7 +4,7 @@ import caliban.gateway.GatewayConfigValidation._
 import zio.Duration
 
 /**
- * Operation-preparation, planning, admission, lifecycle, and remote-error disclosure configuration for one built gateway runtime.
+ * Operation-preparation, planning, admission, lifecycle, and remote-error disclosure configuration for one built gateway interpreter.
  */
 final class GatewayConfig private (
   val maxOperationCacheWeight: Long,
@@ -64,7 +64,7 @@ final class GatewayConfig private (
     copy(planningTimeout = value)
 
   /**
-   * Sets the maximum number of requests executing within this runtime.
+   * Sets the maximum number of requests executing within this interpreter.
    */
   def withMaxConcurrentRequests(value: Int): GatewayConfig =
     copy(maxConcurrentRequests = value)
@@ -143,7 +143,7 @@ final class GatewayConfig private (
 object GatewayConfig {
 
   /**
-   * The default finite gateway runtime configuration.
+   * The default finite gateway interpreter configuration.
    */
   val default: GatewayConfig =
     new GatewayConfig(

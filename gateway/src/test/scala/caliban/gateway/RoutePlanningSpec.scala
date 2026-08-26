@@ -66,7 +66,7 @@ object RoutePlanningSpec extends ZIOSpecDefault {
                           Subgraph.federation("c-direct", direct.endpoint, directOwnerSchema),
                           Subgraph.federation("d-cost", costs.endpoint, costSchema)
                         )
-                        .build
+                        .interpreter
         plan       <- runtime.explain("{ product { label } }")
         response   <- runtime.execute("{ product { label } }")
         costlySent <- costly.requests.get
@@ -95,7 +95,7 @@ object RoutePlanningSpec extends ZIOSpecDefault {
                         Subgraph.federation("z-owner", zOwner.endpoint, directOwnerSchema),
                         Subgraph.federation("a-owner", aOwner.endpoint, directOwnerSchema)
                       )
-                      .build
+                      .interpreter
         plan     <- runtime.explain("{ product { label } }")
         response <- runtime.execute("{ product { label } }")
         aSent    <- aOwner.requests.get
@@ -137,7 +137,7 @@ object RoutePlanningSpec extends ZIOSpecDefault {
                         Subgraph.federation("products", products.endpoint, productsSchema),
                         Subgraph.federation("reviews", reviews.endpoint, reviewsSchema)
                       )
-                      .build
+                      .interpreter
         plan     <- runtime.explain("{ product { reviews { body } } }")
         response <- runtime.execute("{ product { reviews { body } } }")
         sent     <- reviews.requests.get
@@ -209,7 +209,7 @@ object RoutePlanningSpec extends ZIOSpecDefault {
                             Subgraph.graphql("a-compound", compound.endpoint, compoundSchema).withLookup(byRef),
                             Subgraph.graphql("b-simple", simple.endpoint, lookupSchema).withLookup(byId)
                           )
-                          .build
+                          .interpreter
         response     <- runtime.execute("{ products { reviews { body } } }")
         compoundSent <- compound.requests.get
         simpleSent   <- simple.requests.get
@@ -286,7 +286,7 @@ object RoutePlanningSpec extends ZIOSpecDefault {
                            Subgraph.federation("d-short", shortBridge.endpoint, shortBridgeSchema),
                            Subgraph.federation("e-target", target.endpoint, targetSchema)
                          )
-                         .build
+                         .interpreter
         plan        <- runtime.explain("{ thing { label } }")
         response    <- runtime.execute("{ thing { label } }")
         helperSent  <- helper.requests.get
@@ -348,7 +348,7 @@ object RoutePlanningSpec extends ZIOSpecDefault {
                         Subgraph.federation("second", second.endpoint, secondSchema),
                         Subgraph.federation("target", target.endpoint, targetSchema)
                       )
-                      .build
+                      .interpreter
         plan     <- runtime.explain("{ first { label } second { label } }")
         response <- runtime.execute("{ first { label } second { label } }")
         sent     <- target.requests.get
@@ -420,7 +420,7 @@ object RoutePlanningSpec extends ZIOSpecDefault {
                          Subgraph.federation("right", right.endpoint, rightSchema),
                          Subgraph.federation("valid", valid.endpoint, validSchema)
                        )
-                       .build
+                       .interpreter
         response  <- runtime.execute("{ thing { b c } }")
         leftSent  <- left.requests.get
         rightSent <- right.requests.get
@@ -449,7 +449,7 @@ object RoutePlanningSpec extends ZIOSpecDefault {
                          _.withMaxPlanningCandidates(1)
                            .withMaxPlanningExpansions(1)
                        )
-                       .build
+                       .interpreter
         response  <- runtime.execute("{ product { label } }")
         rootSent  <- root.requests.get
         ownerSent <- owner.requests.get
@@ -470,7 +470,7 @@ object RoutePlanningSpec extends ZIOSpecDefault {
                         Subgraph.federation("replica", replica.endpoint, shareableReplicaSchema)
                       )
                       .withConfig(_.withMaxPlanningCandidates(1))
-                      .build
+                      .interpreter
         response <- runtime.execute("{ product { id } }")
         rootSent <- root.requests.get
         remote   <- replica.requests.get
@@ -517,7 +517,7 @@ object RoutePlanningSpec extends ZIOSpecDefault {
           Subgraph.federation("values-b", unreachableEndpoint, valueSchema)
         )
         .withConfig(_.withMaxPlanningCandidates(128))
-        .build
+        .interpreter
         .flatMap(_.explain("{ product { one { value } two { value } three { value } } }").exit)
         .map(exit => assertTrue(exit.isSuccess))
     },
@@ -552,7 +552,7 @@ object RoutePlanningSpec extends ZIOSpecDefault {
                         Subgraph.federation("roots", roots.endpoint, rootsSchema),
                         Subgraph.federation("details", details.endpoint, detailsSchema)
                       )
-                      .build
+                      .interpreter
         response <- gateway.execute("{ nodes { ... on C { detail } } }")
         rootSent <- roots.requests.get
         sent     <- details.requests.get
@@ -574,9 +574,9 @@ object RoutePlanningSpec extends ZIOSpecDefault {
                               Subgraph.federation("c-direct", direct.endpoint, directOwnerSchema),
                               Subgraph.federation("d-cost", costs.endpoint, costSchema)
                             )
-        candidateRuntime <- gateway.withConfig(_.withMaxPlanningCandidates(1)).build
-        workRuntime      <- gateway.withConfig(_.withMaxPlanningExpansions(1)).build
-        timeoutRuntime   <- gateway.withConfig(_.withPlanningTimeout(1.nanosecond)).build
+        candidateRuntime <- gateway.withConfig(_.withMaxPlanningCandidates(1)).interpreter
+        workRuntime      <- gateway.withConfig(_.withMaxPlanningExpansions(1)).interpreter
+        timeoutRuntime   <- gateway.withConfig(_.withPlanningTimeout(1.nanosecond)).interpreter
         candidate        <- candidateRuntime.execute("{ product { label } }")
         work             <- workRuntime.execute("{ product { label } }")
         timeout          <- timeoutRuntime.execute("{ product { label } }")

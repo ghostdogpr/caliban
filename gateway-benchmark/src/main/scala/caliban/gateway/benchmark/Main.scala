@@ -16,44 +16,42 @@ object Main extends ZIOAppDefault {
     program.tapErrorCause(cause => ZIO.logErrorCause("Gateway benchmark adapter failed.", cause))
 
   private val program =
-    ZIO.scoped {
-      for {
-        subgraphsUrl <- System.envOrElse("BENCHMARK_SUBGRAPHS_URL", DefaultSubgraphsUrl)
-        portText     <- System.envOrElse("BENCHMARK_GATEWAY_PORT", DefaultPort.toString)
-        uniqueText   <- System.envOrElse("BENCHMARK_UNIQUE_SOURCE_HEADERS", "false")
-        port         <- ZIO
-                          .attempt(portText.toInt)
-                          .filterOrFail(port => port > 0 && port <= 65535)(
-                            new IllegalArgumentException("BENCHMARK_GATEWAY_PORT must be between 1 and 65535.")
-                          )
-        unique       <- ZIO
-                          .fromOption(uniqueText.toBooleanOption)
-                          .orElseFail(
-                            new IllegalArgumentException("BENCHMARK_UNIQUE_SOURCE_HEADERS must be true or false.")
-                          )
-        identities   <- Ref.make(0L)
-        config        =
-          if (unique)
-            BenchmarkConfig.withExecutionHeadersZIO(
-              identities
-                .updateAndGet(_ + 1L)
-                .map(value => List(SttpHeader("X-Caliban-Benchmark-Request-Id", value.toString)))
-            )
-          else BenchmarkConfig
-        subgraphs    <- ZIO
-                          .fromEither(benchmarkSubgraphs(subgraphsUrl, config))
-                          .mapError(new IllegalArgumentException(_))
-        runtime      <- Gateway
-                          .compose(subgraphs._1, subgraphs._2, subgraphs._3, subgraphs._4)
-                          .build
-                          .mapError(error => new IllegalArgumentException(error.diagnostics.mkString(" ")))
-        routes        = QuickAdapter(runtime).routes("/graphql") ++ Routes(
-                          Method.GET / "health" -> Handler.ok
+    for {
+      subgraphsUrl <- System.envOrElse("BENCHMARK_SUBGRAPHS_URL", DefaultSubgraphsUrl)
+      portText     <- System.envOrElse("BENCHMARK_GATEWAY_PORT", DefaultPort.toString)
+      uniqueText   <- System.envOrElse("BENCHMARK_UNIQUE_SOURCE_HEADERS", "false")
+      port         <- ZIO
+                        .attempt(portText.toInt)
+                        .filterOrFail(port => port > 0 && port <= 65535)(
+                          new IllegalArgumentException("BENCHMARK_GATEWAY_PORT must be between 1 and 65535.")
                         )
-        _            <- ZIO.logInfo(s"Serving the gateway benchmark on port $port.")
-        _            <- Server.serve(routes).provide(Server.defaultWithPort(port))
-      } yield ()
-    }
+      unique       <- ZIO
+                        .fromOption(uniqueText.toBooleanOption)
+                        .orElseFail(
+                          new IllegalArgumentException("BENCHMARK_UNIQUE_SOURCE_HEADERS must be true or false.")
+                        )
+      identities   <- Ref.make(0L)
+      config        =
+        if (unique)
+          BenchmarkConfig.withExecutionHeadersZIO(
+            identities
+              .updateAndGet(_ + 1L)
+              .map(value => List(SttpHeader("X-Caliban-Benchmark-Request-Id", value.toString)))
+          )
+        else BenchmarkConfig
+      subgraphs    <- ZIO
+                        .fromEither(benchmarkSubgraphs(subgraphsUrl, config))
+                        .mapError(new IllegalArgumentException(_))
+      interpreter  <- Gateway
+                        .compose(subgraphs._1, subgraphs._2, subgraphs._3, subgraphs._4)
+                        .interpreter
+                        .mapError(error => new IllegalArgumentException(error.diagnostics.mkString(" ")))
+      routes        = QuickAdapter(interpreter).routes("/graphql") ++ Routes(
+                        Method.GET / "health" -> Handler.ok
+                      )
+      _            <- ZIO.logInfo(s"Serving the gateway benchmark on port $port.")
+      _            <- Server.serve(routes).provide(Server.defaultWithPort(port))
+    } yield ()
 
   private[benchmark] def benchmarkSubgraphs(
     baseUrl: String,

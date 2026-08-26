@@ -79,7 +79,7 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
                           .graphql("products", remote.endpoint, schema)
                           .transform(SchemaTransformation.renameField("Query", "product", "item"))
                       )
-                      .build
+                      .interpreter
         result   <- gateway.execute("{ item { name } }")
         requests <- remote.requests.get
       } yield assertTrue(
@@ -98,7 +98,7 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
                             .graphql("products", remote.endpoint, remoteSchema)
                             .transform(remoteTransformations: _*)
                         )
-                        .build
+                        .interpreter
         result     <- gateway.execute(
                         """{
                       |  item(sku: "p1", filter: { query: "wood" }) { id title status }
@@ -150,7 +150,7 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
                             SchemaTransformation.renameInputField("Filter", "term", "query")
                           )
                       )
-                      .build
+                      .interpreter
         result   <- gateway.execute("{ search(statuses: AVAILABLE, filters: { query: \"wood\" }) }")
         requests <- remote.requests.get
       } yield assertTrue(
@@ -175,7 +175,7 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
       for {
         gateway <- Gateway
                      .compose(Subgraph.local("echo", LocalApi.api).transform(transformations: _*))
-                     .build
+                     .interpreter
         result  <- gateway.execute("{ say(message: \"hello\") { text state } }")
       } yield assertTrue(
         result.errors.isEmpty,
@@ -201,7 +201,7 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
                            SchemaTransformation.renameField("Product", "name", "title")
                          )
                      )
-                     .build
+                     .interpreter
         result  <- gateway.execute("{ item(id: \"p1\") { title } }")
       } yield assertTrue(
         result.errors.collectFirst { case error: CalibanError.ExecutionError => error.path }.contains(
@@ -224,7 +224,7 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
                             SchemaTransformation.renameArgument("RootQuery", "product", "id", "sku")
                           )
                       )
-                      .build
+                      .interpreter
         result   <- gateway.execute("{ item(sku: \"p1\") { name } }")
         requests <- remote.requests.get
       } yield assertTrue(
@@ -278,7 +278,7 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
                           .graphql("directives", remote.endpoint, schema)
                           .transform(SchemaTransformation.renameEnumValue("Status", "ACTIVE", "AVAILABLE"))
                       )
-                      .build
+                      .interpreter
         result   <- gateway.execute("{ __schema { directives { name args { name defaultValue } } } }")
         value    <- gateway.execute("{ product { name } }")
         requests <- remote.requests.get
@@ -334,7 +334,7 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
             .federation("details", endpoint, detailsSchema)
             .transform(SchemaTransformation.renameField("Details", "price", "detailCost"))
         )
-        .build
+        .interpreter
         .as(assertTrue(true))
     },
     test("keeps Federation keys and requirements aligned with transformed coordinates") {
@@ -387,7 +387,7 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
                                .federation("prices", prices.endpoint, pricesSchema)
                                .transform(transformations: _*)
                            )
-                           .build
+                           .interpreter
         response      <- gateway.execute("{ product(id: \"p1\") { sku cost shipping } }")
         requests      <- shipping.requests.get
         priceRequests <- prices.requests.get
@@ -466,7 +466,7 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
                           .withLookup(lookup)
                           .transform(reviewTransforms: _*)
                       )
-                      .build
+                      .interpreter
         response <- gateway.execute("{ products { name feedback { body } } }")
         requests <- reviews.requests.get
       } yield assertTrue(
@@ -499,7 +499,7 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
               SchemaTransformation.hideEnumValue("Status", "ACTIVE")
             )
         )
-        .build
+        .interpreter
         .exit
         .map { exit =>
           val diagnostics = buildDiagnostics(exit)
@@ -532,7 +532,7 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
               SchemaTransformation.renameArgument("Query", "_entities", "representations", "values")
             )
         )
-        .build
+        .interpreter
         .exit
         .map { exit =>
           val diagnostics = buildDiagnostics(exit)
@@ -561,7 +561,7 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
                            SchemaTransformation.renameType("_Any", "AnyValue")
                          )
                      )
-                     .build
+                     .interpreter
         result  <- gateway.execute("{ entities service { value } }")
       } yield assertTrue(result.errors.isEmpty)
     },
@@ -576,7 +576,7 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
             .graphql("products", endpoint, schema)
             .transform(SchemaTransformation.hideEnumValue("Status", "ACTIVE"))
         )
-        .build
+        .interpreter
         .exit
         .map { exit =>
           val diagnostics = buildDiagnostics(exit)
@@ -598,7 +598,7 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
             .graphql("products", endpoint, schema)
             .transform(SchemaTransformation.hideInputField("Filter", "hidden"))
         )
-        .build
+        .interpreter
         .exit
         .map { exit =>
           val diagnostics = buildDiagnostics(exit)
@@ -627,7 +627,7 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
 
       Gateway
         .compose(subgraph)
-        .build
+        .interpreter
         .exit
         .map { exit =>
           val diagnostics = buildDiagnostics(exit)

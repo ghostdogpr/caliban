@@ -17,7 +17,7 @@ import zio._
 /**
  * An immutable description of a gateway.
  *
- * A description is reusable: each call to [[build]] creates a new [[GatewayRuntime]] whose resources
+ * A description is reusable: each call to [[interpreter]] creates a new [[GatewayInterpreter]] whose resources
  * are owned by the surrounding [[zio.Scope]]. `R` describes the environment required when executing
  * requests; constructing and building the description does not require that environment.
  */
@@ -30,13 +30,13 @@ final class Gateway[-R] private[gateway] (
 ) {
 
   /**
-   * Builds an executable runtime within the current scope.
+   * Builds an executable interpreter within the current scope.
    */
-  def build(implicit trace: Trace): ZIO[Scope, GatewayBuildError, GatewayRuntime[R]] =
-    Gateway.build(subgraphs, resolver, policy, config, wrapper)
+  def interpreter(implicit trace: Trace): ZIO[Scope, GatewayBuildError, GatewayInterpreter[R]] =
+    Gateway.interpreter(subgraphs, resolver, policy, config, wrapper)
 
   /**
-   * Transforms the finite operation and admission limits used by each built runtime.
+   * Transforms the finite operation and admission limits used by each built interpreter.
    */
   def withConfig(configure: GatewayConfig => GatewayConfig): Gateway[R] =
     new Gateway(subgraphs, resolver, policy, configure(config), wrapper)
@@ -44,19 +44,19 @@ final class Gateway[-R] private[gateway] (
   /**
    * Resolves canonical GraphQL text before parsing and validation.
    */
-  def withOperationResolver[R1](value: OperationResolver[R1]): Gateway[R with R1] =
+  def withOperationResolver[R1 <: R](value: OperationResolver[R1]): Gateway[R1] =
     new Gateway(subgraphs, Some(value), policy, config, wrapper)
 
   /**
    * Allows or rejects operations after validation and variable coercion.
    */
-  def withOperationPolicy[R1](value: OperationPolicy[R1]): Gateway[R with R1] =
+  def withOperationPolicy[R1 <: R](value: OperationPolicy[R1]): Gateway[R1] =
     new Gateway(subgraphs, resolver, Some(value), config, wrapper)
 
   /**
    * Adds an integration around the gateway lifecycle.
    */
-  def @@[R1](value: GatewayWrapper[R1]): Gateway[R with R1] =
+  def @@[R1 <: R](value: GatewayWrapper[R1]): Gateway[R1] =
     new Gateway(subgraphs, resolver, policy, config, wrapper |+| value)
 }
 
@@ -74,7 +74,7 @@ object Gateway {
       GatewayWrapper.empty
     )
 
-  private def build[R](
+  private def interpreter[R](
     subgraphs: List[Subgraph[R]],
     resolver: Option[OperationResolver[R]],
     policy: Option[OperationPolicy[R]],
@@ -82,19 +82,19 @@ object Gateway {
     wrapper: GatewayWrapper[R]
   )(implicit
     trace: Trace
-  ): ZIO[Scope, GatewayBuildError, GatewayRuntime[R]] =
+  ): ZIO[Scope, GatewayBuildError, GatewayInterpreter[R]] =
     ZIO.fail(GatewayBuildError(config.diagnostics)).when(config.diagnostics.nonEmpty) *>
       ZIO.scopeWith { parent =>
         ZIO.uninterruptibleMask { restore =>
           for {
-            child   <- parent.fork
-            runtime <- restore(child.extend(buildRuntime(subgraphs, resolver, policy, config, wrapper)))
-                         .onError(cause => child.close(Exit.failCause(cause)))
-          } yield runtime
+            child       <- parent.fork
+            interpreter <- restore(child.extend(buildInterpreter(subgraphs, resolver, policy, config, wrapper)))
+                             .onError(cause => child.close(Exit.failCause(cause)))
+          } yield interpreter
         }
       }
 
-  private def buildRuntime[R](
+  private def buildInterpreter[R](
     subgraphs: List[Subgraph[R]],
     resolver: Option[OperationResolver[R]],
     policy: Option[OperationPolicy[R]],
@@ -102,7 +102,7 @@ object Gateway {
     wrapper: GatewayWrapper[R]
   )(implicit
     trace: Trace
-  ): ZIO[Scope, GatewayBuildError, GatewayRuntime[R]] =
+  ): ZIO[Scope, GatewayBuildError, GatewayInterpreter[R]] =
     for {
       backend     <-
         if (
@@ -161,7 +161,7 @@ object Gateway {
                        config,
                        wrapper
                      )
-    } yield new GatewayRuntimeImpl[R](graph, sources, operations, control, wrapper)
+    } yield new GatewayInterpreterImpl[R](graph, sources, operations, control, wrapper)
 
   private def load[R](
     subgraph: Subgraph[R],

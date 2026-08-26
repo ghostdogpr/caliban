@@ -21,8 +21,10 @@ object GatewayTracingSpec extends ZIOSpecDefault {
     test("traces a remote request without recording raw GraphQL data and propagates W3C context") {
       for {
         remote        <- stub("""{"data":{"value":"ok"}}""")
-        runtime       <-
-          (Gateway.compose(Subgraph.graphql("products", remote.endpoint, schema)) @@ GatewayTracing.wrapper).build
+        gateway        = (Gateway.compose(
+                           Subgraph.graphql("products", remote.endpoint, schema)
+                         ) @@ GatewayTracing.wrapper: Gateway[Tracing])
+        runtime       <- gateway.interpreter
         response      <- ZIO.serviceWithZIO[Tracing](_.span("caller")(runtime.execute("query PublicName { value }")))
         sentHeaders   <- remote.headers.get
         spans         <- TracingMock.getFinishedSpans
@@ -68,7 +70,7 @@ object GatewayTracingSpec extends ZIOSpecDefault {
                        )
         runtime     <- (Gateway.compose(
                          Subgraph.graphql("products", remote.endpoint, schema, config)
-                       ) @@ GatewayTracing.wrapper).build
+                       ) @@ GatewayTracing.wrapper).interpreter
         spansBefore <- TracingMock.getFinishedSpans.map(_.size)
         response    <- ZIO.serviceWithZIO[Tracing](_.span("caller")(runtime.execute("{ value }")))
         requests    <- remote.requests.get
@@ -95,9 +97,8 @@ object GatewayTracingSpec extends ZIOSpecDefault {
     test("marks GraphQL error results without recording error messages") {
       for {
         remote      <- stub("""{"data":null,"errors":[{"message":"private failure"}]}""")
-        runtime     <-
-          (Gateway.compose(Subgraph.graphql("products", remote.endpoint, schema)) @@
-            (GatewayMetrics.wrapper |+| GatewayTracing.wrapper)).build
+        wrapper      = (GatewayMetrics.wrapper |+| GatewayTracing.wrapper: GatewayWrapper[Tracing])
+        runtime     <- (Gateway.compose(Subgraph.graphql("products", remote.endpoint, schema)) @@ wrapper).interpreter
         spansBefore <- TracingMock.getFinishedSpans.map(_.size)
         response    <- ZIO.serviceWithZIO[Tracing](_.span("caller")(runtime.execute("{ value }")))
         spans       <- TracingMock.getFinishedSpans.map(_.drop(spansBefore))
@@ -126,7 +127,7 @@ object GatewayTracingSpec extends ZIOSpecDefault {
         remote    <- stubWith(started.succeed(()).unit *> release.await, """{"data":{"value":"ok"}}""")
         runtime   <- (Gateway.compose(
                        Subgraph.graphql("products", remote.endpoint, schema, config)
-                     ) @@ (GatewayTracing.wrapper |+| deduplicationObserver(joined))).build
+                     ) @@ (GatewayTracing.wrapper |+| deduplicationObserver(joined))).interpreter
         fibers    <- ZIO.foreach(1 to 2)(index =>
                        ZIO.serviceWithZIO[Tracing](_.span(s"caller-$index")(runtime.execute("{ value }"))).fork
                      )

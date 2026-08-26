@@ -1,6 +1,6 @@
 package caliban.gateway.internal
 
-import caliban.gateway.GatewayRuntime.OperationCacheStatus
+import caliban.gateway.GatewayInterpreter.OperationCacheStatus
 import caliban.gateway.GatewayWrapper
 import caliban.gateway.GatewayWrapper.{ CacheResult, Event, Result }
 import zio.{ Exit, Promise, Ref, Trace, UIO, ZIO }

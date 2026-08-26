@@ -62,7 +62,7 @@ object SecurityPolicySpec extends ZIOSpecDefault {
     test("requires a policy for aliased and namespace-qualified Federation security directives") {
       for {
         remote     <- stub("""{"data":{"node":null}}""")
-        exit       <- Gateway.compose(Subgraph.federation("secure", remote.endpoint, securitySchema)).build.exit
+        exit       <- Gateway.compose(Subgraph.federation("secure", remote.endpoint, securitySchema)).interpreter.exit
         diagnostics = buildDiagnostics(exit)
         sent       <- remote.requests.get
       } yield assertTrue(
@@ -93,7 +93,7 @@ object SecurityPolicySpec extends ZIOSpecDefault {
 
       for {
         remote     <- stub("""{"data":{"value":"ok"}}""")
-        exit       <- Gateway.compose(Subgraph.federation("federation-one", remote.endpoint, schema)).build.exit
+        exit       <- Gateway.compose(Subgraph.federation("federation-one", remote.endpoint, schema)).interpreter.exit
         diagnostics = buildDiagnostics(exit)
         sent       <- remote.requests.get
       } yield assertTrue(
@@ -140,7 +140,7 @@ object SecurityPolicySpec extends ZIOSpecDefault {
                          Subgraph.federation("beta", beta.endpoint, scopesSchema)
                        )
                        .withOperationPolicy(policy)
-                       .build
+                       .interpreter
         _         <- runtime.execute("{ value }")
         seen      <- observed.get
         alphaSent <- alpha.requests.get
@@ -169,7 +169,7 @@ object SecurityPolicySpec extends ZIOSpecDefault {
         runtime         <- Gateway
                              .compose(Subgraph.federation("secure", remote.endpoint, securitySchema))
                              .withOperationPolicy(policy)
-                             .build
+                             .interpreter
         included        <- runtime.executeRequest(request)
         skipped         <- runtime.executeRequest(
                              request.copy(variables = Some(Map("show" -> BooleanValue(false))))
@@ -245,7 +245,7 @@ object SecurityPolicySpec extends ZIOSpecDefault {
         runtime  <- Gateway
                       .compose(Subgraph.federation("nested", remote.endpoint, schema))
                       .withOperationPolicy(policy)
-                      .build
+                      .interpreter
         _        <- runtime.execute("{ node { ... on Private { child { secret } } } }")
         seen     <- observed.get
         sent     <- remote.requests.get
@@ -285,7 +285,7 @@ object SecurityPolicySpec extends ZIOSpecDefault {
         runtime  <- Gateway
                       .compose(Subgraph.federation("interfaces", remote.endpoint, schema))
                       .withOperationPolicy(policy)
-                      .build
+                      .interpreter
         _        <- runtime.execute("{ node { value } }")
         seen     <- observed.get
         sent     <- remote.requests.get
@@ -326,7 +326,7 @@ object SecurityPolicySpec extends ZIOSpecDefault {
         exit       <- Gateway
                         .compose(Subgraph.federation("hidden", remote.endpoint, schema))
                         .withOperationPolicy(policy)
-                        .build
+                        .interpreter
                         .exit
         diagnostics = buildDiagnostics(exit)
         sent       <- remote.requests.get
@@ -360,7 +360,7 @@ object SecurityPolicySpec extends ZIOSpecDefault {
         exit       <- Gateway
                         .compose(Subgraph.federation("transitive", remote.endpoint, schema))
                         .withOperationPolicy(policy)
-                        .build
+                        .interpreter
                         .exit
         diagnostics = buildDiagnostics(exit)
         sent       <- remote.requests.get
@@ -402,7 +402,7 @@ object SecurityPolicySpec extends ZIOSpecDefault {
         exit   <- Gateway
                     .compose(Subgraph.federation("transitive-authentication", remote.endpoint, schema))
                     .withOperationPolicy(policy)
-                    .build
+                    .interpreter
                     .exit
         sent   <- remote.requests.get
       } yield assertTrue(exit.isSuccess, sent.isEmpty)
@@ -432,7 +432,7 @@ object SecurityPolicySpec extends ZIOSpecDefault {
         exit   <- Gateway
                     .compose(Subgraph.federation("sufficient", remote.endpoint, schema))
                     .withOperationPolicy(policy)
-                    .build
+                    .interpreter
                     .exit
         sent   <- remote.requests.get
       } yield assertTrue(exit.isSuccess, sent.isEmpty)
@@ -448,7 +448,7 @@ object SecurityPolicySpec extends ZIOSpecDefault {
 
       for {
         remote   <- stub("""{"data":{"value":"ok"}}""")
-        runtime  <- Gateway.compose(Subgraph.federation("ordinary", remote.endpoint, schema)).build
+        runtime  <- Gateway.compose(Subgraph.federation("ordinary", remote.endpoint, schema)).interpreter
         response <- runtime.execute("{ value }")
         sent     <- remote.requests.get
       } yield assertTrue(
@@ -468,7 +468,7 @@ object SecurityPolicySpec extends ZIOSpecDefault {
 
       for {
         remote     <- stub("""{"data":{"value":"ok"}}""")
-        exit       <- Gateway.compose(Subgraph.federation("old-federation", remote.endpoint, schema)).build.exit
+        exit       <- Gateway.compose(Subgraph.federation("old-federation", remote.endpoint, schema)).interpreter.exit
         diagnostics = buildDiagnostics(exit)
         sent       <- remote.requests.get
       } yield assertTrue(
@@ -501,7 +501,7 @@ object SecurityPolicySpec extends ZIOSpecDefault {
 
       for {
         remote     <- stub("""{"data":{"value":"ok","migrated":"ok"}}""")
-        exit       <- Gateway.compose(Subgraph.federation("unsupported", remote.endpoint, schema)).build.exit
+        exit       <- Gateway.compose(Subgraph.federation("unsupported", remote.endpoint, schema)).interpreter.exit
         diagnostics = buildDiagnostics(exit)
         sent       <- remote.requests.get
       } yield assertTrue(
@@ -535,7 +535,7 @@ object SecurityPolicySpec extends ZIOSpecDefault {
 
       for {
         remote     <- stub("""{"data":{"value":"ok"}}""")
-        exit       <- Gateway.compose(Subgraph.federation("invalid-locations", remote.endpoint, schema)).build.exit
+        exit       <- Gateway.compose(Subgraph.federation("invalid-locations", remote.endpoint, schema)).interpreter.exit
         diagnostics = buildDiagnostics(exit)
         sent       <- remote.requests.get
       } yield assertTrue(

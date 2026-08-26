@@ -37,11 +37,11 @@ object FieldRoutingSpec extends ZIOSpecDefault {
         for {
           requires           <- Gateway
                                   .compose(Subgraph.federation("inventory", endpoint, malformedRequires))
-                                  .build
+                                  .interpreter
                                   .exit
           provides           <- Gateway
                                   .compose(Subgraph.federation("reviews", endpoint, invalidProvides))
-                                  .build
+                                  .interpreter
                                   .exit
           requiresDiagnostics = buildDiagnostics(requires)
           providesDiagnostics = buildDiagnostics(provides)
@@ -88,7 +88,7 @@ object FieldRoutingSpec extends ZIOSpecDefault {
                            Subgraph.federation("products", products.endpoint, productsSchema),
                            Subgraph.federation("inventory", inventory.endpoint, inventorySchema)
                          )
-                         .build
+                         .interpreter
           response  <- gateway.execute("{ product { shippingEstimate } }")
           sentA     <- products.requests.get
           sentB     <- inventory.requests.get
@@ -147,7 +147,7 @@ object FieldRoutingSpec extends ZIOSpecDefault {
                           Subgraph.federation("products", products.endpoint, productsSchema),
                           Subgraph.federation("shipping", shipping.endpoint, shippingSchema)
                         )
-                        .build
+                        .interpreter
           response <- gateway.execute("{ product { shipping } }")
           sent     <- shipping.requests.get
           tags      = sent.headOption
@@ -207,7 +207,7 @@ object FieldRoutingSpec extends ZIOSpecDefault {
                              .federation("inventory", inventory.endpoint, inventorySchema)
                              .transform(SchemaTransformation.renameType("PhysicalDetails", "PhysicalItem"))
                          )
-                         .build
+                         .interpreter
           response  <- gateway.execute("{ product { shippingEstimate } }")
           sentA     <- products.requests.get
           sentB     <- inventory.requests.get
@@ -268,7 +268,7 @@ object FieldRoutingSpec extends ZIOSpecDefault {
                           Subgraph.federation("products", products.endpoint, productsSchema),
                           Subgraph.federation("catalog", catalog.endpoint, catalogSchema)
                         )
-                        .build
+                        .interpreter
           response <- gateway.execute("{ featured { name } regular { name } }")
           sentA    <- products.requests.get
           sentB    <- catalog.requests.get
@@ -327,7 +327,7 @@ object FieldRoutingSpec extends ZIOSpecDefault {
                                      Subgraph.federation("pricing", pricing.endpoint, pricingSchema),
                                      Subgraph.federation("shipping", shipping.endpoint, shippingSchema)
                                    )
-                                   .build
+                                   .interpreter
           response            <- gateway.execute("{ featured { shipping } regular { shipping } }")
           sentA               <- products.requests.get
           sentB               <- pricing.requests.get
@@ -400,7 +400,7 @@ object FieldRoutingSpec extends ZIOSpecDefault {
                            Subgraph.federation("products", products.endpoint, productsSchema),
                            Subgraph.federation("inventory", inventory.endpoint, inventorySchema)
                          )
-                         .build
+                         .interpreter
           response  <- gateway.execute("{ product { shippingEstimate shippingEstimateDouble } }")
           sentA     <- products.requests.get
           sentB     <- inventory.requests.get
@@ -462,7 +462,7 @@ object FieldRoutingSpec extends ZIOSpecDefault {
                           Subgraph.federation("shipping", shipping.endpoint, shippingSchema),
                           Subgraph.federation("tax", tax.endpoint, taxSchema)
                         )
-                        .build
+                        .interpreter
           response <- gateway.execute("{ product { shipping tax } }")
           sentA    <- products.requests.get
           sentB    <- shipping.requests.get
@@ -528,7 +528,7 @@ object FieldRoutingSpec extends ZIOSpecDefault {
                             Subgraph.federation("ratings", ratings.endpoint, ratingSchema),
                             Subgraph.federation("labels", labels.endpoint, labelSchema)
                           )
-                          .build
+                          .interpreter
           response   <- gateway.execute("{ product { expensive label } }")
           priceSent  <- prices.requests.get
           ratingSent <- ratings.requests.get
@@ -588,7 +588,7 @@ object FieldRoutingSpec extends ZIOSpecDefault {
                             Subgraph.federation("ratings", ratings.endpoint, ratingSchema),
                             Subgraph.federation("labels", labels.endpoint, labelSchema)
                           )
-                          .build
+                          .interpreter
           response   <- gateway.execute("{ status product { label } }")
           priceSent  <- prices.requests.get
           ratingSent <- ratings.requests.get
@@ -633,7 +633,7 @@ object FieldRoutingSpec extends ZIOSpecDefault {
                           Subgraph.federation("products", products.endpoint, productsSchema),
                           Subgraph.federation("pricing", pricing.endpoint, pricingSchema)
                         )
-                        .build
+                        .interpreter
           response <- gateway.execute("{ product { label } }")
           sentA    <- products.requests.get
           sentB    <- pricing.requests.get

@@ -162,7 +162,7 @@ object AbstractOperationSpec extends ZIOSpecDefault {
                            Subgraph.federation("primary", primary.endpoint, primaryUnionSchema),
                            Subgraph.federation("secondary", secondary.endpoint, partialUnionSchema)
                          )
-                         .build
+                         .interpreter
           result    <- gateway.execute(query)
           requests  <- primary.requests.get
           valid     <- ZIO.foreach(requests)(validateRequest(primaryUnionSchema, _).exit)
@@ -191,7 +191,7 @@ object AbstractOperationSpec extends ZIOSpecDefault {
                             Subgraph.federation("users", users.endpoint, usersSchema),
                             Subgraph.federation("profiles", profiles.endpoint, profilesSchema)
                           )
-                          .build
+                          .interpreter
           result     <- gateway.executeRequest(
                           GraphQLRequest(
                             query = Some(query),
@@ -253,7 +253,7 @@ object AbstractOperationSpec extends ZIOSpecDefault {
                                 Subgraph.federation("owner", owner.endpoint, interfaceOwnerSchema),
                                 Subgraph.federation("interface", interface.endpoint, interfaceObjectSchema)
                               )
-                              .build
+                              .interpreter
           plan           <- gateway.explain(query).exit
           reverse        <- gateway.explain(reverseQuery).exit
           forwardResult  <- gateway.execute(query)
@@ -289,7 +289,7 @@ object AbstractOperationSpec extends ZIOSpecDefault {
                          Subgraph.federation("a", a.endpoint, partialNestedA),
                          Subgraph.federation("b", b.endpoint, partialNestedB)
                        )
-                       .build
+                       .interpreter
           result  <- gateway.execute(query)
           calls   <- a.requests.get
           valid   <- ZIO.foreach(calls)(validateRequest(partialNestedA, _).exit)
@@ -328,7 +328,7 @@ object AbstractOperationSpec extends ZIOSpecDefault {
                               Subgraph.federation("a", users.endpoint, mismatchedUserSchema),
                               Subgraph.federation("b", accounts.endpoint, accountSchema)
                             )
-                            .build
+                            .interpreter
           plan         <- gateway.explain(query).exit
           result       <- gateway.execute(query)
           accountCalls <- accounts.requests.get
@@ -369,7 +369,7 @@ object AbstractOperationSpec extends ZIOSpecDefault {
                             .graphql("target", target.endpoint, abstractLookupTargetSchema)
                             .withLookup(abstractLookup)
                         )
-                        .build
+                        .interpreter
           result   <- gateway.execute("{ actors { __typename ... on User { detail } } }")
           requests <- target.requests.get
           actors    = listValues(field(result.data, "actors"))
@@ -393,7 +393,7 @@ object AbstractOperationSpec extends ZIOSpecDefault {
                           Subgraph.federation("users", users.endpoint, mismatchedUserSchema),
                           Subgraph.federation("accounts", accounts.endpoint, accountSchema)
                         )
-                        .build
+                        .interpreter
           result   <- gateway.execute("{ accounts { ... on User { id } ... on Admin { id } } }")
         } yield assertTrue(
           executionErrors(result.errors).map(_.path) ==
@@ -414,7 +414,7 @@ object AbstractOperationSpec extends ZIOSpecDefault {
                           Subgraph.federation("users", users.endpoint, mismatchedUserSchema),
                           Subgraph.federation("accounts", accounts.endpoint, accountSchema)
                         )
-                        .build
+                        .interpreter
           result   <- gateway.execute(
                         "{ users { similarAccounts { ... on User { id } ... on Admin { id } } } }"
                       )
@@ -437,7 +437,7 @@ object AbstractOperationSpec extends ZIOSpecDefault {
 
         for {
           source   <- stub(response)
-          gateway  <- Gateway.compose(Subgraph.graphql("source", source.endpoint, primaryUnionSchema)).build
+          gateway  <- Gateway.compose(Subgraph.graphql("source", source.endpoint, primaryUnionSchema)).interpreter
           result   <- gateway.execute("{ response { actions { ... on Alpha { value } } } }")
           requests <- source.requests.get
           action    = field(result.data, "response")
@@ -452,7 +452,7 @@ object AbstractOperationSpec extends ZIOSpecDefault {
       test("uses an aliased typename as single-source runtime evidence") {
         for {
           source  <- stub("""{"data":{"outcome":{"kind":"TextResult"}}}""")
-          gateway <- Gateway.compose(Subgraph.graphql("source", source.endpoint, nullableAbstractSchema)).build
+          gateway <- Gateway.compose(Subgraph.graphql("source", source.endpoint, nullableAbstractSchema)).interpreter
           result  <- gateway.execute("{ outcome { kind: __typename } }")
         } yield assertTrue(
           result.errors.isEmpty,
@@ -465,7 +465,7 @@ object AbstractOperationSpec extends ZIOSpecDefault {
 
         for {
           source  <- stub(response)
-          gateway <- Gateway.compose(Subgraph.graphql("source", source.endpoint, nullableAbstractSchema)).build
+          gateway <- Gateway.compose(Subgraph.graphql("source", source.endpoint, nullableAbstractSchema)).interpreter
           result  <-
             gateway.execute(
               "{ first: outcome { ... on TextResult { text } } other: otherOutcome { ... on TextResult { _caliban_gateway_runtime_typename: text } kind: __typename } }"
@@ -481,7 +481,7 @@ object AbstractOperationSpec extends ZIOSpecDefault {
       test("prefers a typed typename alias over an ordinary field named typename") {
         for {
           source  <- stub("""{"data":{"outcome":{"__typename":"ordinary label","kind":"Concrete"}}}""")
-          gateway <- Gateway.compose(Subgraph.graphql("source", source.endpoint, aliasedInterfaceSchema)).build
+          gateway <- Gateway.compose(Subgraph.graphql("source", source.endpoint, aliasedInterfaceSchema)).interpreter
           result  <- gateway.execute("{ outcome { __typename: label kind: __typename } }")
         } yield assertTrue(
           result.errors.isEmpty,
@@ -500,7 +500,7 @@ object AbstractOperationSpec extends ZIOSpecDefault {
                          Subgraph.graphql("source", source.endpoint, nullableAbstractSchema),
                          Subgraph.graphql("other", other.endpoint, unrelatedSchema)
                        )
-                       .build
+                       .interpreter
           result  <- gateway.execute("{ outcome { ... on TextResult { text } } }")
           errors   = executionErrors(result.errors)
         } yield assertTrue(
@@ -523,7 +523,7 @@ object AbstractOperationSpec extends ZIOSpecDefault {
                           Subgraph.federation("users", users.endpoint, mismatchedUserSchema),
                           Subgraph.federation("accounts", accounts.endpoint, accountSchema)
                         )
-                        .build
+                        .interpreter
           result   <- gateway.execute(
                         "{ users { similarAccounts { ... on User { id } ... on Admin { id } } } }"
                       )

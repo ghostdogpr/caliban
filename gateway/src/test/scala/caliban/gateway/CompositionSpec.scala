@@ -95,7 +95,7 @@ object CompositionSpec extends ZIOSpecDefault {
                                Subgraph.federation("beta", beta.endpoint, valueSchema),
                                Subgraph.federation("alpha", alpha.endpoint, valueSchema)
                              )
-                             .build
+                             .interpreter
           response      <- gateway.execute("{ value }")
           alphaRequests <- alpha.requests.get
           betaRequests  <- beta.requests.get
@@ -129,7 +129,7 @@ object CompositionSpec extends ZIOSpecDefault {
                                Subgraph.federation("prices", prices.endpoint, priceSchema),
                                Subgraph.federation("stock", stock.endpoint, stockSchema)
                              )
-                             .build
+                             .interpreter
           response      <- gateway.execute("{ product { id name price } }")
           stockRequests <- stock.requests.get
           product        = field(response.data, "product")
@@ -176,7 +176,7 @@ object CompositionSpec extends ZIOSpecDefault {
                                Subgraph.federation("prices", prices.endpoint, pricesSchema),
                                Subgraph.federation("reviews", reviews.endpoint, reviewsSchema)
                              )
-                             .build
+                             .interpreter
           response      <- gateway.execute("{ product { name price details { __typename } reviews { body } } }")
           reviewCalls   <- reviews.requests.get
           priceCalls    <- prices.requests.get
@@ -204,7 +204,7 @@ object CompositionSpec extends ZIOSpecDefault {
                                  Subgraph.federation("products", products.endpoint, original),
                                  Subgraph.federation("inventory", inventory.endpoint, replacing)
                                )
-                               .build
+                               .interpreter
           response        <- gateway.execute("{ feed }")
           productRequests <- products.requests.get
           inventoryCalls  <- inventory.requests.get
@@ -221,7 +221,7 @@ object CompositionSpec extends ZIOSpecDefault {
             Subgraph.federation("alpha", endpoint, valueSchema),
             Subgraph.federation("beta", endpoint, valueSchema)
           )
-          .build
+          .interpreter
           .exit
 
         result.map(exit => assertTrue(buildDiagnostics(exit).exists(_.contains("shareable"))))
@@ -238,7 +238,7 @@ object CompositionSpec extends ZIOSpecDefault {
             Subgraph.federation("alpha", endpoint, keyed),
             Subgraph.federation("beta", endpoint, plain)
           )
-          .build
+          .interpreter
           .exit
           .map(exit => assertTrue(buildDiagnostics(exit).exists(_.contains("shareable"))))
       },
@@ -250,7 +250,7 @@ object CompositionSpec extends ZIOSpecDefault {
             Subgraph.federation("alpha", endpoint, valueSchema),
             Subgraph.federation("beta", endpoint, valueSchema)
           )
-          .build
+          .interpreter
           .exit
           .map(exit => assertTrue(buildDiagnostics(exit).exists(_.contains("shareable"))))
       },
@@ -267,7 +267,7 @@ object CompositionSpec extends ZIOSpecDefault {
             Subgraph.federation("alpha", endpoint, base),
             Subgraph.federation("beta", endpoint, migrated)
           )
-          .build
+          .interpreter
           .exit
           .map(exit => assertTrue(exit.isSuccess))
       },
@@ -286,7 +286,7 @@ object CompositionSpec extends ZIOSpecDefault {
             Subgraph.federation("alpha", endpoint, external),
             Subgraph.federation("beta", endpoint, overriding)
           )
-          .build
+          .interpreter
           .exit
           .map(exit => assertTrue(exit.isSuccess))
       },
@@ -298,7 +298,7 @@ object CompositionSpec extends ZIOSpecDefault {
 
         for {
           source       <- stub("""{"data":{"product":{"id":"p1"}}}""")
-          gateway      <- Gateway.compose(Subgraph.federation("products", source.endpoint, externalOnly)).build
+          gateway      <- Gateway.compose(Subgraph.federation("products", source.endpoint, externalOnly)).interpreter
           response     <- gateway.execute("{ product { code } }")
           introspected <- gateway.execute("{ __type(name: \"Product\") { fields { name } } }")
           requests     <- source.requests.get
@@ -336,7 +336,7 @@ object CompositionSpec extends ZIOSpecDefault {
                           Subgraph.federation("a", products.endpoint, productsSchema),
                           Subgraph.federation("b", prices.endpoint, pricesSchema)
                         )
-                        .build
+                        .interpreter
           response <- gateway.execute("{ productInA { id pid price upc name } }")
           sent     <- prices.requests.get
           product   = field(response.data, "productInA")
@@ -369,7 +369,7 @@ object CompositionSpec extends ZIOSpecDefault {
             Subgraph.federation("malformed", endpoint, malformed),
             Subgraph.federation("unknown", endpoint, unknown)
           )
-          .build
+          .interpreter
           .exit
           .map { exit =>
             val diagnostics = buildDiagnostics(exit)
@@ -398,7 +398,7 @@ object CompositionSpec extends ZIOSpecDefault {
             Subgraph.federation("feed-owner", endpoint, feedOwner),
             Subgraph.federation("feed-next", endpoint, feedNext)
           )
-          .build
+          .interpreter
           .exit
           .map { exit =>
             val diagnostics = buildDiagnostics(exit)
@@ -425,7 +425,7 @@ object CompositionSpec extends ZIOSpecDefault {
             Subgraph.federation("beta", endpoint, replacing),
             Subgraph.federation("gamma", endpoint, replacing)
           )
-          .build
+          .interpreter
           .exit
           .map { exit =>
             val diagnostics = buildDiagnostics(exit)
@@ -453,7 +453,7 @@ object CompositionSpec extends ZIOSpecDefault {
                             """{"data":{"product":{"id":"p1","state":"ACTIVE"}}}""",
                             """{"data":{"hiddenState":"HIDDEN"}}"""
                           )
-          gateway      <- Gateway.compose(Subgraph.federation("products", source.endpoint, hiddenSchema)).build
+          gateway      <- Gateway.compose(Subgraph.federation("products", source.endpoint, hiddenSchema)).interpreter
           visible      <- gateway.execute("{ product { id state } }")
           hidden       <- gateway.execute("{ secret product { internal } }")
           introspected <- gateway.execute("{ __type(name: \"State\") { enumValues { name } } }")
@@ -488,7 +488,7 @@ object CompositionSpec extends ZIOSpecDefault {
                           Subgraph.federation("alpha", alpha.endpoint, visible),
                           Subgraph.federation("beta", beta.endpoint, hidden)
                         )
-                        .build
+                        .interpreter
           response <- gateway.execute("{ search(term: \"secret\") }")
           requests <- alpha.requests.get.zip(beta.requests.get)
         } yield assertTrue(response.errors.nonEmpty, requests._1.isEmpty, requests._2.isEmpty)
@@ -508,7 +508,7 @@ object CompositionSpec extends ZIOSpecDefault {
             Subgraph.federation("arguments", endpoint, argumentSchema),
             Subgraph.federation("inputs", endpoint, inputSchema)
           )
-          .build
+          .interpreter
           .exit
           .map { exit =>
             val diagnostics = buildDiagnostics(exit)
@@ -526,7 +526,7 @@ object CompositionSpec extends ZIOSpecDefault {
 
         Gateway
           .compose(Subgraph.federation("hidden", endpoint, hiddenSchema))
-          .build
+          .interpreter
           .exit
           .map(exit => assertTrue(exit.isSuccess))
       },
@@ -547,7 +547,7 @@ object CompositionSpec extends ZIOSpecDefault {
             Subgraph.federation("alpha", endpoint, alpha),
             Subgraph.federation("beta", endpoint, beta)
           )
-          .build
+          .interpreter
           .exit
           .map(exit => assertTrue(exit.isSuccess))
       },
@@ -566,9 +566,9 @@ object CompositionSpec extends ZIOSpecDefault {
         )
 
         for {
-          argument <- Gateway.compose(Subgraph.federation("argument", endpoint, argumentSchema)).build.exit
-          input    <- Gateway.compose(Subgraph.federation("input", endpoint, inputSchema)).build.exit
-          default  <- Gateway.compose(Subgraph.federation("default", endpoint, defaultSchema)).build.exit
+          argument <- Gateway.compose(Subgraph.federation("argument", endpoint, argumentSchema)).interpreter.exit
+          input    <- Gateway.compose(Subgraph.federation("input", endpoint, inputSchema)).interpreter.exit
+          default  <- Gateway.compose(Subgraph.federation("default", endpoint, defaultSchema)).interpreter.exit
         } yield assertTrue(
           argument.isFailure,
           input.isFailure,
@@ -592,7 +592,7 @@ object CompositionSpec extends ZIOSpecDefault {
 
         Gateway
           .compose(Subgraph.federation("operations", endpoint, operationSchema))
-          .build
+          .interpreter
           .exit
           .map(exit =>
             assertTrue(
@@ -616,7 +616,7 @@ object CompositionSpec extends ZIOSpecDefault {
 
         for {
           source   <- stub("""{"data":{"product":{"id":"p1"}}}""")
-          gateway  <- Gateway.compose(Subgraph.federation("products", source.endpoint, hiddenSchema)).build
+          gateway  <- Gateway.compose(Subgraph.federation("products", source.endpoint, hiddenSchema)).interpreter
           response <-
             gateway.execute(
               "{ visible: __type(name: \"Product\") { interfaces { name } } hidden: __type(name: \"HiddenInterface\") { name } }"
@@ -639,7 +639,7 @@ object CompositionSpec extends ZIOSpecDefault {
 
         for {
           source   <- stub("""{"data":{"result":{"__typename":"Product","id":"p1"}}}""")
-          gateway  <- Gateway.compose(Subgraph.federation("search", source.endpoint, hiddenSchema)).build
+          gateway  <- Gateway.compose(Subgraph.federation("search", source.endpoint, hiddenSchema)).interpreter
           response <-
             gateway.execute(
               "{ search: __type(name: \"Search\") { possibleTypes { name } } hidden: __type(name: \"HiddenResult\") { name } }"
@@ -683,7 +683,7 @@ object CompositionSpec extends ZIOSpecDefault {
                               Subgraph.federation("alpha", alpha.endpoint, hidden),
                               Subgraph.federation("beta", beta.endpoint, visible)
                             )
-                            .build
+                            .interpreter
           response     <-
             gateway.execute(
               "{ product: __type(name: \"Product\") { fields { name } } filter: __type(name: \"Filter\") { inputFields { name } } output: __type(name: \"HiddenOutput\") { name } input: __type(name: \"HiddenInput\") { name } }"
@@ -718,7 +718,7 @@ object CompositionSpec extends ZIOSpecDefault {
                          Subgraph.graphql("alpha", alpha.endpoint, alphaSchema),
                          Subgraph.graphql("beta", beta.endpoint, betaSchema)
                        )
-                       .build
+                       .interpreter
           valid   <- gateway.execute("{ alpha(filter: { required: 1 }) beta(filter: { required: 2 }) }")
           invalid <- gateway.execute("{ alpha(filter: { required: 1, alphaOnly: 2 }) }")
         } yield assertTrue(
@@ -746,7 +746,7 @@ object CompositionSpec extends ZIOSpecDefault {
                           Subgraph.graphql("alpha", alpha.endpoint, alphaSchema),
                           Subgraph.graphql("beta", beta.endpoint, betaSchema)
                         )
-                        .build
+                        .interpreter
           response <- gateway.execute(
                         "{ alpha { ... on Product { id } } beta { ... on Review { body } } }"
                       )
@@ -780,7 +780,7 @@ object CompositionSpec extends ZIOSpecDefault {
                                 Subgraph.graphql("alpha", alpha.endpoint, alphaSchema),
                                 Subgraph.graphql("beta", beta.endpoint, betaSchema)
                               )
-                              .build
+                              .interpreter
           response       <-
             gateway.execute(
               "{ product: __type(name: \"Product\") { interfaces { fields { name } } } search: __type(name: \"Search\") { possibleTypes { fields { name } } } }"
@@ -818,7 +818,7 @@ object CompositionSpec extends ZIOSpecDefault {
             Subgraph.graphql("alpha", endpoint, alphaSchema),
             Subgraph.graphql("beta", endpoint, betaSchema)
           )
-          .build
+          .interpreter
           .exit
           .map(exit => assertTrue(buildDiagnostics(exit).exists(_.contains("Input/output enum"))))
       },
@@ -833,7 +833,7 @@ object CompositionSpec extends ZIOSpecDefault {
             Subgraph.graphql("alpha", endpoint, alphaSchema),
             Subgraph.graphql("beta", endpoint, betaSchema)
           )
-          .build
+          .interpreter
           .exit
           .map { exit =>
             val diagnostics = buildDiagnostics(exit)
@@ -1355,7 +1355,7 @@ object CompositionSpec extends ZIOSpecDefault {
 
         for {
           remote   <- stub("""{"data":{"value":"ok"}}""")
-          runtime  <- Gateway.compose(Subgraph.federation("valid", remote.endpoint, valid)).build
+          runtime  <- Gateway.compose(Subgraph.federation("valid", remote.endpoint, valid)).interpreter
           response <- runtime.execute("{ __schema { directives { name isRepeatable locations } } }")
           names     = listValues(field(response.data, "__schema").flatMap(field(_, "directives"))).flatMap {
                         case ObjectValue(fields) => fields.collectFirst { case ("name", StringValue(name)) => name }
