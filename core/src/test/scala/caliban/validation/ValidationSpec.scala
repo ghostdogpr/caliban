@@ -668,6 +668,28 @@ object ValidationSpec extends ZIOSpecDefault {
                 )
             }
           },
+          test("unknown field nested in a oneOf input inside a list argument") {
+            val query = gqldoc("""query { foos(value: [{ fooInt: { bogus: 42 } }]) }""")
+            api.interpreter
+              .flatMap(_.execute(query))
+              .map(resp =>
+                assertTrue(
+                  resp.errors.collectFirst { case e: ValidationError => e.msg }
+                    .exists(_.contains("Input field 'bogus' is not defined on type 'IntObjInput'."))
+                )
+              )
+          },
+          test("missing required field nested in a oneOf input inside a list argument") {
+            val query = gqldoc("""query { foos(value: [{ fooInt: {} }]) }""")
+            api.interpreter
+              .flatMap(_.execute(query))
+              .map(resp =>
+                assertTrue(
+                  resp.errors.collectFirst { case e: ValidationError => e.msg }
+                    .exists(_.contains("Field intValue in Field fooInt in List item in"))
+                )
+              )
+          },
           test("invalid variables") {
             val cases = for {
               argName <- validVariablesCases.head.keys
