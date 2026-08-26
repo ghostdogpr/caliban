@@ -1,6 +1,6 @@
 package caliban.gateway.internal
 
-import caliban.gateway.GatewayRuntime.AdmissionStatus
+import caliban.gateway.GatewayInterpreter.AdmissionStatus
 import caliban.gateway.GatewayWrapper
 import caliban.gateway.GatewayWrapper.{ AdmissionKind, Event, Result }
 import zio.{ Exit, Scope, Semaphore, Trace, UIO, URIO, ZEnvironment, ZIO }

@@ -13,12 +13,10 @@ object LocalGatewayApp extends ZIOAppDefault with GenericSchema[Any] {
   private val localApi = graphQL(RootResolver(Query("Hello from a local subgraph")))
   private val gateway  = Gateway.compose(Subgraph.local("local", localApi))
 
-  def run: ZIO[Any, Throwable, Unit] =
-    ZIO.scoped {
-      for {
-        runtime <- gateway.build
-        _       <- Console.printLine("Local gateway: http://localhost:8080/graphiql")
-        _       <- QuickAdapter(runtime).runServer(8080, "/graphql", graphiqlPath = Some("/graphiql"))
-      } yield ()
-    }
+  def run =
+    for {
+      interpreter <- gateway.interpreter
+      _           <- Console.printLine("Local gateway: http://localhost:8080/graphiql")
+      _           <- QuickAdapter(interpreter).runServer(8080, "/graphql", graphiqlPath = Some("/graphiql"))
+    } yield ()
 }

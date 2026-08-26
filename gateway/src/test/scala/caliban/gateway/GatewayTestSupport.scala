@@ -250,8 +250,8 @@ private[gateway] object GatewayTestSupport {
   }
 
   def waitForStatus(
-    runtime: GatewayRuntime[Any]
-  )(predicate: GatewayRuntime.Status => Boolean): UIO[GatewayRuntime.Status] =
+    runtime: GatewayInterpreter[Any]
+  )(predicate: GatewayInterpreter.Status => Boolean): UIO[GatewayInterpreter.Status] =
     (ZIO.yieldNow *> runtime.status).repeatUntil(predicate)
 
   def validateRequest(schema: String, request: GraphQLRequest): IO[CalibanError, Unit] =

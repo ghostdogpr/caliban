@@ -2,7 +2,7 @@ package caliban.gateway
 
 import caliban.GraphQLResponseContext
 import caliban.GraphQLResponseContext.{ Outcome, ServerFailure }
-import caliban.gateway.GatewayRuntime.LifecycleState
+import caliban.gateway.GatewayInterpreter.LifecycleState
 import caliban.gateway.GatewayTestSupport._
 import caliban.gateway.internal.RuntimeControl
 import sttp.model.Uri
@@ -13,7 +13,7 @@ import zio.test._
 object RuntimeLifecycleSpec extends ZIOSpecDefault {
 
   private val operationCacheStatus =
-    GatewayRuntime.OperationCacheStatus(1L, 0L, 0, 0L, 0L, 0L, 0)
+    GatewayInterpreter.OperationCacheStatus(1L, 0L, 0, 0L, 0L, 0L, 0)
 
   private def makeControl(
     scope: Scope.Closeable,
@@ -25,7 +25,7 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
 
   private def waitForControl(
     control: RuntimeControl
-  )(predicate: GatewayRuntime.Status => Boolean): UIO[GatewayRuntime.Status] =
+  )(predicate: GatewayInterpreter.Status => Boolean): UIO[GatewayInterpreter.Status] =
     (ZIO.yieldNow *> control.status(operationCacheStatus)).repeatUntil(predicate)
 
   private def retryEndpoint(calls: Ref[Int]): ZIO[Server with Ref[Int], Nothing, Uri] =
@@ -44,7 +44,7 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
                          .compose(Subgraph.local("local", localGraph(sourceCalls.update(_ + 1).as("value"))))
                          .withOperationResolver(resolver)
                          .withConfig(_.withRequestTimeout(1.second))
-                         .build
+                         .interpreter
         fiber       <- runtime.executeRequest(caliban.GraphQLRequest()).fork
         _           <- resolving.await
         _           <- TestClock.adjust(1.second)
@@ -73,7 +73,7 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
                                .withMaxConcurrentLocalCalls(1)
                                .withRequestTimeout(1.second)
                            )
-                           .build
+                           .interpreter
         first         <- runtime.execute("{ value }").fork
         _             <- sourceStarted.await
         second        <- runtime.execute("{ value }").fork
@@ -109,7 +109,7 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
                            )
                          )
                          .withConfig(_.withRequestTimeout(1.hour))
-                         .build
+                         .interpreter
         fiber       <- runtime.execute("{ value }").fork
         _           <- started.await
         exit        <- fiber.interrupt
@@ -190,7 +190,7 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
                         )
                       )
                       .withConfig(_.withRequestTimeout(1.second))
-                      .build
+                      .interpreter
         response <- runtime.execute("{ value }").fork.flatMap { fiber =>
                       started.await *> TestClock.adjust(1.second) *> release.succeed(()) *> fiber.join
                     }
@@ -210,7 +210,7 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
         runtime  <- Gateway
                       .compose(Subgraph.graphql("remote", endpoint, "type Query { value: String }", remoteConfig))
                       .withConfig(_.withRequestTimeout(1.second))
-                      .build
+                      .interpreter
         fiber    <- runtime.execute("{ value }").fork
         _        <- calls.get.repeatUntil(_ == 1)
         _        <- ZIO.yieldNow
@@ -259,7 +259,7 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
             Gateway
               .compose(Subgraph.local("local", localGraph(started.succeed(()).unit *> release.await.as("done"))))
               .withConfig(_.withRequestTimeout(1.hour).withDrainTimeout(1.hour))
-              .build
+              .interpreter
           )
         accepted <- runtime.execute("{ value }").fork
         _        <- started.await
@@ -317,7 +317,7 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
                          _.withRequestTimeout(1.second)
                            .withDrainTimeout(1.second)
                        )
-                       .build
+                       .interpreter
                    )
         request <- runtime.execute("{ value }").fork
         _       <- started.await
@@ -351,7 +351,7 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
                          _.withRequestTimeout(1.second)
                            .withDrainTimeout(1.second)
                        )
-                       .build
+                       .interpreter
                    )
         request <- runtime.execute("{ value }").fork
         _       <- started.await
@@ -376,7 +376,7 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
                     _.withRequestTimeout(Duration.Zero)
                       .withDrainTimeout(Duration.Infinity)
                   )
-                  .build
+                  .interpreter
                   .exit
       } yield assertTrue(
         buildDiagnostics(exit) == List(

@@ -67,7 +67,7 @@ object EntityRoutingSpec extends ZIOSpecDefault {
                           Subgraph.federation("products", products.endpoint, productsSchema),
                           Subgraph.federation("reviews", reviews.endpoint, reviewsSchema)
                         )
-                        .build
+                        .interpreter
           response <- gateway.execute("{ product { id name reviews { body } } }")
           sent     <- reviews.requests.get
         } yield assertTrue(
@@ -129,7 +129,7 @@ object EntityRoutingSpec extends ZIOSpecDefault {
                              Subgraph.federation("identities", identities.endpoint, identitiesSchema),
                              Subgraph.federation("authors", authors.endpoint, authorsSchema)
                            )
-                           .build
+                           .interpreter
           response    <- gateway.execute("{ books { upc author { name } } }")
           authorCalls <- authors.requests.get
           values       = field(response.data, "books").collect { case ResponseListValue(items) => items }.getOrElse(Nil)
@@ -194,7 +194,7 @@ object EntityRoutingSpec extends ZIOSpecDefault {
                              Subgraph.federation("c-bridge", bridge.endpoint, bridgeSchema),
                              Subgraph.federation("d-target", target.endpoint, targetSchema)
                            )
-                           .build
+                           .interpreter
           response    <- gateway.execute("{ thing { a label } }")
           bCalls      <- unreachable.requests.get
           cCalls      <- bridge.requests.get
@@ -241,7 +241,7 @@ object EntityRoutingSpec extends ZIOSpecDefault {
                           Subgraph.federation("reviews", reviews.endpoint, reviewsSchema),
                           Subgraph.federation("prices", prices.endpoint, pricesSchema)
                         )
-                        .build
+                        .interpreter
           response <- gateway.execute("{ product { id reviews { body } price } }")
         } yield assertTrue(
           response.errors.isEmpty,
@@ -277,7 +277,7 @@ object EntityRoutingSpec extends ZIOSpecDefault {
                           Subgraph.federation("nodes", nodes.endpoint, nodesSchema),
                           Subgraph.federation("details", details.endpoint, detailsSchema)
                         )
-                        .build
+                        .interpreter
           response <- gateway.execute("{ node { id label } }")
           sent     <- details.requests.get
         } yield assertTrue(
@@ -323,7 +323,7 @@ object EntityRoutingSpec extends ZIOSpecDefault {
                           Subgraph.federation("products", products.endpoint, productsSchema),
                           Subgraph.federation("details", details.endpoint, detailsSchema)
                         )
-                        .build
+                        .interpreter
           response <- gateway.execute("{ products { id category { id details { products } } } }")
           sent     <- details.requests.get
           category  = field(response.data, "products").collect { case ResponseListValue(product :: Nil) => product }
@@ -359,7 +359,7 @@ object EntityRoutingSpec extends ZIOSpecDefault {
 
         for {
           products <- stub("""{"data":{"product":{"id":"p1","name":"Table"}}}""")
-          gateway  <- Gateway.compose(Subgraph.federation("products", products.endpoint, linkedSchema)).build
+          gateway  <- Gateway.compose(Subgraph.federation("products", products.endpoint, linkedSchema)).interpreter
           response <- gateway.execute("{ product { id name } }")
         } yield assertTrue(
           response.errors.isEmpty,
@@ -380,7 +380,7 @@ object EntityRoutingSpec extends ZIOSpecDefault {
 
         for {
           products      <- stub(sourceResponse)
-          gateway       <- Gateway.compose(Subgraph.federation("products", products.endpoint, linkedSchema)).build
+          gateway       <- Gateway.compose(Subgraph.federation("products", products.endpoint, linkedSchema)).interpreter
           query         <- gateway.execute("{ product { name } }")
           mutation      <- gateway.execute("mutation { updateProduct { name } }")
           introspection <- gateway.execute("{ __schema { queryType { name } mutationType { name } } }")
@@ -422,7 +422,7 @@ object EntityRoutingSpec extends ZIOSpecDefault {
                            Subgraph.federation("products", products.endpoint, productsSchema),
                            Subgraph.federation("reviews", reviews.endpoint, reviewsSchema)
                          )
-                         .build
+                         .interpreter
           response  <- gateway.execute("{ product(id: \"p1\") { name reviews { body } } }")
           metadata  <-
             gateway.execute(
@@ -482,7 +482,7 @@ object EntityRoutingSpec extends ZIOSpecDefault {
                           Subgraph.federation("products", products.endpoint, productsSchema),
                           Subgraph.federation("reviews", reviews.endpoint, reviewsSchema)
                         )
-                        .build
+                        .interpreter
           response <- gateway.execute("{ product { reviews { body } } }")
           sent     <- reviews.requests.get
         } yield assertTrue(
@@ -527,7 +527,7 @@ object EntityRoutingSpec extends ZIOSpecDefault {
                                Subgraph.federation("products", endpoint, products),
                                Subgraph.federation("reviews", endpoint, reviews)
                              )
-                             .build
+                             .interpreter
           introspection <- gateway.execute("{ __schema { directives { name } } }")
           directives     = field(introspection.data, "__schema")
                              .flatMap(field(_, "directives"))
@@ -566,7 +566,7 @@ object EntityRoutingSpec extends ZIOSpecDefault {
                            Subgraph.federation("left", left.endpoint, leftSchema),
                            Subgraph.federation("right", right.endpoint, rightSchema)
                          )
-                         .build
+                         .interpreter
           response  <- gateway.execute("{ thing { b c } }")
           rootSent  <- roots.requests.get
           leftSent  <- left.requests.get
@@ -600,7 +600,7 @@ object EntityRoutingSpec extends ZIOSpecDefault {
                            Subgraph.federation("external-a", externalA.endpoint, externalSchema),
                            Subgraph.federation("external-b", externalB.endpoint, externalSchema)
                          )
-                         .build
+                         .interpreter
           response  <- gateway.execute("{ thing { ghost } }")
           rootSent  <- roots.requests.get
           sentA     <- externalA.requests.get
@@ -636,7 +636,7 @@ object EntityRoutingSpec extends ZIOSpecDefault {
                             Subgraph.federation("products", products.endpoint, productsSchema),
                             Subgraph.federation("reviews", reviews.endpoint, reviewsSchema)
                           )
-                          .build
+                          .interpreter
             response <- gateway.execute(query)
             sentA    <- products.requests.get
             sentB    <- reviews.requests.get

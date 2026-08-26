@@ -139,7 +139,7 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
                             .withOperationPolicy(
                               OperationPolicy[Any](_ => policyCalls.update(_ + 1).as(Allow))
                             )
-                            .build
+                            .interpreter
           _            <- stable.executeRequest(request)
           _            <- stable.executeRequest(request)
           stableStatus <- stable.status
@@ -159,7 +159,7 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
 
         for {
           remote         <- stub(response)
-          runtime        <- Gateway.compose(Subgraph.graphql("remote", remote.endpoint, schema)).build
+          runtime        <- Gateway.compose(Subgraph.graphql("remote", remote.endpoint, schema)).interpreter
           enabledMiss    <- Configurator.locally(enabled)(runtime.executeRequest(schemaIntrospection))
           enabledHit     <- Configurator.locally(enabled)(runtime.executeRequest(schemaIntrospection))
           disabledSchema <- Configurator.locally(disabled)(runtime.executeRequest(schemaIntrospection))
@@ -184,7 +184,7 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
         val variableQuery  = "query Value($input: String!) { value(input: $input) __typename }"
         for {
           remote  <- stub(response, response)
-          runtime <- Gateway.compose(Subgraph.graphql("remote", remote.endpoint, variableSchema)).build
+          runtime <- Gateway.compose(Subgraph.graphql("remote", remote.endpoint, variableSchema)).interpreter
           first   <- runtime.executeRequest(
                        GraphQLRequest(
                          query = Some(variableQuery),
@@ -220,7 +220,7 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
         val conditionalResult = """{"data":{"firstValue":"first","conditionalValue":"included"}}"""
         for {
           remote  <- stub(conditionalResult, conditionalResult)
-          runtime <- Gateway.compose(Subgraph.graphql("remote", remote.endpoint, conditionalSchema)).build
+          runtime <- Gateway.compose(Subgraph.graphql("remote", remote.endpoint, conditionalSchema)).interpreter
           _       <- runtime.executeRequest(
                        GraphQLRequest(
                          query = Some(conditionalQuery),
@@ -251,7 +251,7 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
         val oneOfQuery  = "query Choose($input: Choice!) { choose(input: $input) }"
         for {
           remote         <- stub(response)
-          runtime        <- Gateway.compose(Subgraph.graphql("remote", remote.endpoint, oneOfSchema)).build
+          runtime        <- Gateway.compose(Subgraph.graphql("remote", remote.endpoint, oneOfSchema)).interpreter
           multipleFields <- runtime.executeRequest(
                               GraphQLRequest(
                                 query = Some(oneOfQuery),
@@ -290,17 +290,17 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
           textRuntime  <- Gateway
                             .compose(Subgraph.graphql("text", remote.endpoint, limitsSchema))
                             .withConfig(_.withMaxOperationTextBytes(4))
-                            .build
+                            .interpreter
           text         <- textRuntime.execute("{ a }")
           depthRuntime <- Gateway
                             .compose(Subgraph.graphql("depth", remote.endpoint, limitsSchema))
                             .withConfig(_.withMaxOperationNesting(1))
-                            .build
+                            .interpreter
           depth        <- depthRuntime.execute("{ nested { value } }")
           nodeRuntime  <- Gateway
                             .compose(Subgraph.graphql("nodes", remote.endpoint, limitsSchema))
                             .withConfig(_.withMaxParsedOperationNodes(3))
-                            .build
+                            .interpreter
           nodes        <- nodeRuntime.execute("{ a b c }")
           sent         <- remote.requests.get
         } yield assertTrue(
@@ -321,7 +321,7 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
                         .withPlanningTimeout(Duration.Infinity)
                         .withMaxConcurrentRequests(0)
                     )
-                    .build
+                    .interpreter
                     .exit
         } yield assertTrue(
           buildDiagnostics(exit) == List(
@@ -355,7 +355,7 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
           runtime <- Gateway
                        .compose(Subgraph.local("local", localValueGraph(effect)))
                        .withConfig(_.withMaxConcurrentRequests(1))
-                       .build
+                       .interpreter
           first   <- runtime.execute("{ localValue }").fork
           _       <- started.await
           second  <- runtime.execute("{ localValue }").fork
@@ -392,7 +392,7 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
                        .compose(Subgraph.local("local", localValueGraph(ZIO.succeed("value"))))
                        .withOperationResolver(resolver)
                        .withConfig(_.withMaxConcurrentRequests(1))
-                       .build
+                       .interpreter
           first   <- runtime.explain(GraphQLRequest()).fork
           _       <- started.await
           second  <- runtime.explain(GraphQLRequest()).fork
@@ -421,7 +421,7 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
                           )
                         )
                         .withConfig(_.withMaxConcurrentRequests(1))
-                        .build
+                        .interpreter
           running  <- runtime.execute("{ localValue }").fork
           _        <- started.await
           checking <- runtime.check("{ localValue }").fork
@@ -455,7 +455,7 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
                                _.withMaxConcurrentRequests(2)
                                  .withMaxConcurrentLocalCalls(1)
                              )
-                             .build
+                             .interpreter
           fiber         <- runtime.execute("{ localValue value }").fork
           _             <- localStarted.await.zipPar(remoteStarted.await)
           status        <- runtime.status
@@ -488,7 +488,7 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
           runtime      <- Gateway
                             .compose(Subgraph.graphql("remote", remote, schema, config))
                             .withConfig(_.withMaxConcurrentRequests(2))
-                            .build
+                            .interpreter
           first        <- runtime.executeRequest(request).fork
           _            <- retryStarted.await
           second       <- runtime.executeRequest(request).fork
@@ -524,7 +524,7 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
                          )
           runtime     <- (Gateway
                            .compose(Subgraph.graphql("remote", remote, schema, config))
-                           .withConfig(_.withMaxConcurrentRequests(32)) @@ GatewayMetrics.wrapper).build
+                           .withConfig(_.withMaxConcurrentRequests(32)) @@ GatewayMetrics.wrapper).interpreter
           startBefore <- counter("caliban_gateway_in_flight_deduplication_total", "result", "start")
           joinBefore  <- counter("caliban_gateway_in_flight_deduplication_total", "result", "join")
           fibers      <- ZIO.foreach(1 to 20)(_ => runtime.executeRequest(request).fork)
@@ -567,7 +567,7 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
           runtime      <- Gateway
                             .compose(Subgraph.graphql("remote", remote, schema, config))
                             .withConfig(_.withMaxConcurrentRequests(2))
-                            .build
+                            .interpreter
           first        <- runtime.executeRequest(firstRequest).fork
           _            <- firstStarted.await
           second       <- runtime.executeRequest(nextRequest).fork

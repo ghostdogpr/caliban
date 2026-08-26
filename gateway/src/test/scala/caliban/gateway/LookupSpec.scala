@@ -161,7 +161,7 @@ object LookupSpec extends ZIOSpecDefault {
                         Subgraph.graphql("products", products.endpoint, productsSchema),
                         Subgraph.graphql("reviews", reviews.endpoint, reviewsSchema).withLookup(keyedLookup)
                       )
-                      .build
+                      .interpreter
         response <- gateway.execute("{ status products { name reviews { body } } }")
         requests <- reviews.requests.get
         valid    <- ZIO.foreach(requests)(validateRequest(reviewsSchema, _).exit)
@@ -195,7 +195,7 @@ object LookupSpec extends ZIOSpecDefault {
                         Subgraph.graphql("products", products.endpoint, productsSchema),
                         Subgraph.graphql("reviews", reviews.endpoint, reviewsSchema).withLookup(keyedLookup)
                       )
-                      .build
+                      .interpreter
         response <- gateway.execute("{ products { name reviews { body } } }")
         sent     <- reviews.requests.get
       } yield assertTrue(
@@ -226,7 +226,7 @@ object LookupSpec extends ZIOSpecDefault {
                         Subgraph.graphql("products", products.endpoint, localProductsSchema),
                         Subgraph.local("reviews", LocalReviews.api).withLookup(localLookup)
                       )
-                      .build
+                      .interpreter
         response <- gateway.execute("{ products { name reviews { body } } }")
         values    = listValues(field(response.data, "products"))
       } yield assertTrue(
@@ -249,7 +249,7 @@ object LookupSpec extends ZIOSpecDefault {
                          Subgraph.graphql("products", productsA.endpoint, productsSchema),
                          Subgraph.graphql("reviews", reviewsA.endpoint, reviewsSchema).withLookup(orderedLookup)
                        )
-                       .build
+                       .interpreter
         responseA <- ordered.execute("{ products { name reviews { body } } }")
         productsB <- stub(productsResponse)
         reviewsB  <- stub(singleResponse)
@@ -258,7 +258,7 @@ object LookupSpec extends ZIOSpecDefault {
                          Subgraph.graphql("products", productsB.endpoint, productsSchema),
                          Subgraph.graphql("reviews", reviewsB.endpoint, reviewsSchema).withLookup(singleLookup)
                        )
-                       .build
+                       .interpreter
         responseB <- single.execute("{ products { name reviews { body } } }")
         sentB     <- reviewsB.requests.get
         ordered    = listValues(field(responseA.data, "products"))
@@ -295,7 +295,7 @@ object LookupSpec extends ZIOSpecDefault {
                          Subgraph.graphql("products", productsA.endpoint, enumProductsSchema),
                          Subgraph.graphql("reviews", reviewsA.endpoint, enumReviewsSchema).withLookup(keyedLookup)
                        )
-                       .build
+                       .interpreter
         responseA <- list.execute("{ products { name reviews { body } } }")
         sentA     <- reviewsA.requests.get
         validA    <- ZIO.foreach(sentA)(validateRequest(enumReviewsSchema, _).exit)
@@ -306,7 +306,7 @@ object LookupSpec extends ZIOSpecDefault {
                          Subgraph.graphql("products", productsB.endpoint, enumProductsSchema),
                          Subgraph.graphql("reviews", reviewsB.endpoint, enumReviewsSchema).withLookup(singleLookup)
                        )
-                       .build
+                       .interpreter
         responseB <- single.execute("{ products { name reviews { body } } }")
         sentB     <- reviewsB.requests.get
         validB    <- ZIO.foreach(sentB)(validateRequest(enumReviewsSchema, _).exit)
@@ -355,7 +355,7 @@ object LookupSpec extends ZIOSpecDefault {
                           .withLookup(lookup)
                           .transform(transformation)
                       )
-                      .build
+                      .interpreter
         response <- gateway.execute("{ products { name reviews { body } } }")
         sent     <- reviews.requests.get
         valid    <- ZIO.foreach(sent)(validateRequest(reviewsSchema, _).exit)
@@ -378,7 +378,7 @@ object LookupSpec extends ZIOSpecDefault {
                          Subgraph.graphql("products", productsA.endpoint, productsSchema),
                          Subgraph.graphql("reviews", reviewsA.endpoint, reviewsSchema).withLookup(keyedLookup)
                        )
-                       .build
+                       .interpreter
         responseA <- keyed.execute("{ products { name reviews { body } } }")
         productsB <- stub(productsResponse)
         reviewsB  <- stub(shortResponse)
@@ -387,7 +387,7 @@ object LookupSpec extends ZIOSpecDefault {
                          Subgraph.graphql("products", productsB.endpoint, productsSchema),
                          Subgraph.graphql("reviews", reviewsB.endpoint, reviewsSchema).withLookup(orderedLookup)
                        )
-                       .build
+                       .interpreter
         responseB <- ordered.execute("{ products { name reviews { body } } }")
         valuesA    = listValues(field(responseA.data, "products"))
       } yield assertTrue(
@@ -410,7 +410,7 @@ object LookupSpec extends ZIOSpecDefault {
                         Subgraph.graphql("products", products.endpoint, productsSchema),
                         Subgraph.graphql("reviews", reviews.endpoint, reviewsSchema).withLookup(orderedLookup)
                       )
-                      .build
+                      .interpreter
         response <- gateway.execute("{ products { name reviews { body } } }")
         values    = listValues(field(response.data, "products"))
       } yield assertTrue(
@@ -437,7 +437,7 @@ object LookupSpec extends ZIOSpecDefault {
                         Subgraph.graphql("reviews", reviews.endpoint, reviewsSchema).withLookup(keyedLookup)
                       )
                       .withConfig(_.withRemoteErrorDisclosure(_.withMessages(true)))
-                      .build
+                      .interpreter
         response <- gateway.execute("{ status products { name reviews { body } } }")
         errors    = executionErrors(response.errors)
       } yield assertTrue(
@@ -535,7 +535,7 @@ object LookupSpec extends ZIOSpecDefault {
             Subgraph.graphql("products", endpoint, productsSchema),
             Subgraph.graphql("reviews", endpoint, schema).withLookup(lookup)
           )
-          .build
+          .interpreter
           .either
           .map(_.fold(_.diagnostics, _ => Nil))
 
@@ -562,7 +562,7 @@ object LookupSpec extends ZIOSpecDefault {
                              .withLookup(keyedLookup)
                              .withLookup(orderedLookup)
                          )
-                         .build
+                         .interpreter
                          .either
                          .map(_.fold(_.diagnostics, _ => Nil))
         federation  <- Gateway
@@ -570,7 +570,7 @@ object LookupSpec extends ZIOSpecDefault {
                            Subgraph.graphql("products", endpoint, productsSchema),
                            Subgraph.federation("reviews", endpoint, reviewsSchema).withLookup(keyedLookup)
                          )
-                         .build
+                         .interpreter
                          .either
                          .map(_.fold(_.diagnostics, _ => Nil))
       } yield assertTrue(

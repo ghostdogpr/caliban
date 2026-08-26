@@ -32,7 +32,7 @@ object OperationHooksSpec extends ZIOSpecDefault {
     test("uses request text directly when no resolver is configured") {
       for {
         remote  <- stub(response)
-        runtime <- Gateway.compose(Subgraph.graphql("remote", remote.endpoint, schema)).build
+        runtime <- Gateway.compose(Subgraph.graphql("remote", remote.endpoint, schema)).interpreter
         result  <- runtime.executeRequest(request)
         sent    <- remote.requests.get
       } yield assertTrue(
@@ -64,7 +64,7 @@ object OperationHooksSpec extends ZIOSpecDefault {
                        .compose(Subgraph.graphql("remote", remote.endpoint, schema))
                        .withOperationResolver(resolver)
                        .withOperationPolicy(policy): Gateway[Documents with Decisions])
-        runtime   <- gateway.build
+        runtime   <- gateway.interpreter
         documents  = new Documents {
                        def resolve(id: String): UIO[String] =
                          if (id == "value-operation") ZIO.succeed(query)
@@ -103,7 +103,7 @@ object OperationHooksSpec extends ZIOSpecDefault {
         runtime   <- Gateway
                        .compose(Subgraph.graphql("remote", remote.endpoint, schema))
                        .withOperationPolicy(policy)
-                       .build
+                       .interpreter
         invalid   <- runtime.executeRequest(GraphQLRequest(query = Some("{ missing }")))
         malformed <- runtime.executeRequest(
                        request.copy(variables = Some(Map("input" -> ObjectValue(Map.empty))))
@@ -125,7 +125,7 @@ object OperationHooksSpec extends ZIOSpecDefault {
         runtime <- Gateway
                      .compose(Subgraph.graphql("remote", remote.endpoint, schema))
                      .withOperationPolicy(OperationPolicy[Any](_ => ZIO.succeed(Reject("Operation denied."))))
-                     .build
+                     .interpreter
         result  <- runtime.executeRequest(request)
         sent    <- remote.requests.get
       } yield assertTrue(result.errors.map(_.msg) == List("Operation denied."), sent.isEmpty)
@@ -141,14 +141,14 @@ object OperationHooksSpec extends ZIOSpecDefault {
                              .withOperationResolver(
                                OperationResolver.uncached[Any](_ => ZIO.fail(new RuntimeException(secretResolver)))
                              )
-                             .build
+                             .interpreter
         resolverResult  <- resolverRuntime.executeRequest(request)
         policyRuntime   <- Gateway
                              .compose(Subgraph.graphql("policy", remote.endpoint, schema))
                              .withOperationPolicy(
                                OperationPolicy[Any](_ => ZIO.dieMessage(secretPolicy))
                              )
-                             .build
+                             .interpreter
         policyResult    <- policyRuntime.executeRequest(request)
         sent            <- remote.requests.get
         messages         = (resolverResult.errors ::: policyResult.errors).map(_.msg)
@@ -178,7 +178,7 @@ object OperationHooksSpec extends ZIOSpecDefault {
         runtime <- Gateway
                      .compose(Subgraph.graphql("remote", remote.endpoint, schema))
                      .withOperationPolicy(policy)
-                     .build
+                     .interpreter
         fiber   <- runtime.executeRequest(request).fork
         _       <- started.await
         exit    <- fiber.interrupt

@@ -3,10 +3,10 @@ package caliban.gateway.internal
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ BooleanValue, EnumValue, FloatValue, IntValue, NullValue, StringValue }
 import caliban.execution.{ ExecutionRequest, Executor, Field }
-import caliban.gateway.{ GatewayRuntime, GatewayWrapper }
+import caliban.gateway.{ GatewayInterpreter, GatewayWrapper }
 import caliban.gateway.GatewayWrapper.{ Event, Outcome, Result }
 import caliban.gateway.internal.EntityExecutor.EntityResult
-import caliban.gateway.internal.GatewayRuntimeImpl._
+import caliban.gateway.internal.GatewayInterpreterImpl._
 import caliban.gateway.internal.OperationPlanner._
 import caliban.introspection.Introspector
 import caliban.introspection.adt.{ __Type, __TypeKind }
@@ -22,13 +22,13 @@ import zio.{ Exit, IO, Trace, UIO, URIO, ZIO }
 import java.util.concurrent.ConcurrentHashMap
 import scala.collection.mutable
 
-private[gateway] final class GatewayRuntimeImpl[-R](
+private[gateway] final class GatewayInterpreterImpl[-R](
   graph: ComposedGraph,
   sources: Map[String, GraphQLSource[R]],
   operations: OperationPreparation[R],
   control: RuntimeControl,
   wrapper: GatewayWrapper[R]
-) extends GatewayRuntime[R] {
+) extends GatewayInterpreter[R] {
 
   private val rootType: RootType             = graph.rootType
   private val introspection: RootSchema[Any] = Introspector.introspect[Any](rootType)
@@ -63,7 +63,7 @@ private[gateway] final class GatewayRuntimeImpl[-R](
   def check(query: String)(implicit trace: Trace): IO[CalibanError, Unit] =
     control.runRequest(operations.check(query))(ZIO.fail(requestTimeoutError))(ZIO.fail(requestShutdownError))
 
-  def status(implicit trace: Trace): UIO[GatewayRuntime.Status] =
+  def status(implicit trace: Trace): UIO[GatewayInterpreter.Status] =
     operations.cacheStatus.flatMap(control.status)
 
   def explain(request: GraphQLRequest)(implicit trace: Trace): ZIO[R, CalibanError, String] =
@@ -1013,7 +1013,7 @@ private[gateway] final class GatewayRuntimeImpl[-R](
   }
 }
 
-private[gateway] object GatewayRuntimeImpl {
+private[gateway] object GatewayInterpreterImpl {
   private[gateway] def mergeObject(left: ResponseValue, right: ResponseValue): ResponseValue =
     mergeValues(left, right) {
       case (ListValue(leftValues), ListValue(rightValues)) if leftValues.size == rightValues.size =>
@@ -1187,7 +1187,7 @@ private[internal] object PlanCaches {
 }
 
 private[internal] final class PlanCaches {
-  val roots: ConcurrentHashMap[RouteId, GatewayRuntimeImpl.PreparedRoot]        = new ConcurrentHashMap
+  val roots: ConcurrentHashMap[RouteId, GatewayInterpreterImpl.PreparedRoot]    = new ConcurrentHashMap
   val groupKeys: ConcurrentHashMap[RouteId, EntityExecutor.EntityGroupKey]      = new ConcurrentHashMap
   val lookups: ConcurrentHashMap[RouteId, EntityExecutor.PreparedLookup]        = new ConcurrentHashMap
   val identities: ConcurrentHashMap[RouteId, EntityExecutor.IdentitySelections] = new ConcurrentHashMap

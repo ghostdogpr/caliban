@@ -5,17 +5,17 @@ import sttp.model.Header
 import zio.{ Trace, UIO, URIO, ZIO }
 
 /**
- * An executable gateway created by [[Gateway.build]].
+ * An executable gateway created by [[Gateway.interpreter]].
  *
- * A runtime may be shared across fibers and used anywhere a `GraphQLInterpreter` is
+ * An interpreter may be shared across fibers and used anywhere a `GraphQLInterpreter` is
  * accepted. Its lifetime is bounded by the scope in which it was built.
  */
-trait GatewayRuntime[-R] extends GraphQLInterpreter[R, CalibanError] {
+trait GatewayInterpreter[-R] extends GraphQLInterpreter[R, CalibanError] {
 
   /**
-   * Returns a point-in-time view of bounded runtime work and operation-cache usage.
+   * Returns a point-in-time view of bounded gateway work and operation-cache usage.
    */
-  def status(implicit trace: Trace): UIO[GatewayRuntime.Status]
+  def status(implicit trace: Trace): UIO[GatewayInterpreter.Status]
 
   /**
    * Executes a request with incoming headers available to configured source forwarding policies.
@@ -39,7 +39,7 @@ trait GatewayRuntime[-R] extends GraphQLInterpreter[R, CalibanError] {
     explain(GraphQLRequest(query = Some(query), operationName = operationName))
 }
 
-object GatewayRuntime {
+object GatewayInterpreter {
 
   sealed trait LifecycleState
   object LifecycleState {

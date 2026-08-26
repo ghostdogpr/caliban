@@ -22,7 +22,7 @@ object GatewayWrapperSpec extends ZIOSpecDefault {
         results   <- Ref.make(Vector.empty[GatewayWrapper.Result])
         wrapper    = recording(events, results)
         remote    <- stub("""{"data":{"value":"ok"}}""")
-        runtime   <- (Gateway.compose(Subgraph.graphql("products", remote.endpoint, schema)) @@ wrapper).build
+        runtime   <- (Gateway.compose(Subgraph.graphql("products", remote.endpoint, schema)) @@ wrapper).interpreter
         response  <-
           runtime.executeRequest(GraphQLRequest(query = Some("query Named { value }"), operationName = Some("Named")))
         observed  <- events.get
@@ -57,7 +57,7 @@ object GatewayWrapperSpec extends ZIOSpecDefault {
         wrapper    = delaying(entered) |+| recording(events, results)
         runtime   <- (Gateway
                        .compose(Subgraph.graphql("products", remote.endpoint, schema))
-                       .withConfig(_.withRequestTimeout(Duration.fromSeconds(1))) @@ wrapper).build
+                       .withConfig(_.withRequestTimeout(Duration.fromSeconds(1))) @@ wrapper).interpreter
         fiber     <- runtime.execute("{ value }").fork
         _         <- entered.await
         _         <- TestClock.adjust(Duration.fromSeconds(2))
@@ -109,7 +109,7 @@ object GatewayWrapperSpec extends ZIOSpecDefault {
         started        <- Promise.make[Nothing, Unit]
         runtime        <- (Gateway
                             .compose(Subgraph.local("local", localGraph(started.succeed(()).unit *> ZIO.never)))
-                            .withConfig(_.withRequestTimeout(Duration.fromSeconds(1))) @@ GatewayMetrics.wrapper).build
+                            .withConfig(_.withRequestTimeout(Duration.fromSeconds(1))) @@ GatewayMetrics.wrapper).interpreter
         requestBefore  <- counter("caliban_gateway_admission_total", "kind", "request")
         sourceBefore   <- counter("caliban_gateway_admission_total", "kind", "source")
         requestsBefore <- counter("caliban_gateway_requests_total", "outcome", "error")

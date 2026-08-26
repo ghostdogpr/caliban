@@ -1,8 +1,8 @@
 package caliban.gateway.internal
 
-import caliban.gateway.GatewayRuntime
+import caliban.gateway.GatewayInterpreter
 import caliban.gateway.GatewayWrapper
-import caliban.gateway.GatewayRuntime.{ LifecycleStatus, OperationCacheStatus, Status }
+import caliban.gateway.GatewayInterpreter.{ LifecycleStatus, OperationCacheStatus, Status }
 import caliban.gateway.GatewayWrapper.{ AdmissionKind, Event, Result }
 import zio.{ Clock, Duration, Exit, Promise, Ref, Scope, Trace, UIO, URIO, ZIO }
 
@@ -61,7 +61,7 @@ private[gateway] final class RuntimeControl private (
       requests.status.zipWith(
         ZIO.foreach(sources) { case (name, gate) => gate.status.map(name -> _) }
       ) { (requestStatus, sourceStatus) =>
-        GatewayRuntime.Status(
+        GatewayInterpreter.Status(
           LifecycleStatus(
             current.lifecycle,
             current.requests.size,
@@ -79,9 +79,9 @@ private[gateway] final class RuntimeControl private (
       val lease = Lease(new Token, startedAt)
       state.modify { current =>
         current.lifecycle match {
-          case GatewayRuntime.LifecycleState.Running =>
+          case GatewayInterpreter.LifecycleState.Running =>
             Some(lease) -> current.copy(requests = current.requests.updated(lease.token, RequestState.Active))
-          case _                                     => None -> current
+          case _                                         => None -> current
         }
       }
     }
@@ -157,7 +157,7 @@ private[gateway] final class RuntimeControl private (
   private def end(token: Token)(implicit trace: Trace): UIO[Unit] =
     state.modify { current =>
       val next   = current.copy(requests = current.requests - token)
-      val signal = next.lifecycle == GatewayRuntime.LifecycleState.Draining && next.requests.isEmpty
+      val signal = next.lifecycle == GatewayInterpreter.LifecycleState.Draining && next.requests.isEmpty
       signal -> next
     }
       .flatMap(signal => drained.succeed(()).unit.when(signal).unit)
@@ -167,7 +167,7 @@ private[gateway] final class RuntimeControl private (
       startedAt <- Clock.nanoTime
       empty     <- state.modify { current =>
                      val next = current.copy(
-                       lifecycle = GatewayRuntime.LifecycleState.Draining,
+                       lifecycle = GatewayInterpreter.LifecycleState.Draining,
                        drainStartedAt = Some(startedAt)
                      )
                      next.requests.isEmpty -> next
@@ -175,7 +175,7 @@ private[gateway] final class RuntimeControl private (
       _         <- drained.succeed(()).unit.when(empty)
       done      <- drained.await.interruptible.timeout(drainTimeout).map(_.isDefined)
       _         <- (forceStop.succeed(()).unit *> drained.await).unless(done)
-      _         <- state.update(_.copy(lifecycle = GatewayRuntime.LifecycleState.Closed))
+      _         <- state.update(_.copy(lifecycle = GatewayInterpreter.LifecycleState.Closed))
     } yield ()).uninterruptible
 
 }
@@ -192,7 +192,7 @@ private[gateway] object RuntimeControl {
       sources   <- ZIO.foreach(sourceLimits) { case (name, limit) =>
                      ExecutionGate.make(limit, AdmissionKind.Source).map(name -> _)
                    }
-      state     <- Ref.make(State(GatewayRuntime.LifecycleState.Running, Map.empty, None))
+      state     <- Ref.make(State(GatewayInterpreter.LifecycleState.Running, Map.empty, None))
       drained   <- Promise.make[Nothing, Unit]
       forceStop <- Promise.make[Nothing, Unit]
       control    = new RuntimeControl(requests, sources, requestTimeout, drainTimeout, state, drained, forceStop)
@@ -204,7 +204,7 @@ private[gateway] object RuntimeControl {
   private final case class Lease(token: Token, startedAt: Long)
 
   private final case class State(
-    lifecycle: GatewayRuntime.LifecycleState,
+    lifecycle: GatewayInterpreter.LifecycleState,
     requests: Map[Token, RequestState],
     drainStartedAt: Option[Long]
   )

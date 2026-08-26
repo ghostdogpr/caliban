@@ -41,24 +41,24 @@ abstract class GatewayWrapper[-R] { self =>
   /**
    * Combines wrappers. Effects and outbound header transforms are applied from left to right.
    */
-  final def |+|[R1](that: GatewayWrapper[R1]): GatewayWrapper[R with R1] =
+  final def |+|[R1 <: R](that: GatewayWrapper[R1]): GatewayWrapper[R1] =
     if (!self.enabled) that
     else if (!that.enabled) self
     else
-      new GatewayWrapper[R with R1] {
+      new GatewayWrapper[R1] {
         def wrap[R0, E, A](event: GatewayWrapper.Event)(effect: ZIO[R0, E, A])(
           result: Exit[E, A] => GatewayWrapper.Result
-        )(implicit trace: Trace): ZIO[R with R1 with R0, E, A] =
+        )(implicit trace: Trace): ZIO[R1 with R0, E, A] =
           self.wrap(event)(that.wrap(event)(effect)(result))(result)
 
         override def outboundHeaders(source: String, headers: List[Header])(implicit
           trace: Trace
-        ): URIO[R with R1, List[Header]] =
+        ): URIO[R1, List[Header]] =
           self.outboundHeaders(source, headers).flatMap(that.outboundHeaders(source, _))
 
         override def attemptHeaders(source: String, attempt: Int, headers: List[Header])(implicit
           trace: Trace
-        ): URIO[R with R1, List[Header]] =
+        ): URIO[R1, List[Header]] =
           self.attemptHeaders(source, attempt, headers).flatMap(that.attemptHeaders(source, attempt, _))
       }
 }

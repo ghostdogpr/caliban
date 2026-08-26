@@ -4,7 +4,7 @@ This non-published project runs Caliban's production Quick HTTP path against the
 [GraphQL Gateways Benchmark](https://github.com/graphql-hive/graphql-gateways-benchmark). The revision is recorded once in
 [`upstream.env`](upstream.env); `prepare-upstream.sh` refuses any other checkout.
 
-The adapter acquires the four authored Federation schemas from the benchmark subgraphs, builds a normal `GatewayRuntime`, and
+The adapter acquires the four authored Federation schemas from the benchmark subgraphs, builds a normal `GatewayInterpreter`, and
 serves it with `QuickAdapter`. It does not consume the benchmark's serialized supergraph. It explicitly enables Caliban's
 default-disabled in-flight query deduplication for each remote source: overlapping identical queries share one running downstream
 call. The tested competitor versions use the equivalent behavior. A unique-header control is available so the benefit can be

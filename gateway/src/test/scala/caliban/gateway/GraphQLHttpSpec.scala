@@ -188,7 +188,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
         calls == 0
       )
     },
-    test("drops request extensions and masks protocol details through GatewayRuntime") {
+    test("drops request extensions and masks protocol details through GatewayInterpreter") {
       for {
         captured <- Promise.make[Nothing, (GraphQLRequest, Headers)]
         remote   <- endpoint { incoming =>
@@ -205,7 +205,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
                         Body.fromString("source-secret-body")
                       )
                     }
-        gateway  <- Gateway.compose(Subgraph.graphql("remote", remote, schema)).build
+        gateway  <- Gateway.compose(Subgraph.graphql("remote", remote, schema)).interpreter
         outbound  = GraphQLRequest(
                       query = Some("query Value($input: String) { value(input: $input) }"),
                       operationName = Some("Value"),
@@ -317,7 +317,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
                       Subgraph.graphql("first", remote.endpoint, firstPolicy),
                       Subgraph.graphql("second", remote.endpoint, schema, secondPolicy)
                     )
-                    .build
+                    .interpreter
                     .exit
         calls  <- remote.requests.get
         errors  = buildDiagnostics(exit)
@@ -357,7 +357,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
 
       for {
         remote   <- stub("""{"data":{"value":"ok"}}""")
-        gateway  <- Gateway.compose(Subgraph.graphql("remote", remote.endpoint, schema, policy)).build
+        gateway  <- Gateway.compose(Subgraph.graphql("remote", remote.endpoint, schema, policy)).interpreter
         response <- gateway
                       .executeRequest(
                         request,
@@ -399,7 +399,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
 
       for {
         remote  <- stub("""{"data":{"value":"ok"}}""")
-        gateway <- Gateway.compose(Subgraph.graphql("remote", remote.endpoint, schema, config)).build
+        gateway <- Gateway.compose(Subgraph.graphql("remote", remote.endpoint, schema, config)).interpreter
         _       <- gateway.executeRequest(
                      request,
                      List(
@@ -432,7 +432,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
 
       for {
         remote  <- stub("""{"data":{"value":"ok"}}""")
-        gateway <- Gateway.compose(Subgraph.graphql("remote", remote.endpoint, schema, config)).build
+        gateway <- Gateway.compose(Subgraph.graphql("remote", remote.endpoint, schema, config)).interpreter
         _       <- gateway.executeRequest(
                      request,
                      List(
@@ -463,7 +463,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
 
       for {
         remote   <- stub("""{"data":{"value":"ok"}}""")
-        gateway  <- Gateway.compose(Subgraph.graphql("remote", remote.endpoint, schema, config)).build
+        gateway  <- Gateway.compose(Subgraph.graphql("remote", remote.endpoint, schema, config)).interpreter
         response <- gateway.executeRequest(request)
         calls    <- remote.requests.get
         rendered  = response.errors.map(_.msg).mkString(" ")
@@ -488,7 +488,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
                               ready.await.as(Nil)
                           )
         remote       <- blockedEndpoint(expectedCalls = 1)
-        gateway      <- Gateway.compose(Subgraph.graphql("remote", remote.uri, schema, config)).build
+        gateway      <- Gateway.compose(Subgraph.graphql("remote", remote.uri, schema, config)).interpreter
         fibers       <- ZIO.foreach(1 to callers)(_ => gateway.executeRequest(request).fork)
         _            <- remote.started.await
         _            <- Live.live(ZIO.sleep(250.millis))

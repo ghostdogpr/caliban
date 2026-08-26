@@ -74,13 +74,13 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
                                Subgraph.graphql("products", acquiredApi.endpoint),
                                Subgraph.federation("reviews", federationApi.endpoint)
                              )
-                             .build
+                             .interpreter
         pinned          <- Gateway
                              .compose(
                                Subgraph.graphql("products", pinnedApi.endpoint, ProductsApi.api.toDocument),
                                Subgraph.federation("reviews", federationApi.endpoint, reviewsSchema)
                              )
-                             .build
+                             .interpreter
         acquiredResult  <- acquired.execute("{ product { name } review { body } }")
         pinnedResult    <- pinned.execute("{ product { name } review { body } }")
         ordinaryCalls   <- acquiredApi.requests.get
@@ -98,7 +98,7 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
         introspection <- introspectionResponse
         response       = introspection.dropRight(1) + ",\"errors\":[{\"message\":\"introspection failed\"}]}"
         source        <- stub(response)
-        exit          <- Gateway.compose(Subgraph.graphql("products", source.endpoint)).build.exit
+        exit          <- Gateway.compose(Subgraph.graphql("products", source.endpoint)).interpreter.exit
       } yield assertTrue(exit.isFailure)
     },
     test("preserves referenced deprecation and specifiedBy metadata from acquired SDL") {
@@ -114,7 +114,7 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
 
       for {
         source     <- stub(serviceResponse(metadataSchema))
-        gateway    <- Gateway.compose(Subgraph.federation("metadata", source.endpoint)).build
+        gateway    <- Gateway.compose(Subgraph.federation("metadata", source.endpoint)).interpreter
         response   <-
           gateway.execute(
             "{ nested: __type(name: \"Nested\") { fields(includeDeprecated: true) { name isDeprecated deprecationReason } } state: __type(name: \"State\") { enumValues(includeDeprecated: true) { name isDeprecated deprecationReason } } scalar: __type(name: \"URL\") { specifiedByURL } }"
@@ -151,7 +151,7 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
                                  Subgraph.graphql("products", ordinary.endpoint),
                                  Subgraph.federation("reviews", federation.endpoint)
                                )
-                               .build
+                               .interpreter
                                .fork
         _                 <- ordinaryStarted.await
         _                 <- federationStarted.await
@@ -169,7 +169,7 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
                              Subgraph.graphql("products", ordinary.endpoint),
                              Subgraph.federation("reviews", broken.endpoint)
                            )
-                           .build
+                           .interpreter
                            .either
         ordinaryCalls <- ordinary.requests.get
         brokenCalls   <- broken.requests.get
@@ -186,7 +186,7 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
 
       for {
         remote <- stub(response)
-        result <- Gateway.compose(Subgraph.federation("reviews", remote.endpoint)).build.either
+        result <- Gateway.compose(Subgraph.federation("reviews", remote.endpoint)).interpreter.either
       } yield assertTrue(
         result.left.exists(_.diagnostics == List("[reviews] Federation service response was invalid."))
       )
@@ -218,24 +218,24 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
         headerStub       <- stub(serviceResponse(reviewsSchema), reviewResponse)
         headerGateway    <- Gateway
                               .compose(Subgraph.federation("headers", headerStub.endpoint, headersConfig))
-                              .build
+                              .interpreter
         _                <- headerGateway.execute("{ review { body } }")
         sentHeaders      <- headerStub.headers.get
         protectedStub    <- stub(serviceResponse(reviewsSchema))
         protectedResult  <- Gateway
                               .compose(Subgraph.federation("protected", protectedStub.endpoint, protectedConfig))
-                              .build
+                              .interpreter
                               .either
         protectedCalls   <- protectedStub.requests.get
         boundedStub      <- stub(serviceResponse(reviewsSchema))
         boundedResult    <- Gateway
                               .compose(Subgraph.federation("bounded", boundedStub.endpoint, responseLimit))
-                              .build
+                              .interpreter
                               .either
         parsingStub      <- stub(serviceResponse(nestedSchema))
         parsingResult    <- Gateway
                               .compose(Subgraph.federation("parsing", parsingStub.endpoint, parsingLimit))
-                              .build
+                              .interpreter
                               .either
         ordinaryStub     <- stub(
                               introspection.replaceFirst(
@@ -245,7 +245,7 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
                             )
         ordinaryResult   <- Gateway
                               .compose(Subgraph.graphql("ordinary-parsing", ordinaryStub.endpoint, ordinaryLimit))
-                              .build
+                              .interpreter
                               .either
         redirectTarget   <- stub(serviceResponse(reviewsSchema))
         redirects        <- Ref.make(0)
@@ -270,7 +270,7 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
                                   redirectEndpoint
                                 )
                               )
-                              .build
+                              .interpreter
                               .either
         redirectCount    <- redirects.get
         targetCalls      <- redirectTarget.requests.get
@@ -299,12 +299,12 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
         successTracked                                   <- tracked(serviceResponse(reviewsSchema))
         (successStream, successReleases, successReleased) = successTracked
         successEndpoint                                  <- streamingEndpoint(successStream)
-        success                                          <- Gateway.compose(Subgraph.federation("success", successEndpoint)).build.either
+        success                                          <- Gateway.compose(Subgraph.federation("success", successEndpoint)).interpreter.either
         _                                                <- successReleased.await
         failureTracked                                   <- tracked(invalidResponse)
         (failureStream, failureReleases, failureReleased) = failureTracked
         failureEndpoint                                  <- streamingEndpoint(failureStream)
-        failure                                          <- Gateway.compose(Subgraph.federation("failure", failureEndpoint)).build.either
+        failure                                          <- Gateway.compose(Subgraph.federation("failure", failureEndpoint)).interpreter.either
         _                                                <- failureReleased.await
         timeoutStarted                                   <- Promise.make[Nothing, Unit]
         timeoutReleases                                  <- Ref.make(0)
@@ -316,7 +316,7 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
                                                             )
         timeoutFiber                                     <- Gateway
                                                               .compose(Subgraph.federation("timeout", timeoutEndpoint, timeoutConfig))
-                                                              .build
+                                                              .interpreter
                                                               .either
                                                               .fork
         _                                                <- timeoutStarted.await
@@ -333,7 +333,7 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
                                                                 interruptReleases.update(_ + 1) *> interruptReleased.succeed(()).unit
                                                               )
                                                             )
-        interruptFiber                                   <- Gateway.compose(Subgraph.federation("interrupt", interruptEndpoint)).build.fork
+        interruptFiber                                   <- Gateway.compose(Subgraph.federation("interrupt", interruptEndpoint)).interpreter.fork
         _                                                <- interruptStarted.await
         _                                                <- interruptFiber.interruptFork
         _                                                <- responseComplete.succeed(())
@@ -371,7 +371,7 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
                                         protectedConfig
                                       )
                                     )
-                                    .build
+                                    .interpreter
                                     .either
                                 )
         sizeAfterFailure      = parent.size
@@ -384,9 +384,10 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
                                     interruptReleased.succeed(()).unit
                                   )
                                 )
-        interruptedBuild     <- parent
-                                  .extend(Gateway.compose(Subgraph.federation("interrupted", interruptEndpoint)).build)
-                                  .fork
+        interruptedBuild     <-
+          parent
+            .extend(Gateway.compose(Subgraph.federation("interrupted", interruptEndpoint)).interpreter)
+            .fork
         _                    <- interruptStarted.await
         _                    <- interruptedBuild.interruptFork
         _                    <- responseComplete.succeed(())

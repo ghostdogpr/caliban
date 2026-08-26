@@ -4,7 +4,7 @@ import caliban.InputValue.{ ListValue, ObjectValue => InputObjectValue }
 import caliban.ResponseValue.{ ListValue => ResponseListValue, ObjectValue => ResponseObjectValue }
 import caliban.Value.{ BooleanValue, EnumValue, IntValue, NullValue, StringValue }
 import caliban.gateway.GatewayTestSupport._
-import caliban.gateway.internal.GatewayRuntimeImpl
+import caliban.gateway.internal.GatewayInterpreterImpl
 import caliban.parsing.Parser
 import caliban.schema.{ GenericSchema, Schema }
 import caliban.wrappers.ApolloPersistedQueries
@@ -114,8 +114,8 @@ object GatewaySpec extends ZIOSpecDefault {
   private val errorsResponse =
     """{"errors":[{"message":"request rejected"}]}"""
 
-  private def runtime(stub: Stub): ZIO[Scope, GatewayBuildError, GatewayRuntime[Any]] =
-    Gateway.compose(Subgraph.graphql("products", stub.endpoint, schema)).build
+  private def runtime(stub: Stub): ZIO[Scope, GatewayBuildError, GatewayInterpreter[Any]] =
+    Gateway.compose(Subgraph.graphql("products", stub.endpoint, schema)).interpreter
 
   def spec = suite("GatewaySpec")(
     suite("local subgraphs")(
@@ -131,7 +131,7 @@ object GatewaySpec extends ZIOSpecDefault {
         })
 
         (for {
-          gateway  <- description.build
+          gateway  <- description.interpreter
           response <- gateway.execute("{ greeting audience }")
         } yield assertTrue(
           response.errors.isEmpty,
@@ -148,7 +148,7 @@ object GatewaySpec extends ZIOSpecDefault {
                            Subgraph.local("echo", LocalSchemas.EchoApi.api),
                            Subgraph.local("status", LocalSchemas.EnumApi.api)
                          )
-                         .build
+                         .interpreter
           primed    <- gateway.execute(query)
           responses <- ZIO.foreachPar((1 to 24).toList)(_ => gateway.execute(query))
         } yield assertTrue(
@@ -176,7 +176,7 @@ object GatewaySpec extends ZIOSpecDefault {
                            Subgraph.local("echo", LocalSchemas.EchoApi.api),
                            Subgraph.local("status", LocalSchemas.EnumApi.api)
                          )
-                         .build
+                         .interpreter
           primed    <- gateway.executeRequest(echoRequest("primed"))
           responses <- ZIO.foreachPar((1 to 24).toList)(i => gateway.executeRequest(echoRequest(s"value-$i")))
         } yield assertTrue(
@@ -191,7 +191,7 @@ object GatewaySpec extends ZIOSpecDefault {
       },
       test("completes enum values returned by a local subgraph") {
         for {
-          gateway  <- Gateway.compose(Subgraph.local("status", LocalSchemas.EnumApi.api)).build
+          gateway  <- Gateway.compose(Subgraph.local("status", LocalSchemas.EnumApi.api)).interpreter
           response <- gateway.execute("{ status }")
         } yield assertTrue(
           response.errors.isEmpty,
@@ -220,7 +220,7 @@ object GatewaySpec extends ZIOSpecDefault {
             Schema.api
           }
           interpreter <- ZIO.fromEither(api.interpreterEither).orDie
-          gateway     <- Gateway.compose(Subgraph.local("local", api)).build
+          gateway     <- Gateway.compose(Subgraph.local("local", api)).interpreter
           request      = GraphQLRequest(query = Some("{ context failure }"))
           direct      <- context.locally("request-context")(interpreter.executeRequest(request))
           response    <- context.locally("request-context")(gateway.executeRequest(request))
@@ -235,7 +235,7 @@ object GatewaySpec extends ZIOSpecDefault {
         for {
           gateway    <- Gateway
                           .compose(Subgraph.local("local", localGraph(ZIO.succeed("ok")) @@ maxDepth(0)))
-                          .build
+                          .interpreter
           classified <- GraphQLResponseContext.capture(gateway.execute("{ value }"))
         } yield assertTrue(
           classified.value.data == NullValue,
@@ -263,7 +263,7 @@ object GatewaySpec extends ZIOSpecDefault {
                             localGraph(ZIO.succeed("ok")) @@ ApolloPersistedQueries.wrapper
                           )
                         )
-                        .build
+                        .interpreter
           response <- gateway.executeRequest(request)
         } yield assertTrue(
           response.errors.isEmpty,
@@ -281,7 +281,7 @@ object GatewaySpec extends ZIOSpecDefault {
             }
             Schema.api
           }
-          gateway <- Gateway.compose(Subgraph.local("local", api)).build
+          gateway <- Gateway.compose(Subgraph.local("local", api)).interpreter
           fiber   <- gateway.execute("{ blocked }").fork
           _       <- started.await
           exit    <- fiber.interrupt
@@ -289,7 +289,7 @@ object GatewaySpec extends ZIOSpecDefault {
       }
     ),
     suite("single-source execution")(
-      test("executes one pinned remote graph end to end through GatewayRuntime") {
+      test("executes one pinned remote graph end to end through GatewayInterpreter") {
         for {
           remote                                            <- stub(dataResponse)
           gateway                                           <- runtime(remote)
@@ -401,7 +401,7 @@ object GatewaySpec extends ZIOSpecDefault {
 
         for {
           remote   <- stub(partialResponse)
-          gateway  <- Gateway.compose(Subgraph.graphql("products", remote.endpoint, partialSchema)).build
+          gateway  <- Gateway.compose(Subgraph.graphql("products", remote.endpoint, partialSchema)).interpreter
           response <- gateway.execute("{ catalog: products { label: name } }")
           errors    = executionErrors(response.errors)
         } yield assertTrue(
@@ -441,7 +441,7 @@ object GatewaySpec extends ZIOSpecDefault {
                             _.withMessages(true).withAdditionalExtensionKeys("reason")
                           )
                         )
-                        .build
+                        .interpreter
           response <- gateway.execute("{ first second }")
           errors    = executionErrors(response.errors)
         } yield assertTrue(
@@ -480,7 +480,7 @@ object GatewaySpec extends ZIOSpecDefault {
           gateway  <- Gateway
                         .compose(Subgraph.graphql("products", remote.endpoint, schema))
                         .withConfig(_.withRemoteErrorDisclosure(_.withMessages(true)))
-                        .build
+                        .interpreter
           response <- gateway.execute("{ products(ids: [\"p1\"]) { id } }")
         } yield assertTrue(
           response.data == NullValue,
@@ -500,7 +500,7 @@ object GatewaySpec extends ZIOSpecDefault {
           gateway  <- Gateway
                         .compose(Subgraph.graphql("products", remote.endpoint, singleSchema))
                         .withConfig(_.withRemoteErrorDisclosure(_.withMessages(true)))
-                        .build
+                        .interpreter
           response <- gateway.execute("{ product { name } }")
           errors    = executionErrors(response.errors)
         } yield assertTrue(
@@ -513,7 +513,8 @@ object GatewaySpec extends ZIOSpecDefault {
       test("completes a malformed nullable built-in scalar to null") {
         for {
           remote   <- stub("""{"data":{"value":{}}}""")
-          gateway  <- Gateway.compose(Subgraph.graphql("source", remote.endpoint, "type Query { value: String }")).build
+          gateway  <-
+            Gateway.compose(Subgraph.graphql("source", remote.endpoint, "type Query { value: String }")).interpreter
           response <- gateway.execute("{ value }")
           errors    = executionErrors(response.errors)
         } yield assertTrue(
@@ -528,7 +529,7 @@ object GatewaySpec extends ZIOSpecDefault {
 
         for {
           remote   <- stub("""{"data":{"explicit":null,"nested":{"present":"ok"}}}""")
-          gateway  <- Gateway.compose(Subgraph.graphql("source", remote.endpoint, sourceSchema)).build
+          gateway  <- Gateway.compose(Subgraph.graphql("source", remote.endpoint, sourceSchema)).interpreter
           response <- gateway.execute("{ absent explicit nested { present absent } }")
           errors    = executionErrors(response.errors)
         } yield assertTrue(
@@ -549,7 +550,8 @@ object GatewaySpec extends ZIOSpecDefault {
       test("rejects out-of-range Int values returned by a source") {
         for {
           remote   <- stub("""{"data":{"value":2147483648}}""")
-          gateway  <- Gateway.compose(Subgraph.graphql("source", remote.endpoint, "type Query { value: Int }")).build
+          gateway  <-
+            Gateway.compose(Subgraph.graphql("source", remote.endpoint, "type Query { value: Int }")).interpreter
           response <- gateway.execute("{ value }")
           errors    = executionErrors(response.errors)
         } yield assertTrue(
@@ -562,7 +564,8 @@ object GatewaySpec extends ZIOSpecDefault {
       test("bubbles a malformed non-null built-in scalar") {
         for {
           remote   <- stub("""{"data":{"value":{}}}""")
-          gateway  <- Gateway.compose(Subgraph.graphql("source", remote.endpoint, "type Query { value: String! }")).build
+          gateway  <-
+            Gateway.compose(Subgraph.graphql("source", remote.endpoint, "type Query { value: String! }")).interpreter
           response <- gateway.execute("{ value }")
           errors    = executionErrors(response.errors)
         } yield assertTrue(
@@ -577,7 +580,7 @@ object GatewaySpec extends ZIOSpecDefault {
 
         for {
           remote   <- stub(responseBody)
-          gateway  <- Gateway.compose(Subgraph.graphql("reviews", remote.endpoint, listSchema)).build
+          gateway  <- Gateway.compose(Subgraph.graphql("reviews", remote.endpoint, listSchema)).interpreter
           response <- gateway.execute("{ reviews }")
           errors    = executionErrors(response.errors)
         } yield assertTrue(
@@ -592,7 +595,7 @@ object GatewaySpec extends ZIOSpecDefault {
 
         for {
           remote   <- stub(responseBody)
-          gateway  <- Gateway.compose(Subgraph.graphql("reviews", remote.endpoint, listSchema)).build
+          gateway  <- Gateway.compose(Subgraph.graphql("reviews", remote.endpoint, listSchema)).interpreter
           response <- gateway.execute("{ reviews }")
           errors    = executionErrors(response.errors)
         } yield assertTrue(
@@ -606,7 +609,7 @@ object GatewaySpec extends ZIOSpecDefault {
 
         for {
           remote   <- stub("""{"data":{"product":"invalid"}}""")
-          gateway  <- Gateway.compose(Subgraph.graphql("products", remote.endpoint, objectSchema)).build
+          gateway  <- Gateway.compose(Subgraph.graphql("products", remote.endpoint, objectSchema)).interpreter
           response <- gateway.execute("{ product { name } }")
           errors    = executionErrors(response.errors)
         } yield assertTrue(
@@ -620,7 +623,7 @@ object GatewaySpec extends ZIOSpecDefault {
 
         for {
           remote   <- stub("""{"data":{"product":[]}}""")
-          gateway  <- Gateway.compose(Subgraph.graphql("products", remote.endpoint, objectSchema)).build
+          gateway  <- Gateway.compose(Subgraph.graphql("products", remote.endpoint, objectSchema)).interpreter
           response <- gateway.execute("{ product { name } }")
           errors    = executionErrors(response.errors)
         } yield assertTrue(
@@ -634,7 +637,7 @@ object GatewaySpec extends ZIOSpecDefault {
 
         for {
           remote   <- stub(invalidResponse)
-          gateway  <- Gateway.compose(Subgraph.graphql("source", remote.endpoint, nullableRoots)).build
+          gateway  <- Gateway.compose(Subgraph.graphql("source", remote.endpoint, nullableRoots)).interpreter
           response <- gateway.execute("{ first second }")
           errors    = executionErrors(response.errors)
         } yield assertTrue(
@@ -653,7 +656,7 @@ object GatewaySpec extends ZIOSpecDefault {
 
         for {
           remote   <- stub(responseBody)
-          gateway  <- Gateway.compose(Subgraph.graphql("source", remote.endpoint, nullableRoots)).build
+          gateway  <- Gateway.compose(Subgraph.graphql("source", remote.endpoint, nullableRoots)).interpreter
           response <- gateway.execute("{ first second }")
           errors    = executionErrors(response.errors)
         } yield assertTrue(
@@ -674,8 +677,8 @@ object GatewaySpec extends ZIOSpecDefault {
         )
 
       val patch  = ResponseObjectValue(("duplicate" -> StringValue("merged")) :: Nil)
-      val narrow = GatewayRuntimeImpl.mergeObject(value(15), patch)
-      val wide   = GatewayRuntimeImpl.mergeObject(value(16), patch)
+      val narrow = GatewayInterpreterImpl.mergeObject(value(15), patch)
+      val wide   = GatewayInterpreterImpl.mergeObject(value(16), patch)
 
       def duplicateValues(value: ResponseValue): List[StringValue] =
         value match {
@@ -694,18 +697,18 @@ object GatewaySpec extends ZIOSpecDefault {
           remote   <- stub(dataResponse)
           document <- ZIO.fromEither(Parser.parseQuery(schema))
           extended  = schema + "\nextend type Query { version: String }"
-          fromSdl  <- Gateway.compose(Subgraph.graphql("sdl", remote.endpoint, schema)).build.exit
-          fromDoc  <- Gateway.compose(Subgraph.graphql("document", remote.endpoint, document)).build.exit
+          fromSdl  <- Gateway.compose(Subgraph.graphql("sdl", remote.endpoint, schema)).interpreter.exit
+          fromDoc  <- Gateway.compose(Subgraph.graphql("document", remote.endpoint, document)).interpreter.exit
           fromExt  <- Gateway
                         .compose(Subgraph.graphql("extended", remote.endpoint, extended))
-                        .build
+                        .interpreter
                         .flatMap {
                           _.check("{ version }")
                         }
                         .exit
           invalid  <- Gateway
                         .compose(Subgraph.graphql("invalid", remote.endpoint, "type Query { broken: Missing }"))
-                        .build
+                        .interpreter
                         .exit
         } yield assertTrue(fromSdl.isSuccess, fromDoc.isSuccess, fromExt.isSuccess, invalid.isFailure)
       },
@@ -823,7 +826,7 @@ object GatewaySpec extends ZIOSpecDefault {
 
         for {
           products <- stub("""{"data":{"featured":{"id":"p1"}}}""")
-          gateway  <- Gateway.compose(Subgraph.graphql("products", products.endpoint, customRootSchema)).build
+          gateway  <- Gateway.compose(Subgraph.graphql("products", products.endpoint, customRootSchema)).interpreter
           request   = GraphQLRequest(
                         query = Some(query),
                         operationName = Some("Dashboard"),
