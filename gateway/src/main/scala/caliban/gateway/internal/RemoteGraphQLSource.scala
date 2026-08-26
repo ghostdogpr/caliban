@@ -56,7 +56,7 @@ private[gateway] final class RemoteGraphQLSource[-R](
         response  <-
           if (operationType == OperationType.Query)
             queryCalls.fold(admitted)(
-              _.execute(QueryCallIdentity(body, headers), None, wrapper)(
+              _.execute(QueryCallIdentity(body, headers), wrapper)(
                 admitted.timeoutFail(GraphQLSource.TimeoutFailure)(execution.timeout)
               )
             )
@@ -382,16 +382,14 @@ private[gateway] object RemoteGraphQLSource {
   ) {
     def execute[R](
       key: QueryCallIdentity,
-      admission: Option[ExecutionGate],
       wrapper: GatewayWrapper[R]
     )(
       call: => ZIO[R, GraphQLSource.Failure, GraphQLResponse[CalibanError]]
     )(implicit trace: Trace): ZIO[R, GraphQLSource.Failure, GraphQLResponse[CalibanError]] =
-      ZIO.uninterruptible(loop(key, admission, wrapper, call))
+      ZIO.uninterruptible(loop(key, wrapper, call))
 
     private def loop[R](
       key: QueryCallIdentity,
-      admission: Option[ExecutionGate],
       wrapper: GatewayWrapper[R],
       call: => ZIO[R, GraphQLSource.Failure, GraphQLResponse[CalibanError]]
     )(implicit trace: Trace): ZIO[R, GraphQLSource.Failure, GraphQLResponse[CalibanError]] =
@@ -404,7 +402,7 @@ private[gateway] object RemoteGraphQLSource {
               decide(key, candidate).flatMap {
                 case QueryCallDecision.Start          =>
                   observe(DeduplicationResult.Start, wrapper)(
-                    complete(key, candidate, admission.fold(call)(_.observed(wrapper)(call))).interruptible
+                    complete(key, candidate, call).interruptible
                       .forkIn(scope) *>
                       await(candidate).interruptible
                   )
@@ -414,7 +412,6 @@ private[gateway] object RemoteGraphQLSource {
                   observe(DeduplicationResult.Wait, wrapper)(
                     signal.await.interruptible *> loop(
                       key,
-                      admission,
                       wrapper,
                       call
                     )

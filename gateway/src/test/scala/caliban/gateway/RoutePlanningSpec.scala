@@ -481,6 +481,46 @@ object RoutePlanningSpec extends ZIOSpecDefault {
         remote.isEmpty
       )
     },
+    test("plans invariant nested alternatives once within the candidate budget") {
+      val rootsSchema    =
+        s"""
+           |${federationSchemaPreamble("@key")}
+           |type Query { product: Product }
+           |type Product @key(fields: "id") { id: ID! }
+           |""".stripMargin
+      val productsSchema =
+        s"""
+           |${federationSchemaPreamble("@key", "@external")}
+           |type Product @key(fields: "id") {
+           |  id: ID! @external
+           |  one: One!
+           |  two: Two!
+           |  three: Three!
+           |}
+           |type One @key(fields: "id") { id: ID! }
+           |type Two @key(fields: "id") { id: ID! }
+           |type Three @key(fields: "id") { id: ID! }
+           |""".stripMargin
+      val valueSchema    =
+        s"""
+           |${federationSchemaPreamble("@key", "@external", "@shareable")}
+           |type One @key(fields: "id") { id: ID! @external value: String! @shareable }
+           |type Two @key(fields: "id") { id: ID! @external value: String! @shareable }
+           |type Three @key(fields: "id") { id: ID! @external value: String! @shareable }
+           |""".stripMargin
+
+      Gateway
+        .compose(
+          Subgraph.federation("roots", unreachableEndpoint, rootsSchema),
+          Subgraph.federation("products", unreachableEndpoint, productsSchema),
+          Subgraph.federation("values-a", unreachableEndpoint, valueSchema),
+          Subgraph.federation("values-b", unreachableEndpoint, valueSchema)
+        )
+        .withConfig(_.withMaxPlanningCandidates(128))
+        .build
+        .flatMap(_.explain("{ product { one { value } two { value } three { value } } }").exit)
+        .map(exit => assertTrue(exit.isSuccess))
+    },
     test("fails rather than dropping a fragment for an unresolved concrete type") {
       val rootsSchema   =
         s"""

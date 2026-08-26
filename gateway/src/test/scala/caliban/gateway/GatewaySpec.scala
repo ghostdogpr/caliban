@@ -645,6 +645,24 @@ object GatewaySpec extends ZIOSpecDefault {
             List(PathValue.Key("second"))
           )
         )
+      },
+      test("emits one fallback error per field for multiple path-less remote errors") {
+        val nullableRoots = "type Query { first: String second: String }"
+        val responseBody  =
+          """{"data":{"first":null,"second":null},"errors":[{"message":"first failure"},{"message":"second failure"}]}"""
+
+        for {
+          remote   <- stub(responseBody)
+          gateway  <- Gateway.compose(Subgraph.graphql("source", remote.endpoint, nullableRoots)).build
+          response <- gateway.execute("{ first second }")
+          errors    = executionErrors(response.errors)
+        } yield assertTrue(
+          errors.map(_.msg) == List("Remote GraphQL request failed.", "Remote GraphQL request failed."),
+          errors.map(_.path) == List(
+            List(PathValue.Key("first")),
+            List(PathValue.Key("second"))
+          )
+        )
       }
     ),
     test("merges duplicate fields last-wins on both sides of the wide-object threshold") {

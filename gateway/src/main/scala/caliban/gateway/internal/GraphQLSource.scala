@@ -94,19 +94,25 @@ private[gateway] object GraphQLSource {
     case object Remote extends ErrorPolicy {
       def passthrough(fields: List[Field], errors: List[CalibanError]): List[CalibanError] = routed(fields, errors)
 
-      def routed(fields: List[Field], errors: List[CalibanError]): List[CalibanError] =
-        errors.flatMap {
-          case error: CalibanError.ExecutionError if RemoteError.hasClientPath(fields, error.path) =>
-            error.copy(locationInfo = None) :: Nil
-          case error: CalibanError.ExecutionError                                                  =>
+      def routed(fields: List[Field], errors: List[CalibanError]): List[CalibanError] = {
+        val (routedErrors, needsFallback) = errors.foldLeft((List.empty[CalibanError], false)) {
+          case ((routed, fallback), error: CalibanError.ExecutionError)
+              if RemoteError.hasClientPath(fields, error.path) =>
+            (error.copy(locationInfo = None) :: routed, fallback)
+          case ((routed, fallback), error: CalibanError.ExecutionError) =>
             error.path match {
               case PathValue.Key(name) :: _ if fields.exists(_.aliasedName == name) =>
-                RemoteError.at(List(PathValue.Key(name))) :: Nil
+                (RemoteError.at(List(PathValue.Key(name))) :: routed, fallback)
               case _                                                                =>
-                fields.map(field => RemoteError.at(List(PathValue.Key(field.aliasedName))))
+                (routed, true)
             }
-          case error                                                                               => error :: Nil
+          case ((routed, fallback), error)                              =>
+            (error :: routed, fallback)
         }
+
+        routedErrors.reverse :::
+          (if (needsFallback) fields.map(field => RemoteError.at(List(PathValue.Key(field.aliasedName)))) else Nil)
+      }
 
       def unusableEntity(error: CalibanError.ExecutionError, path: List[PathValue]): CalibanError.ExecutionError =
         RemoteError.at(path)

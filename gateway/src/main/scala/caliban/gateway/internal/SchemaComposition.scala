@@ -2112,31 +2112,31 @@ private[gateway] object SchemaComposition {
     roots: List[RootFieldEntry],
     types: List[TypeEntry]
   ): List[String] = {
-    val inaccessibleTypes   = types.filter(_.inaccessible).map(_.name).toSet
-    val inaccessibleFields  = types.iterator.flatMap(entry => entry.inaccessibleFields.map(entry.name -> _)).toSet
-    val inaccessibleInputs  =
+    val inaccessibleTypes      = types.filter(_.inaccessible).map(_.name).toSet
+    val inaccessibleFields     = types.iterator.flatMap(entry => entry.inaccessibleFields.map(entry.name -> _)).toSet
+    val inaccessibleInputs     =
       types.iterator.flatMap(entry => entry.inaccessibleInputFields.map(entry.name -> _)).toSet
-    val inaccessibleRoots   = roots.iterator
+    val inaccessibleRoots      = roots.iterator
       .filter(_.inaccessible)
       .map(entry => entry.operation -> entry.field.name)
       .toSet
-    val rootHiddenArguments = roots
+    val rootHiddenArguments    = roots
       .groupBy(entry => entry.operation -> entry.field.name)
       .map { case (coordinate, entries) => coordinate -> entries.iterator.flatMap(_.inaccessibleArguments).toSet }
-    val hiddenArguments     = types.iterator
+    val hiddenArguments        = types.iterator
       .flatMap(entry =>
         entry.inaccessibleArguments.map { case (field, argument) =>
           (entry.name, field, argument)
         }
       )
       .toSet
-    val rootOutputErrors    = roots.collect {
+    val rootOutputErrors       = roots.collect {
       case entry
           if !inaccessibleRoots.contains(entry.operation -> entry.field.name) &&
             entry.field._type.innerType.name.exists(inaccessibleTypes.contains) =>
         s"[${entry.source}] Field '${entry.field.name}' must be @inaccessible because its return type is inaccessible."
     }
-    val rootArgumentErrors  = roots.flatMap { entry =>
+    val rootArgumentErrors     = roots.flatMap { entry =>
       entry.field.allArgs.collect {
         case argument
             if !inaccessibleRoots.contains(entry.operation -> entry.field.name) &&
@@ -2145,8 +2145,17 @@ private[gateway] object SchemaComposition {
           s"[${entry.source}] Argument '${entry.field.name}.${argument.name}' must be @inaccessible because its input type is inaccessible."
       }
     }
-    val accessibleTypes     = types.filterNot(_.inaccessible)
-    val fieldOutputErrors   = accessibleTypes.flatMap { entry =>
+    val requiredRootArguments  = roots.flatMap { entry =>
+      entry.field.allArgs.collect {
+        case argument
+            if !inaccessibleRoots.contains(entry.operation -> entry.field.name) &&
+              rootHiddenArguments.getOrElse(entry.operation -> entry.field.name, Set.empty).contains(argument.name) &&
+              !argument._type.isNullable && argument.defaultValue.isEmpty =>
+          s"[${entry.source}] Required @inaccessible argument '${entry.field.name}.${argument.name}' must define a default value."
+      }
+    }
+    val accessibleTypes        = types.filterNot(entry => inaccessibleTypes.contains(entry.name))
+    val fieldOutputErrors      = accessibleTypes.flatMap { entry =>
       entry.tpe.allFields.collect {
         case field
             if !inaccessibleFields.contains(entry.name -> field.name) &&
@@ -2154,7 +2163,7 @@ private[gateway] object SchemaComposition {
           s"[${entry.source}] Field '${entry.name}.${field.name}' must be @inaccessible because its return type is inaccessible."
       }
     }
-    val fieldArgumentErrors = accessibleTypes.flatMap { entry =>
+    val fieldArgumentErrors    = accessibleTypes.flatMap { entry =>
       entry.tpe.allFields.filterNot(field => inaccessibleFields.contains(entry.name -> field.name)).flatMap { field =>
         field.allArgs.collect {
           case argument
@@ -2164,7 +2173,17 @@ private[gateway] object SchemaComposition {
         }
       }
     }
-    val inputFieldErrors    = accessibleTypes.flatMap { entry =>
+    val requiredFieldArguments = accessibleTypes.flatMap { entry =>
+      entry.tpe.allFields.filterNot(field => inaccessibleFields.contains(entry.name -> field.name)).flatMap { field =>
+        field.allArgs.collect {
+          case argument
+              if hiddenArguments.contains((entry.name, field.name, argument.name)) &&
+                !argument._type.isNullable && argument.defaultValue.isEmpty =>
+            s"[${entry.source}] Required @inaccessible argument '${entry.name}.${field.name}.${argument.name}' must define a default value."
+        }
+      }
+    }
+    val inputFieldErrors       = accessibleTypes.flatMap { entry =>
       entry.tpe.allInputFields.collect {
         case field
             if !inaccessibleInputs.contains(entry.name -> field.name) &&
@@ -2172,7 +2191,22 @@ private[gateway] object SchemaComposition {
           s"[${entry.source}] Input field '${entry.name}.${field.name}' must be @inaccessible because its input type is inaccessible."
       }
     }
-    rootOutputErrors ::: rootArgumentErrors ::: fieldOutputErrors ::: fieldArgumentErrors ::: inputFieldErrors
+    val requiredInputFields    = accessibleTypes.flatMap { entry =>
+      entry.tpe.allInputFields.collect {
+        case field
+            if inaccessibleInputs.contains(entry.name -> field.name) &&
+              !field._type.isNullable && field.defaultValue.isEmpty =>
+          s"[${entry.source}] Required @inaccessible input field '${entry.name}.${field.name}' must define a default value."
+      }
+    }
+    rootOutputErrors :::
+      rootArgumentErrors :::
+      requiredRootArguments :::
+      fieldOutputErrors :::
+      fieldArgumentErrors :::
+      requiredFieldArguments :::
+      inputFieldErrors :::
+      requiredInputFields
   }
 
   private def compatibleField(left: __Field, right: __Field): Boolean = {

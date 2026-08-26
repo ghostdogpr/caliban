@@ -530,6 +530,53 @@ object CompositionSpec extends ZIOSpecDefault {
           .exit
           .map(exit => assertTrue(exit.isSuccess))
       },
+      test("applies inaccessible type visibility across every contribution") {
+        val alpha = schema(
+          "type Query { health: String @shareable box: Box @inaccessible @shareable } type Box @inaccessible { secret: Secret @shareable } type Secret @inaccessible { value: String @shareable }",
+          "@inaccessible",
+          "@shareable"
+        )
+        val beta  = schema(
+          "type Query { health: String @shareable box: Box @inaccessible @shareable } type Box { secret: Secret @shareable } type Secret @inaccessible { value: String @shareable }",
+          "@inaccessible",
+          "@shareable"
+        )
+
+        Gateway
+          .compose(
+            Subgraph.federation("alpha", endpoint, alpha),
+            Subgraph.federation("beta", endpoint, beta)
+          )
+          .build
+          .exit
+          .map(exit => assertTrue(exit.isSuccess))
+      },
+      test("rejects required inaccessible arguments and input fields without defaults") {
+        val argumentSchema = schema(
+          "type Query { search(term: String!, tenant: String! @inaccessible): String }",
+          "@inaccessible"
+        )
+        val inputSchema    = schema(
+          "type Query { search(filter: Filter!): String } input Filter { term: String! tenant: String! @inaccessible }",
+          "@inaccessible"
+        )
+        val defaultSchema  = schema(
+          "type Query { search(tenant: String! = \"public\" @inaccessible): String }",
+          "@inaccessible"
+        )
+
+        for {
+          argument <- Gateway.compose(Subgraph.federation("argument", endpoint, argumentSchema)).build.exit
+          input    <- Gateway.compose(Subgraph.federation("input", endpoint, inputSchema)).build.exit
+          default  <- Gateway.compose(Subgraph.federation("default", endpoint, defaultSchema)).build.exit
+        } yield assertTrue(
+          argument.isFailure,
+          input.isFailure,
+          default.isSuccess,
+          buildDiagnostics(argument).exists(_.toLowerCase.contains("required @inaccessible")),
+          buildDiagnostics(input).exists(_.toLowerCase.contains("required @inaccessible"))
+        )
+      },
       test("keeps query and mutation argument visibility separate") {
         val operationSchema =
           s"""

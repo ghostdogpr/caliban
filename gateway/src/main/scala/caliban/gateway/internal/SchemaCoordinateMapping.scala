@@ -138,17 +138,21 @@ private[gateway] final class SchemaCoordinateMapping private (
   }
 
   def rootFieldToSource(field: Field): Field = {
-    val clientParent = field.parentType.flatMap(_.innerType.name).getOrElse("")
-    val sourceParent = sourceRootNamesByOperation.getOrElse(clientParent, sourceType(clientParent))
-    val sourceName   = sourceField(clientParent, field.name)
-    val definition   = sourceFieldDefinition(sourceParent, sourceName)
-    val arguments    = translateArguments(
+    val clientParent       = field.parentType.flatMap(_.innerType.name).getOrElse("")
+    val sourceParent       = sourceRootNamesByOperation.getOrElse(clientParent, sourceType(clientParent))
+    val sourceName         = sourceField(clientParent, field.name)
+    val definition         = sourceFieldDefinition(sourceParent, sourceName)
+    val composedDirectives = field.parentType
+      .flatMap(parent => Option(parent.innerType.getFieldOrNull(field.name)))
+      .flatMap(_.directives)
+      .getOrElse(Nil)
+    val arguments          = translateArguments(
       definition.toList.flatMap(_.allArgs),
       field.arguments,
       name => sourceArguments.getOrElse((clientParent, field.name, name), name),
       ToSource
     )
-    val alias        =
+    val alias              =
       if (field.alias.isEmpty && sourceName != field.name) Some(field.name)
       else field.alias
 
@@ -158,7 +162,10 @@ private[gateway] final class SchemaCoordinateMapping private (
       parentType = originalRootType.types.get(sourceParent),
       fields = field.fields.map(rootFieldToSource),
       targets = field.targets.map(_.map(sourceType)),
-      arguments = arguments
+      arguments = arguments,
+      directives =
+        if (composedDirectives.isEmpty) field.directives
+        else field.directives.filterNot(composedDirectives.contains)
     )
   }
 

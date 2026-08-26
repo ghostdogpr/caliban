@@ -103,15 +103,14 @@ private[gateway] final class OperationPlanner(
                 sources
                   .foldLeft[Either[PlanningFailure, List[List[PlannedRoot]]]](Right(List(Nil))) {
                     case (result, source) =>
-                      result.flatMap { roots =>
-                        val selected = rootFieldForSource(field, source, sources)
-                        search
-                          .evaluate(roots) { current =>
-                            planRootsAtSource(field, selected, source, sources, false)
-                              .map(planned => if (planned.isEmpty) List(current) else planned.map(current :+ _))
-                          }
-                          .map(_.flatten)
-                      }
+                      for {
+                        roots    <- result
+                        selected  = rootFieldForSource(field, source, sources)
+                        planned  <- planRootsAtSource(field, selected, source, sources, false)
+                        combined <-
+                          if (planned.isEmpty) Right(roots)
+                          else search.combine(roots, planned)((current, root) => current :+ root)
+                      } yield combined
                   }
                   .flatMap { roots =>
                     val complete = roots.filter(_.nonEmpty)
@@ -526,9 +525,11 @@ private[gateway] final class OperationPlanner(
       .foldLeft[Either[PlanningFailure, List[PlannedSelections]]](
         Right(List(PlannedSelections(Nil, Nil, Nil, Nil)))
       ) { case (result, (child, provided)) =>
-        result.flatMap(values =>
-          search
-            .evaluate(values) { current =>
+        for {
+          current      <- result
+          alternatives <-
+            if (current.isEmpty) Left(PlanningFailure("No complete route candidate was found."))
+            else
               planFieldCandidates(
                 child,
                 source,
@@ -542,17 +543,16 @@ private[gateway] final class OperationPlanner(
                 availableKeys(source, child.fieldType.innerType),
                 provided,
                 Set.empty
-              ).map(_.map { planned =>
-                PlannedSelections(
-                  planned.downstream :: current.downstream,
-                  current.entities ::: planned.entities,
-                  current.pending ::: wrapPending(child, planned.pending),
-                  current.runtimeTypes ::: planned.runtimeTypes
-                )
-              })
-            }
-            .map(_.flatten)
-        )
+              )
+          combined     <- search.combine(current, alternatives) { case (values, planned) =>
+                            PlannedSelections(
+                              planned.downstream :: values.downstream,
+                              values.entities ::: planned.entities,
+                              values.pending ::: wrapPending(child, planned.pending),
+                              values.runtimeTypes ::: planned.runtimeTypes
+                            )
+                          }
+        } yield combined
       }
       .map(_.map(value => value.copy(downstream = value.downstream.reverse)))
 

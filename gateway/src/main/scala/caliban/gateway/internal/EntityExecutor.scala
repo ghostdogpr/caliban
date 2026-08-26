@@ -425,20 +425,10 @@ private[gateway] final class EntityExecutor[-R](
             skip(route, path)
           else if (
             objectType && route.typename.exists { selection =>
-              var differs   = false
-              var found     = false
-              var remaining = obj.fields
-              while (!found && (remaining ne Nil)) {
-                val head = remaining.head
-                head._2 match {
-                  case StringValue(runtimeType) if head._1 == selection.responseName =>
-                    found = true
-                    differs = runtimeType != route.entityType
-                  case _                                                             => ()
-                }
-                remaining = remaining.tail
+              obj.getOrNull(selection.responseName) match {
+                case StringValue(runtimeType) => runtimeType != route.entityType
+                case _                        => false
               }
-              differs
             }
           )
             skip(route, path)
@@ -683,14 +673,21 @@ private[gateway] final class EntityExecutor[-R](
         protocolErrors += unexpectedEntityResult(route)
     }
 
-    val missing        = batch.entries.zipWithIndex.filterNot { case (_, index) => resolved.contains(index) }
-    missing.foreach { case (entry, _) => blockEntry(entry, blocked) }
-    val merged         = batch.entries.zipWithIndex.flatMap { case (entry, index) =>
-      patches
-        .get(index)
-        .toList
-        .flatMap(patch => entry.locations.map(location => EntityPatch(location.route, location.path, patch)))
+    val missingBuilder = List.newBuilder[EntityBatchEntry]
+    val mergedBuilder  = List.newBuilder[EntityPatch]
+    var entryIndex     = 0
+    batch.entries.foreach { entry =>
+      if (!resolved.contains(entryIndex)) missingBuilder += entry
+      else {
+        val patch = patches.getOrElse(entryIndex, null)
+        if (patch ne null)
+          entry.locations.foreach(location => mergedBuilder += EntityPatch(location.route, location.path, patch))
+      }
+      entryIndex += 1
     }
+    val missing        = missingBuilder.result()
+    val merged         = mergedBuilder.result()
+    missing.foreach(blockEntry(_, blocked))
     val relocated      = relocateErrors(route, batch, lookup, values.toMap, response.errors, errorPolicy)
     val unindexedError = response.errors.exists {
       case error: CalibanError.ExecutionError => lookup.response.errorIndex(error.path).isEmpty
@@ -702,9 +699,9 @@ private[gateway] final class EntityExecutor[-R](
         lookup.correlation match {
           case _: EntityCorrelation.ByKey                                  => Nil
           case EntityCorrelation.Ordered | _: EntityCorrelation.Federation =>
-            missing.flatMap { case (entry, _) =>
+            missing.flatMap { entry =>
               entry.locations.map(location => missingEntityResult(location.route, location.path))
-            }.toList
+            }
         }
     val errors         = batch.errors :::
       relocated :::
@@ -712,7 +709,7 @@ private[gateway] final class EntityExecutor[-R](
       missingErrors
 
     EntityResult(
-      merged.toList,
+      merged,
       errors,
       batch.routes,
       immutableBlocked(blocked)

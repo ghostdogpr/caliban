@@ -103,6 +103,34 @@ object QuickAdapterSpec extends ZIOSpecDefault {
                     )
       } yield assertTrue(response.is200, response.body.contains("\"data\""))
     },
+    test("accepts UTF-8 charset parameters without ignoring other media constraints") {
+      val endpoint = uri"http://localhost:8090/api/graphql"
+      val body     = """{"query":"{ characters { name } }"}"""
+
+      def send(accept: String) =
+        execute(
+          basicRequest
+            .post(endpoint)
+            .contentType("application/json")
+            .header("Accept", accept)
+            .body(body)
+            .response(asStringAlways)
+        )
+
+      for {
+        utf8    <- send("application/json; charset=utf-8")
+        alias   <- send("application/json; charset=UTF8")
+        latin1  <- send("application/json; charset=iso-8859-1")
+        profile <- send("application/json; profile=custom")
+      } yield assertTrue(
+        utf8.is200,
+        alias.is200,
+        utf8.contentType.contains("application/json"),
+        alias.contentType.contains("application/json"),
+        latin1.code.code == 406,
+        profile.code.code == 406
+      )
+    },
     test("accepts a known-length JSON body within the configured limit") {
       val body = """{"query":"{ characters { name } }"}"""
 

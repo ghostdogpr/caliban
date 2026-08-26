@@ -575,8 +575,11 @@ object QuickRequestHandler {
       val parameters = range.parameters - "q"
       (range.mainType == "*" || range.mainType.equalsIgnoreCase(candidate.mainType)) &&
       (range.subType == "*" || range.subType.equalsIgnoreCase(candidate.subType)) &&
-      parameters.forall { case (name, value) =>
-        candidate.parameters.get(name.toLowerCase).exists(_.equalsIgnoreCase(value))
+      parameters.forall {
+        case (name, value) if name.equalsIgnoreCase("charset") =>
+          value.equalsIgnoreCase("utf-8") || value.equalsIgnoreCase("utf8")
+        case (name, value)                                     =>
+          candidate.parameters.get(name.toLowerCase).exists(_.equalsIgnoreCase(value))
       }
     }
 

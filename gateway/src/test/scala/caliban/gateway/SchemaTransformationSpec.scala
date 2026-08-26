@@ -268,27 +268,34 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
     },
     test("transforms enum defaults declared by custom directives") {
       val schema =
-        "directive @flag(status: Status = ACTIVE) on FIELD_DEFINITION type Query { value: String @flag } enum Status { ACTIVE }"
+        "directive @flag(status: Status = ACTIVE) on FIELD_DEFINITION type Query { product: Product } type Product { name: String @flag(status: ACTIVE) } enum Status { ACTIVE }"
 
       for {
-        remote  <- stub("""{"data":{"value":"ok"}}""")
-        gateway <- Gateway
-                     .compose(
-                       Subgraph
-                         .graphql("directives", remote.endpoint, schema)
-                         .transform(SchemaTransformation.renameEnumValue("Status", "ACTIVE", "AVAILABLE"))
-                     )
-                     .build
-        result  <- gateway.execute("{ __schema { directives { name args { name defaultValue } } } }")
-        default  = field(result.data, "__schema")
-                     .flatMap(field(_, "directives"))
-                     .collect { case ListValue(values) => values }
-                     .flatMap(_.find(field(_, "name").contains(StringValue("flag"))))
-                     .flatMap(field(_, "args"))
-                     .collect { case ListValue(values) => values }
-                     .flatMap(_.find(field(_, "name").contains(StringValue("status"))))
-                     .flatMap(field(_, "defaultValue"))
-      } yield assertTrue(result.errors.isEmpty, default.contains(StringValue("AVAILABLE")))
+        remote   <- stub("""{"data":{"product":{"name":"Table"}}}""")
+        gateway  <- Gateway
+                      .compose(
+                        Subgraph
+                          .graphql("directives", remote.endpoint, schema)
+                          .transform(SchemaTransformation.renameEnumValue("Status", "ACTIVE", "AVAILABLE"))
+                      )
+                      .build
+        result   <- gateway.execute("{ __schema { directives { name args { name defaultValue } } } }")
+        value    <- gateway.execute("{ product { name } }")
+        requests <- remote.requests.get
+        default   = field(result.data, "__schema")
+                      .flatMap(field(_, "directives"))
+                      .collect { case ListValue(values) => values }
+                      .flatMap(_.find(field(_, "name").contains(StringValue("flag"))))
+                      .flatMap(field(_, "args"))
+                      .collect { case ListValue(values) => values }
+                      .flatMap(_.find(field(_, "name").contains(StringValue("status"))))
+                      .flatMap(field(_, "defaultValue"))
+      } yield assertTrue(
+        result.errors.isEmpty,
+        value.errors.isEmpty,
+        default.contains(StringValue("AVAILABLE")),
+        requests.headOption.flatMap(_.query).exists(!_.contains("@flag"))
+      )
     },
     test("uses an aliased provides directive's output type for field-set transformations") {
       val directives    = federationDirectives.replace("directive @provides", "directive @supplies")

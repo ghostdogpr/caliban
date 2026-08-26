@@ -25,9 +25,9 @@ private[gateway] final class RuntimeControl private (
     withLease(requests(effect), ZIO.unit)(onTimeout)(onRejected)(identity)
 
   def runObservedRequest[R, E, A](wrapper: GatewayWrapper[R], event: Event.Request)(effect: ZIO[R, E, A])(
-    onTimeout: URIO[R, A]
+    onTimeout: => URIO[R, A]
   )(
-    onRejected: URIO[R, A]
+    onRejected: => URIO[R, A]
   )(result: Exit[E, A] => Result)(implicit trace: Trace): ZIO[R, E, A] =
     withLease(
       requests.observed(wrapper)(effect),
