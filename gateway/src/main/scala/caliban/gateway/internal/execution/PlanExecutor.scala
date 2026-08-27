@@ -451,7 +451,7 @@ private[internal] object PlanExecutionCache {
 private[internal] final class PlanExecutionCache {
   val roots: ConcurrentHashMap[FetchId, PlanExecutor.PreparedRoot]              = new ConcurrentHashMap
   val groupKeys: ConcurrentHashMap[FetchId, OperationPlan.EntityGroupKey]       = new ConcurrentHashMap
-  val lookups: ConcurrentHashMap[FetchId, EntityExecutor.PreparedLookup]        = new ConcurrentHashMap
+  val lookups: ConcurrentHashMap[FetchId, EntityLookup.PreparedLookup]          = new ConcurrentHashMap
   val identities: ConcurrentHashMap[FetchId, EntityExecutor.IdentitySelections] = new ConcurrentHashMap
 }
 
