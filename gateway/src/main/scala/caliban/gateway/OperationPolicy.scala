@@ -122,7 +122,7 @@ object OperationPolicy {
               ZIO.forall(requirement.directives) {
                 case policy: SecurityDirective.Policy if !policy.isAuthenticationOnly =>
                   ZIO.exists(policy.policies)(names => ZIO.forall(names)(name => handler(claims, name)))
-                case directive                                                       =>
+                case directive                                                        =>
                   ZIO.succeed(allowsWithoutHandler(directive, granted))
               }
             }

@@ -156,14 +156,16 @@ object SecurityPolicySpec extends ZIOSpecDefault {
                         .interpreter
                     }
         results  <- ZIO.foreach(cases) { case (query, scope, allowed) =>
-                      ZIO.foreach(runtimes) { runtime =>
-                        claims.locally(scope.map(Claims(_)))(runtime.execute(query)).map { result =>
-                          assertTrue(
-                            result.errors.map(_.msg) ==
-                              (if (allowed) Nil else List("Operation rejected by gateway policy."))
-                          )
+                      ZIO
+                        .foreach(runtimes) { runtime =>
+                          claims.locally(scope.map(Claims(_)))(runtime.execute(query)).map { result =>
+                            assertTrue(
+                              result.errors.map(_.msg) ==
+                                (if (allowed) Nil else List("Operation rejected by gateway policy."))
+                            )
+                          }
                         }
-                      }.map(_.reduce(_ && _))
+                        .map(_.reduce(_ && _))
                     }
         sent     <- remote.requests.get
       } yield results.reduce(_ && _) && assertTrue(sent.size == cases.count(_._3) * policies.size)
@@ -229,7 +231,7 @@ object SecurityPolicySpec extends ZIOSpecDefault {
     },
     test("masks scope mapping defects without executing protected operations") {
       val scopes: Claims => Set[String] = _ => throw new RuntimeException("scopes-secret")
-      val policies                     = List(
+      val policies                      = List(
         OperationPolicy.fromClaims(ZIO.some(Claims("")))(scopes),
         OperationPolicy.fromClaims(ZIO.some(Claims("")), (_: Claims, _: String) => ZIO.succeed(false))(scopes)
       )
