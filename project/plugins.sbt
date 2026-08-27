@@ -11,7 +11,7 @@ addSbtPlugin("com.thesamet"       % "sbt-protoc"                    % "1.0.8")
 addSbtPlugin("com.eed3si9n"       % "sbt-buildinfo"                 % "0.13.1")
 addSbtPlugin("org.scalameta"      % "sbt-mdoc"                      % "2.9.1")
 addSbtPlugin("com.typesafe"       % "sbt-mima-plugin"               % "1.1.6")
-addSbtPlugin("com.eed3si9n"       % "sbt-assembly"                  % "2.4.2")
+addSbtPlugin("com.eed3si9n"       % "sbt-assembly"                  % "2.5.0")
 
 addSbtPlugin("org.jetbrains.scala" % "sbt-ide-settings" % "1.1.4")
 
