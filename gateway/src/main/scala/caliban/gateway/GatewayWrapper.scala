@@ -20,20 +20,20 @@ abstract class GatewayWrapper[-R] { self =>
    * `result` is evaluated inside the wrapper, before its scope closes. This lets span, metric, logging, and other
    * integrations observe the same typed completion without a separate callback protocol.
    */
-  def wrap[R0, E, A](event: GatewayWrapper.Event)(effect: ZIO[R0, E, A])(
+  def wrap[R0 <: R, E, A](event: GatewayWrapper.Event)(effect: ZIO[R0, E, A])(
     result: Exit[E, A] => GatewayWrapper.Result
-  )(implicit trace: Trace): ZIO[R with R0, E, A]
+  )(implicit trace: Trace): ZIO[R0, E, A]
 
   /**
    * Transforms semantic remote-call headers before in-flight identity is selected.
    */
-  def outboundHeaders(source: String, headers: List[Header])(implicit trace: Trace): URIO[R, List[Header]] =
+  def outboundHeaders(subgraph: String, headers: List[Header])(implicit trace: Trace): URIO[R, List[Header]] =
     ZIO.succeed(headers)
 
   /**
    * Adds per-attempt transport context after in-flight identity is selected.
    */
-  def attemptHeaders(source: String, attempt: Int, headers: List[Header])(implicit
+  def attemptHeaders(subgraph: String, attempt: Int, headers: List[Header])(implicit
     trace: Trace
   ): URIO[R, List[Header]] =
     ZIO.succeed(headers)
@@ -46,20 +46,20 @@ abstract class GatewayWrapper[-R] { self =>
     else if (!that.enabled) self
     else
       new GatewayWrapper[R1] {
-        def wrap[R0, E, A](event: GatewayWrapper.Event)(effect: ZIO[R0, E, A])(
+        def wrap[R0 <: R1, E, A](event: GatewayWrapper.Event)(effect: ZIO[R0, E, A])(
           result: Exit[E, A] => GatewayWrapper.Result
-        )(implicit trace: Trace): ZIO[R1 with R0, E, A] =
+        )(implicit trace: Trace): ZIO[R0, E, A] =
           self.wrap(event)(that.wrap(event)(effect)(result))(result)
 
-        override def outboundHeaders(source: String, headers: List[Header])(implicit
+        override def outboundHeaders(subgraph: String, headers: List[Header])(implicit
           trace: Trace
         ): URIO[R1, List[Header]] =
-          self.outboundHeaders(source, headers).flatMap(that.outboundHeaders(source, _))
+          self.outboundHeaders(subgraph, headers).flatMap(that.outboundHeaders(subgraph, _))
 
-        override def attemptHeaders(source: String, attempt: Int, headers: List[Header])(implicit
+        override def attemptHeaders(subgraph: String, attempt: Int, headers: List[Header])(implicit
           trace: Trace
         ): URIO[R1, List[Header]] =
-          self.attemptHeaders(source, attempt, headers).flatMap(that.attemptHeaders(source, attempt, _))
+          self.attemptHeaders(subgraph, attempt, headers).flatMap(that.attemptHeaders(subgraph, attempt, _))
       }
 }
 
@@ -98,8 +98,8 @@ object GatewayWrapper {
   }
 
   object AdmissionKind {
-    case object Request extends AdmissionKind { val label = "request" }
-    case object Source  extends AdmissionKind { val label = "source"  }
+    case object Request  extends AdmissionKind { val label = "request"  }
+    case object Subgraph extends AdmissionKind { val label = "subgraph" }
   }
 
   sealed trait DeduplicationResult extends Product with Serializable {
@@ -143,23 +143,23 @@ object GatewayWrapper {
   sealed trait Event extends Product with Serializable
 
   object Event {
-    final case class Request(operationName: Option[String])                   extends Event
-    case object Routing                                                       extends Event
-    final case class SourceCall(source: String, operationType: OperationType) extends Event
+    final case class Request(operationName: Option[String])                       extends Event
+    case object Routing                                                           extends Event
+    final case class SubgraphCall(subgraph: String, operationType: OperationType) extends Event
     final case class Attempt(
-      source: String,
+      subgraph: String,
       number: Int,
       requestBytes: Long,
       serverAddress: Option[String],
       serverPort: Option[Int]
     ) extends Event
-    final case class Retry(source: String, attempt: Int)                      extends Event
-    case object Completion                                                    extends Event
-    final case class CacheAccess(result: CacheResult)                         extends Event
-    final case class AdmissionWait(kind: AdmissionKind)                       extends Event
-    final case class Admission(kind: AdmissionKind)                           extends Event
-    final case class Deduplication(result: DeduplicationResult)               extends Event
-    case object RequestOverdue                                                extends Event
+    final case class Retry(subgraph: String, attempt: Int)                        extends Event
+    case object Completion                                                        extends Event
+    final case class CacheAccess(result: CacheResult)                             extends Event
+    final case class AdmissionWait(kind: AdmissionKind)                           extends Event
+    final case class Admission(kind: AdmissionKind)                               extends Event
+    final case class Deduplication(result: DeduplicationResult)                   extends Event
+    case object RequestOverdue                                                    extends Event
   }
 
   private[gateway] def operationTypeLabel(operationType: OperationType): String =

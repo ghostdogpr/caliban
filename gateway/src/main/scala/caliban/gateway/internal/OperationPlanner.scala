@@ -1587,7 +1587,7 @@ private[gateway] object OperationPlanner {
     passthrough: Option[String]
   ) {
 
-    private[internal] lazy val caches: PlanCaches = new PlanCaches
+    private[internal] lazy val cache: PlanExecutionCache = new PlanExecutionCache
 
     lazy val introspectionFields: List[Field] = localFields.filter(isIntrospectionField)
 

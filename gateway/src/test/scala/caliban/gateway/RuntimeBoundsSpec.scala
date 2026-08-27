@@ -334,12 +334,12 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
         )
       },
       test("ignores GraphQL string and comment contents when measuring nesting") {
-        val limits       = new OperationLimits(1024, 2, 100)
+        val limits       = new OperationParsingLimits(1024, 2, 100)
         val escapedBlock =
           "query { value(input: " + "\"\"\"" + "ignored \\\"\"\" { [ ( " + "\"\"\"" + ") }"
         val ordinary     = "query { value(input: \"{[(\") } # {[(("
 
-        assertTrue(limits.textWeight(escapedBlock).isRight, limits.textWeight(ordinary).isRight)
+        assertTrue(limits.textBytes(escapedBlock).isRight, limits.textBytes(ordinary).isRight)
       }
     ),
     suite("admission")(
@@ -463,8 +463,8 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
           result        <- fiber.join
         } yield assertTrue(
           status.requests.active == 1,
-          status.sources.get("local").exists(value => value.active == 1 && value.limit == 1),
-          status.sources.get("remote").exists(_.active == 1),
+          status.subgraphs.get("local").exists(value => value.active == 1 && value.limit == 1),
+          status.subgraphs.get("remote").exists(_.active == 1),
           field(result.data, "localValue").contains(StringValue("local")),
           field(result.data, "value").contains(StringValue("ok"))
         )
@@ -492,7 +492,7 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
           first        <- runtime.executeRequest(request).fork
           _            <- retryStarted.await
           second       <- runtime.executeRequest(request).fork
-          queued       <- waitForStatus(runtime)(_.sources.get("remote").exists(_.waiting == 1))
+          queued       <- waitForStatus(runtime)(_.subgraphs.get("remote").exists(_.waiting == 1))
           before       <- calls.get
           _            <- releaseRetry.succeed(())
           firstResult  <- first.join
@@ -500,12 +500,12 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
           total        <- calls.get
           done         <- runtime.status
         } yield assertTrue(
-          queued.sources.get("remote").exists(value => value.active == 1 && value.waiting == 1),
+          queued.subgraphs.get("remote").exists(value => value.active == 1 && value.waiting == 1),
           before == 2,
           firstResult.errors.isEmpty,
           secondResult.errors.isEmpty,
           total == 3,
-          done.sources.get("remote").exists(value => value.active == 0 && value.waiting == 0)
+          done.subgraphs.get("remote").exists(value => value.active == 0 && value.waiting == 0)
         )
       },
       test("deduplicates identical queries before source admission") {
@@ -538,11 +538,11 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
           joinAfter   <- counter("caliban_gateway_in_flight_deduplication_total", "result", "join")
         } yield assertTrue(
           before == 1,
-          sharing.sources.get("remote").exists(value => value.active == 1 && value.waiting == 0),
+          sharing.subgraphs.get("remote").exists(value => value.active == 1 && value.waiting == 0),
           startAfter == startBefore + 1.0,
           joinAfter == joinBefore + 19.0,
           responses.forall(_.errors.isEmpty),
-          done.sources.get("remote").exists(value => value.active == 0 && value.waiting == 0)
+          done.subgraphs.get("remote").exists(value => value.active == 0 && value.waiting == 0)
         )
       },
       test("bounds distinct deduplication identities before source admission") {
@@ -579,7 +579,7 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
           total        <- calls.get
         } yield assertTrue(
           before == 1,
-          bounded.sources.get("remote").exists(value => value.active == 1 && value.waiting == 0),
+          bounded.subgraphs.get("remote").exists(value => value.active == 1 && value.waiting == 0),
           responses._1.errors.isEmpty,
           responses._2.errors.isEmpty,
           total == 2
@@ -587,7 +587,7 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
       },
       test("releases a source permit when the current call is interrupted") {
         for {
-          gate          <- ExecutionGate.make(1, GatewayWrapper.AdmissionKind.Request)
+          gate          <- AdmissionGate.make(1, GatewayWrapper.AdmissionKind.Request)
           firstStarted  <- Promise.make[Nothing, Unit]
           secondStarted <- Promise.make[Nothing, Unit]
           first         <- gate(firstStarted.succeed(()).unit *> ZIO.never).fork

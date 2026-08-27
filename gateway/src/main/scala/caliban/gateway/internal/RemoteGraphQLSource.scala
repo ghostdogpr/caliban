@@ -24,16 +24,16 @@ private[gateway] final class RemoteGraphQLSource[-R](
   endpoint: Uri,
   backend: SttpClient,
   config: RemoteGraphQLConfig[R],
-  structuralLimits: RemoteGraphQLSource.StructuralLimits,
+  responseStructureLimits: RemoteGraphQLSource.ResponseStructureLimits,
   queryCalls: Option[RemoteGraphQLSource.InFlightQueryDeduplicator],
-  admission: Option[ExecutionGate],
+  admission: Option[AdmissionGate],
   wrapper: GatewayWrapper[R]
 ) extends GraphQLSource[R] {
   import RemoteGraphQLSource._
 
   private val execution        = config.execution
   private val disclosure       = config.errorDisclosure.getOrElse(RemoteGraphQLConfig.ErrorDisclosure.default)
-  private val staticHeaders    = sanitizeLayer(execution.headers)
+  private val staticHeaders    = sanitizeHeaders(execution.headers)
   private val forwardsIncoming = execution.forwardsAllIncomingHeaders || execution.forwardedHeaders.nonEmpty
 
   val errorPolicy: GraphQLSource.ErrorPolicy = GraphQLSource.ErrorPolicy.Remote
@@ -44,30 +44,28 @@ private[gateway] final class RemoteGraphQLSource[-R](
     val logicalCall =
       for {
         body      <- ZIO.fromEither(encode(request.copy(extensions = None)))
-        incoming  <-
-          if (forwardsIncoming)
-            IncomingRequestHeaders.get.map(_.map { case (name, value) => Header(name, value) })
-          else ZIO.succeed(Nil)
+        incoming  <- if (forwardsIncoming)
+                       IncomingRequestHeaders.get.map(_.map { case (name, value) => Header(name, value) })
+                     else ZIO.succeed(Nil)
         effectful <- config.effectfulHeaders.mapError(GraphQLSource.HeaderFailure(_))
         headers   <- wrapper.outboundHeaders(name, outboundHeaders(incoming, effectful))
         replaySafe = execution.retries > 0 && operationType == OperationType.Query
         rawCall    = executeAttempts(body, headers, replaySafe, execution.retries, attempt = 0)
         admitted   = admission.fold(rawCall)(_.observed(wrapper)(rawCall))
-        response  <-
-          if (operationType == OperationType.Query)
-            queryCalls.fold(admitted)(
-              _.execute(QueryCallIdentity(body, headers), wrapper)(
-                admitted.timeoutFail(GraphQLSource.TimeoutFailure)(execution.timeout)
-              )
-            )
-          else admitted
+        response  <- if (operationType == OperationType.Query)
+                       queryCalls.fold(admitted)(
+                         _.execute(QueryDeduplicationKey(body, headers), wrapper)(
+                           admitted.timeoutFail(GraphQLSource.TimeoutFailure)(execution.timeout)
+                         )
+                       )
+                     else admitted
       } yield response
 
     logicalCall.timeoutFail(GraphQLSource.TimeoutFailure)(execution.timeout)
   }
 
-  override def admittedBy[R1](gate: ExecutionGate, observer: GatewayWrapper[R1]): GraphQLSource[R with R1] =
-    new RemoteGraphQLSource(name, endpoint, backend, config, structuralLimits, queryCalls, Some(gate), observer)
+  override def admittedBy[R1 <: R](gate: AdmissionGate, observer: GatewayWrapper[R1]): GraphQLSource[R1] =
+    new RemoteGraphQLSource(name, endpoint, backend, config, responseStructureLimits, queryCalls, Some(gate), observer)
 
   private def executeAttempts(
     body: Array[Byte],
@@ -143,13 +141,13 @@ private[gateway] final class RemoteGraphQLSource[-R](
   }
 
   private def outboundHeaders(incoming: List[Header], effectful: List[Header]): List[Header] = {
-    val forwarded = sanitizeLayer(incoming).filter { header =>
+    val forwarded = sanitizeHeaders(incoming).filter { header =>
       execution.forwardsAllIncomingHeaders || execution.forwardedHeaders.contains(normalize(header))
     }
-    mergeHeaders(mergeHeaders(forwarded, staticHeaders), sanitizeLayer(effectful))
+    mergeHeaders(mergeHeaders(forwarded, staticHeaders), sanitizeHeaders(effectful))
   }
 
-  private def sanitizeLayer(headers: List[Header]): List[Header] = {
+  private def sanitizeHeaders(headers: List[Header]): List[Header] = {
     val connectionDeclaredHeaderNames = headers.iterator
       .filter(header => normalize(header) == "connection")
       .flatMap(_.value.split(',').iterator)
@@ -231,8 +229,8 @@ private[gateway] final class RemoteGraphQLSource[-R](
     } yield response
 
   private def responseWithinLimits(bytes: Array[Byte]): Either[GraphQLSource.Failure, Unit] = {
-    val maxDepth  = structuralLimits.maxResponseDepth
-    val maxTokens = structuralLimits.maxResponseTokens
+    val maxDepth  = responseStructureLimits.maxResponseDepth
+    val maxTokens = responseStructureLimits.maxResponseTokens
     val length    = bytes.length
     var depth     = 0
     var index     = 0
@@ -330,35 +328,35 @@ private[gateway] object RemoteGraphQLSource {
         else ZIO.none
       ZIO.addFinalizer(deduplicationScope.close(Exit.unit)) *>
         deduplicator.map(
-          new RemoteGraphQLSource(name, endpoint, backend, config, StructuralLimits.default, _, None, wrapper)
+          new RemoteGraphQLSource(name, endpoint, backend, config, ResponseStructureLimits.default, _, None, wrapper)
         )
     }
 
-  final case class StructuralLimits(
+  final case class ResponseStructureLimits(
     maxResponseDepth: Int,
     maxResponseTokens: Int
   )
 
-  object StructuralLimits {
-    val default: StructuralLimits = StructuralLimits(
+  object ResponseStructureLimits {
+    val default: ResponseStructureLimits = ResponseStructureLimits(
       maxResponseDepth = 128,
       maxResponseTokens = 250000
     )
   }
 
-  private[internal] final case class QueryCallIdentity(
+  private[internal] final case class QueryDeduplicationKey(
     body: RequestBody,
     headers: Vector[(String, Vector[String])]
   )
 
-  private object QueryCallIdentity {
-    def apply(body: Array[Byte], headers: List[Header]): QueryCallIdentity = {
+  private object QueryDeduplicationKey {
+    def apply(body: Array[Byte], headers: List[Header]): QueryDeduplicationKey = {
       val grouped = mutable.HashMap.empty[String, Vector[String]]
       headers.foreach { header =>
         val name = RemoteGraphQLConfig.normalize(header.name)
         grouped.update(name, grouped.getOrElse(name, Vector.empty) :+ header.value)
       }
-      QueryCallIdentity(new RequestBody(body), grouped.toVector.sortBy(_._1))
+      QueryDeduplicationKey(new RequestBody(body), grouped.toVector.sortBy(_._1))
     }
   }
 
@@ -380,16 +378,13 @@ private[gateway] object RemoteGraphQLSource {
     scope: Scope,
     state: Ref[QueryCallState]
   ) {
-    def execute[R](
-      key: QueryCallIdentity,
-      wrapper: GatewayWrapper[R]
-    )(
+    def execute[R](key: QueryDeduplicationKey, wrapper: GatewayWrapper[R])(
       call: => ZIO[R, GraphQLSource.Failure, GraphQLResponse[CalibanError]]
     )(implicit trace: Trace): ZIO[R, GraphQLSource.Failure, GraphQLResponse[CalibanError]] =
       ZIO.uninterruptible(loop(key, wrapper, call))
 
     private def loop[R](
-      key: QueryCallIdentity,
+      key: QueryDeduplicationKey,
       wrapper: GatewayWrapper[R],
       call: => ZIO[R, GraphQLSource.Failure, GraphQLResponse[CalibanError]]
     )(implicit trace: Trace): ZIO[R, GraphQLSource.Failure, GraphQLResponse[CalibanError]] =
@@ -402,20 +397,12 @@ private[gateway] object RemoteGraphQLSource {
               decide(key, candidate).flatMap {
                 case QueryCallDecision.Start          =>
                   observe(DeduplicationResult.Start, wrapper)(
-                    complete(key, candidate, call).interruptible
-                      .forkIn(scope) *>
-                      await(candidate).interruptible
+                    complete(key, candidate, call).interruptible.forkIn(scope) *> await(candidate).interruptible
                   )
                 case QueryCallDecision.Join(existing) =>
                   observe(DeduplicationResult.Join, wrapper)(await(existing).interruptible)
                 case QueryCallDecision.Wait(signal)   =>
-                  observe(DeduplicationResult.Wait, wrapper)(
-                    signal.await.interruptible *> loop(
-                      key,
-                      wrapper,
-                      call
-                    )
-                  )
+                  observe(DeduplicationResult.Wait, wrapper)(signal.await.interruptible *> loop(key, wrapper, call))
               }
             }
         }
@@ -425,23 +412,22 @@ private[gateway] object RemoteGraphQLSource {
       trace: Trace
     ): ZIO[R, E, A] =
       if (!wrapper.enabled) effect
-      else
-        wrapper.wrap(Event.Deduplication(value))(effect)(
-          Result.classifyExit
-        )
+      else wrapper.wrap(Event.Deduplication(value))(effect)(Result.classifyExit)
 
-    private def decide(key: QueryCallIdentity, candidate: QueryCallPromise): UIO[QueryCallDecision] =
+    private def decide(key: QueryDeduplicationKey, candidate: QueryCallPromise): UIO[QueryCallDecision] =
       state.modify { current =>
         current.entries.get(key) match {
-          case Some(existing)                               => QueryCallDecision.Join(existing)      -> current
+          case Some(existing)                               =>
+            QueryCallDecision.Join(existing) -> current
           case None if current.entries.size < current.limit =>
             QueryCallDecision.Start -> current.copy(entries = current.entries.updated(key, candidate))
-          case None                                         => QueryCallDecision.Wait(current.space) -> current
+          case None                                         =>
+            QueryCallDecision.Wait(current.space) -> current
         }
       }
 
     private def complete[R](
-      key: QueryCallIdentity,
+      key: QueryDeduplicationKey,
       promise: QueryCallPromise,
       call: => ZIO[R, GraphQLSource.Failure, GraphQLResponse[CalibanError]]
     )(implicit trace: Trace): URIO[R, Unit] =
@@ -450,8 +436,7 @@ private[gateway] object RemoteGraphQLSource {
           Promise.make[Nothing, Unit].flatMap { nextSpace =>
             state.modify { current =>
               current.space -> current.copy(entries = current.entries - key, space = nextSpace)
-            }
-              .flatMap(_.succeed(())) *>
+            }.flatMap(_.succeed(())) *>
               promise.succeed(exit).unit
           }
         }
@@ -474,7 +459,7 @@ private[gateway] object RemoteGraphQLSource {
   }
 
   private final case class QueryCallState(
-    entries: Map[QueryCallIdentity, QueryCallPromise],
+    entries: Map[QueryDeduplicationKey, QueryCallPromise],
     limit: Int,
     space: Promise[Nothing, Unit]
   )

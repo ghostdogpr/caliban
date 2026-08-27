@@ -20,7 +20,7 @@ private[gateway] trait GraphQLSource[-R] {
     trace: Trace
   ): ZIO[R, GraphQLSource.Failure, GraphQLResponse[CalibanError]]
 
-  def admittedBy[R1](gate: ExecutionGate, wrapper: GatewayWrapper[R1]): GraphQLSource[R with R1] =
+  def admittedBy[R1 <: R](gate: AdmissionGate, wrapper: GatewayWrapper[R1]): GraphQLSource[R1] =
     new GatedGraphQLSource(this, gate, wrapper)
 }
 
@@ -36,7 +36,7 @@ private[gateway] final class ObservedGraphQLSource[R](
   ): ZIO[R, GraphQLSource.Failure, GraphQLResponse[CalibanError]] =
     if (!wrapper.enabled) underlying.execute(request, operationType)
     else
-      wrapper.wrap(Event.SourceCall(name, operationType))(underlying.execute(request, operationType))(
+      wrapper.wrap(Event.SubgraphCall(name, operationType))(underlying.execute(request, operationType))(
         Result.fromExit(_)(Result.fromResponse, failure => Result(GraphQLSource.failureOutcome(failure)))
       )
 
@@ -44,7 +44,7 @@ private[gateway] final class ObservedGraphQLSource[R](
 
 private[gateway] final class GatedGraphQLSource[-R](
   underlying: GraphQLSource[R],
-  gate: ExecutionGate,
+  gate: AdmissionGate,
   wrapper: GatewayWrapper[R]
 ) extends GraphQLSource[R] {
   val errorPolicy: ErrorPolicy = underlying.errorPolicy

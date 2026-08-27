@@ -122,16 +122,16 @@ object Gateway {
                                   }
       _                        <- ZIO.fromEither(buildFailure.toLeft(()))
       graph                    <- ZIO
-                                    .fromEither(SchemaComposition.compose(successes.map(_.contribution)))
+                                    .fromEither(SchemaComposition.compose(successes.map(_.subgraph)))
                                     .mapError(errors => SchemaCompositionFailed(errors.distinct.sorted))
       _                        <- ZIO
                                     .fail(OperationPolicyRequired(graph.securityPolicyDiagnostics))
                                     .when(policy.isEmpty && graph.hasSecurityRequirements)
-      rawSources                = successes.map(value => value.contribution.name -> value.source).toMap
-      sourceLimits              = successes.map(value => value.contribution.name -> value.maxConcurrentCalls).toMap
-      control                  <- RuntimeControl.make(
+      rawSources                = successes.map(value => value.subgraph.name -> value.source).toMap
+      subgraphLimits            = successes.map(value => value.subgraph.name -> value.maxConcurrentCalls).toMap
+      control                  <- GatewayExecutionControl.make(
                                     config.maxConcurrentRequests,
-                                    sourceLimits,
+                                    subgraphLimits,
                                     config.requestTimeout,
                                     config.drainTimeout
                                   )
@@ -167,42 +167,42 @@ object Gateway {
       case Source.Remote(endpoint, schema, federation, config) =>
         val policyDiagnostics = config.diagnostics(schema == SchemaInput.Acquired)
         for {
-          _              <- ZIO
-                              .fail(List(SubgraphBuildError.InvalidConfiguration(policyDiagnostics)))
-                              .when(policyDiagnostics.nonEmpty)
-          client         <- ZIO
-                              .fromOption(backend)
-                              .orElseFail(List(RemoteTransportUnavailable))
-          document       <- RemoteSchemaAcquisition
-                              .document(schema, endpoint, federation, config.acquisition, client)
-                              .mapError(_ :: Nil)
-          rootDocument    = ensureFederationTransportQuery(document, federation)
-          sourceRootType <- ZIO
-                              .fromEither(toRootType(rootDocument, promoteOrphans = federation))
-                              .mapError(error => List(InvalidSchema(error)))
-          contribution   <- ZIO.fromEither(
-                              prepareContribution(subgraph, sourceRootType, rootDocument, document, federation)
-                            )
-          source         <- RemoteGraphQLSource.make(
-                              subgraph.name,
-                              endpoint,
-                              client,
-                              config.withDefaultErrorDisclosure(remoteErrorDisclosure),
-                              wrapper
-                            )
-        } yield LoadedSubgraph(contribution, source, config.execution.maxConcurrentCalls)
+          _                <- ZIO
+                                .fail(List(SubgraphBuildError.InvalidConfiguration(policyDiagnostics)))
+                                .when(policyDiagnostics.nonEmpty)
+          client           <- ZIO
+                                .fromOption(backend)
+                                .orElseFail(List(RemoteTransportUnavailable))
+          document         <- RemoteSchemaAcquisition
+                                .load(schema, endpoint, federation, config.acquisition, client)
+                                .mapError(_ :: Nil)
+          rootDocument      = ensureFederationTransportQuery(document, federation)
+          sourceRootType   <- ZIO
+                                .fromEither(toRootType(rootDocument, promoteOrphans = federation))
+                                .mapError(error => List(InvalidSchema(error)))
+          preparedSubgraph <- ZIO.fromEither(
+                                prepareSubgraph(subgraph, sourceRootType, rootDocument, document, federation)
+                              )
+          source           <- RemoteGraphQLSource.make(
+                                subgraph.name,
+                                endpoint,
+                                client,
+                                config.withDefaultErrorDisclosure(remoteErrorDisclosure),
+                                wrapper
+                              )
+        } yield LoadedSubgraph(preparedSubgraph, source, config.execution.maxConcurrentCalls)
       case Source.Local(graph)                                 =>
         val document   = graph.toDocument
         val federation = SchemaComposition.isFederation(document)
         for {
-          sourceRootType <- ZIO.fromEither(toRootType(document)).mapError(error => List(InvalidSchema(error)))
-          contribution   <- ZIO.fromEither(prepareContribution(subgraph, sourceRootType, document, document, federation))
-          interpreter    <- ZIO.fromEither(graph.interpreterEither).mapError(error => List(InvalidSchema(error)))
-        } yield LoadedSubgraph(contribution, new LocalGraphQLSource(interpreter), localCallLimit)
+          sourceRootType   <- ZIO.fromEither(toRootType(document)).mapError(error => List(InvalidSchema(error)))
+          preparedSubgraph <- ZIO.fromEither(prepareSubgraph(subgraph, sourceRootType, document, document, federation))
+          interpreter      <- ZIO.fromEither(graph.interpreterEither).mapError(error => List(InvalidSchema(error)))
+        } yield LoadedSubgraph(preparedSubgraph, new LocalGraphQLSource(interpreter), localCallLimit)
     }
 
   private final case class LoadedSubgraph[-R](
-    contribution: SchemaContribution,
+    subgraph: PreparedSubgraph,
     source: GraphQLSource[R],
     maxConcurrentCalls: Int
   )
@@ -213,29 +213,23 @@ object Gateway {
   ): Either[CalibanError.ValidationError, RootType] =
     RemoteSchema.toRootType(document, promoteOrphans)
 
-  private[gateway] def prepareContribution[R](
+  private[gateway] def prepareSubgraph[R](
     subgraph: Subgraph[R],
     sourceRootType: RootType,
     rootDocument: Document,
     document: Document,
     federation: Boolean
-  ): Either[List[SubgraphBuildError], SchemaContribution] =
+  ): Either[List[SubgraphBuildError], PreparedSubgraph] =
     for {
-      mapping  <- SchemaCoordinateMapping
-                    .compile(
-                      subgraph.name,
-                      sourceRootType,
-                      document,
-                      federation,
-                      subgraph.transformations
-                    )
+      mapping  <- SchemaMapping
+                    .compile(subgraph.name, sourceRootType, document, federation, subgraph.transformations)
                     .left
                     .map(errors => List(InvalidTransformations(errors)))
       rootType <- if (mapping.nonEmpty)
                     toRootType(mapping.transform(rootDocument), promoteOrphans = federation).left
                       .map(error => List(InvalidSchema(error)))
                   else Right(sourceRootType)
-    } yield SchemaContribution(
+    } yield PreparedSubgraph(
       subgraph.name,
       rootType,
       mapping.transform(document),

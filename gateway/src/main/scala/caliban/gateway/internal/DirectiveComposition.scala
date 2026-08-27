@@ -44,7 +44,7 @@ private[gateway] object DirectiveComposition {
       }
   }
 
-  final case class Source(schema: SchemaContribution, protocolDirectives: Set[String])
+  final case class Source(subgraph: PreparedSubgraph, protocolDirectives: Set[String])
 
   sealed trait Coordinate {
     def display: String
@@ -85,7 +85,7 @@ private[gateway] object DirectiveComposition {
     val location = __DirectiveLocation.ARGUMENT_DEFINITION
   }
 
-  final class Result private[DirectiveComposition] (
+  final class ComposedDirectives private[DirectiveComposition] (
     private val hiddenBySource: Map[String, Set[String]],
     private val selectedDefinitions: List[SelectedDefinition],
     private val applications: Map[Coordinate, List[Directive]],
@@ -190,7 +190,7 @@ private[gateway] object DirectiveComposition {
         expected: __Type,
         value: InputValue
       ): List[String] = {
-        val found  = SchemaCoordinateMapping.inputCoordinateReferences(expected, value)
+        val found  = SchemaMapping.inputCoordinateReferences(expected, value)
         val types  = found.inputTypes.toList.sorted.collect {
           case name if !rootType.types.contains(name) =>
             hiddenTypeMessage(source, directive, context, name)
@@ -246,18 +246,18 @@ private[gateway] object DirectiveComposition {
     }
   }
 
-  def compile(sources: List[Source]): Result = {
-    val sourceInfos           = sources.sortBy(_.schema.name).map(SourceInfo(_))
+  def compile(sources: List[Source]): ComposedDirectives = {
+    val sourceInfos           = sources.sortBy(_.subgraph.name).map(SourceInfo(_))
     val definitions           = sourceInfos.flatMap(_.definitions)
     val declarations          = sourceInfos.flatMap(_.composeDeclarations)
     val selectedBySource      = sourceInfos.map { info =>
       val selected = info.ordinarySelections ++
-        (if (info.source.schema.federation)
+        (if (info.source.subgraph.federation)
            info.definitions.iterator.collect {
              case definition if definition.key == DirectiveKey(FederationIdentity, "tag") => definition.key
            }.toSet
          else Set.empty) ++ info.composeDeclarations.collect { case Right(value) => value }
-      info.source.schema.name -> selected
+      info.source.subgraph.name -> selected
     }.toMap
     val selected              = definitions.filter(definition => selectedBySource(definition.source)(definition.key))
     val composedNames         = selected
@@ -291,7 +291,7 @@ private[gateway] object DirectiveComposition {
       }
       .toList
     val rawApplications       =
-      sourceInfos.flatMap(info => info.applications(selectedBySource(info.source.schema.name), composedNames))
+      sourceInfos.flatMap(info => info.applications(selectedBySource(info.source.subgraph.name), composedNames))
     val compiled              = rawApplications.map(compileApplication)
     val applicationErrors     = compiled.collect { case Left(errors) => errors }.flatten
     val validApplications     = compiled.collect { case Right(value) => value }
@@ -354,7 +354,7 @@ private[gateway] object DirectiveComposition {
       }
     }
     val hidden                = sourceInfos.map { info =>
-      info.source.schema.name -> (info.source.protocolDirectives ++ info.definitions.iterator
+      info.source.subgraph.name -> (info.source.protocolDirectives ++ info.definitions.iterator
         .map(_.localName)
         .filterNot(BuiltInDirectiveNames))
     }.toMap
@@ -362,7 +362,7 @@ private[gateway] object DirectiveComposition {
       declarations.collect { case Left(error) => error } ::: nameCollisions ::: definitionDiagnostics :::
       applicationErrors).distinct.sorted
 
-    new Result(
+    new ComposedDirectives(
       hidden,
       selectedDefinitions.sortBy(value => value.definition.name -> value.source),
       mergedApplications,
@@ -437,8 +437,8 @@ private[gateway] object DirectiveComposition {
   )
 
   private final case class SourceInfo(source: Source) {
-    private val schema                        = source.schema
-    private val features                      = linkedFeatures(schema.document)
+    private val subgraph                      = source.subgraph
+    private val features                      = linkedFeatures(subgraph.document)
     private val federationTransportDirectives =
       if (features.exists(_.identity == FederationIdentity)) FederationTransportDirectiveNames else Set.empty[String]
     private val interfaceObjectDirectives     = features
@@ -446,30 +446,30 @@ private[gateway] object DirectiveComposition {
       .flatMap(_.directiveNames("interfaceObject"))
       .toSet
     private val byLocal                       = features.flatMap { feature =>
-      schema.rootType.additionalDirectives.flatMap { definition =>
+      subgraph.rootType.additionalDirectives.flatMap { definition =>
         feature
           .sourceDirective(definition.name)
           .map(member => definition.name -> DirectiveKey(feature.identity, member))
       }
     }.groupBy(_._1).map { case (name, values) => name -> values.map(_._2).distinct }
-    val definitions: List[LocalDefinition]    = schema.rootType.additionalDirectives.map { definition =>
+    val definitions: List[LocalDefinition]    = subgraph.rootType.additionalDirectives.map { definition =>
       val keys = byLocal.getOrElse(definition.name, Nil)
       val key  = keys match {
         case key :: Nil => key
         case _          => DirectiveKey("", definition.name)
       }
-      LocalDefinition(schema.name, definition.name, key, definition)
+      LocalDefinition(subgraph.name, definition.name, key, definition)
     }
     private val definitionsByName             = definitions.iterator.map(definition => definition.localName -> definition).toMap
 
     val diagnostics: List[String] = byLocal.toList.collect {
       case (name, keys) if keys.size > 1 =>
         val identities = keys.map(_.identity).sorted.map(value => s"'$value'").mkString(" and ")
-        s"[${schema.name}] Directive '@$name' resolves to multiple linked feature identities: $identities."
+        s"[${subgraph.name}] Directive '@$name' resolves to multiple linked feature identities: $identities."
     }
 
     val ordinarySelections: Set[DirectiveKey] =
-      if (schema.federation) Set.empty
+      if (subgraph.federation) Set.empty
       else
         definitions.iterator
           .filterNot(value =>
@@ -482,12 +482,12 @@ private[gateway] object DirectiveComposition {
 
     val composeDeclarations: List[Either[String, DirectiveKey]] = {
       val federation = features.filter(_.identity == FederationIdentity)
-      schemaDirectives(schema.document).flatMap { directive =>
+      schemaDirectives(subgraph.document).flatMap { directive =>
         val members = federation.flatMap(feature => feature.sourceDirective(directive.name).map(feature -> _))
         members.collectFirst { case (feature, "composeDirective") => feature }.toList.map { feature =>
           if (!feature.version.atLeast(2, 1))
             Left(
-              s"[${schema.name}] Federation @composeDirective requires Federation v2.1 or newer."
+              s"[${subgraph.name}] Federation @composeDirective requires Federation v2.1 or newer."
             )
           else
             directive.arguments match {
@@ -497,26 +497,26 @@ private[gateway] object DirectiveComposition {
                     val localName = value.drop(1)
                     definitionsByName.get(localName) match {
                       case None             =>
-                        Left(s"[${schema.name}] Composed directive '@$localName' is not defined by this subgraph.")
+                        Left(s"[${subgraph.name}] Composed directive '@$localName' is not defined by this subgraph.")
                       case Some(definition) =>
                         if (definition.key.identity.isEmpty)
                           Left(
-                            s"[${schema.name}] Composed directive '@$localName' must be imported from a linked custom feature."
+                            s"[${subgraph.name}] Composed directive '@$localName' must be imported from a linked custom feature."
                           )
                         else if (
                           definition.key.identity == FederationIdentity && definition.key.member != "tag" ||
                           ReservedFeatureIdentities(definition.key.identity)
                         )
-                          Left(s"[${schema.name}] Federation transport directive '@$localName' cannot be composed.")
+                          Left(s"[${subgraph.name}] Federation transport directive '@$localName' cannot be composed.")
                         else Right(definition.key)
                     }
                   case _                                                               =>
                     Left(
-                      s"[${schema.name}] The composeDirective 'name' argument must start with '@' and name a directive."
+                      s"[${subgraph.name}] The composeDirective 'name' argument must start with '@' and name a directive."
                     )
                 }
               case _                                            =>
-                Left(s"[${schema.name}] Invalid Federation composeDirective application.")
+                Left(s"[${subgraph.name}] Invalid Federation composeDirective application.")
             }
         }
       }
@@ -527,9 +527,9 @@ private[gateway] object DirectiveComposition {
       composedNames: Map[DirectiveKey, String]
     ): List[RawApplication] = {
       val rootNames = List(
-        schema.rootType.queryType.name.map(_ -> "Query"),
-        schema.rootType.mutationType.flatMap(_.name).map(_ -> "Mutation"),
-        schema.rootType.subscriptionType.flatMap(_.name).map(_ -> "Subscription")
+        subgraph.rootType.queryType.name.map(_ -> "Query"),
+        subgraph.rootType.mutationType.flatMap(_.name).map(_ -> "Mutation"),
+        subgraph.rootType.subscriptionType.flatMap(_.name).map(_ -> "Subscription")
       ).flatten.groupBy(_._1).map { case (sourceName, values) => sourceName -> values.map(_._2) }
 
       def selectedDirectives(directives: Option[List[Directive]], coordinate: Coordinate): List[RawApplication] =
@@ -537,7 +537,7 @@ private[gateway] object DirectiveComposition {
           definitionsByName.get(directive.name).toList.collect {
             case definition if selected(definition.key) =>
               RawApplication(
-                schema.name,
+                subgraph.name,
                 definition.key,
                 coordinate,
                 directive.copy(name = composedNames.getOrElse(definition.key, directive.name)),
@@ -553,9 +553,9 @@ private[gateway] object DirectiveComposition {
       ): List[RawApplication] =
         values.flatMap(value => selectedDirectives(value.directives, coordinate(value)))
 
-      val schemaApps            = selectedDirectives(Some(schemaDirectives(schema.document)), SchemaCoordinate)
+      val schemaApps            = selectedDirectives(Some(schemaDirectives(subgraph.document)), SchemaCoordinate)
       val typeApps              =
-        schema.rootType.types.valuesIterator.toList.sortBy(_.name).flatMap(tpe => tpe.name.map(_ -> tpe)).flatMap {
+        subgraph.rootType.types.valuesIterator.toList.sortBy(_.name).flatMap(tpe => tpe.name.map(_ -> tpe)).flatMap {
           case (sourceName, tpe) =>
             rootNames.getOrElse(sourceName, sourceName :: Nil).flatMap { typeName =>
               val location   =

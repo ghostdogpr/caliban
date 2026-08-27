@@ -4,7 +4,7 @@ import caliban.GraphQLResponseContext
 import caliban.GraphQLResponseContext.{ Outcome, ServerFailure }
 import caliban.gateway.GatewayInterpreter.LifecycleState
 import caliban.gateway.GatewayTestSupport._
-import caliban.gateway.internal.RuntimeControl
+import caliban.gateway.internal.GatewayExecutionControl
 import sttp.model.Uri
 import zio._
 import zio.http.{ Handler, Method, Response, Routes, Server, Status }
@@ -20,11 +20,11 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
     requestTimeout: Duration = 1.second,
     drainTimeout: Duration = 1.second,
     requestLimit: Int = 1
-  ): UIO[RuntimeControl] =
-    scope.extend(RuntimeControl.make(requestLimit, Map.empty, requestTimeout, drainTimeout))
+  ): UIO[GatewayExecutionControl] =
+    scope.extend(GatewayExecutionControl.make(requestLimit, Map.empty, requestTimeout, drainTimeout))
 
   private def waitForControl(
-    control: RuntimeControl
+    control: GatewayExecutionControl
   )(predicate: GatewayInterpreter.Status => Boolean): UIO[GatewayInterpreter.Status] =
     (ZIO.yieldNow *> control.status(operationCacheStatus)).repeatUntil(predicate)
 
@@ -77,7 +77,7 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
         first         <- runtime.execute("{ value }").fork
         _             <- sourceStarted.await
         second        <- runtime.execute("{ value }").fork
-        queued        <- waitForStatus(runtime)(_.sources.get("local").exists(_.waiting == 1))
+        queued        <- waitForStatus(runtime)(_.subgraphs.get("local").exists(_.waiting == 1))
         _             <- TestClock.adjust(1.second)
         secondResult  <- second.join
         overdue       <- waitForStatus(runtime)(_.lifecycle.overdue == 1)

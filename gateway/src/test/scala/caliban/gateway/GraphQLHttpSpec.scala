@@ -4,7 +4,7 @@ import caliban.ResponseValue.ObjectValue
 import caliban.Value.StringValue
 import caliban.gateway.GatewayTestSupport._
 import caliban.gateway.internal.GraphQLSource._
-import caliban.gateway.internal.ExecutionGate
+import caliban.gateway.internal.AdmissionGate
 import caliban.gateway.internal.RemoteGraphQLSource
 import caliban.gateway.internal.unmanagedRemoteGraphQLSource
 import caliban.parsing.adt.OperationType
@@ -38,7 +38,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
     endpoint: Uri,
     backend: SttpClient,
     config: RemoteGraphQLConfig[R],
-    limits: RemoteGraphQLSource.StructuralLimits = RemoteGraphQLSource.StructuralLimits.default,
+    limits: RemoteGraphQLSource.ResponseStructureLimits = RemoteGraphQLSource.ResponseStructureLimits.default,
     value: GraphQLRequest = request,
     operation: OperationType = OperationType.Query
   ) =
@@ -146,7 +146,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
           .withMaxRequestBytes(96)
           .withMaxResponseBytes(512)
       )
-      val structural = RemoteGraphQLSource.StructuralLimits(
+      val structural = RemoteGraphQLSource.ResponseStructureLimits(
         maxResponseDepth = 5,
         maxResponseTokens = 12
       )
@@ -535,7 +535,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
         backend        <- HttpClientZioBackend.scoped()
         calls          <- Ref.make(0)
         remote         <- endpoint(_ => calls.update(_ + 1).as(Response.json("""{"data":{"value":"ok"}}""")))
-        gate           <- ExecutionGate.make(1, GatewayWrapper.AdmissionKind.Source)
+        gate           <- AdmissionGate.make(1, GatewayWrapper.AdmissionKind.Subgraph)
         blockerStarted <- Promise.make[Nothing, Unit]
         releaseBlocker <- Promise.make[Nothing, Unit]
         blocker        <- gate(blockerStarted.succeed(()).unit *> releaseBlocker.await).fork

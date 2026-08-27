@@ -3,7 +3,7 @@ package caliban.gateway
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ FloatValue, IntValue, NullValue, StringValue }
 import caliban.gateway.GatewayTestSupport._
-import caliban.gateway.internal.{ SchemaComposition, SchemaContribution, SchemaCoordinateMapping }
+import caliban.gateway.internal.{ PreparedSubgraph, SchemaComposition, SchemaMapping }
 import caliban.introspection.adt.{ __Directive, __DirectiveLocation }
 import caliban.parsing.{ Parser, SourceMapper }
 import caliban.parsing.adt.{ Directive, Document }
@@ -57,29 +57,29 @@ object CompositionSpec extends ZIOSpecDefault {
        |""".stripMargin
 
   private def compose(inputs: CompositionInput*) = {
-    val contributions = inputs.toList.foldRight(Right(Nil): Either[List[String], List[SchemaContribution]]) {
+    val subgraphs = inputs.toList.foldRight(Right(Nil): Either[List[String], List[PreparedSubgraph]]) {
       case (input, result) =>
         for {
-          tail         <- result
-          document     <- Parser.parseQuery(input.schema).left.map(error => List(s"[${input.name}] ${error.getMessage}"))
-          sourceRoot   <- RemoteSchema
-                            .toRootType(document, promoteOrphans = true)
-                            .left
-                            .map(error => List(s"[${input.name}] ${error.getMessage}"))
-          subgraph      = Subgraph.federation(input.name, endpoint, document).transform(input.transformations: _*)
-          contribution <- Gateway
-                            .prepareContribution(
-                              subgraph,
-                              sourceRoot,
-                              document,
-                              document,
-                              federation = true
-                            )
-                            .left
-                            .map(_.flatMap(SubgraphError(input.name, _).diagnostics))
-        } yield contribution :: tail
+          tail             <- result
+          document         <- Parser.parseQuery(input.schema).left.map(error => List(s"[${input.name}] ${error.getMessage}"))
+          sourceRoot       <- RemoteSchema
+                                .toRootType(document, promoteOrphans = true)
+                                .left
+                                .map(error => List(s"[${input.name}] ${error.getMessage}"))
+          subgraph          = Subgraph.federation(input.name, endpoint, document).transform(input.transformations: _*)
+          preparedSubgraph <- Gateway
+                                .prepareSubgraph(
+                                  subgraph,
+                                  sourceRoot,
+                                  document,
+                                  document,
+                                  federation = true
+                                )
+                                .left
+                                .map(_.flatMap(SubgraphError(input.name, _).diagnostics))
+        } yield preparedSubgraph :: tail
     }
-    contributions.flatMap(SchemaComposition.compose)
+    subgraphs.flatMap(SchemaComposition.compose)
   }
 
   private def directives(value: Option[List[Directive]]): List[(String, Map[String, caliban.InputValue])] =
@@ -471,7 +471,7 @@ object CompositionSpec extends ZIOSpecDefault {
           value.errors.nonEmpty
         )
       },
-      test("hides an argument when any contribution marks it inaccessible") {
+      test("hides an argument when any subgraph marks it inaccessible") {
         val visible = schema(
           "type Query { search(term: String): String @shareable }",
           "@shareable",
@@ -533,7 +533,7 @@ object CompositionSpec extends ZIOSpecDefault {
           .exit
           .map(exit => assertTrue(exit.isSuccess))
       },
-      test("applies inaccessible type visibility across every contribution") {
+      test("applies inaccessible type visibility across every subgraph") {
         val alpha = schema(
           "type Query { health: String @shareable box: Box @inaccessible @shareable } type Box @inaccessible { secret: Secret @shareable } type Secret @inaccessible { value: String @shareable }",
           "@inaccessible",
@@ -731,7 +731,7 @@ object CompositionSpec extends ZIOSpecDefault {
           invalid.errors.nonEmpty
         )
       },
-      test("unions compatible union-member contributions") {
+      test("unions compatible union members from subgraphs") {
         val alphaSchema =
           "type Query { alpha: Search } union Search = Product type Product { id: ID! }"
         val betaSchema  =
@@ -868,11 +868,11 @@ object CompositionSpec extends ZIOSpecDefault {
           ) :: Nil
         )
         val document = Document(Nil, SourceMapper.empty)
-        val result   = SchemaCoordinateMapping
+        val result   = SchemaMapping
           .compile("local", rootType, document, federation = false, Nil)
           .flatMap(mapping =>
             SchemaComposition.compose(
-              SchemaContribution("local", rootType, document, federation = false, Nil, mapping) :: Nil
+              PreparedSubgraph("local", rootType, document, federation = false, Nil, mapping) :: Nil
             )
           )
 
@@ -1058,7 +1058,7 @@ object CompositionSpec extends ZIOSpecDefault {
           )
         )
       },
-      test("merges repeatable applications from every contribution") {
+      test("merges repeatable applications from every subgraph") {
         def shared(source: String)                                   = directiveSchema(
           s"""type Query { value: String @shareable @label(name: "$source") @audit(level: "$source") }""",
           "directive @audit(level: String!) repeatable on FIELD_DEFINITION"

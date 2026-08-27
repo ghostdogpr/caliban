@@ -181,15 +181,15 @@ val reviews = Subgraph
   )
 ```
 
-Use `Lookup.single` when the source fetches one object at a time. Use `Lookup.list` when it accepts several keys in one request:
+Use `Lookup.single` when the subgraph fetches one object at a time. Use `Lookup.list` when it accepts several keys in one request:
 
 - `Correlation.byKey` matches returned objects using a field such as `id`
 - `Correlation.ordered` matches results by their position in the returned list
 - `Argument.key("id")` reads the `id` from the object being fetched
-- `Argument.obj(...)` builds an input object expected by the source
+- `Argument.obj(...)` builds an input object expected by the subgraph
 - `Argument.batch(...)` builds one argument value for each requested object
 
-Prefer a batch lookup when the source supports it. It lets the gateway recall several objects with one source request.
+Prefer a batch lookup when the subgraph supports it. It lets the gateway recall several objects with one subgraph request.
 
 ## Configuring remote services
 
@@ -356,7 +356,7 @@ QuickAdapter(interpreter)
 
 This controls whether clients can inspect the combined schema. It does not prevent the gateway from loading remote schemas at startup.
 
-Remote GraphQL error messages are redacted by default, and only the `code` extension is retained. If a trusted service returns details that clients should see, opt in for that source:
+Remote GraphQL error messages are redacted by default, and only the `code` extension is retained. If a trusted service returns details that clients should see, opt in for that subgraph:
 
 ```scala
 val config = RemoteGraphQLConfig.default.withErrorDisclosure(
@@ -428,4 +428,4 @@ The tracing wrapper creates spans for gateway requests and remote calls. `QuickA
 
 The gateway currently routes queries and mutations. It does not route subscriptions or incremental delivery through subgraphs.
 
-Complete runnable examples are available in the repository's [`gateway-examples`](https://github.com/ghostdogpr/caliban/tree/series/3.x/gateway-examples) project, including local, ordinary remote, mixed-source, and Federation gateways.
+Complete runnable examples are available in the repository's [`gateway-examples`](https://github.com/ghostdogpr/caliban/tree/series/3.x/gateway-examples) project, including local, ordinary remote, mixed-subgraph, and Federation gateways.

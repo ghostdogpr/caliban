@@ -25,15 +25,15 @@ private[gateway] final class EntityExecutor[-R](
   sources: Map[String, GraphQLSource[R]]
 ) {
 
-  private def cachedGroupKey(route: EntityRoute, caches: PlanCaches): EntityGroupKey =
-    PlanCaches.memoize(caches.groupKeys, route.id)(entityGroupKey(route))
+  private def cachedGroupKey(route: EntityRoute, cache: PlanExecutionCache): EntityGroupKey =
+    PlanExecutionCache.memoize(cache.groupKeys, route.id)(entityGroupKey(route))
 
   private def preparedLookup(
     route: EntityRoute,
-    mapping: SchemaCoordinateMapping,
-    caches: PlanCaches
+    mapping: SchemaMapping,
+    cache: PlanExecutionCache
   ): PreparedLookup =
-    PlanCaches.memoize(caches.lookups, route.id) {
+    PlanExecutionCache.memoize(cache.lookups, route.id) {
       val executableFields = route.fields.map(graph.executableEntityField(route.source, route.entityType, _))
       PreparedLookup(
         executableFields,
@@ -48,11 +48,11 @@ private[gateway] final class EntityExecutor[-R](
     roots: Map[RouteId, ResponseValue],
     blocked: Map[RouteId, Set[List[PathValue]]],
     resolvedRequest: GraphQLRequest,
-    caches: PlanCaches
+    cache: PlanExecutionCache
   )(implicit trace: Trace): URIO[R, List[EntityResult]] = {
     val grouped    = mutable.LinkedHashMap.empty[EntityGroupKey, mutable.ListBuffer[EntityRoute]]
     routes.foreach { route =>
-      val key = cachedGroupKey(route, caches)
+      val key = cachedGroupKey(route, cache)
       grouped.get(key) match {
         case Some(group) => group += route
         case None        => grouped.put(key, mutable.ListBuffer(route))
@@ -68,9 +68,9 @@ private[gateway] final class EntityExecutor[-R](
       }
     }
     grouped.values.toList match {
-      case group :: Nil => executeGroup(group, blocked, candidates, resolvedRequest, caches).map(_ :: Nil)
+      case group :: Nil => executeGroup(group, blocked, candidates, resolvedRequest, cache).map(_ :: Nil)
       case groups       =>
-        ZIO.foreachPar(groups)(group => executeGroup(group, blocked, candidates, resolvedRequest, caches))
+        ZIO.foreachPar(groups)(group => executeGroup(group, blocked, candidates, resolvedRequest, cache))
     }
   }
 
@@ -79,11 +79,11 @@ private[gateway] final class EntityExecutor[-R](
     blocked: Map[RouteId, Set[List[PathValue]]],
     candidates: mutable.HashMap[(RouteId, Vector[String]), List[(List[PathValue], ResponseValue)]],
     resolvedRequest: GraphQLRequest,
-    caches: PlanCaches
+    cache: PlanExecutionCache
   )(implicit trace: Trace): URIO[R, EntityResult] = {
     val route  = group.head
     val routes = group.toList
-    val batch  = prepareBatch(routes, candidates, blocked, caches)
+    val batch  = prepareBatch(routes, candidates, blocked, cache)
 
     if (batch.entries.isEmpty) ZIO.succeed(EntityResult(Nil, batch.errors, batch.routes, batch.blocked))
     else {
@@ -97,7 +97,7 @@ private[gateway] final class EntityExecutor[-R](
       graph
         .mapping(route.source)
         .flatMap(mapping =>
-          buildLookup(route, routes, batch, resolvedRequest, mapping, caches).map(mapping -> _)
+          buildLookup(route, routes, batch, resolvedRequest, mapping, cache).map(mapping -> _)
         ) match {
         case Some((mapping, lookup)) =>
           sources.get(route.source) match {
@@ -191,10 +191,10 @@ private[gateway] final class EntityExecutor[-R](
     routes: List[EntityRoute],
     batch: EntityBatch,
     resolvedRequest: GraphQLRequest,
-    mapping: SchemaCoordinateMapping,
-    caches: PlanCaches
-  ): Option[LookupExecution] = {
-    val prepared         = preparedLookup(route, mapping, caches)
+    mapping: SchemaMapping,
+    cache: PlanExecutionCache
+  ): Option[LookupCall] = {
+    val prepared         = preparedLookup(route, mapping, cache)
     val executableFields = prepared.executableFields
     val sourceSelections = prepared.sourceSelections
 
@@ -212,8 +212,8 @@ private[gateway] final class EntityExecutor[-R](
       variables: Option[Map[String, InputValue]],
       correlation: EntityCorrelation,
       response: LookupResponse
-    ): LookupExecution =
-      LookupExecution(
+    ): LookupCall =
+      LookupCall(
         request(operation, variables, resolvedRequest),
         correlation,
         response,
@@ -271,10 +271,10 @@ private[gateway] final class EntityExecutor[-R](
         val correlation = graphqlCorrelation(route, routes, result)
         evaluateArguments(mappings, batch, None).map { arguments =>
           val alias           = "_caliban_gateway_lookup"
-          val sourceArguments = mapping.sourceLookupArguments(field, arguments)
+          val sourceArguments = mapping.lookupArgumentsToSource(field, arguments)
           val selection       = Selection.Field(
             Some(alias),
-            mapping.sourceLookupField(field),
+            mapping.lookupFieldToSource(field),
             sourceArguments,
             Nil,
             sourceSelectionsFor(correlation),
@@ -296,8 +296,8 @@ private[gateway] final class EntityExecutor[-R](
             val alias = s"_caliban_gateway_lookup_$index"
             Selection.Field(
               Some(alias),
-              mapping.sourceLookupField(field),
-              mapping.sourceLookupArguments(field, arguments),
+              mapping.lookupFieldToSource(field),
+              mapping.lookupArgumentsToSource(field, arguments),
               Nil,
               sourceSelectionsFor(correlation),
               0
@@ -404,7 +404,7 @@ private[gateway] final class EntityExecutor[-R](
     routes: List[EntityRoute],
     candidates: mutable.HashMap[(RouteId, Vector[String]), List[(List[PathValue], ResponseValue)]],
     blocked: Map[RouteId, Set[List[PathValue]]],
-    caches: PlanCaches
+    cache: PlanExecutionCache
   ): EntityBatch = {
     val entries                                               =
       mutable.LinkedHashMap.empty[Representation, mutable.ListBuffer[EntityLocation]]
@@ -433,7 +433,7 @@ private[gateway] final class EntityExecutor[-R](
           )
             skip(route, path)
           else
-            sourceRepresentation(route, obj, caches) match {
+            sourceRepresentation(route, obj, cache) match {
               case Some(representation) =>
                 entries.get(representation) match {
                   case Some(locations) => locations += EntityLocation(route, path)
@@ -460,19 +460,19 @@ private[gateway] final class EntityExecutor[-R](
     )
   }
 
-  private def routeIdentitySelections(route: EntityRoute, caches: PlanCaches): IdentitySelections =
-    PlanCaches.memoize(caches.identities, route.id)(
+  private def routeIdentitySelections(route: EntityRoute, cache: PlanExecutionCache): IdentitySelections =
+    PlanExecutionCache.memoize(cache.identities, route.id)(
       IdentitySelections(route.keys.map(key => CorrelationKey(key.field, key)), route.typename)
     )
 
   private def sourceRepresentation(
     route: EntityRoute,
     value: ObjectValue,
-    caches: PlanCaches
+    cache: PlanExecutionCache
   ): Option[Representation] = {
     val fields = IndexedFields(value)
     for {
-      identity     <- readIdentity(route.entityType, routeIdentitySelections(route, caches), fields)
+      identity     <- readIdentity(route.entityType, routeIdentitySelections(route, cache), fields)
       requirements <- readRequirements(route.requirements, identity.typename, fields)
     } yield Representation(identity, requirements)
   }
@@ -624,7 +624,7 @@ private[gateway] final class EntityExecutor[-R](
   private def correlateResponse(
     route: EntityRoute,
     batch: EntityBatch,
-    lookup: LookupExecution,
+    lookup: LookupCall,
     response: GraphQLResponse[CalibanError],
     errorPolicy: GraphQLSource.ErrorPolicy
   ): EntityResult = {
@@ -744,7 +744,7 @@ private[gateway] final class EntityExecutor[-R](
   private def relocateErrors(
     route: EntityRoute,
     batch: EntityBatch,
-    lookup: LookupExecution,
+    lookup: LookupCall,
     values: Map[Int, ResponseValue],
     errors: List[CalibanError],
     errorPolicy: GraphQLSource.ErrorPolicy
@@ -926,7 +926,7 @@ private[gateway] object EntityExecutor {
     typename: Option[RequiredSelection]
   )
 
-  private final case class LookupExecution(
+  private final case class LookupCall(
     request: GraphQLRequest,
     correlation: EntityCorrelation,
     response: LookupResponse,

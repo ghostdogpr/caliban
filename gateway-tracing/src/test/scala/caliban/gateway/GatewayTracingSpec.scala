@@ -37,8 +37,8 @@ object GatewayTracingSpec extends ZIOSpecDefault {
         gatewaySpans.map(_.getName).toSet == Set(
           "caliban.gateway.request",
           "caliban.gateway.routing",
-          "caliban.gateway.source",
-          "caliban.gateway.source.attempt",
+          "caliban.gateway.subgraph",
+          "caliban.gateway.subgraph.attempt",
           "caliban.gateway.completion"
         ),
         requestSpan.exists(span =>
@@ -47,10 +47,10 @@ object GatewayTracingSpec extends ZIOSpecDefault {
         ),
         requestSpan.map(_.getParentSpanId) == callerSpan.map(_.getSpanId),
         gatewaySpans
-          .find(_.getName == "caliban.gateway.source")
+          .find(_.getName == "caliban.gateway.subgraph")
           .exists(_.getKind == io.opentelemetry.api.trace.SpanKind.INTERNAL),
         gatewaySpans
-          .find(_.getName == "caliban.gateway.source.attempt")
+          .find(_.getName == "caliban.gateway.subgraph.attempt")
           .exists(span =>
             span.getKind == io.opentelemetry.api.trace.SpanKind.CLIENT &&
               span.getAttributes.get(AttributeKey.longKey("http.response.status_code")) == 200L &&
@@ -78,7 +78,7 @@ object GatewayTracingSpec extends ZIOSpecDefault {
         spans       <- TracingMock.getFinishedSpans.map(_.drop(spansBefore))
         retrySpan    = spans.find(_.getName == "caliban.gateway.retry")
         attempts     = spans
-                         .filter(_.getName == "caliban.gateway.source.attempt")
+                         .filter(_.getName == "caliban.gateway.subgraph.attempt")
                          .sortBy(_.getAttributes.get(AttributeKey.longKey("http.request.resend_count")).longValue())
       } yield assertTrue(
         response.errors.isEmpty,
@@ -105,8 +105,8 @@ object GatewayTracingSpec extends ZIOSpecDefault {
         observed     = spans.filter(span =>
                          Set(
                            "caliban.gateway.request",
-                           "caliban.gateway.source",
-                           "caliban.gateway.source.attempt"
+                           "caliban.gateway.subgraph",
+                           "caliban.gateway.subgraph.attempt"
                          ).contains(span.getName)
                        )
       } yield assertTrue(

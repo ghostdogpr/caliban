@@ -5,16 +5,17 @@ import caliban.parsing.adt.Definition.ExecutableDefinition.{ FragmentDefinition,
 import caliban.parsing.adt.Selection.{ Field, FragmentSpread, InlineFragment }
 import caliban.parsing.adt.{ Directive, Document, Selection, VariableDefinition }
 
-private[gateway] final class OperationLimits(
+private[gateway] final class OperationParsingLimits(
   maxTextBytes: Int,
   maxNesting: Int,
   maxNodes: Int
 ) {
 
-  def textWeight(query: String): Either[OperationLimits.Failure, Int] = {
+  def textBytes(query: String): Either[OperationParsingLimits.Failure, Int] = {
     val bytes = utf8Length(query)
-    if (bytes > maxTextBytes.toLong) Left(OperationLimits.TextTooLarge)
-    else if (!OperationLimits.graphQLNestingWithinLimit(query, maxNesting)) Left(OperationLimits.NestingTooDeep)
+    if (bytes > maxTextBytes.toLong) Left(OperationParsingLimits.TextTooLarge)
+    else if (!OperationParsingLimits.graphQLNestingWithinLimit(query, maxNesting))
+      Left(OperationParsingLimits.NestingTooDeep)
     else Right(bytes.toInt)
   }
 
@@ -38,7 +39,7 @@ private[gateway] final class OperationLimits(
     bytes
   }
 
-  def documentWeight(document: Document): Either[OperationLimits.Failure, Int] = {
+  def documentNodes(document: Document): Either[OperationParsingLimits.Failure, Int] = {
     var nodes = 0
 
     def add(): Boolean = {
@@ -76,12 +77,12 @@ private[gateway] final class OperationLimits(
       case _                                                        => add()
     }
 
-    if (withinLimit) Right(nodes) else Left(OperationLimits.TooManyNodes)
+    if (withinLimit) Right(nodes) else Left(OperationParsingLimits.TooManyNodes)
   }
 
 }
 
-private[gateway] object OperationLimits {
+private[gateway] object OperationParsingLimits {
   private val NormalState      = 0
   private val CommentState     = 1
   private val StringState      = 2
@@ -90,30 +91,30 @@ private[gateway] object OperationLimits {
   def graphQLNestingWithinLimit(query: String, maxNesting: Int): Boolean = {
     var index   = 0
     var depth   = 0
-    var state   = OperationLimits.NormalState
+    var state   = OperationParsingLimits.NormalState
     var escaped = false
 
     while (index < query.length) {
       val current = query.charAt(index)
       state match {
-        case OperationLimits.NormalState      =>
-          if (current == '#') state = OperationLimits.CommentState
+        case OperationParsingLimits.NormalState      =>
+          if (current == '#') state = OperationParsingLimits.CommentState
           else if (current == '"') {
             if (index + 2 < query.length && query.charAt(index + 1) == '"' && query.charAt(index + 2) == '"') {
-              state = OperationLimits.BlockStringState
+              state = OperationParsingLimits.BlockStringState
               index += 2
-            } else state = OperationLimits.StringState
+            } else state = OperationParsingLimits.StringState
           } else if (current == '{' || current == '(' || current == '[') {
             depth += 1
             if (depth > maxNesting) return false
           } else if (current == '}' || current == ')' || current == ']') depth = math.max(0, depth - 1)
-        case OperationLimits.CommentState     =>
-          if (current == '\n' || current == '\r') state = OperationLimits.NormalState
-        case OperationLimits.StringState      =>
+        case OperationParsingLimits.CommentState     =>
+          if (current == '\n' || current == '\r') state = OperationParsingLimits.NormalState
+        case OperationParsingLimits.StringState      =>
           if (escaped) escaped = false
           else if (current == '\\') escaped = true
-          else if (current == '"') state = OperationLimits.NormalState
-        case OperationLimits.BlockStringState =>
+          else if (current == '"') state = OperationParsingLimits.NormalState
+        case OperationParsingLimits.BlockStringState =>
           if (
             current == '\\' && index + 3 < query.length && query.charAt(index + 1) == '"' &&
             query.charAt(index + 2) == '"' && query.charAt(index + 3) == '"'
@@ -122,7 +123,7 @@ private[gateway] object OperationLimits {
             current == '"' && index + 2 < query.length && query.charAt(index + 1) == '"' &&
             query.charAt(index + 2) == '"'
           ) {
-            state = OperationLimits.NormalState
+            state = OperationParsingLimits.NormalState
             index += 2
           }
       }

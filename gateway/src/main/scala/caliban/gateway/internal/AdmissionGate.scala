@@ -5,7 +5,7 @@ import caliban.gateway.GatewayWrapper
 import caliban.gateway.GatewayWrapper.{ AdmissionKind, Event, Result }
 import zio.{ Exit, Scope, Semaphore, Trace, UIO, URIO, ZEnvironment, ZIO }
 
-private[gateway] final class ExecutionGate private (
+private[gateway] final class AdmissionGate private (
   limit: Int,
   semaphore: Semaphore,
   kind: AdmissionKind
@@ -22,8 +22,8 @@ private[gateway] final class ExecutionGate private (
       ZIO.scoped[R] {
         ZIO.acquireRelease(Scope.make)(_.close(Exit.unit)).flatMap { permitScope =>
           val waiting: UIO[Unit] = semaphore.withPermitScoped.provideEnvironment(ZEnvironment(permitScope))
-          wrapper.wrap[Any, Nothing, Unit](Event.AdmissionWait(kind))(waiting)(Result.classifyExit) *>
-            wrapper.wrap[R, E, A](Event.Admission(kind))(effect)(Result.classifyExit)
+          wrapper.wrap(Event.AdmissionWait(kind))(waiting)(Result.classifyExit) *>
+            wrapper.wrap(Event.Admission(kind))(effect)(Result.classifyExit)
         }
       }
 
@@ -37,7 +37,7 @@ private[gateway] final class ExecutionGate private (
     }
 }
 
-private[gateway] object ExecutionGate {
-  def make(limit: Int, kind: AdmissionKind)(implicit trace: Trace): UIO[ExecutionGate] =
-    Semaphore.make(limit.toLong).map(new ExecutionGate(limit, _, kind))
+private[gateway] object AdmissionGate {
+  def make(limit: Int, kind: AdmissionKind)(implicit trace: Trace): UIO[AdmissionGate] =
+    Semaphore.make(limit.toLong).map(new AdmissionGate(limit, _, kind))
 }

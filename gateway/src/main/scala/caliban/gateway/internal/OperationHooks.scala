@@ -13,8 +13,8 @@ private[gateway] final class OperationHooks[-R](
   policy: Option[OperationPolicy[R]]
 ) {
 
-  val cacheDirective: OperationCacheDirective =
-    if (resolver.exists(!_.cacheable)) OperationCacheDirective.Bypass else OperationCacheDirective.Cacheable
+  val cacheMode: OperationCacheMode =
+    if (resolver.exists(!_.cacheable)) OperationCacheMode.Bypass else OperationCacheMode.Cacheable
 
   private[gateway] def resolve(request: GraphQLRequest)(implicit trace: Trace): ZIO[R, CalibanError, GraphQLRequest] =
     resolver match {
@@ -72,9 +72,9 @@ private[gateway] object OperationHooks {
       )
 }
 
-private[gateway] sealed trait OperationCacheDirective
+private[gateway] sealed trait OperationCacheMode
 
-private[gateway] object OperationCacheDirective {
-  case object Cacheable extends OperationCacheDirective
-  case object Bypass    extends OperationCacheDirective
+private[gateway] object OperationCacheMode {
+  case object Cacheable extends OperationCacheMode
+  case object Bypass    extends OperationCacheMode
 }

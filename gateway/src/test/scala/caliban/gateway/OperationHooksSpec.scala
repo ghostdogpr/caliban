@@ -4,7 +4,7 @@ import caliban.Value.StringValue
 import caliban.InputValue.ObjectValue
 import caliban.gateway.GatewayTestSupport._
 import caliban.gateway.OperationPolicy.{ Allow, Reject }
-import caliban.gateway.internal.{ OperationCacheDirective, OperationHooks }
+import caliban.gateway.internal.{ OperationCacheMode, OperationHooks }
 import caliban.{ CalibanError, GraphQLRequest }
 import zio._
 import zio.test._
@@ -198,8 +198,8 @@ object OperationHooksSpec extends ZIOSpecDefault {
       )
 
       assertTrue(
-        stable.cacheDirective == OperationCacheDirective.Cacheable,
-        bypass.cacheDirective == OperationCacheDirective.Bypass
+        stable.cacheMode == OperationCacheMode.Cacheable,
+        bypass.cacheMode == OperationCacheMode.Bypass
       )
     }
   ).provideSomeShared[Scope](testServer, stubIds) @@ TestAspect.sequential

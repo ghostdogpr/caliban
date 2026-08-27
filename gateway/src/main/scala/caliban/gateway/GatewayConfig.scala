@@ -70,7 +70,7 @@ final class GatewayConfig private (
     copy(maxConcurrentRequests = value)
 
   /**
-   * Sets the maximum number of concurrent calls to each local Caliban source.
+   * Sets the maximum number of concurrent calls to each local Caliban subgraph.
    */
   def withMaxConcurrentLocalCalls(value: Int): GatewayConfig =
     copy(maxConcurrentLocalCalls = value)
@@ -88,7 +88,7 @@ final class GatewayConfig private (
     copy(drainTimeout = value)
 
   /**
-   * Transforms the default disclosure policy for GraphQL errors returned by remote sources.
+   * Transforms the default disclosure policy for GraphQL errors returned by remote subgraphs.
    */
   def withRemoteErrorDisclosure(
     configure: RemoteGraphQLConfig.ErrorDisclosure => RemoteGraphQLConfig.ErrorDisclosure

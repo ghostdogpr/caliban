@@ -21,44 +21,44 @@ object GatewayTracing {
   val wrapper: GatewayWrapper[Tracing] = new GatewayWrapper[Tracing] {
     private val propagation = TraceContextPropagator.default
 
-    def wrap[R0, E, A](event: GatewayWrapper.Event)(effect: ZIO[R0, E, A])(
+    def wrap[R0 <: Tracing, E, A](event: GatewayWrapper.Event)(effect: ZIO[R0, E, A])(
       result: Exit[E, A] => Result
-    )(implicit trace: Trace): ZIO[Tracing with R0, E, A] = {
+    )(implicit trace: Trace): ZIO[R0, E, A] = {
       def observed = effect.onExit(exit => complete(event, result(exit)))
       event match {
-        case Event.Request(operationName)            => request(operationName)(observed)
-        case Event.Routing                           => span("caliban.gateway.routing", SpanKind.INTERNAL)(observed)
-        case Event.SourceCall(source, operationType) =>
+        case Event.Request(operationName)                => request(operationName)(observed)
+        case Event.Routing                               => span("caliban.gateway.routing", SpanKind.INTERNAL)(observed)
+        case Event.SubgraphCall(subgraph, operationType) =>
           span(
-            "caliban.gateway.source",
+            "caliban.gateway.subgraph",
             SpanKind.INTERNAL,
             Attributes
               .builder()
-              .put("graphql.subgraph.name", source)
+              .put("graphql.subgraph.name", subgraph)
               .put("graphql.operation.type", GatewayWrapper.operationTypeLabel(operationType))
               .build()
           )(observed)
-        case attempt: Event.Attempt                  =>
+        case attempt: Event.Attempt                      =>
           val attributes = Attributes
             .builder()
-            .put("graphql.subgraph.name", attempt.source)
+            .put("graphql.subgraph.name", attempt.subgraph)
             .put("http.request.method", "POST")
             .put("http.request.body.size", attempt.requestBytes)
             .put("http.request.resend_count", attempt.number.toLong)
           attempt.serverAddress.foreach(attributes.put("server.address", _))
           attempt.serverPort.foreach(port => attributes.put("server.port", port.toLong))
-          span("caliban.gateway.source.attempt", SpanKind.CLIENT, attributes.build())(observed)
-        case Event.Retry(source, attempt)            =>
+          span("caliban.gateway.subgraph.attempt", SpanKind.CLIENT, attributes.build())(observed)
+        case Event.Retry(subgraph, attempt)              =>
           span(
             "caliban.gateway.retry",
             SpanKind.INTERNAL,
             Attributes
               .builder()
-              .put("graphql.subgraph.name", source)
+              .put("graphql.subgraph.name", subgraph)
               .put("caliban.gateway.retry.attempt", attempt.toLong)
               .build()
           )(observed)
-        case Event.Completion                        => span("caliban.gateway.completion", SpanKind.INTERNAL)(observed)
+        case Event.Completion                            => span("caliban.gateway.completion", SpanKind.INTERNAL)(observed)
         case _: Event.CacheAccess | _: Event.AdmissionWait | _: Event.Admission | _: Event.Deduplication |
             Event.RequestOverdue =>
           effect
@@ -71,22 +71,22 @@ object GatewayTracing {
           val attributes = Attributes.builder()
 
           event match {
-            case _: Event.Request    =>
+            case _: Event.Request      =>
               result.operationType.foreach(operationType =>
                 attributes.put("graphql.operation.type", GatewayWrapper.operationTypeLabel(operationType))
               )
               attributes
                 .put("graphql.response.error.count", result.errorCount.toLong)
                 .put("caliban.gateway.request.outcome", result.outcome.label)
-            case _: Event.SourceCall =>
+            case _: Event.SubgraphCall =>
               attributes
                 .put("graphql.response.error.count", result.errorCount.toLong)
-                .put("caliban.gateway.source.outcome", result.outcome.label)
-            case _: Event.Attempt    =>
+                .put("caliban.gateway.subgraph.outcome", result.outcome.label)
+            case _: Event.Attempt      =>
               result.statusCode.foreach(code => attributes.put("http.response.status_code", code.toLong))
               result.responseBytes.foreach(bytes => attributes.put("http.response.body.size", bytes))
-              attributes.put("caliban.gateway.source.attempt.outcome", result.outcome.label)
-            case _                   => ()
+              attributes.put("caliban.gateway.subgraph.attempt.outcome", result.outcome.label)
+            case _                     => ()
           }
 
           if (result.outcome != Outcome.Success) {
@@ -98,7 +98,7 @@ object GatewayTracing {
         }
       }
 
-    override def attemptHeaders(source: String, attempt: Int, headers: List[Header])(implicit
+    override def attemptHeaders(subgraph: String, attempt: Int, headers: List[Header])(implicit
       trace: Trace
     ): URIO[Tracing, List[Header]] =
       for {

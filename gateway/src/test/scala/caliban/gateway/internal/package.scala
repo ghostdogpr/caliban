@@ -8,14 +8,15 @@ package object internal {
     endpoint: Uri,
     backend: SttpClient,
     config: RemoteGraphQLConfig[R] = RemoteGraphQLConfig.default,
-    structuralLimits: RemoteGraphQLSource.StructuralLimits = RemoteGraphQLSource.StructuralLimits.default
+    responseStructureLimits: RemoteGraphQLSource.ResponseStructureLimits =
+      RemoteGraphQLSource.ResponseStructureLimits.default
   ): RemoteGraphQLSource[R] =
     new RemoteGraphQLSource(
       "remote",
       endpoint,
       backend,
       config,
-      structuralLimits,
+      responseStructureLimits,
       None,
       None,
       GatewayWrapper.empty

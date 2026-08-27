@@ -6,16 +6,16 @@ import caliban.gateway.GatewayInterpreter.{ LifecycleStatus, OperationCacheStatu
 import caliban.gateway.GatewayWrapper.{ AdmissionKind, Event, Result }
 import zio.{ Clock, Duration, Exit, Promise, Ref, Scope, Trace, UIO, URIO, ZIO }
 
-private[gateway] final class RuntimeControl private (
-  requests: ExecutionGate,
-  sources: Map[String, ExecutionGate],
+private[gateway] final class GatewayExecutionControl private (
+  requests: AdmissionGate,
+  subgraphs: Map[String, AdmissionGate],
   requestTimeout: Duration,
   drainTimeout: Duration,
-  state: Ref[RuntimeControl.State],
+  state: Ref[GatewayExecutionControl.State],
   drained: Promise[Nothing, Unit],
   forceStop: Promise[Nothing, Unit]
 ) {
-  import RuntimeControl._
+  import GatewayExecutionControl._
 
   def runRequest[R, E, A](effect: ZIO[R, E, A])(
     onTimeout: => ZIO[R, E, A]
@@ -54,13 +54,13 @@ private[gateway] final class RuntimeControl private (
     }
 
   def source[R](name: String, source: GraphQLSource[R], wrapper: GatewayWrapper[R]): GraphQLSource[R] =
-    sources.get(name).fold(source)(source.admittedBy(_, wrapper))
+    subgraphs.get(name).fold(source)(source.admittedBy(_, wrapper))
 
   def status(cache: OperationCacheStatus)(implicit trace: Trace): UIO[Status] =
     state.get.flatMap { current =>
       requests.status.zipWith(
-        ZIO.foreach(sources) { case (name, gate) => gate.status.map(name -> _) }
-      ) { (requestStatus, sourceStatus) =>
+        ZIO.foreach(subgraphs) { case (name, gate) => gate.status.map(name -> _) }
+      ) { (requestStatus, subgraphStatus) =>
         GatewayInterpreter.Status(
           LifecycleStatus(
             current.lifecycle,
@@ -68,7 +68,7 @@ private[gateway] final class RuntimeControl private (
             current.requests.valuesIterator.count(_ == RequestState.Overdue)
           ),
           requestStatus,
-          sourceStatus,
+          subgraphStatus,
           cache
         )
       }
@@ -180,22 +180,23 @@ private[gateway] final class RuntimeControl private (
 
 }
 
-private[gateway] object RuntimeControl {
+private[gateway] object GatewayExecutionControl {
   def make(
     requestLimit: Int,
-    sourceLimits: Map[String, Int],
+    subgraphLimits: Map[String, Int],
     requestTimeout: Duration,
     drainTimeout: Duration
-  )(implicit trace: Trace): ZIO[Scope, Nothing, RuntimeControl] =
+  )(implicit trace: Trace): ZIO[Scope, Nothing, GatewayExecutionControl] =
     for {
-      requests  <- ExecutionGate.make(requestLimit, AdmissionKind.Request)
-      sources   <- ZIO.foreach(sourceLimits) { case (name, limit) =>
-                     ExecutionGate.make(limit, AdmissionKind.Source).map(name -> _)
+      requests  <- AdmissionGate.make(requestLimit, AdmissionKind.Request)
+      subgraphs <- ZIO.foreach(subgraphLimits) { case (name, limit) =>
+                     AdmissionGate.make(limit, AdmissionKind.Subgraph).map(name -> _)
                    }
       state     <- Ref.make(State(GatewayInterpreter.LifecycleState.Running, Map.empty, None))
       drained   <- Promise.make[Nothing, Unit]
       forceStop <- Promise.make[Nothing, Unit]
-      control    = new RuntimeControl(requests, sources, requestTimeout, drainTimeout, state, drained, forceStop)
+      control    =
+        new GatewayExecutionControl(requests, subgraphs, requestTimeout, drainTimeout, state, drained, forceStop)
       _         <- ZIO.addFinalizer(control.close)
     } yield control
 

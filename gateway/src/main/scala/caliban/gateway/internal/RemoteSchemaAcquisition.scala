@@ -27,7 +27,7 @@ private[gateway] object RemoteSchemaAcquisition {
   private val ServiceQuery =
     "query __CalibanGatewayServiceSchema { _service { sdl } }"
 
-  def document(
+  def load(
     input: SchemaInput,
     endpoint: Uri,
     federation: Boolean,
@@ -100,7 +100,7 @@ private[gateway] object RemoteSchemaAcquisition {
                       .attempt(readFromArray[ResponseValue](bytes))
                       .mapError(FederationResponseDecodingFailed(_))
         sdl      <- ZIO.fromEither(decodeServiceSdl(decoded))
-        _        <- if (OperationLimits.graphQLNestingWithinLimit(sdl, config.maxParsingDepth)) ZIO.unit
+        _        <- if (OperationParsingLimits.graphQLNestingWithinLimit(sdl, config.maxParsingDepth)) ZIO.unit
                     else parsingDepthFailure(config.maxParsingDepth)
         document <- ZIO.fromEither(Parser.parseQuery(sdl)).mapError(InvalidFederationSchema(_))
       } yield document
@@ -189,7 +189,7 @@ private[gateway] object RemoteSchemaAcquisition {
       case ObjectValue(fields)             =>
         fields.forall {
           case ("defaultValue", StringValue(defaultValue)) =>
-            OperationLimits.graphQLNestingWithinLimit(defaultValue, maxDepth)
+            OperationParsingLimits.graphQLNestingWithinLimit(defaultValue, maxDepth)
           case (_, nested)                                 => defaultValuesWithinDepth(nested, maxDepth)
         }
       case ResponseValue.ListValue(values) => values.forall(defaultValuesWithinDepth(_, maxDepth))

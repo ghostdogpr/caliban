@@ -18,7 +18,7 @@ trait GatewayInterpreter[-R] extends GraphQLInterpreter[R, CalibanError] {
   def status(implicit trace: Trace): UIO[GatewayInterpreter.Status]
 
   /**
-   * Executes a request with incoming headers available to configured source forwarding policies.
+   * Executes a request with incoming headers available to configured subgraph forwarding policies.
    */
   def executeRequest(request: GraphQLRequest, headers: List[Header])(implicit
     trace: Trace
@@ -65,7 +65,7 @@ object GatewayInterpreter {
   final case class Status(
     lifecycle: LifecycleStatus,
     requests: AdmissionStatus,
-    sources: Map[String, AdmissionStatus],
+    subgraphs: Map[String, AdmissionStatus],
     operationCache: OperationCacheStatus
   )
 }

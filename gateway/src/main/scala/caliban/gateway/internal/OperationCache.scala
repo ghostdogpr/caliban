@@ -17,7 +17,7 @@ private[gateway] final class OperationCache[K, E, V, -R] private (
 ) {
   import OperationCache._
 
-  def getOrCompute[R0](key: K)(compute: => ZIO[R0, E, Weighted[V]])(implicit trace: Trace): ZIO[R with R0, E, V] =
+  def getOrCompute[R0 <: R](key: K)(compute: => ZIO[R0, E, Weighted[V]])(implicit trace: Trace): ZIO[R0, E, V] =
     state.get.flatMap { current =>
       current.entries.get(key) match {
         case Some(entry) => hit(entry.value)
@@ -38,7 +38,7 @@ private[gateway] final class OperationCache[K, E, V, -R] private (
       )
     }
 
-  private def miss[R0](key: K)(compute: => ZIO[R0, E, Weighted[V]])(implicit trace: Trace): ZIO[R with R0, E, V] =
+  private def miss[R0 <: R](key: K)(compute: => ZIO[R0, E, Weighted[V]])(implicit trace: Trace): ZIO[R0, E, V] =
     Promise.make[Nothing, Exit[E, V]].flatMap { fresh =>
       ZIO.uninterruptibleMask { restore =>
         state
@@ -95,9 +95,9 @@ private[gateway] final class OperationCache[K, E, V, -R] private (
   private def hit(value: V)(implicit trace: Trace): ZIO[R, Nothing, V] =
     ZIO.succeed(hits.increment()) *> observe(CacheResult.Hit)(ZIO.succeed(value))
 
-  private def observe[R0, E0, A](value: CacheResult)(effect: ZIO[R0, E0, A])(implicit
-    trace: Trace
-  ): ZIO[R with R0, E0, A] =
+  private def observe[R0 <: R, E0, A](
+    value: CacheResult
+  )(effect: ZIO[R0, E0, A])(implicit trace: Trace): ZIO[R0, E0, A] =
     if (!wrapper.enabled) effect
     else
       wrapper.wrap(Event.CacheAccess(value))(effect)(

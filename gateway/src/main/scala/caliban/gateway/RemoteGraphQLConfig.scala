@@ -5,7 +5,7 @@ import sttp.model.Header
 import zio.{ Duration, ZIO }
 
 /**
- * Immutable acquisition, execution, and error-disclosure configuration for one remote GraphQL-over-HTTP source.
+ * Immutable acquisition, execution, and error-disclosure configuration for one remote GraphQL-over-HTTP subgraph.
  */
 final class RemoteGraphQLConfig[-R] private (
   val acquisition: RemoteGraphQLConfig.Acquisition,
@@ -31,8 +31,8 @@ final class RemoteGraphQLConfig[-R] private (
     new RemoteGraphQLConfig(acquisition, configure(execution), effectfulHeaders, errorDisclosure)
 
   /**
-   * Overrides the gateway-wide disclosure policy for GraphQL errors returned by this source. The first
-   * transformation starts from the secure source default; subsequent transformations use the stored override.
+   * Overrides the gateway-wide disclosure policy for GraphQL errors returned by this subgraph. The first
+   * transformation starts from the secure subgraph default; subsequent transformations use the stored override.
    */
   def withErrorDisclosure(
     configure: RemoteGraphQLConfig.ErrorDisclosure => RemoteGraphQLConfig.ErrorDisclosure
@@ -45,7 +45,7 @@ final class RemoteGraphQLConfig[-R] private (
    * Adds effectful request-execution headers and their environment requirement. These headers are not used for
    * schema acquisition.
    */
-  def withExecutionHeadersZIO[R1](value: ZIO[R1, Throwable, List[Header]]): RemoteGraphQLConfig[R with R1] =
+  def withExecutionHeadersZIO[R1 <: R](value: ZIO[R1, Throwable, List[Header]]): RemoteGraphQLConfig[R1] =
     new RemoteGraphQLConfig(acquisition, execution, effectfulHeaders.zipWith(value)(_ ::: _), errorDisclosure)
 
   private[gateway] def diagnostics(includeAcquisition: Boolean): List[String] =
@@ -88,7 +88,7 @@ object RemoteGraphQLConfig {
   }
 
   /**
-   * Finite schema-acquisition configuration for one remote GraphQL source.
+   * Finite schema-acquisition configuration for one remote GraphQL subgraph.
    */
   final class Acquisition private (
     val timeout: Duration,
@@ -149,7 +149,7 @@ object RemoteGraphQLConfig {
   }
 
   /**
-   * Finite request-execution configuration for one remote GraphQL source.
+   * Finite request-execution configuration for one remote GraphQL subgraph.
    *
    * Outbound headers use this precedence, from lowest to highest: selected incoming headers,
    * configured static headers, effectful headers, and GraphQL transport headers.
@@ -168,7 +168,7 @@ object RemoteGraphQLConfig {
   ) {
 
     /**
-     * Sets the maximum duration of one logical source call, including retries.
+     * Sets the maximum duration of one logical subgraph call, including retries.
      */
     def withTimeout(value: Duration): Execution =
       copy(timeout = value)
@@ -192,7 +192,7 @@ object RemoteGraphQLConfig {
       copy(retries = count, retryBackoff = backoff)
 
     /**
-     * Sets the maximum number of concurrent logical calls admitted for this source.
+     * Sets the maximum number of concurrent logical calls admitted for this subgraph.
      */
     def withMaxConcurrentCalls(value: Int): Execution =
       copy(maxConcurrentCalls = value)
@@ -222,17 +222,17 @@ object RemoteGraphQLConfig {
       copy(forwardedHeaders = Set.empty, forwardsAllIncomingHeaders = true)
 
     private[gateway] def diagnostics: List[String] = {
-      val timeoutError            = finitePositive(timeout, "Source execution timeout must be finite and positive.")
-      val requestError            = positive(maxRequestBytes, "Source execution maxRequestBytes must be positive.")
-      val responseError           = positive(maxResponseBytes, "Source execution maxResponseBytes must be positive.")
-      val retryError              = nonNegative(retries, "Source execution retry count must be non-negative.")
+      val timeoutError            = finitePositive(timeout, "Subgraph execution timeout must be finite and positive.")
+      val requestError            = positive(maxRequestBytes, "Subgraph execution maxRequestBytes must be positive.")
+      val responseError           = positive(maxResponseBytes, "Subgraph execution maxResponseBytes must be positive.")
+      val retryError              = nonNegative(retries, "Subgraph execution retry count must be non-negative.")
       val backoffError            =
-        finiteNonNegative(retryBackoff, "Source execution retry backoff must be finite and non-negative.")
+        finiteNonNegative(retryBackoff, "Subgraph execution retry backoff must be finite and non-negative.")
       val maxConcurrentCallsError =
-        positive(maxConcurrentCalls, "Source execution maxConcurrentCalls must be positive.")
+        positive(maxConcurrentCalls, "Subgraph execution maxConcurrentCalls must be positive.")
       val protectedHeaders        = headers.collect {
         case header if isProtocolHeader(header.name) =>
-          s"Source execution header '${header.name}' is owned by the GraphQL transport."
+          s"Subgraph execution header '${header.name}' is owned by the GraphQL transport."
       }
       val protectedForwarding     = forwardedHeaders.toList.sorted.collect {
         case name if isProtocolHeader(name) =>

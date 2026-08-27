@@ -103,7 +103,7 @@ object SecurityPolicySpec extends ZIOSpecDefault {
         sent.isEmpty
       )
     },
-    test("retains security applications from every composed field contribution") {
+    test("retains security applications from every composed subgraph field") {
       val authenticatedSchema =
         s"""
            |extend schema @link(

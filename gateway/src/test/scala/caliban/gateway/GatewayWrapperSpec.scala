@@ -37,10 +37,10 @@ object GatewayWrapperSpec extends ZIOSpecDefault {
           Event.Routing
         ),
         observed.contains(Event.CacheAccess(CacheResult.Miss)),
-        observed.contains(Event.SourceCall("products", OperationType.Query)),
-        observed.contains(Event.AdmissionWait(AdmissionKind.Source)),
-        observed.contains(Event.Admission(AdmissionKind.Source)),
-        observed.collect { case Event.Attempt(source, number, _, _, _) => source -> number } ==
+        observed.contains(Event.SubgraphCall("products", OperationType.Query)),
+        observed.contains(Event.AdmissionWait(AdmissionKind.Subgraph)),
+        observed.contains(Event.Admission(AdmissionKind.Subgraph)),
+        observed.collect { case Event.Attempt(subgraph, number, _, _, _) => subgraph -> number } ==
           Vector("products" -> 0),
         observed.lastOption.contains(Event.Completion),
         completed.size == observed.size,
@@ -104,16 +104,16 @@ object GatewayWrapperSpec extends ZIOSpecDefault {
         after   <- gauge(waiting, "kind", "request")
       } yield assertTrue(active == before + 1.0, after == before)
     },
-    test("records request, admission, source, and overdue metrics through the wrapper") {
+    test("records request, admission, subgraph, and overdue metrics through the wrapper") {
       for {
         started        <- Promise.make[Nothing, Unit]
         runtime        <- (Gateway
                             .compose(Subgraph.local("local", localGraph(started.succeed(()).unit *> ZIO.never)))
                             .withConfig(_.withRequestTimeout(Duration.fromSeconds(1))) @@ GatewayMetrics.wrapper).interpreter
         requestBefore  <- counter("caliban_gateway_admission_total", "kind", "request")
-        sourceBefore   <- counter("caliban_gateway_admission_total", "kind", "source")
+        subgraphBefore <- counter("caliban_gateway_admission_total", "kind", "subgraph")
         requestsBefore <- counter("caliban_gateway_requests_total", "outcome", "error")
-        callsBefore    <- counter("caliban_gateway_source_calls_total", "source", "local")
+        callsBefore    <- counter("caliban_gateway_subgraph_calls_total", "subgraph", "local")
         overdueBefore  <- Metric.counter("caliban_gateway_overdue_requests_total").value.map(_.count)
         durationBefore <- histogram(
                             "caliban_gateway_request_duration_seconds",
@@ -124,13 +124,13 @@ object GatewayWrapperSpec extends ZIOSpecDefault {
         _              <- started.await
         requestsActive <- gauge("caliban_gateway_requests_active")
         requestActive  <- gauge("caliban_gateway_admission_active", "kind", "request")
-        sourceActive   <- gauge("caliban_gateway_admission_active", "kind", "source")
+        subgraphActive <- gauge("caliban_gateway_admission_active", "kind", "subgraph")
         _              <- TestClock.adjust(Duration.fromSeconds(1))
         response       <- responseFiber.join
         requestAfter   <- counter("caliban_gateway_admission_total", "kind", "request")
-        sourceAfter    <- counter("caliban_gateway_admission_total", "kind", "source")
+        subgraphAfter  <- counter("caliban_gateway_admission_total", "kind", "subgraph")
         requestsAfter  <- counter("caliban_gateway_requests_total", "outcome", "error")
-        callsAfter     <- counter("caliban_gateway_source_calls_total", "source", "local")
+        callsAfter     <- counter("caliban_gateway_subgraph_calls_total", "subgraph", "local")
         overdueAfter   <- Metric.counter("caliban_gateway_overdue_requests_total").value.map(_.count)
         durationAfter  <- histogram(
                             "caliban_gateway_request_duration_seconds",
@@ -139,21 +139,21 @@ object GatewayWrapperSpec extends ZIOSpecDefault {
                           )
         requestsDone   <- gauge("caliban_gateway_requests_active")
         requestDone    <- gauge("caliban_gateway_admission_active", "kind", "request")
-        sourceDone     <- gauge("caliban_gateway_admission_active", "kind", "source")
+        subgraphDone   <- gauge("caliban_gateway_admission_active", "kind", "subgraph")
       } yield assertTrue(
         response.errors.map(_.msg) == List("Gateway request timed out."),
         requestsActive == 1.0,
         requestActive == 1.0,
-        sourceActive == 1.0,
+        subgraphActive == 1.0,
         requestAfter == requestBefore + 1.0,
-        sourceAfter == sourceBefore + 1.0,
+        subgraphAfter == subgraphBefore + 1.0,
         requestsAfter == requestsBefore + 1.0,
         callsAfter == callsBefore + 1.0,
         overdueAfter == overdueBefore + 1.0,
         durationAfter == durationBefore + 1L,
         requestsDone == 0.0,
         requestDone == 0.0,
-        sourceDone == 0.0
+        subgraphDone == 0.0
       )
     }
   ).provideSomeShared[Scope](testServer, stubIds) @@ TestAspect.sequential
@@ -168,10 +168,10 @@ object GatewayWrapperSpec extends ZIOSpecDefault {
       )(implicit trace: Trace): ZIO[R0, E, A] =
         events.update(_ :+ event) *> effect.onExit(exit => results.update(_ :+ result(exit)))
 
-      override def outboundHeaders(source: String, headers: List[Header])(implicit
+      override def outboundHeaders(subgraph: String, headers: List[Header])(implicit
         trace: Trace
       ): URIO[Any, List[Header]] =
-        ZIO.succeed(Header("x-gateway-wrapper", source) :: headers)
+        ZIO.succeed(Header("x-gateway-wrapper", subgraph) :: headers)
     }
 
   private def delaying(entered: Promise[Nothing, Unit]): GatewayWrapper[Any] =

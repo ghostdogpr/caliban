@@ -26,7 +26,7 @@ private[gateway] final class GatewayInterpreterImpl[-R](
   graph: ComposedGraph,
   sources: Map[String, GraphQLSource[R]],
   operations: OperationPreparation[R],
-  control: RuntimeControl,
+  control: GatewayExecutionControl,
   wrapper: GatewayWrapper[R]
 ) extends GatewayInterpreter[R] {
 
@@ -38,9 +38,9 @@ private[gateway] final class GatewayInterpreterImpl[-R](
     route: RootRoute,
     operationType: OperationType,
     operationName: Option[String],
-    caches: PlanCaches
+    cache: PlanExecutionCache
   ): PreparedRoot =
-    PlanCaches.memoize(caches.roots, route.id) {
+    PlanExecutionCache.memoize(cache.roots, route.id) {
       val mapping          = graph.mapping(route.source)
       val executable       = route.downstream.map(graph.executableField(route.source, _))
       val downstream       = mapping.fold(executable)(value => executable.map(value.rootFieldToSource))
@@ -193,9 +193,9 @@ private[gateway] final class GatewayInterpreterImpl[-R](
             }
     }
 
-  private def observeCompletion[R0, E](effect: ZIO[R0, E, GraphQLResponse[CalibanError]])(implicit
+  private def observeCompletion[R0 <: R, E](effect: ZIO[R0, E, GraphQLResponse[CalibanError]])(implicit
     trace: Trace
-  ): ZIO[R with R0, E, GraphQLResponse[CalibanError]] =
+  ): ZIO[R0, E, GraphQLResponse[CalibanError]] =
     if (!wrapper.enabled) effect
     else
       wrapper.wrap(Event.Completion)(effect)(
@@ -209,7 +209,7 @@ private[gateway] final class GatewayInterpreterImpl[-R](
   )(implicit trace: Trace): ZIO[R, Nothing, RemoteExecution] =
     plan.operation match {
       case OperationType.Query        =>
-        executeRoots(plan.roots, execution, resolvedRequest, plan.caches).flatMap { roots =>
+        executeRoots(plan.roots, execution, resolvedRequest, plan.cache).flatMap { roots =>
           val rootValues = roots.iterator.map(result => result.route.id -> result.response.data).toMap
           executeEntities(
             plan.entities,
@@ -217,7 +217,7 @@ private[gateway] final class GatewayInterpreterImpl[-R](
             plan.roots.iterator.map(_.id).toSet,
             Map.empty,
             resolvedRequest,
-            plan.caches
+            plan.cache
           ).map { entityExecution =>
             val updated = roots.map(result =>
               result.copy(
@@ -243,7 +243,7 @@ private[gateway] final class GatewayInterpreterImpl[-R](
     pending match {
       case Nil           => ZIO.succeed(RemoteExecution(Nil, Nil))
       case route :: tail =>
-        executeRoot(route, execution, resolvedRequest, plan.caches).flatMap { root =>
+        executeRoot(route, execution, resolvedRequest, plan.cache).flatMap { root =>
           val rootData = mutationRootData(route, root.response.data)
           val current  = plan.entities.filter(_.root == route.id)
           executeEntities(
@@ -252,7 +252,7 @@ private[gateway] final class GatewayInterpreterImpl[-R](
             Set(route.id),
             Map.empty,
             resolvedRequest,
-            plan.caches
+            plan.cache
           ).flatMap { entityExecution =>
             val updated       = root.copy(
               response = root.response.copy(
@@ -303,7 +303,7 @@ private[gateway] final class GatewayInterpreterImpl[-R](
     completed: Set[RouteId],
     blocked: Map[RouteId, Set[List[PathValue]]],
     resolvedRequest: GraphQLRequest,
-    caches: PlanCaches
+    cache: PlanExecutionCache
   )(implicit trace: Trace): URIO[R, EntityExecution] =
     if (pending.isEmpty) ZIO.succeed(EntityExecution(roots, Nil))
     else {
@@ -321,7 +321,7 @@ private[gateway] final class GatewayInterpreterImpl[-R](
           )
         )
       else
-        entityExecutor.execute(ready, roots, blocked, resolvedRequest, caches).flatMap { results =>
+        entityExecutor.execute(ready, roots, blocked, resolvedRequest, cache).flatMap { results =>
           val patchesByRoot =
             mutable.LinkedHashMap.empty[RouteId, mutable.ListBuffer[(List[PathValue], ResponseValue)]]
           results.foreach(
@@ -367,7 +367,7 @@ private[gateway] final class GatewayInterpreterImpl[-R](
             values.updated(route, values.getOrElse(route, Set.empty) ++ paths)
           }
           val remaining     = pending.filterNot(route => nextCompleted.contains(route.id))
-          executeEntities(remaining, nextRoots, nextCompleted, nextBlocked, resolvedRequest, caches)
+          executeEntities(remaining, nextRoots, nextCompleted, nextBlocked, resolvedRequest, cache)
             .map(next => next.copy(results = results ::: next.results))
         }
     }
@@ -376,20 +376,20 @@ private[gateway] final class GatewayInterpreterImpl[-R](
     routes: List[RootRoute],
     execution: ExecutionRequest,
     resolvedRequest: GraphQLRequest,
-    caches: PlanCaches
+    cache: PlanExecutionCache
   )(implicit trace: Trace): ZIO[R, Nothing, List[RootResult]] =
     routes match {
-      case route :: Nil => executeRoot(route, execution, resolvedRequest, caches).map(_ :: Nil)
-      case _            => ZIO.foreachPar(routes)(executeRoot(_, execution, resolvedRequest, caches))
+      case route :: Nil => executeRoot(route, execution, resolvedRequest, cache).map(_ :: Nil)
+      case _            => ZIO.foreachPar(routes)(executeRoot(_, execution, resolvedRequest, cache))
     }
 
   private def executeRoot(
     route: RootRoute,
     execution: ExecutionRequest,
     resolvedRequest: GraphQLRequest,
-    caches: PlanCaches
+    cache: PlanExecutionCache
   )(implicit trace: Trace): ZIO[R, Nothing, RootResult] = {
-    val prepared = preparedRoot(route, execution.operationType, execution.operationName, caches)
+    val prepared = preparedRoot(route, execution.operationType, execution.operationName, cache)
     val request  = GraphQLRequest(
       query = Some(prepared.query),
       operationName = execution.operationName,
@@ -1173,7 +1173,7 @@ private[gateway] object GatewayInterpreterImpl {
   private final case class CompletedValue(value: Option[ResponseValue], errors: List[CalibanError.ExecutionError])
 }
 
-private[internal] object PlanCaches {
+private[internal] object PlanExecutionCache {
 
   def memoize[A <: AnyRef](cache: ConcurrentHashMap[RouteId, A], id: RouteId)(compute: => A): A = {
     val cached = cache.get(id)
@@ -1186,7 +1186,7 @@ private[internal] object PlanCaches {
   }
 }
 
-private[internal] final class PlanCaches {
+private[internal] final class PlanExecutionCache {
   val roots: ConcurrentHashMap[RouteId, GatewayInterpreterImpl.PreparedRoot]    = new ConcurrentHashMap
   val groupKeys: ConcurrentHashMap[RouteId, EntityExecutor.EntityGroupKey]      = new ConcurrentHashMap
   val lookups: ConcurrentHashMap[RouteId, EntityExecutor.PreparedLookup]        = new ConcurrentHashMap

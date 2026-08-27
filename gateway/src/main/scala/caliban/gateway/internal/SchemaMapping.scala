@@ -19,11 +19,11 @@ import caliban.rendering.DocumentRenderer
 import caliban.schema.RootType
 import caliban.{ CalibanError, GraphQLResponse, InputValue, ResponseValue }
 
-private[gateway] final class SchemaCoordinateMapping private (
+private[gateway] final class SchemaMapping private (
   originalRootType: RootType,
-  mappings: SchemaCoordinateMapping.CoordinateMappings
+  mappings: SchemaMapping.Mappings
 ) {
-  import SchemaCoordinateMapping._
+  import SchemaMapping._
 
   private val typeNames       = mappings.typeNames
   private val fieldNames      = mappings.fieldNames
@@ -180,10 +180,10 @@ private[gateway] final class SchemaCoordinateMapping private (
     )
   }
 
-  def sourceLookupField(field: String): String =
+  def lookupFieldToSource(field: String): String =
     sourceField(sourceQueryName, field)
 
-  def sourceLookupArguments(field: String, arguments: Map[String, InputValue]): Map[String, InputValue] = {
+  def lookupArgumentsToSource(field: String, arguments: Map[String, InputValue]): Map[String, InputValue] = {
     val sourceName = sourceField(sourceQueryName, field)
     val definition = sourceFieldDefinition(sourceQueryName, sourceName)
     translateArguments(
@@ -656,7 +656,7 @@ private[gateway] final class SchemaCoordinateMapping private (
     }
 }
 
-private[gateway] object SchemaCoordinateMapping {
+private[gateway] object SchemaMapping {
 
   private final case class FieldSetDirectives(names: Set[String], provides: Set[String])
   private sealed trait MappingDirection
@@ -832,7 +832,7 @@ private[gateway] object SchemaCoordinateMapping {
 
   private val federationRootFields = Set("_entities", "_service")
 
-  private final case class CoordinateMappings(
+  private final case class Mappings(
     typeNames: Map[String, String] = Map.empty,
     fieldNames: Map[(String, String), String] = Map.empty,
     argumentNames: Map[(String, String, String), String] = Map.empty,
@@ -851,7 +851,7 @@ private[gateway] object SchemaCoordinateMapping {
       !renamesNothing || hiddenTypeSources.nonEmpty || hiddenFieldSources.nonEmpty || hiddenArgumentSources.nonEmpty ||
         hiddenInputFieldSources.nonEmpty || hiddenEnumValueSources.nonEmpty
 
-    def add(change: Change): CoordinateMappings =
+    def add(change: Change): Mappings =
       (change.coordinate, change.renamed) match {
         case (TypeCoordinate(name), Some(renamed))                 => copy(typeNames = typeNames.updated(name, renamed))
         case (TypeCoordinate(name), None)                          => copy(hiddenTypeSources = hiddenTypeSources + name)
@@ -912,7 +912,7 @@ private[gateway] object SchemaCoordinateMapping {
     document: Document,
     federation: Boolean,
     transformations: List[SchemaTransformation]
-  ): Either[List[String], SchemaCoordinateMapping] = {
+  ): Either[List[String], SchemaMapping] = {
     val prefix         = s"[$source]"
     val operationRoots =
       rootType.queryType.name.toSet ++ rootType.mutationType.flatMap(_.name).toSet ++
@@ -923,7 +923,7 @@ private[gateway] object SchemaCoordinateMapping {
       SchemaComposition.federationTransportTypes(document, federation)
     )
     val changes        = transformations.map(normalize)
-    val mappings       = changes.foldLeft(CoordinateMappings())(_.add(_))
+    val mappings       = changes.foldLeft(Mappings())(_.add(_))
     val renames        = changes.collect { case Change(coordinate, Some(renamed)) => coordinate -> renamed }
 
     val missing                    = changes.collect {
@@ -971,10 +971,7 @@ private[gateway] object SchemaCoordinateMapping {
         collisions ::: transformedCollisions ::: conflictingTransformations).distinct.sorted
 
     if (diagnostics.nonEmpty) Left(diagnostics)
-    else
-      Right(
-        new SchemaCoordinateMapping(rootType, mappings)
-      )
+    else Right(new SchemaMapping(rootType, mappings))
   }
 
   private[gateway] final case class InputCoordinateReferences(

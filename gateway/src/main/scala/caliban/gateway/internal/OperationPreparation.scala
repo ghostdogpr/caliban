@@ -5,7 +5,7 @@ import caliban.execution.{ ExecutionRequest, Field, RequestPreparation }
 import caliban.gateway.GatewayInterpreter.OperationCacheStatus
 import caliban.gateway.{ GatewayConfig, GatewayWrapper }
 import caliban.gateway.internal.OperationCache.Weighted
-import caliban.gateway.internal.OperationCacheDirective.Cacheable
+import caliban.gateway.internal.OperationCacheMode.Cacheable
 import caliban.gateway.internal.OperationPreparation._
 import caliban.gateway.internal.OperationPlanner.{ OperationPlan, PlanningFailure }
 import caliban.parsing.adt.{ Directive, Document }
@@ -19,7 +19,7 @@ private[gateway] final class OperationPreparation[-R] private (
   rootType: RootType,
   planner: OperationPlanner,
   hooks: OperationHooks[R],
-  limits: OperationLimits,
+  limits: OperationParsingLimits,
   cache: OperationCache[CacheKey, CalibanError, CachedOperation, R]
 ) {
 
@@ -37,7 +37,7 @@ private[gateway] final class OperationPreparation[-R] private (
       config     <- Configurator.ref.get
       preparation = PreparationConfig.from(config)
       cacheable   = config.skipValidation || config.validations == AllValidations
-      prepared   <- hooks.cacheDirective match {
+      prepared   <- hooks.cacheMode match {
                       case Cacheable if cacheable =>
                         cache
                           .getOrCompute(
@@ -59,10 +59,10 @@ private[gateway] final class OperationPreparation[-R] private (
 
   private def parseWithinLimits(query: String)(implicit trace: Trace): IO[CalibanError, ParsedWithinLimits] =
     for {
-      textWeight <- ZIO.fromEither(limits.textWeight(query).left.map(limitFailure))
-      document   <- RequestPreparation.parse(query)
-      nodeCount  <- ZIO.fromEither(limits.documentWeight(document).left.map(limitFailure))
-    } yield ParsedWithinLimits(document, textWeight, nodeCount)
+      textBytes <- ZIO.fromEither(limits.textBytes(query).left.map(limitFailure))
+      document  <- RequestPreparation.parse(query)
+      nodeCount <- ZIO.fromEither(limits.documentNodes(document).left.map(limitFailure))
+    } yield ParsedWithinLimits(document, textBytes, nodeCount)
 
   private def computeCached(
     request: GraphQLRequest,
@@ -91,7 +91,7 @@ private[gateway] final class OperationPreparation[-R] private (
         if (variables.isEmpty && !planned.exists(_._2.hasVariableReferences)) planned.map(_._1)
         else None
       val cached    = CachedOperation(document, planned.map(_._2), execution)
-      Weighted(cached, operationWeight(parsed.textWeight, parsed.nodeCount, cached.plan, request.operationName))
+      Weighted(cached, operationWeight(parsed.textBytes, parsed.nodeCount, cached.plan, request.operationName))
     }
   }
 
@@ -184,7 +184,7 @@ private[gateway] final class OperationPreparation[-R] private (
 
 private[gateway] object OperationPreparation {
 
-  private final case class ParsedWithinLimits(document: Document, textWeight: Int, nodeCount: Int)
+  private final case class ParsedWithinLimits(document: Document, textBytes: Int, nodeCount: Int)
 
   final case class Prepared(
     request: GraphQLRequest,
@@ -235,7 +235,7 @@ private[gateway] object OperationPreparation {
           rootType,
           planner,
           hooks,
-          new OperationLimits(
+          new OperationParsingLimits(
             config.maxOperationTextBytes,
             config.maxOperationNesting,
             config.maxParsedOperationNodes
@@ -244,13 +244,13 @@ private[gateway] object OperationPreparation {
         )
       )
 
-  private def limitFailure(failure: OperationLimits.Failure): CalibanError.ValidationError =
+  private def limitFailure(failure: OperationParsingLimits.Failure): CalibanError.ValidationError =
     failure match {
-      case OperationLimits.TextTooLarge   =>
+      case OperationParsingLimits.TextTooLarge   =>
         CalibanError.ValidationError("Operation text exceeded the configured byte limit.", "")
-      case OperationLimits.NestingTooDeep =>
+      case OperationParsingLimits.NestingTooDeep =>
         CalibanError.ValidationError("Operation nesting exceeded the configured limit.", "")
-      case OperationLimits.TooManyNodes   =>
+      case OperationParsingLimits.TooManyNodes   =>
         CalibanError.ValidationError("Operation structure exceeded the configured node limit.", "")
     }
 
