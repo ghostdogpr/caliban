@@ -199,10 +199,11 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
         response.errors.map(_.msg) == List("Gateway request timed out.")
       )
     },
-    test("stops a replay-safe retry sequence at the request deadline") {
+    test("stops an unshared retry sequence at the request deadline") {
       val remoteConfig = RemoteGraphQLConfig.default.withExecution(
         _.withTimeout(1.hour)
           .withRetries(1, 10.seconds)
+          .withInFlightQueryDeduplication(false)
       )
       for {
         calls    <- Ref.make(0)

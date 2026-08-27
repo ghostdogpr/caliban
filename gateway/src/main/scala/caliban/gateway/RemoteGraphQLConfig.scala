@@ -272,7 +272,8 @@ object RemoteGraphQLConfig {
   object Execution {
 
     /**
-     * The default finite execution configuration. Retries and header forwarding are disabled.
+     * The default finite execution configuration. In-flight query deduplication is enabled;
+     * retries and header forwarding are disabled.
      */
     val default: Execution =
       new Execution(
@@ -282,7 +283,7 @@ object RemoteGraphQLConfig {
         retries = 0,
         retryBackoff = Duration.fromMillis(100),
         maxConcurrentCalls = 64,
-        inFlightQueryDeduplication = false,
+        inFlightQueryDeduplication = true,
         headers = Nil,
         forwardedHeaders = Set.empty,
         forwardsAllIncomingHeaders = false

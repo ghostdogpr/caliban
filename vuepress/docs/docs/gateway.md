@@ -216,7 +216,9 @@ val products = Subgraph.graphql(
 
 The configuration belongs to that subgraph only. You can configure each remote service differently.
 
-The gateway only retries requests that are safe to repeat.
+Retries are disabled by default. When enabled, the gateway only retries requests that are safe to repeat.
+
+Concurrent identical remote queries share one in-flight call by default. The request body and semantic outbound headers must match; mutations are never shared. Disable this per subgraph with `.withExecution(_.withInFlightQueryDeduplication(false))`.
 
 If loading the schema at startup requires authentication, configure its headers separately:
 

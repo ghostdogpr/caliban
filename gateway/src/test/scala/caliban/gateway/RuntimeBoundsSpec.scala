@@ -473,6 +473,7 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
         val config = RemoteGraphQLConfig.default.withExecution(
           _.withRetries(1, Duration.Zero)
             .withMaxConcurrentCalls(1)
+            .withInFlightQueryDeduplication(false)
         )
         for {
           calls        <- Ref.make(0)
@@ -509,10 +510,7 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
         )
       },
       test("deduplicates identical queries before source admission") {
-        val config = RemoteGraphQLConfig.default.withExecution(
-          _.withMaxConcurrentCalls(1)
-            .withInFlightQueryDeduplication(true)
-        )
+        val config = RemoteGraphQLConfig.default.withExecution(_.withMaxConcurrentCalls(1))
         for {
           calls       <- Ref.make(0)
           started     <- Promise.make[Nothing, Unit]
@@ -546,10 +544,7 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
         )
       },
       test("bounds distinct deduplication identities before source admission") {
-        val config       = RemoteGraphQLConfig.default.withExecution(
-          _.withMaxConcurrentCalls(1)
-            .withInFlightQueryDeduplication(true)
-        )
+        val config       = RemoteGraphQLConfig.default.withExecution(_.withMaxConcurrentCalls(1))
         val operations   = Some("query First { value } query Second { value }")
         val firstRequest = GraphQLRequest(query = operations, operationName = Some("First"))
         val nextRequest  = GraphQLRequest(query = operations, operationName = Some("Second"))

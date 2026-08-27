@@ -118,15 +118,13 @@ object GatewayTracingSpec extends ZIOSpecDefault {
       )
     },
     test("keeps trace propagation outside in-flight query identity") {
-      val config = RemoteGraphQLConfig.default.withExecution(_.withInFlightQueryDeduplication(true))
-
       for {
         started   <- Promise.make[Nothing, Unit]
         release   <- Promise.make[Nothing, Unit]
         joined    <- Promise.make[Nothing, Unit]
         remote    <- stubWith(started.succeed(()).unit *> release.await, """{"data":{"value":"ok"}}""")
         runtime   <- (Gateway.compose(
-                       Subgraph.graphql("products", remote.endpoint, schema, config)
+                       Subgraph.graphql("products", remote.endpoint, schema)
                      ) @@ (GatewayTracing.wrapper |+| deduplicationObserver(joined))).interpreter
         fibers    <- ZIO.foreach(1 to 2)(index =>
                        ZIO.serviceWithZIO[Tracing](_.span(s"caller-$index")(runtime.execute("{ value }"))).fork

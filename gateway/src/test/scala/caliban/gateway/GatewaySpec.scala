@@ -323,9 +323,10 @@ object GatewaySpec extends ZIOSpecDefault {
       test("reuses the cached operation across sequential and concurrent identical requests") {
         val query    = """{ catalog: products(ids: ["p1"]) { id details { name } } }"""
         val response = """{"data":{"catalog":[{"id":"p1","details":{"name":"Table"}}]}}"""
+        val config   = RemoteGraphQLConfig.default.withExecution(_.withInFlightQueryDeduplication(false))
         for {
           remote   <- stub(response)
-          gateway  <- runtime(remote)
+          gateway  <- Gateway.compose(Subgraph.graphql("products", remote.endpoint, schema, config)).interpreter
           first    <- gateway.execute(query)
           repeated <- ZIO.foreachPar(List.fill(16)(query))(gateway.execute(_))
           requests <- remote.requests.get

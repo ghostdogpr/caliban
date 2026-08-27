@@ -493,14 +493,13 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
         }
       )
     },
-    test("deduplicates concurrent identical remote queries") {
+    test("deduplicates concurrent identical remote queries by default") {
       val callers = 20
 
       for {
         ready        <- Promise.make[Nothing, Unit]
         headerRuns   <- Ref.make(0)
         config        = RemoteGraphQLConfig.default
-                          .withExecution(_.withInFlightQueryDeduplication(true))
                           .withExecutionHeadersZIO(
                             headerRuns
                               .updateAndGet(_ + 1)
@@ -526,10 +525,21 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
         )
       )
     },
+    test("allows disabling deduplication for concurrent identical remote queries") {
+      val config = RemoteGraphQLConfig.default.withExecution(_.withInFlightQueryDeduplication(false))
+
+      for {
+        remote    <- blockedEndpoint(expectedCalls = 2)
+        gateway   <- Gateway.compose(Subgraph.graphql("remote", remote.uri, schema, config)).interpreter
+        fibers    <- ZIO.foreach(1 to 2)(_ => gateway.executeRequest(request).fork)
+        started   <- Live.live(remote.started.await.timeout(2.seconds))
+        _         <- remote.release.succeed(())
+        responses <- ZIO.foreach(fibers)(_.join)
+        calls     <- remote.calls.get
+      } yield assertTrue(started.nonEmpty, calls == 2, responses.forall(_.errors.isEmpty))
+    },
     test("times out a deduplicated query while it waits for source admission") {
-      val config = RemoteGraphQLConfig.default.withExecution(
-        _.withInFlightQueryDeduplication(true).withTimeout(100.millis)
-      )
+      val config = RemoteGraphQLConfig.default.withExecution(_.withTimeout(100.millis))
 
       for {
         backend        <- HttpClientZioBackend.scoped()
@@ -558,7 +568,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
       )
     },
     test("shares failures and removes the in-flight entry before a retry") {
-      val config = RemoteGraphQLConfig.default.withExecution(_.withInFlightQueryDeduplication(true))
+      val config = RemoteGraphQLConfig.default
 
       for {
         backend    <- HttpClientZioBackend.scoped()
@@ -594,9 +604,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
         ready        <- Promise.make[Nothing, Unit]
         headerRuns   <- Ref.make(0)
         config        = RemoteGraphQLConfig.default
-                          .withExecution(
-                            _.withInFlightQueryDeduplication(true).withRetries(1, Duration.Zero)
-                          )
+                          .withExecution(_.withRetries(1, Duration.Zero))
                           .withExecutionHeadersZIO(
                             headerRuns
                               .updateAndGet(_ + 1)
@@ -628,7 +636,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
       )
     },
     test("keeps shared work alive when one waiter is interrupted") {
-      val config = RemoteGraphQLConfig.default.withExecution(_.withInFlightQueryDeduplication(true))
+      val config = RemoteGraphQLConfig.default
 
       for {
         backend     <- HttpClientZioBackend.scoped()
@@ -649,7 +657,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
       )
     },
     test("retains each waiter's deadline while sharing remote work") {
-      val config = RemoteGraphQLConfig.default.withExecution(_.withInFlightQueryDeduplication(true))
+      val config = RemoteGraphQLConfig.default
 
       for {
         backend      <- HttpClientZioBackend.scoped()
@@ -669,7 +677,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
       )
     },
     test("interrupts shared work when its owning scope closes") {
-      val config = RemoteGraphQLConfig.default.withExecution(_.withInFlightQueryDeduplication(true))
+      val config = RemoteGraphQLConfig.default
 
       for {
         backend    <- HttpClientZioBackend.scoped()
@@ -694,7 +702,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
       )
     },
     test("does not deduplicate mutations or calls with distinct request identities") {
-      val config = RemoteGraphQLConfig.default.withExecution(_.withInFlightQueryDeduplication(true))
+      val config = RemoteGraphQLConfig.default
 
       for {
         backend          <- HttpClientZioBackend.scoped()

@@ -289,7 +289,6 @@ object EntityExecutionSpec extends ZIOSpecDefault {
           ready        <- Promise.make[Nothing, Unit]
           headerRuns   <- Ref.make(0)
           reviewsConfig = RemoteGraphQLConfig.default
-                            .withExecution(_.withInFlightQueryDeduplication(true))
                             .withExecutionHeadersZIO(
                               headerRuns
                                 .updateAndGet(_ + 1)

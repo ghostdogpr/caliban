@@ -10,7 +10,6 @@ object Main extends ZIOAppDefault {
 
   private val DefaultSubgraphsUrl = "http://127.0.0.1:4200"
   private val DefaultPort         = 4000
-  private val BenchmarkConfig     = RemoteGraphQLConfig.default.withExecution(_.withInFlightQueryDeduplication(true))
 
   override def run =
     program.tapErrorCause(cause => ZIO.logErrorCause("Gateway benchmark adapter failed.", cause))
@@ -33,12 +32,12 @@ object Main extends ZIOAppDefault {
       identities   <- Ref.make(0L)
       config        =
         if (unique)
-          BenchmarkConfig.withExecutionHeadersZIO(
+          RemoteGraphQLConfig.default.withExecutionHeadersZIO(
             identities
               .updateAndGet(_ + 1L)
               .map(value => List(SttpHeader("X-Caliban-Benchmark-Request-Id", value.toString)))
           )
-        else BenchmarkConfig
+        else RemoteGraphQLConfig.default
       subgraphs    <- ZIO
                         .fromEither(benchmarkSubgraphs(subgraphsUrl, config))
                         .mapError(new IllegalArgumentException(_))
@@ -55,7 +54,7 @@ object Main extends ZIOAppDefault {
 
   private[benchmark] def benchmarkSubgraphs(
     baseUrl: String,
-    config: RemoteGraphQLConfig[Any] = BenchmarkConfig
+    config: RemoteGraphQLConfig[Any] = RemoteGraphQLConfig.default
   ): Either[String, (Subgraph[Any], Subgraph[Any], Subgraph[Any], Subgraph[Any])] =
     for {
       endpoint <- Uri.parse(baseUrl.stripSuffix("/"))
