@@ -4,6 +4,8 @@ import caliban.execution.ExecutionRequest
 import caliban.gateway.OperationPolicy.{ Allow, Reject, SecurityRequirement, ValidatedOperation }
 import caliban.gateway.{ OperationPolicy, OperationResolver }
 import caliban.parsing.adt.Document
+import caliban.ResponseValue.ObjectValue
+import caliban.Value.StringValue
 import caliban.{ CalibanError, GraphQLRequest }
 import zio.{ Cause, Trace, ZIO }
 
@@ -20,7 +22,7 @@ private[gateway] final class OperationHooks[-R](
     resolver match {
       case Some(resolver) =>
         OperationHooks
-          .run(resolver.resolve(request), OperationHooks.ResolutionFailure)
+          .run(resolver.resolve(request), OperationHooks.ResolutionFailure, allowRejection = true)
           .map(query => request.copy(query = Some(query)))
       case None           => ZIO.succeed(request)
     }
@@ -61,13 +63,24 @@ private[gateway] object OperationHooks {
 
   private def run[R, A](
     effect: => ZIO[R, Throwable, A],
-    failureMessage: String
+    failureMessage: String,
+    allowRejection: Boolean = false
   )(implicit trace: Trace): ZIO[R, CalibanError, A] =
     ZIO
       .suspendSucceed(effect)
       .mapErrorCause(cause =>
         cause.interruptOption.fold[Cause[CalibanError]](
-          Cause.fail(CalibanError.ExecutionError(failureMessage, innerThrowable = Some(cause.squash)))
+          cause.failures match {
+            case (rejection: OperationResolver.Rejection) :: Nil if allowRejection && cause.defects.isEmpty =>
+              Cause.fail(
+                CalibanError.ExecutionError(
+                  rejection.message,
+                  extensions = Some(ObjectValue(List("code" -> StringValue(rejection.code))))
+                )
+              )
+            case _                                                                                          =>
+              Cause.fail(CalibanError.ExecutionError(failureMessage, innerThrowable = Some(cause.squash)))
+          }
         )(fiberId => Cause.interrupt(fiberId))
       )
 }

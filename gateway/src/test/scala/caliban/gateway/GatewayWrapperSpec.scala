@@ -48,6 +48,46 @@ object GatewayWrapperSpec extends ZIOSpecDefault {
         headers.headOption.flatMap(_.get("x-gateway-wrapper")).contains("products")
       )
     },
+    test("classifies intentional resolver rejections as request errors, not internal failures") {
+      for {
+        results   <- Ref.make(Vector.empty[(GatewayWrapper.Event, GatewayWrapper.Result)])
+        wrapper    = new GatewayWrapper[Any] {
+                       def wrap[R0, E, A](event: GatewayWrapper.Event)(effect: ZIO[R0, E, A])(
+                         result: Exit[E, A] => GatewayWrapper.Result
+                       )(implicit trace: Trace): ZIO[R0, E, A] =
+                         effect.onExit(exit => results.update(_ :+ (event -> result(exit))))
+                     }
+        remote    <- stub("""{"data":{"value":"ok"}}""")
+        runtime   <- (Gateway
+                       .compose(Subgraph.graphql("remote", remote.endpoint, schema))
+                       .withOperationResolver(
+                         OperationResolver[Any](_ =>
+                           ZIO.fail(OperationResolver.Rejection("Not found.", "PERSISTED_QUERY_NOT_FOUND"))
+                         )
+                       ) @@ (wrapper |+| GatewayMetrics.wrapper)).interpreter
+        before    <- histogram(
+                       "caliban_gateway_request_duration_seconds",
+                       "outcome"        -> "request_error",
+                       "operation_type" -> "unknown"
+                     )
+        response  <- runtime.executeRequest(GraphQLRequest())
+        after     <- histogram(
+                       "caliban_gateway_request_duration_seconds",
+                       "outcome"        -> "request_error",
+                       "operation_type" -> "unknown"
+                     )
+        completed <- results.get
+        sent      <- remote.requests.get
+        routing    = completed.collect { case (Event.Routing, result) => result.outcome }
+      } yield assertTrue(
+        response.errors.map(_.msg) == List("Not found."),
+        routing == Vector(GatewayWrapper.Outcome.RequestError),
+        completed.lastOption.exists(_._2.outcome == GatewayWrapper.Outcome.RequestError),
+        !completed.exists(_._2.outcome == GatewayWrapper.Outcome.InternalError),
+        after == before + 1L,
+        sent.isEmpty
+      )
+    },
     test("counts request wrapper work toward the runtime deadline") {
       for {
         entered   <- Promise.make[Nothing, Unit]

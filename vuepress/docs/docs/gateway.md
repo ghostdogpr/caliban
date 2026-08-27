@@ -316,6 +316,47 @@ QuickAdapter(interpreter)
   .runServer(4000, "/graphql")
 ```
 
+## Persisted and trusted documents
+
+Normally, clients send the full GraphQL query with each request. With **persisted documents**, they send an ID instead, and the server looks up the query text. Accepting only documents registered by your application also lets you restrict which queries clients can run; these are **trusted documents**.
+
+`OperationResolver` is the gateway hook for this lookup: it takes an incoming request and supplies the query text to parse, validate, and execute. Use `trustedDocuments` for an in-memory registry:
+
+```scala
+import caliban.Value.StringValue
+import caliban.gateway.{ Gateway, OperationResolver }
+
+val documents = Map(
+  "product-v1" -> "query Product($id: ID!) { product(id: $id) { name } }"
+)
+
+val resolver = OperationResolver.trustedDocuments(documents) { request =>
+  request.extensions.flatMap(_.get("documentId")).collect {
+    case StringValue(id) => id
+  }
+}
+
+val gateway = Gateway
+  .compose(products, reviews)
+  .withOperationResolver(resolver)
+```
+
+The client can now omit `query`:
+
+```json
+{
+  "extensions": { "documentId": "product-v1" },
+  "operationName": "Product",
+  "variables": { "id": "p1" }
+}
+```
+
+The helper uses `product-v1` to find the registered query, preserving the request's operation name, variables, and extensions. It ignores any client-supplied query text and never registers new documents. Missing, malformed, or empty IDs return `TRUSTED_DOCUMENT_ID_INVALID`; unknown IDs return `TRUSTED_DOCUMENT_NOT_FOUND` in `extensions.code`. You still need an [operation policy](#authorizing-operations) to enforce authorization.
+
+For a database or other lookup, use `OperationResolver(resolve)`, where `resolve` is a `GraphQLRequest => ZIO[R, Throwable, String]`. Resolution runs on every request, before preparation-cache lookup. Use `OperationResolver.uncached(resolve)` to disable prepared-document and plan reuse; validation still applies. The hook runs for `executeRequest` and `explain(request)`, not `check(query)`.
+
+Custom resolvers can fail with `ZIO.fail(OperationResolver.Rejection(message, code))` to expose a safe message and `extensions.code` (HTTP 200 with `QuickAdapter`). Unexpected failures remain masked.
+
 ## Authorizing operations
 
 Use `OperationPolicy.fromClaims` to enforce `@authenticated` and `@requiresScopes` before an operation runs. Your authentication layer must verify the JWT first; this helper only maps trusted claims to scopes.

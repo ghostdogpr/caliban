@@ -267,6 +267,66 @@ object GatewayHttpSpec extends ZIOSpecDefault {
       }
     ),
     suite("GraphQL over HTTP")(
+      test("serves trusted-document IDs without query text and rejects raw-text fallback") {
+        for {
+          source   <- stub("""{"data":{"greeting":"hello"}}""")
+          runtime  <- Gateway
+                        .compose(Subgraph.graphql("service", source.endpoint, schema))
+                        .withOperationResolver(
+                          OperationResolver.trustedDocuments(Map("greeting-v1" -> "{ greeting }")) { request =>
+                            request.extensions.flatMap(_.get("documentId")).collect { case StringValue(id) => id }
+                          }
+                        )
+                        .interpreter
+          url      <- install(QuickAdapter(runtime))
+          resolved <- execute(post(url, """{"extensions":{"documentId":"greeting-v1"}}"""))
+          missing  <- execute(post(url, """{"query":"{ greeting }"}"""))
+          unknown  <- execute(post(url, """{"query":"{ greeting }","extensions":{"documentId":"unknown"}}"""))
+          calls    <- source.requests.get
+        } yield assertTrue(
+          resolved.response.status == Status.Ok,
+          resolved.body == """{"data":{"greeting":"hello"}}""",
+          missing.response.status == Status.Ok,
+          missing.body.contains("\"code\":\"TRUSTED_DOCUMENT_ID_INVALID\""),
+          unknown.response.status == Status.Ok,
+          unknown.body.contains("\"code\":\"TRUSTED_DOCUMENT_NOT_FOUND\""),
+          calls.size == 1
+        )
+      },
+      test("serializes public resolver rejections as HTTP 200 while internal failures remain HTTP 500") {
+        ZIO
+          .foreach(List(false, true)) { observed =>
+            for {
+              source  <- stub("""{"data":{"greeting":"hello"}}""")
+              gateway  = Gateway
+                           .compose(Subgraph.graphql("service", source.endpoint, schema))
+                           .withOperationResolver(OperationResolver[Any] { request =>
+                             if (request.query.contains("internal")) ZIO.fail(new RuntimeException("resolver-secret"))
+                             else
+                               ZIO.fail(OperationResolver.Rejection("Document not found.", "PERSISTED_QUERY_NOT_FOUND"))
+                           })
+              runtime <- (if (observed) gateway @@ GatewayMetrics.wrapper else gateway).interpreter
+              url     <- install(QuickAdapter(runtime))
+              results <-
+                ZIO.foreach(List("application/json", "application/graphql-response+json")) { mediaType =>
+                  for {
+                    rejected <- execute(post(url, """{"extensions":{"documentId":"unknown"}}""", mediaType))
+                    failed   <- execute(post(url, """{"query":"internal"}""", mediaType))
+                  } yield assertTrue(
+                    rejected.response.status == Status.Ok,
+                    rejected.body ==
+                      """{"data":null,"errors":[{"message":"Document not found.","extensions":{"code":"PERSISTED_QUERY_NOT_FOUND"}}]}""",
+                    failed.response.status == Status.InternalServerError,
+                    failed.body.contains("Operation resolution failed."),
+                    !failed.body.contains("resolver-secret"),
+                    !failed.body.contains("PERSISTED_QUERY_NOT_FOUND")
+                  )
+                }
+              calls   <- source.requests.get
+            } yield results.reduce(_ && _) && assertTrue(calls.isEmpty)
+          }
+          .map(_.reduce(_ && _))
+      },
       test("uses the negotiated request-error status and response media type") {
         for {
           source    <- stubByRequest { request =>
