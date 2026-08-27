@@ -1,4 +1,4 @@
-package caliban.gateway.internal
+package caliban.gateway.internal.execution
 
 import caliban.ResponseValue
 import caliban.ResponseValue.ObjectValue

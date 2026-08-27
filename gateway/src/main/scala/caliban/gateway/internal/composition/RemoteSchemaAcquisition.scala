@@ -1,24 +1,25 @@
-package caliban.gateway.internal
+package caliban.gateway.internal.composition
 
-import caliban.ResponseValue.ObjectValue
-import caliban.Value.{ NullValue, StringValue }
-import caliban.client.Operations.RootQuery
+import caliban.{ CalibanError, GraphQLRequest, ResponseValue }
 import caliban.client.CalibanClientError.ServerError
+import caliban.client.Operations.RootQuery
 import caliban.client.SelectionBuilder
+import caliban.gateway.{ RemoteGraphQLConfig, SchemaAcquisitionError, SchemaInput }
+import caliban.gateway.internal.OperationParsingLimits
 import caliban.gateway.SchemaAcquisitionError._
 import caliban.gateway.SchemaAcquisitionError.InvalidFederationResponse._
-import caliban.gateway.{ RemoteGraphQLConfig, SchemaAcquisitionError, SchemaInput }
-import caliban.parsing.Parser
 import caliban.parsing.adt.Document
+import caliban.parsing.Parser
+import caliban.ResponseValue.ObjectValue
 import caliban.tools.IntrospectionClient
-import caliban.{ CalibanError, GraphQLRequest, ResponseValue }
+import caliban.Value.{ NullValue, StringValue }
 import com.github.plokhotnyuk.jsoniter_scala.core.{ readFromArray, writeToArray }
 import sttp.capabilities.zio.ZioStreams
 import sttp.client4._
 import sttp.client4.httpclient.zio.SttpClient
 import sttp.model.Uri
-import zio.stream.ZStream
 import zio.{ IO, Task, Trace, ZIO }
+import zio.stream.ZStream
 
 import java.nio.charset.StandardCharsets
 

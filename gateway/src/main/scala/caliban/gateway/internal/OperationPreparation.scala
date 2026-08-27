@@ -1,18 +1,20 @@
 package caliban.gateway.internal
 
-import caliban.InputValue.VariableValue
+import caliban.{ CalibanError, Configurator, GraphQLRequest, InputValue }
 import caliban.execution.{ ExecutionRequest, Field, RequestPreparation }
-import caliban.gateway.GatewayInterpreter.OperationCacheStatus
 import caliban.gateway.{ GatewayConfig, GatewayWrapper }
+import caliban.gateway.GatewayInterpreter.OperationCacheStatus
+import caliban.gateway.internal.execution.PreparedPlan
 import caliban.gateway.internal.OperationCache.Weighted
 import caliban.gateway.internal.OperationCacheMode.Cacheable
 import caliban.gateway.internal.OperationPreparation._
-import caliban.gateway.internal.OperationPlanner.{ OperationPlan, PlanningFailure }
+import caliban.gateway.internal.planning.CandidateSearch.PlanningFailure
+import caliban.gateway.internal.planning.OperationPlanner
+import caliban.InputValue.VariableValue
 import caliban.parsing.adt.{ Directive, Document }
 import caliban.schema.RootType
 import caliban.validation.Validator
 import caliban.validation.Validator.AllValidations
-import caliban.{ CalibanError, Configurator, GraphQLRequest, InputValue }
 import zio.{ Exit, IO, Trace, UIO, ZIO }
 
 private[gateway] final class OperationPreparation[-R] private (
@@ -84,14 +86,14 @@ private[gateway] final class OperationPreparation[-R] private (
                            rootType,
                            skipValidation = true
                          )
-            plan      <- plan(document, execution)
+            plan      <- preparePlan(document, execution)
           } yield Some((execution, plan))
     } yield {
       val execution =
         if (variables.isEmpty && !planned.exists(_._2.hasVariableReferences)) planned.map(_._1)
         else None
       val cached    = CachedOperation(document, planned.map(_._2), execution)
-      Weighted(cached, operationWeight(parsed.textBytes, parsed.nodeCount, cached.plan, request.operationName))
+      Weighted(cached, operationWeight(parsed.textBytes, parsed.nodeCount, cached.executionPlan, request.operationName))
     }
   }
 
@@ -110,14 +112,14 @@ private[gateway] final class OperationPreparation[-R] private (
                      rootType,
                      skipValidation = false
                    )
-      plan      <- plan(document, execution)
+      plan      <- preparePlan(document, execution)
     } yield Prepared(request, document, execution, plan)
 
   private def materialize(
     request: GraphQLRequest,
     cached: CachedOperation
   )(implicit trace: Trace): IO[CalibanError, Prepared] =
-    (cached.execution, cached.plan) match {
+    (cached.execution, cached.executionPlan) match {
       case (Some(execution), Some(plan)) =>
         Exit.succeed(Prepared(request, cached.document, execution, plan))
       case _                             =>
@@ -131,23 +133,23 @@ private[gateway] final class OperationPreparation[-R] private (
                          skipValidation = false,
                          validations = Some(List(Validator.validateVariables))
                        )
-          plan      <- cached.plan match {
+          plan      <- cached.executionPlan match {
                          case Some(value) if !value.hasVariableReferences => Exit.succeed(value)
                          case Some(value)                                 => Exit.succeed(value.bind(variables))
-                         case None                                        => plan(cached.document, execution)
+                         case None                                        => preparePlan(cached.document, execution)
                        }
         } yield Prepared(request, cached.document, execution, plan)
     }
 
-  private def plan(document: Document, execution: ExecutionRequest)(implicit
+  private def preparePlan(document: Document, execution: ExecutionRequest)(implicit
     trace: Trace
-  ): IO[CalibanError, OperationPlan] =
-    ZIO.blocking(ZIO.fromEither(planner.plan(document, execution))).mapError(planningFailure)
+  ): IO[CalibanError, PreparedPlan] =
+    ZIO.blocking(ZIO.fromEither(planner.plan(document, execution))).mapError(planningFailure).map(new PreparedPlan(_))
 
   private def operationWeight(
     text: Int,
     nodes: Int,
-    plan: Option[OperationPlan],
+    executionPlan: Option[PreparedPlan],
     operationName: Option[String]
   ): Long = {
     def fields(values: List[Field]): Long =
@@ -155,12 +157,14 @@ private[gateway] final class OperationPreparation[-R] private (
         count + 1L + value.arguments.valuesIterator.map(_.toInputString.length.toLong).sum + fields(value.fields)
       )
 
-    val planWeight = plan.fold(0L)(value =>
-      fields(value.fields) +
-        value.roots.foldLeft(0L)((count, route) => count + fields(route.client) + fields(route.downstream)) +
-        value.entities.foldLeft(0L)((count, route) => count + fields(route.fields)) +
-        value.typenameSelections.size.toLong
-    )
+    val planWeight = executionPlan
+      .map(_.plan)
+      .fold(0L)(value =>
+        fields(value.fields) +
+          value.roots.foldLeft(0L)((count, fetch) => count + fields(fetch.client) + fields(fetch.downstream)) +
+          value.entities.foldLeft(0L)((count, fetch) => count + fields(fetch.fields)) +
+          value.typenameSelections.size.toLong
+      )
 
     text.toLong * 2L + nodes.toLong + operationName.fold(0)(_.length).toLong + planWeight + 1L
   }
@@ -190,12 +194,12 @@ private[gateway] object OperationPreparation {
     request: GraphQLRequest,
     document: Document,
     executionRequest: ExecutionRequest,
-    plan: OperationPlan
+    plan: PreparedPlan
   )
 
   private final case class CachedOperation(
     document: Document,
-    plan: Option[OperationPlan],
+    executionPlan: Option[PreparedPlan],
     execution: Option[ExecutionRequest]
   )
 

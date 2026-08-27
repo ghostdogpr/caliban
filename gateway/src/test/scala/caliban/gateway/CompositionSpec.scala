@@ -3,7 +3,7 @@ package caliban.gateway
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ FloatValue, IntValue, NullValue, StringValue }
 import caliban.gateway.GatewayTestSupport._
-import caliban.gateway.internal.{ SchemaComposition, SchemaMapping }
+import caliban.gateway.internal.composition.{ SchemaComposer, SchemaMapping }
 import caliban.introspection.adt.{ __Directive, __DirectiveLocation }
 import caliban.parsing.{ Parser, SourceMapper }
 import caliban.parsing.adt.{ Directive, Document }
@@ -79,7 +79,7 @@ object CompositionSpec extends ZIOSpecDefault {
                                 .map(_.flatMap(SubgraphError(input.name, _).diagnostics))
         } yield preparedSubgraph :: tail
     }
-    subgraphs.flatMap(SchemaComposition.compose)
+    subgraphs.flatMap(SchemaComposer.compose)
   }
 
   private def directives(value: Option[List[Directive]]): List[(String, Map[String, caliban.InputValue])] =
@@ -871,7 +871,7 @@ object CompositionSpec extends ZIOSpecDefault {
         val result   = SchemaMapping
           .compile("local", rootType, document, federation = false, Nil)
           .flatMap(mapping =>
-            SchemaComposition.compose(
+            SchemaComposer.compose(
               PreparedSubgraph("local", rootType, document, federation = false, Nil, mapping) :: Nil
             )
           )

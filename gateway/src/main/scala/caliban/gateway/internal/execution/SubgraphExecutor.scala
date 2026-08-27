@@ -1,11 +1,15 @@
-package caliban.gateway.internal
+package caliban.gateway.internal.execution
 
+import caliban.{ CalibanError, GraphQLInterpreter, GraphQLRequest, GraphQLResponse, GraphQLResponseContext, PathValue }
 import caliban.execution.Field
 import caliban.gateway.GatewayWrapper
 import caliban.gateway.GatewayWrapper.{ Event, Outcome, Result }
-import caliban.gateway.internal.GraphQLSource.ErrorPolicy
+import caliban.gateway.internal.AdmissionGate
+import caliban.gateway.internal.execution.SubgraphExecutor.ErrorPolicy
+import caliban.gateway.RemoteGraphQLConfig
 import caliban.parsing.adt.OperationType
-import caliban.{ CalibanError, GraphQLInterpreter, GraphQLRequest, GraphQLResponse, GraphQLResponseContext, PathValue }
+import caliban.ResponseValue.ObjectValue
+import caliban.schema.Types
 import zio.{ Trace, ZIO }
 
 import scala.util.control.NoStackTrace
@@ -13,49 +17,49 @@ import scala.util.control.NoStackTrace
 /**
  * Executes GraphQL work against one composed subgraph.
  */
-private[gateway] trait GraphQLSource[-R] {
+private[gateway] trait SubgraphExecutor[-R] {
   def errorPolicy: ErrorPolicy
 
   def execute(request: GraphQLRequest, operationType: OperationType)(implicit
     trace: Trace
-  ): ZIO[R, GraphQLSource.Failure, GraphQLResponse[CalibanError]]
+  ): ZIO[R, SubgraphExecutor.Failure, GraphQLResponse[CalibanError]]
 
-  def admittedBy[R1 <: R](gate: AdmissionGate, wrapper: GatewayWrapper[R1]): GraphQLSource[R1] =
-    new GatedGraphQLSource(this, gate, wrapper)
+  def admittedBy[R1 <: R](gate: AdmissionGate, wrapper: GatewayWrapper[R1]): SubgraphExecutor[R1] =
+    new GatedSubgraphExecutor(this, gate, wrapper)
 }
 
-private[gateway] final class ObservedGraphQLSource[R](
+private[gateway] final class ObservedSubgraphExecutor[R](
   name: String,
-  underlying: GraphQLSource[R],
+  underlying: SubgraphExecutor[R],
   wrapper: GatewayWrapper[R]
-) extends GraphQLSource[R] {
+) extends SubgraphExecutor[R] {
   val errorPolicy: ErrorPolicy = underlying.errorPolicy
 
   def execute(request: GraphQLRequest, operationType: OperationType)(implicit
     trace: Trace
-  ): ZIO[R, GraphQLSource.Failure, GraphQLResponse[CalibanError]] =
+  ): ZIO[R, SubgraphExecutor.Failure, GraphQLResponse[CalibanError]] =
     if (!wrapper.enabled) underlying.execute(request, operationType)
     else
       wrapper.wrap(Event.SubgraphCall(name, operationType))(underlying.execute(request, operationType))(
-        Result.fromExit(_)(Result.fromResponse, failure => Result(GraphQLSource.failureOutcome(failure)))
+        Result.fromExit(_)(Result.fromResponse, failure => Result(SubgraphExecutor.failureOutcome(failure)))
       )
 
 }
 
-private[gateway] final class GatedGraphQLSource[-R](
-  underlying: GraphQLSource[R],
+private[gateway] final class GatedSubgraphExecutor[-R](
+  underlying: SubgraphExecutor[R],
   gate: AdmissionGate,
   wrapper: GatewayWrapper[R]
-) extends GraphQLSource[R] {
+) extends SubgraphExecutor[R] {
   val errorPolicy: ErrorPolicy = underlying.errorPolicy
 
   def execute(request: GraphQLRequest, operationType: OperationType)(implicit
     trace: Trace
-  ): ZIO[R, GraphQLSource.Failure, GraphQLResponse[CalibanError]] =
+  ): ZIO[R, SubgraphExecutor.Failure, GraphQLResponse[CalibanError]] =
     gate.observed(wrapper)(underlying.execute(request, operationType))
 }
 
-private[gateway] object GraphQLSource {
+private[gateway] object SubgraphExecutor {
   def failureOutcome(failure: Failure): Outcome =
     failure match {
       case TransportFailure(_)                                                                     => Outcome.TransportError
@@ -138,12 +142,64 @@ private[gateway] object GraphQLSource {
   case object InvalidResponse                         extends Failure
 }
 
-private[gateway] final class LocalGraphQLSource[-R](interpreter: GraphQLInterpreter[R, CalibanError])
-    extends GraphQLSource[R] {
+private[gateway] final class LocalSubgraphExecutor[-R](interpreter: GraphQLInterpreter[R, CalibanError])
+    extends SubgraphExecutor[R] {
   val errorPolicy: ErrorPolicy = ErrorPolicy.Local
 
   def execute(request: GraphQLRequest, operationType: OperationType)(implicit
     trace: Trace
-  ): ZIO[R, GraphQLSource.Failure, GraphQLResponse[CalibanError]] =
+  ): ZIO[R, SubgraphExecutor.Failure, GraphQLResponse[CalibanError]] =
     GraphQLResponseContext.capture(interpreter.executeRequest(request.copy(extensions = None))).map(_.value)
+}
+
+private[gateway] object RemoteError {
+
+  private val Message = "Remote GraphQL request failed."
+
+  def at(path: List[PathValue]): CalibanError.ExecutionError =
+    CalibanError.ExecutionError(Message, path = path)
+
+  def disclose(
+    error: CalibanError,
+    disclosure: RemoteGraphQLConfig.ErrorDisclosure
+  ): CalibanError.ExecutionError =
+    error match {
+      case value: CalibanError.ExecutionError =>
+        val extensions = value.extensions.flatMap { current =>
+          val retained = current.fields.filter { case (name, _) => disclosure.extensionKeys(name) }
+          if (retained.isEmpty) None else Some(ObjectValue(retained))
+        }
+        value.copy(
+          msg = if (disclosure.includeMessages) value.msg else Message,
+          locationInfo = None,
+          innerThrowable = None,
+          extensions = extensions
+        )
+      case _                                  => at(Nil)
+    }
+
+  def hasClientPath(fields: List[Field], path: List[PathValue]): Boolean =
+    path match {
+      case PathValue.Key(name) :: tail =>
+        fields.find(_.aliasedName == name).exists(field => hasClientSubpath(field, tail))
+      case _                           => false
+    }
+
+  private def hasClientSubpath(field: Field, path: List[PathValue]): Boolean = {
+    def loop(current: Field, remaining: List[PathValue], currentType: caliban.introspection.adt.__Type): Boolean =
+      remaining match {
+        case Nil                                          => true
+        case PathValue.Index(index) :: tail if index >= 0 =>
+          Types.listOf(currentType).exists(itemType => loop(current, tail, itemType))
+        case PathValue.Key(name) :: tail                  =>
+          if (Types.listOf(currentType).nonEmpty) false
+          else
+            current.fields
+              .find(_.aliasedName == name)
+              .exists(child => loop(child, tail, child.fieldType))
+        case _                                            => false
+      }
+
+    loop(field, path, field.fieldType)
+  }
 }

@@ -1,5 +1,7 @@
 package caliban.gateway
 
+import caliban.{ CalibanError, GraphQLResponse }
+import caliban.gateway.GatewayWrapper.{ Event, Outcome, Result }
 import caliban.parsing.adt.OperationType
 import sttp.model.Header
 import zio.{ Cause, Exit, Trace, URIO, ZIO }
@@ -23,6 +25,15 @@ abstract class GatewayWrapper[-R] { self =>
   def wrap[R0 <: R, E, A](event: GatewayWrapper.Event)(effect: ZIO[R0, E, A])(
     result: Exit[E, A] => GatewayWrapper.Result
   )(implicit trace: Trace): ZIO[R0, E, A]
+
+  private[gateway] final def observeCompletion[R0 <: R, E](effect: ZIO[R0, E, GraphQLResponse[CalibanError]])(implicit
+    trace: Trace
+  ): ZIO[R0, E, GraphQLResponse[CalibanError]] =
+    if (!enabled) effect
+    else
+      wrap(Event.Completion)(effect)(
+        Result.fromExit(_)(Result.fromResponse, _ => Result(Outcome.InternalError))
+      )
 
   /**
    * Transforms semantic remote-call headers before in-flight identity is selected.

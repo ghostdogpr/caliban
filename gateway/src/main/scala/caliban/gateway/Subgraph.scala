@@ -1,7 +1,7 @@
 package caliban.gateway
 
 import caliban.GraphQL
-import caliban.gateway.internal.SchemaMapping
+import caliban.gateway.internal.composition.SchemaMapping
 import caliban.parsing.adt.Document
 import caliban.schema.RootType
 import sttp.model.Uri

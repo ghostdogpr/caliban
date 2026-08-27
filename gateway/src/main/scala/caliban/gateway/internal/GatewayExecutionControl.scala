@@ -1,9 +1,10 @@
 package caliban.gateway.internal
 
 import caliban.gateway.GatewayInterpreter
-import caliban.gateway.GatewayWrapper
 import caliban.gateway.GatewayInterpreter.{ LifecycleStatus, OperationCacheStatus, Status }
+import caliban.gateway.GatewayWrapper
 import caliban.gateway.GatewayWrapper.{ AdmissionKind, Event, Result }
+import caliban.gateway.internal.execution.SubgraphExecutor
 import zio.{ Clock, Duration, Exit, Promise, Ref, Scope, Trace, UIO, URIO, ZIO }
 
 private[gateway] final class GatewayExecutionControl private (
@@ -53,8 +54,8 @@ private[gateway] final class GatewayExecutionControl private (
       }
     }
 
-  def source[R](name: String, source: GraphQLSource[R], wrapper: GatewayWrapper[R]): GraphQLSource[R] =
-    subgraphs.get(name).fold(source)(source.admittedBy(_, wrapper))
+  def admitExecutor[R](name: String, executor: SubgraphExecutor[R], wrapper: GatewayWrapper[R]): SubgraphExecutor[R] =
+    subgraphs.get(name).fold(executor)(executor.admittedBy(_, wrapper))
 
   def status(cache: OperationCacheStatus)(implicit trace: Trace): UIO[Status] =
     state.get.flatMap { current =>

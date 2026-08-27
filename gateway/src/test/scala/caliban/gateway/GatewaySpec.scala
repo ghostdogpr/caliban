@@ -4,7 +4,7 @@ import caliban.InputValue.{ ListValue, ObjectValue => InputObjectValue }
 import caliban.ResponseValue.{ ListValue => ResponseListValue, ObjectValue => ResponseObjectValue }
 import caliban.Value.{ BooleanValue, EnumValue, IntValue, NullValue, StringValue }
 import caliban.gateway.GatewayTestSupport._
-import caliban.gateway.internal.GatewayInterpreterImpl
+import caliban.gateway.internal.execution.ResponseMerge
 import caliban.parsing.Parser
 import caliban.schema.{ GenericSchema, Schema }
 import caliban.wrappers.ApolloPersistedQueries
@@ -677,8 +677,8 @@ object GatewaySpec extends ZIOSpecDefault {
         )
 
       val patch  = ResponseObjectValue(("duplicate" -> StringValue("merged")) :: Nil)
-      val narrow = GatewayInterpreterImpl.mergeObject(value(15), patch)
-      val wide   = GatewayInterpreterImpl.mergeObject(value(16), patch)
+      val narrow = ResponseMerge.mergeObject(value(15), patch)
+      val wide   = ResponseMerge.mergeObject(value(16), patch)
 
       def duplicateValues(value: ResponseValue): List[StringValue] =
         value match {

@@ -1,41 +1,39 @@
-package caliban.gateway.internal
+package caliban.gateway.internal.composition
 
-import caliban.InputValue.{ ListValue => InputListValue, ObjectValue => InputObjectValue }
-import caliban.ResponseValue.{ ListValue, ObjectValue }
-import caliban.Value.{ EnumValue, NullValue, StringValue }
 import caliban.execution.Field
 import caliban.gateway.{ Lookup, SchemaTransformation }
 import caliban.gateway.SchemaTransformation._
-import caliban.gateway.internal.OperationPlanner._
+import caliban.InputValue
+import caliban.InputValue.{ ListValue => InputListValue, ObjectValue => InputObjectValue }
 import caliban.introspection.adt.{ __Field, __InputValue, __Type, __TypeKind }
-import caliban.parsing.Parser
-import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
-import caliban.parsing.adt.Definition.TypeSystemDefinition._
-import caliban.parsing.adt.Definition.TypeSystemExtension.TypeExtension._
-import caliban.parsing.adt.Definition.TypeSystemExtension._
-import caliban.parsing.adt.Type.{ ListType, NamedType }
 import caliban.parsing.adt.{ Definition, Directive, Document, Selection, Type }
+import caliban.parsing.adt.Definition.TypeSystemDefinition._
+import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
+import caliban.parsing.adt.Definition.TypeSystemExtension._
+import caliban.parsing.adt.Definition.TypeSystemExtension.TypeExtension._
+import caliban.parsing.adt.Type.{ ListType, NamedType }
+import caliban.parsing.Parser
 import caliban.rendering.DocumentRenderer
 import caliban.schema.RootType
-import caliban.{ CalibanError, GraphQLResponse, InputValue, ResponseValue }
+import caliban.Value.{ EnumValue, NullValue, StringValue }
 
 private[gateway] final class SchemaMapping private (
-  originalRootType: RootType,
+  private[internal] val originalRootType: RootType,
   mappings: SchemaMapping.Mappings
 ) {
   import SchemaMapping._
 
-  private val typeNames       = mappings.typeNames
-  private val fieldNames      = mappings.fieldNames
-  private val argumentNames   = mappings.argumentNames
-  private val inputFieldNames = mappings.inputFieldNames
-  private val enumValueNames  = mappings.enumValueNames
-  val hiddenTypes             = mappings.hiddenTypes
-  val hiddenFields            = mappings.hiddenFields
-  val hiddenArguments         = mappings.hiddenArguments
-  val hiddenInputFields       = mappings.hiddenInputFields
-  val hiddenEnumValues        = mappings.hiddenEnumValues
-  private val renamesNothing  = mappings.renamesNothing
+  private val typeNames                = mappings.typeNames
+  private val fieldNames               = mappings.fieldNames
+  private val argumentNames            = mappings.argumentNames
+  private val inputFieldNames          = mappings.inputFieldNames
+  private val enumValueNames           = mappings.enumValueNames
+  val hiddenTypes                      = mappings.hiddenTypes
+  val hiddenFields                     = mappings.hiddenFields
+  val hiddenArguments                  = mappings.hiddenArguments
+  val hiddenInputFields                = mappings.hiddenInputFields
+  val hiddenEnumValues                 = mappings.hiddenEnumValues
+  private[internal] val renamesNothing = mappings.renamesNothing
 
   private val sourceRootNamesByOperation =
     Map("Query" -> originalRootType.queryType.name.getOrElse("Query")) ++
@@ -89,7 +87,7 @@ private[gateway] final class SchemaMapping private (
 
   def transform(document: Document): Document =
     if (nonEmpty) {
-      val (names, provides) = SchemaComposition.fieldSetDirectiveNames(document)
+      val (names, provides) = SchemaComposer.fieldSetDirectiveNames(document)
       val fieldSets         = FieldSetDirectives(names, provides)
       Document(document.definitions.map(transformDefinition(_, fieldSets)), document.sourceMapper)
     } else document
@@ -169,17 +167,6 @@ private[gateway] final class SchemaMapping private (
     )
   }
 
-  def requiredSelectionToSource(parentType: String, selection: RequiredSelection): RequiredSelection = {
-    val sourceParent = sourceType(parentType)
-    val sourceName   = sourceField(parentType, selection.field)
-    val childType    = sourceFieldDefinition(sourceParent, sourceName).flatMap(_._type.innerType.name).getOrElse("")
-    RequiredSelection(
-      sourceName,
-      selection.responseName,
-      selection.children.map(requiredSelectionToSource(clientType(childType), _))
-    )
-  }
-
   def lookupFieldToSource(field: String): String =
     sourceField(sourceQueryName, field)
 
@@ -207,135 +194,6 @@ private[gateway] final class SchemaMapping private (
           .fold(nested)(field => mapInputValue(field._type, nested, ToSource))
         fieldName -> translated
     }.toMap)
-  }
-
-  private[internal] def rootResponseMapper(
-    fields: List[Field]
-  ): GraphQLResponse[CalibanError] => GraphQLResponse[CalibanError] =
-    if (renamesNothing) identity
-    else {
-      val mapData = objectResponseMapper(fields)
-      response => response.copy(data = mapData(response.data))
-    }
-
-  private[internal] def entityFieldsResponseMapper(
-    fields: List[Field]
-  ): ResponseValue => ResponseValue =
-    if (renamesNothing) identityResponse
-    else objectResponseMapper(fields)
-
-  private val identityResponse: ResponseValue => ResponseValue = identity
-
-  private val typenameResponseMapper: ResponseValue => ResponseValue = {
-    case StringValue(name) => StringValue(clientType(name))
-    case other             => other
-  }
-
-  private def mapSelectedObject(
-    selected: java.util.HashMap[String, ResponseValue => ResponseValue],
-    values: List[(String, ResponseValue)]
-  ): ObjectValue =
-    ObjectValue(values.map { case (name, nested) =>
-      val mapper = selected.get(name)
-      name -> (if (mapper eq null) nested else mapper(nested))
-    })
-
-  private def shallowSelectedResponseMapper(
-    selected: java.util.HashMap[String, ResponseValue => ResponseValue]
-  ): ResponseValue => ResponseValue = {
-    case ObjectValue(values) => mapSelectedObject(selected, values)
-    case other               => other
-  }
-
-  private def recursiveSelectedResponseMapper(
-    selected: java.util.HashMap[String, ResponseValue => ResponseValue]
-  ): ResponseValue => ResponseValue = {
-    def map(value: ResponseValue): ResponseValue =
-      value match {
-        case ObjectValue(values) => mapSelectedObject(selected, values)
-        case ListValue(values)   => ListValue(values.map(map))
-        case other               => other
-      }
-
-    map
-  }
-
-  private def objectResponseMapper(fields: List[Field]): ResponseValue => ResponseValue = {
-    val selected  = new java.util.HashMap[String, ResponseValue => ResponseValue]
-    var remaining = fields
-    while (remaining ne Nil) {
-      val field = remaining.head
-      addResponseMapper(selected, field.aliasedName, fieldResponseMapper(field))
-      remaining = remaining.tail
-    }
-    shallowSelectedResponseMapper(selected)
-  }
-
-  private def fieldResponseMapper(field: Field): ResponseValue => ResponseValue =
-    if (field.name == "__typename")
-      typenameResponseMapper
-    else responseValueMapper(field.fieldType, field.fields)
-
-  private def responseValueMapper(tpe: __Type, fields: List[Field]): ResponseValue => ResponseValue =
-    tpe.kind match {
-      case __TypeKind.NON_NULL                                         =>
-        tpe.ofType.fold(identityResponse)(responseValueMapper(_, fields))
-      case __TypeKind.LIST                                             =>
-        val mapItem = tpe.ofType.fold(identityResponse)(responseValueMapper(_, fields))
-        value =>
-          value match {
-            case ListValue(values) => ListValue(values.map(mapItem))
-            case other             => other
-          }
-      case __TypeKind.ENUM                                             =>
-        val typeName = tpe.name.getOrElse("")
-        value =>
-          value match {
-            case StringValue(name) => StringValue(clientEnumValue(sourceType(typeName), name))
-            case EnumValue(name)   => EnumValue(clientEnumValue(sourceType(typeName), name))
-            case other             => other
-          }
-      case __TypeKind.OBJECT | __TypeKind.INTERFACE | __TypeKind.UNION => objectResponseMapper(fields)
-      case _                                                           => identityResponse
-    }
-
-  private[internal] def requiredResponseMapper(
-    typeName: String,
-    selections: List[RequiredSelection]
-  ): ResponseValue => ResponseValue =
-    if (selections.isEmpty) identityResponse
-    else {
-      val selected  = new java.util.HashMap[String, ResponseValue => ResponseValue]
-      val source    = originalRootType.types.get(sourceType(typeName))
-      var remaining = selections
-      while (remaining ne Nil) {
-        val selection = remaining.head
-        val mapper    =
-          if (selection.field == "__typename")
-            typenameResponseMapper
-          else {
-            val sourceName = sourceField(typeName, selection.field)
-            val childType  = source.flatMap(tpe => Option(tpe.getFieldOrNull(sourceName))).map(_._type)
-            if (selection.children.isEmpty) childType.fold(identityResponse)(responseValueMapper(_, Nil))
-            else {
-              val childName = childType.flatMap(_.innerType.name).map(clientType).getOrElse("")
-              requiredResponseMapper(childName, selection.children)
-            }
-          }
-        addResponseMapper(selected, selection.responseName, mapper)
-        remaining = remaining.tail
-      }
-
-      recursiveSelectedResponseMapper(selected)
-    }
-
-  private def addResponseMapper(
-    selected: java.util.HashMap[String, ResponseValue => ResponseValue],
-    name: String,
-    mapper: ResponseValue => ResponseValue
-  ): Unit = {
-    val existing = selected.get(name)
-    selected.put(name, if (existing eq null) mapper else mapper.compose(existing))
   }
 
   private def transformDefinition(definition: Definition, fieldSets: FieldSetDirectives): Definition =
@@ -482,7 +340,7 @@ private[gateway] final class SchemaMapping private (
       else
         transformed.arguments.get("fields") match {
           case Some(StringValue(value)) =>
-            SchemaComposition
+            SchemaComposer
               .parseFieldSet(value)
               .flatMap(selections =>
                 fieldSetStart(directive.name, candidateTypes, selections, fieldSets.provides).map(_ -> selections)
@@ -575,7 +433,7 @@ private[gateway] final class SchemaMapping private (
   private def transformNamedType(tpe: NamedType): NamedType =
     tpe.copy(name = clientType(tpe.name))
 
-  private def sourceFieldDefinition(typeName: String, field: String): Option[__Field] =
+  private[internal] def sourceFieldDefinition(typeName: String, field: String): Option[__Field] =
     originalRootType.types.get(typeName).flatMap(tpe => Option(tpe.getFieldOrNull(field)))
 
   private def inputToClient(tpe: __Type, value: InputValue): InputValue =
@@ -920,7 +778,7 @@ private[gateway] object SchemaMapping {
     val context        = CoordinateContext(
       rootType.types,
       operationRoots,
-      SchemaComposition.federationTransportTypes(document, federation)
+      SchemaComposer.federationTransportTypes(document, federation)
     )
     val changes        = transformations.map(normalize)
     val mappings       = changes.foldLeft(Mappings())(_.add(_))

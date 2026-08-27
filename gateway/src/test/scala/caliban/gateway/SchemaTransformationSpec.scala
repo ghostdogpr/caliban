@@ -4,7 +4,7 @@ import caliban.InputValue.{ ListValue => InputListValue, ObjectValue => InputObj
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ EnumValue, IntValue, NullValue, StringValue }
 import caliban.gateway.GatewayTestSupport._
-import caliban.gateway.internal.SchemaMapping
+import caliban.gateway.internal.composition.SchemaMapping
 import caliban.parsing.Parser
 import caliban.schema.{ ArgBuilder, GenericSchema, Schema }
 import caliban.tools.RemoteSchema

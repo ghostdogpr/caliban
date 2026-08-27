@@ -1,4 +1,4 @@
-package caliban.gateway.internal
+package caliban.gateway.internal.composition
 
 import caliban.InputValue
 import caliban.InputValue.{ ListValue => InputListValue, ObjectValue => InputObjectValue }
@@ -287,7 +287,7 @@ private[gateway] object DirectiveComposition {
       .collect {
         case (_, values) if values.map(value => definitionSignature(value.definition)).distinct.size > 1 =>
           val name    = values.headOption.map(_.definition.name).getOrElse("")
-          val sources = SchemaComposition.formatSources(values.map(_.source))
+          val sources = SchemaComposer.formatSources(values.map(_.source))
           s"[directive @$name] Definitions are incompatible between subgraphs: $sources."
       }
       .toList
@@ -347,7 +347,7 @@ private[gateway] object DirectiveComposition {
             else
               List(
                 coordinate ->
-                  s"[${coordinate.display}] Non-repeatable directive '@${definition.name}' has incompatible applications between subgraphs: ${SchemaComposition
+                  s"[${coordinate.display}] Non-repeatable directive '@${definition.name}' has incompatible applications between subgraphs: ${SchemaComposer
                       .formatSources(values.map(_.source))}."
               )
           bySourceDuplicates ::: incompatible
