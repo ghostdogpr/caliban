@@ -21,8 +21,8 @@ private[gateway] final class AdmissionGate private (
     else
       ZIO.scoped[R] {
         ZIO.acquireRelease(Scope.make)(_.close(Exit.unit)).flatMap { permitScope =>
-          val waiting: UIO[Unit] = semaphore.withPermitScoped.provideEnvironment(ZEnvironment(permitScope))
-          wrapper.wrap(Event.AdmissionWait(kind))(waiting)(Result.classifyExit) *>
+          val waiting = semaphore.withPermitScoped.provideEnvironment(ZEnvironment(permitScope))
+          wrapper.wrap[Scope & R, Nothing, Unit](Event.AdmissionWait(kind))(waiting)(Result.classifyExit) *>
             wrapper.wrap(Event.Admission(kind))(effect)(Result.classifyExit)
         }
       }
