@@ -1,7 +1,9 @@
 package caliban.gateway
 
 import caliban.GraphQL
+import caliban.gateway.internal.SchemaMapping
 import caliban.parsing.adt.Document
+import caliban.schema.RootType
 import sttp.model.Uri
 
 /**
@@ -133,6 +135,15 @@ object Subgraph {
     final case class Local[R](graph: GraphQL[R]) extends Source[R]
   }
 }
+
+private[gateway] final case class PreparedSubgraph(
+  name: String,
+  rootType: RootType,
+  document: Document,
+  federation: Boolean,
+  lookups: List[Lookup],
+  mapping: SchemaMapping
+)
 
 private[gateway] sealed trait SchemaInput
 

@@ -3,7 +3,7 @@ package caliban.gateway
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ FloatValue, IntValue, NullValue, StringValue }
 import caliban.gateway.GatewayTestSupport._
-import caliban.gateway.internal.{ PreparedSubgraph, SchemaComposition, SchemaMapping }
+import caliban.gateway.internal.{ SchemaComposition, SchemaMapping }
 import caliban.introspection.adt.{ __Directive, __DirectiveLocation }
 import caliban.parsing.{ Parser, SourceMapper }
 import caliban.parsing.adt.{ Directive, Document }
@@ -144,7 +144,7 @@ object CompositionSpec extends ZIOSpecDefault {
           stockRequests.isEmpty
         )
       },
-      test("retains an entity transition below a multiply provided root") {
+      test("retains an entity fetch below a multiply provided root") {
         val namesSchema   = schema(
           "type Query { product: Product! @shareable } type Product @key(fields: \"id\") { id: ID! name: String! details: Details! } type Details { value: String! }",
           "@key",

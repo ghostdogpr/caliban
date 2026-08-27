@@ -424,7 +424,7 @@ object FieldRoutingSpec extends ZIOSpecDefault {
           prices == Set[InputValue](IntNumber(10), IntNumber(20))
         )
       },
-      test("reuses an identical requirement across entity transitions") {
+      test("reuses an identical requirement across entity fetches") {
         val productsSchema  =
           s"""
              |${federationSchemaPreamble("@key")}

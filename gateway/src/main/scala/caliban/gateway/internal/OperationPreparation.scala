@@ -159,7 +159,7 @@ private[gateway] final class OperationPreparation[-R] private (
       fields(value.fields) +
         value.roots.foldLeft(0L)((count, route) => count + fields(route.client) + fields(route.downstream)) +
         value.entities.foldLeft(0L)((count, route) => count + fields(route.fields)) +
-        value.runtimeTypes.size.toLong
+        value.typenameSelections.size.toLong
     )
 
     text.toLong * 2L + nodes.toLong + operationName.fold(0)(_.length).toLong + planWeight + 1L

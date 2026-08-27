@@ -4,7 +4,7 @@ import caliban.{ InputValue, PathValue, ResponseValue }
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ BooleanValue, NullValue, StringValue }
 import caliban.execution.{ isMetaField, ExecutionRequest, Field }
-import caliban.gateway.Lookup
+import caliban.gateway.{ Lookup, PreparedSubgraph }
 import caliban.gateway.OperationPolicy.{ RuntimeTypeCondition, SecurityDirective, SecurityRequirement }
 import caliban.introspection.adt._
 import caliban.parsing.{ Parser, SourceMapper }

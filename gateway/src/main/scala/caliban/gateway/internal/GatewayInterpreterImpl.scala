@@ -155,7 +155,7 @@ private[gateway] final class GatewayInterpreterImpl[-R](
     execution: ExecutionRequest,
     resolvedRequest: GraphQLRequest
   )(implicit trace: Trace): ZIO[R, Nothing, GraphQLResponse[CalibanError]] =
-    plan.passthrough match {
+    plan.passthroughSubgraph match {
       case Some(source) =>
         sources.get(source) match {
           case Some(source) =>
@@ -265,7 +265,7 @@ private[gateway] final class GatewayInterpreterImpl[-R](
               updated.response.data,
               Nil,
               ErrorPathIndex(errors),
-              plan.runtimeTypes
+              plan.typenameSelections
             )
             val completedRoot = updated.copy(
               response = updated.response.copy(data = completed.value.getOrElse(NullValue))
@@ -460,7 +460,7 @@ private[gateway] final class GatewayInterpreterImpl[-R](
     if (remote.aborted) GraphQLResponse(NullValue, errors)
     else if (plan.operation == OperationType.Mutation) GraphQLResponse(data, errors)
     else {
-      val completed = completeObject(plan.fields, data, Nil, ErrorPathIndex(errors), plan.runtimeTypes)
+      val completed = completeObject(plan.fields, data, Nil, ErrorPathIndex(errors), plan.typenameSelections)
       GraphQLResponse(completed.value.getOrElse(NullValue), errors ::: completed.errors)
     }
   }
@@ -470,7 +470,7 @@ private[gateway] final class GatewayInterpreterImpl[-R](
     value: ResponseValue,
     path: List[PathValue],
     sourceErrors: ErrorPathIndex,
-    runtimeTypes: List[RuntimeTypeSelection]
+    typenameSelections: List[TypenameSelection]
   ): CompletedValue =
     value match {
       case obj: ObjectValue =>
@@ -488,7 +488,7 @@ private[gateway] final class GatewayInterpreterImpl[-R](
           val value     = lookup.getOrNull(name)
           val result    =
             if (value ne null)
-              completeValue(field.fieldType, field, value, fieldPath, sourceErrors, runtimeTypes)
+              completeValue(field.fieldType, field, value, fieldPath, sourceErrors, typenameSelections)
             else {
               val invalid = CompletedValue(
                 Some(NullValue),
@@ -516,12 +516,12 @@ private[gateway] final class GatewayInterpreterImpl[-R](
     value: ResponseValue,
     path: List[PathValue],
     sourceErrors: ErrorPathIndex,
-    runtimeTypes: List[RuntimeTypeSelection]
+    typenameSelections: List[TypenameSelection]
   ): CompletedValue =
     fieldType.kind match {
       case __TypeKind.NON_NULL                     =>
         val completed = fieldType.ofType
-          .map(completeValue(_, field, value, path, sourceErrors, runtimeTypes))
+          .map(completeValue(_, field, value, path, sourceErrors, typenameSelections))
           .getOrElse(CompletedValue(Some(NullValue), Nil))
         enforceNonNull(completed, field, path, sourceErrors)
       case _ if value == NullValue                 => CompletedValue(Some(NullValue), Nil)
@@ -530,7 +530,7 @@ private[gateway] final class GatewayInterpreterImpl[-R](
           case (ListValue(values), Some(itemType)) =>
             val abstractType  = listItemAbstractType(itemType)
             val abstractPlan  =
-              if (abstractType eq null) null else abstractCompletion(abstractType, field, path, runtimeTypes)
+              if (abstractType eq null) null else abstractCompletion(abstractType, field, path, typenameSelections)
             val itemIsNonNull = itemType.kind == __TypeKind.NON_NULL
             val completed     = new mutable.ListBuffer[ResponseValue]
             val errors        = new mutable.ListBuffer[CalibanError.ExecutionError]
@@ -541,11 +541,12 @@ private[gateway] final class GatewayInterpreterImpl[-R](
               val itemPath = PathValue.Index(index) :: path
               val result   =
                 if (abstractPlan eq null)
-                  completeValue(itemType, field, remaining.head, itemPath, sourceErrors, runtimeTypes)
+                  completeValue(itemType, field, remaining.head, itemPath, sourceErrors, typenameSelections)
                 else {
                   val item =
                     if (remaining.head == NullValue) CompletedValue(Some(NullValue), Nil)
-                    else completeAbstract(abstractPlan, field, remaining.head, itemPath, sourceErrors, runtimeTypes)
+                    else
+                      completeAbstract(abstractPlan, field, remaining.head, itemPath, sourceErrors, typenameSelections)
                   if (itemIsNonNull) enforceNonNull(item, field, itemPath, sourceErrors) else item
                 }
               if (result.errors ne Nil) errors ++= result.errors
@@ -563,12 +564,12 @@ private[gateway] final class GatewayInterpreterImpl[-R](
         }
       case __TypeKind.INTERFACE | __TypeKind.UNION =>
         completeAbstract(
-          abstractCompletion(fieldType, field, path, runtimeTypes),
+          abstractCompletion(fieldType, field, path, typenameSelections),
           field,
           value,
           path,
           sourceErrors,
-          runtimeTypes
+          typenameSelections
         )
       case __TypeKind.OBJECT                       =>
         completeNestedObject(
@@ -577,7 +578,7 @@ private[gateway] final class GatewayInterpreterImpl[-R](
           value,
           path,
           sourceErrors,
-          runtimeTypes
+          typenameSelections
         )
       case __TypeKind.ENUM                         =>
         value match {
@@ -661,14 +662,14 @@ private[gateway] final class GatewayInterpreterImpl[-R](
     value: ResponseValue,
     path: List[PathValue],
     sourceErrors: ErrorPathIndex,
-    runtimeTypes: List[RuntimeTypeSelection]
+    typenameSelections: List[TypenameSelection]
   ): CompletedValue = {
     val runtime = runtimeType(value, completion.runtimeTypes)
     runtime.filter(name => completion.possible.isEmpty || completion.possible.contains(name)) match {
       case Some(typeName)                                         =>
-        completeNestedObject(typeName, field, value, path, sourceErrors, runtimeTypes)
+        completeNestedObject(typeName, field, value, path, sourceErrors, typenameSelections)
       case None if runtime.isEmpty && !completion.requiresRuntime =>
-        completeNestedObject(completion.defaultType, field, value, path, sourceErrors, runtimeTypes)
+        completeNestedObject(completion.defaultType, field, value, path, sourceErrors, typenameSelections)
       case None                                                   =>
         CompletedValue(Some(NullValue), invalidSourceValueErrors(path.reverse, sourceErrors))
     }
@@ -678,12 +679,12 @@ private[gateway] final class GatewayInterpreterImpl[-R](
     fieldType: __Type,
     field: Field,
     path: List[PathValue],
-    runtimeTypes: List[RuntimeTypeSelection]
+    typenameSelections: List[TypenameSelection]
   ): AbstractCompletion = {
-    val matching  = new mutable.ListBuffer[RuntimeTypeSelection]
-    val fallback  = new mutable.ListBuffer[RuntimeTypeSelection]
+    val matching  = new mutable.ListBuffer[TypenameSelection]
+    val fallback  = new mutable.ListBuffer[TypenameSelection]
     val expected  = responsePath(path)
-    var remaining = runtimeTypes
+    var remaining = typenameSelections
     while (remaining ne Nil) {
       val selection = remaining.head
       if (selection.path == expected) matching += selection else fallback += selection
@@ -707,9 +708,9 @@ private[gateway] final class GatewayInterpreterImpl[-R](
     value: ResponseValue,
     path: List[PathValue],
     sourceErrors: ErrorPathIndex,
-    runtimeTypes: List[RuntimeTypeSelection]
+    typenameSelections: List[TypenameSelection]
   ): CompletedValue = {
-    val completed = completeObject(field.collectFields(typeName), value, path, sourceErrors, runtimeTypes)
+    val completed = completeObject(field.collectFields(typeName), value, path, sourceErrors, typenameSelections)
     if (completed.value.isEmpty) CompletedValue(Some(NullValue), completed.errors) else completed
   }
 
@@ -1140,8 +1141,8 @@ private[gateway] object GatewayInterpreterImpl {
   )
 
   private final case class RuntimeTypeLookup(
-    matching: List[RuntimeTypeSelection],
-    fallback: List[RuntimeTypeSelection],
+    matching: List[TypenameSelection],
+    fallback: List[TypenameSelection],
     selectedAliases: List[String]
   )
 

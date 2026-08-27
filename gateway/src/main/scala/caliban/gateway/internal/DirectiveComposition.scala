@@ -3,6 +3,7 @@ package caliban.gateway.internal
 import caliban.InputValue
 import caliban.InputValue.{ ListValue => InputListValue, ObjectValue => InputObjectValue }
 import caliban.Value._
+import caliban.gateway.PreparedSubgraph
 import caliban.introspection.adt._
 import caliban.parsing.Parser
 import caliban.parsing.adt.Definition.TypeSystemExtension.SchemaExtension

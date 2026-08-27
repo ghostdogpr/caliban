@@ -227,14 +227,14 @@ object RoutePlanningSpec extends ZIOSpecDefault {
         simpleSent.size == 1
       )
     },
-    test("chooses the bridge source that completes the route with fewer calls") {
-      val originSchema      =
+    test("chooses the intermediate subgraph that completes the route with fewer calls") {
+      val originSchema            =
         s"""
            |${federationSchemaPreamble("@key", "@shareable")}
            |type Query { thing: Thing }
            |type Thing @key(fields: "a") { a: ID! @shareable }
            |""".stripMargin
-      val helperSchema      =
+      val helperSchema            =
         s"""
            |${federationSchemaPreamble("@key", "@shareable")}
            |type Thing @key(fields: "a") @key(fields: "x") {
@@ -242,7 +242,7 @@ object RoutePlanningSpec extends ZIOSpecDefault {
            |  x: ID! @shareable
            |}
            |""".stripMargin
-      val longBridgeSchema  =
+      val longIntermediateSchema  =
         s"""
            |${federationSchemaPreamble("@key", "@shareable")}
            |type Thing @key(fields: "x") @key(fields: "d") {
@@ -250,7 +250,7 @@ object RoutePlanningSpec extends ZIOSpecDefault {
            |  d: ID! @shareable
            |}
            |""".stripMargin
-      val shortBridgeSchema =
+      val shortIntermediateSchema =
         s"""
            |${federationSchemaPreamble("@key", "@shareable")}
            |type Thing @key(fields: "a") @key(fields: "d") {
@@ -258,7 +258,7 @@ object RoutePlanningSpec extends ZIOSpecDefault {
            |  d: ID! @shareable
            |}
            |""".stripMargin
-      val targetSchema      =
+      val targetSchema            =
         s"""
            |${federationSchemaPreamble("@key", "@external")}
            |type Thing @key(fields: "d") {
@@ -268,31 +268,31 @@ object RoutePlanningSpec extends ZIOSpecDefault {
            |""".stripMargin
 
       for {
-        origin      <- stub(
-                         """{"data":{"thing":{"_caliban_gateway_key":"a1","_caliban_gateway_typename":"Thing"}}}"""
-                       )
-        helper      <- stub("""{"data":{"_entities":[]}}""")
-        longBridge  <- stub("""{"data":{"_entities":[]}}""")
-        shortBridge <-
+        origin            <- stub(
+                               """{"data":{"thing":{"_caliban_gateway_key":"a1","_caliban_gateway_typename":"Thing"}}}"""
+                             )
+        helper            <- stub("""{"data":{"_entities":[]}}""")
+        longIntermediate  <- stub("""{"data":{"_entities":[]}}""")
+        shortIntermediate <-
           stub(
             """{"data":{"_entities":[{"_caliban_gateway_key":"d1","_caliban_gateway_typename":"Thing"}]}}"""
           )
-        target      <- stub("""{"data":{"_entities":[{"label":"short"}]}}""")
-        runtime     <- Gateway
-                         .compose(
-                           Subgraph.federation("a-origin", origin.endpoint, originSchema),
-                           Subgraph.federation("b-helper", helper.endpoint, helperSchema),
-                           Subgraph.federation("c-long", longBridge.endpoint, longBridgeSchema),
-                           Subgraph.federation("d-short", shortBridge.endpoint, shortBridgeSchema),
-                           Subgraph.federation("e-target", target.endpoint, targetSchema)
-                         )
-                         .interpreter
-        plan        <- runtime.explain("{ thing { label } }")
-        response    <- runtime.execute("{ thing { label } }")
-        helperSent  <- helper.requests.get
-        longSent    <- longBridge.requests.get
-        shortSent   <- shortBridge.requests.get
-        targetSent  <- target.requests.get
+        target            <- stub("""{"data":{"_entities":[{"label":"short"}]}}""")
+        runtime           <- Gateway
+                               .compose(
+                                 Subgraph.federation("a-origin", origin.endpoint, originSchema),
+                                 Subgraph.federation("b-helper", helper.endpoint, helperSchema),
+                                 Subgraph.federation("c-long", longIntermediate.endpoint, longIntermediateSchema),
+                                 Subgraph.federation("d-short", shortIntermediate.endpoint, shortIntermediateSchema),
+                                 Subgraph.federation("e-target", target.endpoint, targetSchema)
+                               )
+                               .interpreter
+        plan              <- runtime.explain("{ thing { label } }")
+        response          <- runtime.execute("{ thing { label } }")
+        helperSent        <- helper.requests.get
+        longSent          <- longIntermediate.requests.get
+        shortSent         <- shortIntermediate.requests.get
+        targetSent        <- target.requests.get
       } yield assertTrue(
         response.errors.isEmpty,
         field(response.data, "thing").flatMap(field(_, "label")).contains(StringValue("short")),

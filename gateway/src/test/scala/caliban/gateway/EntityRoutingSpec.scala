@@ -153,52 +153,52 @@ object EntityRoutingSpec extends ZIOSpecDefault {
             )
         )
       },
-      test("tries later bridge sources when the first declared bridge is unreachable") {
-        val rootsSchema       =
+      test("tries another intermediate subgraph when the first is unreachable") {
+        val rootsSchema          =
           s"""
              |${federationSchemaPreamble("@key")}
              |type Query { thing: Thing }
              |type Thing @key(fields: "a") { a: ID! }
              |""".stripMargin
-        val unreachableSchema =
+        val unreachableSchema    =
           s"""
              |${federationSchemaPreamble("@key", "@external")}
              |type Thing @key(fields: "a") { a: ID! @external d: ID! @external }
              |""".stripMargin
-        val bridgeSchema      =
+        val intermediateSchema   =
           s"""
              |${federationSchemaPreamble("@key")}
              |type Thing @key(fields: "a") @key(fields: "d") { a: ID! d: ID! }
              |""".stripMargin
-        val targetSchema      =
+        val targetSchema         =
           s"""
              |${federationSchemaPreamble("@key")}
              |type Thing @key(fields: "d") { d: ID! label: String! }
              |""".stripMargin
-        val rootResponse      =
+        val rootResponse         =
           """{"data":{"thing":{"a":"a1","_caliban_gateway_key":"a1","_caliban_gateway_typename":"Thing"}}}"""
-        val bridgeResponse    =
+        val intermediateResponse =
           """{"data":{"_entities":[{"_caliban_gateway_key":"d1","_caliban_gateway_typename":"Thing"}]}}"""
-        val targetResponse    =
+        val targetResponse       =
           """{"data":{"_entities":[{"label":"reachable"}]}}"""
 
         for {
-          roots       <- stub(rootResponse)
-          unreachable <- stub("""{"data":{"_entities":[]}}""")
-          bridge      <- stub(bridgeResponse)
-          target      <- stub(targetResponse)
-          gateway     <- Gateway
-                           .compose(
-                             Subgraph.federation("a-roots", roots.endpoint, rootsSchema),
-                             Subgraph.federation("b-unreachable", unreachable.endpoint, unreachableSchema),
-                             Subgraph.federation("c-bridge", bridge.endpoint, bridgeSchema),
-                             Subgraph.federation("d-target", target.endpoint, targetSchema)
-                           )
-                           .interpreter
-          response    <- gateway.execute("{ thing { a label } }")
-          bCalls      <- unreachable.requests.get
-          cCalls      <- bridge.requests.get
-          dCalls      <- target.requests.get
+          roots        <- stub(rootResponse)
+          unreachable  <- stub("""{"data":{"_entities":[]}}""")
+          intermediate <- stub(intermediateResponse)
+          target       <- stub(targetResponse)
+          gateway      <- Gateway
+                            .compose(
+                              Subgraph.federation("a-roots", roots.endpoint, rootsSchema),
+                              Subgraph.federation("b-unreachable", unreachable.endpoint, unreachableSchema),
+                              Subgraph.federation("c-intermediate", intermediate.endpoint, intermediateSchema),
+                              Subgraph.federation("d-target", target.endpoint, targetSchema)
+                            )
+                            .interpreter
+          response     <- gateway.execute("{ thing { a label } }")
+          bCalls       <- unreachable.requests.get
+          cCalls       <- intermediate.requests.get
+          dCalls       <- target.requests.get
         } yield assertTrue(
           response.errors.isEmpty,
           field(response.data, "thing").flatMap(field(_, "label")).contains(StringValue("reachable")),
