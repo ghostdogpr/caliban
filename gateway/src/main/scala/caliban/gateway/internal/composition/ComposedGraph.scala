@@ -92,6 +92,19 @@ private[gateway] final class ComposedGraph private[internal] (
       .distinct
       .sorted
 
+  def namedPolicyDiagnostics: List[String] =
+    securityApplications
+      .filter(_.directive match {
+        case policy: SecurityDirective.Policy => !policy.isAuthenticationOnly
+        case _                                => false
+      })
+      .map { application =>
+        s"[${application.source}] Federation ${application.directiveName} at '${application.coordinate}' requires " +
+          "a named-policy handler in OperationPolicy.fromClaims or a custom OperationPolicy."
+      }
+      .distinct
+      .sorted
+
   def securityRequirements(execution: ExecutionRequest): List[SecurityRequirement] =
     if (securityApplications.isEmpty) Nil
     else {

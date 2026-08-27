@@ -130,6 +130,10 @@ object Gateway {
       _                        <- ZIO
                                     .fail(OperationPolicyRequired(graph.securityPolicyDiagnostics))
                                     .when(policy.isEmpty && graph.hasSecurityRequirements)
+      unsupportedPolicies       = if (policy.exists(!_.supportsNamedPolicies)) graph.namedPolicyDiagnostics else Nil
+      _                        <- ZIO
+                                    .fail(GatewayBuildError.InvalidConfiguration(unsupportedPolicies))
+                                    .when(unsupportedPolicies.nonEmpty)
       rawExecutors              = successes.map(value => value.subgraph.name -> value.executor).toMap
       subgraphLimits            = successes.map(value => value.subgraph.name -> value.maxConcurrentCalls).toMap
       control                  <- GatewayExecutionControl.make(

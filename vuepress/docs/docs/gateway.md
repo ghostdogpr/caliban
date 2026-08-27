@@ -318,31 +318,47 @@ QuickAdapter(interpreter)
 
 ## Authorizing operations
 
-Add an `OperationPolicy` when the gateway must allow or reject a complete operation before running it:
+Use `OperationPolicy.fromClaims` to enforce `@authenticated` and `@requiresScopes` before an operation runs. Your authentication layer must verify the JWT first; this helper only maps trusted claims to scopes.
 
 ```scala
-import caliban.gateway.OperationPolicy
-import zio.ZIO
+import caliban.GraphQLRequest
+import caliban.gateway.{ Gateway, GatewayInterpreter, OperationPolicy }
+import zio.{ Task, ZIO, ZLayer }
 
-val isAllowed: OperationPolicy.ValidatedOperation => Boolean = ???
+final case class VerifiedClaims(scope: String)
+trait RequestClaims {
+  def current: Task[Option[VerifiedClaims]]
+}
 
-val policy = OperationPolicy[Any] { operation =>
-  ZIO.succeed {
-    if (isAllowed(operation)) OperationPolicy.Allow
-    else OperationPolicy.Reject("Operation is not authorized.")
-  }
+val policy = OperationPolicy.fromClaims(
+  ZIO.serviceWithZIO[RequestClaims](_.current)
+) { claims =>
+  claims.scope.split(" ").filter(_.nonEmpty).toSet
 }
 
 val secured = Gateway
   .compose(products, reviews)
   .withOperationPolicy(policy)
+
+// Build secured.interpreter once; supply verified claims for each request:
+def execute(
+  interpreter: GatewayInterpreter[RequestClaims],
+  request: GraphQLRequest,
+  verified: Option[VerifiedClaims]
+) = interpreter.executeRequest(request).provideLayer(
+  ZLayer.succeed(new RequestClaims {
+    def current: Task[Option[VerifiedClaims]] = ZIO.succeed(verified)
+  })
+)
 ```
 
-The policy can inspect the request and the fields it selects. Federation directives such as `@authenticated`, `@requiresScopes`, and `@policy` are available through `operation.securityRequirements`.
+`None` means anonymous; `Some` is authenticated even with no scopes. Claims are read once per protected execution, including cache hits; public operations skip the lookup. Scope alternatives use outer OR / inner AND: `[["read", "tenant"], ["admin"]]` requires both `read` and `tenant`, or `admin`. Empty `[]` or `[[]]` requires authentication only.
 
-If your Federation schemas use those security directives, you must install an `OperationPolicy`. The gateway will refuse to start until you do.
+For named checks in `@policy`, use `OperationPolicy.fromClaims(readClaims, policyHandler)(scopes)`. The handler has type `(VerifiedClaims, String) => ZIO[R, Throwable, Boolean]` and should return `false` for unknown names. Alternatives use the same OR/AND rules as scopes, with sequential short-circuiting. An empty outer list or any empty alternative (even `[["owner"], []]`) requires only authentication and skips the handler. Other policy expressions require a handler at startup.
 
-Use `OperationPolicy.Reject()` for a generic public message. Only pass an explicit reason when it is safe to return that reason to the client.
+The helper checks every potentially selected protected field, including possible interface implementations, and rejects the **whole operation** on failure. Denials and claims or handler failures return generic messages; handler failures do not try other alternatives.
+
+The gateway refuses to start without a policy when its schemas contain security directives. Custom policies can inspect `operation.securityRequirements`; use `OperationPolicy.Reject()` unless an explicit reason is safe to return to clients.
 
 ## Introspection and remote errors
 
