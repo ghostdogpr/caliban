@@ -66,6 +66,52 @@ object Main extends ZIOAppDefault {
 
 At startup, the gateway loads and combines both schemas. If that fails, the application exits with messages explaining which subgraph or schema caused the problem.
 
+## Hot reload
+
+Use `gateway.reloadable` instead of `gateway.interpreter` to refresh acquired remote schemas without replacing your HTTP adapter:
+
+```scala
+import caliban.gateway.GatewayReloadConfig
+import zio._
+
+val reloadConfig = GatewayReloadConfig.default
+  .withPollInterval(30.seconds)
+  .withJitter(0.2)
+
+for {
+  interpreter <- gateway.reloadable(reloadConfig)
+  _           <- QuickAdapter(interpreter).runServer(4000, "/graphql")
+} yield ()
+```
+
+Startup still requires a valid initial interpreter. After startup, the gateway polls ordinary acquired schemas through introspection and Federation schemas through `_service`. Pinned SDL, parsed documents, local graphs, endpoints, and configuration stay fixed. At least one subgraph must use an acquired schema.
+
+Every refresh collects all acquired schemas using their configured acquisition timeouts and body-size limits. One acquisition HTTP client is reused for the reloadable interpreter's lifetime, separately from each generation's execution client. A failed collection leaves the current generation untouched. Parsed schema content is compared with the active snapshot, ignoring whitespace, comments, source locations, and the order of definitions, fields, arguments, enum values, union members, and implemented interfaces. Descriptions, directive application order, and input list-value order are retained. Only the fingerprint is canonicalized; the documents used for composition are unchanged. Unchanged checks preserve the interpreter and its warm operation cache.
+
+When content changes, a candidate is built from those exact documents without fetching again. Candidates must pass the usual build validation; there is no additional breaking-change check. Request admission uses atomic references without a shared lock. If a selected generation has already stopped accepting work, selection is retried before any request work starts. A lease reserved just after publication but before the old generation starts draining still belongs to that old generation. Already admitted operations finish on their original generation; operation resolution and execution are never retried to hide a replacement race. Shutdown is checked again after reservation; a reservation that observes closed admission is released without executing the request.
+
+The default interval is 30 seconds with up to twenty percent jitter in either direction. This delay starts after a refresh cycle, including retirement, finishes. Cycles never overlap, so the interval is not a schema-freshness guarantee. Acquisition or construction failures keep the active interpreter serving and are retried in the next cycle.
+
+### Draining and resource limits
+
+The old interpreter drains using `GatewayConfig.withDrainTimeout`. There are at most two interpreter generations: active plus candidate during construction, or active plus retiring after publication. Further refreshes wait for retirement to finish.
+
+Retirement does not impose a minimum delay: an idle generation closes immediately. A stuck request can delay the next schema check by the full drain timeout (30 seconds by default), followed by the configured polling delay. Uninterruptible work can postpone it indefinitely. If schema updates appear to have stopped, check the reload phase and retiring generation: `Draining` means polling is waiting for that generation, even while the current generation continues serving. `retirementOverdue` and the warning log identify retirement that has exceeded its timeout.
+
+**Concurrency limits remain per interpreter.** During overlap, total request and subgraph concurrency can reach twice the configured limits, and each generation has its own operation cache. The drain timeout requests interruption; uninterruptible work can hold the old generation indefinitely. In that case, the active generation continues serving and further refreshes remain paused.
+
+Closing the owning scope stops request admission and further publication, cancels refresh work, and closes all owned scopes. Active and retiring generations drain concurrently, without resetting the old generation's deadline. Scope closure still waits for uninterruptible work to finish.
+
+### Monitoring reloads
+
+`interpreter.reloadStatus` reports the active and retiring generation identifiers, their individual interpreter status, refresh phase, activation time, last attempt, last successful check, latest failure, and overdue retirement. A successful unchanged check advances the successful-check timestamp without changing the activation time. Failed candidates do not advance that timestamp.
+
+`interpreter.status` aggregates lifecycle counts and admission usage across active and retiring generations, and reports the active generation's operation cache. Summed admission limits describe separate per-interpreter budgets, not a shared pool. Check each generation through `reloadStatus` for the breakdown.
+
+Keep reload health separate from serving readiness: failed refreshes do not evict an otherwise serving generation. Monitor `lastFailure`, the age of `lastSuccessfulCheckAt`, and `retirementOverdue` through your application's diagnostics or monitoring integration. Failure details are bounded summaries with affected subgraph names; raw schemas, remote messages, response bodies, and exception causes are not retained.
+
+The gateway logs activation, failure, recovery, and overdue retirement, suppressing identical repeated failure logs. Hot reload does not add administrative HTTP endpoints, manual refresh, or new metrics and tracing interfaces.
+
 ## Adding subgraphs
 
 Give every subgraph a unique name such as `products` or `reviews`. Caliban uses it in error messages and monitoring data.

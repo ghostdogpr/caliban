@@ -5,7 +5,7 @@ import sttp.model.Header
 import zio.{ Trace, UIO, URIO, ZIO }
 
 /**
- * An executable gateway created by [[Gateway.interpreter]].
+ * An executable gateway created by [[Gateway.interpreter]] or [[Gateway.reloadable]].
  *
  * An interpreter may be shared across fibers and used anywhere a `GraphQLInterpreter` is
  * accepted. Its lifetime is bounded by the scope in which it was built.

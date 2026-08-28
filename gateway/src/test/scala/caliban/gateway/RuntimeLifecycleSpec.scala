@@ -32,6 +32,35 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
     postEndpoint("runtime-lifecycle-retry")(_ => calls.update(_ + 1).as(Response.status(Status.ServiceUnavailable)))
 
   def spec = suite("RuntimeLifecycleSpec")(
+    test("executes a reserved request when draining starts before execution") {
+      for {
+        scope   <- Scope.make
+        runtime <- scope.extend(Gateway.compose(Subgraph.local("local", localGraph(ZIO.succeed("accepted")))).build)
+        request <- runtime.reserve.someOrFailException
+        closing <- scope.close(Exit.unit).fork
+        _       <- waitForStatus(runtime)(_.lifecycle.state == LifecycleState.Draining)
+        result  <- request.execute("{ value }").ensuring(request.release)
+        _       <- closing.join
+        closed  <- runtime.status
+      } yield assertTrue(
+        result.errors.isEmpty,
+        field(result.data, "value").contains(caliban.Value.StringValue("accepted")),
+        closed.lifecycle.active == 0,
+        closed.lifecycle.state == LifecycleState.Closed
+      )
+    },
+    test("releases a reservation cancelled before request execution") {
+      for {
+        scope   <- Scope.make
+        runtime <- scope.extend(Gateway.compose(Subgraph.local("local", localGraph(ZIO.never))).build)
+        request <- runtime.reserve.someOrFailException
+        closing <- scope.close(Exit.unit).fork
+        _       <- waitForStatus(runtime)(_.lifecycle.state == LifecycleState.Draining)
+        _       <- request.release
+        _       <- closing.join
+        closed  <- runtime.status
+      } yield assertTrue(closed.lifecycle.active == 0, closed.lifecycle.state == LifecycleState.Closed)
+    },
     test("applies one deadline to operation resolution before source execution") {
       for {
         resolving   <- Promise.make[Nothing, Unit]

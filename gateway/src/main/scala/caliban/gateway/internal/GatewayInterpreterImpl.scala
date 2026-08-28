@@ -15,18 +15,29 @@ private[gateway] final class GatewayInterpreterImpl[-R](
   operations: OperationPreparation[R],
   executor: PlanExecutor[R],
   control: GatewayExecutionControl,
-  wrapper: GatewayWrapper[R]
+  wrapper: GatewayWrapper[R],
+  reservation: Option[GatewayExecutionControl.Lease] = None
 ) extends GatewayInterpreter[R] {
 
   def check(query: String)(implicit trace: Trace): IO[CalibanError, Unit] =
-    control.runRequest(operations.check(query))(ZIO.fail(requestTimeoutError))(ZIO.fail(requestShutdownError))
+    control.runRequest(operations.check(query), reservation)(ZIO.fail(requestTimeoutError))(
+      ZIO.fail(requestShutdownError)
+    )
+
+  /**
+   * A single-use view. The caller must release it even if execution is interrupted before it starts.
+   */
+  def reserve(implicit trace: Trace): UIO[Option[GatewayInterpreterImpl[R]]] =
+    control.reserve.map(_.map(lease => new GatewayInterpreterImpl(operations, executor, control, wrapper, Some(lease))))
+
+  def release(implicit trace: Trace): UIO[Unit] = reservation.fold[UIO[Unit]](ZIO.unit)(control.release(_))
 
   def status(implicit trace: Trace): UIO[GatewayInterpreter.Status] =
     operations.cacheStatus.flatMap(control.status)
 
   def explain(request: GraphQLRequest)(implicit trace: Trace): ZIO[R, CalibanError, String] =
     control
-      .runRequest(operations.prepare(request).map(prepared => prepared.plan.render))(
+      .runRequest(operations.prepare(request).map(prepared => prepared.plan.render), reservation)(
         ZIO.fail(requestTimeoutError)
       )(
         ZIO.fail(requestShutdownError)
@@ -44,7 +55,8 @@ private[gateway] final class GatewayInterpreterImpl[-R](
               prepared =>
                 GraphQLResponseContext.markExecuted *>
                   executor.execute(prepared.plan, prepared.executionRequest, prepared.request)
-            )
+            ),
+          reservation
         )(
           GraphQLResponseContext.markServerError(ServerFailure.TimedOut).as(requestTimeoutResponse)
         )(
@@ -79,7 +91,7 @@ private[gateway] final class GatewayInterpreterImpl[-R](
         )
 
     control
-      .runObservedRequest(wrapper, Event.Request(request.operationName))(execution)(
+      .runObservedRequest(wrapper, Event.Request(request.operationName), reservation)(execution)(
         wrapper.wrap(Event.Completion)(
           GraphQLResponseContext
             .markServerError(ServerFailure.TimedOut)
@@ -114,12 +126,12 @@ private[gateway] final class GatewayInterpreterImpl[-R](
 private[gateway] object GatewayInterpreterImpl {
   private val requestTimeoutError = CalibanError.ExecutionError("Gateway request timed out.")
 
-  private val requestShutdownError = CalibanError.ExecutionError("Gateway is shutting down.")
+  private[gateway] val requestShutdownError = CalibanError.ExecutionError("Gateway is shutting down.")
 
   private val requestTimeoutResponse =
     GraphQLResponse(NullValue, requestTimeoutError :: Nil)
 
-  private val requestShutdownResponse =
+  private[gateway] val requestShutdownResponse =
     GraphQLResponse(NullValue, requestShutdownError :: Nil)
 
   private final case class RequestResult(

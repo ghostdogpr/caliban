@@ -38,7 +38,41 @@ final class Gateway[-R] private[gateway] (
   /**
    * Builds an executable interpreter within the current scope.
    */
-  def interpreter(implicit trace: Trace): ZIO[Scope, GatewayBuildError, GatewayInterpreter[R]] = {
+  def interpreter(implicit trace: Trace): ZIO[Scope, GatewayBuildError, GatewayInterpreter[R]] = build
+
+  /**
+   * Builds a stable interpreter that polls acquired remote schemas and replaces changed generations.
+   * Pinned schemas and local graphs remain fixed. Admission limits apply separately to each generation.
+   */
+  def reloadable(reloadConfig: GatewayReloadConfig = GatewayReloadConfig.default)(implicit
+    trace: Trace
+  ): ZIO[Scope, GatewayBuildError, ReloadableGatewayInterpreter[R]] = {
+    val acquired    = subgraphs.exists(_.source match {
+      case Source.Remote(_, SchemaInput.Acquired, _, _) => true
+      case _                                            => false
+    })
+    val diagnostics = config.diagnostics ::: reloadConfig.diagnostics ::: Gateway.nameDiagnostics(subgraphs) :::
+      (if (acquired) Nil else List("Gateway reload requires at least one acquired remote schema."))
+
+    ZIO.fail(GatewayBuildError.InvalidConfiguration(diagnostics)).when(diagnostics.nonEmpty) *>
+      ZIO.scopeWith { parent =>
+        ZIO.uninterruptibleMask { restore =>
+          for {
+            child   <- parent.fork
+            runtime <-
+              restore(
+                child.extend(
+                  HttpClientZioBackend.scoped().mapError(TransportInitializationFailed(_)).flatMap { backend =>
+                    ReloadableGatewayInterpreterImpl.make(acquireSnapshot(backend), reloadConfig, config.drainTimeout)
+                  }
+                )
+              ).onError(cause => child.close(Exit.failCause(cause)))
+          } yield runtime
+        }
+      }
+  }
+
+  private[gateway] def build(implicit trace: Trace): ZIO[Scope, GatewayBuildError, GatewayInterpreterImpl[R]] = {
     val diagnostics = config.diagnostics
 
     ZIO.fail(GatewayBuildError.InvalidConfiguration(diagnostics)).when(diagnostics.nonEmpty) *>
@@ -52,6 +86,41 @@ final class Gateway[-R] private[gateway] (
         }
       }
   }
+
+  private def acquireSnapshot(backend: SttpClient)(implicit trace: Trace): IO[GatewayBuildError, Gateway.Snapshot[R]] =
+    for {
+      results <- ZIO.foreachPar(subgraphs) { subgraph =>
+                   subgraph.source match {
+                     case Source.Remote(endpoint, SchemaInput.Acquired, federation, remoteConfig) =>
+                       val diagnostics = remoteConfig.diagnostics(includeAcquisition = true)
+                       (ZIO.fail(SubgraphBuildError.InvalidConfiguration(diagnostics)).when(diagnostics.nonEmpty) *>
+                         RemoteSchemaAcquisition.load(
+                           SchemaInput.Acquired,
+                           endpoint,
+                           federation,
+                           remoteConfig.acquisition,
+                           backend
+                         )).map { document =>
+                         val pinned = new Subgraph[R](
+                           subgraph.name,
+                           Source.Remote(endpoint, SchemaInput.Parsed(document), federation, remoteConfig),
+                           subgraph.lookups,
+                           subgraph.transformations
+                         )
+                         (pinned, Some(SchemaFingerprint(document)))
+                       }
+                         .mapError(SubgraphError(subgraph.name, _))
+                         .either
+                     case _                                                                       => ZIO.succeed(Right((subgraph, Option.empty[String])))
+                   }
+                 }
+      failures = results.collect { case Left(error) => error }
+      _       <- ZIO.fail(SubgraphLoadingFailed(failures)).when(failures.nonEmpty)
+      loaded   = results.collect { case Right(value) => value }
+    } yield Gateway.Snapshot(
+      new Gateway(loaded.map(_._1), resolver, policy, config, wrapper),
+      loaded.flatMap(_._2)
+    )
 
   /**
    * Transforms the finite operation and admission limits used by each built interpreter.
@@ -80,6 +149,8 @@ final class Gateway[-R] private[gateway] (
 
 object Gateway {
 
+  private[gateway] final case class Snapshot[-R](gateway: Gateway[R], fingerprints: List[String])
+
   /**
    * Creates a reusable gateway description from one or more subgraphs.
    */
@@ -92,7 +163,7 @@ object Gateway {
     policy: Option[OperationPolicy[R]],
     config: GatewayConfig,
     wrapper: GatewayWrapper[R]
-  )(implicit trace: Trace): ZIO[Scope, GatewayBuildError, GatewayInterpreter[R]] =
+  )(implicit trace: Trace): ZIO[Scope, GatewayBuildError, GatewayInterpreterImpl[R]] =
     for {
       backend                  <- if (subgraphs.exists(_.source.isRemote))
                                     HttpClientZioBackend

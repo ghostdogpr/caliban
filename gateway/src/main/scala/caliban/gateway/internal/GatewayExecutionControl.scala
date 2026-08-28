@@ -18,26 +18,30 @@ private[gateway] final class GatewayExecutionControl private (
 ) {
   import GatewayExecutionControl._
 
-  def runRequest[R, E, A](effect: ZIO[R, E, A])(
+  def runRequest[R, E, A](effect: ZIO[R, E, A], reservation: Option[Lease] = None)(
     onTimeout: => ZIO[R, E, A]
   )(
     onRejected: => ZIO[R, E, A]
   )(implicit trace: Trace): ZIO[R, E, A] =
-    withLease(requests(effect), ZIO.unit)(onTimeout)(onRejected)(identity)
+    withLease(requests(effect), ZIO.unit, reservation)(onTimeout)(onRejected)(identity)
 
-  def runObservedRequest[R, E, A](wrapper: GatewayWrapper[R], event: Event.Request)(effect: ZIO[R, E, A])(
+  def runObservedRequest[R, E, A](wrapper: GatewayWrapper[R], event: Event.Request, reservation: Option[Lease] = None)(
+    effect: ZIO[R, E, A]
+  )(
     onTimeout: => URIO[R, A]
   )(
     onRejected: => URIO[R, A]
   )(result: Exit[E, A] => Result)(implicit trace: Trace): ZIO[R, E, A] =
     withLease(
       requests.observed(wrapper)(effect),
-      wrapper.wrap(Event.RequestOverdue)(ZIO.unit)(Result.classifyExit)
+      wrapper.wrap(Event.RequestOverdue)(ZIO.unit)(Result.classifyExit),
+      reservation
     )(onTimeout)(onRejected)(value => wrapper.wrap(event)(value)(result))
 
   private def withLease[R, E, A](
     effect: ZIO[R, E, A],
-    onOverdue: URIO[R, Unit]
+    onOverdue: URIO[R, Unit],
+    reservation: Option[Lease]
   )(
     onTimeout: => ZIO[R, E, A]
   )(
@@ -46,7 +50,7 @@ private[gateway] final class GatewayExecutionControl private (
     observe: ZIO[R, E, A] => ZIO[R, E, A]
   )(implicit trace: Trace): ZIO[R, E, A] =
     ZIO.uninterruptibleMask { restore =>
-      begin.flatMap {
+      reservation.fold(reserve)(lease => ZIO.some(lease)).flatMap {
         case Some(lease) =>
           restore(observe(run(lease, effect, onOverdue).flatMap(_.fold(onTimeout)(ZIO.succeed(_)))))
             .ensuring(end(lease.token))
@@ -75,7 +79,8 @@ private[gateway] final class GatewayExecutionControl private (
       }
     }
 
-  private def begin(implicit trace: Trace): UIO[Option[Lease]] =
+  // Reservation is coordinated with generation selection by the reload supervisor.
+  def reserve(implicit trace: Trace): UIO[Option[Lease]] =
     Clock.nanoTime.flatMap { startedAt =>
       val lease = Lease(new Token, startedAt)
       state.modify { current =>
@@ -155,6 +160,9 @@ private[gateway] final class GatewayExecutionControl private (
       }
     }.flatMap(onOverdue.when(_).unit)
 
+  // Must stay idempotent: withLease and the reload supervisor both end the same token, including on cancellation.
+  def release(lease: Lease)(implicit trace: Trace): UIO[Unit] = end(lease.token)
+
   private def end(token: Token)(implicit trace: Trace): UIO[Unit] =
     state.modify { current =>
       val next   = current.copy(requests = current.requests - token)
@@ -201,9 +209,9 @@ private[gateway] object GatewayExecutionControl {
       _         <- ZIO.addFinalizer(control.close)
     } yield control
 
-  private final class Token
+  private[gateway] final class Token
 
-  private final case class Lease(token: Token, startedAt: Long)
+  private[gateway] final case class Lease(token: Token, startedAt: Long)
 
   private final case class State(
     lifecycle: GatewayInterpreter.LifecycleState,

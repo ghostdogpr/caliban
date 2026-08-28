@@ -106,12 +106,20 @@ private[gateway] object GatewayTestSupport {
   def stubByRequest(response: GraphQLRequest => String): ZIO[Server with Ref[Int], Nothing, Stub] =
     stubResponding(ZIO.unit)((request, _) => Status.Ok -> response(request))
 
+  def stubByRequestZIO(response: GraphQLRequest => UIO[String]): ZIO[Server with Ref[Int], Nothing, Stub] =
+    stubRespondingZIO(ZIO.unit)((request, _) => response(request).map(Status.Ok -> _))
+
   def stubWithStatuses(responses: (Status, String)*): ZIO[Server with Ref[Int], Nothing, Stub] =
     stubResponding(ZIO.unit)((_, index) => responses(math.min(index, responses.size - 1)))
 
   private def stubResponding(
     beforeResponse: UIO[Unit]
   )(response: (GraphQLRequest, Int) => (Status, String)): ZIO[Server with Ref[Int], Nothing, Stub] =
+    stubRespondingZIO(beforeResponse)((request, index) => ZIO.succeed(response(request, index)))
+
+  private def stubRespondingZIO(
+    beforeResponse: UIO[Unit]
+  )(response: (GraphQLRequest, Int) => UIO[(Status, String)]): ZIO[Server with Ref[Int], Nothing, Stub] =
     for {
       requests <- Ref.make(Vector.empty[GraphQLRequest])
       headers  <- Ref.make(Vector.empty[Headers])
@@ -126,7 +134,7 @@ private[gateway] object GatewayTestSupport {
                       _       <- headers.update(_ :+ request.headers)
                       _       <- beforeResponse
                       next    <- index.getAndUpdate(_ + 1)
-                      result   = response(decoded, next)
+                      result  <- response(decoded, next)
                     } yield Response(
                       result._1,
                       Headers(Header.ContentType(MediaType("application", "graphql-response+json")).untyped),
