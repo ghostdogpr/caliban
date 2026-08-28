@@ -26,9 +26,14 @@ object GatewayTracing {
     )(implicit trace: Trace): ZIO[R0, E, A] = {
       def observed = effect.onExit(exit => complete(event, result(exit)))
       event match {
-        case Event.Request(operationName)                => request(operationName)(observed)
-        case Event.Routing                               => span("caliban.gateway.routing", SpanKind.INTERNAL)(observed)
-        case Event.SubgraphCall(subgraph, operationType) =>
+        case Event.SubscriptionSetup                                                                       => request(None, "caliban.gateway.subscription.setup")(observed)
+        // Reuse incoming or ambient context, not the finished setup span; without either, each event starts a trace.
+        case Event.SubscriptionEvent                                                                       => request(None, "caliban.gateway.subscription.event", SpanKind.INTERNAL)(observed)
+        case _: Event.SubscriptionTerminated | _: Event.SubscriptionAdmission | Event.SubscriptionOverflow =>
+          effect
+        case Event.Request(operationName)                                                                  => request(operationName)(observed)
+        case Event.Routing                                                                                 => span("caliban.gateway.routing", SpanKind.INTERNAL)(observed)
+        case Event.SubgraphCall(subgraph, operationType)                                                   =>
           span(
             "caliban.gateway.subgraph",
             SpanKind.INTERNAL,
@@ -38,7 +43,7 @@ object GatewayTracing {
               .put("graphql.operation.type", GatewayWrapper.operationTypeLabel(operationType))
               .build()
           )(observed)
-        case attempt: Event.Attempt                      =>
+        case attempt: Event.Attempt                                                                        =>
           val attributes = Attributes
             .builder()
             .put("graphql.subgraph.name", attempt.subgraph)
@@ -48,7 +53,7 @@ object GatewayTracing {
           attempt.serverAddress.foreach(attributes.put("server.address", _))
           attempt.serverPort.foreach(port => attributes.put("server.port", port.toLong))
           span("caliban.gateway.subgraph.attempt", SpanKind.CLIENT, attributes.build())(observed)
-        case Event.Retry(subgraph, attempt)              =>
+        case Event.Retry(subgraph, attempt)                                                                =>
           span(
             "caliban.gateway.retry",
             SpanKind.INTERNAL,
@@ -58,7 +63,7 @@ object GatewayTracing {
               .put("caliban.gateway.retry.attempt", attempt.toLong)
               .build()
           )(observed)
-        case Event.Completion                            => span("caliban.gateway.completion", SpanKind.INTERNAL)(observed)
+        case Event.Completion                                                                              => span("caliban.gateway.completion", SpanKind.INTERNAL)(observed)
         case _: Event.CacheAccess | _: Event.AdmissionWait | _: Event.Admission | _: Event.Deduplication |
             Event.RequestOverdue =>
           effect
@@ -71,22 +76,27 @@ object GatewayTracing {
           val attributes = Attributes.builder()
 
           event match {
-            case _: Event.Request      =>
+            case Event.SubscriptionSetup | Event.SubscriptionEvent =>
+              attributes
+                .put("graphql.operation.type", "subscription")
+                .put("graphql.response.error.count", result.errorCount.toLong)
+                .put("caliban.gateway.subscription.outcome", result.outcome.label)
+            case _: Event.Request                                  =>
               result.operationType.foreach(operationType =>
                 attributes.put("graphql.operation.type", GatewayWrapper.operationTypeLabel(operationType))
               )
               attributes
                 .put("graphql.response.error.count", result.errorCount.toLong)
                 .put("caliban.gateway.request.outcome", result.outcome.label)
-            case _: Event.SubgraphCall =>
+            case _: Event.SubgraphCall                             =>
               attributes
                 .put("graphql.response.error.count", result.errorCount.toLong)
                 .put("caliban.gateway.subgraph.outcome", result.outcome.label)
-            case _: Event.Attempt      =>
+            case _: Event.Attempt                                  =>
               result.statusCode.foreach(code => attributes.put("http.response.status_code", code.toLong))
               result.responseBytes.foreach(bytes => attributes.put("http.response.body.size", bytes))
               attributes.put("caliban.gateway.subgraph.attempt.outcome", result.outcome.label)
-            case _                     => ()
+            case _                                                 => ()
           }
 
           if (result.outcome != Outcome.Success) {
@@ -118,7 +128,13 @@ object GatewayTracing {
       } yield headers.filterNot(header => names.contains(normalize(header.name))) :::
         values.iterator.map { case (name, value) => Header(name, value) }.toList
 
-    private def request[R, E, A](operationName: Option[String])(effect: ZIO[R, E, A])(implicit
+    private def request[R, E, A](
+      operationName: Option[String],
+      spanName: String = "caliban.gateway.request",
+      kind: SpanKind = SpanKind.SERVER
+    )(
+      effect: ZIO[R, E, A]
+    )(implicit
       trace: Trace
     ): ZIO[R with Tracing, E, A] =
       IncomingRequestHeaders.get.flatMap { headers =>
@@ -132,13 +148,13 @@ object GatewayTracing {
             _.extractSpan(
               propagation,
               carrier,
-              "caliban.gateway.request",
-              SpanKind.SERVER,
+              spanName,
+              kind,
               attributes,
               failureStatus
             )(effect)
           )
-        } else span("caliban.gateway.request", SpanKind.SERVER, attributes)(effect)
+        } else span(spanName, kind, attributes)(effect)
       }
 
     private def span[R, E, A](

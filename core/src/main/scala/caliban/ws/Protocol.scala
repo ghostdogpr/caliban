@@ -359,6 +359,14 @@ object Protocol {
           .fromZIO(interpreter.executeRequest(payload))
           .flatMap(res =>
             res.data match {
+              // Top-level streams with hasNext (even false) are incremental; without it, elements are full subscription responses.
+              case StreamValue(stream) if res.hasNext.isEmpty           =>
+                ZStream.fromZIO(subscriptions.trackedPromise(id)).flatMap {
+                  case Some(p) =>
+                    val frame = self.toResponse(id, res)
+                    stream.map(value => frame.copy(payload = Some(value))).interruptWhen(p)
+                  case None    => ZStream.empty
+                }
               case ObjectValue((fieldName, StreamValue(stream)) :: Nil) =>
                 ZStream.fromZIO(subscriptions.trackedPromise(id)).flatMap {
                   case Some(p) => stream.map(self.toResponse(id, fieldName, _, res.errors)).interruptWhen(p)

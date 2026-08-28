@@ -6,7 +6,9 @@ import caliban.gateway._
 import caliban.gateway.GatewayInterpreter.{ AdmissionStatus, LifecycleState, LifecycleStatus }
 import caliban.gateway.ReloadableGatewayInterpreter.{ Failure, FailureStage, Phase }
 import caliban.gateway.internal.GatewayInterpreterImpl.{ requestShutdownError, requestShutdownResponse }
+import caliban.gateway.internal.execution.SubgraphExecutor
 import zio._
+import zio.stream.ZStream
 
 import java.time.Instant
 
@@ -28,6 +30,33 @@ private[gateway] final class ReloadableGatewayInterpreterImpl[R] private (
     use(_.executeRequest(request))(
       GraphQLResponseContext.markServerError(ServerFailure.Unavailable).as(requestShutdownResponse)
     )
+
+  def executeStream(request: GraphQLRequest)(implicit
+    trace: Trace
+  ): ZStream[R, Throwable, GraphQLResponse[CalibanError]] =
+    ZStream.unwrap(executeRequest(request).map(SubgraphExecutor.responses))
+
+  def subscriptionStatus(implicit trace: Trace): UIO[GatewayInterpreter.SubscriptionStatus] =
+    state.get
+      .flatMap(current => ZIO.foreach(current.active :: current.retiring.toList)(_.interpreter.subscriptionStatus))
+      .map { values =>
+        GatewayInterpreter.SubscriptionStatus(
+          sumCounts(values.map(_.limit)),
+          sumCounts(values.map(_.establishing)),
+          sumCounts(values.map(_.streaming)),
+          sumCounts(values.map(_.terminating)),
+          sumCounts(values.map(_.overdue))
+        )
+      }
+
+  def generationSubscriptions(implicit trace: Trace): UIO[List[ReloadableGatewayInterpreter.GenerationSubscriptions]] =
+    state.get.flatMap { current =>
+      ZIO.foreach((current.active -> false) :: current.retiring.toList.map(_ -> true)) { case (generation, retiring) =>
+        generation.interpreter.subscriptionStatus.map(
+          ReloadableGatewayInterpreter.GenerationSubscriptions(generation.id, retiring, _)
+        )
+      }
+    }
 
   private def use[R0, E, A](f: GatewayInterpreterImpl[R] => ZIO[R0, E, A])(
     rejected: => ZIO[R0, E, A]
@@ -186,6 +215,7 @@ private[gateway] final class ReloadableGatewayInterpreterImpl[R] private (
 
   private def retire(old: Generation[R])(implicit trace: Trace): UIO[Unit] =
     for {
+      _       <- old.interpreter.retireSubscriptions
       watcher <- (Clock.sleep(drainTimeout) *>
                    state.modify { current =>
                      val overdue = current.retiring.exists(_.id == old.id)

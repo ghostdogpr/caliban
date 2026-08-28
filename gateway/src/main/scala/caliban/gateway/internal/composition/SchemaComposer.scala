@@ -23,14 +23,14 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
   import SchemaComposer._
   import TypeComposition._
 
-  private val sortedSubgraphs    = subgraphs.sortBy(_.name)
-  private val namesBySource      =
+  private val sortedSubgraphs     = subgraphs.sortBy(_.name)
+  private val namesBySource       =
     sortedSubgraphs.map(subgraph => subgraph.name -> federationDirectiveNames(subgraph.document)).toMap
-  private val composedDirectives =
+  private val composedDirectives  =
     DirectiveComposition.compile(
       sortedSubgraphs.map(subgraph => Source(subgraph, namesBySource(subgraph.name).hidden))
     )
-  private val prepared           = sortedSubgraphs.map { subgraph =>
+  private val prepared            = sortedSubgraphs.map { subgraph =>
     val names       = namesBySource(subgraph.name)
     val federation2 = isFederation2(subgraph.document)
     CompositionSubgraph(
@@ -43,12 +43,13 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
       typeSystemDirectiveApplications(subgraph.document, composedTypeName(subgraph, _))
     )
   }
-  private val queryEntries       = rootFields(OperationType.Query)
-  private val mutationEntries    = rootFields(OperationType.Mutation)
-  private val types              = nonRootTypes
-  private val typeComposition    = new TypeComposition(types, enumUsageByName, composedDirectives)
-  private val compiledFieldSets  = prepared.map(federationFieldSets)
-  private val compiledSecurity   = prepared.map(securityApplications)
+  private val queryEntries        = rootFields(OperationType.Query)
+  private val mutationEntries     = rootFields(OperationType.Mutation)
+  private val subscriptionEntries = rootFields(OperationType.Subscription)
+  private val types               = nonRootTypes
+  private val typeComposition     = new TypeComposition(types, enumUsageByName, composedDirectives)
+  private val compiledFieldSets   = prepared.map(federationFieldSets)
+  private val compiledSecurity    = prepared.map(securityApplications)
 
   def compose: Either[List[String], ComposedGraph] = {
     val diagnostics =
@@ -60,13 +61,15 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
         prepared.flatMap(unsupportedFederationDiagnostics) :::
         rootDiagnostics(OperationType.Query, queryEntries) :::
         rootDiagnostics(OperationType.Mutation, mutationEntries) :::
+        rootDiagnostics(OperationType.Subscription, subscriptionEntries) :::
         typeComposition.diagnostics :::
-        visibilityDiagnostics(queryEntries ::: mutationEntries)).distinct.sorted
+        visibilityDiagnostics(queryEntries ::: mutationEntries ::: subscriptionEntries)).distinct.sorted
 
     if (diagnostics.nonEmpty) Left(diagnostics)
     else {
       val queryFields                                        = chooseRootFields(queryEntries)
       val mutationFields                                     = chooseRootFields(mutationEntries)
+      val subscriptionFields                                 = chooseRootFields(subscriptionEntries)
       val composedTypes                                      = typeComposition.composed
       def rewrite(tpe: __Type): __Type                       = rewriteType(tpe, composedTypes)
       val query                                              = makeRootType("Query", queryFields, rewrite)
@@ -79,7 +82,7 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
       val rootType                                           = RootType(
         query,
         mutation,
-        None,
+        if (subscriptionFields.nonEmpty) Some(makeRootType("Subscription", subscriptionFields, rewrite)) else None,
         additional,
         composedDirectives.definitions(rewrite)
       )
@@ -91,7 +94,10 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
       val allSecurity                                        = compiledSecurity.flatMap(_.toOption).flatten
       val securityVisibilityDiagnostics                      = hiddenSecurityDiagnostics(allSecurity, rootType)
       val routes: Map[(OperationType, String), List[String]] = rootRoutes(OperationType.Query, queryEntries) ++
-        rootRoutes(OperationType.Mutation, mutationEntries)
+        rootRoutes(OperationType.Mutation, mutationEntries) ++ rootRoutes(
+          OperationType.Subscription,
+          subscriptionEntries
+        )
       val fieldDefinitions                                   = types
         .flatMap(entry => entry.tpe.allFields.map(field => (entry.name -> field.name) -> entry))
         .groupBy(_._1)
@@ -521,7 +527,7 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
       val root     = operation match {
         case OperationType.Query        => Some(subgraph.rootType.queryType)
         case OperationType.Mutation     => subgraph.rootType.mutationType
-        case OperationType.Subscription => None
+        case OperationType.Subscription => subgraph.rootType.subscriptionType
       }
       val names    = metadata.directives
       root.toList.flatMap { rootType =>
@@ -565,6 +571,9 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
         val prefix     = s"[${operation.toString.toLowerCase}.$field]"
         val compatible = fieldsCompatible(entries.map(_.field))
         overrideDiagnostics(prefix, entries.map(entry => entry.source -> entry.overrideFrom)) :::
+          (if (operation == OperationType.Subscription && (providers.size > 1 || entries.exists(_.shareable)))
+             List(s"$prefix Subscription fields require one effective owner and cannot be @shareable.")
+           else Nil) :::
           (if (compatible && providers.size > 1 && providers.exists(entry => !entry.federation)) {
              val sources = formatSources(providers.map(_.source))
              List(s"$prefix Field is resolved by multiple ordinary subgraphs: $sources.")
@@ -951,6 +960,7 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
       val rootType = metadata.subgraph.rootType
       rootType.queryType.name.foreach(enqueue)
       rootType.mutationType.flatMap(_.name).foreach(enqueue)
+      rootType.subscriptionType.flatMap(_.name).foreach(enqueue)
     }
 
     while (pending.nonEmpty) {

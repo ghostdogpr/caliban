@@ -17,14 +17,19 @@ private[gateway] final class AdmissionGate private (
   def observed[R, E, A](wrapper: GatewayWrapper[R])(effect: ZIO[R, E, A])(implicit
     trace: Trace
   ): ZIO[R, E, A] =
+    observedAs(kind, wrapper)(effect)
+
+  def observedAs[R, E, A](work: AdmissionKind, wrapper: GatewayWrapper[R])(
+    effect: ZIO[R, E, A]
+  )(implicit trace: Trace): ZIO[R, E, A] =
     if (!wrapper.enabled) apply(effect)
     else
-      ZIO.scoped[R] {
-        ZIO.acquireRelease(Scope.make)(_.close(Exit.unit)).flatMap { permitScope =>
-          val waiting = semaphore.withPermitScoped.provideEnvironment(ZEnvironment(permitScope))
-          wrapper.wrap[Scope with R, Nothing, Unit](Event.AdmissionWait(kind))(waiting)(Result.classifyExit) *>
-            wrapper.wrap(Event.Admission(kind))(effect)(Result.classifyExit)
-        }
+      // Only the permit is scoped here. Replacing a caller's Scope would finalize
+      // subscription sources and layers as soon as their setup effect returned.
+      ZIO.acquireReleaseWith(Scope.make)(_.close(Exit.unit)) { permitScope =>
+        val waiting = semaphore.withPermitScoped.provideEnvironment(ZEnvironment(permitScope))
+        wrapper.wrap[R, Nothing, Unit](Event.AdmissionWait(work))(waiting)(Result.classifyExit) *>
+          wrapper.wrap(Event.Admission(work))(effect)(Result.classifyExit)
       }
 
   def status(implicit trace: Trace): UIO[AdmissionStatus] =

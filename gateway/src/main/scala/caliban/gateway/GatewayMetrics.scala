@@ -20,35 +20,59 @@ object GatewayMetrics {
     Chunk(256d, 1024d, 4096d, 16384d, 65536d, 262144d, 1048576d, 4194304d, 16777216d)
   )
 
-  private val requests                = Metric.counter("caliban_gateway_requests_total")
-  private val requestDuration         = Metric.histogram("caliban_gateway_request_duration_seconds", durationBuckets)
-  private val requestsActive          = Metric.gauge("caliban_gateway_requests_active")
-  private val routingDuration         = Metric.histogram("caliban_gateway_routing_duration_seconds", durationBuckets)
-  private val subgraphCalls           = Metric.counter("caliban_gateway_subgraph_calls_total")
-  private val subgraphCallDuration    = Metric.histogram("caliban_gateway_subgraph_call_duration_seconds", durationBuckets)
-  private val subgraphCallsActive     = Metric.gauge("caliban_gateway_subgraph_calls_active")
-  private val subgraphAttempts        = Metric.counter("caliban_gateway_subgraph_attempts_total")
-  private val subgraphAttemptDuration =
+  private val requests                  = Metric.counter("caliban_gateway_requests_total")
+  private val requestDuration           = Metric.histogram("caliban_gateway_request_duration_seconds", durationBuckets)
+  private val requestsActive            = Metric.gauge("caliban_gateway_requests_active")
+  private val routingDuration           = Metric.histogram("caliban_gateway_routing_duration_seconds", durationBuckets)
+  private val subgraphCalls             = Metric.counter("caliban_gateway_subgraph_calls_total")
+  private val subgraphCallDuration      = Metric.histogram("caliban_gateway_subgraph_call_duration_seconds", durationBuckets)
+  private val subgraphCallsActive       = Metric.gauge("caliban_gateway_subgraph_calls_active")
+  private val subgraphAttempts          = Metric.counter("caliban_gateway_subgraph_attempts_total")
+  private val subgraphAttemptDuration   =
     Metric.histogram("caliban_gateway_subgraph_attempt_duration_seconds", durationBuckets)
-  private val subgraphAttemptsActive  = Metric.gauge("caliban_gateway_subgraph_attempts_active")
-  private val subgraphRequestBytes    = Metric.histogram("caliban_gateway_subgraph_request_body_size_bytes", byteBuckets)
-  private val subgraphResponseBytes   = Metric.histogram("caliban_gateway_subgraph_response_body_size_bytes", byteBuckets)
-  private val retries                 = Metric.counter("caliban_gateway_retries_total")
-  private val cache                   = Metric.counter("caliban_gateway_operation_cache_total")
-  private val admission               = Metric.counter("caliban_gateway_admission_total")
-  private val admissionWait           =
+  private val subgraphAttemptsActive    = Metric.gauge("caliban_gateway_subgraph_attempts_active")
+  private val subgraphRequestBytes      = Metric.histogram("caliban_gateway_subgraph_request_body_size_bytes", byteBuckets)
+  private val subgraphResponseBytes     = Metric.histogram("caliban_gateway_subgraph_response_body_size_bytes", byteBuckets)
+  private val retries                   = Metric.counter("caliban_gateway_retries_total")
+  private val cache                     = Metric.counter("caliban_gateway_operation_cache_total")
+  private val admission                 = Metric.counter("caliban_gateway_admission_total")
+  private val admissionWait             =
     Metric.histogram("caliban_gateway_admission_wait_duration_seconds", durationBuckets)
-  private val admissionActive         = Metric.gauge("caliban_gateway_admission_active")
-  private val admissionWaiting        = Metric.gauge("caliban_gateway_admission_waiting")
-  private val deduplicated            = Metric.counter("caliban_gateway_in_flight_deduplication_total")
-  private val overdue                 = Metric.counter("caliban_gateway_overdue_requests_total")
+  private val admissionActive           = Metric.gauge("caliban_gateway_admission_active")
+  private val admissionWaiting          = Metric.gauge("caliban_gateway_admission_waiting")
+  private val deduplicated              = Metric.counter("caliban_gateway_in_flight_deduplication_total")
+  private val overdue                   = Metric.counter("caliban_gateway_overdue_requests_total")
+  private val subscriptionsActive       = Metric.gauge("caliban_gateway_subscriptions_active")
+  private val subscriptionAdmission     = Metric.counter("caliban_gateway_subscription_admission_total")
+  private val subscriptionTerminated    = Metric.counter("caliban_gateway_subscription_terminations_total")
+  private val subscriptionOverflow      = Metric.counter("caliban_gateway_subscription_overflows_total")
+  private val subscriptionLifetime      = Metric.histogram(
+    "caliban_gateway_subscription_duration_seconds",
+    Histogram.Boundaries(Chunk(1d, 10d, 60d, 600d, 3600d, 86400d))
+  )
+  private val subscriptionSetup         =
+    Metric.histogram("caliban_gateway_subscription_setup_duration_seconds", durationBuckets)
+  private val subscriptionEventDuration =
+    Metric.histogram("caliban_gateway_subscription_event_duration_seconds", durationBuckets)
 
   val wrapper: GatewayWrapper[Any] = new GatewayWrapper[Any] {
     def wrap[R, E, A](event: Event)(effect: ZIO[R, E, A])(result: Exit[E, A] => Result)(implicit
       trace: Trace
     ): ZIO[R, E, A] =
       event match {
-        case _: Event.Request                =>
+        case Event.SubscriptionAdmission(accepted)          =>
+          subscriptionAdmission.tagged("result", if (accepted) "accepted" else "rejected").increment *>
+            subscriptionsActive.increment.when(accepted) *> effect
+        case Event.SubscriptionTerminated(reason, duration) =>
+          subscriptionsActive.decrement *> subscriptionTerminated
+            .tagged("reason", reason)
+            .increment *>
+            subscriptionLifetime.update(seconds(duration)) *> effect
+        case Event.SubscriptionOverflow                     => subscriptionOverflow.increment *> effect
+        case Event.SubscriptionSetup                        => trackDuration(subscriptionSetup, Set.empty)(effect)(result)
+        case Event.SubscriptionEvent                        =>
+          trackDuration(subscriptionEventDuration, Set.empty)(effect)(result)
+        case _: Event.Request                               =>
           track(
             requestsActive,
             requestDuration,
@@ -56,9 +80,9 @@ object GatewayMetrics {
             Set.empty,
             RequestTracking
           )(effect)(result)
-        case Event.Routing                   =>
+        case Event.Routing                                  =>
           trackDuration(routingDuration, Set.empty)(effect)(result)
-        case Event.SubgraphCall(subgraph, _) =>
+        case Event.SubgraphCall(subgraph, _)                =>
           track(
             subgraphCallsActive,
             subgraphCallDuration,
@@ -66,7 +90,7 @@ object GatewayMetrics {
             Set(MetricLabel("subgraph", subgraph)),
             SubgraphCallTracking
           )(effect)(result)
-        case attempt: Event.Attempt          =>
+        case attempt: Event.Attempt                         =>
           val labels = Set(MetricLabel("subgraph", attempt.subgraph))
           subgraphRequestBytes.tagged(labels).update(attempt.requestBytes.toDouble) *>
             track(
@@ -76,18 +100,17 @@ object GatewayMetrics {
               labels,
               AttemptTracking(labels)
             )(effect)(result)
-        case Event.Retry(subgraph, _)        => retries.tagged("subgraph", subgraph).update(1L) *> effect
-        case Event.Completion                => effect
-        case Event.CacheAccess(value)        => cache.tagged("result", value.label).update(1L) *> effect
-        case Event.AdmissionWait(kind)       =>
-          val labels  = Set(MetricLabel("kind", kind.label))
-          val waiting = admissionWaiting.tagged(labels)
-          withActive(waiting)(trackDuration(admissionWait, labels)(effect)(result))
-        case Event.Admission(kind)           =>
+        case Event.Retry(subgraph, _)                       => retries.tagged("subgraph", subgraph).update(1L) *> effect
+        case Event.Completion                               => effect
+        case Event.CacheAccess(value)                       => cache.tagged("result", value.label).update(1L) *> effect
+        case Event.AdmissionWait(kind)                      =>
+          val labels = Set(MetricLabel("kind", kind.label))
+          withActive(admissionWaiting.tagged(labels))(trackDuration(admissionWait, labels)(effect)(result))
+        case Event.Admission(kind)                          =>
           admission.tagged("kind", kind.label).update(1L) *>
             withActive(admissionActive.tagged("kind", kind.label))(effect)
-        case Event.Deduplication(value)      => deduplicated.tagged("result", value.label).update(1L) *> effect
-        case Event.RequestOverdue            => overdue.update(1L) *> effect
+        case Event.Deduplication(value)                     => deduplicated.tagged("result", value.label).update(1L) *> effect
+        case Event.RequestOverdue                           => overdue.update(1L) *> effect
       }
   }
 

@@ -399,7 +399,7 @@ The client can now omit `query`:
 
 The helper uses `product-v1` to find the registered query, preserving the request's operation name, variables, and extensions. It ignores any client-supplied query text and never registers new documents. Missing, malformed, or empty IDs return `TRUSTED_DOCUMENT_ID_INVALID`; unknown IDs return `TRUSTED_DOCUMENT_NOT_FOUND` in `extensions.code`. You still need an [operation policy](#authorizing-operations) to enforce authorization.
 
-For a database or other lookup, use `OperationResolver(resolve)`, where `resolve` is a `GraphQLRequest => ZIO[R, Throwable, String]`. Resolution runs on every request, before preparation-cache lookup. Use `OperationResolver.uncached(resolve)` to disable prepared-document and plan reuse; validation still applies. The hook runs for `executeRequest` and `explain(request)`, not `check(query)`.
+For a database or other lookup, use `OperationResolver(resolve)`, where `resolve` is a `GraphQLRequest => ZIO[R, Throwable, String]`. Resolution runs on every request, before preparation-cache lookup. Use `OperationResolver.uncached(resolve)` to disable prepared-document and plan reuse; validation still applies. The hook runs for `executeRequest`, `executeStream`, and `explain(request)`, not `check(query)`.
 
 Custom resolvers can fail with `ZIO.fail(OperationResolver.Rejection(message, code))` to expose a safe message and `extensions.code` (HTTP 200 with `QuickAdapter`). Unexpected failures remain masked.
 
@@ -529,8 +529,71 @@ val gateway = Gateway.compose(products, reviews) @@
 
 The tracing wrapper creates spans for gateway requests and remote calls. `QuickAdapter` propagates incoming trace headers automatically.
 
+## Subscriptions
+
+The gateway supports subscriptions from local Caliban schemas and remote GraphQL services, including fields fetched from other subgraphs. Each subscription root field must have one owner. Events arrive in source order.
+
+### Transports
+
+Use the existing Quick or Tapir adapters. Clients can use `graphql-transport-ws`, legacy WebSocket, or SSE with `Accept: text/event-stream` (POST recommended). JSON and multipart HTTP responses cannot carry subscriptions.
+
+Remote subgraphs default to `graphql-transport-ws`, using the configured HTTP endpoint with `ws` or `wss`. Set `RemoteSubscriptionConfig.endpoint` for a different subscription URL, or choose SSE:
+
+```scala
+import caliban.gateway.{ RemoteGraphQLConfig, RemoteSubscriptionConfig }
+
+val config = RemoteGraphQLConfig.default.withSubscription(
+  RemoteSubscriptionConfig(transport = RemoteSubscriptionConfig.Sse())
+)
+```
+
+Pass this config when adding the remote subgraph. `Sse(useGet = true)` selects GET instead of POST. For WebSocket authentication, `connectionInit` supplies a static initialization payload; the usual remote header settings also apply.
+
+Each remote subscription opens one upstream connection. Upstream legacy WebSocket and `@defer` / `@stream` within subscriptions are not supported. Configure downstream keepalives through your adapter's existing settings.
+
+### Consuming from Scala
+
+```scala
+import caliban.GraphQLRequest
+
+val events = interpreter.executeStream(
+  GraphQLRequest(query = Some("subscription { productChanged { name } }"))
+)
+```
+
+Each consumption starts a new subscription; cancelling it releases its resources. Authenticate around consumption and provide scoped dependencies on the stream with `provideLayer`. Interpreter middleware only covers setup: `interpreter.mapError` does not map per-event errors. Use `events.map` to transform each response's errors.
+
+### Limits and reconnecting
+
+Configure limits with `GatewaySubscriptionConfig`:
+
+```scala
+import caliban.gateway.GatewaySubscriptionConfig
+import zio._
+
+val bounded = gateway.withConfig(_.withSubscriptions(
+  GatewaySubscriptionConfig(maxActive = 256, maxLifetime = Some(4.hours))
+))
+```
+
+Defaults are 1,024 active subscriptions, 32 buffered events per subscription, a 1 MiB event limit, and 30-second setup and event-processing timeouts. Lifetime is unlimited unless `maxLifetime` is set; the ordinary request timeout does not end subscriptions.
+
+- Capacity exhaustion rejects new subscriptions. Buffer overflow terminates the affected subscription with `SUBSCRIPTION_OVERFLOW` instead of silently dropping events.
+- Schema reload ends existing subscriptions with retryable `SUBSCRIPTION_SCHEMA_RELOAD`. Clients should resubscribe; failed reloads leave subscriptions running.
+- There is no automatic upstream reconnect or event replay. Clients must handle terminal errors and reconnect as appropriate; events during a disconnect may be lost.
+
+### Authentication and monitoring
+
+Authenticate during setup; the gateway evaluates authorization once and captures forwarding headers for the subscription's lifetime. Trusted middleware can use `SubscriptionIdentity.withExpiry(instant)(setup)` to end a subscription when its credentials expire. Revocation is not polled and policies are not re-evaluated for each event.
+
+Remote errors follow the configured `ErrorDisclosure` policy. Local sources retain Caliban's native behavior: a field resolver failure may produce null without an error entry in that event.
+
+Use `interpreter.subscriptionStatus` to inspect active and overdue subscriptions. The existing metrics and tracing wrappers include subscription observations. Shutdown waits for resource cleanup, including uninterruptible finalizers.
+
+Setup and event spans inherit incoming `traceparent` or ambient trace context. Without either, they are independent roots; no separate subscription correlation ID is added.
+
 ## Current protocol support
 
-The gateway currently routes queries and mutations. It does not route subscriptions or incremental delivery through subgraphs.
+The gateway supports queries, mutations, and subscriptions. It does not support `@defer` or `@stream` incremental responses from subgraphs.
 
 Complete runnable examples are available in the repository's [`gateway-examples`](https://github.com/ghostdogpr/caliban/tree/series/3.x/gateway-examples) project, including local, ordinary remote, mixed-subgraph, and Federation gateways.

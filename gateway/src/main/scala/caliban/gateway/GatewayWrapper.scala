@@ -109,8 +109,10 @@ object GatewayWrapper {
   }
 
   object AdmissionKind {
-    case object Request  extends AdmissionKind { val label = "request"  }
-    case object Subgraph extends AdmissionKind { val label = "subgraph" }
+    case object Request           extends AdmissionKind { val label = "request"            }
+    case object Subgraph          extends AdmissionKind { val label = "subgraph"           }
+    case object SubscriptionSetup extends AdmissionKind { val label = "subscription_setup" }
+    case object SubscriptionEvent extends AdmissionKind { val label = "subscription_event" }
   }
 
   sealed trait DeduplicationResult extends Product with Serializable {
@@ -154,6 +156,11 @@ object GatewayWrapper {
   sealed trait Event extends Product with Serializable
 
   object Event {
+    case object SubscriptionSetup                                                 extends Event
+    case object SubscriptionEvent                                                 extends Event
+    final case class SubscriptionTerminated(reason: String, durationNanos: Long)  extends Event
+    final case class SubscriptionAdmission(accepted: Boolean)                     extends Event
+    case object SubscriptionOverflow                                              extends Event
     final case class Request(operationName: Option[String])                       extends Event
     case object Routing                                                           extends Event
     final case class SubgraphCall(subgraph: String, operationType: OperationType) extends Event

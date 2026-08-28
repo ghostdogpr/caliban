@@ -1,15 +1,20 @@
 package caliban.gateway
 
+import caliban.GraphQLRequest
 import caliban.gateway.GatewayTestSupport._
 import caliban.gateway.tracing.GatewayTracing
 import caliban.tracing.TracingMock
 import io.opentelemetry.api.common.AttributeKey
-import io.opentelemetry.api.trace.StatusCode
+import io.opentelemetry.api.trace.{ SpanId, StatusCode }
+import sttp.model.Header
 import zio.Duration
 import zio.http.Status
 import zio.telemetry.opentelemetry.tracing.Tracing
 import zio.{ Exit, Promise, Scope, Trace, ZIO }
+import zio.stream.ZStream
 import zio.test.{ assertTrue, Spec, TestAspect, TestEnvironment, ZIOSpecDefault }
+
+import java.nio.charset.StandardCharsets.UTF_8
 
 import scala.jdk.CollectionConverters._
 
@@ -18,6 +23,58 @@ object GatewayTracingSpec extends ZIOSpecDefault {
   private val schema = "type Query { value: String! }"
 
   def spec: Spec[TestEnvironment with Scope, Any] = suite("Gateway tracing")(
+    test("subscription spans inherit supplied context and are independent without it") {
+      val body =
+        "event: next\ndata: {\"data\":{\"event\":1}}\n\nevent: next\ndata: {\"data\":{\"event\":2}}\n\nevent: complete\n\n"
+      ZIO
+        .foreach(List("none", "incoming", "ambient")) { context =>
+          val traceId  = "4bf92f3577b34da6a3ce929d0e0e4736"
+          val parentId = "00f067aa0ba902b7"
+          val headers  = if (context == "incoming") List(Header("traceparent", s"00-$traceId-$parentId-01")) else Nil
+          for {
+            endpoint      <- streamingEndpoint(
+                               ZStream.fromIterable(body.getBytes(UTF_8)),
+                               mediaType = "text/event-stream"
+                             )
+            config         = RemoteGraphQLConfig.default.withSubscription(
+                               RemoteSubscriptionConfig(transport = RemoteSubscriptionConfig.Sse())
+                             )
+            runtime       <-
+              (Gateway.compose(
+                Subgraph
+                  .graphql("remote", endpoint, "type Query { value: String } type Subscription { event: Int }", config)
+              ) @@ GatewayTracing.wrapper).interpreter
+            before        <- TracingMock.getFinishedSpans.map(_.size)
+            consume        = runtime
+                               .executeStream(GraphQLRequest(query = Some("subscription { event }")), headers)
+                               .runCollect
+            events        <- if (context == "ambient") ZIO.serviceWithZIO[Tracing](_.span("subscription-caller")(consume))
+                             else consume
+            spans         <- TracingMock.getFinishedSpans.map(_.drop(before))
+            observed       = spans.filter(_.getName.startsWith("caliban.gateway.subscription."))
+            caller         = spans.find(_.getName == "subscription-caller")
+            setup          = observed.find(_.getName == "caliban.gateway.subscription.setup")
+            eventSpans     = observed.filter(_.getName == "caliban.gateway.subscription.event")
+            expectedParent = context match {
+                               case "incoming" => Some(parentId)
+                               case "ambient"  => caller.map(_.getSpanId)
+                               case _          => Some(SpanId.getInvalid)
+                             }
+            expectedTrace  = if (context == "incoming") Some(traceId) else caller.map(_.getTraceId)
+          } yield assertTrue(
+            events.size == 2,
+            observed.count(_.getName == "caliban.gateway.subscription.setup") == 1,
+            eventSpans.size == 2,
+            !spans.exists(_.getName == "caliban.gateway.request"),
+            expectedParent.nonEmpty,
+            observed.forall(span => expectedParent.contains(span.getParentSpanId)),
+            if (context == "none") observed.map(_.getTraceId).distinct.size == 3
+            else expectedTrace.nonEmpty && observed.forall(span => expectedTrace.contains(span.getTraceId)),
+            setup.exists(span => eventSpans.forall(_.getStartEpochNanos >= span.getEndEpochNanos))
+          )
+        }
+        .map(_.reduce(_ && _))
+    },
     test("traces a remote request without recording raw GraphQL data and propagates W3C context") {
       for {
         remote        <- stub("""{"data":{"value":"ok"}}""")
@@ -25,9 +82,10 @@ object GatewayTracingSpec extends ZIOSpecDefault {
                            Subgraph.graphql("products", remote.endpoint, schema)
                          ) @@ GatewayTracing.wrapper: Gateway[Tracing])
         runtime       <- gateway.interpreter
+        spansBefore   <- TracingMock.getFinishedSpans.map(_.size)
         response      <- ZIO.serviceWithZIO[Tracing](_.span("caller")(runtime.execute("query PublicName { value }")))
         sentHeaders   <- remote.headers.get
-        spans         <- TracingMock.getFinishedSpans
+        spans         <- TracingMock.getFinishedSpans.map(_.drop(spansBefore))
         gatewaySpans   = spans.filter(_.getName.startsWith("caliban.gateway."))
         callerSpan     = spans.find(_.getName == "caller")
         requestSpan    = gatewaySpans.find(_.getName == "caliban.gateway.request")

@@ -14,9 +14,17 @@ private[gateway] final class GatewayExecutionControl private (
   drainTimeout: Duration,
   state: Ref[GatewayExecutionControl.State],
   drained: Promise[Nothing, Unit],
-  forceStop: Promise[Nothing, Unit]
+  forceStop: Promise[Nothing, Unit],
+  subscriptionDrain: Ref[UIO[Unit]]
 ) {
   import GatewayExecutionControl._
+
+  def onSubscriptionClose(effect: UIO[Unit])(implicit trace: Trace): UIO[Unit] = subscriptionDrain.set(effect)
+
+  def subscriptionWork[R, E, A](kind: AdmissionKind, wrapper: GatewayWrapper[R])(effect: ZIO[R, E, A])(implicit
+    trace: Trace
+  ): ZIO[R, E, A] =
+    requests.observedAs(kind, wrapper)(effect)
 
   def runRequest[R, E, A](effect: ZIO[R, E, A], reservation: Option[Lease] = None)(
     onTimeout: => ZIO[R, E, A]
@@ -25,18 +33,35 @@ private[gateway] final class GatewayExecutionControl private (
   )(implicit trace: Trace): ZIO[R, E, A] =
     withLease(requests(effect), ZIO.unit, reservation)(onTimeout)(onRejected)(identity)
 
-  def runObservedRequest[R, E, A](wrapper: GatewayWrapper[R], event: Event.Request, reservation: Option[Lease] = None)(
-    effect: ZIO[R, E, A]
+  def runObservedRequest[R, B, A](wrapper: GatewayWrapper[R], event: Event.Request, reservation: Option[Lease] = None)(
+    prepare: URIO[R, B]
+  )(
+    isFinite: B => Boolean
+  )(
+    execute: B => URIO[R, A]
   )(
     onTimeout: => URIO[R, A]
   )(
     onRejected: => URIO[R, A]
-  )(result: Exit[E, A] => Result)(implicit trace: Trace): ZIO[R, E, A] =
-    withLease(
-      requests.observed(wrapper)(effect),
-      wrapper.wrap(Event.RequestOverdue)(ZIO.unit)(Result.classifyExit),
-      reservation
-    )(onTimeout)(onRejected)(value => wrapper.wrap(event)(value)(result))
+  )(result: Exit[Nothing, A] => Result)(implicit trace: Trace): URIO[R, A] =
+    ZIO.uninterruptibleMask { restore =>
+      def observe(effect: URIO[R, A]): URIO[R, A] = wrapper.wrap(event)(effect)(result)
+      val overdue: URIO[R, Unit]                  = wrapper.wrap(Event.RequestOverdue)(ZIO.unit)(Result.classifyExit)
+      reservation.fold(reserve)(ZIO.some(_)).flatMap {
+        case None        => restore(observe(onRejected))
+        case Some(lease) =>
+          // Preparation has its own routing observation. Classify the resolved operation before
+          // opening finite-request metrics/spans, but retain one deadline and drain lease for both phases.
+          restore(run(lease, requests(prepare), overdue).flatMap {
+            case None           => observe(onTimeout)
+            case Some(prepared) =>
+              val finite   = isFinite(prepared)
+              val work     = if (finite) requests.observed(wrapper)(execute(prepared)) else requests(execute(prepared))
+              val response = run(lease, work, overdue).flatMap(_.fold(onTimeout)(ZIO.succeed(_)))
+              if (finite) observe(response) else response
+          }).ensuring(end(lease.token))
+      }
+    }
 
   private def withLease[R, E, A](
     effect: ZIO[R, E, A],
@@ -172,6 +197,11 @@ private[gateway] final class GatewayExecutionControl private (
       .flatMap(signal => drained.succeed(()).unit.when(signal).unit)
 
   private def close(implicit trace: Trace): UIO[Unit] =
+    // Neither lifetime may postpone the other's admission closure or cancellation deadline.
+    (closeRequests.zipPar(subscriptionDrain.get.flatten) *>
+      state.update(_.copy(lifecycle = GatewayInterpreter.LifecycleState.Closed))).uninterruptible
+
+  private def closeRequests(implicit trace: Trace): UIO[Unit] =
     (for {
       startedAt <- Clock.nanoTime
       empty     <- state.modify { current =>
@@ -184,7 +214,6 @@ private[gateway] final class GatewayExecutionControl private (
       _         <- drained.succeed(()).unit.when(empty)
       done      <- drained.await.interruptible.timeout(drainTimeout).map(_.isDefined)
       _         <- (forceStop.succeed(()).unit *> drained.await).unless(done)
-      _         <- state.update(_.copy(lifecycle = GatewayInterpreter.LifecycleState.Closed))
     } yield ()).uninterruptible
 
 }
@@ -197,16 +226,26 @@ private[gateway] object GatewayExecutionControl {
     drainTimeout: Duration
   )(implicit trace: Trace): ZIO[Scope, Nothing, GatewayExecutionControl] =
     for {
-      requests  <- AdmissionGate.make(requestLimit, AdmissionKind.Request)
-      subgraphs <- ZIO.foreach(subgraphLimits) { case (name, limit) =>
-                     AdmissionGate.make(limit, AdmissionKind.Subgraph).map(name -> _)
-                   }
-      state     <- Ref.make(State(GatewayInterpreter.LifecycleState.Running, Map.empty, None))
-      drained   <- Promise.make[Nothing, Unit]
-      forceStop <- Promise.make[Nothing, Unit]
-      control    =
-        new GatewayExecutionControl(requests, subgraphs, requestTimeout, drainTimeout, state, drained, forceStop)
-      _         <- ZIO.addFinalizer(control.close)
+      requests          <- AdmissionGate.make(requestLimit, AdmissionKind.Request)
+      subgraphs         <- ZIO.foreach(subgraphLimits) { case (name, limit) =>
+                             AdmissionGate.make(limit, AdmissionKind.Subgraph).map(name -> _)
+                           }
+      state             <- Ref.make(State(GatewayInterpreter.LifecycleState.Running, Map.empty, None))
+      drained           <- Promise.make[Nothing, Unit]
+      forceStop         <- Promise.make[Nothing, Unit]
+      subscriptionDrain <- Ref.make[UIO[Unit]](ZIO.unit)
+      control            =
+        new GatewayExecutionControl(
+          requests,
+          subgraphs,
+          requestTimeout,
+          drainTimeout,
+          state,
+          drained,
+          forceStop,
+          subscriptionDrain
+        )
+      _                 <- ZIO.addFinalizer(control.close)
     } yield control
 
   private[gateway] final class Token

@@ -2,15 +2,15 @@ package caliban.gateway.internal.execution
 
 import caliban.{ CalibanError, GraphQLInterpreter, GraphQLRequest, GraphQLResponse, GraphQLResponseContext, PathValue }
 import caliban.execution.Field
-import caliban.gateway.GatewayWrapper
+import caliban.gateway.{ GatewayWrapper, RemoteGraphQLConfig, SubscriptionTermination }
 import caliban.gateway.GatewayWrapper.{ Event, Outcome, Result }
 import caliban.gateway.internal.AdmissionGate
 import caliban.gateway.internal.execution.SubgraphExecutor.ErrorPolicy
-import caliban.gateway.RemoteGraphQLConfig
 import caliban.parsing.adt.OperationType
-import caliban.ResponseValue.ObjectValue
+import caliban.ResponseValue.{ ObjectValue, StreamValue }
 import caliban.schema.Types
-import zio.{ Trace, ZIO }
+import zio.{ Scope, Trace, ZIO }
+import zio.stream.ZStream
 
 import scala.util.control.NoStackTrace
 
@@ -19,6 +19,13 @@ import scala.util.control.NoStackTrace
  */
 private[gateway] trait SubgraphExecutor[-R] {
   def errorPolicy: ErrorPolicy
+
+  def forSubscription(implicit trace: Trace): ZIO[R, SubgraphExecutor.Failure, SubgraphExecutor[R]] = ZIO.succeed(this)
+
+  def subscribe(request: GraphQLRequest)(implicit
+    trace: Trace
+  ): ZIO[R with Scope, Throwable, ZStream[Any, Throwable, GraphQLResponse[CalibanError]]] =
+    ZIO.fail(SubscriptionTermination.Source)
 
   def execute(request: GraphQLRequest, operationType: OperationType)(implicit
     trace: Trace
@@ -34,6 +41,10 @@ private[gateway] final class ObservedSubgraphExecutor[R](
   wrapper: GatewayWrapper[R]
 ) extends SubgraphExecutor[R] {
   val errorPolicy: ErrorPolicy = underlying.errorPolicy
+
+  override def forSubscription(implicit trace: Trace)                    =
+    underlying.forSubscription.map(new ObservedSubgraphExecutor(name, _, wrapper))
+  override def subscribe(request: GraphQLRequest)(implicit trace: Trace) = underlying.subscribe(request)
 
   def execute(request: GraphQLRequest, operationType: OperationType)(implicit
     trace: Trace
@@ -53,6 +64,13 @@ private[gateway] final class GatedSubgraphExecutor[-R](
 ) extends SubgraphExecutor[R] {
   val errorPolicy: ErrorPolicy = underlying.errorPolicy
 
+  override def forSubscription(implicit trace: Trace)                    =
+    underlying.forSubscription.map(new GatedSubgraphExecutor(_, gate, wrapper))
+  override def subscribe(request: GraphQLRequest)(implicit trace: Trace) =
+    gate.observed[R with Scope, Throwable, ZStream[Any, Throwable, GraphQLResponse[CalibanError]]](wrapper)(
+      underlying.subscribe(request)
+    )
+
   def execute(request: GraphQLRequest, operationType: OperationType)(implicit
     trace: Trace
   ): ZIO[R, SubgraphExecutor.Failure, GraphQLResponse[CalibanError]] =
@@ -60,6 +78,21 @@ private[gateway] final class GatedSubgraphExecutor[-R](
 }
 
 private[gateway] object SubgraphExecutor {
+  // Adapt native field-value streams and gateway response envelopes without changing core execution.
+  def responses(response: GraphQLResponse[CalibanError]): ZStream[Any, Throwable, GraphQLResponse[CalibanError]] =
+    response.data match {
+      // Top-level streams with hasNext (even false) are incremental; without it, elements are full subscription responses.
+      case StreamValue(stream) if response.hasNext.isEmpty =>
+        stream.mapZIO(value =>
+          ZIO
+            .fromOption(GraphQLResponse.fromResponseValue(value))
+            .orElseFail(CalibanError.ExecutionError("Invalid subscription response."))
+        )
+      case ObjectValue((name, StreamValue(stream)) :: Nil) =>
+        stream.map(value => response.copy(data = ObjectValue(List(name -> value))))
+      case _                                               => ZStream.succeed(response)
+    }
+
   def failureOutcome(failure: Failure): Outcome =
     failure match {
       case TransportFailure(_)                                                                     => Outcome.TransportError
@@ -145,6 +178,9 @@ private[gateway] object SubgraphExecutor {
 private[gateway] final class LocalSubgraphExecutor[-R](interpreter: GraphQLInterpreter[R, CalibanError])
     extends SubgraphExecutor[R] {
   val errorPolicy: ErrorPolicy = ErrorPolicy.Local
+
+  override def subscribe(request: GraphQLRequest)(implicit trace: Trace) =
+    interpreter.executeRequest(request.copy(extensions = None)).map(SubgraphExecutor.responses)
 
   def execute(request: GraphQLRequest, operationType: OperationType)(implicit
     trace: Trace

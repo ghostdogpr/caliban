@@ -1,7 +1,7 @@
 package caliban.gateway.internal.execution
 
 import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, IncomingRequestHeaders, ResponseValue }
-import caliban.gateway.{ GatewayWrapper, RemoteGraphQLConfig }
+import caliban.gateway.{ GatewayWrapper, RemoteGraphQLConfig, SubscriptionTermination }
 import caliban.gateway.GatewayWrapper.{ DeduplicationResult, Event, Outcome, Result }
 import caliban.gateway.internal.AdmissionGate
 import caliban.interop.jsoniter.BoundedOutputStream
@@ -28,7 +28,8 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
   responseStructureLimits: RemoteSubgraphExecutor.ResponseStructureLimits,
   queryCalls: Option[RemoteSubgraphExecutor.InFlightQueryDeduplicator],
   admission: Option[AdmissionGate],
-  wrapper: GatewayWrapper[R]
+  wrapper: GatewayWrapper[R],
+  fixedHeaders: Option[List[Header]] = None
 ) extends SubgraphExecutor[R] {
   import RemoteSubgraphExecutor._
 
@@ -39,17 +40,65 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
 
   val errorPolicy: SubgraphExecutor.ErrorPolicy = SubgraphExecutor.ErrorPolicy.Remote
 
+  private def headers(implicit trace: Trace): ZIO[R, SubgraphExecutor.Failure, List[Header]] =
+    fixedHeaders.fold[ZIO[R, SubgraphExecutor.Failure, List[Header]]](for {
+      incoming  <- if (forwardsIncoming) IncomingRequestHeaders.get.map(_.map { case (key, value) =>
+                     Header(key, value)
+                   })
+                   else ZIO.succeed(Nil)
+      effectful <- config.effectfulHeaders.mapError(SubgraphExecutor.HeaderFailure(_))
+      values    <- wrapper.outboundHeaders(name, outboundHeaders(incoming, effectful))
+    } yield values)(ZIO.succeed(_))
+
+  override def forSubscription(implicit trace: Trace): ZIO[R, SubgraphExecutor.Failure, SubgraphExecutor[R]] =
+    headers.map(values =>
+      new RemoteSubgraphExecutor(
+        name,
+        endpoint,
+        backend,
+        config,
+        responseStructureLimits,
+        queryCalls,
+        admission,
+        wrapper,
+        Some(values)
+      )
+    )
+
+  override def subscribe(
+    request: GraphQLRequest
+  )(implicit trace: Trace): ZIO[R with Scope, Throwable, ZStream[Any, Throwable, GraphQLResponse[CalibanError]]] = {
+    val open = for {
+      values <- headers.mapError(_ => SubscriptionTermination.Source)
+      traced <- wrapper.attemptHeaders(name, 0, values)
+      body   <- ZIO
+                  .fromEither(encode(request.copy(extensions = None)))
+                  .mapError(_ => SubscriptionTermination.Source)
+      stream <- RemoteSubscription.open(
+                  endpoint,
+                  backend,
+                  config.subscription,
+                  traced,
+                  request,
+                  body,
+                  execution.maxResponseBytes,
+                  bytes => decodeBody(bytes).map(_.copy(extensions = None)),
+                  responseWithinLimits,
+                  disclosure
+                )
+    } yield stream
+    admission.fold(open)(
+      _.observed[R with Scope, Throwable, ZStream[Any, Throwable, GraphQLResponse[CalibanError]]](wrapper)(open)
+    )
+  }
+
   def execute(request: GraphQLRequest, operationType: OperationType)(implicit
     trace: Trace
   ): ZIO[R, SubgraphExecutor.Failure, GraphQLResponse[CalibanError]] = {
     val logicalCall =
       for {
         body      <- ZIO.fromEither(encode(request.copy(extensions = None)))
-        incoming  <- if (forwardsIncoming)
-                       IncomingRequestHeaders.get.map(_.map { case (name, value) => Header(name, value) })
-                     else ZIO.succeed(Nil)
-        effectful <- config.effectfulHeaders.mapError(SubgraphExecutor.HeaderFailure(_))
-        headers   <- wrapper.outboundHeaders(name, outboundHeaders(incoming, effectful))
+        headers   <- this.headers
         replaySafe = execution.retries > 0 && operationType == OperationType.Query
         rawCall    = executeAttempts(body, headers, replaySafe, execution.retries, attempt = 0)
         admitted   = admission.fold(rawCall)(_.observed(wrapper)(rawCall))
@@ -74,7 +123,8 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
       responseStructureLimits,
       queryCalls,
       Some(gate),
-      observer
+      observer,
+      fixedHeaders
     )
 
   private def executeAttempts(

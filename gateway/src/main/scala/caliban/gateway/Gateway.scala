@@ -232,7 +232,15 @@ object Gateway {
                                     config,
                                     wrapper
                                   )
-    } yield new GatewayInterpreterImpl[R](operations, new PlanExecutor[R](graph, executors, wrapper), control, wrapper)
+      subscriptions            <-
+        SubscriptionControl.make(config.subscriptions, config.drainTimeout, control, wrapper)
+    } yield new GatewayInterpreterImpl[R](
+      operations,
+      new PlanExecutor[R](graph, executors, wrapper),
+      control,
+      wrapper,
+      subscriptions
+    )
 
   private def load[R](
     subgraph: Subgraph[R],

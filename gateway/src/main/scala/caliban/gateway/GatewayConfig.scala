@@ -18,8 +18,10 @@ final class GatewayConfig private (
   val maxConcurrentLocalCalls: Int,
   val requestTimeout: Duration,
   val drainTimeout: Duration,
-  val remoteErrorDisclosure: RemoteGraphQLConfig.ErrorDisclosure
+  val remoteErrorDisclosure: RemoteGraphQLConfig.ErrorDisclosure,
+  val subscriptions: GatewaySubscriptionConfig
 ) {
+  def withSubscriptions(value: GatewaySubscriptionConfig): GatewayConfig = copy(subscriptions = value)
 
   /**
    * Sets the maximum total estimated weight of cached prepared operations and plans.
@@ -108,7 +110,7 @@ final class GatewayConfig private (
       positive(maxConcurrentLocalCalls, "Gateway maxConcurrentLocalCalls must be positive."),
       finitePositive(requestTimeout, "Gateway request timeout must be finite and positive."),
       finitePositive(drainTimeout, "Gateway drain timeout must be finite and positive.")
-    ).flatten
+    ).flatten ::: subscriptions.diagnostics
 
   private def copy(
     maxOperationCacheWeight: Long = maxOperationCacheWeight,
@@ -122,7 +124,8 @@ final class GatewayConfig private (
     maxConcurrentLocalCalls: Int = maxConcurrentLocalCalls,
     requestTimeout: Duration = requestTimeout,
     drainTimeout: Duration = drainTimeout,
-    remoteErrorDisclosure: RemoteGraphQLConfig.ErrorDisclosure = remoteErrorDisclosure
+    remoteErrorDisclosure: RemoteGraphQLConfig.ErrorDisclosure = remoteErrorDisclosure,
+    subscriptions: GatewaySubscriptionConfig = subscriptions
   ): GatewayConfig =
     new GatewayConfig(
       maxOperationCacheWeight,
@@ -136,7 +139,8 @@ final class GatewayConfig private (
       maxConcurrentLocalCalls,
       requestTimeout,
       drainTimeout,
-      remoteErrorDisclosure
+      remoteErrorDisclosure,
+      subscriptions
     )
 }
 
@@ -158,7 +162,8 @@ object GatewayConfig {
       maxConcurrentLocalCalls = 64,
       requestTimeout = Duration.fromSeconds(30),
       drainTimeout = Duration.fromSeconds(30),
-      remoteErrorDisclosure = RemoteGraphQLConfig.ErrorDisclosure.default
+      remoteErrorDisclosure = RemoteGraphQLConfig.ErrorDisclosure.default,
+      subscriptions = GatewaySubscriptionConfig()
     )
 }
 

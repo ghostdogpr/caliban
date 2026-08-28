@@ -16,9 +16,12 @@ trait ReloadableGatewayInterpreter[-R] extends GatewayInterpreter[R] {
    * Returns the refresh phase, generation status, and bounded diagnostics for the latest failed refresh.
    */
   def reloadStatus(implicit trace: Trace): UIO[ReloadableGatewayInterpreter.Status]
+
+  def generationSubscriptions(implicit trace: Trace): UIO[List[ReloadableGatewayInterpreter.GenerationSubscriptions]]
 }
 
 object ReloadableGatewayInterpreter {
+  final case class GenerationSubscriptions(id: Long, retiring: Boolean, status: GatewayInterpreter.SubscriptionStatus)
   sealed trait Phase
   object Phase {
     case object Idle     extends Phase

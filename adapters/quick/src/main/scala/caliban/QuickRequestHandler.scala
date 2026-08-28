@@ -126,7 +126,11 @@ final private class QuickRequestHandler[R] private (
         case None        => Protocol.Legacy
       }
       Handler
-        .webSocket(webSocketChannelListener(protocol))
+        .webSocket(ch =>
+          IncomingRequestHeaders.locally(request.headers.iterator.map(h => h.headerName -> h.renderedValue).toList)(
+            webSocketChannelListener(protocol)(ch)
+          )
+        )
         .withConfig(wsConfig.zHttpConfig.subProtocol(Some(protocol.name)))
     }
 
@@ -275,8 +279,9 @@ final private class QuickRequestHandler[R] private (
           case _                                                   => Status.Ok
         }
 
+    // Top-level streams with hasNext (even false) are incremental; without it, elements are full subscription responses.
     response match {
-      case resp @ GraphQLResponse(StreamValue(stream), _, _, _) =>
+      case resp @ GraphQLResponse(StreamValue(stream), _, _, Some(_)) =>
         Right(
           Response(
             Status.Ok,
@@ -284,7 +289,7 @@ final private class QuickRequestHandler[R] private (
             body = Body.fromStreamChunked(encodeMultipartMixedResponse(resp, stream))
           )
         )
-      case resp if encoding == ResponseEncoding.EventStream     =>
+      case resp if encoding == ResponseEncoding.EventStream           =>
         val encoded = Response.fromServerSentEvents(encodeTextEventStream(resp))
         Right(
           encoded.copy(
@@ -292,7 +297,9 @@ final private class QuickRequestHandler[R] private (
             headers = encoded.headers ++ allowPost(mutationOnGet)
           )
         )
-      case resp if encoding == ResponseEncoding.Multipart       =>
+      case GraphQLResponse(_: StreamValue, _, _, None)                =>
+        Left(errorResponse(Status.BadRequest, "Subscriptions require text/event-stream or WebSocket."))
+      case resp if encoding == ResponseEncoding.Multipart             =>
         Right(
           Response(
             responseStatus(requestErrorsAreBadRequests = true),
@@ -300,7 +307,7 @@ final private class QuickRequestHandler[R] private (
             body = Body.fromStreamChunked(encodeMultipartMixedResponse(resp, ZStream.succeed(resp.data)))
           )
         )
-      case resp                                                 =>
+      case resp                                                       =>
         val contentType = if (encoding == ResponseEncoding.GraphQLJson) ContentTypeGql else ContentTypeJson
         encodeSingleResponse(
           resp,

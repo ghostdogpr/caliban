@@ -6,12 +6,14 @@ import caliban.Value.StringValue
 import caliban.gateway.GatewayTestSupport._
 import caliban.gateway.ReloadableGatewayInterpreter.{ FailureStage, Phase }
 import caliban.gateway.internal.SchemaFingerprint
+import caliban.gateway.internal.execution.SubgraphExecutor
 import caliban.parsing.Parser
 import caliban.schema.{ GenericSchema, Schema }
 import caliban.tools.IntrospectionClient
 import com.github.plokhotnyuk.jsoniter_scala.core.writeToString
 import zio._
 import zio.http.{ Body, Header, Request, Server, Status, URL }
+import zio.stream.ZStream
 import zio.test._
 
 import java.time.{ Instant, LocalDateTime, OffsetDateTime }
@@ -76,7 +78,11 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
       after  <- awaitStatus(runtime)(s => s.phase == Phase.Idle && s.lastAttemptAt != before.lastAttemptAt)
     } yield after
 
-  private def pauseFirstNanoTime(entered: Promise[Nothing, Unit], release: Promise[Nothing, Unit]): UIO[Clock] =
+  private def pauseNanoTime(
+    entered: Promise[Nothing, Unit],
+    release: Promise[Nothing, Unit],
+    everyCall: Boolean = false
+  ): UIO[Clock] =
     ZIO.clock.zipWith(Ref.make(false)) { (clock, paused) =>
       new Clock {
         def currentTime(unit: => TimeUnit)(implicit trace: Trace): UIO[Long]                     = clock.currentTime(unit)
@@ -91,11 +97,57 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
         def nanoTime(implicit trace: Trace): UIO[Long]                                           =
           paused
             .getAndSet(true)
-            .flatMap(alreadyPaused => (entered.succeed(()) *> release.await).unless(alreadyPaused) *> clock.nanoTime)
+            .flatMap(alreadyPaused =>
+              (entered.succeed(()) *> release.await).unless(alreadyPaused && !everyCall) *> clock.nanoTime
+            )
       }
     }
 
   def spec = suite("Reloadable gateway")(
+    test("reload terminates active subscriptions promptly and unstarted streams use the new generation") {
+      object Api extends GenericSchema[Any] {
+        import auto._
+        final case class Query(local: Boolean)
+        final case class Subscription(event: ZStream[Any, Throwable, Int])
+        def api(stream: ZStream[Any, Throwable, Int]) = graphQL(
+          RootResolver(
+            queryResolver = Some(Query(true)),
+            mutationResolver = Option.empty[Unit],
+            subscriptionResolver = Some(Subscription(stream))
+          )
+        )
+      }
+      for {
+        remote        <- source()
+        opened        <- Promise.make[Nothing, Unit]
+        closed        <- Ref.make(0)
+        stream         = ZStream.acquireReleaseWith(opened.succeed(()))(_ => closed.update(_ + 1)) *> (ZStream.succeed(
+                           1
+                         ) ++ ZStream.never)
+        runtime       <- Gateway.compose(remote.subgraph, Subgraph.local("local", Api.api(stream))).reloadable(config)
+        request        = GraphQLRequest(query = Some("subscription { event }"))
+        prepared      <- runtime.executeRequest(request)
+        dormant        = runtime.executeStream(request)
+        active        <- runtime.executeStream(request).runDrain.exit.forkScoped
+        _             <- opened.await
+        _             <- remote.setSchema(changed)
+        status        <- poll(runtime)
+        exit          <- active.join
+        dormantEvents <- dormant.take(1).runCollect
+        stale         <- SubgraphExecutor.responses(prepared).runDrain.exit
+        count         <- closed.get
+        subscriptions <- runtime.generationSubscriptions
+      } yield assertTrue(
+        status.active.id == 2L,
+        !status.retirementOverdue,
+        count == 2,
+        exit.causeOption.flatMap(_.failureOption).contains(SubscriptionTermination.Reload),
+        dormantEvents.size == 1,
+        stale.causeOption.flatMap(_.failureOption).contains(SubscriptionTermination.Reload),
+        subscriptions.size == 1,
+        subscriptions.head.status.active == 0
+      )
+    },
     test("rejects static-only gateways and invalid reload configuration") {
       for {
         remote  <- source()
@@ -377,7 +429,7 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
         runtime     <- Gateway.compose(remote.subgraph).reloadable(config)
         entered     <- Promise.make[Nothing, Unit]
         release     <- Promise.make[Nothing, Unit]
-        clock       <- pauseFirstNanoTime(entered, release)
+        clock       <- pauseNanoTime(entered, release)
         _           <- ZIO.addFinalizer(release.succeed(()).unit)
         pending     <- runtime.execute("mutation { setAdded }").withClock(clock).fork
         _           <- entered.await
@@ -403,8 +455,9 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
         requestRelease <- Promise.make[Nothing, Unit]
         closeEntered   <- Promise.make[Nothing, Unit]
         closeRelease   <- Promise.make[Nothing, Unit]
-        requestClock   <- pauseFirstNanoTime(requestEntered, requestRelease)
-        closeClock     <- pauseFirstNanoTime(closeEntered, closeRelease)
+        requestClock   <- pauseNanoTime(requestEntered, requestRelease)
+        // Finite and subscription shutdown run concurrently; pause both before either starts draining.
+        closeClock     <- pauseNanoTime(closeEntered, closeRelease, everyCall = true)
         _              <-
           ZIO.addFinalizer(requestRelease.succeed(()).unit *> closeRelease.succeed(()).unit *> scope.close(Exit.unit))
         pending        <- runtime.execute("mutation { setValue }").withClock(requestClock).fork

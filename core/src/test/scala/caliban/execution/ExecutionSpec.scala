@@ -432,6 +432,21 @@ object ExecutionSpec extends ZIOSpecDefault {
           assertTrue(response.data.toString == """{"test":"be722453-d97d-48c2-b535-9badd1b5d4c9"}""")
         }
       },
+      test("mapError preserves response metadata") {
+        val response    = GraphQLResponse(
+          Value.StringValue("data"),
+          List("original"),
+          Some(ResponseValue.ObjectValue(List("trace" -> Value.StringValue("kept")))),
+          Some(true)
+        )
+        val interpreter = new GraphQLInterpreter[Any, String] {
+          def check(query: String)(implicit trace: Trace)                    = ZIO.unit
+          def executeRequest(request: GraphQLRequest)(implicit trace: Trace) = ZIO.succeed(response)
+        }
+        interpreter.mapError(_.length).execute("query { ignored }").map { result =>
+          assertTrue(result == response.copy(errors = List(8)))
+        }
+      },
       test("mapError") {
         import io.circe.syntax._
         case class Test(either: Either[Int, String])

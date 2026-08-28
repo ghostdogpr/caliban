@@ -59,7 +59,7 @@ trait GraphQLInterpreter[-R, +E] { self =>
    * @return a new GraphQL interpreter with error type `E2`
    */
   final def mapError[E2](f: E => E2): GraphQLInterpreter[R, E2] =
-    wrapExecutionWith(_.map(res => GraphQLResponse(res.data, res.errors.map(f), res.extensions)))
+    wrapExecutionWith(_.map(res => res.copy(errors = res.errors.map(f))))
 
   /**
    * Provides the interpreter with its required environment, which eliminates

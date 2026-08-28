@@ -230,7 +230,7 @@ object MultiSourceSpec extends ZIOSpecDefault {
           reviewSent.isEmpty
         )
       },
-      test("does not advertise deferred subscription roots") {
+      test("advertises executable subscription roots") {
         val schema = "type Query { value: String } type Subscription { changes: String }"
 
         for {
@@ -240,7 +240,10 @@ object MultiSourceSpec extends ZIOSpecDefault {
           sent     <- source.requests.get
         } yield assertTrue(
           response.errors.isEmpty,
-          field(response.data, "__schema").flatMap(field(_, "subscriptionType")).contains(NullValue),
+          field(response.data, "__schema")
+            .flatMap(field(_, "subscriptionType"))
+            .flatMap(field(_, "name"))
+            .contains(StringValue("Subscription")),
           sent.isEmpty
         )
       },

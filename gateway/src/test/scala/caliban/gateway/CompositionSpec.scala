@@ -86,6 +86,17 @@ object CompositionSpec extends ZIOSpecDefault {
     value.getOrElse(Nil).map(directive => directive.name -> directive.arguments)
 
   def spec = suite("CompositionSpec")(
+    test("subscription roots reject ambiguity and shareability but allow an effective override owner") {
+      def source(name: String, directive: String) = CompositionInput(
+        name,
+        schema(s"type Query { $name: String } type Subscription { event: Int $directive }", "@shareable", "@override")
+          .replace("{ query: Query }", "{ query: Query subscription: Subscription }")
+      )
+      val ambiguous                               = compose(source("first", ""), source("second", ""))
+      val shareable                               = compose(source("first", "@shareable"))
+      val overridden                              = compose(source("first", ""), source("second", "@override(from: \"first\")"))
+      assertTrue(ambiguous.isLeft, shareable.isLeft, overridden.isRight)
+    },
     suite("ownership")(
       test("routes a shareable root field deterministically") {
         val valueSchema = schema("type Query { value: String @shareable }", "@shareable")
@@ -755,7 +766,7 @@ object CompositionSpec extends ZIOSpecDefault {
                       )
         } yield assertTrue(response.errors.isEmpty)
       },
-      test("drops types reachable only from subscription roots") {
+      test("validates types reachable only from subscription roots") {
         val result = compose(
           CompositionInput(
             "alpha",
@@ -767,7 +778,7 @@ object CompositionSpec extends ZIOSpecDefault {
           )
         )
 
-        assertTrue(result.isRight, result.toOption.forall(!_.rootType.types.contains("Event")))
+        assertTrue(result.isLeft)
       },
       test("resolves interface and union references to composed types") {
         val alphaSchema =

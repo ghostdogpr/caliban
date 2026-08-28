@@ -6,16 +6,89 @@ import caliban.gateway.internal.OperationCache
 import caliban.gateway.internal.OperationCache.Weighted
 import caliban.parsing.adt.OperationType
 import caliban.GraphQLRequest
+import caliban.{ graphQL, RootResolver }
+import caliban.schema.Schema.auto._
 import sttp.model.Header
 import zio.metrics.Metric
 import zio.{ Duration, Exit, Promise, Ref, Scope, Trace, UIO, URIO, ZIO }
 import zio.test.{ assertTrue, Spec, TestAspect, TestClock, TestEnvironment, ZIOSpecDefault }
+import zio.stream.ZStream
 
 object GatewayWrapperSpec extends ZIOSpecDefault {
+
+  final case class MetricQuery(value: String)
+  final case class MetricSubscription(event: ZStream[Any, Throwable, Int])
 
   private val schema = "type Query { value: String! }"
 
   def spec: Spec[TestEnvironment with Scope, Any] = suite("GatewayWrapper")(
+    test("idle subscriptions use dedicated lifetime and admission metrics") {
+      for {
+        opened           <- Promise.make[Nothing, Unit]
+        source            = graphQL(
+                              RootResolver(
+                                queryResolver = Some(MetricQuery("ok")),
+                                mutationResolver = Option.empty[Unit],
+                                subscriptionResolver =
+                                  Some(MetricSubscription(ZStream.fromZIO(opened.succeed(())) *> ZStream.never))
+                              )
+                            )
+        runtime          <- (Gateway.compose(Subgraph.local("local", source)) @@ GatewayMetrics.wrapper).interpreter
+        requestsBefore   <- counter("caliban_gateway_requests_total", "outcome", "success")
+        admittedBefore   <- counter("caliban_gateway_subscription_admission_total", "result", "accepted")
+        terminatedBefore <- counter("caliban_gateway_subscription_terminations_total", "reason", "cancelled")
+        fiber            <-
+          runtime.executeStream(GraphQLRequest(query = Some("subscription { event }"))).runDrain.forkScoped
+        _                <- opened.await
+        active           <- gauge("caliban_gateway_subscriptions_active")
+        requests         <- gauge("caliban_gateway_requests_active")
+        requestPermits   <- gauge("caliban_gateway_admission_active", "kind", "request")
+        setup            <- gauge("caliban_gateway_admission_active", "kind", "subscription_setup")
+        event            <- gauge("caliban_gateway_admission_active", "kind", "subscription_event")
+        _                <- fiber.interrupt
+        after            <- gauge("caliban_gateway_subscriptions_active")
+        admittedAfter    <- counter("caliban_gateway_subscription_admission_total", "result", "accepted")
+        requestsAfter    <- counter("caliban_gateway_requests_total", "outcome", "success")
+        terminatedAfter  <- counter("caliban_gateway_subscription_terminations_total", "reason", "cancelled")
+      } yield assertTrue(
+        active == 1d,
+        requests == 0d,
+        requestPermits == 0d,
+        setup == 0d,
+        event == 0d,
+        after == 0d,
+        admittedAfter == admittedBefore + 1d,
+        requestsAfter == requestsBefore,
+        terminatedAfter == terminatedBefore + 1d
+      )
+    },
+    test("subscription event counts come from duration metrics and finite work uses distinct admission kinds") {
+      val source = graphQL(
+        RootResolver(
+          queryResolver = Some(MetricQuery("ok")),
+          mutationResolver = Option.empty[Unit],
+          subscriptionResolver = Some(MetricSubscription(ZStream(1, 2)))
+        )
+      )
+      for {
+        runtime        <- (Gateway.compose(Subgraph.local("local", source)) @@ GatewayMetrics.wrapper).interpreter
+        setupBefore    <- counter("caliban_gateway_admission_total", "kind", "subscription_setup")
+        workBefore     <- counter("caliban_gateway_admission_total", "kind", "subscription_event")
+        requestsBefore <- counter("caliban_gateway_admission_total", "kind", "request")
+        eventsBefore   <- histogram("caliban_gateway_subscription_event_duration_seconds", "outcome" -> "success")
+        events         <- runtime.executeStream(GraphQLRequest(query = Some("subscription { event }"))).runCollect
+        setupAfter     <- counter("caliban_gateway_admission_total", "kind", "subscription_setup")
+        workAfter      <- counter("caliban_gateway_admission_total", "kind", "subscription_event")
+        requestsAfter  <- counter("caliban_gateway_admission_total", "kind", "request")
+        eventsAfter    <- histogram("caliban_gateway_subscription_event_duration_seconds", "outcome" -> "success")
+      } yield assertTrue(
+        events.size == 2,
+        setupAfter == setupBefore + 1d,
+        workAfter == workBefore + 2d,
+        requestsAfter == requestsBefore,
+        eventsAfter == eventsBefore + 2L
+      )
+    },
     test("wraps orchestration and can transform remote headers") {
       for {
         events    <- Ref.make(Vector.empty[GatewayWrapper.Event])
@@ -30,11 +103,11 @@ object GatewayWrapperSpec extends ZIOSpecDefault {
         headers   <- remote.headers.get
       } yield assertTrue(
         response.errors.isEmpty,
-        observed.take(4) == Vector(
+        observed.headOption.contains(Event.Routing),
+        observed.dropWhile(!_.isInstanceOf[Event.Request]).take(3) == Vector(
           Event.Request(Some("Named")),
           Event.AdmissionWait(AdmissionKind.Request),
-          Event.Admission(AdmissionKind.Request),
-          Event.Routing
+          Event.Admission(AdmissionKind.Request)
         ),
         observed.contains(Event.CacheAccess(CacheResult.Miss)),
         observed.contains(Event.SubgraphCall("products", OperationType.Query)),

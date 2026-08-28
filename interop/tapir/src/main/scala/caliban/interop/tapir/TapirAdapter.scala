@@ -107,22 +107,35 @@ object TapirAdapter {
     val accepts        = new HttpUtils.AcceptsGqlEncodings(request.header(HeaderNames.Accept))
     val cacheDirective = response.extensions.flatMap(HttpUtils.computeCacheDirective)
 
+    // Top-level streams with hasNext (even false) are incremental; without it, elements are full subscription responses.
     response match {
-      case resp @ GraphQLResponse(StreamValue(stream), _, _, _) =>
+      case resp @ GraphQLResponse(StreamValue(stream), _, _, Some(_)) =>
         (
           deferMultipartMediaType,
           StatusCode.Ok,
           None,
           encodeMultipartMixedResponse(resp, stream)
         )
-      case resp if accepts.serverSentEvents                     =>
+      case resp if accepts.serverSentEvents                           =>
         (
           MediaType.TextEventStream,
           StatusCode.Ok,
           None,
           encodeTextEventStreamResponse(resp)
         )
-      case resp if accepts.graphQLJson                          =>
+      case GraphQLResponse(_: StreamValue, _, _, None)                =>
+        (
+          MediaType.ApplicationJson,
+          StatusCode.BadRequest,
+          None,
+          Left(
+            GraphQLResponse(
+              Value.NullValue,
+              List(CalibanError.ExecutionError("Subscriptions require text/event-stream or WebSocket."))
+            ).toResponseValue
+          )
+        )
+      case resp if accepts.graphQLJson                                =>
         val isBadRequest = response.errors.exists {
           case _: CalibanError.ParsingError | _: CalibanError.ValidationError => true
           case _                                                              => false
@@ -137,7 +150,7 @@ object TapirAdapter {
             excludeExtensions = cacheDirective.map(_ => Set(Caching.DirectiveName))
           )
         )
-      case resp                                                 =>
+      case resp                                                       =>
         val isBadRequest = response.errors.contains(HttpUtils.MutationOverGetError: Any)
         (
           MediaType.ApplicationJson,

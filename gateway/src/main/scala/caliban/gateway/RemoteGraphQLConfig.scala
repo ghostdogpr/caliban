@@ -11,8 +11,11 @@ final class RemoteGraphQLConfig[-R] private (
   val acquisition: RemoteGraphQLConfig.Acquisition,
   val execution: RemoteGraphQLConfig.Execution,
   val effectfulHeaders: ZIO[R, Throwable, List[Header]],
-  val errorDisclosure: Option[RemoteGraphQLConfig.ErrorDisclosure]
+  val errorDisclosure: Option[RemoteGraphQLConfig.ErrorDisclosure],
+  val subscription: RemoteSubscriptionConfig = RemoteSubscriptionConfig()
 ) {
+  def withSubscription(value: RemoteSubscriptionConfig): RemoteGraphQLConfig[R] =
+    new RemoteGraphQLConfig(acquisition, execution, effectfulHeaders, errorDisclosure, value)
 
   /**
    * Transforms the stored schema-acquisition configuration.
@@ -20,7 +23,7 @@ final class RemoteGraphQLConfig[-R] private (
   def withAcquisition(
     configure: RemoteGraphQLConfig.Acquisition => RemoteGraphQLConfig.Acquisition
   ): RemoteGraphQLConfig[R] =
-    new RemoteGraphQLConfig(configure(acquisition), execution, effectfulHeaders, errorDisclosure)
+    new RemoteGraphQLConfig(configure(acquisition), execution, effectfulHeaders, errorDisclosure, subscription)
 
   /**
    * Transforms the stored request-execution configuration.
@@ -28,7 +31,7 @@ final class RemoteGraphQLConfig[-R] private (
   def withExecution(
     configure: RemoteGraphQLConfig.Execution => RemoteGraphQLConfig.Execution
   ): RemoteGraphQLConfig[R] =
-    new RemoteGraphQLConfig(acquisition, configure(execution), effectfulHeaders, errorDisclosure)
+    new RemoteGraphQLConfig(acquisition, configure(execution), effectfulHeaders, errorDisclosure, subscription)
 
   /**
    * Overrides the gateway-wide disclosure policy for GraphQL errors returned by this subgraph. The first
@@ -38,7 +41,7 @@ final class RemoteGraphQLConfig[-R] private (
     configure: RemoteGraphQLConfig.ErrorDisclosure => RemoteGraphQLConfig.ErrorDisclosure
   ): RemoteGraphQLConfig[R] = {
     val current = errorDisclosure.getOrElse(RemoteGraphQLConfig.ErrorDisclosure.default)
-    new RemoteGraphQLConfig(acquisition, execution, effectfulHeaders, Some(configure(current)))
+    new RemoteGraphQLConfig(acquisition, execution, effectfulHeaders, Some(configure(current)), subscription)
   }
 
   /**
@@ -46,14 +49,20 @@ final class RemoteGraphQLConfig[-R] private (
    * schema acquisition.
    */
   def withExecutionHeadersZIO[R1 <: R](value: ZIO[R1, Throwable, List[Header]]): RemoteGraphQLConfig[R1] =
-    new RemoteGraphQLConfig(acquisition, execution, effectfulHeaders.zipWith(value)(_ ::: _), errorDisclosure)
+    new RemoteGraphQLConfig(
+      acquisition,
+      execution,
+      effectfulHeaders.zipWith(value)(_ ::: _),
+      errorDisclosure,
+      subscription
+    )
 
   private[gateway] def diagnostics(includeAcquisition: Boolean): List[String] =
-    execution.diagnostics ::: (if (includeAcquisition) acquisition.diagnostics else Nil)
+    execution.diagnostics ::: (if (includeAcquisition) acquisition.diagnostics else Nil) ::: subscription.diagnostics
 
   private[gateway] def withDefaultErrorDisclosure(value: RemoteGraphQLConfig.ErrorDisclosure): RemoteGraphQLConfig[R] =
     if (errorDisclosure.nonEmpty) this
-    else new RemoteGraphQLConfig(acquisition, execution, effectfulHeaders, Some(value))
+    else new RemoteGraphQLConfig(acquisition, execution, effectfulHeaders, Some(value), subscription)
 }
 
 object RemoteGraphQLConfig {

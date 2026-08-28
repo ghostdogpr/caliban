@@ -33,6 +33,18 @@ private[gateway] final class OperationPlanner(
 
     for {
       _                  <- search.check
+      _                  <- Either.cond(
+                              execution.operationType != OperationType.Subscription ||
+                                (subgraphFields.size == 1 && localFields.isEmpty),
+                              (),
+                              PlanningFailure("Subscriptions require exactly one non-introspection root field.")
+                            )
+      _                  <- Either.cond(
+                              execution.operationType != OperationType.Subscription ||
+                                !document.hasDirective(execution.operationName)(d => d.name == "defer" || d.name == "stream"),
+                              (),
+                              PlanningFailure("Incremental delivery is not supported inside subscriptions.")
+                            )
       candidate          <- planRoots(subgraphFields, execution.operationType)
       typenameSelections  = collectTypenameSelections(candidate.roots, candidate.entities)
       passthroughSubgraph =

@@ -3,6 +3,7 @@ package caliban.gateway
 import caliban.{ CalibanError, GraphQLInterpreter, GraphQLRequest, GraphQLResponse, IncomingRequestHeaders }
 import sttp.model.Header
 import zio.{ Trace, UIO, URIO, ZIO }
+import zio.stream.ZStream
 
 /**
  * An executable gateway created by [[Gateway.interpreter]] or [[Gateway.reloadable]].
@@ -11,6 +12,24 @@ import zio.{ Trace, UIO, URIO, ZIO }
  * accepted. Its lifetime is bounded by the scope in which it was built.
  */
 trait GatewayInterpreter[-R] extends GraphQLInterpreter[R, CalibanError] {
+
+  def subscriptionStatus(implicit trace: Trace): UIO[GatewayInterpreter.SubscriptionStatus]
+
+  /**
+   * Setup and resources belong to each consumption, not stream construction.
+   */
+  def executeStream(request: GraphQLRequest)(implicit
+    trace: Trace
+  ): ZStream[R, Throwable, GraphQLResponse[CalibanError]]
+
+  def executeStream(request: GraphQLRequest, headers: List[Header])(implicit
+    trace: Trace
+  ): ZStream[R, Throwable, GraphQLResponse[CalibanError]] =
+    ZStream.unwrapScoped(
+      IncomingRequestHeaders
+        .locallyScoped(headers.map(header => header.name -> header.value))
+        .as(executeStream(request))
+    )
 
   /**
    * Returns a point-in-time view of bounded gateway work and operation-cache usage.
@@ -40,6 +59,9 @@ trait GatewayInterpreter[-R] extends GraphQLInterpreter[R, CalibanError] {
 }
 
 object GatewayInterpreter {
+  final case class SubscriptionStatus(limit: Int, establishing: Int, streaming: Int, terminating: Int, overdue: Int) {
+    def active: Int = establishing + streaming + terminating
+  }
 
   sealed trait LifecycleState
   object LifecycleState {
