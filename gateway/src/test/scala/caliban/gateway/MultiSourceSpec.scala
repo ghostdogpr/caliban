@@ -52,7 +52,7 @@ object MultiSourceSpec extends ZIOSpecDefault {
                                  Subgraph.graphql("products", products.endpoint, productsSchema),
                                  Subgraph.graphql("reviews", reviews.endpoint, reviewsSchema)
                                )
-                               .withConfig(_.withRemoteErrorDisclosure(_.withMessages(true)))
+                               .withConfig(_.withRemoteErrorMessages(true))
                                .interpreter
           request          = GraphQLRequest(
                                query = Some(query),
@@ -153,7 +153,7 @@ object MultiSourceSpec extends ZIOSpecDefault {
                                 Subgraph.graphql("first", slowFirstA.endpoint, firstSchema),
                                 Subgraph.graphql("second", fastSecondA.endpoint, secondSchema)
                               )
-                              .withConfig(_.withRemoteErrorDisclosure(_.withMessages(true)))
+                              .withConfig(_.withRemoteErrorMessages(true))
                               .interpreter
           responseA      <- gatewayA.execute("{ first second }")
           firstStartedB  <- Promise.make[Nothing, Unit]
@@ -167,7 +167,7 @@ object MultiSourceSpec extends ZIOSpecDefault {
                                 Subgraph.graphql("first", fastFirstB.endpoint, firstSchema),
                                 Subgraph.graphql("second", slowSecondB.endpoint, secondSchema)
                               )
-                              .withConfig(_.withRemoteErrorDisclosure(_.withMessages(true)))
+                              .withConfig(_.withRemoteErrorMessages(true))
                               .interpreter
           responseB      <- gatewayB.execute("{ first second }")
         } yield assertTrue(
@@ -441,7 +441,7 @@ object MultiSourceSpec extends ZIOSpecDefault {
                           Subgraph.graphql("products", products.endpoint, productsSchema),
                           Subgraph.graphql("reviews", reviews.endpoint, reviewsSchema)
                         )
-                        .withConfig(_.withRemoteErrorDisclosure(_.withMessages(true)))
+                        .withConfig(_.withRemoteErrorMessages(true))
                         .interpreter
           response <- gateway.execute("mutation { updated: updateProduct added: addReview }")
           sent     <- reviews.requests.get
@@ -468,7 +468,7 @@ object MultiSourceSpec extends ZIOSpecDefault {
                           Subgraph.graphql("products", products.endpoint, productsSchema),
                           Subgraph.graphql("reviews", reviews.endpoint, reviewsSchema)
                         )
-                        .withConfig(_.withRemoteErrorDisclosure(_.withMessages(true)))
+                        .withConfig(_.withRemoteErrorMessages(true))
                         .interpreter
           response <- gateway.execute("mutation { updated: updateProduct added: addReview }")
           sent     <- reviews.requests.get
@@ -495,7 +495,7 @@ object MultiSourceSpec extends ZIOSpecDefault {
                           Subgraph.graphql("products", products.endpoint, productsSchema),
                           Subgraph.graphql("reviews", reviews.endpoint, reviewsSchema)
                         )
-                        .withConfig(_.withRemoteErrorDisclosure(_.withMessages(true)))
+                        .withConfig(_.withRemoteErrorMessages(true))
                         .interpreter
           response <- gateway.execute("mutation { status failed: fail added: addReview }")
           sent     <- reviews.requests.get

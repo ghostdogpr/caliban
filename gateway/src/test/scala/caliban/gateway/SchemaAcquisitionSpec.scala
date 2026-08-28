@@ -389,6 +389,35 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
         targetCalls.isEmpty
       )
     },
+    test("bounds embedded GraphQL nesting while ignoring comments and escaped string delimiters") {
+      val config      = RemoteGraphQLConfig.default.withAcquisition(_.withMaxParsingDepth(32))
+      val delimiters  = "[({" * 64
+      val quoted      = "\"escaped \\\" " + delimiters + "\""
+      val block       = "\"\"\"escaped \\\"\"\" " + delimiters + "\"\"\""
+      val description = "# " + delimiters + "\r\n" + block + "\n"
+      val shallow     = description + s"type Query { value(arg: String = $quoted): String }"
+      val nested      = "[" * 4096 + "String" + "]" * 4096
+      val deep        = description + s"type Query { value(arg: $nested): String }"
+
+      for {
+        allowedSource <- stub(serviceResponse(shallow))
+        allowed       <- Gateway.compose(Subgraph.federation("shallow", allowedSource.endpoint, config)).interpreter.either
+        deniedSource  <- stub(serviceResponse(deep))
+        denied        <- Gateway.compose(Subgraph.federation("deep", deniedSource.endpoint, config)).interpreter.either
+        introspection <- introspectionResponse
+        defaultSource <- stub(
+                           introspection.replaceFirst(
+                             "\"defaultValue\":null",
+                             "\"defaultValue\":\"" + "[" * 4096 + "null" + "]" * 4096 + "\""
+                           )
+                         )
+        deniedDefault <- Gateway.compose(Subgraph.graphql("default", defaultSource.endpoint, config)).interpreter.either
+      } yield assertTrue(
+        allowed.isRight,
+        denied.left.exists(_.diagnostics.exists(_.contains("parsing depth exceeded 32"))),
+        deniedDefault.left.exists(_.diagnostics.exists(_.contains("parsing depth exceeded 32")))
+      )
+    },
     test("releases acquisition response streams on success, failure, timeout, and interruption") {
       val timeoutConfig = RemoteGraphQLConfig.default.withAcquisition(
         _.withTimeout(1.second)

@@ -42,16 +42,13 @@ object OperationResolverSpec extends ZIOSpecDefault {
         second   <- runtime.executeRequest(next)
         observed <- seen.get
         sent     <- remote.requests.get
-        status   <- runtime.status
       } yield assertTrue(
         first.errors.isEmpty,
         second.errors.isEmpty,
         observed == List(request.copy(query = Some(query)), next.copy(query = Some(query))),
         sent.map(_.query) == Vector(Some(query), Some(query)),
         sent.map(_.operationName) == Vector(request.operationName, next.operationName),
-        sent.map(_.variables) == Vector(request.variables, next.variables),
-        status.operationCache.misses == 1,
-        status.operationCache.hits == 1
+        sent.map(_.variables) == Vector(request.variables, next.variables)
       )
     },
     test("rejects missing, malformed, empty, and unknown IDs without falling back to supplied text") {
@@ -76,15 +73,13 @@ object OperationResolverSpec extends ZIOSpecDefault {
         missing     <- runtime.executeRequest(unknown.copy(query = Some(query)))
         sent        <- remote.requests.get
         calls       <- policyCalls.get
-        status      <- runtime.status
       } yield assertTrue(
         rejected.forall(_.errors.map(_.msg) == List("A non-empty trusted document ID is required.")),
         rejected.forall(_.errors.flatMap(code) == List(StringValue("TRUSTED_DOCUMENT_ID_INVALID"))),
         missing.errors.map(_.msg) == List("Trusted document not found."),
         missing.errors.flatMap(code) == List(StringValue("TRUSTED_DOCUMENT_NOT_FOUND")),
         sent.isEmpty,
-        calls == 0,
-        status.operationCache.entries == 0
+        calls == 0
       )
     },
     test("uses the caller's extraction format and keeps IDs opaque") {
@@ -121,34 +116,35 @@ object OperationResolverSpec extends ZIOSpecDefault {
       ZIO
         .foreach(List(false, true)) { uncached =>
           for {
-            remote   <- stub(response)
-            calls    <- Ref.make(0)
-            resolve   = (_: GraphQLRequest) =>
-                          calls.updateAndGet(_ + 1).flatMap {
-                            case 1 | 2 => ZIO.succeed(query)
-                            case _     => ZIO.fail(Rejection("Revoked.", "REVOKED"))
-                          }
-            resolver  = if (uncached) OperationResolver.uncached(resolve) else OperationResolver(resolve)
-            runtime  <- Gateway
-                          .compose(Subgraph.graphql("remote", remote.endpoint, schema))
-                          .withOperationResolver(resolver)
-                          .interpreter
-            first    <- runtime.executeRequest(request)
-            second   <- runtime.executeRequest(request.copy(extensions = Some(Map("documentId" -> StringValue("alias")))))
-            rejected <- runtime.executeRequest(request)
-            count    <- calls.get
-            status   <- runtime.status
-            sent     <- remote.requests.get
-            cache     = status.operationCache
+            remote           <- stub(response)
+            recorded         <- recordEvents
+            (events, wrapper) = recorded
+            calls            <- Ref.make(0)
+            resolve           = (_: GraphQLRequest) =>
+                                  calls.updateAndGet(_ + 1).flatMap {
+                                    case 1 | 2 => ZIO.succeed(query)
+                                    case _     => ZIO.fail(Rejection("Revoked.", "REVOKED"))
+                                  }
+            resolver          = if (uncached) OperationResolver.uncached(resolve) else OperationResolver(resolve)
+            runtime          <- (Gateway
+                                  .compose(Subgraph.graphql("remote", remote.endpoint, schema))
+                                  .withOperationResolver(resolver) @@ wrapper).interpreter
+            first            <- runtime.executeRequest(request)
+            second           <- runtime.executeRequest(request.copy(extensions = Some(Map("documentId" -> StringValue("alias")))))
+            rejected         <- runtime.executeRequest(request)
+            count            <- calls.get
+            sent             <- remote.requests.get
+            observed         <- events.get
           } yield assertTrue(
             first.errors.isEmpty,
             second.errors.isEmpty,
             rejected.errors.flatMap(code) == List(StringValue("REVOKED")),
             count == 3,
             sent.size == 2,
-            cache.entries == (if (uncached) 0 else 1),
-            cache.hits == (if (uncached) 0L else 1L),
-            cache.misses == (if (uncached) 0L else 1L)
+            observed.count(_ == GatewayWrapper.Event.CacheAccess(GatewayWrapper.CacheResult.Hit)) == (if (uncached) 0
+                                                                                                      else 1),
+            observed.count(_ == GatewayWrapper.Event.CacheAccess(GatewayWrapper.CacheResult.Miss)) == (if (uncached) 0
+                                                                                                       else 1)
           )
         }
         .map(_.reduce(_ && _))

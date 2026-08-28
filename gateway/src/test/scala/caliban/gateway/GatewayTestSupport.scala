@@ -257,10 +257,15 @@ private[gateway] object GatewayTestSupport {
     LocalApi.api
   }
 
-  def waitForStatus(
-    runtime: GatewayInterpreter[Any]
-  )(predicate: GatewayInterpreter.Status => Boolean): UIO[GatewayInterpreter.Status] =
-    (ZIO.yieldNow *> runtime.status).repeatUntil(predicate)
+  def recordEvents: UIO[(Ref[Vector[GatewayWrapper.Event]], GatewayWrapper[Any])] =
+    Ref.make(Vector.empty[GatewayWrapper.Event]).map { events =>
+      val wrapper = new GatewayWrapper[Any] {
+        def wrap[R, E, A](event: GatewayWrapper.Event)(effect: ZIO[R, E, A])(
+          result: Exit[E, A] => GatewayWrapper.Result
+        )(implicit trace: Trace): ZIO[R, E, A] = events.update(_ :+ event) *> effect
+      }
+      (events, wrapper)
+    }
 
   def validateRequest(schema: String, request: GraphQLRequest): IO[CalibanError, Unit] =
     for {

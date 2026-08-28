@@ -417,41 +417,35 @@ object GatewaySpec extends ZIOSpecDefault {
           errors.flatMap(_.extensions).map(_.fields) == List(List("code" -> StringValue("PRODUCT_DOWN")))
         )
       },
-      test("configures remote error disclosure globally with a per-subgraph override") {
-        val globalResponse   =
+      test("enables remote error messages globally while retaining only code extensions") {
+        val globalResponse =
           """{"data":{"first":null},"errors":[{"message":"global detail","path":["first"],"extensions":{"code":"FIRST_DOWN","reason":"maintenance","secret":"hidden"}}]}"""
-        val overrideResponse =
-          """{"data":{"second":null},"errors":[{"message":"override detail","path":["second"],"extensions":{"code":"SECOND_DOWN","reason":"private"}}]}"""
-        val overrideConfig   = RemoteGraphQLConfig.default.withErrorDisclosure(_.withMessages(false))
+        val secondResponse =
+          """{"data":{"second":null},"errors":[{"message":"second detail","path":["second"],"extensions":{"code":"SECOND_DOWN","reason":"private"}}]}"""
 
         for {
           first    <- stub(globalResponse)
-          second   <- stub(overrideResponse)
+          second   <- stub(secondResponse)
           gateway  <- Gateway
                         .compose(
                           Subgraph.graphql("first", first.endpoint, "type Query { first: String }"),
                           Subgraph.graphql(
                             "second",
                             second.endpoint,
-                            "type Query { second: String }",
-                            overrideConfig
+                            "type Query { second: String }"
                           )
                         )
-                        .withConfig(
-                          _.withRemoteErrorDisclosure(
-                            _.withMessages(true).withAdditionalExtensionKeys("reason")
-                          )
-                        )
+                        .withConfig(_.withRemoteErrorMessages(true))
                         .interpreter
           response <- gateway.execute("{ first second }")
           errors    = executionErrors(response.errors)
         } yield assertTrue(
-          errors.map(_.msg) == List("global detail", "Remote GraphQL request failed."),
+          errors.map(_.msg) == List("global detail", "second detail"),
           errors.map(_.path) == List(List(PathValue.Key("first")), List(PathValue.Key("second"))),
           errors.headOption
             .flatMap(_.extensions)
             .exists(
-              _.fields == List("code" -> StringValue("FIRST_DOWN"), "reason" -> StringValue("maintenance"))
+              _.fields == List("code" -> StringValue("FIRST_DOWN"))
             ),
           errors
             .drop(1)
@@ -480,7 +474,7 @@ object GatewaySpec extends ZIOSpecDefault {
           remote   <- stub(invalidResponse)
           gateway  <- Gateway
                         .compose(Subgraph.graphql("products", remote.endpoint, schema))
-                        .withConfig(_.withRemoteErrorDisclosure(_.withMessages(true)))
+                        .withConfig(_.withRemoteErrorMessages(true))
                         .interpreter
           response <- gateway.execute("{ products(ids: [\"p1\"]) { id } }")
         } yield assertTrue(
@@ -500,7 +494,7 @@ object GatewaySpec extends ZIOSpecDefault {
           remote   <- stub(responseBody)
           gateway  <- Gateway
                         .compose(Subgraph.graphql("products", remote.endpoint, singleSchema))
-                        .withConfig(_.withRemoteErrorDisclosure(_.withMessages(true)))
+                        .withConfig(_.withRemoteErrorMessages(true))
                         .interpreter
           response <- gateway.execute("{ product { name } }")
           errors    = executionErrors(response.errors)

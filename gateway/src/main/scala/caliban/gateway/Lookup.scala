@@ -25,13 +25,14 @@ object Lookup {
 
   /**
    * Describes a lookup field that returns a list of objects for a batch of keys using deterministically ordered
-   * argument mappings.
+   * argument mappings. Correlation maps returned fields to declared key fields. Results must be non-null;
+   * missing entities are omitted.
    */
   def list(
     typeName: String,
     keyFields: List[String],
     field: String,
-    correlation: Correlation,
+    correlation: Map[String, String],
     arguments: (String, Argument)*
   ): Lookup =
     ListLookup(typeName, keyFields, field, arguments.toList, correlation)
@@ -63,29 +64,6 @@ object Lookup {
     private[gateway] final case class Batch(value: Argument)                          extends Argument
   }
 
-  /**
-   * Describes how results from a list lookup correlate to requested keys.
-   */
-  sealed trait Correlation
-
-  object Correlation {
-
-    /**
-     * Correlates results to keys by their list position. The lookup must return one position for every requested key.
-     */
-    val ordered: Correlation = Ordered
-
-    /**
-     * Correlates results by mapping returned fields to declared key fields. The lookup must return non-null list items;
-     * missing entities are represented by omission.
-     */
-    def byKey(responseFieldsToKeyFields: Map[String, String]): Correlation =
-      ByKey(responseFieldsToKeyFields)
-
-    private[gateway] case object Ordered                                 extends Correlation
-    private[gateway] final case class ByKey(fields: Map[String, String]) extends Correlation
-  }
-
   private[gateway] final case class Single(
     typeName: String,
     keyFields: List[String],
@@ -98,6 +76,6 @@ object Lookup {
     keyFields: List[String],
     field: String,
     arguments: List[(String, Argument)],
-    correlation: Correlation
+    correlation: Map[String, String]
   ) extends Lookup
 }

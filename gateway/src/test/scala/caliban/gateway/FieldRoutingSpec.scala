@@ -7,7 +7,7 @@ import caliban.Value.{ BooleanValue, NullValue, StringValue }
 import caliban.gateway.GatewayTestSupport._
 import caliban.InputValue
 import sttp.model.Uri
-import zio.Scope
+import zio.{ Scope, ZIO }
 import zio.test._
 
 object FieldRoutingSpec extends ZIOSpecDefault {
@@ -33,6 +33,12 @@ object FieldRoutingSpec extends ZIOSpecDefault {
              |type Review { product: Product @provides(fields: "missing") }
              |type Product @key(fields: "id") { id: ID! }
              |""".stripMargin
+        val unknownRequires   = List(
+          malformedRequires.replace("price(", "missing"),
+          malformedRequires
+            .replace("price: Int! @external", "details: Details @external")
+            .replace("price(", "details { missing }") + "type Details { existing: Int }"
+        )
 
         for {
           requires           <- Gateway
@@ -43,11 +49,20 @@ object FieldRoutingSpec extends ZIOSpecDefault {
                                   .compose(Subgraph.federation("reviews", endpoint, invalidProvides))
                                   .interpreter
                                   .exit
+          unknown            <- ZIO.foreach(unknownRequires)(schema =>
+                                  Gateway.compose(Subgraph.federation("inventory", endpoint, schema)).interpreter.exit
+                                )
           requiresDiagnostics = buildDiagnostics(requires)
           providesDiagnostics = buildDiagnostics(provides)
         } yield assertTrue(
           requires.isFailure,
           provides.isFailure,
+          unknown.forall(exit =>
+            buildDiagnostics(exit).exists(message =>
+              message.contains("[inventory]") && message.contains("Product.shippingEstimate") &&
+                message.contains("Field 'missing' does not exist")
+            )
+          ),
           requiresDiagnostics.exists(message =>
             message.contains("[inventory]") && message.contains("Product.shippingEstimate")
           ),

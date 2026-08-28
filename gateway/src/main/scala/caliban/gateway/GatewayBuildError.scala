@@ -22,7 +22,7 @@ private[gateway] trait GatewayCausedError { self: Throwable =>
 /**
  * Indicates that a [[Gateway]] could not be built.
  *
- * The cases identify the build stage that failed. [[diagnostics]] is a rendered view intended for logs and command-line
+ * The cases identify broad failure categories. [[diagnostics]] is a rendered view intended for logs and command-line
  * output; callers can pattern match on the cases and their fields when they need structured error handling.
  */
 sealed trait GatewayBuildError extends GatewayDiagnosticError
@@ -30,7 +30,8 @@ sealed trait GatewayBuildError extends GatewayDiagnosticError
 object GatewayBuildError {
 
   /**
-   * The gateway or one of its subgraphs has invalid configuration.
+   * The gateway or one of its subgraphs has invalid configuration, including missing enforcement of the @authenticated
+   * or @requiresScopes directives.
    */
   final case class InvalidConfiguration(errors: List[String]) extends GatewayBuildError {
     override val diagnostics: List[String] = errors
@@ -65,12 +66,6 @@ object GatewayBuildError {
     override val diagnostics: List[String] = errors
   }
 
-  /**
-   * The composed schema requires an operation policy, but none was configured.
-   */
-  final case class OperationPolicyRequired(errors: List[String]) extends GatewayBuildError {
-    override val diagnostics: List[String] = errors
-  }
 }
 
 /**

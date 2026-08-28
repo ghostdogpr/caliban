@@ -57,13 +57,10 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
     SchemaTransformation.renameField("Query", "product", "item"),
     SchemaTransformation.renameField("Product", "name", "title"),
     SchemaTransformation.renameArgument("Query", "product", "id", "sku"),
-    SchemaTransformation.renameInputField("Filter", "term", "query"),
-    SchemaTransformation.renameEnumValue("Status", "ACTIVE", "AVAILABLE"),
     SchemaTransformation.hideType("Internal"),
     SchemaTransformation.hideField("Query", "hiddenRoot"),
     SchemaTransformation.hideField("Product", "secret"),
-    SchemaTransformation.hideInputField("Filter", "hidden"),
-    SchemaTransformation.hideEnumValue("Status", "LEGACY")
+    SchemaTransformation.hideInputField("Filter", "hidden")
   )
 
   def spec = suite("SchemaTransformationSpec")(
@@ -101,7 +98,7 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
                         .interpreter
         result     <- gateway.execute(
                         """{
-                      |  item(sku: "p1", filter: { query: "wood" }) { id title status }
+                      |  item(sku: "p1", filter: { term: "wood" }) { id title status }
                       |  itemType: __type(name: "Item") { fields { name } }
                       |  sourceType: __type(name: "Product") { name }
                       |  hiddenType: __type(name: "Internal") { name }
@@ -122,10 +119,10 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
       } yield assertTrue(
         result.errors.isEmpty,
         field(result.data, "item").flatMap(field(_, "title")).contains(StringValue("Table")),
-        field(result.data, "item").flatMap(field(_, "status")).contains(StringValue("AVAILABLE")),
+        field(result.data, "item").flatMap(field(_, "status")).contains(StringValue("ACTIVE")),
         itemFields.contains(List(StringValue("id"), StringValue("status"), StringValue("title"))),
-        inputFields.contains(List(StringValue("query"))),
-        enumValues.contains(List(StringValue("AVAILABLE"))),
+        inputFields.contains(List(StringValue("term"))),
+        enumValues.contains(List(StringValue("ACTIVE"), StringValue("LEGACY"))),
         field(result.data, "sourceType").contains(NullValue),
         field(result.data, "hiddenType").contains(NullValue),
         requests.size == 1,
@@ -135,41 +132,12 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
         )
       )
     },
-    test("reverses enum and input-field renames for singleton list coercion") {
-      val schema =
-        "type Query { search(statuses: [Status!]!, filters: [Filter!]!): String } input Filter { term: String! } enum Status { ACTIVE }"
-
-      for {
-        remote   <- stub("""{"data":{"search":"ok"}}""")
-        gateway  <- Gateway
-                      .compose(
-                        Subgraph
-                          .graphql("search", remote.endpoint, schema)
-                          .transform(
-                            SchemaTransformation.renameEnumValue("Status", "ACTIVE", "AVAILABLE"),
-                            SchemaTransformation.renameInputField("Filter", "term", "query")
-                          )
-                      )
-                      .interpreter
-        result   <- gateway.execute("{ search(statuses: AVAILABLE, filters: { query: \"wood\" }) }")
-        requests <- remote.requests.get
-      } yield assertTrue(
-        result.errors.isEmpty,
-        field(result.data, "search").contains(StringValue("ok")),
-        requests.headOption
-          .flatMap(_.query)
-          .exists(
-            _.contains("search(statuses:ACTIVE,filters:{term:\"wood\"})")
-          )
-      )
-    },
     test("uses the same coordinate translation for local subgraphs") {
       val transformations = List(
         SchemaTransformation.renameType("EchoResult", "Reply"),
         SchemaTransformation.renameField("Query", "echo", "say"),
         SchemaTransformation.renameArgument("Query", "echo", "input", "message"),
-        SchemaTransformation.renameField("EchoResult", "value", "text"),
-        SchemaTransformation.renameEnumValue("State", "ACTIVE", "READY")
+        SchemaTransformation.renameField("EchoResult", "value", "text")
       )
 
       for {
@@ -181,7 +149,7 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
         result.errors.isEmpty,
         field(result.data, "say").exists {
           case ObjectValue(values) =>
-            values.contains("text" -> StringValue("hello")) && values.contains("state" -> EnumValue("READY"))
+            values.contains("text" -> StringValue("hello")) && values.contains("state" -> EnumValue("ACTIVE"))
           case _                   => false
         }
       )
@@ -233,12 +201,11 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
         requests.headOption.flatMap(_.query).exists(_.contains("item:product(id:\"p1\")"))
       )
     },
-    test("rewrites only typed directive arguments and Federation field sets") {
+    test("preserves custom directive values through field renames") {
       val schema          =
         "directive @sql(fields: String!) on FIELD_DEFINITION directive @flag(status: Status!) on FIELD_DEFINITION type Query { product: Product @sql(fields: \"name\") @flag(status: ACTIVE) } type Product { name: String } enum Status { ACTIVE }"
       val transformations = List(
-        SchemaTransformation.renameField("Product", "name", "title"),
-        SchemaTransformation.renameEnumValue("Status", "ACTIVE", "READY")
+        SchemaTransformation.renameField("Product", "name", "title")
       )
 
       for {
@@ -263,10 +230,10 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
         flagStatus  = directives.find(_.name == "flag").flatMap(_.arguments.get("status"))
       } yield assertTrue(
         sqlFields.contains(StringValue("name")),
-        flagStatus.contains(EnumValue("READY"))
+        flagStatus.contains(EnumValue("ACTIVE"))
       )
     },
-    test("transforms enum defaults declared by custom directives") {
+    test("preserves enum defaults when renaming their type") {
       val schema =
         "directive @flag(status: Status = ACTIVE) on FIELD_DEFINITION type Query { product: Product } type Product { name: String @flag(status: ACTIVE) } enum Status { ACTIVE }"
 
@@ -276,7 +243,7 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
                       .compose(
                         Subgraph
                           .graphql("directives", remote.endpoint, schema)
-                          .transform(SchemaTransformation.renameEnumValue("Status", "ACTIVE", "AVAILABLE"))
+                          .transform(SchemaTransformation.renameType("Status", "State"))
                       )
                       .interpreter
         result   <- gateway.execute("{ __schema { directives { name args { name defaultValue } } } }")
@@ -293,7 +260,7 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
       } yield assertTrue(
         result.errors.isEmpty,
         value.errors.isEmpty,
-        default.contains(StringValue("AVAILABLE")),
+        default.contains(StringValue("ACTIVE")),
         requests.headOption.flatMap(_.query).exists(!_.contains("@flag"))
       )
     },
@@ -417,6 +384,47 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
           .exists(query => query.contains("...on Product") && query.contains("shipping:shippingEstimate"))
       )
     },
+    test("translates nested representations without rewriting custom scalar payloads") {
+      val schema =
+        "scalar JSON type Query { product: Product } type Product { details: Details json: JSON } type Details { code: String }"
+      val json   = InputObjectValue(Map("__typename" -> StringValue("Item"), "key" -> StringValue("unchanged")))
+      for {
+        document <- ZIO.fromEither(Parser.parseQuery(schema))
+        rootType <- ZIO.fromEither(RemoteSchema.toRootType(document))
+        mapping  <- ZIO.fromEither(
+                      SchemaMapping.compile(
+                        "products",
+                        rootType,
+                        document,
+                        false,
+                        List(
+                          SchemaTransformation.renameType("Product", "Item"),
+                          SchemaTransformation.renameType("Details", "Info"),
+                          SchemaTransformation.renameField("Product", "details", "info"),
+                          SchemaTransformation.renameField("Details", "code", "key")
+                        )
+                      )
+                    )
+        value     = mapping.representationToSource(
+                      "Item",
+                      InputObjectValue(
+                        Map(
+                          "__typename" -> StringValue("Item"),
+                          "info"       -> InputObjectValue(Map("__typename" -> StringValue("Info"), "key" -> StringValue("p1"))),
+                          "json"       -> json
+                        )
+                      )
+                    )
+      } yield assertTrue(
+        value == InputObjectValue(
+          Map(
+            "__typename" -> StringValue("Product"),
+            "details"    -> InputObjectValue(Map("__typename" -> StringValue("Details"), "code" -> StringValue("p1"))),
+            "json"       -> json
+          )
+        )
+      )
+    },
     test("translates ordinary lookup metadata, arguments, correlation fields, and results") {
       val productsSchema    =
         "type Query { products: [Product!]! } type Product { id: ID! name: String! }"
@@ -431,7 +439,7 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
         "Product",
         List("id"),
         "productsByRefs",
-        Lookup.Correlation.byKey(Map("id" -> "id")),
+        Map("id" -> "id"),
         "refs" -> Lookup.Argument.batch(
           Lookup.Argument.obj("productId" -> Lookup.Argument.key("id"))
         )
@@ -442,7 +450,6 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
       )
       val reviewTransforms  = productTransforms ::: List(
         SchemaTransformation.renameType("ProductRefInput", "ItemRef"),
-        SchemaTransformation.renameInputField("ProductRefInput", "productId", "sku"),
         SchemaTransformation.renameField("Query", "productsByRefs", "itemsByRefs"),
         SchemaTransformation.renameArgument("Query", "productsByRefs", "refs", "keys"),
         SchemaTransformation.renameField("Product", "reviews", "feedback")
@@ -495,8 +502,7 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
             .graphql("products", endpoint, schema)
             .transform(
               SchemaTransformation.hideField("Empty", "value"),
-              SchemaTransformation.hideInputField("Only", "value"),
-              SchemaTransformation.hideEnumValue("Status", "ACTIVE")
+              SchemaTransformation.hideInputField("Only", "value")
             )
         )
         .interpreter
@@ -506,8 +512,7 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
           assertTrue(
             diagnostics.forall(_.startsWith("[products]")),
             diagnostics.exists(_.contains("object 'Empty' with no visible fields")),
-            diagnostics.exists(_.contains("input object 'Only' with no visible fields")),
-            diagnostics.exists(_.contains("enum 'Status' with no visible values"))
+            diagnostics.exists(_.contains("input object 'Only' with no visible fields"))
           )
         }
     },
@@ -565,28 +570,6 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
         result  <- gateway.execute("{ entities service { value } }")
       } yield assertTrue(result.errors.isEmpty)
     },
-    test("rejects hidden enum values referenced by directives or defaults") {
-      val schema   =
-        "directive @flag(status: Status = ACTIVE) on FIELD_DEFINITION type Query { value(state: Status = ACTIVE): String @flag(status: ACTIVE) } enum Status { ACTIVE OTHER }"
-      val endpoint = unreachableEndpoint
-
-      Gateway
-        .compose(
-          Subgraph
-            .graphql("products", endpoint, schema)
-            .transform(SchemaTransformation.hideEnumValue("Status", "ACTIVE"))
-        )
-        .interpreter
-        .exit
-        .map { exit =>
-          val diagnostics = buildDiagnostics(exit)
-          assertTrue(
-            diagnostics.exists(
-              _.contains("Hidden enum value 'Status.ACTIVE' is referenced by a directive or default value")
-            )
-          )
-        }
-    },
     test("rejects hidden input fields referenced by directives or defaults") {
       val schema   =
         "directive @flag(filter: Filter = { hidden: \"directive-default\" }) on FIELD_DEFINITION input Filter { visible: String hidden: String } type Query { value(filter: Filter = { hidden: \"field-default\" }): String @flag(filter: { hidden: \"applied\" }) }"
@@ -621,8 +604,8 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
           SchemaTransformation.renameArgument("Query", "product", "missing", "value"),
           SchemaTransformation.hideArgument("Query", "product", "id"),
           SchemaTransformation.hideType("Query"),
-          SchemaTransformation.renameEnumValue("Status", "ACTIVE", "a b"),
-          SchemaTransformation.renameEnumValue("Status", "LEGACY", "__LEGACY")
+          SchemaTransformation.renameField("Product", "status", "a b"),
+          SchemaTransformation.renameField("Product", "secret", "__LEGACY")
         )
 
       Gateway

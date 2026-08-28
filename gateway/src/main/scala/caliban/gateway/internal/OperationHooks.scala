@@ -1,7 +1,8 @@
 package caliban.gateway.internal
 
 import caliban.execution.ExecutionRequest
-import caliban.gateway.OperationPolicy.{ Allow, Reject, SecurityRequirement, ValidatedOperation }
+import caliban.gateway.OperationPolicy.{ Allow, Reject, SecurityDirective, SecurityRequirement, ValidatedOperation }
+import caliban.gateway.internal.planning.OperationPlan
 import caliban.gateway.{ OperationPolicy, OperationResolver }
 import caliban.parsing.adt.Document
 import caliban.ResponseValue.ObjectValue
@@ -10,7 +11,7 @@ import caliban.{ CalibanError, GraphQLRequest }
 import zio.{ Cause, Trace, ZIO }
 
 private[gateway] final class OperationHooks[-R](
-  securityRequirements: ExecutionRequest => List[SecurityRequirement],
+  securityRequirements: OperationPlan => List[SecurityRequirement],
   resolver: Option[OperationResolver[R]],
   policy: Option[OperationPolicy[R]]
 ) {
@@ -30,24 +31,30 @@ private[gateway] final class OperationHooks[-R](
   private[gateway] def evaluatePolicy(
     request: GraphQLRequest,
     document: Document,
-    executionRequest: ExecutionRequest
-  )(implicit trace: Trace): ZIO[R, CalibanError, Unit] =
-    policy match {
-      case Some(policy) =>
-        val operation = new ValidatedOperation(
-          request,
-          document,
-          executionRequest,
-          securityRequirements(executionRequest)
-        )
-        OperationHooks
-          .run(policy.evaluate(operation), OperationHooks.PolicyFailure)
-          .flatMap {
-            case Allow          => ZIO.unit
-            case Reject(reason) => ZIO.fail(CalibanError.ValidationError(reason, ""))
-          }
-      case None         => ZIO.unit
-    }
+    executionRequest: ExecutionRequest,
+    plan: OperationPlan
+  )(implicit trace: Trace): ZIO[R, CalibanError, Unit] = {
+    val requirements = securityRequirements(plan)
+    if (requirements.exists(_.directives.contains(SecurityDirective.UnsupportedPolicy)))
+      ZIO.fail(CalibanError.ValidationError("Operation selects fields guarded by unsupported @policy directives.", ""))
+    else
+      policy match {
+        case Some(policy) =>
+          val operation = new ValidatedOperation(
+            request,
+            document,
+            executionRequest,
+            requirements
+          )
+          OperationHooks
+            .run(policy.evaluate(operation), OperationHooks.PolicyFailure)
+            .flatMap {
+              case Allow          => ZIO.unit
+              case Reject(reason) => ZIO.fail(CalibanError.ValidationError(reason, ""))
+            }
+        case None         => ZIO.unit
+      }
+  }
 }
 
 private[gateway] object OperationHooks {

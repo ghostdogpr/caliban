@@ -40,9 +40,12 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
     config: RemoteGraphQLConfig[R],
     limits: RemoteSubgraphExecutor.ResponseStructureLimits = RemoteSubgraphExecutor.ResponseStructureLimits.default,
     value: GraphQLRequest = request,
-    operation: OperationType = OperationType.Query
+    operation: OperationType = OperationType.Query,
+    remoteErrorMessages: Boolean = false
   ) =
-    unmanagedRemoteSubgraphExecutor(endpoint, backend, config, limits).execute(value, operation).either
+    unmanagedRemoteSubgraphExecutor(endpoint, backend, config, limits, remoteErrorMessages)
+      .execute(value, operation)
+      .either
 
   private def endpoint(handler: Request => UIO[Response]): ZIO[Server with Ref[Int], Nothing, Uri] =
     postEndpoint("graphql-http")(handler)
@@ -75,8 +78,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
 
   def spec = suite("GraphQLHttpSpec")(
     test("classifies status, media type, malformed envelopes, and redirects") {
-      val valid     = """{"data":{"value":"ok"}}"""
-      val disclosed = RemoteGraphQLConfig.default.withErrorDisclosure(_.withMessages(true))
+      val valid = """{"data":{"value":"ok"}}"""
 
       for {
         backend             <- HttpClientZioBackend.scoped()
@@ -113,7 +115,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
                                    )
                                  )
                                )
-        graphQlResult       <- call(graphQlError, backend, disclosed)
+        graphQlResult       <- call(graphQlError, backend, RemoteGraphQLConfig.default, remoteErrorMessages = true)
         legacyResult        <- call(legacySuccess, backend)
         statusResult        <- call(legacyFailure, backend)
         textStatusResult    <- call(textFailure, backend)
@@ -836,7 +838,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
                                   )
                                 )
                             )
-        envelopeResult   <- call(envelopeEndpoint, backend, policy.withErrorDisclosure(_.withMessages(true)))
+        envelopeResult   <- call(envelopeEndpoint, backend, policy, remoteErrorMessages = true)
         envelopeAttempts <- envelopeCalls.get
       } yield assertTrue(
         queryResult.isRight,
@@ -845,6 +847,8 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
         mutationResult == Left(HttpFailure(503)),
         mutationAttempts == 1,
         rejectedResult == Left(HttpFailure(400)),
+        rejectedResult.left.exists(failureOutcome(_) == GatewayWrapper.Outcome.RequestError),
+        mutationResult.left.exists(failureOutcome(_) == GatewayWrapper.Outcome.TransportError),
         rejectedAttempts == 1,
         envelopeResult.exists(_.errors.map(_.msg) == List("try later")),
         envelopeAttempts == 1

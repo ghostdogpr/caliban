@@ -2,7 +2,7 @@ package caliban.gateway.internal.execution
 
 import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, IncomingRequestHeaders, ResponseValue }
 import caliban.gateway.{ GatewayWrapper, RemoteGraphQLConfig, SubscriptionTermination }
-import caliban.gateway.GatewayWrapper.{ DeduplicationResult, Event, Outcome, Result }
+import caliban.gateway.GatewayWrapper.{ Event, Outcome, Result }
 import caliban.gateway.internal.AdmissionGate
 import caliban.interop.jsoniter.BoundedOutputStream
 import caliban.parsing.adt.OperationType
@@ -29,12 +29,12 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
   queryCalls: Option[RemoteSubgraphExecutor.InFlightQueryDeduplicator],
   admission: Option[AdmissionGate],
   wrapper: GatewayWrapper[R],
+  remoteErrorMessages: Boolean = false,
   fixedHeaders: Option[List[Header]] = None
 ) extends SubgraphExecutor[R] {
   import RemoteSubgraphExecutor._
 
   private val execution        = config.execution
-  private val disclosure       = config.errorDisclosure.getOrElse(RemoteGraphQLConfig.ErrorDisclosure.default)
   private val staticHeaders    = sanitizeHeaders(execution.headers)
   private val forwardsIncoming = execution.forwardsAllIncomingHeaders || execution.forwardedHeaders.nonEmpty
 
@@ -61,6 +61,7 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
         queryCalls,
         admission,
         wrapper,
+        remoteErrorMessages,
         Some(values)
       )
     )
@@ -84,7 +85,7 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
                   execution.maxResponseBytes,
                   bytes => decodeBody(bytes).map(_.copy(extensions = None)),
                   responseWithinLimits,
-                  disclosure
+                  remoteErrorMessages
                 )
     } yield stream
     admission.fold(open)(
@@ -104,7 +105,7 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
         admitted   = admission.fold(rawCall)(_.observed(wrapper)(rawCall))
         response  <- if (operationType == OperationType.Query)
                        queryCalls.fold(admitted)(
-                         _.execute(QueryDeduplicationKey(body, headers), wrapper)(
+                         _.execute(QueryDeduplicationKey(body, headers))(
                            admitted.timeoutFail(SubgraphExecutor.TimeoutFailure)(execution.timeout)
                          )
                        )
@@ -124,6 +125,7 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
       queryCalls,
       Some(gate),
       observer,
+      remoteErrorMessages,
       fixedHeaders
     )
 
@@ -356,7 +358,7 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
         (data.nonEmpty || hasErrors) && validData && (!hasErrors || response.errors.nonEmpty) &&
           !(data.contains(NullValue) && response.errors.isEmpty) && response.hasNext.isEmpty
       )
-      .map(response => response.copy(errors = response.errors.map(RemoteError.disclose(_, disclosure))))
+      .map(response => response.copy(errors = response.errors.map(RemoteError.disclose(_, remoteErrorMessages))))
   }
 }
 
@@ -379,7 +381,8 @@ private[gateway] object RemoteSubgraphExecutor {
     endpoint: Uri,
     backend: SttpClient,
     config: RemoteGraphQLConfig[R],
-    wrapper: GatewayWrapper[R]
+    wrapper: GatewayWrapper[R],
+    remoteErrorMessages: Boolean = false
   )(implicit trace: Trace): ZIO[Scope, Nothing, RemoteSubgraphExecutor[R]] =
     Scope.make.flatMap { deduplicationScope =>
       val deduplicator =
@@ -388,7 +391,17 @@ private[gateway] object RemoteSubgraphExecutor {
         else ZIO.none
       ZIO.addFinalizer(deduplicationScope.close(Exit.unit)) *>
         deduplicator.map(
-          new RemoteSubgraphExecutor(name, endpoint, backend, config, ResponseStructureLimits.default, _, None, wrapper)
+          new RemoteSubgraphExecutor(
+            name,
+            endpoint,
+            backend,
+            config,
+            ResponseStructureLimits.default,
+            _,
+            None,
+            wrapper,
+            remoteErrorMessages
+          )
         )
     }
 
@@ -438,41 +451,32 @@ private[gateway] object RemoteSubgraphExecutor {
     scope: Scope,
     state: Ref[QueryCallState]
   ) {
-    def execute[R](key: QueryDeduplicationKey, wrapper: GatewayWrapper[R])(
+    def execute[R](key: QueryDeduplicationKey)(
       call: => ZIO[R, SubgraphExecutor.Failure, GraphQLResponse[CalibanError]]
     )(implicit trace: Trace): ZIO[R, SubgraphExecutor.Failure, GraphQLResponse[CalibanError]] =
-      ZIO.uninterruptible(loop(key, wrapper, call))
+      ZIO.uninterruptible(loop(key, call))
 
     private def loop[R](
       key: QueryDeduplicationKey,
-      wrapper: GatewayWrapper[R],
       call: => ZIO[R, SubgraphExecutor.Failure, GraphQLResponse[CalibanError]]
     )(implicit trace: Trace): ZIO[R, SubgraphExecutor.Failure, GraphQLResponse[CalibanError]] =
       state.get.flatMap { current =>
         current.entries.get(key) match {
           case Some(existing) =>
-            observe(DeduplicationResult.Join, wrapper)(await(existing).interruptible)
+            await(existing).interruptible
           case None           =>
             Promise.make[Nothing, QueryCallExit].flatMap { candidate =>
               decide(key, candidate).flatMap {
                 case QueryCallDecision.Start          =>
-                  observe(DeduplicationResult.Start, wrapper)(
-                    complete(key, candidate, call).interruptible.forkIn(scope) *> await(candidate).interruptible
-                  )
+                  complete(key, candidate, call).interruptible.forkIn(scope) *> await(candidate).interruptible
                 case QueryCallDecision.Join(existing) =>
-                  observe(DeduplicationResult.Join, wrapper)(await(existing).interruptible)
+                  await(existing).interruptible
                 case QueryCallDecision.Wait(signal)   =>
-                  observe(DeduplicationResult.Wait, wrapper)(signal.await.interruptible *> loop(key, wrapper, call))
+                  signal.await.interruptible *> loop(key, call)
               }
             }
         }
       }
-
-    private def observe[R, E, A](value: DeduplicationResult, wrapper: GatewayWrapper[R])(effect: ZIO[R, E, A])(implicit
-      trace: Trace
-    ): ZIO[R, E, A] =
-      if (!wrapper.enabled) effect
-      else wrapper.wrap(Event.Deduplication(value))(effect)(Result.classifyExit)
 
     private def decide(key: QueryDeduplicationKey, candidate: QueryCallPromise): UIO[QueryCallDecision] =
       state.modify { current =>

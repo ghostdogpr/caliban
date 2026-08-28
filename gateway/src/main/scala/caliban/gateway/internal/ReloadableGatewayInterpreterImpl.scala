@@ -3,14 +3,10 @@ package caliban.gateway.internal
 import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, GraphQLResponseContext }
 import caliban.GraphQLResponseContext.ServerFailure
 import caliban.gateway._
-import caliban.gateway.GatewayInterpreter.{ AdmissionStatus, LifecycleState, LifecycleStatus }
-import caliban.gateway.ReloadableGatewayInterpreter.{ Failure, FailureStage, Phase }
 import caliban.gateway.internal.GatewayInterpreterImpl.{ requestShutdownError, requestShutdownResponse }
 import caliban.gateway.internal.execution.SubgraphExecutor
 import zio._
 import zio.stream.ZStream
-
-import java.time.Instant
 
 private[gateway] final class ReloadableGatewayInterpreterImpl[R] private (
   acquire: IO[GatewayBuildError, Gateway.Snapshot[R]],
@@ -36,28 +32,6 @@ private[gateway] final class ReloadableGatewayInterpreterImpl[R] private (
   ): ZStream[R, Throwable, GraphQLResponse[CalibanError]] =
     ZStream.unwrap(executeRequest(request).map(SubgraphExecutor.responses))
 
-  def subscriptionStatus(implicit trace: Trace): UIO[GatewayInterpreter.SubscriptionStatus] =
-    state.get
-      .flatMap(current => ZIO.foreach(current.active :: current.retiring.toList)(_.interpreter.subscriptionStatus))
-      .map { values =>
-        GatewayInterpreter.SubscriptionStatus(
-          sumCounts(values.map(_.limit)),
-          sumCounts(values.map(_.establishing)),
-          sumCounts(values.map(_.streaming)),
-          sumCounts(values.map(_.terminating)),
-          sumCounts(values.map(_.overdue))
-        )
-      }
-
-  def generationSubscriptions(implicit trace: Trace): UIO[List[ReloadableGatewayInterpreter.GenerationSubscriptions]] =
-    state.get.flatMap { current =>
-      ZIO.foreach((current.active -> false) :: current.retiring.toList.map(_ -> true)) { case (generation, retiring) =>
-        generation.interpreter.subscriptionStatus.map(
-          ReloadableGatewayInterpreter.GenerationSubscriptions(generation.id, retiring, _)
-        )
-      }
-    }
-
   private def use[R0, E, A](f: GatewayInterpreterImpl[R] => ZIO[R0, E, A])(
     rejected: => ZIO[R0, E, A]
   )(implicit trace: Trace): ZIO[R0, E, A] =
@@ -81,47 +55,7 @@ private[gateway] final class ReloadableGatewayInterpreterImpl[R] private (
         }
     }
 
-  def reloadStatus(implicit trace: Trace): UIO[ReloadableGatewayInterpreter.Status] =
-    state.get.flatMap { current =>
-      current.active.status.zipWith(ZIO.foreach(current.retiring)(_.status)) { (active, retiring) =>
-        ReloadableGatewayInterpreter.Status(
-          current.phase,
-          active,
-          retiring,
-          current.lastAttemptAt,
-          current.lastSuccessfulCheckAt,
-          current.lastFailure,
-          current.retirementStartedAt,
-          current.retirementOverdue
-        )
-      }
-    }
-
-  def status(implicit trace: Trace): UIO[GatewayInterpreter.Status] =
-    reloadStatus.map { current =>
-      val statuses  = current.active.status :: current.retiring.toList.map(_.status)
-      val lifecycle = current.phase match {
-        case Phase.Closing => LifecycleState.Draining
-        case Phase.Closed  => LifecycleState.Closed
-        case _             => LifecycleState.Running
-      }
-      GatewayInterpreter.Status(
-        LifecycleStatus(
-          lifecycle,
-          sumCounts(statuses.map(_.lifecycle.active)),
-          sumCounts(statuses.map(_.lifecycle.overdue))
-        ),
-        sumAdmission(statuses.map(_.requests)),
-        statuses
-          .flatMap(_.subgraphs.keys)
-          .distinct
-          .map { name =>
-            name -> sumAdmission(statuses.flatMap(_.subgraphs.get(name)))
-          }
-          .toMap,
-        current.active.status.operationCache
-      )
-    }
+  def lastReloadFailure(implicit trace: Trace): UIO[Option[String]] = state.get.map(_.lastFailure)
 
   private def loop(implicit trace: Trace): UIO[Unit] =
     state.get.flatMap { current =>
@@ -140,11 +74,7 @@ private[gateway] final class ReloadableGatewayInterpreterImpl[R] private (
 
   private def cycle(implicit trace: Trace): UIO[Unit] =
     (for {
-      now <- Clock.instant
-      run <- state.modify { current =>
-               if (current.closing || current.retiring.nonEmpty || current.candidate.nonEmpty) false -> current
-               else true                                                                             -> current.copy(phase = Phase.Checking, lastAttemptAt = Some(now))
-             }
+      run <- state.get.map(current => !current.closing && !current.retiring && current.candidate.isEmpty)
       _   <- ZIO.when(run) {
                acquire.flatMap { snapshot =>
                  state.get.flatMap { current =>
@@ -160,17 +90,10 @@ private[gateway] final class ReloadableGatewayInterpreterImpl[R] private (
     }
 
   private def unchanged(implicit trace: Trace): UIO[Unit] =
-    Clock.instant.flatMap { now =>
-      state.modify { current =>
-        if (current.closing) false     -> current
-        else
-          current.lastFailure.nonEmpty -> current.copy(
-            phase = Phase.Idle,
-            lastSuccessfulCheckAt = now,
-            lastFailure = None
-          )
-      }.flatMap(recovered => ZIO.logInfo("Gateway schema refresh recovered.").when(recovered).unit)
-    }
+    state.modify { current =>
+      if (current.closing) false        -> current
+      else current.lastFailure.nonEmpty -> current.copy(lastFailure = None)
+    }.flatMap(recovered => ZIO.logInfo("Gateway schema refresh recovered.").when(recovered).unit)
 
   private def replace(snapshot: Gateway.Snapshot[R])(implicit trace: Trace): IO[GatewayBuildError, Unit] =
     ZIO.uninterruptibleMask { restore =>
@@ -178,33 +101,27 @@ private[gateway] final class ReloadableGatewayInterpreterImpl[R] private (
         candidate <- Scope.make
         accepted  <- state.modify { current =>
                        if (current.closing) false -> current
-                       else true                  -> current.copy(phase = Phase.Building, candidate = Some(candidate))
+                       else true                  -> current.copy(candidate = Some(candidate))
                      }
         _         <- if (!accepted) candidate.close(Exit.unit)
                      else
                        restore(candidate.extend(snapshot.gateway.build))
                          .onError(cause => candidate.close(Exit.failCause(cause)) *> clearCandidate(candidate))
                          .flatMap { interpreter =>
-                           Clock.instant.flatMap { now =>
-                             state.modify { current =>
-                               if (current.closing) Option.empty[(Generation[R], Boolean)] -> current
-                               else
-                                 Some((current.active, current.lastFailure.nonEmpty))      -> current.copy(
-                                   active = Generation(current.active.id + 1L, now, snapshot, interpreter, candidate),
-                                   retiring = Some(current.active),
-                                   candidate = None,
-                                   phase = Phase.Draining,
-                                   lastSuccessfulCheckAt = now,
-                                   lastFailure = None,
-                                   retirementStartedAt = Some(now),
-                                   retirementOverdue = false
-                                 )
-                             }.flatMap {
-                               case None                   => candidate.close(Exit.unit) *> clearCandidate(candidate)
-                               case Some((old, recovered)) =>
-                                 (ZIO.logInfo("Gateway schema refresh recovered.").when(recovered) *>
-                                   ZIO.logInfo(s"Gateway activated generation ${old.id + 1L}.")).ensuring(retire(old))
-                             }
+                           state.modify { current =>
+                             if (current.closing) Option.empty[(Generation[R], Boolean)] -> current
+                             else
+                               Some((current.active, current.lastFailure.nonEmpty))      -> current.copy(
+                                 active = Generation(current.active.id + 1L, snapshot, interpreter, candidate),
+                                 retiring = true,
+                                 candidate = None,
+                                 lastFailure = None
+                               )
+                           }.flatMap {
+                             case None                   => candidate.close(Exit.unit) *> clearCandidate(candidate)
+                             case Some((old, recovered)) =>
+                               (ZIO.logInfo("Gateway schema refresh recovered.").when(recovered) *>
+                                 ZIO.logInfo(s"Gateway activated generation ${old.id + 1L}.")).ensuring(retire(old))
                            }
                          }
       } yield ()
@@ -217,100 +134,56 @@ private[gateway] final class ReloadableGatewayInterpreterImpl[R] private (
     for {
       _       <- old.interpreter.retireSubscriptions
       watcher <- (Clock.sleep(drainTimeout) *>
-                   state.modify { current =>
-                     val overdue = current.retiring.exists(_.id == old.id)
-                     overdue -> (if (overdue) current.copy(retirementOverdue = true) else current)
-                   }.flatMap(overdue =>
-                     ZIO
-                       .logWarning(
-                         s"Gateway generation ${old.id} exceeded its drain timeout; further refreshes are paused."
-                       )
-                       .when(overdue)
+                   ZIO.logWarning(
+                     s"Gateway generation ${old.id} exceeded its drain timeout; further refreshes are paused."
                    )).interruptible.fork
       _       <- old.scope.close(Exit.unit).ensuring(watcher.interrupt)
-      _       <- state.update(current =>
-                   current.copy(
-                     retiring = None,
-                     phase = if (current.closing) current.phase else Phase.Idle,
-                     retirementStartedAt = None,
-                     retirementOverdue = false
-                   )
-                 )
+      _       <- state.update(_.copy(retiring = false))
     } yield ()
 
   private def failed(error: Option[GatewayBuildError])(implicit trace: Trace): UIO[Unit] =
-    Clock.instant.flatMap { now =>
-      state.modify { current =>
-        if (current.closing) Option.empty[Failure] -> current
-        else {
-          val stage    =
-            if (error.isEmpty) FailureStage.Internal
-            else if (current.phase == Phase.Checking) FailureStage.Acquisition
-            else FailureStage.Construction
-          val failure  = Failure(
-            stage,
-            error.fold("Unexpected refresh failure.")(safeReason),
-            error.toList.flatMap(safeSubgraphs).take(16),
-            now
-          )
-          val repeated = current.lastFailure.exists(previous =>
-            previous.stage == failure.stage && previous.reason == failure.reason && previous.subgraphs == failure.subgraphs
-          )
-          val phase    =
-            if (current.retiring.nonEmpty) Phase.Draining
-            else if (current.candidate.nonEmpty) Phase.Building
-            else Phase.Idle
-          (if (repeated) None else Some(failure)) -> current.copy(phase = phase, lastFailure = Some(failure))
-        }
-      }.flatMap(value =>
-        ZIO.foreachDiscard(value)(failure =>
-          ZIO.logWarning(
-            s"Gateway schema refresh failed (${failure.stage}): ${failure.reason} Keeping the active generation."
-          )
-        )
+    state.modify { current =>
+      if (current.closing) Option.empty[String] -> current
+      else {
+        val reason = error.fold("Unexpected refresh failure.")(safeReason)
+        (if (current.lastFailure.contains(reason)) None else Some(reason)) -> current.copy(lastFailure = Some(reason))
+      }
+    }.flatMap(value =>
+      ZIO.foreachDiscard(value)(reason =>
+        ZIO.logWarning(s"Gateway schema refresh failed: $reason Keeping the active generation.")
       )
-    }
+    )
 
   private def close(worker: Fiber.Runtime[Nothing, Unit])(implicit trace: Trace): UIO[Unit] =
     (for {
       owned <- state.modify { current =>
                  val owned = current.active.scope :: current.candidate.toList
-                 (owned, current.retiring.nonEmpty) -> current.copy(phase = Phase.Closing)
+                 (owned, current.retiring) -> current.copy(closing = true)
                }
       // Retirement owns the old drain timer: interrupting it could abandon the drain.
       // The active generation closes concurrently with that existing retirement.
       _     <- ZIO
                  .foreachParDiscard(owned._1)(_.close(Exit.unit))
                  .zipPar(if (owned._2) worker.await else worker.interrupt)
-      _     <- state.update(_.copy(phase = Phase.Closed, candidate = None))
+      _     <- state.update(_.copy(candidate = None))
     } yield ()).uninterruptible
 }
 
 private[gateway] object ReloadableGatewayInterpreterImpl {
   private final case class Generation[-R](
     id: Long,
-    activatedAt: Instant,
     snapshot: Gateway.Snapshot[R],
     interpreter: GatewayInterpreterImpl[R],
     scope: Scope.Closeable
-  ) {
-    def status(implicit trace: Trace): UIO[ReloadableGatewayInterpreter.Generation] =
-      interpreter.status.map(ReloadableGatewayInterpreter.Generation(id, activatedAt, _))
-  }
+  )
 
   private final case class State[-R](
     active: Generation[R],
-    retiring: Option[Generation[R]],
+    retiring: Boolean,
     candidate: Option[Scope.Closeable],
-    phase: Phase,
-    lastAttemptAt: Option[Instant],
-    lastSuccessfulCheckAt: Instant,
-    lastFailure: Option[Failure],
-    retirementStartedAt: Option[Instant],
-    retirementOverdue: Boolean
-  ) {
-    def closing: Boolean = phase == Phase.Closing || phase == Phase.Closed
-  }
+    closing: Boolean,
+    lastFailure: Option[String]
+  )
 
   def make[R](
     acquire: IO[GatewayBuildError, Gateway.Snapshot[R]],
@@ -322,18 +195,13 @@ private[gateway] object ReloadableGatewayInterpreterImpl {
         Scope.make.flatMap { initialScope =>
           (for {
             interpreter <- restore(initialScope.extend(snapshot.gateway.build))
-            now         <- Clock.instant
             state       <- Ref.make(
                              State(
-                               Generation(1L, now, snapshot, interpreter, initialScope),
-                               None,
-                               None,
-                               Phase.Idle,
-                               None,
-                               now,
-                               None,
-                               None,
-                               retirementOverdue = false
+                               Generation(1L, snapshot, interpreter, initialScope),
+                               retiring = false,
+                               candidate = None,
+                               closing = false,
+                               lastFailure = None
                              )
                            )
             runtime      = new ReloadableGatewayInterpreterImpl(acquire, config, drainTimeout, state)
@@ -344,23 +212,12 @@ private[gateway] object ReloadableGatewayInterpreterImpl {
       }
     }
 
-  private def sumAdmission(values: List[AdmissionStatus]): AdmissionStatus =
-    AdmissionStatus(sumCounts(values.map(_.limit)), sumCounts(values.map(_.active)), sumCounts(values.map(_.waiting)))
-
-  private def sumCounts(values: List[Int]): Int = values.foldLeft(0L)(_ + _).min(Int.MaxValue.toLong).toInt
-
   private def safeReason(error: GatewayBuildError): String = error match {
     case _: GatewayBuildError.InvalidConfiguration          => "Invalid gateway configuration."
     case _: GatewayBuildError.TransportInitializationFailed => "Unable to initialize schema transport."
     case _: GatewayBuildError.SubgraphLoadingFailed         => "Unable to load subgraph schemas."
     case _: GatewayBuildError.CombinedFailures              => "Multiple gateway build stages failed."
     case _: GatewayBuildError.SchemaCompositionFailed       => "Subgraph schemas could not be composed."
-    case _: GatewayBuildError.OperationPolicyRequired       => "The schema requires an operation policy."
   }
 
-  private def safeSubgraphs(error: GatewayBuildError): List[String] = error match {
-    case GatewayBuildError.SubgraphLoadingFailed(errors) =>
-      errors.take(16).map(_.name.filterNot(_.isControl).take(80)).distinct
-    case _                                               => Nil
-  }
 }

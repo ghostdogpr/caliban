@@ -2,7 +2,7 @@ package caliban.gateway.internal.execution
 
 import caliban.{ CalibanError, GraphQLInterpreter, GraphQLRequest, GraphQLResponse, GraphQLResponseContext, PathValue }
 import caliban.execution.Field
-import caliban.gateway.{ GatewayWrapper, RemoteGraphQLConfig, SubscriptionTermination }
+import caliban.gateway.{ GatewayWrapper, SubscriptionTermination }
 import caliban.gateway.GatewayWrapper.{ Event, Outcome, Result }
 import caliban.gateway.internal.AdmissionGate
 import caliban.gateway.internal.execution.SubgraphExecutor.ErrorPolicy
@@ -100,9 +100,8 @@ private[gateway] object SubgraphExecutor {
       case HeaderFailure(_) | InvalidRequest                                                       => Outcome.RequestError
       case RequestTooLarge | ResponseTooLarge | ResponseNestingTooDeep | ResponseStructureTooLarge =>
         Outcome.LimitExceeded
-      case HttpFailure(status) if status >= 400 && status < 500                                    => Outcome.Http4xx
-      case HttpFailure(status) if status >= 500 && status < 600                                    => Outcome.Http5xx
-      case HttpFailure(_)                                                                          => Outcome.HttpError
+      case HttpFailure(status) if status >= 400 && status < 500                                    => Outcome.RequestError
+      case HttpFailure(_)                                                                          => Outcome.TransportError
       case RedirectResponse | UnsupportedMediaType | InvalidResponse                               => Outcome.InvalidResponse
     }
 
@@ -197,16 +196,16 @@ private[gateway] object RemoteError {
 
   def disclose(
     error: CalibanError,
-    disclosure: RemoteGraphQLConfig.ErrorDisclosure
+    remoteErrorMessages: Boolean
   ): CalibanError.ExecutionError =
     error match {
       case value: CalibanError.ExecutionError =>
         val extensions = value.extensions.flatMap { current =>
-          val retained = current.fields.filter { case (name, _) => disclosure.extensionKeys(name) }
+          val retained = current.fields.filter { case (name, _) => name == "code" }
           if (retained.isEmpty) None else Some(ObjectValue(retained))
         }
         value.copy(
-          msg = if (disclosure.includeMessages) value.msg else Message,
+          msg = if (remoteErrorMessages) value.msg else Message,
           locationInfo = None,
           innerThrowable = None,
           extensions = extensions

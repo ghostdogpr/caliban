@@ -16,9 +16,6 @@ object GatewayMetrics {
   private[gateway] val durationBuckets = Histogram.Boundaries(
     Chunk(.001d, .0025d, .005d, .01d, .025d, .05d, .1d, .25d, .5d, 1d, 2.5d, 5d, 10d, 30d, 60d)
   )
-  private val byteBuckets              = Histogram.Boundaries(
-    Chunk(256d, 1024d, 4096d, 16384d, 65536d, 262144d, 1048576d, 4194304d, 16777216d)
-  )
 
   private val requests                  = Metric.counter("caliban_gateway_requests_total")
   private val requestDuration           = Metric.histogram("caliban_gateway_request_duration_seconds", durationBuckets)
@@ -27,21 +24,9 @@ object GatewayMetrics {
   private val subgraphCalls             = Metric.counter("caliban_gateway_subgraph_calls_total")
   private val subgraphCallDuration      = Metric.histogram("caliban_gateway_subgraph_call_duration_seconds", durationBuckets)
   private val subgraphCallsActive       = Metric.gauge("caliban_gateway_subgraph_calls_active")
-  private val subgraphAttempts          = Metric.counter("caliban_gateway_subgraph_attempts_total")
-  private val subgraphAttemptDuration   =
-    Metric.histogram("caliban_gateway_subgraph_attempt_duration_seconds", durationBuckets)
-  private val subgraphAttemptsActive    = Metric.gauge("caliban_gateway_subgraph_attempts_active")
-  private val subgraphRequestBytes      = Metric.histogram("caliban_gateway_subgraph_request_body_size_bytes", byteBuckets)
-  private val subgraphResponseBytes     = Metric.histogram("caliban_gateway_subgraph_response_body_size_bytes", byteBuckets)
   private val retries                   = Metric.counter("caliban_gateway_retries_total")
   private val cache                     = Metric.counter("caliban_gateway_operation_cache_total")
   private val admission                 = Metric.counter("caliban_gateway_admission_total")
-  private val admissionWait             =
-    Metric.histogram("caliban_gateway_admission_wait_duration_seconds", durationBuckets)
-  private val admissionActive           = Metric.gauge("caliban_gateway_admission_active")
-  private val admissionWaiting          = Metric.gauge("caliban_gateway_admission_waiting")
-  private val deduplicated              = Metric.counter("caliban_gateway_in_flight_deduplication_total")
-  private val overdue                   = Metric.counter("caliban_gateway_overdue_requests_total")
   private val subscriptionsActive       = Metric.gauge("caliban_gateway_subscriptions_active")
   private val subscriptionAdmission     = Metric.counter("caliban_gateway_subscription_admission_total")
   private val subscriptionTerminated    = Metric.counter("caliban_gateway_subscription_terminations_total")
@@ -90,27 +75,11 @@ object GatewayMetrics {
             Set(MetricLabel("subgraph", subgraph)),
             SubgraphCallTracking
           )(effect)(result)
-        case attempt: Event.Attempt                         =>
-          val labels = Set(MetricLabel("subgraph", attempt.subgraph))
-          subgraphRequestBytes.tagged(labels).update(attempt.requestBytes.toDouble) *>
-            track(
-              subgraphAttemptsActive,
-              subgraphAttemptDuration,
-              subgraphAttempts,
-              labels,
-              AttemptTracking(labels)
-            )(effect)(result)
+        case _: Event.Attempt                               => effect
         case Event.Retry(subgraph, _)                       => retries.tagged("subgraph", subgraph).update(1L) *> effect
         case Event.Completion                               => effect
         case Event.CacheAccess(value)                       => cache.tagged("result", value.label).update(1L) *> effect
-        case Event.AdmissionWait(kind)                      =>
-          val labels = Set(MetricLabel("kind", kind.label))
-          withActive(admissionWaiting.tagged(labels))(trackDuration(admissionWait, labels)(effect)(result))
-        case Event.Admission(kind)                          =>
-          admission.tagged("kind", kind.label).update(1L) *>
-            withActive(admissionActive.tagged("kind", kind.label))(effect)
-        case Event.Deduplication(value)                     => deduplicated.tagged("result", value.label).update(1L) *> effect
-        case Event.RequestOverdue                           => overdue.update(1L) *> effect
+        case Event.Admission(kind)                          => admission.tagged("kind", kind.label).increment *> effect
       }
   }
 
@@ -131,7 +100,6 @@ object GatewayMetrics {
               val value = result(exit)
               duration.tagged(labels ++ tracking.detailLabels(value)).update(seconds(finishedAt - startedAt)) *>
                 total.tagged(labels ++ tracking.totalLabels(value)).update(1L) *>
-                tracking.after(value) *>
                 active.tagged(labels).decrement
             }
           }
@@ -141,7 +109,6 @@ object GatewayMetrics {
   private sealed trait Tracking {
     def detailLabels(result: Result): Set[MetricLabel]
     def totalLabels(result: Result): Set[MetricLabel]
-    def after(result: Result): ZIO[Any, Nothing, Unit] = ZIO.unit
   }
 
   private case object RequestTracking extends Tracking {
@@ -160,15 +127,6 @@ object GatewayMetrics {
     def totalLabels(result: Result): Set[MetricLabel]  = Set.empty
   }
 
-  private final case class AttemptTracking(labels: Set[MetricLabel]) extends Tracking {
-    def detailLabels(result: Result): Set[MetricLabel]          = Set(MetricLabel("outcome", result.outcome.label))
-    def totalLabels(result: Result): Set[MetricLabel]           = detailLabels(result)
-    override def after(result: Result): ZIO[Any, Nothing, Unit] =
-      result.responseBytes.fold[ZIO[Any, Nothing, Unit]](ZIO.unit)(bytes =>
-        subgraphResponseBytes.tagged(labels).update(bytes.toDouble)
-      )
-  }
-
   private def trackDuration[R, E, A](duration: Metric.Histogram[Double], labels: Set[MetricLabel])(
     effect: ZIO[R, E, A]
   )(result: Exit[E, A] => Result)(implicit trace: Trace): ZIO[R, E, A] =
@@ -181,11 +139,6 @@ object GatewayMetrics {
         }
       }
     }
-
-  private def withActive[R, E, A](active: Metric.Gauge[Double])(effect: ZIO[R, E, A])(implicit
-    trace: Trace
-  ): ZIO[R, E, A] =
-    ZIO.uninterruptibleMask(restore => active.increment *> restore(effect).ensuring(active.decrement))
 
   private def seconds(nanos: Long): Double = nanos.toDouble / 1000000000d
 }

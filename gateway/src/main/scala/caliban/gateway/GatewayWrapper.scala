@@ -85,9 +85,6 @@ object GatewayWrapper {
     case object RequestError    extends Outcome { val label = "request_error"    }
     case object TransportError  extends Outcome { val label = "transport_error"  }
     case object Timeout         extends Outcome { val label = "timeout"          }
-    case object Http4xx         extends Outcome { val label = "http_4xx"         }
-    case object Http5xx         extends Outcome { val label = "http_5xx"         }
-    case object HttpError       extends Outcome { val label = "http_error"       }
     case object LimitExceeded   extends Outcome { val label = "limit_exceeded"   }
     case object InvalidResponse extends Outcome { val label = "invalid_response" }
     case object Cancelled       extends Outcome { val label = "cancelled"        }
@@ -113,16 +110,6 @@ object GatewayWrapper {
     case object Subgraph          extends AdmissionKind { val label = "subgraph"           }
     case object SubscriptionSetup extends AdmissionKind { val label = "subscription_setup" }
     case object SubscriptionEvent extends AdmissionKind { val label = "subscription_event" }
-  }
-
-  sealed trait DeduplicationResult extends Product with Serializable {
-    def label: String
-  }
-
-  object DeduplicationResult {
-    case object Start extends DeduplicationResult { val label = "start" }
-    case object Join  extends DeduplicationResult { val label = "join"  }
-    case object Wait  extends DeduplicationResult { val label = "wait"  }
   }
 
   final case class Result(
@@ -174,10 +161,7 @@ object GatewayWrapper {
     final case class Retry(subgraph: String, attempt: Int)                        extends Event
     case object Completion                                                        extends Event
     final case class CacheAccess(result: CacheResult)                             extends Event
-    final case class AdmissionWait(kind: AdmissionKind)                           extends Event
     final case class Admission(kind: AdmissionKind)                               extends Event
-    final case class Deduplication(result: DeduplicationResult)                   extends Event
-    case object RequestOverdue                                                    extends Event
   }
 
   private[gateway] def operationTypeLabel(operationType: OperationType): String =

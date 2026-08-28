@@ -5,7 +5,6 @@ import caliban.client.CalibanClientError.ServerError
 import caliban.client.Operations.RootQuery
 import caliban.client.SelectionBuilder
 import caliban.gateway.{ RemoteGraphQLConfig, SchemaAcquisitionError, SchemaInput }
-import caliban.gateway.internal.OperationParsingLimits
 import caliban.gateway.SchemaAcquisitionError._
 import caliban.gateway.SchemaAcquisitionError.InvalidFederationResponse._
 import caliban.parsing.adt.Document
@@ -101,7 +100,7 @@ private[gateway] object RemoteSchemaAcquisition {
                       .attempt(readFromArray[ResponseValue](bytes))
                       .mapError(FederationResponseDecodingFailed(_))
         sdl      <- ZIO.fromEither(decodeServiceSdl(decoded))
-        _        <- if (OperationParsingLimits.graphQLNestingWithinLimit(sdl, config.maxParsingDepth)) ZIO.unit
+        _        <- if (withinGraphQLDepth(sdl, config.maxParsingDepth)) ZIO.unit
                     else parsingDepthFailure(config.maxParsingDepth)
         document <- ZIO.fromEither(Parser.parseQuery(sdl)).mapError(InvalidFederationSchema(_))
       } yield document
@@ -190,12 +189,44 @@ private[gateway] object RemoteSchemaAcquisition {
       case ObjectValue(fields)             =>
         fields.forall {
           case ("defaultValue", StringValue(defaultValue)) =>
-            OperationParsingLimits.graphQLNestingWithinLimit(defaultValue, maxDepth)
+            withinGraphQLDepth(defaultValue, maxDepth)
           case (_, nested)                                 => defaultValuesWithinDepth(nested, maxDepth)
         }
       case ResponseValue.ListValue(values) => values.forall(defaultValuesWithinDepth(_, maxDepth))
       case _                               => true
     }
+
+  // Bound parser recursion in schema text embedded inside JSON strings. Syntax validation stays with Parser.
+  private def withinGraphQLDepth(value: String, maxDepth: Int): Boolean = {
+    var index   = 0
+    var depth   = 0
+    var quote   = ""
+    var comment = false
+    while (index < value.length && depth <= maxDepth) {
+      val current = value.charAt(index)
+      if (comment) {
+        if (current == '\n' || current == '\r') comment = false
+      } else if (quote.nonEmpty) {
+        if (quote == "\"" && current == '\\') index += 1
+        else if (quote.length == 3 && value.startsWith("\\\"\"\"", index)) index += 3
+        else if (value.startsWith(quote, index)) {
+          index += quote.length - 1
+          quote = ""
+        }
+      } else
+        current match {
+          case '#'             => comment = true
+          case '"'             =>
+            quote = if (value.startsWith("\"\"\"", index)) "\"\"\"" else "\""
+            index += quote.length - 1
+          case '{' | '[' | '(' => depth += 1
+          case '}' | ']' | ')' => depth = math.max(0, depth - 1)
+          case _               => ()
+        }
+      index += 1
+    }
+    depth <= maxDepth
+  }
 
   private def withinJsonDepth(bytes: Array[Byte], maxDepth: Int): Boolean = {
     var depth   = 0

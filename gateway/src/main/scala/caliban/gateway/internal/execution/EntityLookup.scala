@@ -82,30 +82,28 @@ private[internal] final class EntityLookup(
   private def graphqlCorrelation(
     fetch: EntityFetch,
     fetches: List[EntityFetch],
-    result: ComposedGraph.LookupResult.ListResult
-  ): EntityCorrelation =
-    result match {
-      case ComposedGraph.LookupResult.Ordered       => EntityCorrelation.Ordered
-      case ComposedGraph.LookupResult.ByKey(fields) =>
-        val usedNames  = fetches.iterator.flatMap(_.fields.iterator.map(_.aliasedName)).toSet
-        val configured = fetch.keys.flatMap(key =>
-          fields.collectFirst {
-            case (responseField, keyField) if keyField == key.field => responseField -> keyField
-          }
-        )
-        EntityCorrelation.ByKey(
-          IdentitySelections(
-            correlationKeys(
-              configured.map { case (responseField, keyField) =>
-                keyField -> RequiredSelection(responseField, responseField)
-              },
-              usedNames,
-              "_caliban_gateway_lookup_key"
-            ),
-            None
-          )
-        )
-    }
+    result: ComposedGraph.LookupResult.ByKey
+  ): EntityCorrelation = {
+    val fields     = result.fields
+    val usedNames  = fetches.iterator.flatMap(_.fields.iterator.map(_.aliasedName)).toSet
+    val configured = fetch.keys.flatMap(key =>
+      fields.collectFirst {
+        case (responseField, keyField) if keyField == key.field => responseField -> keyField
+      }
+    )
+    EntityCorrelation.ByKey(
+      IdentitySelections(
+        correlationKeys(
+          configured.map { case (responseField, keyField) =>
+            keyField -> RequiredSelection(responseField, responseField)
+          },
+          usedNames,
+          "_caliban_gateway_lookup_key"
+        ),
+        None
+      )
+    )
+  }
 
   private def correlationKeys(
     fields: List[(String, RequiredSelection)],
@@ -161,7 +159,7 @@ private[internal] final class EntityLookup(
       )
 
     fetch.lookup.operation match {
-      case ComposedGraph.LookupOperation.FederationEntities(correlationKey)                                           =>
+      case ComposedGraph.LookupOperation.FederationEntities(correlationKey)                                      =>
         val correlation =
           if (
             correlationKey.nonEmpty &&
@@ -205,7 +203,7 @@ private[internal] final class EntityLookup(
           List(entityField)
         )
         Some(lookupExecution(operation, Some(variables), correlation, LookupResponse.ListRoot("_entities")))
-      case ComposedGraph.LookupOperation.GraphQLQuery(field, mappings, result: ComposedGraph.LookupResult.ListResult) =>
+      case ComposedGraph.LookupOperation.GraphQLQuery(field, mappings, result: ComposedGraph.LookupResult.ByKey) =>
         val correlation = graphqlCorrelation(fetch, fetches, result)
         evaluateArguments(mappings, batch, None).map { arguments =>
           val alias           = "_caliban_gateway_lookup"
@@ -227,7 +225,7 @@ private[internal] final class EntityLookup(
           )
           lookupExecution(operation, None, correlation, LookupResponse.ListRoot(alias))
         }
-      case ComposedGraph.LookupOperation.GraphQLQuery(field, mappings, ComposedGraph.LookupResult.Single)             =>
+      case ComposedGraph.LookupOperation.GraphQLQuery(field, mappings, ComposedGraph.LookupResult.Single)        =>
         val correlation = EntityCorrelation.Ordered
         val selections  = traverseOption(batch.entries.zipWithIndex) { case (entry, index) =>
           evaluateArguments(mappings, batch, Some(entry)).map { arguments =>

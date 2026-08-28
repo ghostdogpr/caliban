@@ -10,7 +10,8 @@ package object internal {
     backend: SttpClient,
     config: RemoteGraphQLConfig[R] = RemoteGraphQLConfig.default,
     responseStructureLimits: RemoteSubgraphExecutor.ResponseStructureLimits =
-      RemoteSubgraphExecutor.ResponseStructureLimits.default
+      RemoteSubgraphExecutor.ResponseStructureLimits.default,
+    remoteErrorMessages: Boolean = false
   ): RemoteSubgraphExecutor[R] =
     new RemoteSubgraphExecutor(
       "remote",
@@ -20,6 +21,7 @@ package object internal {
       responseStructureLimits,
       None,
       None,
-      GatewayWrapper.empty
+      GatewayWrapper.empty,
+      remoteErrorMessages
     )
 }

@@ -96,7 +96,7 @@ The default interval is 30 seconds with up to twenty percent jitter in either di
 
 The old interpreter drains using `GatewayConfig.withDrainTimeout`. There are at most two interpreter generations: active plus candidate during construction, or active plus retiring after publication. Further refreshes wait for retirement to finish.
 
-Retirement does not impose a minimum delay: an idle generation closes immediately. A stuck request can delay the next schema check by the full drain timeout (30 seconds by default), followed by the configured polling delay. Uninterruptible work can postpone it indefinitely. If schema updates appear to have stopped, check the reload phase and retiring generation: `Draining` means polling is waiting for that generation, even while the current generation continues serving. `retirementOverdue` and the warning log identify retirement that has exceeded its timeout.
+Retirement does not impose a minimum delay: an idle generation closes immediately. A stuck request can delay the next schema check by the full drain timeout (30 seconds by default), followed by the configured polling delay. Uninterruptible work can postpone it indefinitely. A warning is logged when retirement exceeds its drain timeout; the active generation continues serving while polling waits for cleanup.
 
 **Concurrency limits remain per interpreter.** During overlap, total request and subgraph concurrency can reach twice the configured limits, and each generation has its own operation cache. The drain timeout requests interruption; uninterruptible work can hold the old generation indefinitely. In that case, the active generation continues serving and further refreshes remain paused.
 
@@ -104,11 +104,9 @@ Closing the owning scope stops request admission and further publication, cancel
 
 ### Monitoring reloads
 
-`interpreter.reloadStatus` reports the active and retiring generation identifiers, their individual interpreter status, refresh phase, activation time, last attempt, last successful check, latest failure, and overdue retirement. A successful unchanged check advances the successful-check timestamp without changing the activation time. Failed candidates do not advance that timestamp.
+`interpreter.lastReloadFailure` returns a `UIO[Option[String]]` with a bounded summary of the latest failed refresh. A successful check, including an unchanged schema, clears it. Raw schemas, remote messages, response bodies, and exception causes are not retained.
 
-`interpreter.status` aggregates lifecycle counts and admission usage across active and retiring generations, and reports the active generation's operation cache. Summed admission limits describe separate per-interpreter budgets, not a shared pool. Check each generation through `reloadStatus` for the breakdown.
-
-Keep reload health separate from serving readiness: failed refreshes do not evict an otherwise serving generation. Monitor `lastFailure`, the age of `lastSuccessfulCheckAt`, and `retirementOverdue` through your application's diagnostics or monitoring integration. Failure details are bounded summaries with affected subgraph names; raw schemas, remote messages, response bodies, and exception causes are not retained.
+Keep reload health separate from serving readiness: failed refreshes do not evict an otherwise serving generation.
 
 The gateway logs activation, failure, recovery, and overdue retirement, suppressing identical repeated failure logs. Hot reload does not add administrative HTTP endpoints, manual refresh, or new metrics and tracing interfaces.
 
@@ -221,7 +219,7 @@ val reviews = Subgraph
       "Product",
       List("id"),
       "productsByIds",
-      Lookup.Correlation.byKey(Map("id" -> "id")),
+      Map("id" -> "id"),
       "ids" -> Lookup.Argument.batch(Lookup.Argument.key("id"))
     )
   )
@@ -229,8 +227,7 @@ val reviews = Subgraph
 
 Use `Lookup.single` when the subgraph fetches one object at a time. Use `Lookup.list` when it accepts several keys in one request:
 
-- `Correlation.byKey` matches returned objects using a field such as `id`
-- `Correlation.ordered` matches results by their position in the returned list
+- The correlation map matches returned objects using their key fields; results must be non-null, and missing objects are omitted
 - `Argument.key("id")` reads the `id` from the object being fetched
 - `Argument.obj(...)` builds an input object expected by the subgraph
 - `Argument.batch(...)` builds one argument value for each requested object
@@ -320,14 +317,13 @@ val reviews = Subgraph
   .graphql("reviews", uri"http://reviews:8080/graphql", reviewsSdl)
   .transform(
     SchemaTransformation.renameField("Product", "reviews", "customerReviews"),
-    SchemaTransformation.hideField("Product", "internalScore"),
-    SchemaTransformation.renameEnumValue("ReviewStatus", "WAITING", "PENDING")
+    SchemaTransformation.hideField("Product", "internalScore")
   )
 ```
 
 Clients use the new names, while the remote service continues to receive its original names.
 
-You can rename or hide types, fields, optional arguments, input fields, and enum values. Invalid or conflicting changes are reported when the gateway starts.
+You can rename types, fields, and arguments, or hide types, fields, optional arguments, and optional input fields. Enum values and input-field names are unchanged. Invalid or conflicting changes are reported when the gateway starts.
 
 ## Gateway limits and shutdown
 
@@ -348,7 +344,8 @@ The defaults are suitable for getting started. The most common settings are:
 - `withMaxConcurrentRequests` for how many requests the gateway handles at once
 - `withRequestTimeout` for the maximum duration of a client request
 - `withDrainTimeout` for the time allowed to finish requests during shutdown
-- `withMaxConcurrentLocalCalls` if the gateway includes an in-process Caliban API
+
+Local Caliban subgraphs run directly within the request budget. Remote subgraphs also have their own concurrency limits.
 
 Leave the other limits at their defaults unless you have a specific reason to change them.
 
@@ -401,6 +398,8 @@ The helper uses `product-v1` to find the registered query, preserving the reques
 
 For a database or other lookup, use `OperationResolver(resolve)`, where `resolve` is a `GraphQLRequest => ZIO[R, Throwable, String]`. Resolution runs on every request, before preparation-cache lookup. Use `OperationResolver.uncached(resolve)` to disable prepared-document and plan reuse; validation still applies. The hook runs for `executeRequest`, `executeStream`, and `explain(request)`, not `check(query)`.
 
+Custom validations set through `Configurator.setValidations` are part of the preparation cache key. Reuse the validation function instances across requests (for example, from one `ExecutionConfiguration`). Rebuilding a list with the same functions is fine; allocating fresh lambdas causes misses and eviction churn. The cache remains bounded by weight.
+
 Custom resolvers can fail with `ZIO.fail(OperationResolver.Rejection(message, code))` to expose a safe message and `extensions.code` (HTTP 200 with `QuickAdapter`). Unexpected failures remain masked.
 
 ## Authorizing operations
@@ -441,11 +440,11 @@ def execute(
 
 `None` means anonymous; `Some` is authenticated even with no scopes. Claims are read once per protected execution, including cache hits; public operations skip the lookup. Scope alternatives use outer OR / inner AND: `[["read", "tenant"], ["admin"]]` requires both `read` and `tenant`, or `admin`. Empty `[]` or `[[]]` requires authentication only.
 
-For named checks in `@policy`, use `OperationPolicy.fromClaims(readClaims, policyHandler)(scopes)`. The handler has type `(VerifiedClaims, String) => ZIO[R, Throwable, Boolean]` and should return `false` for unknown names. Alternatives use the same OR/AND rules as scopes, with sequential short-circuiting. An empty outer list or any empty alternative (even `[["owner"], []]`) requires only authentication and skips the handler. Other policy expressions require a handler at startup.
+`@policy` is recorded as a deny-only guard, including aliased and namespace-qualified applications. Composition and reload succeed, but an operation selecting a guarded coordinate or requiring it through a lookup or `@requires` dependency is rejected before contacting any subgraph. A custom policy cannot override this rejection; unrelated operations remain available. These checks also apply to `explain(request)`.
 
-The helper checks every potentially selected protected field, including possible interface implementations, and rejects the **whole operation** on failure. Denials and claims or handler failures return generic messages; handler failures do not try other alternatives.
+The helper checks every potentially selected protected field, including possible interface implementations, and rejects the **whole operation** on failure. Denials and claims failures return generic messages.
 
-The gateway refuses to start without a policy when its schemas contain security directives. Custom policies can inspect `operation.securityRequirements`; use `OperationPolicy.Reject()` unless an explicit reason is safe to return to clients.
+Schemas with `@authenticated` or `@requiresScopes` still require an operation policy at startup. A schema containing only `@policy` needs no policy configuration. Custom policies can inspect `operation.securityRequirements`, which identify protected types and fields; use `OperationPolicy.Reject()` unless an explicit reason is safe to return to clients.
 
 ## Introspection and remote errors
 
@@ -461,16 +460,14 @@ QuickAdapter(interpreter)
 
 This controls whether clients can inspect the combined schema. It does not prevent the gateway from loading remote schemas at startup.
 
-Remote GraphQL error messages are redacted by default, and only the `code` extension is retained. If a trusted service returns details that clients should see, opt in for that subgraph:
+Remote GraphQL error messages are redacted by default. Enable them for the entire gateway only when all upstream messages are safe for clients:
 
 ```scala
-val config = RemoteGraphQLConfig.default.withErrorDisclosure(
-  _.withMessages(true)
-    .withAdditionalExtensionKeys("requestId")
-)
+val gateway = Gateway.compose(products, reviews)
+  .withConfig(_.withRemoteErrorMessages(true))
 ```
 
-Only enable extra error details for services you trust.
+Only the `code` extension is passed through, regardless of the message setting.
 
 ## Inspecting and operating the gateway
 
@@ -501,10 +498,6 @@ Each `fetch` is followed by the name given to the subgraph. Here, `products` and
 
 This is useful when testing a new lookup or checking why a field is being sent to a particular service.
 
-### Check interpreter status
-
-`interpreter.status` shows whether the gateway is running and summarizes active requests, remote-service usage, and operation-cache activity. You can expose the fields you need through a health or diagnostics endpoint.
-
 ### Metrics and tracing
 
 Metrics are opt-in:
@@ -515,7 +508,7 @@ import caliban.gateway.{ Gateway, GatewayMetrics }
 val gateway = Gateway.compose(products, reviews) @@ GatewayMetrics.wrapper
 ```
 
-The built-in metrics cover requests, routing, remote calls, retries, concurrency, cache activity, and request or response sizes.
+The built-in metrics cover requests, routing, subgraph calls, retries, admission counts, operation-cache activity, and subscriptions.
 
 Add OpenTelemetry tracing with the optional tracing module:
 
@@ -549,7 +542,7 @@ val config = RemoteGraphQLConfig.default.withSubscription(
 
 Pass this config when adding the remote subgraph. `Sse(useGet = true)` selects GET instead of POST. For WebSocket authentication, `connectionInit` supplies a static initialization payload; the usual remote header settings also apply.
 
-Each remote subscription opens one upstream connection. Upstream legacy WebSocket and `@defer` / `@stream` within subscriptions are not supported. Configure downstream keepalives through your adapter's existing settings.
+Each remote subscription opens one upstream connection. `RemoteSubscriptionConfig.connectionTimeout` bounds acknowledgement, pong responses, and writes (30 seconds by default); `keepAliveInterval` controls ping frequency (15 seconds by default). Upstream legacy WebSocket and `@defer` / `@stream` within subscriptions are not supported. Configure downstream keepalives through your adapter's existing settings.
 
 ### Consuming from Scala
 
@@ -572,23 +565,24 @@ import caliban.gateway.GatewaySubscriptionConfig
 import zio._
 
 val bounded = gateway.withConfig(_.withSubscriptions(
-  GatewaySubscriptionConfig(maxActive = 256, maxLifetime = Some(4.hours))
+  GatewaySubscriptionConfig(maxActive = 256, bufferSize = 16)
 ))
 ```
 
-Defaults are 1,024 active subscriptions, 32 buffered events per subscription, a 1 MiB event limit, and 30-second setup and event-processing timeouts. Lifetime is unlimited unless `maxLifetime` is set; the ordinary request timeout does not end subscriptions.
+Defaults are 1,024 active subscriptions, 32 buffered events per subscription, and 30-second setup and event-processing timeouts. The gateway imposes no lifetime or event-size limit; remote messages remain bounded by `RemoteGraphQLConfig.Execution.maxResponseBytes`. The ordinary request timeout does not end subscriptions.
 
 - Capacity exhaustion rejects new subscriptions. Buffer overflow terminates the affected subscription with `SUBSCRIPTION_OVERFLOW` instead of silently dropping events.
+- Remote messages exceeding `maxResponseBytes` terminate the subscription with `SUBSCRIPTION_EVENT_TOO_LARGE`.
 - Schema reload ends existing subscriptions with retryable `SUBSCRIPTION_SCHEMA_RELOAD`. Clients should resubscribe; failed reloads leave subscriptions running.
 - There is no automatic upstream reconnect or event replay. Clients must handle terminal errors and reconnect as appropriate; events during a disconnect may be lost.
 
 ### Authentication and monitoring
 
-Authenticate during setup; the gateway evaluates authorization once and captures forwarding headers for the subscription's lifetime. Trusted middleware can use `SubscriptionIdentity.withExpiry(instant)(setup)` to end a subscription when its credentials expire. Revocation is not polled and policies are not re-evaluated for each event.
+Authenticate during setup; the gateway evaluates authorization once and captures forwarding headers for the subscription's lifetime. Credential expiry and revocation belong to the WebSocket or authentication layer. Policies are not re-evaluated for each event.
 
-Remote errors follow the configured `ErrorDisclosure` policy. Local sources retain Caliban's native behavior: a field resolver failure may produce null without an error entry in that event.
+Remote error messages follow the gateway’s `withRemoteErrorMessages` setting; only the `code` extension is retained. Local sources retain Caliban's native behavior: a field resolver failure may produce null without an error entry in that event.
 
-Use `interpreter.subscriptionStatus` to inspect active and overdue subscriptions. The existing metrics and tracing wrappers include subscription observations. Shutdown waits for resource cleanup, including uninterruptible finalizers.
+The metrics and tracing wrappers include subscription observations. Shutdown waits for resource cleanup, including uninterruptible finalizers.
 
 Setup and event spans inherit incoming `traceparent` or ambient trace context. Without either, they are independent roots; no separate subscription correlation ID is added.
 

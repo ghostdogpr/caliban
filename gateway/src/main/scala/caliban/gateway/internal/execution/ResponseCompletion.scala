@@ -3,6 +3,7 @@ package caliban.gateway.internal.execution
 import caliban.{ CalibanError, PathValue, ResponseValue }
 import caliban.execution.Field
 import caliban.gateway.internal.execution.ResponseCompletion._
+import caliban.gateway.internal.planning.OperationPlan
 import caliban.gateway.internal.planning.OperationPlan.TypenameSelection
 import caliban.introspection.adt.{ __Type, __TypeKind }
 import caliban.ResponseValue.{ ListValue, ObjectValue }
@@ -13,7 +14,10 @@ import scala.collection.mutable
 /**
  * Completes fetched values against the client selections, including GraphQL null propagation.
  */
-private[gateway] final class ResponseCompletion(typenameSelections: List[TypenameSelection]) {
+private[gateway] final class ResponseCompletion(
+  typenameSelections: List[TypenameSelection],
+  fetchedFields: Map[Vector[String], List[Field]] = Map.empty
+) {
   def complete(fields: List[Field], value: ResponseValue, errors: List[CalibanError]): Completion =
     completeObject(fields, value, Nil, ErrorPathIndex(errors))
 
@@ -21,7 +25,8 @@ private[gateway] final class ResponseCompletion(typenameSelections: List[Typenam
     fields: List[Field],
     value: ResponseValue,
     path: List[PathValue],
-    sourceErrors: ErrorPathIndex
+    sourceErrors: ErrorPathIndex,
+    runtimeType: Option[String] = None
   ): Completion =
     value match {
       case obj: ObjectValue =>
@@ -38,7 +43,15 @@ private[gateway] final class ResponseCompletion(typenameSelections: List[Typenam
           val fieldPath = PathValue.Key(name) :: path
           val value     = lookup.getOrNull(name)
           val result    =
-            if (value ne null)
+            if (
+              field._condition.nonEmpty && runtimeType.exists { typeName =>
+                fetchedFields.nonEmpty && !fetchedFields.getOrElse(responsePath(fieldPath), Nil).exists { selected =>
+                  selected.name == field.name && selected._condition.forall(_.contains(typeName))
+                }
+              }
+            )
+              completeValue(field.fieldType, field, NullValue, fieldPath, sourceErrors)
+            else if (value ne null)
               completeValue(field.fieldType, field, value, fieldPath, sourceErrors)
             else {
               val invalid = Completed(NullValue, invalidSourceValueErrors(fieldPath.reverse, sourceErrors))
@@ -249,7 +262,7 @@ private[gateway] final class ResponseCompletion(typenameSelections: List[Typenam
     path: List[PathValue],
     sourceErrors: ErrorPathIndex
   ): Completion = {
-    val completed = completeObject(field.collectFields(typeName), value, path, sourceErrors)
+    val completed = completeObject(field.collectFields(typeName), value, path, sourceErrors, Some(typeName))
     if (completed.bubblesNull) Completed(NullValue, completed.errors) else completed
   }
 
@@ -315,6 +328,21 @@ private[gateway] final class ResponseCompletion(typenameSelections: List[Typenam
 }
 
 private[gateway] object ResponseCompletion {
+  def forPlan(plan: OperationPlan): ResponseCompletion = {
+    // A valid plan can omit conditional fields outside the common runtime types of a shareable path.
+    // Retain fetched selections so those omissions do not look like malformed upstream responses.
+    val fetched                                                  = mutable.Map.empty[Vector[String], List[Field]]
+    def collect(fields: List[Field], path: Vector[String]): Unit =
+      fields.foreach { field =>
+        val next = path :+ field.aliasedName
+        fetched.update(next, field :: fetched.getOrElse(next, Nil))
+        collect(field.fields, next)
+      }
+    collect(plan.localFields ::: plan.roots.flatMap(_.downstream), Vector.empty)
+    plan.entities.foreach(fetch => collect(fetch.fields, fetch.mergePath))
+    new ResponseCompletion(plan.typenameSelections, fetched.toMap)
+  }
+
   private final case class RuntimeTypeLookup(
     matching: List[TypenameSelection],
     fallback: List[TypenameSelection],

@@ -80,15 +80,7 @@ object LookupSpec extends ZIOSpecDefault {
     "Product",
     keyFields,
     "productsByRefs",
-    Lookup.Correlation.byKey(Map("id" -> "id", "region" -> "region")),
-    "refs" -> Lookup.Argument.batch(refArgument)
-  )
-
-  private val orderedLookup = Lookup.list(
-    "Product",
-    keyFields,
-    "productsByRefs",
-    Lookup.Correlation.ordered,
+    Map("id" -> "id", "region" -> "region"),
     "refs" -> Lookup.Argument.batch(refArgument)
   )
 
@@ -213,7 +205,7 @@ object LookupSpec extends ZIOSpecDefault {
         "Product",
         List("id"),
         "productsByRefs",
-        Lookup.Correlation.byKey(Map("id" -> "id")),
+        Map("id" -> "id"),
         "refs" -> Lookup.Argument.batch(
           Lookup.Argument.obj("productId" -> Lookup.Argument.key("id"))
         )
@@ -235,22 +227,11 @@ object LookupSpec extends ZIOSpecDefault {
         values.flatMap(reviewBody) == List(StringValue("p1 review"), StringValue("p2 review"))
       )
     },
-    test("correlates list lookups by order and single lookups by generated alias") {
-      val orderedResponse =
-        """{"data":{"_caliban_gateway_lookup":[{"reviews":[{"body":"Table review"}]},{"reviews":[{"body":"Chair review"}]}]}}"""
-      val singleResponse  =
+    test("correlates single lookups by generated alias") {
+      val singleResponse =
         """{"data":{"_caliban_gateway_lookup_0":{"reviews":[{"body":"Table review"}]},"_caliban_gateway_lookup_1":{"reviews":[{"body":"Chair review"}]}}}"""
 
       for {
-        productsA <- stub(productsResponse)
-        reviewsA  <- stub(orderedResponse)
-        ordered   <- Gateway
-                       .compose(
-                         Subgraph.graphql("products", productsA.endpoint, productsSchema),
-                         Subgraph.graphql("reviews", reviewsA.endpoint, reviewsSchema).withLookup(orderedLookup)
-                       )
-                       .interpreter
-        responseA <- ordered.execute("{ products { name reviews { body } } }")
         productsB <- stub(productsResponse)
         reviewsB  <- stub(singleResponse)
         single    <- Gateway
@@ -261,13 +242,9 @@ object LookupSpec extends ZIOSpecDefault {
                        .interpreter
         responseB <- single.execute("{ products { name reviews { body } } }")
         sentB     <- reviewsB.requests.get
-        ordered    = listValues(field(responseA.data, "products"))
         singles    = listValues(field(responseB.data, "products"))
       } yield assertTrue(
-        responseA.errors.isEmpty,
         responseB.errors.isEmpty,
-        ordered.flatMap(reviewBody) ==
-          List(StringValue("Table review"), StringValue("Chair review")),
         singles.flatMap(reviewBody) ==
           List(StringValue("Table review"), StringValue("Chair review")),
         sentB.size == 1,
@@ -328,7 +305,7 @@ object LookupSpec extends ZIOSpecDefault {
         "Product",
         List("id", "region"),
         "productsByRefs",
-        Lookup.Correlation.byKey(Map("id" -> "id", "region" -> "region")),
+        Map("id" -> "id", "region" -> "region"),
         "refs" -> Lookup.Argument.batch(
           Lookup.Argument.obj(
             "productId" -> Lookup.Argument.key("id"),
@@ -336,7 +313,7 @@ object LookupSpec extends ZIOSpecDefault {
           )
         )
       )
-      val transformation = SchemaTransformation.renameEnumValue("Region", "US", "NORTH_AMERICA")
+      val transformation = SchemaTransformation.renameType("Region", "Market")
 
       for {
         products <-
@@ -363,10 +340,10 @@ object LookupSpec extends ZIOSpecDefault {
         response.errors.isEmpty,
         valid.forall(_.isSuccess),
         sent.headOption.flatMap(_.query).exists(_.contains("region:{code:US}")),
-        !sent.headOption.flatMap(_.query).exists(_.contains("NORTH_AMERICA"))
+        !sent.headOption.flatMap(_.query).exists(_.contains("Market"))
       )
     },
-    test("allows keyed omissions but rejects short ordered lookup results") {
+    test("allows keyed omissions") {
       val shortResponse =
         """{"data":{"_caliban_gateway_lookup":[{"_caliban_gateway_lookup_key":"p1","_caliban_gateway_lookup_key_2":"us","reviews":[{"body":"Table review"}]}]}}"""
 
@@ -380,45 +357,12 @@ object LookupSpec extends ZIOSpecDefault {
                        )
                        .interpreter
         responseA <- keyed.execute("{ products { name reviews { body } } }")
-        productsB <- stub(productsResponse)
-        reviewsB  <- stub(shortResponse)
-        ordered   <- Gateway
-                       .compose(
-                         Subgraph.graphql("products", productsB.endpoint, productsSchema),
-                         Subgraph.graphql("reviews", reviewsB.endpoint, reviewsSchema).withLookup(orderedLookup)
-                       )
-                       .interpreter
-        responseB <- ordered.execute("{ products { name reviews { body } } }")
         valuesA    = listValues(field(responseA.data, "products"))
       } yield assertTrue(
         valuesA.size == 2,
         valuesA.lift(1).contains(NullValue),
         responseA.errors.map(_.msg) == List("Cannot return null for non-nullable field Product.reviews."),
-        !responseA.errors.exists(_.msg.contains("omitted a result")),
-        responseB.errors.exists(_.msg.contains("omitted a result"))
-      )
-    },
-    test("rejects an extra result from an ordered lookup") {
-      val reviewsResponse =
-        """{"data":{"_caliban_gateway_lookup":[{"reviews":[{"body":"Table review"}]},{"reviews":[{"body":"Chair review"}]},{"reviews":[{"body":"Unexpected review"}]}]}}"""
-
-      for {
-        products <- stub(productsResponse)
-        reviews  <- stub(reviewsResponse)
-        gateway  <- Gateway
-                      .compose(
-                        Subgraph.graphql("products", products.endpoint, productsSchema),
-                        Subgraph.graphql("reviews", reviews.endpoint, reviewsSchema).withLookup(orderedLookup)
-                      )
-                      .interpreter
-        response <- gateway.execute("{ products { name reviews { body } } }")
-        values    = listValues(field(response.data, "products"))
-      } yield assertTrue(
-        values.flatMap(reviewBody) == List(StringValue("Table review"), StringValue("Chair review")),
-        response.errors.map(_.msg) ==
-          List("Entity lookup response contained an unexpected result for 'Product(id, region)'."),
-        executionErrors(response.errors).map(_.path) ==
-          List(List(PathValue.Key("products")))
+        !responseA.errors.exists(_.msg.contains("omitted a result"))
       )
     },
     test("relocates ordinary lookup failures without losing independent data") {
@@ -436,7 +380,7 @@ object LookupSpec extends ZIOSpecDefault {
                         Subgraph.graphql("products", products.endpoint, productsSchema),
                         Subgraph.graphql("reviews", reviews.endpoint, reviewsSchema).withLookup(keyedLookup)
                       )
-                      .withConfig(_.withRemoteErrorDisclosure(_.withMessages(true)))
+                      .withConfig(_.withRemoteErrorMessages(true))
                       .interpreter
         response <- gateway.execute("{ status products { name reviews { body } } }")
         errors    = executionErrors(response.errors)
@@ -456,7 +400,7 @@ object LookupSpec extends ZIOSpecDefault {
         "Product",
         List("missing"),
         "productsByRefs",
-        Lookup.Correlation.ordered,
+        Map("id" -> "id", "region" -> "region"),
         "refs" -> Lookup.Argument.batch(Lookup.Argument.obj("productId" -> Lookup.Argument.key("missing")))
       )
       val wrongShape         = Lookup.single("Product", keyFields, "productsByRefs", "refs" -> refArgument)
@@ -464,14 +408,14 @@ object LookupSpec extends ZIOSpecDefault {
         "Product",
         keyFields,
         "productsByRefs",
-        Lookup.Correlation.ordered,
+        Map("id" -> "id", "region" -> "region"),
         "refs" -> refArgument
       )
       val badCorrelation     = Lookup.list(
         "Product",
         keyFields,
         "productsByRefs",
-        Lookup.Correlation.byKey(Map("missing" -> "id")),
+        Map("missing" -> "id"),
         "refs" -> Lookup.Argument.batch(refArgument)
       )
       val unknownArgument    = Lookup.single(
@@ -490,7 +434,7 @@ object LookupSpec extends ZIOSpecDefault {
         "Product",
         keyFields,
         "productsByRefs",
-        Lookup.Correlation.ordered,
+        Map("id" -> "id", "region" -> "region"),
         "refs" -> Lookup.Argument.obj(
           "productId"  -> Lookup.Argument.key("id"),
           "regionCode" -> Lookup.Argument.batch(Lookup.Argument.key("region"))
@@ -509,7 +453,7 @@ object LookupSpec extends ZIOSpecDefault {
         "Product",
         keyFields,
         "productsByRefs",
-        Lookup.Correlation.ordered,
+        Map("id" -> "id", "region" -> "region"),
         "refs" -> Lookup.Argument.batch(Lookup.Argument.batch(refArgument))
       )
       val partialKeys        = Lookup.single(
@@ -560,7 +504,7 @@ object LookupSpec extends ZIOSpecDefault {
                            Subgraph
                              .graphql("reviews", endpoint, reviewsSchema)
                              .withLookup(keyedLookup)
-                             .withLookup(orderedLookup)
+                             .withLookup(keyedLookup)
                          )
                          .interpreter
                          .either

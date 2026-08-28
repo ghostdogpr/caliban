@@ -527,7 +527,7 @@ private[internal] final class PlanExecutionCache {
  */
 private[gateway] final class PreparedPlan(val plan: OperationPlan) {
   lazy val cache: PlanExecutionCache                                 = new PlanExecutionCache
-  lazy val completion: ResponseCompletion                            = new ResponseCompletion(plan.typenameSelections)
+  lazy val completion: ResponseCompletion                            = ResponseCompletion.forPlan(plan)
   def operation: OperationType                                       = plan.operation
   def render: String                                                 = plan.render
   def hasVariableReferences: Boolean                                 = plan.hasVariableReferences

@@ -10,9 +10,9 @@ import sttp.model.Header
 import zio.Duration
 import zio.http.Status
 import zio.telemetry.opentelemetry.tracing.Tracing
-import zio.{ Exit, Promise, Scope, Trace, ZIO }
+import zio.{ Promise, Scope, ZIO }
 import zio.stream.ZStream
-import zio.test.{ assertTrue, Spec, TestAspect, TestEnvironment, ZIOSpecDefault }
+import zio.test.{ assertTrue, Spec, TestAspect, TestClock, TestEnvironment, ZIOSpecDefault }
 
 import java.nio.charset.StandardCharsets.UTF_8
 
@@ -179,32 +179,21 @@ object GatewayTracingSpec extends ZIOSpecDefault {
       for {
         started   <- Promise.make[Nothing, Unit]
         release   <- Promise.make[Nothing, Unit]
-        joined    <- Promise.make[Nothing, Unit]
         remote    <- stubWith(started.succeed(()).unit *> release.await, """{"data":{"value":"ok"}}""")
         runtime   <- (Gateway.compose(
                        Subgraph.graphql("products", remote.endpoint, schema)
-                     ) @@ (GatewayTracing.wrapper |+| deduplicationObserver(joined))).interpreter
+                     ) @@ GatewayTracing.wrapper).interpreter
         fibers    <- ZIO.foreach(1 to 2)(index =>
                        ZIO.serviceWithZIO[Tracing](_.span(s"caller-$index")(runtime.execute("{ value }"))).fork
                      )
         _         <- started.await
-        _         <- joined.await
+        _         <- TestClock.adjust(zio.Duration.Zero)
         before    <- remote.requests.get
         _         <- release.succeed(())
         responses <- ZIO.foreach(fibers)(_.join)
-      } yield assertTrue(before.size == 1, responses.forall(_.errors.isEmpty))
+        after     <- remote.requests.get
+      } yield assertTrue(before.size == 1, after.size == 1, responses.forall(_.errors.isEmpty))
     }
   ).provideSomeShared[Scope](testServer, stubIds, TracingMock.layer) @@ TestAspect.sequential
 
-  private def deduplicationObserver(joined: Promise[Nothing, Unit]): GatewayWrapper[Any] =
-    new GatewayWrapper[Any] {
-      def wrap[R, E, A](event: GatewayWrapper.Event)(effect: ZIO[R, E, A])(
-        result: Exit[E, A] => GatewayWrapper.Result
-      )(implicit trace: Trace): ZIO[R, E, A] =
-        event match {
-          case GatewayWrapper.Event.Deduplication(GatewayWrapper.DeduplicationResult.Join) =>
-            joined.succeed(()).unit *> effect
-          case _                                                                           => effect
-        }
-    }
 }

@@ -1,8 +1,10 @@
 package caliban.gateway.internal.composition
 
-import caliban.execution.{ isMetaField, ExecutionRequest, Field }
-import caliban.gateway.OperationPolicy.{ RuntimeTypeCondition, SecurityDirective, SecurityRequirement }
+import caliban.execution.{ isMetaField, Field }
+import caliban.gateway.OperationPolicy.{ SecurityDirective, SecurityRequirement }
+import caliban.gateway.internal.composition.ComposedGraph.{ LookupOperation, LookupResult }
 import caliban.introspection.adt._
+import caliban.gateway.internal.planning.OperationPlan
 import caliban.parsing.adt.{ Directive, OperationType, Selection }
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
 import caliban.parsing.adt.Definition.TypeSystemExtension.TypeExtension._
@@ -27,30 +29,37 @@ private[gateway] final class ComposedGraph private[internal] (
   private val securityApplications: List[ComposedGraph.SecurityApplication],
   private[gateway] val schemaDirectives: List[Directive]
 ) {
-  private val securityByCoordinate =
+  private val hasUnsupportedPolicies   = securityApplications.exists(_.directive == SecurityDirective.UnsupportedPolicy)
+  private val requirementsByCoordinate =
+    if (!hasUnsupportedPolicies) Map.empty[(String, String), List[(String, List[Selection])]]
+    else
+      requirements.toList.map { case ((source, owner, name), selections) => (owner -> name) -> (source -> selections) }
+        .groupBy(_._1)
+        .map { case (coordinate, values) => coordinate -> values.map(_._2) }
+  private val securityByCoordinate     =
     securityApplications
       .groupBy(application => application.typeName -> application.fieldName)
       .map { case (coordinate, values) => coordinate -> values.map(_.directive).distinct }
-  private val securedFieldTypes    = securityApplications.iterator
+  private val securedFieldTypes        = securityApplications.iterator
     .flatMap(application => application.fieldName.map(_ -> application.typeName))
     .toList
     .groupBy(_._1)
     .map { case (fieldName, values) => fieldName -> values.map(_._2).distinct.sorted }
-  private val securedTypes         = securityApplications.collect {
+  private val securedTypes             = securityApplications.collect {
     case application if application.fieldName.isEmpty =>
       application.typeName
   }.distinct.sorted
-  private val sourceFieldSources   = sourceFields.keysIterator.map { case (source, owner, name) =>
+  private val sourceFieldSources       = sourceFields.keysIterator.map { case (source, owner, name) =>
     (owner -> name) -> source
   }.toList
     .groupBy(_._1)
     .map { case (coordinate, values) => coordinate -> values.map(_._2).distinct.sorted }
-  private val lookupSourcesByType  = entityLookups.keysIterator.collect {
+  private val lookupSourcesByType      = entityLookups.keysIterator.collect {
     case (source, typeName) if !interfaceObjects.contains(source -> typeName) => typeName -> source
   }.toList
     .groupBy(_._1)
     .map { case (typeName, values) => typeName -> values.map(_._2).distinct.sorted }
-  private val lookupTypes          = entityLookups.keysIterator.map(_._2).toSet
+  private val lookupTypes              = entityLookups.keysIterator.map(_._2).toSet
 
   def sources(operation: OperationType, field: String): List[String] =
     routes.getOrElse(operation -> field, Nil)
@@ -82,119 +91,115 @@ private[gateway] final class ComposedGraph private[internal] (
   def mapping(source: String): Option[SchemaMapping] =
     mappings.get(source)
 
-  def hasSecurityRequirements: Boolean = securityApplications.nonEmpty
+  def hasSecurityRequirements: Boolean = securityApplications.exists(_.directive != SecurityDirective.UnsupportedPolicy)
 
   def securityPolicyDiagnostics: List[String] =
     securityApplications
+      .filterNot(_.directive == SecurityDirective.UnsupportedPolicy)
       .map(application =>
         s"[${application.source}] Federation ${application.directiveName} at '${application.coordinate}' requires an operation policy."
       )
       .distinct
       .sorted
 
-  def namedPolicyDiagnostics: List[String] =
-    securityApplications
-      .filter(_.directive match {
-        case policy: SecurityDirective.Policy => !policy.isAuthenticationOnly
-        case _                                => false
-      })
-      .map { application =>
-        s"[${application.source}] Federation ${application.directiveName} at '${application.coordinate}' requires " +
-          "a named-policy handler in OperationPolicy.fromClaims or a custom OperationPolicy."
-      }
-      .distinct
-      .sorted
-
-  def securityRequirements(execution: ExecutionRequest): List[SecurityRequirement] =
+  def securityRequirements(plan: OperationPlan): List[SecurityRequirement] =
     if (securityApplications.isEmpty) Nil
     else {
-      def applications(typeName: String, fieldName: Option[String]): List[SecurityDirective] =
-        securityByCoordinate.getOrElse(typeName -> fieldName, Nil)
-
-      def condition(path: List[String], types: Option[Set[String]]): List[RuntimeTypeCondition] =
-        types.filter(_.nonEmpty).map(RuntimeTypeCondition(path, _) :: Nil).getOrElse(Nil)
-
       def runtimeTypes(typeName: String): Set[String] =
         runtimeTypesByName.getOrElse(typeName, Set.empty)
 
-      def candidateConditions(
-        path: List[String],
-        selectedType: String,
-        candidateType: String,
-        selection: Option[Set[String]]
-      ): Option[List[RuntimeTypeCondition]] = {
-        val selected   = selection.getOrElse(runtimeTypes(selectedType))
-        val applicable = selected intersect runtimeTypes(candidateType)
-        if (applicable.isEmpty) None
-        else if (applicable == selected) Some(Nil)
-        else Some(RuntimeTypeCondition(path, applicable) :: Nil)
+      def overlaps(selectedType: String, candidateType: String, selection: Option[Set[String]]): Boolean =
+        selection.getOrElse(runtimeTypes(selectedType)).exists(runtimeTypes(candidateType))
+
+      def selected(typeName: String, fieldName: Option[String]): List[SecurityRequirement] = {
+        val values = securityByCoordinate.getOrElse(typeName -> fieldName, Nil)
+        if (values.isEmpty) Nil else SecurityRequirement(typeName, fieldName, values) :: Nil
       }
 
-      def selected(
-        responsePath: List[String],
-        typeName: String,
-        fieldName: Option[String],
-        runtimeTypeConditions: List[RuntimeTypeCondition]
-      ): List[SecurityRequirement] = {
-        val values = applications(typeName, fieldName)
-        if (values.isEmpty) Nil
-        else SecurityRequirement(responsePath, typeName, fieldName, runtimeTypeConditions, values) :: Nil
-      }
+      // Composition validates these field sets against source definitions, including hidden fields and roots.
+      def requiredFields(source: String, parent: String, selections: List[Selection]): List[Field] =
+        selections.flatMap {
+          case field: Selection.Field             =>
+            sourceFields.get((source, parent, field.name)).toList.map { definition =>
+              Field(
+                field.name,
+                definition._type,
+                Some(__Type(kind = __TypeKind.OBJECT, name = Some(parent))),
+                fields = requiredFields(source, definition._type.innerType.name.getOrElse(""), field.selectionSet)
+              )
+            }
+          case fragment: Selection.InlineFragment =>
+            requiredFields(source, fragment.typeCondition.fold(parent)(_.name), fragment.selectionSet)
+          case _: Selection.FragmentSpread        => Nil
+        }
 
       def loop(
         fields: List[Field],
-        parentPath: Vector[String],
         root: Boolean,
-        inheritedConditions: List[RuntimeTypeCondition]
+        visited: Set[(String, String)] = Set.empty
       ): List[SecurityRequirement] =
         fields.flatMap { field =>
           if (isMetaField(field)) Nil
           else {
-            val responsePath     = parentPath :+ field.aliasedName
             val parentType       = field.parentType.flatMap(_.innerType.name).getOrElse("")
             val outputType       = field.fieldType.innerType.name.getOrElse("")
-            val parentConditions = (inheritedConditions ::: condition(parentPath.toList, field._condition)).distinct
-            val direct           = selected(responsePath.toList, parentType, Some(field.name), parentConditions)
-            val rootRequirements =
-              if (root) selected(responsePath.toList, parentType, None, parentConditions)
-              else Nil
+            val direct           = selected(parentType, Some(field.name))
+            val rootRequirements = if (root) selected(parentType, None) else Nil
             val relatedFields    = securedFieldTypes.getOrElse(field.name, Nil).flatMap { typeName =>
-              if (typeName == parentType) Nil
-              else
-                candidateConditions(parentPath.toList, parentType, typeName, field._condition).toList.flatMap {
-                  conditions =>
-                    selected(
-                      responsePath.toList,
-                      typeName,
-                      Some(field.name),
-                      (parentConditions ::: conditions).distinct
-                    )
-                }
+              if (typeName != parentType && overlaps(parentType, typeName, field._condition))
+                selected(typeName, Some(field.name))
+              else Nil
             }
-            val output           = selected(responsePath.toList, outputType, None, parentConditions)
+            val output           = selected(outputType, None)
             val relatedOutput    = securedTypes.flatMap { typeName =>
-              if (typeName == outputType) Nil
-              else
-                candidateConditions(responsePath.toList, outputType, typeName, None).toList.flatMap { conditions =>
-                  selected(
-                    responsePath.toList,
-                    typeName,
-                    None,
-                    (parentConditions ::: conditions).distinct
-                  )
-                }
+              if (typeName != outputType && overlaps(outputType, typeName, None)) selected(typeName, None)
+              else Nil
             }
-
-            rootRequirements ::: direct ::: relatedFields ::: output ::: relatedOutput ::: loop(
+            // Only @policy expands runtime checks to implicit dependencies. Auth/scopes retain their existing
+            // client-selection checks and composition-time @requires checks; injected keys add neither.
+            val dependencies     =
+              if (!hasUnsupportedPolicies) Nil
+              else {
+                val coordinate = parentType -> field.name
+                if (visited(coordinate)) Nil
+                else
+                  requirementsByCoordinate.getOrElse(coordinate, Nil).flatMap { case (source, selections) =>
+                    loop(requiredFields(source, parentType, selections), root = false, visited + coordinate)
+                      .filter(_.directives.contains(SecurityDirective.UnsupportedPolicy))
+                  }
+              }
+            rootRequirements ::: direct ::: relatedFields ::: output ::: relatedOutput ::: dependencies ::: loop(
               field.fields,
-              responsePath,
               root = false,
-              parentConditions
+              visited
             )
           }
         }
 
-      loop(execution.field.fields, Vector.empty, root = true, Nil)
+      val requested = loop(plan.fields, root = true)
+      // Include implicit fetches and the lookup roots/correlation fields generated later by EntityLookup.
+      val injected  =
+        if (!hasUnsupportedPolicies) Nil
+        else {
+          def generatedFields(source: String, parent: String, names: List[String]): List[Field] =
+            requiredFields(source, parent, names.map(name => Selection.Field(None, name, Map.empty, Nil, Nil, 0)))
+
+          val lookups = plan.entities.flatMap { fetch =>
+            val (root, correlation) = fetch.lookup.operation match {
+              case LookupOperation.GraphQLQuery(name, _, LookupResult.ByKey(fields)) => name        -> fields.keys.toList
+              case LookupOperation.GraphQLQuery(name, _, LookupResult.Single)        => name        -> Nil
+              case _: LookupOperation.FederationEntities                             => "_entities" -> Nil
+            }
+            selected("Query", None) ::: selected("Query", Some(root)) ::: loop(
+              generatedFields(fetch.source, "Query", root :: Nil) :::
+                generatedFields(fetch.source, fetch.entityType, correlation),
+              root = false
+            )
+          }
+          (lookups ::: loop(plan.roots.flatMap(_.downstream) ::: plan.entities.flatMap(_.fields), root = false))
+            .filter(_.directives.contains(SecurityDirective.UnsupportedPolicy))
+        }
+      (requested ::: injected).distinct
     }
 
   def isInterfaceObject(source: String, typeName: String): Boolean =
@@ -225,8 +230,7 @@ private[gateway] final class ComposedGraph private[internal] (
     outputType: String
   ): Set[String] = {
     val candidates =
-      if (sources.contains(source)) source :: Nil
-      else if (sources.nonEmpty) sources.toList.sorted
+      if (sources.nonEmpty) sources.toList.sorted
       else source :: Nil
     val available  = candidates.flatMap { candidate =>
       sourceFields
@@ -361,9 +365,9 @@ private[gateway] object ComposedGraph {
   ) {
     val coordinate: String    = fieldName.fold(typeName)(name => s"$typeName.$name")
     val directiveName: String = directive match {
+      case SecurityDirective.UnsupportedPolicy => "@policy"
       case SecurityDirective.Authenticated     => "@authenticated"
       case _: SecurityDirective.RequiresScopes => "@requiresScopes"
-      case _: SecurityDirective.Policy         => "@policy"
     }
   }
 
@@ -404,9 +408,6 @@ private[gateway] object ComposedGraph {
   object LookupResult {
     case object Single extends LookupResult
 
-    sealed trait ListResult extends LookupResult
-
-    case object Ordered                                 extends ListResult
-    final case class ByKey(fields: Map[String, String]) extends ListResult
+    final case class ByKey(fields: Map[String, String]) extends LookupResult
   }
 }

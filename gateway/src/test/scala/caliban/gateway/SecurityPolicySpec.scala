@@ -2,8 +2,8 @@ package caliban.gateway
 
 import caliban.Value.{ BooleanValue, StringValue }
 import caliban.gateway.GatewayTestSupport._
-import caliban.gateway.OperationPolicy.SecurityDirective.{ Authenticated, Policy, RequiresScopes }
-import caliban.gateway.OperationPolicy.{ Reject, RuntimeTypeCondition, SecurityRequirement }
+import caliban.gateway.OperationPolicy.SecurityDirective.{ Authenticated, RequiresScopes }
+import caliban.gateway.OperationPolicy.{ Reject, SecurityRequirement }
 import caliban.GraphQLRequest
 import zio._
 import zio.test._
@@ -31,9 +31,8 @@ object SecurityPolicySpec extends ZIOSpecDefault {
        |$linkDefinitions
        |directive @loggedIn on FIELD_DEFINITION | OBJECT
        |directive @guarded(scopes: [[fed__Scope!]!]!) on FIELD_DEFINITION | OBJECT
-       |directive @fed__policy(policies: [[fed__Policy!]!]!) on FIELD_DEFINITION | OBJECT
        |type Query @loggedIn {
-       |  node: Node @fed__policy(policies: [["owner", "region"], ["admin"]])
+       |  node: Node @guarded(scopes: [["read:node"]])
        |}
        |interface Node { id: ID! secret: String }
        |type Public implements Node { id: ID! secret: String }
@@ -62,12 +61,11 @@ object SecurityPolicySpec extends ZIOSpecDefault {
     s"""
        |extend schema @link(
        |  url: "https://specs.apollo.dev/federation/v2.9"
-       |  import: ["@authenticated", "@requiresScopes", "@policy"]
+       |  import: ["@authenticated", "@requiresScopes"]
        |)
        |$linkDefinitions
        |directive @authenticated on FIELD_DEFINITION | OBJECT
        |directive @requiresScopes(scopes: [[String!]!]!) on FIELD_DEFINITION | OBJECT
-       |directive @policy(policies: [[String!]!]!) on FIELD_DEFINITION | OBJECT
        |type Query {
        |  open: String
        |  login: String @authenticated
@@ -82,40 +80,80 @@ object SecurityPolicySpec extends ZIOSpecDefault {
        |type Private implements Node @requiresScopes(scopes: [["read:private"]]) { value: String }
        |""".stripMargin
 
-  private val namedPolicySchema =
-    s"""
-       |extend schema @link(
-       |  url: "https://specs.apollo.dev/federation/v2.9"
-       |  import: ["@policy", "@requiresScopes"]
-       |)
-       |$linkDefinitions
-       |directive @policy(policies: [[String!]!]!) on FIELD_DEFINITION | OBJECT
-       |directive @requiresScopes(scopes: [[String!]!]!) on FIELD_DEFINITION | OBJECT
-       |type Query {
-       |  open: String
-       |  named: String @policy(policies: [["owner", "region"], ["admin"]])
-       |  extra: String @policy(policies: [["extra"]])
-       |  scoped: String @requiresScopes(scopes: [["read"]]) @policy(policies: [["owner"]])
-       |  empty: String @policy(policies: [])
-       |  emptyAlternative: String @policy(policies: [[]])
-       |}
-       |""".stripMargin
-
-  private final case class Claims(scope: String, policies: Set[String] = Set.empty)
+  private final case class Claims(scope: String)
 
   private trait RequestClaims {
     def current: Task[Option[Claims]]
   }
 
-  private trait NamedPolicies {
-    def allow(claims: Claims, name: String): Task[Boolean]
-  }
-
   private def claimScopes(claims: Claims): Set[String] =
     claims.scope.split(" ").filter(_.nonEmpty).toSet
 
+  private def assertLookupGuard(guardRoot: Boolean, single: Boolean, renamed: Boolean) = {
+    val guard      = "@policy(policies: [[\"owner\"]])"
+    val lookupName = if (single) "productById" else "productsByIds"
+    val schema     = s"""extend schema @link(url: "https://specs.apollo.dev/federation/v2.9", import: ["@policy"])
+                    |$linkDefinitions
+                    |directive @policy(policies: [[String!]!]!) on FIELD_DEFINITION
+                    |type Query {
+                    |  productsByIds(ids: [ID!]!): [Product!]! ${if (guardRoot && !single) guard else ""}
+                    |  productById(id: ID!): Product ${if (guardRoot && single) guard else ""}
+                    |}
+                    |type Product { id: ID! externalId: ID! ${if (guardRoot) "" else guard} review: String }
+                    |""".stripMargin
+    val lookup     =
+      if (single) Lookup.single("Product", List("id"), lookupName, "id" -> Lookup.Argument.key("id"))
+      else
+        Lookup.list(
+          "Product",
+          List("id"),
+          lookupName,
+          Map("externalId" -> "id"),
+          "ids"                                                         -> Lookup.Argument.batch(Lookup.Argument.key("id"))
+        )
+    val joined     = GraphQLRequest(query =
+      Some("query Joined($fetch: Boolean! = true) { product { id review @include(if: $fetch) } }")
+    )
+
+    for {
+      products     <- stub("""{"data":{"product":{"id":"p1","_caliban_gateway_key":"p1"}}}""")
+      reviews      <- stub("""{"data":{"_caliban_gateway_lookup":[]}}""")
+      source        = Subgraph.graphql("reviews", reviews.endpoint, schema).withLookup(lookup)
+      transformed   = if (renamed)
+                        source.transform(
+                          SchemaTransformation.renameField("Query", lookupName, "lookup"),
+                          SchemaTransformation.renameField("Product", "externalId", "correlation")
+                        )
+                      else source
+      runtime      <-
+        Gateway
+          .compose(
+            Subgraph.graphql("products", products.endpoint, "type Query { product: Product } type Product { id: ID! }"),
+            transformed
+          )
+          .withOperationPolicy(OperationPolicy[Any](_ => ZIO.succeed(OperationPolicy.Allow)))
+          .interpreter
+      root          = if (renamed) "lookup" else lookupName
+      arguments     = if (single) "id: \"p1\"" else "ids: [\"p1\"]"
+      selection     = if (guardRoot) "review" else if (renamed) "correlation" else "externalId"
+      direct       <- runtime.execute(s"{ $root($arguments) { $selection } }")
+      first        <- runtime.executeRequest(joined)
+      cached       <- runtime.executeRequest(joined)
+      explanation  <- runtime.explain(joined).either
+      skipped      <- runtime.executeRequest(joined.copy(variables = Some(Map("fetch" -> BooleanValue(false)))))
+      productCalls <- products.requests.get
+      reviewCalls  <- reviews.requests.get
+    } yield assertTrue(
+      List(direct, first, cached).forall(_.errors.exists(_.msg.contains("unsupported @policy"))),
+      explanation.left.exists(_.msg.contains("unsupported @policy")),
+      skipped.errors.isEmpty,
+      productCalls.size == 1,
+      reviewCalls.isEmpty
+    )
+  }
+
   def spec = suite("SecurityPolicySpec")(
-    test("uses the same authentication and scope semantics with and without a named-policy handler") {
+    test("enforces authentication and scope alternatives") {
       val cases = List(
         ("{ login }", None, false),
         ("{ login }", Some(""), true),
@@ -137,38 +175,25 @@ object SecurityPolicySpec extends ZIOSpecDefault {
       )
 
       for {
-        remote   <-
+        remote  <-
           stub(
             """{"data":{"open":"ok","login":"ok","scoped":"ok","other":"ok","empty":"ok","emptyAlternative":"ok"}}"""
           )
-        claims   <- FiberRef.make(Option.empty[Claims])
-        policies  = List(
-                      OperationPolicy.fromClaims(claims.get)(claimScopes),
-                      OperationPolicy.fromClaims(
-                        claims.get,
-                        (_: Claims, _: String) => ZIO.dieMessage("unused-handler")
-                      )(claimScopes)
-                    )
-        runtimes <- ZIO.foreach(policies) { policy =>
-                      Gateway
-                        .compose(Subgraph.federation("claims", remote.endpoint, claimsSchema))
-                        .withOperationPolicy(policy)
-                        .interpreter
-                    }
-        results  <- ZIO.foreach(cases) { case (query, scope, allowed) =>
-                      ZIO
-                        .foreach(runtimes) { runtime =>
-                          claims.locally(scope.map(Claims(_)))(runtime.execute(query)).map { result =>
-                            assertTrue(
-                              result.errors.map(_.msg) ==
-                                (if (allowed) Nil else List("Operation rejected by gateway policy."))
-                            )
-                          }
-                        }
-                        .map(_.reduce(_ && _))
-                    }
-        sent     <- remote.requests.get
-      } yield results.reduce(_ && _) && assertTrue(sent.size == cases.count(_._3) * policies.size)
+        claims  <- FiberRef.make(Option.empty[Claims])
+        runtime <- Gateway
+                     .compose(Subgraph.federation("claims", remote.endpoint, claimsSchema))
+                     .withOperationPolicy(OperationPolicy.fromClaims(claims.get)(claimScopes))
+                     .interpreter
+        results <- ZIO.foreach(cases) { case (query, scope, allowed) =>
+                     claims.locally(scope.map(Claims(_)))(runtime.execute(query)).map { result =>
+                       assertTrue(
+                         result.errors.map(_.msg) == (if (allowed) Nil
+                                                      else List("Operation rejected by gateway policy."))
+                       )
+                     }
+                   }
+        sent    <- remote.requests.get
+      } yield results.reduce(_ && _) && assertTrue(sent.size == cases.count(_._3))
     },
     test("reads request claims once per protected execution including cache hits") {
       val query = "{ login scoped }"
@@ -190,13 +215,11 @@ object SecurityPolicySpec extends ZIOSpecDefault {
                       .provideLayer(ZLayer.succeed(service))
         rejected <- runtime.execute(query).provideLayer(ZLayer.succeed(service))
         reads    <- calls.get
-        status   <- runtime.status
         sent     <- remote.requests.get
       } yield assertTrue(
         allowed.errors.isEmpty,
         rejected.errors.map(_.msg) == List("Operation rejected by gateway policy."),
         reads == 2,
-        status.operationCache.hits == 1,
         sent.size == 1
       )
     },
@@ -231,24 +254,15 @@ object SecurityPolicySpec extends ZIOSpecDefault {
     },
     test("masks scope mapping defects without executing protected operations") {
       val scopes: Claims => Set[String] = _ => throw new RuntimeException("scopes-secret")
-      val policies                      = List(
-        OperationPolicy.fromClaims(ZIO.some(Claims("")))(scopes),
-        OperationPolicy.fromClaims(ZIO.some(Claims("")), (_: Claims, _: String) => ZIO.succeed(false))(scopes)
-      )
-
       for {
         remote  <- stub("""{"data":{"login":"ok"}}""")
-        results <- ZIO.foreach(policies) { policy =>
-                     for {
-                       runtime <- Gateway
-                                    .compose(Subgraph.federation("claims", remote.endpoint, claimsSchema))
-                                    .withOperationPolicy(policy)
-                                    .interpreter
-                       result  <- runtime.execute("{ login }")
-                     } yield assertTrue(result.errors.map(_.msg) == List("Operation policy failed."))
-                   }
+        runtime <- Gateway
+                     .compose(Subgraph.federation("claims", remote.endpoint, claimsSchema))
+                     .withOperationPolicy(OperationPolicy.fromClaims(ZIO.some(Claims("")))(scopes))
+                     .interpreter
+        result  <- runtime.execute("{ login }")
         sent    <- remote.requests.get
-      } yield results.reduce(_ && _) && assertTrue(sent.isEmpty)
+      } yield assertTrue(result.errors.map(_.msg) == List("Operation policy failed."), sent.isEmpty)
     },
     test("conservatively enforces protected runtime branches before contacting a source") {
       val query = "{ node { value } }"
@@ -280,202 +294,145 @@ object SecurityPolicySpec extends ZIOSpecDefault {
       } yield assertTrue(
         diagnostics.exists(message => message.startsWith("[secure]") && message.contains("@authenticated")),
         diagnostics.exists(message => message.startsWith("[secure]") && message.contains("@requiresScopes")),
-        diagnostics.exists(message => message.startsWith("[secure]") && message.contains("@policy")),
         sent.isEmpty
       )
     },
-    test("requires a named-policy handler at build time without reading request claims") {
+    test("rejects policy selections at execution even with an allowing policy, but serves public selections") {
+      val expressions = List("[]", "[[]]", "[[\"owner\"]]")
       for {
-        remote     <- stub("""{"data":{"node":null}}""")
-        calls      <- Ref.make(0)
-        policy      = OperationPolicy.fromClaims(calls.update(_ + 1).as(Option.empty[Claims]))(claimScopes)
-        exit       <- Gateway
-                        .compose(Subgraph.federation("secure", remote.endpoint, securitySchema))
-                        .withOperationPolicy(policy)
-                        .interpreter
-                        .exit
-        diagnostics = buildDiagnostics(exit)
-        reads      <- calls.get
+        remote     <- stub("""{"data":{"open":"ok"}}""")
+        claimsRead <- Ref.make(0)
+        configured  = List(
+                        Option.empty[OperationPolicy[Any]],
+                        Some(OperationPolicy[Any](_ => ZIO.succeed(OperationPolicy.Allow))),
+                        Some(OperationPolicy.fromClaims(claimsRead.update(_ + 1).as(Some(Claims("admin"))))(claimScopes))
+                      )
+        results    <-
+          ZIO.foreach(expressions) { expression =>
+            val schema = s"""extend schema @link(url: "https://specs.apollo.dev/federation/v2.9",
+                            | import: [{ name: "@policy", as: "@guarded" }])
+                            |$linkDefinitions
+                            |directive @guarded(policies: [[String!]!]!) on FIELD_DEFINITION
+                            |type Query { open: String value: String @guarded(policies: $expression) }
+                            |""".stripMargin
+            ZIO
+              .foreach(configured) { policy =>
+                val gateway = Gateway.compose(Subgraph.federation("secure", remote.endpoint, schema))
+                for {
+                  runtime  <- policy.fold(gateway)(gateway.withOperationPolicy(_)).interpreter
+                  first    <- runtime.execute("{ value }")
+                  cached   <- runtime.execute("{ value }")
+                  request   =
+                    GraphQLRequest(query = Some("query($show: Boolean!) { open alias: value @include(if: $show) }"))
+                  skipped  <- runtime.executeRequest(request.copy(variables = Some(Map("show" -> BooleanValue(false)))))
+                  included <- runtime.executeRequest(request.copy(variables = Some(Map("show" -> BooleanValue(true)))))
+                } yield assertTrue(
+                  List(first, cached, included).forall(_.errors.exists(_.msg.contains("unsupported @policy"))),
+                  skipped.errors.isEmpty,
+                  field(skipped.data, "open").contains(StringValue("ok"))
+                )
+              }
+              .map(_.reduce(_ && _))
+          }
+        reads      <- claimsRead.get
         sent       <- remote.requests.get
-      } yield assertTrue(
-        exit.causeOption.flatMap(_.failureOption).exists {
-          case GatewayBuildError.InvalidConfiguration(_) => true
-          case _                                         => false
-        },
-        diagnostics.size == 1,
-        diagnostics.exists(message =>
-          message.contains("[secure]") && message.contains("Query.node") && message.contains("named-policy handler")
-        ),
-        reads == 0,
-        sent.isEmpty
-      )
+      } yield results.reduce(_ && _) && assertTrue(reads == 0, sent.size == expressions.size * configured.size)
     },
-    test("combines named-policy alternatives with scopes and authentication") {
-      val cases = List(
-        ("{ open }", None, true),
-        ("{ named }", None, false),
-        ("{ named }", Some(Claims("")), false),
-        ("{ named }", Some(Claims("", Set("owner"))), false),
-        ("{ named }", Some(Claims("", Set("region"))), false),
-        ("{ named }", Some(Claims("", Set("owner", "region"))), true),
-        ("{ named }", Some(Claims("", Set("admin"))), true),
-        ("{ named extra }", Some(Claims("", Set("admin"))), false),
-        ("{ named extra }", Some(Claims("", Set("admin", "extra"))), true),
-        ("{ scoped }", Some(Claims("read")), false),
-        ("{ scoped }", Some(Claims("", Set("owner"))), false),
-        ("{ scoped }", Some(Claims("read", Set("owner"))), true),
-        ("{ empty }", None, false),
-        ("{ empty }", Some(Claims("")), true),
-        ("{ emptyAlternative }", None, false),
-        ("{ emptyAlternative }", Some(Claims("")), true)
-      )
-
+    test("blocks hidden transitive policy dependencies without rejecting composition") {
+      val schema =
+        s"""
+           |${federationSchemaPreambleWithQueryRoot("@policy", "@inaccessible", "@requires", "@key").replace(
+            "v2.3",
+            "v2.9"
+          )}
+           |directive @policy(policies: [[String!]!]!) on FIELD_DEFINITION
+           |directive @requires(fields: federation__FieldSet!) on FIELD_DEFINITION
+           |type Query { product: Product }
+           |type Product @key(fields: "id") {
+           |  id: ID!
+           |  secret: String @policy(policies: [["owner"]]) @inaccessible
+           |  bridge: String @requires(fields: "secret")
+           |  visible: String @requires(fields: "bridge")
+           |  public: String
+           |}
+           |""".stripMargin
       for {
-        remote  <-
-          stub(
-            """{"data":{"open":"ok","named":"ok","extra":"ok","scoped":"ok","empty":"ok","emptyAlternative":"ok"}}"""
-          )
-        claims  <- FiberRef.make(Option.empty[Claims])
-        policy   = OperationPolicy.fromClaims(
-                     claims.get,
-                     (claims: Claims, name: String) => ZIO.succeed(claims.policies.contains(name))
-                   )(claimScopes)
-        runtime <- Gateway
-                     .compose(Subgraph.federation("claims", remote.endpoint, namedPolicySchema))
-                     .withOperationPolicy(policy)
-                     .interpreter
-        results <- ZIO.foreach(cases) { case (query, current, allowed) =>
-                     claims.locally(current)(runtime.execute(query)).map { result =>
-                       assertTrue(
-                         result.errors.map(_.msg) ==
-                           (if (allowed) Nil else List("Operation rejected by gateway policy."))
-                       )
-                     }
-                   }
+        remote  <- stub("""{"data":{"product":{"public":"ok"}}}""")
+        runtime <- Gateway.compose(Subgraph.federation("secure", remote.endpoint, schema)).interpreter
+        denied  <- runtime.execute("{ product { visible } }")
+        public  <- runtime.execute("{ product { public } }")
         sent    <- remote.requests.get
-      } yield results.reduce(_ && _) && assertTrue(sent.size == cases.count(_._3))
-    },
-    test("authentication-only policies build without a handler and never invoke a supplied handler") {
-      val expressions = List("[]", "[[]]", "[[\"owner\"], []]", "[[], [\"owner\"]]")
-
-      for {
-        remote      <- stub("""{"data":{"value":"ok"}}""")
-        calls       <- Ref.make(0)
-        results     <- ZIO.foreach(expressions) { expression =>
-                         val schema =
-                           s"""
-                          |extend schema @link(
-                          |  url: "https://specs.apollo.dev/federation/v2.9"
-                          |  import: ["@policy"]
-                          |)
-                          |$linkDefinitions
-                          |directive @policy(policies: [[String!]!]!) on FIELD_DEFINITION
-                          |type Query { value: String @policy(policies: $expression) }
-                          |""".stripMargin
-
-                         for {
-                           claims     <- FiberRef.make(Option.empty[Claims])
-                           gateway     = Gateway.compose(Subgraph.federation("claims", remote.endpoint, schema))
-                           noPolicy   <- gateway.interpreter.exit
-                           without     = OperationPolicy.fromClaims(claims.get)(claimScopes)
-                           withHandler = OperationPolicy.fromClaims(
-                                           claims.get,
-                                           (_: Claims, _: String) => calls.update(_ + 1) *> ZIO.dieMessage("unused-handler")
-                                         )(claimScopes)
-                           decisions  <- ZIO.foreach(List(without, withHandler)) { policy =>
-                                           for {
-                                             runtime       <- gateway.withOperationPolicy(policy).interpreter
-                                             anonymous     <- runtime.execute("{ value }")
-                                             authenticated <- claims.locally(Some(Claims("")))(runtime.execute("{ value }"))
-                                           } yield assertTrue(
-                                             anonymous.errors.map(_.msg) == List("Operation rejected by gateway policy."),
-                                             authenticated.errors.isEmpty
-                                           )
-                                         }
-                         } yield decisions.reduce(_ && _) && assertTrue(
-                           noPolicy.causeOption.flatMap(_.failureOption).exists {
-                             case GatewayBuildError.OperationPolicyRequired(_) => true
-                             case _                                            => false
-                           }
-                         )
-                       }
-        invocations <- calls.get
-        sent        <- remote.requests.get
-      } yield results.reduce(_ && _) && assertTrue(invocations == 0, sent.size == expressions.size * 2)
-    },
-    test("short-circuits named policies using fresh claims and handler environments on cache hits") {
-      val query = "{ named }"
-
-      for {
-        remote       <- stub("""{"data":{"open":"ok","named":"ok"}}""")
-        reads        <- Ref.make(0)
-        calls        <- Ref.make(Vector.empty[String])
-        claims       <- FiberRef.make(Option.empty[Claims])
-        claimService  = new RequestClaims {
-                          def current: Task[Option[Claims]] = reads.update(_ + 1) *> claims.get
-                        }
-        namedService  = new NamedPolicies {
-                          def allow(claims: Claims, name: String): Task[Boolean] =
-                            calls.update(_ :+ name).as(claims.policies.contains(name))
-                        }
-        policy        = OperationPolicy.fromClaims(
-                          ZIO.serviceWithZIO[RequestClaims](_.current),
-                          (claims: Claims, name: String) => ZIO.serviceWithZIO[NamedPolicies](_.allow(claims, name))
-                        )(claimScopes)
-        runtime      <- Gateway
-                          .compose(Subgraph.federation("claims", remote.endpoint, namedPolicySchema))
-                          .withOperationPolicy(policy)
-                          .interpreter
-        layer         = ZLayer.succeed(claimService) ++ ZLayer.succeed(namedService)
-        publicResult <- runtime.execute("{ open }").provideLayer(layer)
-        anonymous    <- runtime.execute(query).provideLayer(layer)
-        skippedCalls <- calls.get
-        allowed      <- claims
-                          .locally(Some(Claims("", Set("owner", "region"))))(runtime.execute(query))
-                          .provideLayer(layer)
-        rejected     <- claims.locally(Some(Claims("")))(runtime.execute(query)).provideLayer(layer)
-        observed     <- calls.get
-        readCount    <- reads.get
-        status       <- runtime.status
-        sent         <- remote.requests.get
       } yield assertTrue(
-        publicResult.errors.isEmpty,
-        anonymous.errors.map(_.msg) == List("Operation rejected by gateway policy."),
-        skippedCalls.isEmpty,
-        allowed.errors.isEmpty,
-        rejected.errors.map(_.msg) == List("Operation rejected by gateway policy."),
-        observed == Vector("owner", "region", "owner", "admin"),
-        readCount == 3,
-        status.operationCache.hits == 2,
-        sent.size == 2
+        denied.errors.exists(_.msg.contains("unsupported @policy")),
+        public.errors.isEmpty,
+        sent.size == 1
       )
     },
-    test("masks named-policy failures and defects without trying an allowing alternative") {
-      val failures = List(
-        ZIO.fail(new RuntimeException("policy-handler-secret")),
-        ZIO.dieMessage("policy-handler-secret")
-      )
-
+    test("blocks hidden policy dependencies on a custom query root") {
+      val schema =
+        s"""
+           |${federationSchemaPreambleWithQueryRoot("@policy", "@inaccessible", "@requires")
+            .replace("v2.3", "v2.9")
+            .replace("query: Query", "query: RootQuery")}
+           |directive @policy(policies: [[String!]!]!) on FIELD_DEFINITION
+           |directive @requires(fields: federation__FieldSet!) on FIELD_DEFINITION
+           |type RootQuery {
+           |  secret: String @policy(policies: [["owner"]]) @inaccessible
+           |  visible: String @requires(fields: "secret")
+           |  public: String
+           |}
+           |""".stripMargin
       for {
-        remote   <- stub("""{"data":{"named":"ok"}}""")
-        calls    <- Ref.make(Vector.empty[String])
-        results  <- ZIO.foreach(failures) { failure =>
-                      val policy = OperationPolicy.fromClaims(
-                        ZIO.some(Claims("")),
-                        (_: Claims, name: String) =>
-                          calls.update(_ :+ name) *> (if (name == "owner") failure else ZIO.succeed(true))
-                      )(claimScopes)
-                      for {
-                        runtime <- Gateway
-                                     .compose(Subgraph.federation("claims", remote.endpoint, namedPolicySchema))
-                                     .withOperationPolicy(policy)
-                                     .interpreter
-                        result  <- runtime.execute("{ named }")
-                      } yield assertTrue(result.errors.map(_.msg) == List("Operation policy failed."))
-                    }
-        observed <- calls.get
-        sent     <- remote.requests.get
-      } yield results.reduce(_ && _) && assertTrue(observed == Vector("owner", "owner"), sent.isEmpty)
+        remote  <- stub("""{"data":{"public":"ok"}}""")
+        runtime <- Gateway.compose(Subgraph.federation("secure", remote.endpoint, schema)).interpreter
+        denied  <- runtime.execute("{ visible }")
+        public  <- runtime.execute("{ public }")
+        sent    <- remote.requests.get
+      } yield assertTrue(
+        denied.errors.exists(_.msg.contains("unsupported @policy")),
+        public.errors.isEmpty,
+        sent.size == 1
+      )
+    },
+    test("blocks policy guarded keys injected for entity lookups") {
+      val schema = productsFederationSchema
+        .replace("v2.3", "v2.9")
+        .replace("import: [\"@key\"]", "import: [\"@key\", \"@policy\"]")
+        .replace("id: ID! name:", "id: ID! @policy(policies: [[\"owner\"]]) name:") +
+        " directive @policy(policies: [[String!]!]!) on FIELD_DEFINITION"
+      for {
+        products     <- stub("""{"data":{"product":{"name":"Table"}}}""")
+        reviews      <- stub("""{"data":{"_entities":[]}}""")
+        runtime      <- Gateway
+                          .compose(
+                            Subgraph.federation("products", products.endpoint, schema),
+                            Subgraph.federation("reviews", reviews.endpoint, reviewsFederationSchema)
+                          )
+                          .interpreter
+        denied       <- runtime.execute("{ product(id: \"p1\") { reviews { body } } }")
+        public       <- runtime.execute("{ product(id: \"p1\") { name } }")
+        productCalls <- products.requests.get
+        reviewCalls  <- reviews.requests.get
+      } yield assertTrue(
+        denied.errors.exists(_.msg.contains("unsupported @policy")),
+        public.errors.isEmpty,
+        productCalls.size == 1,
+        reviewCalls.isEmpty
+      )
+    },
+    test("blocks guarded ordinary lookup roots for single and list lookups, including renamed fields") {
+      ZIO
+        .foreach(List(false, true))(single =>
+          ZIO
+            .foreach(List(false, true))(renamed => assertLookupGuard(guardRoot = true, single, renamed))
+            .map(_.reduce(_ && _))
+        )
+        .map(_.reduce(_ && _))
+    },
+    test("blocks guarded correlation fields generated by ordinary lookups, including renamed fields") {
+      ZIO
+        .foreach(List(false, true))(renamed => assertLookupGuard(guardRoot = false, single = false, renamed))
+        .map(_.reduce(_ && _))
     },
     test("recognizes standalone linked security features in Federation 1 schemas") {
       val schema =
@@ -486,13 +443,11 @@ object SecurityPolicySpec extends ZIOSpecDefault {
            |    url: "https://specs.apollo.dev/requiresScopes/v0.1"
            |    import: [{ name: "@requiresScopes", as: "@guarded" }]
            |  )
-           |  @link(url: "https://specs.apollo.dev/policy/v0.1")
            |$linkDefinitions
            |directive @login on FIELD_DEFINITION | OBJECT
            |directive @guarded(scopes: [[String!]!]!) on FIELD_DEFINITION | OBJECT
-           |directive @policy(policies: [[String!]!]!) on FIELD_DEFINITION | OBJECT
            |type Query @login {
-           |  value: String @guarded(scopes: [["read:value"]]) @policy(policies: [["owner"]])
+           |  value: String @guarded(scopes: [["read:value"]])
            |}
            |""".stripMargin
 
@@ -504,7 +459,6 @@ object SecurityPolicySpec extends ZIOSpecDefault {
       } yield assertTrue(
         diagnostics.exists(message => message.startsWith("[federation-one]") && message.contains("@authenticated")),
         diagnostics.exists(message => message.startsWith("[federation-one]") && message.contains("@requiresScopes")),
-        diagnostics.exists(message => message.startsWith("[federation-one]") && message.contains("@policy")),
         sent.isEmpty
       )
     },
@@ -552,82 +506,76 @@ object SecurityPolicySpec extends ZIOSpecDefault {
         betaSent  <- beta.requests.get
       } yield assertTrue(
         seen == List(
-          SecurityRequirement(
-            List("value"),
-            "Query",
-            Some("value"),
-            Nil,
-            List(Authenticated, RequiresScopes(List(List("read:value"))))
-          )
+          SecurityRequirement("Query", Some("value"), List(Authenticated, RequiresScopes(List(List("read:value")))))
         ),
         alphaSent.isEmpty,
         betaSent.isEmpty
       )
     },
     test("exposes effective security requirements before cached operations reach a source") {
+      val merged = request.copy(query =
+        Some(
+          """query Secure($show: Boolean! = true) {
+            |  result: node { id }
+            |  ...RootFields
+            |}
+            |fragment RootFields on Query {
+            |  result: node { ...PrivateFields @include(if: $show) }
+            |}
+            |fragment PrivateFields on Private { hidden: secret }
+            |""".stripMargin
+        )
+      )
       for {
-        remote          <- stub("""{"data":{"node":null}}""")
-        observed        <- Ref.make(Vector.empty[List[SecurityRequirement]])
-        policy           = OperationPolicy[Any] { operation =>
-                             observed.update(_ :+ operation.securityRequirements).as(Reject())
-                           }
-        runtime         <- Gateway
-                             .compose(Subgraph.federation("secure", remote.endpoint, securitySchema))
-                             .withOperationPolicy(policy)
-                             .interpreter
-        included        <- runtime.executeRequest(request)
-        skipped         <- runtime.executeRequest(
-                             request.copy(variables = Some(Map("show" -> BooleanValue(false))))
-                           )
-        introspection   <- runtime.execute("{ __schema { queryType { name } } }")
-        seen            <- observed.get
-        status          <- runtime.status
-        sent            <- remote.requests.get
-        first            = seen.headOption.getOrElse(Nil)
-        second           = seen.drop(1).headOption.getOrElse(Nil)
-        privateCondition = List(RuntimeTypeCondition(List("result"), Set("Private")))
+        remote        <- stub("""{"data":{"node":null}}""")
+        observed      <- Ref.make(Vector.empty[List[SecurityRequirement]])
+        policy         = OperationPolicy[Any] { operation =>
+                           observed.update(_ :+ operation.securityRequirements).as(Reject())
+                         }
+        runtime       <- Gateway
+                           .compose(Subgraph.federation("secure", remote.endpoint, securitySchema))
+                           .withOperationPolicy(policy)
+                           .interpreter
+        included      <- runtime.executeRequest(request)
+        skipped       <- runtime.executeRequest(
+                           request.copy(variables = Some(Map("show" -> BooleanValue(false))))
+                         )
+        introspection <- runtime.execute("{ __schema { queryType { name } } }")
+        _             <- runtime.executeRequest(merged)
+        _             <- runtime.executeRequest(merged.copy(variables = Some(Map("show" -> BooleanValue(false)))))
+        seen          <- observed.get
+        sent          <- remote.requests.get
+        first          = seen.headOption.getOrElse(Nil)
+        second         = seen.drop(1).headOption.getOrElse(Nil)
       } yield assertTrue(
         included.errors.map(_.msg) == List("Operation rejected by gateway policy."),
         skipped.errors.map(_.msg) == List("Operation rejected by gateway policy."),
         introspection.errors.map(_.msg) == List("Operation rejected by gateway policy."),
         first.contains(
-          SecurityRequirement(List("result"), "Query", None, Nil, List(Authenticated))
+          SecurityRequirement("Query", None, List(Authenticated))
+        ),
+        first.contains(
+          SecurityRequirement("Query", Some("node"), List(RequiresScopes(List(List("read:node")))))
         ),
         first.contains(
           SecurityRequirement(
-            List("result"),
-            "Query",
-            Some("node"),
-            Nil,
-            List(Policy(List(List("owner", "region"), List("admin"))))
-          )
-        ),
-        first.contains(
-          SecurityRequirement(
-            List("result"),
             "Private",
             None,
-            privateCondition,
             List(RequiresScopes(List(List("read:private", "tenant:a"), List("admin"))))
           )
         ),
         first.contains(
-          SecurityRequirement(
-            List("result", "hidden"),
-            "Private",
-            Some("secret"),
-            privateCondition,
-            List(RequiresScopes(List(List("read:secret"))))
-          )
+          SecurityRequirement("Private", Some("secret"), List(RequiresScopes(List(List("read:secret")))))
         ),
-        !second.exists(_.responsePath == List("result", "hidden")),
+        !second.exists(requirement => requirement.typeName == "Private" && requirement.fieldName.contains("secret")),
         seen.drop(2).headOption.exists(_.isEmpty),
-        status.operationCache.hits == 1,
-        seen.size == 3,
+        seen.lift(3).exists(_.toSet == first.toSet),
+        seen.lift(4).exists(_.toSet == second.toSet),
+        seen.size == 5,
         sent.isEmpty
       )
     },
-    test("retains ancestor runtime conditions on nested protected selections") {
+    test("retains nested protected selections in runtime branches") {
       val schema =
         s"""
            |extend schema @link(
@@ -656,13 +604,7 @@ object SecurityPolicySpec extends ZIOSpecDefault {
         sent     <- remote.requests.get
       } yield assertTrue(
         seen.contains(
-          SecurityRequirement(
-            List("node", "child", "secret"),
-            "Child",
-            Some("secret"),
-            List(RuntimeTypeCondition(List("node"), Set("Private"))),
-            List(Authenticated)
-          )
+          SecurityRequirement("Child", Some("secret"), List(Authenticated))
         ),
         sent.isEmpty
       )
@@ -696,13 +638,7 @@ object SecurityPolicySpec extends ZIOSpecDefault {
         sent     <- remote.requests.get
       } yield assertTrue(
         seen.contains(
-          SecurityRequirement(
-            List("node", "value"),
-            "ChildNode",
-            Some("value"),
-            List(RuntimeTypeCondition(List("node"), Set("Child"))),
-            List(Authenticated)
-          )
+          SecurityRequirement("ChildNode", Some("value"), List(Authenticated))
         ),
         sent.isEmpty
       )
@@ -777,17 +713,16 @@ object SecurityPolicySpec extends ZIOSpecDefault {
         sent.isEmpty
       )
     },
-    test("treats scopes and policies as authenticated transitive requirements") {
+    test("treats scopes as authenticated transitive requirements") {
       val schema =
         s"""
            |extend schema @link(
            |  url: "https://specs.apollo.dev/federation/v2.9"
-           |  import: ["@authenticated", "@requiresScopes", "@policy", "@requires"]
+           |  import: ["@authenticated", "@requiresScopes", "@requires"]
            |)
            |$linkDefinitions
            |directive @authenticated on FIELD_DEFINITION | OBJECT
            |directive @requiresScopes(scopes: [[fed__Scope!]!]!) on FIELD_DEFINITION | OBJECT
-           |directive @policy(policies: [[fed__Policy!]!]!) on FIELD_DEFINITION | OBJECT
            |directive @requires(fields: String!) on FIELD_DEFINITION
            |type Query { product: Product }
            |type Product {
@@ -795,9 +730,6 @@ object SecurityPolicySpec extends ZIOSpecDefault {
            |  scopedShipping: String
            |    @requires(fields: "secret")
            |    @requiresScopes(scopes: [["read:shipping"]])
-           |  governedShipping: String
-           |    @requires(fields: "secret")
-           |    @policy(policies: [["shipping-policy"]])
            |}
            |""".stripMargin
 

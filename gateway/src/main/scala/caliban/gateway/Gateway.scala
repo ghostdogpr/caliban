@@ -175,8 +175,7 @@ object Gateway {
                                     load(
                                       subgraph,
                                       backend,
-                                      config.maxConcurrentLocalCalls,
-                                      config.remoteErrorDisclosure,
+                                      config.remoteErrorMessages,
                                       wrapper
                                     ).mapError(_.map(SubgraphError(subgraph.name, _))).either
                                   )
@@ -199,14 +198,10 @@ object Gateway {
                                     .fromEither(SchemaComposer.compose(successes.map(_.subgraph)))
                                     .mapError(errors => SchemaCompositionFailed(errors.distinct.sorted))
       _                        <- ZIO
-                                    .fail(OperationPolicyRequired(graph.securityPolicyDiagnostics))
+                                    .fail(GatewayBuildError.InvalidConfiguration(graph.securityPolicyDiagnostics))
                                     .when(policy.isEmpty && graph.hasSecurityRequirements)
-      unsupportedPolicies       = if (policy.exists(!_.supportsNamedPolicies)) graph.namedPolicyDiagnostics else Nil
-      _                        <- ZIO
-                                    .fail(GatewayBuildError.InvalidConfiguration(unsupportedPolicies))
-                                    .when(unsupportedPolicies.nonEmpty)
       rawExecutors              = successes.map(value => value.subgraph.name -> value.executor).toMap
-      subgraphLimits            = successes.map(value => value.subgraph.name -> value.maxConcurrentCalls).toMap
+      subgraphLimits            = successes.flatMap(value => value.maxConcurrentCalls.map(value.subgraph.name -> _)).toMap
       control                  <- GatewayExecutionControl.make(
                                     config.maxConcurrentRequests,
                                     subgraphLimits,
@@ -233,7 +228,7 @@ object Gateway {
                                     wrapper
                                   )
       subscriptions            <-
-        SubscriptionControl.make(config.subscriptions, config.drainTimeout, control, wrapper)
+        SubscriptionControl.make(config.subscriptions, control, wrapper)
     } yield new GatewayInterpreterImpl[R](
       operations,
       new PlanExecutor[R](graph, executors, wrapper),
@@ -245,8 +240,7 @@ object Gateway {
   private def load[R](
     subgraph: Subgraph[R],
     backend: Option[SttpClient],
-    localCallLimit: Int,
-    remoteErrorDisclosure: RemoteGraphQLConfig.ErrorDisclosure,
+    remoteErrorMessages: Boolean,
     wrapper: GatewayWrapper[R]
   )(implicit trace: Trace): ZIO[Scope, List[SubgraphBuildError], LoadedSubgraph[R]] =
     subgraph.source match {
@@ -273,10 +267,11 @@ object Gateway {
                                 subgraph.name,
                                 endpoint,
                                 client,
-                                config.withDefaultErrorDisclosure(remoteErrorDisclosure),
-                                wrapper
+                                config,
+                                wrapper,
+                                remoteErrorMessages
                               )
-        } yield LoadedSubgraph(preparedSubgraph, executor, config.execution.maxConcurrentCalls)
+        } yield LoadedSubgraph(preparedSubgraph, executor, Some(config.execution.maxConcurrentCalls))
       case Source.Local(graph)                                 =>
         val document   = graph.toDocument
         val federation = SchemaComposer.isFederation(document)
@@ -284,13 +279,13 @@ object Gateway {
           sourceRootType   <- ZIO.fromEither(toRootType(document)).mapError(error => List(InvalidSchema(error)))
           preparedSubgraph <- ZIO.fromEither(prepareSubgraph(subgraph, sourceRootType, document, document, federation))
           interpreter      <- ZIO.fromEither(graph.interpreterEither).mapError(error => List(InvalidSchema(error)))
-        } yield LoadedSubgraph(preparedSubgraph, new LocalSubgraphExecutor(interpreter), localCallLimit)
+        } yield LoadedSubgraph(preparedSubgraph, new LocalSubgraphExecutor(interpreter), None)
     }
 
   private final case class LoadedSubgraph[-R](
     subgraph: PreparedSubgraph,
     executor: SubgraphExecutor[R],
-    maxConcurrentCalls: Int
+    maxConcurrentCalls: Option[Int]
   )
 
   private def toRootType(

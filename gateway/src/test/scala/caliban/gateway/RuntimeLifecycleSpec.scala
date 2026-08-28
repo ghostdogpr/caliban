@@ -2,7 +2,6 @@ package caliban.gateway
 
 import caliban.GraphQLResponseContext
 import caliban.GraphQLResponseContext.{ Outcome, ServerFailure }
-import caliban.gateway.GatewayInterpreter.LifecycleState
 import caliban.gateway.GatewayTestSupport._
 import caliban.gateway.internal.GatewayExecutionControl
 import sttp.model.Uri
@@ -12,9 +11,6 @@ import zio.test._
 
 object RuntimeLifecycleSpec extends ZIOSpecDefault {
 
-  private val operationCacheStatus =
-    GatewayInterpreter.OperationCacheStatus(1L, 0L, 0, 0L, 0L, 0L, 0)
-
   private def makeControl(
     scope: Scope.Closeable,
     requestTimeout: Duration = 1.second,
@@ -23,10 +19,17 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
   ): UIO[GatewayExecutionControl] =
     scope.extend(GatewayExecutionControl.make(requestLimit, Map.empty, requestTimeout, drainTimeout))
 
-  private def waitForControl(
-    control: GatewayExecutionControl
-  )(predicate: GatewayInterpreter.Status => Boolean): UIO[GatewayInterpreter.Status] =
-    (ZIO.yieldNow *> control.status(operationCacheStatus)).repeatUntil(predicate)
+  private def awaitDrain(control: GatewayExecutionControl): UIO[Unit] =
+    control.reserve.flatMap {
+      case Some(lease) => control.release(lease).as(false)
+      case None        => ZIO.succeed(true)
+    }.repeatUntil(identity).unit
+
+  private def awaitDrain(runtime: caliban.gateway.internal.GatewayInterpreterImpl[Any]): UIO[Unit] =
+    runtime.reserve.flatMap {
+      case Some(lease) => lease.release.as(false)
+      case None        => ZIO.succeed(true)
+    }.repeatUntil(identity).unit
 
   private def retryEndpoint(calls: Ref[Int]): ZIO[Server with Ref[Int], Nothing, Uri] =
     postEndpoint("runtime-lifecycle-retry")(_ => calls.update(_ + 1).as(Response.status(Status.ServiceUnavailable)))
@@ -38,28 +41,25 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
         runtime <- scope.extend(Gateway.compose(Subgraph.local("local", localGraph(ZIO.succeed("accepted")))).build)
         request <- runtime.reserve.someOrFailException
         closing <- scope.close(Exit.unit).fork
-        _       <- waitForStatus(runtime)(_.lifecycle.state == LifecycleState.Draining)
+        _       <- awaitDrain(runtime)
         result  <- request.execute("{ value }").ensuring(request.release)
         _       <- closing.join
-        closed  <- runtime.status
       } yield assertTrue(
         result.errors.isEmpty,
-        field(result.data, "value").contains(caliban.Value.StringValue("accepted")),
-        closed.lifecycle.active == 0,
-        closed.lifecycle.state == LifecycleState.Closed
+        field(result.data, "value").contains(caliban.Value.StringValue("accepted"))
       )
     },
     test("releases a reservation cancelled before request execution") {
       for {
-        scope   <- Scope.make
-        runtime <- scope.extend(Gateway.compose(Subgraph.local("local", localGraph(ZIO.never))).build)
-        request <- runtime.reserve.someOrFailException
-        closing <- scope.close(Exit.unit).fork
-        _       <- waitForStatus(runtime)(_.lifecycle.state == LifecycleState.Draining)
-        _       <- request.release
-        _       <- closing.join
-        closed  <- runtime.status
-      } yield assertTrue(closed.lifecycle.active == 0, closed.lifecycle.state == LifecycleState.Closed)
+        scope    <- Scope.make
+        runtime  <- scope.extend(Gateway.compose(Subgraph.local("local", localGraph(ZIO.never))).build)
+        request  <- runtime.reserve.someOrFailException
+        closing  <- scope.close(Exit.unit).fork
+        _        <- awaitDrain(runtime)
+        _        <- request.release
+        _        <- closing.join
+        rejected <- runtime.reserve
+      } yield assertTrue(rejected.isEmpty)
     },
     test("applies one deadline to operation resolution before source execution") {
       for {
@@ -73,55 +73,16 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
                          .compose(Subgraph.local("local", localGraph(sourceCalls.update(_ + 1).as("value"))))
                          .withOperationResolver(resolver)
                          .withConfig(_.withRequestTimeout(1.second))
-                         .interpreter
+                         .build
         fiber       <- runtime.executeRequest(caliban.GraphQLRequest()).fork
         _           <- resolving.await
         _           <- TestClock.adjust(1.second)
         response    <- fiber.join
         _           <- interrupted.await
         calls       <- sourceCalls.get
-        status      <- runtime.status
       } yield assertTrue(
         response.errors.map(_.msg) == List("Gateway request timed out."),
-        calls == 0,
-        status.lifecycle.active == 0,
-        status.lifecycle.overdue == 0
-      )
-    },
-    test("includes request and source permit waits in the deadline") {
-      for {
-        sourceStarted <- Promise.make[Nothing, Unit]
-        release       <- Promise.make[Nothing, Unit]
-        calls         <- Ref.make(0)
-        effect         = calls.updateAndGet(_ + 1) *> sourceStarted.succeed(()).unit *>
-                           ZIO.uninterruptible(release.await).as("value")
-        runtime       <- Gateway
-                           .compose(Subgraph.local("local", localGraph(effect)))
-                           .withConfig(
-                             _.withMaxConcurrentRequests(2)
-                               .withMaxConcurrentLocalCalls(1)
-                               .withRequestTimeout(1.second)
-                           )
-                           .interpreter
-        first         <- runtime.execute("{ value }").fork
-        _             <- sourceStarted.await
-        second        <- runtime.execute("{ value }").fork
-        queued        <- waitForStatus(runtime)(_.subgraphs.get("local").exists(_.waiting == 1))
-        _             <- TestClock.adjust(1.second)
-        secondResult  <- second.join
-        overdue       <- waitForStatus(runtime)(_.lifecycle.overdue == 1)
-        sourceCalls   <- calls.get
-        _             <- release.succeed(())
-        firstResult   <- first.join
-        done          <- runtime.status
-      } yield assertTrue(
-        queued.lifecycle.active == 2,
-        secondResult.errors.map(_.msg) == List("Gateway request timed out."),
-        sourceCalls == 1,
-        overdue.lifecycle.active == 1,
-        firstResult.errors.map(_.msg) == List("Gateway request timed out."),
-        done.lifecycle.active == 0,
-        done.lifecycle.overdue == 0
+        calls == 0
       )
     },
     test("preserves caller interruption without fabricating a response") {
@@ -138,16 +99,13 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
                            )
                          )
                          .withConfig(_.withRequestTimeout(1.hour))
-                         .interpreter
+                         .build
         fiber       <- runtime.execute("{ value }").fork
         _           <- started.await
         exit        <- fiber.interrupt
         _           <- interrupted.await
-        status      <- runtime.status
       } yield assertTrue(
-        exit.isInterrupted,
-        status.lifecycle.active == 0,
-        status.lifecycle.overdue == 0
+        exit.isInterrupted
       )
     },
     test("includes request admission waits in the deadline") {
@@ -163,23 +121,17 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
                           .fork
         _            <- started.await
         second       <- control.runRequest(ZIO.succeed("second"))(ZIO.succeed("timeout"))(ZIO.interrupt).fork
-        queued       <- waitForControl(control)(_.requests.waiting == 1)
         _            <- TestClock.adjust(1.second)
         secondResult <- second.join
-        overdue      <- waitForControl(control)(_.lifecycle.overdue == 1)
         _            <- release.succeed(())
         firstResult  <- first.join
-        done         <- control.status(operationCacheStatus)
         _            <- scope.close(Exit.unit)
       } yield assertTrue(
-        queued.lifecycle.active == 2,
         secondResult == "timeout",
-        overdue.lifecycle.active == 1,
-        firstResult == "timeout",
-        done.lifecycle.active == 0
+        firstResult == "timeout"
       )
     },
-    test("keeps timed-out uninterruptible completion and handoff work visible until it exits") {
+    test("waits for timed-out uninterruptible completion and handoff work to exit") {
       for {
         scope      <- Scope.make
         control    <- makeControl(scope)
@@ -192,19 +144,14 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
                         .fork
         _          <- completing.await
         _          <- TestClock.adjust(1.second)
-        overdue    <- waitForControl(control)(_.lifecycle.overdue == 1)
         cancelling <- fiber.interrupt.fork
         pending    <- ZIO.yieldNow.repeatN(20) *> cancelling.poll
         _          <- release.succeed(())
         exit       <- cancelling.join
-        done       <- control.status(operationCacheStatus)
         _          <- scope.close(Exit.unit)
       } yield assertTrue(
-        overdue.lifecycle.active == 1,
         pending.isEmpty,
-        exit.isInterrupted,
-        done.lifecycle.active == 0,
-        done.lifecycle.overdue == 0
+        exit.isInterrupted
       )
     },
     test("does not deliver a public response after the source result reaches the deadline handoff") {
@@ -219,7 +166,7 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
                         )
                       )
                       .withConfig(_.withRequestTimeout(1.second))
-                      .interpreter
+                      .build
         response <- runtime.execute("{ value }").fork.flatMap { fiber =>
                       started.await *> TestClock.adjust(1.second) *> release.succeed(()) *> fiber.join
                     }
@@ -240,7 +187,7 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
         runtime  <- Gateway
                       .compose(Subgraph.graphql("remote", endpoint, "type Query { value: String }", remoteConfig))
                       .withConfig(_.withRequestTimeout(1.second))
-                      .interpreter
+                      .build
         fiber    <- runtime.execute("{ value }").fork
         _        <- calls.get.repeatUntil(_ == 1)
         _        <- ZIO.yieldNow
@@ -265,18 +212,14 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
                       .fork
         _        <- started.await
         closing  <- scope.close(Exit.unit).fork
-        draining <- waitForControl(control)(_.lifecycle.state == LifecycleState.Draining)
+        _        <- awaitDrain(control)
         rejected <- control.runRequest(ZIO.succeed("late"))(ZIO.succeed("timeout"))(ZIO.succeed("rejected"))
         _        <- release.succeed(())
         result   <- accepted.join
         _        <- closing.join
-        closed   <- control.status(operationCacheStatus)
       } yield assertTrue(
-        draining.lifecycle.active == 1,
         rejected == "rejected",
-        result == "done",
-        closed.lifecycle.state == LifecycleState.Closed,
-        closed.lifecycle.active == 0
+        result == "done"
       )
     },
     test("returns a service-unavailable response to requests arriving while draining") {
@@ -289,12 +232,12 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
             Gateway
               .compose(Subgraph.local("local", localGraph(started.succeed(()).unit *> release.await.as("done"))))
               .withConfig(_.withRequestTimeout(1.hour).withDrainTimeout(1.hour))
-              .interpreter
+              .build
           )
         accepted <- runtime.execute("{ value }").fork
         _        <- started.await
         closing  <- scope.close(Exit.unit).fork
-        _        <- waitForStatus(runtime)(_.lifecycle.state == LifecycleState.Draining)
+        _        <- awaitDrain(runtime)
         rejected <- GraphQLResponseContext.capture(runtime.execute("{ value }"))
         _        <- release.succeed(())
         _        <- accepted.join
@@ -317,17 +260,13 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
                          .fork
         _           <- started.await
         closing     <- scope.close(Exit.unit).fork
-        _           <- waitForControl(control)(_.lifecycle.state == LifecycleState.Draining)
+        _           <- awaitDrain(control)
         _           <- TestClock.adjust(1.second)
         _           <- interrupted.await
         exit        <- running.await
         _           <- closing.join
-        closed      <- control.status(operationCacheStatus)
       } yield assertTrue(
-        exit.isInterrupted,
-        closed.lifecycle.state == LifecycleState.Closed,
-        closed.lifecycle.active == 0,
-        closed.lifecycle.overdue == 0
+        exit.isInterrupted
       )
     },
     test("preserves forced shutdown after a request deadline while uninterruptible work remains overdue") {
@@ -347,27 +286,21 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
                          _.withRequestTimeout(1.second)
                            .withDrainTimeout(1.second)
                        )
-                       .interpreter
+                       .build
                    )
         request <- runtime.execute("{ value }").fork
         _       <- started.await
         _       <- TestClock.adjust(1.second)
-        overdue <- waitForStatus(runtime)(_.lifecycle.overdue == 1)
         closing <- scope.close(Exit.unit).fork
-        _       <- waitForStatus(runtime)(_.lifecycle.state == LifecycleState.Draining)
+        _       <- awaitDrain(runtime)
         _       <- TestClock.adjust(1.second)
         pending <- request.poll
         _       <- release.succeed(())
         exit    <- request.await
         _       <- closing.join
-        closed  <- runtime.status
       } yield assertTrue(
-        overdue.lifecycle.active == 1,
         pending.isEmpty,
-        exit.isInterrupted,
-        closed.lifecycle.state == LifecycleState.Closed,
-        closed.lifecycle.active == 0,
-        closed.lifecycle.overdue == 0
+        exit.isInterrupted
       )
     },
     test("gives forced scope shutdown precedence over a simultaneous request deadline") {
@@ -381,21 +314,17 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
                          _.withRequestTimeout(1.second)
                            .withDrainTimeout(1.second)
                        )
-                       .interpreter
+                       .build
                    )
         request <- runtime.execute("{ value }").fork
         _       <- started.await
         closing <- scope.close(Exit.unit).fork
-        _       <- waitForStatus(runtime)(_.lifecycle.state == LifecycleState.Draining)
+        _       <- awaitDrain(runtime)
         _       <- TestClock.adjust(1.second)
         exit    <- request.await
         _       <- closing.join
-        closed  <- runtime.status
       } yield assertTrue(
-        exit.isInterrupted,
-        closed.lifecycle.state == LifecycleState.Closed,
-        closed.lifecycle.active == 0,
-        closed.lifecycle.overdue == 0
+        exit.isInterrupted
       )
     },
     test("rejects non-finite request and drain deadlines at build time") {
@@ -406,7 +335,7 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
                     _.withRequestTimeout(Duration.Zero)
                       .withDrainTimeout(Duration.Infinity)
                   )
-                  .interpreter
+                  .build
                   .exit
       } yield assertTrue(
         buildDiagnostics(exit) == List(

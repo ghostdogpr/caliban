@@ -1,7 +1,5 @@
 package caliban.gateway.internal
 
-import caliban.gateway.GatewayInterpreter
-import caliban.gateway.GatewayInterpreter.{ LifecycleStatus, OperationCacheStatus, Status }
 import caliban.gateway.GatewayWrapper
 import caliban.gateway.GatewayWrapper.{ AdmissionKind, Event, Result }
 import caliban.gateway.internal.execution.SubgraphExecutor
@@ -31,7 +29,14 @@ private[gateway] final class GatewayExecutionControl private (
   )(
     onRejected: => ZIO[R, E, A]
   )(implicit trace: Trace): ZIO[R, E, A] =
-    withLease(requests(effect), ZIO.unit, reservation)(onTimeout)(onRejected)(identity)
+    ZIO.uninterruptibleMask { restore =>
+      reservation.fold(reserve)(ZIO.some(_)).flatMap {
+        case Some(lease) =>
+          restore(run(lease, requests(effect)).flatMap(_.fold(onTimeout)(ZIO.succeed(_))))
+            .ensuring(end(lease.token))
+        case None        => restore(onRejected)
+      }
+    }
 
   def runObservedRequest[R, B, A](wrapper: GatewayWrapper[R], event: Event.Request, reservation: Option[Lease] = None)(
     prepare: URIO[R, B]
@@ -46,87 +51,46 @@ private[gateway] final class GatewayExecutionControl private (
   )(result: Exit[Nothing, A] => Result)(implicit trace: Trace): URIO[R, A] =
     ZIO.uninterruptibleMask { restore =>
       def observe(effect: URIO[R, A]): URIO[R, A] = wrapper.wrap(event)(effect)(result)
-      val overdue: URIO[R, Unit]                  = wrapper.wrap(Event.RequestOverdue)(ZIO.unit)(Result.classifyExit)
       reservation.fold(reserve)(ZIO.some(_)).flatMap {
         case None        => restore(observe(onRejected))
         case Some(lease) =>
           // Preparation has its own routing observation. Classify the resolved operation before
           // opening finite-request metrics/spans, but retain one deadline and drain lease for both phases.
-          restore(run(lease, requests(prepare), overdue).flatMap {
+          restore(run(lease, requests(prepare)).flatMap {
             case None           => observe(onTimeout)
             case Some(prepared) =>
               val finite   = isFinite(prepared)
               val work     = if (finite) requests.observed(wrapper)(execute(prepared)) else requests(execute(prepared))
-              val response = run(lease, work, overdue).flatMap(_.fold(onTimeout)(ZIO.succeed(_)))
+              val response = run(lease, work).flatMap(_.fold(onTimeout)(ZIO.succeed(_)))
               if (finite) observe(response) else response
           }).ensuring(end(lease.token))
-      }
-    }
-
-  private def withLease[R, E, A](
-    effect: ZIO[R, E, A],
-    onOverdue: URIO[R, Unit],
-    reservation: Option[Lease]
-  )(
-    onTimeout: => ZIO[R, E, A]
-  )(
-    onRejected: => ZIO[R, E, A]
-  )(
-    observe: ZIO[R, E, A] => ZIO[R, E, A]
-  )(implicit trace: Trace): ZIO[R, E, A] =
-    ZIO.uninterruptibleMask { restore =>
-      reservation.fold(reserve)(lease => ZIO.some(lease)).flatMap {
-        case Some(lease) =>
-          restore(observe(run(lease, effect, onOverdue).flatMap(_.fold(onTimeout)(ZIO.succeed(_)))))
-            .ensuring(end(lease.token))
-        case None        => observe(onRejected)
       }
     }
 
   def admitExecutor[R](name: String, executor: SubgraphExecutor[R], wrapper: GatewayWrapper[R]): SubgraphExecutor[R] =
     subgraphs.get(name).fold(executor)(executor.admittedBy(_, wrapper))
 
-  def status(cache: OperationCacheStatus)(implicit trace: Trace): UIO[Status] =
-    state.get.flatMap { current =>
-      requests.status.zipWith(
-        ZIO.foreach(subgraphs) { case (name, gate) => gate.status.map(name -> _) }
-      ) { (requestStatus, subgraphStatus) =>
-        GatewayInterpreter.Status(
-          LifecycleStatus(
-            current.lifecycle,
-            current.requests.size,
-            current.requests.valuesIterator.count(_ == RequestState.Overdue)
-          ),
-          requestStatus,
-          subgraphStatus,
-          cache
-        )
-      }
-    }
-
   // Reservation is coordinated with generation selection by the reload supervisor.
   def reserve(implicit trace: Trace): UIO[Option[Lease]] =
     Clock.nanoTime.flatMap { startedAt =>
       val lease = Lease(new Token, startedAt)
       state.modify { current =>
-        current.lifecycle match {
-          case GatewayInterpreter.LifecycleState.Running =>
-            Some(lease) -> current.copy(requests = current.requests.updated(lease.token, RequestState.Active))
-          case _                                         => None -> current
-        }
+        if (current.drainStartedAt.isEmpty)
+          Some(lease) -> current.copy(requests = current.requests + lease.token)
+        else None     -> current
       }
     }
 
-  private def run[R, E, A](lease: Lease, effect: ZIO[R, E, A], onOverdue: URIO[R, Unit])(implicit
+  private def run[R, E, A](lease: Lease, effect: ZIO[R, E, A])(implicit
     trace: Trace
   ): ZIO[R, E, Option[A]] =
     currentStop(lease).flatMap {
-      case Some(Stop.Deadline) => markOverdue(lease.token, onOverdue) *> ZIO.none
-      case Some(Stop.Drain)    => markOverdue(lease.token, onOverdue) *> ZIO.interrupt
-      case None                => race(lease, effect, onOverdue)
+      case Some(Stop.Deadline) => ZIO.none
+      case Some(Stop.Drain)    => ZIO.interrupt
+      case None                => race(lease, effect)
     }
 
-  private def race[R, E, A](lease: Lease, effect: ZIO[R, E, A], onOverdue: URIO[R, Unit])(implicit
+  private def race[R, E, A](lease: Lease, effect: ZIO[R, E, A])(implicit
     trace: Trace
   ): ZIO[R, E, Option[A]] = {
     val stop: ZIO[R, E, Stop]      = stopAt(lease)
@@ -139,13 +103,13 @@ private[gateway] final class GatewayExecutionControl private (
           case Exit.Success(stop)  =>
             effectiveStop(stop).flatMap {
               case Stop.Deadline =>
-                (markOverdue(lease.token, onOverdue) *> workFiber.interrupt).uninterruptible *>
+                workFiber.interrupt.uninterruptible *>
                   effectiveStop(Stop.Deadline).flatMap {
                     case Stop.Deadline => ZIO.none
                     case Stop.Drain    => ZIO.interrupt
                   }
               case Stop.Drain    =>
-                (markOverdue(lease.token, onOverdue) *> workFiber.interrupt).uninterruptible *> ZIO.interrupt
+                workFiber.interrupt.uninterruptible *> ZIO.interrupt
             }
           case Exit.Failure(cause) => workFiber.interrupt.uninterruptible *> ZIO.failCause(cause)
         }
@@ -176,37 +140,26 @@ private[gateway] final class GatewayExecutionControl private (
       current.drainStartedAt.exists(startedAt => now - startedAt >= drainTimeout.toNanos)
     }
 
-  private def markOverdue[R](token: Token, onOverdue: URIO[R, Unit])(implicit trace: Trace): URIO[R, Unit] =
-    state.modify { current =>
-      current.requests.get(token) match {
-        case Some(RequestState.Active) =>
-          true -> current.copy(requests = current.requests.updated(token, RequestState.Overdue))
-        case _                         => false -> current
-      }
-    }.flatMap(onOverdue.when(_).unit)
-
-  // Must stay idempotent: withLease and the reload supervisor both end the same token, including on cancellation.
+  // Must stay idempotent: request execution and the reload supervisor both end the same token, including on cancellation.
   def release(lease: Lease)(implicit trace: Trace): UIO[Unit] = end(lease.token)
 
   private def end(token: Token)(implicit trace: Trace): UIO[Unit] =
     state.modify { current =>
       val next   = current.copy(requests = current.requests - token)
-      val signal = next.lifecycle == GatewayInterpreter.LifecycleState.Draining && next.requests.isEmpty
+      val signal = next.drainStartedAt.nonEmpty && next.requests.isEmpty
       signal -> next
     }
       .flatMap(signal => drained.succeed(()).unit.when(signal).unit)
 
   private def close(implicit trace: Trace): UIO[Unit] =
     // Neither lifetime may postpone the other's admission closure or cancellation deadline.
-    (closeRequests.zipPar(subscriptionDrain.get.flatten) *>
-      state.update(_.copy(lifecycle = GatewayInterpreter.LifecycleState.Closed))).uninterruptible
+    closeRequests.zipPar(subscriptionDrain.get.flatten).unit.uninterruptible
 
   private def closeRequests(implicit trace: Trace): UIO[Unit] =
     (for {
       startedAt <- Clock.nanoTime
       empty     <- state.modify { current =>
                      val next = current.copy(
-                       lifecycle = GatewayInterpreter.LifecycleState.Draining,
                        drainStartedAt = Some(startedAt)
                      )
                      next.requests.isEmpty -> next
@@ -230,7 +183,7 @@ private[gateway] object GatewayExecutionControl {
       subgraphs         <- ZIO.foreach(subgraphLimits) { case (name, limit) =>
                              AdmissionGate.make(limit, AdmissionKind.Subgraph).map(name -> _)
                            }
-      state             <- Ref.make(State(GatewayInterpreter.LifecycleState.Running, Map.empty, None))
+      state             <- Ref.make(State(Set.empty, None))
       drained           <- Promise.make[Nothing, Unit]
       forceStop         <- Promise.make[Nothing, Unit]
       subscriptionDrain <- Ref.make[UIO[Unit]](ZIO.unit)
@@ -253,16 +206,9 @@ private[gateway] object GatewayExecutionControl {
   private[gateway] final case class Lease(token: Token, startedAt: Long)
 
   private final case class State(
-    lifecycle: GatewayInterpreter.LifecycleState,
-    requests: Map[Token, RequestState],
+    requests: Set[Token],
     drainStartedAt: Option[Long]
   )
-
-  private sealed trait RequestState
-  private object RequestState {
-    case object Active  extends RequestState
-    case object Overdue extends RequestState
-  }
 
   private sealed trait Stop
   private object Stop {

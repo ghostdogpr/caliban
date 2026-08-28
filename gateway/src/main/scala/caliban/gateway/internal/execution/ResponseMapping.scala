@@ -4,9 +4,8 @@ import caliban.{ CalibanError, GraphQLResponse, PathValue, ResponseValue }
 import caliban.execution.Field
 import caliban.gateway.internal.composition.SchemaMapping
 import caliban.gateway.internal.planning.OperationPlan.RequiredSelection
-import caliban.introspection.adt.{ __Type, __TypeKind }
 import caliban.ResponseValue.{ ListValue, ObjectValue }
-import caliban.Value.{ EnumValue, NullValue, StringValue }
+import caliban.Value.{ NullValue, StringValue }
 
 import scala.collection.immutable.ListMap
 import scala.collection.mutable
@@ -59,13 +58,6 @@ private[gateway] final class ResponseMapping(mapping: SchemaMapping) {
       name -> (if (mapper eq null) nested else mapper(nested))
     })
 
-  private def shallowSelectedResponseMapper(
-    selected: java.util.HashMap[String, ResponseValue => ResponseValue]
-  ): ResponseValue => ResponseValue = {
-    case ObjectValue(values) => mapSelectedObject(selected, values)
-    case other               => other
-  }
-
   private def recursiveSelectedResponseMapper(
     selected: java.util.HashMap[String, ResponseValue => ResponseValue]
   ): ResponseValue => ResponseValue = {
@@ -87,36 +79,14 @@ private[gateway] final class ResponseMapping(mapping: SchemaMapping) {
       addResponseMapper(selected, field.aliasedName, fieldResponseMapper(field))
       remaining = remaining.tail
     }
-    shallowSelectedResponseMapper(selected)
+    recursiveSelectedResponseMapper(selected)
   }
 
   private def fieldResponseMapper(field: Field): ResponseValue => ResponseValue =
     if (field.name == "__typename")
       typenameResponseMapper
-    else responseValueMapper(field.fieldType, field.fields)
-
-  private def responseValueMapper(tpe: __Type, fields: List[Field]): ResponseValue => ResponseValue =
-    tpe.kind match {
-      case __TypeKind.NON_NULL                                         =>
-        tpe.ofType.fold(identityResponse)(responseValueMapper(_, fields))
-      case __TypeKind.LIST                                             =>
-        val mapItem = tpe.ofType.fold(identityResponse)(responseValueMapper(_, fields))
-        value =>
-          value match {
-            case ListValue(values) => ListValue(values.map(mapItem))
-            case other             => other
-          }
-      case __TypeKind.ENUM                                             =>
-        val typeName = tpe.name.getOrElse("")
-        value =>
-          value match {
-            case StringValue(name) => StringValue(clientEnumValue(sourceType(typeName), name))
-            case EnumValue(name)   => EnumValue(clientEnumValue(sourceType(typeName), name))
-            case other             => other
-          }
-      case __TypeKind.OBJECT | __TypeKind.INTERFACE | __TypeKind.UNION => objectResponseMapper(fields)
-      case _                                                           => identityResponse
-    }
+    else if (field.fields.nonEmpty) objectResponseMapper(field.fields)
+    else identityResponse
 
   private[internal] def requiredResponseMapper(
     typeName: String,
@@ -135,7 +105,7 @@ private[gateway] final class ResponseMapping(mapping: SchemaMapping) {
           else {
             val sourceName = sourceField(typeName, selection.field)
             val childType  = source.flatMap(tpe => Option(tpe.getFieldOrNull(sourceName))).map(_._type)
-            if (selection.children.isEmpty) childType.fold(identityResponse)(responseValueMapper(_, Nil))
+            if (selection.children.isEmpty) identityResponse
             else {
               val childName = childType.flatMap(_.innerType.name).map(clientType).getOrElse("")
               requiredResponseMapper(childName, selection.children)

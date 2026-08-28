@@ -356,7 +356,7 @@ object EntityExecutionSpec extends ZIOSpecDefault {
                           Subgraph.federation("products", products.endpoint, productsSchema),
                           Subgraph.federation("reviews", reviews.endpoint, reviewsFederationSchema)
                         )
-                        .withConfig(_.withRemoteErrorDisclosure(_.withMessages(true)))
+                        .withConfig(_.withRemoteErrorMessages(true))
                         .interpreter
           response <- gateway.execute("{ status product(id: \"p1\") { name reviews { body } } }")
           errors    = executionErrors(response.errors)
@@ -645,7 +645,7 @@ object EntityExecutionSpec extends ZIOSpecDefault {
                           Subgraph.federation("products", products.endpoint, listProductsFederationSchema),
                           Subgraph.federation("reviews", reviews.endpoint, reviewsFederationSchema)
                         )
-                        .withConfig(_.withRemoteErrorDisclosure(_.withMessages(true)))
+                        .withConfig(_.withRemoteErrorMessages(true))
                         .interpreter
           response <- gateway.execute("{ products { reviews { _caliban_gateway_entity_key: body } } }")
           sentB    <- reviews.requests.get
@@ -772,7 +772,7 @@ object EntityExecutionSpec extends ZIOSpecDefault {
                            Subgraph.federation("products", products.endpoint, productsSchema),
                            Subgraph.federation("inventory", inventory.endpoint, inventorySchema)
                          )
-                         .withConfig(_.withRemoteErrorDisclosure(_.withMessages(true)))
+                         .withConfig(_.withRemoteErrorMessages(true))
                          .interpreter
           response  <- gateway.execute("{ products { shippingEstimate } }")
           sent      <- inventory.requests.get

@@ -31,27 +31,6 @@ object SubscriptionSpec extends ZIOSpecDefault {
   )
 
   def spec = suite("SubscriptionSpec")(
-    test("source event size is bounded before buffering and federation processing") {
-      for {
-        processed <- Ref.make(0)
-        work      <- GatewayExecutionControl.make(1, Map.empty, 30.seconds, 1.second)
-        control   <-
-          SubscriptionControl.make(GatewaySubscriptionConfig(maxEventBytes = 64), 1.second, work, GatewayWrapper.empty)
-        oversized  = GraphQLResponse(Value.StringValue("x" * 128), Nil)
-        exit      <- control
-                       .stream(None)(ZIO.succeed(ZStream.succeed(oversized))) { _ =>
-                         processed.update(_ + 1).as(GraphQLResponse(Value.NullValue, Nil))
-                       }
-                       .runCollect
-                       .exit
-        count     <- processed.get
-        status    <- control.status
-      } yield assertTrue(
-        exit.causeOption.flatMap(_.failureOption).contains(SubscriptionTermination.TooLarge),
-        count == 0,
-        status.active == 0
-      )
-    },
     test("envelope errors retain public fields while terminal failures retain identity") {
       val failure  = SubscriptionTermination.Reload
       val event    = GraphQLResponse(Value.NullValue, List(failure))
@@ -84,7 +63,7 @@ object SubscriptionSpec extends ZIOSpecDefault {
         }
         .map(_.reduce(_ && _))
     },
-    test("failed or cancelled setup reports terminating and overdue while finalizers finish") {
+    test("failed or cancelled setup retains its slot until finalizers finish") {
       ZIO
         .foreach(List(false, true)) { cancel =>
           for {
@@ -93,21 +72,25 @@ object SubscriptionSpec extends ZIOSpecDefault {
             release    <- Promise.make[Nothing, Unit]
             work       <- GatewayExecutionControl.make(1, Map.empty, 30.seconds, 1.second)
             control    <- SubscriptionControl
-                            .make(GatewaySubscriptionConfig(), 1.second, work, GatewayWrapper.empty)
+                            .make(GatewaySubscriptionConfig(maxActive = 1), work, GatewayWrapper.empty)
             open        = ZIO.addFinalizer(closing.succeed(()) *> release.await) *>
                             opened.succeed(()) *> (if (cancel) ZIO.never else ZIO.fail(SubscriptionTermination.Source))
-            running    <- control.stream(None)(open)(ZIO.succeed(_)).runDrain.exit.forkScoped
+            running    <- control.stream(open)(ZIO.succeed(_)).runDrain.exit.forkScoped
             _          <- opened.await
             cancelling <- (if (cancel) running.interrupt.unit else ZIO.unit).forkScoped
             _          <- closing.await
-            during     <- control.status
+            rejected   <- control.stream(ZIO.succeed(ZStream.empty))(ZIO.succeed(_)).runDrain.exit
             _          <- TestClock.adjust(2.seconds)
-            overdue    <- control.status
+            pending    <- running.poll
             _          <- release.succeed(())
             _          <- cancelling.join
             _          <- running.await
-            after      <- control.status
-          } yield assertTrue(during.establishing == 0, during.terminating == 1, overdue.overdue == 1, after.active == 0)
+            next       <- control.stream(ZIO.succeed(ZStream.empty))(ZIO.succeed(_)).runDrain.exit
+          } yield assertTrue(
+            rejected.causeOption.flatMap(_.failureOption).contains(SubscriptionTermination.Capacity),
+            pending.isEmpty,
+            next.isSuccess
+          )
         }
         .map(_.reduce(_ && _))
     },
@@ -172,8 +155,7 @@ object SubscriptionSpec extends ZIOSpecDefault {
                           )
                           .interpreter
             events   <- gateway.executeStream(request).runCollect
-            status   <- gateway.subscriptionStatus
-          } yield assertTrue(events.map(_.data.toString).toList == List("{\"event\":1}"), status.active == 0)
+          } yield assertTrue(events.map(_.data.toString).toList == List("{\"event\":1}"))
         }
         .map(_.reduce(_ && _))
     },
@@ -192,33 +174,94 @@ object SubscriptionSpec extends ZIOSpecDefault {
             )
             .interpreter
         exit     <- gateway.executeStream(request).runCollect.exit
-        status   <- gateway.subscriptionStatus
       } yield assertTrue(
-        exit.causeOption.flatMap(_.failureOption).contains(SubscriptionTermination.TooLarge),
-        status.active == 0
+        exit.causeOption.flatMap(_.failureOption).contains(SubscriptionTermination.TooLarge)
       )
     },
-    test("remote stream size limits preserve gateway termination codes") {
+    test("remote stream size limits preserve the termination code and observation") {
       val schema = "type Query { value: String } type Subscription { event: Int }"
       for {
-        input    <- Queue.unbounded[String]
-        first    <- Promise.make[Nothing, Unit]
-        endpoint <- streamingEndpoint(
-                      ZStream
-                        .fromQueue(input)
-                        .flatMap(text => ZStream.fromIterable(text.getBytes(UTF_8))),
-                      mediaType = "text/event-stream"
-                    )
-        config    = RemoteGraphQLConfig.default
-                      .withExecution(_.withMaxResponseBytes(128))
-                      .withSubscription(RemoteSubscriptionConfig(transport = RemoteSubscriptionConfig.Sse()))
-        gateway  <- Gateway.compose(Subgraph.graphql("remote", endpoint, schema, config)).interpreter
-        running  <- gateway.executeStream(request).tap(_ => first.succeed(())).runDrain.exit.forkScoped
-        _        <- input.offer("event: next\ndata: {\"data\":{\"event\":1}}\n\n")
-        _        <- first.await
-        _        <- input.offer(":" + ("x" * 129))
-        exit     <- running.join
-      } yield assertTrue(exit.causeOption.flatMap(_.failureOption).contains(SubscriptionTermination.TooLarge))
+        recorded       <- recordEvents
+        (seen, wrapper) = recorded
+        input          <- Queue.unbounded[String]
+        first          <- Promise.make[Nothing, Unit]
+        endpoint       <- streamingEndpoint(
+                            ZStream
+                              .fromQueue(input)
+                              .flatMap(text => ZStream.fromIterable(text.getBytes(UTF_8))),
+                            mediaType = "text/event-stream"
+                          )
+        config          = RemoteGraphQLConfig.default
+                            .withExecution(_.withMaxResponseBytes(128))
+                            .withSubscription(RemoteSubscriptionConfig(transport = RemoteSubscriptionConfig.Sse()))
+        gateway        <- (Gateway.compose(Subgraph.graphql("remote", endpoint, schema, config)) @@ wrapper).interpreter
+        running        <- gateway.executeStream(request).tap(_ => first.succeed(())).runDrain.exit.forkScoped
+        _              <- input.offer("event: next\ndata: {\"data\":{\"event\":1}}\n\n")
+        _              <- first.await
+        _              <- input.offer(":" + ("x" * 129))
+        exit           <- running.join
+        observed       <- seen.get
+      } yield assertTrue(
+        exit.causeOption.flatMap(_.failureOption).contains(SubscriptionTermination.TooLarge),
+        observed.collect { case GatewayWrapper.Event.SubscriptionTerminated(reason, _) => reason } ==
+          Vector("SUBSCRIPTION_EVENT_TOO_LARGE")
+      )
+    },
+    test("oversized WebSocket messages preserve the size-limit code, including fragmented UTF-8 payloads") {
+      ZIO
+        .foreach(List(false, true)) { fragmented =>
+          val message = s"""{"type":"next","id":"1","payload":{"data":{"event":"${"é" * 100}"}}}"""
+          val parts   = message.grouped(if (fragmented) 60 else message.length).toList
+          for {
+            recorded       <- recordEvents
+            (seen, wrapper) = recorded
+            socket          = Handler
+                                .webSocket(channel =>
+                                  channel.receiveAll {
+                                    case ChannelEvent.Read(WebSocketFrame.Text(text)) =>
+                                      readFromString[GraphQLWSInput](text).`type` match {
+                                        case "connection_init" =>
+                                          channel.send(ChannelEvent.Read(WebSocketFrame.Text("""{"type":"connection_ack"}""")))
+                                        case "subscribe"       =>
+                                          ZIO.foreachDiscard(parts.zipWithIndex) { case (part, index) =>
+                                            val last  = index == parts.size - 1
+                                            val frame =
+                                              if (index == 0) WebSocketFrame.Text(part, last)
+                                              else WebSocketFrame.Continuation(Chunk.fromArray(part.getBytes(UTF_8)), last)
+                                            channel.send(ChannelEvent.Read(frame))
+                                          }
+                                        case _                 => ZIO.unit
+                                      }
+                                    case _                                            => ZIO.unit
+                                  }
+                                )
+                                .withConfig(WebSocketConfig.default.subProtocol(Some("graphql-transport-ws")))
+            id             <- ZIO.serviceWithZIO[Ref[Int]](_.updateAndGet(_ + 1))
+            path            = s"subscription-ws-size-$id"
+            server         <- ZIO.service[Server]
+            _              <- server.install(
+                                Routes(Method.GET / path -> Handler.fromFunctionZIO[Request](_ => Response.fromSocketApp(socket)))
+                              )
+            port           <- server.port
+            endpoint        = Uri.unsafeParse(s"http://127.0.0.1:$port/$path")
+            config          = RemoteGraphQLConfig.default.withExecution(_.withMaxResponseBytes(128))
+            runtime        <- (Gateway.compose(
+                                Subgraph.graphql(
+                                  "remote",
+                                  endpoint,
+                                  "type Query { value: String } type Subscription { event: String }",
+                                  config
+                                )
+                              ) @@ wrapper).interpreter
+            exit           <- runtime.executeStream(request).runDrain.exit
+            observed       <- seen.get
+          } yield assertTrue(
+            exit.causeOption.flatMap(_.failureOption).contains(SubscriptionTermination.TooLarge),
+            observed.collect { case GatewayWrapper.Event.SubscriptionTerminated(reason, _) => reason } ==
+              Vector("SUBSCRIPTION_EVENT_TOO_LARGE")
+          )
+        }
+        .map(_.reduce(_ && _))
     },
     test("upstream buffer overflow keeps its code and emits the overflow observation") {
       val schema = "type Query { value: String } type Subscription { event: Int }"
@@ -323,7 +366,7 @@ object SubscriptionSpec extends ZIOSpecDefault {
         port    <- server.port
         endpoint = Uri.unsafeParse(s"http://127.0.0.1:$port/$path")
         config   = RemoteGraphQLConfig.default.withSubscription(
-                     RemoteSubscriptionConfig(keepAliveInterval = 60.seconds, pongTimeout = 1.second)
+                     RemoteSubscriptionConfig(keepAliveInterval = 60.seconds, connectionTimeout = 1.second)
                    )
         gateway <- Gateway.compose(Subgraph.graphql("remote", endpoint, schema, config)).interpreter
         running <- gateway.executeStream(request).tap(_ => first.succeed(())).runDrain.forkScoped
@@ -332,11 +375,9 @@ object SubscriptionSpec extends ZIOSpecDefault {
         _       <- ping.await
         _       <- TestClock.adjust(2.seconds)
         exit    <- Live.live(running.await.timeout(1.second))
-        status  <- gateway.subscriptionStatus
         _       <- running.interrupt
       } yield assertTrue(
-        exit.flatMap(_.causeOption).flatMap(_.failureOption).contains(SubscriptionTermination.Source),
-        status.active == 0
+        exit.flatMap(_.causeOption).flatMap(_.failureOption).contains(SubscriptionTermination.Source)
       )
     },
     test("resolved subscriptions use executeRequest without entering finite-request metrics") {
@@ -354,13 +395,11 @@ object SubscriptionSpec extends ZIOSpecDefault {
                         OperationResolver(_ => resolves.update(_ + 1).as("subscription { event }"))
                       ) @@ wrapper).interpreter
         response <- gateway.executeRequest(GraphQLRequest(query = Some("query { value }")))
-        before   <- gateway.subscriptionStatus
         events   <- SubgraphExecutor.responses(response).runCollect
         recorded <- seen.get
         count    <- resolves.get
       } yield assertTrue(
         response.data.isInstanceOf[ResponseValue.StreamValue],
-        before.active == 0,
         events.map(_.data.toString).toList == List("{\"event\":1}", "{\"event\":2}"),
         !recorded.exists(_.isInstanceOf[GatewayWrapper.Event.Request]),
         count == 1
@@ -380,21 +419,14 @@ object SubscriptionSpec extends ZIOSpecDefault {
         stopping <- owner.close(Exit.unit).forkScoped
         _        <- closing.await
         _        <- TestClock.adjust(2.seconds)
-        status   <- gateway.status.repeatUntil(_.lifecycle.state != GatewayInterpreter.LifecycleState.Running)
         rejected <- gateway.execute("{ value }")
-        slots    <- gateway.subscriptionStatus
         pending  <- stopping.poll
         _        <- release.succeed(())
         _        <- stopping.join
         _        <- running.join
-        after    <- gateway.status
       } yield assertTrue(
-        status.lifecycle.state == GatewayInterpreter.LifecycleState.Draining,
         rejected.errors.nonEmpty,
-        slots.active == 1,
-        slots.overdue == 1,
-        pending.isEmpty,
-        after.lifecycle.state == GatewayInterpreter.LifecycleState.Closed
+        pending.isEmpty
       )
     },
     test("SSE GET supports BOM, CR line endings, and a distinct completion event") {
@@ -437,8 +469,7 @@ object SubscriptionSpec extends ZIOSpecDefault {
                      .withConfig(_.withSubscriptions(GatewaySubscriptionConfig(bufferSize = 128)))
                      .interpreter
         events  <- gateway.executeStream(request).runCollect
-        slots   <- gateway.subscriptionStatus
-      } yield assertTrue(events.map(_.data.toString).toList == values.map(i => s"""{"event":$i}"""), slots.active == 0)
+      } yield assertTrue(events.map(_.data.toString).toList == values.map(i => s"""{"event":$i}"""))
     },
     test("two subscriptions on one socket hold and release independent slots") {
       for {
@@ -463,15 +494,14 @@ object SubscriptionSpec extends ZIOSpecDefault {
                          )
                        )
         _           <- output.take.repeatN(1)
-        both        <- gateway.subscriptionStatus
         _           <- input.offer(GraphQLWSInput("complete", Some("1"), None))
-        one         <- gateway.subscriptionStatus.repeatUntil(_.active == 1)
+        _           <- closed.get.repeatUntil(_ == 1)
         firstClosed <- closed.get
         _           <- input.offer(GraphQLWSInput("complete", Some("2"), None))
-        none        <- gateway.subscriptionStatus.repeatUntil(_.active == 0)
+        _           <- closed.get.repeatUntil(_ == 2)
         allClosed   <- closed.get
         _           <- socket.interrupt
-      } yield assertTrue(both.active == 2, one.active == 1, firstClosed == 1, none.active == 0, allClosed == 2)
+      } yield assertTrue(firstClosed == 1, allClosed == 2)
     },
     test("captures effectful headers during setup and evaluates policy only once") {
       val schema = "type Query { value: String } type Subscription { event: Int }"
@@ -508,29 +538,23 @@ object SubscriptionSpec extends ZIOSpecDefault {
         checks      <- policies.get
       } yield assertTrue(events.size == 2, sent == List("captured"), calls == 1, checks == 1)
     },
-    test("idle lifetime ignores request timeout and supplied expiry terminates the source") {
+    test("idle subscriptions ignore the ordinary request timeout") {
       for {
-        opened  <- Promise.make[Nothing, Unit]
-        gateway <- Gateway
-                     .compose(local(ZStream.fromZIO(opened.succeed(())) *> ZStream.never))
-                     .withConfig(_.withRequestTimeout(1.second))
-                     .interpreter
-        now     <- Clock.instant
-        running <-
-          SubscriptionIdentity.withExpiry(now.plusSeconds(10))(gateway.executeStream(request).runDrain.exit).forkScoped
-        _       <- opened.await
-        _       <- TestClock.adjust(2.seconds)
-        idle    <- running.poll
-        status  <- gateway.status
-        _       <- TestClock.adjust(8.seconds)
-        exit    <- running.join
-        slots   <- gateway.subscriptionStatus
-      } yield assertTrue(
-        idle.isEmpty,
-        status.requests.active == 0,
-        slots.active == 0,
-        exit.causeOption.flatMap(_.failureOption).contains(SubscriptionTermination.Expired)
-      )
+        opened    <- Promise.make[Nothing, Unit]
+        gateway   <- Gateway
+                       .compose(local(ZStream.fromZIO(opened.succeed(())) *> ZStream.never))
+                       .withConfig(
+                         _.withRequestTimeout(1.second)
+                       )
+                       .interpreter
+        running   <- gateway.executeStream(request).runDrain.exit.forkScoped
+        _         <- opened.await
+        _         <- TestClock.adjust(2.seconds)
+        idle      <- running.poll
+        _         <- TestClock.adjust(8.seconds)
+        stillIdle <- running.poll
+        _         <- running.interrupt
+      } yield assertTrue(idle.isEmpty, stillIdle.isEmpty)
     },
     test("ordinary interpreter middleware preserves subscriptions and its response transformation") {
       for {
@@ -547,19 +571,6 @@ object SubscriptionSpec extends ZIOSpecDefault {
         response.data.isInstanceOf[ResponseValue.StreamValue],
         response.extensions.nonEmpty,
         count == 0
-      )
-    },
-    test("event size limits terminate without delivering an oversized event") {
-      for {
-        gateway <- Gateway
-                     .compose(local(ZStream(1)))
-                     .withConfig(_.withSubscriptions(GatewaySubscriptionConfig(maxEventBytes = 1)))
-                     .interpreter
-        exit    <- gateway.executeStream(request).runCollect.exit
-        status  <- gateway.subscriptionStatus
-      } yield assertTrue(
-        exit.causeOption.flatMap(_.failureOption).contains(SubscriptionTermination.TooLarge),
-        status.active == 0
       )
     },
     test("overflow sheds the operation and records a separate termination") {
@@ -584,10 +595,8 @@ object SubscriptionSpec extends ZIOSpecDefault {
         _          <- queue.offerAll(List(2, 3, 4))
         exit       <- running.join
         events     <- seen.get
-        slots      <- gateway.subscriptionStatus
       } yield assertTrue(
         exit.causeOption.flatMap(_.failureOption).contains(SubscriptionTermination.Overflow),
-        slots.active == 0,
         events.contains(GatewayWrapper.Event.SubscriptionOverflow),
         events.collect { case GatewayWrapper.Event.SubscriptionTerminated(reason, _) => reason } == List(
           "SUBSCRIPTION_OVERFLOW"
@@ -600,16 +609,11 @@ object SubscriptionSpec extends ZIOSpecDefault {
         gateway <- Gateway.compose(local(ZStream(1, 2, 3))).interpreter
         plan    <- gateway.explain(request)
         events  <- gateway.executeStream(request).runCollect
-        status  <- gateway.status
-        slots   <- gateway.subscriptionStatus
         finite  <- gateway.executeRequest(request)
       } yield assertTrue(
         plan.nonEmpty,
         events.map(_.data.toString).toList == List("{\"event\":1}", "{\"event\":2}", "{\"event\":3}"),
         events.forall(_.errors.isEmpty),
-        status.operationCache.entries == 1,
-        status.operationCache.misses == 1,
-        slots.active == 0,
         finite.errors.isEmpty,
         finite.data.isInstanceOf[ResponseValue.StreamValue],
         finite.hasNext.isEmpty
@@ -653,7 +657,9 @@ object SubscriptionSpec extends ZIOSpecDefault {
         closing  <- Promise.make[Nothing, Unit]
         release  <- Promise.make[Nothing, Unit]
         source    =
-          ZStream.acquireReleaseWith(opened.succeed(()))(_ => closing.succeed(()) *> release.await) *> ZStream.never
+          ZStream.acquireReleaseWith(opened.succeed(()))(_ => closing.succeed(()) *> release.await) *> (ZStream.succeed(
+            1
+          ) ++ ZStream.never)
         gateway  <-
           Gateway
             .compose(local(source))
@@ -661,24 +667,21 @@ object SubscriptionSpec extends ZIOSpecDefault {
             .interpreter
         running  <- gateway.executeStream(request).runDrain.forkScoped
         _        <- opened.await
-        status   <- gateway.status
-        slots    <- gateway.subscriptionStatus
         rejected <- gateway.executeStream(request).runDrain.exit
         query    <- gateway.execute("{ value }")
         stopping <- running.interrupt.forkScoped
         _        <- closing.await
-        during   <- gateway.subscriptionStatus
+        during   <- gateway.executeStream(request).runDrain.exit
+        pending  <- stopping.poll
         _        <- release.succeed(())
         _        <- stopping.join
-        after    <- gateway.subscriptionStatus
+        next     <- gateway.executeStream(request).take(1).runCollect
       } yield assertTrue(
-        status.requests.active == 0,
-        status.subgraphs.values.forall(_.active == 0),
-        slots.active == 1,
         rejected.isFailure,
         query.errors.isEmpty,
-        during.active == 1,
-        after.active == 0
+        during.causeOption.flatMap(_.failureOption).contains(SubscriptionTermination.Capacity),
+        pending.isEmpty,
+        next.size == 1
       )
     },
     test("constructing a stream acquires nothing and a closed gateway rejects consumption") {
@@ -687,28 +690,13 @@ object SubscriptionSpec extends ZIOSpecDefault {
         gatewayScope <- Scope.make
         gateway      <- gatewayScope.extend(Gateway.compose(local(ZStream.fromZIO(opens.updateAndGet(_ + 1)))).interpreter)
         result        = gateway.executeStream(request)
-        before       <- gateway.status
-        slots        <- gateway.subscriptionStatus
         _            <- gatewayScope.close(Exit.unit)
         responses    <- result.runCollect
         count        <- opens.get
       } yield assertTrue(
-        before.operationCache.entries == 0,
-        slots.active == 0,
         responses.head.errors.nonEmpty,
         count == 0
       )
-    },
-    test("expired identity cannot lazily acquire the source") {
-      for {
-        opens   <- Ref.make(0)
-        gateway <- Gateway.compose(local(ZStream.fromZIO(opens.updateAndGet(_ + 1)))).interpreter
-        now     <- Clock.instant
-        result  <- SubscriptionIdentity.withExpiry(now.plusSeconds(1))(gateway.executeRequest(request))
-        _       <- TestClock.adjust(2.seconds)
-        exit    <- SubgraphExecutor.responses(result).runDrain.exit
-        count   <- opens.get
-      } yield assertTrue(exit.isFailure, count == 0)
     },
     test("SSE source preserves data and redacts errors and response extensions") {
       val schema = "type Query { value: String } type Subscription { event: Int }"
@@ -763,14 +751,12 @@ object SubscriptionSpec extends ZIOSpecDefault {
                       .executeStream(GraphQLRequest(query = Some("subscription { changed { name reviews { body } } }")))
                       .runCollect
         sent     <- reviews.requests.get
-        status   <- gateway.status
       } yield assertTrue(
         events.size == 2,
         events.forall(_.errors.isEmpty),
         events.head.data.toString.contains("one"),
         events.last.data.toString.contains("two"),
-        sent.size == 2,
-        status.operationCache.misses == 1
+        sent.size == 2
       )
     },
     test("upstream WebSocket terminal errors retain only the first disclosed error") {
@@ -803,13 +789,11 @@ object SubscriptionSpec extends ZIOSpecDefault {
         config   = RemoteGraphQLConfig.default.withSubscription(RemoteSubscriptionConfig())
         gateway <- Gateway.compose(Subgraph.graphql("remote", endpoint, schema, config)).interpreter
         exit    <- gateway.executeStream(request).runDrain.exit
-        slots   <- gateway.subscriptionStatus
         error    = exit.causeOption.flatMap(_.failureOption).collect { case e: CalibanError.ExecutionError => e }
       } yield assertTrue(
         error.exists(_.msg == "Remote GraphQL request failed."),
         error.exists(_.path == List(PathValue.Key("event"))),
-        error.flatMap(_.extensions).contains(ResponseValue.ObjectValue(List("code" -> Value.StringValue("FIRST")))),
-        slots.active == 0
+        error.flatMap(_.extensions).contains(ResponseValue.ObjectValue(List("code" -> Value.StringValue("FIRST"))))
       )
     },
     test("modern upstream WebSocket streams through the public Quick adapter") {
@@ -833,10 +817,8 @@ object SubscriptionSpec extends ZIOSpecDefault {
                    )
         gateway <- Gateway.compose(Subgraph.graphql("remote", endpoint, api.render, config)).interpreter
         events  <- gateway.executeStream(request).runCollect
-        slots   <- gateway.subscriptionStatus
       } yield assertTrue(
-        events.map(_.data.toString).toList == List("{\"event\":1}", "{\"event\":2}"),
-        slots.active == 0
+        events.map(_.data.toString).toList == List("{\"event\":1}", "{\"event\":2}")
       )
     },
     test("Quick uses multipart for either hasNext value even when SSE is accepted") {
@@ -884,13 +866,11 @@ object SubscriptionSpec extends ZIOSpecDefault {
                           .addHeader(Header.Custom("Accept", "text/event-stream"))
                       )
         body     <- response.body.asString
-        slots    <- gateway.subscriptionStatus
       } yield assertTrue(
         response.headers.get(Header.ContentType).exists(_.mediaType.fullType == "text/event-stream"),
         body.contains("\"event\":1"),
         body.contains("\"event\":2"),
-        body.contains("event: complete"),
-        slots.active == 0
+        body.contains("event: complete")
       )
     }
   ).provideSomeLayerShared[Scope](testServer ++ stubIds) @@ TestAspect.timeout(30.seconds) @@ TestAspect.sequential

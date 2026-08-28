@@ -2,7 +2,7 @@ package caliban.gateway.internal
 
 import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, GraphQLResponseContext, IncomingRequestHeaders }
 import caliban.execution.Executor
-import caliban.gateway.{ GatewayInterpreter, GatewayWrapper, SubscriptionIdentity, SubscriptionTermination }
+import caliban.gateway.{ GatewayInterpreter, GatewayWrapper, SubscriptionTermination }
 import caliban.gateway.GatewayWrapper.{ Event, Outcome, Result }
 import caliban.gateway.internal.execution.{ PlanExecutor, SubgraphExecutor }
 import caliban.gateway.internal.GatewayInterpreterImpl._
@@ -35,7 +35,6 @@ private[gateway] final class GatewayInterpreterImpl[-R](
       _.map(lease => new GatewayInterpreterImpl(operations, executor, control, wrapper, subscriptions, Some(lease)))
     )
 
-  def subscriptionStatus(implicit trace: Trace)  = subscriptions.status
   def retireSubscriptions(implicit trace: Trace) = subscriptions.stop(SubscriptionTermination.Reload)
 
   def executeStream(request: GraphQLRequest)(implicit
@@ -44,9 +43,6 @@ private[gateway] final class GatewayInterpreterImpl[-R](
     ZStream.unwrap(executeRequest(request).map(SubgraphExecutor.responses))
 
   def release(implicit trace: Trace): UIO[Unit] = reservation.fold[UIO[Unit]](ZIO.unit)(control.release(_))
-
-  def status(implicit trace: Trace): UIO[GatewayInterpreter.Status] =
-    operations.cacheStatus.flatMap(control.status)
 
   def explain(request: GraphQLRequest)(implicit trace: Trace): ZIO[R, CalibanError, String] =
     control
@@ -103,7 +99,7 @@ private[gateway] final class GatewayInterpreterImpl[-R](
         wrapper.wrap(Event.Completion)(
           GraphQLResponseContext
             .markServerError(ServerFailure.Unavailable)
-            .as(RequestResult(requestShutdownResponse, Outcome.Http5xx, None))
+            .as(RequestResult(requestShutdownResponse, Outcome.RequestError, None))
         )(classifyRequestResult)
       )(classifyRequestResult)
       .map(_.response)
@@ -125,15 +121,14 @@ private[gateway] final class GatewayInterpreterImpl[-R](
                        .mapError(_ => CalibanError.ExecutionError("Subscription headers could not be prepared."))
           env     <- ZIO.environment[R]
           headers <- IncomingRequestHeaders.get
-          expiry  <- SubscriptionIdentity.expiresAt
         } yield {
           val events = ZStream.unwrapScoped(
             IncomingRequestHeaders
               .locallyScoped(headers)
               .as(
                 subscriptions
-                  .stream(expiry)(frozen.subscribe(prepared.plan, prepared.executionRequest, prepared.request))(
-                    response => frozen.executeEvent(prepared.plan, prepared.request, response)
+                  .stream(frozen.subscribe(prepared.plan, prepared.executionRequest, prepared.request))(response =>
+                    frozen.executeEvent(prepared.plan, prepared.request, response)
                   )
                   .provideEnvironment(env)
               )

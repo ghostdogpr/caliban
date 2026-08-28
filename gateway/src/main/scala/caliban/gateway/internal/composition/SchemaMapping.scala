@@ -26,13 +26,10 @@ private[gateway] final class SchemaMapping private (
   private val typeNames                = mappings.typeNames
   private val fieldNames               = mappings.fieldNames
   private val argumentNames            = mappings.argumentNames
-  private val inputFieldNames          = mappings.inputFieldNames
-  private val enumValueNames           = mappings.enumValueNames
   val hiddenTypes                      = mappings.hiddenTypes
   val hiddenFields                     = mappings.hiddenFields
   val hiddenArguments                  = mappings.hiddenArguments
   val hiddenInputFields                = mappings.hiddenInputFields
-  val hiddenEnumValues                 = mappings.hiddenEnumValues
   private[internal] val renamesNothing = mappings.renamesNothing
 
   private val sourceRootNamesByOperation =
@@ -45,21 +42,14 @@ private[gateway] final class SchemaMapping private (
   private def clientOwners(sourceType: String): List[String] =
     clientType(sourceType) :: sourceRootNames.get(sourceType).toList
 
-  private val sourceTypes       = typeNames.map(_.swap)
-  private val sourceFields      = fieldNames.iterator.map { case ((tpe, field), renamed) =>
+  private val sourceTypes     = typeNames.map(_.swap)
+  private val sourceFields    = fieldNames.iterator.map { case ((tpe, field), renamed) =>
     clientOwners(tpe).map(owner => (owner, renamed) -> field)
   }.flatten.toMap
-  private val sourceArguments   = argumentNames.iterator.map { case ((tpe, field, argument), renamed) =>
+  private val sourceArguments = argumentNames.iterator.map { case ((tpe, field, argument), renamed) =>
     clientOwners(tpe).map(owner => (owner, clientField(tpe, field), renamed) -> argument)
   }.flatten.toMap
-  private val sourceInputFields = inputFieldNames.iterator.map { case ((tpe, field), renamed) =>
-    (clientType(tpe), renamed) -> field
-  }.toMap
-  private val sourceEnumValues  = enumValueNames.iterator.map { case ((tpe, value), renamed) =>
-    (clientType(tpe), renamed) -> value
-  }.toMap
-
-  val nonEmpty: Boolean = mappings.nonEmpty
+  val nonEmpty: Boolean       = mappings.nonEmpty
 
   def clientType(name: String): String =
     typeNames.getOrElse(name, name)
@@ -79,12 +69,6 @@ private[gateway] final class SchemaMapping private (
   def clientArgument(typeName: String, field: String, argument: String): String =
     argumentNames.getOrElse((typeName, field, argument), argument)
 
-  def clientInputField(typeName: String, field: String): String =
-    inputFieldNames.getOrElse(typeName -> field, field)
-
-  def clientEnumValue(typeName: String, value: String): String =
-    enumValueNames.getOrElse(typeName -> value, value)
-
   def transform(document: Document): Document =
     if (nonEmpty) {
       val (names, provides) = SchemaComposer.fieldSetDirectiveNames(document)
@@ -96,41 +80,25 @@ private[gateway] final class SchemaMapping private (
     if (nonEmpty) transformLookup(lookup) else lookup
 
   private def transformLookup(lookup: Lookup): Lookup = {
-    def argument(value: Lookup.Argument, expected: Option[__Type]): Lookup.Argument =
-      value match {
-        case Lookup.Argument.Key(field)            => Lookup.Argument.key(clientField(lookup.typeName, field))
-        case Lookup.Argument.ObjectMapping(fields) =>
-          val inputType = expected.map(nullable).flatMap(value => value.name.flatMap(originalRootType.types.get))
-          Lookup.Argument.obj(fields.map { case (name, nested) =>
-            val definition = inputType.flatMap(_.allInputFields.find(_.name == name))
-            clientInputField(inputType.flatMap(_.name).getOrElse(""), name) -> argument(
-              nested,
-              definition.map(_._type)
-            )
-          }: _*)
-        case Lookup.Argument.Batch(value)          =>
-          Lookup.Argument.batch(argument(value, expected.flatMap(listElement)))
-      }
-
-    val sourceLookup = Option(originalRootType.queryType.getFieldOrNull(lookup.field))
-    val arguments    = lookup.arguments.iterator.map { case (name, value) =>
-      val definition = sourceLookup.flatMap(_.allArgs.find(_.name == name))
-      clientArgument(sourceQueryName, lookup.field, name) -> argument(value, definition.map(_._type))
-    }.toList
-    val typeName     = clientType(lookup.typeName)
-    val field        = clientField(sourceQueryName, lookup.field)
-    val keys         = lookup.keyFields.map(clientField(lookup.typeName, _))
+    def argument(value: Lookup.Argument): Lookup.Argument = value match {
+      case Lookup.Argument.Key(field)            => Lookup.Argument.key(clientField(lookup.typeName, field))
+      case Lookup.Argument.ObjectMapping(fields) =>
+        Lookup.Argument.obj(fields.map { case (name, nested) => name -> argument(nested) }: _*)
+      case Lookup.Argument.Batch(value)          => Lookup.Argument.batch(argument(value))
+    }
+    val arguments                                         = lookup.arguments.map { case (name, value) =>
+      clientArgument(sourceQueryName, lookup.field, name) -> argument(value)
+    }
+    val typeName                                          = clientType(lookup.typeName)
+    val field                                             = clientField(sourceQueryName, lookup.field)
+    val keys                                              = lookup.keyFields.map(clientField(lookup.typeName, _))
 
     lookup match {
       case _: Lookup.Single         => Lookup.single(typeName, keys, field, arguments: _*)
       case value: Lookup.ListLookup =>
-        val correlation = value.correlation match {
-          case Lookup.Correlation.Ordered       => Lookup.Correlation.ordered
-          case Lookup.Correlation.ByKey(fields) =>
-            Lookup.Correlation.byKey(fields.iterator.map { case (response, key) =>
-              clientField(lookup.typeName, response) -> clientField(lookup.typeName, key)
-            }.toMap)
-        }
+        val correlation = value.correlation.iterator.map { case (response, key) =>
+          clientField(lookup.typeName, response) -> clientField(lookup.typeName, key)
+        }.toMap
         Lookup.list(typeName, keys, field, correlation, arguments: _*)
     }
   }
@@ -139,17 +107,13 @@ private[gateway] final class SchemaMapping private (
     val clientParent       = field.parentType.flatMap(_.innerType.name).getOrElse("")
     val sourceParent       = sourceRootNamesByOperation.getOrElse(clientParent, sourceType(clientParent))
     val sourceName         = sourceField(clientParent, field.name)
-    val definition         = sourceFieldDefinition(sourceParent, sourceName)
     val composedDirectives = field.parentType
       .flatMap(parent => Option(parent.innerType.getFieldOrNull(field.name)))
       .flatMap(_.directives)
       .getOrElse(Nil)
-    val arguments          = translateArguments(
-      definition.toList.flatMap(_.allArgs),
-      field.arguments,
-      name => sourceArguments.getOrElse((clientParent, field.name, name), name),
-      ToSource
-    )
+    val arguments          = field.arguments.map { case (name, value) =>
+      sourceArguments.getOrElse((clientParent, field.name, name), name) -> value
+    }
     val alias              =
       if (field.alias.isEmpty && sourceName != field.name) Some(field.name)
       else field.alias
@@ -170,31 +134,39 @@ private[gateway] final class SchemaMapping private (
   def lookupFieldToSource(field: String): String =
     sourceField(sourceQueryName, field)
 
-  def lookupArgumentsToSource(field: String, arguments: Map[String, InputValue]): Map[String, InputValue] = {
-    val sourceName = sourceField(sourceQueryName, field)
-    val definition = sourceFieldDefinition(sourceQueryName, sourceName)
-    translateArguments(
-      definition.toList.flatMap(_.allArgs),
-      arguments,
-      name => sourceArguments.getOrElse((sourceQueryName, field, name), name),
-      ToSource
-    )
-  }
+  def lookupArgumentsToSource(field: String, arguments: Map[String, InputValue]): Map[String, InputValue] =
+    arguments.map { case (name, value) =>
+      sourceArguments.getOrElse((sourceQueryName, field, name), name) -> value
+    }
 
-  def representationToSource(typeName: String, value: InputObjectValue): InputObjectValue = {
-    if (renamesNothing) return value
-    val sourceName = sourceType(typeName)
-    val definition = originalRootType.types.get(sourceName)
-    InputObjectValue(value.fields.iterator.map {
+  def representationToSource(typeName: String, value: InputObjectValue): InputObjectValue =
+    if (renamesNothing) value
+    else mapRepresentation(typeName, value)
+
+  private def mapRepresentation(typeName: String, value: InputObjectValue): InputObjectValue =
+    InputObjectValue(value.fields.map {
       case ("__typename", StringValue(name)) => "__typename" -> StringValue(sourceType(name))
       case (name, nested)                    =>
-        val fieldName  = sourceField(typeName, name)
-        val translated = definition
-          .flatMap(tpe => Option(tpe.getFieldOrNull(fieldName)))
-          .fold(nested)(field => mapInputValue(field._type, nested, ToSource))
-        fieldName -> translated
-    }.toMap)
-  }
+        val fieldName                                             = sourceField(typeName, name)
+        def translate(tpe: __Type, input: InputValue): InputValue = tpe.kind match {
+          case __TypeKind.NON_NULL                      => tpe.ofType.fold(input)(translate(_, input))
+          case __TypeKind.LIST                          =>
+            input match {
+              case InputListValue(values) =>
+                InputListValue(values.map(value => tpe.ofType.fold(value)(translate(_, value))))
+              case other                  => other
+            }
+          case __TypeKind.OBJECT | __TypeKind.INTERFACE =>
+            input match {
+              case obj: InputObjectValue => mapRepresentation(clientType(tpe.name.getOrElse("")), obj)
+              case other                 => other
+            }
+          case _                                        => input
+        }
+        fieldName -> sourceFieldDefinition(sourceType(typeName), fieldName).fold(nested)(field =>
+          translate(field._type, nested)
+        )
+    })
 
   private def transformDefinition(definition: Definition, fieldSets: FieldSetDirectives): Definition =
     definition match {
@@ -206,15 +178,7 @@ private[gateway] final class SchemaMapping private (
           subscription = value.subscription.map(clientType)
         )
       case value: DirectiveDefinition       =>
-        val source = originalRootType.additionalDirectives.find(_.name == value.name)
-        value.copy(args = value.args.map { argument =>
-          transformInputValueDefinition(
-            "",
-            argument,
-            fieldSets,
-            source.flatMap(_.allArgs.find(_.name == argument.name)).map(_._type)
-          )
-        })
+        value.copy(args = value.args.map(transformInputValueDefinition(_, fieldSets)))
       case value: ObjectTypeDefinition      =>
         value.copy(
           name = clientType(value.name),
@@ -233,13 +197,13 @@ private[gateway] final class SchemaMapping private (
         value.copy(
           name = clientType(value.name),
           directives = transformDirectives(value.directives, Nil, fieldSets),
-          fields = value.fields.map(transformInputValueDefinition(value.name, _, fieldSets))
+          fields = value.fields.map(transformInputValueDefinition(_, fieldSets))
         )
       case value: EnumTypeDefinition        =>
         value.copy(
           name = clientType(value.name),
           directives = transformDirectives(value.directives, Nil, fieldSets),
-          enumValuesDefinition = transformEnumValues(value.name, value.enumValuesDefinition, fieldSets)
+          enumValuesDefinition = transformEnumValues(value.enumValuesDefinition, fieldSets)
         )
       case value: UnionTypeDefinition       =>
         value.copy(
@@ -273,13 +237,13 @@ private[gateway] final class SchemaMapping private (
         value.copy(
           name = clientType(value.name),
           directives = transformDirectives(value.directives, Nil, fieldSets),
-          fields = value.fields.map(transformInputValueDefinition(value.name, _, fieldSets))
+          fields = value.fields.map(transformInputValueDefinition(_, fieldSets))
         )
       case value: EnumTypeExtension         =>
         value.copy(
           name = clientType(value.name),
           directives = transformDirectives(value.directives, Nil, fieldSets),
-          enumValuesDefinition = transformEnumValues(value.name, value.enumValuesDefinition, fieldSets)
+          enumValuesDefinition = transformEnumValues(value.enumValuesDefinition, fieldSets)
         )
       case value: UnionTypeExtension        =>
         value.copy(
@@ -293,13 +257,11 @@ private[gateway] final class SchemaMapping private (
     }
 
   private def transformEnumValues(
-    typeName: String,
     values: List[EnumValueDefinition],
     fieldSets: FieldSetDirectives
   ): List[EnumValueDefinition] =
     values.map(value =>
       value.copy(
-        enumValue = clientEnumValue(typeName, value.enumValue),
         directives = transformDirectives(value.directives, Nil, fieldSets)
       )
     )
@@ -314,12 +276,8 @@ private[gateway] final class SchemaMapping private (
     field.copy(
       name = clientField(typeName, field.name),
       args = field.args.map { argument =>
-        transformInputValueDefinition(
-          "",
-          argument,
-          fieldSets,
-          sourceDefinition.flatMap(_.allArgs.find(_.name == argument.name)).map(_._type)
-        ).copy(name = clientArgument(typeName, field.name, argument.name))
+        transformInputValueDefinition(argument, fieldSets)
+          .copy(name = clientArgument(typeName, field.name, argument.name))
       },
       ofType = transformType(field.ofType),
       directives = transformDirectives(field.directives, typeName :: outputType, fieldSets)
@@ -332,22 +290,18 @@ private[gateway] final class SchemaMapping private (
     fieldSets: FieldSetDirectives
   ): List[Directive] =
     directives.map { directive =>
-      val definitions = originalRootType.additionalDirectives.find(_.name == directive.name).toList.flatMap(_.allArgs)
-      val arguments   = translateArguments(definitions, directive.arguments, identity, ToClient)
-      val transformed = directive.copy(arguments = arguments)
-
-      if (!fieldSets.names.contains(directive.name)) transformed
+      if (!fieldSets.names.contains(directive.name)) directive
       else
-        transformed.arguments.get("fields") match {
+        directive.arguments.get("fields") match {
           case Some(StringValue(value)) =>
             SchemaComposer
               .parseFieldSet(value)
               .flatMap(selections =>
                 fieldSetStart(directive.name, candidateTypes, selections, fieldSets.provides).map(_ -> selections)
               )
-              .fold(transformed) { case (startType, selections) =>
-                transformed.copy(arguments =
-                  transformed.arguments.updated(
+              .fold(directive) { case (startType, selections) =>
+                directive.copy(arguments =
+                  directive.arguments.updated(
                     "fields",
                     StringValue(
                       renderFieldSet(
@@ -357,7 +311,7 @@ private[gateway] final class SchemaMapping private (
                   )
                 )
               }
-          case _                        => transformed
+          case _                        => directive
         }
     }
 
@@ -383,12 +337,9 @@ private[gateway] final class SchemaMapping private (
     selection match {
       case field: Selection.Field             =>
         val definition = sourceFieldDefinition(parentType, field.name)
-        val arguments  = translateArguments(
-          definition.toList.flatMap(_.allArgs),
-          field.arguments,
-          clientArgument(parentType, field.name, _),
-          ToClient
-        )
+        val arguments  = field.arguments.map { case (name, value) =>
+          clientArgument(parentType, field.name, name) -> value
+        }
         val childType  = definition.flatMap(_._type.innerType.name).getOrElse("")
         field.copy(
           name = clientField(parentType, field.name),
@@ -408,21 +359,13 @@ private[gateway] final class SchemaMapping private (
     DocumentRenderer.selectionsRenderer.renderCompact(selections).stripPrefix("{").stripSuffix("}")
 
   private def transformInputValueDefinition(
-    typeName: String,
     value: InputValueDefinition,
-    fieldSets: FieldSetDirectives,
-    knownSourceType: Option[__Type] = None
-  ): InputValueDefinition = {
-    val sourceType = knownSourceType.orElse(
-      originalRootType.types.get(typeName).flatMap(_.allInputFields.find(_.name == value.name)).map(_._type)
-    )
+    fieldSets: FieldSetDirectives
+  ): InputValueDefinition =
     value.copy(
-      name = clientInputField(typeName, value.name),
       ofType = transformType(value.ofType),
-      defaultValue = value.defaultValue.map(input => sourceType.fold(input)(inputToClient(_, input))),
       directives = transformDirectives(value.directives, Nil, fieldSets)
     )
-  }
 
   private def transformType(tpe: Type): Type =
     tpe match {
@@ -436,90 +379,11 @@ private[gateway] final class SchemaMapping private (
   private[internal] def sourceFieldDefinition(typeName: String, field: String): Option[__Field] =
     originalRootType.types.get(typeName).flatMap(tpe => Option(tpe.getFieldOrNull(field)))
 
-  private def inputToClient(tpe: __Type, value: InputValue): InputValue =
-    mapInputValue(tpe, value, ToClient)
-
-  private def translateArguments(
-    definitions: List[__InputValue],
-    arguments: Map[String, InputValue],
-    rename: String => String,
-    direction: MappingDirection
-  ): Map[String, InputValue] =
-    arguments.iterator.map { case (name, value) =>
-      val translatedName = rename(name)
-      val sourceName     = if (direction == ToClient) name else translatedName
-      val translated     = definitions
-        .find(_.name == sourceName)
-        .fold(value)(definition => mapInputValue(definition._type, value, direction))
-      translatedName -> translated
-    }.toMap
-
-  private def nullable(tpe: __Type): __Type =
-    if (tpe.kind == __TypeKind.NON_NULL) tpe.ofType.map(nullable).getOrElse(tpe) else tpe
-
-  private def listElement(tpe: __Type): Option[__Type] = {
-    val value = nullable(tpe)
-    if (value.kind == __TypeKind.LIST) value.ofType.map(nullable) else None
-  }
-
-  private def mapInputValue(tpe: __Type, value: InputValue, direction: MappingDirection): InputValue =
-    tpe.kind match {
-      case __TypeKind.NON_NULL => tpe.ofType.fold(value)(mapInputValue(_, value, direction))
-      case __TypeKind.LIST     =>
-        value match {
-          case InputListValue(values) =>
-            InputListValue(values.map(item => tpe.ofType.fold(item)(mapInputValue(_, item, direction))))
-          case other                  => tpe.ofType.fold(other)(mapInputValue(_, other, direction))
-        }
-      case kind
-          if kind == __TypeKind.INPUT_OBJECT ||
-            (direction == ToSource && (kind == __TypeKind.OBJECT || kind == __TypeKind.INTERFACE)) =>
-        value match {
-          case InputObjectValue(fields) =>
-            val sourceTypeName = tpe.name.getOrElse("")
-            val clientName     = clientType(sourceTypeName)
-            val definition     = originalRootType.types.get(sourceTypeName)
-            InputObjectValue(fields.iterator.map {
-              case ("__typename", StringValue(name)) if kind != __TypeKind.INPUT_OBJECT =>
-                "__typename" -> StringValue(sourceType(name))
-              case (name, nested)                                                       =>
-                val sourceName =
-                  if (direction == ToClient) name
-                  else if (kind == __TypeKind.INPUT_OBJECT) sourceInputFields.getOrElse(clientName -> name, name)
-                  else sourceField(clientName, name)
-                val outputName =
-                  if (direction == ToClient) clientInputField(sourceTypeName, sourceName)
-                  else sourceName
-                val translated = definition.flatMap { tpe =>
-                  if (kind == __TypeKind.INPUT_OBJECT) Option(tpe.getInputFieldOrNull(sourceName)).map(_._type)
-                  else Option(tpe.getFieldOrNull(sourceName)).map(_._type)
-                }
-                  .fold(nested)(mapInputValue(_, nested, direction))
-                outputName -> translated
-            }.toMap)
-          case other                    => other
-        }
-      case __TypeKind.ENUM     =>
-        val sourceName = tpe.name.getOrElse("")
-        value match {
-          case EnumValue(name)   =>
-            if (direction == ToClient) EnumValue(clientEnumValue(sourceName, name))
-            else EnumValue(sourceEnumValues.getOrElse(clientType(sourceName) -> name, name))
-          case StringValue(name) =>
-            if (direction == ToClient) EnumValue(clientEnumValue(sourceName, name))
-            else EnumValue(sourceEnumValues.getOrElse(clientType(sourceName) -> name, name))
-          case other             => other
-        }
-      case _                   => value
-    }
 }
 
 private[gateway] object SchemaMapping {
 
   private final case class FieldSetDirectives(names: Set[String], provides: Set[String])
-  private sealed trait MappingDirection
-  private case object ToClient extends MappingDirection
-  private case object ToSource extends MappingDirection
 
   private final case class CoordinateContext(
     types: Map[String, __Type],
@@ -669,23 +533,6 @@ private[gateway] object SchemaMapping {
     }
   }
 
-  private final case class EnumValueCoordinate(typeName: String, name: String) extends Coordinate {
-    val id          = s"enum:$typeName.$name"
-    val display     = s"Enum value '$typeName.$name'"
-    val targetScope = s"enum:$typeName"
-    val plural      = "Enum values"
-    val currentName = name
-
-    def targetExists(context: CoordinateContext, target: String): Boolean =
-      context.types.get(typeName).exists(_.allEnumValues.exists(_.name == target))
-    def targetDescription(target: String): String                         = s"value '$target'"
-
-    def restrictions(change: Change, context: CoordinateContext, prefix: String): List[String] =
-      if (context.transportTypes.contains(typeName))
-        List(s"$prefix Federation transport enum value '$typeName.$name' cannot be transformed.")
-      else Nil
-  }
-
   private final case class Change(coordinate: Coordinate, renamed: Option[String])
 
   private val federationRootFields = Set("_entities", "_service")
@@ -694,20 +541,17 @@ private[gateway] object SchemaMapping {
     typeNames: Map[String, String] = Map.empty,
     fieldNames: Map[(String, String), String] = Map.empty,
     argumentNames: Map[(String, String, String), String] = Map.empty,
-    inputFieldNames: Map[(String, String), String] = Map.empty,
-    enumValueNames: Map[(String, String), String] = Map.empty,
     hiddenTypeSources: Set[String] = Set.empty,
     hiddenFieldSources: Set[(String, String)] = Set.empty,
     hiddenArgumentSources: Set[(String, String, String)] = Set.empty,
-    hiddenInputFieldSources: Set[(String, String)] = Set.empty,
-    hiddenEnumValueSources: Set[(String, String)] = Set.empty
+    hiddenInputFieldSources: Set[(String, String)] = Set.empty
   ) {
     def renamesNothing: Boolean =
-      typeNames.isEmpty && fieldNames.isEmpty && argumentNames.isEmpty && inputFieldNames.isEmpty && enumValueNames.isEmpty
+      typeNames.isEmpty && fieldNames.isEmpty && argumentNames.isEmpty
 
     def nonEmpty: Boolean =
       !renamesNothing || hiddenTypeSources.nonEmpty || hiddenFieldSources.nonEmpty || hiddenArgumentSources.nonEmpty ||
-        hiddenInputFieldSources.nonEmpty || hiddenEnumValueSources.nonEmpty
+        hiddenInputFieldSources.nonEmpty
 
     def add(change: Change): Mappings =
       (change.coordinate, change.renamed) match {
@@ -721,14 +565,8 @@ private[gateway] object SchemaMapping {
           copy(argumentNames = argumentNames.updated((tpe, field, name), renamed))
         case (ArgumentCoordinate(tpe, field, name), None)          =>
           copy(hiddenArgumentSources = hiddenArgumentSources + ((tpe, field, name)))
-        case (InputFieldCoordinate(tpe, name), Some(renamed))      =>
-          copy(inputFieldNames = inputFieldNames.updated(tpe -> name, renamed))
-        case (InputFieldCoordinate(tpe, name), None)               =>
+        case (InputFieldCoordinate(tpe, name), _)                  =>
           copy(hiddenInputFieldSources = hiddenInputFieldSources + (tpe -> name))
-        case (EnumValueCoordinate(tpe, name), Some(renamed))       =>
-          copy(enumValueNames = enumValueNames.updated(tpe -> name, renamed))
-        case (EnumValueCoordinate(tpe, name), None)                =>
-          copy(hiddenEnumValueSources = hiddenEnumValueSources + (tpe -> name))
       }
 
     def renamedType(name: String): String               = typeNames.getOrElse(name, name)
@@ -742,11 +580,9 @@ private[gateway] object SchemaMapping {
       (renamedType(tpe), renamedField(tpe, field), argumentNames.getOrElse((tpe, field, name), name))
     }
     def hiddenInputFields: Set[(String, String)]       = hiddenInputFieldSources.map { case (tpe, name) =>
-      renamedType(tpe) -> inputFieldNames.getOrElse(tpe -> name, name)
+      renamedType(tpe) -> name
     }
-    def hiddenEnumValues: Set[(String, String)]        = hiddenEnumValueSources.map { case (tpe, name) =>
-      renamedType(tpe) -> enumValueNames.getOrElse(tpe -> name, name)
-    }
+
   }
 
   private def normalize(transformation: SchemaTransformation): Change =
@@ -758,10 +594,7 @@ private[gateway] object SchemaMapping {
       case RenameArgument(tpe, field, name, renamed) =>
         Change(ArgumentCoordinate(tpe, field, name), Some(renamed))
       case HideArgument(tpe, field, name)            => Change(ArgumentCoordinate(tpe, field, name), None)
-      case RenameInputField(tpe, name, renamed)      => Change(InputFieldCoordinate(tpe, name), Some(renamed))
       case HideInputField(tpe, name)                 => Change(InputFieldCoordinate(tpe, name), None)
-      case RenameEnumValue(tpe, name, renamed)       => Change(EnumValueCoordinate(tpe, name), Some(renamed))
-      case HideEnumValue(tpe, name)                  => Change(EnumValueCoordinate(tpe, name), None)
     }
 
   def compile(
@@ -792,13 +625,9 @@ private[gateway] object SchemaMapping {
     val hiddenReferences           = referencedHiddenCoordinates(
       document,
       rootType,
-      mappings.hiddenEnumValueSources,
       mappings.hiddenInputFieldSources
     )
-    val hiddenEnumReferences       = hiddenReferences.enumValues.toList.sorted.map { case (tpe, value) =>
-      s"$prefix Hidden enum value '$tpe.$value' is referenced by a directive or default value."
-    }
-    val hiddenInputFieldReferences = hiddenReferences.inputFields.toList.sorted.map { case (tpe, field) =>
+    val hiddenInputFieldReferences = hiddenReferences.toList.sorted.map { case (tpe, field) =>
       s"$prefix Hidden input field '$tpe.$field' is referenced by a directive or default value."
     }
     val invalidRenameTargets       = renames.flatMap { case (coordinate, target) =>
@@ -825,7 +654,7 @@ private[gateway] object SchemaMapping {
       }
       .toList
     val diagnostics                =
-      (missing ::: restrictions ::: hiddenEnumReferences ::: hiddenInputFieldReferences ::: invalidRenameTargets :::
+      (missing ::: restrictions ::: hiddenInputFieldReferences ::: invalidRenameTargets :::
         collisions ::: transformedCollisions ::: conflictingTransformations).distinct.sorted
 
     if (diagnostics.nonEmpty) Left(diagnostics)
@@ -892,9 +721,8 @@ private[gateway] object SchemaMapping {
   private def referencedHiddenCoordinates(
     document: Document,
     rootType: RootType,
-    hiddenEnums: Set[(String, String)],
     hiddenInputFields: Set[(String, String)]
-  ): InputCoordinateReferences = {
+  ): Set[(String, String)] = {
     def directiveValues(directives: List[Directive]): List[(__Type, InputValue)] =
       directives.flatMap { directive =>
         rootType.additionalDirectives.find(_.name == directive.name).toList.flatMap { definition =>
@@ -969,9 +797,6 @@ private[gateway] object SchemaMapping {
       .map { case (tpe, value) => inputCoordinateReferences(tpe, value) }
       .foldLeft(InputCoordinateReferences())(_ ++ _)
 
-    InputCoordinateReferences(
-      enumValues = found.enumValues.filter(hiddenEnums),
-      inputFields = found.inputFields.filter(hiddenInputFields)
-    )
+    found.inputFields.filter(hiddenInputFields)
   }
 }

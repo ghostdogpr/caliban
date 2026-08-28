@@ -135,14 +135,12 @@ object GatewayHttpSpec extends ZIOSpecDefault {
           gqlFiber       <- QuickAdapter(runtime).handlers.api
                               .runZIO(post(URL.empty, """{"query":"{ delayed }"}"""))
                               .fork
-          _              <- runtime.status.repeatUntil(_.requests.active == 1)
           _              <- TestClock.adjust(20.millis)
           gqlResponse    <- gqlFiber.join
           gqlBody        <- gqlResponse.body.asString.orDie
           legacyFiber    <- QuickAdapter(runtime).handlers.api
                               .runZIO(post(URL.empty, """{"query":"{ delayed }"}""", "application/json"))
                               .fork
-          _              <- runtime.status.repeatUntil(_.requests.active == 1)
           _              <- TestClock.adjust(20.millis)
           legacyResponse <- legacyFiber.join
           legacyBody     <- legacyResponse.body.asString.orDie

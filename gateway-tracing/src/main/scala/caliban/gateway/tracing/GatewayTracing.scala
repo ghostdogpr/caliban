@@ -64,8 +64,7 @@ object GatewayTracing {
               .build()
           )(observed)
         case Event.Completion                                                                              => span("caliban.gateway.completion", SpanKind.INTERNAL)(observed)
-        case _: Event.CacheAccess | _: Event.AdmissionWait | _: Event.Admission | _: Event.Deduplication |
-            Event.RequestOverdue =>
+        case _: Event.CacheAccess | _: Event.Admission                                                     =>
           effect
       }
     }

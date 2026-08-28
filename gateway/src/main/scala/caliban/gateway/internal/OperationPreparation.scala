@@ -3,7 +3,6 @@ package caliban.gateway.internal
 import caliban.{ CalibanError, Configurator, GraphQLRequest, InputValue }
 import caliban.execution.{ ExecutionRequest, Field, RequestPreparation }
 import caliban.gateway.{ GatewayConfig, GatewayWrapper }
-import caliban.gateway.GatewayInterpreter.OperationCacheStatus
 import caliban.gateway.internal.execution.PreparedPlan
 import caliban.gateway.internal.OperationCache.Weighted
 import caliban.gateway.internal.OperationCacheMode.Cacheable
@@ -14,22 +13,19 @@ import caliban.InputValue.VariableValue
 import caliban.parsing.adt.{ Directive, Document }
 import caliban.schema.RootType
 import caliban.validation.Validator
-import caliban.validation.Validator.AllValidations
 import zio.{ Exit, IO, Trace, UIO, ZIO }
 
 private[gateway] final class OperationPreparation[-R] private (
   rootType: RootType,
   planner: OperationPlanner,
   hooks: OperationHooks[R],
-  limits: OperationParsingLimits,
   cache: OperationCache[CacheKey, CalibanError, CachedOperation, R]
 ) {
 
   def check(query: String)(implicit trace: Trace): IO[CalibanError, Unit] =
     for {
-      parsed  <- parseWithinLimits(query)
-      document = parsed.document
-      _       <- Validator.validate(document, rootType)
+      document <- RequestPreparation.parse(query)
+      _        <- Validator.validate(document, rootType)
     } yield ()
 
   def prepare(request: GraphQLRequest)(implicit trace: Trace): ZIO[R, CalibanError, Prepared] =
@@ -38,9 +34,8 @@ private[gateway] final class OperationPreparation[-R] private (
       query       = resolved.query.getOrElse("")
       config     <- Configurator.ref.get
       preparation = PreparationConfig.from(config)
-      cacheable   = config.skipValidation || config.validations == AllValidations
       prepared   <- hooks.cacheMode match {
-                      case Cacheable if cacheable =>
+                      case Cacheable =>
                         cache
                           .getOrCompute(
                             CacheKey(
@@ -49,29 +44,23 @@ private[gateway] final class OperationPreparation[-R] private (
                               resolved.isHttpGetRequest,
                               preparation
                             )
-                          )(parseWithinLimits(query).flatMap(parsed => computeCached(resolved, parsed, preparation)))
+                          )(
+                            RequestPreparation
+                              .parse(query)
+                              .flatMap(document => computeCached(resolved, document, preparation))
+                          )
                           .flatMap(materialize(resolved, _))
-                      case _                      =>
+                      case _         =>
                         prepareUncached(resolved, query)
                     }
-      _          <- hooks.evaluatePolicy(resolved, prepared.document, prepared.executionRequest)
+      _          <- hooks.evaluatePolicy(resolved, prepared.document, prepared.executionRequest, prepared.plan.plan)
     } yield prepared
-
-  def cacheStatus(implicit trace: Trace): UIO[OperationCacheStatus] = cache.status
-
-  private def parseWithinLimits(query: String)(implicit trace: Trace): IO[CalibanError, ParsedWithinLimits] =
-    for {
-      textBytes <- ZIO.fromEither(limits.textBytes(query).left.map(limitFailure))
-      document  <- RequestPreparation.parse(query)
-      nodeCount <- ZIO.fromEither(limits.documentNodes(document).left.map(limitFailure))
-    } yield ParsedWithinLimits(document, textBytes, nodeCount)
 
   private def computeCached(
     request: GraphQLRequest,
-    parsed: ParsedWithinLimits,
+    document: Document,
     preparation: PreparationConfig
-  )(implicit trace: Trace): IO[CalibanError, Weighted[CachedOperation]] = {
-    val document = parsed.document
+  )(implicit trace: Trace): IO[CalibanError, Weighted[CachedOperation]] =
     for {
       _        <- Validator.validate(document, rootType).unless(preparation.skipValidation)
       variables = symbolicVariables(document)
@@ -93,17 +82,15 @@ private[gateway] final class OperationPreparation[-R] private (
         if (variables.isEmpty && !planned.exists(_._2.hasVariableReferences)) planned.map(_._1)
         else None
       val cached    = CachedOperation(document, planned.map(_._2), execution)
-      Weighted(cached, operationWeight(parsed.textBytes, parsed.nodeCount, cached.executionPlan, request.operationName))
+      Weighted(cached, operationWeight(request.query.getOrElse(""), cached.executionPlan, request.operationName))
     }
-  }
 
   private def prepareUncached(
     request: GraphQLRequest,
     query: String
   )(implicit trace: Trace): IO[CalibanError, Prepared] =
     for {
-      parsed    <- parseWithinLimits(query)
-      document   = parsed.document
+      document  <- RequestPreparation.parse(query)
       variables <- RequestPreparation.coerceVariables(document, request, rootType)
       execution <- RequestPreparation.prepareParsed(
                      request,
@@ -147,8 +134,7 @@ private[gateway] final class OperationPreparation[-R] private (
     ZIO.blocking(ZIO.fromEither(planner.plan(document, execution))).mapError(planningFailure).map(new PreparedPlan(_))
 
   private def operationWeight(
-    text: Int,
-    nodes: Int,
+    query: String,
     executionPlan: Option[PreparedPlan],
     operationName: Option[String]
   ): Long = {
@@ -166,7 +152,7 @@ private[gateway] final class OperationPreparation[-R] private (
           value.typenameSelections.size.toLong
       )
 
-    text.toLong * 2L + nodes.toLong + operationName.fold(0)(_.length).toLong + planWeight + 1L
+    query.length.toLong * 2L + operationName.fold(0)(_.length).toLong + planWeight + 1L
   }
 
   private def symbolicVariables(document: Document): Map[String, InputValue] =
@@ -187,8 +173,6 @@ private[gateway] final class OperationPreparation[-R] private (
 }
 
 private[gateway] object OperationPreparation {
-
-  private final case class ParsedWithinLimits(document: Document, textBytes: Int, nodeCount: Int)
 
   final case class Prepared(
     request: GraphQLRequest,
@@ -213,7 +197,9 @@ private[gateway] object OperationPreparation {
   private final case class PreparationConfig(
     skipValidation: Boolean,
     enableIntrospection: Boolean,
-    allowMutationsOverGetRequests: Boolean
+    allowMutationsOverGetRequests: Boolean,
+    // Reuse function instances across requests. Fresh lambdas cause misses; rebuilding only the list does not.
+    validations: List[Validator.QueryValidation]
   )
 
   private object PreparationConfig {
@@ -221,7 +207,8 @@ private[gateway] object OperationPreparation {
       PreparationConfig(
         config.skipValidation,
         config.enableIntrospection,
-        config.allowMutationsOverGetRequests
+        config.allowMutationsOverGetRequests,
+        config.validations
       )
   }
 
@@ -239,24 +226,9 @@ private[gateway] object OperationPreparation {
           rootType,
           planner,
           hooks,
-          new OperationParsingLimits(
-            config.maxOperationTextBytes,
-            config.maxOperationNesting,
-            config.maxParsedOperationNodes
-          ),
           cache
         )
       )
-
-  private def limitFailure(failure: OperationParsingLimits.Failure): CalibanError.ValidationError =
-    failure match {
-      case OperationParsingLimits.TextTooLarge   =>
-        CalibanError.ValidationError("Operation text exceeded the configured byte limit.", "")
-      case OperationParsingLimits.NestingTooDeep =>
-        CalibanError.ValidationError("Operation nesting exceeded the configured limit.", "")
-      case OperationParsingLimits.TooManyNodes   =>
-        CalibanError.ValidationError("Operation structure exceeded the configured node limit.", "")
-    }
 
   private def planningFailure(failure: PlanningFailure): CalibanError.ValidationError =
     CalibanError.ValidationError(failure.message, "")

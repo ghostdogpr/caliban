@@ -11,10 +11,8 @@ final case class RemoteSubscriptionConfig(
   transport: RemoteSubscriptionConfig.Transport = RemoteSubscriptionConfig.WebSocket,
   endpoint: Option[Uri] = None,
   connectionInit: Option[InputValue] = None,
-  acknowledgementTimeout: Duration = Duration.fromSeconds(30),
+  connectionTimeout: Duration = Duration.fromSeconds(30),
   keepAliveInterval: Duration = Duration.fromSeconds(15),
-  pongTimeout: Duration = Duration.fromSeconds(30),
-  writeTimeout: Duration = Duration.fromSeconds(10),
   bufferSize: Int = 32
 ) {
   private[gateway] def diagnostics: List[String] = {
@@ -27,7 +25,7 @@ final case class RemoteSubscriptionConfig(
         }
         if (uri.scheme.exists(allowed)) Nil else List("Remote subscription endpoint has an unsupported URI scheme.")
       } :::
-      List(acknowledgementTimeout, keepAliveInterval, pongTimeout, writeTimeout).flatMap(
+      List(connectionTimeout, keepAliveInterval).flatMap(
         finitePositive(_, "Remote subscription timeouts and keepalive interval must be finite and positive.")
       )
   }

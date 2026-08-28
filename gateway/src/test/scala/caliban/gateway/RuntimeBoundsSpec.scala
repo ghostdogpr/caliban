@@ -6,7 +6,8 @@ import caliban.gateway.GatewayTestSupport._
 import caliban.gateway.OperationPolicy.Allow
 import caliban.gateway.internal.OperationCache.Weighted
 import caliban.gateway.internal._
-import caliban.{ Configurator, GraphQLRequest, InputValue }
+import caliban.validation.Validator
+import caliban.{ CalibanError, Configurator, GraphQLRequest, InputValue }
 import sttp.model.Uri
 import zio._
 import zio.http.{ Body, Handler, Header, Headers, Method, Request, Response, Routes, Server, Status }
@@ -55,100 +56,127 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
           _            <- release.succeed(())
           values       <- ZIO.foreach(fibers)(_.join)
           runs         <- computations.get
-          status       <- cache.status
         } yield assertTrue(
           values.forall(_ == 1),
-          runs == 1,
-          status.entries == 1,
-          status.inFlight == 0
+          runs == 1
         )
       },
       test("evicts entries by total weight") {
         for {
-          cache  <- OperationCache.make[String, String, Int, Any](5, GatewayWrapper.empty)
-          runs   <- Ref.make(0)
-          _      <- cache.getOrCompute("first")(runs.update(_ + 1).as(Weighted(1, 3)))
-          _      <- cache.getOrCompute("second")(runs.update(_ + 1).as(Weighted(2, 3)))
-          first  <- cache.getOrCompute("first")(runs.update(_ + 1).as(Weighted(1, 3)))
-          count  <- runs.get
-          status <- cache.status
+          cache <- OperationCache.make[String, String, Int, Any](5, GatewayWrapper.empty)
+          runs  <- Ref.make(0)
+          _     <- cache.getOrCompute("first")(runs.update(_ + 1).as(Weighted(1, 3)))
+          _     <- cache.getOrCompute("second")(runs.update(_ + 1).as(Weighted(2, 3)))
+          first <- cache.getOrCompute("first")(runs.update(_ + 1).as(Weighted(1, 3)))
+          count <- runs.get
         } yield assertTrue(
           first == 1,
-          count == 3,
-          status.weight <= status.maxWeight,
-          status.evictions == 2
+          count == 3
         )
       },
       test("allows an interrupted waiter to leave without cancelling the shared computation") {
         for {
-          cache        <- OperationCache.make[String, String, Int, Any](32, GatewayWrapper.empty)
-          computing    <- Promise.make[Nothing, Unit]
-          release      <- Promise.make[Nothing, Unit]
-          computations <- Ref.make(0)
-          leader       <- cache
-                            .getOrCompute("same")(
-                              computations.update(_ + 1) *>
-                                computing.succeed(()).unit *>
-                                release.await.as(Weighted(1, 4))
-                            )
-                            .fork
-          _            <- computing.await
-          waiter       <- cache.getOrCompute("same")(ZIO.dieMessage("waiter computed")).fork
-          _            <- cache.status.repeatUntil(_.misses >= 2)
-          waiterExit   <- waiter.interrupt
-          _            <- release.succeed(())
-          leaderValue  <- leader.join
-          cached       <- cache.getOrCompute("same")(ZIO.dieMessage("cache missed"))
-          runs         <- computations.get
+          recorded         <- recordEvents
+          (events, wrapper) = recorded
+          cache            <- OperationCache.make[String, String, Int, Any](32, wrapper)
+          computing        <- Promise.make[Nothing, Unit]
+          release          <- Promise.make[Nothing, Unit]
+          computations     <- Ref.make(0)
+          leader           <- cache
+                                .getOrCompute("same")(
+                                  computations.update(_ + 1) *>
+                                    computing.succeed(()).unit *>
+                                    release.await.as(Weighted(1, 4))
+                                )
+                                .fork
+          _                <- computing.await
+          waiter           <- cache.getOrCompute("same")(ZIO.dieMessage("waiter computed")).fork
+          _                <- events.get.repeatUntil(_.contains(GatewayWrapper.Event.CacheAccess(GatewayWrapper.CacheResult.Wait)))
+          waiterExit       <- waiter.interrupt
+          _                <- release.succeed(())
+          leaderValue      <- leader.join
+          cached           <- cache.getOrCompute("same")(ZIO.dieMessage("cache missed"))
+          runs             <- computations.get
         } yield assertTrue(waiterExit.isInterrupted, leaderValue == 1, cached == 1, runs == 1)
       },
       test("cleans up an in-flight entry when the miss wrapper interrupts") {
         for {
-          interrupt   <- Ref.make(true)
-          wrapper      = new GatewayWrapper[Any] {
-                           def wrap[R0, E, A](event: GatewayWrapper.Event)(effect: ZIO[R0, E, A])(
-                             result: Exit[E, A] => GatewayWrapper.Result
-                           )(implicit trace: Trace): ZIO[R0, E, A] =
-                             event match {
-                               case GatewayWrapper.Event.CacheAccess(GatewayWrapper.CacheResult.Miss) =>
-                                 interrupt.getAndSet(false).flatMap(if (_) ZIO.interrupt else effect)
-                               case _                                                                 => effect
-                             }
-                         }
-          cache       <- OperationCache.make[String, String, Int, Any](32, wrapper)
-          first       <- cache.getOrCompute("same")(ZIO.succeed(Weighted(1, 4))).exit
-          afterFirst  <- cache.status
-          second      <- cache.getOrCompute("same")(ZIO.succeed(Weighted(2, 4)))
-          afterSecond <- cache.status
+          interrupt <- Ref.make(true)
+          wrapper    = new GatewayWrapper[Any] {
+                         def wrap[R0, E, A](event: GatewayWrapper.Event)(effect: ZIO[R0, E, A])(
+                           result: Exit[E, A] => GatewayWrapper.Result
+                         )(implicit trace: Trace): ZIO[R0, E, A] =
+                           event match {
+                             case GatewayWrapper.Event.CacheAccess(GatewayWrapper.CacheResult.Miss) =>
+                               interrupt.getAndSet(false).flatMap(if (_) ZIO.interrupt else effect)
+                             case _                                                                 => effect
+                           }
+                       }
+          cache     <- OperationCache.make[String, String, Int, Any](32, wrapper)
+          first     <- cache.getOrCompute("same")(ZIO.succeed(Weighted(1, 4))).exit
+          second    <- cache.getOrCompute("same")(ZIO.succeed(Weighted(2, 4)))
         } yield assertTrue(
           first.isInterrupted,
-          afterFirst.inFlight == 0,
-          second == 2,
-          afterSecond.inFlight == 0,
-          afterSecond.entries == 1
+          second == 2
         )
       }
     ),
     suite("operation preparation")(
       test("caches prepared plans independently of policy evaluation") {
         for {
-          policyCalls  <- Ref.make(0)
-          stableRemote <- stub(response)
-          stable       <- Gateway
-                            .compose(Subgraph.graphql("stable", stableRemote.endpoint, schema))
-                            .withOperationPolicy(
-                              OperationPolicy[Any](_ => policyCalls.update(_ + 1).as(Allow))
-                            )
-                            .interpreter
-          _            <- stable.executeRequest(request)
-          _            <- stable.executeRequest(request)
-          stableStatus <- stable.status
-          policyRuns   <- policyCalls.get
+          recorded         <- recordEvents
+          (events, wrapper) = recorded
+          policyCalls      <- Ref.make(0)
+          stableRemote     <- stub(response)
+          stable           <- (Gateway
+                                .compose(Subgraph.graphql("stable", stableRemote.endpoint, schema))
+                                .withOperationPolicy(
+                                  OperationPolicy[Any](_ => policyCalls.update(_ + 1).as(Allow))
+                                ) @@ wrapper).interpreter
+          _                <- stable.executeRequest(request)
+          _                <- stable.executeRequest(request)
+          policyRuns       <- policyCalls.get
+          observed         <- events.get
         } yield assertTrue(
-          stableStatus.operationCache.entries == 1,
-          stableStatus.operationCache.misses == 1,
-          stableStatus.operationCache.hits == 1,
+          observed.count(_ == GatewayWrapper.Event.CacheAccess(GatewayWrapper.CacheResult.Hit)) == 1,
           policyRuns == 2
+        )
+      },
+      test("caches custom validations and isolates different validation lists and gateway instances") {
+        val allow: Validator.QueryValidation = _ => Right(())
+        val deny: Validator.QueryValidation  = _ => Left(CalibanError.ValidationError("Custom validation rejected.", ""))
+        val allowed                          = Validator.AllValidations :+ allow
+        val denied                           = Validator.AllValidations :+ deny
+
+        def execute(runtime: GatewayInterpreter[Any], validations: List[Validator.QueryValidation]) =
+          ZIO.scoped(Configurator.setValidations(validations) *> runtime.executeRequest(request))
+
+        for {
+          recorded         <- recordEvents
+          (events, wrapper) = recorded
+          gateway           = Gateway.compose(Subgraph.local("local", localGraph(ZIO.succeed("ok")))) @@ wrapper
+          runtime          <- gateway.interpreter
+          first            <- execute(runtime, allowed)
+          second           <- execute(runtime, allowed.map(identity))
+          rejected         <- execute(runtime, denied)
+          restored         <- execute(runtime, allowed)
+          other            <- gateway.interpreter
+          otherRejected    <- execute(other, denied)
+          observed         <- events.get
+          accesses          = observed.collect { case GatewayWrapper.Event.CacheAccess(result) => result }
+        } yield assertTrue(
+          first.errors.isEmpty,
+          second.errors.isEmpty,
+          restored.errors.isEmpty,
+          rejected.errors.map(_.msg) == List("Custom validation rejected."),
+          otherRejected.errors.map(_.msg) == List("Custom validation rejected."),
+          accesses == Vector(
+            GatewayWrapper.CacheResult.Miss,
+            GatewayWrapper.CacheResult.Hit,
+            GatewayWrapper.CacheResult.Miss,
+            GatewayWrapper.CacheResult.Hit,
+            GatewayWrapper.CacheResult.Miss
+          )
         )
       },
       test("isolates cached preparations by the Caliban introspection setting") {
@@ -165,7 +193,6 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
           disabledSchema <- Configurator.locally(disabled)(runtime.executeRequest(schemaIntrospection))
           disabledType   <- Configurator.locally(disabled)(runtime.executeRequest(typeIntrospection))
           reenabled      <- Configurator.locally(enabled)(runtime.executeRequest(schemaIntrospection))
-          status         <- runtime.status
           forwarded      <- remote.requests.get
           disabledResults = disabledSchema :: disabledType :: Nil
         } yield assertTrue(
@@ -173,9 +200,6 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
           enabledHit.errors.isEmpty,
           reenabled.errors.isEmpty,
           disabledResults.forall(_.errors.map(_.msg) == List("Introspection is disabled")),
-          status.operationCache.entries == 1,
-          status.operationCache.misses == 3,
-          status.operationCache.hits == 2,
           forwarded.isEmpty
         )
       },
@@ -200,17 +224,13 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
                        )
                      )
           sent    <- remote.requests.get
-          status  <- runtime.status
         } yield assertTrue(
           first.errors.isEmpty,
           second.errors.isEmpty,
           sent.flatMap(_.query) == Vector(
             "query Value{value(input:\"first\")}",
             "query Value{value(input:\"second\")}"
-          ),
-          status.operationCache.entries == 1,
-          status.operationCache.misses == 1,
-          status.operationCache.hits == 1
+          )
         )
       },
       test("replans variable-conditioned selections without repeating static preparation") {
@@ -236,13 +256,9 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
                        )
                      )
           sent    <- remote.requests.get
-          status  <- runtime.status
         } yield assertTrue(
           !sent.headOption.flatMap(_.query).exists(_.contains("conditionalValue")),
-          sent.drop(1).headOption.flatMap(_.query).exists(_.contains("conditionalValue")),
-          status.operationCache.entries == 1,
-          status.operationCache.misses == 1,
-          status.operationCache.hits == 1
+          sent.drop(1).headOption.flatMap(_.query).exists(_.contains("conditionalValue"))
         )
       },
       test("validates OneOf variables on cached misses and hits") {
@@ -273,40 +289,9 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
                               )
                             )
           sent           <- remote.requests.get
-          status         <- runtime.status
         } yield assertTrue(
           multipleFields.errors.nonEmpty,
           nullField.errors.nonEmpty,
-          sent.isEmpty,
-          status.operationCache.entries == 1,
-          status.operationCache.misses == 1,
-          status.operationCache.hits == 1
-        )
-      },
-      test("rejects oversized, over-nested, and over-structured operations before source calls") {
-        val limitsSchema = "type Query { a: String b: String c: String nested: Item } type Item { value: String }"
-        for {
-          remote       <- stub("""{"data":{"a":"a","b":"b","c":"c"}}""")
-          textRuntime  <- Gateway
-                            .compose(Subgraph.graphql("text", remote.endpoint, limitsSchema))
-                            .withConfig(_.withMaxOperationTextBytes(4))
-                            .interpreter
-          text         <- textRuntime.execute("{ a }")
-          depthRuntime <- Gateway
-                            .compose(Subgraph.graphql("depth", remote.endpoint, limitsSchema))
-                            .withConfig(_.withMaxOperationNesting(1))
-                            .interpreter
-          depth        <- depthRuntime.execute("{ nested { value } }")
-          nodeRuntime  <- Gateway
-                            .compose(Subgraph.graphql("nodes", remote.endpoint, limitsSchema))
-                            .withConfig(_.withMaxParsedOperationNodes(3))
-                            .interpreter
-          nodes        <- nodeRuntime.execute("{ a b c }")
-          sent         <- remote.requests.get
-        } yield assertTrue(
-          text.errors.map(_.msg) == List("Operation text exceeded the configured byte limit."),
-          depth.errors.map(_.msg) == List("Operation nesting exceeded the configured limit."),
-          nodes.errors.map(_.msg) == List("Operation structure exceeded the configured node limit."),
           sent.isEmpty
         )
       },
@@ -315,8 +300,7 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
           exit <- Gateway
                     .compose(Subgraph.local("local", localValueGraph(ZIO.succeed("ok"))))
                     .withConfig(
-                      _.withMaxOperationNesting(0)
-                        .withMaxPlanningCandidates(0)
+                      _.withMaxPlanningCandidates(0)
                         .withMaxPlanningExpansions(0)
                         .withPlanningTimeout(Duration.Infinity)
                         .withMaxConcurrentRequests(0)
@@ -325,21 +309,12 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
                     .exit
         } yield assertTrue(
           buildDiagnostics(exit) == List(
-            "Gateway maxOperationNesting must be positive.",
             "Gateway maxPlanningCandidates must be positive.",
             "Gateway maxPlanningExpansions must be positive.",
             "Gateway planning timeout must be finite and positive.",
             "Gateway maxConcurrentRequests must be positive."
           )
         )
-      },
-      test("ignores GraphQL string and comment contents when measuring nesting") {
-        val limits       = new OperationParsingLimits(1024, 2, 100)
-        val escapedBlock =
-          "query { value(input: " + "\"\"\"" + "ignored \\\"\"\" { [ ( " + "\"\"\"" + ") }"
-        val ordinary     = "query { value(input: \"{[(\") } # {[(("
-
-        assertTrue(limits.textBytes(escapedBlock).isRight, limits.textBytes(ordinary).isRight)
       }
     ),
     suite("admission")(
@@ -359,22 +334,16 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
           first   <- runtime.execute("{ localValue }").fork
           _       <- started.await
           second  <- runtime.execute("{ localValue }").fork
-          waiting <- waitForStatus(runtime)(_.requests.waiting == 1)
+          _       <- TestClock.adjust(Duration.Zero)
           exit    <- second.interrupt
-          after   <- waitForStatus(runtime)(_.requests.waiting == 0)
           _       <- release.succeed(())
           _       <- first.join
           third   <- runtime.execute("{ localValue }")
           count   <- calls.get
-          done    <- runtime.status
         } yield assertTrue(
-          waiting.requests.active == 1,
           exit.isInterrupted,
-          after.requests.active == 1,
           field(third.data, "localValue").contains(StringValue("next")),
-          count == 2,
-          done.requests.active == 0,
-          done.requests.waiting == 0
+          count == 2
         )
       },
       test("applies request admission to explain planning") {
@@ -396,17 +365,13 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
           first   <- runtime.explain(GraphQLRequest()).fork
           _       <- started.await
           second  <- runtime.explain(GraphQLRequest()).fork
-          waiting <- waitForStatus(runtime)(_.requests.waiting == 1)
+          _       <- TestClock.adjust(Duration.Zero)
           exit    <- second.interrupt
           _       <- release.succeed(())
           plan    <- first.join
-          done    <- runtime.status
         } yield assertTrue(
-          waiting.requests.active == 1,
           exit.isInterrupted,
-          plan.contains("fetch local"),
-          done.requests.active == 0,
-          done.requests.waiting == 0
+          plan.contains("fetch local")
         )
       },
       test("applies request admission to validation checks") {
@@ -425,19 +390,31 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
           running  <- runtime.execute("{ localValue }").fork
           _        <- started.await
           checking <- runtime.check("{ localValue }").fork
-          waiting  <- waitForStatus(runtime)(_.requests.waiting == 1)
+          _        <- TestClock.adjust(Duration.Zero)
           exit     <- checking.interrupt
           _        <- release.succeed(())
           _        <- running.join
-          done     <- runtime.status
         } yield assertTrue(
-          waiting.requests.active == 1,
-          exit.isInterrupted,
-          done.requests.active == 0,
-          done.requests.waiting == 0
+          exit.isInterrupted
         )
       },
-      test("runs local and remote sources concurrently with independent permits") {
+      test("local calls share only the gateway request budget") {
+        val concurrency = 65
+        for {
+          started <- Ref.make(0)
+          release <- Promise.make[Nothing, Unit]
+          runtime <-
+            Gateway
+              .compose(Subgraph.local("local", localValueGraph(started.update(_ + 1) *> release.await.as("ok"))))
+              .withConfig(_.withMaxConcurrentRequests(concurrency))
+              .interpreter
+          fibers  <- ZIO.foreach(1 to concurrency)(_ => runtime.execute("{ localValue }").fork)
+          _       <- started.get.repeatUntil(_ == concurrency)
+          _       <- release.succeed(())
+          results <- ZIO.foreach(fibers)(_.join)
+        } yield assertTrue(results.forall(_.errors.isEmpty))
+      },
+      test("runs local and remote sources concurrently") {
         for {
           localStarted  <- Promise.make[Nothing, Unit]
           remoteStarted <- Promise.make[Nothing, Unit]
@@ -453,18 +430,13 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
                              )
                              .withConfig(
                                _.withMaxConcurrentRequests(2)
-                                 .withMaxConcurrentLocalCalls(1)
                              )
                              .interpreter
           fiber         <- runtime.execute("{ localValue value }").fork
           _             <- localStarted.await.zipPar(remoteStarted.await)
-          status        <- runtime.status
           _             <- release.succeed(())
           result        <- fiber.join
         } yield assertTrue(
-          status.requests.active == 1,
-          status.subgraphs.get("local").exists(value => value.active == 1 && value.limit == 1),
-          status.subgraphs.get("remote").exists(_.active == 1),
           field(result.data, "localValue").contains(StringValue("local")),
           field(result.data, "value").contains(StringValue("ok"))
         )
@@ -476,71 +448,65 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
             .withInFlightQueryDeduplication(false)
         )
         for {
-          calls        <- Ref.make(0)
-          retryStarted <- Promise.make[Nothing, Unit]
-          releaseRetry <- Promise.make[Nothing, Unit]
-          remote       <- endpoint { _ =>
-                            calls.updateAndGet(_ + 1).flatMap {
-                              case 1 => ZIO.succeed(Response.status(Status.ServiceUnavailable))
-                              case 2 => retryStarted.succeed(()).unit *> releaseRetry.await.as(graphQLResponse(response))
-                              case _ => ZIO.succeed(graphQLResponse(response))
-                            }
-                          }
-          runtime      <- Gateway
-                            .compose(Subgraph.graphql("remote", remote, schema, config))
-                            .withConfig(_.withMaxConcurrentRequests(2))
-                            .interpreter
-          first        <- runtime.executeRequest(request).fork
-          _            <- retryStarted.await
-          second       <- runtime.executeRequest(request).fork
-          queued       <- waitForStatus(runtime)(_.subgraphs.get("remote").exists(_.waiting == 1))
-          before       <- calls.get
-          _            <- releaseRetry.succeed(())
-          firstResult  <- first.join
-          secondResult <- second.join
-          total        <- calls.get
-          done         <- runtime.status
+          recorded         <- recordEvents
+          (events, wrapper) = recorded
+          calls            <- Ref.make(0)
+          retryStarted     <- Promise.make[Nothing, Unit]
+          releaseRetry     <- Promise.make[Nothing, Unit]
+          remote           <- endpoint { _ =>
+                                calls.updateAndGet(_ + 1).flatMap {
+                                  case 1 => ZIO.succeed(Response.status(Status.ServiceUnavailable))
+                                  case 2 => retryStarted.succeed(()).unit *> releaseRetry.await.as(graphQLResponse(response))
+                                  case _ => ZIO.succeed(graphQLResponse(response))
+                                }
+                              }
+          runtime          <- (Gateway
+                                .compose(Subgraph.graphql("remote", remote, schema, config))
+                                .withConfig(_.withMaxConcurrentRequests(2)) @@ wrapper).interpreter
+          first            <- runtime.executeRequest(request).fork
+          _                <- retryStarted.await
+          second           <- runtime.executeRequest(request).fork
+          _                <- events.get.repeatUntil(
+                                _.count(_.isInstanceOf[GatewayWrapper.Event.SubgraphCall]) == 2
+                              )
+          _                <- TestClock.adjust(Duration.Zero)
+          before           <- calls.get
+          _                <- releaseRetry.succeed(())
+          firstResult      <- first.join
+          secondResult     <- second.join
+          total            <- calls.get
         } yield assertTrue(
-          queued.subgraphs.get("remote").exists(value => value.active == 1 && value.waiting == 1),
           before == 2,
           firstResult.errors.isEmpty,
           secondResult.errors.isEmpty,
-          total == 3,
-          done.subgraphs.get("remote").exists(value => value.active == 0 && value.waiting == 0)
+          total == 3
         )
       },
       test("deduplicates identical queries before source admission") {
         val config = RemoteGraphQLConfig.default.withExecution(_.withMaxConcurrentCalls(1))
         for {
-          calls       <- Ref.make(0)
-          started     <- Promise.make[Nothing, Unit]
-          release     <- Promise.make[Nothing, Unit]
-          remote      <- endpoint(_ =>
-                           calls.update(_ + 1) *>
-                             started.succeed(()).unit *>
-                             release.await.as(graphQLResponse(response))
-                         )
-          runtime     <- (Gateway
-                           .compose(Subgraph.graphql("remote", remote, schema, config))
-                           .withConfig(_.withMaxConcurrentRequests(32)) @@ GatewayMetrics.wrapper).interpreter
-          startBefore <- counter("caliban_gateway_in_flight_deduplication_total", "result", "start")
-          joinBefore  <- counter("caliban_gateway_in_flight_deduplication_total", "result", "join")
-          fibers      <- ZIO.foreach(1 to 20)(_ => runtime.executeRequest(request).fork)
-          _           <- started.await
-          sharing     <- waitForStatus(runtime)(_.requests.active == 20)
-          before      <- calls.get
-          _           <- release.succeed(())
-          responses   <- ZIO.foreach(fibers)(_.join)
-          done        <- runtime.status
-          startAfter  <- counter("caliban_gateway_in_flight_deduplication_total", "result", "start")
-          joinAfter   <- counter("caliban_gateway_in_flight_deduplication_total", "result", "join")
+          calls     <- Ref.make(0)
+          started   <- Promise.make[Nothing, Unit]
+          release   <- Promise.make[Nothing, Unit]
+          remote    <- endpoint(_ =>
+                         calls.update(_ + 1) *>
+                           started.succeed(()).unit *>
+                           release.await.as(graphQLResponse(response))
+                       )
+          runtime   <- (Gateway
+                         .compose(Subgraph.graphql("remote", remote, schema, config))
+                         .withConfig(_.withMaxConcurrentRequests(32)) @@ GatewayMetrics.wrapper).interpreter
+          fibers    <- ZIO.foreach(1 to 20)(_ => runtime.executeRequest(request).fork)
+          _         <- started.await
+          _         <- TestClock.adjust(Duration.Zero)
+          before    <- calls.get
+          _         <- release.succeed(())
+          responses <- ZIO.foreach(fibers)(_.join)
+          total     <- calls.get
         } yield assertTrue(
           before == 1,
-          sharing.subgraphs.get("remote").exists(value => value.active == 1 && value.waiting == 0),
-          startAfter == startBefore + 1.0,
-          joinAfter == joinBefore + 19.0,
-          responses.forall(_.errors.isEmpty),
-          done.subgraphs.get("remote").exists(value => value.active == 0 && value.waiting == 0)
+          total == 1,
+          responses.forall(_.errors.isEmpty)
         )
       },
       test("bounds distinct deduplication identities before source admission") {
@@ -549,32 +515,33 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
         val firstRequest = GraphQLRequest(query = operations, operationName = Some("First"))
         val nextRequest  = GraphQLRequest(query = operations, operationName = Some("Second"))
         for {
-          calls        <- Ref.make(0)
-          firstStarted <- Promise.make[Nothing, Unit]
-          nextStarted  <- Promise.make[Nothing, Unit]
-          releaseFirst <- Promise.make[Nothing, Unit]
-          remote       <- endpoint(_ =>
-                            calls.updateAndGet(_ + 1).flatMap {
-                              case 1 => firstStarted.succeed(()).unit *> releaseFirst.await.as(graphQLResponse(response))
-                              case _ => nextStarted.succeed(()).as(graphQLResponse(response))
-                            }
-                          )
-          runtime      <- Gateway
-                            .compose(Subgraph.graphql("remote", remote, schema, config))
-                            .withConfig(_.withMaxConcurrentRequests(2))
-                            .interpreter
-          first        <- runtime.executeRequest(firstRequest).fork
-          _            <- firstStarted.await
-          second       <- runtime.executeRequest(nextRequest).fork
-          bounded      <- waitForStatus(runtime)(_.requests.active == 2)
-          before       <- calls.get
-          _            <- releaseFirst.succeed(())
-          _            <- nextStarted.await
-          responses    <- first.join.zip(second.join)
-          total        <- calls.get
+          recorded         <- recordEvents
+          (events, wrapper) = recorded
+          calls            <- Ref.make(0)
+          firstStarted     <- Promise.make[Nothing, Unit]
+          nextStarted      <- Promise.make[Nothing, Unit]
+          releaseFirst     <- Promise.make[Nothing, Unit]
+          remote           <- endpoint(_ =>
+                                calls.updateAndGet(_ + 1).flatMap {
+                                  case 1 => firstStarted.succeed(()).unit *> releaseFirst.await.as(graphQLResponse(response))
+                                  case _ => nextStarted.succeed(()).as(graphQLResponse(response))
+                                }
+                              )
+          runtime          <- (Gateway
+                                .compose(Subgraph.graphql("remote", remote, schema, config))
+                                .withConfig(_.withMaxConcurrentRequests(2)) @@ wrapper).interpreter
+          first            <- runtime.executeRequest(firstRequest).fork
+          _                <- firstStarted.await
+          second           <- runtime.executeRequest(nextRequest).fork
+          _                <- events.get.repeatUntil(_.count(_ == GatewayWrapper.Event.Routing) == 2)
+          _                <- TestClock.adjust(Duration.Zero)
+          before           <- calls.get
+          _                <- releaseFirst.succeed(())
+          _                <- nextStarted.await
+          responses        <- first.join.zip(second.join)
+          total            <- calls.get
         } yield assertTrue(
           before == 1,
-          bounded.subgraphs.get("remote").exists(value => value.active == 1 && value.waiting == 0),
           responses._1.errors.isEmpty,
           responses._2.errors.isEmpty,
           total == 2
@@ -588,16 +555,14 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
           first         <- gate(firstStarted.succeed(()).unit *> ZIO.never).fork
           _             <- firstStarted.await
           second        <- gate(secondStarted.succeed(()).unit).fork
-          waiting       <- gate.status.repeatUntil(_.waiting == 1)
+          _             <- TestClock.adjust(Duration.Zero)
+          blocked       <- secondStarted.isDone
           firstExit     <- first.interrupt
           _             <- secondStarted.await
           _             <- second.join
-          done          <- gate.status
         } yield assertTrue(
-          waiting.active == 1,
-          firstExit.isInterrupted,
-          done.active == 0,
-          done.waiting == 0
+          !blocked,
+          firstExit.isInterrupted
         )
       }
     )

@@ -4,7 +4,6 @@ import caliban.{ graphQL, GraphQL, GraphQLRequest, GraphQLResponse, QuickAdapter
 import caliban.ResponseValue.ObjectValue
 import caliban.Value.StringValue
 import caliban.gateway.GatewayTestSupport._
-import caliban.gateway.ReloadableGatewayInterpreter.{ FailureStage, Phase }
 import caliban.gateway.internal.SchemaFingerprint
 import caliban.gateway.internal.execution.SubgraphExecutor
 import caliban.parsing.Parser
@@ -66,17 +65,16 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
                   }
     } yield Source(stub, response, checks, before)
 
-  private def awaitStatus(runtime: ReloadableGatewayInterpreter[_])(
-    predicate: ReloadableGatewayInterpreter.Status => Boolean
-  ): UIO[ReloadableGatewayInterpreter.Status] =
-    (ZIO.yieldNow *> runtime.reloadStatus).repeatUntil(predicate)
+  // The next poll timer is installed only after the current refresh and retirement finish.
+  private def awaitPoll: UIO[Unit] =
+    Clock.instant.flatMap(now => TestClock.sleeps.repeatUntil(_.contains(now.plusSeconds(1)))).unit
 
-  private def poll(runtime: ReloadableGatewayInterpreter[_]): UIO[ReloadableGatewayInterpreter.Status] =
-    for {
-      before <- runtime.reloadStatus
-      _      <- TestClock.adjust(1.second)
-      after  <- awaitStatus(runtime)(s => s.phase == Phase.Idle && s.lastAttemptAt != before.lastAttemptAt)
-    } yield after
+  private def poll(runtime: ReloadableGatewayInterpreter[_]): UIO[Option[String]] =
+    TestClock.adjust(1.second) *> awaitPoll *> runtime.lastReloadFailure
+
+  private def awaitSchema(runtime: GatewayInterpreter[Any], query: String): UIO[Unit] =
+    ZTestLogger.logOutput.repeatUntil(_.exists(_.message() == "Gateway activated generation 2.")) *>
+      runtime.check(query).orDie
 
   private def pauseNanoTime(
     entered: Promise[Nothing, Unit],
@@ -131,21 +129,16 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
         active        <- runtime.executeStream(request).runDrain.exit.forkScoped
         _             <- opened.await
         _             <- remote.setSchema(changed)
-        status        <- poll(runtime)
+        _             <- poll(runtime)
         exit          <- active.join
         dormantEvents <- dormant.take(1).runCollect
         stale         <- SubgraphExecutor.responses(prepared).runDrain.exit
         count         <- closed.get
-        subscriptions <- runtime.generationSubscriptions
       } yield assertTrue(
-        status.active.id == 2L,
-        !status.retirementOverdue,
         count == 2,
         exit.causeOption.flatMap(_.failureOption).contains(SubscriptionTermination.Reload),
         dormantEvents.size == 1,
-        stale.causeOption.flatMap(_.failureOption).contains(SubscriptionTermination.Reload),
-        subscriptions.size == 1,
-        subscriptions.head.status.active == 0
+        stale.causeOption.flatMap(_.failureOption).contains(SubscriptionTermination.Reload)
       )
     },
     test("rejects static-only gateways and invalid reload configuration") {
@@ -172,21 +165,19 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
     },
     test("preserves the generation and warm cache when only formatting changes") {
       for {
-        remote  <- source()
-        runtime <- Gateway.compose(remote.subgraph).reloadable(config)
-        _       <- runtime.execute("{ value }")
-        before  <- runtime.reloadStatus
-        _       <- remote.setSchema("# comment\ntype Query {\n value: String\n}\ntype Mutation { setValue: String }")
-        after   <- poll(runtime)
-        _       <- runtime.execute("{ value }")
-        cached  <- runtime.status
-        calls   <- remote.checks.get
+        recorded         <- recordEvents
+        (events, wrapper) = recorded
+        remote           <- source()
+        runtime          <- (Gateway.compose(remote.subgraph) @@ wrapper).reloadable(config)
+        _                <- runtime.execute("{ value }")
+        _                <- remote.setSchema("# comment\ntype Query {\n value: String\n}\ntype Mutation { setValue: String }")
+        _                <- poll(runtime)
+        _                <- runtime.execute("{ value }")
+        observed         <- events.get
+        calls            <- remote.checks.get
       } yield assertTrue(
-        after.active.id == before.active.id,
-        after.active.activatedAt == before.active.activatedAt,
-        after.lastSuccessfulCheckAt.isAfter(before.lastSuccessfulCheckAt),
-        after.active.status.operationCache == before.active.status.operationCache,
-        cached.operationCache.hits == before.active.status.operationCache.hits + 1L,
+        observed.count(_ == GatewayWrapper.Event.CacheAccess(GatewayWrapper.CacheResult.Miss)) == 1,
+        observed.count(_ == GatewayWrapper.Event.CacheAccess(GatewayWrapper.CacheResult.Hit)) == 1,
         calls == 2
       )
     },
@@ -200,7 +191,7 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
                       .addHeader(Header.Custom("Accept", "application/graphql-response+json"))
         before   <- adapter.handlers.api.runZIO(request)
         _        <- remote.setSchema(changed)
-        after    <- poll(runtime)
+        _        <- poll(runtime)
         response <- adapter.handlers.api.runZIO(request)
         body     <- response.body.asString.orDie
         checks   <- remote.checks.get
@@ -210,26 +201,55 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
         before.status == Status.BadRequest,
         response.status == Status.Ok,
         body.contains("new"),
-        after.active.id == 2L,
-        after.retiring.isEmpty,
         checks == 2,
         valid.isSuccess,
         plan.nonEmpty
       )
     },
+    test("reload accepts policy annotations and continues serving unrelated schema updates") {
+      val guarded = s"""extend schema @link(url: "https://specs.apollo.dev/federation/v2.9", import: ["@policy"])
+                       |directive @link(url: String!, import: [String!]) repeatable on SCHEMA
+                       |directive @policy(policies: [[String!]!]!) on FIELD_DEFINITION
+                       |type Query { value: String @policy(policies: [["owner"]]) }
+                       |""".stripMargin
+      for {
+        remote    <- source()
+        other     <- source("type Query { another: String }")
+        runtime   <-
+          Gateway.compose(remote.subgraph, Subgraph.federation("other", other.stub.endpoint)).reloadable(config)
+        before    <- runtime.execute("{ value }")
+        _         <- remote.setSchema(guarded)
+        _         <- other.setSchema("type Query { another: String added: String }")
+        failure   <- poll(runtime)
+        denied    <- runtime.execute("{ value }")
+        added     <- runtime.execute("{ added }")
+        _         <- remote.setSchema(schema)
+        recovered <- poll(runtime)
+        after     <- runtime.execute("{ value }")
+      } yield assertTrue(
+        before.errors.isEmpty,
+        failure.isEmpty,
+        denied.errors.exists(_.msg.contains("unsupported @policy")),
+        added.errors.isEmpty,
+        field(added.data, "added").contains(StringValue("new")),
+        recovered.isEmpty,
+        after.errors.isEmpty
+      )
+    },
     test("preserves the generation and cache when definitions and fields are reordered") {
       for {
-        remote  <- source(changed)
-        runtime <- Gateway.compose(remote.subgraph).reloadable(config)
-        _       <- runtime.execute("{ value added }")
-        before  <- runtime.reloadStatus
-        _       <- remote.setSchema("type Mutation { setValue: String } type Query { added: String value: String }")
-        after   <- poll(runtime)
-        _       <- runtime.execute("{ value added }")
-        cached  <- runtime.status
+        recorded         <- recordEvents
+        (events, wrapper) = recorded
+        remote           <- source(changed)
+        runtime          <- (Gateway.compose(remote.subgraph) @@ wrapper).reloadable(config)
+        _                <- runtime.execute("{ value added }")
+        _                <- remote.setSchema("type Mutation { setValue: String } type Query { added: String value: String }")
+        _                <- poll(runtime)
+        _                <- runtime.execute("{ value added }")
+        observed         <- events.get
       } yield assertTrue(
-        after.active.id == before.active.id,
-        cached.operationCache.hits == before.active.status.operationCache.hits + 1L
+        observed.count(_ == GatewayWrapper.Event.CacheAccess(GatewayWrapper.CacheResult.Miss)) == 1,
+        observed.count(_ == GatewayWrapper.Event.CacheAccess(GatewayWrapper.CacheResult.Hit)) == 1
       )
     },
     test("refreshes ordinary introspection schemas") {
@@ -240,11 +260,10 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
         _       <- remote.response.set(initial)
         runtime <- Gateway.compose(Subgraph.graphql("ordinary", remote.stub.endpoint)).reloadable(config)
         _       <- remote.response.set(updated)
-        after   <- poll(runtime)
+        _       <- poll(runtime)
         result  <- runtime.execute("{ added }")
         checks  <- remote.checks.get
       } yield assertTrue(
-        after.active.id == 2L,
         result.errors.isEmpty,
         checks == 2,
         field(result.data, "added").contains(StringValue("new"))
@@ -252,20 +271,19 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
     },
     test("does not overlap slow polling cycles or block request execution") {
       for {
-        remote   <- source()
-        started  <- Promise.make[Nothing, Unit]
-        release  <- Promise.make[Nothing, Unit]
-        runtime  <- Gateway.compose(remote.subgraph).reloadable(config)
-        _        <- remote.beforeSchema.set(started.succeed(()).unit *> release.await)
-        _        <- TestClock.adjust(1.second)
-        _        <- started.await
-        _        <- TestClock.adjust(3.seconds)
-        checking <- runtime.reloadStatus
-        checks   <- remote.checks.get
-        result   <- runtime.execute("{ value }")
-        _        <- release.succeed(())
-        _        <- awaitStatus(runtime)(_.phase == Phase.Idle)
-      } yield assertTrue(checking.phase == Phase.Checking, checks == 2, result.errors.isEmpty)
+        remote  <- source()
+        started <- Promise.make[Nothing, Unit]
+        release <- Promise.make[Nothing, Unit]
+        runtime <- Gateway.compose(remote.subgraph).reloadable(config)
+        _       <- remote.beforeSchema.set(started.succeed(()).unit *> release.await)
+        _       <- TestClock.adjust(1.second)
+        _       <- started.await
+        _       <- TestClock.adjust(3.seconds)
+        checks  <- remote.checks.get
+        result  <- runtime.execute("{ value }")
+        _       <- release.succeed(())
+        _       <- awaitPoll
+      } yield assertTrue(checks == 2, result.errors.isEmpty)
     },
     test("uses acquisition timeouts and recovers without replacing an unchanged generation") {
       for {
@@ -282,15 +300,17 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
         _         <- TestClock.adjust(1.second)
         _         <- started.await
         _         <- TestClock.adjust(1.second)
-        failed    <- awaitStatus(runtime)(_.lastFailure.nonEmpty)
+        failed    <- runtime.lastReloadFailure.repeatUntil(_.nonEmpty)
+        _         <- awaitPoll
         result    <- runtime.execute("{ value }")
         _         <- release.succeed(())
-        recovered <- poll(runtime)
+        _         <- TestClock.adjust(1.second)
+        // Acquisition and polling use the same duration here; await recovery itself.
+        recovered <- runtime.lastReloadFailure.repeatUntil(_.isEmpty)
       } yield assertTrue(
-        failed.lastFailure.exists(_.stage == FailureStage.Acquisition),
+        failed.contains("Unable to load subgraph schemas."),
         result.errors.isEmpty,
-        recovered.active.id == 1L,
-        recovered.lastFailure.isEmpty
+        recovered.isEmpty
       )
     },
     test("keeps pinned and local schemas fixed while acquired schemas change") {
@@ -307,11 +327,10 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
                      )
                      .reloadable(config)
         _       <- remote.setSchema(changed)
-        after   <- poll(runtime)
+        _       <- poll(runtime)
         result  <- runtime.execute("{ added pinned local }")
         calls   <- pinned.requests.get
       } yield assertTrue(
-        after.active.id == 2L,
         result.errors.isEmpty,
         calls.size == 1,
         field(result.data, "local").contains(StringValue("local"))
@@ -327,12 +346,10 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
         _         <- remote.setSchema(changed)
         recovered <- poll(runtime)
       } yield assertTrue(
-        failed.active.id == 1L,
-        failed.lastFailure.exists(_.stage == FailureStage.Acquisition),
-        !failed.lastFailure.toString.contains("secret"),
+        failed.contains("Unable to load subgraph schemas."),
+        !failed.toString.contains("secret"),
         result.errors.isEmpty,
-        recovered.active.id == 2L,
-        recovered.lastFailure.isEmpty
+        recovered.isEmpty
       )
     },
     test("requires a complete collection and never combines fresh and cached schemas") {
@@ -348,7 +365,7 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
         _         <- other.setSchema("type Query { other: String }")
         recovered <- poll(runtime)
         checks    <- remote.checks.get
-      } yield assertTrue(failed.active.id == 1L, missing.isFailure, recovered.active.id == 2L, checks == 3)
+      } yield assertTrue(failed.nonEmpty, missing.isFailure, recovered.isEmpty, checks == 3)
     },
     test("retries identical rejected candidates without replacing the active interpreter") {
       for {
@@ -360,13 +377,15 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
         result    <- runtime.execute("{ value }")
         _         <- remote.setSchema(changed)
         recovered <- poll(runtime)
+        checks    <- remote.checks.get
+        added     <- runtime.check("{ added }").exit
       } yield assertTrue(
-        first.active.id == 1L,
-        second.active.id == 1L,
-        first.lastFailure.exists(_.stage == FailureStage.Construction),
-        second.lastFailure.exists(error => first.lastFailure.exists(_.at.isBefore(error.at))),
+        first.nonEmpty,
+        second == first,
         result.errors.isEmpty,
-        recovered.active.id == 2L
+        checks == 4,
+        recovered.isEmpty,
+        added.isSuccess
       )
     },
     test("keeps serving when individually valid schemas fail composition") {
@@ -377,14 +396,11 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
           Gateway
             .compose(remote.subgraph, Subgraph.graphql("pinned", pinned.endpoint, "type Query { other: String }"))
             .reloadable(config)
-        before  <- runtime.reloadStatus
         _       <- remote.setSchema("type Query { value: String other: Int }")
         failed  <- poll(runtime)
         result  <- runtime.execute("{ value other }")
       } yield assertTrue(
-        failed.active.id == 1L,
-        failed.lastFailure.exists(_.reason == "Subgraph schemas could not be composed."),
-        failed.lastSuccessfulCheckAt == before.lastSuccessfulCheckAt,
+        failed.contains("Subgraph schemas could not be composed."),
         result.errors.isEmpty
       )
     },
@@ -407,17 +423,13 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
         _       <- started.await
         _       <- remote.setSchema(changed.replace("setValue", "setAdded"))
         _       <- TestClock.adjust(1.second)
-        during  <- awaitStatus(runtime)(_.active.id == 2L)
+        _       <- awaitSchema(runtime, "mutation { setAdded }")
         after   <- runtime.execute("mutation After { setAdded }", Some("After"))
-        total   <- runtime.status
         _       <- release.succeed(())
         old     <- before.join
-        _       <- awaitStatus(runtime)(_.phase == Phase.Idle)
+        _       <- awaitPoll
         calls   <- remote.stub.requests.get
       } yield assertTrue(
-        during.retiring.exists(_.status.requests.active == 1),
-        during.active.status.requests.limit == 1,
-        total.requests.limit == 2,
         old.errors.isEmpty,
         after.errors.isEmpty,
         calls.count(_.query.exists(_.contains("mutation"))) == 2
@@ -435,13 +447,12 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
         _           <- entered.await
         independent <- runtime.execute("{ value }")
         _           <- remote.setSchema(changed.replace("setValue", "setAdded"))
-        after       <- poll(runtime)
+        _           <- poll(runtime)
         _           <- release.succeed(())
         response    <- pending.join
         requests    <- remote.stub.requests.get
       } yield assertTrue(
         independent.errors.isEmpty,
-        after.active.id == 2L,
         response.errors.isEmpty,
         requests.count(_.query.exists(_.contains("mutation"))) == 1
       )
@@ -456,7 +467,7 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
         closeEntered   <- Promise.make[Nothing, Unit]
         closeRelease   <- Promise.make[Nothing, Unit]
         requestClock   <- pauseNanoTime(requestEntered, requestRelease)
-        // Finite and subscription shutdown run concurrently; pause both before either starts draining.
+        // Pause finite-request shutdown before it starts draining.
         closeClock     <- pauseNanoTime(closeEntered, closeRelease, everyCall = true)
         _              <-
           ZIO.addFinalizer(requestRelease.succeed(()).unit *> closeRelease.succeed(()).unit *> scope.close(Exit.unit))
@@ -466,24 +477,20 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
         _              <- closeEntered.await
         _              <- requestRelease.succeed(())
         response       <- pending.join
-        during         <- runtime.reloadStatus
         requests       <- remote.stub.requests.get
         _              <- closeRelease.succeed(())
         _              <- closing.join
       } yield assertTrue(
         response.errors.exists(_.msg == "Gateway is shutting down."),
-        during.phase == Phase.Closing,
-        during.active.status.lifecycle.state == GatewayInterpreter.LifecycleState.Running,
-        during.active.status.lifecycle.active == 0,
         !requests.exists(_.query.exists(_.contains("mutation")))
       )
     },
     test("bounds generations and pauses polling behind uninterruptible retirement") {
       for {
-        remote  <- source("type Query { remote: String }")
-        started <- Promise.make[Nothing, Unit]
-        release <- Promise.make[Nothing, Unit]
-        runtime <-
+        remote      <- source("type Query { remote: String }")
+        started     <- Promise.make[Nothing, Unit]
+        release     <- Promise.make[Nothing, Unit]
+        runtime     <-
           Gateway
             .compose(
               remote.subgraph,
@@ -494,32 +501,30 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
               _.withMaxConcurrentRequests(Int.MaxValue).withRequestTimeout(1.hour).withDrainTimeout(2.seconds)
             )
             .reloadable(config)
-        _       <- ZIO.addFinalizer(release.succeed(()).unit)
-        old     <- runtime.execute("{ value }").fork
-        _       <- started.await
-        _       <- remote.setSchema("type Query { remote: String added: String }")
-        _       <- TestClock.adjust(1.second)
-        _       <- awaitStatus(runtime)(_.active.id == 2L)
-        _       <- remote.setSchema("type Query { remote: String added: String newest: String }")
-        _       <- TestClock.adjust(10.seconds)
-        blocked <- awaitStatus(runtime)(_.retirementOverdue)
-        total   <- runtime.status
-        checks  <- remote.checks.get
-        result  <- runtime.execute("{ added }")
-        pending <- old.poll
-        _       <- release.succeed(())
-        exit    <- old.await
-        _       <- awaitStatus(runtime)(_.phase == Phase.Idle)
-        next    <- poll(runtime)
+        _           <- ZIO.addFinalizer(release.succeed(()).unit)
+        old         <- runtime.execute("{ value }").fork
+        _           <- started.await
+        _           <- remote.setSchema("type Query { remote: String added: String }")
+        _           <- TestClock.adjust(1.second)
+        _           <- awaitSchema(runtime, "{ added }")
+        _           <- remote.setSchema("type Query { remote: String added: String newest: String }")
+        _           <- TestClock.adjust(10.seconds)
+        unavailable <- runtime.check("{ newest }").exit
+        checks      <- remote.checks.get
+        result      <- runtime.execute("{ added }")
+        pending     <- old.poll
+        _           <- release.succeed(())
+        exit        <- old.await
+        _           <- awaitPoll
+        _           <- poll(runtime)
+        newest      <- runtime.check("{ newest }").exit
       } yield assertTrue(
-        blocked.active.id == 2L,
-        blocked.retiring.exists(_.id == 1L),
+        unavailable.isFailure,
+        newest.isSuccess,
         checks == 2,
-        total.requests.limit == Int.MaxValue,
         pending.isEmpty,
         exit.isInterrupted,
-        result.errors.isEmpty,
-        next.active.id == 3L
+        result.errors.isEmpty
       )
     },
     test("shutdown cancels acquisition and prevents late publication") {
@@ -536,14 +541,11 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
         _        <- scope.close(Exit.unit)
         _        <- release.succeed(())
         _        <- TestClock.adjust(10.seconds)
-        closed   <- runtime.reloadStatus
         rejected <- runtime.execute("{ value }")
         check    <- runtime.check("{ value }").exit
         explain  <- runtime.explain("{ value }").exit
         calls    <- remote.checks.get
       } yield assertTrue(
-        closed.phase == Phase.Closed,
-        closed.active.id == 1L,
         calls == 2,
         rejected.errors.exists(_.msg == "Gateway is shutting down."),
         check.isFailure,
@@ -576,16 +578,14 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
         _                 <- firstStarted.await
         _                 <- remote.setSchema("type Query { remote: String added: String }")
         _                 <- TestClock.adjust(1.second)
-        _                 <- awaitStatus(runtime)(
-                               _.retiring.exists(_.status.lifecycle.state == GatewayInterpreter.LifecycleState.Draining)
-                             )
+        _                 <- awaitSchema(runtime, "{ added }")
+        _                 <- TestClock.adjust(Duration.Zero)
         _                 <- TestClock.adjust(1.second)
         second            <- runtime.execute("{ value }").fork
         _                 <- secondStarted.await
         closing           <- scope.close(Exit.unit).fork
-        _                 <- awaitStatus(runtime)(_.active.status.lifecycle.state == GatewayInterpreter.LifecycleState.Draining)
+        _                 <- TestClock.adjust(Duration.Zero)
         _                 <- TestClock.adjust(1.second)
-        retiring          <- awaitStatus(runtime)(_.retiring.exists(_.status.lifecycle.overdue == 1))
         activePending     <- second.poll
         _                 <- TestClock.adjust(1.second)
         _                 <- secondInterrupted.await
@@ -595,16 +595,12 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
         firstExit         <- first.await
         secondExit        <- second.await
         _                 <- closing.join
-        closed            <- runtime.reloadStatus
       } yield assertTrue(
         oldPending.isEmpty,
         closePending.isEmpty,
         activePending.isEmpty,
-        retiring.phase == Phase.Closing,
         firstExit.isInterrupted,
-        secondExit.isInterrupted,
-        closed.phase == Phase.Closed,
-        closed.active.status.lifecycle.active == 0
+        secondExit.isInterrupted
       )
     },
     test("fingerprints ignore locations but retain directive arguments and descriptions") {

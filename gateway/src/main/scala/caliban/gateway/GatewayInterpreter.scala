@@ -2,7 +2,7 @@ package caliban.gateway
 
 import caliban.{ CalibanError, GraphQLInterpreter, GraphQLRequest, GraphQLResponse, IncomingRequestHeaders }
 import sttp.model.Header
-import zio.{ Trace, UIO, URIO, ZIO }
+import zio.{ Trace, URIO, ZIO }
 import zio.stream.ZStream
 
 /**
@@ -12,8 +12,6 @@ import zio.stream.ZStream
  * accepted. Its lifetime is bounded by the scope in which it was built.
  */
 trait GatewayInterpreter[-R] extends GraphQLInterpreter[R, CalibanError] {
-
-  def subscriptionStatus(implicit trace: Trace): UIO[GatewayInterpreter.SubscriptionStatus]
 
   /**
    * Setup and resources belong to each consumption, not stream construction.
@@ -30,11 +28,6 @@ trait GatewayInterpreter[-R] extends GraphQLInterpreter[R, CalibanError] {
         .locallyScoped(headers.map(header => header.name -> header.value))
         .as(executeStream(request))
     )
-
-  /**
-   * Returns a point-in-time view of bounded gateway work and operation-cache usage.
-   */
-  def status(implicit trace: Trace): UIO[GatewayInterpreter.Status]
 
   /**
    * Executes a request with incoming headers available to configured subgraph forwarding policies.
@@ -56,38 +49,4 @@ trait GatewayInterpreter[-R] extends GraphQLInterpreter[R, CalibanError] {
     trace: Trace
   ): ZIO[R, CalibanError, String] =
     explain(GraphQLRequest(query = Some(query), operationName = operationName))
-}
-
-object GatewayInterpreter {
-  final case class SubscriptionStatus(limit: Int, establishing: Int, streaming: Int, terminating: Int, overdue: Int) {
-    def active: Int = establishing + streaming + terminating
-  }
-
-  sealed trait LifecycleState
-  object LifecycleState {
-    case object Running  extends LifecycleState
-    case object Draining extends LifecycleState
-    case object Closed   extends LifecycleState
-  }
-
-  final case class LifecycleStatus(state: LifecycleState, active: Int, overdue: Int)
-
-  final case class AdmissionStatus(limit: Int, active: Int, waiting: Int)
-
-  final case class OperationCacheStatus(
-    maxWeight: Long,
-    weight: Long,
-    entries: Int,
-    hits: Long,
-    misses: Long,
-    evictions: Long,
-    inFlight: Int
-  )
-
-  final case class Status(
-    lifecycle: LifecycleStatus,
-    requests: AdmissionStatus,
-    subgraphs: Map[String, AdmissionStatus],
-    operationCache: OperationCacheStatus
-  )
 }

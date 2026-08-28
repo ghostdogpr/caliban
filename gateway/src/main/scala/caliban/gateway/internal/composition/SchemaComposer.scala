@@ -92,7 +92,8 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
       val transformationDiagnostics                          = invalidTransformationDiagnostics(rootType)
       val directiveDiagnostics                               = composedDirectives.finalDiagnostics(rootType)
       val allSecurity                                        = compiledSecurity.flatMap(_.toOption).flatten
-      val securityVisibilityDiagnostics                      = hiddenSecurityDiagnostics(allSecurity, rootType)
+      val enforcedSecurity                                   = allSecurity.filterNot(_.directive == SecurityDirective.UnsupportedPolicy)
+      val securityVisibilityDiagnostics                      = hiddenSecurityDiagnostics(enforcedSecurity, rootType)
       val routes: Map[(OperationType, String), List[String]] = rootRoutes(OperationType.Query, queryEntries) ++
         rootRoutes(OperationType.Mutation, mutationEntries) ++ rootRoutes(
           OperationType.Subscription,
@@ -109,9 +110,15 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
           effectiveFieldProviders(coordinate._2, declared).filterNot(entry => overrideTargets.contains(entry.source))
         if (owned.nonEmpty) Some(coordinate -> owned.map(_.source).distinct.sorted) else None
       }
-      val sourceFields                                       = types.flatMap { entry =>
+      val sourceFields                                       = (types.flatMap { entry =>
         entry.tpe.allFields.map(field => (entry.source, entry.name, field.name) -> field)
-      }.toMap
+      } ::: List(
+        "Query"        -> queryEntries,
+        "Mutation"     -> mutationEntries,
+        "Subscription" -> subscriptionEntries
+      ).flatMap { case (owner, entries) =>
+        entries.map(entry => (entry.source, owner, entry.field.name) -> entry.field)
+      }).toMap
       val lookups                                            = types
         .flatMap(entry => entry.entity.toList.flatMap(_.lookups).map((entry.source -> entry.name) -> _))
         .groupBy(_._1)
@@ -121,7 +128,7 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
       val provisions                                         = fieldSets.flatMap(_.provisions).toMap
       val transitiveSecurityDiagnostics                      = missingTransitiveSecurityDiagnostics(
         requirements,
-        allSecurity,
+        enforcedSecurity,
         runtimeTypesByName,
         rootType
       )
@@ -260,11 +267,7 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
         case (tpe, _) if emptyType(mapping.composedType(tpe), __TypeKind.INPUT_OBJECT) =>
           s"[${subgraph.name}] Transformation leaves input object '${mapping.composedType(tpe)}' with no visible fields."
       }
-      val enums   = mapping.hiddenEnumValues.collect {
-        case (tpe, _) if emptyType(mapping.composedType(tpe), __TypeKind.ENUM) =>
-          s"[${subgraph.name}] Transformation leaves enum '${mapping.composedType(tpe)}' with no visible values."
-      }
-      fields.toList ::: inputs.toList ::: enums.toList
+      fields.toList ::: inputs.toList
     }.distinct.sorted
   }
 
@@ -458,36 +461,34 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
     field: __Field,
     target: __Type,
     keys: Map[String, __Field]
-  ): List[String] =
-    lookup.correlation match {
-      case Lookup.Correlation.Ordered       => Nil
-      case Lookup.Correlation.ByKey(fields) =>
-        val nullability = nullableType(field._type).ofType match {
-          case Some(element) if !element.isNullable => Nil
-          case _                                    =>
-            List(s"$prefix By-key lookup field '$rootName.${lookup.field}' must return non-null items.")
-        }
-        val coverage    =
-          if (fields.values.toList.sorted == lookup.keyFields.sorted) Nil
-          else List(s"$prefix By-key lookup correlation must map every declared key field exactly once.")
-        val values      = fields.toList.flatMap { case (responseField, keyField) =>
-          target.allFields.find(_.name == responseField) match {
-            case None                =>
-              List(s"$prefix Lookup correlation field '${lookup.typeName}.$responseField' does not exist.")
-            case Some(responseValue) =>
-              keys.get(keyField) match {
-                case None           => List(s"$prefix Lookup correlation references undeclared key field '$keyField'.")
-                case Some(keyValue) =>
-                  if (compatibleValueType(responseValue._type, keyValue._type)) Nil
-                  else
-                    List(
-                      s"$prefix Lookup correlation field '${lookup.typeName}.$responseField' is incompatible with key '$keyField'."
-                    )
-              }
-          }
-        }
-        nullability ::: coverage ::: values
+  ): List[String] = {
+    val fields      = lookup.correlation
+    val nullability = nullableType(field._type).ofType match {
+      case Some(element) if !element.isNullable => Nil
+      case _                                    =>
+        List(s"$prefix By-key lookup field '$rootName.${lookup.field}' must return non-null items.")
     }
+    val coverage    =
+      if (fields.values.toList.sorted == lookup.keyFields.sorted) Nil
+      else List(s"$prefix By-key lookup correlation must map every declared key field exactly once.")
+    val values      = fields.toList.flatMap { case (responseField, keyField) =>
+      target.allFields.find(_.name == responseField) match {
+        case None                =>
+          List(s"$prefix Lookup correlation field '${lookup.typeName}.$responseField' does not exist.")
+        case Some(responseValue) =>
+          keys.get(keyField) match {
+            case None           => List(s"$prefix Lookup correlation references undeclared key field '$keyField'.")
+            case Some(keyValue) =>
+              if (compatibleValueType(responseValue._type, keyValue._type)) Nil
+              else
+                List(
+                  s"$prefix Lookup correlation field '${lookup.typeName}.$responseField' is incompatible with key '$keyField'."
+                )
+          }
+      }
+    }
+    nullability ::: coverage ::: values
+  }
 
   private def containsBatch(argument: Lookup.Argument): Boolean =
     argument match {
@@ -761,12 +762,7 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
           .map(SecurityDirective.RequiresScopes.apply)
           .toRight(s"[$source] Invalid Federation @requiresScopes application at '$coordinate'.")
       )
-    else if (names.policy.contains(directive.name))
-      Some(
-        groupedStrings(directive.arguments, "policies")
-          .map(SecurityDirective.Policy.apply)
-          .toRight(s"[$source] Invalid Federation @policy application at '$coordinate'.")
-      )
+    else if (names.policy.contains(directive.name)) Some(Right(SecurityDirective.UnsupportedPolicy))
     else None
 
   private def groupedStrings(arguments: Map[String, InputValue], name: String): Option[List[List[String]]] =
@@ -1069,10 +1065,10 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
       tpe.allInputFields.iterator.collect {
         case field if hasDirective(field.directives, names.inaccessible) => field.name
       }
-    val hiddenEnums     = subgraph.mapping.hiddenEnumValues.collect { case (`name`, value) => value } ++
+    val hiddenEnums     =
       tpe.allEnumValues.iterator.collect {
         case value if hasDirective(value.directives, names.inaccessible) => value.name
-      }
+      }.toSet
     val overrides       = fields.flatMap { field =>
       directiveString(Some(field.directives), names.overrideDirective, "from").map(field.name -> _)
     }.toMap
@@ -1112,10 +1108,7 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
       val result        = lookup match {
         case _: Lookup.Single         => ComposedGraph.LookupResult.Single
         case value: Lookup.ListLookup =>
-          value.correlation match {
-            case Lookup.Correlation.Ordered       => ComposedGraph.LookupResult.Ordered
-            case Lookup.Correlation.ByKey(fields) => ComposedGraph.LookupResult.ByKey(fields)
-          }
+          ComposedGraph.LookupResult.ByKey(value.correlation)
       }
       arguments.map(values => ComposedGraph.LookupOperation.GraphQLQuery(lookup.field, values.reverse.toMap, result))
     }
@@ -1303,33 +1296,24 @@ private[gateway] object SchemaComposer {
 
   private final case class SecurityProfile(
     authenticated: Boolean,
-    scopes: Option[List[Set[String]]],
-    policies: Option[List[Set[String]]]
+    scopes: Option[List[Set[String]]]
   ) {
     def implies(required: SecurityProfile): Boolean =
       (authenticated || !required.authenticated) &&
-        SecurityProfile.implies(scopes, required.scopes) &&
-        SecurityProfile.implies(policies, required.policies)
+        SecurityProfile.implies(scopes, required.scopes)
   }
 
   private object SecurityProfile {
     def apply(applications: List[ComposedGraph.SecurityApplication]): SecurityProfile = {
-      val scopes   = conjunction(applications.flatMap { application =>
+      val scopes = conjunction(applications.flatMap { application =>
         application.directive match {
           case SecurityDirective.RequiresScopes(values) => Some(values)
           case _                                        => None
         }
       })
-      val policies = conjunction(applications.flatMap { application =>
-        application.directive match {
-          case SecurityDirective.Policy(values) => Some(values)
-          case _                                => None
-        }
-      })
       SecurityProfile(
-        applications.exists(_.directive == SecurityDirective.Authenticated) || scopes.nonEmpty || policies.nonEmpty,
-        scopes,
-        policies
+        applications.exists(_.directive == SecurityDirective.Authenticated) || scopes.nonEmpty,
+        scopes
       )
     }
 

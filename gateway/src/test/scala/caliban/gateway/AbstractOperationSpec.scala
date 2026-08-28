@@ -2,9 +2,9 @@ package caliban.gateway
 
 import caliban.{ CalibanError, GraphQLRequest, PathValue }
 import caliban.ResponseValue.{ ListValue, ObjectValue }
-import caliban.Value.{ BooleanValue, StringValue }
+import caliban.Value.{ BooleanValue, NullValue, StringValue }
 import caliban.gateway.GatewayTestSupport._
-import zio.{ Scope, ZIO }
+import zio.{ Ref, Scope, ZIO }
 import zio.test._
 
 object AbstractOperationSpec extends ZIOSpecDefault {
@@ -78,7 +78,7 @@ object AbstractOperationSpec extends ZIOSpecDefault {
        |type Wrapper @shareable { actions: [Action!]! @shareable }
        |union Action = Common | OnlyA
        |type Common @shareable { label: String }
-       |type OnlyA { a: String }
+       |type OnlyA { a: String label: String }
        |""".stripMargin
 
   private val partialNestedB =
@@ -88,7 +88,7 @@ object AbstractOperationSpec extends ZIOSpecDefault {
        |type Wrapper @shareable { actions: [Action!]! @shareable }
        |union Action = Common | OnlyB
        |type Common @shareable { label: String }
-       |type OnlyB { b: String }
+       |type OnlyB { b: String label: String }
        |""".stripMargin
 
   private val mismatchedUserSchema =
@@ -125,7 +125,7 @@ object AbstractOperationSpec extends ZIOSpecDefault {
     "User",
     List("id"),
     "usersByIds",
-    Lookup.Correlation.ordered,
+    Map("id" -> "id"),
     "ids" -> Lookup.Argument.batch(Lookup.Argument.key("id"))
   )
 
@@ -274,38 +274,72 @@ object AbstractOperationSpec extends ZIOSpecDefault {
           representations.exists(_.toString.contains("NodeWithName"))
         )
       },
-      test("renders nested partial-union selections for the owning source") {
-        val query =
-          """{ rootA { wrapper { actions { __typename ... on Common { label } ... on OnlyA { a } ... on OnlyB { b } } } } }"""
+      test("narrows nested partial-union selections to the candidate entity sources") {
+        val cases = for { resolvable <- List(false, true); aliased <- List(false, true) } yield (resolvable, aliased)
 
-        for {
-          a       <-
-            stub(
-              """{"data":{"rootA":{"wrapper":{"actions":[{"__typename":"Common","_caliban_gateway_runtime_typename":"Common","label":"common"},{"__typename":"OnlyA","_caliban_gateway_runtime_typename":"OnlyA","a":"only-a"}]}}}}"""
+        ZIO
+          .foreach(cases) { case (resolvable, aliased) =>
+            val commonName = if (aliased) "value" else "label"
+            val memberName = if (aliased) "value" else "a"
+            val selection  =
+              if (aliased) "... on Common { value: label } ... on OnlyA { value: label } ... on OnlyB { value: label }"
+              else "... on Common { label } ... on OnlyA { a } ... on OnlyB { b }"
+            val query      = s"{ rootA { wrapper { actions { __typename $selection } } } }"
+
+            def schema(sdl: String): String =
+              if (resolvable) sdl
+              else sdl.replace("@key(fields: \"id\")", "@key(fields: \"id\", resolvable: false)")
+
+            for {
+              omitCommon <- Ref.make(false)
+              a          <-
+                stubByRequestZIO { request =>
+                  omitCommon.get.map { omit =>
+                    val common   = if (omit) "" else s""", "$commonName":"common""""
+                    val selected =
+                      if (request.query.exists(_.contains("OnlyA"))) s""", "$memberName":"only-a"""" else ""
+                    s"""{"data":{"rootA":{"wrapper":{"actions":[{"__typename":"Common","_caliban_gateway_runtime_typename":"Common"$common},{"__typename":"OnlyA","_caliban_gateway_runtime_typename":"OnlyA"$selected}]}}}}"""
+                  }
+                }
+              b          <- stub("""{"data":{}}""")
+              gateway    <- Gateway
+                              .compose(
+                                Subgraph.federation("a", a.endpoint, schema(partialNestedA)),
+                                Subgraph.federation("b", b.endpoint, schema(partialNestedB))
+                              )
+                              .interpreter
+              result     <- gateway.execute(query)
+              missing    <- omitCommon.set(true) *> gateway.execute(query)
+              calls      <- a.requests.get
+              valid      <- ZIO.foreach(calls)(validateRequest(schema(partialNestedA), _).exit)
+              queries     = calls.flatMap(_.query)
+            } yield assertTrue(
+              result.errors.isEmpty,
+              calls.nonEmpty,
+              valid.forall(_.isSuccess),
+              queries.forall(_.contains("OnlyA") == !resolvable),
+              queries.forall(!_.contains("OnlyB")),
+              missing.errors.collect { case error: CalibanError.ExecutionError => error.path } ==
+                List(
+                  List(
+                    PathValue.Key("rootA"),
+                    PathValue.Key("wrapper"),
+                    PathValue.Key("actions"),
+                    PathValue.Index(0),
+                    PathValue.Key(commonName)
+                  )
+                ),
+              field(result.data, "rootA").flatMap(field(_, "wrapper")).flatMap(field(_, "actions")).exists {
+                case ListValue(values) =>
+                  values.forall(field(_, "__typename").exists(_ != NullValue)) &&
+                  values
+                    .filter(field(_, "__typename").contains(StringValue("OnlyA")))
+                    .exists(field(_, memberName).contains(if (resolvable) NullValue else StringValue("only-a")))
+                case _                 => false
+              }
             )
-          b       <- stub("""{"data":{}}""")
-          gateway <- Gateway
-                       .compose(
-                         Subgraph.federation("a", a.endpoint, partialNestedA),
-                         Subgraph.federation("b", b.endpoint, partialNestedB)
-                       )
-                       .interpreter
-          result  <- gateway.execute(query)
-          calls   <- a.requests.get
-          valid   <- ZIO.foreach(calls)(validateRequest(partialNestedA, _).exit)
-          queries  = calls.flatMap(_.query)
-        } yield assertTrue(
-          result.errors.isEmpty,
-          valid.forall(_.isSuccess),
-          queries.exists(_.contains("OnlyA")),
-          queries.forall(!_.contains("OnlyB")),
-          field(result.data, "rootA").flatMap(field(_, "wrapper")).flatMap(field(_, "actions")).exists {
-            case ListValue(values) =>
-              values.forall(field(_, "__typename").exists(_ != caliban.Value.NullValue)) &&
-              values.exists(field(_, "a").contains(StringValue("only-a")))
-            case _                 => false
           }
-        )
+          .map(_.reduce(_ && _))
       },
       test("plans roots whose object nullability differs from an entity source") {
         val query =
@@ -361,7 +395,8 @@ object AbstractOperationSpec extends ZIOSpecDefault {
 
         for {
           source   <- stub(sourceResponse)
-          target   <- stub("""{"data":{"_caliban_gateway_lookup":[{"detail":"user"}]}}""")
+          target   <-
+            stub("""{"data":{"_caliban_gateway_lookup":[{"_caliban_gateway_lookup_key":"u1","detail":"user"}]}}""")
           gateway  <- Gateway
                         .compose(
                           Subgraph.graphql("source", source.endpoint, abstractLookupSourceSchema),
