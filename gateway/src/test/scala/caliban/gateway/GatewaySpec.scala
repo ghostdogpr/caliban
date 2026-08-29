@@ -794,6 +794,47 @@ object GatewaySpec extends ZIOSpecDefault {
           requests.isEmpty
         )
       },
+      test("reports an empty interface list on every composed object type, including the roots") {
+        // graphql-js `buildClientSchema` — the client GraphiQL builds its schema with — rejects an
+        // object type whose introspected `interfaces` is null, so the composed roots have to answer
+        // with the empty list rather than nothing at all.
+        val rootsSchema =
+          """
+            |schema { query: Query, mutation: Mutation, subscription: Subscription }
+            |type Query { product: Product! }
+            |type Mutation { addProduct(name: String!): Product! }
+            |type Subscription { productAdded: Product! }
+            |interface Node { id: ID! }
+            |type Product implements Node { id: ID! name: String! }
+            |""".stripMargin
+
+        for {
+          remote   <- stub(dataResponse)
+          gateway  <- Gateway.compose(Subgraph.graphql("products", remote.endpoint, rootsSchema)).interpreter
+          response <- gateway.execute("{ __schema { types { kind name interfaces { name } } } }")
+          types     = field(response.data, "__schema")
+                        .flatMap(field(_, "types"))
+                        .collect { case ResponseListValue(values) =>
+                          values
+                        }
+                        .getOrElse(Nil)
+          objects   = types.filter(value => field(value, "kind").contains(EnumValue("OBJECT")))
+          nulled    = objects
+                        .filter(value => field(value, "interfaces").forall(_ == NullValue))
+                        .flatMap(field(_, "name"))
+                        .collect { case StringValue(name) => name }
+          named     = objects.flatMap(field(_, "name")).collect { case StringValue(name) => name }
+          product   = objects
+                        .find(value => field(value, "name").contains(StringValue("Product")))
+                        .flatMap(field(_, "interfaces"))
+        } yield assertTrue(
+          response.errors.isEmpty,
+          // Grounds the scan: an empty selection would otherwise make `nulled` vacuously empty.
+          named.contains("Query") && named.contains("Mutation") && named.contains("Subscription"),
+          nulled.isEmpty,
+          product.contains(ResponseListValue(List(ResponseObjectValue(List("name" -> StringValue("Node"))))))
+        )
+      },
       test("executes named and inline fragment-only introspection locally") {
         val named  =
           """

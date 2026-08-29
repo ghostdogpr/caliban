@@ -8,8 +8,8 @@ import caliban.parsing.Parser
 import caliban.schema.{ GenericSchema, Schema }
 import caliban.tools.RemoteSchema
 import caliban.validation.Validator
-import caliban.{ graphQL, CalibanError, GraphQLRequest, RootResolver }
-import com.github.plokhotnyuk.jsoniter_scala.core.readFromArray
+import caliban.{ graphQL, CalibanError, GraphQLRequest, GraphQLResponse, RootResolver, Value }
+import com.github.plokhotnyuk.jsoniter_scala.core.{ readFromArray, writeToString }
 import sttp.model.Uri
 import zio._
 import zio.http.{ Body, Handler, Header, Headers, MediaType, Method, Request, Response, Routes, Server, Status }
@@ -32,6 +32,35 @@ private[gateway] object GatewayTestSupport {
 
   val invalidResponse          = """{"unexpected":true}"""
   val unreachableEndpoint: Uri = Uri.unsafeParse("http://127.0.0.1:1/graphql")
+
+  // -----------------------------------------------------------------------------------------------
+  // Apollo uplink protocol bodies, shared by the loader spec and the gateway spec
+  // -----------------------------------------------------------------------------------------------
+
+  private def routerConfig(fields: (String, ResponseValue)*): String =
+    writeToString(GraphQLResponse[Any](ObjectValue(List("routerConfig" -> ObjectValue(fields.toList))), Nil))
+
+  def uplinkConfigResult(id: String, sdl: String, minDelaySeconds: Double = 10.0): String =
+    routerConfig(
+      "__typename"      -> Value.StringValue("RouterConfigResult"),
+      "id"              -> Value.StringValue(id),
+      "supergraphSDL"   -> Value.StringValue(sdl),
+      "minDelaySeconds" -> Value.FloatValue(minDelaySeconds)
+    )
+
+  def uplinkUnchanged(id: String, minDelaySeconds: Double = 10.0): String =
+    routerConfig(
+      "__typename"      -> Value.StringValue("Unchanged"),
+      "id"              -> Value.StringValue(id),
+      "minDelaySeconds" -> Value.FloatValue(minDelaySeconds)
+    )
+
+  def uplinkFetchError(code: String, message: String): String =
+    routerConfig(
+      "__typename" -> Value.StringValue("FetchError"),
+      "code"       -> Value.StringValue(code),
+      "message"    -> Value.StringValue(message)
+    )
 
   private val baseFederationDirectives =
     """
@@ -152,6 +181,15 @@ private[gateway] object GatewayTestSupport {
       path    = s"$prefix-$id"
       server <- ZIO.service[Server]
       _      <- server.install(Routes(Method.POST / path -> Handler.fromFunctionZIO(handler)))
+      port   <- server.port
+    } yield Uri.unsafeParse(s"http://127.0.0.1:$port/$path")
+
+  def getEndpoint(prefix: String)(handler: Request => UIO[Response]): ZIO[Server with Ref[Int], Nothing, Uri] =
+    for {
+      id     <- ZIO.serviceWithZIO[Ref[Int]](_.updateAndGet(_ + 1))
+      path    = s"$prefix-$id"
+      server <- ZIO.service[Server]
+      _      <- server.install(Routes(Method.GET / path -> Handler.fromFunctionZIO(handler)))
       port   <- server.port
     } yield Uri.unsafeParse(s"http://127.0.0.1:$port/$path")
 

@@ -58,6 +58,7 @@ object RemoteGraphQLConfig {
     val timeout: Duration,
     val maxResponseBytes: Int,
     val maxParsingDepth: Int,
+    val maxRedirects: Int,
     val headers: List[Header]
   ) {
 
@@ -65,26 +66,34 @@ object RemoteGraphQLConfig {
      * Sets the maximum duration of schema acquisition.
      */
     def withTimeout(value: Duration): Acquisition =
-      new Acquisition(value, maxResponseBytes, maxParsingDepth, headers)
+      new Acquisition(value, maxResponseBytes, maxParsingDepth, maxRedirects, headers)
 
     /**
      * Sets the maximum schema response body size.
      */
     def withMaxResponseBytes(value: Int): Acquisition =
-      new Acquisition(timeout, value, maxParsingDepth, headers)
+      new Acquisition(timeout, value, maxParsingDepth, maxRedirects, headers)
 
     /**
      * Sets the maximum JSON and embedded GraphQL nesting depth parsed during schema acquisition.
      */
     def withMaxParsingDepth(value: Int): Acquisition =
-      new Acquisition(timeout, maxResponseBytes, value, headers)
+      new Acquisition(timeout, maxResponseBytes, value, maxRedirects, headers)
+
+    /**
+     * Sets how many redirects schema acquisition follows. Zero, the default, refuses them outright.
+     * Acquisition headers are not resent to a redirect target, so a token configured here never
+     * reaches the host a redirect points at.
+     */
+    def withMaxRedirects(value: Int): Acquisition =
+      new Acquisition(timeout, maxResponseBytes, maxParsingDepth, value, headers)
 
     /**
      * Sets static headers sent only during schema acquisition. Repeated header names are preserved as separate
      * outbound values.
      */
     def withHeaders(values: Header*): Acquisition =
-      new Acquisition(timeout, maxResponseBytes, maxParsingDepth, values.toList)
+      new Acquisition(timeout, maxResponseBytes, maxParsingDepth, maxRedirects, values.toList)
 
     private[gateway] def diagnostics: List[String] = {
       val protectedHeaders = headers.collect {
@@ -94,8 +103,9 @@ object RemoteGraphQLConfig {
       val timeoutError     = finitePositive(timeout, "Schema acquisition timeout must be finite and positive.")
       val responseError    = positive(maxResponseBytes, "Schema acquisition maxResponseBytes must be positive.")
       val parsingError     = positive(maxParsingDepth, "Schema acquisition maxParsingDepth must be positive.")
+      val redirectsError   = nonNegative(maxRedirects, "Schema acquisition maxRedirects must be non-negative.")
 
-      timeoutError ::: responseError ::: parsingError ::: protectedHeaders
+      timeoutError ::: responseError ::: parsingError ::: redirectsError ::: protectedHeaders
     }
   }
 
@@ -109,6 +119,7 @@ object RemoteGraphQLConfig {
         timeout = Duration.fromSeconds(10),
         maxResponseBytes = 16 * 1024 * 1024,
         maxParsingDepth = 128,
+        maxRedirects = 0,
         headers = Nil
       )
   }

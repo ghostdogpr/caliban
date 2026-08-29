@@ -187,7 +187,7 @@ private[gateway] object RemoteSchemaAcquisition {
     }
 
   // Bound parser recursion in schema text embedded inside JSON strings. Syntax validation stays with Parser.
-  private def withinGraphQLDepth(value: String, maxDepth: Int): Boolean = {
+  private[composition] def withinGraphQLDepth(value: String, maxDepth: Int): Boolean = {
     var index   = 0
     var depth   = 0
     var quote   = ""

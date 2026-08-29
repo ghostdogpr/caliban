@@ -59,6 +59,14 @@ object GatewayBuildError {
     override val diagnostics: List[String] = errors
   }
 
+  final case class SupergraphAcquisitionFailed(error: SupergraphAcquisitionError) extends GatewayBuildError {
+    def diagnostics: List[String] = error.diagnostics
+  }
+
+  final case class SupergraphDecompositionFailed(errors: List[String]) extends GatewayBuildError {
+    def diagnostics: List[String] = errors
+  }
+
 }
 
 /**
