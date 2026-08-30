@@ -103,8 +103,13 @@ private[composition] final class TypeComposition(
     }
 
   private def exactTypeDiagnostics(name: String, entries: List[SubgraphType]): List[String] = {
-    val hidden = entries.iterator.flatMap(_.hiddenDirectives).toSet
-    if (entries.map(entry => typeSignature(sanitizeType(entry.tpe, identity, hidden))).distinct.size > 1)
+    val hidden = hiddenDirectives(entries)
+    if (
+      entries
+        .map(entry => typeSignature(entry.tpe.copy(directives = filterHiddenDirectives(entry.tpe.directives, hidden))))
+        .distinct
+        .size > 1
+    )
       List(s"[type $name] Definitions are incompatible between subgraphs: ${sources(entries)}.")
     else Nil
   }

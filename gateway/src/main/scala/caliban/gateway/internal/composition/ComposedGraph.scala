@@ -53,12 +53,12 @@ private[gateway] final class ComposedGraph private[internal] (
     (owner -> name) -> source
   }.toList
     .groupBy(_._1)
-    .map { case (coordinate, values) => coordinate -> values.map(_._2).distinct.sorted }
+    .map { case (coordinate, values) => coordinate -> values.map(_._2).sorted }
   private val lookupSourcesByType      = entityLookups.keysIterator.collect {
     case (source, typeName) if !interfaceObjects.contains(source -> typeName) => typeName -> source
   }.toList
     .groupBy(_._1)
-    .map { case (typeName, values) => typeName -> values.map(_._2).distinct.sorted }
+    .map { case (typeName, values) => typeName -> values.map(_._2).sorted }
   private val lookupTypes              = entityLookups.keysIterator.map(_._2).toSet
 
   def sources(operation: OperationType, field: String): List[String] =
@@ -257,12 +257,12 @@ private[gateway] final class ComposedGraph private[internal] (
   def executableField(source: String, field: Field): Field =
     executableField(source, None, field)
 
-  def executableEntityField(
+  def executableEntityFields(
     source: String,
     entityType: String,
-    field: Field
-  ): Field =
-    executableField(source, Some(entityType), field)
+    fields: List[Field]
+  ): List[Field] =
+    disambiguate(source, fields.map(executableField(source, Some(entityType), _)))
 
   private def executableField(
     source: String,

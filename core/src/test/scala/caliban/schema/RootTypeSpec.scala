@@ -42,12 +42,14 @@ object RootTypeSpec extends ZIOSpecDefault {
           )
         }
       },
-      test("allows a code-first resolver type to serve multiple root operations") {
+      test("rejects a code-first resolver type used for multiple root operations") {
         case class Root(value: String)
 
         val api = graphQL(RootResolver(Root("query"), Root("mutation")))
 
-        assertTrue(api.validateRootSchema.isRight)
+        assertTrue(
+          api.validateRootSchema.left.exists(_.msg == "Root operation type 'Root' is used more than once.")
+        )
       }
     )
 

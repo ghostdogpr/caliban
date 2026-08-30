@@ -452,6 +452,22 @@ object CompositionSpec extends ZIOSpecDefault {
       }
     ),
     suite("visibility")(
+      test("honors inaccessible on non-object type extensions") {
+        val hiddenSchema = schema(
+          """
+            |type Query { state: State }
+            |enum State { ACTIVE }
+            |extend enum State @inaccessible
+            |""".stripMargin,
+          "@inaccessible"
+        )
+
+        Gateway
+          .compose(Subgraph.federation("states", endpoint, hiddenSchema))
+          .interpreter
+          .exit
+          .map(exit => assertTrue(buildDiagnostics(exit).exists(_.contains("return type is inaccessible"))))
+      },
       test("removes inaccessible fields and enum values from the client schema") {
         val hiddenSchema = schema(
           """

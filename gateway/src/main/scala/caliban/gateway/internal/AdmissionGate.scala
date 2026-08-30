@@ -2,7 +2,7 @@ package caliban.gateway.internal
 
 import caliban.gateway.GatewayWrapper
 import caliban.gateway.GatewayWrapper.{ AdmissionKind, Event, Result }
-import zio.{ Semaphore, Trace, UIO, ZIO }
+import zio.{ Scope, Semaphore, Trace, UIO, ZIO }
 
 private[gateway] final class AdmissionGate private (
   semaphore: Semaphore,
@@ -12,16 +12,28 @@ private[gateway] final class AdmissionGate private (
   def apply[R, E, A](effect: ZIO[R, E, A])(implicit trace: Trace): ZIO[R, E, A] =
     semaphore.withPermit(effect)
 
+  def acquire(implicit trace: Trace): ZIO[Scope, Nothing, Unit] =
+    semaphore.withPermitScoped
+
   def observed[R, E, A](wrapper: GatewayWrapper[R])(effect: ZIO[R, E, A])(implicit
     trace: Trace
   ): ZIO[R, E, A] =
     observedAs(kind, wrapper)(effect)
 
+  def observe[R, E, A](wrapper: GatewayWrapper[R])(effect: ZIO[R, E, A])(implicit
+    trace: Trace
+  ): ZIO[R, E, A] =
+    observeAs(kind, wrapper)(effect)
+
   def observedAs[R, E, A](work: AdmissionKind, wrapper: GatewayWrapper[R])(
     effect: ZIO[R, E, A]
   )(implicit trace: Trace): ZIO[R, E, A] =
-    if (!wrapper.enabled) apply(effect)
-    else semaphore.withPermit(wrapper.wrap(Event.Admission(work))(effect)(Result.classifyExit))
+    apply(observeAs(work, wrapper)(effect))
+
+  private def observeAs[R, E, A](work: AdmissionKind, wrapper: GatewayWrapper[R])(
+    effect: ZIO[R, E, A]
+  )(implicit trace: Trace): ZIO[R, E, A] =
+    if (!wrapper.enabled) effect else wrapper.wrap(Event.Admission(work))(effect)(Result.classifyExit)
 
 }
 

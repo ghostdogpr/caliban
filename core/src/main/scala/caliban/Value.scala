@@ -115,9 +115,6 @@ object ResponseValue {
       }
       null
     }
-
-    private[caliban] def get(name: String): Option[ResponseValue] = Option(getOrNull(name))
-
   }
   object ObjectValue {
     val empty: ObjectValue = ObjectValue(Nil)

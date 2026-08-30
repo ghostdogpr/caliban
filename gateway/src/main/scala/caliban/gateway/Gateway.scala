@@ -55,37 +55,31 @@ final class Gateway[-R] private[gateway] (
       (if (acquired) Nil else List("Gateway reload requires at least one acquired remote schema."))
 
     ZIO.fail(GatewayBuildError.InvalidConfiguration(diagnostics)).when(diagnostics.nonEmpty) *>
-      ZIO.scopeWith { parent =>
-        ZIO.uninterruptibleMask { restore =>
-          for {
-            child   <- parent.fork
-            runtime <-
-              restore(
-                child.extend(
-                  HttpClientZioBackend.scoped().mapError(TransportInitializationFailed(_)).flatMap { backend =>
-                    ReloadableGatewayInterpreterImpl.make(acquireSnapshot(backend), reloadConfig, config.drainTimeout)
-                  }
-                )
-              ).onError(cause => child.close(Exit.failCause(cause)))
-          } yield runtime
+      buildInChildScope(
+        HttpClientZioBackend.scoped().mapError(TransportInitializationFailed(_)).flatMap { backend =>
+          ReloadableGatewayInterpreterImpl.make(acquireSnapshot(backend), reloadConfig, config.drainTimeout)
         }
-      }
+      )
   }
 
   private[gateway] def build(implicit trace: Trace): ZIO[Scope, GatewayBuildError, GatewayInterpreterImpl[R]] = {
     val diagnostics = config.diagnostics
 
     ZIO.fail(GatewayBuildError.InvalidConfiguration(diagnostics)).when(diagnostics.nonEmpty) *>
-      ZIO.scopeWith { parent =>
-        ZIO.uninterruptibleMask { restore =>
-          for {
-            child       <- parent.fork
-            interpreter <- restore(child.extend(Gateway.buildInterpreter(subgraphs, resolver, policy, config, wrapper)))
-                             .onError(cause => child.close(Exit.failCause(cause)))
-          } yield interpreter
-        }
-      }
+      buildInChildScope(Gateway.buildInterpreter(subgraphs, resolver, policy, config, wrapper))
   }
+
+  private def buildInChildScope[A](effect: => ZIO[Scope, GatewayBuildError, A])(implicit
+    trace: Trace
+  ): ZIO[Scope, GatewayBuildError, A] =
+    ZIO.scopeWith { parent =>
+      ZIO.uninterruptibleMask { restore =>
+        for {
+          child <- parent.fork
+          value <- restore(child.extend(effect)).onError(cause => child.close(Exit.failCause(cause)))
+        } yield value
+      }
+    }
 
   private def acquireSnapshot(backend: SttpClient)(implicit trace: Trace): IO[GatewayBuildError, Gateway.Snapshot[R]] =
     for {
@@ -231,7 +225,7 @@ object Gateway {
         SubscriptionControl.make(config.subscriptions, control, wrapper)
     } yield new GatewayInterpreterImpl[R](
       operations,
-      new PlanExecutor[R](graph, executors, wrapper),
+      PlanExecutor(graph, executors, wrapper),
       control,
       wrapper,
       subscriptions

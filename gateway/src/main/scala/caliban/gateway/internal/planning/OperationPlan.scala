@@ -128,7 +128,6 @@ private[gateway] object OperationPlan {
 
     def references(plan: OperationPlan): Boolean =
       plan.fields.exists(fieldReferences) ||
-        plan.localFields.exists(fieldReferences) ||
         plan.roots.exists(fetch => fetch.client.exists(fieldReferences) || fetch.downstream.exists(fieldReferences)) ||
         plan.entities.exists(fetch => fetch.fields.exists(fieldReferences))
 
@@ -268,7 +267,7 @@ private[gateway] object OperationPlan {
     (header :: roots ::: joins).mkString("\n")
   }
 
-  private def flatten(fields: List[Field]): List[String] =
+  private[planning] def flatten(fields: List[Field]): List[String] =
     fields.flatMap { field =>
       if (field.fields.isEmpty) List(field.aliasedName)
       else flatten(field.fields).map(child => s"${field.aliasedName}.$child")

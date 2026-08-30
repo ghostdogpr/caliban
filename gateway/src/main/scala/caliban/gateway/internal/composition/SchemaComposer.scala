@@ -13,8 +13,6 @@ import caliban.schema.RootType
 import caliban.validation.{ SchemaValidator, Validator }
 import caliban.Value.{ BooleanValue, StringValue }
 
-import scala.collection.mutable
-
 /**
  * Composes loaded subgraphs; all intermediate state is scoped to one composition.
  */
@@ -604,7 +602,7 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
         else {
           val providers = effectiveRootProviders(entries).sortBy(_.source)
           providers.headOption.map { selected =>
-            val mergedType       = providers.map(_.field._type).reduceOption(mergeOutputType).getOrElse(selected.field._type)
+            val mergedType       = providers.map(_.field._type).reduce(mergeOutputType)
             val inaccessibleArgs = entries.iterator.flatMap(_.inaccessibleArguments).toSet
             selected.copy(
               field = selected.field.copy(`type` = () => mergedType),
@@ -985,26 +983,38 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
   }
 
   private def subgraphType(metadata: CompositionSubgraph, name: String, tpe: __Type): SubgraphType = {
-    val subgraph        = metadata.subgraph
-    val definitions     = subgraph.document.typeDefinitions.filter(_.name == name)
-    val extensions      = subgraph.document.typeExtensions.collect {
-      case extension: ObjectTypeExtension if extension.name == name    =>
-        extension.directives -> extension.fields
-      case extension: InterfaceTypeExtension if extension.name == name =>
-        extension.directives -> extension.fields
+    val subgraph            = metadata.subgraph
+    val definitions         = subgraph.document.typeDefinitions.filter(_.name == name)
+    val extensionDirectives = subgraph.document.typeExtensions.collect {
+      case extension: ObjectTypeExtension if extension.name == name      =>
+        extension.directives
+      case extension: InterfaceTypeExtension if extension.name == name   =>
+        extension.directives
+      case extension: ScalarTypeExtension if extension.name == name      =>
+        extension.directives
+      case extension: UnionTypeExtension if extension.name == name       =>
+        extension.directives
+      case extension: EnumTypeExtension if extension.name == name        =>
+        extension.directives
+      case extension: InputObjectTypeExtension if extension.name == name =>
+        extension.directives
     }
-    val directives      = definitions.flatMap(_.directives) ::: extensions.flatMap(_._1)
-    val fields          = definitions.flatMap {
+    val extensionFields     = subgraph.document.typeExtensions.collect {
+      case extension: ObjectTypeExtension if extension.name == name    => extension.fields
+      case extension: InterfaceTypeExtension if extension.name == name => extension.fields
+    }
+    val directives          = definitions.flatMap(_.directives) ::: extensionDirectives.flatten
+    val fields              = definitions.flatMap {
       case definition: ObjectTypeDefinition    => definition.fields
       case definition: InterfaceTypeDefinition => definition.fields
       case _                                   => Nil
-    } ::: extensions.flatMap(_._2)
-    val names           = metadata.directives
-    val interfaceObject = subgraph.federation && hasDirective(directives, names.interfaceObject)
-    val composedType    =
+    } ::: extensionFields.flatten
+    val names               = metadata.directives
+    val interfaceObject     = subgraph.federation && hasDirective(directives, names.interfaceObject)
+    val composedType        =
       if (interfaceObject && tpe.kind == __TypeKind.OBJECT) tpe.copy(kind = __TypeKind.INTERFACE)
       else tpe
-    val entity          =
+    val entity              =
       if (subgraph.federation) {
         val keys = directives.flatMap(keyDirective(_, names))
         if (keys.nonEmpty) {
@@ -1033,26 +1043,26 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
               compileLookup(subgraph, lookup).toList.map(ComposedGraph.EntityLookup(key, _))
             )
           }
-    val typeExternal    = subgraph.federation && hasDirective(directives, names.external)
-    val fed1Owned       = metadata.federation1ExtensionKeyCoordinates.collect { case (`name`, field) => field }
-    val external        = (fields.collect {
+    val typeExternal        = subgraph.federation && hasDirective(directives, names.external)
+    val fed1Owned           = metadata.federation1ExtensionKeyCoordinates.collect { case (`name`, field) => field }
+    val external            = (fields.collect {
       case field if subgraph.federation && hasDirective(field.directives, names.external) =>
         field.name
     }.toSet ++ (if (typeExternal) fields.map(_.name) else Nil)) -- fed1Owned
-    val typeShareable   = subgraph.federation && hasDirective(directives, names.shareable)
-    val keyFields       = entity.fold(Set.empty[String])(_.keyFields) ++ metadata.keyCoordinates.collect {
+    val typeShareable       = subgraph.federation && hasDirective(directives, names.shareable)
+    val keyFields           = entity.fold(Set.empty[String])(_.keyFields) ++ metadata.keyCoordinates.collect {
       case (`name`, field) => field
     }
-    val shareable       = fields.collect {
+    val shareable           = fields.collect {
       case field if subgraph.federation && hasDirective(field.directives, names.shareable) =>
         field.name
     }.toSet ++ keyFields ++ (if (typeShareable) fields.map(_.name) else Nil)
-    val inaccessible    = subgraph.mapping.hiddenTypes.contains(name) ||
+    val inaccessible        = subgraph.mapping.hiddenTypes.contains(name) ||
       subgraph.federation && hasDirective(directives, names.inaccessible)
-    val hiddenFields    = fields.collect {
+    val hiddenFields        = fields.collect {
       case field if subgraph.federation && hasDirective(field.directives, names.inaccessible) => field.name
     }.toSet ++ subgraph.mapping.hiddenFields.collect { case (`name`, field) => field }
-    val hiddenArgs      = subgraph.mapping.hiddenArguments.collect { case (`name`, field, argument) =>
+    val hiddenArgs          = subgraph.mapping.hiddenArguments.collect { case (`name`, field, argument) =>
       field -> argument
     } ++ fields.iterator
       .flatMap(field =>
@@ -1061,15 +1071,15 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
         }
       )
       .toSet
-    val hiddenInputs    = subgraph.mapping.hiddenInputFields.collect { case (`name`, field) => field } ++
+    val hiddenInputs        = subgraph.mapping.hiddenInputFields.collect { case (`name`, field) => field } ++
       tpe.allInputFields.iterator.collect {
         case field if hasDirective(field.directives, names.inaccessible) => field.name
       }
-    val hiddenEnums     =
+    val hiddenEnums         =
       tpe.allEnumValues.iterator.collect {
         case value if hasDirective(value.directives, names.inaccessible) => value.name
       }.toSet
-    val overrides       = fields.flatMap { field =>
+    val overrides           = fields.flatMap { field =>
       directiveString(Some(field.directives), names.overrideDirective, "from").map(field.name -> _)
     }.toMap
     SubgraphType(

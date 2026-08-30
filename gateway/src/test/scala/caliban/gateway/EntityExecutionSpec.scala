@@ -530,6 +530,54 @@ object EntityExecutionSpec extends ZIOSpecDefault {
           )
         )
       },
+      test("does not correlate a null federation result or its error by position") {
+        val nullableReviews = reviewsFederationSchema.replace("reviews: [Review!]!", "reviews: [Review!]")
+        val productResponse =
+          """{"data":{"products":[{"name":"First","_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"},{"name":"Second","_caliban_gateway_key":"p2","_caliban_gateway_typename":"Product"}]}}"""
+        val reviewResponse  =
+          """{"data":{"_entities":[null,{"_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product","reviews":[{"body":"First review"}]}]},"errors":[{"message":"unresolved entity","path":["_entities",0]}]}"""
+
+        for {
+          products <- stub(productResponse)
+          reviews  <- stub(reviewResponse)
+          gateway  <- Gateway
+                        .compose(
+                          Subgraph.federation("products", products.endpoint, listProductsFederationSchema),
+                          Subgraph.federation("reviews", reviews.endpoint, nullableReviews)
+                        )
+                        .interpreter
+          response <- gateway.execute("{ products { name reviews { body } } }")
+          values    = listValues(field(response.data, "products"))
+          errors    = executionErrors(response.errors)
+        } yield assertTrue(
+          onlyNested(values.headOption, "reviews").exists(_.contains("body" -> StringValue("First review"))),
+          values.lift(1).flatMap(field(_, "reviews")).contains(NullValue),
+          errors.map(_.msg) == List("Remote GraphQL request failed."),
+          errors.map(_.path) == List(List(PathValue.Key("products")))
+        )
+      },
+      test("reports surplus null federation results") {
+        val nullableReviews = reviewsFederationSchema.replace("reviews: [Review!]!", "reviews: [Review!]")
+        val productResponse =
+          """{"data":{"products":[{"name":"First","_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"},{"name":"Second","_caliban_gateway_key":"p2","_caliban_gateway_typename":"Product"}]}}"""
+        val reviewResponse  =
+          """{"data":{"_entities":[{"_caliban_gateway_entity_key":"p2","_caliban_gateway_entity_typename":"Product","reviews":[{"body":"Second review"}]},{"_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product","reviews":[{"body":"First review"}]},null]}}"""
+
+        for {
+          products <- stub(productResponse)
+          reviews  <- stub(reviewResponse)
+          gateway  <- Gateway
+                        .compose(
+                          Subgraph.federation("products", products.endpoint, listProductsFederationSchema),
+                          Subgraph.federation("reviews", reviews.endpoint, nullableReviews)
+                        )
+                        .interpreter
+          response <- gateway.execute("{ products { name reviews { body } } }")
+          errors    = executionErrors(response.errors)
+        } yield assertTrue(
+          errors.map(_.msg) == List("Entity lookup response contained an unexpected result for 'Product(id)'.")
+        )
+      },
       test("deduplicates compatible entity routes across the operation") {
         val orderedReviews  = reviewsFederationSchema.replace(
           "type Review { body: String! }",
@@ -735,7 +783,7 @@ object EntityExecutionSpec extends ZIOSpecDefault {
           errors.map(_.path) == List(
             List(PathValue.Key("products")),
             List(PathValue.Key("products")),
-            List(PathValue.Key("products"), PathValue.Index(2))
+            List(PathValue.Key("products"))
           ),
           sentB.size == 1
         )

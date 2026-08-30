@@ -65,6 +65,64 @@ object ExecutionModelSpec extends ZIOSpecDefault {
       val result = completion.complete(List(field), ObjectValue(List("name" -> NullValue)), List(error))
       assertTrue(result == BubbleNull(Nil))
     },
+    test("object completion keeps duplicate-field lookup first-wins across the wide threshold") {
+      def data(size: Int): ObjectValue =
+        ObjectValue(
+          ("name"   -> StringValue("first")) ::
+            List.tabulate(size - 2)(index => s"field$index" -> StringValue(index.toString)) :::
+            ("name" -> StringValue("last")) :: Nil
+        )
+
+      assertTrue(
+        completion.complete(List(name), data(15), Nil).toResponseValue ==
+          ObjectValue(List("name" -> StringValue("first"))),
+        completion.complete(List(name), data(16), Nil).toResponseValue ==
+          ObjectValue(List("name" -> StringValue("first")))
+      )
+    },
+    test("keeps correlation aliases distinct from disambiguated abstract entity fields") {
+      val schema =
+        """
+          |type Query { node: Node }
+          |interface Node { label: String }
+          |type User implements Node { label: String! }
+          |type Admin implements Node { label: String }
+          |""".stripMargin
+
+      for {
+        document <- ZIO.fromEither(Parser.parseQuery(schema))
+        rootType <- ZIO.fromEither(RemoteSchema.toRootType(document))
+        mapping  <- ZIO.fromEither(SchemaMapping.compile("details", rootType, document, federation = false, Nil))
+        graph    <- ZIO.fromEither(
+                      SchemaComposer.compose(List(PreparedSubgraph("details", rootType, document, false, Nil, mapping)))
+                    )
+        node      = rootType.types("Node")
+        fields    = graph.executableEntityFields(
+                      "details",
+                      "Node",
+                      List(
+                        Field(
+                          "label",
+                          Types.string.nonNull,
+                          Some(node),
+                          alias = Some("entity_key"),
+                          targets = Some(Set("User"))
+                        ),
+                        Field(
+                          "label",
+                          Types.string,
+                          Some(node),
+                          alias = Some("entity_key"),
+                          targets = Some(Set("Admin"))
+                        )
+                      )
+                    )
+        names     = fields.iterator.map(_.aliasedName).toSet
+      } yield assertTrue(
+        fields.map(_.aliasedName) == List("_caliban_gateway_entity_key", "_caliban_gateway_entity_key_1"),
+        privateAlias("_caliban_gateway_entity_key", names) == "_caliban_gateway_entity_key_2"
+      )
+    },
     test("execution artifacts are reused but variable binding gets an independent cache") {
       val field      = Field("product", objectType, Some(queryType), arguments = Map("id" -> InputValue.VariableValue("id")))
       val fetch      = RootFetch(FetchId(0), "products", List(field), List(field))

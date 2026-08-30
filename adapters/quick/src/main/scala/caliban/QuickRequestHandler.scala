@@ -579,14 +579,20 @@ object QuickRequestHandler {
       }
 
     private def matches(candidate: MediaType, range: MediaType): Boolean = {
-      val parameters = range.parameters - "q"
+      val ignoreBoundary = isMultipart(range)
+      val parameters     = range.parameters.filterNot { case (name, _) =>
+        name.equalsIgnoreCase("q") || ignoreBoundary && name.equalsIgnoreCase("boundary")
+      }
       (range.mainType == "*" || range.mainType.equalsIgnoreCase(candidate.mainType)) &&
       (range.subType == "*" || range.subType.equalsIgnoreCase(candidate.subType)) &&
       parameters.forall {
         case (name, value) if name.equalsIgnoreCase("charset") =>
-          value.equalsIgnoreCase("utf-8") || value.equalsIgnoreCase("utf8")
+          val normalized = unquote(value)
+          normalized.equalsIgnoreCase("utf-8") || normalized.equalsIgnoreCase("utf8")
         case (name, value)                                     =>
-          candidate.parameters.get(name.toLowerCase).exists(_.equalsIgnoreCase(value))
+          candidate.parameters
+            .get(name.toLowerCase)
+            .exists(candidateValue => unquote(candidateValue).equalsIgnoreCase(unquote(value)))
       }
     }
 
@@ -595,8 +601,19 @@ object QuickRequestHandler {
         if (mediaType.mainType == "*") 0
         else if (mediaType.subType == "*") 1
         else 2
-      typeSpecificity * 100 + (mediaType.parameters - "q").size
+      val ignoreBoundary  = isMultipart(mediaType)
+      val parameters      = mediaType.parameters.keysIterator.count(name =>
+        !name.equalsIgnoreCase("q") && !(ignoreBoundary && name.equalsIgnoreCase("boundary"))
+      )
+      typeSpecificity * 100 + parameters
     }
+
+    private def isMultipart(mediaType: MediaType): Boolean =
+      mediaType.mainType.equalsIgnoreCase("multipart")
+
+    private def unquote(value: String): String =
+      if (value.length >= 2 && value.head == '"' && value.last == '"') value.substring(1, value.length - 1)
+      else value
   }
 
   private def badRequest(msg: String) =
@@ -652,8 +669,6 @@ object QuickRequestHandler {
       override def nullValue: InputValue.ObjectValue                                                    =
         null
     }
-
-  private implicit val responseValueCodec: JsonValueCodec[ResponseValue] = ValueJsoniter.responseValueCodec
 
   private val responseWithDataCodec: JsonValueCodec[GraphQLResponse[Any]]           =
     GraphQLResponseJsoniter.graphQLResponseCodec

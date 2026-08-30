@@ -104,9 +104,9 @@ private[gateway] final class ResponseMapping(mapping: SchemaMapping) {
             typenameResponseMapper
           else {
             val sourceName = sourceField(typeName, selection.field)
-            val childType  = source.flatMap(tpe => Option(tpe.getFieldOrNull(sourceName))).map(_._type)
             if (selection.children.isEmpty) identityResponse
             else {
+              val childType = source.flatMap(tpe => Option(tpe.getFieldOrNull(sourceName))).map(_._type)
               val childName = childType.flatMap(_.innerType.name).map(clientType).getOrElse("")
               requiredResponseMapper(childName, selection.children)
             }

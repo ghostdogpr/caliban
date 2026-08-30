@@ -510,11 +510,20 @@ object SubscriptionSpec extends ZIOSpecDefault {
       for {
         identity    <- FiberRef.make("later")
         headers     <- Ref.make(List.empty[String])
+        multi       <- Ref.make(List.empty[String])
         policies    <- Ref.make(0)
         headerCalls <- Ref.make(0)
         endpoint    <- postEndpoint("subscription-identity")(req =>
                          headers
                            .update(_ ++ req.headers.get("X-Identity").toList)
+                           .zipRight(
+                             multi.set(
+                               req.headers.iterator
+                                 .filter(_.headerName.equalsIgnoreCase("X-Multi"))
+                                 .map(_.renderedValue)
+                                 .toList
+                             )
+                           )
                            .as(
                              Response(
                                headers = Headers(Header.Custom("Content-Type", "text/event-stream")),
@@ -526,7 +535,13 @@ object SubscriptionSpec extends ZIOSpecDefault {
           RemoteGraphQLConfig.default
             .withSubscription(RemoteSubscriptionConfig(transport = RemoteSubscriptionConfig.Sse()))
             .withExecutionHeadersZIO(
-              headerCalls.update(_ + 1) *> identity.get.map(value => List(sttp.model.Header("X-Identity", value)))
+              headerCalls.update(_ + 1) *> identity.get.map(value =>
+                List(
+                  sttp.model.Header("X-Identity", value),
+                  sttp.model.Header("X-Multi", "first"),
+                  sttp.model.Header("X-Multi", "second")
+                )
+              )
             )
         gateway     <- Gateway
                          .compose(Subgraph.graphql("remote", endpoint, schema, config))
@@ -534,9 +549,16 @@ object SubscriptionSpec extends ZIOSpecDefault {
                          .interpreter
         events      <- identity.locally("captured")(gateway.executeStream(request).runCollect)
         sent        <- headers.get
+        multiValues <- multi.get
         calls       <- headerCalls.get
         checks      <- policies.get
-      } yield assertTrue(events.size == 2, sent == List("captured"), calls == 1, checks == 1)
+      } yield assertTrue(
+        events.size == 2,
+        sent == List("captured"),
+        multiValues == List("first", "second"),
+        calls == 1,
+        checks == 1
+      )
     },
     test("idle subscriptions ignore the ordinary request timeout") {
       for {
@@ -779,21 +801,42 @@ object SubscriptionSpec extends ZIOSpecDefault {
         )
         .withConfig(WebSocketConfig.default.subProtocol(Some("graphql-transport-ws")))
       for {
+        sent    <- Ref.make(List.empty[String])
         id      <- ZIO.serviceWithZIO[Ref[Int]](_.updateAndGet(_ + 1))
         path     = s"subscription-ws-error-$id"
         server  <- ZIO.service[Server]
-        handler  = Handler.fromFunctionZIO[Request](_ => Response.fromSocketApp(socket))
+        handler  = Handler.fromFunctionZIO[Request](req =>
+                     sent
+                       .set(
+                         req.headers.iterator
+                           .filter(_.headerName.equalsIgnoreCase("X-Multi"))
+                           .map(_.renderedValue)
+                           .toList
+                       )
+                       .zipRight(Response.fromSocketApp(socket))
+                   )
         _       <- server.install(Routes(Method.GET / path -> handler))
         port    <- server.port
         endpoint = Uri.unsafeParse(s"http://127.0.0.1:$port/$path")
-        config   = RemoteGraphQLConfig.default.withSubscription(RemoteSubscriptionConfig())
+        config   = RemoteGraphQLConfig.default
+                     .withExecutionHeadersZIO(
+                       ZIO.succeed(
+                         List(
+                           sttp.model.Header("X-Multi", "first"),
+                           sttp.model.Header("X-Multi", "second")
+                         )
+                       )
+                     )
+                     .withSubscription(RemoteSubscriptionConfig())
         gateway <- Gateway.compose(Subgraph.graphql("remote", endpoint, schema, config)).interpreter
         exit    <- gateway.executeStream(request).runDrain.exit
         error    = exit.causeOption.flatMap(_.failureOption).collect { case e: CalibanError.ExecutionError => e }
+        values  <- sent.get
       } yield assertTrue(
         error.exists(_.msg == "Remote GraphQL request failed."),
         error.exists(_.path == List(PathValue.Key("event"))),
-        error.flatMap(_.extensions).contains(ResponseValue.ObjectValue(List("code" -> Value.StringValue("FIRST"))))
+        error.flatMap(_.extensions).contains(ResponseValue.ObjectValue(List("code" -> Value.StringValue("FIRST")))),
+        values == List("first", "second")
       )
     },
     test("modern upstream WebSocket streams through the public Quick adapter") {

@@ -34,7 +34,7 @@ final class RemoteGraphQLConfig[-R] private (
 
   /**
    * Adds effectful request-execution headers and their environment requirement. These headers are not used for
-   * schema acquisition.
+   * schema acquisition. Repeated header names are preserved as separate outbound values.
    */
   def withExecutionHeadersZIO[R1 <: R](value: ZIO[R1, Throwable, List[Header]]): RemoteGraphQLConfig[R1] =
     new RemoteGraphQLConfig(
@@ -80,7 +80,8 @@ object RemoteGraphQLConfig {
       new Acquisition(timeout, maxResponseBytes, value, headers)
 
     /**
-     * Sets static headers sent only during schema acquisition.
+     * Sets static headers sent only during schema acquisition. Repeated header names are preserved as separate
+     * outbound values.
      */
     def withHeaders(values: Header*): Acquisition =
       new Acquisition(timeout, maxResponseBytes, maxParsingDepth, values.toList)
@@ -168,7 +169,7 @@ object RemoteGraphQLConfig {
       copy(inFlightQueryDeduplication = value)
 
     /**
-     * Sets static outbound headers.
+     * Sets static outbound headers. Repeated header names are preserved as separate outbound values.
      */
     def withHeaders(values: Header*): Execution =
       copy(headers = values.toList)

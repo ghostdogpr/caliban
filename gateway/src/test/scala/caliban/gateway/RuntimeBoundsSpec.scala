@@ -318,6 +318,48 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
       }
     ),
     suite("admission")(
+      test("holds one observed request admission across preparation and execution") {
+        for {
+          recorded         <- recordEvents
+          (_, wrapper)      = recorded
+          routingCalls     <- Ref.make(0)
+          firstRouting     <- Promise.make[Nothing, Unit]
+          releaseRouting   <- Promise.make[Nothing, Unit]
+          secondRouting    <- Promise.make[Nothing, Unit]
+          executionStarted <- Promise.make[Nothing, Unit]
+          releaseExecution <- Promise.make[Nothing, Unit]
+          resolver          = OperationResolver[Any](_ =>
+                                routingCalls.updateAndGet(_ + 1).flatMap {
+                                  case 1 =>
+                                    firstRouting.succeed(()).unit *> releaseRouting.await.as("{ localValue }")
+                                  case _ => secondRouting.succeed(()).as("{ localValue }")
+                                }
+                              )
+          runtime          <- (Gateway
+                                .compose(
+                                  Subgraph.local(
+                                    "local",
+                                    localValueGraph(
+                                      executionStarted.succeed(()).unit *> releaseExecution.await.as("ok")
+                                    )
+                                  )
+                                )
+                                .withOperationResolver(resolver)
+                                .withConfig(_.withMaxConcurrentRequests(1)) @@ wrapper).interpreter
+          first            <- runtime.executeRequest(GraphQLRequest()).fork
+          _                <- firstRouting.await
+          second           <- runtime.executeRequest(GraphQLRequest()).fork
+          _                <- TestClock.adjust(Duration.Zero)
+          _                <- releaseRouting.succeed(())
+          next             <- executionStarted.await.as("execution").race(secondRouting.await.as("routing"))
+          _                <- releaseExecution.succeed(())
+          responses        <- first.join.zip(second.join)
+        } yield assertTrue(
+          next == "execution",
+          responses._1.errors.isEmpty,
+          responses._2.errors.isEmpty
+        )
+      },
       test("removes interrupted request waiters and releases the request permit") {
         for {
           started <- Promise.make[Nothing, Unit]

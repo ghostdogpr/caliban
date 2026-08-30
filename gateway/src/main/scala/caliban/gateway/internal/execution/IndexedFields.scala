@@ -31,7 +31,7 @@ private[internal] object IndexedFields {
       index = new java.util.HashMap(math.ceil(size / 0.75d).toInt)
       var scan = fields
       while (scan ne Nil) {
-        index.put(scan.head._1, scan.head._2)
+        index.putIfAbsent(scan.head._1, scan.head._2)
         scan = scan.tail
       }
     }

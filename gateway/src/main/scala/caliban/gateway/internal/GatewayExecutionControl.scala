@@ -54,16 +54,24 @@ private[gateway] final class GatewayExecutionControl private (
       reservation.fold(reserve)(ZIO.some(_)).flatMap {
         case None        => restore(observe(onRejected))
         case Some(lease) =>
-          // Preparation has its own routing observation. Classify the resolved operation before
-          // opening finite-request metrics/spans, but retain one deadline and drain lease for both phases.
-          restore(run(lease, requests(prepare)).flatMap {
-            case None           => observe(onTimeout)
-            case Some(prepared) =>
-              val finite   = isFinite(prepared)
-              val work     = if (finite) requests.observed(wrapper)(execute(prepared)) else requests(execute(prepared))
-              val response = run(lease, work).flatMap(_.fold(onTimeout)(ZIO.succeed(_)))
-              if (finite) observe(response) else response
-          }).ensuring(end(lease.token))
+          // Classify the resolved operation before opening finite-request metrics/spans, while one
+          // admission permit, deadline, and drain lease cover preparation and execution together.
+          restore(
+            ZIO.scoped[R] {
+              run(lease, requests.acquire).flatMap {
+                case None    => observe(onTimeout)
+                case Some(_) =>
+                  run(lease, prepare).flatMap {
+                    case None           => observe(onTimeout)
+                    case Some(prepared) =>
+                      val finite   = isFinite(prepared)
+                      val work     = if (finite) requests.observe(wrapper)(execute(prepared)) else execute(prepared)
+                      val response = run(lease, work).flatMap(_.fold(onTimeout)(ZIO.succeed(_)))
+                      if (finite) observe(response) else response
+                  }
+              }
+            }
+          ).ensuring(end(lease.token))
       }
     }
 
@@ -101,7 +109,7 @@ private[gateway] final class GatewayExecutionControl private (
       (exit, workFiber) =>
         exit match {
           case Exit.Success(stop)  =>
-            effectiveStop(stop).flatMap {
+            stop match {
               case Stop.Deadline =>
                 workFiber.interrupt.uninterruptible *>
                   effectiveStop(Stop.Deadline).flatMap {

@@ -101,10 +101,10 @@ private[gateway] object DirectiveComposition {
       applications.getOrElse(SchemaCoordinate, Nil)
 
     def additionalTypes: List[__Type] =
-      selectedDefinitions
-        .flatMap(_.definition.allArgs.map(_._type.innerType))
-        .filter(tpe => tpe.kind == __TypeKind.SCALAR && tpe.name.contains("ID"))
-        .take(1)
+      selectedDefinitions.iterator
+        .flatMap(_.definition.allArgs.iterator.map(_._type.innerType))
+        .find(tpe => tpe.kind == __TypeKind.SCALAR && tpe.name.contains("ID"))
+        .toList
 
     def referencedInputTypes: Set[String] =
       selectedDefinitions.iterator.flatMap(_.definition.allArgs.iterator.flatMap(_._type.innerType.name)).toSet
@@ -117,7 +117,8 @@ private[gateway] object DirectiveComposition {
         .toList
         .sortBy(_.definition.name)
         .map { selected =>
-          val definition = selected.definition
+          val definition  = selected.definition
+          val hiddenNames = hidden(selected.source)
           definition.copy(args =
             includeDeprecated =>
               definition
@@ -126,9 +127,7 @@ private[gateway] object DirectiveComposition {
                   argument.copy(
                     `type` = () => rewrite(argument._type),
                     directives = attach(
-                      argument.directives
-                        .map(_.filterNot(directive => hidden(selected.source).contains(directive.name)))
-                        .filter(_.nonEmpty),
+                      TypeComposition.filterHiddenDirectives(argument.directives, hiddenNames),
                       DirectiveArgumentCoordinate(definition.name, argument.name)
                     )
                   )

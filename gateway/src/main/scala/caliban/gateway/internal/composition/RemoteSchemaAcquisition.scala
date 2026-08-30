@@ -5,6 +5,8 @@ import caliban.client.CalibanClientError.ServerError
 import caliban.client.Operations.RootQuery
 import caliban.client.SelectionBuilder
 import caliban.gateway.{ RemoteGraphQLConfig, SchemaAcquisitionError, SchemaInput }
+import caliban.gateway.internal.execution.RemoteTransport
+import caliban.gateway.internal.execution.RemoteTransport.BoundedBody
 import caliban.gateway.SchemaAcquisitionError._
 import caliban.gateway.SchemaAcquisitionError.InvalidFederationResponse._
 import caliban.parsing.adt.Document
@@ -17,8 +19,7 @@ import sttp.capabilities.zio.ZioStreams
 import sttp.client4._
 import sttp.client4.httpclient.zio.SttpClient
 import sttp.model.Uri
-import zio.{ IO, Task, Trace, ZIO }
-import zio.stream.ZStream
+import zio.{ IO, Trace, ZIO }
 
 import java.nio.charset.StandardCharsets
 
@@ -113,14 +114,13 @@ private[gateway] object RemoteSchemaAcquisition {
     config: RemoteGraphQLConfig.Acquisition,
     backend: SttpClient
   )(implicit trace: Trace): IO[SchemaAcquisitionError, Array[Byte]] = {
-    val request =
-      config.headers.foldLeft(basicRequest.post(endpoint).body(body))((current, header) => current.header(header))
+    val request = RemoteTransport.addHeaders(basicRequest.post(endpoint).body(body), config.headers)
 
     request
       .contentType("application/json; charset=utf-8")
       .header("Accept", "application/graphql-response+json, application/json;q=0.9")
       .followRedirects(false)
-      .response(asStreamAlways(ZioStreams)(readBounded(config.maxResponseBytes)))
+      .response(asStreamAlways(ZioStreams)(RemoteTransport.readBounded(config.maxResponseBytes)))
       .send(backend)
       .mapError(RequestFailed(_))
       .flatMap { response =>
@@ -131,17 +131,6 @@ private[gateway] object RemoteSchemaAcquisition {
         else ZIO.succeed(response.body.bytes)
       }
   }
-
-  private def readBounded(
-    maxBytes: Int
-  )(stream: ZStream[Any, Throwable, Byte])(implicit trace: Trace): Task[BoundedBody] =
-    stream
-      .take(maxBytes.toLong + 1L)
-      .runCollect
-      .map { bytes =>
-        val array = bytes.toArray
-        BoundedBody(array, array.length > maxBytes)
-      }
 
   private def allowedMediaType(response: Response[BoundedBody]): Boolean = {
     val mediaType = response.contentType.map(_.takeWhile(_ != ';').trim.toLowerCase(java.util.Locale.ROOT))
@@ -247,5 +236,4 @@ private[gateway] object RemoteSchemaAcquisition {
     depth <= maxDepth
   }
 
-  private final case class BoundedBody(bytes: Array[Byte], limitExceeded: Boolean)
 }

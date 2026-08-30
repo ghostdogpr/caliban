@@ -51,7 +51,7 @@ private[gateway] object RemoteSubscription {
                         backend,
                         config,
                         headers,
-                        request,
+                        body,
                         maxBytes,
                         decode,
                         validate,
@@ -70,9 +70,8 @@ private[gateway] object RemoteSubscription {
                               .toList: _*
                           )
                       } else target
-                      val base = basicRequest
-                        .method(if (get) Method.GET else Method.POST, url)
-                        .headers(headers: _*)
+                      val base = RemoteTransport
+                        .addHeaders(basicRequest.method(if (get) Method.GET else Method.POST, url), headers)
                         .header("Accept", "text/event-stream")
                         .followRedirects(false)
                         .readTimeout(scala.concurrent.duration.Duration.Inf)
@@ -121,7 +120,7 @@ private[gateway] object RemoteSubscription {
     backend: SttpClient,
     config: RemoteSubscriptionConfig,
     headers: List[Header],
-    request: GraphQLRequest,
+    body: Array[Byte],
     maxBytes: Int,
     decode: Array[Byte] => Either[SubgraphExecutor.Failure, Response],
     validate: Array[Byte] => Either[SubgraphExecutor.Failure, Unit],
@@ -131,9 +130,8 @@ private[gateway] object RemoteSubscription {
   )(implicit trace: Trace): Task[Unit] = ZIO.scoped {
     for {
       upgraded <- ZIO.acquireRelease(
-                    basicRequest
-                      .get(endpoint)
-                      .headers(headers: _*)
+                    RemoteTransport
+                      .addHeaders(basicRequest.get(endpoint), headers)
                       .header("Sec-WebSocket-Protocol", "graphql-transport-ws")
                       .followRedirects(false)
                       .response(asWebSocketAlwaysUnsafe[Task])
@@ -163,7 +161,7 @@ private[gateway] object RemoteSubscription {
                       if (message.`type` == "connection_ack") ZIO.unit else control(message) *> read.flatMap(ack)
                     ack(first)
                   }
-      payload  <- ZIO.attempt(readFromArray[InputValue](writeToArray(request.copy(extensions = None))))
+      payload  <- ZIO.attempt(readFromArray[InputValue](body))
       _        <- send(GraphQLWSInput("subscribe", Some("1"), Some(payload)))
       _        <- ZIO.addFinalizer(send(GraphQLWSInput("complete", Some("1"), None)).ignore)
       _        <- ready.succeed(())

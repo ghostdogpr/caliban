@@ -688,13 +688,14 @@ private[gateway] final class OperationPlanner(
             .map(_.flatten)
         }
     } else {
-      val entityType = resolution.lookups.headOption.map(_.entityType).getOrElse(context.typeName)
-      val fetchKey   =
-        EntityFetchKey(context.currentSubgraph, candidate.targetSubgraph, entityType, flatten(candidate.fields))
-      if (context.visitedFetches.contains(fetchKey))
-        Left(PlanningFailure(s"Entity routing cycle detected: ${fetchKey.render}."))
-      else if (resolution.lookups.nonEmpty) planLookupCandidates(context, state, candidate, resolution.lookups)
-      else planIndirectEntityFetches(context, state, candidate, resolution.lookupTypes, fetchKey)
+      if (resolution.lookups.nonEmpty) planLookupCandidates(context, state, candidate, resolution.lookups)
+      else {
+        val fetchKey =
+          EntityFetchKey(context.currentSubgraph, candidate.targetSubgraph, context.typeName, flatten(candidate.fields))
+        if (context.visitedFetches.contains(fetchKey))
+          Left(PlanningFailure(s"Entity routing cycle detected: ${fetchKey.render}."))
+        else planIndirectEntityFetches(context, state, candidate, resolution.lookupTypes, fetchKey)
+      }
     }
   }
 
@@ -705,7 +706,7 @@ private[gateway] final class OperationPlanner(
     lookups: List[ResolvedLookup]
   )(implicit search: CandidateSearch): Either[PlanningFailure, List[EntityFetchState]] =
     search
-      .evaluate(lookups.sortBy(lookupSignature)) { lookup =>
+      .evaluate(lookups) { lookup =>
         val fetchKey = EntityFetchKey(
           context.currentSubgraph,
           candidate.targetSubgraph,
@@ -735,6 +736,7 @@ private[gateway] final class OperationPlanner(
       .flatMap(_.iterator)
       .filter(name => subgraphTypes.isEmpty || subgraphTypes.contains(name))
     val runtimeTypes  = (conditions ++ knownTypes).filter(graph.isObjectType).toList.distinct.sorted
+    // Prefer the declared context type before concrete runtime types; selectLookups orders keys within each type.
     val lookupTypes   = ((context.typeName, context.parentType) :: runtimeTypes
       .flatMap(name => graph.rootType.types.get(name).map(name -> _))).distinct
     val lookups       = lookupTypes.flatMap { case (entityType, entityParent) =>
@@ -779,70 +781,71 @@ private[gateway] final class OperationPlanner(
                           )
       completed        <- search.evaluate(requirementPlans) { requirementPlan =>
                             for {
-                              _       <- Either.cond(
-                                           requirementPlan.pending.isEmpty,
-                                           (),
-                                           PlanningFailure(unsatisfiedMessage(requirementPlan.pending))
-                                         )
-                              planned <- planFieldCandidates(
-                                           entityField.copy(fields = candidate.fields),
-                                           candidate.targetSubgraph,
-                                           context.path,
-                                           context.visitedFetches + fetchKey,
-                                           Set(candidate.targetSubgraph),
-                                           resolved.selection.lookup.key,
-                                           Nil,
-                                           candidate.fields.iterator
-                                             .flatMap(child =>
-                                               (child.parentType.flatMap(_.name).toList :::
-                                                 resolved.parentType.name.toList :::
-                                                 context.parentType.name.toList).map(_ -> child.name)
-                                             )
-                                             .toSet
-                                         )
-                              values  <- search.evaluate(planned) { value =>
-                                           val withPrerequisiteFields       = mergeFields(
-                                             state.downstream.toList ::: requirementPlan.downstream.fields
-                                           ).toVector
-                                           val (downstream, keys, typename) = injectKeyFields(
-                                             entityField,
-                                             resolved.parentType,
-                                             withPrerequisiteFields,
-                                             resolved.selection,
-                                             entityTypeCondition(context.parentType, resolved.entityType)
-                                           )
-                                           val entity                       = EntityCandidate(
-                                             candidate.targetSubgraph,
-                                             context.currentSubgraph,
-                                             context.path,
-                                             resolved.entityType,
-                                             keys,
-                                             requirements,
-                                             typename,
-                                             resolved.selection.lookup,
-                                             value.downstream.fields,
-                                             value.entities,
-                                             resolved.selection.mayNeedPrerequisiteFetches ||
-                                               requirementPlan.entities.nonEmpty
-                                           )
-                                           val next                         = EntityFetchState(
-                                             downstream,
-                                             state.entities ::: requirementPlan.entities ::: (entity :: Nil),
-                                             state.pending,
-                                             state.typenameSelections ::: requirementPlan.typenameSelections :::
-                                               value.typenameSelections
-                                           )
-                                           planPendingEntityFetches(
-                                             context.copy(
-                                               field = entityField,
-                                               parentType = resolved.parentType,
-                                               typeName = resolved.entityType,
-                                               visitedFetches = context.visitedFetches + fetchKey
-                                             ),
-                                             next,
-                                             value.pending
-                                           )
-                                         }
+                              _                     <- Either.cond(
+                                                         requirementPlan.pending.isEmpty,
+                                                         (),
+                                                         PlanningFailure(unsatisfiedMessage(requirementPlan.pending))
+                                                       )
+                              withPrerequisiteFields = mergeFields(
+                                                         state.downstream.toList ::: requirementPlan.downstream.fields
+                                                       ).toVector
+                              injected               = injectKeyFields(
+                                                         entityField,
+                                                         resolved.parentType,
+                                                         withPrerequisiteFields,
+                                                         resolved.selection,
+                                                         entityTypeCondition(context.parentType, resolved.entityType)
+                                                       )
+                              planned               <- planFieldCandidates(
+                                                         entityField.copy(fields = candidate.fields),
+                                                         candidate.targetSubgraph,
+                                                         context.path,
+                                                         context.visitedFetches + fetchKey,
+                                                         Set(candidate.targetSubgraph),
+                                                         resolved.selection.lookup.key,
+                                                         Nil,
+                                                         candidate.fields.iterator
+                                                           .flatMap(child =>
+                                                             (child.parentType.flatMap(_.name).toList :::
+                                                               resolved.parentType.name.toList :::
+                                                               context.parentType.name.toList).map(_ -> child.name)
+                                                           )
+                                                           .toSet
+                                                       )
+                              values                <- search.evaluate(planned) { value =>
+                                                         val (downstream, keys, typename) = injected
+                                                         val entity                       = EntityCandidate(
+                                                           candidate.targetSubgraph,
+                                                           context.currentSubgraph,
+                                                           context.path,
+                                                           resolved.entityType,
+                                                           keys,
+                                                           requirements,
+                                                           typename,
+                                                           resolved.selection.lookup,
+                                                           value.downstream.fields,
+                                                           value.entities,
+                                                           resolved.selection.mayNeedPrerequisiteFetches ||
+                                                             requirementPlan.entities.nonEmpty
+                                                         )
+                                                         val next                         = EntityFetchState(
+                                                           downstream,
+                                                           state.entities ::: requirementPlan.entities ::: (entity :: Nil),
+                                                           state.pending,
+                                                           state.typenameSelections ::: requirementPlan.typenameSelections :::
+                                                             value.typenameSelections
+                                                         )
+                                                         planPendingEntityFetches(
+                                                           context.copy(
+                                                             field = entityField,
+                                                             parentType = resolved.parentType,
+                                                             typeName = resolved.entityType,
+                                                             visitedFetches = context.visitedFetches + fetchKey
+                                                           ),
+                                                           next,
+                                                           value.pending
+                                                         )
+                                                       }
                             } yield values.flatten
                           }
     } yield completed.flatten
@@ -1308,12 +1311,6 @@ private[gateway] final class OperationPlanner(
       pending.map(value => s"'${value.targetSubgraph}:${flatten(value.fields).mkString(",")}'").mkString(", ")
     s"Entity routing obligations are unsatisfied: $obligations."
   }
-
-  private def flatten(fields: List[Field]): List[String] =
-    fields.flatMap { field =>
-      if (field.fields.isEmpty) field.aliasedName :: Nil
-      else flatten(field.fields).map(child => s"${field.aliasedName}.$child")
-    }
 
   private def isCustomDirective(directive: Directive): Boolean =
     directive.name != "skip" && directive.name != "include"

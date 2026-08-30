@@ -20,6 +20,24 @@ import java.util.Arrays
 import scala.collection.mutable
 import scala.util.control.NonFatal
 
+private[gateway] object RemoteTransport {
+  final case class BoundedBody(bytes: Array[Byte], limitExceeded: Boolean)
+
+  def addHeaders[T](request: Request[T], headers: List[Header]): Request[T] =
+    headers.foldLeft(request)((current, header) => current.header(header, DuplicateHeaderBehavior.Add))
+
+  def readBounded(
+    maxBytes: Int
+  )(stream: ZStream[Any, Throwable, Byte])(implicit trace: Trace): Task[BoundedBody] =
+    stream
+      .take(maxBytes.toLong + 1L)
+      .runCollect
+      .map { bytes =>
+        val array = bytes.toArray
+        BoundedBody(array, array.length > maxBytes)
+      }
+}
+
 private[gateway] final class RemoteSubgraphExecutor[-R](
   name: String,
   endpoint: Uri,
@@ -33,6 +51,7 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
   fixedHeaders: Option[List[Header]] = None
 ) extends SubgraphExecutor[R] {
   import RemoteSubgraphExecutor._
+  import RemoteTransport._
 
   private val execution        = config.execution
   private val staticHeaders    = sanitizeHeaders(execution.headers)
@@ -177,17 +196,18 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
     body: Array[Byte],
     headers: List[Header]
   )(implicit trace: Trace): ZIO[R, AttemptFailure, AttemptResponse] = {
-    val request = headers.foldLeft(
+    val request = addHeaders(
       basicRequest
         .post(endpoint)
-        .body(body)
-    )((current, header) => current.header(header, DuplicateHeaderBehavior.Add))
+        .body(body),
+      headers
+    )
 
     val response: ZIO[R, AttemptFailure, Response[BoundedBody]] = request
       .contentType("application/json; charset=utf-8")
       .header("Accept", "application/graphql-response+json, application/json;q=0.9")
       .followRedirects(false)
-      .response(asStreamAlways(ZioStreams)(readBounded))
+      .response(asStreamAlways(ZioStreams)(readBounded(execution.maxResponseBytes)))
       .send(backend)
       .mapError(error => AttemptFailure(SubgraphExecutor.TransportFailure(error), None, None))
 
@@ -249,12 +269,6 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
       case NonFatal(_)                       => Left(SubgraphExecutor.InvalidRequest)
     }
   }
-
-  private def readBounded(stream: ZStream[Any, Throwable, Byte])(implicit trace: Trace): Task[BoundedBody] =
-    stream
-      .take(execution.maxResponseBytes.toLong + 1L)
-      .runCollect
-      .map(bytes => BoundedBody(bytes.toArray, bytes.length > execution.maxResponseBytes))
 
   private def decode(
     response: Response[BoundedBody]
@@ -432,8 +446,6 @@ private[gateway] object RemoteSubgraphExecutor {
       QueryDeduplicationKey(new RequestBody(body), grouped.toVector.sortBy(_._1))
     }
   }
-
-  private final case class BoundedBody(bytes: Array[Byte], limitExceeded: Boolean)
 
   private[internal] final class RequestBody(private val bytes: Array[Byte]) {
     private val hash = Arrays.hashCode(bytes)

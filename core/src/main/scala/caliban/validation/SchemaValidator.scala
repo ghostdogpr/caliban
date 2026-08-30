@@ -76,8 +76,7 @@ private[caliban] object SchemaValidator {
       )
       .sorted
 
-    validateDistinctRootTypes(Some(rootType.queryType), rootType.mutationType, rootType.subscriptionType)
-      .flatMap(_ => validateSchema(types, Some(rootType.queryType), rootType.mutationType, rootType.subscriptionType))
+    validateSchema(types, Some(rootType.queryType), rootType.mutationType, rootType.subscriptionType)
   }
 
   private def validateSchema(
@@ -87,6 +86,7 @@ private[caliban] object SchemaValidator {
     subscription: Option[__Type]
   ): Either[ValidationError, Unit] =
     for {
+      _ <- validateDistinctRootTypes(query, mutation, subscription)
       _ <- validateAllDiscard(types)(validateType)
       _ <- validateClashingTypes(types)
       _ <- validateDirectives(types)

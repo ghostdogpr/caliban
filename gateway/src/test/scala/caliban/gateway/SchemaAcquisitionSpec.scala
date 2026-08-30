@@ -292,7 +292,11 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
     },
     test("enforces acquisition headers, redirects, and finite response and parsing limits") {
       val headersConfig   = RemoteGraphQLConfig.default.withAcquisition(
-        _.withHeaders(SttpHeader("Authorization", "Bearer schema"))
+        _.withHeaders(
+          SttpHeader("Authorization", "Bearer schema"),
+          SttpHeader("X-Multi", "first"),
+          SttpHeader("X-Multi", "second")
+        )
       )
       val protectedConfig = RemoteGraphQLConfig.default.withAcquisition(
         _.withHeaders(
@@ -373,11 +377,19 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
                               .either
         redirectCount    <- redirects.get
         targetCalls      <- redirectTarget.requests.get
+        acquisitionMulti  = sentHeaders.headOption.fold(List.empty[String])(
+                              _.iterator
+                                .filter(_.headerName.equalsIgnoreCase("X-Multi"))
+                                .map(_.renderedValue)
+                                .toList
+                            )
       } yield assertTrue(
         sentHeaders.headOption.flatMap(_.get("Authorization")).contains("Bearer schema"),
+        acquisitionMulti == List("first", "second"),
         sentHeaders.headOption.flatMap(_.get("Content-Type")).exists(_.startsWith("application/json")),
         sentHeaders.headOption.flatMap(_.get("Accept")).exists(_.contains("application/graphql-response+json")),
         sentHeaders.lift(1).flatMap(_.get("Authorization")).isEmpty,
+        sentHeaders.lift(1).flatMap(_.get("X-Multi")).isEmpty,
         protectedResult.left.exists(_.diagnostics.exists(_.contains("header 'Content-Type' is owned"))),
         protectedResult.left.exists(_.diagnostics.exists(_.contains("header 'Content-Encoding' is owned"))),
         protectedCalls.isEmpty,

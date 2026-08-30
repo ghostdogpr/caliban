@@ -26,17 +26,15 @@ import scala.collection.mutable
 /**
  * Runs a prepared fetch graph; request admission and preparation stay in the interpreter.
  */
-private[gateway] final class PlanExecutor[-R](
+private[gateway] final class PlanExecutor[-R] private (
   graph: ComposedGraph,
   subgraphExecutors: Map[String, SubgraphExecutor[R]],
-  wrapper: GatewayWrapper[R]
+  wrapper: GatewayWrapper[R],
+  responseMappings: Map[String, ResponseMapping]
 ) {
-  private val rootType: RootType             = graph.rootType
-  private val introspection: RootSchema[Any] = Introspector.introspect[Any](rootType)
-  private val responseMappings               = graph.mappings.map { case (subgraphName, mapping) =>
-    subgraphName -> new ResponseMapping(mapping)
-  }
-  private val entityExecutor                 = new EntityExecutor[R](graph, subgraphExecutors, responseMappings)
+  private val rootType: RootType                  = graph.rootType
+  private lazy val introspection: RootSchema[Any] = Introspector.introspect[Any](rootType)
+  private val entityExecutor                      = new EntityExecutor[R](graph, subgraphExecutors, responseMappings)
 
   private def preparedRoot(
     fetch: RootFetch,
@@ -119,34 +117,41 @@ private[gateway] final class PlanExecutor[-R](
       .foreach(subgraphExecutors.toList) { case (name, executor) =>
         (if (used(name)) executor.forSubscription else ZIO.succeed(executor)).map(name -> _)
       }
-      .map(values => new PlanExecutor(graph, values.toMap, wrapper))
+      .map(values => new PlanExecutor(graph, values.toMap, wrapper, responseMappings))
   }
 
   def subscribe(prepared: PreparedPlan, execution: ExecutionRequest, resolvedRequest: GraphQLRequest)(implicit
     trace: Trace
   ): ZIO[R with Scope, Throwable, ZStream[Any, Throwable, GraphQLResponse[CalibanError]]] = {
-    val fetch       = prepared.plan.roots.head
-    val executor    = subgraphExecutors(fetch.source)
-    val root        = preparedRoot(fetch, OperationType.Subscription, execution.operationName, prepared.cache)
-    val passthrough = prepared.plan.passthroughSubgraph.nonEmpty
-    val outgoing    =
-      if (passthrough) resolvedRequest
-      else GraphQLRequest(query = Some(root.query), operationName = execution.operationName)
+    val fetch    = prepared.plan.roots.head
+    val executor = subgraphExecutors(fetch.source)
 
-    def restore(response: GraphQLResponse[CalibanError]): GraphQLResponse[CalibanError] =
-      if (passthrough) response.copy(errors = executor.errorPolicy.passthrough(prepared.plan.fields, response.errors))
-      else restoreRoot(fetch, root, executor, response).response
+    def open(
+      outgoing: GraphQLRequest,
+      restore: GraphQLResponse[CalibanError] => GraphQLResponse[CalibanError]
+    ): ZIO[R with Scope, Throwable, ZStream[Any, Throwable, GraphQLResponse[CalibanError]]] =
+      executor
+        .subscribe(outgoing)
+        .map(_.map(restore).mapError {
+          case error: CalibanError.ExecutionError if SubscriptionTermination.isGatewayError(error) => error
+          case error: CalibanError.ExecutionError                                                  =>
+            restore(GraphQLResponse(NullValue, List(error))).errors.collectFirst {
+              case e: CalibanError.ExecutionError =>
+                e
+            }.getOrElse(error)
+          case error                                                                               => error
+        })
 
-    executor
-      .subscribe(outgoing)
-      .map(_.map(restore).mapError {
-        case error: CalibanError.ExecutionError if SubscriptionTermination.isGatewayError(error) => error
-        case error: CalibanError.ExecutionError                                                  =>
-          restore(GraphQLResponse(NullValue, List(error))).errors.collectFirst { case e: CalibanError.ExecutionError =>
-            e
-          }.getOrElse(error)
-        case error                                                                               => error
-      })
+    if (prepared.plan.passthroughSubgraph.nonEmpty)
+      open(
+        resolvedRequest,
+        response => response.copy(errors = executor.errorPolicy.passthrough(prepared.plan.fields, response.errors))
+      )
+    else {
+      val root     = preparedRoot(fetch, OperationType.Subscription, execution.operationName, prepared.cache)
+      val outgoing = GraphQLRequest(query = Some(root.query), operationName = execution.operationName)
+      open(outgoing, response => restoreRoot(fetch, root, executor, response).response)
+    }
   }
 
   def executeEvent(prepared: PreparedPlan, request: GraphQLRequest, response: GraphQLResponse[CalibanError])(implicit
@@ -478,6 +483,17 @@ private[gateway] final class PlanExecutor[-R](
 }
 
 private[gateway] object PlanExecutor {
+  def apply[R](
+    graph: ComposedGraph,
+    subgraphExecutors: Map[String, SubgraphExecutor[R]],
+    wrapper: GatewayWrapper[R]
+  ): PlanExecutor[R] = {
+    val responseMappings = graph.mappings.map { case (subgraphName, mapping) =>
+      subgraphName -> new ResponseMapping(mapping)
+    }
+    new PlanExecutor(graph, subgraphExecutors, wrapper, responseMappings)
+  }
+
   private final case class RootResult(fetch: RootFetch, response: GraphQLResponse[CalibanError])
 
   private[internal] final case class PreparedRoot(

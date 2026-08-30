@@ -36,7 +36,7 @@ private[internal] final class EntityLookup(
     for {
       fetch   <- fetches.headOption
       mapping <- graph.mapping(fetch.source)
-      call    <- buildLookup(fetch, fetches, batch, resolvedRequest, mapping, cache)
+      call    <- buildLookup(fetch, batch, resolvedRequest, mapping, cache)
     } yield call
 
   private def preparedLookup(
@@ -46,7 +46,7 @@ private[internal] final class EntityLookup(
     cache: PlanExecutionCache
   ): PreparedLookup =
     PlanExecutionCache.memoize(cache.lookups, fetch.id) {
-      val executableFields = fetch.fields.map(graph.executableEntityField(fetch.source, fetch.entityType, _))
+      val executableFields = graph.executableEntityFields(fetch.source, fetch.entityType, fetch.fields)
       PreparedLookup(
         executableFields,
         executableFields.map(mapping.rootFieldToSource).flatMap(fieldSelection),
@@ -57,9 +57,9 @@ private[internal] final class EntityLookup(
 
   private def federationCorrelation(
     fetch: EntityFetch,
-    fetches: List[EntityFetch]
+    executableFields: List[Field]
   ): EntityCorrelation.Federation = {
-    val usedNames = fetches.iterator.flatMap(_.fields.iterator.map(_.aliasedName)).toSet
+    val usedNames = executableFields.iterator.map(_.aliasedName).toSet
     val ordered   = correlationKeys(
       fetch.keys.map(key => key.field -> key),
       usedNames,
@@ -81,11 +81,11 @@ private[internal] final class EntityLookup(
 
   private def graphqlCorrelation(
     fetch: EntityFetch,
-    fetches: List[EntityFetch],
-    result: ComposedGraph.LookupResult.ByKey
+    result: ComposedGraph.LookupResult.ByKey,
+    executableFields: List[Field]
   ): EntityCorrelation = {
     val fields     = result.fields
-    val usedNames  = fetches.iterator.flatMap(_.fields.iterator.map(_.aliasedName)).toSet
+    val usedNames  = executableFields.iterator.map(_.aliasedName).toSet
     val configured = fetch.keys.flatMap(key =>
       fields.collectFirst {
         case (responseField, keyField) if keyField == key.field => responseField -> keyField
@@ -120,7 +120,6 @@ private[internal] final class EntityLookup(
 
   private def buildLookup(
     fetch: EntityFetch,
-    fetches: List[EntityFetch],
     batch: EntityBatch,
     resolvedRequest: GraphQLRequest,
     mapping: SchemaMapping,
@@ -165,7 +164,7 @@ private[internal] final class EntityLookup(
             correlationKey.nonEmpty &&
             batch.entries.map(entry => correlationIdentity(fetch, entry.identity)).distinct.size == batch.entries.size
           )
-            federationCorrelation(fetch, fetches)
+            federationCorrelation(fetch, executableFields)
           else EntityCorrelation.Ordered
         val variables   = Map(
           "representations" -> InputListValue(
@@ -204,7 +203,7 @@ private[internal] final class EntityLookup(
         )
         Some(lookupExecution(operation, Some(variables), correlation, LookupResponse.ListRoot("_entities")))
       case ComposedGraph.LookupOperation.GraphQLQuery(field, mappings, result: ComposedGraph.LookupResult.ByKey) =>
-        val correlation = graphqlCorrelation(fetch, fetches, result)
+        val correlation = graphqlCorrelation(fetch, result, executableFields)
         evaluateArguments(mappings, batch, None).map { arguments =>
           val alias           = "_caliban_gateway_lookup"
           val sourceArguments = mapping.lookupArgumentsToSource(field, arguments)
@@ -362,29 +361,31 @@ private[internal] final class EntityLookup(
       response: GraphQLResponse[CalibanError],
       errorPolicy: SubgraphExecutor.ErrorPolicy
     ): EntityResult = {
-      val expected       = correlation match {
+      val expected        = correlation match {
         case _: EntityCorrelation.Keyed =>
           batch.entries.iterator.zipWithIndex.map { case (entry, index) =>
             correlationIdentity(fetch, entry.identity) -> index
           }.toMap
         case EntityCorrelation.Ordered  => Map.empty[EntityIdentity, Int]
       }
-      val resolved       = mutable.Set.empty[Int]
-      val patches        = mutable.LinkedHashMap.empty[Int, ResponseValue]
-      val protocolErrors = mutable.ListBuffer.empty[CalibanError]
-      val blocked        = mutableBlocked(batch.blocked)
-      val values         = shape.values(response.data)
+      val resolved        = mutable.Set.empty[Int]
+      val patches         = mutable.LinkedHashMap.empty[Int, ResponseValue]
+      val protocolErrors  = mutable.ListBuffer.empty[CalibanError]
+      val blocked         = mutableBlocked(batch.blocked)
+      val values          = shape.values(response.data)
+      var federationNulls = 0
 
       values.foreach {
         case (index, NullValue)          =>
           correlation match {
-            case EntityCorrelation.Ordered | _: EntityCorrelation.Federation =>
+            case EntityCorrelation.Ordered       =>
               batch.entries.lift(index) match {
                 case Some(entry) if resolved.add(index) => blockEntry(entry, blocked)
                 case Some(_)                            => protocolErrors += duplicateEntityResult(fetch)
                 case None                               => protocolErrors += unexpectedEntityResult(fetch)
               }
-            case _: EntityCorrelation.ByKey                                  =>
+            case _: EntityCorrelation.Federation => federationNulls += 1
+            case _: EntityCorrelation.ByKey      =>
               protocolErrors += unexpectedEntityResult(fetch)
           }
         case (index, value: ObjectValue) =>
@@ -423,6 +424,15 @@ private[internal] final class EntityLookup(
       val missing        = missingBuilder.result()
       val merged         = mergedBuilder.result()
       missing.foreach(blockEntry(_, blocked))
+      correlation match {
+        case _: EntityCorrelation.Federation =>
+          var surplusNulls = federationNulls - missing.size
+          while (surplusNulls > 0) {
+            protocolErrors += unexpectedEntityResult(fetch)
+            surplusNulls -= 1
+          }
+        case _                               => ()
+      }
       val relocated      = relocateErrors(values.toMap, response.errors, errorPolicy)
       val unindexedError = response.errors.exists {
         case error: CalibanError.ExecutionError => shape.errorIndex(error.path).isEmpty
@@ -433,6 +443,8 @@ private[internal] final class EntityLookup(
         else
           correlation match {
             case _: EntityCorrelation.ByKey                                  => Nil
+            case _: EntityCorrelation.Federation if federationNulls > 0      =>
+              List.fill(math.max(0, missing.size - federationNulls))(missingEntityResult(fetch, fetchPath(fetch)))
             case EntityCorrelation.Ordered | _: EntityCorrelation.Federation =>
               missing.flatMap { entry =>
                 entry.locations.map(location => missingEntityResult(location.fetch, location.path))
@@ -488,17 +500,13 @@ private[internal] final class EntityLookup(
     correlation match {
       case EntityCorrelation.Ordered      => batch.entries.lift(index).map(_.locations).getOrElse(Nil)
       case keyed: EntityCorrelation.Keyed =>
-        val byIdentity = value.collect { case obj: ObjectValue =>
+        value.collect { case obj: ObjectValue =>
           keyed.identity.read(fetch.entityType, IndexedFields(obj))
         }.flatten
           .map(correlationIdentity(fetch, _))
           .flatMap(identity => batch.entries.find(entry => correlationIdentity(fetch, entry.identity) == identity))
           .map(_.locations)
-        val positional = keyed match {
-          case _: EntityCorrelation.Federation => batch.entries.lift(index).map(_.locations)
-          case _: EntityCorrelation.ByKey      => None
-        }
-        byIdentity.orElse(positional).getOrElse(Nil)
+          .getOrElse(Nil)
     }
 
   private def correlationIdentity(fetch: EntityFetch, identity: EntityIdentity): EntityIdentity =

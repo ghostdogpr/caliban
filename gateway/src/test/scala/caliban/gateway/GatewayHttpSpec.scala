@@ -369,37 +369,61 @@ object GatewayHttpSpec extends ZIOSpecDefault {
       },
       test("rejects unsupported methods, media types, and response encodings") {
         for {
-          source      <- stub("""{"data":{"greeting":"hello"}}""")
-          runtime     <- Gateway.compose(Subgraph.graphql("service", source.endpoint, schema)).interpreter
-          url         <- install(QuickAdapter(runtime))
-          method      <- execute(Request(method = Method.DELETE, url = url))
-          contentType <- execute(
-                           Request
-                             .post(
-                               url,
-                               Body.fromString("{ greeting }").contentType(MediaType.text.plain)
+          source          <- stub("""{"data":{"greeting":"hello"}}""")
+          runtime         <- Gateway.compose(Subgraph.graphql("service", source.endpoint, schema)).interpreter
+          url             <- install(QuickAdapter(runtime))
+          method          <- execute(Request(method = Method.DELETE, url = url))
+          contentType     <- execute(
+                               Request
+                                 .post(
+                                   url,
+                                   Body.fromString("{ greeting }").contentType(MediaType.text.plain)
+                                 )
+                                 .addHeader(Header.Custom("Accept", "application/graphql-response+json"))
                              )
-                             .addHeader(Header.Custom("Accept", "application/graphql-response+json"))
-                         )
-          accept      <- execute(post(url, """{"query":"{ greeting }"}""", "text/plain"))
-          fallback    <- execute(
-                           post(
-                             url,
-                             """{"query":"{ greeting }"}""",
-                             "application/graphql-response+json;q=0, application/json"
-                           )
-                         )
-          multipart   <- execute(post(url, """{"query":"{ greeting }"}""", "multipart/mixed"))
-          wildcard    <- execute(
-                           post(url, """{"query":"{ greeting }"}""", "application/json;q=0, */*;q=1")
-                         )
-          parameters  <- execute(
-                           post(
-                             url,
-                             """{"query":"{ greeting }"}""",
-                             "application/json;profile=unsupported;q=1, application/graphql-response+json;q=0.5"
-                           )
-                         )
+          accept          <- execute(post(url, """{"query":"{ greeting }"}""", "text/plain"))
+          fallback        <- execute(
+                               post(
+                                 url,
+                                 """{"query":"{ greeting }"}""",
+                                 "application/graphql-response+json;q=0, application/json"
+                               )
+                             )
+          multipart       <- execute(post(url, """{"query":"{ greeting }"}""", "multipart/mixed"))
+          bounded         <- execute(
+                               post(
+                                 url,
+                                 """{"query":"{ greeting }"}""",
+                                 "multipart/mixed; boundary=\"graphql\"; deferSpec=20220824"
+                               )
+                             )
+          quoted          <- execute(
+                               post(
+                                 url,
+                                 """{"query":"{ greeting }"}""",
+                                 "multipart/mixed; boundary=\"graphql\"; deferSpec=\"20220824\""
+                               )
+                             )
+          multipartRange  <- execute(
+                               post(
+                                 url,
+                                 """{"query":"{ greeting }"}""",
+                                 "multipart/*; boundary=\"graphql\"; deferSpec=20220824"
+                               )
+                             )
+          invalidBoundary <- execute(
+                               post(url, """{"query":"{ greeting }"}""", "application/json; boundary=graphql")
+                             )
+          wildcard        <- execute(
+                               post(url, """{"query":"{ greeting }"}""", "application/json;q=0, */*;q=1")
+                             )
+          parameters      <- execute(
+                               post(
+                                 url,
+                                 """{"query":"{ greeting }"}""",
+                                 "application/json;profile=unsupported;q=1, application/graphql-response+json;q=0.5"
+                               )
+                             )
         } yield assertTrue(
           method.response.status == Status.NotFound,
           contentType.response.status == Status.UnsupportedMediaType,
@@ -407,6 +431,13 @@ object GatewayHttpSpec extends ZIOSpecDefault {
           fallback.response.headers.get(Header.ContentType).exists(_.mediaType.fullType == "application/json"),
           multipart.response.headers.get(Header.ContentType).exists(_.mediaType.fullType == "multipart/mixed"),
           multipart.body.contains("\"greeting\":\"hello\""),
+          bounded.response.headers.get(Header.ContentType).exists(_.mediaType.fullType == "multipart/mixed"),
+          bounded.body.contains("\"greeting\":\"hello\""),
+          quoted.response.headers.get(Header.ContentType).exists(_.mediaType.fullType == "multipart/mixed"),
+          quoted.body.contains("\"greeting\":\"hello\""),
+          multipartRange.response.headers.get(Header.ContentType).exists(_.mediaType.fullType == "multipart/mixed"),
+          multipartRange.body.contains("\"greeting\":\"hello\""),
+          invalidBoundary.response.status == Status.NotAcceptable,
           wildcard.response.headers
             .get(Header.ContentType)
             .exists(_.mediaType.fullType == "application/graphql-response+json"),
