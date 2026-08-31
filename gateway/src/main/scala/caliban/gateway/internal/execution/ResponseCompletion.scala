@@ -16,16 +16,19 @@ import scala.collection.mutable
  */
 private[gateway] final class ResponseCompletion(
   typenameSelections: List[TypenameSelection],
-  fetchedFields: Map[Vector[String], List[Field]] = Map.empty
+  fetchedFields: FetchedFields = null
 ) {
   def complete(fields: List[Field], value: ResponseValue, errors: List[CalibanError]): Completion =
-    completeObject(fields, value, Nil, ErrorPathIndex(errors))
+    completeObject(fields, value, Nil, ErrorPathIndex(errors), fetchedFields)
+
+  private[this] val hasFetched = fetchedFields ne null
 
   private def completeObject(
     fields: List[Field],
     value: ResponseValue,
     path: List[PathValue],
     sourceErrors: ErrorPathIndex,
+    fetched: FetchedFields,
     runtimeType: Option[String] = None
   ): Completion =
     value match {
@@ -38,21 +41,22 @@ private[gateway] final class ResponseCompletion(
         val lookup = IndexedFields(obj)
 
         while (remaining ne Nil) {
-          val field     = remaining.head
-          val name      = field.aliasedName
-          val fieldPath = PathValue.Key(name) :: path
-          val value     = lookup.getOrNull(name)
-          val result    =
+          val field        = remaining.head
+          val name         = field.aliasedName
+          val fieldPath    = PathValue.Key(name) :: path
+          val value        = lookup.getOrNull(name)
+          val fieldFetched =
+            if ((fetched eq null) || (field.fields.isEmpty && (field._condition.isEmpty || runtimeType.isEmpty))) null
+            else fetched.child(name)
+          val result       =
             if (
-              field._condition.nonEmpty && runtimeType.exists { typeName =>
-                fetchedFields.nonEmpty && !fetchedFields.getOrElse(responsePath(fieldPath), Nil).exists { selected =>
-                  selected.name == field.name && selected._condition.forall(_.contains(typeName))
-                }
+              field._condition.nonEmpty && hasFetched && runtimeType.exists { typeName =>
+                !fieldSelected(fieldFetched, field, typeName)
               }
             )
-              completeValue(field.fieldType, field, NullValue, fieldPath, sourceErrors)
+              completeValue(field.fieldType, field, NullValue, fieldPath, sourceErrors, fieldFetched)
             else if (value ne null)
-              completeValue(field.fieldType, field, value, fieldPath, sourceErrors)
+              completeValue(field.fieldType, field, value, fieldPath, sourceErrors, fieldFetched)
             else {
               val invalid = Completed(NullValue, invalidSourceValueErrors(fieldPath.reverse, sourceErrors))
               if (field.fieldType.kind == __TypeKind.NON_NULL)
@@ -71,17 +75,29 @@ private[gateway] final class ResponseCompletion(
       case _                => Completed(NullValue, invalidSourceValueErrors(path.reverse, sourceErrors))
     }
 
+  private def fieldSelected(node: FetchedFields, field: Field, typeName: String): Boolean = {
+    if (node eq null) return false
+    var remaining = node.fields
+    while (remaining ne Nil) {
+      val selected = remaining.head
+      if (selected.name == field.name && selected._condition.forall(_.contains(typeName))) return true
+      remaining = remaining.tail
+    }
+    false
+  }
+
   private def completeValue(
     fieldType: __Type,
     field: Field,
     value: ResponseValue,
     path: List[PathValue],
-    sourceErrors: ErrorPathIndex
+    sourceErrors: ErrorPathIndex,
+    fetched: FetchedFields
   ): Completion =
     fieldType.kind match {
       case __TypeKind.NON_NULL                     =>
         val completed = fieldType.ofType
-          .map(completeValue(_, field, value, path, sourceErrors))
+          .map(completeValue(_, field, value, path, sourceErrors, fetched))
           .getOrElse(Completed(NullValue, Nil))
         enforceNonNull(completed, field, path, sourceErrors)
       case _ if value == NullValue                 => Completed(NullValue, Nil)
@@ -101,12 +117,12 @@ private[gateway] final class ResponseCompletion(
               val itemPath = PathValue.Index(index) :: path
               val result   =
                 if (abstractPlan eq null)
-                  completeValue(itemType, field, remaining.head, itemPath, sourceErrors)
+                  completeValue(itemType, field, remaining.head, itemPath, sourceErrors, fetched)
                 else {
                   val item =
                     if (remaining.head == NullValue) Completed(NullValue, Nil)
                     else
-                      completeAbstract(abstractPlan, field, remaining.head, itemPath, sourceErrors)
+                      completeAbstract(abstractPlan, field, remaining.head, itemPath, sourceErrors, fetched)
                   if (itemIsNonNull) enforceNonNull(item, field, itemPath, sourceErrors) else item
                 }
               if (result.errors ne Nil) errors ++= result.errors
@@ -128,7 +144,8 @@ private[gateway] final class ResponseCompletion(
           field,
           value,
           path,
-          sourceErrors
+          sourceErrors,
+          fetched
         )
       case __TypeKind.OBJECT                       =>
         completeNestedObject(
@@ -136,7 +153,8 @@ private[gateway] final class ResponseCompletion(
           field,
           value,
           path,
-          sourceErrors
+          sourceErrors,
+          fetched
         )
       case __TypeKind.ENUM                         =>
         value match {
@@ -216,14 +234,15 @@ private[gateway] final class ResponseCompletion(
     field: Field,
     value: ResponseValue,
     path: List[PathValue],
-    sourceErrors: ErrorPathIndex
+    sourceErrors: ErrorPathIndex,
+    fetched: FetchedFields
   ): Completion = {
     val runtime = runtimeType(value, completion.runtimeTypes)
     runtime.filter(name => completion.possible.isEmpty || completion.possible.contains(name)) match {
       case Some(typeName)                                         =>
-        completeNestedObject(typeName, field, value, path, sourceErrors)
+        completeNestedObject(typeName, field, value, path, sourceErrors, fetched)
       case None if runtime.isEmpty && !completion.requiresRuntime =>
-        completeNestedObject(completion.defaultType, field, value, path, sourceErrors)
+        completeNestedObject(completion.defaultType, field, value, path, sourceErrors, fetched)
       case None                                                   =>
         Completed(NullValue, invalidSourceValueErrors(path.reverse, sourceErrors))
     }
@@ -260,9 +279,10 @@ private[gateway] final class ResponseCompletion(
     field: Field,
     value: ResponseValue,
     path: List[PathValue],
-    sourceErrors: ErrorPathIndex
+    sourceErrors: ErrorPathIndex,
+    fetched: FetchedFields
   ): Completion = {
-    val completed = completeObject(field.collectFields(typeName), value, path, sourceErrors, Some(typeName))
+    val completed = completeObject(field.collectFields(typeName), value, path, sourceErrors, fetched, Some(typeName))
     if (completed.bubblesNull) Completed(NullValue, completed.errors) else completed
   }
 
@@ -331,16 +351,38 @@ private[gateway] object ResponseCompletion {
   def forPlan(plan: OperationPlan): ResponseCompletion = {
     // A valid plan can omit conditional fields outside the common runtime types of a shareable path.
     // Retain fetched selections so those omissions do not look like malformed upstream responses.
-    val fetched                                                  = mutable.Map.empty[Vector[String], List[Field]]
-    def collect(fields: List[Field], path: Vector[String]): Unit =
+    val root                                                    = new FetchedFields
+    var nonEmpty                                                = false
+    def collect(fields: List[Field], node: FetchedFields): Unit =
       fields.foreach { field =>
-        val next = path :+ field.aliasedName
-        fetched.update(next, field :: fetched.getOrElse(next, Nil))
-        collect(field.fields, next)
+        val child = node.childOrCreate(field.aliasedName)
+        child.fields = field :: child.fields
+        nonEmpty = true
+        collect(field.fields, child)
       }
-    collect(plan.localFields ::: plan.roots.flatMap(_.downstream), Vector.empty)
-    plan.entities.foreach(fetch => collect(fetch.fields, fetch.mergePath))
-    new ResponseCompletion(plan.typenameSelections, fetched.toMap)
+    collect(plan.localFields ::: plan.roots.flatMap(_.downstream), root)
+    plan.entities.foreach { fetch =>
+      var node = root
+      fetch.mergePath.foreach(name => node = node.childOrCreate(name))
+      collect(fetch.fields, node)
+    }
+    new ResponseCompletion(plan.typenameSelections, if (nonEmpty) root else null)
+  }
+
+  private[execution] final class FetchedFields {
+    private val children    = new java.util.HashMap[String, FetchedFields](8)
+    var fields: List[Field] = Nil
+
+    def child(name: String): FetchedFields = children.get(name)
+
+    def childOrCreate(name: String): FetchedFields = {
+      var node = children.get(name)
+      if (node eq null) {
+        node = new FetchedFields
+        children.put(name, node)
+      }
+      node
+    }
   }
 
   private final case class RuntimeTypeLookup(
