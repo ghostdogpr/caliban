@@ -1,10 +1,11 @@
 package caliban.gateway.internal.composition
 
-import caliban.execution.{ isMetaField, Field }
+import caliban.InputValue
+import caliban.execution.{ isMetaField, ExecutionRequest, Field }
 import caliban.gateway.OperationPolicy.{ SecurityDirective, SecurityRequirement }
 import caliban.gateway.internal.composition.ComposedGraph.{ LookupOperation, LookupResult }
-import caliban.introspection.adt._
 import caliban.gateway.internal.planning.OperationPlan
+import caliban.introspection.adt._
 import caliban.parsing.adt.{ Directive, OperationType, Selection }
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
 import caliban.parsing.adt.Definition.TypeSystemExtension.TypeExtension._
@@ -30,6 +31,7 @@ private[gateway] final class ComposedGraph private[internal] (
   private val interfaceObjects: Set[(String, String)],
   private val sourceRuntimeTypes: Map[(String, String), Set[String]],
   private[internal] val mappings: Map[String, SchemaMapping],
+  private val costs: ComposedGraph.CostMetadata,
   private val securityApplications: List[ComposedGraph.SecurityApplication],
   private[gateway] val schemaDirectives: List[Directive]
 ) {
@@ -74,6 +76,7 @@ private[gateway] final class ComposedGraph private[internal] (
     .groupBy(_._1)
     .map { case (typeName, values) => typeName -> values.map(_._2).sorted }
   private val lookupTypes              = entityLookups.keysIterator.map(_._2).toSet
+  private val operationCost            = new OperationCost(rootType.types, runtimeTypesByName, costs)
 
   private val progressiveOverridesByLabel =
     (routes.valuesIterator.flatMap(_.providers) ++ fieldRoutes.valuesIterator.flatten)
@@ -135,9 +138,13 @@ private[gateway] final class ComposedGraph private[internal] (
       interfaceObjects,
       sourceRuntimeTypes,
       mappings,
+      costs,
       securityApplications,
       schemaDirectives
     )
+
+  def estimatedOperationCost(request: ExecutionRequest, plan: OperationPlan): Either[String, Long] =
+    operationCost.estimate(request, plan)
 
   def sources(operation: OperationType, field: String): List[String] =
     routes
@@ -460,6 +467,23 @@ private[gateway] final class ComposedGraph private[internal] (
 }
 
 private[gateway] object ComposedGraph {
+  final case class CostMetadata(
+    types: Map[String, Long],
+    fields: Map[(String, String), Long],
+    arguments: Map[(String, String, String), Long],
+    inputFields: Map[(String, String), Long],
+    listSizes: Map[(String, String, String), ListSize]
+  )
+
+  final case class ListSize(
+    assumedSize: Option[Long],
+    slicingArguments: List[SlicingArgument],
+    sizedFields: List[Vector[String]],
+    requireOneSlicingArgument: Boolean
+  )
+
+  final case class SlicingArgument(path: Vector[String], defaultValue: Option[InputValue], listValued: Boolean)
+
   final case class KeyField(name: String, children: List[KeyField])
 
   final case class ContextName(value: String) extends AnyVal

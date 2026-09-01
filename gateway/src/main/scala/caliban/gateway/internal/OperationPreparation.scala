@@ -1,6 +1,6 @@
 package caliban.gateway.internal
 
-import caliban.{ CalibanError, Configurator, GraphQLRequest, InputValue }
+import caliban.{ CalibanError, Configurator, GraphQLRequest, InputValue, ResponseValue, Value }
 import caliban.execution.{ ExecutionRequest, Field, RequestPreparation }
 import caliban.gateway.{ GatewayConfig, GatewayWrapper }
 import caliban.gateway.internal.execution.PreparedPlan
@@ -9,7 +9,7 @@ import caliban.gateway.internal.OperationCacheMode.Cacheable
 import caliban.gateway.internal.OperationPreparation._
 import caliban.gateway.internal.composition.ComposedGraph.OverrideLabel
 import caliban.gateway.internal.planning.CandidateSearch.PlanningFailure
-import caliban.gateway.internal.planning.OperationPlanner
+import caliban.gateway.internal.planning.{ OperationPlan, OperationPlanner }
 import caliban.InputValue.VariableValue
 import caliban.parsing.adt.{ Directive, Document }
 import caliban.schema.RootType
@@ -20,7 +20,9 @@ private[gateway] final class OperationPreparation[-R] private (
   rootType: RootType,
   planner: OperationPlanner,
   hooks: OperationHooks[R],
-  cache: OperationCache[CacheKey, CalibanError, CachedOperation, R]
+  cache: OperationCache[CacheKey, CalibanError, CachedOperation, R],
+  maxOperationCost: Option[Long],
+  estimateCost: (ExecutionRequest, OperationPlan) => Either[String, Long]
 ) {
 
   def check(query: String)(implicit trace: Trace): IO[CalibanError, Unit] =
@@ -41,8 +43,39 @@ private[gateway] final class OperationPreparation[-R] private (
                       case _         =>
                         prepareUncached(resolved, query)
                     }
+      _          <- enforceCost(prepared)
       _          <- hooks.evaluatePolicy(resolved, prepared.document, prepared.executionRequest, prepared.plan.plan)
     } yield prepared
+
+  private def enforceCost(prepared: Prepared): IO[CalibanError.ValidationError, Unit] =
+    maxOperationCost match {
+      case Some(maximum) =>
+        estimateCost(prepared.executionRequest, prepared.plan.plan) match {
+          case Left(error)      =>
+            ZIO.fail(
+              CalibanError.ValidationError(
+                error,
+                "",
+                extensions = Some(
+                  ResponseValue.ObjectValue(List("code" -> Value.StringValue("COST_QUERY_PARSE_FAILURE")))
+                )
+              )
+            )
+          case Right(estimated) =>
+            if (estimated > maximum)
+              ZIO.fail(
+                CalibanError.ValidationError(
+                  s"Operation cost $estimated exceeds the configured maximum of $maximum.",
+                  "",
+                  extensions = Some(
+                    ResponseValue.ObjectValue(List("code" -> Value.StringValue("COST_ESTIMATED_TOO_EXPENSIVE")))
+                  )
+                )
+              )
+            else ZIO.unit
+        }
+      case None          => ZIO.unit
+    }
 
   private def prepareCached(
     request: GraphQLRequest,
@@ -272,7 +305,8 @@ private[gateway] object OperationPreparation {
     planner: OperationPlanner,
     hooks: OperationHooks[R],
     config: GatewayConfig,
-    wrapper: GatewayWrapper[R]
+    wrapper: GatewayWrapper[R],
+    estimateCost: (ExecutionRequest, OperationPlan) => Either[String, Long]
   )(implicit trace: Trace): UIO[OperationPreparation[R]] =
     OperationCache
       .make[CacheKey, CalibanError, CachedOperation, R](config.maxOperationCacheWeight, wrapper)
@@ -281,7 +315,9 @@ private[gateway] object OperationPreparation {
           rootType,
           planner,
           hooks,
-          cache
+          cache,
+          config.maxOperationCost,
+          estimateCost
         )
       )
 

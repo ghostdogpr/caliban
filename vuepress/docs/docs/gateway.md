@@ -380,8 +380,23 @@ The main settings are:
 - `withMaxConcurrentRequests` for how many requests the gateway handles at once
 - `withRequestTimeout` for the maximum duration of a client request
 - `withDrainTimeout` for the time allowed to finish requests during shutdown
+- `withMaxOperationCost` for rejecting operations whose estimated cost exceeds a positive limit
 
 Local Caliban subgraphs run directly within the request budget. Remote subgraphs also have their own concurrency limits.
+
+### Demand control
+
+`withMaxOperationCost` enables static demand control. The gateway estimates the planned subgraph requests after binding request variables and rejects an operation before contacting any subgraph when its cost exceeds the limit:
+
+```scala
+val gateway = Gateway
+  .compose(products, reviews)
+  .withConfig(_.withMaxOperationCost(1000))
+```
+
+Federation 2.9 `@cost` and `@listSize` directives customize the estimate. The gateway also accepts the directives through a direct `https://specs.apollo.dev/cost/v0.1` link, including imported aliases. `@listSize` supports `assumedSize`, `slicingArguments` paths that reference an `Int`, a list, or a nested input value, `sizedFields`, and `requireOneSlicingArgument`.
+
+The estimate follows the query plan, so it includes fields that the gateway injects for entity keys and requirements. A mutation base cost of 10 applies to each planned mutation root fetch. Lists without `@listSize` are not multiplied. Federation transport directives, including `@cost` and `@listSize`, remain hidden from the public API schema.
 
 QuickAdapter has separate HTTP body limits:
 

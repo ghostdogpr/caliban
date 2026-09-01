@@ -12,7 +12,7 @@ import caliban.parsing.adt.Definition.TypeSystemExtension.TypeExtension._
 import caliban.rendering.DocumentRenderer
 import caliban.schema.RootType
 import caliban.validation.{ SchemaValidator, Validator }
-import caliban.Value.{ BooleanValue, NullValue, StringValue }
+import caliban.Value.{ BooleanValue, IntValue, NullValue, StringValue }
 
 /**
  * Composes loaded subgraphs; all intermediate state is scoped to one composition.
@@ -49,6 +49,7 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
   private val typeComposition     = new TypeComposition(types, enumUsageByName, composedDirectives)
   private val compiledFieldSets   = prepared.map(federationFieldSets)
   private val compiledContexts    = prepared.map(federationContexts)
+  private val compiledCosts       = prepared.map(federationCosts)
   private val compiledSecurity    = prepared.map(securityApplications)
 
   def compose: Either[List[String], ComposedGraph] = {
@@ -58,6 +59,7 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
         composedDirectives.diagnostics :::
         compiledFieldSets.flatMap(_.fold(identity, _ => Nil)) :::
         compiledContexts.flatMap(_.fold(identity, _ => Nil)) :::
+        compiledCosts.flatMap(_.fold(identity, _ => Nil)) :::
         compiledSecurity.flatMap(_.fold(identity, _ => Nil)) :::
         prepared.flatMap(unsupportedFederationDiagnostics) :::
         rootDiagnostics(OperationType.Query, queryEntries) :::
@@ -134,6 +136,7 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
       val contextMetadata                                               = compiledContexts.flatMap(_.toOption)
       val contexts                                                      = contextMetadata.flatMap(_.definitions).toMap
       val contextArguments                                              = contextMetadata.flatMap(_.arguments).toMap
+      val costs                                                         = mergeCosts(compiledCosts.flatMap(_.toOption))
       val contextSecurityDependencies                                   = contextMetadata.flatMap { metadata =>
         metadata.arguments.flatMap { case ((source, typeName, fieldName), arguments) =>
           arguments.flatMap { argument =>
@@ -184,6 +187,7 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
                 }
               }.toMap,
               sortedSubgraphs.iterator.map(subgraph => subgraph.name -> subgraph.mapping).toMap,
+              costs,
               allSecurity,
               composedDirectives.schemaDirectives
             )
@@ -861,6 +865,11 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
           .map(name =>
             s"[${subgraph.name}] Federation $name is not available in the linked feature version at '${application.coordinate}'."
           )
+        val unavailableCost   = names.unavailableCost
+          .get(directive.name)
+          .map(name =>
+            s"[${subgraph.name}] Federation $name requires Federation v2.9 or cost spec v0.1 at '${application.coordinate}'."
+          )
         val context           = {
           val isContext = names.context.contains(directive.name)
           val isFrom    = names.fromContext.contains(directive.name)
@@ -898,7 +907,7 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
                 Some(s"[${subgraph.name}] Invalid Federation @override label at '${application.coordinate}'.")
             }
 
-        security.toList ::: unavailable.toList ::: context.toList ::: overrideDirective.toList
+        security.toList ::: unavailable.toList ::: unavailableCost.toList ::: context.toList ::: overrideDirective.toList
       }
     }
   }
@@ -1099,6 +1108,287 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
         )
     }
   }
+
+  private def federationCosts(
+    metadata: CompositionSubgraph
+  ): Either[List[String], ComposedGraph.CostMetadata] = {
+    val subgraph = metadata.subgraph
+    val names    = metadata.directives
+
+    def unwrapNonNull(tpe: __Type): __Type =
+      if (tpe.kind == __TypeKind.NON_NULL) tpe.ofType.fold(tpe)(unwrapNonNull) else tpe
+
+    def isList(tpe: __Type): Boolean = unwrapNonNull(tpe).kind == __TypeKind.LIST
+
+    def resolvedType(tpe: __Type): __Type = {
+      val inner = tpe.innerType
+      inner.name.flatMap(subgraph.rootType.types.get).getOrElse(inner)
+    }
+
+    def strings(arguments: Map[String, InputValue], name: String): Either[String, List[String]] =
+      arguments.get(name) match {
+        case None                               => Right(Nil)
+        case Some(StringValue(value))           => Right(value :: Nil)
+        case Some(InputValue.ListValue(values)) =>
+          val result = values.collect { case StringValue(value) => value }
+          Either.cond(result.size == values.size, result, s"the '$name' argument must be a list of strings.")
+        case _                                  => Left(s"the '$name' argument must be a list of strings.")
+      }
+
+    def selectionPaths(
+      selections: List[Selection],
+      prefix: Vector[String] = Vector.empty
+    ): Option[List[Vector[String]]] =
+      selections.foldLeft(Option(List.empty[Vector[String]])) { case (result, selection) =>
+        for {
+          paths <- result
+          next  <- selection match {
+                     case Selection.Field(None, name, arguments, directives, children, _)
+                         if arguments.isEmpty && directives.isEmpty =>
+                       if (children.isEmpty) Some(List(prefix :+ name))
+                       else selectionPaths(children, prefix :+ name)
+                     case _ => None
+                   }
+        } yield paths ::: next
+      }
+
+    def hasNoSiblingLeaves(selections: List[Selection]): Boolean =
+      selections.count {
+        case Selection.Field(_, _, _, _, children, _) => children.isEmpty
+        case _                                        => false
+      } <= 1 && selections.forall {
+        case Selection.Field(_, _, _, _, children, _) => children.isEmpty || hasNoSiblingLeaves(children)
+        case _                                        => true
+      }
+
+    def inputPathType(field: __Field, path: Vector[String]): Option[__Type] =
+      path.headOption.flatMap(name => field.allArgs.find(_.name == name)).flatMap { argument =>
+        path.tail.foldLeft(Option(argument._type)) { (current, name) =>
+          current.flatMap { tpe =>
+            val value = unwrapNonNull(tpe)
+            if (value.kind == __TypeKind.LIST) None
+            else resolvedType(value).allInputFields.find(_.name == name).map(_._type)
+          }
+        }
+      }
+
+    def sizedPathType(field: __Field, path: Vector[String]): Option[__Type] =
+      path.foldLeft(Option(field._type)) { (current, name) =>
+        current.flatMap { tpe =>
+          Option(resolvedType(tpe).getFieldOrNull(name)).map(_._type)
+        }
+      }
+
+    def listSizeApplication(
+      directive: Directive,
+      typeName: String,
+      field: __Field
+    ): Either[String, ((String, String, String), ComposedGraph.ListSize)] = {
+      val coordinate = s"$typeName.${field.name}"
+      val prefix     = s"[${subgraph.name}] Invalid Federation @listSize application at '$coordinate'"
+      val arguments  = directive.arguments
+      val allowed    = Set("assumedSize", "slicingArguments", "sizedFields", "requireOneSlicingArgument")
+
+      if (!arguments.keySet.subsetOf(allowed)) Left(s"$prefix: unsupported argument.")
+      else {
+        val assumed = arguments.get("assumedSize") match {
+          case None                                         => Right(None)
+          case Some(value: IntValue) if value.toBigInt >= 0 => Right(Some(value.toBigInt.longValue))
+          case Some(_: IntValue)                            => Left("the 'assumedSize' argument must not be negative.")
+          case _                                            => Left("the 'assumedSize' argument must be an integer.")
+        }
+        val require = arguments.get("requireOneSlicingArgument") match {
+          case None                      => Right(true)
+          case Some(BooleanValue(value)) => Right(value)
+          case _                         => Left("the 'requireOneSlicingArgument' argument must be a boolean.")
+        }
+
+        for {
+          assumedSize  <- assumed.left.map(error => s"$prefix: $error")
+          slicing      <- strings(arguments, "slicingArguments").left.map(error => s"$prefix: $error")
+          sized        <- strings(arguments, "sizedFields").left.map(error => s"$prefix: $error")
+          requireOne   <- require.left.map(error => s"$prefix: $error")
+          slicingPaths <- slicing.foldLeft[Either[String, List[Vector[String]]]](Right(Nil)) { (result, value) =>
+                            val path = value.split("\\.", -1).toVector
+                            for {
+                              paths <- result
+                              _     <- Either.cond(
+                                         path.forall(_.nonEmpty),
+                                         (),
+                                         s"$prefix: slicing argument '$value' is not a valid path."
+                                       )
+                            } yield paths :+ path
+                          }
+          _            <- slicingPaths.foldLeft[Either[String, Unit]](Right(())) { (result, path) =>
+                            result.flatMap { _ =>
+                              val valid = inputPathType(field, path).exists { tpe =>
+                                val value = unwrapNonNull(tpe)
+                                value.kind == __TypeKind.LIST ||
+                                (value.kind == __TypeKind.SCALAR && value.name.contains("Int"))
+                              }
+                              Either.cond(
+                                valid,
+                                (),
+                                s"$prefix: slicing argument '${path.mkString(".")}' must resolve to an Int or list argument."
+                              )
+                            }
+                          }
+          sizedPaths   <- sized.foldLeft[Either[String, List[Vector[String]]]](Right(Nil)) { (result, value) =>
+                            for {
+                              paths      <- result
+                              parsed     <- parseFieldSet(value)
+                                              .toRight(s"$prefix: sized field '$value' is not a valid field path.")
+                              selections <- selectionPaths(parsed)
+                                              .toRight(s"$prefix: sized field '$value' is not a valid field path.")
+                              _          <- Either.cond(
+                                              hasNoSiblingLeaves(parsed),
+                                              (),
+                                              s"$prefix: sized field '$value' must not select sibling leaf fields."
+                                            )
+                            } yield paths ::: selections
+                          }
+          _            <- Either.cond(
+                            isList(field._type) || sizedPaths.nonEmpty,
+                            (),
+                            s"$prefix: the field must return a list or define 'sizedFields'."
+                          )
+          _            <- sizedPaths.foldLeft[Either[String, Unit]](Right(())) { (result, path) =>
+                            result.flatMap(_ =>
+                              Either.cond(
+                                sizedPathType(field, path).exists(isList),
+                                (),
+                                s"$prefix: sized field '${path.mkString(".")}' must exist and return a list."
+                              )
+                            )
+                          }
+        } yield (subgraph.name, typeName, field.name) -> ComposedGraph.ListSize(
+          assumedSize,
+          slicingPaths.map { path =>
+            val default = path.headOption.flatMap(name => field.allArgs.find(_.name == name)).flatMap { argument =>
+              argument.defaultValue.flatMap(Parser.parseInputValue(_).toOption)
+            }
+            ComposedGraph.SlicingArgument(path, default, inputPathType(field, path).exists(isList))
+          },
+          sizedPaths,
+          requireOne
+        )
+      }
+    }
+
+    def applications(
+      directives: Option[List[Directive]],
+      coordinate: String,
+      entry: Long => CostEntry,
+      locationError: Option[String] = None
+    ): List[Either[String, CostEntry]] =
+      directives.getOrElse(Nil).filter(directive => names.cost.contains(directive.name)).map { directive =>
+        val prefix = s"[${subgraph.name}] Invalid Federation @cost application at '$coordinate'"
+        if (locationError.nonEmpty)
+          Left(s"$prefix: ${locationError.get}")
+        else
+          directive.arguments match {
+            case arguments if arguments.keySet == Set("weight") =>
+              arguments("weight") match {
+                case value: IntValue => Right(entry(value.toBigInt.longValue))
+                case _               => Left(s"$prefix: the 'weight' argument must be an integer.")
+              }
+            case _                                              =>
+              Left(s"$prefix: exactly one 'weight' argument is required.")
+          }
+      }
+
+    val entries   = subgraph.rootType.types.toList.sortBy(_._1).flatMap { case (sourceName, tpe) =>
+      val typeName      = composedTypeName(subgraph, sourceName)
+      val supportedType = tpe.kind == __TypeKind.OBJECT || tpe.kind == __TypeKind.SCALAR || tpe.kind == __TypeKind.ENUM
+      val typeEntries   = applications(
+        tpe.directives,
+        typeName,
+        weight => TypeCost(typeName, weight),
+        if (supportedType) None else Some("@cost is not supported at this type location.")
+      )
+      val fields        = tpe.allFields.flatMap { field =>
+        applications(
+          field.directives,
+          s"$typeName.${field.name}",
+          weight => FieldCost(typeName, field.name, weight),
+          if (tpe.kind == __TypeKind.INTERFACE) Some("@cost cannot be applied to an interface field.") else None
+        ) ::: field.allArgs.flatMap(argument =>
+          applications(
+            argument.directives,
+            s"$typeName.${field.name}(${argument.name}:)",
+            weight => ArgumentCost(typeName, field.name, argument.name, weight)
+          )
+        )
+      }
+      val inputFields   = tpe.allInputFields.flatMap(field =>
+        applications(
+          field.directives,
+          s"$typeName.${field.name}",
+          weight => InputFieldCost(typeName, field.name, weight)
+        )
+      )
+      typeEntries ::: fields ::: inputFields
+    }
+    val listSizes = subgraph.rootType.types.toList.sortBy(_._1).flatMap { case (sourceName, tpe) =>
+      val typeName = composedTypeName(subgraph, sourceName)
+      val fields   = tpe.allFields.flatMap { field =>
+        field.directives.getOrElse(Nil).filter(directive => names.listSize.contains(directive.name)).map { directive =>
+          listSizeApplication(directive, typeName, field)
+        }
+      }
+      val invalid  =
+        tpe.directives
+          .getOrElse(Nil)
+          .filter(directive => names.listSize.contains(directive.name))
+          .map(_ => typeName) :::
+          tpe.allFields.flatMap { field =>
+            field.allArgs.flatMap(argument =>
+              argument.directives
+                .getOrElse(Nil)
+                .filter(directive => names.listSize.contains(directive.name))
+                .map(_ => s"$typeName.${field.name}(${argument.name}:)")
+            )
+          } :::
+          tpe.allInputFields.flatMap { field =>
+            field.directives
+              .getOrElse(Nil)
+              .filter(directive => names.listSize.contains(directive.name))
+              .map(_ => s"$typeName.${field.name}")
+          }
+      fields ::: invalid.map(coordinate =>
+        Left(
+          s"[${subgraph.name}] Invalid Federation @listSize application at '$coordinate': @listSize is only supported on fields."
+        )
+      )
+    }
+    val errors    = entries.collect { case Left(error) => error } ::: listSizes.collect { case Left(error) => error }
+
+    if (errors.nonEmpty) Left(errors)
+    else {
+      val values = entries.collect { case Right(value) => value }
+      Right(
+        ComposedGraph.CostMetadata(
+          maximum(values.collect { case TypeCost(name, weight) => name -> weight }),
+          maximum(values.collect { case FieldCost(parent, name, weight) => (parent -> name) -> weight }),
+          maximum(values.collect { case ArgumentCost(parent, field, name, weight) => (parent, field, name) -> weight }),
+          maximum(values.collect { case InputFieldCost(parent, name, weight) => (parent -> name) -> weight }),
+          listSizes.collect { case Right(value) => value }.toMap
+        )
+      )
+    }
+  }
+
+  private def mergeCosts(values: List[ComposedGraph.CostMetadata]): ComposedGraph.CostMetadata =
+    ComposedGraph.CostMetadata(
+      maximum(values.flatMap(_.types)),
+      maximum(values.flatMap(_.fields)),
+      maximum(values.flatMap(_.arguments)),
+      maximum(values.flatMap(_.inputFields)),
+      values.flatMap(_.listSizes).toMap
+    )
+
+  private def maximum[K](values: Iterable[(K, Long)]): Map[K, Long] =
+    values.groupBy(_._1).map { case (key, entries) => key -> entries.iterator.map(_._2).max }
 
   private def validateContextReceiver(
     source: String,
@@ -2033,6 +2323,12 @@ private[gateway] object SchemaComposer {
     arguments: List[((String, String, String), List[ComposedGraph.ContextArgument])]
   )
 
+  private sealed trait CostEntry
+  private final case class TypeCost(name: String, weight: Long)                                    extends CostEntry
+  private final case class FieldCost(parent: String, name: String, weight: Long)                   extends CostEntry
+  private final case class ArgumentCost(parent: String, field: String, name: String, weight: Long) extends CostEntry
+  private final case class InputFieldCost(parent: String, name: String, weight: Long)              extends CostEntry
+
   private final case class SecurityCoordinate(typeName: String, fieldName: Option[String])
 
   private final case class TypeSystemDirectiveApplication(
@@ -2098,6 +2394,9 @@ private[gateway] object SchemaComposer {
     requiresScopes: Set[String],
     policy: Set[String],
     unavailableSecurity: Map[String, String],
+    unavailableCost: Map[String, String],
+    cost: Set[String],
+    listSize: Set[String],
     context: Set[String],
     fromContext: Set[String],
     supportsContexts: Boolean,
@@ -2110,7 +2409,8 @@ private[gateway] object SchemaComposer {
     val links                                                                    = linkedFeatures(document)
     val federation                                                               = links.filter(_.identity == FederationIdentity)
     val security                                                                 = links.filter(feature => SecurityFeatureIdentities.contains(feature.identity))
-    val relevant                                                                 = federation ::: security
+    val costFeature                                                              = links.filter(_.identity == CostIdentity)
+    val relevant                                                                 = federation ::: security ::: costFeature
     val imports                                                                  = relevant.flatMap(_.imports)
     val namespaces                                                               = relevant.iterator.map(_.namespace).toSet ++
       (if (links.nonEmpty) Set("link") else Set.empty)
@@ -2135,6 +2435,24 @@ private[gateway] object SchemaComposer {
         .toSet ++
         security.iterator
           .filter(feature => feature.identity == identity && feature.version == FeatureVersion(0, 1))
+          .flatMap(_.directiveNames(name))
+          .toSet
+    def costNames(name: String): Set[String]                                     =
+      federation.iterator
+        .filter(_.version.atLeast(2, 9))
+        .flatMap(_.directiveNames(name))
+        .toSet ++
+        costFeature.iterator
+          .filter(_.version == FeatureVersion(0, 1))
+          .flatMap(_.directiveNames(name))
+          .toSet
+    def unavailableCostNames(name: String): Set[String]                          =
+      federation.iterator
+        .filterNot(_.version.atLeast(2, 9))
+        .flatMap(_.directiveNames(name))
+        .toSet ++
+        costFeature.iterator
+          .filterNot(_.version == FeatureVersion(0, 1))
           .flatMap(_.directiveNames(name))
           .toSet
     def unavailableSecurityNames(
@@ -2172,14 +2490,18 @@ private[gateway] object SchemaComposer {
           .map(_ -> "@requiresScopes")
           .toMap ++
         unavailableSecurityNames("policy", 2, 6, PolicyIdentity).map(_ -> "@policy").toMap
+    val unavailableCost     = unavailableCostNames("cost").map(_ -> "@cost").toMap ++
+      unavailableCostNames("listSize").map(_ -> "@listSize").toMap
+    val cost                = costNames("cost")
+    val listSize            = costNames("listSize")
     val context             = federationNames("context")
     val fromContext         = federationNames("fromContext")
     val supportsContexts    = federation.exists(_.version.atLeast(2, 8))
     val progressiveOverride = federation.exists(_.version.atLeast(2, 7))
     val hiddenDirectives    = Set("link") ++ keyNames ++ externalNames ++ extendsNames ++ shareableNames ++
       inaccessibleNames ++ overrideNames ++ requiresNames ++ providesNames ++ interfaceObjects ++
-      tagNames ++ composeNames ++ authenticated ++ requiresScopes ++ policy ++ unavailableSecurity.keySet ++ context ++
-      fromContext ++
+      tagNames ++ composeNames ++ authenticated ++ requiresScopes ++ policy ++ unavailableSecurity.keySet ++
+      unavailableCost.keySet ++ cost ++ listSize ++ context ++ fromContext ++
       document.directiveDefinitions.iterator.map(_.name).filter(name => namespacePrefix.exists(name.startsWith))
 
     FederationDirectiveNames(
@@ -2196,6 +2518,9 @@ private[gateway] object SchemaComposer {
       requiresScopes,
       policy,
       unavailableSecurity,
+      unavailableCost,
+      cost,
+      listSize,
       context,
       fromContext,
       supportsContexts,
@@ -2208,6 +2533,7 @@ private[gateway] object SchemaComposer {
   private val AuthenticatedIdentity                      = "https://specs.apollo.dev/authenticated"
   private val RequiresScopesIdentity                     = "https://specs.apollo.dev/requiresScopes"
   private val PolicyIdentity                             = "https://specs.apollo.dev/policy"
+  private val CostIdentity                               = "https://specs.apollo.dev/cost"
   private val SecurityFeatureIdentities                  = Set(AuthenticatedIdentity, RequiresScopesIdentity, PolicyIdentity)
   private def isFederation2(document: Document): Boolean =
     linkedFeatures(document).exists(_.identity == FederationIdentity)

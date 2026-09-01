@@ -11,6 +11,7 @@ final class GatewayConfig private (
   val maxPlanningCandidates: Int,
   val maxPlanningExpansions: Int,
   val planningTimeout: Duration,
+  val maxOperationCost: Option[Long],
   val maxConcurrentRequests: Int,
   val requestTimeout: Duration,
   val drainTimeout: Duration,
@@ -47,6 +48,20 @@ final class GatewayConfig private (
     copy(planningTimeout = value)
 
   /**
+   * Rejects operations whose estimated cost exceeds `value`. Query and subscription operations have no base cost;
+   * mutation operations have a base cost of ten. Composite output values cost one by default, while scalar and enum
+   * values cost zero. Federation 2.9 `@cost` weights replace the default cost of the annotated schema element.
+   */
+  def withMaxOperationCost(value: Long): GatewayConfig =
+    copy(maxOperationCost = Some(value))
+
+  /**
+   * Disables operation cost enforcement.
+   */
+  def withoutMaxOperationCost: GatewayConfig =
+    copy(maxOperationCost = None)
+
+  /**
    * Sets the maximum number of requests executing within this interpreter.
    */
   def withMaxConcurrentRequests(value: Int): GatewayConfig =
@@ -76,6 +91,7 @@ final class GatewayConfig private (
       positive(maxPlanningCandidates, "Gateway maxPlanningCandidates must be positive."),
       positive(maxPlanningExpansions, "Gateway maxPlanningExpansions must be positive."),
       finitePositive(planningTimeout, "Gateway planning timeout must be finite and positive."),
+      maxOperationCost.toList.flatMap(value => positive(value, "Gateway maxOperationCost must be positive.")),
       positive(maxConcurrentRequests, "Gateway maxConcurrentRequests must be positive."),
       finitePositive(requestTimeout, "Gateway request timeout must be finite and positive."),
       finitePositive(drainTimeout, "Gateway drain timeout must be finite and positive.")
@@ -86,6 +102,7 @@ final class GatewayConfig private (
     maxPlanningCandidates: Int = maxPlanningCandidates,
     maxPlanningExpansions: Int = maxPlanningExpansions,
     planningTimeout: Duration = planningTimeout,
+    maxOperationCost: Option[Long] = maxOperationCost,
     maxConcurrentRequests: Int = maxConcurrentRequests,
     requestTimeout: Duration = requestTimeout,
     drainTimeout: Duration = drainTimeout,
@@ -97,6 +114,7 @@ final class GatewayConfig private (
       maxPlanningCandidates,
       maxPlanningExpansions,
       planningTimeout,
+      maxOperationCost,
       maxConcurrentRequests,
       requestTimeout,
       drainTimeout,
@@ -116,6 +134,7 @@ object GatewayConfig {
       maxPlanningCandidates = 8192,
       maxPlanningExpansions = 100000,
       planningTimeout = Duration.fromSeconds(2),
+      maxOperationCost = None,
       maxConcurrentRequests = 1024,
       requestTimeout = Duration.fromSeconds(30),
       drainTimeout = Duration.fromSeconds(30),

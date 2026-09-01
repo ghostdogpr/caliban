@@ -789,12 +789,15 @@ private[gateway] object DirectiveComposition {
     "requiresScopes",
     "policy",
     "context",
-    "fromContext"
+    "fromContext",
+    "cost",
+    "listSize"
   )
   private val ReservedFeatureIdentities         = Set(
     "https://specs.apollo.dev/link",
     "https://specs.apollo.dev/authenticated",
     "https://specs.apollo.dev/requiresScopes",
-    "https://specs.apollo.dev/policy"
+    "https://specs.apollo.dev/policy",
+    "https://specs.apollo.dev/cost"
   )
 }

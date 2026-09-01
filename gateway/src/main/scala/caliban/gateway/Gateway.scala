@@ -219,7 +219,8 @@ object Gateway {
                                     ),
                                     new OperationHooks(graph.securityRequirements, resolver, policy, wrapper),
                                     config,
-                                    wrapper
+                                    wrapper,
+                                    graph.estimatedOperationCost
                                   )
       subscriptions            <-
         SubscriptionControl.make(config.subscriptions, control, wrapper)

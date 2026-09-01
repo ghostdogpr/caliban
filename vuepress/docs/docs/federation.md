@@ -174,6 +174,8 @@ by using `caliban.federation.v2_x` where `x` is the minor version of the specifi
 | `@tag`              | `@GQLTag`             | v2.0    | `caliban.federation.v2_0` |
 | `@composeDirective` | `ComposeDirective`    | v2.1    | `caliban.federation.v2_1` |
 | `@interfaceObject`  | `@GQLInterfaceObject` | v2.3    | `caliban.federation.v2_3` |
+| `@cost`             | `@GQLCost`            | v2.9    | `caliban.federation.v2_9` |
+| `@listSize`         | `@GQLListSize`        | v2.9    | `caliban.federation.v2_9` |
 
 The `GQLKey` field now also supports the `resolvable` argument. 
 
