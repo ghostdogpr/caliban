@@ -877,7 +877,9 @@ lazy val enableMimaSettingsJVM =
         "caliban.interop.jsoniter.GraphQLResponseJsoniter$GraphQLResponseDTO*"
       ),
       // private implementation class; construction is handled by QuickAdapter
-      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.QuickRequestHandler.this")
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.QuickRequestHandler.this"),
+      // generated accessors for the new GQLProgressiveOverride case class
+      ProblemFilters.exclude[InheritedNewAbstractMethodProblem]("caliban.federation.v2x.*.GQLProgressiveOverride")
     )
   )
 
