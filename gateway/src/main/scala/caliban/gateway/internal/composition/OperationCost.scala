@@ -169,9 +169,18 @@ private[composition] final class OperationCost(
     conditionalCost(fields, (field: Field) => field._condition) { (field, _) =>
       val matching = matchingSizedPaths(field.name, paths)
       if (matching.isEmpty) fieldCost(field, source)
-      else if (matching.exists(_.path.isEmpty))
-        fieldCost(field, source, matching.collect { case SizedPath(path, size) if path.isEmpty => size }.max)
-      else {
+      else if (matching.exists(_.path.isEmpty)) {
+        val parentType  = field.parentType.map(_.innerType)
+        val parent      = parentType.flatMap(_.name).getOrElse("")
+        val definitions = listSizes(source, parentType, parent, field.name)
+        val local       = declaredSizedPaths(field, definitions)
+        val remaining   = matching.filter(_.path.nonEmpty)
+        val nested      =
+          if (local.isEmpty && remaining.isEmpty) fieldsCost(field.fields, source)
+          else sizedFieldsCost(field.fields, source, preferSizedPaths(local, remaining))
+        val size        = matching.collect { case SizedPath(path, value) if path.isEmpty => value }.max
+        maximumFieldCost(parentType, parent, field)(own => own.oneTime + size * (own.perResult + nested))
+      } else {
         val parentType  = field.parentType.map(_.innerType)
         val parent      = parentType.flatMap(_.name).getOrElse("")
         val definitions = listSizes(source, parentType, parent, field.name)

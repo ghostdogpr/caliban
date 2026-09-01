@@ -1,7 +1,7 @@
 package caliban.execution
 
-import caliban.Value.BooleanValue
-import caliban.introspection.adt.__Type
+import caliban.Value.{ BooleanValue, IntValue, StringValue }
+import caliban.introspection.adt.{ __InputValue, __Type, __TypeKind }
 import caliban.parsing.SourceMapper
 import caliban.parsing.adt.Definition.ExecutableDefinition.FragmentDefinition
 import caliban.parsing.adt.Selection.{ Field => F, FragmentSpread, InlineFragment }
@@ -228,7 +228,10 @@ object Field {
                 alias,
                 fields,
                 targets = targets,
-                arguments = resolveVariables(arguments, variableDefinitionsMap, variableValues),
+                arguments = coerceArguments(
+                  resolveVariables(arguments, variableDefinitionsMap, variableValues),
+                  if (selected eq null) Nil else selected.allArgs
+                ),
                 directives = resolvedDirectives,
                 _condition = condition,
                 _locationInfo = () => sourceMapper.getLocation(index),
@@ -328,6 +331,44 @@ object Field {
       }
     if (arguments.isEmpty) Map.empty[String, InputValue]
     else arguments.flatMap { case (k, v) => resolveVariable(v).map(k -> _) }
+  }
+
+  private def coerceArguments(
+    arguments: Map[String, InputValue],
+    definitions: List[__InputValue]
+  ): Map[String, InputValue] = {
+    def coerce(value: InputValue, expected: __Type): InputValue =
+      expected.kind match {
+        case __TypeKind.NON_NULL                               => expected.ofType.fold(value)(coerce(value, _))
+        case __TypeKind.LIST                                   =>
+          expected.ofType.fold(value) { element =>
+            value match {
+              case InputValue.ListValue(values) => InputValue.ListValue(values.map(coerce(_, element)))
+              case other                        => other
+            }
+          }
+        case __TypeKind.INPUT_OBJECT                           =>
+          value match {
+            case InputValue.ObjectValue(fields) =>
+              InputValue.ObjectValue(fields.map { case (name, nested) =>
+                val field = expected.getInputFieldOrNull(name)
+                name -> (if (field eq null) nested else coerce(nested, field._type))
+              })
+            case other                          => other
+          }
+        case __TypeKind.SCALAR if expected.name.contains("ID") =>
+          value match {
+            case int: IntValue => StringValue(int.toBigInt.toString)
+            case other         => other
+          }
+        case _                                                 => value
+      }
+
+    if (arguments.isEmpty || definitions.isEmpty) arguments
+    else {
+      val byName = definitions.iterator.map(value => value.name -> value._type).toMap
+      arguments.map { case (name, value) => name -> byName.get(name).fold(value)(coerce(value, _)) }
+    }
   }
 
   private def subtypeNames(typeName: String, rootType: RootType): Option[Set[String]] = {

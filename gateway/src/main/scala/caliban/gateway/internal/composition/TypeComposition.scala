@@ -42,19 +42,24 @@ private[composition] final class TypeComposition(
       entries.flatMap(entry => entry.tpe.allFields.map(field => field.name -> (entry -> field))).groupBy(_._1)
 
     fields.toList.flatMap { case (fieldName, definitions) =>
-      val values         = definitions.map(_._2)
-      val perEntry       = values.map { case (entry, field) =>
+      val values           = definitions.map(_._2)
+      val perEntry         = values.map { case (entry, field) =>
         (entry.source, field, entry.contextualArguments.collect { case (`fieldName`, argument) => argument })
       }
-      val contextualArgs = perEntry.iterator.flatMap(_._3).toSet
-      val contextErrors  = contextualArgumentDiagnostics(s"$name.$fieldName", perEntry)
-      val ownedEntries   = effectiveFieldProviders(fieldName, values.map(_._1))
-      val owned          = values.filter(value => ownedEntries.exists(_.source == value._1.source))
-      val shareable      = owned.nonEmpty && owned.forall { case (entry, _) =>
+      val contextualArgs   = perEntry.iterator.flatMap(_._3).toSet
+      val inaccessibleArgs = values.iterator.flatMap { case (entry, _) =>
+        entry.inaccessibleArguments.collect { case (`fieldName`, argument) => argument }
+      }.toSet
+      val contextErrors    = contextualArgumentDiagnostics(s"$name.$fieldName", perEntry)
+      val ownedEntries     = effectiveFieldProviders(fieldName, values.map(_._1))
+      val owned            = values.filter(value => ownedEntries.exists(_.source == value._1.source))
+      val shareable        = owned.nonEmpty && owned.forall { case (entry, _) =>
         !entry.federation2 || entry.shareableFields.contains(fieldName)
       }
-      val compatible     = fieldsCompatible(values.map { case (_, field) => visibleArguments(field, contextualArgs) })
-      val prefix         = s"[type $name.$fieldName]"
+      val compatible       = fieldsCompatible(values.map { case (_, field) =>
+        visibleArguments(field, contextualArgs ++ inaccessibleArgs)
+      })
+      val prefix           = s"[type $name.$fieldName]"
       overrideDiagnostics(
         prefix,
         values.map { case (entry, _) => entry.source -> entry.overrideFields.get(fieldName).map(_.from) }
@@ -212,7 +217,10 @@ private[composition] final class TypeComposition(
           entry.inaccessibleArguments.collect { case (`fieldName`, argument) => argument }
         }.toSet
         (if (providers.nonEmpty) ordered.headOption else None).map { case (_, field) =>
-          val mergedType = ordered.map(_._2._type).reduceOption(mergeOutputType).getOrElse(field._type)
+          val mergedType = ordered.filter { case (entry, _) => providers.exists(_.source == entry.source) }
+            .map(_._2._type)
+            .reduceOption(mergeOutputType)
+            .getOrElse(field._type)
           directives.attachField(
             entries.head.name,
             sanitizeField(field.copy(`type` = () => mergedType), rewrite, hidden, hiddenArgs)

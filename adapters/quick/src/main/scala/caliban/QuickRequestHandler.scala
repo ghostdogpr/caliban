@@ -550,7 +550,14 @@ object QuickRequestHandler {
           bestMatch(candidate.mediaType, ranges).flatMap { range =>
             val quality = range.value.qFactor.getOrElse(1d)
             if (quality > 0d && quality <= 1d)
-              Some(Negotiated(candidate.value, quality, range.specificity, preference))
+              Some(
+                Negotiated(
+                  candidate.value,
+                  quality,
+                  range.specificity,
+                  if (range.specificity == 0 && candidate.value == Json) -1 else preference
+                )
+              )
             else None
           }
         }.reduceOption { (current, candidate) =>

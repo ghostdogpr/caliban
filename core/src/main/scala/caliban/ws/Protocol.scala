@@ -364,12 +364,19 @@ object Protocol {
                 ZStream.fromZIO(subscriptions.trackedPromise(id)).flatMap {
                   case Some(p) =>
                     val frame = self.toResponse(id, res)
-                    stream.map(value => frame.copy(payload = Some(value))).interruptWhen(p)
+                    val init  =
+                      if (res.errors.isEmpty) ZStream.empty
+                      else ZStream.succeed(self.toResponse(id, GraphQLResponse(Value.NullValue, res.errors)))
+                    (init ++ stream.map(value => frame.copy(payload = Some(value)))).interruptWhen(p)
                   case None    => ZStream.empty
                 }
               case ObjectValue((fieldName, StreamValue(stream)) :: Nil) =>
                 ZStream.fromZIO(subscriptions.trackedPromise(id)).flatMap {
-                  case Some(p) => stream.map(self.toResponse(id, fieldName, _, res.errors)).interruptWhen(p)
+                  case Some(p) =>
+                    val init =
+                      if (res.errors.isEmpty) ZStream.empty
+                      else ZStream.succeed(self.toResponse(id, GraphQLResponse(Value.NullValue, res.errors)))
+                    (init ++ stream.map(self.toResponse(id, fieldName, _, Nil))).interruptWhen(p)
                   case None    => ZStream.empty
                 }
               case other                                                =>

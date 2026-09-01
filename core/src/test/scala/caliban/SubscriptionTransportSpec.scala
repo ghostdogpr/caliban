@@ -35,6 +35,29 @@ object SubscriptionTransportSpec extends ZIOSpecDefault {
         .runCollect
         .map(events => assertTrue(events == Chunk(failed.toResponseValue, next.toResponseValue, complete)))
     },
+    test("SSE emits wrapper errors once before top-level complete-envelope streams") {
+      val wrapperError = CalibanError.ExecutionError("wrapper failed")
+      val first        = GraphQLResponse(ResponseValue.ObjectValue(List("event" -> Value.IntValue(1))), Nil)
+      val second       = GraphQLResponse(ResponseValue.ObjectValue(List("event" -> Value.IntValue(2))), Nil)
+      val response     = GraphQLResponse(
+        ResponseValue.StreamValue(ZStream(first.toResponseValue, second.toResponseValue)),
+        List(wrapperError)
+      )
+      val complete     = Value.StringValue("complete")
+      HttpUtils.ServerSentEvents
+        .transformResponse(response, identity[ResponseValue], complete)
+        .runCollect
+        .map(events =>
+          assertTrue(
+            events == Chunk(
+              GraphQLResponse(Value.NullValue, List(wrapperError)).toResponseValue,
+              first.toResponseValue,
+              second.toResponseValue,
+              complete
+            )
+          )
+        )
+    },
     test("SSE terminal errors use the existing error representation and then complete") {
       val failure  = CalibanError.ExecutionError("resubscribe")
       val response = GraphQLResponse(ResponseValue.StreamValue(ZStream.fail(failure)), Nil)
@@ -73,6 +96,40 @@ object SubscriptionTransportSpec extends ZIOSpecDefault {
             )
           ),
           next.exists(_.exists(_.`type` == "pong"))
+        )
+      }
+    },
+    test("modern WebSocket emits wrapper errors once before top-level complete-envelope streams") {
+      val wrapperError = CalibanError.ExecutionError("wrapper failed")
+      val first        = GraphQLResponse(ResponseValue.ObjectValue(List("event" -> Value.IntValue(1))), Nil)
+      val second       = GraphQLResponse(ResponseValue.ObjectValue(List("event" -> Value.IntValue(2))), Nil)
+      ZIO.scoped {
+        for {
+          input      <- Queue.unbounded[GraphQLWSInput]
+          output     <- Queue.unbounded[Either[GraphQLWSClose, GraphQLWSOutput]]
+          interpreter = new GraphQLInterpreter[Any, CalibanError] {
+                          def check(query: String)(implicit trace: Trace)                    = ZIO.unit
+                          def executeRequest(request: GraphQLRequest)(implicit trace: Trace) = ZIO.succeed(
+                            GraphQLResponse(
+                              ResponseValue.StreamValue(ZStream(first.toResponseValue, second.toResponseValue)),
+                              List(wrapperError)
+                            )
+                          )
+                        }
+          pipe       <- ws.Protocol.GraphQLWS.make(interpreter, None, ws.WebSocketHooks.empty[Any, CalibanError])
+          _          <- pipe(ZStream.fromQueue(input)).runForeach(output.offer).forkScoped
+          _          <- input.offer(init)
+          _          <- output.take
+          _          <- input.offer(subscribe("1"))
+          wrapper    <- output.take
+          next       <- output.take
+          following  <- output.take
+        } yield assertTrue(
+          wrapper.exists(output =>
+            output.payload.contains(GraphQLResponse(Value.NullValue, List(wrapperError)).toResponseValue)
+          ),
+          next.exists(_.payload.contains(first.toResponseValue)),
+          following.exists(_.payload.contains(second.toResponseValue))
         )
       }
     },

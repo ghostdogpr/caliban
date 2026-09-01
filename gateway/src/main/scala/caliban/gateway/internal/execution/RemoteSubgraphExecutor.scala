@@ -368,7 +368,7 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
     GraphQLResponse
       .fromResponseValue(value)
       .filter(response =>
-        (data.nonEmpty || hasErrors) && validData && (!hasErrors || response.errors.nonEmpty) &&
+        (data.nonEmpty || hasErrors) && validData &&
           !(data.contains(NullValue) && response.errors.isEmpty) && response.hasNext.isEmpty
       )
       .map(response => response.copy(errors = response.errors.map(RemoteError.disclose(_, remoteErrorMessages))))

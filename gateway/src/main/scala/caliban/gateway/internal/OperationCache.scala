@@ -2,7 +2,7 @@ package caliban.gateway.internal
 
 import caliban.gateway.GatewayWrapper
 import caliban.gateway.GatewayWrapper.{ CacheResult, Event, Result }
-import zio.{ Exit, Promise, Ref, Trace, UIO, ZIO }
+import zio.{ Exit, FiberId, Promise, Ref, Trace, UIO, ZIO }
 
 import scala.annotation.tailrec
 import scala.collection.immutable.Queue
@@ -49,7 +49,8 @@ private[gateway] final class OperationCache[K, E, V, -R] private (
               )
             case Decision.Compute(promise) =>
               restore(observe(CacheResult.Miss)(complete(key, promise, compute))).onInterrupt(
-                state.update(_.finish(key, promise)) *> promise.interrupt.unit
+                state.update(_.finish(key, promise)) *>
+                  promise.succeed(Exit.interrupt(FiberId.None)).unit
               )
           }
       }

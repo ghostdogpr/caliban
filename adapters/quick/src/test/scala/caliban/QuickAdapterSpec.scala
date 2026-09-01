@@ -76,16 +76,18 @@ object QuickAdapterSpec extends ZIOSpecDefault {
       }
 
       for {
-        absent       <- send(None)
-        wildcard     <- send(Some("*/*"))
-        explicitJson <- send(Some("application/json, text/plain, */*"))
-        eventStream  <- send(Some("text/event-stream, */*"))
+        absent        <- send(None)
+        wildcard      <- send(Some("*/*"))
+        mixedWildcard <- send(Some("text/plain, */*"))
+        explicitJson  <- send(Some("application/json, text/plain, */*"))
+        eventStream   <- send(Some("text/event-stream, */*"))
       } yield assertTrue(
         absent.code == wildcard.code,
         absent.contentType == wildcard.contentType,
         absent.contentType.contains("application/json"),
         absent.body.contains("\"data\""),
         wildcard.body.contains("\"data\""),
+        mixedWildcard.contentType.contains("application/json"),
         explicitJson.contentType.contains("application/json"),
         eventStream.contentType.contains("text/event-stream")
       )

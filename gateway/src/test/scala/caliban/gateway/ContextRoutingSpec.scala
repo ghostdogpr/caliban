@@ -167,6 +167,25 @@ object ContextRoutingSpec extends ZIOSpecDefault {
         plan.linesIterator.exists(_ == "fetch products at $.other fields []")
       )
     },
+    test("plans an injected root __typename context selection") {
+      val schema =
+        s"""
+           |${preamble("@key", "@context", "@fromContext")}
+           |type Query @context(name: "topLevelQuery") {
+           |  product: Product
+           |}
+           |type Product @key(fields: "id") {
+           |  id: ID!
+           |  label(parentType: String @fromContext(field: "$$topLevelQuery { __typename }")): String
+           |}
+           |""".stripMargin
+
+      for {
+        remote  <- stub("{}")
+        gateway <- Gateway.compose(Subgraph.federation("products", remote.endpoint, schema)).interpreter
+        plan    <- gateway.explain("{ product { label } }").exit
+      } yield assertTrue(plan.isSuccess)
+    },
     test("preserves list wrappers in nested context selections") {
       val schema =
         s"""
@@ -305,7 +324,7 @@ object ContextRoutingSpec extends ZIOSpecDefault {
           assertTrue(buildDiagnostics(exit).exists(_.contains("must be nullable or define a default value")))
         )
     },
-    test("does not relax compatibility for non-contextual hidden arguments") {
+    test("ignores non-contextual inaccessible arguments during compatibility checks") {
       val withoutArgument =
         s"""
            |${preamble("@shareable", "@inaccessible")}
@@ -324,7 +343,7 @@ object ContextRoutingSpec extends ZIOSpecDefault {
         )
         .interpreter
         .exit
-        .map(exit => assertTrue(buildDiagnostics(exit).exists(_.contains("Definitions are incompatible"))))
+        .map(exit => assertTrue(exit.isSuccess))
     },
     test("rejects contexts on mutation and subscription root types") {
       def schema(operation: String): String =

@@ -432,6 +432,28 @@ object ExecutionSpec extends ZIOSpecDefault {
           assertTrue(response.data.toString == """{"test":"be722453-d97d-48c2-b535-9badd1b5d4c9"}""")
         }
       },
+      test("coerces integer literals and variables for String-backed ID fields") {
+        final case class StringId(value: String)
+        implicit val idSchema: Schema[Any, StringId]    =
+          Schema.scalarSchema("ID", None, None, None, id => StringValue(id.value))
+        implicit val idArgBuilder: ArgBuilder[StringId] = ArgBuilder.string.map(StringId.apply)
+        case class IdArgs(id: StringId)
+        case class Queries(test: IdArgs => StringId)
+        val interpreter                                 = graphQL(RootResolver(Queries(_.id))).interpreter
+        val variable                                    = GraphQLRequest(
+          query = Some("query Id($id: ID!) { test(id: $id) }"),
+          variables = Some(Map("id" -> IntValue(456)))
+        )
+
+        for {
+          api      <- interpreter
+          literal  <- api.execute("{ test(id: 123) }")
+          variable <- api.executeRequest(variable)
+        } yield assertTrue(
+          literal.data.toString == """{"test":"123"}""",
+          variable.data.toString == """{"test":"456"}"""
+        )
+      },
       test("mapError preserves response metadata") {
         val response    = GraphQLResponse(
           Value.StringValue("data"),

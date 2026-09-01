@@ -23,6 +23,7 @@ object CalibanError {
     value match {
       case value @ ObjectValue(fields) =>
         val message    = fields.collectFirst { case ("message", StringValue(value)) => value }
+          .getOrElse("Remote GraphQL request failed.")
         val path       = fields.collectFirst { case ("path", value) => value } match {
           case None | Some(NullValue)  => Some(Nil)
           case Some(ListValue(values)) =>
@@ -31,8 +32,8 @@ object CalibanError {
               case value: IntValue.IntNumber => Some(value: PathValue)
               case _                         => None
             }
-            if (decoded.forall(_.nonEmpty)) Some(decoded.flatten) else None
-          case _                       => None
+            if (decoded.forall(_.nonEmpty)) Some(decoded.flatten) else Some(Nil)
+          case _                       => Some(Nil)
         }
         val locations  = fields.collectFirst { case ("locations", value) => value } match {
           case None | Some(NullValue)  => Some(None)
@@ -45,16 +46,16 @@ object CalibanError {
                 } yield LocationInfo(column, line)
               case _                     => None
             }
-            if (decoded.forall(_.nonEmpty)) Some(decoded.flatten.headOption) else None
-          case _                       => None
+            if (decoded.forall(_.nonEmpty)) Some(decoded.flatten.headOption) else Some(None)
+          case _                       => Some(None)
         }
-        val extensions = GraphQLResponse.optional(value, "extensions") { case value: ObjectValue => value }
+        val extensions = GraphQLResponse
+          .optional(value, "extensions") { case value: ObjectValue => value }
+          .getOrElse(None)
         for {
-          msg       <- message
-          path      <- path
-          location  <- locations
-          extension <- extensions
-        } yield ExecutionError(msg, path, location, extensions = extension)
+          path     <- path
+          location <- locations
+        } yield ExecutionError(message, path, location, extensions = extensions)
       case _                           => None
     }
 

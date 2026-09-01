@@ -55,7 +55,11 @@ object HttpUtils {
       val values = resp.data match {
         // Top-level streams with hasNext (even false) are incremental; without it, elements are full subscription responses.
         case StreamValue(stream) if resp.hasNext.isEmpty          =>
-          stream.catchAll(error => ZStream.succeed(GraphQLResponse(NullValue, List(error)).toResponseValue))
+          val init =
+            if (resp.errors.isEmpty) ZStream.empty
+            else ZStream.succeed(GraphQLResponse(NullValue, resp.errors).toResponseValue)
+          (init ++ stream)
+            .catchAll(error => ZStream.succeed(GraphQLResponse(NullValue, List(error)).toResponseValue))
         case ObjectValue((fieldName, StreamValue(stream)) :: Nil) =>
           // Report errors in an initial event sent immediately.
           val init =

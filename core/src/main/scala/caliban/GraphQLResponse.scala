@@ -60,10 +60,11 @@ object GraphQLResponse {
     else decode.lift(field).map(Some(_))
   }
 
-  private[caliban] def decodeErrors(values: List[ResponseValue]): Option[List[CalibanError]] = {
-    val decoded = values.map(CalibanError.fromResponseValue)
-    if (decoded.forall(_.nonEmpty)) Some(decoded.flatten) else None
-  }
+  private[caliban] def decodeErrors(values: List[ResponseValue]): Option[List[CalibanError]] =
+    Some(values.map(value => CalibanError.fromResponseValue(value).getOrElse(malformedRemoteError)))
+
+  private val malformedRemoteError: CalibanError.ExecutionError =
+    CalibanError.ExecutionError("Remote GraphQL request failed.")
 
   private[caliban] def fromDecoded(
     data: Option[ResponseValue],

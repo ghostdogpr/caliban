@@ -119,6 +119,35 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
           first.isInterrupted,
           second == 2
         )
+      },
+      test("retries a waiter when the compute leader is interrupted before computation starts") {
+        for {
+          firstMiss  <- Ref.make(true)
+          entered    <- Promise.make[Nothing, Unit]
+          joined     <- Promise.make[Nothing, Unit]
+          wrapper     = new GatewayWrapper[Any] {
+                          def wrap[R0, E, A](event: GatewayWrapper.Event)(effect: ZIO[R0, E, A])(
+                            result: Exit[E, A] => GatewayWrapper.Result
+                          )(implicit trace: Trace): ZIO[R0, E, A] =
+                            event match {
+                              case GatewayWrapper.Event.CacheAccess(GatewayWrapper.CacheResult.Miss) =>
+                                firstMiss.getAndSet(false).flatMap {
+                                  case true  => entered.succeed(()).unit *> ZIO.never
+                                  case false => effect
+                                }
+                              case GatewayWrapper.Event.CacheAccess(GatewayWrapper.CacheResult.Wait) =>
+                                joined.succeed(()).unit *> effect
+                              case _                                                                 => effect
+                            }
+                        }
+          cache      <- OperationCache.make[String, String, Int, Any](32, wrapper)
+          leader     <- cache.getOrCompute("same")(ZIO.succeed(Weighted(1, 4))).fork
+          _          <- entered.await
+          waiter     <- cache.getOrCompute("same")(ZIO.succeed(Weighted(2, 4))).fork
+          _          <- joined.await
+          leaderExit <- leader.interrupt
+          value      <- waiter.join
+        } yield assertTrue(leaderExit.isInterrupted, value == 2)
       }
     ),
     suite("operation preparation")(

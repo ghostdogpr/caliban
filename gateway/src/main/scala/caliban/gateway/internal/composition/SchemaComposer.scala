@@ -10,7 +10,7 @@ import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
 import caliban.parsing.adt.Definition.TypeSystemExtension.SchemaExtension
 import caliban.parsing.adt.Definition.TypeSystemExtension.TypeExtension._
 import caliban.rendering.DocumentRenderer
-import caliban.schema.RootType
+import caliban.schema.{ RootType, Types }
 import caliban.validation.{ SchemaValidator, Validator }
 import caliban.Value.{ BooleanValue, IntValue, NullValue, StringValue }
 
@@ -607,7 +607,9 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
         val providers      = effectiveRootProviders(entries)
         val prefix         = s"[${operation.toString.toLowerCase}.$field]"
         val contextualArgs = entries.iterator.flatMap(_.contextualArguments).toSet
-        val compatible     = fieldsCompatible(entries.map(entry => visibleArguments(entry.field, contextualArgs)))
+        val hiddenArgs     = entries.iterator.flatMap(_.inaccessibleArguments).toSet
+        val compatible     =
+          fieldsCompatible(entries.map(entry => visibleArguments(entry.field, contextualArgs ++ hiddenArgs)))
         val contextErrors  = contextualArgumentDiagnostics(
           s"${operation.toString.toLowerCase}.$field",
           entries.map(entry => (entry.source, entry.field, entry.contextualArguments))
@@ -1513,23 +1515,25 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
       else
         selected.head match {
           case Left(field)     =>
-            Option(staticType.getFieldOrNull(field.name))
-              .toRight(s"field '${field.name}' does not exist on context type '${staticType.name.getOrElse("")}'.")
-              .flatMap { definition =>
-                if (field.selectionSet.isEmpty) Right(contextValueType(definition._type) :: Nil)
-                else {
-                  val output = definition._type.innerType
-                  if (isInterfaceObject(output)) Left("context selections cannot reference an @interfaceObject type.")
-                  else
-                    contextRuntimeTypes(rootType, output).foldLeft[Either[String, List[__Type]]](Right(Nil)) {
-                      (result, childRuntime) =>
-                        for {
-                          accumulated <- result
-                          child       <- resolve(output, childRuntime, field.selectionSet)
-                        } yield accumulated ::: child.map(projectType(definition._type, _))
-                    }
+            if (field.name == "__typename" && field.selectionSet.isEmpty) Right(Types.string :: Nil)
+            else
+              Option(staticType.getFieldOrNull(field.name))
+                .toRight(s"field '${field.name}' does not exist on context type '${staticType.name.getOrElse("")}'.")
+                .flatMap { definition =>
+                  if (field.selectionSet.isEmpty) Right(contextValueType(definition._type) :: Nil)
+                  else {
+                    val output = definition._type.innerType
+                    if (isInterfaceObject(output)) Left("context selections cannot reference an @interfaceObject type.")
+                    else
+                      contextRuntimeTypes(rootType, output).foldLeft[Either[String, List[__Type]]](Right(Nil)) {
+                        (result, childRuntime) =>
+                          for {
+                            accumulated <- result
+                            child       <- resolve(output, childRuntime, field.selectionSet)
+                          } yield accumulated ::: child.map(projectType(definition._type, _))
+                      }
+                  }
                 }
-              }
           case Right(fragment) =>
             val narrowed =
               fragment.typeCondition.flatMap(condition => rootType.types.get(condition.name)).getOrElse(staticType)
@@ -2129,12 +2133,14 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
   }
 
   private def enumUsageByName: Map[String, EnumUsage] = {
-    val allTypes = sortedSubgraphs.flatMap(_.rootType.types.values)
-    val inputs   = allTypes.iterator.flatMap { tpe =>
+    val allTypes   = types.map(_.tpe)
+    val rootFields = rootEntries.iterator.flatMap(_._2.iterator.map(_.field)).toList
+    val inputs     = (allTypes.iterator.flatMap { tpe =>
       tpe.allInputFields.iterator.flatMap(_._type.innerType.name) ++
         tpe.allFields.iterator.flatMap(_.allArgs.iterator.flatMap(_._type.innerType.name))
-    }.toSet
-    val outputs  = allTypes.iterator.flatMap(_.allFields.iterator.flatMap(_._type.innerType.name)).toSet
+    } ++ rootFields.iterator.flatMap(_.allArgs.iterator.flatMap(_._type.innerType.name))).toSet
+    val outputs    = (allTypes.iterator.flatMap(_.allFields.iterator.flatMap(_._type.innerType.name)) ++
+      rootFields.iterator.flatMap(_._type.innerType.name)).toSet
 
     (inputs ++ outputs).iterator.map(name => name -> EnumUsage(inputs.contains(name), outputs.contains(name))).toMap
   }

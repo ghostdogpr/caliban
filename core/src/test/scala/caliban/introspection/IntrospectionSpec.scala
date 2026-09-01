@@ -130,10 +130,12 @@ object IntrospectionSpec extends ZIOSpecDefault {
           introspection <- api.execute(fullIntrospectionQuery)
           application   <- api.execute(mixedQuery, Some("Application"))
           mixed         <- api.execute(mixedQuery, Some("Mixed"))
+          invalid       <- api.execute("query Disabled($required: Boolean!) { __schema { queryType { name } } }")
         } yield assertTrue(
           introspection == GraphQLResponse(NullValue, List(ValidationError("Introspection is disabled", ""))),
           application.errors.isEmpty,
-          mixed == GraphQLResponse(NullValue, List(ValidationError("Introspection is disabled", "")))
+          mixed == GraphQLResponse(NullValue, List(ValidationError("Introspection is disabled", ""))),
+          invalid == GraphQLResponse(NullValue, List(ValidationError("Introspection is disabled", "")))
         )
 
       },

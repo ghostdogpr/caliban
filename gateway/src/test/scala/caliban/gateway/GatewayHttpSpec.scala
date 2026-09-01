@@ -350,6 +350,32 @@ object GatewayHttpSpec extends ZIOSpecDefault {
           execution.body.contains("Remote GraphQL request failed.")
         )
       },
+      test("keeps valid data when a remote error entry is malformed") {
+        for {
+          source  <-
+            stub(
+              """{"data":{"greeting":"hello"},"errors":[{"message":"warning","path":["greeting",1.5]},{"path":["greeting"]}]}"""
+            )
+          runtime <- Gateway
+                       .compose(Subgraph.graphql("service", source.endpoint, schema))
+                       .withConfig(_.withRemoteErrorMessages(true))
+                       .interpreter
+          result  <- runtime.execute("{ greeting }")
+        } yield assertTrue(
+          field(result.data, "greeting").contains(StringValue("hello")),
+          result.errors.size == 2
+        )
+      },
+      test("accepts an empty remote errors array when data is present") {
+        for {
+          source  <- stub("""{"data":{"greeting":"hello"},"errors":[]}""")
+          runtime <- Gateway.compose(Subgraph.graphql("service", source.endpoint, schema)).interpreter
+          result  <- runtime.execute("{ greeting }")
+        } yield assertTrue(
+          field(result.data, "greeting").contains(StringValue("hello")),
+          result.errors.isEmpty
+        )
+      },
       test("rejects mutations over GET with Allow POST") {
         for {
           source  <- stub("""{"data":{"setValue":"saved"}}""")

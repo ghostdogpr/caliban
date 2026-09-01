@@ -224,6 +224,17 @@ object VariablesCoercer {
             )
         }
 
+      case __TypeKind.SCALAR if typ.name.contains("ID") =>
+        value match {
+          case v: StringValue => Right(v)
+          case v: IntValue    => Right(StringValue(v.toBigInt.toString))
+          case v              =>
+            failValidation(
+              s"$context with value $v cannot be coerced into ID.",
+              coercionDescription
+            )
+        }
+
       case __TypeKind.SCALAR if typ.name.contains("Boolean") =>
         value match {
           case v: BooleanValue => Right(v)

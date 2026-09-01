@@ -339,7 +339,9 @@ private[gateway] final class OperationPlanner(
         (selectedRoots.headOption.getOrElse(selected), contextRoots, contexts)
       }
     val canFetchContextRoots                   =
-      contextRoots.forall(field => graph.sources(operationType, field.name).contains(currentSubgraph))
+      contextRoots.forall(field =>
+        field.name == "__typename" || graph.sources(operationType, field.name).contains(currentSubgraph)
+      )
     if (!canFetchContextRoots) Right(Nil)
     else
       planFieldCandidates(

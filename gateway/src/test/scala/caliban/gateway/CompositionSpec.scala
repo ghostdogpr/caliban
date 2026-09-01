@@ -651,6 +651,20 @@ object CompositionSpec extends ZIOSpecDefault {
           requests.isEmpty
         )
       },
+      test("does not widen an owned field from an external declaration") {
+        val owner    = schema(
+          "type Query { owner: Product } type Product { code: String! }",
+          "@external"
+        )
+        val external = schema(
+          "type Query { reference: Product } type Product { code: String @external }",
+          "@external"
+        )
+        val result   = compose(CompositionInput("owner", owner), CompositionInput("external", external))
+        val code     = result.toOption.flatMap(_.rootType.types.get("Product")).map(_.getFieldOrNull("code"))
+
+        assertTrue(code.exists(field => field != null && !field._type.isNullable))
+      },
       test("treats Federation 1 extension key fields as resolvable") {
         val productsSchema =
           """
@@ -1180,6 +1194,42 @@ object CompositionSpec extends ZIOSpecDefault {
           .interpreter
           .exit
           .map(exit => assertTrue(buildDiagnostics(exit).exists(_.contains("Input/output enum"))))
+      },
+      test("ignores input enum usage from unreachable types") {
+        val alphaSchema =
+          "type Query { alpha: State } enum State { ACTIVE HIDDEN } input Orphan { state: State }"
+        val betaSchema  =
+          "type Query { beta: State } enum State { ACTIVE }"
+
+        Gateway
+          .compose(
+            Subgraph.graphql("alpha", endpoint, alphaSchema),
+            Subgraph.graphql("beta", endpoint, betaSchema)
+          )
+          .interpreter
+          .exit
+          .map(exit => assertTrue(exit.isSuccess))
+      },
+      test("ignores inaccessible arguments when comparing field definitions") {
+        val alphaSchema = schema(
+          "type Query { alpha: Product } type Product { detail(secret: String): String @shareable }",
+          "@shareable",
+          "@inaccessible"
+        )
+        val betaSchema  = schema(
+          "type Query { beta: Product } type Product { detail(secret: String @inaccessible): String @shareable }",
+          "@shareable",
+          "@inaccessible"
+        )
+
+        Gateway
+          .compose(
+            Subgraph.federation("alpha", endpoint, alphaSchema),
+            Subgraph.federation("beta", endpoint, betaSchema)
+          )
+          .interpreter
+          .exit
+          .map(exit => assertTrue(exit.isSuccess))
       },
       test("rejects incompatible argument and input-field defaults") {
         val alphaSchema =

@@ -377,6 +377,32 @@ object OperationCostSpec extends ZIOSpecDefault {
         sent.isEmpty
       )
     },
+    test("keeps nested sized paths when the same field is also sized directly") {
+      val listSchema =
+        s"""
+           |schema @link(url: "https://specs.apollo.dev/federation/v2.9", import: ["@listSize"]) { query: Query }
+           |$directives
+           |$listSizeDefinition
+           |type Query {
+           |  container: Container @listSize(assumedSize: 2, sizedFields: ["items", "items { parts }"])
+           |}
+           |type Container { items: [Item!]! }
+           |type Item { parts: [Part!]! }
+           |type Part { value: String }
+           |""".stripMargin
+      for {
+        remote  <- stub("{}")
+        runtime <- Gateway
+                     .compose(Subgraph.federation("items", remote.endpoint, listSchema))
+                     .withConfig(_.withMaxOperationCost(5))
+                     .interpreter
+        result  <- runtime.execute("{ container { items { parts { value } } } }")
+        sent    <- remote.requests.get
+      } yield assertTrue(
+        result.errors.flatMap(code) == List("COST_ESTIMATED_TOO_EXPENSIVE"),
+        sent.isEmpty
+      )
+    },
     test("uses concrete argument costs on intermediate sized fields") {
       val listSchema =
         s"""
