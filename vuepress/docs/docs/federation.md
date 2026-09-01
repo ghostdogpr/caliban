@@ -170,6 +170,7 @@ by using `caliban.federation.v2_x` where `x` is the minor version of the specifi
 | `@shareable`        | `@GQLShareable`       | v2.0    | `caliban.federation.v2_0` |
 | `@inaccessible`     | `@GQLInaccessible`    | v2.0    | `caliban.federation.v2_0` |
 | `@override`         | `@GQLOverride`        | v2.0    | `caliban.federation.v2_0` |
+| `@override(label:)` | `@GQLProgressiveOverride` | v2.7 | `caliban.federation.v2_7` |
 | `@tag`              | `@GQLTag`             | v2.0    | `caliban.federation.v2_0` |
 | `@composeDirective` | `ComposeDirective`    | v2.1    | `caliban.federation.v2_1` |
 | `@interfaceObject`  | `@GQLInterfaceObject` | v2.3    | `caliban.federation.v2_3` |

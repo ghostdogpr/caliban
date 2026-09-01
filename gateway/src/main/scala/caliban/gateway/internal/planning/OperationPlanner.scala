@@ -2,6 +2,7 @@ package caliban.gateway.internal.planning
 
 import caliban.execution.{ isMetaField, ExecutionRequest, Field }
 import caliban.gateway.internal.composition.ComposedGraph
+import caliban.gateway.internal.composition.ComposedGraph.OverrideLabel
 import caliban.gateway.internal.planning.CandidateSearch._
 import caliban.gateway.internal.planning.OperationPlan._
 import caliban.gateway.internal.planning.OperationPlanner._
@@ -19,13 +20,53 @@ private[gateway] final class OperationPlanner(
   limits: CandidateSearch.Limits
 ) {
 
+  def hasProgressiveOverrides: Boolean = graph.hasProgressiveOverrides
+
+  def progressiveOverrides(document: Document, operationName: Option[String]): Map[OverrideLabel, BigDecimal] =
+    if (!graph.hasProgressiveOverrides) Map.empty
+    else {
+      val fragments = document.fragmentDefinitions.iterator.map(fragment => fragment.name -> fragment).toMap
+
+      def fieldNames(selections: List[Selection], visitedFragments: Set[String]): Set[String] =
+        selections.iterator.flatMap {
+          case Selection.Field(_, name, _, _, selectionSet, _)                       =>
+            Iterator.single(name) ++ fieldNames(selectionSet, visitedFragments)
+          case Selection.InlineFragment(_, _, selectionSet)                          =>
+            fieldNames(selectionSet, visitedFragments)
+          case Selection.FragmentSpread(name, _) if !visitedFragments.contains(name) =>
+            fragments
+              .get(name)
+              .iterator
+              .flatMap(fragment => fieldNames(fragment.selectionSet, visitedFragments + name))
+          case _: Selection.FragmentSpread                                           => Iterator.empty
+        }.toSet
+
+      val operation = operationName match {
+        case Some(name) => document.operationDefinitions.find(_.name.contains(name))
+        case None       =>
+          document.operationDefinitions match {
+            case value :: Nil => Some(value)
+            case _            => None
+          }
+      }
+      graph.progressiveOverrides(operation.fold(Set.empty[String])(value => fieldNames(value.selectionSet, Set.empty)))
+    }
+
   /**
    * All recursive planning for an operation shares one mutable budget through the implicit search parameter.
    * Evaluating alternatives consumes the budget. Combining alternatives checks its remaining capacity.
    * Invalid candidates can be skipped. Budget exhaustion stops the entire search, even if an earlier
    * candidate succeeded.
    */
-  def plan(document: Document, execution: ExecutionRequest): Either[PlanningFailure, OperationPlan] = {
+  def plan(
+    document: Document,
+    execution: ExecutionRequest,
+    activeOverrides: Set[OverrideLabel]
+  ): Either[PlanningFailure, OperationPlan] = {
+    if (graph.hasProgressiveOverrides)
+      return new OperationPlanner(graph.routed(activeOverrides), subgraphCount, limits)
+        .plan(document, execution, Set.empty)
+
     implicit val search: CandidateSearch = new CandidateSearch(limits)
     val rootName                         = operationRootName(execution.operationType)
     val fields                           = execution.field.collectFields(rootName)

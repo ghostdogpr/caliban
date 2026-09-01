@@ -11,7 +11,7 @@ import caliban.parsing.adt.Definition.TypeSystemExtension.SchemaExtension
 import caliban.parsing.adt.Definition.TypeSystemExtension.TypeExtension._
 import caliban.schema.RootType
 import caliban.validation.{ SchemaValidator, Validator }
-import caliban.Value.{ BooleanValue, StringValue }
+import caliban.Value.{ BooleanValue, NullValue, StringValue }
 
 /**
  * Composes loaded subgraphs; all intermediate state is scoped to one composition.
@@ -61,54 +61,58 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
         rootDiagnostics(OperationType.Mutation, mutationEntries) :::
         rootDiagnostics(OperationType.Subscription, subscriptionEntries) :::
         typeComposition.diagnostics :::
+        progressiveOverrideSourceDiagnostics :::
+        interfaceOverrideDiagnostics :::
         visibilityDiagnostics(queryEntries ::: mutationEntries ::: subscriptionEntries)).distinct.sorted
 
     if (diagnostics.nonEmpty) Left(diagnostics)
     else {
-      val queryFields                                        = chooseRootFields(queryEntries)
-      val mutationFields                                     = chooseRootFields(mutationEntries)
-      val subscriptionFields                                 = chooseRootFields(subscriptionEntries)
-      val composedTypes                                      = typeComposition.composed
-      def rewrite(tpe: __Type): __Type                       = rewriteType(tpe, composedTypes)
-      val query                                              = makeRootType("Query", queryFields, rewrite)
-      val mutation                                           =
+      val queryFields                                                   = chooseRootFields(queryEntries)
+      val mutationFields                                                = chooseRootFields(mutationEntries)
+      val subscriptionFields                                            = chooseRootFields(subscriptionEntries)
+      val composedTypes                                                 = typeComposition.composed
+      def rewrite(tpe: __Type): __Type                                  = rewriteType(tpe, composedTypes)
+      val query                                                         = makeRootType("Query", queryFields, rewrite)
+      val mutation                                                      =
         if (mutationFields.nonEmpty) Some(makeRootType("Mutation", mutationFields, rewrite))
         else None
-      val additional                                         =
+      val additional                                                    =
         composedTypes.toList.sortBy(_._1).map(_._2) :::
           composedDirectives.additionalTypes.filterNot(tpe => tpe.name.exists(composedTypes.contains))
-      val rootType                                           = RootType(
+      val rootType                                                      = RootType(
         query,
         mutation,
         if (subscriptionFields.nonEmpty) Some(makeRootType("Subscription", subscriptionFields, rewrite)) else None,
         additional,
         composedDirectives.definitions(rewrite)
       )
-      val runtimeTypesByName                                 = rootType.types.iterator.map { case (name, tpe) =>
+      val runtimeTypesByName                                            = rootType.types.iterator.map { case (name, tpe) =>
         name -> tpe.possibleTypeNames
       }.toMap
-      val transformationDiagnostics                          = invalidTransformationDiagnostics(rootType)
-      val directiveDiagnostics                               = composedDirectives.finalDiagnostics(rootType)
-      val allSecurity                                        = compiledSecurity.flatMap(_.toOption).flatten
-      val enforcedSecurity                                   = allSecurity.filterNot(_.directive == SecurityDirective.UnsupportedPolicy)
-      val securityVisibilityDiagnostics                      = hiddenSecurityDiagnostics(enforcedSecurity, rootType)
-      val routes: Map[(OperationType, String), List[String]] = rootRoutes(OperationType.Query, queryEntries) ++
-        rootRoutes(OperationType.Mutation, mutationEntries) ++ rootRoutes(
-          OperationType.Subscription,
-          subscriptionEntries
-        )
-      val fieldDefinitions                                   = types
+      val transformationDiagnostics                                     = invalidTransformationDiagnostics(rootType)
+      val directiveDiagnostics                                          = composedDirectives.finalDiagnostics(rootType)
+      val allSecurity                                                   = compiledSecurity.flatMap(_.toOption).flatten
+      val enforcedSecurity                                              = allSecurity.filterNot(_.directive == SecurityDirective.UnsupportedPolicy)
+      val securityVisibilityDiagnostics                                 = hiddenSecurityDiagnostics(enforcedSecurity, rootType)
+      val routes: Map[(OperationType, String), ComposedGraph.RootRoute] =
+        rootRoutes(OperationType.Query, queryEntries) ++
+          rootRoutes(OperationType.Mutation, mutationEntries) ++ rootRoutes(
+            OperationType.Subscription,
+            subscriptionEntries
+          )
+      val fieldDefinitions                                              = types
         .flatMap(entry => entry.tpe.allFields.map(field => (entry.name -> field.name) -> entry))
         .groupBy(_._1)
-      val interfaceOverrides                                 = interfaceOverrideTargets(types)
-      val fieldRoutes                                        = fieldDefinitions.flatMap { case (coordinate, definitions) =>
-        val declared        = definitions.map(_._2)
-        val overrideTargets = interfaceOverrides.getOrElse(coordinate, Set.empty)
-        val owned           =
-          effectiveFieldProviders(coordinate._2, declared).filterNot(entry => overrideTargets.contains(entry.source))
-        if (owned.nonEmpty) Some(coordinate -> owned.map(_.source).distinct.sorted) else None
+      val interfaceOverrides                                            = interfaceOverrideTargets(types)
+      val fieldRoutes                                                   = fieldDefinitions.flatMap { case (coordinate, definitions) =>
+        val declared = definitions.map(_._2)
+        val routes   = applyInterfaceOverrides(
+          fieldProviderRoutes(coordinate._2, declared),
+          interfaceOverrides.getOrElse(coordinate, Nil)
+        )
+        if (routes.nonEmpty) Some(coordinate -> routes) else None
       }
-      val sourceFields                                       = (types.flatMap { entry =>
+      val sourceFields                                                  = (types.flatMap { entry =>
         entry.tpe.allFields.map(field => (entry.source, entry.name, field.name) -> field)
       } ::: List(
         "Query"        -> queryEntries,
@@ -117,14 +121,14 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
       ).flatMap { case (owner, entries) =>
         entries.map(entry => (entry.source, owner, entry.field.name) -> entry.field)
       }).toMap
-      val lookups                                            = types
+      val lookups                                                       = types
         .flatMap(entry => entry.entity.toList.flatMap(_.lookups).map((entry.source -> entry.name) -> _))
         .groupBy(_._1)
         .map { case (coordinate, values) => coordinate -> values.map(_._2) }
-      val fieldSets                                          = compiledFieldSets.flatMap(_.toOption)
-      val requirements                                       = fieldSets.flatMap(_.requirements).toMap
-      val provisions                                         = fieldSets.flatMap(_.provisions).toMap
-      val transitiveSecurityDiagnostics                      = missingTransitiveSecurityDiagnostics(
+      val fieldSets                                                     = compiledFieldSets.flatMap(_.toOption)
+      val requirements                                                  = fieldSets.flatMap(_.requirements).toMap
+      val provisions                                                    = fieldSets.flatMap(_.provisions).toMap
+      val transitiveSecurityDiagnostics                                 = missingTransitiveSecurityDiagnostics(
         requirements,
         enforcedSecurity,
         runtimeTypesByName,
@@ -542,7 +546,7 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
               subgraph.federation && hasDirective(field.directives, names.external),
               subgraph.mapping.hiddenFields.contains(rootType.name.getOrElse("") -> field.name) ||
                 subgraph.federation && hasDirective(field.directives, names.inaccessible),
-              if (subgraph.federation) directiveString(field.directives, names.overrideDirective, "from") else None,
+              if (subgraph.federation) fieldOverride(field.directives, names.overrideDirective) else None,
               subgraph.federation,
               metadata.federation2,
               (field.allArgs
@@ -569,7 +573,7 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
         val providers  = effectiveRootProviders(entries)
         val prefix     = s"[${operation.toString.toLowerCase}.$field]"
         val compatible = fieldsCompatible(entries.map(_.field))
-        overrideDiagnostics(prefix, entries.map(entry => entry.source -> entry.overrideFrom)) :::
+        overrideDiagnostics(prefix, entries.map(entry => entry.source -> entry.overrideDirective.map(_.from))) :::
           (if (operation == OperationType.Subscription && (providers.size > 1 || entries.exists(_.shareable)))
              List(s"$prefix Subscription fields require one effective owner and cannot be @shareable.")
            else Nil) :::
@@ -615,18 +619,19 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
   private def rootRoutes(
     operation: OperationType,
     fields: List[SubgraphRootField]
-  ): Map[(OperationType, String), List[String]] =
+  ): Map[(OperationType, String), ComposedGraph.RootRoute] =
     fields
       .groupBy(_.field.name)
       .flatMap { case (name, entries) =>
-        val providers = effectiveRootProviders(entries).sortBy(_.source)
-        val sources   = providers.headOption.toList.flatMap { first =>
-          first.field._type.innerType.kind match {
-            case __TypeKind.OBJECT | __TypeKind.INTERFACE | __TypeKind.UNION => providers.map(_.source).distinct
-            case _                                                           => first.source :: Nil
+        val providers = rootProviderRoutes(entries)
+        val composite = entries.headOption.exists(entry =>
+          entry.field._type.innerType.kind match {
+            case __TypeKind.OBJECT | __TypeKind.INTERFACE | __TypeKind.UNION => true
+            case _                                                           => false
           }
-        }
-        if (entries.exists(_.inaccessible)) None else Some((operation -> name) -> sources)
+        )
+        if (entries.exists(_.inaccessible)) None
+        else Some((operation -> name) -> ComposedGraph.RootRoute(providers, singleProvider = !composite))
       }
 
   private def typeSystemDirectiveApplications(
@@ -806,11 +811,26 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
           else None
         val overrideDirective =
           if (!names.overrideDirective.contains(directive.name)) None
-          else if (directive.arguments.contains("label"))
-            Some(s"[${subgraph.name}] Federation @override(label:) is not supported at '${application.coordinate}'.")
-          else if (!application.supportsOverride)
-            Some(s"[${subgraph.name}] Federation @override is not supported at '${application.coordinate}'.")
-          else None
+          else if (directive.arguments.get("label").exists(_ != NullValue) && !names.supportsProgressiveOverride)
+            Some(
+              s"[${subgraph.name}] Federation @override(label:) is not available in the linked feature version at '${application.coordinate}'."
+            )
+          else
+            directive.arguments.get("label") match {
+              case Some(StringValue(label)) =>
+                parseProgressiveOverrideLabel(label) match {
+                  case Left(error)                               => Some(s"[${subgraph.name}] $error At '${application.coordinate}'.")
+                  case Right(_) if !application.supportsOverride =>
+                    Some(s"[${subgraph.name}] Federation @override is not supported at '${application.coordinate}'.")
+                  case Right(_)                                  => None
+                }
+              case Some(NullValue) | None   =>
+                if (!application.supportsOverride)
+                  Some(s"[${subgraph.name}] Federation @override is not supported at '${application.coordinate}'.")
+                else None
+              case Some(_)                  =>
+                Some(s"[${subgraph.name}] Invalid Federation @override label at '${application.coordinate}'.")
+            }
 
         security.toList ::: unavailable.toList ::: context.toList ::: from.toList ::: overrideDirective.toList
       }
@@ -1080,7 +1100,7 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
         case value if hasDirective(value.directives, names.inaccessible) => value.name
       }.toSet
     val overrides           = fields.flatMap { field =>
-      directiveString(Some(field.directives), names.overrideDirective, "from").map(field.name -> _)
+      fieldOverride(field.directives, names.overrideDirective).map(field.name -> _)
     }.toMap
     SubgraphType(
       subgraph.name,
@@ -1151,8 +1171,178 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
   }
 
   private def effectiveRootProviders(entries: List[SubgraphRootField]): List[SubgraphRootField] = {
-    val overridden = entries.flatMap(_.overrideFrom).toSet
+    val overridden = entries.flatMap(_.overrideDirective.map(_.from)).toSet
     entries.filterNot(entry => entry.external || overridden.contains(entry.source))
+  }
+
+  private def rootProviderRoutes(entries: List[SubgraphRootField]): List[ComposedGraph.FieldRoute] = {
+    val overrideDirective = entries.collectFirst(
+      Function.unlift(entry =>
+        entry.overrideDirective.map(directive => ProviderOverride(directive.from, entry.source, directive.progressive))
+      )
+    )
+    providerRoutes(
+      effectiveRootProviders(entries).map(_.source),
+      overrideDirective,
+      source => entries.exists(entry => entry.source == source && !entry.external)
+    )
+  }
+
+  private def fieldProviderRoutes(
+    field: String,
+    entries: List[SubgraphType]
+  ): List[ComposedGraph.FieldRoute] = {
+    val overrideDirective = entries.collectFirst(
+      Function.unlift(entry =>
+        entry.overrideFields
+          .get(field)
+          .map(directive => ProviderOverride(directive.from, entry.source, directive.progressive))
+      )
+    )
+    providerRoutes(
+      effectiveFieldProviders(field, entries).map(_.source),
+      overrideDirective,
+      source => entries.exists(entry => entry.source == source && entry.ownedFields.contains(field))
+    )
+  }
+
+  private def providerRoutes(
+    effectiveSources: List[String],
+    overrideDirective: Option[ProviderOverride],
+    isOverriddenSourceAvailable: String => Boolean
+  ): List[ComposedGraph.FieldRoute] = {
+    val routes = overrideDirective.flatMap(directive => directive.progressive.map(directive -> _)) match {
+      case None                                                                 => effectiveSources.map(ComposedGraph.FieldRoute(_))
+      case Some((directive, _)) if !isOverriddenSourceAvailable(directive.from) =>
+        effectiveSources.map(ComposedGraph.FieldRoute(_))
+      case Some((directive, value))                                             =>
+        val overridingRoutes = effectiveSources.map { source =>
+          val condition =
+            if (source == directive.by)
+              Some(ComposedGraph.OverrideCondition(value.label, value.percentage, active = true))
+            else None
+          ComposedGraph.FieldRoute(source, condition)
+        }
+        val overriddenRoute  =
+          if (isOverriddenSourceAvailable(directive.from))
+            List(
+              ComposedGraph.FieldRoute(
+                directive.from,
+                Some(ComposedGraph.OverrideCondition(value.label, value.percentage, active = false))
+              )
+            )
+          else Nil
+        overridingRoutes ::: overriddenRoute
+    }
+    routes.distinct.sortBy(_.source)
+  }
+
+  private def progressiveOverrideSourceDiagnostics: List[String] = {
+    def diagnostic(
+      prefix: String,
+      overridingSource: String,
+      overrideDirective: FieldOverride,
+      overriddenSourceAvailable: Boolean
+    ): List[String] =
+      if (overrideDirective.progressive.nonEmpty && !overriddenSourceAvailable)
+        List(
+          s"$prefix Progressive @override in subgraph '$overridingSource' requires its 'from' subgraph '${overrideDirective.from}' to own the field."
+        )
+      else Nil
+
+    val rootDiagnostics  = List(
+      OperationType.Query        -> queryEntries,
+      OperationType.Mutation     -> mutationEntries,
+      OperationType.Subscription -> subscriptionEntries
+    ).flatMap { case (operation, fields) =>
+      fields.groupBy(_.field.name).toList.flatMap { case (field, entries) =>
+        entries.flatMap(entry =>
+          entry.overrideDirective.toList.flatMap(directive =>
+            diagnostic(
+              s"[${operation.toString.toLowerCase}.$field]",
+              entry.source,
+              directive,
+              entries.exists(candidate => candidate.source == directive.from && !candidate.external)
+            )
+          )
+        )
+      }
+    }
+    val fieldDiagnostics = types.groupBy(_.name).toList.flatMap { case (typeName, entries) =>
+      entries.flatMap(entry =>
+        entry.overrideFields.toList.flatMap { case (field, directive) =>
+          diagnostic(
+            s"[type $typeName.$field]",
+            entry.source,
+            directive,
+            entries.exists(candidate => candidate.source == directive.from && candidate.ownedFields.contains(field))
+          )
+        }
+      )
+    }
+    rootDiagnostics ::: fieldDiagnostics
+  }
+
+  private def applyInterfaceOverrides(
+    routes: List[ComposedGraph.FieldRoute],
+    overrides: List[ProviderOverride]
+  ): List[ComposedGraph.FieldRoute] =
+    overrides.foldLeft(routes) { (current, overrideDirective) =>
+      overrideDirective.progressive match {
+        case None        => current.filterNot(_.source == overrideDirective.from)
+        case Some(value) =>
+          current.map { route =>
+            if (route.source == overrideDirective.from)
+              route
+                .copy(condition = Some(ComposedGraph.OverrideCondition(value.label, value.percentage, active = false)))
+            else if (route.source == overrideDirective.by)
+              route
+                .copy(condition = Some(ComposedGraph.OverrideCondition(value.label, value.percentage, active = true)))
+            else route
+          }
+      }
+    }
+
+  private def interfaceOverrideDiagnostics: List[String] = {
+    val inherited = interfaceOverrideTargets(types)
+    val direct    = types.iterator
+      .filter(_.tpe.kind == __TypeKind.INTERFACE)
+      .flatMap(entry =>
+        entry.overrideFields.iterator.map { case (field, directive) =>
+          (entry.name -> field) -> ProviderOverride(directive.from, entry.source, directive.progressive)
+        }
+      )
+      .toList
+      .groupBy(_._1)
+      .map { case (coordinate, values) => coordinate -> values.map(_._2) }
+
+    val inheritedCollisions = inherited.collect {
+      case ((interfaceName, field), overrides) if overrides.size > 1 && overrides.exists(_.progressive.nonEmpty) =>
+        s"[type $interfaceName.$field] Multiple @override declarations inherited from implementations are not supported when any declaration is progressive."
+    }
+    val directCollisions    = direct.toList.flatMap { case ((interfaceName, field), directOverrides) =>
+      inherited.get(interfaceName -> field).toList.collect {
+        case inheritedOverrides if (directOverrides ::: inheritedOverrides).exists(_.progressive.nonEmpty) =>
+          s"[type $interfaceName.$field] Direct and inherited @override declarations cannot be combined when any declaration is progressive."
+      }
+    }
+    val missingProviders    = inherited.toList.flatMap { case ((interfaceName, field), overrides) =>
+      val interfaceEntries = types.filter(_.name == interfaceName)
+      overrides.flatMap { overrideDirective =>
+        if (overrideDirective.progressive.isEmpty) Nil
+        else {
+          val missing = List(overrideDirective.from, overrideDirective.by).distinct.filterNot(source =>
+            interfaceEntries.exists(entry => entry.source == source && entry.ownedFields.contains(field))
+          )
+          if (missing.nonEmpty)
+            List(
+              s"[type $interfaceName.$field] Progressive @override inherited from an implementation requires every participating subgraph to own the interface field; missing ${formatSources(missing)}."
+            )
+          else Nil
+        }
+      }
+    }
+    inheritedCollisions.toList ::: directCollisions ::: missingProviders
   }
 
   private def visibilityDiagnostics(
@@ -1276,6 +1466,25 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
       .flatMap(_.arguments.get(argument))
       .collect { case StringValue(value) => value }
 
+  private def fieldOverride(
+    directives: Option[List[Directive]],
+    names: Set[String]
+  ): Option[FieldOverride] =
+    directives.iterator.flatten.find(directive => names.contains(directive.name)).flatMap { directive =>
+      directive.arguments.get("from").collect { case StringValue(from) =>
+        val progressive = directive.arguments
+          .get("label")
+          .collect { case StringValue(label) =>
+            parseProgressiveOverrideLabel(label).toOption
+          }
+          .flatten
+        FieldOverride(from, progressive)
+      }
+    }
+
+  private def fieldOverride(directives: List[Directive], names: Set[String]): Option[FieldOverride] =
+    fieldOverride(Some(directives), names)
+
   private def makeRootType(
     name: String,
     fields: List[SubgraphRootField],
@@ -1303,6 +1512,21 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
 
 private[gateway] object SchemaComposer {
   import TypeComposition._
+
+  private val ProgressiveOverridePattern = raw"percent\((\d{1,2}(?:\.\d{1,8})?|100)\)".r
+  private val CustomOverrideLabelPattern = raw"[a-zA-Z][a-zA-Z0-9_\-:./]*".r
+
+  private def parseProgressiveOverrideLabel(
+    label: String
+  ): Either[String, ComposedGraph.ProgressiveOverride] =
+    label match {
+      case ProgressiveOverridePattern(value) =>
+        Right(ComposedGraph.ProgressiveOverride(ComposedGraph.OverrideLabel(label), BigDecimal(value)))
+      case CustomOverrideLabelPattern()      =>
+        Left(s"Custom Federation @override label '$label' requires an external label resolver, which is not supported.")
+      case _                                 =>
+        Left(s"Invalid Federation @override label '$label'.")
+    }
 
   private final case class SecurityProfile(
     authenticated: Boolean,
@@ -1357,7 +1581,7 @@ private[gateway] object SchemaComposer {
     shareable: Boolean,
     external: Boolean,
     inaccessible: Boolean,
-    overrideFrom: Option[String],
+    overrideDirective: Option[FieldOverride],
     federation: Boolean,
     federation2: Boolean,
     inaccessibleArguments: Set[String],
@@ -1444,6 +1668,7 @@ private[gateway] object SchemaComposer {
     unavailableSecurity: Map[String, String],
     context: Set[String],
     fromContext: Set[String],
+    supportsProgressiveOverride: Boolean,
     hidden: Set[String],
     hiddenTypes: Set[String]
   )
@@ -1516,6 +1741,7 @@ private[gateway] object SchemaComposer {
         unavailableSecurityNames("policy", 2, 6, PolicyIdentity).map(_ -> "@policy").toMap
     val context             = federationNames("context")
     val fromContext         = federationNames("fromContext")
+    val progressiveOverride = federation.exists(_.version.atLeast(2, 7))
     val hiddenDirectives    = Set("link") ++ keyNames ++ externalNames ++ extendsNames ++ shareableNames ++
       inaccessibleNames ++ overrideNames ++ requiresNames ++ providesNames ++ interfaceObjects ++
       tagNames ++ composeNames ++ authenticated ++ requiresScopes ++ policy ++ unavailableSecurity.keySet ++ context ++
@@ -1538,6 +1764,7 @@ private[gateway] object SchemaComposer {
       unavailableSecurity,
       context,
       fromContext,
+      progressiveOverride,
       hiddenDirectives,
       hiddenTypes
     )

@@ -78,6 +78,60 @@ object EntityExecutionSpec extends ZIOSpecDefault {
 
   def spec = suite("EntityExecutionSpec")(
     suite("entity execution")(
+      test("routes a progressive entity field override to the selected provider") {
+        val overrideDefinition = "directive @override(from: String!, label: String) on FIELD_DEFINITION"
+        val originalSchema     =
+          s"""
+             |schema @link(url: "https://specs.apollo.dev/federation/v2.7", import: ["@key", "@override"]) { query: Query }
+             |$federationDirectives
+             |$overrideDefinition
+             |union _Entity = Product
+             |type Query {
+             |  product(id: ID!): Product
+             |  _entities(representations: [_Any!]!): [_Entity]!
+             |  _service: _Service!
+             |}
+             |type Product @key(fields: "id") { id: ID! name: String! }
+             |""".stripMargin
+        val replacementSchema  =
+          s"""
+             |schema @link(url: "https://specs.apollo.dev/federation/v2.7", import: ["@key", "@override"]) { query: Query }
+             |$federationDirectives
+             |$overrideDefinition
+             |union _Entity = Product
+             |type Query {
+             |  _entities(representations: [_Any!]!): [_Entity]!
+             |  _service: _Service!
+             |}
+             |type Product @key(fields: "id") {
+             |  id: ID!
+             |  name: String! @override(from: "original", label: "percent(100)")
+             |}
+             |""".stripMargin
+
+        for {
+          original    <-
+            stub(
+              """{"data":{"product":{"name":"original","_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}}}"""
+            )
+          replacement <-
+            stub(
+              """{"data":{"_entities":[{"name":"replacement","_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product"}]}}"""
+            )
+          gateway     <- Gateway
+                           .compose(
+                             Subgraph.federation("original", original.endpoint, originalSchema),
+                             Subgraph.federation("replacement", replacement.endpoint, replacementSchema)
+                           )
+                           .interpreter
+          response    <- gateway.execute("{ product(id: \"p1\") { name } }")
+          sent        <- replacement.requests.get
+        } yield assertTrue(
+          response.errors.isEmpty,
+          field(response.data, "product").flatMap(field(_, "name")).contains(StringValue("replacement")),
+          sent.size == 1
+        )
+      },
       test("executes remote Products, local Pricing, and remote Reviews in one operation") {
         val productsResponse =
           """{"data":{"product":{"name":"Table","_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product","_caliban_gateway_key_2":"p1","_caliban_gateway_typename_2":"Product"}}}"""

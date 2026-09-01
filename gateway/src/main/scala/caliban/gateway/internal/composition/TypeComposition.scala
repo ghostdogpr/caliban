@@ -52,7 +52,7 @@ private[composition] final class TypeComposition(
       val prefix       = s"[type $name.$fieldName]"
       overrideDiagnostics(
         prefix,
-        values.map { case (entry, _) => entry.source -> entry.overrideFields.get(fieldName) }
+        values.map { case (entry, _) => entry.source -> entry.overrideFields.get(fieldName).map(_.from) }
       ) :::
         (if (!compatible) List(s"$prefix Definitions are incompatible between subgraphs: ${sources(values.map(_._1))}.")
          else Nil) :::
@@ -328,9 +328,14 @@ private[composition] object TypeComposition {
     inaccessibleArguments: Set[(String, String)],
     inaccessibleInputFields: Set[String],
     inaccessibleEnumValues: Set[String],
-    overrideFields: Map[String, String],
+    overrideFields: Map[String, FieldOverride],
     federation2: Boolean,
     hiddenDirectives: Set[String]
+  )
+
+  final case class FieldOverride(
+    from: String,
+    progressive: Option[ComposedGraph.ProgressiveOverride]
   )
 
   final case class EntityDefinition(
@@ -342,21 +347,35 @@ private[composition] object TypeComposition {
 
   private[composition] def effectiveFieldProviders(field: String, entries: List[SubgraphType]): List[SubgraphType] = {
     val owned      = entries.filter(_.ownedFields.contains(field))
-    val overridden = owned.flatMap(_.overrideFields.get(field)).toSet
+    val overridden = owned.flatMap(_.overrideFields.get(field).map(_.from)).toSet
     owned.filterNot(entry => overridden.contains(entry.source))
   }
 
-  private[composition] def interfaceOverrideTargets(entries: List[SubgraphType]): Map[(String, String), Set[String]] =
+  final case class ProviderOverride(
+    from: String,
+    by: String,
+    progressive: Option[ComposedGraph.ProgressiveOverride]
+  )
+
+  private[composition] def interfaceOverrideTargets(
+    entries: List[SubgraphType]
+  ): Map[(String, String), List[ProviderOverride]] =
     entries.iterator
       .filter(_.tpe.kind == __TypeKind.OBJECT)
       .flatMap { entry =>
         entry.tpe.interfaces().getOrElse(Nil).iterator.flatMap(_.name).flatMap { interfaceName =>
-          entry.overrideFields.iterator.map { case (field, source) => (interfaceName -> field) -> source }
+          entry.overrideFields.iterator.map { case (field, overrideDirective) =>
+            (interfaceName -> field) -> ProviderOverride(
+              overrideDirective.from,
+              entry.source,
+              overrideDirective.progressive
+            )
+          }
         }
       }
       .toList
       .groupBy(_._1)
-      .map { case (coordinate, values) => coordinate -> values.iterator.map(_._2).toSet }
+      .map { case (coordinate, values) => coordinate -> values.map(_._2) }
 
   private[composition] def overrideDiagnostics(
     prefix: String,

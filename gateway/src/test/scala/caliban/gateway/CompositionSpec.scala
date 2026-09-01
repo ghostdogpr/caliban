@@ -26,6 +26,11 @@ object CompositionSpec extends ZIOSpecDefault {
   private def schema(body: String, imports: String*): String =
     federationSchemaPreambleWithQueryRoot(imports: _*) + body
 
+  private def progressiveSchema(body: String, imports: String*): String =
+    schema(body, ("@override" +: imports): _*)
+      .replace("federation/v2.3", "federation/v2.7")
+      .replace("directive @override(from: String!)", "directive @override(from: String!, label: String)")
+
   private val directiveDefinitions =
     """
       |directive @link(url: String!, as: String, import: [link__Import]) repeatable on SCHEMA
@@ -98,6 +103,225 @@ object CompositionSpec extends ZIOSpecDefault {
       assertTrue(ambiguous.isLeft, shareable.isLeft, overridden.isRight)
     },
     suite("ownership")(
+      test("routes progressive root overrides at percent boundaries") {
+        def replacing(label: String) = progressiveSchema(
+          s"""type Query { value: String @override(from: "original", label: "$label") }"""
+        )
+        val originalSchema           = progressiveSchema("type Query { value: String }")
+
+        for {
+          originalZero    <- stub("""{"data":{"value":"original"}}""")
+          replacingZero   <- stub("""{"data":{"value":"replacement"}}""")
+          zeroGateway     <- Gateway
+                               .compose(
+                                 Subgraph.federation("original", originalZero.endpoint, originalSchema),
+                                 Subgraph.federation("replacement", replacingZero.endpoint, replacing("percent(0)"))
+                               )
+                               .interpreter
+          zeroResponse    <- zeroGateway.execute("{ value }")
+          originalFull    <- stub("""{"data":{"value":"original"}}""")
+          replacingFull   <- stub("""{"data":{"value":"replacement"}}""")
+          fullGateway     <- Gateway
+                               .compose(
+                                 Subgraph.federation("original", originalFull.endpoint, originalSchema),
+                                 Subgraph.federation("replacement", replacingFull.endpoint, replacing("percent(100)"))
+                               )
+                               .interpreter
+          fullResponse    <- fullGateway.execute("{ value }")
+          zeroOriginal    <- originalZero.requests.get
+          zeroReplacement <- replacingZero.requests.get
+          fullOriginal    <- originalFull.requests.get
+          fullReplacement <- replacingFull.requests.get
+        } yield assertTrue(
+          field(zeroResponse.data, "value").contains(StringValue("original")),
+          zeroOriginal.size == 1,
+          zeroReplacement.isEmpty,
+          field(fullResponse.data, "value").contains(StringValue("replacement")),
+          fullOriginal.isEmpty,
+          fullReplacement.size == 1
+        )
+      },
+      test("resolves a shared label once and caches both progressive plans") {
+        val originalSchema  = progressiveSchema("type Query { value: String other: String }")
+        val replacingSchema = progressiveSchema(
+          """type Query {
+            |  value: String @override(from: "original", label: "percent(50)")
+            |  other: String @override(from: "original", label: "percent(50)")
+            |}""".stripMargin
+        )
+
+        for {
+          original        <- stub("""{"data":{"value":"original","other":"original"}}""")
+          replacement     <- stub("""{"data":{"value":"replacement","other":"replacement"}}""")
+          gateway         <- Gateway
+                               .compose(
+                                 Subgraph.federation("original", original.endpoint, originalSchema),
+                                 Subgraph.federation("replacement", replacement.endpoint, replacingSchema)
+                               )
+                               .interpreter
+          _               <- TestRandom.feedDoubles(0.1, 0.9)
+          replaced        <- gateway.execute("{ value other }")
+          retained        <- gateway.execute("{ value other }")
+          originalSent    <- original.requests.get
+          replacementSent <- replacement.requests.get
+        } yield assertTrue(
+          field(replaced.data, "value").contains(StringValue("replacement")),
+          field(replaced.data, "other").contains(StringValue("replacement")),
+          field(retained.data, "value").contains(StringValue("original")),
+          field(retained.data, "other").contains(StringValue("original")),
+          originalSent.size == 1,
+          replacementSent.size == 1
+        )
+      },
+      test("memoizes routed graph variants") {
+        val result = compose(
+          CompositionInput("original", progressiveSchema("type Query { value: String }")),
+          CompositionInput(
+            "replacement",
+            progressiveSchema(
+              """type Query {
+                |  value: String @override(from: "original", label: "percent(50)")
+                |}""".stripMargin
+            )
+          )
+        )
+
+        assertTrue(result.toOption.exists { graph =>
+          val label        = graph.progressiveOverrides(Set("value")).keysIterator.next()
+          val inactive     = graph.routed(Set.empty)
+          val active       = graph.routed(Set(label))
+          val sameInactive = graph.routed(Set.empty)
+          val sameActive   = graph.routed(Set(label))
+          (inactive eq sameInactive) && (active eq sameActive) && (inactive ne active)
+        })
+      },
+      test("validates progressive override labels and linked versions") {
+        def result(version: String, label: String) =
+          compose(
+            CompositionInput("original", progressiveSchema("type Query { value: String }")),
+            CompositionInput(
+              "replacement",
+              progressiveSchema(
+                s"""type Query { value: String @override(from: "original", label: "$label") }"""
+              ).replace("federation/v2.7", s"federation/$version")
+            )
+          ).left.toOption.getOrElse(Nil)
+
+        val custom                                     = result("v2.7", "rollout")
+        val malformed                                  = result("v2.7", "percent(101)")
+        val old                                        = result("v2.6", "percent(10)")
+        val missing                                    = compose(
+          CompositionInput(
+            "replacement",
+            progressiveSchema(
+              """type Query {
+                |  value: String @override(from: "missing", label: "percent(50)")
+                |}""".stripMargin
+            )
+          )
+        ).left.toOption.getOrElse(Nil)
+        val external                                   = compose(
+          CompositionInput(
+            "original",
+            progressiveSchema("type Query { value: String @external }", "@external")
+          ),
+          CompositionInput(
+            "replacement",
+            progressiveSchema(
+              """type Query {
+                |  value: String @override(from: "original", label: "percent(50)")
+                |}""".stripMargin
+            )
+          )
+        ).left.toOption.getOrElse(Nil)
+        def inheritedOverrides(reviewOverride: String) =
+          compose(
+            CompositionInput(
+              "original",
+              progressiveSchema(
+                """type Query { base: String product: Product review: Review }
+                  |interface Named { name: String }
+                  |type Product implements Named { name: String }
+                  |type Review implements Named { name: String }""".stripMargin
+              )
+            ),
+            CompositionInput(
+              "products",
+              progressiveSchema(
+                """type Query { products: Product }
+                  |interface Named { name: String }
+                  |type Product implements Named {
+                  |  name: String @override(from: "original", label: "percent(10)")
+                  |}""".stripMargin
+              )
+            ),
+            CompositionInput(
+              "reviews",
+              progressiveSchema(
+                s"""type Query { reviews: Review }
+                   |interface Named { name: String }
+                   |type Review implements Named { name: String $reviewOverride }""".stripMargin
+              )
+            )
+          ).left.toOption.getOrElse(Nil)
+
+        val inherited                = inheritedOverrides("""@override(from: "original", label: "percent(20)")""")
+        val mixed                    = inheritedOverrides("""@override(from: "original")""")
+        val direct                   = compose(
+          CompositionInput(
+            "original",
+            progressiveSchema(
+              """type Query { product: Product }
+                |interface Named { name: String }
+                |type Product implements Named { name: String }""".stripMargin
+            )
+          ),
+          CompositionInput(
+            "replacement",
+            progressiveSchema(
+              """type Query { replacement: Product }
+                |interface Named {
+                |  name: String @override(from: "original", label: "percent(10)")
+                |}
+                |type Product implements Named {
+                |  name: String @override(from: "original")
+                |}""".stripMargin
+            )
+          )
+        ).left.toOption.getOrElse(Nil)
+        val missingInterfaceProvider = compose(
+          CompositionInput(
+            "original",
+            progressiveSchema(
+              """type Query { product: Product }
+                |type Product { name: String }""".stripMargin
+            )
+          ),
+          CompositionInput(
+            "replacement",
+            progressiveSchema(
+              """type Query { replacement: Product }
+                |interface Named { name: String }
+                |type Product implements Named {
+                |  name: String @override(from: "original", label: "percent(10)")
+                |}""".stripMargin
+            )
+          )
+        ).left.toOption.getOrElse(Nil)
+        assertTrue(
+          custom.exists(_.contains("external label resolver")),
+          malformed.exists(_.contains("Invalid Federation @override label")),
+          old.exists(_.contains("not available in the linked feature version")),
+          missing.exists(_.contains("requires its 'from' subgraph 'missing' to own the field")),
+          external.exists(_.contains("requires its 'from' subgraph 'original' to own the field")),
+          inherited.exists(_.contains("when any declaration is progressive")),
+          mixed.exists(_.contains("when any declaration is progressive")),
+          direct.exists(_.contains("Direct and inherited @override declarations cannot be combined")),
+          missingInterfaceProvider.exists(
+            _.contains("requires every participating subgraph to own the interface field; missing 'original'")
+          )
+        )
+      },
       test("routes a shareable root field deterministically") {
         val valueSchema = schema("type Query { value: String @shareable }", "@shareable")
 

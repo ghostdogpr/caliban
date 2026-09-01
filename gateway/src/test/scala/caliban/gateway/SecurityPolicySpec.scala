@@ -815,7 +815,7 @@ object SecurityPolicySpec extends ZIOSpecDefault {
         sent.isEmpty
       )
     },
-    test("rejects progressive overrides and contexts before source execution") {
+    test("accepts progressive overrides but rejects contexts before source execution") {
       val schema =
         s"""
            |extend schema @link(
@@ -842,7 +842,7 @@ object SecurityPolicySpec extends ZIOSpecDefault {
         diagnostics = buildDiagnostics(exit)
         sent       <- remote.requests.get
       } yield assertTrue(
-        diagnostics.exists(message => message.startsWith("[unsupported]") && message.contains("@override(label:)")),
+        !diagnostics.exists(message => message.startsWith("[unsupported]") && message.contains("@override")),
         diagnostics.exists(message => message.startsWith("[unsupported]") && message.contains("@context")),
         diagnostics.exists(message => message.startsWith("[unsupported]") && message.contains("@fromContext")),
         sent.isEmpty

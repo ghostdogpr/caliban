@@ -7,13 +7,14 @@ import caliban.gateway.internal.execution.PreparedPlan
 import caliban.gateway.internal.OperationCache.Weighted
 import caliban.gateway.internal.OperationCacheMode.Cacheable
 import caliban.gateway.internal.OperationPreparation._
+import caliban.gateway.internal.composition.ComposedGraph.OverrideLabel
 import caliban.gateway.internal.planning.CandidateSearch.PlanningFailure
 import caliban.gateway.internal.planning.OperationPlanner
 import caliban.InputValue.VariableValue
 import caliban.parsing.adt.{ Directive, Document }
 import caliban.schema.RootType
 import caliban.validation.Validator
-import zio.{ Exit, IO, Trace, UIO, ZIO }
+import zio.{ Exit, IO, Random, Trace, UIO, ZIO }
 
 private[gateway] final class OperationPreparation[-R] private (
   rootType: RootType,
@@ -36,30 +37,54 @@ private[gateway] final class OperationPreparation[-R] private (
       preparation = PreparationConfig.from(config)
       prepared   <- hooks.cacheMode match {
                       case Cacheable =>
-                        cache
-                          .getOrCompute(
-                            CacheKey(
-                              query,
-                              resolved.operationName,
-                              resolved.isHttpGetRequest,
-                              preparation
-                            )
-                          )(
-                            RequestPreparation
-                              .parse(query)
-                              .flatMap(document => computeCached(resolved, document, preparation))
-                          )
-                          .flatMap(materialize(resolved, _))
+                        prepareCached(resolved, query, preparation)
                       case _         =>
                         prepareUncached(resolved, query)
                     }
       _          <- hooks.evaluatePolicy(resolved, prepared.document, prepared.executionRequest, prepared.plan.plan)
     } yield prepared
 
+  private def prepareCached(
+    request: GraphQLRequest,
+    query: String,
+    preparation: PreparationConfig
+  )(implicit trace: Trace): ZIO[R, CalibanError, Prepared] = {
+    def cached(document: Document, activeOverrides: Set[OverrideLabel]) =
+      cache
+        .getOrCompute(
+          CacheKey(
+            query,
+            request.operationName,
+            request.isHttpGetRequest,
+            preparation,
+            activeOverrides
+          )
+        )(computeCached(request, document, preparation, activeOverrides))
+        .flatMap(materialize(request, _, activeOverrides))
+
+    if (planner.hasProgressiveOverrides)
+      for {
+        document        <- RequestPreparation.parse(query)
+        activeOverrides <- resolveProgressiveOverrides(document, request.operationName)
+        prepared        <- cached(document, activeOverrides)
+      } yield prepared
+    else
+      cache
+        .getOrCompute(
+          CacheKey(query, request.operationName, request.isHttpGetRequest, preparation, Set.empty)
+        )(
+          RequestPreparation
+            .parse(query)
+            .flatMap(document => computeCached(request, document, preparation, Set.empty))
+        )
+        .flatMap(materialize(request, _, Set.empty))
+  }
+
   private def computeCached(
     request: GraphQLRequest,
     document: Document,
-    preparation: PreparationConfig
+    preparation: PreparationConfig,
+    activeOverrides: Set[OverrideLabel]
   )(implicit trace: Trace): IO[CalibanError, Weighted[CachedOperation]] =
     for {
       _        <- Validator.validate(document, rootType).unless(preparation.skipValidation)
@@ -75,7 +100,7 @@ private[gateway] final class OperationPreparation[-R] private (
                            rootType,
                            skipValidation = true
                          )
-            plan      <- preparePlan(document, execution)
+            plan      <- preparePlan(document, execution, activeOverrides)
           } yield Some((execution, plan))
     } yield {
       val execution =
@@ -91,6 +116,7 @@ private[gateway] final class OperationPreparation[-R] private (
   )(implicit trace: Trace): IO[CalibanError, Prepared] =
     for {
       document  <- RequestPreparation.parse(query)
+      overrides <- resolveProgressiveOverrides(document, request.operationName)
       variables <- RequestPreparation.coerceVariables(document, request, rootType)
       execution <- RequestPreparation.prepareParsed(
                      request,
@@ -99,12 +125,13 @@ private[gateway] final class OperationPreparation[-R] private (
                      rootType,
                      skipValidation = false
                    )
-      plan      <- preparePlan(document, execution)
+      plan      <- preparePlan(document, execution, overrides)
     } yield Prepared(request, document, execution, plan)
 
   private def materialize(
     request: GraphQLRequest,
-    cached: CachedOperation
+    cached: CachedOperation,
+    activeOverrides: Set[OverrideLabel]
   )(implicit trace: Trace): IO[CalibanError, Prepared] =
     (cached.execution, cached.executionPlan) match {
       case (Some(execution), Some(plan)) =>
@@ -123,15 +150,35 @@ private[gateway] final class OperationPreparation[-R] private (
           plan      <- cached.executionPlan match {
                          case Some(value) if !value.hasVariableReferences => Exit.succeed(value)
                          case Some(value)                                 => Exit.succeed(value.bind(variables))
-                         case None                                        => preparePlan(cached.document, execution)
+                         case None                                        => preparePlan(cached.document, execution, activeOverrides)
                        }
         } yield Prepared(request, cached.document, execution, plan)
     }
 
-  private def preparePlan(document: Document, execution: ExecutionRequest)(implicit
+  private def preparePlan(
+    document: Document,
+    execution: ExecutionRequest,
+    activeOverrides: Set[OverrideLabel]
+  )(implicit
     trace: Trace
   ): IO[CalibanError, PreparedPlan] =
-    ZIO.blocking(ZIO.fromEither(planner.plan(document, execution))).mapError(planningFailure).map(new PreparedPlan(_))
+    ZIO
+      .blocking(ZIO.fromEither(planner.plan(document, execution, activeOverrides)))
+      .mapError(planningFailure)
+      .map(new PreparedPlan(_))
+
+  private def resolveProgressiveOverrides(
+    document: Document,
+    operationName: Option[String]
+  )(implicit trace: Trace): UIO[Set[OverrideLabel]] =
+    ZIO
+      .foreach(planner.progressiveOverrides(document, operationName).toList.sortBy(_._1.value)) {
+        case (label, percentage) =>
+          if (percentage <= 0) ZIO.none
+          else if (percentage >= 100) ZIO.some(label)
+          else Random.nextDouble.map(value => if (value * 100d < percentage.toDouble) Some(label) else None)
+      }
+      .map(_.flatten.toSet)
 
   private def operationWeight(
     query: String,
@@ -191,7 +238,8 @@ private[gateway] object OperationPreparation {
     query: String,
     operationName: Option[String],
     isHttpGetRequest: Boolean,
-    preparation: PreparationConfig
+    preparation: PreparationConfig,
+    activeOverrides: Set[OverrideLabel]
   )
 
   private final case class PreparationConfig(

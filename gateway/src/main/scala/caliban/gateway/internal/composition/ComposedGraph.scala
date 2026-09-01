@@ -11,14 +11,16 @@ import caliban.parsing.adt.Definition.TypeSystemExtension.TypeExtension._
 import caliban.rendering.DocumentRenderer
 import caliban.schema.RootType
 
+import java.util.concurrent.ConcurrentHashMap
+
 /**
  * Immutable schema and ownership metadata produced by composition.
  */
 private[gateway] final class ComposedGraph private[internal] (
   val rootType: RootType,
   private val runtimeTypesByName: Map[String, Set[String]],
-  private val routes: Map[(OperationType, String), List[String]],
-  private val fieldRoutes: Map[(String, String), List[String]],
+  private val routes: Map[(OperationType, String), ComposedGraph.RootRoute],
+  private val fieldRoutes: Map[(String, String), List[ComposedGraph.FieldRoute]],
   private val sourceFields: Map[(String, String, String), __Field],
   private val entityLookups: Map[(String, String), List[ComposedGraph.EntityLookup]],
   private val requirements: Map[(String, String, String), List[Selection]],
@@ -61,11 +63,79 @@ private[gateway] final class ComposedGraph private[internal] (
     .map { case (typeName, values) => typeName -> values.map(_._2).sorted }
   private val lookupTypes              = entityLookups.keysIterator.map(_._2).toSet
 
+  private val progressiveOverridesByLabel =
+    (routes.valuesIterator.flatMap(_.providers) ++ fieldRoutes.valuesIterator.flatten)
+      .flatMap(_.condition.map(condition => condition.label -> condition.percentage))
+      .toList
+      .groupBy(_._1)
+      .map { case (label, values) => label -> values.head._2 }
+
+  private val progressiveOverridesByFieldName = {
+    val rootValues  = routes.iterator.flatMap { case ((_, field), route) =>
+      route.providers.iterator.flatMap(_.condition.map(condition => field -> condition))
+    }
+    val fieldValues = fieldRoutes.iterator.flatMap { case ((_, field), routes) =>
+      routes.iterator.flatMap(_.condition.map(condition => field -> condition))
+    }
+    (rootValues ++ fieldValues).toList.groupBy(_._1).map { case (field, values) =>
+      field -> values.iterator.map(_._2.label).toSet
+    }
+  }
+  private val routedVariants                  = new ConcurrentHashMap[Set[ComposedGraph.OverrideLabel], ComposedGraph]
+
+  def progressiveOverrides(fieldNames: Set[String]): Map[ComposedGraph.OverrideLabel, BigDecimal] =
+    fieldNames.iterator
+      .flatMap(progressiveOverridesByFieldName.get)
+      .flatten
+      .flatMap(label => progressiveOverridesByLabel.get(label).map(label -> _))
+      .toMap
+
+  def hasProgressiveOverrides: Boolean = progressiveOverridesByLabel.nonEmpty
+
+  private[gateway] def routed(activeOverrides: Set[ComposedGraph.OverrideLabel]): ComposedGraph = {
+    val cached = routedVariants.get(activeOverrides)
+    if (cached ne null) cached
+    else {
+      val created = routedGraph(activeOverrides)
+      val raced   = routedVariants.putIfAbsent(activeOverrides, created)
+      if (raced eq null) created else raced
+    }
+  }
+
+  private def routedGraph(activeOverrides: Set[ComposedGraph.OverrideLabel]): ComposedGraph =
+    new ComposedGraph(
+      rootType,
+      runtimeTypesByName,
+      routes.map { case (coordinate, route) =>
+        coordinate -> route.copy(
+          providers = route.providers.filter(_.enabled(activeOverrides)).map(_.copy(condition = None))
+        )
+      },
+      fieldRoutes.map { case (coordinate, routes) =>
+        coordinate -> routes.filter(_.enabled(activeOverrides)).map(_.copy(condition = None))
+      },
+      sourceFields,
+      entityLookups,
+      requirements,
+      provisions,
+      interfaceObjects,
+      sourceRuntimeTypes,
+      mappings,
+      securityApplications,
+      schemaDirectives
+    )
+
   def sources(operation: OperationType, field: String): List[String] =
-    routes.getOrElse(operation -> field, Nil)
+    routes
+      .get(operation -> field)
+      .toList
+      .flatMap { route =>
+        val selected = route.providers.map(_.source)
+        if (route.singleProvider) selected.headOption.toList else selected
+      }
 
   def fieldSources(typeName: String, field: String, preferred: String): List[String] =
-    fieldRoutes.getOrElse(typeName -> field, Nil) match {
+    fieldRoutes.getOrElse(typeName -> field, Nil).map(_.source) match {
       case sources if sources.contains(preferred) => preferred :: sources.filterNot(_ == preferred)
       case sources                                => sources
     }
@@ -74,7 +144,9 @@ private[gateway] final class ComposedGraph private[internal] (
     entityLookups.getOrElse(source -> typeName, Nil)
 
   def owns(source: String, typeName: String, field: String): Boolean =
-    fieldRoutes.getOrElse(typeName -> field, Nil).contains(source)
+    fieldRoutes
+      .getOrElse(typeName -> field, Nil)
+      .exists(_.source == source)
 
   def declares(source: String, typeName: String, field: String): Boolean =
     sourceFields.contains((source, typeName, field))
@@ -214,7 +286,7 @@ private[gateway] final class ComposedGraph private[internal] (
     sourceRuntimeTypes.getOrElse(source -> typeName, Set.empty).toList.sorted
 
   def runtimeSources(current: Set[String], parentType: String, field: String): Set[String] = {
-    val providers = fieldRoutes.getOrElse(parentType -> field, Nil).toSet
+    val providers = fieldRoutes.getOrElse(parentType -> field, Nil).iterator.map(_.source).toSet
     if (providers.isEmpty) current
     else {
       val constrained = current intersect providers
@@ -356,6 +428,24 @@ private[gateway] final class ComposedGraph private[internal] (
 
 private[gateway] object ComposedGraph {
   final case class KeyField(name: String, children: List[KeyField])
+
+  final case class OverrideLabel(value: String) extends AnyVal
+
+  final case class ProgressiveOverride(label: OverrideLabel, percentage: BigDecimal)
+
+  final case class OverrideCondition(
+    label: OverrideLabel,
+    percentage: BigDecimal,
+    active: Boolean
+  ) {
+    def enabled(activeOverrides: Set[OverrideLabel]): Boolean = activeOverrides.contains(label) == active
+  }
+
+  final case class FieldRoute(source: String, condition: Option[OverrideCondition] = None) {
+    def enabled(activeOverrides: Set[OverrideLabel]): Boolean = condition.forall(_.enabled(activeOverrides))
+  }
+
+  final case class RootRoute(providers: List[FieldRoute], singleProvider: Boolean)
 
   private[internal] final case class SecurityApplication(
     source: String,

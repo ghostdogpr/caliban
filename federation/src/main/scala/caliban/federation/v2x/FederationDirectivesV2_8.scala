@@ -4,7 +4,7 @@ import caliban.Value.StringValue
 import caliban.parsing.adt.Directive
 import caliban.schema.Annotations.GQLDirective
 
-trait FederationDirectivesV2_8 extends FederationDirectivesV2_6 {
+trait FederationDirectivesV2_8 extends FederationDirectivesV2_7 {
 
   def Context(context: String) = Directive("context", Map("context" -> StringValue(context)))
 
