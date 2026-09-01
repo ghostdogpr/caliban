@@ -1741,6 +1741,24 @@ object ExecutionSpec extends ZIOSpecDefault {
           )
         }
       },
+      test("reject an unknown field nested inside a oneOf input inside a list") {
+        case class AddPets(pets: List[Pet.Wrapper])
+        case class Queries(addPets: AddPets => List[Pet])
+
+        val api: GraphQL[Any] = graphQL(RootResolver(Queries(_.pets.map(_.pet))))
+        val query             = gqldoc("""{
+          addPets(pets: [{ cat: { bogus: "a" } }]) {
+            __typename
+          }
+        }""")
+
+        api.interpreter.flatMap(_.execute(query)).map { response =>
+          assertTrue(
+            response.errors.collectFirst { case e: CalibanError.ValidationError => e.msg }
+              .exists(_.contains("Input field 'bogus' is not defined on type 'CatInput'."))
+          )
+        }
+      },
       test("add extensions from a resolver") {
         case class UserArgs(id: Int)
         case class User(test: UserArgs => String)

@@ -87,19 +87,17 @@ private object ValueValidator {
                       "Every input field provided in an input object value must be defined in the set of possible fields of that input object’s expected type."
                     )
                   )
-                } *> {
-                  if (inputType._isOneOfInput) Validator.validateOneOfInputValue(obj, errorContext)
-                  else
-                    validateAllDiscard(inputType.allInputFields) { f =>
-                      obj.fields.get(f.name) match {
-                        case Some(value)                    =>
-                          validateType(f._type, value, context, s"Field ${f.name} in $errorContext")
-                        case None if f.defaultValue.isEmpty =>
-                          validateType(f._type, NullValue, context, s"Field ${f.name} in $errorContext")
-                        case _                              =>
-                          unit
-                      }
-                    }
+                } *> when(inputType._isOneOfInput)(
+                  Validator.validateOneOfInputValue(obj, errorContext)
+                ) *> validateAllDiscard(inputType.allInputFields) { f =>
+                  obj.fields.get(f.name) match {
+                    case Some(value)                    =>
+                      validateType(f._type, value, context, s"Field ${f.name} in $errorContext")
+                    case None if f.defaultValue.isEmpty =>
+                      validateType(f._type, NullValue, context, s"Field ${f.name} in $errorContext")
+                    case _                              =>
+                      unit
+                  }
                 }
               case NullValue        =>
                 unit
