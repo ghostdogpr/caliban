@@ -127,6 +127,10 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
         unsupportedResult   <- call(unsupported, backend)
         redirectResult      <- call(redirect, backend)
         followed            <- redirectCalls.get
+        metadataPreserved    = metadataResult.exists(response =>
+                                 response.data == ObjectValue(List("value" -> caliban.Value.NullValue)) &&
+                                   response.errors.map(_.msg) == List("Remote GraphQL request failed.")
+                               )
       } yield assertTrue(
         graphQlResult.exists(_.errors.map(_.msg) == List("unavailable")),
         legacyResult.exists(_.data == ObjectValue(List("value" -> StringValue("ok")))),
@@ -134,7 +138,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
         textStatusResult == Left(HttpFailure(503)),
         untypedStatusResult == Left(HttpFailure(503)),
         malformedResult == Left(InvalidResponse),
-        metadataResult == Left(InvalidResponse),
+        metadataPreserved,
         incrementalResult == Left(InvalidResponse),
         emptyResult == Left(InvalidResponse),
         unsupportedResult == Left(UnsupportedMediaType),

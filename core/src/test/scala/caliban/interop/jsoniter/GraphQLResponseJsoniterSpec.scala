@@ -152,16 +152,18 @@ object GraphQLResponseJsoniterSpec extends ZIOSpecDefault {
           emptyErrors.toOption.contains(GraphQLResponse(NullValue, Nil))
         )
       },
-      test("accepts null response metadata and rejects malformed values [jsoniter]") {
-        val nullMetadata = List(
+      test(
+        "accepts null response metadata and malformed error entries while rejecting malformed envelopes [jsoniter]"
+      ) {
+        val nullMetadata   = List(
           """{"data":null,"errors":null}""",
           """{"data":null,"extensions":null}""",
           """{"data":null,"hasNext":null}"""
         )
-        val invalid      = List(
+        val malformedError = readFromString[GraphQLResponse[CalibanError]]("""{"errors":[null]}""")
+        val invalid        = List(
           """{}""",
           """{"errors":{}}""",
-          """{"errors":[null]}""",
           """{"data":null,"extensions":[]}""",
           """{"data":null,"hasNext":"false"}"""
         )
@@ -169,6 +171,10 @@ object GraphQLResponseJsoniterSpec extends ZIOSpecDefault {
         assertTrue(
           nullMetadata.forall(value =>
             Try(readFromString[GraphQLResponse[CalibanError]](value)).toOption.contains(GraphQLResponse(NullValue, Nil))
+          ),
+          malformedError == GraphQLResponse(
+            NullValue,
+            List(CalibanError.ExecutionError("Remote GraphQL request failed."))
           ),
           invalid.forall(value => Try(readFromString[GraphQLResponse[CalibanError]](value)).isFailure)
         )
