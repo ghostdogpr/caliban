@@ -18,8 +18,7 @@ private[gateway] final class OperationHooks[-R](
   wrapper: GatewayWrapper[R]
 ) {
 
-  val cacheMode: OperationCacheMode =
-    if (resolver.exists(!_.cacheable)) OperationCacheMode.Bypass else OperationCacheMode.Cacheable
+  val cacheable: Boolean = resolver.forall(_.cacheable)
 
   private[gateway] def resolve(request: GraphQLRequest)(implicit trace: Trace): ZIO[R, CalibanError, GraphQLRequest] =
     resolver match {
@@ -105,11 +104,4 @@ private[gateway] object OperationHooks {
           }
         )(fiberId => Cause.interrupt(fiberId))
       )
-}
-
-private[gateway] sealed trait OperationCacheMode
-
-private[gateway] object OperationCacheMode {
-  case object Cacheable extends OperationCacheMode
-  case object Bypass    extends OperationCacheMode
 }

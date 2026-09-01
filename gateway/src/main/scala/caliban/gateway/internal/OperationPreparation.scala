@@ -5,7 +5,6 @@ import caliban.execution.{ ExecutionRequest, Field, RequestPreparation }
 import caliban.gateway.{ GatewayConfig, GatewayWrapper }
 import caliban.gateway.internal.execution.PreparedPlan
 import caliban.gateway.internal.OperationCache.Weighted
-import caliban.gateway.internal.OperationCacheMode.Cacheable
 import caliban.gateway.internal.OperationPreparation._
 import caliban.gateway.internal.composition.ComposedGraph.OverrideLabel
 import caliban.gateway.internal.planning.CandidateSearch.PlanningFailure
@@ -37,12 +36,8 @@ private[gateway] final class OperationPreparation[-R] private (
       query       = resolved.query.getOrElse("")
       config     <- Configurator.ref.get
       preparation = PreparationConfig.from(config)
-      prepared   <- hooks.cacheMode match {
-                      case Cacheable =>
-                        prepareCached(resolved, query, preparation)
-                      case _         =>
-                        prepareUncached(resolved, query)
-                    }
+      prepared   <- if (hooks.cacheable) prepareCached(resolved, query, preparation)
+                    else prepareUncached(resolved, query)
       _          <- enforceCost(prepared)
       _          <- hooks.evaluatePolicy(resolved, prepared.document, prepared.executionRequest, prepared.plan.plan)
     } yield prepared
@@ -50,27 +45,22 @@ private[gateway] final class OperationPreparation[-R] private (
   private def enforceCost(prepared: Prepared): IO[CalibanError.ValidationError, Unit] =
     maxOperationCost match {
       case Some(maximum) =>
-        estimateCost(prepared.executionRequest, prepared.plan.plan) match {
-          case Left(error)      =>
-            ZIO.fail(
-              CalibanError.ValidationError(
-                error,
-                "",
-                extensions = Some(
-                  ResponseValue.ObjectValue(List("code" -> Value.StringValue("COST_QUERY_PARSE_FAILURE")))
-                )
-              )
+        def reject(message: String, code: String) =
+          ZIO.fail(
+            CalibanError.ValidationError(
+              message,
+              "",
+              extensions = Some(ResponseValue.ObjectValue(List("code" -> Value.StringValue(code))))
             )
+          )
+
+        estimateCost(prepared.executionRequest, prepared.plan.plan) match {
+          case Left(error)      => reject(error, "COST_QUERY_PARSE_FAILURE")
           case Right(estimated) =>
             if (estimated > maximum)
-              ZIO.fail(
-                CalibanError.ValidationError(
-                  s"Operation cost $estimated exceeds the configured maximum of $maximum.",
-                  "",
-                  extensions = Some(
-                    ResponseValue.ObjectValue(List("code" -> Value.StringValue("COST_ESTIMATED_TOO_EXPENSIVE")))
-                  )
-                )
+              reject(
+                s"Operation cost $estimated exceeds the configured maximum of $maximum.",
+                "COST_ESTIMATED_TOO_EXPENSIVE"
               )
             else ZIO.unit
         }
@@ -82,7 +72,7 @@ private[gateway] final class OperationPreparation[-R] private (
     query: String,
     preparation: PreparationConfig
   )(implicit trace: Trace): ZIO[R, CalibanError, Prepared] = {
-    def cached(document: Document, activeOverrides: Set[OverrideLabel]) =
+    def cached(parse: => IO[CalibanError, Document], activeOverrides: Set[OverrideLabel]) =
       cache
         .getOrCompute(
           CacheKey(
@@ -92,25 +82,17 @@ private[gateway] final class OperationPreparation[-R] private (
             preparation,
             activeOverrides
           )
-        )(computeCached(request, document, preparation, activeOverrides))
+        )(parse.flatMap(computeCached(request, _, preparation, activeOverrides)))
         .flatMap(materialize(request, _, activeOverrides))
 
     if (planner.hasProgressiveOverrides)
       for {
         document        <- RequestPreparation.parse(query)
         activeOverrides <- resolveProgressiveOverrides(request, document, request.operationName)
-        prepared        <- cached(document, activeOverrides)
+        prepared        <- cached(Exit.succeed(document), activeOverrides)
       } yield prepared
     else
-      cache
-        .getOrCompute(
-          CacheKey(query, request.operationName, request.isHttpGetRequest, preparation, Set.empty)
-        )(
-          RequestPreparation
-            .parse(query)
-            .flatMap(document => computeCached(request, document, preparation, Set.empty))
-        )
-        .flatMap(materialize(request, _, Set.empty))
+      cached(RequestPreparation.parse(query), Set.empty)
   }
 
   private def computeCached(

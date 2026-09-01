@@ -136,8 +136,6 @@ object ExecutionModelSpec extends ZIOSpecDefault {
         completion eq prepared.completion,
         prepared.cache ne bound.cache,
         prepared.completion ne bound.completion,
-        prepared.operation == plan.operation,
-        prepared.render == plan.render,
         bound.cache.roots.isEmpty,
         bound.plan.roots.head.downstream.head.arguments == Map("id" -> StringValue("p1")),
         prepared.plan.roots.head.downstream.head.arguments == Map("id" -> InputValue.VariableValue("id"))
@@ -188,7 +186,6 @@ object ExecutionModelSpec extends ZIOSpecDefault {
         results.size == 1,
         results.head.patches.isEmpty,
         results.head.errors == List(RemoteError.at(path)),
-        results.head.completed == Set(fetchId),
         results.head.blocked == Map(fetchId -> Set(path))
       )
     }

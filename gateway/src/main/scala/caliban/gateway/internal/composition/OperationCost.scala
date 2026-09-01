@@ -40,14 +40,10 @@ private[composition] final class OperationCost(
         val validation =
           if (costs.listSizes.isEmpty) None
           else
-            plan.roots.iterator
-              .map(fetch => validateListSizes(fetch.selections, fetch.source))
-              .collectFirst { case Some(error) => error }
-              .orElse(
-                plan.entities.iterator
-                  .map(fetch => validateListSizes(fetch.fields, fetch.source))
-                  .collectFirst { case Some(error) => error }
-              )
+            (plan.roots.iterator.map(fetch => validateListSizes(fetch.selections, fetch.source)) ++
+              plan.entities.iterator.map(fetch => validateListSizes(fetch.fields, fetch.source))).collectFirst {
+              case Some(error) => error
+            }
         validation.toLeft {
           val multipliers =
             if (costs.listSizes.isEmpty) new FetchMultipliers(Map.empty, Map.empty)
@@ -68,11 +64,6 @@ private[composition] final class OperationCost(
 
   private def fieldsCost(fields: List[Field], source: String): BigInt =
     conditionalCost(fields, (field: Field) => field._condition)((field, _) => fieldCost(field, source))
-
-  private def fieldsCost(fields: List[Field], source: String, runtimeType: String): BigInt =
-    fields.foldLeft(BigInt(0)) { (total, field) =>
-      if (field._condition.forall(_.contains(runtimeType))) total + fieldCost(field, source) else total
-    }
 
   private def entityFetchCost(
     fetch: EntityFetch,
@@ -104,10 +95,9 @@ private[composition] final class OperationCost(
     values: List[A],
     conditions: A => Option[Set[String]]
   )(cost: (A, Option[String]) => BigInt): BigInt = {
-    val unconditional = values.filter(value => conditions(value).isEmpty)
-    val conditional   = values.filter(value => conditions(value).nonEmpty)
-    val base          = unconditional.foldLeft(BigInt(0))((total, value) => total + cost(value, None))
-    val branch        = conditional
+    val (conditional, unconditional) = values.partition(value => conditions(value).nonEmpty)
+    val base                         = unconditional.foldLeft(BigInt(0))((total, value) => total + cost(value, None))
+    val branch                       = conditional
       .flatMap(value => conditions(value).toList.flatten)
       .distinct
       .map(runtimeType =>
@@ -160,7 +150,12 @@ private[composition] final class OperationCost(
   ): BigInt = {
     val size = resolvedListSize(field, listSize)
     if (listSize.sizedFields.isEmpty) own.oneTime + size * (own.perResult + nested)
-    else own.oneTime + own.perResult + sizedFieldsCost(field.fields, source, listSize.sizedFields, size)
+    else
+      own.oneTime + own.perResult + sizedFieldsCost(
+        field.fields,
+        source,
+        listSize.sizedFields.map(SizedPath(_, size))
+      )
   }
 
   private def fieldCost(field: Field, source: String, size: BigInt): BigInt = {
@@ -170,18 +165,9 @@ private[composition] final class OperationCost(
     maximumFieldCost(parentType, parent, field)(own => own.oneTime + size * (own.perResult + nested))
   }
 
-  private def sizedFieldsCost(
-    fields: List[Field],
-    source: String,
-    paths: List[Vector[String]],
-    size: BigInt
-  ): BigInt = sizedFieldsCost(fields, source, paths.map(SizedPath(_, size)))
-
   private def sizedFieldsCost(fields: List[Field], source: String, paths: List[SizedPath]): BigInt =
     conditionalCost(fields, (field: Field) => field._condition) { (field, _) =>
-      val matching = paths
-        .filter(_.path.headOption.contains(field.name))
-        .map(value => SizedPath(value.path.drop(1), value.size))
+      val matching = matchingSizedPaths(field.name, paths)
       if (matching.isEmpty) fieldCost(field, source)
       else if (matching.exists(_.path.isEmpty))
         fieldCost(field, source, matching.collect { case SizedPath(path, size) if path.isEmpty => size }.max)
@@ -189,10 +175,7 @@ private[composition] final class OperationCost(
         val parentType  = field.parentType.map(_.innerType)
         val parent      = parentType.flatMap(_.name).getOrElse("")
         val definitions = listSizes(source, parentType, parent, field.name)
-        val local       = definitions.flatMap { definition =>
-          val size = resolvedListSize(field, definition)
-          definition.sizedFields.map(SizedPath(_, size))
-        }
+        val local       = declaredSizedPaths(field, definitions)
         val nested      = sizedFieldsCost(field.fields, source, preferSizedPaths(local, matching))
         val directSize  = resolvedDirectListSize(field, definitions)
         maximumFieldCost(parentType, parent, field) { own =>
@@ -245,19 +228,14 @@ private[composition] final class OperationCost(
     ): Unit =
       fields.foreach { field =>
         val path          = basePath :+ field.aliasedName
-        val matching      = pending
-          .filter(_.path.headOption.contains(field.name))
-          .map(value => SizedPath(value.path.drop(1), value.size))
+        val matching      = matchingSizedPaths(field.name, pending)
         val activated     = matching.filter(_.path.isEmpty).map(_.size).reduceOption(_ max _)
         val parentType    = field.parentType.map(_.innerType)
         val parent        = parentType.flatMap(_.name).getOrElse("")
         val definitions   = listSizes(source, parentType, parent, field.name)
         val direct        = resolvedDirectListSize(field, definitions)
         val multiplier    = inherited * activated.orElse(direct).getOrElse(BigInt(1))
-        val localPending  = definitions.flatMap { definition =>
-          val size = resolvedListSize(field, definition)
-          definition.sizedFields.map(SizedPath(_, size))
-        }
+        val localPending  = declaredSizedPaths(field, definitions)
         val nestedPending = preferSizedPaths(
           localPending,
           matching.filter(_.path.nonEmpty)
@@ -273,6 +251,15 @@ private[composition] final class OperationCost(
     }
     new FetchMultipliers(result, pendingByPath)
   }
+
+  private def matchingSizedPaths(name: String, paths: List[SizedPath]): List[SizedPath] =
+    paths.filter(_.path.headOption.contains(name)).map(value => SizedPath(value.path.drop(1), value.size))
+
+  private def declaredSizedPaths(field: Field, definitions: List[ComposedGraph.ListSize]): List[SizedPath] =
+    definitions.flatMap { definition =>
+      val size = resolvedListSize(field, definition)
+      definition.sizedFields.map(SizedPath(_, size))
+    }
 
   private def validateListSizes(fields: List[Field], source: String): Option[String] =
     fields.iterator.flatMap { field =>
@@ -404,7 +391,7 @@ private[composition] final class OperationCost(
     val inner = tpe.innerType
     inner.kind match {
       case __TypeKind.INTERFACE | __TypeKind.UNION =>
-        val concrete = inner.name.toList.flatMap(name => runtimeTypesByName.getOrElse(name, Set.empty)).toList
+        val concrete = inner.name.toList.flatMap(name => runtimeTypesByName.getOrElse(name, Set.empty))
         concrete
           .map(name => costs.types.get(name).fold(BigInt(1))(BigInt(_)))
           .reduceOption(_ max _)

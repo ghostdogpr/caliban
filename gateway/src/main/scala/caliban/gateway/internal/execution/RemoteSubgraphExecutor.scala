@@ -119,10 +119,10 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
       for {
         body      <- ZIO.fromEither(encode(request.copy(extensions = None)))
         headers   <- this.headers
-        replaySafe = execution.retries > 0 && operationType == OperationType.Query
-        rawCall    = executeAttempts(body, headers, replaySafe, execution.retries, attempt = 0)
+        replaySafe = operationType == OperationType.Query
+        rawCall    = executeAttempts(body, headers, replaySafe, attempt = 0)
         admitted   = admission.fold(rawCall)(_.observed(wrapper)(rawCall))
-        response  <- if (operationType == OperationType.Query)
+        response  <- if (replaySafe)
                        queryCalls.fold(admitted)(
                          _.execute(QueryDeduplicationKey(body, headers))(
                            admitted.timeoutFail(SubgraphExecutor.TimeoutFailure)(execution.timeout)
@@ -152,7 +152,6 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
     body: Array[Byte],
     headers: List[Header],
     replaySafe: Boolean,
-    retries: Int,
     attempt: Int
   )(implicit trace: Trace): ZIO[R, SubgraphExecutor.Failure, GraphQLResponse[CalibanError]] = {
     val transport   = wrapper.attemptHeaders(name, attempt, headers).flatMap(send(body, _))
@@ -181,13 +180,13 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
       if (attempt == 0 || !wrapper.enabled) sendAttempt
       else
         wrapper.wrap(Event.Retry(name, attempt))(sendAttempt)(
-          Result.fromExit(_)(Result.fromResponse, failure => Result(SubgraphExecutor.failureOutcome(failure)))
+          SubgraphExecutor.resultFromExit
         )
 
     call.catchAll { failure =>
-      if (replaySafe && retries > 0 && retryable(failure))
+      if (replaySafe && attempt < execution.retries && retryable(failure))
         ZIO.sleep(execution.retryBackoff) *>
-          executeAttempts(body, headers, replaySafe, retries - 1, attempt + 1)
+          executeAttempts(body, headers, replaySafe, attempt + 1)
       else ZIO.fail(failure)
     }
   }

@@ -54,9 +54,9 @@ object GatewayMetrics {
             .increment *>
             subscriptionLifetime.update(seconds(duration)) *> effect
         case Event.SubscriptionOverflow                     => subscriptionOverflow.increment *> effect
-        case Event.SubscriptionSetup                        => trackDuration(subscriptionSetup, Set.empty)(effect)(result)
+        case Event.SubscriptionSetup                        => trackDuration(subscriptionSetup)(effect)(result)
         case Event.SubscriptionEvent                        =>
-          trackDuration(subscriptionEventDuration, Set.empty)(effect)(result)
+          trackDuration(subscriptionEventDuration)(effect)(result)
         case _: Event.Request                               =>
           track(
             requestsActive,
@@ -66,7 +66,7 @@ object GatewayMetrics {
             RequestTracking
           )(effect)(result)
         case Event.Routing                                  =>
-          trackDuration(routingDuration, Set.empty)(effect)(result)
+          trackDuration(routingDuration)(effect)(result)
         case Event.SubgraphCall(subgraph, _)                =>
           track(
             subgraphCallsActive,
@@ -127,14 +127,14 @@ object GatewayMetrics {
     def totalLabels(result: Result): Set[MetricLabel]  = Set.empty
   }
 
-  private def trackDuration[R, E, A](duration: Metric.Histogram[Double], labels: Set[MetricLabel])(
+  private def trackDuration[R, E, A](duration: Metric.Histogram[Double])(
     effect: ZIO[R, E, A]
   )(result: Exit[E, A] => Result)(implicit trace: Trace): ZIO[R, E, A] =
     Clock.nanoTime.flatMap { startedAt =>
       effect.onExit { exit =>
         Clock.nanoTime.flatMap { finishedAt =>
           duration
-            .tagged(labels + MetricLabel("outcome", result(exit).outcome.label))
+            .tagged("outcome", result(exit).outcome.label)
             .update(seconds(finishedAt - startedAt))
         }
       }

@@ -95,7 +95,6 @@ private[gateway] final class ResponseMapping(mapping: SchemaMapping) {
     if (selections.isEmpty) identityResponse
     else {
       val selected  = new java.util.HashMap[String, ResponseValue => ResponseValue]
-      val source    = originalRootType.types.get(sourceType(typeName))
       var remaining = selections
       while (remaining ne Nil) {
         val selection = remaining.head
@@ -106,8 +105,10 @@ private[gateway] final class ResponseMapping(mapping: SchemaMapping) {
             val sourceName = sourceField(typeName, selection.field)
             if (selection.children.isEmpty) identityResponse
             else {
-              val childType = source.flatMap(tpe => Option(tpe.getFieldOrNull(sourceName))).map(_._type)
-              val childName = childType.flatMap(_.innerType.name).map(clientType).getOrElse("")
+              val childName = sourceFieldDefinition(sourceType(typeName), sourceName)
+                .flatMap(_._type.innerType.name)
+                .map(clientType)
+                .getOrElse("")
               requiredResponseMapper(childName, selection.children)
             }
           }
@@ -176,11 +177,10 @@ private[gateway] object ResponseMapping {
     executableFields
       .zip(clientFields)
       .groupBy(_._1.aliasedName)
-      .flatMap { case (responseName, matches) =>
-        for {
-          executable <- matches.iterator.map(_._1).reduceOption(_.combine(_))
-          client     <- matches.iterator.map(_._2).reduceOption(_.combine(_))
-        } yield responseName -> ResponseNameMapping(
+      .map { case (responseName, matches) =>
+        val executable = matches.iterator.map(_._1).reduce(_.combine(_))
+        val client     = matches.iterator.map(_._2).reduce(_.combine(_))
+        responseName -> ResponseNameMapping(
           client.aliasedName,
           responseNameMappings(client.fields, executable.fields)
         )

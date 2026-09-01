@@ -28,13 +28,12 @@ private[internal] final class EntityLookup(
   responseMappings: Map[String, ResponseMapping]
 ) {
   def prepare(
-    fetches: List[EntityFetch],
+    fetch: EntityFetch,
     batch: EntityBatch,
     resolvedRequest: GraphQLRequest,
     cache: PlanExecutionCache
   ): Option[Call] =
     for {
-      fetch   <- fetches.headOption
       mapping <- graph.mapping(fetch.source)
       call    <- buildLookup(fetch, batch, resolvedRequest, mapping, cache)
     } yield call
@@ -163,7 +162,7 @@ private[internal] final class EntityLookup(
       )
 
     fetch.lookup.operation match {
-      case ComposedGraph.LookupOperation.FederationEntities(correlationKey)                                      =>
+      case ComposedGraph.LookupOperation.FederationEntities(correlationKey)    =>
         val correlation =
           if (
             correlationKey.nonEmpty &&
@@ -207,53 +206,55 @@ private[internal] final class EntityLookup(
           List(entityField)
         )
         Some(lookupExecution(operation, Some(variables), correlation, LookupResponse.ListRoot("_entities")))
-      case ComposedGraph.LookupOperation.GraphQLQuery(field, mappings, result: ComposedGraph.LookupResult.ByKey) =>
-        val correlation = graphqlCorrelation(fetch, result, executableFields)
-        evaluateArguments(mappings, batch, None).map { arguments =>
-          val alias           = "_caliban_gateway_lookup"
-          val sourceArguments = mapping.lookupArgumentsToSource(field, arguments)
-          val selection       = Selection.Field(
+      case ComposedGraph.LookupOperation.GraphQLQuery(field, mappings, result) =>
+        def lookupField(
+          alias: String,
+          arguments: Map[String, InputValue],
+          correlation: EntityCorrelation
+        ): Selection.Field =
+          Selection.Field(
             Some(alias),
             mapping.lookupFieldToSource(field),
-            sourceArguments,
+            mapping.lookupArgumentsToSource(field, arguments),
             Nil,
             sourceSelectionsFor(correlation),
             0
           )
-          val operation       = OperationDefinition(
+
+        def lookupCall(
+          selections: List[Selection],
+          correlation: EntityCorrelation,
+          response: LookupResponse
+        ): Call = {
+          val operation = OperationDefinition(
             OperationType.Query,
             Some("__GatewayLookup"),
             Nil,
             Nil,
-            List(selection)
+            selections
           )
-          lookupExecution(operation, None, correlation, LookupResponse.ListRoot(alias))
+          lookupExecution(operation, None, correlation, response)
         }
-      case ComposedGraph.LookupOperation.GraphQLQuery(field, mappings, ComposedGraph.LookupResult.Single)        =>
-        val correlation = EntityCorrelation.Ordered
-        val selections  = traverseOption(batch.entries.zipWithIndex) { case (entry, index) =>
-          evaluateArguments(mappings, batch, Some(entry)).map { arguments =>
-            val alias = s"_caliban_gateway_lookup_$index"
-            Selection.Field(
-              Some(alias),
-              mapping.lookupFieldToSource(field),
-              mapping.lookupArgumentsToSource(field, arguments),
-              Nil,
-              sourceSelectionsFor(correlation),
-              0
-            ) -> (alias -> index)
-          }
-        }
-        selections.map { generated =>
-          val (values, indices) = generated.unzip
-          val operation         = OperationDefinition(
-            OperationType.Query,
-            Some("__GatewayLookup"),
-            Nil,
-            Nil,
-            values
-          )
-          lookupExecution(operation, None, correlation, LookupResponse.Aliases(indices.toMap))
+
+        result match {
+          case byKey: ComposedGraph.LookupResult.ByKey =>
+            val correlation = graphqlCorrelation(fetch, byKey, executableFields)
+            evaluateArguments(mappings, batch, None).map { arguments =>
+              val alias = "_caliban_gateway_lookup"
+              lookupCall(List(lookupField(alias, arguments, correlation)), correlation, LookupResponse.ListRoot(alias))
+            }
+          case ComposedGraph.LookupResult.Single       =>
+            val correlation = EntityCorrelation.Ordered
+            val selections  = traverseOption(batch.entries.zipWithIndex) { case (entry, index) =>
+              evaluateArguments(mappings, batch, Some(entry)).map { arguments =>
+                val alias = s"_caliban_gateway_lookup_$index"
+                lookupField(alias, arguments, correlation) -> (alias -> index)
+              }
+            }
+            selections.map { generated =>
+              val (values, indices) = generated.unzip
+              lookupCall(values, correlation, LookupResponse.Aliases(indices.toMap))
+            }
         }
     }
   }
@@ -501,7 +502,6 @@ private[internal] final class EntityLookup(
       EntityResult(
         merged,
         errors,
-        batch.fetchIds,
         immutableBlocked(blocked)
       )
     }

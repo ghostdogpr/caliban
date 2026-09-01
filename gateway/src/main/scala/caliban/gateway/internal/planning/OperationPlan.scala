@@ -64,8 +64,7 @@ private[gateway] object OperationPlan {
     downstream: List[Field],
     contextRoots: List[Field]
   ) {
-    def selections: List[Field] =
-      if (contextRoots.isEmpty) downstream else downstream ::: contextRoots
+    def selections: List[Field] = downstream ::: contextRoots
   }
 
   final case class ContextualArgument(

@@ -34,7 +34,7 @@ private[gateway] object RemoteSubscription {
   )(implicit trace: Trace): ZIO[Scope, Throwable, ZStream[Any, Throwable, Response]] =
     for {
       queue    <- SubscriptionBuffer.make[Response](config.bufferSize)
-      finished <- Promise.make[Throwable, Unit]
+      finished <- Promise.make[Throwable, Nothing]
       ready    <- Promise.make[Throwable, Unit]
       emit      = (response: Response) =>
                     queue.offer(response).flatMap(ok => ZIO.fail(SubscriptionTermination.Overflow).unless(ok).unit)
@@ -107,13 +107,13 @@ private[gateway] object RemoteSubscription {
                     case error: CalibanError.ExecutionError => error
                     case _                                  => SubscriptionTermination.Source
                   }.exit.flatMap {
-                    case Exit.Success(_)     => queue.end *> finished.succeed(()).unit
+                    case Exit.Success(_)     => queue.end
                     case Exit.Failure(cause) => ready.failCause(cause) *> finished.failCause(cause).unit
                   }.forkScoped
       _        <- ready.await.timeoutFail(SubscriptionTermination.SetupTimeout)(config.connectionTimeout)
     } yield
     // queue.end drains buffered events on success; only a source failure interrupts the consumer immediately.
-    queue.stream.interruptWhen(finished.await.flatMap(_ => ZIO.never))
+    queue.stream.interruptWhen(finished.await)
 
   private def websocket(
     endpoint: Uri,

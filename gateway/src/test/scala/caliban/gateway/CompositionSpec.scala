@@ -82,7 +82,7 @@ object CompositionSpec extends ZIOSpecDefault {
                                   federation = true
                                 )
                                 .left
-                                .map(_.flatMap(SubgraphError(input.name, _).diagnostics))
+                                .map(SubgraphError(input.name, _).diagnostics)
         } yield preparedSubgraph :: tail
     }
     subgraphs.flatMap(SchemaComposer.compose)

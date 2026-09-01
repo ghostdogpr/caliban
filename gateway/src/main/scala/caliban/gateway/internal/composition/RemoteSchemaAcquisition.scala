@@ -64,25 +64,24 @@ private[gateway] object RemoteSchemaAcquisition {
     val request                                                  = selection.toGraphQL(dropNullInputValues = true)
 
     send(endpoint, writeToArray(request), config, backend).flatMap { bytes =>
-      if (!withinJsonDepth(bytes, config.maxParsingDepth)) parsingDepthFailure(config.maxParsingDepth)
-      else {
-        for {
-          response             <- ZIO
-                                    .attempt(readFromArray[ResponseValue](bytes))
-                                    .mapError(IntrospectionResponseDecodingFailed(_))
-          _                    <- if (defaultValuesWithinDepth(response, config.maxParsingDepth)) ZIO.unit
-                                  else parsingDepthFailure(config.maxParsingDepth)
-          decoded              <- ZIO
-                                    .attempt(selection.decode(new String(bytes, StandardCharsets.UTF_8)))
-                                    .mapError(IntrospectionResponseDecodingFailed(_))
-          result               <- ZIO.fromEither(decoded).mapError {
-                                    case ServerError(errors) => IntrospectionErrors(errors)
-                                    case error               => InvalidIntrospectionResponse(error)
-                                  }
-          (document, errors, _) = result
-          _                    <- ZIO.fail(IntrospectionErrors(errors)).when(errors.nonEmpty)
-        } yield document
-      }
+      for {
+        response             <- ZIO
+                                  .attempt(readFromArray[ResponseValue](bytes))
+                                  .mapError(IntrospectionResponseDecodingFailed(_))
+        _                    <- validateDepth(
+                                  defaultValuesWithinDepth(response, config.maxParsingDepth),
+                                  config.maxParsingDepth
+                                )
+        decoded              <- ZIO
+                                  .attempt(selection.decode(new String(bytes, StandardCharsets.UTF_8)))
+                                  .mapError(IntrospectionResponseDecodingFailed(_))
+        result               <- ZIO.fromEither(decoded).mapError {
+                                  case ServerError(errors) => IntrospectionErrors(errors)
+                                  case error               => InvalidIntrospectionResponse(error)
+                                }
+        (document, errors, _) = result
+        _                    <- ZIO.fail(IntrospectionErrors(errors)).when(errors.nonEmpty)
+      } yield document
     }
   }
 
@@ -95,14 +94,11 @@ private[gateway] object RemoteSchemaAcquisition {
 
     send(endpoint, writeToArray(request), config, backend).flatMap { bytes =>
       for {
-        _        <- if (withinJsonDepth(bytes, config.maxParsingDepth)) ZIO.unit
-                    else parsingDepthFailure(config.maxParsingDepth)
         decoded  <- ZIO
                       .attempt(readFromArray[ResponseValue](bytes))
                       .mapError(FederationResponseDecodingFailed(_))
         sdl      <- ZIO.fromEither(decodeServiceSdl(decoded))
-        _        <- if (withinGraphQLDepth(sdl, config.maxParsingDepth)) ZIO.unit
-                    else parsingDepthFailure(config.maxParsingDepth)
+        _        <- validateDepth(withinGraphQLDepth(sdl, config.maxParsingDepth), config.maxParsingDepth)
         document <- ZIO.fromEither(Parser.parseQuery(sdl)).mapError(InvalidFederationSchema(_))
       } yield document
     }
@@ -128,6 +124,8 @@ private[gateway] object RemoteSchemaAcquisition {
           ZIO.fail(ResponseTooLarge(config.maxResponseBytes))
         else if (response.code.isRedirect || !allowedMediaType(response))
           ZIO.fail(UnexpectedResponse(response.code, response.contentType))
+        else if (!withinJsonDepth(response.body.bytes, config.maxParsingDepth))
+          ZIO.fail(ParsingDepthExceeded(config.maxParsingDepth))
         else ZIO.succeed(response.body.bytes)
       }
   }
@@ -170,8 +168,8 @@ private[gateway] object RemoteSchemaAcquisition {
     value.fields.collectFirst { case (`name`, nested: ObjectValue) => nested }
       .toRight(InvalidFederationResponse(missing))
 
-  private def parsingDepthFailure(maxDepth: Int): IO[SchemaAcquisitionError, Nothing] =
-    ZIO.fail(ParsingDepthExceeded(maxDepth))
+  private def validateDepth(valid: Boolean, maxDepth: Int): IO[SchemaAcquisitionError, Unit] =
+    if (valid) ZIO.unit else ZIO.fail(ParsingDepthExceeded(maxDepth))
 
   private def defaultValuesWithinDepth(value: ResponseValue, maxDepth: Int): Boolean =
     value match {

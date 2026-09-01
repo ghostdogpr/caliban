@@ -43,15 +43,11 @@ private[composition] final class TypeComposition(
 
     fields.toList.flatMap { case (fieldName, definitions) =>
       val values         = definitions.map(_._2)
-      val contextualArgs = values.iterator.flatMap { case (entry, _) =>
-        entry.contextualArguments.collect { case (`fieldName`, argument) => argument }
-      }.toSet
-      val contextErrors  = contextualArgumentDiagnostics(
-        s"$name.$fieldName",
-        values.map { case (entry, field) =>
-          (entry.source, field, entry.contextualArguments.collect { case (`fieldName`, argument) => argument })
-        }
-      )
+      val perEntry       = values.map { case (entry, field) =>
+        (entry.source, field, entry.contextualArguments.collect { case (`fieldName`, argument) => argument })
+      }
+      val contextualArgs = perEntry.iterator.flatMap(_._3).toSet
+      val contextErrors  = contextualArgumentDiagnostics(s"$name.$fieldName", perEntry)
       val ownedEntries   = effectiveFieldProviders(fieldName, values.map(_._1))
       val owned          = values.filter(value => ownedEntries.exists(_.source == value._1.source))
       val shareable      = owned.nonEmpty && owned.forall { case (entry, _) =>
@@ -189,10 +185,7 @@ private[composition] final class TypeComposition(
       case (name, tpe) if tpe.kind == __TypeKind.UNION =>
         name -> tpe.copy(possibleTypes = tpe.possibleTypes.map(resolve(_, objects)))
     }
-    lazy val resolved: Map[String, __Type]   =
-      mergedTypes.filterNot { case (_, tpe) =>
-        tpe.kind == __TypeKind.OBJECT || tpe.kind == __TypeKind.INTERFACE || tpe.kind == __TypeKind.UNION
-      } ++ objects ++ interfaces ++ unions
+    lazy val resolved: Map[String, __Type]   = mergedTypes ++ objects ++ interfaces ++ unions
 
     resolved
   }
@@ -457,19 +450,16 @@ private[composition] object TypeComposition {
 
   private[composition] def mergeOutputType(left: __Type, right: __Type): __Type =
     (left.kind, right.kind) match {
-      case (__TypeKind.NON_NULL, __TypeKind.NON_NULL) =>
+      case (__TypeKind.NON_NULL, __TypeKind.NON_NULL) | (__TypeKind.LIST, __TypeKind.LIST) =>
         (left.ofType, right.ofType) match {
           case (Some(a), Some(b)) => left.copy(ofType = Some(mergeOutputType(a, b)))
           case _                  => left
         }
-      case (__TypeKind.NON_NULL, _)                   => left.ofType.map(mergeOutputType(_, right)).getOrElse(right)
-      case (_, __TypeKind.NON_NULL)                   => right.ofType.map(mergeOutputType(left, _)).getOrElse(left)
-      case (__TypeKind.LIST, __TypeKind.LIST)         =>
-        (left.ofType, right.ofType) match {
-          case (Some(a), Some(b)) => left.copy(ofType = Some(mergeOutputType(a, b)))
-          case _                  => left
-        }
-      case _                                          =>
+      case (__TypeKind.NON_NULL, _)                                                        =>
+        left.ofType.map(mergeOutputType(_, right)).getOrElse(right)
+      case (_, __TypeKind.NON_NULL)                                                        =>
+        right.ofType.map(mergeOutputType(left, _)).getOrElse(left)
+      case _                                                                               =>
         val leftPossible  = left.possibleTypeNames
         val rightPossible = right.possibleTypeNames
         if (leftPossible.nonEmpty && leftPossible.subsetOf(rightPossible)) right

@@ -90,7 +90,7 @@ private[gateway] object DirectiveComposition {
     private val hiddenBySource: Map[String, Set[String]],
     private val selectedDefinitions: List[SelectedDefinition],
     private val applications: Map[Coordinate, List[Directive]],
-    private val validApplications: List[CompiledApplication],
+    private val validApplications: List[RawApplication],
     private val deferredDiagnostics: List[(Coordinate, String)],
     val diagnostics: List[String]
   ) {
@@ -253,9 +253,7 @@ private[gateway] object DirectiveComposition {
     val selectedBySource      = sourceInfos.map { info =>
       val selected = info.ordinarySelections ++
         (if (info.source.subgraph.federation)
-           info.definitions.iterator.collect {
-             case definition if definition.key == DirectiveKey(FederationIdentity, "tag") => definition.key
-           }.toSet
+           Set(DirectiveKey(FederationIdentity, "tag"))
          else Set.empty) ++ info.composeDeclarations.collect { case Right(value) => value }
       info.source.subgraph.name -> selected
     }.toMap
@@ -281,21 +279,19 @@ private[gateway] object DirectiveComposition {
         value.definition.copy(name = composedNames.getOrElse(value.key, value.localName))
       )
     )
-    val definitionDiagnostics = selectedDefinitions
-      .groupBy(_.key)
-      .collect {
-        case (_, values) if values.map(value => definitionSignature(value.definition)).distinct.size > 1 =>
-          val name    = values.headOption.map(_.definition.name).getOrElse("")
-          val sources = SchemaComposer.formatSources(values.map(_.source))
-          s"[directive @$name] Definitions are incompatible between subgraphs: $sources."
-      }
-      .toList
+    val selectedByKey         = selectedDefinitions.groupBy(_.key)
+    val definitionDiagnostics = selectedByKey.collect {
+      case (_, values) if values.map(value => definitionSignature(value.definition)).distinct.size > 1 =>
+        val name    = values.headOption.map(_.definition.name).getOrElse("")
+        val sources = SchemaComposer.formatSources(values.map(_.source))
+        s"[directive @$name] Definitions are incompatible between subgraphs: $sources."
+    }.toList
     val rawApplications       =
       sourceInfos.flatMap(info => info.applications(selectedBySource(info.source.subgraph.name), composedNames))
     val compiled              = rawApplications.map(compileApplication)
     val applicationErrors     = compiled.collect { case Left(errors) => errors }.flatten
     val validApplications     = compiled.collect { case Right(value) => value }
-    val definitionByKey       = selectedDefinitions.groupBy(_.key).flatMap { case (key, values) =>
+    val definitionByKey       = selectedByKey.flatMap { case (key, values) =>
       values.sortBy(_.source).headOption.map(key -> _.definition)
     }
     val applicationsByKey     = validApplications
@@ -309,10 +305,10 @@ private[gateway] object DirectiveComposition {
       val selected   =
         if (definition.exists(_.isRepeatable)) {
           val maximumBySignature  = sorted
-            .groupBy(value => value.source -> applicationSignature(value.directive))
-            .toList
-            .groupBy(_._1._2)
-            .map { case (signature, occurrences) => signature -> occurrences.map(_._2.size).max }
+            .groupBy(value => applicationSignature(value.directive))
+            .map { case (signature, occurrences) =>
+              signature -> occurrences.groupBy(_.source).valuesIterator.map(_.size).foldLeft(0)(_ max _)
+            }
           var retainedBySignature = Map.empty[List[(String, InputValue)], Int]
           sorted.filter { value =>
             val signature = applicationSignature(value.directive)
@@ -339,7 +335,6 @@ private[gateway] object DirectiveComposition {
                 coordinate ->
                   s"[$source] Non-repeatable directive '@${definition.name}' is applied more than once at '${coordinate.display}'."
             }
-            .toList
           val signatures         = values.map(value => applicationSignature(value.directive)).distinct
           val incompatible       =
             if (signatures.size <= 1) Nil
@@ -427,15 +422,6 @@ private[gateway] object DirectiveComposition {
     definition: __Directive,
     ordinal: Int
   )
-  private final case class CompiledApplication(
-    source: String,
-    key: DirectiveKey,
-    coordinate: Coordinate,
-    directive: Directive,
-    definition: __Directive,
-    ordinal: Int
-  )
-
   private final case class SourceInfo(source: Source) {
     private val subgraph                      = source.subgraph
     private val features                      = linkedFeatures(subgraph.document)
@@ -592,7 +578,7 @@ private[gateway] object DirectiveComposition {
     }
   }
 
-  private def compileApplication(application: RawApplication): Either[List[String], CompiledApplication] = {
+  private def compileApplication(application: RawApplication): Either[List[String], RawApplication] = {
     val definition     = application.definition
     val arguments      = definition.allArgs.map(argument => argument.name -> argument).toMap
     val unknown        = application.directive.arguments.keySet
@@ -641,16 +627,7 @@ private[gateway] object DirectiveComposition {
 
     if (errors.nonEmpty) Left(errors)
     else
-      Right(
-        CompiledApplication(
-          application.source,
-          application.key,
-          application.coordinate,
-          application.directive.copy(arguments = ListMap(normalizedArgs: _*)),
-          definition,
-          application.ordinal
-        )
-      )
+      Right(application.copy(directive = application.directive.copy(arguments = ListMap(normalizedArgs: _*))))
   }
 
   private def canonicalValue(tpe: __Type, value: InputValue): InputValue =

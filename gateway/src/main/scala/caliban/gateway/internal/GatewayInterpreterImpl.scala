@@ -46,7 +46,7 @@ private[gateway] final class GatewayInterpreterImpl[-R](
 
   def explain(request: GraphQLRequest)(implicit trace: Trace): ZIO[R, CalibanError, String] =
     control
-      .runRequest(operations.prepare(request).map(prepared => prepared.plan.render), reservation)(
+      .runRequest(operations.prepare(request).map(prepared => prepared.plan.plan.render), reservation)(
         ZIO.fail(requestTimeoutError)
       )(
         ZIO.fail(requestShutdownError)
@@ -67,6 +67,15 @@ private[gateway] final class GatewayInterpreterImpl[-R](
   private def executeObservedRequest(request: GraphQLRequest)(implicit
     trace: Trace
   ): URIO[R, GraphQLResponse[CalibanError]] = {
+    def completion(
+      failure: ServerFailure,
+      response: GraphQLResponse[CalibanError],
+      outcome: Outcome
+    ): URIO[R, RequestResult] =
+      wrapper.wrap(Event.Completion)(
+        GraphQLResponseContext.markServerError(failure).as(RequestResult(response, outcome, None))
+      )(classifyRequestResult)
+
     val preparation = wrapper
       .wrap(Event.Routing)(operations.prepare(request))(
         Result.fromExit(_)(_ => Result(Outcome.Success), error => Result(preparationOutcome(error)))
@@ -75,7 +84,7 @@ private[gateway] final class GatewayInterpreterImpl[-R](
 
     control
       .runObservedRequest(wrapper, Event.Request(request.operationName), reservation)(preparation)(
-        _.fold(_ => true, _.plan.operation != OperationType.Subscription)
+        _.fold(_ => true, _.plan.plan.operation != OperationType.Subscription)
       )(
         _.fold(
           error =>
@@ -85,23 +94,13 @@ private[gateway] final class GatewayInterpreterImpl[-R](
               RequestResult(
                 response,
                 if (response.errors.isEmpty) Outcome.Success else Outcome.GraphQLError,
-                Some(prepared.plan.operation)
+                Some(prepared.plan.plan.operation)
               )
             }
         )
-      )(
-        wrapper.wrap(Event.Completion)(
-          GraphQLResponseContext
-            .markServerError(ServerFailure.TimedOut)
-            .as(RequestResult(requestTimeoutResponse, Outcome.Timeout, None))
-        )(classifyRequestResult)
-      )(
-        wrapper.wrap(Event.Completion)(
-          GraphQLResponseContext
-            .markServerError(ServerFailure.Unavailable)
-            .as(RequestResult(requestShutdownResponse, Outcome.RequestError, None))
-        )(classifyRequestResult)
-      )(classifyRequestResult)
+      )(completion(ServerFailure.TimedOut, requestTimeoutResponse, Outcome.Timeout))(
+        completion(ServerFailure.Unavailable, requestShutdownResponse, Outcome.RequestError)
+      )(classifyRequestResult(_))
       .map(_.response)
   }
 
@@ -114,7 +113,7 @@ private[gateway] final class GatewayInterpreterImpl[-R](
     trace: Trace
   ): URIO[R, GraphQLResponse[CalibanError]] =
     GraphQLResponseContext.markExecuted *> (
-      if (prepared.plan.operation == OperationType.Subscription)
+      if (prepared.plan.plan.operation == OperationType.Subscription)
         (for {
           frozen  <- executor
                        .forSubscription(prepared.plan)

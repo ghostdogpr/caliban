@@ -9,7 +9,7 @@ import caliban.gateway.internal.execution.SubgraphExecutor.ErrorPolicy
 import caliban.parsing.adt.OperationType
 import caliban.ResponseValue.{ ObjectValue, StreamValue }
 import caliban.schema.Types
-import zio.{ Scope, Trace, ZIO }
+import zio.{ Exit, Scope, Trace, ZIO }
 import zio.stream.ZStream
 
 import scala.util.control.NoStackTrace
@@ -32,7 +32,7 @@ private[gateway] trait SubgraphExecutor[-R] {
   ): ZIO[R, SubgraphExecutor.Failure, GraphQLResponse[CalibanError]]
 
   def admittedBy[R1 <: R](gate: AdmissionGate, wrapper: GatewayWrapper[R1]): SubgraphExecutor[R1] =
-    new GatedSubgraphExecutor(this, gate, wrapper)
+    this
 }
 
 private[gateway] final class ObservedSubgraphExecutor[R](
@@ -52,32 +52,15 @@ private[gateway] final class ObservedSubgraphExecutor[R](
     if (!wrapper.enabled) underlying.execute(request, operationType)
     else
       wrapper.wrap(Event.SubgraphCall(name, operationType))(underlying.execute(request, operationType))(
-        Result.fromExit(_)(Result.fromResponse, failure => Result(SubgraphExecutor.failureOutcome(failure)))
+        SubgraphExecutor.resultFromExit
       )
 
 }
 
-private[gateway] final class GatedSubgraphExecutor[-R](
-  underlying: SubgraphExecutor[R],
-  gate: AdmissionGate,
-  wrapper: GatewayWrapper[R]
-) extends SubgraphExecutor[R] {
-  val errorPolicy: ErrorPolicy = underlying.errorPolicy
-
-  override def forSubscription(implicit trace: Trace)                    =
-    underlying.forSubscription.map(new GatedSubgraphExecutor(_, gate, wrapper))
-  override def subscribe(request: GraphQLRequest)(implicit trace: Trace) =
-    gate.observed[R with Scope, Throwable, ZStream[Any, Throwable, GraphQLResponse[CalibanError]]](wrapper)(
-      underlying.subscribe(request)
-    )
-
-  def execute(request: GraphQLRequest, operationType: OperationType)(implicit
-    trace: Trace
-  ): ZIO[R, SubgraphExecutor.Failure, GraphQLResponse[CalibanError]] =
-    gate.observed(wrapper)(underlying.execute(request, operationType))
-}
-
 private[gateway] object SubgraphExecutor {
+  private[execution] val resultFromExit: Exit[Failure, GraphQLResponse[CalibanError]] => Result =
+    Result.fromExit(_)(Result.fromResponse, failure => Result(failureOutcome(failure)))
+
   // Adapt native field-value streams and gateway response envelopes without changing core execution.
   def responses(response: GraphQLResponse[CalibanError]): ZStream[Any, Throwable, GraphQLResponse[CalibanError]] =
     response.data match {

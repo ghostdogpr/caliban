@@ -62,10 +62,7 @@ private[gateway] final class OperationCache[K, E, V, -R] private (
   )(implicit trace: Trace): ZIO[R0, E, V] =
     ZIO.uninterruptibleMask { restore =>
       restore(compute).exit.flatMap { exit =>
-        val result: Exit[E, V] = exit match {
-          case Exit.Success(weighted) => Exit.succeed(weighted.value)
-          case Exit.Failure(cause)    => Exit.failCause(cause)
-        }
+        val result: Exit[E, V] = exit.mapExit(_.value)
         state.update { current =>
           val withoutFlight = current.finish(key, promise)
           exit match {

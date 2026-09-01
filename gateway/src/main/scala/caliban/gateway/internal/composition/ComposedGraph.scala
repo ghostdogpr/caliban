@@ -13,6 +13,7 @@ import caliban.rendering.DocumentRenderer
 import caliban.schema.RootType
 
 import java.util.concurrent.ConcurrentHashMap
+import scala.collection.compat._
 
 /**
  * Immutable schema and ownership metadata produced by composition.
@@ -50,17 +51,16 @@ private[gateway] final class ComposedGraph private[internal] (
           }
         }
       }
-      (required ::: contextual).groupBy(_._1).map { case (coordinate, values) => coordinate -> values.map(_._2) }
+      (required ::: contextual).groupMap(_._1)(_._2)
     }
   private val securityByCoordinate     =
     securityApplications
       .groupBy(application => application.typeName -> application.fieldName)
       .map { case (coordinate, values) => coordinate -> values.map(_.directive).distinct }
-  private val securedFieldTypes        = securityApplications.iterator
+  private val securedFieldTypes        = securityApplications
     .flatMap(application => application.fieldName.map(_ -> application.typeName))
-    .toList
-    .groupBy(_._1)
-    .map { case (fieldName, values) => fieldName -> values.map(_._2).distinct.sorted }
+    .groupMap(_._1)(_._2)
+    .map { case (fieldName, values) => fieldName -> values.distinct.sorted }
   private val securedTypes             = securityApplications.collect {
     case application if application.fieldName.isEmpty =>
       application.typeName
@@ -68,35 +68,32 @@ private[gateway] final class ComposedGraph private[internal] (
   private val sourceFieldSources       = sourceFields.keysIterator.map { case (source, owner, name) =>
     (owner -> name) -> source
   }.toList
-    .groupBy(_._1)
-    .map { case (coordinate, values) => coordinate -> values.map(_._2).sorted }
+    .groupMap(_._1)(_._2)
+    .map { case (coordinate, values) => coordinate -> values.sorted }
   private val lookupSourcesByType      = entityLookups.keysIterator.collect {
     case (source, typeName) if !interfaceObjects.contains(source -> typeName) => typeName -> source
   }.toList
-    .groupBy(_._1)
-    .map { case (typeName, values) => typeName -> values.map(_._2).sorted }
+    .groupMap(_._1)(_._2)
+    .map { case (typeName, values) => typeName -> values.sorted }
   private val lookupTypes              = entityLookups.keysIterator.map(_._2).toSet
   private val operationCost            = new OperationCost(rootType.types, runtimeTypesByName, costs)
 
-  private val progressiveOverridesByLabel =
-    (routes.valuesIterator.flatMap(_.providers) ++ fieldRoutes.valuesIterator.flatten)
-      .flatMap(_.condition.map(condition => condition.label -> condition.percentage))
-      .toList
-      .groupBy(_._1)
-      .map { case (label, values) => label -> values.head._2 }
-
-  private val progressiveOverridesByFieldName = {
-    val rootValues  = routes.iterator.flatMap { case ((_, field), route) =>
-      route.providers.iterator.flatMap(_.condition.map(condition => field -> condition))
+  private val (progressiveOverridesByLabel, progressiveOverridesByFieldName) = {
+    val conditions = routes.iterator.flatMap { case ((_, field), route) =>
+      route.providers.iterator.flatMap(_.condition.map(field -> _))
+    } ++ fieldRoutes.iterator.flatMap { case ((_, field), routes) =>
+      routes.iterator.flatMap(_.condition.map(field -> _))
     }
-    val fieldValues = fieldRoutes.iterator.flatMap { case ((_, field), routes) =>
-      routes.iterator.flatMap(_.condition.map(condition => field -> condition))
-    }
-    (rootValues ++ fieldValues).toList.groupBy(_._1).map { case (field, values) =>
-      field -> values.iterator.map(_._2.label).toSet
+    conditions.foldLeft(
+      Map.empty[ComposedGraph.OverrideLabel, Option[BigDecimal]] ->
+        Map.empty[String, Set[ComposedGraph.OverrideLabel]]
+    ) { case ((byLabel, byFieldName), (field, condition)) =>
+      val labels = byFieldName.updated(field, byFieldName.getOrElse(field, Set.empty) + condition.label)
+      if (byLabel.contains(condition.label)) byLabel              -> labels
+      else byLabel.updated(condition.label, condition.percentage) -> labels
     }
   }
-  private val routedVariants                  = new ConcurrentHashMap[Set[ComposedGraph.OverrideLabel], ComposedGraph]
+  private val routedVariants                                                 = new ConcurrentHashMap[Set[ComposedGraph.OverrideLabel], ComposedGraph]
 
   def progressiveOverrides(fieldNames: Set[String]): Map[ComposedGraph.OverrideLabel, Option[BigDecimal]] =
     fieldNames.iterator
@@ -180,9 +177,6 @@ private[gateway] final class ComposedGraph private[internal] (
 
   def provided(source: String, typeName: String, field: String): List[Selection] =
     provisions.getOrElse((source, typeName, field), Nil)
-
-  def declaresContext(source: String, typeName: String, name: ComposedGraph.ContextName): Boolean =
-    contexts.getOrElse(source -> typeName, Set.empty).contains(name)
 
   def contextDeclarations(typeName: String): List[ComposedGraph.ContextDeclaration] = {
     val selectedTypes = runtimeTypesByName.getOrElse(typeName, Set(typeName))

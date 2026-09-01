@@ -44,7 +44,7 @@ private[gateway] final class EntityExecutor[-R](
     }
     val candidates = mutable.HashMap.empty[(FetchId, Vector[String]), List[(List[PathValue], ResponseValue)]]
     fetches.foreach { fetch =>
-      (fetch.mergePath :: fetch.contextArguments.map(_.sourcePath)).distinct.foreach { path =>
+      (fetch.mergePath :: fetch.contextArguments.map(_.sourcePath)).foreach { path =>
         val key = fetch.root -> path
         if (!candidates.contains(key)) {
           val collected = new mutable.ListBuffer[(List[PathValue], ResponseValue)]
@@ -71,7 +71,7 @@ private[gateway] final class EntityExecutor[-R](
     val fetches = group.toList
     val batch   = prepareBatch(fetches, candidates, blocked, cache)
 
-    if (batch.entries.isEmpty) ZIO.succeed(EntityResult(Nil, batch.errors, batch.fetchIds, batch.blocked))
+    if (batch.entries.isEmpty) ZIO.succeed(EntityResult(Nil, batch.errors, batch.blocked))
     else if (fetches.forall(_.contextArguments.isEmpty))
       executeBatch(fetch, fetches, batch, resolvedRequest, cache)
     else {
@@ -87,11 +87,7 @@ private[gateway] final class EntityExecutor[-R](
         EntityResult(
           results.flatMap(_.patches),
           results.flatMap(_.errors),
-          results.iterator.flatMap(_.completed).toSet,
-          results.flatMap(_.blocked).foldLeft(Map.empty[FetchId, Set[List[PathValue]]]) {
-            case (values, (fetchId, paths)) =>
-              values.updated(fetchId, values.getOrElse(fetchId, Set.empty) ++ paths)
-          }
+          unionBlocked(Map.empty, results.flatMap(_.blocked))
         )
       }
     }
@@ -107,11 +103,10 @@ private[gateway] final class EntityExecutor[-R](
     def failure = EntityResult(
       Nil,
       batch.errors ::: fetches.map(fetch => RemoteError.at(fetchPath(fetch))),
-      batch.fetchIds,
       blockAll(batch)
     )
 
-    lookups.prepare(fetches, batch, resolvedRequest, cache) match {
+    lookups.prepare(fetch, batch, resolvedRequest, cache) match {
       case Some(lookup) =>
         subgraphExecutors.get(fetch.source) match {
           case Some(executor) =>
@@ -185,8 +180,7 @@ private[gateway] final class EntityExecutor[-R](
         )
       }.toVector,
       errors.toList,
-      skipped.iterator.map { case (fetchId, paths) => fetchId -> paths.toSet }.toMap,
-      fetches.map(_.id).toSet
+      skipped.iterator.map { case (fetchId, paths) => fetchId -> paths.toSet }.toMap
     )
   }
 
@@ -219,7 +213,7 @@ private[gateway] final class EntityExecutor[-R](
       val source = candidates
         .getOrElse(fetch.root -> argument.sourcePath, Nil)
         .collect {
-          case (path, value: ObjectValue) if path.size <= entityPath.size && entityPath.startsWith(path) =>
+          case (path, value: ObjectValue) if entityPath.startsWith(path) =>
             path -> value
         }
         .sortBy(_._1.size)
@@ -337,7 +331,6 @@ private[gateway] object EntityExecutor {
   final case class EntityResult(
     patches: List[EntityPatch],
     errors: List[CalibanError],
-    completed: Set[FetchId],
     blocked: Map[FetchId, Set[List[PathValue]]]
   )
 
@@ -449,6 +442,14 @@ private[gateway] object EntityExecutor {
   ): Map[FetchId, Set[List[PathValue]]] =
     blocked.iterator.map { case (fetchId, paths) => fetchId -> paths.toSet }.toMap
 
+  private[execution] def unionBlocked(
+    blocked: Map[FetchId, Set[List[PathValue]]],
+    additions: Iterable[(FetchId, Set[List[PathValue]])]
+  ): Map[FetchId, Set[List[PathValue]]] =
+    additions.foldLeft(blocked) { case (values, (fetchId, paths)) =>
+      values.updated(fetchId, values.getOrElse(fetchId, Set.empty) ++ paths)
+    }
+
   private[execution] def entityKey(fetch: EntityFetch): String =
     s"${fetch.entityType}(${fetch.keys.map(_.field).mkString(", ")})"
 
@@ -522,7 +523,6 @@ private[gateway] object EntityExecutor {
   private[execution] final case class EntityBatch(
     entries: Vector[EntityBatchEntry],
     errors: List[CalibanError],
-    blocked: Map[FetchId, Set[List[PathValue]]],
-    fetchIds: Set[FetchId]
+    blocked: Map[FetchId, Set[List[PathValue]]]
   )
 }
