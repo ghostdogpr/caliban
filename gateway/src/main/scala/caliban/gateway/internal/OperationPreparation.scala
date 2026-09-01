@@ -194,7 +194,7 @@ private[gateway] final class OperationPreparation[-R] private (
       .map(_.plan)
       .fold(0L)(value =>
         fields(value.fields) +
-          value.roots.foldLeft(0L)((count, fetch) => count + fields(fetch.client) + fields(fetch.downstream)) +
+          value.roots.foldLeft(0L)((count, fetch) => count + fields(fetch.client) + fields(fetch.selections)) +
           value.entities.foldLeft(0L)((count, fetch) => count + fields(fetch.fields)) +
           value.typenameSelections.size.toLong
       )

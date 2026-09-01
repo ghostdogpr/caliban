@@ -713,6 +713,47 @@ object SecurityPolicySpec extends ZIOSpecDefault {
         sent.isEmpty
       )
     },
+    test("rejects public fields missing security required by a context selector") {
+      val schema =
+        s"""
+           |extend schema @link(
+           |  url: "https://specs.apollo.dev/federation/v2.8"
+           |  import: ["@key", "@authenticated", "@context", "@fromContext"]
+           |)
+           |$linkDefinitions
+           |directive @authenticated on FIELD_DEFINITION | OBJECT
+           |directive @key(fields: String!) repeatable on OBJECT | INTERFACE
+           |directive @context(name: String!) repeatable on OBJECT | INTERFACE | UNION
+           |directive @fromContext(field: String!) on ARGUMENT_DEFINITION
+           |type Query { user: User }
+           |type User @context(name: "userContext") {
+           |  secret: String @authenticated
+           |  transaction: Transaction
+           |}
+           |type Transaction @key(fields: "id") {
+           |  id: ID!
+           |  amount(secret: String @fromContext(field: "$$userContext { secret }")): Int!
+           |}
+           |""".stripMargin
+
+      for {
+        remote     <- stub("""{"data":{"user":null}}""")
+        policy      = OperationPolicy[Any](_ => ZIO.succeed(OperationPolicy.Allow))
+        exit       <- Gateway
+                        .compose(Subgraph.federation("context-security", remote.endpoint, schema))
+                        .withOperationPolicy(policy)
+                        .interpreter
+                        .exit
+        diagnostics = buildDiagnostics(exit)
+        sent       <- remote.requests.get
+      } yield assertTrue(
+        diagnostics.exists(message =>
+          message.startsWith("[context-security]") && message.contains("Transaction.amount") &&
+            message.contains("@fromContext") && message.contains("User.secret")
+        ),
+        sent.isEmpty
+      )
+    },
     test("treats scopes as authenticated transitive requirements") {
       val schema =
         s"""
@@ -815,7 +856,7 @@ object SecurityPolicySpec extends ZIOSpecDefault {
         sent.isEmpty
       )
     },
-    test("accepts progressive overrides but rejects contexts before source execution") {
+    test("recognizes progressive overrides and validates contexts before source execution") {
       val schema =
         s"""
            |extend schema @link(
@@ -843,8 +884,13 @@ object SecurityPolicySpec extends ZIOSpecDefault {
         sent       <- remote.requests.get
       } yield assertTrue(
         !diagnostics.exists(message => message.startsWith("[unsupported]") && message.contains("@override")),
-        diagnostics.exists(message => message.startsWith("[unsupported]") && message.contains("@context")),
-        diagnostics.exists(message => message.startsWith("[unsupported]") && message.contains("@fromContext")),
+        !diagnostics.exists(message => message.startsWith("[unsupported]") && message.contains("@context")),
+        !diagnostics.exists(message =>
+          message.startsWith("[unsupported]") && message.contains("@fromContext is not supported")
+        ),
+        diagnostics.exists(message =>
+          message.startsWith("[unsupported]") && message.contains("Invalid Federation @fromContext")
+        ),
         sent.isEmpty
       )
     },

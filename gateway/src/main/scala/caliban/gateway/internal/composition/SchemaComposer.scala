@@ -9,6 +9,7 @@ import caliban.parsing.adt.{ Directive, Document, OperationType, Selection }
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
 import caliban.parsing.adt.Definition.TypeSystemExtension.SchemaExtension
 import caliban.parsing.adt.Definition.TypeSystemExtension.TypeExtension._
+import caliban.rendering.DocumentRenderer
 import caliban.schema.RootType
 import caliban.validation.{ SchemaValidator, Validator }
 import caliban.Value.{ BooleanValue, NullValue, StringValue }
@@ -47,6 +48,7 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
   private val types               = nonRootTypes
   private val typeComposition     = new TypeComposition(types, enumUsageByName, composedDirectives)
   private val compiledFieldSets   = prepared.map(federationFieldSets)
+  private val compiledContexts    = prepared.map(federationContexts)
   private val compiledSecurity    = prepared.map(securityApplications)
 
   def compose: Either[List[String], ComposedGraph] = {
@@ -55,6 +57,7 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
         prepared.flatMap(federationKeyDiagnostics) :::
         composedDirectives.diagnostics :::
         compiledFieldSets.flatMap(_.fold(identity, _ => Nil)) :::
+        compiledContexts.flatMap(_.fold(identity, _ => Nil)) :::
         compiledSecurity.flatMap(_.fold(identity, _ => Nil)) :::
         prepared.flatMap(unsupportedFederationDiagnostics) :::
         rootDiagnostics(OperationType.Query, queryEntries) :::
@@ -128,8 +131,22 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
       val fieldSets                                                     = compiledFieldSets.flatMap(_.toOption)
       val requirements                                                  = fieldSets.flatMap(_.requirements).toMap
       val provisions                                                    = fieldSets.flatMap(_.provisions).toMap
+      val contextMetadata                                               = compiledContexts.flatMap(_.toOption)
+      val contexts                                                      = contextMetadata.flatMap(_.definitions).toMap
+      val contextArguments                                              = contextMetadata.flatMap(_.arguments).toMap
+      val contextSecurityDependencies                                   = contextMetadata.flatMap { metadata =>
+        metadata.arguments.flatMap { case ((source, typeName, fieldName), arguments) =>
+          arguments.flatMap { argument =>
+            metadata.definitions.collect {
+              case ((`source`, contextType), names) if names.contains(argument.context) =>
+                (source, typeName, fieldName, contextType, argument.selections)
+            }
+          }
+        }
+      }
       val transitiveSecurityDiagnostics                                 = missingTransitiveSecurityDiagnostics(
         requirements,
+        contextSecurityDependencies,
         enforcedSecurity,
         runtimeTypesByName,
         rootType
@@ -158,6 +175,8 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
               lookups,
               requirements,
               provisions,
+              contexts,
+              contextArguments,
               types.iterator.filter(_.interfaceObject).map(entry => entry.source -> entry.name).toSet,
               sortedSubgraphs.iterator.flatMap { subgraph =>
                 subgraph.rootType.types.iterator.map { case (name, tpe) =>
@@ -185,6 +204,7 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
 
   private def missingTransitiveSecurityDiagnostics(
     requirements: Map[(String, String, String), List[Selection]],
+    contextDependencies: List[(String, String, String, String, List[Selection])],
     applications: List[ComposedGraph.SecurityApplication],
     runtimeTypesByName: Map[String, Set[String]],
     rootType: RootType
@@ -232,12 +252,17 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
         case _: Selection.FragmentSpread        => Nil
       }
 
-    requirements.toList.flatMap { case ((source, sourceType, fieldName), selections) =>
-      val typeName  = sourceType
-      val available = profile(typeName, Some(fieldName))
-      dependencies(selections, typeName).collect {
+    val required = requirements.toList.map { case ((source, sourceType, fieldName), selections) =>
+      (source, sourceType, fieldName, sourceType, selections, "@requires")
+    }
+    val contexts = contextDependencies.map { case (source, sourceType, fieldName, contextType, selections) =>
+      (source, sourceType, fieldName, contextType, selections, "@fromContext")
+    }
+    (required ::: contexts).flatMap { case (source, sourceType, fieldName, dependencyType, selections, directive) =>
+      val available = profile(sourceType, Some(fieldName))
+      dependencies(selections, dependencyType).collect {
         case (dependency, required) if !available.implies(required) =>
-          s"[$source] Field '$typeName.$fieldName' does not specify sufficient Federation security requirements for @requires dependency '$dependency'."
+          s"[$source] Field '$sourceType.$fieldName' does not specify sufficient Federation security requirements for $directive dependency '$dependency'."
       }
     }.distinct.sorted
   }
@@ -538,6 +563,10 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
         rootType.allFields
           .filterNot(field => subgraph.federation && isTransportField(field.name))
           .map { field =>
+            val contextualArguments = field.allArgs
+              .filter(argument => subgraph.federation && hasDirective(argument.directives, names.fromContext))
+              .map(_.name)
+              .toSet
             SubgraphRootField(
               subgraph.name,
               operation,
@@ -550,12 +579,16 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
               subgraph.federation,
               metadata.federation2,
               (field.allArgs
-                .filter(argument => subgraph.federation && hasDirective(argument.directives, names.inaccessible))
+                .filter(argument =>
+                  subgraph.federation &&
+                    hasDirective(argument.directives, names.inaccessible)
+                )
                 .map(_.name)
                 .toSet ++ subgraph.mapping.hiddenArguments.collect {
                 case (owner, fieldName, argument) if owner == rootType.name.getOrElse("") && fieldName == field.name =>
                   argument
-              }),
+              } ++ contextualArguments),
+              contextualArguments,
               metadata.hiddenDirectives
             )
           }
@@ -570,10 +603,16 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
       .groupBy(_.field.name)
       .toList
       .flatMap { case (field, entries) =>
-        val providers  = effectiveRootProviders(entries)
-        val prefix     = s"[${operation.toString.toLowerCase}.$field]"
-        val compatible = fieldsCompatible(entries.map(_.field))
+        val providers      = effectiveRootProviders(entries)
+        val prefix         = s"[${operation.toString.toLowerCase}.$field]"
+        val contextualArgs = entries.iterator.flatMap(_.contextualArguments).toSet
+        val compatible     = fieldsCompatible(entries.map(entry => visibleArguments(entry.field, contextualArgs)))
+        val contextErrors  = contextualArgumentDiagnostics(
+          s"${operation.toString.toLowerCase}.$field",
+          entries.map(entry => (entry.source, entry.field, entry.contextualArguments))
+        )
         overrideDiagnostics(prefix, entries.map(entry => entry.source -> entry.overrideDirective.map(_.from))) :::
+          contextErrors :::
           (if (operation == OperationType.Subscription && (providers.size > 1 || entries.exists(_.shareable)))
              List(s"$prefix Subscription fields require one effective owner and cannot be @shareable.")
            else Nil) :::
@@ -638,20 +677,34 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
     document: Document,
     composedName: String => String
   ): List[TypeSystemDirectiveApplication] = {
-    def unsupported(coordinate: String, directives: List[Directive]): TypeSystemDirectiveApplication =
-      TypeSystemDirectiveApplication(coordinate, directives, None, supportsOverride = false)
+    def unsupported(
+      coordinate: String,
+      directives: List[Directive],
+      supportsFromContext: Boolean = false
+    ): TypeSystemDirectiveApplication =
+      TypeSystemDirectiveApplication(
+        coordinate,
+        directives,
+        None,
+        supportsOverride = false,
+        supportsContext = false,
+        supportsFromContext
+      )
 
     def typeApplication(
       name: String,
       directives: List[Directive],
-      supportsSecurity: Boolean
+      supportsSecurity: Boolean,
+      supportsContext: Boolean = false
     ): TypeSystemDirectiveApplication = {
       val typeName = composedName(name)
       TypeSystemDirectiveApplication(
         typeName,
         directives,
         if (supportsSecurity) Some(SecurityCoordinate(typeName, None)) else None,
-        supportsOverride = false
+        supportsOverride = false,
+        supportsContext,
+        supportsFromContext = false
       )
     }
 
@@ -662,8 +715,12 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
           s"$parent.${field.name}",
           field.directives,
           Some(SecurityCoordinate(parent, Some(field.name))),
-          supportsOverride = true
-        ) :: field.args.map(argument => unsupported(s"$parent.${field.name}(${argument.name}:)", argument.directives))
+          supportsOverride = true,
+          supportsContext = false,
+          supportsFromContext = false
+        ) :: field.args.map(argument =>
+          unsupported(s"$parent.${field.name}(${argument.name}:)", argument.directives, supportsFromContext = true)
+        )
       }
     }
 
@@ -706,9 +763,12 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
     val types              = scalarTypes.map { case (name, directives) =>
       typeApplication(name, directives, supportsSecurity = true)
     } ::: objectLikeEntries(document).flatMap { case (name, directives, fields) =>
-      typeApplication(name, directives, supportsSecurity = true) :: fieldApplications(name, fields)
+      typeApplication(name, directives, supportsSecurity = true, supportsContext = true) :: fieldApplications(
+        name,
+        fields
+      )
     } ::: unionTypes.map { case (name, directives) =>
-      typeApplication(name, directives, supportsSecurity = false)
+      typeApplication(name, directives, supportsSecurity = false, supportsContext = true)
     } ::: enumTypes.flatMap { case (name, directives, values) =>
       typeApplication(name, directives, supportsSecurity = true) :: enumApplications(name, values)
     } ::: inputTypes.flatMap { case (name, directives, fields) =>
@@ -801,14 +861,20 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
           .map(name =>
             s"[${subgraph.name}] Federation $name is not available in the linked feature version at '${application.coordinate}'."
           )
-        val context           =
-          if (names.context.contains(directive.name))
+        val context           = {
+          val isContext = names.context.contains(directive.name)
+          val isFrom    = names.fromContext.contains(directive.name)
+          if ((isContext || isFrom) && !names.supportsContexts)
+            Some(
+              s"[${subgraph.name}] Federation ${if (isContext) "@context"
+                else "@fromContext"} is not available in the linked feature version at '${application.coordinate}'."
+            )
+          else if (isContext && !application.supportsContext)
             Some(s"[${subgraph.name}] Federation @context is not supported at '${application.coordinate}'.")
-          else None
-        val from              =
-          if (names.fromContext.contains(directive.name))
+          else if (isFrom && !application.supportsFromContext)
             Some(s"[${subgraph.name}] Federation @fromContext is not supported at '${application.coordinate}'.")
           else None
+        }
         val overrideDirective =
           if (!names.overrideDirective.contains(directive.name)) None
           else if (directive.arguments.get("label").exists(_ != NullValue) && !names.supportsProgressiveOverride)
@@ -832,7 +898,7 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
                 Some(s"[${subgraph.name}] Invalid Federation @override label at '${application.coordinate}'.")
             }
 
-        security.toList ::: unavailable.toList ::: context.toList ::: from.toList ::: overrideDirective.toList
+        security.toList ::: unavailable.toList ::: context.toList ::: overrideDirective.toList
       }
     }
   }
@@ -874,6 +940,354 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
         }
         Right(FederationFieldSets(compiledRequirements, compiledProvisions))
       }
+    }
+  }
+
+  private def federationContexts(
+    metadata: CompositionSubgraph
+  ): Either[List[String], FederationContexts] = {
+    val subgraph = metadata.subgraph
+    val names    = metadata.directives
+    if (!subgraph.federation || !names.supportsContexts) Right(FederationContexts(Nil, Nil))
+    else {
+      val typeEntries                                             = objectLikeEntries(subgraph.document).map { case (name, directives, _) =>
+        name -> directives
+      } :::
+        subgraph.document.typeDefinitions.collect { case definition: UnionTypeDefinition =>
+          definition.name -> definition.directives
+        } ::: subgraph.document.typeExtensions.collect { case extension: UnionTypeExtension =>
+          extension.name -> extension.directives
+        }
+      def nonQueryOperationRoot(typeName: String): Option[String] =
+        if (subgraph.rootType.mutationType.flatMap(_.name).contains(typeName)) Some("Mutation")
+        else if (subgraph.rootType.subscriptionType.flatMap(_.name).contains(typeName)) Some("Subscription")
+        else None
+      val declarations                                            = typeEntries.flatMap { case (typeName, directives) =>
+        directives.filter(directive => names.context.contains(directive.name)).map { directive =>
+          directive.arguments.get("name") match {
+            case Some(StringValue(name)) if ContextNamePattern.pattern.matcher(name).matches() =>
+              nonQueryOperationRoot(typeName) match {
+                case Some(operation) =>
+                  Left(
+                    s"[${subgraph.name}] Federation @context is not supported on the $operation root type '$typeName'."
+                  )
+                case None            =>
+                  Right(
+                    (subgraph.name -> composedTypeName(subgraph, typeName)) -> ComposedGraph.ContextName(name)
+                  )
+              }
+            case Some(StringValue(name))                                                       =>
+              Left(s"[${subgraph.name}] Invalid Federation @context name '$name' on '$typeName'.")
+            case _                                                                             =>
+              Left(s"[${subgraph.name}] Invalid Federation @context application on '$typeName'.")
+          }
+        }
+      }
+      val declarationErrors                                       = declarations.collect { case Left(error) => error }
+      val declared                                                = declarations.collect { case Right(value) => value }
+        .groupBy(_._1)
+        .map { case (coordinate, values) => coordinate -> values.map(_._2).toSet }
+      val byName                                                  = typeEntries.flatMap { case (typeName, directives) =>
+        directives
+          .filter(directive => names.context.contains(directive.name))
+          .flatMap(
+            _.arguments.get("name").collect { case StringValue(name) =>
+              (subgraph.name -> ComposedGraph.ContextName(name)) -> typeName
+            }
+          )
+      }.groupBy(_._1).map { case (key, values) => key -> values.map(_._2) }
+      val arguments                                               = objectLikeEntries(subgraph.document).flatMap { case (typeName, _, fields) =>
+        fields.flatMap { field =>
+          field.args.flatMap { argument =>
+            argument.directives
+              .filter(directive => names.fromContext.contains(directive.name))
+              .map { directive =>
+                val coordinate = s"${composedTypeName(subgraph, typeName)}.${field.name}(${argument.name}:)"
+                val prefix     = s"[${subgraph.name}] Invalid Federation @fromContext application at '$coordinate'"
+                for {
+                  value             <- directive.arguments
+                                         .get("field")
+                                         .collect { case StringValue(value) => value }
+                                         .toRight(s"$prefix: the 'field' argument must be a string.")
+                  parsed            <- parseContextSelection(value).toRight(s"$prefix: the context selection could not be parsed.")
+                  (name, selections) = parsed
+                  contextTypes       = byName.getOrElse(subgraph.name -> name, Nil)
+                  argumentType      <- subgraph.rootType.types
+                                         .get(typeName)
+                                         .flatMap(tpe => Option(tpe.getFieldOrNull(field.name)))
+                                         .flatMap(_.allArgs.find(_.name == argument.name))
+                                         .map(_._type)
+                                         .toRight(s"$prefix: the context argument does not exist in the source schema.")
+                  _                 <- Either.cond(
+                                         contextTypes.nonEmpty,
+                                         (),
+                                         s"$prefix: context '${name.value}' is not declared by this subgraph."
+                                       )
+                  _                 <- Either.cond(
+                                         argument.ofType.nullable,
+                                         (),
+                                         s"$prefix: context arguments must be nullable."
+                                       )
+                  _                 <- Either.cond(
+                                         argument.defaultValue.isEmpty,
+                                         (),
+                                         s"$prefix: context arguments must not define a default value."
+                                       )
+                  _                 <- validateContextReceiver(
+                                         subgraph.name,
+                                         composedTypeName(subgraph, typeName),
+                                         field.name,
+                                         prefix
+                                       )
+                  _                 <- validateContextSelectionSyntax(selections).left.map(error => s"$prefix: $error")
+                  contextParents    <-
+                    contextTypes.foldLeft[Either[String, List[(String, __Type)]]](Right(Nil)) { (result, contextType) =>
+                      for {
+                        parents <- result
+                        _       <- Either.cond(
+                                     !types.exists(entry =>
+                                       entry.source == subgraph.name &&
+                                         entry.name == composedTypeName(subgraph, contextType) &&
+                                         entry.interfaceObject
+                                     ),
+                                     (),
+                                     s"$prefix: context type '$contextType' cannot be an @interfaceObject."
+                                   )
+                        parent  <- subgraph.rootType.types
+                                     .get(contextType)
+                                     .toRight(s"$prefix: context type '$contextType' does not exist.")
+                      } yield (contextType -> parent) :: parents
+                    }
+                  _                 <- validateContextTypeConditions(
+                                         subgraph.rootType,
+                                         contextParents.map(_._2),
+                                         selections
+                                       ).left.map(error => s"$prefix: $error")
+                  _                 <- contextParents.foldLeft[Either[String, Unit]](Right(())) { case (result, (_, parent)) =>
+                                         result.flatMap(_ =>
+                                           for {
+                                             values <- contextSelectionTypes(subgraph.name, subgraph.rootType, parent, selections).left
+                                                         .map(error => s"$prefix: $error")
+                                             _      <- Either.cond(
+                                                         values.forall(compatibleContextValueType(_, argumentType)),
+                                                         (),
+                                                         s"$prefix: the selected value is incompatible with argument type '${DocumentRenderer
+                                                             .renderTypeName(argumentType)}'."
+                                                       )
+                                           } yield ()
+                                         )
+                                       }
+                } yield (
+                  (subgraph.name, composedTypeName(subgraph, typeName), field.name) ->
+                    ComposedGraph.ContextArgument(argument.name, name, selections)
+                )
+              }
+          }
+        }
+      }
+      val argumentErrors                                          = arguments.collect { case Left(error) => error }
+      if (declarationErrors.nonEmpty || argumentErrors.nonEmpty) Left(declarationErrors ::: argumentErrors)
+      else
+        Right(
+          FederationContexts(
+            declared.toList,
+            arguments.collect { case Right(value) => value }
+              .groupBy(_._1)
+              .toList
+              .map { case (coordinate, values) => coordinate -> values.map(_._2) }
+          )
+        )
+    }
+  }
+
+  private def validateContextReceiver(
+    source: String,
+    typeName: String,
+    fieldName: String,
+    prefix: String
+  ): Either[String, Unit] = {
+    val entries     = types.filter(entry => entry.source == source && entry.name == typeName)
+    val receiver    = entries.headOption
+    val parent      = receiver.map(_.tpe)
+    val implemented = parent.toList.flatMap(_.interfaces().getOrElse(Nil)).exists { interface =>
+      Option(interface.getFieldOrNull(fieldName)).nonEmpty
+    }
+    Either.cond(
+      receiver.exists(_.entity.exists(_.lookups.nonEmpty)) && parent.exists(
+        _.kind == __TypeKind.OBJECT
+      ) && !implemented,
+      (),
+      if (implemented) s"$prefix: context arguments cannot be used on fields that implement interface fields."
+      else s"$prefix: the containing object must define a resolvable entity lookup."
+    )
+  }
+
+  private def validateContextSelectionSyntax(selections: List[Selection]): Either[String, Unit] = {
+    def loop(values: List[Selection]): Either[String, Unit] =
+      values.foldLeft[Either[String, Unit]](Right(())) {
+        case (result, Selection.Field(alias, _, _, directives, children, _)) =>
+          result.flatMap(_ =>
+            if (alias.nonEmpty) Left("aliases are not allowed in a context selection.")
+            else if (directives.nonEmpty) Left("directives are not allowed in a context selection.")
+            else loop(children)
+          )
+        case (result, Selection.InlineFragment(_, directives, children))     =>
+          result.flatMap(_ =>
+            if (directives.nonEmpty) Left("directives are not allowed in a context selection.") else loop(children)
+          )
+        case (_, _: Selection.FragmentSpread)                                =>
+          Left("fragment spreads are not allowed in a context selection.")
+      }
+    loop(selections)
+  }
+
+  private def contextRuntimeTypes(rootType: RootType, tpe: __Type): List[__Type] =
+    tpe.kind match {
+      case __TypeKind.OBJECT                       => tpe :: Nil
+      case __TypeKind.INTERFACE | __TypeKind.UNION =>
+        val direct = tpe.possibleTypes.getOrElse(Nil)
+        if (direct.nonEmpty) direct
+        else
+          rootType.types.valuesIterator
+            .filter(candidate =>
+              candidate.kind == __TypeKind.OBJECT && candidate
+                .interfaces()
+                .getOrElse(Nil)
+                .exists(_.name == tpe.name)
+            )
+            .toList
+      case _                                       => tpe :: Nil
+    }
+
+  private def validateContextTypeConditions(
+    rootType: RootType,
+    locations: List[__Type],
+    selections: List[Selection]
+  ): Either[String, Unit] = {
+    val locationTypes = locations.iterator.flatMap(contextRuntimeTypes(rootType, _)).flatMap(_.name).toSet
+    val unused        = selections.collect {
+      case Selection.InlineFragment(Some(condition), _, _)
+          if rootType.types
+            .get(condition.name)
+            .forall(tpe =>
+              contextRuntimeTypes(rootType, tpe).flatMap(_.name).forall(name => !locationTypes.contains(name))
+            ) =>
+        condition.name
+    }.distinct.sorted
+    Either.cond(
+      unused.isEmpty,
+      (),
+      s"top-level context type conditions do not match a context location: ${unused.mkString(", ")}."
+    )
+  }
+
+  private def contextSelectionTypes(
+    source: String,
+    rootType: RootType,
+    parent: __Type,
+    selections: List[Selection]
+  ): Either[String, List[__Type]] = {
+    def isInterfaceObject(tpe: __Type): Boolean =
+      tpe.name.exists(name =>
+        types.exists(entry => entry.source == source && entry.name == name && entry.interfaceObject)
+      )
+
+    def validateFragments(values: List[Selection], topLevel: Boolean): Either[String, Unit] =
+      values.foldLeft[Either[String, Unit]](Right(())) {
+        case (result, field: Selection.Field)             =>
+          result.flatMap(_ => validateFragments(field.selectionSet, topLevel = false))
+        case (result, fragment: Selection.InlineFragment) =>
+          result.flatMap { _ =>
+            val condition = fragment.typeCondition.flatMap(value => rootType.types.get(value.name))
+            if (!topLevel) Left("inline fragments are only allowed at the top level of a context selection.")
+            else if (!condition.exists(_.kind == __TypeKind.OBJECT))
+              Left("top-level context type conditions must name concrete object types.")
+            else if (condition.exists(isInterfaceObject))
+              Left("context selections cannot reference an @interfaceObject type.")
+            else validateFragments(fragment.selectionSet, topLevel = false)
+          }
+        case (result, _: Selection.FragmentSpread)        => result
+      }
+
+    def projectType(container: __Type, selected: __Type): __Type =
+      contextValueType(container) match {
+        case list if list.kind == __TypeKind.LIST => list.copy(ofType = list.ofType.map(projectType(_, selected)))
+        case _                                    => selected
+      }
+
+    def applies(fragment: Selection.InlineFragment, runtime: __Type): Boolean =
+      fragment.typeCondition.forall(condition =>
+        rootType.types.get(condition.name).exists(contextRuntimeTypes(rootType, _).exists(_.name == runtime.name))
+      )
+
+    def resolve(staticType: __Type, runtime: __Type, values: List[Selection]): Either[String, List[__Type]] = {
+      val selected = values.collect {
+        case field: Selection.Field                                           => Left(field)
+        case fragment: Selection.InlineFragment if applies(fragment, runtime) => Right(fragment)
+      }
+      if (selected.size != 1)
+        Left(
+          if (selected.isEmpty) "the context selection does not match this context type."
+          else "the context selection resolves to multiple fields."
+        )
+      else
+        selected.head match {
+          case Left(field)     =>
+            Option(staticType.getFieldOrNull(field.name))
+              .toRight(s"field '${field.name}' does not exist on context type '${staticType.name.getOrElse("")}'.")
+              .flatMap { definition =>
+                if (field.selectionSet.isEmpty) Right(contextValueType(definition._type) :: Nil)
+                else {
+                  val output = definition._type.innerType
+                  if (isInterfaceObject(output)) Left("context selections cannot reference an @interfaceObject type.")
+                  else
+                    contextRuntimeTypes(rootType, output).foldLeft[Either[String, List[__Type]]](Right(Nil)) {
+                      (result, childRuntime) =>
+                        for {
+                          accumulated <- result
+                          child       <- resolve(output, childRuntime, field.selectionSet)
+                        } yield accumulated ::: child.map(projectType(definition._type, _))
+                    }
+                }
+              }
+          case Right(fragment) =>
+            val narrowed =
+              fragment.typeCondition.flatMap(condition => rootType.types.get(condition.name)).getOrElse(staticType)
+            resolve(narrowed, runtime, fragment.selectionSet)
+        }
+    }
+
+    for {
+      _      <- Either.cond(!isInterfaceObject(parent), (), "context selections cannot reference an @interfaceObject type.")
+      _      <- validateFragments(selections, topLevel = true)
+      values <-
+        contextRuntimeTypes(rootType, parent).foldLeft[Either[String, List[__Type]]](Right(Nil)) { (result, runtime) =>
+          for {
+            accumulated <- result
+            selected    <- resolve(parent, runtime, selections)
+          } yield accumulated ::: selected
+        }
+    } yield values
+  }
+
+  private def contextValueType(tpe: __Type): __Type =
+    tpe.kind match {
+      case __TypeKind.NON_NULL => tpe.ofType.fold(tpe)(contextValueType)
+      case __TypeKind.LIST     => tpe.copy(ofType = tpe.ofType.map(contextValueType))
+      case _                   => tpe
+    }
+
+  private def compatibleContextValueType(selected: __Type, argument: __Type): Boolean = {
+    val selectedValue = contextValueType(selected)
+    val argumentValue = contextValueType(argument)
+    (selectedValue.kind, argumentValue.kind) match {
+      case (__TypeKind.LIST, __TypeKind.LIST) =>
+        (selectedValue.ofType, argumentValue.ofType) match {
+          case (Some(a), Some(b)) => compatibleContextValueType(a, b)
+          case _                  => false
+        }
+      case _                                  =>
+        selectedValue.kind == argumentValue.kind && selectedValue.name == argumentValue.name
     }
   }
 
@@ -1082,15 +1496,23 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
     val hiddenFields        = fields.collect {
       case field if subgraph.federation && hasDirective(field.directives, names.inaccessible) => field.name
     }.toSet ++ subgraph.mapping.hiddenFields.collect { case (`name`, field) => field }
+    val contextualArgs      = fields.iterator
+      .flatMap(field =>
+        field.args.iterator.collect {
+          case argument if hasDirective(argument.directives, names.fromContext) => field.name -> argument.name
+        }
+      )
+      .toSet
     val hiddenArgs          = subgraph.mapping.hiddenArguments.collect { case (`name`, field, argument) =>
       field -> argument
     } ++ fields.iterator
       .flatMap(field =>
         field.args.iterator.collect {
-          case argument if hasDirective(argument.directives, names.inaccessible) => field.name -> argument.name
+          case argument if hasDirective(argument.directives, names.inaccessible) =>
+            field.name -> argument.name
         }
       )
-      .toSet
+      .toSet ++ contextualArgs
     val hiddenInputs        = subgraph.mapping.hiddenInputFields.collect { case (`name`, field) => field } ++
       tpe.allInputFields.iterator.collect {
         case field if hasDirective(field.directives, names.inaccessible) => field.name
@@ -1113,6 +1535,7 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
       inaccessible,
       hiddenFields,
       hiddenArgs,
+      contextualArgs,
       hiddenInputs,
       hiddenEnums,
       overrides,
@@ -1515,6 +1938,7 @@ private[gateway] object SchemaComposer {
 
   private val ProgressiveOverridePattern = raw"percent\((\d{1,2}(?:\.\d{1,8})?|100)\)".r
   private val CustomOverrideLabelPattern = raw"[a-zA-Z][a-zA-Z0-9_\-:./]*".r
+  private val ContextNamePattern         = raw"[A-Za-z][A-Za-z0-9]*".r
 
   private def parseProgressiveOverrideLabel(
     label: String
@@ -1585,6 +2009,7 @@ private[gateway] object SchemaComposer {
     federation: Boolean,
     federation2: Boolean,
     inaccessibleArguments: Set[String],
+    contextualArguments: Set[String],
     hiddenDirectives: Set[String]
   )
 
@@ -1603,13 +2028,20 @@ private[gateway] object SchemaComposer {
     provisions: List[((String, String, String), List[Selection])]
   )
 
+  private final case class FederationContexts(
+    definitions: List[((String, String), Set[ComposedGraph.ContextName])],
+    arguments: List[((String, String, String), List[ComposedGraph.ContextArgument])]
+  )
+
   private final case class SecurityCoordinate(typeName: String, fieldName: Option[String])
 
   private final case class TypeSystemDirectiveApplication(
     coordinate: String,
     directives: List[Directive],
     securityCoordinate: Option[SecurityCoordinate],
-    supportsOverride: Boolean
+    supportsOverride: Boolean,
+    supportsContext: Boolean,
+    supportsFromContext: Boolean
   )
 
   private def hasDirective(directives: List[Directive], names: Set[String]): Boolean =
@@ -1668,6 +2100,7 @@ private[gateway] object SchemaComposer {
     unavailableSecurity: Map[String, String],
     context: Set[String],
     fromContext: Set[String],
+    supportsContexts: Boolean,
     supportsProgressiveOverride: Boolean,
     hidden: Set[String],
     hiddenTypes: Set[String]
@@ -1741,6 +2174,7 @@ private[gateway] object SchemaComposer {
         unavailableSecurityNames("policy", 2, 6, PolicyIdentity).map(_ -> "@policy").toMap
     val context             = federationNames("context")
     val fromContext         = federationNames("fromContext")
+    val supportsContexts    = federation.exists(_.version.atLeast(2, 8))
     val progressiveOverride = federation.exists(_.version.atLeast(2, 7))
     val hiddenDirectives    = Set("link") ++ keyNames ++ externalNames ++ extendsNames ++ shareableNames ++
       inaccessibleNames ++ overrideNames ++ requiresNames ++ providesNames ++ interfaceObjects ++
@@ -1764,6 +2198,7 @@ private[gateway] object SchemaComposer {
       unavailableSecurity,
       context,
       fromContext,
+      supportsContexts,
       progressiveOverride,
       hiddenDirectives,
       hiddenTypes
@@ -1853,6 +2288,44 @@ private[gateway] object SchemaComposer {
       case Right(document) => document.operationDefinition(None).map(_.selectionSet)
       case Left(_)         => None
     }
+
+  private def parseContextSelection(value: String): Option[(ComposedGraph.ContextName, List[Selection])] = {
+    def skipIgnored(from: Int): Int = {
+      var index = from
+      var done  = false
+      while (index < value.length && !done)
+        value.charAt(index) match {
+          case character if character.isWhitespace || character == ',' => index += 1
+          case '#'                                                     =>
+            index += 1
+            while (index < value.length && value.charAt(index) != '\n' && value.charAt(index) != '\r') index += 1
+          case _                                                       => done = true
+        }
+      index
+    }
+
+    val dollar = skipIgnored(0)
+    if (dollar >= value.length || value.charAt(dollar) != '$') None
+    else {
+      val start = skipIgnored(dollar + 1)
+      var end   = start
+      while (end < value.length && (value.charAt(end).isLetterOrDigit || value.charAt(end) == '_')) end += 1
+      val name  = value.substring(start, end)
+      if (!ContextNamePattern.pattern.matcher(name).matches()) None
+      else {
+        val selectionStart = skipIgnored(end)
+        val rawSelections  = value.substring(selectionStart)
+        val parsed         =
+          if (rawSelections.startsWith("{"))
+            Parser.parseQuery(s"query $rawSelections") match {
+              case Right(document) => document.operationDefinition(None).map(_.selectionSet)
+              case Left(_)         => None
+            }
+          else parseFieldSet(rawSelections)
+        parsed.map(ComposedGraph.ContextName(name) -> _)
+      }
+    }
+  }
 
   private def keyFields(selections: List[Selection]): Option[List[ComposedGraph.KeyField]] =
     selections

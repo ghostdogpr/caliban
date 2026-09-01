@@ -96,6 +96,7 @@ private[gateway] final class OperationPlanner(
                               PlanningFailure("Custom executable directives are not supported by this gateway.")
                             )
       _                  <- search.check
+      _                  <- validateContextBindings(candidate.fetches, candidate.entities)
     } yield OperationPlan(
       execution.operationType,
       rootName,
@@ -141,7 +142,14 @@ private[gateway] final class OperationPlanner(
       _       <- Either.cond(subgraphs.nonEmpty, (), PlanningFailure(s"No subgraph owns root field '${field.name}'."))
       options <-
         if (subgraphs.size == 1)
-          planRootsAtSubgraph(field, field, subgraphs.head, subgraphs, addTypenameFallback = true).flatMap {
+          planRootsAtSubgraph(
+            field,
+            field,
+            subgraphs.head,
+            subgraphs,
+            operationType,
+            addTypenameFallback = true
+          ).flatMap {
             case roots if roots.nonEmpty => Right(roots.map(List(_)))
             case _                       => Left(PlanningFailure(s"No subgraph can execute root field '${field.name}'."))
           }
@@ -152,7 +160,14 @@ private[gateway] final class OperationPlanner(
           search
             .evaluate(strategies) {
               case RootStrategy.Single(subgraph) =>
-                planRootsAtSubgraph(field, field, subgraph, subgraphs, addTypenameFallback = true).flatMap {
+                planRootsAtSubgraph(
+                  field,
+                  field,
+                  subgraph,
+                  subgraphs,
+                  operationType,
+                  addTypenameFallback = true
+                ).flatMap {
                   case roots if roots.nonEmpty => Right(roots.map(List(_)))
                   case _                       =>
                     Left(PlanningFailure(s"Subgraph '$subgraph' has no executable work for '${field.name}'."))
@@ -165,7 +180,14 @@ private[gateway] final class OperationPlanner(
                         roots    <- result
                         selected  = rootFieldForSubgraph(field, subgraph, subgraphs)
                         planned  <-
-                          planRootsAtSubgraph(field, selected, subgraph, subgraphs, addTypenameFallback = false)
+                          planRootsAtSubgraph(
+                            field,
+                            selected,
+                            subgraph,
+                            subgraphs,
+                            operationType,
+                            addTypenameFallback = false
+                          )
                         combined <-
                           if (planned.isEmpty) Right(roots)
                           else search.combine(roots, planned)((current, root) => current :+ root)
@@ -188,7 +210,7 @@ private[gateway] final class OperationPlanner(
   private def rootFetches(roots: List[RootCandidate], operationType: OperationType): PlannedRootFetches =
     if (operationType == OperationType.Mutation) {
       val fetches = roots.zipWithIndex.map { case (root, index) =>
-        RootFetch(FetchId(index), root.source, root.client :: Nil, root.downstream :: Nil)
+        RootFetch(FetchId(index), root.source, root.client :: Nil, root.downstream :: Nil, root.contextRoots)
       }
       PlannedRootFetches(fetches, roots.zip(fetches).map { case (root, fetch) => root -> fetch.id })
     } else {
@@ -196,7 +218,13 @@ private[gateway] final class OperationPlanner(
       roots.foreach(root => grouped.getOrElseUpdate(root.source, mutable.ListBuffer.empty) += root)
       val fetches  = grouped.iterator.zipWithIndex.map { case ((subgraph, planned), index) =>
         val selected = planned.toList
-        RootFetch(FetchId(index), subgraph, selected.map(_.client), selected.map(_.downstream))
+        RootFetch(
+          FetchId(index),
+          subgraph,
+          selected.map(_.client),
+          mergeFields(selected.map(_.downstream)),
+          mergeFields(selected.flatMap(_.contextRoots))
+        )
       }.toList
       val bySource = fetches.iterator.map(fetch => fetch.source -> fetch.id).toMap
       PlannedRootFetches(fetches, roots.flatMap(root => bySource.get(root.source).map(root -> _)))
@@ -237,7 +265,11 @@ private[gateway] final class OperationPlanner(
     fetches.map { fetch =>
       if (!fetch.mayNeedPrerequisiteFetches) fetch
       else {
-        val required     = (fetch.keys ::: fetch.requirements).flatMap(selectionPaths).map(fetch.mergePath ++ _).toSet
+        val required     =
+          (fetch.keys ::: fetch.requirements).flatMap(selectionPaths).map(fetch.mergePath ++ _).toSet ++
+            fetch.contextArguments.flatMap(argument =>
+              argument.selections.flatMap(selectionPaths).map(argument.sourcePath ++ _)
+            )
         val dependencies = fetches.iterator
           .filter(_.root == fetch.root)
           .filterNot(candidate => dependsOn(candidate, fetch.id, Set.empty))
@@ -283,54 +315,80 @@ private[gateway] final class OperationPlanner(
     selected: Field,
     currentSubgraph: String,
     rootSubgraphs: List[String],
+    operationType: OperationType,
     addTypenameFallback: Boolean
-  )(implicit search: CandidateSearch): Either[PlanningFailure, List[RootCandidate]] =
-    planFieldCandidates(
-      selected,
-      currentSubgraph,
-      Vector(client.aliasedName),
-      Set.empty,
-      rootSubgraphs.toSet,
-      availableKeys(currentSubgraph, selected.fieldType.innerType),
-      Nil,
-      Set.empty
-    ).flatMap { candidates =>
-      val complete = candidates.filter(_.pending.isEmpty)
-      if (complete.isEmpty)
-        candidates.headOption
-          .fold[Either[PlanningFailure, List[RootCandidate]]](Right(Nil))(planned =>
-            Left(PlanningFailure(unsatisfiedMessage(planned.pending)))
-          )
-      else
-        Right(complete.flatMap { planned =>
-          if (hasRootWork(planned))
-            List(
-              RootCandidate(currentSubgraph, client, planned.downstream, planned.entities, planned.typenameSelections)
+  )(implicit search: CandidateSearch): Either[PlanningFailure, List[RootCandidate]] = {
+    val (selectedRoot, contextRoots, contexts) =
+      if (!graph.hasContextArguments) (selected, Nil, Nil)
+      else {
+        val rootType                        = graph.rootType.types(operationRootName(operationType))
+        val contextRoot                     = Field("", rootType, None, fields = selected :: Nil)
+        val (selectedContextRoot, contexts) = activateContexts(contextRoot, Vector.empty, Nil)
+        val (selectedRoots, contextRoots)   = selectedContextRoot.fields.partition(field =>
+          field.name == selected.name && field.aliasedName == selected.aliasedName && field.arguments == selected.arguments
+        )
+        (selectedRoots.headOption.getOrElse(selected), contextRoots, contexts)
+      }
+    val canFetchContextRoots                   =
+      contextRoots.forall(field => graph.sources(operationType, field.name).contains(currentSubgraph))
+    if (!canFetchContextRoots) Right(Nil)
+    else
+      planFieldCandidates(
+        selectedRoot,
+        currentSubgraph,
+        Vector(client.aliasedName),
+        Set.empty,
+        rootSubgraphs.toSet,
+        availableKeys(currentSubgraph, selected.fieldType.innerType),
+        Nil,
+        Set.empty,
+        contexts
+      ).flatMap { candidates =>
+        val complete = candidates.filter(_.pending.isEmpty)
+        if (complete.isEmpty)
+          candidates.headOption
+            .fold[Either[PlanningFailure, List[RootCandidate]]](Right(Nil))(planned =>
+              Left(PlanningFailure(unsatisfiedMessage(planned.pending)))
             )
-          else if (
-            addTypenameFallback && (selected.fieldType.innerType.kind match {
-              case __TypeKind.INTERFACE | __TypeKind.UNION => true
-              case _                                       => false
-            })
-          ) {
-            val (alias, typename) = privateTypename(
-              "_caliban_gateway_runtime_typename",
-              selected.fieldType.innerType,
-              selected.fields.iterator.map(_.aliasedName).toSet
-            )
-            val downstream        = planned.downstream.copy(fields = typename :: Nil)
-            List(
-              RootCandidate(
-                currentSubgraph,
-                client,
-                downstream,
-                planned.entities,
-                TypenameSelection(Vector(client.aliasedName), alias) :: planned.typenameSelections
+        else
+          Right(complete.flatMap { planned =>
+            if (hasRootWork(planned))
+              List(
+                RootCandidate(
+                  currentSubgraph,
+                  client,
+                  planned.downstream,
+                  contextRoots,
+                  planned.entities,
+                  planned.typenameSelections
+                )
               )
-            )
-          } else Nil
-        })
-    }
+            else if (
+              addTypenameFallback && (selected.fieldType.innerType.kind match {
+                case __TypeKind.INTERFACE | __TypeKind.UNION => true
+                case _                                       => false
+              })
+            ) {
+              val (alias, typename) = privateTypename(
+                "_caliban_gateway_runtime_typename",
+                selected.fieldType.innerType,
+                selected.fields.iterator.map(_.aliasedName).toSet
+              )
+              val downstream        = planned.downstream.copy(fields = typename :: Nil)
+              List(
+                RootCandidate(
+                  currentSubgraph,
+                  client,
+                  downstream,
+                  contextRoots,
+                  planned.entities,
+                  TypenameSelection(Vector(client.aliasedName), alias) :: planned.typenameSelections
+                )
+              )
+            } else Nil
+          })
+      }
+  }
 
   private def rootFieldForSubgraph(field: Field, currentSubgraph: String, rootSubgraphs: List[String]): Field = {
     def filter(
@@ -399,6 +457,35 @@ private[gateway] final class OperationPlanner(
       .map(_ => ())
   }
 
+  private def validateContextBindings(
+    roots: List[RootFetch],
+    entities: List[EntityFetch]
+  ): Either[PlanningFailure, Unit] =
+    if (!graph.hasContextArguments) Right(())
+    else {
+      def uses(source: String, fields: List[Field]): Set[(String, String, String)] =
+        contextBindings(source, fields).iterator
+          .map(binding => (binding.parentType, binding.field, binding.argument.argument))
+          .toSet
+
+      val missing = roots.iterator.flatMap(fetch => uses(fetch.source, fetch.selections)).toSet ++
+        entities.iterator.flatMap { fetch =>
+          val bound = fetch.contextArguments.iterator
+            .map(argument => (argument.parentType, argument.field, argument.argument))
+            .toSet
+          uses(fetch.source, fetch.fields) -- bound
+        }
+      Either.cond(
+        missing.isEmpty,
+        (),
+        PlanningFailure(
+          s"Context routing obligations are unsatisfied: ${missing.toList.sorted.map { case (parent, field, argument) =>
+              s"'$parent.$field($argument:)'"
+            }.mkString(", ")}."
+        )
+      )
+    }
+
   private def planFieldCandidates(
     field: Field,
     currentSubgraph: String,
@@ -407,31 +494,33 @@ private[gateway] final class OperationPlanner(
     runtimeSources: Set[String],
     availableExternal: List[ComposedGraph.KeyField],
     provided: List[Field],
-    satisfiedRequirements: Set[(String, String)]
+    satisfiedRequirements: Set[(String, String)],
+    activeContexts: List[ActiveContext]
   )(implicit search: CandidateSearch): Either[PlanningFailure, List[FieldCandidate]] = {
-    val parentType       = field.fieldType.innerType
-    val typeName         = parentType.name.getOrElse("")
-    val fieldParentType  = field.parentType.flatMap(_.name)
-    val subgraphTypeName = fieldParentType
-      .flatMap(graph.field(currentSubgraph, _, field.name))
+    val (selectedField, availableContexts) = activateContexts(field, path, activeContexts)
+    val parentType                         = selectedField.fieldType.innerType
+    val typeName                           = parentType.name.getOrElse("")
+    val fieldParentType                    = selectedField.parentType.flatMap(_.name)
+    val subgraphTypeName                   = fieldParentType
+      .flatMap(graph.field(currentSubgraph, _, selectedField.name))
       .flatMap(_._type.innerType.name)
       .getOrElse(typeName)
-    val possibleTypes    = fieldParentType
-      .map(graph.runtimeTypesForField(runtimeSources, currentSubgraph, _, field.name, subgraphTypeName))
+    val possibleTypes                      = fieldParentType
+      .map(graph.runtimeTypesForField(runtimeSources, currentSubgraph, _, selectedField.name, subgraphTypeName))
       .getOrElse(graph.runtimeTypes(currentSubgraph, subgraphTypeName).toSet)
-    val providedFields   = mergeFields(
+    val providedFields                     = mergeFields(
       provided ::: fieldSetFields(
-        graph.provided(currentSubgraph, fieldParentType.getOrElse(""), field.name),
-        field.fieldType
+        graph.provided(currentSubgraph, fieldParentType.getOrElse(""), selectedField.name),
+        selectedField.fieldType
       )
     )
-    val selections       = selectedFields(field, parentType, typeName)
+    val selections                         = selectedFields(selectedField, parentType, typeName)
       .filter(graph.appliesOnSource(currentSubgraph, subgraphTypeName, _))
       .filter(child =>
         graph.isInterfaceObject(currentSubgraph, subgraphTypeName) ||
           child._condition.forall(condition => possibleTypes.isEmpty || condition.exists(possibleTypes))
       )
-    val typenameField    =
+    val typenameField                      =
       if (
         graph.isInterfaceObject(currentSubgraph, typeName) && selections.exists(_.targets.nonEmpty) &&
         !selections.exists(_.name == "__typename")
@@ -440,11 +529,11 @@ private[gateway] final class OperationPlanner(
           privateTypename(
             "_caliban_gateway_runtime_typename",
             parentType,
-            field.fields.iterator.map(_.aliasedName).toSet
+            selectedField.fields.iterator.map(_.aliasedName).toSet
           )
         )
       else None
-    val routed           = selections ::: typenameField.toList.map(_._2)
+    val routed                             = selections ::: typenameField.toList.map(_._2)
 
     val routedSelections = findFieldProviders(
       routed,
@@ -464,14 +553,15 @@ private[gateway] final class OperationPlanner(
                      }
       assignments <- providerAssignments(routedSelections)
       context      = EntityFetchContext(
-                       field,
+                       selectedField,
                        currentSubgraph,
                        path,
                        parentType,
                        typeName,
                        visitedFetches,
                        availableExternal,
-                       providedFields
+                       providedFields,
+                       availableContexts
                      )
       planned     <- search.evaluate(assignments) { assignment =>
                        val sameSubgraphFields = mutable.ListBuffer.empty[(Field, List[Field])]
@@ -486,7 +576,13 @@ private[gateway] final class OperationPlanner(
                              selection.field.name,
                              requirements,
                              satisfiedRequirements
-                           )
+                           ) &&
+                           (!graph.hasContextArguments || !usesContext(
+                             provider.subgraph,
+                             selection.field,
+                             availableContexts,
+                             satisfiedRequirements
+                           ))
                          )
                            sameSubgraphFields += selection.field -> selection.supplied.toList.flatMap(_.fields)
                          else
@@ -504,11 +600,12 @@ private[gateway] final class OperationPlanner(
                                                 path,
                                                 visitedFetches,
                                                 runtimeSources,
-                                                sameSubgraphFields.toList
+                                                sameSubgraphFields.toList,
+                                                availableContexts
                                               )
                          values            <- search.evaluate(sameSubgraphPlans)(planEntityFetches(context, _, pending))
                        } yield values.flatten.map { value =>
-                         val withTypename = addTypenameSelection(field, currentSubgraph, path, parentType, value)
+                         val withTypename = addTypenameSelection(selectedField, currentSubgraph, path, parentType, value)
                          typenameField.fold(withTypename) { case (alias, _) =>
                            withTypename.copy(
                              typenameSelections = TypenameSelection(path, alias) :: withTypename.typenameSelections
@@ -606,7 +703,8 @@ private[gateway] final class OperationPlanner(
     path: Vector[String],
     visitedFetches: Set[EntityFetchKey],
     runtimeSources: Set[String],
-    fields: List[(Field, List[Field])]
+    fields: List[(Field, List[Field])],
+    activeContexts: List[ActiveContext]
   )(implicit search: CandidateSearch): Either[PlanningFailure, List[PlannedSelections]] =
     fields
       .foldLeft[Either[PlanningFailure, List[PlannedSelections]]](
@@ -629,7 +727,8 @@ private[gateway] final class OperationPlanner(
                 ),
                 availableKeys(currentSubgraph, child.fieldType.innerType),
                 provided,
-                Set.empty
+                Set.empty,
+                activeContexts
               )
           combined     <- search.combine(current, alternatives) { case (values, planned) =>
                             PlannedSelections(
@@ -804,11 +903,12 @@ private[gateway] final class OperationPlanner(
     fetchKey: EntityFetchKey
   )(implicit search: CandidateSearch): Either[PlanningFailure, List[EntityFetchState]] = {
     val entityField                    = context.field.copy(fieldType = resolved.parentType)
+    val ordinaryRequirements           = fieldSetFields(candidate.requirements, resolved.parentType)
     val (requiredFields, requirements) =
       injectRequirementFields(
         entityField,
         state.downstream,
-        fieldSetFields(candidate.requirements, resolved.parentType)
+        ordinaryRequirements
       )
     for {
       requirementPlans <- planRequirementCandidates(
@@ -851,10 +951,16 @@ private[gateway] final class OperationPlanner(
                                                                resolved.parentType.name.toList :::
                                                                context.parentType.name.toList).map(_ -> child.name)
                                                            )
-                                                           .toSet
+                                                           .toSet,
+                                                         context.activeContexts
                                                        )
                               values                <- search.evaluate(planned) { value =>
                                                          val (downstream, keys, typename) = injected
+                                                         val contextArguments             = contextualArguments(
+                                                           candidate.targetSubgraph,
+                                                           value.downstream.fields,
+                                                           context.activeContexts
+                                                         )
                                                          val entity                       = EntityCandidate(
                                                            candidate.targetSubgraph,
                                                            context.currentSubgraph,
@@ -862,12 +968,13 @@ private[gateway] final class OperationPlanner(
                                                            resolved.entityType,
                                                            keys,
                                                            requirements,
+                                                           contextArguments,
                                                            typename,
                                                            resolved.selection.lookup,
                                                            value.downstream.fields,
                                                            value.entities,
                                                            resolved.selection.mayNeedPrerequisiteFetches ||
-                                                             requirementPlan.entities.nonEmpty
+                                                             requirementPlan.entities.nonEmpty || contextArguments.nonEmpty
                                                          )
                                                          val next                         = EntityFetchState(
                                                            downstream,
@@ -988,6 +1095,101 @@ private[gateway] final class OperationPlanner(
     provider.subgraph == currentSubgraph &&
       (requirements.isEmpty || satisfiedRequirements.contains(provider.typeName -> fieldName))
 
+  private def contextBindings(source: String, fields: List[Field]): List[ContextBinding] =
+    fields.flatMap { field =>
+      val parent = field.parentType.flatMap(_.name).getOrElse("")
+      graph.fromContext(source, parent, field.name).map(ContextBinding(parent, field.name, _)) :::
+        contextBindings(source, field.fields)
+    }
+
+  private def activateContexts(
+    field: Field,
+    path: Vector[String],
+    active: List[ActiveContext]
+  ): (Field, List[ActiveContext]) =
+    if (!graph.hasContextArguments) field -> active
+    else {
+      val parentType   = field.fieldType.innerType
+      val typeName     = parentType.name.getOrElse("")
+      val declarations = graph.contextDeclarations(typeName)
+      val pending      = declarations.flatMap { declaration =>
+        contextBindings(declaration.source, field.fields)
+          .filter(_.argument.context == declaration.name)
+          .map(declaration -> _)
+      }.distinct.filterNot { case (declaration, binding) =>
+        active.exists(context => context.matches(declaration.source, binding) && context.argument.sourcePath == path)
+      }
+      if (pending.isEmpty) field -> active
+      else {
+        val requirements                  = pending.map { case (_, binding) =>
+          binding -> fieldSetFields(binding.argument.selections, parentType)
+        }
+        val (injectedFields, selections)  = injectRequirementFields(
+          field,
+          field.fields.toVector,
+          requirements.flatMap(_._2)
+        )
+        val withSelections                = requirements
+          .foldLeft((List.empty[(ContextBinding, List[RequiredSelection])], selections)) {
+            case ((values, remaining), (binding, fields)) =>
+              val (selected, tail) = remaining.splitAt(fields.size)
+              ((binding -> selected) :: values, tail)
+          }
+          ._1
+          .reverse
+        val needsTypename                 = withSelections.exists(_._2.exists(_.conditions.nonEmpty))
+        val (typenameSelection, typename) =
+          if (needsTypename) {
+            val used              = (field.fields.iterator ++ injectedFields.iterator).map(_.aliasedName).toSet
+            val (alias, selected) = privateTypename("_caliban_gateway_context_typename", parentType, used)
+            Some(RequiredSelection("__typename", alias)) -> (selected :: Nil)
+          } else None -> Nil
+        val selectedField                 = field.copy(fields = field.fields ::: injectedFields ::: typename)
+        val activated                     = pending.zip(withSelections).map { case ((declaration, _), (binding, selected)) =>
+          ActiveContext(
+            declaration.source,
+            ContextualArgument(
+              binding.parentType,
+              binding.field,
+              binding.argument.argument,
+              declaration.name,
+              path,
+              typeName,
+              selected,
+              typenameSelection
+            )
+          )
+        }
+        selectedField -> (active ::: activated)
+      }
+    }
+
+  private def contextualArguments(
+    source: String,
+    fields: List[Field],
+    active: List[ActiveContext]
+  ): List[ContextualArgument] =
+    contextBindings(source, fields).flatMap { binding =>
+      active
+        .filter(_.matches(source, binding))
+        .sortBy(_.argument.sourcePath.size)
+        .lastOption
+        .map(_.argument)
+    }.distinct
+
+  private def usesContext(
+    source: String,
+    field: Field,
+    active: List[ActiveContext],
+    satisfied: Set[(String, String)]
+  ): Boolean = {
+    val parent = field.parentType.flatMap(_.name).getOrElse("")
+    !satisfied.contains(parent -> field.name) &&
+    graph
+      .fromContext(source, parent, field.name)
+      .exists(argument => active.exists(_.matches(source, ContextBinding(parent, field.name, argument))))
+  }
+
   private def providedFieldCovers(provided: Field, requested: Field): Boolean =
     provided.name == requested.name && provided.arguments == requested.arguments &&
       provided._condition.forall(condition => requested._condition.exists(_.subsetOf(condition)))
@@ -1045,7 +1247,8 @@ private[gateway] final class OperationPlanner(
         Set(currentSubgraph),
         availableExternal,
         provided,
-        Set.empty
+        Set.empty,
+        Nil
       )
 
   private def addTypenameSelection(
@@ -1323,6 +1526,9 @@ private[gateway] final class OperationPlanner(
     entities.foldLeft(0) { (count, entity) =>
       count + entity.keys.foldLeft(0)((value, key) => value + selectionCount(key)) +
         entity.requirements.foldLeft(0)((value, requirement) => value + selectionCount(requirement)) +
+        entity.contextArguments
+          .flatMap(_.selections)
+          .foldLeft(0)((value, selection) => value + selectionCount(selection)) +
         entity.typename.size
     }
 
@@ -1439,7 +1645,8 @@ private[gateway] object OperationPlanner {
     typeName: String,
     visitedFetches: Set[EntityFetchKey],
     availableExternal: List[ComposedGraph.KeyField],
-    provided: List[Field]
+    provided: List[Field],
+    activeContexts: List[ActiveContext]
   )
 
   private final case class ResolvedLookup(
@@ -1499,6 +1706,7 @@ private[gateway] object OperationPlanner {
     source: String,
     client: Field,
     downstream: Field,
+    contextRoots: List[Field],
     entities: List[EntityCandidate],
     typenameSelections: List[TypenameSelection]
   )
@@ -1510,6 +1718,7 @@ private[gateway] object OperationPlanner {
     entityType: String,
     keys: List[RequiredSelection],
     requirements: List[RequiredSelection],
+    contextArguments: List[ContextualArgument],
     typename: Option[RequiredSelection],
     lookup: ComposedGraph.EntityLookup,
     fields: List[Field],
@@ -1527,11 +1736,28 @@ private[gateway] object OperationPlanner {
         entityType,
         keys,
         requirements,
+        contextArguments,
         typename,
         lookup,
         fields,
         mayNeedPrerequisiteFetches
       )
+  }
+
+  private final case class ContextBinding(
+    parentType: String,
+    field: String,
+    argument: ComposedGraph.ContextArgument
+  )
+
+  private final case class ActiveContext(
+    source: String,
+    argument: ContextualArgument
+  ) {
+    def matches(fetchSource: String, binding: ContextBinding): Boolean =
+      source == fetchSource && argument.context == binding.argument.context &&
+        argument.parentType == binding.parentType && argument.field == binding.field &&
+        argument.argument == binding.argument.argument
   }
 
 }

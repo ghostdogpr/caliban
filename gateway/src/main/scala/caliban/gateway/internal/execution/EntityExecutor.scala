@@ -44,11 +44,13 @@ private[gateway] final class EntityExecutor[-R](
     }
     val candidates = mutable.HashMap.empty[(FetchId, Vector[String]), List[(List[PathValue], ResponseValue)]]
     fetches.foreach { fetch =>
-      val key = (fetch.root, fetch.mergePath)
-      if (!candidates.contains(key)) {
-        val collected = new mutable.ListBuffer[(List[PathValue], ResponseValue)]
-        entityCandidates(roots.getOrElse(fetch.root, NullValue), fetch.mergePath.toList, Nil, collected)
-        candidates.put(key, collected.toList)
+      (fetch.mergePath :: fetch.contextArguments.map(_.sourcePath)).distinct.foreach { path =>
+        val key = fetch.root -> path
+        if (!candidates.contains(key)) {
+          val collected = new mutable.ListBuffer[(List[PathValue], ResponseValue)]
+          entityCandidates(roots.getOrElse(fetch.root, NullValue), path.toList, Nil, collected)
+          candidates.put(key, collected.toList)
+        }
       }
     }
     grouped.values.toList match {
@@ -70,26 +72,56 @@ private[gateway] final class EntityExecutor[-R](
     val batch   = prepareBatch(fetches, candidates, blocked, cache)
 
     if (batch.entries.isEmpty) ZIO.succeed(EntityResult(Nil, batch.errors, batch.fetchIds, batch.blocked))
+    else if (fetches.forall(_.contextArguments.isEmpty))
+      executeBatch(fetch, fetches, batch, resolvedRequest, cache)
     else {
-      def failure = EntityResult(
-        Nil,
-        batch.errors ::: fetches.map(fetch => RemoteError.at(fetchPath(fetch))),
-        batch.fetchIds,
-        blockAll(batch)
-      )
-
-      lookups.prepare(fetches, batch, resolvedRequest, cache) match {
-        case Some(lookup) =>
-          subgraphExecutors.get(fetch.source) match {
-            case Some(executor) =>
-              executor
-                .execute(lookup.request, OperationType.Query)
-                .map(response => lookup.complete(response, executor.errorPolicy))
-                .catchAll(_ => ZIO.succeed(failure))
-            case None           => ZIO.succeed(failure)
-          }
-        case None         => ZIO.succeed(failure)
+      val grouped = batch.entries.groupBy(_.contextArguments).values.toList
+      val batches = grouped.zipWithIndex.map { case (entries, index) =>
+        batch.copy(
+          entries = entries,
+          errors = if (index == 0) batch.errors else Nil,
+          blocked = if (index == 0) batch.blocked else Map.empty
+        )
       }
+      ZIO.foreachPar(batches)(executeBatch(fetch, fetches, _, resolvedRequest, cache)).map { results =>
+        EntityResult(
+          results.flatMap(_.patches),
+          results.flatMap(_.errors),
+          results.iterator.flatMap(_.completed).toSet,
+          results.flatMap(_.blocked).foldLeft(Map.empty[FetchId, Set[List[PathValue]]]) {
+            case (values, (fetchId, paths)) =>
+              values.updated(fetchId, values.getOrElse(fetchId, Set.empty) ++ paths)
+          }
+        )
+      }
+    }
+  }
+
+  private def executeBatch(
+    fetch: EntityFetch,
+    fetches: List[EntityFetch],
+    batch: EntityBatch,
+    resolvedRequest: GraphQLRequest,
+    cache: PlanExecutionCache
+  )(implicit trace: Trace): URIO[R, EntityResult] = {
+    def failure = EntityResult(
+      Nil,
+      batch.errors ::: fetches.map(fetch => RemoteError.at(fetchPath(fetch))),
+      batch.fetchIds,
+      blockAll(batch)
+    )
+
+    lookups.prepare(fetches, batch, resolvedRequest, cache) match {
+      case Some(lookup) =>
+        subgraphExecutors.get(fetch.source) match {
+          case Some(executor) =>
+            executor
+              .execute(lookup.request, OperationType.Query)
+              .map(response => lookup.complete(response, executor.errorPolicy))
+              .catchAll(_ => ZIO.succeed(failure))
+          case None           => ZIO.succeed(failure)
+        }
+      case None         => ZIO.succeed(failure)
     }
   }
 
@@ -126,7 +158,7 @@ private[gateway] final class EntityExecutor[-R](
           )
             skip(fetch, path)
           else
-            sourceRepresentation(fetch, obj, cache) match {
+            sourceRepresentation(fetch, path, obj, candidates, cache) match {
               case Some(representation) =>
                 entries.get(representation) match {
                   case Some(locations) => locations += EntityLocation(fetch, path)
@@ -145,7 +177,12 @@ private[gateway] final class EntityExecutor[-R](
 
     EntityBatch(
       entries.iterator.map { case (representation, locations) =>
-        EntityBatchEntry(representation.identity, representation.requirements.toMap, locations.toList)
+        EntityBatchEntry(
+          representation.identity,
+          representation.requirements.toMap,
+          representation.contextArguments.toMap,
+          locations.toList
+        )
       }.toVector,
       errors.toList,
       skipped.iterator.map { case (fetchId, paths) => fetchId -> paths.toSet }.toMap,
@@ -160,15 +197,68 @@ private[gateway] final class EntityExecutor[-R](
 
   private def sourceRepresentation(
     fetch: EntityFetch,
+    path: List[PathValue],
     value: ObjectValue,
+    candidates: mutable.HashMap[(FetchId, Vector[String]), List[(List[PathValue], ResponseValue)]],
     cache: PlanExecutionCache
   ): Option[Representation] = {
     val fields = IndexedFields(value)
     for {
       identity     <- fetchIdentitySelections(fetch, cache).read(fetch.entityType, fields)
       requirements <- readRequirements(fetch.requirements, identity.typename, fields)
-    } yield Representation(identity, requirements)
+      contexts     <- readContextArguments(fetch, path, candidates)
+    } yield Representation(identity, requirements, contexts)
   }
+
+  private def readContextArguments(
+    fetch: EntityFetch,
+    entityPath: List[PathValue],
+    candidates: mutable.HashMap[(FetchId, Vector[String]), List[(List[PathValue], ResponseValue)]]
+  ): Option[List[(ContextualArgument, InputValue)]] =
+    traverseOption(fetch.contextArguments) { argument =>
+      val source = candidates
+        .getOrElse(fetch.root -> argument.sourcePath, Nil)
+        .collect {
+          case (path, value: ObjectValue) if path.size <= entityPath.size && entityPath.startsWith(path) =>
+            path -> value
+        }
+        .sortBy(_._1.size)
+        .lastOption
+        .map(_._2)
+      source.flatMap { value =>
+        val fields      = IndexedFields(value)
+        val runtimeType = argument.typename
+          .flatMap(selection => fields.get(selection.responseName).collect { case StringValue(name) => name })
+          .getOrElse(argument.sourceType)
+        readContextInput(argument.selections, runtimeType, fields)
+      }.map(argument -> _)
+    }
+
+  private def readContextInput(
+    selections: List[RequiredSelection],
+    runtimeType: String,
+    value: IndexedFields
+  ): Option[InputValue] =
+    selections.filter(appliesTo(_, runtimeType)) match {
+      case selection :: Nil => value.get(selection.responseName).flatMap(selectedContextInput(selection, _))
+      case _                => None
+    }
+
+  private def selectedContextInput(selection: RequiredSelection, value: ResponseValue): Option[InputValue] =
+    if (value == NullValue) Some(NullValue)
+    else if (selection.children.isEmpty) responseInput(value)
+    else
+      value match {
+        case obj: ObjectValue  =>
+          val fields = IndexedFields(obj)
+          selection.children match {
+            case child :: Nil => fields.get(child.responseName).flatMap(selectedContextInput(child, _))
+            case _            => None
+          }
+        case ListValue(values) =>
+          traverseOption(values)(selectedContextInput(selection, _)).map(InputListValue.apply)
+        case _                 => None
+      }
 
   private def readRequirements(
     requirements: List[RequiredSelection],
@@ -376,14 +466,21 @@ private[gateway] object EntityExecutor {
       }
   }
 
-  private final case class Representation(identity: EntityIdentity, requirements: List[(String, InputValue)]) {
+  private final case class Representation(
+    identity: EntityIdentity,
+    requirements: List[(String, InputValue)],
+    contextArguments: List[(ContextualArgument, InputValue)]
+  ) {
     @transient @threadUnsafe
-    final override lazy val hashCode: Int = namedValuesHash(identity.hashCode, requirements)
+    final override lazy val hashCode: Int =
+      31 * namedValuesHash(identity.hashCode, requirements) + contextArguments.hashCode
 
     final override def equals(other: Any): Boolean =
       other match {
         case that: Representation =>
-          (this eq that) || (identity == that.identity && namedValuesEqual(requirements, that.requirements))
+          (this eq that) ||
+          (identity == that.identity && namedValuesEqual(requirements, that.requirements) &&
+            contextArguments == that.contextArguments)
         case _                    => false
       }
   }
@@ -418,6 +515,7 @@ private[gateway] object EntityExecutor {
   private[execution] final case class EntityBatchEntry(
     identity: EntityIdentity,
     requirements: Map[String, InputValue],
+    contextArguments: Map[ContextualArgument, InputValue],
     locations: List[EntityLocation]
   )
 

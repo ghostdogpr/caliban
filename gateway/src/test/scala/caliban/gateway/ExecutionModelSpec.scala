@@ -125,7 +125,7 @@ object ExecutionModelSpec extends ZIOSpecDefault {
     },
     test("execution artifacts are reused but variable binding gets an independent cache") {
       val field      = Field("product", objectType, Some(queryType), arguments = Map("id" -> InputValue.VariableValue("id")))
-      val fetch      = RootFetch(FetchId(0), "products", List(field), List(field))
+      val fetch      = RootFetch(FetchId(0), "products", List(field), List(field), Nil)
       val plan       = OperationPlan(OperationType.Query, "Query", List(field), Nil, List(fetch), Nil, Nil, None)
       val prepared   = new PreparedPlan(plan)
       val cache      = prepared.cache
@@ -165,6 +165,7 @@ object ExecutionModelSpec extends ZIOSpecDefault {
                       entityType = "Product",
                       keys = List(RequiredSelection("id", "id")),
                       requirements = Nil,
+                      contextArguments = Nil,
                       typename = None,
                       lookup = ComposedGraph.EntityLookup(
                         List(ComposedGraph.KeyField("id", Nil)),

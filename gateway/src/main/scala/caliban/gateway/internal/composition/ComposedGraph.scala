@@ -25,6 +25,8 @@ private[gateway] final class ComposedGraph private[internal] (
   private val entityLookups: Map[(String, String), List[ComposedGraph.EntityLookup]],
   private val requirements: Map[(String, String, String), List[Selection]],
   private val provisions: Map[(String, String, String), List[Selection]],
+  private val contexts: Map[(String, String), Set[ComposedGraph.ContextName]],
+  private val contextArguments: Map[(String, String, String), List[ComposedGraph.ContextArgument]],
   private val interfaceObjects: Set[(String, String)],
   private val sourceRuntimeTypes: Map[(String, String), Set[String]],
   private[internal] val mappings: Map[String, SchemaMapping],
@@ -33,11 +35,21 @@ private[gateway] final class ComposedGraph private[internal] (
 ) {
   private val hasUnsupportedPolicies   = securityApplications.exists(_.directive == SecurityDirective.UnsupportedPolicy)
   private val requirementsByCoordinate =
-    if (!hasUnsupportedPolicies) Map.empty[(String, String), List[(String, List[Selection])]]
-    else
-      requirements.toList.map { case ((source, owner, name), selections) => (owner -> name) -> (source -> selections) }
-        .groupBy(_._1)
-        .map { case (coordinate, values) => coordinate -> values.map(_._2) }
+    if (!hasUnsupportedPolicies) Map.empty[(String, String), List[(String, String, List[Selection])]]
+    else {
+      val required   = requirements.toList.map { case ((source, owner, name), selections) =>
+        (owner -> name) -> ((source, owner, selections))
+      }
+      val contextual = contextArguments.toList.flatMap { case ((source, owner, name), arguments) =>
+        arguments.flatMap { argument =>
+          contexts.collect {
+            case ((`source`, contextType), names) if names.contains(argument.context) =>
+              (owner -> name) -> ((source, contextType, argument.selections))
+          }
+        }
+      }
+      (required ::: contextual).groupBy(_._1).map { case (coordinate, values) => coordinate -> values.map(_._2) }
+    }
   private val securityByCoordinate     =
     securityApplications
       .groupBy(application => application.typeName -> application.fieldName)
@@ -118,6 +130,8 @@ private[gateway] final class ComposedGraph private[internal] (
       entityLookups,
       requirements,
       provisions,
+      contexts,
+      contextArguments,
       interfaceObjects,
       sourceRuntimeTypes,
       mappings,
@@ -159,6 +173,24 @@ private[gateway] final class ComposedGraph private[internal] (
 
   def provided(source: String, typeName: String, field: String): List[Selection] =
     provisions.getOrElse((source, typeName, field), Nil)
+
+  def declaresContext(source: String, typeName: String, name: ComposedGraph.ContextName): Boolean =
+    contexts.getOrElse(source -> typeName, Set.empty).contains(name)
+
+  def contextDeclarations(typeName: String): List[ComposedGraph.ContextDeclaration] = {
+    val selectedTypes = runtimeTypesByName.getOrElse(typeName, Set(typeName))
+    contexts.iterator.flatMap { case ((source, declaredType), names) =>
+      val declaredTypes = runtimeTypesByName.getOrElse(declaredType, Set(declaredType))
+      if ((selectedTypes intersect declaredTypes).nonEmpty)
+        names.iterator.map(ComposedGraph.ContextDeclaration(source, declaredType, _))
+      else Iterator.empty
+    }.toList
+  }
+
+  def fromContext(source: String, typeName: String, field: String): List[ComposedGraph.ContextArgument] =
+    contextArguments.getOrElse((source, typeName, field), Nil)
+
+  def hasContextArguments: Boolean = contextArguments.nonEmpty
 
   def mapping(source: String): Option[SchemaMapping] =
     mappings.get(source)
@@ -235,9 +267,10 @@ private[gateway] final class ComposedGraph private[internal] (
                 val coordinate = parentType -> field.name
                 if (visited(coordinate)) Nil
                 else
-                  requirementsByCoordinate.getOrElse(coordinate, Nil).flatMap { case (source, selections) =>
-                    loop(requiredFields(source, parentType, selections), root = false, visited + coordinate)
-                      .filter(_.directives.contains(SecurityDirective.UnsupportedPolicy))
+                  requirementsByCoordinate.getOrElse(coordinate, Nil).flatMap {
+                    case (source, dependencyType, selections) =>
+                      loop(requiredFields(source, dependencyType, selections), root = false, visited + coordinate)
+                        .filter(_.directives.contains(SecurityDirective.UnsupportedPolicy))
                   }
               }
             rootRequirements ::: direct ::: relatedFields ::: output ::: relatedOutput ::: dependencies ::: loop(
@@ -428,6 +461,12 @@ private[gateway] final class ComposedGraph private[internal] (
 
 private[gateway] object ComposedGraph {
   final case class KeyField(name: String, children: List[KeyField])
+
+  final case class ContextName(value: String) extends AnyVal
+
+  final case class ContextDeclaration(source: String, typeName: String, name: ContextName)
+
+  final case class ContextArgument(argument: String, context: ContextName, selections: List[Selection])
 
   final case class OverrideLabel(value: String) extends AnyVal
 

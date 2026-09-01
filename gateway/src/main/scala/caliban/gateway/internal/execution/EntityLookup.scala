@@ -8,7 +8,7 @@ import caliban.gateway.internal.execution.EntityLookup._
 import caliban.gateway.internal.planning.OperationPlan._
 import caliban.gateway.traverseOption
 import caliban.InputValue.{ ListValue => InputListValue, ObjectValue => InputObjectValue, VariableValue }
-import caliban.introspection.adt.__TypeKind
+import caliban.introspection.adt.{ __Type, __TypeKind }
 import caliban.parsing.adt.{ Document, OperationType, Selection, VariableDefinition }
 import caliban.parsing.adt.Definition.ExecutableDefinition.OperationDefinition
 import caliban.parsing.adt.Type.{ ListType, NamedType }
@@ -43,10 +43,12 @@ private[internal] final class EntityLookup(
     fetch: EntityFetch,
     mapping: SchemaMapping,
     responseMapping: ResponseMapping,
-    cache: PlanExecutionCache
-  ): PreparedLookup =
-    PlanExecutionCache.memoize(cache.lookups, fetch.id) {
-      val executableFields = graph.executableEntityFields(fetch.source, fetch.entityType, fetch.fields)
+    cache: PlanExecutionCache,
+    contextValues: Map[ContextualArgument, InputValue]
+  ): PreparedLookup = {
+    def prepare: PreparedLookup = {
+      val contextualFields = injectContextArguments(fetch.source, fetch.fields, contextValues)
+      val executableFields = graph.executableEntityFields(fetch.source, fetch.entityType, contextualFields)
       PreparedLookup(
         executableFields,
         executableFields.map(mapping.rootFieldToSource).flatMap(fieldSelection),
@@ -54,6 +56,8 @@ private[internal] final class EntityLookup(
         ResponseMapping.responseNameRestorer(fetch.fields, executableFields)
       )
     }
+    if (contextValues.isEmpty) PlanExecutionCache.memoize(cache.lookups, fetch.id)(prepare) else prepare
+  }
 
   private def federationCorrelation(
     fetch: EntityFetch,
@@ -126,7 +130,8 @@ private[internal] final class EntityLookup(
     cache: PlanExecutionCache
   ): Option[Call] = {
     val responseMapping  = responseMappings(fetch.source)
-    val prepared         = preparedLookup(fetch, mapping, responseMapping, cache)
+    val contextValues    = batch.entries.headOption.map(_.contextArguments).getOrElse(Map.empty)
+    val prepared         = preparedLookup(fetch, mapping, responseMapping, cache, contextValues)
     val executableFields = prepared.executableFields
     val sourceSelections = prepared.sourceSelections
 
@@ -286,6 +291,44 @@ private[internal] final class EntityLookup(
           )
         )
       case None          => field.toSelection :: Nil
+    }
+
+  private def injectContextArguments(
+    source: String,
+    fields: List[Field],
+    values: Map[ContextualArgument, InputValue]
+  ): List[Field] =
+    if (values.isEmpty) fields
+    else
+      fields.map { field =>
+        val parent = field.parentType.flatMap(_.name).getOrElse("")
+        val added  = values.iterator.collect {
+          case (context, value) if context.parentType == parent && context.field == field.name =>
+            val expected = graph
+              .field(source, parent, field.name)
+              .flatMap(_.allArgs.find(_.name == context.argument))
+              .map(_._type)
+            val input    = expected.fold(value)(coerceContextInput(value, _))
+            context.argument -> input
+        }.toMap
+        field.copy(arguments = field.arguments ++ added, fields = injectContextArguments(source, field.fields, values))
+      }
+
+  private def coerceContextInput(value: InputValue, expected: __Type): InputValue =
+    expected.kind match {
+      case __TypeKind.NON_NULL => expected.ofType.fold(value)(coerceContextInput(value, _))
+      case __TypeKind.LIST     =>
+        (value, expected.ofType) match {
+          case (InputValue.ListValue(values), Some(element)) =>
+            InputValue.ListValue(values.map(coerceContextInput(_, element)))
+          case _                                             => value
+        }
+      case __TypeKind.ENUM     =>
+        value match {
+          case StringValue(entry) => EnumValue(entry)
+          case _                  => value
+        }
+      case _                   => value
     }
 
   private def federationRepresentation(fetch: EntityFetch, entry: EntityBatchEntry): InputObjectValue =

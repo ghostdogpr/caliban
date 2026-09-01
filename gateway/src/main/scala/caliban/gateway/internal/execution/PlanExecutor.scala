@@ -44,7 +44,7 @@ private[gateway] final class PlanExecutor[-R] private (
   ): PreparedRoot =
     PlanExecutionCache.memoize(cache.roots, fetch.id) {
       val mapping          = graph.mapping(fetch.source)
-      val executable       = fetch.downstream.map(graph.executableField(fetch.source, _))
+      val executable       = fetch.selections.map(graph.executableField(fetch.source, _))
       val downstream       = mapping.fold(executable)(value => executable.map(value.rootFieldToSource))
       val responseToClient = responseMappings.get(fetch.source).map(_.rootResponseMapper(executable))
       val operation        = OperationDefinition(
@@ -58,7 +58,7 @@ private[gateway] final class PlanExecutor[-R] private (
         executable,
         responseToClient,
         DocumentRenderer.renderCompact(Document(operation :: Nil, SourceMapper.empty)),
-        ResponseMapping.responseNameRestorer(fetch.downstream, executable)
+        ResponseMapping.responseNameRestorer(fetch.selections, executable)
       )
     }
 
@@ -394,7 +394,7 @@ private[gateway] final class PlanExecutor[-R] private (
     val errors     = translated.errors.map {
       case error: CalibanError.ExecutionError =>
         error
-          .copy(path = ResponseMapping.restoreResponsePath(fetch.downstream, prepared.executable, error.path))
+          .copy(path = ResponseMapping.restoreResponsePath(fetch.selections, prepared.executable, error.path))
       case error                              => error
     }
     val restored   = prepared.restorer match {

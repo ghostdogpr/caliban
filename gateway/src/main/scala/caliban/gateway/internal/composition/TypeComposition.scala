@@ -42,18 +42,27 @@ private[composition] final class TypeComposition(
       entries.flatMap(entry => entry.tpe.allFields.map(field => field.name -> (entry -> field))).groupBy(_._1)
 
     fields.toList.flatMap { case (fieldName, definitions) =>
-      val values       = definitions.map(_._2)
-      val ownedEntries = effectiveFieldProviders(fieldName, values.map(_._1))
-      val owned        = values.filter(value => ownedEntries.exists(_.source == value._1.source))
-      val shareable    = owned.nonEmpty && owned.forall { case (entry, _) =>
+      val values         = definitions.map(_._2)
+      val contextualArgs = values.iterator.flatMap { case (entry, _) =>
+        entry.contextualArguments.collect { case (`fieldName`, argument) => argument }
+      }.toSet
+      val contextErrors  = contextualArgumentDiagnostics(
+        s"$name.$fieldName",
+        values.map { case (entry, field) =>
+          (entry.source, field, entry.contextualArguments.collect { case (`fieldName`, argument) => argument })
+        }
+      )
+      val ownedEntries   = effectiveFieldProviders(fieldName, values.map(_._1))
+      val owned          = values.filter(value => ownedEntries.exists(_.source == value._1.source))
+      val shareable      = owned.nonEmpty && owned.forall { case (entry, _) =>
         !entry.federation2 || entry.shareableFields.contains(fieldName)
       }
-      val compatible   = fieldsCompatible(values.map(_._2))
-      val prefix       = s"[type $name.$fieldName]"
+      val compatible     = fieldsCompatible(values.map { case (_, field) => visibleArguments(field, contextualArgs) })
+      val prefix         = s"[type $name.$fieldName]"
       overrideDiagnostics(
         prefix,
         values.map { case (entry, _) => entry.source -> entry.overrideFields.get(fieldName).map(_.from) }
-      ) :::
+      ) ::: contextErrors :::
         (if (!compatible) List(s"$prefix Definitions are incompatible between subgraphs: ${sources(values.map(_._1))}.")
          else Nil) :::
         (if (
@@ -326,6 +335,7 @@ private[composition] object TypeComposition {
     inaccessible: Boolean,
     inaccessibleFields: Set[String],
     inaccessibleArguments: Set[(String, String)],
+    contextualArguments: Set[(String, String)],
     inaccessibleInputFields: Set[String],
     inaccessibleEnumValues: Set[String],
     overrideFields: Map[String, FieldOverride],
@@ -344,6 +354,22 @@ private[composition] object TypeComposition {
   )
 
   final case class EnumUsage(input: Boolean, output: Boolean)
+
+  private[composition] def contextualArgumentDiagnostics(
+    coordinate: String,
+    entries: List[(String, __Field, Set[String])]
+  ): List[String] = {
+    val contextual = entries.iterator.flatMap(_._3).toSet
+    contextual.toList.sorted.flatMap { argumentName =>
+      entries.collect {
+        case (source, field, contextualArguments)
+            if !contextualArguments.contains(argumentName) && field.allArgs.exists(argument =>
+              argument.name == argumentName && !argument._type.isNullable && argument.defaultValue.isEmpty
+            ) =>
+          s"[$source] Argument '$coordinate($argumentName:)' must be nullable or define a default value because it is supplied by @fromContext in another subgraph."
+      }
+    }
+  }
 
   private[composition] def effectiveFieldProviders(field: String, entries: List[SubgraphType]): List[SubgraphType] = {
     val owned      = entries.filter(_.ownedFields.contains(field))
@@ -453,6 +479,10 @@ private[composition] object TypeComposition {
 
   private[composition] def hiddenDirectives(entries: List[SubgraphType]): Set[String] =
     entries.iterator.flatMap(_.hiddenDirectives).toSet
+
+  private[composition] def visibleArguments(field: __Field, hidden: Set[String]): __Field =
+    if (hidden.isEmpty) field
+    else field.copy(args = args => field.args(args).filterNot(argument => hidden.contains(argument.name)))
 
   private[composition] def sources(entries: List[SubgraphType]): String =
     SchemaComposer.formatSources(entries.map(_.source))

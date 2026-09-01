@@ -57,7 +57,27 @@ private[gateway] object OperationPlan {
     candidate
   }
 
-  final case class RootFetch(id: FetchId, source: String, client: List[Field], downstream: List[Field])
+  final case class RootFetch(
+    id: FetchId,
+    source: String,
+    client: List[Field],
+    downstream: List[Field],
+    contextRoots: List[Field]
+  ) {
+    def selections: List[Field] =
+      if (contextRoots.isEmpty) downstream else downstream ::: contextRoots
+  }
+
+  final case class ContextualArgument(
+    parentType: String,
+    field: String,
+    argument: String,
+    context: ComposedGraph.ContextName,
+    sourcePath: Vector[String],
+    sourceType: String,
+    selections: List[RequiredSelection],
+    typename: Option[RequiredSelection]
+  )
 
   /**
    * The response path and alias of an injected __typename field used during response completion.
@@ -74,6 +94,7 @@ private[gateway] object OperationPlan {
     entityType: String,
     keys: List[RequiredSelection],
     requirements: List[RequiredSelection],
+    contextArguments: List[ContextualArgument],
     typename: Option[RequiredSelection],
     lookup: ComposedGraph.EntityLookup,
     fields: List[Field],
@@ -128,7 +149,7 @@ private[gateway] object OperationPlan {
 
     def references(plan: OperationPlan): Boolean =
       plan.fields.exists(fieldReferences) ||
-        plan.roots.exists(fetch => fetch.client.exists(fieldReferences) || fetch.downstream.exists(fieldReferences)) ||
+        plan.roots.exists(fetch => fetch.client.exists(fieldReferences) || fetch.selections.exists(fieldReferences)) ||
         plan.entities.exists(fetch => fetch.fields.exists(fieldReferences))
 
     def bind(plan: OperationPlan, variables: Map[String, InputValue]): OperationPlan = {
@@ -160,8 +181,12 @@ private[gateway] object OperationPlan {
         )
 
       def bindRoot(fetch: RootFetch): RootFetch =
-        if (fetch.client.exists(fieldReferences) || fetch.downstream.exists(fieldReferences))
-          fetch.copy(client = fetch.client.map(bindField), downstream = fetch.downstream.map(bindField))
+        if (fetch.client.exists(fieldReferences) || fetch.selections.exists(fieldReferences))
+          fetch.copy(
+            client = fetch.client.map(bindField),
+            downstream = fetch.downstream.map(bindField),
+            contextRoots = fetch.contextRoots.map(bindField)
+          )
         else fetch
 
       def bindEntity(fetch: EntityFetch): EntityFetch =
@@ -203,6 +228,7 @@ private[gateway] object OperationPlan {
     lookup: ComposedGraph.EntityLookup,
     keys: List[RequiredSelection],
     requirements: List[RequiredSelection],
+    contextArguments: List[ContextualArgument],
     selection: String
   ) {
     @transient @threadUnsafe
@@ -241,6 +267,7 @@ private[gateway] object OperationPlan {
       fetch.lookup,
       fetch.keys,
       fetch.requirements,
+      fetch.contextArguments,
       fetch.selectionKey
     )
 
