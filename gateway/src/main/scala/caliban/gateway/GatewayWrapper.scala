@@ -1,6 +1,6 @@
 package caliban.gateway
 
-import caliban.{ CalibanError, GraphQLResponse }
+import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse }
 import caliban.gateway.GatewayWrapper.{ Event, Outcome, Result }
 import caliban.parsing.adt.OperationType
 import sttp.model.Header
@@ -9,8 +9,8 @@ import zio.{ Cause, Exit, Trace, URIO, ZIO }
 /**
  * An integration seam around the gateway execution lifecycle.
  *
- * Lifecycle events contain bounded metadata only: raw GraphQL documents and variables are never exposed. Wrappers can
- * be combined with [[|+|]] and attached to a [[Gateway]] with `@@`.
+ * Events passed to [[wrap]] contain bounded metadata only. Specialized hooks document any request data they receive.
+ * Wrappers can be combined with [[|+|]] and attached to a [[Gateway]] with `@@`.
  */
 abstract class GatewayWrapper[-R] { self =>
 
@@ -50,6 +50,20 @@ abstract class GatewayWrapper[-R] { self =>
     ZIO.succeed(headers)
 
   /**
+   * Selects custom progressive `@override` labels that are active for a request.
+   *
+   * The gateway calls this hook once per request when the selected operation reaches at least one custom label. The
+   * request includes the query text, operation name, variables, and extensions. An [[OperationResolver]] can replace
+   * the query text before this hook runs. The supplied set contains only the custom labels reached by the operation.
+   * The gateway resolves built-in `percent(x)` labels itself and ignores unknown labels in the returned set. Custom
+   * labels remain inactive unless a wrapper activates them.
+   */
+  def activeOverrideLabels(request: GraphQLRequest, labels: Set[String])(implicit
+    trace: Trace
+  ): ZIO[R, Throwable, Set[String]] =
+    ZIO.succeed(Set.empty)
+
+  /**
    * Combines wrappers. Effects and outbound header transforms are applied from left to right.
    */
   final def |+|[R1 <: R](that: GatewayWrapper[R1]): GatewayWrapper[R1] =
@@ -71,6 +85,11 @@ abstract class GatewayWrapper[-R] { self =>
           trace: Trace
         ): URIO[R1, List[Header]] =
           self.attemptHeaders(subgraph, attempt, headers).flatMap(that.attemptHeaders(subgraph, attempt, _))
+
+        override def activeOverrideLabels(request: GraphQLRequest, labels: Set[String])(implicit
+          trace: Trace
+        ): ZIO[R1, Throwable, Set[String]] =
+          self.activeOverrideLabels(request, labels).zipWith(that.activeOverrideLabels(request, labels))(_ ++ _)
       }
 }
 
@@ -169,6 +188,25 @@ object GatewayWrapper {
       case OperationType.Query        => "query"
       case OperationType.Mutation     => "mutation"
       case OperationType.Subscription => "subscription"
+    }
+
+  /**
+   * Creates a wrapper that activates custom progressive `@override` labels per request.
+   * Resolver failures are masked as gateway execution errors. When several such wrappers are combined, their active
+   * label sets are unioned.
+   */
+  def overrideLabels[R](
+    resolve: (GraphQLRequest, Set[String]) => ZIO[R, Throwable, Set[String]]
+  ): GatewayWrapper[R] =
+    new GatewayWrapper[R] {
+      def wrap[R0 <: R, E, A](event: Event)(effect: ZIO[R0, E, A])(result: Exit[E, A] => Result)(implicit
+        trace: Trace
+      ): ZIO[R0, E, A] = effect
+
+      override def activeOverrideLabels(request: GraphQLRequest, labels: Set[String])(implicit
+        trace: Trace
+      ): ZIO[R, Throwable, Set[String]] =
+        resolve(request, labels)
     }
 
   val empty: GatewayWrapper[Any] = new GatewayWrapper[Any] {

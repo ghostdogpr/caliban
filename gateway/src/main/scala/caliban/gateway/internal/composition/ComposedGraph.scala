@@ -95,7 +95,7 @@ private[gateway] final class ComposedGraph private[internal] (
   }
   private val routedVariants                  = new ConcurrentHashMap[Set[ComposedGraph.OverrideLabel], ComposedGraph]
 
-  def progressiveOverrides(fieldNames: Set[String]): Map[ComposedGraph.OverrideLabel, BigDecimal] =
+  def progressiveOverrides(fieldNames: Set[String]): Map[ComposedGraph.OverrideLabel, Option[BigDecimal]] =
     fieldNames.iterator
       .flatMap(progressiveOverridesByFieldName.get)
       .flatten
@@ -470,11 +470,11 @@ private[gateway] object ComposedGraph {
 
   final case class OverrideLabel(value: String) extends AnyVal
 
-  final case class ProgressiveOverride(label: OverrideLabel, percentage: BigDecimal)
+  final case class ProgressiveOverride(label: OverrideLabel, percentage: Option[BigDecimal])
 
   final case class OverrideCondition(
     label: OverrideLabel,
-    percentage: BigDecimal,
+    percentage: Option[BigDecimal],
     active: Boolean
   ) {
     def enabled(activeOverrides: Set[OverrideLabel]): Boolean = activeOverrides.contains(label) == active

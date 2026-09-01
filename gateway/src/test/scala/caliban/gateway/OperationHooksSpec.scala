@@ -189,12 +189,14 @@ object OperationHooksSpec extends ZIOSpecDefault {
       val stable = new OperationHooks[Any](
         _ => Nil,
         Some(OperationResolver[Any](_ => ZIO.succeed(query))),
-        Some(OperationPolicy[Any](_ => ZIO.succeed(Allow)))
+        Some(OperationPolicy[Any](_ => ZIO.succeed(Allow))),
+        GatewayWrapper.empty
       )
       val bypass = new OperationHooks[Any](
         _ => Nil,
         Some(OperationResolver.uncached[Any](_ => ZIO.succeed(query))),
-        None
+        None,
+        GatewayWrapper.empty
       )
 
       assertTrue(

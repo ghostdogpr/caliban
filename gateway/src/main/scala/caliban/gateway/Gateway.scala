@@ -217,7 +217,7 @@ object Gateway {
                                         config.planningTimeout
                                       )
                                     ),
-                                    new OperationHooks(graph.securityRequirements, resolver, policy),
+                                    new OperationHooks(graph.securityRequirements, resolver, policy, wrapper),
                                     config,
                                     wrapper
                                   )

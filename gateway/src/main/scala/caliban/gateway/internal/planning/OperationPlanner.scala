@@ -22,7 +22,7 @@ private[gateway] final class OperationPlanner(
 
   def hasProgressiveOverrides: Boolean = graph.hasProgressiveOverrides
 
-  def progressiveOverrides(document: Document, operationName: Option[String]): Map[OverrideLabel, BigDecimal] =
+  def progressiveOverrides(document: Document, operationName: Option[String]): Map[OverrideLabel, Option[BigDecimal]] =
     if (!graph.hasProgressiveOverrides) Map.empty
     else {
       val fragments = document.fragmentDefinitions.iterator.map(fragment => fragment.name -> fragment).toMap

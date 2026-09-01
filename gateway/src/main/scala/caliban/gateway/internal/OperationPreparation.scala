@@ -65,7 +65,7 @@ private[gateway] final class OperationPreparation[-R] private (
     if (planner.hasProgressiveOverrides)
       for {
         document        <- RequestPreparation.parse(query)
-        activeOverrides <- resolveProgressiveOverrides(document, request.operationName)
+        activeOverrides <- resolveProgressiveOverrides(request, document, request.operationName)
         prepared        <- cached(document, activeOverrides)
       } yield prepared
     else
@@ -113,10 +113,10 @@ private[gateway] final class OperationPreparation[-R] private (
   private def prepareUncached(
     request: GraphQLRequest,
     query: String
-  )(implicit trace: Trace): IO[CalibanError, Prepared] =
+  )(implicit trace: Trace): ZIO[R, CalibanError, Prepared] =
     for {
       document  <- RequestPreparation.parse(query)
-      overrides <- resolveProgressiveOverrides(document, request.operationName)
+      overrides <- resolveProgressiveOverrides(request, document, request.operationName)
       variables <- RequestPreparation.coerceVariables(document, request, rootType)
       execution <- RequestPreparation.prepareParsed(
                      request,
@@ -168,17 +168,24 @@ private[gateway] final class OperationPreparation[-R] private (
       .map(new PreparedPlan(_))
 
   private def resolveProgressiveOverrides(
+    request: GraphQLRequest,
     document: Document,
     operationName: Option[String]
-  )(implicit trace: Trace): UIO[Set[OverrideLabel]] =
-    ZIO
-      .foreach(planner.progressiveOverrides(document, operationName).toList.sortBy(_._1.value)) {
-        case (label, percentage) =>
-          if (percentage <= 0) ZIO.none
-          else if (percentage >= 100) ZIO.some(label)
-          else Random.nextDouble.map(value => if (value * 100d < percentage.toDouble) Some(label) else None)
-      }
-      .map(_.flatten.toSet)
+  )(implicit trace: Trace): ZIO[R, CalibanError, Set[OverrideLabel]] = {
+    val overrides = planner.progressiveOverrides(document, operationName).toList.sortBy(_._1.value)
+    val custom    = overrides.collect { case (label, None) => label }.toSet
+    for {
+      percentages <- ZIO.foreach(overrides) {
+                       case (label, Some(percentage)) =>
+                         if (percentage <= 0) ZIO.none
+                         else if (percentage >= 100) ZIO.some(label)
+                         else
+                           Random.nextDouble.map(value => if (value * 100d < percentage.toDouble) Some(label) else None)
+                       case (_, None)                 => ZIO.none
+                     }
+      resolved    <- hooks.resolveOverrideLabels(request, custom)
+    } yield percentages.flatten.toSet ++ resolved
+  }
 
   private def operationWeight(
     query: String,

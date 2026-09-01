@@ -172,6 +172,38 @@ The gateway acquires each Federation schema through `_service`. To pin a Federat
 
 The gateway reads entity information from the Federation schemas. You do not need to add the `Lookup` configuration described in the next section.
 
+### Progressive field overrides
+
+Federation 2.7 and later can move a field between subgraphs gradually. Add a percentage label to `@override` to let the gateway select the overriding subgraph for that share of requests:
+
+```graphql
+type Product {
+  inStock: Boolean @override(from: "inventory", label: "percent(10)")
+}
+```
+
+The gateway resolves `percent(x)` labels itself. For a percentage between 0 and 100, it makes one random decision for each label and request. The selection is not sticky across requests. Fields that use the same label share the decision.
+
+For a custom label, attach a `GatewayWrapper.overrideLabels` wrapper:
+
+```scala
+import caliban.GraphQLRequest
+import caliban.gateway.{ Gateway, GatewayWrapper }
+import zio.Task
+
+def activeLabels(request: GraphQLRequest): Task[Set[String]] = ???
+
+val progressiveOverrides = GatewayWrapper.overrideLabels[Any] { (request, labels) =>
+  activeLabels(request).map(_ intersect labels)
+}
+
+val gateway = Gateway.compose(products, reviews) @@ progressiveOverrides
+```
+
+The wrapper receives the request and the custom labels reached by the selected operation. Return the labels that should use the overriding subgraph. The gateway ignores labels that were not supplied. Without this wrapper, custom labels remain inactive and the gateway uses the original subgraph.
+
+The gateway calls the wrapper once per relevant request, before it checks the operation cache. It does not call the wrapper for percentage-only operations or operations that reach no custom labels. Each active-label combination has its own cached plan, so keep the label lookup cheap and limit the number of combinations that it returns. If the wrapper fails, the gateway returns an internal execution error without contacting a subgraph.
+
 ### In-process Caliban APIs
 
 Use `Subgraph.local` to include a Caliban API without an HTTP call:

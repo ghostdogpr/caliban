@@ -2,8 +2,9 @@ package caliban.gateway.internal
 
 import caliban.execution.ExecutionRequest
 import caliban.gateway.OperationPolicy.{ Allow, Reject, SecurityDirective, SecurityRequirement, ValidatedOperation }
+import caliban.gateway.internal.composition.ComposedGraph.OverrideLabel
 import caliban.gateway.internal.planning.OperationPlan
-import caliban.gateway.{ OperationPolicy, OperationResolver }
+import caliban.gateway.{ GatewayWrapper, OperationPolicy, OperationResolver }
 import caliban.parsing.adt.Document
 import caliban.ResponseValue.ObjectValue
 import caliban.Value.StringValue
@@ -13,7 +14,8 @@ import zio.{ Cause, Trace, ZIO }
 private[gateway] final class OperationHooks[-R](
   securityRequirements: OperationPlan => List[SecurityRequirement],
   resolver: Option[OperationResolver[R]],
-  policy: Option[OperationPolicy[R]]
+  policy: Option[OperationPolicy[R]],
+  wrapper: GatewayWrapper[R]
 ) {
 
   val cacheMode: OperationCacheMode =
@@ -55,16 +57,29 @@ private[gateway] final class OperationHooks[-R](
         case None         => ZIO.unit
       }
   }
+
+  private[gateway] def resolveOverrideLabels(
+    request: GraphQLRequest,
+    labels: Set[OverrideLabel]
+  )(implicit trace: Trace): ZIO[R, CalibanError, Set[OverrideLabel]] =
+    if (labels.isEmpty) ZIO.succeed(Set.empty)
+    else {
+      val unresolved = labels.map(_.value)
+      OperationHooks
+        .run(wrapper.activeOverrideLabels(request, unresolved), OperationHooks.OverrideLabelResolutionFailure)
+        .map(_.intersect(unresolved).map(OverrideLabel.apply))
+    }
 }
 
 private[gateway] object OperationHooks {
-  private val ResolutionFailure = "Operation resolution failed."
-  private val PolicyFailure     = "Operation policy failed."
+  private val ResolutionFailure              = "Operation resolution failed."
+  private val PolicyFailure                  = "Operation policy failed."
+  private val OverrideLabelResolutionFailure = "Progressive override label resolution failed."
 
   def isInternalFailure(error: CalibanError): Boolean =
     error match {
       case CalibanError.ExecutionError(message, _, _, Some(_), _) =>
-        message == ResolutionFailure || message == PolicyFailure
+        message == ResolutionFailure || message == PolicyFailure || message == OverrideLabelResolutionFailure
       case _                                                      => false
     }
 

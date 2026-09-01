@@ -1945,9 +1945,9 @@ private[gateway] object SchemaComposer {
   ): Either[String, ComposedGraph.ProgressiveOverride] =
     label match {
       case ProgressiveOverridePattern(value) =>
-        Right(ComposedGraph.ProgressiveOverride(ComposedGraph.OverrideLabel(label), BigDecimal(value)))
+        Right(ComposedGraph.ProgressiveOverride(ComposedGraph.OverrideLabel(label), Some(BigDecimal(value))))
       case CustomOverrideLabelPattern()      =>
-        Left(s"Custom Federation @override label '$label' requires an external label resolver, which is not supported.")
+        Right(ComposedGraph.ProgressiveOverride(ComposedGraph.OverrideLabel(label), None))
       case _                                 =>
         Left(s"Invalid Federation @override label '$label'.")
     }

@@ -2,6 +2,7 @@ package caliban.gateway
 
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ FloatValue, IntValue, NullValue, StringValue }
+import caliban.CalibanError
 import caliban.gateway.GatewayTestSupport._
 import caliban.gateway.internal.composition.{ SchemaComposer, SchemaMapping }
 import caliban.introspection.adt.{ __Directive, __DirectiveLocation }
@@ -173,6 +174,102 @@ object CompositionSpec extends ZIOSpecDefault {
           replacementSent.size == 1
         )
       },
+      test("resolves custom override labels once per request") {
+        val originalSchema  = progressiveSchema("type Query { value: String other: String }")
+        val replacingSchema = progressiveSchema(
+          """type Query {
+            |  value: String @override(from: "original", label: "rollout")
+            |  other: String @override(from: "original", label: "percent(100)")
+            |}""".stripMargin
+        )
+
+        for {
+          enabled         <- Ref.make(false)
+          seen            <- Ref.make(Vector.empty[Set[String]])
+          original        <- stub("""{"data":{"value":"original"}}""")
+          replacement     <- stubByRequest(request =>
+                               if (request.query.exists(_.contains("value")))
+                                 """{"data":{"value":"replacement","other":"replacement"}}"""
+                               else """{"data":{"other":"replacement"}}"""
+                             )
+          resolver         = GatewayWrapper.overrideLabels[Any] { (_, labels) =>
+                               seen.update(_ :+ labels) *>
+                                 enabled.get.map(value => if (value) labels + "unknown" else Set.empty[String])
+                             }
+          gateway         <- (Gateway.compose(
+                               Subgraph.federation("original", original.endpoint, originalSchema),
+                               Subgraph.federation("replacement", replacement.endpoint, replacingSchema)
+                             ) @@ resolver).interpreter
+          percentOnly     <- gateway.execute("{ other }")
+          retained        <- gateway.execute("{ value other }")
+          _               <- enabled.set(true)
+          replaced        <- gateway.execute("{ value other }")
+          resolvedLabels  <- seen.get
+          originalSent    <- original.requests.get
+          replacementSent <- replacement.requests.get
+        } yield assertTrue(
+          field(percentOnly.data, "other").contains(StringValue("replacement")),
+          field(retained.data, "value").contains(StringValue("original")),
+          field(retained.data, "other").contains(StringValue("replacement")),
+          field(replaced.data, "value").contains(StringValue("replacement")),
+          field(replaced.data, "other").contains(StringValue("replacement")),
+          resolvedLabels == Vector(Set("rollout"), Set("rollout")),
+          originalSent.size == 1,
+          replacementSent.size == 3
+        )
+      },
+      test("keeps unresolved custom override labels inactive") {
+        val originalSchema  = progressiveSchema("type Query { value: String }")
+        val replacingSchema = progressiveSchema(
+          """type Query { value: String @override(from: "original", label: "rollout") }"""
+        )
+
+        for {
+          original        <- stub("""{"data":{"value":"original"}}""")
+          replacement     <- stub("""{"data":{"value":"replacement"}}""")
+          gateway         <- Gateway
+                               .compose(
+                                 Subgraph.federation("original", original.endpoint, originalSchema),
+                                 Subgraph.federation("replacement", replacement.endpoint, replacingSchema)
+                               )
+                               .interpreter
+          response        <- gateway.execute("{ value }")
+          originalSent    <- original.requests.get
+          replacementSent <- replacement.requests.get
+        } yield assertTrue(
+          field(response.data, "value").contains(StringValue("original")),
+          originalSent.size == 1,
+          replacementSent.isEmpty
+        )
+      },
+      test("masks custom override label resolver failures") {
+        val originalSchema  = progressiveSchema("type Query { value: String }")
+        val replacingSchema = progressiveSchema(
+          """type Query { value: String @override(from: "original", label: "rollout") }"""
+        )
+        val secret          = "resolver-secret"
+
+        for {
+          original    <- stub("""{"data":{"value":"original"}}""")
+          replacement <- stub("""{"data":{"value":"replacement"}}""")
+          gateway     <-
+            (Gateway.compose(
+              Subgraph.federation("original", original.endpoint, originalSchema),
+              Subgraph.federation("replacement", replacement.endpoint, replacingSchema)
+            ) @@ GatewayWrapper.overrideLabels[Any]((_, _) => ZIO.fail(new RuntimeException(secret)))).interpreter
+          response    <- gateway.execute("{ value }")
+          sent        <- original.requests.get.zip(replacement.requests.get)
+          cause        = response.errors.collectFirst { case error: CalibanError.ExecutionError =>
+                           error.innerThrowable
+                         }.flatten
+        } yield assertTrue(
+          response.errors.map(_.msg) == List("Progressive override label resolution failed."),
+          cause.exists(_.getMessage == secret),
+          !response.errors.exists(_.msg.contains(secret)),
+          sent._1.isEmpty,
+          sent._2.isEmpty
+        )
+      },
       test("memoizes routed graph variants") {
         val result = compose(
           CompositionInput("original", progressiveSchema("type Query { value: String }")),
@@ -207,7 +304,15 @@ object CompositionSpec extends ZIOSpecDefault {
             )
           ).left.toOption.getOrElse(Nil)
 
-        val custom                                     = result("v2.7", "rollout")
+        val custom                                     = compose(
+          CompositionInput("original", progressiveSchema("type Query { value: String }")),
+          CompositionInput(
+            "replacement",
+            progressiveSchema(
+              """type Query { value: String @override(from: "original", label: "rollout") }"""
+            )
+          )
+        )
         val malformed                                  = result("v2.7", "percent(101)")
         val old                                        = result("v2.6", "percent(10)")
         val missing                                    = compose(
@@ -309,7 +414,7 @@ object CompositionSpec extends ZIOSpecDefault {
           )
         ).left.toOption.getOrElse(Nil)
         assertTrue(
-          custom.exists(_.contains("external label resolver")),
+          custom.isRight,
           malformed.exists(_.contains("Invalid Federation @override label")),
           old.exists(_.contains("not available in the linked feature version")),
           missing.exists(_.contains("requires its 'from' subgraph 'missing' to own the field")),

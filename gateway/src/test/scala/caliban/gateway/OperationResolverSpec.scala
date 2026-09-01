@@ -162,7 +162,9 @@ object OperationResolverSpec extends ZIOSpecDefault {
 
       for {
         results <- ZIO.foreach(resolvers) { resolver =>
-                     new OperationHooks[Any](_ => Nil, Some(resolver), None).resolve(request).either
+                     new OperationHooks[Any](_ => Nil, Some(resolver), None, GatewayWrapper.empty)
+                       .resolve(request)
+                       .either
                    }
         errors   = results.flatMap(_.left.toOption)
       } yield assertTrue(
@@ -177,7 +179,7 @@ object OperationResolverSpec extends ZIOSpecDefault {
     },
     test("preserves resolver interruption even when a finalizer dies with a rejection") {
       val resolver = OperationResolver[Any](_ => ZIO.interrupt.ensuring(ZIO.die(Rejection("Not public.", "PRIVATE"))))
-      new OperationHooks[Any](_ => Nil, Some(resolver), None).resolve(request).exit.map { exit =>
+      new OperationHooks[Any](_ => Nil, Some(resolver), None, GatewayWrapper.empty).resolve(request).exit.map { exit =>
         assertTrue(exit.causeOption.exists(_.isInterruptedOnly))
       }
     },
