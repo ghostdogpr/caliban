@@ -71,7 +71,7 @@ object HttpInterpreterSpec extends ZIOSpecDefault {
         read   <- IncomingRequestHeaders.locally(headers)(IncomingRequestHeaders.get.zip(IncomingRequestHeaders.get))
       } yield assertTrue(
         unread == 0,
-        read == (List("x-test" -> "value"), List("x-test" -> "value")),
+        read == ((List("x-test" -> "value"), List("x-test" -> "value"))),
         evaluations == 1
       )
     }
