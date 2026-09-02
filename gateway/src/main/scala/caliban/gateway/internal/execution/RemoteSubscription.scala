@@ -1,7 +1,8 @@
 package caliban.gateway.internal.execution
 
 import caliban._
-import caliban.gateway.{ RemoteSubscriptionConfig, SubscriptionTermination }
+import caliban.gateway.RemoteSubscriptionConfig
+import caliban.gateway.internal.SubscriptionTermination
 import caliban.gateway.internal.SubscriptionBuffer
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import com.github.plokhotnyuk.jsoniter_scala.core._
@@ -19,18 +20,24 @@ import java.nio.charset.StandardCharsets.UTF_8
 
 private[gateway] object RemoteSubscription {
   type Response = GraphQLResponse[CalibanError]
+}
+
+private[gateway] final class RemoteSubscription(
+  endpoint: Uri,
+  backend: SttpClient,
+  config: RemoteSubscriptionConfig,
+  maxBytes: Int,
+  decode: Array[Byte] => Either[SubgraphExecutor.Failure, RemoteSubscription.Response],
+  decodeValue: ResponseValue => Either[SubgraphExecutor.Failure, RemoteSubscription.Response],
+  validate: Array[Byte] => Either[SubgraphExecutor.Failure, Unit],
+  remoteErrorMessages: Boolean
+) {
+  import RemoteSubscription.Response
 
   def open(
-    endpoint: Uri,
-    backend: SttpClient,
-    config: RemoteSubscriptionConfig,
     headers: List[Header],
     request: GraphQLRequest,
-    body: Array[Byte],
-    maxBytes: Int,
-    decode: Array[Byte] => Either[SubgraphExecutor.Failure, Response],
-    validate: Array[Byte] => Either[SubgraphExecutor.Failure, Unit],
-    remoteErrorMessages: Boolean
+    body: Array[Byte]
   )(implicit trace: Trace): ZIO[Scope, Throwable, ZStream[Any, Throwable, Response]] =
     for {
       queue    <- SubscriptionBuffer.make[Response](config.bufferSize)
@@ -48,14 +55,8 @@ private[gateway] object RemoteSubscription {
                       }
                       websocket(
                         wsTarget,
-                        backend,
-                        config,
                         headers,
                         body,
-                        maxBytes,
-                        decode,
-                        validate,
-                        remoteErrorMessages,
                         ready,
                         emit
                       )
@@ -117,14 +118,8 @@ private[gateway] object RemoteSubscription {
 
   private def websocket(
     endpoint: Uri,
-    backend: SttpClient,
-    config: RemoteSubscriptionConfig,
     headers: List[Header],
     body: Array[Byte],
-    maxBytes: Int,
-    decode: Array[Byte] => Either[SubgraphExecutor.Failure, Response],
-    validate: Array[Byte] => Either[SubgraphExecutor.Failure, Unit],
-    remoteErrorMessages: Boolean,
     ready: Promise[Throwable, Unit],
     emit: Response => Task[Unit]
   )(implicit trace: Trace): Task[Unit] = ZIO.scoped {
@@ -146,7 +141,7 @@ private[gateway] object RemoteSubscription {
           socket.sendText(writeToString(message)).timeoutFail(SubscriptionTermination.Source)(config.connectionTimeout)
       _        <- send(GraphQLWSInput("connection_init", None, config.connectionInit))
       pong     <- Ref.make(Option.empty[Promise[Nothing, Unit]])
-      read      = readMessage(socket, maxBytes, validate, config.connectionTimeout)
+      read      = readMessage(socket)
       control   = (message: GraphQLWSOutput) =>
                     message.`type` match {
                       case "ping" =>
@@ -179,7 +174,7 @@ private[gateway] object RemoteSubscription {
                           message.payload match {
                             case Some(value) =>
                               ZIO
-                                .fromEither(decode(writeToArray(value)))
+                                .fromEither(decodeValue(value))
                                 .mapError(_ => SubscriptionTermination.Source)
                                 .flatMap(emit)
                                 .as(true)
@@ -201,12 +196,7 @@ private[gateway] object RemoteSubscription {
     } yield ()
   }
 
-  private def readMessage(
-    socket: WebSocket[Task],
-    maxBytes: Int,
-    validate: Array[Byte] => Either[SubgraphExecutor.Failure, Unit],
-    connectionTimeout: Duration
-  )(implicit trace: Trace): Task[GraphQLWSOutput] =
+  private def readMessage(socket: WebSocket[Task])(implicit trace: Trace): Task[GraphQLWSOutput] =
     ZIO.suspendSucceed {
       val parts                         = new StringBuilder
       def loop(size: Int): Task[String] = socket.receive().flatMap {
@@ -220,7 +210,7 @@ private[gateway] object RemoteSubscription {
         case WebSocketFrame.Ping(payload)       =>
           socket
             .send(WebSocketFrame.Pong(payload))
-            .timeoutFail(SubscriptionTermination.Source)(connectionTimeout) *> loop(
+            .timeoutFail(SubscriptionTermination.Source)(config.connectionTimeout) *> loop(
             size
           )
         case _: WebSocketFrame.Pong             => loop(size)

@@ -158,7 +158,6 @@ object ExecutionModelSpec extends ZIOSpecDefault {
                       root = rootId,
                       source = "products",
                       dependencies = Set(rootId),
-                      dependencySource = "products",
                       mergePath = Vector("product"),
                       entityType = "Product",
                       keys = List(RequiredSelection("id", "id")),
@@ -172,7 +171,7 @@ object ExecutionModelSpec extends ZIOSpecDefault {
                       fields = List(name),
                       mayNeedPrerequisiteFetches = false
                     )
-        executor  = new EntityExecutor[Any](graph, Map.empty, Map("products" -> new ResponseMapping(mapping)))
+        executor  = new EntityExecutor[Any](graph, Map.empty)
         plan      = new PreparedPlan(OperationPlan(OperationType.Query, "Query", Nil, Nil, Nil, List(fetch), Nil, None))
         results  <- executor.execute(
                       List(fetch),
@@ -182,7 +181,7 @@ object ExecutionModelSpec extends ZIOSpecDefault {
                       plan.cache
                     )
       } yield assertTrue(
-        graph.mapping("products").nonEmpty,
+        graph.mapping("products") eq mapping,
         results.size == 1,
         results.head.patches.isEmpty,
         results.head.errors == List(RemoteError.at(path)),

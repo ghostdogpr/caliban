@@ -102,6 +102,7 @@ private[gateway] final class OperationPreparation[-R] private (
     activeOverrides: Set[OverrideLabel]
   )(implicit trace: Trace): IO[CalibanError, Weighted[CachedOperation]] =
     for {
+      _        <- RequestPreparation.checkIntrospection(document, request.operationName)
       _        <- Validator.validate(document, rootType).unless(preparation.skipValidation)
       variables = symbolicVariables(document)
       planned  <-
@@ -132,16 +133,9 @@ private[gateway] final class OperationPreparation[-R] private (
     for {
       document  <- RequestPreparation.parse(query)
       overrides <- resolveProgressiveOverrides(request, document, request.operationName)
-      variables <- RequestPreparation.coerceVariables(document, request, rootType)
-      execution <- RequestPreparation.prepareParsed(
-                     request,
-                     document,
-                     variables,
-                     rootType,
-                     skipValidation = false
-                   )
-      plan      <- preparePlan(document, execution, overrides)
-    } yield Prepared(request, document, execution, plan)
+      prepared  <-
+        prepareOperation(request, document, None)((_, execution) => preparePlan(document, execution, overrides))
+    } yield prepared
 
   private def materialize(
     request: GraphQLRequest,
@@ -152,23 +146,34 @@ private[gateway] final class OperationPreparation[-R] private (
       case (Some(execution), Some(plan)) =>
         Exit.succeed(Prepared(request, cached.document, execution, plan))
       case _                             =>
-        for {
-          variables <- RequestPreparation.coerceVariables(cached.document, request, rootType)
-          execution <- RequestPreparation.prepareParsed(
-                         request,
-                         cached.document,
-                         variables,
-                         rootType,
-                         skipValidation = false,
-                         validations = Some(List(Validator.validateVariables))
-                       )
-          plan      <- cached.executionPlan match {
-                         case Some(value) if !value.hasVariableReferences => Exit.succeed(value)
-                         case Some(value)                                 => Exit.succeed(value.bind(variables))
-                         case None                                        => preparePlan(cached.document, execution, activeOverrides)
-                       }
-        } yield Prepared(request, cached.document, execution, plan)
+        prepareOperation(request, cached.document, Some(List(Validator.validateVariables))) { (variables, execution) =>
+          cached.executionPlan match {
+            case Some(value) if !value.hasVariableReferences => Exit.succeed(value)
+            case Some(value)                                 => Exit.succeed(value.bind(variables))
+            case None                                        => preparePlan(cached.document, execution, activeOverrides)
+          }
+        }
     }
+
+  private def prepareOperation(
+    request: GraphQLRequest,
+    document: Document,
+    validations: Option[List[Validator.QueryValidation]]
+  )(
+    plan: (Map[String, InputValue], ExecutionRequest) => IO[CalibanError, PreparedPlan]
+  )(implicit trace: Trace): IO[CalibanError, Prepared] =
+    for {
+      variables <- RequestPreparation.coerceVariables(document, request, rootType)
+      execution <- RequestPreparation.prepareParsed(
+                     request,
+                     document,
+                     variables,
+                     rootType,
+                     skipValidation = false,
+                     validations = validations
+                   )
+      prepared  <- plan(variables, execution)
+    } yield Prepared(request, document, execution, prepared)
 
   private def preparePlan(
     document: Document,

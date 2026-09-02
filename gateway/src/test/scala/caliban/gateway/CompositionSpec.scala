@@ -68,16 +68,16 @@ object CompositionSpec extends ZIOSpecDefault {
         for {
           tail             <- result
           document         <- Parser.parseQuery(input.schema).left.map(error => List(s"[${input.name}] ${error.getMessage}"))
-          sourceRoot       <- RemoteSchema
-                                .toRootType(document, promoteOrphans = true)
+          normalized       <- RemoteSchema
+                                .normalize(document, promoteOrphans = true)
                                 .left
                                 .map(error => List(s"[${input.name}] ${error.getMessage}"))
           subgraph          = Subgraph.federation(input.name, endpoint, document).transform(input.transformations: _*)
           preparedSubgraph <- Gateway
                                 .prepareSubgraph(
                                   subgraph,
-                                  sourceRoot,
-                                  document,
+                                  normalized.rootType,
+                                  normalized.document,
                                   document,
                                   federation = true
                                 )

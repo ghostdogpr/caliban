@@ -244,7 +244,7 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
         }
         .map(results => assertTrue(results.forall(value => value)))
     },
-    test("accumulates invalid names with remote acquisition failures") {
+    test("rejects invalid names before loading remote schemas") {
       for {
         valid          <- stub(serviceResponse(reviewsSchema))
         broken         <- stub(invalidResponse)
@@ -259,15 +259,13 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
         brokenRequests <- broken.requests.get
       } yield assertTrue(
         result.left.exists {
-          case GatewayBuildError.CombinedFailures(errors) =>
-            errors.exists(_.isInstanceOf[GatewayBuildError.InvalidConfiguration]) &&
-            errors.exists(_.isInstanceOf[GatewayBuildError.SubgraphLoadingFailed])
-          case _                                          => false
+          case GatewayBuildError.InvalidConfiguration(_) => true
+          case _                                         => false
         },
         result.left.exists(_.diagnostics.exists(_.contains("Name is used more than once"))),
-        result.left.exists(_.diagnostics.exists(_.contains("'data' field was missing"))),
-        validRequests.size == 1,
-        brokenRequests.size == 1
+        !result.left.exists(_.diagnostics.exists(_.contains("'data' field was missing"))),
+        validRequests.isEmpty,
+        brokenRequests.isEmpty
       )
     },
     test("retains request failure causes without exposing their messages in diagnostics") {
@@ -282,7 +280,7 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
     test("retains client decoding errors without exposing their messages in diagnostics") {
       val cause       = new RuntimeException("secret response details")
       val clientError = CalibanClientError.DecodingError("secret decoder context", Some(cause))
-      val error       = SchemaAcquisitionError.InvalidIntrospectionResponse(clientError)
+      val error       = SchemaAcquisitionError.IntrospectionResponseDecodingFailed(clientError)
 
       assertTrue(
         error.getCause eq clientError,

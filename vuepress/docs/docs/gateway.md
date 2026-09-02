@@ -71,15 +71,15 @@ At startup, the gateway loads and combines both schemas. If composition fails, t
 Use `gateway.reloadable` instead of `gateway.interpreter` to refresh acquired remote schemas without replacing your HTTP adapter:
 
 ```scala
-import caliban.gateway.GatewayReloadConfig
 import zio._
 
-val reloadConfig = GatewayReloadConfig.default
-  .withPollInterval(30.seconds)
-  .withJitter(0.2)
+val reloadableGateway = gateway.withConfig(
+  _.withReloadPollInterval(30.seconds)
+    .withReloadJitter(0.2)
+)
 
 for {
-  interpreter <- gateway.reloadable(reloadConfig)
+  interpreter <- reloadableGateway.reloadable
   _           <- QuickAdapter(interpreter).runServer(4000, "/graphql")
 } yield ()
 ```

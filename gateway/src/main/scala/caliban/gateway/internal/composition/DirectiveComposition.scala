@@ -6,7 +6,6 @@ import caliban.Value._
 import caliban.gateway.PreparedSubgraph
 import caliban.introspection.adt._
 import caliban.parsing.Parser
-import caliban.parsing.adt.Definition.TypeSystemExtension.SchemaExtension
 import caliban.parsing.adt.{ Directive, Document }
 import caliban.rendering.DocumentRenderer
 import caliban.schema.RootType
@@ -45,7 +44,12 @@ private[gateway] object DirectiveComposition {
       }
   }
 
-  final case class Source(subgraph: PreparedSubgraph, protocolDirectives: Set[String])
+  final case class Source(
+    subgraph: PreparedSubgraph,
+    protocolDirectives: Set[String],
+    features: List[LinkedFeature],
+    interfaceObjectDirectives: Set[String]
+  )
 
   sealed trait Coordinate {
     def display: String
@@ -368,11 +372,13 @@ private[gateway] object DirectiveComposition {
   }
 
   def schemaDirectives(document: Document): List[Directive] =
-    document.schemaDefinition.toList.flatMap(_.directives) :::
-      document.typeExtensions.collect { case extension: SchemaExtension => extension }.flatMap(_.directives)
+    document.schemaDefinition.toList.flatMap(_.directives)
 
   def linkedFeatures(document: Document): List[LinkedFeature] =
-    schemaDirectives(document).filter(_.name == "link").flatMap { directive =>
+    linkedFeatures(schemaDirectives(document))
+
+  def linkedFeatures(directives: List[Directive]): List[LinkedFeature] =
+    directives.filter(_.name == "link").flatMap { directive =>
       directive.arguments.get("url").collect { case StringValue(url) => url }.flatMap { url =>
         val normalized   = url.takeWhile(character => character != '?' && character != '#').stripSuffix("/")
         val versionStart = normalized.lastIndexOf('/')
@@ -424,13 +430,10 @@ private[gateway] object DirectiveComposition {
   )
   private final case class SourceInfo(source: Source) {
     private val subgraph                      = source.subgraph
-    private val features                      = linkedFeatures(subgraph.document)
+    private val features                      = source.features
     private val federationTransportDirectives =
       if (features.exists(_.identity == FederationIdentity)) FederationTransportDirectiveNames else Set.empty[String]
-    private val interfaceObjectDirectives     = features
-      .filter(_.identity == FederationIdentity)
-      .flatMap(_.directiveNames("interfaceObject"))
-      .toSet
+    private val interfaceObjectDirectives     = source.interfaceObjectDirectives
     private val byLocal                       = features.flatMap { feature =>
       subgraph.rootType.additionalDirectives.flatMap { definition =>
         feature
@@ -512,12 +515,6 @@ private[gateway] object DirectiveComposition {
       selected: Set[DirectiveKey],
       composedNames: Map[DirectiveKey, String]
     ): List[RawApplication] = {
-      val rootNames = List(
-        subgraph.rootType.queryType.name.map(_ -> "Query"),
-        subgraph.rootType.mutationType.flatMap(_.name).map(_ -> "Mutation"),
-        subgraph.rootType.subscriptionType.flatMap(_.name).map(_ -> "Subscription")
-      ).flatten.groupBy(_._1).map { case (sourceName, values) => sourceName -> values.map(_._2) }
-
       def selectedDirectives(directives: Option[List[Directive]], coordinate: Coordinate): List[RawApplication] =
         directives.getOrElse(Nil).zipWithIndex.flatMap { case (directive, ordinal) =>
           definitionsByName.get(directive.name).toList.collect {
@@ -543,7 +540,11 @@ private[gateway] object DirectiveComposition {
       val typeApps              =
         subgraph.rootType.types.valuesIterator.toList.sortBy(_.name).flatMap(tpe => tpe.name.map(_ -> tpe)).flatMap {
           case (sourceName, tpe) =>
-            rootNames.getOrElse(sourceName, sourceName :: Nil).flatMap { typeName =>
+            val typeNames = subgraph.rootNames.composedAll(sourceName) match {
+              case Nil    => sourceName :: Nil
+              case values => values
+            }
+            typeNames.flatMap { typeName =>
               val location   =
                 if (
                   tpe.kind == __TypeKind.OBJECT &&
@@ -668,7 +669,7 @@ private[gateway] object DirectiveComposition {
     }
 
   private def defaultValue(value: __InputValue): Option[InputValue] =
-    value.defaultValue.flatMap(Parser.parseInputValue(_).toOption)
+    value.parsedDefaultValue
 
   private def canonicalDecimal(value: BigDecimal): BigDecimal =
     BigDecimal(value.bigDecimal.stripTrailingZeros)

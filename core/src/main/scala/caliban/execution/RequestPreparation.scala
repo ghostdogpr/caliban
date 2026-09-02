@@ -35,17 +35,16 @@ private[caliban] object RequestPreparation {
     skipValidation: Boolean,
     validations: List[Validator.QueryValidation]
   )(implicit trace: Trace): IO[ValidationError, ExecutionRequest] =
-    checkIntrospection(config, document, request.operationName) *>
-      Validator
-        .prepare(
-          document,
-          rootType,
-          request.operationName,
-          variables,
-          config.skipValidation || skipValidation,
-          validations
-        )
-        .fold(Exit.fail, checkHttpMethod(config)(request, _))
+    Validator
+      .prepare(
+        document,
+        rootType,
+        request.operationName,
+        variables,
+        config.skipValidation || skipValidation,
+        validations
+      )
+      .fold(Exit.fail, checkHttpMethod(config)(request, _))
 
   def parse(query: String): IO[CalibanError.ParsingError, Document] =
     Exit.fromEither(Parser.parseQuery(query))
@@ -68,6 +67,12 @@ private[caliban] object RequestPreparation {
         )
     }
 
+  private[caliban] def checkIntrospection(
+    document: Document,
+    operationName: Option[String]
+  )(implicit trace: Trace): IO[ValidationError, Unit] =
+    Configurator.ref.getWith(config => checkIntrospection(config, document, operationName))
+
   private def checkIntrospection(
     config: ExecutionConfiguration,
     document: Document,
@@ -77,22 +82,15 @@ private[caliban] object RequestPreparation {
       Exit.fail(CalibanError.ValidationError("Introspection is disabled", ""))
     else Exit.unit
 
-  private def hasIntrospection(document: Document, operationName: Option[String]): Boolean = {
-    val fragments = document.fragmentDefinitions.iterator.map(fragment => fragment.name -> fragment).toMap
-
-    def loop(selections: List[Selection], visited: Set[String]): Boolean =
-      selections.exists {
-        case Selection.Field(_, name, _, _, nested, _) =>
-          name == "__schema" || name == "__type" || loop(nested, visited)
-        case Selection.InlineFragment(_, _, nested)    => loop(nested, visited)
-        case Selection.FragmentSpread(name, _)         =>
-          !visited.contains(name) && fragments.get(name).exists(fragment => loop(fragment.selectionSet, visited + name))
-      }
-
+  private def hasIntrospection(document: Document, operationName: Option[String]): Boolean =
     document
       .operationDefinition(operationName)
-      .exists(operation => operation.operationType == OperationType.Query && loop(operation.selectionSet, Set.empty))
-  }
+      .exists(operation =>
+        operation.operationType == OperationType.Query && document.existsSelection(operationName) {
+          case Selection.Field(_, "__schema" | "__type", _, _, _, _) => true
+          case _                                                     => false
+        }
+      )
 
   private def checkHttpMethod(
     config: ExecutionConfiguration

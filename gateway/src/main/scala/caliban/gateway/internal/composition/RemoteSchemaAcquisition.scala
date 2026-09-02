@@ -77,7 +77,7 @@ private[gateway] object RemoteSchemaAcquisition {
                                   .mapError(IntrospectionResponseDecodingFailed(_))
         result               <- ZIO.fromEither(decoded).mapError {
                                   case ServerError(errors) => IntrospectionErrors(errors)
-                                  case error               => InvalidIntrospectionResponse(error)
+                                  case error               => IntrospectionResponseDecodingFailed(error)
                                 }
         (document, errors, _) = result
         _                    <- ZIO.fail(IntrospectionErrors(errors)).when(errors.nonEmpty)
@@ -110,12 +110,9 @@ private[gateway] object RemoteSchemaAcquisition {
     config: RemoteGraphQLConfig.Acquisition,
     backend: SttpClient
   )(implicit trace: Trace): IO[SchemaAcquisitionError, Array[Byte]] = {
-    val request = RemoteTransport.addHeaders(basicRequest.post(endpoint).body(body), config.headers)
+    val request = RemoteTransport.postJson(endpoint, body, config.headers)
 
     request
-      .contentType("application/json; charset=utf-8")
-      .header("Accept", "application/graphql-response+json, application/json;q=0.9")
-      .followRedirects(false)
       .response(asStreamAlways(ZioStreams)(RemoteTransport.readBounded(config.maxResponseBytes)))
       .send(backend)
       .mapError(RequestFailed(_))
@@ -124,14 +121,20 @@ private[gateway] object RemoteSchemaAcquisition {
           ZIO.fail(ResponseTooLarge(config.maxResponseBytes))
         else if (response.code.isRedirect || !allowedMediaType(response))
           ZIO.fail(UnexpectedResponse(response.code, response.contentType))
-        else if (!withinJsonDepth(response.body.bytes, config.maxParsingDepth))
-          ZIO.fail(ParsingDepthExceeded(config.maxParsingDepth))
-        else ZIO.succeed(response.body.bytes)
+        else
+          ZIO
+            .fromEither(
+              RemoteTransport
+                .validateJsonStructure(response.body.bytes, config.maxParsingDepth, Int.MaxValue)
+                .left
+                .map(_ => ParsingDepthExceeded(config.maxParsingDepth))
+            )
+            .as(response.body.bytes)
       }
   }
 
   private def allowedMediaType(response: Response[BoundedBody]): Boolean = {
-    val mediaType = response.contentType.map(_.takeWhile(_ != ';').trim.toLowerCase(java.util.Locale.ROOT))
+    val mediaType = RemoteTransport.mediaType(response.contentType)
     mediaType.contains("application/graphql-response+json") ||
     response.code.isSuccess && mediaType.contains("application/json")
   }
@@ -210,25 +213,6 @@ private[gateway] object RemoteSchemaAcquisition {
           case '}' | ']' | ')' => depth = math.max(0, depth - 1)
           case _               => ()
         }
-      index += 1
-    }
-    depth <= maxDepth
-  }
-
-  private def withinJsonDepth(bytes: Array[Byte], maxDepth: Int): Boolean = {
-    var depth   = 0
-    var index   = 0
-    var escaped = false
-    var string  = false
-    while (index < bytes.length && depth <= maxDepth) {
-      bytes(index).toChar match {
-        case _ if escaped         => escaped = false
-        case '\\' if string       => escaped = true
-        case '"'                  => string = !string
-        case '{' | '[' if !string => depth += 1
-        case '}' | ']' if !string => depth -= 1
-        case _                    => ()
-      }
       index += 1
     }
     depth <= maxDepth

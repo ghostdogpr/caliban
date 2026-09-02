@@ -620,7 +620,7 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
       },
       test("releases a source permit when the current call is interrupted") {
         for {
-          gate          <- AdmissionGate.make(1, GatewayWrapper.AdmissionKind.Request)
+          gate          <- AdmissionGate.make(1, GatewayWrapper.AdmissionKind.Request, GatewayWrapper.empty)
           firstStarted  <- Promise.make[Nothing, Unit]
           secondStarted <- Promise.make[Nothing, Unit]
           first         <- gate(firstStarted.succeed(()).unit *> ZIO.never).fork

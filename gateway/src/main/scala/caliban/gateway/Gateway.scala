@@ -43,108 +43,94 @@ final class Gateway[-R] private[gateway] (
    * Builds a stable interpreter that polls acquired remote schemas and replaces changed generations.
    * Pinned schemas and local graphs remain fixed. Admission limits apply separately to each generation.
    */
-  def reloadable(reloadConfig: GatewayReloadConfig = GatewayReloadConfig.default)(implicit
-    trace: Trace
-  ): ZIO[Scope, GatewayBuildError, ReloadableGatewayInterpreter[R]] = {
+  def reloadable(implicit trace: Trace): ZIO[Scope, GatewayBuildError, ReloadableGatewayInterpreter[R]] = {
     val acquired    = subgraphs.exists(_.source match {
       case Source.Remote(_, SchemaInput.Acquired, _, _) => true
       case _                                            => false
     })
-    val diagnostics = config.diagnostics ::: reloadConfig.diagnostics ::: Gateway.nameDiagnostics(subgraphs) :::
+    val diagnostics = config.diagnostics ::: Gateway.nameDiagnostics(subgraphs) :::
       (if (acquired) Nil else List("Gateway reload requires at least one acquired remote schema."))
 
     ZIO.fail(GatewayBuildError.InvalidConfiguration(diagnostics)).when(diagnostics.nonEmpty) *>
       buildInChildScope(
         HttpClientZioBackend.scoped().mapError(TransportInitializationFailed(_)).flatMap { backend =>
-          ReloadableGatewayInterpreterImpl.make(acquireSnapshot(backend), reloadConfig, config.drainTimeout)
+          ReloadableGatewayInterpreterImpl.make(
+            acquireSnapshot(backend),
+            config.reloadPollInterval,
+            config.reloadJitter,
+            config.drainTimeout
+          )
         }
       )
   }
 
   private[gateway] def build(implicit trace: Trace): ZIO[Scope, GatewayBuildError, GatewayInterpreterImpl[R]] = {
-    val diagnostics = config.diagnostics
+    val diagnostics = config.diagnostics ::: Gateway.nameDiagnostics(subgraphs)
 
     ZIO.fail(GatewayBuildError.InvalidConfiguration(diagnostics)).when(diagnostics.nonEmpty) *>
       buildInChildScope(buildInterpreter)
   }
 
-  private def buildInterpreter(implicit trace: Trace): ZIO[Scope, GatewayBuildError, GatewayInterpreterImpl[R]] =
+  private[gateway] def buildInterpreter(implicit
+    trace: Trace
+  ): ZIO[Scope, GatewayBuildError, GatewayInterpreterImpl[R]] =
     for {
-      backend         <- if (subgraphs.exists(_.source.isRemote))
-                           HttpClientZioBackend
-                             .scoped()
-                             .asSome
-                             .mapError(TransportInitializationFailed(_))
-                         else ZIO.none
-      loaded          <- ZIO.foreachPar(subgraphs)(subgraph =>
-                           Gateway
-                             .load(
-                               subgraph,
-                               backend,
-                               config.remoteErrorMessages,
-                               wrapper
-                             )
-                             .mapError(SubgraphError(subgraph.name, _))
-                             .either
-                         )
-      loadFailures     = loaded.collect { case Left(error) => error }
-      successes        = loaded.collect { case Right(value) => value }
-      invalidNames     = Gateway.nameDiagnostics(subgraphs)
-      subgraphFailures = loadFailures.sortBy(_.diagnostics.mkString("\n"))
-      buildFailures    =
-        (if (invalidNames.nonEmpty) List(GatewayBuildError.InvalidConfiguration(invalidNames)) else Nil) :::
-          (if (subgraphFailures.nonEmpty) List(SubgraphLoadingFailed(subgraphFailures)) else Nil)
-      buildFailure     = buildFailures match {
-                           case Nil          => None
-                           case error :: Nil => Some(error)
-                           case errors       => Some(CombinedFailures(errors))
-                         }
-      _               <- ZIO.fromEither(buildFailure.toLeft(()))
-      graph           <- ZIO
-                           .fromEither(SchemaComposer.compose(successes.map(_.subgraph)))
-                           .mapError(errors => SchemaCompositionFailed(errors.distinct.sorted))
-      _               <- ZIO
-                           .fail(GatewayBuildError.InvalidConfiguration(graph.securityPolicyDiagnostics))
-                           .when(policy.isEmpty && graph.hasSecurityRequirements)
-      subgraphLimits   = successes.flatMap(value => value.maxConcurrentCalls.map(value.subgraph.name -> _)).toMap
-      control         <- GatewayExecutionControl.make(
-                           config.maxConcurrentRequests,
-                           subgraphLimits,
-                           config.requestTimeout,
-                           config.drainTimeout
-                         )
-      executors        = successes.map { value =>
-                           val name = value.subgraph.name
-                           name -> new ObservedSubgraphExecutor(
-                             name,
-                             control.admitExecutor(name, value.executor, wrapper),
-                             wrapper
-                           )
-                         }.toMap
-      requestRoot      = Introspector.withIntrospection(graph.rootType)
-      operations      <- OperationPreparation.make(
-                           requestRoot,
-                           new OperationPlanner(
-                             graph,
-                             executors.size,
-                             CandidateSearch.Limits(
-                               config.maxPlanningCandidates,
-                               config.maxPlanningExpansions,
-                               config.planningTimeout
-                             )
-                           ),
-                           new OperationHooks(graph.securityRequirements, resolver, policy, wrapper),
-                           config,
-                           wrapper,
-                           graph.estimatedOperationCost
-                         )
-      subscriptions   <- SubscriptionControl.make(config.subscriptions, control, wrapper)
+      backend    <- if (subgraphs.exists(_.source.isRemote))
+                      HttpClientZioBackend
+                        .scoped()
+                        .asSome
+                        .mapError(TransportInitializationFailed(_))
+                    else ZIO.none
+      successes  <- loadAll(subgraph =>
+                      Gateway.load(
+                        subgraph,
+                        backend,
+                        config.remoteErrorMessages,
+                        wrapper
+                      )
+                    )
+      graph      <- ZIO
+                      .fromEither(SchemaComposer.compose(successes.map(_.subgraph)))
+                      .mapError(errors => SchemaCompositionFailed(errors.distinct.sorted))
+      _          <- ZIO
+                      .fail(GatewayBuildError.InvalidConfiguration(graph.securityPolicyDiagnostics))
+                      .when(policy.isEmpty && graph.hasSecurityRequirements)
+      control    <- GatewayExecutionControl.make(
+                      config.maxConcurrentRequests,
+                      config.subscriptions,
+                      wrapper,
+                      config.requestTimeout,
+                      config.drainTimeout
+                    )
+      executors   = successes.map { value =>
+                      val name                          = value.subgraph.name
+                      val executor: SubgraphExecutor[R] =
+                        if (wrapper.enabled) new ObservedSubgraphExecutor(name, value.executor, wrapper)
+                        else value.executor
+                      name -> executor
+                    }.toMap
+      requestRoot = Introspector.withIntrospection(graph.rootType)
+      operations <- OperationPreparation.make(
+                      requestRoot,
+                      new OperationPlanner(
+                        graph,
+                        executors.size,
+                        CandidateSearch.Limits(
+                          config.maxPlanningCandidates,
+                          config.maxPlanningExpansions,
+                          config.planningTimeout
+                        )
+                      ),
+                      new OperationHooks(graph.securityRequirements, resolver, policy, wrapper),
+                      config,
+                      wrapper,
+                      graph.estimatedOperationCost
+                    )
     } yield new GatewayInterpreterImpl[R](
       operations,
-      PlanExecutor(graph, executors, wrapper),
+      new PlanExecutor(graph, executors, wrapper),
       control,
-      wrapper,
-      subscriptions
+      wrapper
     )
 
   private def buildInChildScope[A](effect: => ZIO[Scope, GatewayBuildError, A])(implicit
@@ -161,38 +147,44 @@ final class Gateway[-R] private[gateway] (
 
   private def acquireSnapshot(backend: SttpClient)(implicit trace: Trace): IO[GatewayBuildError, Gateway.Snapshot[R]] =
     for {
-      results <- ZIO.foreachPar(subgraphs) { subgraph =>
-                   subgraph.source match {
-                     case Source.Remote(endpoint, SchemaInput.Acquired, federation, remoteConfig) =>
-                       val diagnostics = remoteConfig.diagnostics(includeAcquisition = true)
-                       (ZIO.fail(SubgraphBuildError.InvalidConfiguration(diagnostics)).when(diagnostics.nonEmpty) *>
-                         RemoteSchemaAcquisition.load(
-                           SchemaInput.Acquired,
-                           endpoint,
-                           federation,
-                           remoteConfig.acquisition,
-                           backend
-                         )).map { document =>
-                         val pinned = new Subgraph[R](
-                           subgraph.name,
-                           Source.Remote(endpoint, SchemaInput.Parsed(document), federation, remoteConfig),
-                           subgraph.lookups,
-                           subgraph.transformations
-                         )
-                         (pinned, Some(SchemaFingerprint(document)))
-                       }
-                         .mapError(SubgraphError(subgraph.name, _))
-                         .either
-                     case _                                                                       => ZIO.succeed(Right((subgraph, Option.empty[String])))
-                   }
-                 }
-      failures = results.collect { case Left(error) => error }
-      _       <- ZIO.fail(SubgraphLoadingFailed(failures)).when(failures.nonEmpty)
-      loaded   = results.collect { case Right(value) => value }
+      loaded <- loadAll { subgraph =>
+                  subgraph.source match {
+                    case Source.Remote(endpoint, SchemaInput.Acquired, federation, remoteConfig) =>
+                      val diagnostics = remoteConfig.diagnostics(includeAcquisition = true)
+                      (ZIO.fail(SubgraphBuildError.InvalidConfiguration(diagnostics)).when(diagnostics.nonEmpty) *>
+                        RemoteSchemaAcquisition.load(
+                          SchemaInput.Acquired,
+                          endpoint,
+                          federation,
+                          remoteConfig.acquisition,
+                          backend
+                        )).map { document =>
+                        val pinned = new Subgraph[R](
+                          subgraph.name,
+                          Source.Remote(endpoint, SchemaInput.Parsed(document), federation, remoteConfig),
+                          subgraph.lookups,
+                          subgraph.transformations
+                        )
+                        (pinned, Some(SchemaFingerprint(document)))
+                      }
+                    case _                                                                       =>
+                      ZIO.succeed(subgraph -> Option.empty[String])
+                  }
+                }
     } yield Gateway.Snapshot(
       new Gateway(loaded.map(_._1), resolver, policy, config, wrapper),
       loaded.flatMap(_._2)
     )
+
+  private def loadAll[R0, A](
+    load: Subgraph[R] => ZIO[R0, SubgraphBuildError, A]
+  )(implicit trace: Trace): ZIO[R0, GatewayBuildError, List[A]] =
+    ZIO.foreachPar(subgraphs)(subgraph => load(subgraph).mapError(SubgraphError(subgraph.name, _)).either).flatMap {
+      results =>
+        val failures = results.collect { case Left(error) => error }.sortBy(_.diagnostics.mkString("\n"))
+        ZIO.fail(SubgraphLoadingFailed(failures)).when(failures.nonEmpty) *>
+          ZIO.succeed(results.collect { case Right(value) => value })
+    }
 
   /**
    * Transforms the finite operation and admission limits used by each built interpreter.
@@ -248,11 +240,17 @@ object Gateway {
           document         <- RemoteSchemaAcquisition
                                 .load(schema, endpoint, federation, config.acquisition, client)
           rootDocument      = ensureFederationTransportQuery(document, federation)
-          sourceRootType   <- ZIO
-                                .fromEither(RemoteSchema.toRootType(rootDocument, promoteOrphans = federation))
+          normalized       <- ZIO
+                                .fromEither(RemoteSchema.normalize(rootDocument, promoteOrphans = federation))
                                 .mapError(InvalidSchema(_))
           preparedSubgraph <- ZIO.fromEither(
-                                prepareSubgraph(subgraph, sourceRootType, rootDocument, document, federation)
+                                prepareSubgraph(
+                                  subgraph,
+                                  normalized.rootType,
+                                  normalized.document,
+                                  document,
+                                  federation
+                                )
                               )
           executor         <- RemoteSubgraphExecutor.make(
                                 subgraph.name,
@@ -262,50 +260,65 @@ object Gateway {
                                 wrapper,
                                 remoteErrorMessages
                               )
-        } yield LoadedSubgraph(preparedSubgraph, executor, Some(config.execution.maxConcurrentCalls))
+        } yield LoadedSubgraph(preparedSubgraph, executor)
       case Source.Local(graph)                                 =>
         val document   = graph.toDocument
         val federation = SchemaComposer.isFederation(document)
         for {
-          sourceRootType   <- ZIO
-                                .fromEither(RemoteSchema.toRootType(document))
+          normalized       <- ZIO
+                                .fromEither(RemoteSchema.normalize(document))
                                 .mapError(InvalidSchema(_))
-          preparedSubgraph <- ZIO.fromEither(prepareSubgraph(subgraph, sourceRootType, document, document, federation))
+          preparedSubgraph <- ZIO.fromEither(
+                                prepareSubgraph(
+                                  subgraph,
+                                  normalized.rootType,
+                                  normalized.document,
+                                  document,
+                                  federation
+                                )
+                              )
           interpreter      <- ZIO.fromEither(graph.interpreterEither).mapError(InvalidSchema(_))
-        } yield LoadedSubgraph(preparedSubgraph, new LocalSubgraphExecutor(interpreter), None)
+        } yield LoadedSubgraph(preparedSubgraph, new LocalSubgraphExecutor(interpreter))
     }
 
   private final case class LoadedSubgraph[-R](
     subgraph: PreparedSubgraph,
-    executor: SubgraphExecutor[R],
-    maxConcurrentCalls: Option[Int]
+    executor: SubgraphExecutor[R]
   )
 
   private[gateway] def prepareSubgraph[R](
     subgraph: Subgraph[R],
     sourceRootType: RootType,
-    rootDocument: Document,
-    document: Document,
+    normalizedDocument: Document,
+    sourceDocument: Document,
     federation: Boolean
   ): Either[SubgraphBuildError, PreparedSubgraph] =
     for {
-      mapping  <- SchemaMapping
-                    .compile(subgraph.name, sourceRootType, document, federation, subgraph.transformations)
-                    .left
-                    .map(InvalidTransformations(_))
-      rootType <- if (mapping.nonEmpty)
-                    RemoteSchema
-                      .toRootType(mapping.transform(rootDocument), promoteOrphans = federation)
-                      .left
-                      .map(InvalidSchema(_))
-                  else Right(sourceRootType)
+      mapping       <- SchemaMapping
+                         .compile(
+                           subgraph.name,
+                           sourceRootType,
+                           normalizedDocument,
+                           federation,
+                           subgraph.transformations
+                         )
+                         .left
+                         .map(InvalidTransformations(_))
+      extensionTypes = SchemaComposer.federation1ExtensionTypes(sourceDocument).map(mapping.clientType)
+      normalized    <- if (mapping.nonEmpty)
+                         RemoteSchema
+                           .normalize(mapping.transform(normalizedDocument), promoteOrphans = federation)
+                           .left
+                           .map(InvalidSchema(_))
+                       else Right(RemoteSchema.Normalized(sourceRootType, normalizedDocument))
     } yield PreparedSubgraph(
       subgraph.name,
-      rootType,
-      mapping.transform(document),
+      normalized.rootType,
+      normalized.document,
       federation,
       subgraph.lookups.map(mapping.transform),
-      mapping
+      mapping,
+      extensionTypes
     )
 
   private def ensureFederationTransportQuery(document: Document, federation: Boolean): Document = {

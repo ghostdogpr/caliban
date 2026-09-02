@@ -4,40 +4,43 @@ import caliban.gateway.GatewayWrapper
 import caliban.gateway.GatewayWrapper.{ AdmissionKind, Event, Result }
 import zio.{ Scope, Semaphore, Trace, UIO, ZIO }
 
-private[gateway] final class AdmissionGate private (
+private[gateway] final class AdmissionGate[-R] private (
   semaphore: Semaphore,
-  kind: AdmissionKind
+  kind: AdmissionKind,
+  wrapper: GatewayWrapper[R]
 ) {
 
-  def apply[R, E, A](effect: ZIO[R, E, A])(implicit trace: Trace): ZIO[R, E, A] =
+  def apply[R0, E, A](effect: ZIO[R0, E, A])(implicit trace: Trace): ZIO[R0, E, A] =
     semaphore.withPermit(effect)
 
   def acquire(implicit trace: Trace): ZIO[Scope, Nothing, Unit] =
     semaphore.withPermitScoped
 
-  def observed[R, E, A](wrapper: GatewayWrapper[R])(effect: ZIO[R, E, A])(implicit
+  def observed[R1 <: R, E, A](effect: ZIO[R1, E, A])(implicit
     trace: Trace
-  ): ZIO[R, E, A] =
-    observedAs(kind, wrapper)(effect)
+  ): ZIO[R1, E, A] =
+    observedAs(kind)(effect)
 
-  def observe[R, E, A](wrapper: GatewayWrapper[R])(effect: ZIO[R, E, A])(implicit
+  def observe[R1 <: R, E, A](effect: ZIO[R1, E, A])(implicit
     trace: Trace
-  ): ZIO[R, E, A] =
-    observeAs(kind, wrapper)(effect)
+  ): ZIO[R1, E, A] =
+    observeAs(kind)(effect)
 
-  def observedAs[R, E, A](work: AdmissionKind, wrapper: GatewayWrapper[R])(
-    effect: ZIO[R, E, A]
-  )(implicit trace: Trace): ZIO[R, E, A] =
-    apply(observeAs(work, wrapper)(effect))
+  def observedAs[R1 <: R, E, A](work: AdmissionKind)(
+    effect: ZIO[R1, E, A]
+  )(implicit trace: Trace): ZIO[R1, E, A] =
+    apply(observeAs(work)(effect))
 
-  private def observeAs[R, E, A](work: AdmissionKind, wrapper: GatewayWrapper[R])(
-    effect: ZIO[R, E, A]
-  )(implicit trace: Trace): ZIO[R, E, A] =
+  private def observeAs[R1 <: R, E, A](work: AdmissionKind)(
+    effect: ZIO[R1, E, A]
+  )(implicit trace: Trace): ZIO[R1, E, A] =
     if (!wrapper.enabled) effect else wrapper.wrap(Event.Admission(work))(effect)(Result.classifyExit)
 
 }
 
 private[gateway] object AdmissionGate {
-  def make(limit: Int, kind: AdmissionKind)(implicit trace: Trace): UIO[AdmissionGate] =
-    Semaphore.make(limit.toLong).map(new AdmissionGate(_, kind))
+  def make[R](limit: Int, kind: AdmissionKind, wrapper: GatewayWrapper[R])(implicit
+    trace: Trace
+  ): UIO[AdmissionGate[R]] =
+    Semaphore.make(limit.toLong).map(new AdmissionGate(_, kind, wrapper))
 }

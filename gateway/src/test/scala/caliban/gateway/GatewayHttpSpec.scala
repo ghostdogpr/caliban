@@ -154,43 +154,24 @@ object GatewayHttpSpec extends ZIOSpecDefault {
       }
     ),
     suite("encoded responses")(
-      test("preserves specialized response mapping through Quick configuration") {
+      test("preserves execution wrappers through Quick configuration") {
         for {
           executionHeader <- FiberRef.make("missing")
-          mapperContext   <- Promise.make[Nothing, (String, Boolean, Boolean)]
+          mapperContext   <- Promise.make[Nothing, (String, Boolean)]
           interpreter      = new GraphQLInterpreter[Any, Any] {
                                def check(query: String)(implicit trace: Trace): IO[CalibanError, Unit] = ZIO.unit
 
                                def executeRequest(request: GraphQLRequest)(implicit
                                  trace: Trace
                                ): UIO[GraphQLResponse[Any]] =
-                                 ZIO.dieMessage("structured fallback was used")
-
-                               override private[caliban] def executeRequestWith[A](
-                                 request: GraphQLRequest
-                               )(f: GraphQLResponseContext.Classified[GraphQLResponse[Any]] => A)(implicit
-                                 trace: Trace
-                               ): UIO[A] =
                                  for {
-                                   mapped <- ZIO.succeed(
-                                               f(
-                                                 GraphQLResponseContext.Classified(
-                                                   GraphQLResponse(
-                                                     ResponseValue.ObjectValue(
-                                                       List("status" -> StringValue("mapped"))
-                                                     ),
-                                                     Nil
-                                                   ),
-                                                   GraphQLResponseContext.Outcome.Executed
-                                                 )
-                                               )
-                                             )
                                    header <- executionHeader.get
                                    config <- Configurator.ref.get
-                                   _      <- mapperContext.succeed(
-                                               (header, config.enableIntrospection, mapped.isInstanceOf[Either[_, _]])
-                                             )
-                                 } yield mapped
+                                   _      <- mapperContext.succeed((header, config.enableIntrospection))
+                                 } yield GraphQLResponse(
+                                   ResponseValue.ObjectValue(List("status" -> StringValue("mapped"))),
+                                   Nil
+                                 )
                              }
           response        <- QuickAdapter(interpreter)
                                .configure(ExecutionConfiguration(enableIntrospection = false))
@@ -203,7 +184,7 @@ object GatewayHttpSpec extends ZIOSpecDefault {
         } yield assertTrue(
           response.status == Status.Ok,
           body == """{"data":{"status":"mapped"}}""",
-          context == (("configured", false, true))
+          context == (("configured", false))
         )
       },
       test("matches structured execution for joins, partial errors, null propagation, and mutations") {

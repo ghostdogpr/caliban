@@ -32,36 +32,17 @@ private[caliban] object SchemaValidator {
     mutationType: Option[String],
     subscriptionType: Option[String]
   ): Either[ValidationError, Unit] = {
-    val duplicate   = document.typeDefinitions.groupBy(_.name).collectFirst { case (name, _ :: _ :: _) => name }
-    val byName      = document.typeDefinitions.iterator.map(definition => definition.name -> definition).toMap
-    val references  =
+    val duplicate  = document.typeDefinitions.groupBy(_.name).collectFirst { case (name, _ :: _ :: _) => name }
+    val byName     = document.typeDefinitions.iterator.map(definition => definition.name -> definition).toMap
+    val references =
       queryType.iterator ++ mutationType.iterator ++ subscriptionType.iterator ++
         document.typeDefinitions.iterator.flatMap(typeReferences) ++
         document.directiveDefinitions.iterator.flatMap(_.args.iterator.map(argument => Type.innerType(argument.ofType)))
-    val missing     = references.find(name => !byName.contains(name) && !DocumentRenderer.isBuiltinScalar(name))
-    val invalidRoot = List(
-      "query"        -> queryType,
-      "mutation"     -> mutationType,
-      "subscription" -> subscriptionType
-    ).collectFirst {
-      case (operation, Some(name)) if !byName.get(name).exists(_.isInstanceOf[ObjectTypeDefinition]) =>
-        operation -> name
-    }
-
-    val error =
-      (if (queryType.isEmpty)
-         Some(
-           ValidationError(
-             "The query root operation is missing.",
-             "The query root operation type must be provided and must be an Object type."
-           )
-         )
-       else None)
-        .orElse(duplicate.map(name => ValidationError(s"Type '$name' is defined multiple times.", "")))
+    val missing    = references.find(name => !byName.contains(name) && !DocumentRenderer.isBuiltinScalar(name))
+    val error      =
+      duplicate
+        .map(name => ValidationError(s"Type '$name' is defined multiple times.", ""))
         .orElse(missing.map(name => ValidationError(s"Schema references undefined type '$name'.", "")))
-        .orElse(invalidRoot.map { case (operation, name) =>
-          ValidationError(s"The $operation root type '$name' must be an object type.", "")
-        })
 
     error.fold[Either[ValidationError, Unit]](Right(()))(Left(_))
   }

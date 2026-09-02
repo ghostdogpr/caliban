@@ -2,9 +2,9 @@ package caliban.gateway.internal
 
 import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, GraphQLResponseContext, IncomingRequestHeaders }
 import caliban.execution.Executor
-import caliban.gateway.{ GatewayInterpreter, GatewayWrapper, SubscriptionTermination }
+import caliban.gateway.{ GatewayInterpreter, GatewayWrapper }
 import caliban.gateway.GatewayWrapper.{ Event, Outcome, Result }
-import caliban.gateway.internal.execution.{ PlanExecutor, SubgraphExecutor }
+import caliban.gateway.internal.execution.PlanExecutor
 import caliban.gateway.internal.GatewayInterpreterImpl._
 import caliban.GraphQLResponseContext.ServerFailure
 import caliban.parsing.adt.OperationType
@@ -16,9 +16,8 @@ import zio.stream.ZStream
 private[gateway] final class GatewayInterpreterImpl[-R](
   operations: OperationPreparation[R],
   executor: PlanExecutor[R],
-  control: GatewayExecutionControl,
+  control: GatewayExecutionControl[R],
   wrapper: GatewayWrapper[R],
-  subscriptions: SubscriptionControl[R],
   reservation: Option[GatewayExecutionControl.Lease] = None
 ) extends GatewayInterpreter[R] {
 
@@ -32,15 +31,10 @@ private[gateway] final class GatewayInterpreterImpl[-R](
    */
   def reserve(implicit trace: Trace): UIO[Option[GatewayInterpreterImpl[R]]] =
     control.reserve.map(
-      _.map(lease => new GatewayInterpreterImpl(operations, executor, control, wrapper, subscriptions, Some(lease)))
+      _.map(lease => new GatewayInterpreterImpl(operations, executor, control, wrapper, Some(lease)))
     )
 
-  def retireSubscriptions(implicit trace: Trace) = subscriptions.stop(SubscriptionTermination.Reload)
-
-  def executeStream(request: GraphQLRequest)(implicit
-    trace: Trace
-  ): ZStream[R, Throwable, GraphQLResponse[CalibanError]] =
-    ZStream.unwrap(executeRequest(request).map(SubgraphExecutor.responses))
+  def retireSubscriptions(implicit trace: Trace) = control.subscriptions.stop(SubscriptionTermination.Reload)
 
   def release(implicit trace: Trace): UIO[Unit] = reservation.fold[UIO[Unit]](ZIO.unit)(control.release(_))
 
@@ -61,7 +55,7 @@ private[gateway] final class GatewayInterpreterImpl[-R](
       )(
         GraphQLResponseContext.markServerError(ServerFailure.TimedOut).as(requestTimeoutResponse)
       )(
-        GraphQLResponseContext.markServerError(ServerFailure.Unavailable).as(requestShutdownResponse)
+        shutdownResponse
       )
 
   private def executeObservedRequest(request: GraphQLRequest)(implicit
@@ -83,7 +77,7 @@ private[gateway] final class GatewayInterpreterImpl[-R](
       .either
 
     control
-      .runObservedRequest(wrapper, Event.Request(request.operationName), reservation)(preparation)(
+      .runObservedRequest(Event.Request(request.operationName), reservation)(preparation)(
         _.fold(_ => true, _.plan.plan.operation != OperationType.Subscription)
       )(
         _.fold(
@@ -125,7 +119,7 @@ private[gateway] final class GatewayInterpreterImpl[-R](
             IncomingRequestHeaders
               .locallyScoped(headers)
               .as(
-                subscriptions
+                control.subscriptions
                   .stream(frozen.subscribe(prepared.plan, prepared.executionRequest, prepared.request))(response =>
                     frozen.executeEvent(prepared.plan, prepared.request, response)
                   )

@@ -1,16 +1,14 @@
 package caliban.gateway.internal
 
-import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, GraphQLResponseContext }
-import caliban.GraphQLResponseContext.ServerFailure
+import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse }
 import caliban.gateway._
-import caliban.gateway.internal.GatewayInterpreterImpl.{ requestShutdownError, requestShutdownResponse }
-import caliban.gateway.internal.execution.SubgraphExecutor
+import caliban.gateway.internal.GatewayInterpreterImpl.requestShutdownError
 import zio._
-import zio.stream.ZStream
 
 private[gateway] final class ReloadableGatewayInterpreterImpl[R] private (
   acquire: IO[GatewayBuildError, Gateway.Snapshot[R]],
-  config: GatewayReloadConfig,
+  pollInterval: Duration,
+  jitter: Double,
   drainTimeout: Duration,
   state: Ref[ReloadableGatewayInterpreterImpl.State[R]]
 ) extends ReloadableGatewayInterpreter[R] {
@@ -23,14 +21,7 @@ private[gateway] final class ReloadableGatewayInterpreterImpl[R] private (
     use(_.explain(request))(ZIO.fail(requestShutdownError))
 
   def executeRequest(request: GraphQLRequest)(implicit trace: Trace): URIO[R, GraphQLResponse[CalibanError]] =
-    use(_.executeRequest(request))(
-      GraphQLResponseContext.markServerError(ServerFailure.Unavailable).as(requestShutdownResponse)
-    )
-
-  def executeStream(request: GraphQLRequest)(implicit
-    trace: Trace
-  ): ZStream[R, Throwable, GraphQLResponse[CalibanError]] =
-    ZStream.unwrap(executeRequest(request).map(SubgraphExecutor.responses))
+    use(_.executeRequest(request))(shutdownResponse)
 
   private def use[R0, E, A](f: GatewayInterpreterImpl[R] => ZIO[R0, E, A])(
     rejected: => ZIO[R0, E, A]
@@ -62,11 +53,11 @@ private[gateway] final class ReloadableGatewayInterpreterImpl[R] private (
       if (current.closing) ZIO.unit
       else {
         val delay =
-          if (config.jitter == 0.0) ZIO.succeed(config.pollInterval)
+          if (jitter == 0.0) ZIO.succeed(pollInterval)
           else
             Random.nextDouble.map { random =>
-              val factor = 1.0 + (2.0 * random - 1.0) * config.jitter
-              Duration.fromNanos(math.max(1L, (config.pollInterval.toNanos.toDouble * factor).toLong))
+              val factor = 1.0 + (2.0 * random - 1.0) * jitter
+              Duration.fromNanos(math.max(1L, (pollInterval.toNanos.toDouble * factor).toLong))
             }
         delay.flatMap(Clock.sleep(_)) *> cycle *> ZIO.suspendSucceed(loop)
       }
@@ -79,7 +70,7 @@ private[gateway] final class ReloadableGatewayInterpreterImpl[R] private (
                acquire.flatMap { snapshot =>
                  state.get.flatMap { current =>
                    if (current.closing) ZIO.unit
-                   else if (snapshot.fingerprints == current.active.snapshot.fingerprints) unchanged
+                   else if (snapshot.fingerprints == current.active.fingerprints) unchanged
                    else replace(snapshot)
                  }
                }
@@ -105,14 +96,14 @@ private[gateway] final class ReloadableGatewayInterpreterImpl[R] private (
                      }
         _         <- if (!accepted) candidate.close(Exit.unit)
                      else
-                       restore(candidate.extend(snapshot.gateway.build))
+                       restore(candidate.extend(snapshot.gateway.buildInterpreter))
                          .onError(cause => candidate.close(Exit.failCause(cause)) *> clearCandidate(candidate))
                          .flatMap { interpreter =>
                            state.modify { current =>
                              if (current.closing) Option.empty[(Generation[R], Boolean)] -> current
                              else
                                Some((current.active, current.lastFailure.nonEmpty))      -> current.copy(
-                                 active = Generation(current.active.id + 1L, snapshot, interpreter, candidate),
+                                 active = Generation(current.active.id + 1L, snapshot.fingerprints, interpreter, candidate),
                                  retiring = true,
                                  candidate = None,
                                  lastFailure = None
@@ -172,7 +163,7 @@ private[gateway] final class ReloadableGatewayInterpreterImpl[R] private (
 private[gateway] object ReloadableGatewayInterpreterImpl {
   private final case class Generation[-R](
     id: Long,
-    snapshot: Gateway.Snapshot[R],
+    fingerprints: List[String],
     interpreter: GatewayInterpreterImpl[R],
     scope: Scope.Closeable
   )
@@ -187,24 +178,25 @@ private[gateway] object ReloadableGatewayInterpreterImpl {
 
   def make[R](
     acquire: IO[GatewayBuildError, Gateway.Snapshot[R]],
-    config: GatewayReloadConfig,
+    pollInterval: Duration,
+    jitter: Double,
     drainTimeout: Duration
   )(implicit trace: Trace): ZIO[Scope, GatewayBuildError, ReloadableGatewayInterpreter[R]] =
     ZIO.uninterruptibleMask { restore =>
       restore(acquire).flatMap { snapshot =>
         Scope.make.flatMap { initialScope =>
           (for {
-            interpreter <- restore(initialScope.extend(snapshot.gateway.build))
+            interpreter <- restore(initialScope.extend(snapshot.gateway.buildInterpreter))
             state       <- Ref.make(
                              State(
-                               Generation(1L, snapshot, interpreter, initialScope),
+                               Generation(1L, snapshot.fingerprints, interpreter, initialScope),
                                retiring = false,
                                candidate = None,
                                closing = false,
                                lastFailure = None
                              )
                            )
-            runtime      = new ReloadableGatewayInterpreterImpl(acquire, config, drainTimeout, state)
+            runtime      = new ReloadableGatewayInterpreterImpl(acquire, pollInterval, jitter, drainTimeout, state)
             worker      <- runtime.loop.interruptible.forkDaemon
             _           <- ZIO.addFinalizer(runtime.close(worker))
           } yield runtime).onError(cause => initialScope.close(Exit.failCause(cause)))
@@ -216,7 +208,6 @@ private[gateway] object ReloadableGatewayInterpreterImpl {
     case _: GatewayBuildError.InvalidConfiguration          => "Invalid gateway configuration."
     case _: GatewayBuildError.TransportInitializationFailed => "Unable to initialize schema transport."
     case _: GatewayBuildError.SubgraphLoadingFailed         => "Unable to load subgraph schemas."
-    case _: GatewayBuildError.CombinedFailures              => "Multiple gateway build stages failed."
     case _: GatewayBuildError.SchemaCompositionFailed       => "Subgraph schemas could not be composed."
   }
 

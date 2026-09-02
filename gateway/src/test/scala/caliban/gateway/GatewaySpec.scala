@@ -485,6 +485,19 @@ object GatewaySpec extends ZIOSpecDefault {
           )
         )
       },
+      test("rejects an empty remote errors array without data") {
+        for {
+          remote   <- stub("""{"errors":[]}""")
+          gateway  <- runtime(remote)
+          response <- gateway.execute("{ products(ids: [\"p1\"]) { id } }")
+        } yield assertTrue(
+          response.data == NullValue,
+          response.errors.map(_.msg) == List("Remote GraphQL request failed."),
+          executionErrors(response.errors).map(_.path) == List(
+            List(PathValue.Key("products"))
+          )
+        )
+      },
       test("finalizes a successful single-source response") {
         val singleSchema = "type Query { product: Product } type Product { name: String! }"
         val responseBody =

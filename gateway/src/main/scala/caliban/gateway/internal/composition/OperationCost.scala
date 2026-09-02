@@ -5,13 +5,17 @@ import caliban.execution.{ ExecutionRequest, Field }
 import caliban.gateway.internal.planning.OperationPlan
 import caliban.gateway.internal.planning.OperationPlan.EntityFetch
 import caliban.introspection.adt.{ __InputValue, __Type, __TypeKind }
-import caliban.parsing.Parser
 import caliban.parsing.adt.OperationType
 import caliban.Value.{ IntValue, NullValue }
 
 private object OperationCost {
   final case class FieldCostParts(oneTime: BigInt, perResult: BigInt)
   final case class SizedPath(path: Vector[String], size: BigInt)
+  final case class SizedField(
+    parentType: Option[__Type],
+    parent: String,
+    definitions: List[ComposedGraph.ListSize]
+  )
 }
 
 /**
@@ -22,7 +26,7 @@ private[composition] final class OperationCost(
   runtimeTypesByName: Map[String, Set[String]],
   costs: ComposedGraph.CostMetadata
 ) {
-  import OperationCost.{ FieldCostParts, SizedPath }
+  import OperationCost.{ FieldCostParts, SizedField, SizedPath }
 
   private final class FetchMultipliers(
     val representations: Map[Vector[String], BigInt],
@@ -158,40 +162,35 @@ private[composition] final class OperationCost(
       )
   }
 
-  private def fieldCost(field: Field, source: String, size: BigInt): BigInt = {
-    val parentType = field.parentType.map(_.innerType)
-    val parent     = parentType.flatMap(_.name).getOrElse("")
-    val nested     = fieldsCost(field.fields, source)
-    maximumFieldCost(parentType, parent, field)(own => own.oneTime + size * (own.perResult + nested))
-  }
-
   private def sizedFieldsCost(fields: List[Field], source: String, paths: List[SizedPath]): BigInt =
     conditionalCost(fields, (field: Field) => field._condition) { (field, _) =>
       val matching = matchingSizedPaths(field.name, paths)
       if (matching.isEmpty) fieldCost(field, source)
       else if (matching.exists(_.path.isEmpty)) {
-        val parentType  = field.parentType.map(_.innerType)
-        val parent      = parentType.flatMap(_.name).getOrElse("")
-        val definitions = listSizes(source, parentType, parent, field.name)
-        val local       = declaredSizedPaths(field, definitions)
-        val remaining   = matching.filter(_.path.nonEmpty)
-        val nested      =
+        val sized     = sizedField(field, source)
+        val local     = declaredSizedPaths(field, sized.definitions)
+        val remaining = matching.filter(_.path.nonEmpty)
+        val nested    =
           if (local.isEmpty && remaining.isEmpty) fieldsCost(field.fields, source)
           else sizedFieldsCost(field.fields, source, preferSizedPaths(local, remaining))
-        val size        = matching.collect { case SizedPath(path, value) if path.isEmpty => value }.max
-        maximumFieldCost(parentType, parent, field)(own => own.oneTime + size * (own.perResult + nested))
+        val size      = matching.collect { case SizedPath(path, value) if path.isEmpty => value }.max
+        maximumFieldCost(sized.parentType, sized.parent, field)(own => own.oneTime + size * (own.perResult + nested))
       } else {
-        val parentType  = field.parentType.map(_.innerType)
-        val parent      = parentType.flatMap(_.name).getOrElse("")
-        val definitions = listSizes(source, parentType, parent, field.name)
-        val local       = declaredSizedPaths(field, definitions)
-        val nested      = sizedFieldsCost(field.fields, source, preferSizedPaths(local, matching))
-        val directSize  = resolvedDirectListSize(field, definitions)
-        maximumFieldCost(parentType, parent, field) { own =>
+        val sized      = sizedField(field, source)
+        val local      = declaredSizedPaths(field, sized.definitions)
+        val nested     = sizedFieldsCost(field.fields, source, preferSizedPaths(local, matching))
+        val directSize = resolvedDirectListSize(field, sized.definitions)
+        maximumFieldCost(sized.parentType, sized.parent, field) { own =>
           directSize.fold(own.oneTime + own.perResult + nested)(size => own.oneTime + size * (own.perResult + nested))
         }
       }
     }
+
+  private def sizedField(field: Field, source: String): SizedField = {
+    val parentType = field.parentType.map(_.innerType)
+    val parent     = parentType.flatMap(_.name).getOrElse("")
+    SizedField(parentType, parent, listSizes(source, parentType, parent, field.name))
+  }
 
   private def preferSizedPaths(primary: List[SizedPath], fallback: List[SizedPath]): List[SizedPath] = {
     val preferred      = maximumSizedPaths(primary)
@@ -330,7 +329,7 @@ private[composition] final class OperationCost(
   }
 
   private def defaultValue(argument: __InputValue): Option[InputValue] =
-    argument.defaultValue.flatMap(Parser.parseInputValue(_).toOption)
+    argument.parsedDefaultValue
 
   private def fieldDefinitions(parentType: Option[__Type], field: Field): List[__InputValue] =
     parentType.flatMap(tpe => Option(tpe.getFieldOrNull(field.name))).toList.flatMap(_.allArgs)

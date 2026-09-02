@@ -63,7 +63,8 @@ object GatewayMetrics {
             requestDuration,
             requests,
             Set.empty,
-            RequestTracking
+            requestDetailLabels,
+            requestTotalLabels
           )(effect)(result)
         case Event.Routing                                  =>
           trackDuration(routingDuration)(effect)(result)
@@ -73,7 +74,8 @@ object GatewayMetrics {
             subgraphCallDuration,
             subgraphCalls,
             Set(MetricLabel("subgraph", subgraph)),
-            SubgraphCallTracking
+            subgraphDetailLabels,
+            noLabels
           )(effect)(result)
         case _: Event.Attempt                               => effect
         case Event.Retry(subgraph, _)                       => retries.tagged("subgraph", subgraph).update(1L) *> effect
@@ -88,7 +90,8 @@ object GatewayMetrics {
     duration: Metric.Histogram[Double],
     total: Metric.Counter[Long],
     labels: Set[MetricLabel],
-    tracking: Tracking
+    detailLabels: Result => Set[MetricLabel],
+    totalLabels: Result => Set[MetricLabel]
   )(effect: ZIO[R, E, A])(result: Exit[E, A] => Result)(implicit
     trace: Trace
   ): ZIO[R, E, A] =
@@ -98,34 +101,27 @@ object GatewayMetrics {
           restore(effect).onExit { exit =>
             Clock.nanoTime.flatMap { finishedAt =>
               val value = result(exit)
-              duration.tagged(labels ++ tracking.detailLabels(value)).update(seconds(finishedAt - startedAt)) *>
-                total.tagged(labels ++ tracking.totalLabels(value)).update(1L) *>
+              duration.tagged(labels ++ detailLabels(value)).update(seconds(finishedAt - startedAt)) *>
+                total.tagged(labels ++ totalLabels(value)).update(1L) *>
                 active.tagged(labels).decrement
             }
           }
       }
     }
 
-  private sealed trait Tracking {
-    def detailLabels(result: Result): Set[MetricLabel]
-    def totalLabels(result: Result): Set[MetricLabel]
-  }
+  private val requestDetailLabels: Result => Set[MetricLabel] = result =>
+    Set(
+      MetricLabel("outcome", result.outcome.label),
+      MetricLabel("operation_type", result.operationType.fold("unknown")(GatewayWrapper.operationTypeLabel))
+    )
 
-  private case object RequestTracking extends Tracking {
-    def detailLabels(result: Result): Set[MetricLabel] =
-      Set(
-        MetricLabel("outcome", result.outcome.label),
-        MetricLabel("operation_type", result.operationType.fold("unknown")(GatewayWrapper.operationTypeLabel))
-      )
+  private val requestTotalLabels: Result => Set[MetricLabel] = result =>
+    Set(MetricLabel("outcome", if (result.outcome == Success) "success" else "error"))
 
-    def totalLabels(result: Result): Set[MetricLabel] =
-      Set(MetricLabel("outcome", if (result.outcome == Success) "success" else "error"))
-  }
+  private val subgraphDetailLabels: Result => Set[MetricLabel] = result =>
+    Set(MetricLabel("outcome", result.outcome.label))
 
-  private case object SubgraphCallTracking extends Tracking {
-    def detailLabels(result: Result): Set[MetricLabel] = Set(MetricLabel("outcome", result.outcome.label))
-    def totalLabels(result: Result): Set[MetricLabel]  = Set.empty
-  }
+  private val noLabels: Result => Set[MetricLabel] = _ => Set.empty
 
   private def trackDuration[R, E, A](duration: Metric.Histogram[Double])(
     effect: ZIO[R, E, A]

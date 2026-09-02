@@ -16,10 +16,18 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
     requestTimeout: Duration = 1.second,
     drainTimeout: Duration = 1.second,
     requestLimit: Int = 1
-  ): UIO[GatewayExecutionControl] =
-    scope.extend(GatewayExecutionControl.make(requestLimit, Map.empty, requestTimeout, drainTimeout))
+  ): UIO[GatewayExecutionControl[Any]] =
+    scope.extend(
+      GatewayExecutionControl.make(
+        requestLimit,
+        GatewaySubscriptionConfig(),
+        GatewayWrapper.empty,
+        requestTimeout,
+        drainTimeout
+      )
+    )
 
-  private def awaitDrain(control: GatewayExecutionControl): UIO[Unit] =
+  private def awaitDrain(control: GatewayExecutionControl[Any]): UIO[Unit] =
     control.reserve.flatMap {
       case Some(lease) => control.release(lease).as(false)
       case None        => ZIO.succeed(true)

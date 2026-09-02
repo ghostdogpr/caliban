@@ -11,7 +11,7 @@ import zio.stream.ZStream
  */
 private[gateway] final class SubscriptionControl[-R] private (
   config: GatewaySubscriptionConfig,
-  work: GatewayExecutionControl,
+  work: AdmissionGate[R],
   wrapper: GatewayWrapper[R],
   state: Ref[SubscriptionControl.State],
   drained: Promise[Nothing, Unit]
@@ -76,9 +76,8 @@ private[gateway] final class SubscriptionControl[-R] private (
         (signal, reason) = admittedState
         sourceScope     <- ZIO.service[Scope]
         source          <- work
-                             .subscriptionWork[R1 with Scope, Throwable, ZStream[Any, Throwable, GraphQLResponse[CalibanError]]](
-                               AdmissionKind.SubscriptionSetup,
-                               wrapper
+                             .observedAs[R1 with Scope, Throwable, ZStream[Any, Throwable, GraphQLResponse[CalibanError]]](
+                               AdmissionKind.SubscriptionSetup
                              ) {
                                wrapper.wrap[R1 with Scope, Throwable, ZStream[Any, Throwable, GraphQLResponse[CalibanError]]](
                                  Event.SubscriptionSetup
@@ -103,10 +102,7 @@ private[gateway] final class SubscriptionControl[-R] private (
         _               <- source.runForeach { event =>
                              queue.offer(event).flatMap {
                                case true  => ZIO.unit
-                               case false =>
-                                 notify(Event.SubscriptionOverflow) *> signal.succeed(
-                                   SubscriptionTermination.Overflow
-                                 ) *> ZIO.interrupt
+                               case false => ZIO.fail(SubscriptionTermination.Overflow)
                              }
                            }.catchAllCause(cause =>
                              if (cause.isInterruptedOnly) ZIO.unit
@@ -123,9 +119,8 @@ private[gateway] final class SubscriptionControl[-R] private (
                              .forkScoped
         events           = queue.stream.mapZIO { event =>
                              work
-                               .subscriptionWork[R1, Nothing, GraphQLResponse[CalibanError]](
-                                 AdmissionKind.SubscriptionEvent,
-                                 wrapper
+                               .observedAs[R1, Nothing, GraphQLResponse[CalibanError]](
+                                 AdmissionKind.SubscriptionEvent
                                ) {
                                  wrapper.wrap[R1, Nothing, GraphQLResponse[CalibanError]](Event.SubscriptionEvent)(
                                    process(event)
@@ -163,13 +158,12 @@ private[gateway] object SubscriptionControl {
   }
   def make[R](
     config: GatewaySubscriptionConfig,
-    work: GatewayExecutionControl,
+    work: AdmissionGate[R],
     wrapper: GatewayWrapper[R]
   )(implicit trace: Trace): ZIO[Scope, Nothing, SubscriptionControl[R]] =
     for {
       state   <- Ref.make(State(None, Map.empty))
       drained <- Promise.make[Nothing, Unit]
       control  = new SubscriptionControl(config, work, wrapper, state, drained)
-      _       <- work.onSubscriptionClose(control.close)
     } yield control
 }

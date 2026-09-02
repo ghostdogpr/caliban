@@ -22,7 +22,6 @@ import scala.util.control.NonFatal
 
 final private class QuickRequestHandler[R] private (
   interpreter: GraphQLInterpreter[R, Any],
-  requestExecution: QuickRequestHandler.RequestExecution[R],
   wsConfig: quick.WebSocketConfig[R],
   sseConfig: quick.SseConfig,
   maxRequestBodyBytes: Int,
@@ -34,7 +33,6 @@ final private class QuickRequestHandler[R] private (
 
   private def copy[R1 <: R](
     interpreter: GraphQLInterpreter[R1, Any] = this.interpreter,
-    requestExecution: RequestExecution[R1] = this.requestExecution,
     wsConfig: quick.WebSocketConfig[R1] = this.wsConfig,
     sseConfig: quick.SseConfig = this.sseConfig,
     maxRequestBodyBytes: Int = this.maxRequestBodyBytes,
@@ -43,7 +41,6 @@ final private class QuickRequestHandler[R] private (
   ): QuickRequestHandler[R1] =
     new QuickRequestHandler(
       interpreter,
-      requestExecution,
       wsConfig,
       sseConfig,
       maxRequestBodyBytes,
@@ -53,16 +50,14 @@ final private class QuickRequestHandler[R] private (
 
   def configure(config: ExecutionConfiguration)(implicit trace: Trace): QuickRequestHandler[R] =
     copy(
-      interpreter = interpreter.wrapExecutionWith[R, Any](Configurator.locally(config)(_)),
-      requestExecution = requestExecution.configure(config)
+      interpreter = interpreter.wrapExecutionWith[R, Any](Configurator.locally(config)(_))
     )
 
   def configure[R1](configurator: QuickAdapter.Configurator[R1])(implicit
     trace: Trace
   ): QuickRequestHandler[R & R1] =
     copy[R & R1](
-      interpreter = interpreter.wrapExecutionWith[R & R1, Any](exec => ZIO.scoped[R1 & R](configurator *> exec)),
-      requestExecution = requestExecution.configure(configurator)
+      interpreter = interpreter.wrapExecutionWith[R & R1, Any](exec => ZIO.scoped[R1 & R](configurator *> exec))
     )
 
   def configureWebSocket[R1](config: quick.WebSocketConfig[R1]): QuickRequestHandler[R & R1] =
@@ -245,11 +240,12 @@ final private class QuickRequestHandler[R] private (
       .locally(
         httpRequest.headers.iterator.map(header => header.headerName -> header.renderedValue).toList
       )(
-        requestExecution.execute(if (httpRequest.method == Method.GET) req.asHttpGetRequest else req) { result =>
-          buildResponse(httpRequest, result, encoding)
-        }
+        GraphQLResponseContext
+          .captureResponse(
+            interpreter.executeRequest(if (httpRequest.method == Method.GET) req.asHttpGetRequest else req)
+          )
+          .map(result => buildResponse(httpRequest, result, encoding))
       )
-      .absolve
 
   private def responseHeaders(headers: Headers, cacheDirective: Option[String]): Headers =
     cacheDirective match {
@@ -261,7 +257,7 @@ final private class QuickRequestHandler[R] private (
     httpReq: Request,
     result: GraphQLResponseContext.Classified[GraphQLResponse[Any]],
     encoding: ResponseEncoding
-  )(implicit trace: Trace): Either[Response, Response] = {
+  )(implicit trace: Trace): Response = {
     val response       = result.value
     val outcome        = result.outcome
     val cacheDirective = response.extensions.flatMap(HttpUtils.computeCacheDirective)
@@ -282,60 +278,42 @@ final private class QuickRequestHandler[R] private (
     // Top-level streams with hasNext (even false) are incremental; without it, elements are full subscription responses.
     response match {
       case resp @ GraphQLResponse(StreamValue(stream), _, _, Some(_)) =>
-        Right(
-          Response(
-            Status.Ok,
-            headers = responseHeaders(ContentTypeMultipart, None),
-            body = Body.fromStreamChunked(encodeMultipartMixedResponse(resp, stream))
-          )
+        Response(
+          Status.Ok,
+          headers = responseHeaders(ContentTypeMultipart, None),
+          body = Body.fromStreamChunked(encodeMultipartMixedResponse(resp, stream))
         )
       case resp if encoding == ResponseEncoding.EventStream           =>
         val encoded = Response.fromServerSentEvents(encodeTextEventStream(resp))
-        Right(
-          encoded.copy(
-            status = responseStatus(requestErrorsAreBadRequests = false),
-            headers = encoded.headers ++ allowPost(mutationOnGet)
-          )
+        encoded.copy(
+          status = responseStatus(requestErrorsAreBadRequests = false),
+          headers = encoded.headers ++ allowPost(mutationOnGet)
         )
       case GraphQLResponse(_: StreamValue, _, _, None)                =>
-        Left(errorResponse(Status.BadRequest, "Subscriptions require text/event-stream or WebSocket."))
+        errorResponse(Status.BadRequest, "Subscriptions require text/event-stream or WebSocket.")
       case resp if encoding == ResponseEncoding.Multipart             =>
-        Right(
-          Response(
-            responseStatus(requestErrorsAreBadRequests = true),
-            headers = responseHeaders(ContentTypeMultipart, cacheDirective) ++ allowPost(mutationOnGet),
-            body = Body.fromStreamChunked(encodeMultipartMixedResponse(resp, ZStream.succeed(resp.data)))
-          )
+        Response(
+          responseStatus(requestErrorsAreBadRequests = true),
+          headers = responseHeaders(ContentTypeMultipart, cacheDirective) ++ allowPost(mutationOnGet),
+          body = Body.fromStreamChunked(encodeMultipartMixedResponse(resp, ZStream.succeed(resp.data)))
         )
       case resp                                                       =>
-        val contentType = if (encoding == ResponseEncoding.GraphQLJson) ContentTypeGql else ContentTypeJson
-        encodeSingleResponse(
-          resp,
+        val contentType                                 = if (encoding == ResponseEncoding.GraphQLJson) ContentTypeGql else ContentTypeJson
+        val codec: JsonValueCodec[GraphQLResponse[Any]] = responseCodec(
           keepDataOnErrors = encoding != ResponseEncoding.GraphQLJson || outcome == Outcome.Executed,
-          hasCacheDirective = cacheDirective.isDefined
-        ).map(bytes =>
+          excludeCacheDirective = cacheDirective.isDefined
+        )
+        try {
+          val bytes = GraphQLResponseJsoniter.writeToArray(resp, maxResponseBodyBytes, codec)
           Response(
             status = responseStatus(requestErrorsAreBadRequests = encoding == ResponseEncoding.GraphQLJson),
             headers = responseHeaders(contentType, cacheDirective) ++ allowPost(mutationOnGet),
             body = Body.fromArray(bytes)
           )
-        )
-    }
-  }
-
-  private def encodeSingleResponse(
-    resp: GraphQLResponse[Any],
-    keepDataOnErrors: Boolean,
-    hasCacheDirective: Boolean
-  ): Either[Response, Array[Byte]] = {
-    val codec: JsonValueCodec[GraphQLResponse[Any]] =
-      responseCodec(keepDataOnErrors, hasCacheDirective)
-
-    try
-      Right(GraphQLResponseJsoniter.writeToArray(resp, maxResponseBodyBytes, codec))
-    catch {
-      case BoundedOutputStream.LimitExceeded =>
-        Left(errorResponse(Status.InternalServerError, "Encoded GraphQL response exceeds the configured limit."))
+        } catch {
+          case BoundedOutputStream.LimitExceeded =>
+            errorResponse(Status.InternalServerError, "Encoded GraphQL response exceeds the configured limit.")
+        }
     }
   }
 
@@ -460,38 +438,6 @@ final private class QuickRequestHandler[R] private (
 }
 
 object QuickRequestHandler {
-  private trait RequestExecution[-R] { self =>
-    def execute[A](request: GraphQLRequest)(
-      f: GraphQLResponseContext.Classified[GraphQLResponse[Any]] => A
-    )(implicit trace: Trace): URIO[R, A]
-
-    def configure(config: ExecutionConfiguration): RequestExecution[R] =
-      new RequestExecution[R] {
-        def execute[A](request: GraphQLRequest)(
-          f: GraphQLResponseContext.Classified[GraphQLResponse[Any]] => A
-        )(implicit trace: Trace): URIO[R, A] =
-          Configurator.locally(config)(self.execute(request)(f))
-      }
-
-    def configure[R1](configurator: QuickAdapter.Configurator[R1]): RequestExecution[R & R1] =
-      new RequestExecution[R & R1] {
-        def execute[A](request: GraphQLRequest)(
-          f: GraphQLResponseContext.Classified[GraphQLResponse[Any]] => A
-        )(implicit trace: Trace): URIO[R & R1, A] =
-          ZIO.scoped[R & R1](configurator *> self.execute(request)(f))
-      }
-  }
-
-  private object RequestExecution {
-    def apply[R](interpreter: GraphQLInterpreter[R, Any]): RequestExecution[R] =
-      new RequestExecution[R] {
-        def execute[A](request: GraphQLRequest)(
-          f: GraphQLResponseContext.Classified[GraphQLResponse[Any]] => A
-        )(implicit trace: Trace): URIO[R, A] =
-          interpreter.executeRequestWith(request)(f)
-      }
-  }
-
   private[caliban] def apply[R](
     interpreter: GraphQLInterpreter[R, Any],
     wsConfig: quick.WebSocketConfig[R],
@@ -502,7 +448,6 @@ object QuickRequestHandler {
   ): QuickRequestHandler[R] =
     new QuickRequestHandler(
       interpreter,
-      RequestExecution(interpreter),
       wsConfig,
       sseConfig,
       maxRequestBodyBytes,

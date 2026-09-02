@@ -1,10 +1,12 @@
 package caliban.gateway.internal.composition
 
 import caliban.execution.Field
-import caliban.gateway.{ Lookup, SchemaTransformation }
+import caliban.gateway.{ Lookup, OperationRootNames, SchemaTransformation }
 import caliban.gateway.SchemaTransformation._
-import caliban.InputValue
+import caliban.{ CalibanError, GraphQLResponse, InputValue, ResponseValue }
 import caliban.InputValue.{ ListValue => InputListValue, ObjectValue => InputObjectValue }
+import caliban.ResponseValue.{ ListValue => ResponseListValue, ObjectValue => ResponseObjectValue }
+import caliban.gateway.internal.planning.OperationPlan.RequiredSelection
 import caliban.introspection.adt.{ __Field, __InputValue, __Type, __TypeKind }
 import caliban.parsing.adt.{ Definition, Directive, Document, Selection, Type }
 import caliban.parsing.adt.Definition.TypeSystemDefinition._
@@ -32,15 +34,12 @@ private[gateway] final class SchemaMapping private (
   val hiddenInputFields                = mappings.hiddenInputFields
   private[internal] val renamesNothing = mappings.renamesNothing
 
-  private val sourceRootNamesByOperation =
-    Map("Query" -> originalRootType.queryType.name.getOrElse("Query")) ++
-      originalRootType.mutationType.flatMap(_.name).map("Mutation" -> _).toMap ++
-      originalRootType.subscriptionType.flatMap(_.name).map("Subscription" -> _).toMap
-  private val sourceRootNames            = sourceRootNamesByOperation.map(_.swap)
-  private val sourceQueryName            = originalRootType.queryType.name.getOrElse("Query")
+  private val sourceRootNames         = OperationRootNames(originalRootType)
+  private[gateway] lazy val rootNames = sourceRootNames.mapSource(clientType)
+  private val sourceQueryName         = sourceRootNames.source("Query").getOrElse("Query")
 
   private def clientOwners(sourceType: String): List[String] =
-    clientType(sourceType) :: sourceRootNames.get(sourceType).toList
+    clientType(sourceType) :: sourceRootNames.composedAll(sourceType)
 
   private val sourceTypes     = typeNames.map(_.swap)
   private val sourceFields    = fieldNames.iterator.map { case ((tpe, field), renamed) =>
@@ -55,7 +54,10 @@ private[gateway] final class SchemaMapping private (
     typeNames.getOrElse(name, name)
 
   def composedType(name: String): String =
-    sourceRootNames.getOrElse(name, clientType(name))
+    sourceRootNames.composed(name) match {
+      case `name`   => clientType(name)
+      case composed => composed
+    }
 
   def sourceType(name: String): String =
     sourceTypes.getOrElse(name, name)
@@ -105,7 +107,7 @@ private[gateway] final class SchemaMapping private (
 
   def rootFieldToSource(field: Field): Field = {
     val clientParent       = field.parentType.flatMap(_.innerType.name).getOrElse("")
-    val sourceParent       = sourceRootNamesByOperation.getOrElse(clientParent, sourceType(clientParent))
+    val sourceParent       = sourceRootNames.source(clientParent).getOrElse(sourceType(clientParent))
     val sourceName         = sourceField(clientParent, field.name)
     val composedDirectives = field.parentType
       .flatMap(parent => Option(parent.innerType.getFieldOrNull(field.name)))
@@ -378,6 +380,115 @@ private[gateway] final class SchemaMapping private (
 
   private[internal] def sourceFieldDefinition(typeName: String, field: String): Option[__Field] =
     originalRootType.types.get(typeName).flatMap(tpe => Option(tpe.getFieldOrNull(field)))
+
+  private[internal] def requiredSelectionToSource(
+    parentType: String,
+    selection: RequiredSelection
+  ): RequiredSelection = {
+    val sourceParent = sourceType(parentType)
+    val sourceName   = sourceField(parentType, selection.field)
+    val childType    = sourceFieldDefinition(sourceParent, sourceName).flatMap(_._type.innerType.name).getOrElse("")
+    RequiredSelection(
+      sourceName,
+      selection.responseName,
+      selection.children.map(requiredSelectionToSource(clientType(childType), _))
+    )
+  }
+
+  private[internal] def rootResponseMapper(
+    fields: List[Field]
+  ): GraphQLResponse[CalibanError] => GraphQLResponse[CalibanError] =
+    if (renamesNothing) identity
+    else {
+      val mapData = objectResponseMapper(fields)
+      response => response.copy(data = mapData(response.data))
+    }
+
+  private[internal] def entityFieldsResponseMapper(fields: List[Field]): ResponseValue => ResponseValue =
+    if (renamesNothing) identityResponse else objectResponseMapper(fields)
+
+  private val identityResponse: ResponseValue => ResponseValue = identity
+
+  private val typenameResponseMapper: ResponseValue => ResponseValue = {
+    case StringValue(name) => StringValue(clientType(name))
+    case other             => other
+  }
+
+  private def mapSelectedObject(
+    selected: java.util.HashMap[String, ResponseValue => ResponseValue],
+    values: List[(String, ResponseValue)]
+  ): ResponseObjectValue =
+    ResponseObjectValue(values.map { case (name, nested) =>
+      val mapper = selected.get(name)
+      name -> (if (mapper eq null) nested else mapper(nested))
+    })
+
+  private def recursiveSelectedResponseMapper(
+    selected: java.util.HashMap[String, ResponseValue => ResponseValue]
+  ): ResponseValue => ResponseValue = {
+    def map(value: ResponseValue): ResponseValue =
+      value match {
+        case ResponseObjectValue(values) => mapSelectedObject(selected, values)
+        case ResponseListValue(values)   => ResponseListValue(values.map(map))
+        case other                       => other
+      }
+
+    map
+  }
+
+  private def objectResponseMapper(fields: List[Field]): ResponseValue => ResponseValue = {
+    val selected  = new java.util.HashMap[String, ResponseValue => ResponseValue]
+    var remaining = fields
+    while (remaining ne Nil) {
+      val field = remaining.head
+      addResponseMapper(selected, field.aliasedName, fieldResponseMapper(field))
+      remaining = remaining.tail
+    }
+    recursiveSelectedResponseMapper(selected)
+  }
+
+  private def fieldResponseMapper(field: Field): ResponseValue => ResponseValue =
+    if (field.name == "__typename") typenameResponseMapper
+    else if (field.fields.nonEmpty) objectResponseMapper(field.fields)
+    else identityResponse
+
+  private[internal] def requiredResponseMapper(
+    typeName: String,
+    selections: List[RequiredSelection]
+  ): ResponseValue => ResponseValue =
+    if (renamesNothing || selections.isEmpty) identityResponse
+    else {
+      val selected  = new java.util.HashMap[String, ResponseValue => ResponseValue]
+      var remaining = selections
+      while (remaining ne Nil) {
+        val selection = remaining.head
+        val mapper    =
+          if (selection.field == "__typename") typenameResponseMapper
+          else {
+            val sourceName = sourceField(typeName, selection.field)
+            if (selection.children.isEmpty) identityResponse
+            else {
+              val childName = sourceFieldDefinition(sourceType(typeName), sourceName)
+                .flatMap(_._type.innerType.name)
+                .map(clientType)
+                .getOrElse("")
+              requiredResponseMapper(childName, selection.children)
+            }
+          }
+        addResponseMapper(selected, selection.responseName, mapper)
+        remaining = remaining.tail
+      }
+      recursiveSelectedResponseMapper(selected)
+    }
+
+  private def addResponseMapper(
+    selected: java.util.HashMap[String, ResponseValue => ResponseValue],
+    name: String,
+    mapper: ResponseValue => ResponseValue
+  ): Unit = {
+    val existing = selected.get(name)
+    selected.put(name, if (existing eq null) mapper else mapper.compose(existing))
+  }
 
 }
 
@@ -732,69 +843,21 @@ private[gateway] object SchemaMapping {
         }
       }
 
-    def fieldValues(parent: String, fields: List[FieldDefinition]): List[(__Type, InputValue)] = {
-      val definitions = rootType.types.get(parent).toList.flatMap(_.allFields)
-      fields.flatMap { field =>
-        val arguments = definitions.find(_.name == field.name).toList.flatMap(_.allArgs)
-        defaultValues(arguments, field.args.map(value => value.name -> value.defaultValue))
-      }
+    def inputValues(value: __InputValue): List[(__Type, InputValue)] =
+      directiveValues(value.directives.getOrElse(Nil)) ::: value.parsedDefaultValue.map(value._type -> _).toList
+
+    val schemaDirectives = document.schemaDefinition.toList.flatMap(_.directives)
+    val typeValues       = rootType.types.valuesIterator.flatMap { tpe =>
+      directiveValues(tpe.directives.getOrElse(Nil)) :::
+        tpe.allFields.flatMap(field =>
+          directiveValues(field.directives.getOrElse(Nil)) ::: field.allArgs.flatMap(inputValues)
+        ) ::: tpe.allInputFields.flatMap(inputValues) :::
+        tpe.allEnumValues.flatMap(value => directiveValues(value.directives.getOrElse(Nil)))
     }
-
-    def inputValues(parent: String, fields: List[InputValueDefinition]): List[(__Type, InputValue)] =
-      defaultValues(
-        rootType.types.get(parent).toList.flatMap(_.allInputFields),
-        fields.map(value => value.name -> value.defaultValue)
-      )
-
-    def defaultValues(
-      definitions: List[__InputValue],
-      values: List[(String, Option[InputValue])]
-    ): List[(__Type, InputValue)] =
-      values.flatMap { case (name, defaultValue) =>
-        definitions.find(_.name == name).toList.flatMap(definition => defaultValue.map(definition._type -> _))
-      }
-
-    def directives(definition: Definition): List[Directive] =
-      definition match {
-        case value: SchemaDefinition          => value.directives
-        case value: DirectiveDefinition       => value.args.flatMap(_.directives)
-        case value: ObjectTypeDefinition      =>
-          value.directives ::: value.fields.flatMap(field => field.directives ::: field.args.flatMap(_.directives))
-        case value: InterfaceTypeDefinition   =>
-          value.directives ::: value.fields.flatMap(field => field.directives ::: field.args.flatMap(_.directives))
-        case value: InputObjectTypeDefinition => value.directives ::: value.fields.flatMap(_.directives)
-        case value: EnumTypeDefinition        => value.directives ::: value.enumValuesDefinition.flatMap(_.directives)
-        case value: UnionTypeDefinition       => value.directives
-        case value: ScalarTypeDefinition      => value.directives
-        case value: SchemaExtension           => value.directives
-        case value: ObjectTypeExtension       =>
-          value.directives ::: value.fields.flatMap(field => field.directives ::: field.args.flatMap(_.directives))
-        case value: InterfaceTypeExtension    =>
-          value.directives ::: value.fields.flatMap(field => field.directives ::: field.args.flatMap(_.directives))
-        case value: InputObjectTypeExtension  => value.directives ::: value.fields.flatMap(_.directives)
-        case value: EnumTypeExtension         => value.directives ::: value.enumValuesDefinition.flatMap(_.directives)
-        case value: UnionTypeExtension        => value.directives
-        case value: ScalarTypeExtension       => value.directives
-        case _                                => Nil
-      }
-
-    def defaults(definition: Definition): List[(__Type, InputValue)] =
-      definition match {
-        case value: DirectiveDefinition       =>
-          val arguments = rootType.additionalDirectives.find(_.name == value.name).toList.flatMap(_.allArgs)
-          defaultValues(arguments, value.args.map(argument => argument.name -> argument.defaultValue))
-        case value: ObjectTypeDefinition      => fieldValues(value.name, value.fields)
-        case value: InterfaceTypeDefinition   => fieldValues(value.name, value.fields)
-        case value: InputObjectTypeDefinition => inputValues(value.name, value.fields)
-        case value: ObjectTypeExtension       => fieldValues(value.name, value.fields)
-        case value: InterfaceTypeExtension    => fieldValues(value.name, value.fields)
-        case value: InputObjectTypeExtension  => inputValues(value.name, value.fields)
-        case _                                => Nil
-      }
-
-    val found = document.definitions.iterator
-      .flatMap(definition => directiveValues(directives(definition)) ::: defaults(definition))
-      .map { case (tpe, value) => inputCoordinateReferences(tpe, value) }
+    val definitionValues = rootType.additionalDirectives.iterator.flatMap(_.allArgs.flatMap(inputValues))
+    val found            = (directiveValues(schemaDirectives).iterator ++ typeValues ++ definitionValues).map {
+      case (tpe, value) => inputCoordinateReferences(tpe, value)
+    }
       .foldLeft(InputCoordinateReferences())(_ ++ _)
 
     found.inputFields.filter(hiddenInputFields)

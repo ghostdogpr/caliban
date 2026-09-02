@@ -24,16 +24,19 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
   import SchemaComposer._
   import TypeComposition._
 
-  private val sortedSubgraphs     = subgraphs.sortBy(_.name)
-  private val namesBySource       =
+  private val sortedSubgraphs    = subgraphs.sortBy(_.name)
+  private val namesBySource      =
     sortedSubgraphs.map(subgraph => subgraph.name -> federationDirectiveNames(subgraph.document)).toMap
-  private val composedDirectives  =
+  private val composedDirectives =
     DirectiveComposition.compile(
-      sortedSubgraphs.map(subgraph => Source(subgraph, namesBySource(subgraph.name).hidden))
+      sortedSubgraphs.map { subgraph =>
+        val names = namesBySource(subgraph.name)
+        Source(subgraph, names.hidden, names.features, names.interfaceObject)
+      }
     )
-  private val prepared            = sortedSubgraphs.map { subgraph =>
+  private val prepared           = sortedSubgraphs.map { subgraph =>
     val names       = namesBySource(subgraph.name)
-    val federation2 = isFederation2(subgraph.document)
+    val federation2 = names.federation2
     CompositionSubgraph(
       subgraph,
       names,
@@ -44,20 +47,12 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
       typeSystemDirectiveApplications(subgraph.document, composedTypeName(subgraph, _))
     )
   }
-  private val queryEntries        = rootFields(OperationType.Query)
-  private val mutationEntries     = rootFields(OperationType.Mutation)
-  private val subscriptionEntries = rootFields(OperationType.Subscription)
-  private val rootEntries         = List(
-    OperationType.Query        -> queryEntries,
-    OperationType.Mutation     -> mutationEntries,
-    OperationType.Subscription -> subscriptionEntries
-  )
-  private val types               = nonRootTypes
-  private val typeComposition     = new TypeComposition(types, enumUsageByName, composedDirectives)
-  private val compiledFieldSets   = prepared.map(federationFieldSets)
-  private val compiledContexts    = prepared.map(federationContexts)
-  private val compiledCosts       = prepared.map(federationCosts)
-  private val compiledSecurity    = prepared.map(securityApplications)
+  private val types              = rootTypes ::: nonRootTypes
+  private val typeComposition    = new TypeComposition(types, enumUsageByName, composedDirectives)
+  private val compiledFieldSets  = prepared.map(federationFieldSets)
+  private val compiledContexts   = prepared.map(federationContexts)
+  private val compiledCosts      = prepared.map(federationCosts)
+  private val compiledSecurity   = prepared.map(securityApplications)
 
   def compose: Either[List[String], ComposedGraph] = {
     val diagnostics =
@@ -69,30 +64,28 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
         compiledCosts.flatMap(_.fold(identity, _ => Nil)) :::
         compiledSecurity.flatMap(_.fold(identity, _ => Nil)) :::
         prepared.flatMap(unsupportedFederationDiagnostics) :::
-        rootEntries.flatMap { case (operation, entries) => rootDiagnostics(operation, entries) } :::
         typeComposition.diagnostics :::
         progressiveOverrideSourceDiagnostics :::
         interfaceOverrideDiagnostics :::
-        visibilityDiagnostics(rootEntries.flatMap(_._2))).distinct.sorted
+        visibilityDiagnostics).distinct.sorted
 
     if (diagnostics.nonEmpty) Left(diagnostics)
     else {
-      val queryFields                                                   = chooseRootFields(queryEntries)
-      val mutationFields                                                = chooseRootFields(mutationEntries)
-      val subscriptionFields                                            = chooseRootFields(subscriptionEntries)
       val composedTypes                                                 = typeComposition.composed
       def rewrite(tpe: __Type): __Type                                  = rewriteType(tpe, composedTypes)
-      val query                                                         = makeRootType("Query", queryFields, rewrite)
-      val mutation                                                      =
-        if (mutationFields.nonEmpty) Some(makeRootType("Mutation", mutationFields, rewrite))
-        else None
+      val query                                                         = composedTypes("Query")
+      val mutation                                                      = composedTypes.get("Mutation").filter(_.allFields.nonEmpty)
+      val subscription                                                  = composedTypes.get("Subscription").filter(_.allFields.nonEmpty)
+      val operationTypeNames                                            = Set("Query", "Mutation", "Subscription")
       val additional                                                    =
-        composedTypes.toList.sortBy(_._1).map(_._2) :::
+        composedTypes.toList.sortBy(_._1).collect {
+          case (name, tpe) if !operationTypeNames.contains(name) => tpe
+        } :::
           composedDirectives.additionalTypes.filterNot(tpe => tpe.name.exists(composedTypes.contains))
       val rootType                                                      = RootType(
         query,
         mutation,
-        if (subscriptionFields.nonEmpty) Some(makeRootType("Subscription", subscriptionFields, rewrite)) else None,
+        subscription,
         additional,
         composedDirectives.definitions(rewrite)
       )
@@ -104,25 +97,36 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
       val allSecurity                                                   = compiledSecurity.flatMap(_.toOption).flatten
       val enforcedSecurity                                              = allSecurity.filterNot(_.directive == SecurityDirective.UnsupportedPolicy)
       val securityVisibilityDiagnostics                                 = hiddenSecurityDiagnostics(enforcedSecurity, rootType)
-      val routes: Map[(OperationType, String), ComposedGraph.RootRoute] = rootEntries.foldLeft(
-        Map.empty[(OperationType, String), ComposedGraph.RootRoute]
-      ) { case (routes, (operation, entries)) => routes ++ rootRoutes(operation, entries) }
       val fieldDefinitions                                              = types
         .flatMap(entry => entry.tpe.allFields.map(field => (entry.name -> field.name) -> entry))
         .groupMap(_._1)(_._2)
-      val interfaceOverrides                                            = interfaceOverrideTargets(types)
-      val fieldRoutes                                                   = fieldDefinitions.flatMap { case (coordinate, definitions) =>
-        val routes = applyInterfaceOverrides(
-          fieldProviderRoutes(coordinate._2, definitions),
-          interfaceOverrides.getOrElse(coordinate, Nil)
-        )
-        if (routes.nonEmpty) Some(coordinate -> routes) else None
+      val rootDefinitions                                               = fieldDefinitions.filter { case (_, definitions) =>
+        definitions.exists(_.operation.nonEmpty)
       }
-      val sourceFields                                                  = (types.flatMap { entry =>
+      val routes: Map[(OperationType, String), ComposedGraph.RootRoute] = rootDefinitions.flatMap {
+        case ((typeName, field), definitions) =>
+          val operation = definitions.flatMap(_.operation).head
+          composedTypes.get(typeName).flatMap(_.allFields.find(_.name == field)).map { composedField =>
+            val providers = fieldProviderRoutes(field, definitions)
+            val composite = composedField._type.innerType.kind match {
+              case __TypeKind.OBJECT | __TypeKind.INTERFACE | __TypeKind.UNION => true
+              case _                                                           => false
+            }
+            (operation -> field) -> ComposedGraph.RootRoute(providers, singleProvider = !composite)
+          }
+      }
+      val interfaceOverrides                                            = interfaceOverrideTargets(types)
+      val fieldRoutes                                                   =
+        fieldDefinitions.filterNot(_._2.exists(_.operation.nonEmpty)).flatMap { case (coordinate, definitions) =>
+          val routes = applyInterfaceOverrides(
+            fieldProviderRoutes(coordinate._2, definitions),
+            interfaceOverrides.getOrElse(coordinate, Nil)
+          )
+          if (routes.nonEmpty) Some(coordinate -> routes) else None
+        }
+      val sourceFields                                                  = types.flatMap { entry =>
         entry.tpe.allFields.map(field => (entry.source, entry.name, field.name) -> field)
-      } ::: rootEntries.flatMap { case (operation, entries) =>
-        entries.map(entry => (entry.source, operation.toString, entry.field.name) -> entry.field)
-      }).toMap
+      }.toMap
       val lookups                                                       = types
         .flatMap(entry => entry.entity.toList.flatMap(_.lookups).map((entry.source -> entry.name) -> _))
         .groupBy(_._1)
@@ -134,19 +138,8 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
       val contexts                                                      = contextMetadata.flatMap(_.definitions).toMap
       val contextArguments                                              = contextMetadata.flatMap(_.arguments).toMap
       val costs                                                         = mergeCosts(compiledCosts.flatMap(_.toOption))
-      val contextSecurityDependencies                                   = contextMetadata.flatMap { metadata =>
-        metadata.arguments.flatMap { case ((source, typeName, fieldName), arguments) =>
-          arguments.flatMap { argument =>
-            metadata.definitions.collect {
-              case ((`source`, contextType), names) if names.contains(argument.context) =>
-                (source, typeName, fieldName, contextType, argument.selections)
-            }
-          }
-        }
-      }
       val transitiveSecurityDiagnostics                                 = missingTransitiveSecurityDiagnostics(
-        requirements,
-        contextSecurityDependencies,
+        ComposedGraph.securityDependencies(requirements, contexts, contextArguments),
         enforcedSecurity,
         runtimeTypesByName,
         rootType
@@ -204,8 +197,7 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
     }
 
   private def missingTransitiveSecurityDiagnostics(
-    requirements: Map[(String, String, String), List[Selection]],
-    contextDependencies: List[(String, String, String, String, List[Selection])],
+    dependenciesByField: List[ComposedGraph.SecurityDependency],
     applications: List[ComposedGraph.SecurityApplication],
     runtimeTypesByName: Map[String, Set[String]],
     rootType: RootType
@@ -253,17 +245,11 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
         case _: Selection.FragmentSpread        => Nil
       }
 
-    val required = requirements.toList.map { case ((source, sourceType, fieldName), selections) =>
-      (source, sourceType, fieldName, sourceType, selections, "@requires")
-    }
-    val contexts = contextDependencies.map { case (source, sourceType, fieldName, contextType, selections) =>
-      (source, sourceType, fieldName, contextType, selections, "@fromContext")
-    }
-    (required ::: contexts).flatMap { case (source, sourceType, fieldName, dependencyType, selections, directive) =>
-      val available = profile(sourceType, Some(fieldName))
-      dependencies(selections, dependencyType).collect {
-        case (dependency, required) if !available.implies(required) =>
-          s"[$source] Field '$sourceType.$fieldName' does not specify sufficient Federation security requirements for $directive dependency '$dependency'."
+    dependenciesByField.flatMap { dependency =>
+      val available = profile(dependency.sourceType, Some(dependency.fieldName))
+      dependencies(dependency.selections, dependency.dependencyType).collect {
+        case (coordinate, required) if !available.implies(required) =>
+          s"[${dependency.source}] Field '${dependency.sourceType}.${dependency.fieldName}' does not specify sufficient Federation security requirements for ${dependency.directive} dependency '$coordinate'."
       }
     }.distinct.sorted
   }
@@ -299,8 +285,18 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
     }.distinct.sorted
   }
 
+  private lazy val validatedLookups = sortedSubgraphs.map { subgraph =>
+    subgraph -> subgraph.lookups.map(lookup => lookup -> validateLookup(subgraph, lookup))
+  }
+
+  private lazy val compiledLookups = validatedLookups.iterator.flatMap { case (subgraph, lookups) =>
+    lookups.iterator.flatMap { case (lookup, result) =>
+      result.value.map((subgraph.name -> lookup.typeName) -> _)
+    }
+  }.toMap
+
   private def lookupDiagnostics: List[String] =
-    sortedSubgraphs.flatMap { subgraph =>
+    validatedLookups.flatMap { case (subgraph, lookups) =>
       val sourceKind =
         if (subgraph.federation && subgraph.lookups.nonEmpty)
           List(s"[${subgraph.name}] Ordinary GraphQL lookups cannot be declared on a Federation subgraph.")
@@ -312,10 +308,13 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
             s"[${subgraph.name}] More than one lookup is declared for type '$typeName'."
         }
         .toList
-      sourceKind ::: duplicates ::: subgraph.lookups.flatMap(validateLookup(subgraph, _))
+      sourceKind ::: duplicates ::: lookups.flatMap(_._2.diagnostics)
     }
 
-  private def validateLookup(subgraph: PreparedSubgraph, lookup: Lookup): List[String] = {
+  private def validateLookup(
+    subgraph: PreparedSubgraph,
+    lookup: Lookup
+  ): ValidationResult[ComposedGraph.LookupOperation.GraphQLQuery] = {
     val prefix      = s"[${subgraph.name}]"
     val targetType  = subgraph.rootType.types.get(lookup.typeName)
     val rootName    = subgraph.rootType.queryType.name.getOrElse("Query")
@@ -353,6 +352,7 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
             }
           }
         }
+    val argumentValidation     = sourceField.map(validateLookupArguments(prefix, rootName, lookup, _, keys))
     val fieldDiagnostics       = sourceField match {
       case None        => List(s"$prefix Lookup field '$rootName.${lookup.field}' does not exist.")
       case Some(field) =>
@@ -370,7 +370,7 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
         }
         val shapeErrors =
           if (shapeValid) Nil else List(s"$prefix Lookup field '$rootName.${lookup.field}' must return $shape.")
-        shapeErrors ::: validateLookupArguments(prefix, rootName, lookup, field, keys)
+        shapeErrors ::: argumentValidation.toList.flatMap(_.diagnostics)
     }
     val correlationDiagnostics = (lookup, targetType, sourceField) match {
       case (list: Lookup.ListLookup, Some(target), Some(field)) =>
@@ -378,7 +378,15 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
       case _                                                    => Nil
     }
 
-    targetDiagnostics ::: keyDiagnostics ::: fieldDiagnostics ::: correlationDiagnostics
+    val diagnostics = targetDiagnostics ::: keyDiagnostics ::: fieldDiagnostics ::: correlationDiagnostics
+    val result      = lookup match {
+      case _: Lookup.Single         => ComposedGraph.LookupResult.Single
+      case value: Lookup.ListLookup => ComposedGraph.LookupResult.ByKey(value.correlation)
+    }
+    val compiled    = argumentValidation
+      .flatMap(_.value)
+      .map(arguments => ComposedGraph.LookupOperation.GraphQLQuery(lookup.field, arguments, result))
+    ValidationResult(diagnostics, if (diagnostics.isEmpty) compiled else None)
   }
 
   private def validateLookupArguments(
@@ -387,7 +395,7 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
     lookup: Lookup,
     field: __Field,
     keys: Map[String, __Field]
-  ): List[String] = {
+  ): ValidationResult[Map[String, ComposedGraph.LookupArgument]] = {
     val arguments   = field.allArgs.map(argument => argument.name -> argument).toMap
     val unknown     = lookup.arguments.iterator
       .map(_._1)
@@ -409,7 +417,7 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
         s"$prefix Required lookup argument '${lookup.field}.${argument.name}' has no mapping."
     }
     val mappings    = lookup.arguments.flatMap { case (name, mapping) =>
-      arguments.get(name).toList.flatMap(argument => validateArgument(prefix, name, mapping, argument._type, keys))
+      arguments.get(name).toList.map(argument => name -> validateArgument(prefix, name, mapping, argument._type, keys))
     }
     val batch       = lookup match {
       case _: Lookup.Single if lookup.arguments.exists(value => containsBatch(value._2))       =>
@@ -425,7 +433,16 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
       if (mappedKeys == lookup.keyFields.toSet) Nil
       else List(s"$prefix Lookup argument mappings must use every declared key field.")
 
-    unknown ::: duplicates ::: missing ::: mappings ::: batch ::: keyCoverage
+    val diagnostics =
+      unknown ::: duplicates ::: missing ::: mappings.flatMap(_._2.diagnostics) ::: batch ::: keyCoverage
+    val compiled    = mappings.foldLeft(Option(Map.empty[String, ComposedGraph.LookupArgument])) {
+      case (values, (name, result)) =>
+        for {
+          map   <- values
+          value <- result.value
+        } yield map.updated(name, value)
+    }
+    ValidationResult(diagnostics, if (diagnostics.isEmpty) compiled else None)
   }
 
   private def validateArgument(
@@ -434,11 +451,11 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
     mapping: Lookup.Argument,
     expected: __Type,
     keys: Map[String, __Field]
-  ): List[String] = {
+  ): ValidationResult[ComposedGraph.LookupArgument] = {
     val valueType = nullableType(expected)
     mapping match {
       case Lookup.Argument.Key(field)            =>
-        keys.get(field) match {
+        val diagnostics = keys.get(field) match {
           case None           => List(s"$prefix Lookup argument '$path' references undeclared key field '$field'.")
           case Some(keyField) =>
             if (compatibleValueType(keyField._type, valueType)) Nil
@@ -447,9 +464,16 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
                 s"$prefix Lookup argument '$path' is incompatible with key field '${keyField.name}'."
               )
         }
+        ValidationResult(
+          diagnostics,
+          if (diagnostics.isEmpty) Some(ComposedGraph.LookupArgument.Key(field, valueType)) else None
+        )
       case Lookup.Argument.ObjectMapping(fields) =>
         if (valueType.kind != __TypeKind.INPUT_OBJECT)
-          List(s"$prefix Lookup argument '$path' maps an object into a non-input-object value.")
+          ValidationResult(
+            List(s"$prefix Lookup argument '$path' maps an object into a non-input-object value."),
+            None
+          )
         else {
           val inputFields = valueType.allInputFields.map(field => field.name -> field).toMap
           val duplicates  = fields
@@ -468,17 +492,36 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
             case input if !names.contains(input.name) && !input._type.isNullable && input.defaultValue.isEmpty =>
               s"$prefix Required lookup input field '$path.${input.name}' has no mapping."
           }
-          duplicates ::: unknown ::: missing ::: fields.flatMap { case (name, value) =>
+          val mappings    = fields.flatMap { case (name, value) =>
             inputFields
               .get(name)
               .toList
-              .flatMap(input => validateArgument(prefix, s"$path.$name", value, input._type, keys))
+              .map(input => name -> validateArgument(prefix, s"$path.$name", value, input._type, keys))
           }
+          val diagnostics = duplicates ::: unknown ::: missing ::: mappings.flatMap(_._2.diagnostics)
+          val compiled    = mappings.foldLeft(Option(List.empty[(String, ComposedGraph.LookupArgument)])) {
+            case (values, (name, result)) =>
+              for {
+                list  <- values
+                value <- result.value
+              } yield (name -> value) :: list
+          }
+          ValidationResult(
+            diagnostics,
+            if (diagnostics.isEmpty) compiled.map(values => ComposedGraph.LookupArgument.ObjectMapping(values.reverse))
+            else None
+          )
         }
       case Lookup.Argument.Batch(value)          =>
-        if (containsBatch(value)) List(s"$prefix Lookup argument '$path' cannot nest a batch mapping.")
-        else if (!valueType.isList) List(s"$prefix Lookup argument '$path' maps a batch into a non-list value.")
-        else validateArgument(prefix, path, value, valueType.ofType.map(nullableType).getOrElse(valueType), keys)
+        if (containsBatch(value))
+          ValidationResult(List(s"$prefix Lookup argument '$path' cannot nest a batch mapping."), None)
+        else if (!valueType.isList)
+          ValidationResult(List(s"$prefix Lookup argument '$path' maps a batch into a non-list value."), None)
+        else {
+          val nested =
+            validateArgument(prefix, path, value, valueType.ofType.map(nullableType).getOrElse(valueType), keys)
+          ValidationResult(nested.diagnostics, nested.value.map(ComposedGraph.LookupArgument.Batch.apply))
+        }
     }
   }
 
@@ -542,187 +585,91 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
   private def nullableType(tpe: __Type): __Type =
     if (tpe.kind == __TypeKind.NON_NULL) tpe.ofType.map(nullableType).getOrElse(tpe) else tpe
 
+  private def fieldFlags(
+    metadata: CompositionSubgraph,
+    owner: String,
+    field: __Field,
+    inheritedShareable: Boolean = false,
+    inheritedExternal: Boolean = false
+  ): FieldFlags = {
+    val subgraph   = metadata.subgraph
+    val federation = subgraph.federation
+    val contextual = field.allArgs.iterator.collect {
+      case argument if federation && hasDirective(argument.directives, metadata.directives.fromContext) =>
+        argument.name
+    }.toSet
+    val hiddenArgs = field.allArgs.iterator.collect {
+      case argument if federation && hasDirective(argument.directives, metadata.directives.inaccessible) =>
+        argument.name
+    }.toSet ++ subgraph.mapping.hiddenArguments.collect {
+      case (`owner`, fieldName, argument) if fieldName == field.name => argument
+    } ++ contextual
+
+    FieldFlags(
+      inheritedShareable || federation && hasDirective(field.directives, metadata.directives.shareable),
+      inheritedExternal || federation && hasDirective(field.directives, metadata.directives.external),
+      subgraph.mapping.hiddenFields.contains(owner -> field.name) ||
+        federation && hasDirective(field.directives, metadata.directives.inaccessible),
+      if (federation) fieldOverride(field.directives, metadata.directives.overrideDirective) else None,
+      hiddenArgs,
+      contextual
+    )
+  }
+
   private def compatibleValueType(left: __Type, right: __Type): Boolean = {
     val a = nullableType(left)
     val b = nullableType(right)
     a.kind == b.kind && a.name == b.name
   }
 
-  private def rootFields(
-    operation: OperationType
-  ): List[SubgraphRootField] =
-    prepared.flatMap { metadata =>
-      val subgraph = metadata.subgraph
-      val root     = operation match {
-        case OperationType.Query        => Some(subgraph.rootType.queryType)
-        case OperationType.Mutation     => subgraph.rootType.mutationType
-        case OperationType.Subscription => subgraph.rootType.subscriptionType
-      }
-      val names    = metadata.directives
-      root.toList.flatMap { rootType =>
-        val typeShareable = subgraph.federation && hasDirective(rootType.directives, names.shareable)
-        rootType.allFields
-          .filterNot(field => subgraph.federation && isTransportField(field.name))
-          .map { field =>
-            val contextualArguments = field.allArgs
-              .filter(argument => subgraph.federation && hasDirective(argument.directives, names.fromContext))
-              .map(_.name)
-              .toSet
-            SubgraphRootField(
-              subgraph.name,
-              operation,
-              field,
-              typeShareable || subgraph.federation && hasDirective(field.directives, names.shareable),
-              subgraph.federation && hasDirective(field.directives, names.external),
-              subgraph.mapping.hiddenFields.contains(rootType.name.getOrElse("") -> field.name) ||
-                subgraph.federation && hasDirective(field.directives, names.inaccessible),
-              if (subgraph.federation) fieldOverride(field.directives, names.overrideDirective) else None,
-              subgraph.federation,
-              metadata.federation2,
-              (field.allArgs
-                .filter(argument =>
-                  subgraph.federation &&
-                    hasDirective(argument.directives, names.inaccessible)
-                )
-                .map(_.name)
-                .toSet ++ subgraph.mapping.hiddenArguments.collect {
-                case (owner, fieldName, argument) if owner == rootType.name.getOrElse("") && fieldName == field.name =>
-                  argument
-              } ++ contextualArguments),
-              contextualArguments,
-              metadata.hiddenDirectives
-            )
-          }
-      }
-    }.sortBy(entry => entry.field.name -> entry.source)
-
-  private def rootDiagnostics(
-    operation: OperationType,
-    fields: List[SubgraphRootField]
-  ): List[String] =
-    fields
-      .groupBy(_.field.name)
-      .toList
-      .flatMap { case (field, entries) =>
-        val providers      = effectiveRootProviders(entries)
-        val prefix         = s"[${operation.toString.toLowerCase}.$field]"
-        val contextualArgs = entries.iterator.flatMap(_.contextualArguments).toSet
-        val hiddenArgs     = entries.iterator.flatMap(_.inaccessibleArguments).toSet
-        val compatible     =
-          fieldsCompatible(entries.map(entry => visibleArguments(entry.field, contextualArgs ++ hiddenArgs)))
-        val contextErrors  = contextualArgumentDiagnostics(
-          s"${operation.toString.toLowerCase}.$field",
-          entries.map(entry => (entry.source, entry.field, entry.contextualArguments))
-        )
-        overrideDiagnostics(prefix, entries.map(entry => entry.source -> entry.overrideDirective.map(_.from))) :::
-          contextErrors :::
-          (if (operation == OperationType.Subscription && (providers.size > 1 || entries.exists(_.shareable)))
-             List(s"$prefix Subscription fields require one effective owner and cannot be @shareable.")
-           else Nil) :::
-          (if (compatible && providers.size > 1 && providers.exists(entry => !entry.federation)) {
-             val sources = formatSources(providers.map(_.source))
-             List(s"$prefix Field is resolved by multiple ordinary subgraphs: $sources.")
-           } else Nil) :::
-          (if (
-             compatible && providers.size > 1 && providers.forall(_.federation) &&
-             providers.exists(entry => entry.federation2 && !entry.shareable)
-           ) {
-             val sources = formatSources(providers.map(_.source))
-             List(
-               s"$prefix Field is resolved by multiple subgraphs without compatible @shareable declarations: $sources."
-             )
-           } else Nil) :::
-          (if (!compatible) {
-             val sources = formatSources(entries.map(_.source))
-             List(s"$prefix Definitions are incompatible between subgraphs: $sources.")
-           } else Nil)
-      }
-
-  private def chooseRootFields(fields: List[SubgraphRootField]): List[SubgraphRootField] =
-    fields
-      .groupBy(_.field.name)
-      .toList
-      .sortBy(_._1)
-      .flatMap { case (_, entries) =>
-        if (entries.exists(_.inaccessible)) Nil
-        else {
-          val providers = effectiveRootProviders(entries).sortBy(_.source)
-          providers.headOption.map { selected =>
-            val mergedType       = providers.map(_.field._type).reduce(mergeOutputType)
-            val inaccessibleArgs = entries.iterator.flatMap(_.inaccessibleArguments).toSet
-            selected.copy(
-              field = selected.field.copy(`type` = () => mergedType),
-              inaccessibleArguments = inaccessibleArgs
-            )
-          }.toList
+  private def rootTypes: List[SubgraphType] =
+    List(OperationType.Query, OperationType.Mutation, OperationType.Subscription).flatMap { operation =>
+      prepared.flatMap { metadata =>
+        val subgraph = metadata.subgraph
+        val root     = operation match {
+          case OperationType.Query        => Some(subgraph.rootType.queryType)
+          case OperationType.Mutation     => subgraph.rootType.mutationType
+          case OperationType.Subscription => subgraph.rootType.subscriptionType
+        }
+        root.map { rootType =>
+          val fields = rootType.allFields.filterNot(field => subgraph.federation && isTransportField(field.name))
+          val tpe    = rootType.copy(
+            name = Some(operation.toString),
+            fields =
+              args => Some(if (args.includeDeprecated.getOrElse(false)) fields else fields.filterNot(_.isDeprecated))
+          )
+          subgraphType(metadata, operation.toString, tpe, Some(operation), rootType.name.getOrElse(""))
         }
       }
-
-  private def rootRoutes(
-    operation: OperationType,
-    fields: List[SubgraphRootField]
-  ): Map[(OperationType, String), ComposedGraph.RootRoute] =
-    fields
-      .groupBy(_.field.name)
-      .flatMap { case (name, entries) =>
-        val providers = rootProviderRoutes(entries)
-        val composite = entries.headOption.exists(entry =>
-          entry.field._type.innerType.kind match {
-            case __TypeKind.OBJECT | __TypeKind.INTERFACE | __TypeKind.UNION => true
-            case _                                                           => false
-          }
-        )
-        if (entries.exists(_.inaccessible)) None
-        else Some((operation -> name) -> ComposedGraph.RootRoute(providers, singleProvider = !composite))
-      }
+    }
 
   private def typeSystemDirectiveApplications(
     document: Document,
     composedName: String => String
   ): List[TypeSystemDirectiveApplication] = {
     def unsupported(
-      coordinate: String,
-      directives: List[Directive],
-      supportsFromContext: Boolean = false
+      coordinate: Coordinate,
+      directives: List[Directive]
     ): TypeSystemDirectiveApplication =
-      TypeSystemDirectiveApplication(
-        coordinate,
-        directives,
-        None,
-        supportsOverride = false,
-        supportsContext = false,
-        supportsFromContext
-      )
+      TypeSystemDirectiveApplication(coordinate, directives)
 
     def typeApplication(
       name: String,
       directives: List[Directive],
-      supportsSecurity: Boolean,
-      supportsContext: Boolean = false
+      location: __DirectiveLocation
     ): TypeSystemDirectiveApplication = {
       val typeName = composedName(name)
-      TypeSystemDirectiveApplication(
-        typeName,
-        directives,
-        if (supportsSecurity) Some(SecurityCoordinate(typeName, None)) else None,
-        supportsOverride = false,
-        supportsContext,
-        supportsFromContext = false
-      )
+      TypeSystemDirectiveApplication(TypeCoordinate(typeName, location), directives)
     }
 
     def fieldApplications(typeName: String, fields: List[FieldDefinition]): List[TypeSystemDirectiveApplication] = {
       val parent = composedName(typeName)
       fields.flatMap { field =>
         TypeSystemDirectiveApplication(
-          s"$parent.${field.name}",
-          field.directives,
-          Some(SecurityCoordinate(parent, Some(field.name))),
-          supportsOverride = true,
-          supportsContext = false,
-          supportsFromContext = false
+          FieldCoordinate(parent, field.name),
+          field.directives
         ) :: field.args.map(argument =>
-          unsupported(s"$parent.${field.name}(${argument.name}:)", argument.directives, supportsFromContext = true)
+          unsupported(ArgumentCoordinate(parent, field.name, argument.name), argument.directives)
         )
       }
     }
@@ -732,7 +679,7 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
       fields: List[InputValueDefinition]
     ): List[TypeSystemDirectiveApplication] = {
       val parent = composedName(typeName)
-      fields.map(field => unsupported(s"$parent.${field.name}", field.directives))
+      fields.map(field => unsupported(InputFieldCoordinate(parent, field.name), field.directives))
     }
 
     def enumApplications(
@@ -740,45 +687,44 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
       values: List[EnumValueDefinition]
     ): List[TypeSystemDirectiveApplication] = {
       val parent = composedName(typeName)
-      values.map(value => unsupported(s"$parent.${value.enumValue}", value.directives))
+      values.map(value => unsupported(EnumValueCoordinate(parent, value.enumValue), value.directives))
     }
 
-    val schemas            = document.schemaDefinition.toList.map(definition => unsupported("schema", definition.directives)) :::
-      document.typeExtensions.collect { case extension: SchemaExtension =>
-        unsupported("schema", extension.directives)
-      }
+    val schemas            =
+      document.schemaDefinition.toList.map(definition => unsupported(SchemaCoordinate, definition.directives))
     val scalarTypes        = document.typeDefinitions.collect { case value: ScalarTypeDefinition =>
       value.name -> value.directives
-    } ::: document.typeExtensions.collect { case value: ScalarTypeExtension => value.name -> value.directives }
+    }
     val unionTypes         = document.typeDefinitions.collect { case value: UnionTypeDefinition =>
       value.name -> value.directives
-    } ::: document.typeExtensions.collect { case value: UnionTypeExtension => value.name -> value.directives }
+    }
     val enumTypes          = document.typeDefinitions.collect { case value: EnumTypeDefinition =>
-      (value.name, value.directives, value.enumValuesDefinition)
-    } ::: document.typeExtensions.collect { case value: EnumTypeExtension =>
       (value.name, value.directives, value.enumValuesDefinition)
     }
     val inputTypes         = document.typeDefinitions.collect { case value: InputObjectTypeDefinition =>
       (value.name, value.directives, value.fields)
-    } ::: document.typeExtensions.collect { case value: InputObjectTypeExtension =>
-      (value.name, value.directives, value.fields)
+    }
+    val objectLikeTypes    = document.typeDefinitions.collect {
+      case value: ObjectTypeDefinition    =>
+        (value.name, value.directives, value.fields, __DirectiveLocation.OBJECT)
+      case value: InterfaceTypeDefinition =>
+        (value.name, value.directives, value.fields, __DirectiveLocation.INTERFACE)
     }
     val types              = scalarTypes.map { case (name, directives) =>
-      typeApplication(name, directives, supportsSecurity = true)
-    } ::: objectLikeEntries(document).flatMap { case (name, directives, fields) =>
-      typeApplication(name, directives, supportsSecurity = true, supportsContext = true) :: fieldApplications(
-        name,
-        fields
-      )
+      typeApplication(name, directives, __DirectiveLocation.SCALAR)
+    } ::: objectLikeTypes.flatMap { case (name, directives, fields, location) =>
+      typeApplication(name, directives, location) :: fieldApplications(name, fields)
     } ::: unionTypes.map { case (name, directives) =>
-      typeApplication(name, directives, supportsSecurity = false, supportsContext = true)
+      typeApplication(name, directives, __DirectiveLocation.UNION)
     } ::: enumTypes.flatMap { case (name, directives, values) =>
-      typeApplication(name, directives, supportsSecurity = true) :: enumApplications(name, values)
+      typeApplication(name, directives, __DirectiveLocation.ENUM) :: enumApplications(name, values)
     } ::: inputTypes.flatMap { case (name, directives, fields) =>
-      typeApplication(name, directives, supportsSecurity = false) :: inputApplications(name, fields)
+      typeApplication(name, directives, __DirectiveLocation.INPUT_OBJECT) :: inputApplications(name, fields)
     }
     val directiveArguments = document.directiveDefinitions.flatMap { definition =>
-      definition.args.map(argument => unsupported(s"@${definition.name}(${argument.name}:)", argument.directives))
+      definition.args.map(argument =>
+        unsupported(DirectiveArgumentCoordinate(definition.name, argument.name), argument.directives)
+      )
     }
 
     schemas ::: types ::: directiveArguments
@@ -790,14 +736,14 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
     val subgraph = metadata.subgraph
     val names    = metadata.directives
     val compiled = metadata.directiveApplications.flatMap { application =>
-      application.securityCoordinate.toList.flatMap { securityCoordinate =>
+      application.securityCoordinate.toList.flatMap { case (typeName, fieldName) =>
         application.directives.flatMap(directive =>
-          compileSecurityDirective(subgraph.name, application.coordinate, directive, names).map(
+          compileSecurityDirective(subgraph.name, application.coordinate.display, directive, names).map(
             _.map { value =>
               ComposedGraph.SecurityApplication(
                 subgraph.name,
-                securityCoordinate.typeName,
-                securityCoordinate.fieldName,
+                typeName,
+                fieldName,
                 value
               )
             }
@@ -845,10 +791,7 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
       }
 
   private def composedTypeName(subgraph: PreparedSubgraph, typeName: String): String =
-    if (subgraph.rootType.queryType.name.contains(typeName)) "Query"
-    else if (subgraph.rootType.mutationType.flatMap(_.name).contains(typeName)) "Mutation"
-    else if (subgraph.rootType.subscriptionType.flatMap(_.name).contains(typeName)) "Subscription"
-    else typeName
+    subgraph.rootNames.composed(typeName)
 
   private def unsupportedFederationDiagnostics(metadata: CompositionSubgraph): List[String] = {
     val subgraph = metadata.subgraph
@@ -857,17 +800,17 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
       application.directives.flatMap { directive =>
         val security          = securityDirectiveName(directive.name, names).collect {
           case name if application.securityCoordinate.isEmpty =>
-            s"[${subgraph.name}] Federation $name is not supported at '${application.coordinate}'."
+            s"[${subgraph.name}] Federation $name is not supported at '${application.coordinate.display}'."
         }
         val unavailable       = names.unavailableSecurity
           .get(directive.name)
           .map(name =>
-            s"[${subgraph.name}] Federation $name is not available in the linked feature version at '${application.coordinate}'."
+            s"[${subgraph.name}] Federation $name is not available in the linked feature version at '${application.coordinate.display}'."
           )
         val unavailableCost   = names.unavailableCost
           .get(directive.name)
           .map(name =>
-            s"[${subgraph.name}] Federation $name requires Federation v2.9 or cost spec v0.1 at '${application.coordinate}'."
+            s"[${subgraph.name}] Federation $name requires Federation v2.9 or cost spec v0.1 at '${application.coordinate.display}'."
           )
         val context           = {
           val isContext = names.context.contains(directive.name)
@@ -875,35 +818,39 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
           if ((isContext || isFrom) && !names.supportsContexts)
             Some(
               s"[${subgraph.name}] Federation ${if (isContext) "@context"
-                else "@fromContext"} is not available in the linked feature version at '${application.coordinate}'."
+                else "@fromContext"} is not available in the linked feature version at '${application.coordinate.display}'."
             )
           else if (isContext && !application.supportsContext)
-            Some(s"[${subgraph.name}] Federation @context is not supported at '${application.coordinate}'.")
+            Some(s"[${subgraph.name}] Federation @context is not supported at '${application.coordinate.display}'.")
           else if (isFrom && !application.supportsFromContext)
-            Some(s"[${subgraph.name}] Federation @fromContext is not supported at '${application.coordinate}'.")
+            Some(s"[${subgraph.name}] Federation @fromContext is not supported at '${application.coordinate.display}'.")
           else None
         }
         val overrideDirective =
           if (!names.overrideDirective.contains(directive.name)) None
           else if (directive.arguments.get("label").exists(_ != NullValue) && !names.supportsProgressiveOverride)
             Some(
-              s"[${subgraph.name}] Federation @override(label:) is not available in the linked feature version at '${application.coordinate}'."
+              s"[${subgraph.name}] Federation @override(label:) is not available in the linked feature version at '${application.coordinate.display}'."
             )
           else
             directive.arguments.get("label") match {
               case Some(StringValue(label)) =>
                 parseProgressiveOverrideLabel(label) match {
-                  case Left(error)                               => Some(s"[${subgraph.name}] $error At '${application.coordinate}'.")
+                  case Left(error)                               => Some(s"[${subgraph.name}] $error At '${application.coordinate.display}'.")
                   case Right(_) if !application.supportsOverride =>
-                    Some(s"[${subgraph.name}] Federation @override is not supported at '${application.coordinate}'.")
+                    Some(
+                      s"[${subgraph.name}] Federation @override is not supported at '${application.coordinate.display}'."
+                    )
                   case Right(_)                                  => None
                 }
               case Some(NullValue) | None   =>
                 if (!application.supportsOverride)
-                  Some(s"[${subgraph.name}] Federation @override is not supported at '${application.coordinate}'.")
+                  Some(
+                    s"[${subgraph.name}] Federation @override is not supported at '${application.coordinate.display}'."
+                  )
                 else None
               case Some(_)                  =>
-                Some(s"[${subgraph.name}] Invalid Federation @override label at '${application.coordinate}'.")
+                Some(s"[${subgraph.name}] Invalid Federation @override label at '${application.coordinate.display}'.")
             }
 
         security.toList ::: unavailable.toList ::: unavailableCost.toList ::: context.toList ::: overrideDirective.toList
@@ -963,13 +910,13 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
       } :::
         subgraph.document.typeDefinitions.collect { case definition: UnionTypeDefinition =>
           definition.name -> definition.directives
-        } ::: subgraph.document.typeExtensions.collect { case extension: UnionTypeExtension =>
-          extension.name -> extension.directives
         }
       def nonQueryOperationRoot(typeName: String): Option[String] =
-        if (subgraph.rootType.mutationType.flatMap(_.name).contains(typeName)) Some("Mutation")
-        else if (subgraph.rootType.subscriptionType.flatMap(_.name).contains(typeName)) Some("Subscription")
-        else None
+        subgraph.rootNames.composed(typeName) match {
+          case "Mutation"     => Some("Mutation")
+          case "Subscription" => Some("Subscription")
+          case _              => None
+        }
       val contextDirectives                                       = typeEntries.flatMap { case (typeName, directives) =>
         directives.collect { case directive if names.context.contains(directive.name) => typeName -> directive }
       }
@@ -1257,7 +1204,7 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
           assumedSize,
           slicingPaths.map { path =>
             val default = path.headOption.flatMap(name => field.allArgs.find(_.name == name)).flatMap { argument =>
-              argument.defaultValue.flatMap(Parser.parseInputValue(_).toOption)
+              argument.parsedDefaultValue
             }
             ComposedGraph.SlicingArgument(path, default, inputPathType(field, path).exists(isList))
           },
@@ -1289,17 +1236,17 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
           }
       }
 
-    val sortedTypes = subgraph.rootType.types.toList.sortBy(_._1)
-    val entries     = sortedTypes.flatMap { case (sourceName, tpe) =>
-      val typeName      = composedTypeName(subgraph, sourceName)
-      val supportedType = tpe.kind == __TypeKind.OBJECT || tpe.kind == __TypeKind.SCALAR || tpe.kind == __TypeKind.ENUM
-      val typeEntries   = applications(
+    val sortedTypes        = subgraph.rootType.types.toList.sortBy(_._1)
+    val applicationsByType = sortedTypes.map { case (sourceName, tpe) =>
+      val typeName         = composedTypeName(subgraph, sourceName)
+      val supportedType    = tpe.kind == __TypeKind.OBJECT || tpe.kind == __TypeKind.SCALAR || tpe.kind == __TypeKind.ENUM
+      val typeEntries      = applications(
         tpe.directives,
         typeName,
         weight => TypeCost(typeName, weight),
         if (supportedType) None else Some("@cost is not supported at this type location.")
       )
-      val fields        = tpe.allFields.flatMap { field =>
+      val fields           = tpe.allFields.flatMap { field =>
         applications(
           field.directives,
           s"$typeName.${field.name}",
@@ -1313,23 +1260,19 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
           )
         )
       }
-      val inputFields   = tpe.allInputFields.flatMap(field =>
+      val inputFields      = tpe.allInputFields.flatMap(field =>
         applications(
           field.directives,
           s"$typeName.${field.name}",
           weight => InputFieldCost(typeName, field.name, weight)
         )
       )
-      typeEntries ::: fields ::: inputFields
-    }
-    val listSizes   = sortedTypes.flatMap { case (sourceName, tpe) =>
-      val typeName = composedTypeName(subgraph, sourceName)
-      val fields   = tpe.allFields.flatMap { field =>
+      val listSizes        = tpe.allFields.flatMap { field =>
         field.directives.getOrElse(Nil).filter(directive => names.listSize.contains(directive.name)).map { directive =>
           listSizeApplication(directive, typeName, field)
         }
       }
-      val invalid  =
+      val invalidListSizes =
         tpe.directives
           .getOrElse(Nil)
           .filter(directive => names.listSize.contains(directive.name))
@@ -1348,13 +1291,18 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
               .filter(directive => names.listSize.contains(directive.name))
               .map(_ => s"$typeName.${field.name}")
           }
-      fields ::: invalid.map(coordinate =>
-        Left(
-          s"[${subgraph.name}] Invalid Federation @listSize application at '$coordinate': @listSize is only supported on fields."
-        )
-      )
+      (typeEntries ::: fields ::: inputFields) ->
+        (listSizes ::: invalidListSizes.map(coordinate =>
+          Left(
+            s"[${subgraph.name}] Invalid Federation @listSize application at '$coordinate': @listSize is only supported on fields."
+          )
+        ))
     }
-    val errors      = entries.collect { case Left(error) => error } ::: listSizes.collect { case Left(error) => error }
+    val entries            = applicationsByType.flatMap(_._1)
+    val listSizes          = applicationsByType.flatMap(_._2)
+    val errors             = entries.collect { case Left(error) => error } ::: listSizes.collect { case Left(error) =>
+      error
+    }
 
     if (errors.nonEmpty) Left(errors)
     else {
@@ -1683,10 +1631,7 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
 
     prepared.flatMap { metadata =>
       val subgraph  = metadata.subgraph
-      val rootNames =
-        subgraph.rootType.queryType.name.toSet ++
-          subgraph.rootType.mutationType.flatMap(_.name).toSet ++
-          subgraph.rootType.subscriptionType.flatMap(_.name).toSet
+      val rootNames = subgraph.rootNames.sourceNames
 
       subgraph.rootType.types.valuesIterator
         .filterNot(tpe =>
@@ -1700,40 +1645,32 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
     }
   }
 
-  private def subgraphType(metadata: CompositionSubgraph, name: String, tpe: __Type): SubgraphType = {
-    val subgraph            = metadata.subgraph
-    val definitions         = subgraph.document.typeDefinitions.filter(_.name == name)
-    val extensionDirectives = subgraph.document.typeExtensions.collect {
-      case extension: ObjectTypeExtension if extension.name == name      =>
-        extension.directives
-      case extension: InterfaceTypeExtension if extension.name == name   =>
-        extension.directives
-      case extension: ScalarTypeExtension if extension.name == name      =>
-        extension.directives
-      case extension: UnionTypeExtension if extension.name == name       =>
-        extension.directives
-      case extension: EnumTypeExtension if extension.name == name        =>
-        extension.directives
-      case extension: InputObjectTypeExtension if extension.name == name =>
-        extension.directives
-    }
-    val extensionFields     = subgraph.document.typeExtensions.collect {
-      case extension: ObjectTypeExtension if extension.name == name    => extension.fields
-      case extension: InterfaceTypeExtension if extension.name == name => extension.fields
-    }
-    val directives          = definitions.flatMap(_.directives) ::: extensionDirectives.flatten
-    val fields              = definitions.flatMap {
-      case definition: ObjectTypeDefinition    => definition.fields
-      case definition: InterfaceTypeDefinition => definition.fields
-      case _                                   => Nil
-    } ::: extensionFields.flatten
-    val names               = metadata.directives
-    val interfaceObject     = subgraph.federation && hasDirective(directives, names.interfaceObject)
-    val composedType        =
-      if (interfaceObject && tpe.kind == __TypeKind.OBJECT) tpe.copy(kind = __TypeKind.INTERFACE)
+  private def subgraphType(
+    metadata: CompositionSubgraph,
+    name: String,
+    tpe: __Type,
+    operation: Option[OperationType] = None,
+    owner: String = ""
+  ): SubgraphType = {
+    val subgraph        = metadata.subgraph
+    val directives      = tpe.directives.getOrElse(Nil)
+    val fields          = tpe.allFields
+    val names           = metadata.directives
+    val sourceName      = if (owner.isEmpty) name else owner
+    val interfaceObject = operation.isEmpty && subgraph.federation && hasDirective(directives, names.interfaceObject)
+    val composedType    =
+      if (operation.nonEmpty)
+        tpe.copy(
+          description = None,
+          directives = None,
+          interfaces = () => None,
+          possibleTypes = None
+        )
+      else if (interfaceObject && tpe.kind == __TypeKind.OBJECT) tpe.copy(kind = __TypeKind.INTERFACE)
       else tpe
-    val entity              =
-      if (subgraph.federation) {
+    val entity          =
+      if (operation.nonEmpty) None
+      else if (subgraph.federation) {
         val keys = directives.flatMap(keyDirective(_, names))
         if (keys.nonEmpty) {
           val lookups =
@@ -1758,60 +1695,48 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
             val key = lookup.keyFields.map(ComposedGraph.KeyField(_, Nil))
             EntityDefinition(
               lookup.keyFields.toSet,
-              compileLookup(subgraph, lookup).toList.map(ComposedGraph.EntityLookup(key, _))
+              compiledLookups
+                .get(subgraph.name -> name)
+                .toList
+                .map(ComposedGraph.EntityLookup(key, _))
             )
           }
-    val typeExternal        = subgraph.federation && hasDirective(directives, names.external)
-    val fed1Owned           = metadata.federation1ExtensionKeyCoordinates.collect { case (`name`, field) => field }
-    val external            = (fields.collect {
-      case field if subgraph.federation && hasDirective(field.directives, names.external) =>
-        field.name
-    }.toSet ++ (if (typeExternal) fields.map(_.name) else Nil)) -- fed1Owned
-    val typeShareable       = subgraph.federation && hasDirective(directives, names.shareable)
-    val keyFields           = entity.fold(Set.empty[String])(_.keyFields) ++ metadata.keyCoordinates.collect {
-      case (`name`, field) => field
-    }
-    val shareable           = fields.collect {
-      case field if subgraph.federation && hasDirective(field.directives, names.shareable) =>
-        field.name
-    }.toSet ++ keyFields ++ (if (typeShareable) fields.map(_.name) else Nil)
-    val inaccessible        = subgraph.mapping.hiddenTypes.contains(name) ||
-      subgraph.federation && hasDirective(directives, names.inaccessible)
-    val hiddenFields        = fields.collect {
-      case field if subgraph.federation && hasDirective(field.directives, names.inaccessible) => field.name
-    }.toSet ++ subgraph.mapping.hiddenFields.collect { case (`name`, field) => field }
-    val contextualArgs      = fields.iterator
-      .flatMap(field =>
-        field.args.iterator.collect {
-          case argument if hasDirective(argument.directives, names.fromContext) => field.name -> argument.name
-        }
-      )
-      .toSet
-    val hiddenArgs          = subgraph.mapping.hiddenArguments.collect { case (`name`, field, argument) =>
-      field -> argument
-    } ++ fields.iterator
-      .flatMap(field =>
-        field.args.iterator.collect {
-          case argument if hasDirective(argument.directives, names.inaccessible) =>
-            field.name -> argument.name
-        }
-      )
-      .toSet ++ contextualArgs
-    val hiddenInputs        = subgraph.mapping.hiddenInputFields.collect { case (`name`, field) => field } ++
+    val typeExternal    = operation.isEmpty && subgraph.federation && hasDirective(directives, names.external)
+    val typeShareable   = subgraph.federation && hasDirective(directives, names.shareable)
+    val flags           = fields
+      .map(field => field.name -> fieldFlags(metadata, sourceName, field, typeShareable, typeExternal))
+      .toMap
+    val fed1Owned       =
+      if (operation.nonEmpty) Set.empty[String]
+      else metadata.federation1ExtensionKeyCoordinates.collect { case (`name`, field) => field }
+    val external        = flags.collect { case (field, value) if value.external => field }.toSet -- fed1Owned
+    val keyFields       = entity.fold(Set.empty[String])(_.keyFields) ++
+      (if (operation.nonEmpty) Set.empty
+       else metadata.keyCoordinates.collect { case (`name`, field) => field })
+    val shareable       = flags.collect { case (field, value) if value.shareable => field }.toSet ++ keyFields
+    val inaccessible    = operation.isEmpty && (subgraph.mapping.hiddenTypes.contains(name) ||
+      subgraph.federation && hasDirective(directives, names.inaccessible))
+    val hiddenFields    = flags.collect { case (field, value) if value.inaccessible => field }.toSet
+    val contextualArgs  = flags.iterator.flatMap { case (field, value) =>
+      value.contextualArguments.iterator.map(field -> _)
+    }.toSet
+    val hiddenArgs      = flags.iterator.flatMap { case (field, value) =>
+      value.inaccessibleArguments.iterator.map(field -> _)
+    }.toSet
+    val hiddenInputs    = subgraph.mapping.hiddenInputFields.collect { case (`name`, field) => field } ++
       tpe.allInputFields.iterator.collect {
         case field if hasDirective(field.directives, names.inaccessible) => field.name
       }
-    val hiddenEnums         =
+    val hiddenEnums     =
       tpe.allEnumValues.iterator.collect {
         case value if hasDirective(value.directives, names.inaccessible) => value.name
       }.toSet
-    val overrides           = fields.flatMap { field =>
-      fieldOverride(Some(field.directives), names.overrideDirective).map(field.name -> _)
-    }.toMap
+    val overrides       = flags.flatMap { case (field, value) => value.overrideDirective.map(field -> _) }
     SubgraphType(
       subgraph.name,
       name,
       composedType,
+      operation,
       interfaceObject,
       entity,
       tpe.allFields.map(_.name).toSet -- external,
@@ -1823,75 +1748,10 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
       hiddenInputs,
       hiddenEnums,
       overrides,
-      metadata.federation2,
+      if (!subgraph.federation) SubgraphMode.Ordinary
+      else if (metadata.federation2) SubgraphMode.Federation2
+      else SubgraphMode.Federation1,
       metadata.hiddenDirectives
-    )
-  }
-
-  private def compileLookup(
-    subgraph: PreparedSubgraph,
-    lookup: Lookup
-  ): Option[ComposedGraph.LookupOperation.GraphQLQuery] =
-    subgraph.rootType.queryType.allFields.find(_.name == lookup.field).flatMap { field =>
-      val argumentTypes = field.allArgs.map(argument => argument.name -> argument._type).toMap
-      val arguments     = lookup.arguments.toList.foldLeft(Option(List.empty[(String, ComposedGraph.LookupArgument)])) {
-        case (compiled, (name, mapping)) =>
-          for {
-            values   <- compiled
-            expected <- argumentTypes.get(name)
-            value    <- compileArgument(mapping, expected)
-          } yield (name -> value) :: values
-      }
-      val result        = lookup match {
-        case _: Lookup.Single         => ComposedGraph.LookupResult.Single
-        case value: Lookup.ListLookup =>
-          ComposedGraph.LookupResult.ByKey(value.correlation)
-      }
-      arguments.map(values => ComposedGraph.LookupOperation.GraphQLQuery(lookup.field, values.reverse.toMap, result))
-    }
-
-  private def compileArgument(
-    mapping: Lookup.Argument,
-    expected: __Type
-  ): Option[ComposedGraph.LookupArgument] = {
-    val valueType = nullableType(expected)
-    mapping match {
-      case Lookup.Argument.Key(field)            =>
-        Some(ComposedGraph.LookupArgument.Key(field, valueType))
-      case Lookup.Argument.ObjectMapping(fields) =>
-        val inputFields = valueType.allInputFields.map(field => field.name -> field._type).toMap
-        fields
-          .foldLeft(Option(List.empty[(String, ComposedGraph.LookupArgument)])) { case (compiled, (name, value)) =>
-            for {
-              values    <- compiled
-              inputType <- inputFields.get(name)
-              nested    <- compileArgument(value, inputType)
-            } yield (name -> nested) :: values
-          }
-          .map(values => ComposedGraph.LookupArgument.ObjectMapping(values.reverse))
-      case Lookup.Argument.Batch(value)          =>
-        valueType.ofType
-          .map(nullableType)
-          .flatMap(compileArgument(value, _))
-          .map(ComposedGraph.LookupArgument.Batch.apply)
-    }
-  }
-
-  private def effectiveRootProviders(entries: List[SubgraphRootField]): List[SubgraphRootField] = {
-    val overridden = entries.flatMap(_.overrideDirective.map(_.from)).toSet
-    entries.filterNot(entry => entry.external || overridden.contains(entry.source))
-  }
-
-  private def rootProviderRoutes(entries: List[SubgraphRootField]): List[ComposedGraph.FieldRoute] = {
-    val overrideDirective = entries.collectFirst(
-      Function.unlift(entry =>
-        entry.overrideDirective.map(directive => ProviderOverride(directive.from, entry.source, directive.progressive))
-      )
-    )
-    providerRoutes(
-      effectiveRootProviders(entries).map(_.source),
-      overrideDirective,
-      source => entries.exists(entry => entry.source == source && !entry.external)
     )
   }
 
@@ -1954,25 +1814,13 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
         )
       else Nil
 
-    val rootDiagnostics  = rootEntries.flatMap { case (operation, fields) =>
-      fields.groupBy(_.field.name).toList.flatMap { case (field, entries) =>
-        entries.flatMap(entry =>
-          entry.overrideDirective.toList.flatMap(directive =>
-            diagnostic(
-              s"[${operation.toString.toLowerCase}.$field]",
-              entry.source,
-              directive,
-              entries.exists(candidate => candidate.source == directive.from && !candidate.external)
-            )
-          )
-        )
-      }
-    }
-    val fieldDiagnostics = types.groupBy(_.name).toList.flatMap { case (typeName, entries) =>
+    types.groupBy(_.name).toList.flatMap { case (typeName, entries) =>
       entries.flatMap(entry =>
         entry.overrideFields.toList.flatMap { case (field, directive) =>
+          val prefix =
+            entry.operation.fold(s"[type $typeName.$field]")(operation => s"[${operation.toString.toLowerCase}.$field]")
           diagnostic(
-            s"[type $typeName.$field]",
+            prefix,
             entry.source,
             directive,
             entries.exists(candidate => candidate.source == directive.from && candidate.ownedFields.contains(field))
@@ -1980,7 +1828,6 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
         }
       )
     }
-    rootDiagnostics ::: fieldDiagnostics
   }
 
   private def applyInterfaceOverrides(
@@ -2045,21 +1892,12 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
     inheritedCollisions.toList ::: directCollisions ::: missingProviders
   }
 
-  private def visibilityDiagnostics(
-    roots: List[SubgraphRootField]
-  ): List[String] = {
-    val inaccessibleTypes   = types.filter(_.inaccessible).map(_.name).toSet
-    val inaccessibleFields  = types.iterator.flatMap(entry => entry.inaccessibleFields.map(entry.name -> _)).toSet
-    val inaccessibleInputs  =
+  private def visibilityDiagnostics: List[String] = {
+    val inaccessibleTypes  = types.filter(_.inaccessible).map(_.name).toSet
+    val inaccessibleFields = types.iterator.flatMap(entry => entry.inaccessibleFields.map(entry.name -> _)).toSet
+    val inaccessibleInputs =
       types.iterator.flatMap(entry => entry.inaccessibleInputFields.map(entry.name -> _)).toSet
-    val inaccessibleRoots   = roots.iterator
-      .filter(_.inaccessible)
-      .map(entry => entry.operation -> entry.field.name)
-      .toSet
-    val rootHiddenArguments = roots
-      .groupBy(entry => entry.operation -> entry.field.name)
-      .map { case (coordinate, entries) => coordinate -> entries.iterator.flatMap(_.inaccessibleArguments).toSet }
-    val hiddenArguments     = types.iterator
+    val hiddenArguments    = types.iterator
       .flatMap(entry =>
         entry.inaccessibleArguments.map { case (field, argument) =>
           (entry.name, field, argument)
@@ -2078,42 +1916,36 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
         case argument if hidden(argument.name) && !argument._type.isNullable && argument.defaultValue.isEmpty       =>
           s"[$source] Required @inaccessible argument '$coordinate.${argument.name}' must define a default value."
       }
-    val rootOutputErrors    = roots.collect {
-      case entry
-          if !inaccessibleRoots.contains(entry.operation -> entry.field.name) &&
-            entry.field._type.innerType.name.exists(inaccessibleTypes.contains) =>
-        s"[${entry.source}] Field '${entry.field.name}' must be @inaccessible because its return type is inaccessible."
-    }
-    val rootArgumentErrors  = roots
-      .filterNot(entry => inaccessibleRoots.contains(entry.operation -> entry.field.name))
-      .flatMap { entry =>
-        argumentDiagnostics(
-          entry.source,
-          entry.field.name,
-          entry.field.allArgs,
-          rootHiddenArguments.getOrElse(entry.operation -> entry.field.name, Set.empty)
-        )
+    def fieldDiagnostics(
+      source: String,
+      coordinate: String,
+      field: __Field,
+      inaccessible: Boolean,
+      inaccessibleArguments: Set[String]
+    ): (List[String], List[String]) =
+      if (inaccessible) (Nil, Nil)
+      else {
+        val output = field._type.innerType.name.toList.collect {
+          case name if inaccessibleTypes.contains(name) =>
+            s"[$source] Field '$coordinate' must be @inaccessible because its return type is inaccessible."
+        }
+        output -> argumentDiagnostics(source, coordinate, field.allArgs, inaccessibleArguments)
       }
-    val accessibleTypes     = types.filterNot(entry => inaccessibleTypes.contains(entry.name))
-    val fieldOutputErrors   = accessibleTypes.flatMap { entry =>
-      entry.tpe.allFields.collect {
-        case field
-            if !inaccessibleFields.contains(entry.name -> field.name) &&
-              field._type.innerType.name.exists(inaccessibleTypes.contains) =>
-          s"[${entry.source}] Field '${entry.name}.${field.name}' must be @inaccessible because its return type is inaccessible."
-      }
-    }
-    val fieldArgumentErrors = accessibleTypes.flatMap { entry =>
-      entry.tpe.allFields.filterNot(field => inaccessibleFields.contains(entry.name -> field.name)).flatMap { field =>
-        argumentDiagnostics(
+    val accessibleTypes    = types.filterNot(entry => inaccessibleTypes.contains(entry.name))
+    val typeFieldErrors    = accessibleTypes.flatMap { entry =>
+      entry.tpe.allFields.map { field =>
+        val entryName = entry.name
+        val fieldName = field.name
+        fieldDiagnostics(
           entry.source,
-          s"${entry.name}.${field.name}",
-          field.allArgs,
-          argument => hiddenArguments((entry.name, field.name, argument))
+          entry.operation.fold(s"$entryName.$fieldName")(_ => fieldName),
+          field,
+          inaccessibleFields.contains(entryName -> fieldName),
+          hiddenArguments.collect { case (`entryName`, `fieldName`, argument) => argument }
         )
       }
     }
-    val inputFieldErrors    = accessibleTypes.flatMap { entry =>
+    val inputFieldErrors   = accessibleTypes.flatMap { entry =>
       entry.tpe.allInputFields.collect {
         case field
             if !inaccessibleInputs.contains(entry.name -> field.name) &&
@@ -2125,22 +1957,18 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
           s"[${entry.source}] Required @inaccessible input field '${entry.name}.${field.name}' must define a default value."
       }
     }
-    rootOutputErrors :::
-      rootArgumentErrors :::
-      fieldOutputErrors :::
-      fieldArgumentErrors :::
+    typeFieldErrors.flatMap(_._1) :::
+      typeFieldErrors.flatMap(_._2) :::
       inputFieldErrors
   }
 
   private def enumUsageByName: Map[String, EnumUsage] = {
-    val allTypes   = types.map(_.tpe)
-    val rootFields = rootEntries.iterator.flatMap(_._2.iterator.map(_.field)).toList
-    val inputs     = (allTypes.iterator.flatMap { tpe =>
+    val allTypes = types.map(_.tpe)
+    val inputs   = allTypes.iterator.flatMap { tpe =>
       tpe.allInputFields.iterator.flatMap(_._type.innerType.name) ++
         tpe.allFields.iterator.flatMap(_.allArgs.iterator.flatMap(_._type.innerType.name))
-    } ++ rootFields.iterator.flatMap(_.allArgs.iterator.flatMap(_._type.innerType.name))).toSet
-    val outputs    = (allTypes.iterator.flatMap(_.allFields.iterator.flatMap(_._type.innerType.name)) ++
-      rootFields.iterator.flatMap(_._type.innerType.name)).toSet
+    }.toSet
+    val outputs  = allTypes.iterator.flatMap(_.allFields.iterator.flatMap(_._type.innerType.name)).toSet
 
     (inputs ++ outputs).iterator.map(name => name -> EnumUsage(inputs.contains(name), outputs.contains(name))).toMap
   }
@@ -2161,32 +1989,11 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
       }
     }
 
-  private def makeRootType(
-    name: String,
-    fields: List[SubgraphRootField],
-    rewrite: __Type => __Type
-  ): __Type = {
-    val sorted = fields
-      .map(entry =>
-        composedDirectives.attachField(
-          name,
-          sanitizeField(entry.field, rewrite, entry.hiddenDirectives, entry.inaccessibleArguments)
-        )
-      )
-      .sortBy(_.name)
-    composedDirectives.attachType(
-      __Type(
-        kind = __TypeKind.OBJECT,
-        name = Some(name),
-        fields = args => Some(if (args.includeDeprecated.getOrElse(false)) sorted else sorted.filterNot(_.isDeprecated))
-      ),
-      name
-    )
-  }
-
 }
 
 private[gateway] object SchemaComposer {
+  import DirectiveComposition._
+
   import TypeComposition._
 
   private val ProgressiveOverridePattern = raw"percent\((\d{1,2}(?:\.\d{1,8})?|100)\)".r
@@ -2251,20 +2058,16 @@ private[gateway] object SchemaComposer {
     }
   }
 
-  private final case class SubgraphRootField(
-    source: String,
-    operation: OperationType,
-    field: __Field,
+  private final case class FieldFlags(
     shareable: Boolean,
     external: Boolean,
     inaccessible: Boolean,
     overrideDirective: Option[FieldOverride],
-    federation: Boolean,
-    federation2: Boolean,
     inaccessibleArguments: Set[String],
-    contextualArguments: Set[String],
-    hiddenDirectives: Set[String]
+    contextualArguments: Set[String]
   )
+
+  private final case class ValidationResult[A](diagnostics: List[String], value: Option[A])
 
   private final case class CompositionSubgraph(
     subgraph: PreparedSubgraph,
@@ -2292,16 +2095,32 @@ private[gateway] object SchemaComposer {
   private final case class ArgumentCost(parent: String, field: String, name: String, weight: Long) extends CostEntry
   private final case class InputFieldCost(parent: String, name: String, weight: Long)              extends CostEntry
 
-  private final case class SecurityCoordinate(typeName: String, fieldName: Option[String])
-
   private final case class TypeSystemDirectiveApplication(
-    coordinate: String,
-    directives: List[Directive],
-    securityCoordinate: Option[SecurityCoordinate],
-    supportsOverride: Boolean,
-    supportsContext: Boolean,
-    supportsFromContext: Boolean
-  )
+    coordinate: Coordinate,
+    directives: List[Directive]
+  ) {
+    def securityCoordinate: Option[(String, Option[String])] =
+      coordinate match {
+        case TypeCoordinate(typeName, location)
+            if location == __DirectiveLocation.SCALAR || location == __DirectiveLocation.OBJECT ||
+              location == __DirectiveLocation.INTERFACE || location == __DirectiveLocation.ENUM =>
+          Some(typeName -> None)
+        case FieldCoordinate(typeName, fieldName) => Some(typeName -> Some(fieldName))
+        case _                                    => None
+      }
+
+    def supportsOverride: Boolean = coordinate.isInstanceOf[FieldCoordinate]
+
+    def supportsContext: Boolean =
+      coordinate match {
+        case TypeCoordinate(_, location) =>
+          location == __DirectiveLocation.OBJECT || location == __DirectiveLocation.INTERFACE ||
+          location == __DirectiveLocation.UNION
+        case _                           => false
+      }
+
+    def supportsFromContext: Boolean = coordinate.isInstanceOf[ArgumentCoordinate]
+  }
 
   private def hasDirective(directives: List[Directive], names: Set[String]): Boolean =
     directives.exists(directive => names.contains(directive.name))
@@ -2313,9 +2132,6 @@ private[gateway] object SchemaComposer {
     document.typeDefinitions.collect {
       case definition: ObjectTypeDefinition    => (definition.name, definition.directives, definition.fields)
       case definition: InterfaceTypeDefinition => (definition.name, definition.directives, definition.fields)
-    } ::: document.typeExtensions.collect {
-      case extension: ObjectTypeExtension    => (extension.name, extension.directives, extension.fields)
-      case extension: InterfaceTypeExtension => (extension.name, extension.directives, extension.fields)
     }
 
   private final case class FederationKey(fields: List[ComposedGraph.KeyField], resolvable: Boolean)
@@ -2344,6 +2160,8 @@ private[gateway] object SchemaComposer {
     sources.toList.distinct.sorted.map(source => s"'$source'").mkString(", ")
 
   private final case class FederationDirectiveNames(
+    features: List[LinkedFeature],
+    federation2: Boolean,
     key: Set[String],
     external: Set[String],
     extendsDirective: Set[String],
@@ -2386,88 +2204,65 @@ private[gateway] object SchemaComposer {
     def federationNames(name: String, federation1: Boolean = false): Set[String] =
       federation.iterator.flatMap(_.directiveNames(name)).toSet ++
         (if (federation1 && federation.isEmpty) Set(name) else Set.empty)
+    def partitionNames(
+      name: String,
+      features: List[LinkedFeature]
+    )(available: LinkedFeature => Boolean): (Set[String], Set[String]) = {
+      val (supported, unsupported) = features.partition(available)
+      supported.iterator.flatMap(_.directiveNames(name)).toSet ->
+        unsupported.iterator.flatMap(_.directiveNames(name)).toSet
+    }
     def securityNames(
       name: String,
       federationMajor: Int,
       federationMinor: Int,
       identity: String
-    ): Set[String] =
-      federation.iterator
-        .filter(_.version.atLeast(federationMajor, federationMinor))
-        .flatMap(_.directiveNames(name))
-        .toSet ++
-        security.iterator
-          .filter(feature => feature.identity == identity && feature.version == FeatureVersion(0, 1))
-          .flatMap(_.directiveNames(name))
-          .toSet
-    def costNames(name: String): Set[String]                                     =
-      federation.iterator
-        .filter(_.version.atLeast(2, 9))
-        .flatMap(_.directiveNames(name))
-        .toSet ++
-        costFeature.iterator
-          .filter(_.version == FeatureVersion(0, 1))
-          .flatMap(_.directiveNames(name))
-          .toSet
-    def unavailableCostNames(name: String): Set[String]                          =
-      federation.iterator
-        .filterNot(_.version.atLeast(2, 9))
-        .flatMap(_.directiveNames(name))
-        .toSet ++
-        costFeature.iterator
-          .filterNot(_.version == FeatureVersion(0, 1))
-          .flatMap(_.directiveNames(name))
-          .toSet
-    def unavailableSecurityNames(
-      name: String,
-      federationMajor: Int,
-      federationMinor: Int,
-      identity: String
-    ): Set[String] =
-      federation.iterator
-        .filterNot(_.version.atLeast(federationMajor, federationMinor))
-        .flatMap(_.directiveNames(name))
-        .toSet ++
-        security.iterator
-          .filter(feature => feature.identity == identity && feature.version != FeatureVersion(0, 1))
-          .flatMap(_.directiveNames(name))
-          .toSet
+    ): (Set[String], Set[String]) =
+      partitionNames(name, federation ::: security.filter(_.identity == identity))(feature =>
+        if (feature.identity == FederationIdentity) feature.version.atLeast(federationMajor, federationMinor)
+        else feature.version == FeatureVersion(0, 1)
+      )
+    def costNames(name: String): (Set[String], Set[String])                      =
+      partitionNames(name, federation ::: costFeature)(feature =>
+        if (feature.identity == FederationIdentity) feature.version.atLeast(2, 9)
+        else feature.version == FeatureVersion(0, 1)
+      )
 
-    val keyNames            = federationNames("key", federation1 = true)
-    val externalNames       = federationNames("external", federation1 = true)
-    val extendsNames        = federationNames("extends", federation1 = true)
-    val shareableNames      = federationNames("shareable")
-    val inaccessibleNames   = federationNames("inaccessible")
-    val overrideNames       = federationNames("override")
-    val requiresNames       = federationNames("requires", federation1 = true)
-    val providesNames       = federationNames("provides", federation1 = true)
-    val interfaceObjects    = federationNames("interfaceObject")
-    val tagNames            = federationNames("tag")
-    val composeNames        = federationNames("composeDirective")
-    val authenticated       = securityNames("authenticated", 2, 5, AuthenticatedIdentity)
-    val requiresScopes      = securityNames("requiresScopes", 2, 5, RequiresScopesIdentity)
-    val policy              = securityNames("policy", 2, 6, PolicyIdentity)
-    val unavailableSecurity =
-      unavailableSecurityNames("authenticated", 2, 5, AuthenticatedIdentity).map(_ -> "@authenticated").toMap ++
-        unavailableSecurityNames("requiresScopes", 2, 5, RequiresScopesIdentity)
-          .map(_ -> "@requiresScopes")
-          .toMap ++
-        unavailableSecurityNames("policy", 2, 6, PolicyIdentity).map(_ -> "@policy").toMap
-    val unavailableCost     = unavailableCostNames("cost").map(_ -> "@cost").toMap ++
-      unavailableCostNames("listSize").map(_ -> "@listSize").toMap
-    val cost                = costNames("cost")
-    val listSize            = costNames("listSize")
-    val context             = federationNames("context")
-    val fromContext         = federationNames("fromContext")
-    val supportsContexts    = federation.exists(_.version.atLeast(2, 8))
-    val progressiveOverride = federation.exists(_.version.atLeast(2, 7))
-    val hiddenDirectives    = Set("link") ++ keyNames ++ externalNames ++ extendsNames ++ shareableNames ++
+    val keyNames                                    = federationNames("key", federation1 = true)
+    val externalNames                               = federationNames("external", federation1 = true)
+    val extendsNames                                = federationNames("extends", federation1 = true)
+    val shareableNames                              = federationNames("shareable")
+    val inaccessibleNames                           = federationNames("inaccessible")
+    val overrideNames                               = federationNames("override")
+    val requiresNames                               = federationNames("requires", federation1 = true)
+    val providesNames                               = federationNames("provides", federation1 = true)
+    val interfaceObjects                            = federationNames("interfaceObject")
+    val tagNames                                    = federationNames("tag")
+    val composeNames                                = federationNames("composeDirective")
+    val (authenticated, unavailableAuthenticated)   = securityNames("authenticated", 2, 5, AuthenticatedIdentity)
+    val (requiresScopes, unavailableRequiresScopes) = securityNames("requiresScopes", 2, 5, RequiresScopesIdentity)
+    val (policy, unavailablePolicy)                 = securityNames("policy", 2, 6, PolicyIdentity)
+    val unavailableSecurity                         =
+      unavailableAuthenticated.map(_ -> "@authenticated").toMap ++
+        unavailableRequiresScopes.map(_ -> "@requiresScopes").toMap ++
+        unavailablePolicy.map(_ -> "@policy").toMap
+    val (cost, unavailableCostNames)                = costNames("cost")
+    val (listSize, unavailableListSizeNames)        = costNames("listSize")
+    val unavailableCost                             = unavailableCostNames.map(_ -> "@cost").toMap ++
+      unavailableListSizeNames.map(_ -> "@listSize").toMap
+    val context                                     = federationNames("context")
+    val fromContext                                 = federationNames("fromContext")
+    val supportsContexts                            = federation.exists(_.version.atLeast(2, 8))
+    val progressiveOverride                         = federation.exists(_.version.atLeast(2, 7))
+    val hiddenDirectives                            = Set("link") ++ keyNames ++ externalNames ++ extendsNames ++ shareableNames ++
       inaccessibleNames ++ overrideNames ++ requiresNames ++ providesNames ++ interfaceObjects ++
       tagNames ++ composeNames ++ authenticated ++ requiresScopes ++ policy ++ unavailableSecurity.keySet ++
       unavailableCost.keySet ++ cost ++ listSize ++ context ++ fromContext ++
       document.directiveDefinitions.iterator.map(_.name).filter(name => namespacePrefix.exists(name.startsWith))
 
     FederationDirectiveNames(
+      links,
+      federation.nonEmpty,
       keyNames,
       externalNames,
       extendsNames,
@@ -2499,7 +2294,9 @@ private[gateway] object SchemaComposer {
   private val CostIdentity                               = "https://specs.apollo.dev/cost"
   private val SecurityFeatureIdentities                  = Set(AuthenticatedIdentity, RequiresScopesIdentity, PolicyIdentity)
   private def isFederation2(document: Document): Boolean =
-    linkedFeatures(document).exists(_.identity == FederationIdentity)
+    (linkedFeatures(document) ::: linkedFeatures(document.typeExtensions.collect { case extension: SchemaExtension =>
+      extension
+    }.flatMap(_.directives))).exists(_.identity == FederationIdentity)
 
   private def keyDirective(
     directive: Directive,
@@ -2532,23 +2329,29 @@ private[gateway] object SchemaComposer {
   ): Set[(String, String)] =
     if (federation2) Set.empty
     else {
-      val extensions          = subgraph.document.typeExtensions.collect {
-        case extension: ObjectTypeExtension    => extension.name -> extension.directives
-        case extension: InterfaceTypeExtension => extension.name -> extension.directives
-      }
       val extendedDefinitions = subgraph.document.typeDefinitions.collect {
+        case definition: ObjectTypeDefinition if subgraph.federation1ExtensionTypes(definition.name)            =>
+          definition.name -> definition.directives
+        case definition: InterfaceTypeDefinition if subgraph.federation1ExtensionTypes(definition.name)         =>
+          definition.name -> definition.directives
         case definition: ObjectTypeDefinition if hasDirective(definition.directives, names.extendsDirective)    =>
           definition.name -> definition.directives
         case definition: InterfaceTypeDefinition if hasDirective(definition.directives, names.extendsDirective) =>
           definition.name -> definition.directives
       }
 
-      (extensions ::: extendedDefinitions).iterator.flatMap { case (typeName, directives) =>
+      extendedDefinitions.iterator.flatMap { case (typeName, directives) =>
         directives.iterator
           .flatMap(keyDirective(_, names))
           .flatMap(_.fields.map(field => typeName -> field.name))
       }.toSet
     }
+
+  private[gateway] def federation1ExtensionTypes(document: Document): Set[String] =
+    document.typeExtensions.iterator.collect {
+      case extension: ObjectTypeExtension    => extension.name
+      case extension: InterfaceTypeExtension => extension.name
+    }.toSet
 
   private def keyCoordinates(
     rootType: RootType,

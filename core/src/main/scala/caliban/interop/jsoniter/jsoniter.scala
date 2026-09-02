@@ -302,10 +302,7 @@ private[caliban] object GraphQLResponseJsoniter {
               case "errors"     =>
                 ValueJsoniter.responseValueCodec.decodeValue(in, null) match {
                   case ResponseValue.ListValue(values) =>
-                    GraphQLResponse.decodeErrors(values) match {
-                      case Some(decoded) => errors = Some(decoded)
-                      case None          => in.decodeError("invalid GraphQL error")
-                    }
+                    errors = Some(GraphQLResponse.decodeErrors(values))
                   case NullValue                       => ()
                   case _                               => in.decodeError("expected JSON array")
                 }

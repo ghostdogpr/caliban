@@ -1,9 +1,9 @@
 package caliban.gateway.internal.execution
 
 import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, IncomingRequestHeaders, ResponseValue }
-import caliban.gateway.{ GatewayWrapper, RemoteGraphQLConfig, SubscriptionTermination }
+import caliban.gateway.{ GatewayWrapper, RemoteGraphQLConfig }
 import caliban.gateway.GatewayWrapper.{ Event, Outcome, Result }
-import caliban.gateway.internal.AdmissionGate
+import caliban.gateway.internal.{ AdmissionGate, SubscriptionTermination }
 import caliban.interop.jsoniter.BoundedOutputStream
 import caliban.parsing.adt.OperationType
 import caliban.ResponseValue.ObjectValue
@@ -17,14 +17,26 @@ import zio._
 import zio.stream.ZStream
 
 import java.util.Arrays
-import scala.collection.mutable
 import scala.util.control.NonFatal
 
 private[gateway] object RemoteTransport {
   final case class BoundedBody(bytes: Array[Byte], limitExceeded: Boolean)
 
+  sealed trait JsonStructureLimit
+  case object JsonDepthExceeded  extends JsonStructureLimit
+  case object JsonTokensExceeded extends JsonStructureLimit
+
   def addHeaders[T](request: Request[T], headers: List[Header]): Request[T] =
     headers.foldLeft(request)((current, header) => current.header(header, DuplicateHeaderBehavior.Add))
+
+  def postJson(endpoint: Uri, body: Array[Byte], headers: List[Header]): Request[Either[String, String]] =
+    addHeaders(basicRequest.post(endpoint).body(body), headers)
+      .contentType("application/json; charset=utf-8")
+      .header("Accept", "application/graphql-response+json, application/json;q=0.9")
+      .followRedirects(false)
+
+  def mediaType(contentType: Option[String]): Option[String] =
+    contentType.map(_.takeWhile(_ != ';').trim.toLowerCase(java.util.Locale.ROOT))
 
   def readBounded(
     maxBytes: Int
@@ -36,6 +48,61 @@ private[gateway] object RemoteTransport {
         val array = bytes.toArray
         BoundedBody(array, array.length > maxBytes)
       }
+
+  def validateJsonStructure(
+    bytes: Array[Byte],
+    maxDepth: Int,
+    maxTokens: Int
+  ): Either[JsonStructureLimit, Unit] = {
+    val length   = bytes.length
+    var depth    = 0
+    var index    = 0
+    var escaped  = false
+    var string   = false
+    var tokens   = 0
+    var previous = 0.toByte
+
+    while (index < length) {
+      val current = bytes(index)
+      if (string) {
+        if (escaped) escaped = false
+        else if (current == '\\') escaped = true
+        else if (current == '"') {
+          string = false
+          previous = current
+        }
+      } else
+        current match {
+          case '"'                                     =>
+            string = true
+            tokens += 1
+          case '{' | '['                               =>
+            depth += 1
+            tokens += 1
+            previous = current
+            if (depth > maxDepth) return Left(JsonDepthExceeded)
+          case '}' | ']'                               =>
+            depth -= 1
+            previous = current
+          case value if isScalarStart(value, previous) =>
+            tokens += 1
+            previous = current
+          case ' ' | '\t' | '\n' | '\r'                => ()
+          case _                                       => previous = current
+        }
+
+      if (tokens > maxTokens) return Left(JsonTokensExceeded)
+      index += 1
+    }
+
+    Right(())
+  }
+
+  private def isScalarStart(value: Byte, previous: Byte): Boolean = {
+    val scalar   = value == '-' || value >= '0' && value <= '9' || value == 't' || value == 'f' || value == 'n'
+    val boundary = previous == 0 || previous == '[' || previous == ',' || previous == ':'
+    scalar && boundary
+  }
 }
 
 private[gateway] final class RemoteSubgraphExecutor[-R](
@@ -45,7 +112,7 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
   config: RemoteGraphQLConfig[R],
   responseStructureLimits: RemoteSubgraphExecutor.ResponseStructureLimits,
   queryCalls: Option[RemoteSubgraphExecutor.InFlightQueryDeduplicator],
-  admission: Option[AdmissionGate],
+  admission: Option[AdmissionGate[R]],
   wrapper: GatewayWrapper[R],
   remoteErrorMessages: Boolean = false,
   fixedHeaders: Option[List[Header]] = None
@@ -56,6 +123,16 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
   private val execution        = config.execution
   private val staticHeaders    = sanitizeHeaders(execution.headers)
   private val forwardsIncoming = execution.forwardsAllIncomingHeaders || execution.forwardedHeaders.nonEmpty
+  private val subscription     = new RemoteSubscription(
+    endpoint,
+    backend,
+    config.subscription,
+    execution.maxResponseBytes,
+    bytes => decodeBody(bytes).map(_.copy(extensions = None)),
+    value => decodeValue(value).map(_.copy(extensions = None)),
+    responseWithinLimits,
+    remoteErrorMessages
+  )
 
   val errorPolicy: SubgraphExecutor.ErrorPolicy = SubgraphExecutor.ErrorPolicy.Remote
 
@@ -70,20 +147,7 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
     } yield values)(ZIO.succeed(_))
 
   override def forSubscription(implicit trace: Trace): ZIO[R, SubgraphExecutor.Failure, SubgraphExecutor[R]] =
-    headers.map(values =>
-      new RemoteSubgraphExecutor(
-        name,
-        endpoint,
-        backend,
-        config,
-        responseStructureLimits,
-        queryCalls,
-        admission,
-        wrapper,
-        remoteErrorMessages,
-        Some(values)
-      )
-    )
+    headers.map(values => copied(admission, wrapper, Some(values)))
 
   override def subscribe(
     request: GraphQLRequest
@@ -94,22 +158,9 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
       body   <- ZIO
                   .fromEither(encode(request.copy(extensions = None)))
                   .mapError(_ => SubscriptionTermination.Source)
-      stream <- RemoteSubscription.open(
-                  endpoint,
-                  backend,
-                  config.subscription,
-                  traced,
-                  request,
-                  body,
-                  execution.maxResponseBytes,
-                  bytes => decodeBody(bytes).map(_.copy(extensions = None)),
-                  responseWithinLimits,
-                  remoteErrorMessages
-                )
+      stream <- subscription.open(traced, request, body)
     } yield stream
-    admission.fold(open)(
-      _.observed[R with Scope, Throwable, ZStream[Any, Throwable, GraphQLResponse[CalibanError]]](wrapper)(open)
-    )
+    admission.fold(open)(_.observed(open))
   }
 
   def execute(request: GraphQLRequest, operationType: OperationType)(implicit
@@ -121,7 +172,7 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
         headers   <- this.headers
         replaySafe = operationType == OperationType.Query
         rawCall    = executeAttempts(body, headers, replaySafe, attempt = 0)
-        admitted   = admission.fold(rawCall)(_.observed(wrapper)(rawCall))
+        admitted   = admission.fold(rawCall)(_.observed(rawCall))
         response  <- if (replaySafe)
                        queryCalls.fold(admitted)(
                          _.execute(QueryDeduplicationKey(body, headers))(
@@ -134,7 +185,11 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
     logicalCall.timeoutFail(SubgraphExecutor.TimeoutFailure)(execution.timeout)
   }
 
-  override def admittedBy[R1 <: R](gate: AdmissionGate, observer: GatewayWrapper[R1]): SubgraphExecutor[R1] =
+  private def copied[R1 <: R](
+    admission: Option[AdmissionGate[R1]],
+    wrapper: GatewayWrapper[R1],
+    fixedHeaders: Option[List[Header]]
+  ): RemoteSubgraphExecutor[R1] =
     new RemoteSubgraphExecutor(
       name,
       endpoint,
@@ -142,8 +197,8 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
       config,
       responseStructureLimits,
       queryCalls,
-      Some(gate),
-      observer,
+      admission,
+      wrapper,
       remoteErrorMessages,
       fixedHeaders
     )
@@ -195,17 +250,9 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
     body: Array[Byte],
     headers: List[Header]
   )(implicit trace: Trace): ZIO[R, AttemptFailure, AttemptResponse] = {
-    val request = addHeaders(
-      basicRequest
-        .post(endpoint)
-        .body(body),
-      headers
-    )
+    val request = postJson(endpoint, body, headers)
 
     val response: ZIO[R, AttemptFailure, Response[BoundedBody]] = request
-      .contentType("application/json; charset=utf-8")
-      .header("Accept", "application/graphql-response+json, application/json;q=0.9")
-      .followRedirects(false)
       .response(asStreamAlways(ZioStreams)(readBounded(execution.maxResponseBytes)))
       .send(backend)
       .mapError(error => AttemptFailure(SubgraphExecutor.TransportFailure(error), None, None))
@@ -275,8 +322,7 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
     if (response.body.limitExceeded) Left(SubgraphExecutor.ResponseTooLarge)
     else if (response.code.isRedirect) Left(SubgraphExecutor.RedirectResponse)
     else {
-      val mediaType = response.contentType.map(_.takeWhile(_ != ';').trim.toLowerCase(java.util.Locale.ROOT))
-      mediaType match {
+      RemoteTransport.mediaType(response.contentType) match {
         case Some("application/graphql-response+json") =>
           decodeBody(response.body.bytes) match {
             case result @ Right(_)                   => result
@@ -291,87 +337,44 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
 
   private def decodeBody(bytes: Array[Byte]): Either[SubgraphExecutor.Failure, GraphQLResponse[CalibanError]] =
     for {
-      _        <- responseWithinLimits(bytes)
-      envelope <-
-        try Right(readFromArray[ResponseValue](bytes))
+      _         <- responseWithinLimits(bytes)
+      response  <-
+        try Right(readFromArray[GraphQLResponse[CalibanError]](bytes))
         catch {
           case NonFatal(_) => Left(SubgraphExecutor.InvalidResponse)
         }
-      response <- envelope match {
-                    case value: ObjectValue => decodeEnvelope(value).toRight(SubgraphExecutor.InvalidResponse)
-                    case _                  => Left(SubgraphExecutor.InvalidResponse)
-                  }
-    } yield response
+      validated <- validateResponse(response)
+    } yield validated
 
-  private def responseWithinLimits(bytes: Array[Byte]): Either[SubgraphExecutor.Failure, Unit] = {
-    val maxDepth  = responseStructureLimits.maxResponseDepth
-    val maxTokens = responseStructureLimits.maxResponseTokens
-    val length    = bytes.length
-    var depth     = 0
-    var index     = 0
-    var escaped   = false
-    var string    = false
-    var tokens    = 0
-    var previous  = 0.toByte
-
-    while (index < length) {
-      val current = bytes(index)
-      if (string) {
-        if (escaped) escaped = false
-        else if (current == '\\') escaped = true
-        else if (current == '"') {
-          string = false
-          previous = current
-        }
-      } else
-        current match {
-          case '"'                                     =>
-            string = true
-            tokens += 1
-          case '{' | '['                               =>
-            depth += 1
-            tokens += 1
-            previous = current
-            if (depth > maxDepth) return Left(SubgraphExecutor.ResponseNestingTooDeep)
-          case '}' | ']'                               =>
-            depth -= 1
-            previous = current
-          case value if isScalarStart(value, previous) =>
-            tokens += 1
-            previous = current
-          case ' ' | '\t' | '\n' | '\r'                => ()
-          case _                                       => previous = current
-        }
-
-      if (tokens > maxTokens) return Left(SubgraphExecutor.ResponseStructureTooLarge)
-      index += 1
-    }
-
-    Right(())
-  }
-
-  private def isScalarStart(value: Byte, previous: Byte): Boolean = {
-    val scalar   = value == '-' || value >= '0' && value <= '9' || value == 't' || value == 'f' || value == 'n'
-    val boundary = previous == 0 || previous == '[' || previous == ',' || previous == ':'
-    scalar && boundary
-  }
-
-  private def decodeEnvelope(value: ObjectValue): Option[GraphQLResponse[CalibanError]] = {
-    val data      = value.fields.collectFirst { case ("data", value) => value }
-    val hasErrors = value.fields.exists(_._1 == "errors")
-    val validData = data.forall {
-      case _: ObjectValue => true
-      case NullValue      => true
-      case _              => false
-    }
-
+  private def decodeValue(value: ResponseValue): Either[SubgraphExecutor.Failure, GraphQLResponse[CalibanError]] =
     GraphQLResponse
       .fromResponseValue(value)
-      .filter(response =>
-        (data.nonEmpty || hasErrors) && validData &&
-          !(data.contains(NullValue) && response.errors.isEmpty) && response.hasNext.isEmpty
-      )
-      .map(response => response.copy(errors = response.errors.map(RemoteError.disclose(_, remoteErrorMessages))))
+      .toRight(SubgraphExecutor.InvalidResponse)
+      .flatMap(validateResponse)
+
+  private def responseWithinLimits(bytes: Array[Byte]): Either[SubgraphExecutor.Failure, Unit] =
+    validateJsonStructure(
+      bytes,
+      responseStructureLimits.maxResponseDepth,
+      responseStructureLimits.maxResponseTokens
+    ).left.map {
+      case RemoteTransport.JsonDepthExceeded  => SubgraphExecutor.ResponseNestingTooDeep
+      case RemoteTransport.JsonTokensExceeded => SubgraphExecutor.ResponseStructureTooLarge
+    }
+
+  private def validateResponse(
+    response: GraphQLResponse[CalibanError]
+  ): Either[SubgraphExecutor.Failure, GraphQLResponse[CalibanError]] = {
+    val validData = response.data match {
+      case _: ObjectValue => true
+      case NullValue      => response.errors.nonEmpty
+      case _              => false
+    }
+    Either.cond(
+      validData && response.hasNext.isEmpty,
+      response.copy(errors = response.errors.map(RemoteError.disclose(_, remoteErrorMessages))),
+      SubgraphExecutor.InvalidResponse
+    )
   }
 }
 
@@ -395,7 +398,8 @@ private[gateway] object RemoteSubgraphExecutor {
     backend: SttpClient,
     config: RemoteGraphQLConfig[R],
     wrapper: GatewayWrapper[R],
-    remoteErrorMessages: Boolean = false
+    remoteErrorMessages: Boolean = false,
+    admission: Option[AdmissionGate[R]] = None
   )(implicit trace: Trace): ZIO[Scope, Nothing, RemoteSubgraphExecutor[R]] =
     Scope.make.flatMap { deduplicationScope =>
       val deduplicator =
@@ -403,19 +407,29 @@ private[gateway] object RemoteSubgraphExecutor {
           InFlightQueryDeduplicator.make(deduplicationScope, config.execution.maxConcurrentCalls).map(Some(_))
         else ZIO.none
       ZIO.addFinalizer(deduplicationScope.close(Exit.unit)) *>
-        deduplicator.map(
-          new RemoteSubgraphExecutor(
-            name,
-            endpoint,
-            backend,
-            config,
-            ResponseStructureLimits.default,
-            _,
-            None,
-            wrapper,
-            remoteErrorMessages
+        deduplicator
+          .zip(
+            admission.fold(
+              AdmissionGate.make(
+                config.execution.maxConcurrentCalls,
+                GatewayWrapper.AdmissionKind.Subgraph,
+                wrapper
+              )
+            )(ZIO.succeed(_))
           )
-        )
+          .map { case (calls, admission) =>
+            new RemoteSubgraphExecutor(
+              name,
+              endpoint,
+              backend,
+              config,
+              ResponseStructureLimits.default,
+              calls,
+              Some(admission),
+              wrapper,
+              remoteErrorMessages
+            )
+          }
     }
 
   final case class ResponseStructureLimits(
@@ -432,17 +446,16 @@ private[gateway] object RemoteSubgraphExecutor {
 
   private[internal] final case class QueryDeduplicationKey(
     body: RequestBody,
-    headers: Vector[(String, Vector[String])]
+    headers: Vector[(String, String)]
   )
 
   private object QueryDeduplicationKey {
     def apply(body: Array[Byte], headers: List[Header]): QueryDeduplicationKey = {
-      val grouped = mutable.HashMap.empty[String, Vector[String]]
-      headers.foreach { header =>
-        val name = RemoteGraphQLConfig.normalize(header.name)
-        grouped.update(name, grouped.getOrElse(name, Vector.empty) :+ header.value)
-      }
-      QueryDeduplicationKey(new RequestBody(body), grouped.toVector.sortBy(_._1))
+      val sorted = headers.iterator
+        .map(header => RemoteGraphQLConfig.normalize(header.name) -> header.value)
+        .toVector
+        .sortBy(_._1)
+      QueryDeduplicationKey(new RequestBody(body), sorted)
     }
   }
 

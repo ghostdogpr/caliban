@@ -29,7 +29,8 @@ private[gateway] final class ResponseCompletion(
     path: List[PathValue],
     sourceErrors: ErrorPathIndex,
     fetched: FetchedFields,
-    runtimeType: Option[String] = None
+    runtimeType: Option[String] = None,
+    indexed: IndexedFields = null
   ): Completion =
     value match {
       case obj: ObjectValue =>
@@ -38,7 +39,7 @@ private[gateway] final class ResponseCompletion(
         var missing   = false
         var remaining = fields
 
-        val lookup = IndexedFields(obj)
+        val lookup = if (indexed eq null) IndexedFields(obj) else indexed
 
         while (remaining ne Nil) {
           val field        = remaining.head
@@ -237,12 +238,16 @@ private[gateway] final class ResponseCompletion(
     sourceErrors: ErrorPathIndex,
     fetched: FetchedFields
   ): Completion = {
-    val runtime = runtimeType(value, completion.runtimeTypes)
+    val indexed = value match {
+      case obj: ObjectValue => IndexedFields(obj)
+      case _                => null
+    }
+    val runtime = runtimeType(indexed, completion.runtimeTypes)
     runtime.filter(name => completion.possible.isEmpty || completion.possible.contains(name)) match {
       case Some(typeName)                                         =>
-        completeNestedObject(typeName, field, value, path, sourceErrors, fetched)
+        completeNestedObject(typeName, field, value, path, sourceErrors, fetched, indexed)
       case None if runtime.isEmpty && !completion.requiresRuntime =>
-        completeNestedObject(completion.defaultType, field, value, path, sourceErrors, fetched)
+        completeNestedObject(completion.defaultType, field, value, path, sourceErrors, fetched, indexed)
       case None                                                   =>
         Completed(NullValue, invalidSourceValueErrors(path.reverse, sourceErrors))
     }
@@ -264,11 +269,9 @@ private[gateway] final class ResponseCompletion(
     }
     AbstractCompletion(
       fieldType.possibleTypes.getOrElse(Nil).flatMap(_.name).toSet,
-      RuntimeTypeLookup(
-        matching.toList,
-        fallback.toList,
-        field.fields.iterator.filter(_.name == "__typename").map(_.aliasedName).toList
-      ),
+      matching.toList.map(_.responseName) :::
+        field.fields.iterator.filter(_.name == "__typename").map(_.aliasedName).toList :::
+        "__typename" :: fallback.toList.map(_.responseName),
       field.fields.exists(child => child.name == "__typename" || child._condition.nonEmpty || child.targets.nonEmpty),
       fieldType.innerType.name.getOrElse("")
     )
@@ -280,9 +283,11 @@ private[gateway] final class ResponseCompletion(
     value: ResponseValue,
     path: List[PathValue],
     sourceErrors: ErrorPathIndex,
-    fetched: FetchedFields
+    fetched: FetchedFields,
+    indexed: IndexedFields = null
   ): Completion = {
-    val completed = completeObject(field.collectFields(typeName), value, path, sourceErrors, fetched, Some(typeName))
+    val completed =
+      completeObject(field.collectFields(typeName), value, path, sourceErrors, fetched, Some(typeName), indexed)
     if (completed.bubblesNull) Completed(NullValue, completed.errors) else completed
   }
 
@@ -311,26 +316,20 @@ private[gateway] final class ResponseCompletion(
     if ((path.isEmpty && sourceErrors.nonEmpty) || sourceErrors.overlaps(path)) Nil else List(RemoteError.at(path))
 
   private def runtimeType(
-    value: ResponseValue,
-    runtimeTypes: RuntimeTypeLookup
-  ): Option[String] =
-    value match {
-      case obj: ObjectValue =>
-        val lookup = IndexedFields(obj)
-        runtimeTypes.matching.iterator
-          .flatMap(selection => lookup.get(selection.responseName))
-          .collectFirst { case StringValue(name) => name }
-          .orElse(runtimeTypes.selectedAliases.iterator.flatMap(lookup.get(_)).collectFirst { case StringValue(name) =>
-            name
-          })
-          .orElse(lookup.get("__typename").collect { case StringValue(name) => name })
-          .orElse(
-            runtimeTypes.fallback.iterator
-              .flatMap(selection => lookup.get(selection.responseName))
-              .collectFirst { case StringValue(name) => name }
-          )
-      case _                => None
+    value: IndexedFields,
+    runtimeTypes: List[String]
+  ): Option[String] = {
+    if (value eq null) return None
+    var remaining = runtimeTypes
+    while (remaining ne Nil) {
+      value.getOrNull(remaining.head) match {
+        case StringValue(name) => return Some(name)
+        case _                 => ()
+      }
+      remaining = remaining.tail
     }
+    None
+  }
 
   private def responsePath(path: List[PathValue]): Vector[String] = {
     var names: List[String] = Nil
@@ -385,15 +384,9 @@ private[gateway] object ResponseCompletion {
     }
   }
 
-  private final case class RuntimeTypeLookup(
-    matching: List[TypenameSelection],
-    fallback: List[TypenameSelection],
-    selectedAliases: List[String]
-  )
-
   private final case class AbstractCompletion(
     possible: Set[String],
-    runtimeTypes: RuntimeTypeLookup,
+    runtimeTypes: List[String],
     requiresRuntime: Boolean,
     defaultType: String
   )
@@ -441,6 +434,79 @@ private[gateway] object ResponseCompletion {
  * entity patches overwrite fetched values, while blocked patches only fill missing values.
  */
 private[gateway] object ResponseMerge {
+  private[internal] final case class ResponseNameMapping(
+    clientName: String,
+    children: Map[String, ResponseNameMapping]
+  )
+
+  def responseNameRestorer(
+    clientFields: List[Field],
+    executableFields: List[Field]
+  ): Option[Map[String, ResponseNameMapping]] = {
+    val mappings = responseNameMappings(clientFields, executableFields)
+
+    def isIdentity(values: Map[String, ResponseNameMapping]): Boolean =
+      values.forall { case (name, mapping) => mapping.clientName == name && isIdentity(mapping.children) }
+
+    if (isIdentity(mappings)) None else Some(mappings)
+  }
+
+  def restoreResponseNames(
+    mappings: Map[String, ResponseNameMapping],
+    value: ResponseValue
+  ): ResponseValue =
+    value match {
+      case ObjectValue(fields) =>
+        val restored = mutable.LinkedHashMap.empty[String, ResponseValue]
+        fields.foreach { case (name, nested) =>
+          val (clientName, clientValue) = mappings.get(name) match {
+            case Some(mapping) => mapping.clientName -> restoreResponseNames(mapping.children, nested)
+            case None          => name               -> nested
+          }
+          restored.update(
+            clientName,
+            restored.get(clientName).fold(clientValue)(mergeRootValue(_, clientValue))
+          )
+        }
+        ObjectValue(restored.toList)
+      case ListValue(values)   => ListValue(values.map(restoreResponseNames(mappings, _)))
+      case other               => other
+    }
+
+  private def responseNameMappings(
+    clientFields: List[Field],
+    executableFields: List[Field]
+  ): Map[String, ResponseNameMapping] =
+    executableFields
+      .zip(clientFields)
+      .groupBy(_._1.aliasedName)
+      .map { case (responseName, matches) =>
+        val executable = matches.iterator.map(_._1).reduce(_.combine(_))
+        val client     = matches.iterator.map(_._2).reduce(_.combine(_))
+        responseName -> ResponseNameMapping(
+          client.aliasedName,
+          responseNameMappings(client.fields, executable.fields)
+        )
+      }
+
+  def restoreResponsePath(
+    clientFields: List[Field],
+    executableFields: List[Field],
+    path: List[PathValue]
+  ): List[PathValue] =
+    path match {
+      case PathValue.Key(name) :: tail    =>
+        executableFields.zip(clientFields).find(_._1.aliasedName == name) match {
+          case Some((executable, client)) =>
+            PathValue.Key(client.aliasedName) :: restoreResponsePath(client.fields, executable.fields, tail)
+          case None                       => path
+        }
+      case PathValue.Index(index) :: tail =>
+        PathValue.Index(index) :: restoreResponsePath(clientFields, executableFields, tail)
+      case _ :: _                         => path
+      case Nil                            => Nil
+    }
+
   def applyPatches(
     value: ResponseValue,
     patches: List[(List[PathValue], ResponseValue)]

@@ -96,10 +96,8 @@ private[gateway] object OperationCache {
   ): UIO[OperationCache[K, E, V, R]] =
     Ref.make(State.empty[K, E, V]).map(new OperationCache(maxWeight, _, wrapper))
 
-  private final case class Entry[+V](value: V, weight: Long)
-
   private final case class State[K, E, V](
-    entries: Map[K, Entry[V]],
+    entries: Map[K, Weighted[V]],
     order: Queue[K],
     weight: Long,
     inFlight: Map[K, Promise[Nothing, Exit[E, V]]]
@@ -118,7 +116,7 @@ private[gateway] object OperationCache {
       else
         evict(
           copy(
-            entries = entries.updated(key, Entry(weighted.value, entryWeight)),
+            entries = entries.updated(key, Weighted(weighted.value, entryWeight)),
             order = order.enqueue(key),
             weight = weight + entryWeight
           ),

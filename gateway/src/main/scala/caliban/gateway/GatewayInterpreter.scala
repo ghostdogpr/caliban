@@ -1,6 +1,9 @@
 package caliban.gateway
 
-import caliban.{ CalibanError, GraphQLInterpreter, GraphQLRequest, GraphQLResponse, IncomingRequestHeaders }
+import caliban._
+import caliban.GraphQLResponseContext.ServerFailure
+import caliban.gateway.internal.GatewayInterpreterImpl.requestShutdownResponse
+import caliban.gateway.internal.execution.SubgraphExecutor
 import sttp.model.Header
 import zio.{ Trace, URIO, ZIO }
 import zio.stream.ZStream
@@ -13,12 +16,18 @@ import zio.stream.ZStream
  */
 trait GatewayInterpreter[-R] extends GraphQLInterpreter[R, CalibanError] {
 
+  private[gateway] def shutdownResponse(implicit trace: Trace): URIO[Any, GraphQLResponse[CalibanError]] =
+    GraphQLResponseContext
+      .markServerError(ServerFailure.Unavailable)
+      .as(requestShutdownResponse)
+
   /**
    * Setup and resources belong to each consumption, not stream construction.
    */
   def executeStream(request: GraphQLRequest)(implicit
     trace: Trace
-  ): ZStream[R, Throwable, GraphQLResponse[CalibanError]]
+  ): ZStream[R, Throwable, GraphQLResponse[CalibanError]] =
+    ZStream.unwrap(executeRequest(request).map(SubgraphExecutor.responses))
 
   def executeStream(request: GraphQLRequest, headers: List[Header])(implicit
     trace: Trace

@@ -551,14 +551,13 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
         backend        <- HttpClientZioBackend.scoped()
         calls          <- Ref.make(0)
         remote         <- endpoint(_ => calls.update(_ + 1).as(Response.json("""{"data":{"value":"ok"}}""")))
-        gate           <- AdmissionGate.make(1, GatewayWrapper.AdmissionKind.Subgraph)
+        gate           <- AdmissionGate.make(1, GatewayWrapper.AdmissionKind.Subgraph, GatewayWrapper.empty)
         blockerStarted <- Promise.make[Nothing, Unit]
         releaseBlocker <- Promise.make[Nothing, Unit]
         blocker        <- gate(blockerStarted.succeed(()).unit *> releaseBlocker.await).fork
         _              <- blockerStarted.await
         source         <- RemoteSubgraphExecutor
-                            .make("remote", remote, backend, config, GatewayWrapper.empty)
-                            .map(_.admittedBy(gate, GatewayWrapper.empty))
+                            .make("remote", remote, backend, config, GatewayWrapper.empty, admission = Some(gate))
         first          <- Live.live(source.execute(request, OperationType.Query).either)
         _              <- releaseBlocker.succeed(())
         _              <- blocker.join

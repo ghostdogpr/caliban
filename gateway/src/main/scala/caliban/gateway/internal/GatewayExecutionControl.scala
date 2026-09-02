@@ -1,91 +1,82 @@
 package caliban.gateway.internal
 
-import caliban.gateway.GatewayWrapper
+import caliban.gateway.{ GatewaySubscriptionConfig, GatewayWrapper }
 import caliban.gateway.GatewayWrapper.{ AdmissionKind, Event, Result }
-import caliban.gateway.internal.execution.SubgraphExecutor
 import zio.{ Clock, Duration, Exit, Promise, Ref, Scope, Trace, UIO, URIO, ZIO }
 
-private[gateway] final class GatewayExecutionControl private (
-  requests: AdmissionGate,
-  subgraphs: Map[String, AdmissionGate],
+private[gateway] final class GatewayExecutionControl[-R] private (
+  requests: AdmissionGate[R],
+  wrapper: GatewayWrapper[R],
+  val subscriptions: SubscriptionControl[R],
   requestTimeout: Duration,
   drainTimeout: Duration,
   state: Ref[GatewayExecutionControl.State],
   drained: Promise[Nothing, Unit],
-  forceStop: Promise[Nothing, Unit],
-  subscriptionDrain: Ref[UIO[Unit]]
+  forceStop: Promise[Nothing, Unit]
 ) {
   import GatewayExecutionControl._
 
-  def onSubscriptionClose(effect: UIO[Unit])(implicit trace: Trace): UIO[Unit] = subscriptionDrain.set(effect)
-
-  def subscriptionWork[R, E, A](kind: AdmissionKind, wrapper: GatewayWrapper[R])(effect: ZIO[R, E, A])(implicit
-    trace: Trace
-  ): ZIO[R, E, A] =
-    requests.observedAs(kind, wrapper)(effect)
-
-  def runRequest[R, E, A](effect: ZIO[R, E, A], reservation: Option[Lease] = None)(
-    onTimeout: => ZIO[R, E, A]
+  def runRequest[R0, E, A](effect: ZIO[R0, E, A], reservation: Option[Lease] = None)(
+    onTimeout: => ZIO[R0, E, A]
   )(
-    onRejected: => ZIO[R, E, A]
-  )(implicit trace: Trace): ZIO[R, E, A] =
-    ZIO.uninterruptibleMask { restore =>
-      reservation.fold(reserve)(ZIO.some(_)).flatMap {
-        case Some(lease) =>
-          restore(run(lease, requests(effect)).flatMap(_.fold(onTimeout)(ZIO.succeed(_))))
-            .ensuring(end(lease.token))
-        case None        => restore(onRejected)
-      }
+    onRejected: => ZIO[R0, E, A]
+  )(implicit trace: Trace): ZIO[R0, E, A] =
+    leased(reservation)(onRejected) { lease =>
+      run(lease, requests(effect)).flatMap(_.fold(onTimeout)(ZIO.succeed(_)))
     }
 
-  def runObservedRequest[R, B, A](wrapper: GatewayWrapper[R], event: Event.Request, reservation: Option[Lease] = None)(
-    prepare: URIO[R, B]
+  def runObservedRequest[R1 <: R, B, A](event: Event.Request, reservation: Option[Lease] = None)(
+    prepare: URIO[R1, B]
   )(
     isFinite: B => Boolean
   )(
-    execute: B => URIO[R, A]
+    execute: B => URIO[R1, A]
   )(
-    onTimeout: => URIO[R, A]
+    onTimeout: => URIO[R1, A]
   )(
-    onRejected: => URIO[R, A]
-  )(result: Exit[Nothing, A] => Result)(implicit trace: Trace): URIO[R, A] =
-    ZIO.uninterruptibleMask { restore =>
-      def observe(effect: URIO[R, A]): URIO[R, A] = wrapper.wrap(event)(effect)(result)
-      reservation.fold(reserve)(ZIO.some(_)).flatMap {
-        case None        => restore(observe(onRejected))
-        case Some(lease) =>
-          // Classify the resolved operation before opening finite-request metrics/spans, while one
-          // admission permit, deadline, and drain lease cover preparation and execution together.
-          restore(
-            ZIO.scoped[R] {
-              run(lease, requests.acquire).flatMap {
-                case None    => observe(onTimeout)
-                case Some(_) =>
-                  run(lease, prepare).flatMap {
-                    case None           => observe(onTimeout)
-                    case Some(prepared) =>
-                      val finite   = isFinite(prepared)
-                      val work     = if (finite) requests.observe(wrapper)(execute(prepared)) else execute(prepared)
-                      val response = run(lease, work).flatMap(_.fold(onTimeout)(ZIO.succeed(_)))
-                      if (finite) observe(response) else response
-                  }
-              }
+    onRejected: => URIO[R1, A]
+  )(result: Exit[Nothing, A] => Result)(implicit trace: Trace): URIO[R1, A] = {
+    def observe(effect: URIO[R1, A]): URIO[R1, A] = wrapper.wrap(event)(effect)(result)
+    leased(reservation)(observe(onRejected)) { lease =>
+      // Classify the resolved operation before opening finite-request metrics/spans, while one
+      // admission permit, deadline, and drain lease cover preparation and execution together.
+      ZIO.scoped[R1] {
+        run(lease, requests.acquire).flatMap {
+          case None    => observe(onTimeout)
+          case Some(_) =>
+            run(lease, prepare).flatMap {
+              case None           => observe(onTimeout)
+              case Some(prepared) =>
+                val finite   = isFinite(prepared)
+                val work     = if (finite) requests.observe(execute(prepared)) else execute(prepared)
+                val response = run(lease, work).flatMap(_.fold(onTimeout)(ZIO.succeed(_)))
+                if (finite) observe(response) else response
             }
-          ).ensuring(end(lease.token))
+        }
       }
     }
-
-  def admitExecutor[R](name: String, executor: SubgraphExecutor[R], wrapper: GatewayWrapper[R]): SubgraphExecutor[R] =
-    subgraphs.get(name).fold(executor)(executor.admittedBy(_, wrapper))
+  }
 
   // Reservation is coordinated with generation selection by the reload supervisor.
   def reserve(implicit trace: Trace): UIO[Option[Lease]] =
     Clock.nanoTime.flatMap { startedAt =>
-      val lease = Lease(new Token, startedAt)
+      val lease = new Lease(startedAt)
       state.modify { current =>
         if (current.drainStartedAt.isEmpty)
-          Some(lease) -> current.copy(requests = current.requests + lease.token)
+          Some(lease) -> current.copy(requests = current.requests + lease)
         else None     -> current
+      }
+    }
+
+  private def leased[R, E, A](reservation: Option[Lease])(
+    onRejected: => ZIO[R, E, A]
+  )(
+    body: Lease => ZIO[R, E, A]
+  )(implicit trace: Trace): ZIO[R, E, A] =
+    ZIO.uninterruptibleMask { restore =>
+      reservation.fold(reserve)(ZIO.some(_)).flatMap {
+        case Some(lease) => restore(body(lease)).ensuring(end(lease))
+        case None        => restore(onRejected)
       }
     }
 
@@ -148,12 +139,12 @@ private[gateway] final class GatewayExecutionControl private (
       current.drainStartedAt.exists(startedAt => now - startedAt >= drainTimeout.toNanos)
     }
 
-  // Must stay idempotent: request execution and the reload supervisor both end the same token, including on cancellation.
-  def release(lease: Lease)(implicit trace: Trace): UIO[Unit] = end(lease.token)
+  // Must stay idempotent: request execution and the reload supervisor both end the same lease, including on cancellation.
+  def release(lease: Lease)(implicit trace: Trace): UIO[Unit] = end(lease)
 
-  private def end(token: Token)(implicit trace: Trace): UIO[Unit] =
+  private def end(lease: Lease)(implicit trace: Trace): UIO[Unit] =
     state.modify { current =>
-      val next   = current.copy(requests = current.requests - token)
+      val next   = current.copy(requests = current.requests - lease)
       val signal = next.drainStartedAt.nonEmpty && next.requests.isEmpty
       signal -> next
     }
@@ -161,7 +152,7 @@ private[gateway] final class GatewayExecutionControl private (
 
   private def close(implicit trace: Trace): UIO[Unit] =
     // Neither lifetime may postpone the other's admission closure or cancellation deadline.
-    closeRequests.zipPar(subscriptionDrain.get.flatten).unit.uninterruptible
+    closeRequests.zipPar(subscriptions.close).unit.uninterruptible
 
   private def closeRequests(implicit trace: Trace): UIO[Unit] =
     (for {
@@ -180,41 +171,37 @@ private[gateway] final class GatewayExecutionControl private (
 }
 
 private[gateway] object GatewayExecutionControl {
-  def make(
+  def make[R](
     requestLimit: Int,
-    subgraphLimits: Map[String, Int],
+    subscriptionConfig: GatewaySubscriptionConfig,
+    wrapper: GatewayWrapper[R],
     requestTimeout: Duration,
     drainTimeout: Duration
-  )(implicit trace: Trace): ZIO[Scope, Nothing, GatewayExecutionControl] =
+  )(implicit trace: Trace): ZIO[Scope, Nothing, GatewayExecutionControl[R]] =
     for {
-      requests          <- AdmissionGate.make(requestLimit, AdmissionKind.Request)
-      subgraphs         <- ZIO.foreach(subgraphLimits) { case (name, limit) =>
-                             AdmissionGate.make(limit, AdmissionKind.Subgraph).map(name -> _)
-                           }
-      state             <- Ref.make(State(Set.empty, None))
-      drained           <- Promise.make[Nothing, Unit]
-      forceStop         <- Promise.make[Nothing, Unit]
-      subscriptionDrain <- Ref.make[UIO[Unit]](ZIO.unit)
-      control            =
+      requests      <- AdmissionGate.make(requestLimit, AdmissionKind.Request, wrapper)
+      subscriptions <- SubscriptionControl.make(subscriptionConfig, requests, wrapper)
+      state         <- Ref.make(State(Set.empty, None))
+      drained       <- Promise.make[Nothing, Unit]
+      forceStop     <- Promise.make[Nothing, Unit]
+      control        =
         new GatewayExecutionControl(
           requests,
-          subgraphs,
+          wrapper,
+          subscriptions,
           requestTimeout,
           drainTimeout,
           state,
           drained,
-          forceStop,
-          subscriptionDrain
+          forceStop
         )
-      _                 <- ZIO.addFinalizer(control.close)
+      _             <- ZIO.addFinalizer(control.close)
     } yield control
 
-  private[gateway] final class Token
-
-  private[gateway] final case class Lease(token: Token, startedAt: Long)
+  private[gateway] final class Lease(val startedAt: Long)
 
   private final case class State(
-    requests: Set[Token],
+    requests: Set[Lease],
     drainStartedAt: Option[Long]
   )
 

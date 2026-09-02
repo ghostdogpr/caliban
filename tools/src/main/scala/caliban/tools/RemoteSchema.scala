@@ -14,6 +14,7 @@ import caliban.validation.SchemaValidator
 object RemoteSchema {
 
   private final case class RootNames(query: Option[String], mutation: Option[String], subscription: Option[String])
+  private[caliban] final case class Normalized(rootType: RootType, document: Document)
 
   /**
    * Turns an introspection schema into a caliban.parsing.adt.__Schema
@@ -21,7 +22,8 @@ object RemoteSchema {
    * stitching.
    */
   def parseRemoteSchema(doc: Document): Option[__Schema] = {
-    val queries = doc.schemaDefinition
+    val converter = new Converter(doc.typeDefinitions, includeDeprecatedByDefault = true)
+    val queries   = doc.schemaDefinition
       .flatMap(_.query)
       .flatMap(doc.objectTypeDefinition)
 
@@ -37,19 +39,11 @@ object RemoteSchema {
       .map(queries =>
         __Schema(
           description = doc.schemaDefinition.flatMap(_.description),
-          queryType = toTypeDefinition(queries, doc.typeDefinitions, includeDeprecatedByDefault = true),
-          mutationType = mutations.map(definition =>
-            toTypeDefinition(definition, doc.typeDefinitions, includeDeprecatedByDefault = true)
-          ),
-          subscriptionType = subscriptions.map(definition =>
-            toTypeDefinition(definition, doc.typeDefinitions, includeDeprecatedByDefault = true)
-          ),
-          types = doc.typeDefinitions.map(definition =>
-            toTypeDefinition(definition, doc.typeDefinitions, includeDeprecatedByDefault = true)
-          ),
-          directives = doc.directiveDefinitions.map(definition =>
-            toDirective(definition, doc.typeDefinitions, includeDeprecatedByDefault = true)
-          )
+          queryType = converter.toTypeDefinition(queries),
+          mutationType = mutations.map(converter.toTypeDefinition),
+          subscriptionType = subscriptions.map(converter.toTypeDefinition),
+          types = doc.typeDefinitions.map(converter.toTypeDefinition),
+          directives = doc.directiveDefinitions.map(converter.toDirective)
         )
       )
   }
@@ -58,13 +52,25 @@ object RemoteSchema {
     document: Document,
     promoteOrphans: Boolean = false
   ): Either[ValidationError, RootType] =
+    normalize(document, promoteOrphans).map(_.rootType)
+
+  private[caliban] def normalize(
+    document: Document,
+    promoteOrphans: Boolean = false
+  ): Either[ValidationError, Normalized] =
     for {
       normalized <- normalizeExtensions(document, promoteOrphans)
       roots       = rootNames(normalized)
+      queryName  <- roots.query.toRight(
+                      ValidationError(
+                        "The query root operation is missing.",
+                        "The query root operation type must be provided and must be an Object type."
+                      )
+                    )
       _          <- SchemaValidator.validateDocument(normalized, roots.query, roots.mutation, roots.subscription)
-      rootType    = buildRootType(normalized, roots)
+      rootType   <- buildRootType(normalized, roots, queryName)
       _          <- SchemaValidator.validateRootType(rootType)
-    } yield rootType
+    } yield Normalized(rootType, normalized)
 
   private def normalizeExtensions(
     document: Document,
@@ -259,28 +265,38 @@ object RemoteSchema {
       case InputObjectTypeExtension(name, _, _) => name
     }
 
-  private def buildRootType(document: Document, roots: RootNames): RootType = {
+  private def buildRootType(
+    document: Document,
+    roots: RootNames,
+    queryName: String
+  ): Either[ValidationError, RootType] = {
     val definitions   = document.typeDefinitions
     val rootTypeNames = roots.query.toSet ++ roots.mutation ++ roots.subscription
+    val converter     = new Converter(definitions, includeDeprecatedByDefault = false)
 
-    RootType(
-      toTypeDefinition(
-        document.objectTypeDefinition(roots.query.get).get,
-        definitions,
-        includeDeprecatedByDefault = false
-      ),
-      roots.mutation
-        .flatMap(document.objectTypeDefinition)
-        .map(definition => toTypeDefinition(definition, definitions, includeDeprecatedByDefault = false)),
-      roots.subscription
-        .flatMap(document.objectTypeDefinition)
-        .map(definition => toTypeDefinition(definition, definitions, includeDeprecatedByDefault = false)),
+    def rootDefinition(operation: String, name: String): Either[ValidationError, ObjectTypeDefinition] =
+      document
+        .objectTypeDefinition(name)
+        .toRight(ValidationError(s"The $operation root type '$name' must be an object type.", ""))
+
+    def optionalRoot(operation: String, name: Option[String]): Either[ValidationError, Option[ObjectTypeDefinition]] =
+      name match {
+        case Some(value) => rootDefinition(operation, value).map(Some(_))
+        case None        => Right(None)
+      }
+
+    for {
+      queryDefinition <- rootDefinition("query", queryName)
+      mutation        <- optionalRoot("mutation", roots.mutation)
+      subscription    <- optionalRoot("subscription", roots.subscription)
+    } yield RootType(
+      converter.toTypeDefinition(queryDefinition),
+      mutation.map(converter.toTypeDefinition),
+      subscription.map(converter.toTypeDefinition),
       definitions
         .filterNot(definition => rootTypeNames.contains(definition.name))
-        .map(definition => toTypeDefinition(definition, definitions, includeDeprecatedByDefault = false)),
-      document.directiveDefinitions.map(definition =>
-        toDirective(definition, definitions, includeDeprecatedByDefault = false)
-      ),
+        .map(converter.toTypeDefinition),
+      document.directiveDefinitions.map(converter.toDirective),
       document.schemaDefinition.flatMap(_.description)
     )
   }
@@ -309,328 +325,301 @@ object RemoteSchema {
       )
     }
 
-  private def toObjectType(
-    definition: Definition.TypeSystemDefinition.TypeDefinition.ObjectTypeDefinition,
+  private final class Converter(
     definitions: List[Definition.TypeSystemDefinition.TypeDefinition],
     includeDeprecatedByDefault: Boolean
-  ): __Type =
-    __Type(
-      kind = __TypeKind.OBJECT,
-      name = Some(definition.name),
-      description = definition.description,
-      interfaces = toInterfaces(definition.implements, definitions, includeDeprecatedByDefault),
-      directives = toDirectives(definition.directives),
-      fields = (args: __DeprecatedArgs) =>
-        if (definition.fields.nonEmpty)
-          Some(
-            definition.fields
-              .map(toField(_, definitions, includeDeprecatedByDefault))
-              .filter(filterDeprecated(_, args, includeDeprecatedByDefault))
-          )
-        else None
-    )
+  ) {
+    private def toObjectType(
+      definition: Definition.TypeSystemDefinition.TypeDefinition.ObjectTypeDefinition
+    ): __Type =
+      __Type(
+        kind = __TypeKind.OBJECT,
+        name = Some(definition.name),
+        description = definition.description,
+        interfaces = toInterfaces(definition.implements),
+        directives = toDirectives(definition.directives),
+        fields = (args: __DeprecatedArgs) =>
+          if (definition.fields.nonEmpty)
+            Some(
+              definition.fields
+                .map(toField)
+                .filter(filterDeprecated(_, args))
+            )
+          else None
+      )
 
-  private def toField(
-    definition: Definition.TypeSystemDefinition.TypeDefinition.FieldDefinition,
-    definitions: List[Definition.TypeSystemDefinition.TypeDefinition],
-    includeDeprecatedByDefault: Boolean
-  ): __Field =
-    __Field(
-      name = definition.name,
-      description = definition.description,
-      args = (args: __DeprecatedArgs) =>
-        definition.args
-          .map(toInputValue(_, definitions, includeDeprecatedByDefault))
-          .filter(filterDeprecated(_, args, includeDeprecatedByDefault)),
-      `type` = toType(definition.ofType, definitions, includeDeprecatedByDefault),
-      isDeprecated = isDeprecated(definition.directives),
-      deprecationReason = deprecationReason(definition.directives),
-      directives = toDirectives(definition.directives)
-    )
+    private def toField(
+      definition: Definition.TypeSystemDefinition.TypeDefinition.FieldDefinition
+    ): __Field =
+      __Field(
+        name = definition.name,
+        description = definition.description,
+        args = (args: __DeprecatedArgs) =>
+          definition.args
+            .map(toInputValue)
+            .filter(filterDeprecated(_, args)),
+        `type` = toType(definition.ofType),
+        isDeprecated = isDeprecated(definition.directives),
+        deprecationReason = deprecationReason(definition.directives),
+        directives = toDirectives(definition.directives)
+      )
 
-  private def toType(
-    definition: Type,
-    definitions: List[Definition.TypeSystemDefinition.TypeDefinition],
-    includeDeprecatedByDefault: Boolean
-  ): () => __Type = { () =>
-    definition match {
-      case Type.ListType(t, nonNull) =>
-        if (nonNull)
-          __Type(
-            kind = __TypeKind.NON_NULL,
-            ofType = Some(
-              __Type(
-                kind = __TypeKind.LIST,
-                ofType = Some(
-                  toType(t, definitions, includeDeprecatedByDefault)()
+    private def toType(definition: Type): () => __Type = { () =>
+      definition match {
+        case Type.ListType(t, nonNull) =>
+          if (nonNull)
+            __Type(
+              kind = __TypeKind.NON_NULL,
+              ofType = Some(
+                __Type(
+                  kind = __TypeKind.LIST,
+                  ofType = Some(
+                    toType(t)()
+                  )
                 )
               )
             )
-          )
-        else
-          __Type(
-            kind = __TypeKind.LIST,
-            ofType = Some(
-              toType(t, definitions, includeDeprecatedByDefault)()
+          else
+            __Type(
+              kind = __TypeKind.LIST,
+              ofType = Some(
+                toType(t)()
+              )
             )
-          )
 
-      case Type.NamedType(name, nonNull) =>
-        if (nonNull)
-          __Type(
-            kind = __TypeKind.NON_NULL,
-            ofType = Some(
-              toType(name, definitions, includeDeprecatedByDefault)
+        case Type.NamedType(name, nonNull) =>
+          if (nonNull)
+            __Type(
+              kind = __TypeKind.NON_NULL,
+              ofType = Some(
+                toType(name)
+              )
             )
-          )
-        else
-          toType(name, definitions, includeDeprecatedByDefault)
+          else
+            toType(name)
+      }
     }
+
+    private def toType(name: String) =
+      definitions.find(_.name == name) match {
+        case Some(value) => toTypeDefinition(value)
+        case None        => __Type(kind = __TypeKind.SCALAR, name = Some(name))
+      }
+
+    private def toDirectives(directives: List[Directive]): Option[List[Directive]] = {
+      val filtered = directives.filter(_.name != "deprecated")
+
+      if (filtered.nonEmpty) Some(filtered)
+      else None
+    }
+
+    private def toInterfaces(interfaces: List[Type.NamedType]): () => Some[List[__Type]] = { () =>
+      Some(
+        interfaces
+          .map(t => toType(t.name))
+      )
+    }
+
+    private def toInterfaceType(
+      definition: Definition.TypeSystemDefinition.TypeDefinition.InterfaceTypeDefinition
+    ): __Type = {
+      val implementations = definitions.collect {
+        case t @ ObjectTypeDefinition(_, _, implements, _, _)
+            if implements.map(_.name).toSet.contains(definition.name) =>
+          toTypeDefinition(t)
+      }
+
+      __Type(
+        kind = __TypeKind.INTERFACE,
+        name = Some(definition.name),
+        description = definition.description,
+        interfaces = toInterfaces(definition.implements),
+        possibleTypes = Some(implementations),
+        fields = (args: __DeprecatedArgs) =>
+          if (definition.fields.nonEmpty)
+            Some(
+              definition.fields
+                .map(toField)
+                .filter(filterDeprecated(_, args))
+            )
+          else None,
+        directives = toDirectives(definition.directives)
+      )
+    }
+
+    private def toInputValue(
+      definition: Definition.TypeSystemDefinition.TypeDefinition.InputValueDefinition
+    ): __InputValue =
+      __InputValue(
+        name = definition.name,
+        description = definition.description,
+        `type` = toType(definition.ofType),
+        isDeprecated = isDeprecated(definition.directives),
+        deprecationReason = deprecationReason(definition.directives),
+        defaultValue = definition.defaultValue.map(_.toInputString),
+        directives = toDirectives(definition.directives)
+      )
+
+    private def toEnumType(
+      definition: Definition.TypeSystemDefinition.TypeDefinition.EnumTypeDefinition
+    ): __Type =
+      __Type(
+        kind = __TypeKind.ENUM,
+        name = Some(definition.name),
+        enumValues = (args: __DeprecatedArgs) =>
+          if (definition.enumValuesDefinition.nonEmpty)
+            Some(
+              definition.enumValuesDefinition
+                .map(toEnumValue)
+                .filter(filterDeprecated(_, args))
+            )
+          else None,
+        directives = toDirectives(definition.directives)
+      )
+
+    private def toEnumValue(
+      definition: Definition.TypeSystemDefinition.TypeDefinition.EnumValueDefinition
+    ): __EnumValue =
+      __EnumValue(
+        name = definition.enumValue,
+        description = definition.description,
+        isDeprecated = isDeprecated(definition.directives),
+        deprecationReason = deprecationReason(definition.directives),
+        directives = toDirectives(definition.directives)
+      )
+
+    private def toInputObjectType(
+      definition: Definition.TypeSystemDefinition.TypeDefinition.InputObjectTypeDefinition
+    ): __Type =
+      __Type(
+        kind = __TypeKind.INPUT_OBJECT,
+        name = Some(definition.name),
+        description = definition.description,
+        inputFields = (args: __DeprecatedArgs) =>
+          if (definition.fields.nonEmpty)
+            Some(
+              definition.fields
+                .map(toInputValue)
+                .filter(filterDeprecated(_, args))
+            )
+          else None,
+        directives = toDirectives(definition.directives),
+        isOneOf = Some(Directives.isOneOf(definition.directives))
+      )
+
+    private def toUnionType(
+      definition: Definition.TypeSystemDefinition.TypeDefinition.UnionTypeDefinition
+    ): __Type =
+      __Type(
+        kind = __TypeKind.UNION,
+        name = Some(definition.name),
+        description = definition.description,
+        possibleTypes =
+          if (definition.memberTypes.nonEmpty)
+            Some(
+              definition.memberTypes
+                .map(toType)
+            )
+          else None,
+        directives = toDirectives(definition.directives)
+      )
+
+    private def toScalar(
+      definition: Definition.TypeSystemDefinition.TypeDefinition.ScalarTypeDefinition
+    ): __Type =
+      __Type(
+        kind = __TypeKind.SCALAR,
+        name = Some(definition.name),
+        description = definition.description,
+        directives = toDirectives(definition.directives),
+        specifiedByURL = definition.directives.collectFirst {
+          case directive if directive.name == "specifiedBy" =>
+            directive.arguments.get("url").collect { case StringValue(value) => value }
+        }.flatten
+      )
+
+    def toTypeDefinition(definition: Definition.TypeSystemDefinition.TypeDefinition): __Type =
+      definition match {
+        case o: ObjectTypeDefinition      => toObjectType(o)
+        case s: ScalarTypeDefinition      => toScalar(s)
+        case e: EnumTypeDefinition        => toEnumType(e)
+        case u: UnionTypeDefinition       => toUnionType(u)
+        case i: InterfaceTypeDefinition   => toInterfaceType(i)
+        case i: InputObjectTypeDefinition => toInputObjectType(i)
+      }
+
+    def toDirective(definition: Definition.TypeSystemDefinition.DirectiveDefinition): __Directive =
+      __Directive(
+        name = definition.name,
+        description = definition.description,
+        args = (args: __DeprecatedArgs) =>
+          definition.args
+            .map(toInputValue)
+            .filter(filterDeprecated(_, args)),
+        isRepeatable = definition.isRepeatable,
+        locations = definition.locations.map(toDirectiveLocation)
+      )
+
+    private def toDirectiveLocation(loc: DirectiveLocation): __DirectiveLocation =
+      loc match {
+        case DirectiveLocation.ExecutableDirectiveLocation.QUERY                  => __DirectiveLocation.QUERY
+        case DirectiveLocation.ExecutableDirectiveLocation.MUTATION               => __DirectiveLocation.MUTATION
+        case DirectiveLocation.ExecutableDirectiveLocation.SUBSCRIPTION           => __DirectiveLocation.SUBSCRIPTION
+        case DirectiveLocation.ExecutableDirectiveLocation.FIELD                  => __DirectiveLocation.FIELD
+        case DirectiveLocation.ExecutableDirectiveLocation.FRAGMENT_DEFINITION    =>
+          __DirectiveLocation.FRAGMENT_DEFINITION
+        case DirectiveLocation.ExecutableDirectiveLocation.FRAGMENT_SPREAD        => __DirectiveLocation.FRAGMENT_SPREAD
+        case DirectiveLocation.ExecutableDirectiveLocation.INLINE_FRAGMENT        => __DirectiveLocation.INLINE_FRAGMENT
+        case DirectiveLocation.TypeSystemDirectiveLocation.SCHEMA                 => __DirectiveLocation.SCHEMA
+        case DirectiveLocation.TypeSystemDirectiveLocation.SCALAR                 => __DirectiveLocation.SCALAR
+        case DirectiveLocation.TypeSystemDirectiveLocation.OBJECT                 => __DirectiveLocation.OBJECT
+        case DirectiveLocation.TypeSystemDirectiveLocation.FIELD_DEFINITION       => __DirectiveLocation.FIELD_DEFINITION
+        case DirectiveLocation.TypeSystemDirectiveLocation.ARGUMENT_DEFINITION    =>
+          __DirectiveLocation.ARGUMENT_DEFINITION
+        case DirectiveLocation.TypeSystemDirectiveLocation.INTERFACE              => __DirectiveLocation.INTERFACE
+        case DirectiveLocation.TypeSystemDirectiveLocation.UNION                  => __DirectiveLocation.UNION
+        case DirectiveLocation.TypeSystemDirectiveLocation.ENUM                   => __DirectiveLocation.ENUM
+        case DirectiveLocation.TypeSystemDirectiveLocation.ENUM_VALUE             => __DirectiveLocation.ENUM_VALUE
+        case DirectiveLocation.TypeSystemDirectiveLocation.INPUT_OBJECT           => __DirectiveLocation.INPUT_OBJECT
+        case DirectiveLocation.TypeSystemDirectiveLocation.INPUT_FIELD_DEFINITION =>
+          __DirectiveLocation.INPUT_FIELD_DEFINITION
+        case DirectiveLocation.TypeSystemDirectiveLocation.VARIABLE_DEFINITION    =>
+          __DirectiveLocation.VARIABLE_DEFINITION
+      }
+
+    private def filterDeprecated(
+      x: __Field,
+      deprecated: __DeprecatedArgs
+    ): Boolean =
+      if (deprecated.includeDeprecated.getOrElse(includeDeprecatedByDefault)) true
+      else !x.isDeprecated
+
+    private def filterDeprecated(
+      x: __EnumValue,
+      deprecated: __DeprecatedArgs
+    ): Boolean =
+      if (deprecated.includeDeprecated.getOrElse(includeDeprecatedByDefault)) true
+      else !x.isDeprecated
+
+    private def filterDeprecated(
+      x: __InputValue,
+      deprecated: __DeprecatedArgs
+    ): Boolean =
+      if (deprecated.includeDeprecated.getOrElse(includeDeprecatedByDefault)) true
+      else !x.isDeprecated
+
+    private def isDeprecated(directives: List[Directive]): Boolean =
+      deprecationReason(directives).isDefined
+
+    private def deprecationReason(directives: List[Directive]): Option[String] =
+      directives.collectFirst {
+        case d if d.name == "deprecated" =>
+          d.arguments
+            .get("reason")
+            .collect { case StringValue(value) =>
+              value
+            }
+            .getOrElse(Directives.DefaultDeprecationReason)
+      }
   }
-
-  private def toType(
-    name: String,
-    definitions: List[Definition.TypeSystemDefinition.TypeDefinition],
-    includeDeprecatedByDefault: Boolean
-  ) =
-    definitions.find(_.name == name) match {
-      case Some(value) => toTypeDefinition(value, definitions, includeDeprecatedByDefault)
-      case None        => __Type(kind = __TypeKind.SCALAR, name = Some(name))
-    }
-
-  private def toDirectives(directives: List[Directive]): Option[List[Directive]] = {
-    val filtered = directives.filter(_.name != "deprecated")
-
-    if (filtered.nonEmpty) Some(filtered)
-    else None
-  }
-
-  private def toInterfaces(
-    interfaces: List[Type.NamedType],
-    definitions: List[Definition.TypeSystemDefinition.TypeDefinition],
-    includeDeprecatedByDefault: Boolean
-  ): () => Some[List[__Type]] = { () =>
-    Some(
-      interfaces
-        .map(t => toType(t.name, definitions, includeDeprecatedByDefault))
-    )
-  }
-
-  private def toInterfaceType(
-    definition: Definition.TypeSystemDefinition.TypeDefinition.InterfaceTypeDefinition,
-    definitions: List[Definition.TypeSystemDefinition.TypeDefinition],
-    includeDeprecatedByDefault: Boolean
-  ): __Type = {
-    val implementations = definitions.collect {
-      case t @ ObjectTypeDefinition(_, _, implements, _, _) if implements.map(_.name).toSet.contains(definition.name) =>
-        toTypeDefinition(t, definitions, includeDeprecatedByDefault)
-    }
-
-    __Type(
-      kind = __TypeKind.INTERFACE,
-      name = Some(definition.name),
-      description = definition.description,
-      interfaces = toInterfaces(definition.implements, definitions, includeDeprecatedByDefault),
-      possibleTypes = Some(implementations),
-      fields = (args: __DeprecatedArgs) =>
-        if (definition.fields.nonEmpty)
-          Some(
-            definition.fields
-              .map(t => toField(t, definitions, includeDeprecatedByDefault))
-              .filter(filterDeprecated(_, args, includeDeprecatedByDefault))
-          )
-        else None,
-      directives = toDirectives(definition.directives)
-    )
-  }
-
-  private def toInputValue(
-    definition: Definition.TypeSystemDefinition.TypeDefinition.InputValueDefinition,
-    definitions: List[Definition.TypeSystemDefinition.TypeDefinition],
-    includeDeprecatedByDefault: Boolean
-  ): __InputValue =
-    __InputValue(
-      name = definition.name,
-      description = definition.description,
-      `type` = toType(definition.ofType, definitions, includeDeprecatedByDefault),
-      isDeprecated = isDeprecated(definition.directives),
-      deprecationReason = deprecationReason(definition.directives),
-      defaultValue = definition.defaultValue.map(_.toInputString),
-      directives = toDirectives(definition.directives)
-    )
-
-  private def toEnumType(
-    definition: Definition.TypeSystemDefinition.TypeDefinition.EnumTypeDefinition,
-    includeDeprecatedByDefault: Boolean
-  ): __Type =
-    __Type(
-      kind = __TypeKind.ENUM,
-      name = Some(definition.name),
-      enumValues = (args: __DeprecatedArgs) =>
-        if (definition.enumValuesDefinition.nonEmpty)
-          Some(
-            definition.enumValuesDefinition
-              .map(toEnumValue)
-              .filter(filterDeprecated(_, args, includeDeprecatedByDefault))
-          )
-        else None,
-      directives = toDirectives(definition.directives)
-    )
-
-  private def toEnumValue(
-    definition: Definition.TypeSystemDefinition.TypeDefinition.EnumValueDefinition
-  ): __EnumValue =
-    __EnumValue(
-      name = definition.enumValue,
-      description = definition.description,
-      isDeprecated = isDeprecated(definition.directives),
-      deprecationReason = deprecationReason(definition.directives),
-      directives = toDirectives(definition.directives)
-    )
-
-  private def toInputObjectType(
-    definition: Definition.TypeSystemDefinition.TypeDefinition.InputObjectTypeDefinition,
-    definitions: List[Definition.TypeSystemDefinition.TypeDefinition],
-    includeDeprecatedByDefault: Boolean
-  ): __Type =
-    __Type(
-      kind = __TypeKind.INPUT_OBJECT,
-      name = Some(definition.name),
-      description = definition.description,
-      inputFields = (args: __DeprecatedArgs) =>
-        if (definition.fields.nonEmpty)
-          Some(
-            definition.fields
-              .map(toInputValue(_, definitions, includeDeprecatedByDefault))
-              .filter(filterDeprecated(_, args, includeDeprecatedByDefault))
-          )
-        else None,
-      directives = toDirectives(definition.directives),
-      isOneOf = Some(Directives.isOneOf(definition.directives))
-    )
-
-  private def toUnionType(
-    definition: Definition.TypeSystemDefinition.TypeDefinition.UnionTypeDefinition,
-    definitions: List[Definition.TypeSystemDefinition.TypeDefinition],
-    includeDeprecatedByDefault: Boolean
-  ): __Type =
-    __Type(
-      kind = __TypeKind.UNION,
-      name = Some(definition.name),
-      description = definition.description,
-      possibleTypes =
-        if (definition.memberTypes.nonEmpty)
-          Some(
-            definition.memberTypes
-              .map(t => toType(t, definitions, includeDeprecatedByDefault))
-          )
-        else None,
-      directives = toDirectives(definition.directives)
-    )
-
-  private def toScalar(
-    definition: Definition.TypeSystemDefinition.TypeDefinition.ScalarTypeDefinition
-  ): __Type =
-    __Type(
-      kind = __TypeKind.SCALAR,
-      name = Some(definition.name),
-      description = definition.description,
-      directives = toDirectives(definition.directives),
-      specifiedByURL = definition.directives.collectFirst {
-        case directive if directive.name == "specifiedBy" =>
-          directive.arguments.get("url").collect { case StringValue(value) => value }
-      }.flatten
-    )
-
-  private def toTypeDefinition(
-    definition: Definition.TypeSystemDefinition.TypeDefinition,
-    definitions: List[Definition.TypeSystemDefinition.TypeDefinition],
-    includeDeprecatedByDefault: Boolean
-  ): __Type =
-    definition match {
-      case o: ObjectTypeDefinition      => toObjectType(o, definitions, includeDeprecatedByDefault)
-      case s: ScalarTypeDefinition      => toScalar(s)
-      case e: EnumTypeDefinition        => toEnumType(e, includeDeprecatedByDefault)
-      case u: UnionTypeDefinition       => toUnionType(u, definitions, includeDeprecatedByDefault)
-      case i: InterfaceTypeDefinition   => toInterfaceType(i, definitions, includeDeprecatedByDefault)
-      case i: InputObjectTypeDefinition => toInputObjectType(i, definitions, includeDeprecatedByDefault)
-    }
-
-  private def toDirective(
-    definition: Definition.TypeSystemDefinition.DirectiveDefinition,
-    definitions: List[Definition.TypeSystemDefinition.TypeDefinition],
-    includeDeprecatedByDefault: Boolean
-  ): __Directive =
-    __Directive(
-      name = definition.name,
-      description = definition.description,
-      args = (args: __DeprecatedArgs) =>
-        definition.args
-          .map(toInputValue(_, definitions, includeDeprecatedByDefault))
-          .filter(filterDeprecated(_, args, includeDeprecatedByDefault)),
-      isRepeatable = definition.isRepeatable,
-      locations = definition.locations.map(toDirectiveLocation)
-    )
-
-  private def toDirectiveLocation(loc: DirectiveLocation): __DirectiveLocation =
-    loc match {
-      case DirectiveLocation.ExecutableDirectiveLocation.QUERY                  => __DirectiveLocation.QUERY
-      case DirectiveLocation.ExecutableDirectiveLocation.MUTATION               => __DirectiveLocation.MUTATION
-      case DirectiveLocation.ExecutableDirectiveLocation.SUBSCRIPTION           => __DirectiveLocation.SUBSCRIPTION
-      case DirectiveLocation.ExecutableDirectiveLocation.FIELD                  => __DirectiveLocation.FIELD
-      case DirectiveLocation.ExecutableDirectiveLocation.FRAGMENT_DEFINITION    => __DirectiveLocation.FRAGMENT_DEFINITION
-      case DirectiveLocation.ExecutableDirectiveLocation.FRAGMENT_SPREAD        => __DirectiveLocation.FRAGMENT_SPREAD
-      case DirectiveLocation.ExecutableDirectiveLocation.INLINE_FRAGMENT        => __DirectiveLocation.INLINE_FRAGMENT
-      case DirectiveLocation.TypeSystemDirectiveLocation.SCHEMA                 => __DirectiveLocation.SCHEMA
-      case DirectiveLocation.TypeSystemDirectiveLocation.SCALAR                 => __DirectiveLocation.SCALAR
-      case DirectiveLocation.TypeSystemDirectiveLocation.OBJECT                 => __DirectiveLocation.OBJECT
-      case DirectiveLocation.TypeSystemDirectiveLocation.FIELD_DEFINITION       => __DirectiveLocation.FIELD_DEFINITION
-      case DirectiveLocation.TypeSystemDirectiveLocation.ARGUMENT_DEFINITION    => __DirectiveLocation.ARGUMENT_DEFINITION
-      case DirectiveLocation.TypeSystemDirectiveLocation.INTERFACE              => __DirectiveLocation.INTERFACE
-      case DirectiveLocation.TypeSystemDirectiveLocation.UNION                  => __DirectiveLocation.UNION
-      case DirectiveLocation.TypeSystemDirectiveLocation.ENUM                   => __DirectiveLocation.ENUM
-      case DirectiveLocation.TypeSystemDirectiveLocation.ENUM_VALUE             => __DirectiveLocation.ENUM_VALUE
-      case DirectiveLocation.TypeSystemDirectiveLocation.INPUT_OBJECT           => __DirectiveLocation.INPUT_OBJECT
-      case DirectiveLocation.TypeSystemDirectiveLocation.INPUT_FIELD_DEFINITION =>
-        __DirectiveLocation.INPUT_FIELD_DEFINITION
-      case DirectiveLocation.TypeSystemDirectiveLocation.VARIABLE_DEFINITION    => __DirectiveLocation.VARIABLE_DEFINITION
-    }
-
-  private def filterDeprecated(
-    x: __Field,
-    deprecated: __DeprecatedArgs,
-    includeDeprecatedByDefault: Boolean
-  ): Boolean =
-    if (deprecated.includeDeprecated.getOrElse(includeDeprecatedByDefault)) true
-    else !x.isDeprecated
-
-  private def filterDeprecated(
-    x: __EnumValue,
-    deprecated: __DeprecatedArgs,
-    includeDeprecatedByDefault: Boolean
-  ): Boolean =
-    if (deprecated.includeDeprecated.getOrElse(includeDeprecatedByDefault)) true
-    else !x.isDeprecated
-
-  private def filterDeprecated(
-    x: __InputValue,
-    deprecated: __DeprecatedArgs,
-    includeDeprecatedByDefault: Boolean
-  ): Boolean =
-    if (deprecated.includeDeprecated.getOrElse(includeDeprecatedByDefault)) true
-    else !x.isDeprecated
-
-  private def isDeprecated(directives: List[Directive]): Boolean =
-    deprecationReason(directives).isDefined
-
-  private def deprecationReason(directives: List[Directive]): Option[String] =
-    directives.collectFirst {
-      case d if d.name == "deprecated" =>
-        d.arguments
-          .get("reason")
-          .collect { case StringValue(value) =>
-            value
-          }
-          .getOrElse(Directives.DefaultDeprecationReason)
-    }
 }

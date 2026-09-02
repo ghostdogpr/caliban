@@ -1,6 +1,6 @@
 package caliban.gateway
 
-import caliban.client.{ CalibanClientError, GraphQLResponseError }
+import caliban.client.GraphQLResponseError
 import caliban.CalibanError.ParsingError
 import sttp.model.StatusCode
 import zio.Duration
@@ -50,13 +50,6 @@ object GatewayBuildError {
    */
   final case class SubgraphLoadingFailed(errors: List[SubgraphError]) extends GatewayBuildError {
     override val diagnostics: List[String] = errors.flatMap(_.diagnostics)
-  }
-
-  /**
-   * Independent build stages failed and their errors were accumulated.
-   */
-  final case class CombinedFailures private[gateway] (errors: List[GatewayBuildError]) extends GatewayBuildError {
-    override val diagnostics: List[String] = errors.flatMap(_.diagnostics).distinct.sorted
   }
 
   /**
@@ -166,15 +159,6 @@ object SchemaAcquisitionError {
    * The introspection response could not be decoded.
    */
   final case class IntrospectionResponseDecodingFailed(error: Throwable)
-      extends SchemaAcquisitionError
-      with GatewayCausedError {
-    override val diagnostics: List[String] = List("Introspection response could not be decoded.")
-  }
-
-  /**
-   * Introspection returned a response that the generated client could not decode.
-   */
-  final case class InvalidIntrospectionResponse(error: CalibanClientError)
       extends SchemaAcquisitionError
       with GatewayCausedError {
     override val diagnostics: List[String] = List("Introspection response could not be decoded.")

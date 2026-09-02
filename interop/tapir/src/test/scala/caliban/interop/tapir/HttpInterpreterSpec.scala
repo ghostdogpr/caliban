@@ -58,6 +58,22 @@ object HttpInterpreterSpec extends ZIOSpecDefault {
         .map { case (_, _, _, body) =>
           assertTrue(body.left.toOption.exists(_.toString.contains("List((Authorization,Bearer token))")))
         }
+    },
+    test("materializes incoming headers only when requested and only once") {
+      var evaluations = 0
+      def headers     = {
+        evaluations += 1
+        List("x-test" -> "value")
+      }
+
+      for {
+        unread <- IncomingRequestHeaders.locally(headers)(ZIO.succeed(evaluations))
+        read   <- IncomingRequestHeaders.locally(headers)(IncomingRequestHeaders.get.zip(IncomingRequestHeaders.get))
+      } yield assertTrue(
+        unread == 0,
+        read == (List("x-test" -> "value"), List("x-test" -> "value")),
+        evaluations == 1
+      )
     }
   )
 }

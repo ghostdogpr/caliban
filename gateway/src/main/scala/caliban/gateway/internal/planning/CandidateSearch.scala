@@ -31,29 +31,31 @@ private[gateway] final class CandidateSearch(limits: Limits) {
       case value :: Nil => check.flatMap(_ => evaluate(value)).map(List(_))
       case Nil          => check.flatMap(_ => Left(PlanningFailure("No complete route candidate was found.")))
       case _            =>
-        for {
-          _      <- candidates(values.size)
-          result <- values
-                      .foldLeft[Either[PlanningFailure, (List[B], Option[PlanningFailure])]](Right(Nil -> None)) {
-                        case (state, value) =>
-                          state.flatMap { case (successes, firstFailure) =>
-                            expand.flatMap { _ =>
-                              // Invalid alternatives can be skipped, but exhausting the shared budget stops the search.
-                              evaluate(value) match {
-                                case Right(candidate)                   =>
-                                  Right((candidate :: successes) -> firstFailure)
-                                case Left(failure) if failure.exhausted => Left(failure)
-                                case Left(failure)                      =>
-                                  Right(successes -> firstFailure.orElse(Some(failure)))
-                              }
-                            }
-                          }
-                      }
-                      .flatMap { case (successes, firstFailure) =>
-                        if (successes.nonEmpty) Right(successes.reverse)
-                        else Left(firstFailure.getOrElse(PlanningFailure("No complete route candidate was found.")))
-                      }
-        } yield result
+        candidates(values.size).flatMap { _ =>
+          var remaining    = values
+          var successes    = List.empty[B]
+          var firstFailure = Option.empty[PlanningFailure]
+          var stopped      = Option.empty[PlanningFailure]
+          while ((remaining ne Nil) && stopped.isEmpty) {
+            expand match {
+              case Left(failure) => stopped = Some(failure)
+              case Right(_)      => ()
+            }
+            if (stopped.isEmpty) {
+              evaluate(remaining.head) match {
+                case Right(candidate)                   => successes = candidate :: successes
+                case Left(failure) if failure.exhausted => stopped = Some(failure)
+                case Left(failure)                      => firstFailure = firstFailure.orElse(Some(failure))
+              }
+              remaining = remaining.tail
+            }
+          }
+          stopped match {
+            case Some(failure)              => Left(failure)
+            case None if successes.nonEmpty => Right(successes.reverse)
+            case None                       => Left(firstFailure.getOrElse(PlanningFailure("No complete route candidate was found.")))
+          }
+        }
     }
 
   private def capacity(count: Long): Either[PlanningFailure, Unit] =

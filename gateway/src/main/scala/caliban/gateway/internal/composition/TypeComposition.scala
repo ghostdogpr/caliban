@@ -2,80 +2,111 @@ package caliban.gateway.internal.composition
 
 import caliban.gateway.internal.composition.TypeComposition._
 import caliban.introspection.adt._
-import caliban.parsing.adt.Directive
+import caliban.parsing.adt.{ Directive, OperationType }
 
 /**
- * Checks and merges the declarations of non-root types, including recursive type references.
+ * Checks and merges type declarations, including operation roots and recursive type references.
  */
 private[composition] final class TypeComposition(
   types: List[SubgraphType],
   enumUsages: Map[String, EnumUsage],
   directives: DirectiveComposition.ComposedDirectives
 ) {
+  private lazy val typesByName = types.groupBy(_.name)
+  private val emptyEnumUsage   = EnumUsage(input = false, output = false)
+
+  private def enumUsage(name: String): EnumUsage = enumUsages.getOrElse(name, emptyEnumUsage)
+
+  private def fieldsByName(entries: List[SubgraphType]): Map[String, List[(SubgraphType, __Field)]] =
+    entries
+      .flatMap(entry => entry.tpe.allFields.map(field => field.name -> (entry -> field)))
+      .groupBy(_._1)
+      .map { case (name, values) => name -> values.map(_._2) }
+
+  private def hiddenArguments(fieldName: String, values: List[(SubgraphType, __Field)]): Set[String] =
+    values.iterator.flatMap { case (entry, _) =>
+      entry.inaccessibleArguments.collect { case (`fieldName`, argument) => argument }
+    }.toSet
+
+  private def includeDeprecated[A](values: List[A], include: Option[Boolean])(isDeprecated: A => Boolean): List[A] =
+    if (include.getOrElse(false)) values else values.filterNot(isDeprecated)
+
   lazy val diagnostics: List[String] =
-    types
-      .groupBy(_.name)
-      .toList
-      .flatMap { case (name, entries) =>
-        val kinds = entries.map(_.tpe.kind).distinct
-        if (kinds.size > 1)
-          List(s"[type $name] Kinds are incompatible between subgraphs: ${sources(entries)}.")
-        else
-          kinds.headOption.toList.flatMap {
-            case __TypeKind.OBJECT | __TypeKind.INTERFACE => incompatibleObjectDiagnostics(name, entries)
-            case __TypeKind.INPUT_OBJECT                  => incompatibleInputDiagnostics(name, entries)
-            case __TypeKind.ENUM                          =>
-              incompatibleEnumDiagnostics(
-                name,
-                entries,
-                enumUsages.getOrElse(name, EnumUsage(input = false, output = false))
-              )
-            case __TypeKind.SCALAR                        => exactTypeDiagnostics(name, entries)
-            case _                                        => Nil
-          }
-      }
+    typesByName.toList.flatMap { case (name, entries) =>
+      val kinds = entries.map(_.tpe.kind).distinct
+      if (kinds.size > 1)
+        List(s"[type $name] Kinds are incompatible between subgraphs: ${sources(entries)}.")
+      else
+        kinds.headOption.toList.flatMap {
+          case __TypeKind.OBJECT | __TypeKind.INTERFACE => incompatibleObjectDiagnostics(name, entries)
+          case __TypeKind.INPUT_OBJECT                  => incompatibleInputDiagnostics(name, entries)
+          case __TypeKind.ENUM                          =>
+            incompatibleEnumDiagnostics(
+              name,
+              entries,
+              enumUsage(name)
+            )
+          case __TypeKind.SCALAR                        => exactTypeDiagnostics(name, entries)
+          case _                                        => Nil
+        }
+    }
 
   lazy val composed: Map[String, __Type] = chooseCompatible
 
-  private def incompatibleObjectDiagnostics(name: String, entries: List[SubgraphType]): List[String] = {
-    val fields =
-      entries.flatMap(entry => entry.tpe.allFields.map(field => field.name -> (entry -> field))).groupBy(_._1)
-
-    fields.toList.flatMap { case (fieldName, definitions) =>
-      val values           = definitions.map(_._2)
+  private def incompatibleObjectDiagnostics(name: String, entries: List[SubgraphType]): List[String] =
+    fieldsByName(entries).toList.flatMap { case (fieldName, values) =>
       val perEntry         = values.map { case (entry, field) =>
         (entry.source, field, entry.contextualArguments.collect { case (`fieldName`, argument) => argument })
       }
       val contextualArgs   = perEntry.iterator.flatMap(_._3).toSet
-      val inaccessibleArgs = values.iterator.flatMap { case (entry, _) =>
-        entry.inaccessibleArguments.collect { case (`fieldName`, argument) => argument }
-      }.toSet
-      val contextErrors    = contextualArgumentDiagnostics(s"$name.$fieldName", perEntry)
+      val inaccessibleArgs = hiddenArguments(fieldName, values)
+      val operation        = entries.headOption.flatMap(_.operation)
+      val coordinate       = operation.fold(s"$name.$fieldName")(value => s"${value.toString.toLowerCase}.$fieldName")
+      val contextErrors    = contextualArgumentDiagnostics(coordinate, perEntry)
       val ownedEntries     = effectiveFieldProviders(fieldName, values.map(_._1))
       val owned            = values.filter(value => ownedEntries.exists(_.source == value._1.source))
       val shareable        = owned.nonEmpty && owned.forall { case (entry, _) =>
-        !entry.federation2 || entry.shareableFields.contains(fieldName)
+        entry.subgraphMode != SubgraphMode.Federation2 || entry.shareableFields.contains(fieldName)
       }
       val compatible       = fieldsCompatible(values.map { case (_, field) =>
         visibleArguments(field, contextualArgs ++ inaccessibleArgs)
       })
-      val prefix           = s"[type $name.$fieldName]"
+      val prefix           = operation.fold(s"[type $name.$fieldName]")(value => s"[${value.toString.toLowerCase}.$fieldName]")
       overrideDiagnostics(
         prefix,
         values.map { case (entry, _) => entry.source -> entry.overrideFields.get(fieldName).map(_.from) }
       ) ::: contextErrors :::
+        (if (
+           operation.contains(OperationType.Subscription) &&
+           (owned.size > 1 || values.exists { case (entry, _) => entry.shareableFields.contains(fieldName) })
+         )
+           List(s"$prefix Subscription fields require one effective owner and cannot be @shareable.")
+         else Nil) :::
+        (if (
+           operation.nonEmpty && compatible && owned.size > 1 &&
+           owned.exists(value => value._1.subgraphMode == SubgraphMode.Ordinary)
+         )
+           List(s"$prefix Field is resolved by multiple ordinary subgraphs: ${sources(owned.map(_._1))}.")
+         else Nil) :::
         (if (!compatible) List(s"$prefix Definitions are incompatible between subgraphs: ${sources(values.map(_._1))}.")
          else Nil) :::
         (if (
-           compatible && owned.size > 1 && owned.exists(_._1.federation2) &&
-           entries.exists(_.tpe.kind == __TypeKind.OBJECT) && !shareable
+           compatible && owned.size > 1 && entries.exists(_.tpe.kind == __TypeKind.OBJECT) &&
+           (operation match {
+             case Some(_) =>
+               owned.forall(_._1.subgraphMode != SubgraphMode.Ordinary) && owned
+                 .exists(value =>
+                   value._1.subgraphMode == SubgraphMode.Federation2 &&
+                     !value._1.shareableFields.contains(fieldName)
+                 )
+             case None    => owned.exists(_._1.subgraphMode == SubgraphMode.Federation2) && !shareable
+           })
          )
            List(
              s"$prefix Field is resolved by multiple subgraphs without compatible @shareable declarations: ${sources(owned.map(_._1))}."
            )
          else Nil)
     }
-  }
 
   private def incompatibleInputDiagnostics(name: String, entries: List[SubgraphType]): List[String] = {
     val fields =
@@ -126,31 +157,29 @@ private[composition] final class TypeComposition(
 
   private def chooseCompatible: Map[String, __Type] = {
     val inaccessibleTypes = types.iterator.filter(_.inaccessible).map(_.name).toSet
-    val chosen            = types
-      .groupBy(_.name)
-      .flatMap { case (name, entries) =>
-        val sorted = entries.sortBy(_.source)
-        if (entries.exists(_.inaccessible)) None
-        else
-          sorted.headOption.map { base =>
-            val rewrite = rewriteType(_: __Type, composed)
-            val chosen  = base.tpe.kind match {
-              case __TypeKind.OBJECT | __TypeKind.INTERFACE =>
-                mergeObject(sorted, rewrite, inaccessibleTypes)
-              case __TypeKind.UNION                         => mergeUnion(sorted, rewrite, inaccessibleTypes)
-              case __TypeKind.INPUT_OBJECT                  => mergeInputObject(sorted, rewrite)
-              case __TypeKind.ENUM                          =>
-                mergeEnum(
-                  sorted,
-                  enumUsages.getOrElse(name, EnumUsage(input = false, output = false)),
-                  rewrite
-                )
-              case _                                        =>
-                directives.attachType(sanitizeType(base.tpe, rewrite, hiddenDirectives(sorted)), name)
-            }
-            name -> chosen
+    val chosen            = typesByName.flatMap { case (name, entries) =>
+      val sorted = entries.sortBy(_.source)
+      if (entries.exists(_.inaccessible)) None
+      else
+        sorted.headOption.map { base =>
+          val rewrite = rewriteType(_: __Type, composed)
+          val chosen  = base.tpe.kind match {
+            case __TypeKind.OBJECT | __TypeKind.INTERFACE =>
+              mergeObject(sorted, rewrite, inaccessibleTypes)
+            case __TypeKind.UNION                         => mergeUnion(sorted, rewrite, inaccessibleTypes)
+            case __TypeKind.INPUT_OBJECT                  => mergeInputObject(sorted, rewrite)
+            case __TypeKind.ENUM                          =>
+              mergeEnum(
+                sorted,
+                enumUsage(name),
+                rewrite
+              )
+            case _                                        =>
+              directives.attachType(sanitizeType(base.tpe, rewrite, hiddenDirectives(sorted)), name)
           }
-      }
+          name -> chosen
+        }
+    }
     val interfaceObjects  = types.iterator.filter(_.interfaceObject).map(_.name).toSet
     val expanded          = chosen.map { case (name, tpe) =>
       if (tpe.kind != __TypeKind.OBJECT) name -> tpe
@@ -163,9 +192,7 @@ private[composition] final class TypeComposition(
           .flatMap(interfaceName => chosen.get(interfaceName).toList.flatMap(_.allFields))
         val existing  = tpe.allFields.map(_.name).toSet
         val fields    = tpe.allFields ::: inherited.filterNot(field => existing.contains(field.name))
-        name -> tpe.copy(fields =
-          args => Some(if (args.includeDeprecated.getOrElse(false)) fields else fields.filterNot(_.isDeprecated))
-        )
+        name -> tpe.copy(fields = args => Some(includeDeprecated(fields, args.includeDeprecated)(_.isDeprecated)))
       }
     }
     resolveComposedReferences(expanded)
@@ -202,39 +229,30 @@ private[composition] final class TypeComposition(
   ): __Type = {
     val base          = entries.head.tpe
     val hidden        = hiddenDirectives(entries)
-    val fields        = entries
-      .flatMap(entry => entry.tpe.allFields.map(field => field.name -> (entry -> field)))
-      .groupBy(_._1)
-      .toList
-      .sortBy(_._1)
-      .flatMap { case (fieldName, definitions) =>
-        val values     = definitions.map(_._2)
-        val visible    =
-          if (values.exists { case (entry, _) => entry.inaccessibleFields.contains(fieldName) }) Nil else values
-        val providers  = effectiveFieldProviders(fieldName, visible.map(_._1))
-        val ordered    = visible.sortBy { case (entry, _) => (!providers.exists(_.source == entry.source), entry.source) }
-        val hiddenArgs = values.iterator.flatMap { case (entry, _) =>
-          entry.inaccessibleArguments.collect { case (`fieldName`, argument) => argument }
-        }.toSet
-        (if (providers.nonEmpty) ordered.headOption else None).map { case (_, field) =>
-          val mergedType = ordered.filter { case (entry, _) => providers.exists(_.source == entry.source) }
-            .map(_._2._type)
-            .reduceOption(mergeOutputType)
-            .getOrElse(field._type)
-          directives.attachField(
-            entries.head.name,
-            sanitizeField(field.copy(`type` = () => mergedType), rewrite, hidden, hiddenArgs)
-          )
-        }
+    val fields        = fieldsByName(entries).toList.sortBy(_._1).flatMap { case (fieldName, values) =>
+      val visible    =
+        if (values.exists { case (entry, _) => entry.inaccessibleFields.contains(fieldName) }) Nil else values
+      val providers  = effectiveFieldProviders(fieldName, visible.map(_._1))
+      val ordered    = visible.sortBy { case (entry, _) => (!providers.exists(_.source == entry.source), entry.source) }
+      val hiddenArgs = hiddenArguments(fieldName, values)
+      (if (providers.nonEmpty) ordered.headOption else None).map { case (_, field) =>
+        val mergedType = ordered.filter { case (entry, _) => providers.exists(_.source == entry.source) }
+          .map(_._2._type)
+          .reduceOption(mergeOutputType)
+          .getOrElse(field._type)
+        directives.attachField(
+          entries.head.name,
+          sanitizeField(field.copy(`type` = () => mergedType), rewrite, hidden, hiddenArgs)
+        )
       }
+    }
     val interfaces    = mergeReferencedTypes(entries, _.interfaces().getOrElse(Nil), inaccessibleTypes)
     val possibleTypes = mergeReferencedTypes(entries, _.possibleTypes.getOrElse(Nil), inaccessibleTypes)
 
     directives
       .attachType(sanitizeType(base, rewrite, hidden), entries.head.name)
       .copy(
-        fields =
-          args => Some(if (args.includeDeprecated.getOrElse(false)) fields else fields.filterNot(_.isDeprecated)),
+        fields = args => Some(includeDeprecated(fields, args.includeDeprecated)(_.isDeprecated)),
         interfaces = () => Some(interfaces),
         possibleTypes = if (base.kind == __TypeKind.INTERFACE) Some(possibleTypes) else base.possibleTypes
       )
@@ -291,8 +309,7 @@ private[composition] final class TypeComposition(
     directives
       .attachType(sanitizeType(base, rewrite, hidden), entries.head.name)
       .copy(
-        inputFields =
-          args => Some(if (args.includeDeprecated.getOrElse(false)) fields else fields.filterNot(_.isDeprecated))
+        inputFields = args => Some(includeDeprecated(fields, args.includeDeprecated)(_.isDeprecated))
       )
   }
 
@@ -317,8 +334,7 @@ private[composition] final class TypeComposition(
     directives
       .attachType(sanitizeType(base, rewrite, hidden), entries.head.name)
       .copy(
-        enumValues =
-          args => Some(if (args.includeDeprecated.getOrElse(false)) values else values.filterNot(_.isDeprecated))
+        enumValues = args => Some(includeDeprecated(values, args.includeDeprecated)(_.isDeprecated))
       )
   }
 
@@ -329,6 +345,7 @@ private[composition] object TypeComposition {
     source: String,
     name: String,
     tpe: __Type,
+    operation: Option[OperationType],
     interfaceObject: Boolean,
     entity: Option[EntityDefinition],
     ownedFields: Set[String],
@@ -340,9 +357,16 @@ private[composition] object TypeComposition {
     inaccessibleInputFields: Set[String],
     inaccessibleEnumValues: Set[String],
     overrideFields: Map[String, FieldOverride],
-    federation2: Boolean,
+    subgraphMode: SubgraphMode,
     hiddenDirectives: Set[String]
   )
+
+  sealed trait SubgraphMode
+  object SubgraphMode {
+    case object Ordinary    extends SubgraphMode
+    case object Federation1 extends SubgraphMode
+    case object Federation2 extends SubgraphMode
+  }
 
   final case class FieldOverride(
     from: String,

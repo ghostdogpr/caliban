@@ -2,9 +2,9 @@ package caliban.gateway.internal.execution
 
 import caliban.{ CalibanError, GraphQLInterpreter, GraphQLRequest, GraphQLResponse, GraphQLResponseContext, PathValue }
 import caliban.execution.Field
-import caliban.gateway.{ GatewayWrapper, SubscriptionTermination }
+import caliban.gateway.GatewayWrapper
 import caliban.gateway.GatewayWrapper.{ Event, Outcome, Result }
-import caliban.gateway.internal.AdmissionGate
+import caliban.gateway.internal.SubscriptionTermination
 import caliban.gateway.internal.execution.SubgraphExecutor.ErrorPolicy
 import caliban.parsing.adt.OperationType
 import caliban.ResponseValue.{ ObjectValue, StreamValue }
@@ -30,9 +30,6 @@ private[gateway] trait SubgraphExecutor[-R] {
   def execute(request: GraphQLRequest, operationType: OperationType)(implicit
     trace: Trace
   ): ZIO[R, SubgraphExecutor.Failure, GraphQLResponse[CalibanError]]
-
-  def admittedBy[R1 <: R](gate: AdmissionGate, wrapper: GatewayWrapper[R1]): SubgraphExecutor[R1] =
-    this
 }
 
 private[gateway] final class ObservedSubgraphExecutor[R](
@@ -130,7 +127,7 @@ private[gateway] object SubgraphExecutor {
         }
 
         routedErrors.reverse :::
-          (if (needsFallback) fields.map(field => RemoteError.at(List(PathValue.Key(field.aliasedName)))) else Nil)
+          (if (needsFallback) RemoteError.forFields(fields) else Nil)
       }
 
       def unusableEntity(error: CalibanError.ExecutionError, path: List[PathValue]): CalibanError.ExecutionError =
@@ -176,6 +173,12 @@ private[gateway] object RemoteError {
 
   def at(path: List[PathValue]): CalibanError.ExecutionError =
     CalibanError.ExecutionError(Message, path = path)
+
+  def nullObject(fields: List[Field]): ObjectValue =
+    ObjectValue(fields.map(field => field.aliasedName -> caliban.Value.NullValue))
+
+  def forFields(fields: List[Field]): List[CalibanError.ExecutionError] =
+    fields.map(field => at(List(PathValue.Key(field.aliasedName))))
 
   def disclose(
     error: CalibanError,

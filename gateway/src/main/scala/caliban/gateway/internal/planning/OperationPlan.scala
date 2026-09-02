@@ -88,7 +88,6 @@ private[gateway] object OperationPlan {
     root: FetchId,
     source: String,
     dependencies: Set[FetchId],
-    dependencySource: String,
     mergePath: Vector[String],
     entityType: String,
     keys: List[RequiredSelection],
@@ -271,8 +270,8 @@ private[gateway] object OperationPlan {
     )
 
   private def render(plan: OperationPlan): String = {
-    val header = plan.operation.toString.toLowerCase
-    val roots  = plan.roots.flatMap { fetch =>
+    val header  = plan.operation.toString.toLowerCase
+    val roots   = plan.roots.flatMap { fetch =>
       fetch.client.zip(fetch.downstream).map { case (client, downstream) =>
         val entity = plan.entities.find(_.mergePath.headOption.contains(client.aliasedName))
         val fields = flatten(downstream.fields).map { path =>
@@ -286,10 +285,13 @@ private[gateway] object OperationPlan {
         s"fetch ${fetch.source} at $$.${client.aliasedName} fields ${fields.mkString("[", ", ", "]")}"
       }
     }
-    val joins  = plan.entities.map(fetch =>
-      s"fetch ${fetch.source} after ${fetch.dependencySource} at $$.${fetch.mergePath.mkString(".")} " +
+    val sources = (plan.roots.iterator.map(fetch => fetch.id -> fetch.source) ++
+      plan.entities.iterator.map(fetch => fetch.id -> fetch.source)).toMap
+    val joins   = plan.entities.map { fetch =>
+      val dependencies = fetch.dependencies.toList.sortBy(_.value).flatMap(sources.get).distinct.mkString(",")
+      s"fetch ${fetch.source} after $dependencies at $$.${fetch.mergePath.mkString(".")} " +
         s"via ${fetch.entityType}(${fetch.keys.map(_.field).mkString(",")}) fields ${flatten(fetch.fields).mkString("[", ", ", "]")}"
-    )
+    }
     (header :: roots ::: joins).mkString("\n")
   }
 

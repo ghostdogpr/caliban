@@ -39,20 +39,12 @@ private[gateway] final class ComposedGraph private[internal] (
   private val hasUnsupportedPolicies   = securityApplications.exists(_.directive == SecurityDirective.UnsupportedPolicy)
   private val requirementsByCoordinate =
     if (!hasUnsupportedPolicies) Map.empty[(String, String), List[(String, String, List[Selection])]]
-    else {
-      val required   = requirements.toList.map { case ((source, owner, name), selections) =>
-        (owner -> name) -> ((source, owner, selections))
-      }
-      val contextual = contextArguments.toList.flatMap { case ((source, owner, name), arguments) =>
-        arguments.flatMap { argument =>
-          contexts.collect {
-            case ((`source`, contextType), names) if names.contains(argument.context) =>
-              (owner -> name) -> ((source, contextType, argument.selections))
-          }
-        }
-      }
-      (required ::: contextual).groupMap(_._1)(_._2)
-    }
+    else
+      ComposedGraph
+        .securityDependencies(requirements, contexts, contextArguments)
+        .groupMap(dependency => dependency.sourceType -> dependency.fieldName)(dependency =>
+          (dependency.source, dependency.dependencyType, dependency.selections)
+        )
   private val securityByCoordinate     =
     securityApplications
       .groupBy(application => application.typeName -> application.fieldName)
@@ -166,9 +158,6 @@ private[gateway] final class ComposedGraph private[internal] (
       .getOrElse(typeName -> field, Nil)
       .exists(_.source == source)
 
-  def declares(source: String, typeName: String, field: String): Boolean =
-    sourceFields.contains((source, typeName, field))
-
   def field(source: String, typeName: String, field: String): Option[__Field] =
     sourceFields.get((source, typeName, field))
 
@@ -193,8 +182,8 @@ private[gateway] final class ComposedGraph private[internal] (
 
   def hasContextArguments: Boolean = contextArguments.nonEmpty
 
-  def mapping(source: String): Option[SchemaMapping] =
-    mappings.get(source)
+  def mapping(source: String): SchemaMapping =
+    mappings(source)
 
   def hasSecurityRequirements: Boolean = securityApplications.exists(_.directive != SecurityDirective.UnsupportedPolicy)
 
@@ -351,7 +340,7 @@ private[gateway] final class ComposedGraph private[internal] (
   def isObjectType(typeName: String): Boolean =
     rootType.types.get(typeName).exists(_.kind == __TypeKind.OBJECT)
 
-  def isObjectType(source: String, typeName: String): Boolean =
+  private def isObjectType(source: String, typeName: String): Boolean =
     sourceRuntimeTypes.get(source -> typeName).exists(_.contains(typeName))
 
   def appliesOnSource(source: String, parentType: String, field: Field): Boolean =
@@ -461,6 +450,34 @@ private[gateway] final class ComposedGraph private[internal] (
 }
 
 private[gateway] object ComposedGraph {
+  private[composition] final case class SecurityDependency(
+    source: String,
+    sourceType: String,
+    fieldName: String,
+    dependencyType: String,
+    selections: List[Selection],
+    directive: String
+  )
+
+  private[composition] def securityDependencies(
+    requirements: Map[(String, String, String), List[Selection]],
+    contexts: Map[(String, String), Set[ContextName]],
+    contextArguments: Map[(String, String, String), List[ContextArgument]]
+  ): List[SecurityDependency] = {
+    val required   = requirements.toList.map { case ((source, sourceType, fieldName), selections) =>
+      SecurityDependency(source, sourceType, fieldName, sourceType, selections, "@requires")
+    }
+    val contextual = contextArguments.toList.flatMap { case ((source, sourceType, fieldName), arguments) =>
+      arguments.flatMap { argument =>
+        contexts.collect {
+          case ((`source`, contextType), names) if names.contains(argument.context) =>
+            SecurityDependency(source, sourceType, fieldName, contextType, argument.selections, "@fromContext")
+        }
+      }
+    }
+    required ::: contextual
+  }
+
   final case class CostMetadata(
     types: Map[String, Long],
     fields: Map[(String, String), Long],

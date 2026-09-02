@@ -287,6 +287,20 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
         result    = RemoteSchema.toRootType(document)
       } yield assertTrue(result.left.exists(_.msg == "The query root operation is missing."))
     },
+    test("reports a missing query root before other document errors") {
+      val schema =
+        """
+          |schema { mutation: Mutation }
+          |type Mutation { update: Missing }
+          |type Duplicate { value: String }
+          |type Duplicate { value: String }
+          |""".stripMargin
+
+      for {
+        document <- ZIO.fromEither(Parser.parseQuery(schema))
+        result    = RemoteSchema.toRootType(document)
+      } yield assertTrue(result.left.exists(_.msg == "The query root operation is missing."))
+    },
     test("preserves and validates OneOf input objects") {
       val validSchema   =
         """

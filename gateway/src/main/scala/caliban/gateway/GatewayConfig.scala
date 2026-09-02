@@ -15,6 +15,8 @@ final class GatewayConfig private (
   val maxConcurrentRequests: Int,
   val requestTimeout: Duration,
   val drainTimeout: Duration,
+  val reloadPollInterval: Duration,
+  val reloadJitter: Double,
   val remoteErrorMessages: Boolean,
   val subscriptions: GatewaySubscriptionConfig
 ) {
@@ -80,6 +82,18 @@ final class GatewayConfig private (
     copy(drainTimeout = value)
 
   /**
+   * Sets the delay after a completed reload cycle, including generation retirement. Cycles never overlap.
+   */
+  def withReloadPollInterval(value: Duration): GatewayConfig =
+    copy(reloadPollInterval = value)
+
+  /**
+   * Sets fractional reload jitter in [0, 1). For example, 0.2 varies the delay by up to twenty percent.
+   */
+  def withReloadJitter(value: Double): GatewayConfig =
+    copy(reloadJitter = value)
+
+  /**
    * Enables remote GraphQL error messages. Only the `code` extension is retained.
    */
   def withRemoteErrorMessages(value: Boolean): GatewayConfig =
@@ -94,7 +108,10 @@ final class GatewayConfig private (
       maxOperationCost.toList.flatMap(value => positive(value, "Gateway maxOperationCost must be positive.")),
       positive(maxConcurrentRequests, "Gateway maxConcurrentRequests must be positive."),
       finitePositive(requestTimeout, "Gateway request timeout must be finite and positive."),
-      finitePositive(drainTimeout, "Gateway drain timeout must be finite and positive.")
+      finitePositive(drainTimeout, "Gateway drain timeout must be finite and positive."),
+      finitePositive(reloadPollInterval, "Gateway reload poll interval must be finite and positive."),
+      if (!reloadJitter.isNaN && reloadJitter >= 0.0 && reloadJitter < 1.0) Nil
+      else List("Gateway reload jitter must be finite and between zero (inclusive) and one (exclusive).")
     ).flatten ::: subscriptions.diagnostics
 
   private def copy(
@@ -106,6 +123,8 @@ final class GatewayConfig private (
     maxConcurrentRequests: Int = maxConcurrentRequests,
     requestTimeout: Duration = requestTimeout,
     drainTimeout: Duration = drainTimeout,
+    reloadPollInterval: Duration = reloadPollInterval,
+    reloadJitter: Double = reloadJitter,
     remoteErrorMessages: Boolean = remoteErrorMessages,
     subscriptions: GatewaySubscriptionConfig = subscriptions
   ): GatewayConfig =
@@ -118,6 +137,8 @@ final class GatewayConfig private (
       maxConcurrentRequests,
       requestTimeout,
       drainTimeout,
+      reloadPollInterval,
+      reloadJitter,
       remoteErrorMessages,
       subscriptions
     )
@@ -138,6 +159,8 @@ object GatewayConfig {
       maxConcurrentRequests = 1024,
       requestTimeout = Duration.fromSeconds(30),
       drainTimeout = Duration.fromSeconds(30),
+      reloadPollInterval = Duration.fromSeconds(30),
+      reloadJitter = 0.2,
       remoteErrorMessages = false,
       subscriptions = GatewaySubscriptionConfig()
     )

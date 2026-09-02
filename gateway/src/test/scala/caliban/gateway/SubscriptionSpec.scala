@@ -2,7 +2,7 @@ package caliban.gateway
 
 import caliban._
 import caliban.gateway.GatewayTestSupport._
-import caliban.gateway.internal.{ GatewayExecutionControl, SubscriptionControl }
+import caliban.gateway.internal.{ GatewayExecutionControl, SubscriptionControl, SubscriptionTermination }
 import caliban.gateway.internal.execution.SubgraphExecutor
 import caliban.schema.Schema.auto._
 import caliban.ws.{ Protocol, WebSocketHooks }
@@ -70,9 +70,14 @@ object SubscriptionSpec extends ZIOSpecDefault {
             opened     <- Promise.make[Nothing, Unit]
             closing    <- Promise.make[Nothing, Unit]
             release    <- Promise.make[Nothing, Unit]
-            work       <- GatewayExecutionControl.make(1, Map.empty, 30.seconds, 1.second)
-            control    <- SubscriptionControl
-                            .make(GatewaySubscriptionConfig(maxActive = 1), work, GatewayWrapper.empty)
+            work       <- GatewayExecutionControl.make(
+                            1,
+                            GatewaySubscriptionConfig(maxActive = 1),
+                            GatewayWrapper.empty,
+                            30.seconds,
+                            1.second
+                          )
+            control     = work.subscriptions
             open        = ZIO.addFinalizer(closing.succeed(()) *> release.await) *>
                             opened.succeed(()) *> (if (cancel) ZIO.never else ZIO.fail(SubscriptionTermination.Source))
             running    <- control.stream(open)(ZIO.succeed(_)).runDrain.exit.forkScoped

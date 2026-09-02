@@ -357,32 +357,29 @@ object Protocol {
       val resp =
         ZStream
           .fromZIO(interpreter.executeRequest(payload))
-          .flatMap(res =>
+          .flatMap { res =>
+            val initialErrors =
+              if (res.errors.isEmpty) ZStream.empty
+              else ZStream.succeed(self.toResponse(id, GraphQLResponse(Value.NullValue, res.errors)))
             res.data match {
               // Top-level streams with hasNext (even false) are incremental; without it, elements are full subscription responses.
               case StreamValue(stream) if res.hasNext.isEmpty           =>
                 ZStream.fromZIO(subscriptions.trackedPromise(id)).flatMap {
                   case Some(p) =>
                     val frame = self.toResponse(id, res)
-                    val init  =
-                      if (res.errors.isEmpty) ZStream.empty
-                      else ZStream.succeed(self.toResponse(id, GraphQLResponse(Value.NullValue, res.errors)))
-                    (init ++ stream.map(value => frame.copy(payload = Some(value)))).interruptWhen(p)
+                    (initialErrors ++ stream.map(value => frame.copy(payload = Some(value)))).interruptWhen(p)
                   case None    => ZStream.empty
                 }
               case ObjectValue((fieldName, StreamValue(stream)) :: Nil) =>
                 ZStream.fromZIO(subscriptions.trackedPromise(id)).flatMap {
                   case Some(p) =>
-                    val init =
-                      if (res.errors.isEmpty) ZStream.empty
-                      else ZStream.succeed(self.toResponse(id, GraphQLResponse(Value.NullValue, res.errors)))
-                    (init ++ stream.map(self.toResponse(id, fieldName, _, Nil))).interruptWhen(p)
+                    (initialErrors ++ stream.map(self.toResponse(id, fieldName, _, Nil))).interruptWhen(p)
                   case None    => ZStream.empty
                 }
               case other                                                =>
                 ZStream.succeed(self.toResponse(id, GraphQLResponse(other, res.errors)))
             }
-          )
+          }
 
       (resp ++ self.toStreamComplete(id)).catchAll(self.toStreamError(Option(id), _))
     }
