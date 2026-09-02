@@ -1,7 +1,7 @@
 package caliban.gateway
 
 import caliban.gateway.GatewayConfigValidation._
-import zio.Duration
+import zio._
 
 /**
  * Operation-preparation, planning, admission, lifecycle, and remote-error disclosure configuration for one built gateway interpreter.
@@ -98,6 +98,12 @@ final class GatewayConfig private (
    */
   def withRemoteErrorMessages(value: Boolean): GatewayConfig =
     copy(remoteErrorMessages = value)
+
+  /**
+   * The fastest delay [[reloadPollInterval]] and [[reloadJitter]] can produce, which is what a source with a
+   * published polling floor has to be checked against.
+   */
+  private[gateway] def minimumReloadPollInterval: Duration = reloadPollInterval * (1.0 - reloadJitter)
 
   private[gateway] def diagnostics: List[String] =
     List(

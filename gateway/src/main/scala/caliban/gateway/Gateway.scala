@@ -1,8 +1,9 @@
 package caliban.gateway
 
+import caliban.gateway.Gateway.{ decomposeSupergraph, Origin }
 import caliban.gateway.GatewayBuildError._
 import caliban.gateway.internal._
-import caliban.gateway.internal.composition.{ RemoteSchemaAcquisition, SchemaComposer, SchemaMapping }
+import caliban.gateway.internal.composition._
 import caliban.gateway.internal.execution._
 import caliban.gateway.internal.planning.{ CandidateSearch, OperationPlanner }
 import caliban.gateway.Subgraph.Source
@@ -27,7 +28,7 @@ import zio._
  * requests; constructing and building the description does not require that environment.
  */
 final class Gateway[-R] private[gateway] (
-  private val subgraphs: List[Subgraph[R]],
+  private val origin: Gateway.Origin[R],
   private val resolver: Option[OperationResolver[R]],
   private val policy: Option[OperationPolicy[R]],
   private val config: GatewayConfig,
@@ -44,28 +45,69 @@ final class Gateway[-R] private[gateway] (
    * Pinned schemas and local graphs remain fixed. Admission limits apply separately to each generation.
    */
   def reloadable(implicit trace: Trace): ZIO[Scope, GatewayBuildError, ReloadableGatewayInterpreter[R]] = {
-    val acquired    = subgraphs.exists(_.source match {
-      case Source.Remote(_, SchemaInput.Acquired, _, _) => true
-      case _                                            => false
-    })
-    val diagnostics = config.diagnostics ::: Gateway.nameDiagnostics(subgraphs) :::
-      (if (acquired) Nil else List("Gateway reload requires at least one acquired remote schema."))
+    val originDiagnostics = origin match {
+      case Origin.FromSupergraph(supergraph) =>
+        val refreshable =
+          if (supergraph.source.refreshable) Nil
+          else List("Gateway reload from supergraph requires a remote source.")
+
+        val uplink = supergraph.source match {
+          case Supergraph.Source.Uplink(uplinkConfig) =>
+            // Uplink asks clients not to poll faster than the `minDelaySeconds` it answers with, and
+            // Apollo's published floor is ten seconds. Jitter is what reaches the wire, so the fastest
+            // poll the configuration permits is what has to clear the floor.
+            val floor =
+              if (config.minimumReloadPollInterval < 10.seconds)
+                List("Supergraph uplink polling requires a reload poll interval of at least ten seconds.")
+              else Nil
+            uplinkConfig.diagnostics ::: floor
+          case _                                      => Nil
+        }
+
+        refreshable ::: uplink
+      case Origin.Composed(subgraphs)        =>
+        val acquired = subgraphs.exists(_.source match {
+          case Source.Remote(_, SchemaInput.Acquired, _, _) => true
+          case _                                            => false
+        })
+        Gateway.nameDiagnostics(subgraphs) :::
+          (if (acquired) Nil else List("Gateway reload requires at least one acquired remote schema."))
+    }
+
+    val diagnostics = config.diagnostics ::: originDiagnostics
 
     ZIO.fail(GatewayBuildError.InvalidConfiguration(diagnostics)).when(diagnostics.nonEmpty) *>
       buildInChildScope(
-        HttpClientZioBackend.scoped().mapError(TransportInitializationFailed(_)).flatMap { backend =>
-          ReloadableGatewayInterpreterImpl.make(
-            acquireSnapshot(backend),
-            config.reloadPollInterval,
-            config.reloadJitter,
-            config.drainTimeout
-          )
-        }
+        HttpClientZioBackend
+          .scoped()
+          .mapError(TransportInitializationFailed(_))
+          .flatMap { backend =>
+            val acquirer = origin match {
+              case Origin.Composed(subgraphs)        => Exit.succeed(acquireUnmanagedSnapshot(subgraphs, backend))
+              case Origin.FromSupergraph(supergraph) =>
+                SupergraphAcquisition
+                  .make(supergraph.source, Some(backend))
+                  .map(acquireManagedSnapshot(supergraph, _))
+            }
+
+            acquirer.flatMap(
+              ReloadableGatewayInterpreterImpl.make(
+                _,
+                config.reloadPollInterval,
+                config.reloadJitter,
+                config.drainTimeout
+              )
+            )
+          }
       )
   }
 
   private[gateway] def build(implicit trace: Trace): ZIO[Scope, GatewayBuildError, GatewayInterpreterImpl[R]] = {
-    val diagnostics = config.diagnostics ::: Gateway.nameDiagnostics(subgraphs)
+    val diagnostics = config.diagnostics ::: (origin match {
+      case Origin.Composed(subgraphs) => Gateway.nameDiagnostics(subgraphs)
+      // Subgraph names come from the supergraph's graph registry, which the decomposition validates.
+      case Origin.FromSupergraph(_)   => Nil
+    })
 
     ZIO.fail(GatewayBuildError.InvalidConfiguration(diagnostics)).when(diagnostics.nonEmpty) *>
       buildInChildScope(buildInterpreter)
@@ -75,13 +117,21 @@ final class Gateway[-R] private[gateway] (
     trace: Trace
   ): ZIO[Scope, GatewayBuildError, GatewayInterpreterImpl[R]] =
     for {
-      backend    <- if (subgraphs.exists(_.source.isRemote))
+      backend    <- if (origin.hasRemote)
                       HttpClientZioBackend
                         .scoped()
                         .asSome
                         .mapError(TransportInitializationFailed(_))
                     else ZIO.none
-      successes  <- loadAll(subgraph =>
+      subgraphs  <- origin match {
+                      case Origin.Composed(subgraphs)        => Exit.succeed(subgraphs)
+                      case Origin.FromSupergraph(supergraph) =>
+                        SupergraphAcquisition
+                          .make(supergraph.source, backend)
+                          .flatMap(decomposeSupergraph(supergraph, _))
+                          .map(_._1)
+                    }
+      successes  <- loadAll(subgraphs)(subgraph =>
                       Gateway.load(
                         subgraph,
                         backend,
@@ -145,9 +195,21 @@ final class Gateway[-R] private[gateway] (
       }
     }
 
-  private def acquireSnapshot(backend: SttpClient)(implicit trace: Trace): IO[GatewayBuildError, Gateway.Snapshot[R]] =
+  private def acquireManagedSnapshot[R1 <: R](supergraph: Supergraph[R1], loader: SupergraphAcquisition.Loader)(implicit
+    trace: Trace
+  ): IO[GatewayBuildError, Gateway.Snapshot[R1]] =
+    decomposeSupergraph(supergraph, loader).map { case (subgraphs, fingerprint) =>
+      Gateway.Snapshot(
+        new Gateway(Origin.Composed(subgraphs), resolver, policy, config, wrapper),
+        fingerprint
+      )
+    }
+
+  private def acquireUnmanagedSnapshot[R1 <: R](subgraphs: List[Subgraph[R1]], backend: SttpClient)(implicit
+    trace: Trace
+  ): IO[GatewayBuildError, Gateway.Snapshot[R1]] =
     for {
-      loaded <- loadAll { subgraph =>
+      loaded <- loadAll(subgraphs) { subgraph =>
                   subgraph.source match {
                     case Source.Remote(endpoint, SchemaInput.Acquired, federation, remoteConfig) =>
                       val diagnostics = remoteConfig.diagnostics(includeAcquisition = true)
@@ -159,7 +221,7 @@ final class Gateway[-R] private[gateway] (
                           remoteConfig.acquisition,
                           backend
                         )).map { document =>
-                        val pinned = new Subgraph[R](
+                        val pinned = new Subgraph[R1](
                           subgraph.name,
                           Source.Remote(endpoint, SchemaInput.Parsed(document), federation, remoteConfig),
                           subgraph.lookups,
@@ -172,12 +234,12 @@ final class Gateway[-R] private[gateway] (
                   }
                 }
     } yield Gateway.Snapshot(
-      new Gateway(loaded.map(_._1), resolver, policy, config, wrapper),
+      new Gateway(Origin.Composed(loaded.map(_._1)), resolver, policy, config, wrapper),
       loaded.flatMap(_._2)
     )
 
-  private def loadAll[R0, A](
-    load: Subgraph[R] => ZIO[R0, SubgraphBuildError, A]
+  private def loadAll[R0, R1, A](subgraphs: List[Subgraph[R1]])(
+    load: Subgraph[R1] => ZIO[R0, SubgraphBuildError, A]
   )(implicit trace: Trace): ZIO[R0, GatewayBuildError, List[A]] =
     ZIO.foreachPar(subgraphs)(subgraph => load(subgraph).mapError(SubgraphError(subgraph.name, _)).either).flatMap {
       results =>
@@ -190,36 +252,59 @@ final class Gateway[-R] private[gateway] (
    * Transforms the finite operation and admission limits used by each built interpreter.
    */
   def withConfig(configure: GatewayConfig => GatewayConfig): Gateway[R] =
-    new Gateway(subgraphs, resolver, policy, configure(config), wrapper)
+    new Gateway(origin, resolver, policy, configure(config), wrapper)
 
   /**
    * Resolves canonical GraphQL text before parsing and validation.
    */
   def withOperationResolver[R1 <: R](value: OperationResolver[R1]): Gateway[R1] =
-    new Gateway(subgraphs, Some(value), policy, config, wrapper)
+    new Gateway(origin, Some(value), policy, config, wrapper)
 
   /**
    * Allows or rejects operations after validation and variable coercion.
    */
   def withOperationPolicy[R1 <: R](value: OperationPolicy[R1]): Gateway[R1] =
-    new Gateway(subgraphs, resolver, Some(value), config, wrapper)
+    new Gateway(origin, resolver, Some(value), config, wrapper)
 
   /**
    * Adds an integration around the gateway lifecycle.
    */
   def @@[R1 <: R](value: GatewayWrapper[R1]): Gateway[R1] =
-    new Gateway(subgraphs, resolver, policy, config, wrapper |+| value)
+    new Gateway(origin, resolver, policy, config, wrapper |+| value)
 }
 
 object Gateway {
 
   private[gateway] final case class Snapshot[-R](gateway: Gateway[R], fingerprints: List[String])
 
+  private[gateway] sealed trait Origin[-R] {
+    def hasRemote: Boolean
+  }
+
+  private[gateway] object Origin {
+    final case class Composed[R](subgraphs: List[Subgraph[R]])     extends Origin[R] {
+      override val hasRemote: Boolean = subgraphs.exists(_.source.isRemote)
+    }
+    // Always remote: the projections execute over the routing urls the supergraph declares, whatever
+    // the supergraph document itself was read from.
+    final case class FromSupergraph[-R](supergraph: Supergraph[R]) extends Origin[R] {
+      override val hasRemote: Boolean = true
+    }
+  }
+
   /**
    * Creates a reusable gateway description from one or more subgraphs.
    */
   def compose[R](first: Subgraph[R], rest: Subgraph[R]*): Gateway[R] =
-    new Gateway[R](first :: rest.toList, None, None, GatewayConfig.default, GatewayWrapper.empty)
+    new Gateway[R](Origin.Composed(first :: rest.toList), None, None, GatewayConfig.default, GatewayWrapper.empty)
+
+  /**
+   * Creates a reusable gateway description from an already composed Apollo Federation supergraph, which is
+   * decomposed into the subgraphs it was composed from. Subgraph schemas are never acquired: the supergraph is
+   * the single source of truth for both the schemas and the routing urls.
+   */
+  def fromSupergraph[R](supergraph: Supergraph[R]): Gateway[R] =
+    new Gateway[R](Origin.FromSupergraph(supergraph), None, None, GatewayConfig.default, GatewayWrapper.empty)
 
   private def load[R](
     subgraph: Subgraph[R],
@@ -280,6 +365,25 @@ object Gateway {
           interpreter      <- ZIO.fromEither(graph.interpreterEither).mapError(InvalidSchema(_))
         } yield LoadedSubgraph(preparedSubgraph, new LocalSubgraphExecutor(interpreter))
     }
+
+  private def decomposeSupergraph[R](
+    supergraph: Supergraph[R],
+    loader: SupergraphAcquisition.Loader
+  )(implicit trace: Trace): IO[GatewayBuildError, (List[Subgraph[R]], List[String])] =
+    for {
+      supergraphDoc <- loader.load.mapError(SupergraphAcquisitionFailed(_))
+      projected     <- ZIO
+                         .fromEither(SupergraphDecomposition.decompose(supergraphDoc))
+                         .mapError(SupergraphDecompositionFailed(_))
+      subgraphs      = projected.map(p =>
+                         Subgraph.federation(
+                           name = p.graph.name,
+                           endpoint = supergraph.endpoints(p.graph.name).getOrElse(p.graph.url),
+                           schema = p.document,
+                           config = supergraph.config(p.graph.name)
+                         )
+                       )
+    } yield subgraphs -> List(SchemaFingerprint(supergraphDoc))
 
   private final case class LoadedSubgraph[-R](
     subgraph: PreparedSubgraph,

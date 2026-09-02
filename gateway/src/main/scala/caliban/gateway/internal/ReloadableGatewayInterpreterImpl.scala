@@ -209,6 +209,8 @@ private[gateway] object ReloadableGatewayInterpreterImpl {
     case _: GatewayBuildError.TransportInitializationFailed => "Unable to initialize schema transport."
     case _: GatewayBuildError.SubgraphLoadingFailed         => "Unable to load subgraph schemas."
     case _: GatewayBuildError.SchemaCompositionFailed       => "Subgraph schemas could not be composed."
+    case _: GatewayBuildError.SupergraphAcquisitionFailed   => "Unable to load supergraph."
+    case _: GatewayBuildError.SupergraphDecompositionFailed => "Unable to decompose supergraph into subgraphs."
   }
 
 }

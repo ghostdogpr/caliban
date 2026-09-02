@@ -21,8 +21,8 @@ import scala.collection.compat._
 private[gateway] final class ComposedGraph private[internal] (
   val rootType: RootType,
   private val runtimeTypesByName: Map[String, Set[String]],
-  private val routes: Map[(OperationType, String), ComposedGraph.RootRoute],
-  private val fieldRoutes: Map[(String, String), List[ComposedGraph.FieldRoute]],
+  private[gateway] val routes: Map[(OperationType, String), ComposedGraph.RootRoute],
+  private[gateway] val fieldRoutes: Map[(String, String), List[ComposedGraph.FieldRoute]],
   private val sourceFields: Map[(String, String, String), __Field],
   private val entityLookups: Map[(String, String), List[ComposedGraph.EntityLookup]],
   private val requirements: Map[(String, String, String), List[Selection]],
