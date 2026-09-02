@@ -172,6 +172,32 @@ The gateway acquires each Federation schema through `_service`. To pin a Federat
 
 The gateway reads entity information from the Federation schemas. You do not need to add the `Lookup` configuration described in the next section.
 
+### Supergraphs
+
+If you are moving from apollo-router or hive-router, these routers consume a single "supergraph" document which is a superset
+of all the constituent subgraphs plus a series of routing directives. These documents can either be served locally from a file or remotely
+from a schema registry.
+
+To integrate with these graphs you will need to use the `Gateway.fromSupergraph` constructor:
+
+```scala
+import zio.Config.Secret
+import caliban.gateway.{Gateway, Supergraph}
+
+// Loading from a file
+val file = Supergraph.file(java.nio.file.Paths.get("supergraph.graphql"))
+
+// Loading from a string or parsed caliban document
+val string = Supergraph.sdl("<a raw super graph sdl string>")
+
+// For Apollo schema registry
+val apollo = Supergraph.uplink("my-graph@production", Secret("service:my-apikey"))
+// For Hive CDN registry
+val hive = Supergraph.hive("my-target-id", Secret("my-cdn-key"))
+
+val gateway = Gateway.fromSupergraph(supergraph) 
+```
+
 ### Progressive field overrides
 
 Federation 2.7 and later can move a field between subgraphs gradually. Add a percentage label to `@override` to let the gateway select the overriding subgraph for that share of requests:
