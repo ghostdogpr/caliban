@@ -3,13 +3,7 @@ package caliban.gateway
 import caliban.gateway.Gateway.{ decomposeSupergraph, Origin }
 import caliban.gateway.GatewayBuildError._
 import caliban.gateway.internal._
-import caliban.gateway.internal.composition.{
-  RemoteSchemaAcquisition,
-  SchemaComposer,
-  SchemaMapping,
-  SupergraphAcquisition,
-  SupergraphDecomposition
-}
+import caliban.gateway.internal.composition._
 import caliban.gateway.internal.execution._
 import caliban.gateway.internal.planning.{ CandidateSearch, OperationPlanner }
 import caliban.gateway.Subgraph.Source

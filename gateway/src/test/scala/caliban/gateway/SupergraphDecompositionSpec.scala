@@ -5,6 +5,8 @@ import caliban.gateway.internal.composition.SupergraphDecomposition.Graph
 import caliban.InputValue
 import caliban.Value.StringValue
 import caliban.parsing.Parser
+import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition.InputValueDefinition
+import caliban.parsing.adt.Type.NamedType
 import caliban.parsing.adt.{ Directive, Document }
 import caliban.rendering.DocumentRenderer
 import sttp.model.Uri
@@ -32,6 +34,26 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
        |$body
        |""".stripMargin
   }
+
+  /** As [[supergraph]], but also linking the context feature so `@context` resolves to it. */
+  private def contextSupergraph(body: String): String =
+    s"""schema
+       |  @link(url: "https://specs.apollo.dev/link/v1.0")
+       |  @link(url: "$JoinV05", for: EXECUTION)
+       |  @link(url: "https://specs.apollo.dev/context/v0.1", for: SECURITY)
+       |{
+       |  query: Query
+       |}
+       |
+       |directive @context(name: String!) repeatable on INTERFACE | OBJECT | UNION
+       |directive @context__fromContext(field: context__ContextFieldValue) on ARGUMENT_DEFINITION
+       |
+       |scalar context__ContextFieldValue
+       |
+       |type Query { hello: String }
+       |
+       |$body
+       |""".stripMargin
 
   /** As [[supergraph]], but naming a subscription root so the shared-Subscription guard applies. */
   private def subscriptionSupergraph(body: String): String =
@@ -83,6 +105,10 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
 
   private val projected: UIO[Map[String, Document]] = projectionOf(fixtureSdl)
 
+  /** The rover-composed `@context`/`@fromContext` fixture, projected. See the fixture README. */
+  private val contextProjected: UIO[Map[String, Document]] =
+    projectionOf(resource("context-supergraph.graphql"))
+
   /**
    * Definitions rendered one at a time and sorted, so two projections compare on content rather than
    * on the order their composer happened to emit: rover sorts its output, Hive's composer does not.
@@ -118,6 +144,27 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
       .find(_.name == typeName)
       .flatMap(_.fields.find(_.name == fieldName))
       .flatMap(_.directives.find(_.name == name))
+
+  private def contextNames(document: Document, typeName: String): List[String] =
+    document.typeDefinitions
+      .filter(_.name == typeName)
+      .flatMap(_.directives.filter(_.name == "context"))
+      .flatMap(_.arguments.get("name").collect { case StringValue(value) => value })
+
+  private def arguments(document: Document, typeName: String, fieldName: String): List[InputValueDefinition] =
+    document.objectTypeDefinitions
+      .filter(_.name == typeName)
+      .flatMap(_.fields.filter(_.name == fieldName))
+      .flatMap(_.args)
+
+  /** Each argument's reconstructed `@fromContext` selection, by argument name. */
+  private def fromContext(document: Document, typeName: String, fieldName: String): List[(String, String)] =
+    arguments(document, typeName, fieldName).flatMap(argument =>
+      argument.directives
+        .filter(_.name == "fromContext")
+        .flatMap(_.arguments.get("field").collect { case StringValue(value) => value })
+        .map(argument.name -> _)
+    )
 
   private def typeDirectives(document: Document, typeName: String, name: String): List[String] =
     document.typeDefinitions
@@ -545,8 +592,18 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
             imported.distinct == imported,
             // The version must clear the composer's minimums: @authenticated/@requiresScopes need
             // federation >= 2.5 and @policy >= 2.6.
-            Set("@key", "@shareable", "@external", "@override", "@inaccessible", "@authenticated", "@policy")
-              .subsetOf(imported.toSet)
+            // @context and @fromContext need federation >= 2.8.
+            Set(
+              "@key",
+              "@shareable",
+              "@external",
+              "@override",
+              "@inaccessible",
+              "@authenticated",
+              "@policy",
+              "@context",
+              "@fromContext"
+            ).subsetOf(imported.toSet)
           )
         }
       },
@@ -826,6 +883,36 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
             )
         }
       },
+      test("translates a progressive override label onto the overriding graph only") {
+        // Rover writes the label into both graphs — the overridden graph gets a bare
+        // `overrideLabel:` entry — but only the graph carrying `override:` can express it, and
+        // the overridden graph must stay a plain owner for the rollout to have anywhere to route.
+        decompose(
+          supergraph(
+            """enum join__Graph {
+              |  A @join__graph(name: "a", url: "http://a/graphql")
+              |  B @join__graph(name: "b", url: "http://b/graphql")
+              |}
+              |type Widget @join__type(graph: A, key: "id") @join__type(graph: B, key: "id") {
+              |  id: ID!
+              |  price: Float! @join__field(graph: A, override: "b", overrideLabel: "percent(25)")
+              |    @join__field(graph: B, overrideLabel: "percent(25)")
+              |}""".stripMargin
+          )
+        ).map {
+          case Left(errors)  => assertTrue(errors == Nil)
+          case Right(graphs) =>
+            assertTrue(
+              fieldDirective(graphs("a"), "Widget", "price", "override").map(_.arguments) == Some(
+                Map[String, InputValue](
+                  "from"  -> StringValue("b"),
+                  "label" -> StringValue("percent(25)")
+                )
+              ),
+              fieldDirectives(graphs("b"), "Widget", "price") == Nil
+            )
+        }
+      },
       test("emits resolvable false and interfaceObject") {
         decompose(
           supergraph(
@@ -950,6 +1037,187 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
             result.map(roots(_, "b")) == Right(Some((Some("Query"), None, Some("Subscription"))))
           )
         }
+      }
+    ),
+
+    // A supergraph does not carry a context argument on the field it belongs to: the composer
+    // folds the argument, its type and its selection into `@join__field(contextArguments:)` and
+    // deletes it, and namespaces every `@context` name by the subgraph that declared it. Both
+    // halves have to be undone, and only for the one graph that owns them.
+    suite("projection: contexts")(
+      test("re-emits each graph's own context declarations under the name that graph wrote") {
+        // `Character` carries both graphs' declarations side by side, distinguished only by the
+        // namespace — which is the subgraph *name*, while the join enum key is `CHARACTERS`.
+        contextProjected.map { graphs =>
+          assertTrue(
+            contextNames(graphs("characters"), "Character") == List("viewer"),
+            contextNames(graphs("episodes"), "Character") == List("crew")
+          )
+        }
+      },
+      test("strips the context feature's own definitions and types") {
+        contextProjected.map { graphs =>
+          assertTrue(
+            graphs.values.forall(_.directiveDefinitions.isEmpty),
+            graphs.values.forall(document => !types(document).contains("context__ContextFieldValue"))
+          )
+        }
+      },
+      test("rebuilds every context argument the composer folded into the join metadata") {
+        contextProjected.map { graphs =>
+          val characters = graphs("characters")
+
+          assertTrue(
+            // `size` is the only argument the supergraph still declares; the other two are
+            // appended, which the composed schema cannot see — it hides context arguments.
+            arguments(characters, "Ship", "fare").map(_.name) == List("size", "currency", "locale"),
+            arguments(characters, "Ship", "fare").map(_.ofType) ==
+              List(NamedType("Int", nonNull = true), NamedType("String", false), NamedType("String", false)),
+            arguments(characters, "Ship", "fare").forall(_.defaultValue.isEmpty),
+            fromContext(characters, "Ship", "fare") ==
+              List("currency" -> "$viewer { currency }", "locale" -> "$viewer { locale }")
+          )
+        }
+      },
+      test("reconstructs a selection carrying a type condition") {
+        contextProjected.map { graphs =>
+          assertTrue(
+            fromContext(graphs("episodes"), "Ship", "manifest") ==
+              List("rank" -> "$crew ... on Character { rank }")
+          )
+        }
+      },
+      test("gives a context argument only to the graph that declared the context") {
+        contextProjected.map { graphs =>
+          assertTrue(
+            fields(graphs("characters"), "Ship") == List("id", "fare"),
+            fields(graphs("episodes"), "Ship") == List("id", "manifest")
+          )
+        }
+      },
+      test("declares a context on an interface and a union, not only on an object") {
+        decompose(
+          contextSupergraph(
+            """enum join__Graph {
+              |  A @join__graph(name: "a", url: "http://a/graphql")
+              |  B @join__graph(name: "b", url: "http://b/graphql")
+              |}
+              |interface Node @join__type(graph: A) @join__type(graph: B)
+              |  @context(name: "a__nodeContext") { id: ID! }
+              |union Holder @join__type(graph: A) @join__type(graph: B)
+              |  @context(name: "b__holderContext") = Widget
+              |type Widget @join__type(graph: A) @join__type(graph: B) { size: Int! }""".stripMargin
+          )
+        ).map {
+          case Left(errors)  => assertTrue(errors == Nil)
+          case Right(graphs) =>
+            assertTrue(
+              contextNames(graphs("a"), "Node") == List("nodeContext"),
+              contextNames(graphs("b"), "Node") == Nil,
+              contextNames(graphs("b"), "Holder") == List("holderContext"),
+              contextNames(graphs("a"), "Holder") == Nil
+            )
+        }
+      },
+      test("rejects a context argument naming a context the supergraph never declares") {
+        decompose(
+          contextSupergraph(
+            """enum join__Graph { A @join__graph(name: "a", url: "http://a/graphql") }
+              |type Widget @join__type(graph: A) {
+              |  size(unit: String): Int! @join__field(graph: A,
+              |    contextArguments: [{context: "a__missing", name: "unit", type: "String", selection: " { unit }"}])
+              |}""".stripMargin
+          )
+        ).map(result =>
+          assertTrue(
+            result == Left(List("[supergraph] Field 'Widget.size' names the undeclared context 'a__missing'."))
+          )
+        )
+      },
+      test("rejects a context argument naming another graph's context") {
+        // Federation requires @context and @fromContext in the same subgraph, so this would
+        // project an argument no subgraph can resolve.
+        decompose(
+          contextSupergraph(
+            """enum join__Graph {
+              |  A @join__graph(name: "a", url: "http://a/graphql")
+              |  B @join__graph(name: "b", url: "http://b/graphql")
+              |}
+              |type Holder @join__type(graph: B) @context(name: "b__viewer") { id: ID! }
+              |type Widget @join__type(graph: A) {
+              |  size(unit: String): Int! @join__field(graph: A,
+              |    contextArguments: [{context: "b__viewer", name: "unit", type: "String", selection: " { id }"}])
+              |}""".stripMargin
+          )
+        ).map(result =>
+          assertTrue(
+            result == Left(
+              List("[supergraph] Field 'Widget.size' names context 'b__viewer', which graph 'a' does not declare.")
+            )
+          )
+        )
+      },
+      test("rejects a context declared for a graph that does not declare the type") {
+        // The declaration can be projected nowhere — graph `b` never receives `Holder` — so
+        // without this the field entry below looks consistent and the failure lands on the
+        // projection instead, as `context 'viewer' is not declared by this subgraph`.
+        decompose(
+          contextSupergraph(
+            """enum join__Graph {
+              |  A @join__graph(name: "a", url: "http://a/graphql")
+              |  B @join__graph(name: "b", url: "http://b/graphql")
+              |}
+              |type Holder @join__type(graph: A) @context(name: "b__viewer") { id: ID! }
+              |type Widget @join__type(graph: B) {
+              |  size(unit: String): Int! @join__field(graph: B,
+              |    contextArguments: [{context: "b__viewer", name: "unit", type: "String", selection: " { id }"}])
+              |}""".stripMargin
+          )
+        ).map(result =>
+          assertTrue(
+            result == Left(
+              List(
+                "[supergraph] Type 'Holder' declares context 'b__viewer' for graph 'b', which does not declare the type."
+              )
+            )
+          )
+        )
+      },
+      test("rejects an empty context argument selection") {
+        decompose(
+          contextSupergraph(
+            """enum join__Graph { A @join__graph(name: "a", url: "http://a/graphql") }
+              |type Widget @join__type(graph: A) @context(name: "a__viewer") {
+              |  size(unit: String): Int! @join__field(graph: A,
+              |    contextArguments: [{context: "a__viewer", name: "unit", type: "String", selection: "  "}])
+              |}""".stripMargin
+          )
+        ).map(result =>
+          assertTrue(
+            result == Left(
+              List(
+                "[supergraph] Field 'Widget.size' declares an empty context argument selection for context 'a__viewer'."
+              )
+            )
+          )
+        )
+      },
+      test("rejects an unparseable context argument type") {
+        decompose(
+          contextSupergraph(
+            """enum join__Graph { A @join__graph(name: "a", url: "http://a/graphql") }
+              |type Widget @join__type(graph: A) @context(name: "a__viewer") {
+              |  size(unit: String): Int! @join__field(graph: A,
+              |    contextArguments: [{context: "a__viewer", name: "unit", type: "[String", selection: " { unit }"}])
+              |}""".stripMargin
+          )
+        ).map(result =>
+          assertTrue(
+            result == Left(
+              List("[supergraph] Field 'Widget.size' declares the unparseable context argument type '[String'.")
+            )
+          )
+        )
       }
     ),
 
