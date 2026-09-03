@@ -12,7 +12,7 @@ import caliban.federation.connect.{
 import caliban.schema.Annotations.GQLDirective
 
 // IMPORTANT: Skips FederationV2_10 because we want to override the types from it.
-trait FederationDirectivesV2_11 extends FederationDirectivesV2_9 {
+trait FederationDirectivesV2_11 extends FederationDirectivesV2_9 with FederationDirectivesV2_7 {
   case class GQLConnect(
     http: ConnectHTTP,
     selection: JSONSelection,
