@@ -5,7 +5,7 @@ import sbt.*
 import Keys.*
 
 val scala212     = "2.12.21"
-val scala213     = "2.13.18"
+val scala213     = "3.9.0"
 val scala3Lts    = "3.3.8"
 val scala3ForSbt = "3.8.4"
 val allScala     = Seq(scala212, scala213, scala3Lts)
