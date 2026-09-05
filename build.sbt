@@ -75,6 +75,28 @@ addCommandAlias(
   "all scalafmtSbtCheck scalafmtCheck test:scalafmtCheck"
 )
 
+def assemblyAppSettings(jar: String, main: String) = Def.settings(
+  assembly / assemblyJarName       := jar,
+  assembly / mainClass             := Some(main),
+  assembly / assemblyOutputPath    := {
+    (assembly / baseDirectory).value / "target" / (assembly / assemblyJarName).value
+  },
+  assembly / test                  := {},
+  assembly / assemblyMergeStrategy := {
+    case x if Assembly.isConfigFile(x)                                                            => MergeStrategy.concat
+    case PathList("META-INF", "MANIFEST.MF")                                                      => MergeStrategy.discard
+    case PathList("META-INF", x) if x.endsWith(".SF") || x.endsWith(".DSA") || x.endsWith(".RSA") =>
+      MergeStrategy.discard
+    case _                                                                                        => MergeStrategy.first
+  }
+)
+
+lazy val scala213OnlySettings = Def.settings(
+  skip               := (scalaVersion.value != scala213),
+  ideSkipProject     := (scalaVersion.value != scala213),
+  crossScalaVersions := Seq(scala213)
+)
+
 lazy val allProjects: Seq[ProjectReference] =
   List(
     macros,
@@ -96,6 +118,11 @@ lazy val allProjects: Seq[ProjectReference] =
     stitching,
     codegenSbt,
     federation,
+    gateway,
+    gatewayTracing,
+    gatewayExamples,
+    gatewayAudit,
+    gatewayBenchmark,
     reporting,
     tracing,
     apolloCompatibility
@@ -116,7 +143,8 @@ lazy val rootJVM212 = project
     ideSkipProject     := true
   )
   .aggregate({
-    val excluded: Set[ProjectReference] = Set(clientJS, clientNative, clientLaminext, play, apolloCompatibility)
+    val excluded: Set[ProjectReference] =
+      Set(clientJS, clientNative, clientLaminext, play, apolloCompatibility, gatewayAudit, gatewayBenchmark)
     allProjects.filterNot(excluded.contains)
   } *)
 
@@ -141,7 +169,7 @@ lazy val rootJVM3 = project
   )
   .aggregate({
     val excluded: Set[ProjectReference] =
-      Set(clientJS, clientNative, clientLaminext, codegenSbt, akkaHttp)
+      Set(clientJS, clientNative, clientLaminext, codegenSbt, akkaHttp, gatewayAudit, gatewayBenchmark)
     allProjects.filterNot(excluded.contains)
   } *)
 
@@ -576,10 +604,8 @@ lazy val examples = project
     run / fork         := true,
     run / connectInput := true
   )
+  .settings(scala213OnlySettings)
   .settings(
-    skip               := (scalaVersion.value != scala213),
-    ideSkipProject     := (scalaVersion.value != scala213),
-    crossScalaVersions := Seq(scala213),
     libraryDependencies ++= Seq(
       "org.typelevel"                         %% "cats-mtl"                % catsMtlVersion,
       "org.http4s"                            %% "http4s-ember-server"     % http4sVersion,
@@ -623,21 +649,7 @@ lazy val apolloCompatibility =
       ideSkipProject     := (scalaVersion.value == scala212),
       crossScalaVersions := Seq(scala213, scala3Lts)
     )
-    .settings(
-      assembly / assemblyJarName       := s"apollo-subgraph-compatibility.jar",
-      assembly / mainClass             := Some("Main"),
-      assembly / assemblyOutputPath    := {
-        (assembly / baseDirectory).value / "target" / (assembly / assemblyJarName).value
-      },
-      assembly / test                  := {},
-      assembly / assemblyMergeStrategy := {
-        case x if Assembly.isConfigFile(x)                                                            => MergeStrategy.concat
-        case PathList("META-INF", "MANIFEST.MF")                                                      => MergeStrategy.discard
-        case PathList("META-INF", x) if x.endsWith(".SF") || x.endsWith(".DSA") || x.endsWith(".RSA") =>
-          MergeStrategy.discard
-        case _                                                                                        => MergeStrategy.first
-      }
-    )
+    .settings(assemblyAppSettings("apollo-subgraph-compatibility.jar", "Main"))
     .dependsOn(federation, core, quickAdapter)
 
 lazy val reporting = project
@@ -703,6 +715,74 @@ lazy val federation = project
       "com.thesamet.scalapb" %% "scalapb-runtime" % scalapb.compiler.Version.scalapbVersion % "protobuf"
     )
   )
+
+lazy val gateway = project
+  .in(file("gateway"))
+  .settings(name := "caliban-gateway")
+  .settings(commonSettings)
+  .dependsOn(core, tools, quickAdapter % "test->compile", federation % "test->compile")
+  .disablePlugins(AssemblyPlugin)
+  .settings(
+    mimaPreviousArtifacts := Set.empty,
+    libraryDependencies ++= Seq(
+      "com.softwaremill.sttp.client4" %% "zio"          % sttpVersion,
+      "dev.zio"                       %% "zio-http"     % zioHttpVersion % Test,
+      "dev.zio"                       %% "zio-test"     % zioVersion     % Test,
+      "dev.zio"                       %% "zio-test-sbt" % zioVersion     % Test
+    )
+  )
+
+lazy val gatewayExamples = project
+  .in(file("gateway-examples"))
+  .settings(name := "caliban-gateway-examples")
+  .settings(commonSettings)
+  .settings(publish / skip := true)
+  .disablePlugins(AssemblyPlugin)
+  .dependsOn(gateway, quickAdapter, federation)
+
+lazy val gatewayTracing = project
+  .in(file("gateway-tracing"))
+  .settings(name := "caliban-gateway-tracing")
+  .settings(commonSettings)
+  .settings(
+    mimaPreviousArtifacts := Set.empty
+  )
+  .disablePlugins(AssemblyPlugin)
+  .dependsOn(gateway % "compile->compile;test->test", tracing % "compile->compile;test->test")
+
+lazy val gatewayAudit = project
+  .in(file("gateway-audit"))
+  .settings(commonSettings)
+  .settings(scala213OnlySettings)
+  .settings(assemblyAppSettings("caliban-gateway-audit.jar", "caliban.gateway.audit.Main"))
+  .settings(
+    name           := "caliban-gateway-audit",
+    publish / skip := true,
+    libraryDependencies ++= Seq(
+      "com.softwaremill.sttp.client4"         %% "zio"                   % sttpVersion,
+      "dev.zio"                               %% "zio-http"              % zioHttpVersion,
+      "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros" % jsoniterVersion,
+      "dev.zio"                               %% "zio-test"              % zioVersion % Test,
+      "dev.zio"                               %% "zio-test-sbt"          % zioVersion % Test
+    )
+  )
+  .dependsOn(gateway, quickAdapter)
+
+lazy val gatewayBenchmark = project
+  .in(file("gateway-benchmark"))
+  .settings(commonSettings)
+  .settings(scala213OnlySettings)
+  .settings(assemblyAppSettings("caliban-gateway-benchmark.jar", "caliban.gateway.benchmark.Main"))
+  .settings(
+    name           := "caliban-gateway-benchmark",
+    publish / skip := true,
+    libraryDependencies ++= Seq(
+      "dev.zio" %% "zio-http"     % zioHttpVersion,
+      "dev.zio" %% "zio-test"     % zioVersion % Test,
+      "dev.zio" %% "zio-test-sbt" % zioVersion % Test
+    )
+  )
+  .dependsOn(gateway, quickAdapter)
 
 lazy val docs = project
   .in(file("mdoc"))
@@ -790,7 +870,16 @@ lazy val enableMimaSettingsJVM =
       ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.*.<clinit>"),
       ProblemFilters.exclude[DirectMissingMethodProblem]("mdg.engine.proto.reports.*.<clinit>"),
       // private internal method; extra param added to fix nested-list null propagation
-      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.execution.Executor#StepReducer.reduceStep")
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.execution.Executor#StepReducer.reduceStep"),
+      // private implementation details replaced by direct jsoniter codecs
+      ProblemFilters.exclude[MissingClassProblem]("caliban.interop.jsoniter.ErrorJsoniter$ErrorDTO*"),
+      ProblemFilters.exclude[MissingClassProblem](
+        "caliban.interop.jsoniter.GraphQLResponseJsoniter$GraphQLResponseDTO*"
+      ),
+      // private implementation class; construction is handled by QuickAdapter
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.QuickRequestHandler.this"),
+      // generated accessors for the new GQLProgressiveOverride case class
+      ProblemFilters.exclude[InheritedNewAbstractMethodProblem]("caliban.federation.v2x.*.GQLProgressiveOverride")
     )
   )
 

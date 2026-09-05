@@ -48,6 +48,9 @@ object Introspector extends IntrospectionDerivation {
   private val introspectionType       = introspectionSchema.toType_()
   val introspectionRootType: RootType = RootType(introspectionType, None, None)
 
+  private[caliban] def withIntrospection(rootType: RootType): RootType =
+    rootType.copy(queryType = introspectionRootType.queryType |+| rootType.queryType)
+
   private val oneOfDirective =
     __Directive(
       "oneOf",
@@ -66,6 +69,7 @@ object Introspector extends IntrospectionDerivation {
     rootType: RootType,
     introWrappers: List[IntrospectionWrapper[R]] = Nil
   ): RootSchema[R] = {
+    val executionSchema = introspectionSchema.rename(rootType.queryType.name.getOrElse("Query"))
 
     @tailrec
     def wrap(
@@ -100,11 +104,11 @@ object Introspector extends IntrospectionDerivation {
     )
 
     val step = introWrappers match {
-      case Nil => introspectionSchema.resolve(resolver)
-      case ws  => QueryStep(ZQuery.fromZIONow(wrap(Exit.succeed(resolver))(ws).map(introspectionSchema.resolve)))
+      case Nil => executionSchema.resolve(resolver)
+      case ws  => QueryStep(ZQuery.fromZIONow(wrap(Exit.succeed(resolver))(ws).map(executionSchema.resolve)))
     }
 
-    RootSchema(Operation(introspectionType, step), None, None)
+    RootSchema(Operation(executionSchema.toType_(), step), None, None)
   }
 
   private[caliban] def isIntrospection(document: Document): Boolean =

@@ -1,0 +1,61 @@
+name: Federation Gateway Audit
+
+on:
+  pull_request:
+    branches:
+      - series/3.x
+    paths:
+      - gateway/**
+      - gateway-audit/**
+      - core/**
+      - tools/**
+      - build.sbt
+      - project/**
+      - .github/workflows/gateway-audit.yaml
+
+jobs:
+  audit:
+    name: Federation compatibility
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Caliban
+        uses: actions/checkout@v4
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: 17
+          distribution: adopt
+          cache: sbt
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.16.0
+      - uses: sbt/setup-sbt@v1
+      - name: Cache Scala dependencies
+        uses: coursier/cache-action@v6
+      - name: Checkout the pinned audit
+        shell: bash
+        run: |
+          source gateway-audit/upstream.env
+          git clone "$FEDERATION_GATEWAY_AUDIT_REPOSITORY" "$RUNNER_TEMP/federation-gateway-audit"
+          git -C "$RUNNER_TEMP/federation-gateway-audit" checkout "$FEDERATION_GATEWAY_AUDIT_REVISION"
+          npm --prefix "$RUNNER_TEMP/federation-gateway-audit" ci --ignore-scripts
+      - name: Build the Caliban adapter
+        run: sbt gatewayAudit/assembly
+      - name: Run the audit
+        shell: bash
+        run: |
+          source gateway-audit/upstream.env
+          cd "$RUNNER_TEMP/federation-gateway-audit"
+          npm start -- test \
+            --cwd "$GITHUB_WORKSPACE/gateway-audit" \
+            --run-script ./run.sh \
+            --reporter dot \
+            --graphql http://127.0.0.1:4000/graphql \
+            --healthcheck http://127.0.0.1:4000/health \
+            --write "$GITHUB_WORKSPACE/gateway-audit/results.txt" \
+            --junit
+      - name: Verify 100% compatibility
+        shell: bash
+        run: |
+          ./gateway-audit/verify-results.sh ./gateway-audit/results.txt

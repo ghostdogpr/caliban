@@ -2,11 +2,12 @@ package caliban.interop.jsoniter
 
 import caliban.Value._
 import caliban._
-import caliban.parsing.adt.LocationInfo
 import com.github.plokhotnyuk.jsoniter_scala.core._
 import com.github.plokhotnyuk.jsoniter_scala.macros._
 
+import java.io.OutputStream
 import scala.collection.immutable.TreeMap
+import scala.util.control.NoStackTrace
 
 /**
  *  Implementation of the custom decoders ported from the jsoniter-circe implementation:
@@ -252,58 +253,10 @@ private[caliban] object ValueJsoniter {
 }
 
 private[caliban] object ErrorJsoniter {
-
-  private case class ErrorDTO(
-    message: String,
-    path: Option[List[PathValue]],
-    locations: Option[List[LocationInfo]],
-    extensions: Option[ResponseValue.ObjectValue]
-  )
-
-  private implicit val pathCodec: JsonValueCodec[PathValue] = new JsonValueCodec[PathValue] {
-    override def decodeValue(in: JsonReader, default: PathValue): PathValue = {
-      val b = in.nextToken()
-      in.rollbackToken()
-      b match {
-        case '"'                                     => PathValue.Key(in.readString(null))
-        case x if (x >= '0' && x <= '9') || x == '-' => PathValue.Index(in.readInt())
-        case _                                       => in.decodeError("expected int or string")
-      }
-    }
-    override def encodeValue(x: PathValue, out: JsonWriter): Unit           =
-      x match {
-        case StringValue(s)        => out.writeVal(s)
-        case IntValue.IntNumber(i) => out.writeVal(i)
-      }
-    override def nullValue: PathValue                                       =
-      null.asInstanceOf[PathValue]
-  }
-
-  private implicit val objectValueCodec: JsonValueCodec[ResponseValue.ObjectValue] =
-    new JsonValueCodec[ResponseValue.ObjectValue] {
-      override def decodeValue(in: JsonReader, default: ResponseValue.ObjectValue): ResponseValue.ObjectValue =
-        ValueJsoniter.responseValueCodec.decodeValue(in, default) match {
-          case o: ResponseValue.ObjectValue => o
-          case _                            => in.decodeError("expected json object")
-        }
-      override def encodeValue(x: ResponseValue.ObjectValue, out: JsonWriter): Unit                           =
-        ValueJsoniter.responseValueCodec.encodeValue(x, out)
-      override def nullValue: ResponseValue.ObjectValue                                                       =
-        null.asInstanceOf[ResponseValue.ObjectValue]
-    }
-
   val errorValueCodec: JsonValueCodec[CalibanError] = new JsonValueCodec[CalibanError] {
-    private val dtoCodec: JsonValueCodec[ErrorDTO] = JsonCodecMaker.make
-
     override def decodeValue(in: JsonReader, default: CalibanError): CalibanError = {
-      val err = dtoCodec.decodeValue(in, null)
-      CalibanError.ExecutionError(
-        msg = err.message,
-        path = err.path.getOrElse(Nil),
-        locationInfo = err.locations.flatMap(_.headOption),
-        innerThrowable = None,
-        extensions = err.extensions
-      )
+      val value = ValueJsoniter.responseValueCodec.decodeValue(in, null)
+      CalibanError.fromResponseValue(value).getOrElse(in.decodeError("invalid GraphQL error"))
     }
     override def encodeValue(x: CalibanError, out: JsonWriter): Unit              =
       ValueJsoniter.responseValueCodec.encodeValue(x.toResponseValue, out)
@@ -313,26 +266,155 @@ private[caliban] object ErrorJsoniter {
 }
 
 private[caliban] object GraphQLResponseJsoniter {
-  private case class GraphQLResponseDTO(data: ResponseValue, errors: Option[List[CalibanError]])
+  val graphQLResponseCodec: JsonValueCodec[GraphQLResponse[Any]] = codec()
 
-  val graphQLResponseCodec: JsonValueCodec[GraphQLResponse[Any]] =
+  def writeToArray[A](
+    value: A,
+    maxBytes: Int,
+    codec: JsonValueCodec[A]
+  ): Array[Byte] = {
+    val output = new BoundedOutputStream(maxBytes)
+    writeToStream(value, output)(codec)
+    output.toByteArray
+  }
+
+  def codec(
+    keepDataOnErrors: Boolean = true,
+    excludeExtensions: Set[String] = Set.empty
+  ): JsonValueCodec[GraphQLResponse[Any]] =
     new JsonValueCodec[GraphQLResponse[Any]] {
-      private val dtoCodec: JsonValueCodec[GraphQLResponseDTO] = JsonCodecMaker.make
-
       override def decodeValue(
         in: JsonReader,
         default: GraphQLResponse[Any]
       ): GraphQLResponse[Any] = {
-        val resp = dtoCodec.decodeValue(in, null)
-        GraphQLResponse[Any](
-          data = resp.data,
-          errors = resp.errors.getOrElse(Nil),
-          extensions = None
-        )
+        if (!in.isNextToken('{')) in.decodeError("expected JSON object")
+
+        var data: Option[ResponseValue]                   = None
+        var errors: Option[List[CalibanError]]            = None
+        var extensions: Option[ResponseValue.ObjectValue] = None
+        var hasNext: Option[Boolean]                      = None
+
+        if (!in.isNextToken('}')) {
+          in.rollbackToken()
+          while ({
+            in.readKeyAsString() match {
+              case "data"       => data = Some(ValueJsoniter.responseValueCodec.decodeValue(in, null))
+              case "errors"     =>
+                ValueJsoniter.responseValueCodec.decodeValue(in, null) match {
+                  case ResponseValue.ListValue(values) =>
+                    errors = Some(GraphQLResponse.decodeErrors(values))
+                  case NullValue                       => ()
+                  case _                               => in.decodeError("expected JSON array")
+                }
+              case "extensions" =>
+                ValueJsoniter.responseValueCodec.decodeValue(in, null) match {
+                  case value: ResponseValue.ObjectValue => extensions = Some(value)
+                  case NullValue                        => ()
+                  case _                                => in.decodeError("expected JSON object")
+                }
+              case "hasNext"    =>
+                ValueJsoniter.responseValueCodec.decodeValue(in, null) match {
+                  case BooleanValue(value) => hasNext = Some(value)
+                  case NullValue           => ()
+                  case _                   => in.decodeError("expected JSON boolean")
+                }
+              case _            => in.skip()
+            }
+            in.isNextToken(',')
+          }) ()
+          if (!in.isCurrentToken('}')) in.objectEndOrCommaError()
+        }
+
+        GraphQLResponse
+          .fromDecoded(data, errors, extensions, hasNext)
+          .getOrElse(in.decodeError("invalid GraphQL response"))
       }
-      override def encodeValue(x: GraphQLResponse[Any], out: JsonWriter): Unit =
-        ValueJsoniter.responseValueCodec.encodeValue(x.toResponseValue, out)
+      override def encodeValue(x: GraphQLResponse[Any], out: JsonWriter): Unit = {
+        val hasErrors = x.errors.nonEmpty
+
+        out.writeObjectStart()
+        if (!hasErrors || keepDataOnErrors) {
+          out.writeKey("data")
+          ValueJsoniter.responseValueCodec.encodeValue(x.data, out)
+        }
+        if (hasErrors) {
+          out.writeKey("errors")
+          out.writeArrayStart()
+          var errors = x.errors
+          while (errors ne Nil) {
+            errors.head match {
+              case error: CalibanError => ValueJsoniter.responseValueCodec.encodeValue(error.toResponseValue, out)
+              case error               =>
+                out.writeObjectStart()
+                out.writeKey("message")
+                out.writeVal(error.toString)
+                out.writeObjectEnd()
+            }
+            errors = errors.tail
+          }
+          out.writeArrayEnd()
+        }
+        x.extensions.foreach { extensions =>
+          val visible =
+            excludeExtensions.isEmpty || extensions.fields.exists(field => !excludeExtensions.contains(field._1))
+          if (visible) {
+            out.writeKey("extensions")
+            out.writeObjectStart()
+            var fields = extensions.fields
+            while (fields ne Nil) {
+              val field = fields.head
+              if (!excludeExtensions.contains(field._1)) {
+                out.writeKey(field._1)
+                ValueJsoniter.responseValueCodec.encodeValue(field._2, out)
+              }
+              fields = fields.tail
+            }
+            out.writeObjectEnd()
+          }
+        }
+        x.hasNext.foreach { hasNext =>
+          out.writeKey("hasNext")
+          out.writeVal(hasNext)
+        }
+        out.writeObjectEnd()
+      }
       override def nullValue: GraphQLResponse[Any]                             =
         null.asInstanceOf[GraphQLResponse[Any]]
     }
+
+}
+
+private[caliban] final class BoundedOutputStream(maxBytes: Int) extends OutputStream {
+  import BoundedOutputStream.LimitExceeded
+
+  private var bytes = Array.emptyByteArray
+  private var size  = 0
+
+  override def write(value: Int): Unit = {
+    ensureCapacity(1)
+    bytes(size) = value.toByte
+    size += 1
+  }
+
+  override def write(values: Array[Byte], offset: Int, length: Int): Unit = {
+    ensureCapacity(length)
+    java.lang.System.arraycopy(values, offset, bytes, size, length)
+    size += length
+  }
+
+  def toByteArray: Array[Byte] =
+    if (size == bytes.length) bytes else java.util.Arrays.copyOf(bytes, size)
+
+  private def ensureCapacity(additionalBytes: Int): Unit = {
+    val required = size + additionalBytes
+    if (additionalBytes < 0 || required < size || required > maxBytes) throw LimitExceeded
+    if (required > bytes.length) {
+      val next = math.min(maxBytes.toLong, math.max(required.toLong, bytes.length.toLong * 2L)).toInt
+      bytes = java.util.Arrays.copyOf(bytes, next)
+    }
+  }
+}
+
+private[caliban] object BoundedOutputStream {
+  case object LimitExceeded extends RuntimeException with NoStackTrace
 }

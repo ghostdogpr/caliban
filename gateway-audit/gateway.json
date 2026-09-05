@@ -1,0 +1,7 @@
+{
+  "name": "Caliban Gateway",
+  "repository": "https://github.com/ghostdogpr/caliban",
+  "website": "https://ghostdogpr.github.io/caliban/",
+  "graphql": "http://127.0.0.1:4000/graphql",
+  "health": "http://127.0.0.1:4000/health"
+}

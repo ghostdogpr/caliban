@@ -253,7 +253,7 @@ object DocumentRenderer extends Renderer[Document] {
     }
   }
 
-  private lazy val selectionsRenderer: Renderer[List[Selection]] = new Renderer[List[Selection]] {
+  private[caliban] lazy val selectionsRenderer: Renderer[List[Selection]] = new Renderer[List[Selection]] {
     private val inner = selectionRenderer.list(Renderer.newlineOrSpace)
 
     override def unsafeRender(selections: List[Selection], indent: Option[Int], writer: StringBuilder): Unit =

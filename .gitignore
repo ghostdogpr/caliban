@@ -23,3 +23,4 @@ node_modules/
 .DS_Store
 project/project/metals.sbt
 .cursor/mcp.json
+project/project/project/metals.sbt

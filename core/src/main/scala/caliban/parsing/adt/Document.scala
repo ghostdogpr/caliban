@@ -43,6 +43,60 @@ case class Document(definitions: List[Definition], sourceMapper: SourceMapper) {
   @transient lazy val subscriptionDefinitions: List[OperationDefinition]          =
     definitions.collect { case od: OperationDefinition if od.operationType == Subscription => od }
 
+  private[caliban] def operationDefinition(operationName: Option[String]): Option[OperationDefinition] =
+    operationName match {
+      case Some(name) => operationDefinitions.find(_.name.contains(name))
+      case None       =>
+        operationDefinitions match {
+          case operation :: Nil => Some(operation)
+          case _                => None
+        }
+    }
+
+  private[caliban] def existsSelection(operationName: Option[String])(
+    predicate: Selection => Boolean,
+    fragmentPredicate: FragmentDefinition => Boolean = (_: FragmentDefinition) => false
+  ): Boolean = {
+    val fragments = fragmentDefinitions.iterator.map(fragment => fragment.name -> fragment).toMap
+
+    def loop(selections: List[Selection], visitedFragments: Set[String]): Boolean =
+      selections.exists { selection =>
+        predicate(selection) || (selection match {
+          case Selection.Field(_, _, _, _, selectionSet, _) => loop(selectionSet, visitedFragments)
+          case Selection.InlineFragment(_, _, selectionSet) => loop(selectionSet, visitedFragments)
+          case Selection.FragmentSpread(name, _)            =>
+            !visitedFragments.contains(name) && fragments
+              .get(name)
+              .exists(fragment => fragmentPredicate(fragment) || loop(fragment.selectionSet, visitedFragments + name))
+        })
+      }
+
+    operationDefinition(operationName).exists(operation => loop(operation.selectionSet, Set.empty))
+  }
+
+  private[caliban] def foreachSelection(operationName: Option[String])(f: Selection => Unit): Unit = {
+    existsSelection(operationName) { selection =>
+      f(selection)
+      false
+    }
+    ()
+  }
+
+  private[caliban] def hasDirective(operationName: Option[String])(predicate: Directive => Boolean): Boolean = {
+    def selectionHasDirective(selection: Selection): Boolean =
+      selection match {
+        case Selection.Field(_, _, _, directives, _, _) => directives.exists(predicate)
+        case Selection.InlineFragment(_, directives, _) => directives.exists(predicate)
+        case Selection.FragmentSpread(_, directives)    => directives.exists(predicate)
+      }
+
+    operationDefinition(operationName).exists(operation =>
+      operation.directives.exists(predicate) ||
+        operation.variableDefinitions.exists(_.directives.exists(predicate)) ||
+        existsSelection(operationName)(selectionHasDirective, _.directives.exists(predicate))
+    )
+  }
+
   def objectTypeDefinition(name: String): Option[ObjectTypeDefinition]       =
     objectTypeDefinitions.find(t => t.name == name)
   def interfaceTypeDefinition(name: String): Option[InterfaceTypeDefinition] =

@@ -6,11 +6,14 @@ import caliban.Macros.gqldoc
 import caliban.TestUtils._
 import caliban.Value._
 import caliban.introspection.adt.__Introspection
+import caliban.schema.Schema.auto._
 import caliban.wrappers.Wrapper.IntrospectionWrapper
-import zio.ZIO
+import zio.{ Ref, ZIO }
 import zio.test._
 
 object IntrospectionSpec extends ZIOSpecDefault {
+
+  private case class EffectfulRoot(value: String)
 
   val fullIntrospectionQuery = gqldoc("""
         query IntrospectionQuery {
@@ -111,13 +114,29 @@ object IntrospectionSpec extends ZIOSpecDefault {
     suite("IntrospectionSpec")(
       test("fail when introspection is disabled") {
         val interpreter = graphQL(resolverIO).interpreter
+        val mixedQuery  = gqldoc("""
+              query Application {
+                character(name: "Amos Burton") { name }
+              }
+              query Mixed {
+                character(name: "Amos Burton") { name }
+                __schema { queryType { name } }
+              }
+            """)
 
-        Configurator.setEnableIntrospection(false) *>
-          interpreter
-            .flatMap(_.execute(fullIntrospectionQuery))
-            .map { response =>
-              assertTrue(response == GraphQLResponse(NullValue, List(ValidationError("Introspection is disabled", ""))))
-            }
+        for {
+          _             <- Configurator.setEnableIntrospection(false)
+          api           <- interpreter
+          introspection <- api.execute(fullIntrospectionQuery)
+          application   <- api.execute(mixedQuery, Some("Application"))
+          mixed         <- api.execute(mixedQuery, Some("Mixed"))
+          invalid       <- api.execute("query Disabled($required: Boolean!) { __schema { queryType { name } } }")
+        } yield assertTrue(
+          introspection == GraphQLResponse(NullValue, List(ValidationError("Introspection is disabled", ""))),
+          application.errors.isEmpty,
+          mixed == GraphQLResponse(NullValue, List(ValidationError("Introspection is disabled", ""))),
+          invalid == GraphQLResponse(NullValue, List(ValidationError("Introspection is disabled", "")))
+        )
 
       },
       test("introspect schema") {
@@ -167,6 +186,94 @@ object IntrospectionSpec extends ZIOSpecDefault {
               """{"__schema":{"queryType":{"name":"QueryWithOneOf"},"mutationType":null,"subscriptionType":null,"types":[{"kind":"SCALAR","name":"Boolean","description":null,"isOneOf":null,"fields":null,"inputFields":null,"interfaces":null,"enumValues":null,"possibleTypes":null},{"kind":"OBJECT","name":"Captain","description":null,"isOneOf":null,"fields":[{"name":"shipName","description":null,"args":[],"type":{"kind":"NON_NULL","name":null,"ofType":{"kind":"SCALAR","name":"CaptainShipName","ofType":null}},"isDeprecated":false,"deprecationReason":null}],"inputFields":null,"interfaces":[],"enumValues":null,"possibleTypes":null},{"kind":"SCALAR","name":"CaptainShipName","description":"Description of custom scalar emphasizing proper captain ship names","isOneOf":null,"fields":null,"inputFields":null,"interfaces":null,"enumValues":null,"possibleTypes":null},{"kind":"OBJECT","name":"Character","description":null,"isOneOf":null,"fields":[{"name":"name","description":null,"args":[],"type":{"kind":"NON_NULL","name":null,"ofType":{"kind":"SCALAR","name":"String","ofType":null}},"isDeprecated":false,"deprecationReason":null},{"name":"nicknames","description":null,"args":[],"type":{"kind":"NON_NULL","name":null,"ofType":{"kind":"LIST","name":null,"ofType":{"kind":"NON_NULL","name":null,"ofType":{"kind":"SCALAR","name":"String","ofType":null}}}},"isDeprecated":false,"deprecationReason":null},{"name":"origin","description":null,"args":[],"type":{"kind":"NON_NULL","name":null,"ofType":{"kind":"ENUM","name":"Origin","ofType":null}},"isDeprecated":false,"deprecationReason":null},{"name":"role","description":null,"args":[],"type":{"kind":"UNION","name":"Role","ofType":null},"isDeprecated":false,"deprecationReason":null}],"inputFields":null,"interfaces":[],"enumValues":null,"possibleTypes":null},{"kind":"INPUT_OBJECT","name":"CharacterInput","description":null,"isOneOf":false,"fields":null,"inputFields":[{"name":"name","description":null,"type":{"kind":"NON_NULL","name":null,"ofType":{"kind":"SCALAR","name":"String","ofType":null}},"defaultValue":null},{"name":"nicknames","description":null,"type":{"kind":"NON_NULL","name":null,"ofType":{"kind":"LIST","name":null,"ofType":{"kind":"NON_NULL","name":null,"ofType":{"kind":"SCALAR","name":"String","ofType":null}}}},"defaultValue":null},{"name":"origin","description":null,"type":{"kind":"NON_NULL","name":null,"ofType":{"kind":"ENUM","name":"Origin","ofType":null}},"defaultValue":null}],"interfaces":null,"enumValues":null,"possibleTypes":null},{"kind":"OBJECT","name":"Engineer","description":null,"isOneOf":null,"fields":[{"name":"shipName","description":null,"args":[],"type":{"kind":"NON_NULL","name":null,"ofType":{"kind":"SCALAR","name":"String","ofType":null}},"isDeprecated":false,"deprecationReason":null}],"inputFields":null,"interfaces":[],"enumValues":null,"possibleTypes":null},{"kind":"SCALAR","name":"Float","description":null,"isOneOf":null,"fields":null,"inputFields":null,"interfaces":null,"enumValues":null,"possibleTypes":null},{"kind":"SCALAR","name":"Int","description":null,"isOneOf":null,"fields":null,"inputFields":null,"interfaces":null,"enumValues":null,"possibleTypes":null},{"kind":"OBJECT","name":"Mechanic","description":null,"isOneOf":null,"fields":[{"name":"shipName","description":null,"args":[],"type":{"kind":"NON_NULL","name":null,"ofType":{"kind":"SCALAR","name":"String","ofType":null}},"isDeprecated":false,"deprecationReason":null}],"inputFields":null,"interfaces":[],"enumValues":null,"possibleTypes":null},{"kind":"INPUT_OBJECT","name":"NameOrOriginInput","description":null,"isOneOf":true,"fields":null,"inputFields":[{"name":"name","description":null,"type":{"kind":"SCALAR","name":"String","ofType":null},"defaultValue":null},{"name":"origin","description":null,"type":{"kind":"ENUM","name":"Origin","ofType":null},"defaultValue":null}],"interfaces":null,"enumValues":null,"possibleTypes":null},{"kind":"ENUM","name":"Origin","description":null,"isOneOf":null,"fields":null,"inputFields":null,"interfaces":null,"enumValues":[{"name":"BELT","description":null,"isDeprecated":false,"deprecationReason":null},{"name":"EARTH","description":null,"isDeprecated":false,"deprecationReason":null},{"name":"MARS","description":null,"isDeprecated":false,"deprecationReason":null},{"name":"MOON","description":null,"isDeprecated":true,"deprecationReason":"Use: EARTH | MARS | BELT"}],"possibleTypes":null},{"kind":"OBJECT","name":"Pilot","description":null,"isOneOf":null,"fields":[{"name":"shipName","description":null,"args":[],"type":{"kind":"NON_NULL","name":null,"ofType":{"kind":"SCALAR","name":"String","ofType":null}},"isDeprecated":false,"deprecationReason":null}],"inputFields":null,"interfaces":[],"enumValues":null,"possibleTypes":null},{"kind":"OBJECT","name":"QueryWithOneOf","description":"Queries","isOneOf":null,"fields":[{"name":"exists","description":null,"args":[{"name":"character","description":null,"type":{"kind":"NON_NULL","name":null,"ofType":{"kind":"INPUT_OBJECT","name":"CharacterInput","ofType":null}},"defaultValue":null}],"type":{"kind":"NON_NULL","name":null,"ofType":{"kind":"SCALAR","name":"Boolean","ofType":null}},"isDeprecated":false,"deprecationReason":null},{"name":"character","description":null,"args":[{"name":"nameOrOrigin","description":null,"type":{"kind":"NON_NULL","name":null,"ofType":{"kind":"INPUT_OBJECT","name":"NameOrOriginInput","ofType":null}},"defaultValue":null}],"type":{"kind":"NON_NULL","name":null,"ofType":{"kind":"LIST","name":null,"ofType":{"kind":"NON_NULL","name":null,"ofType":{"kind":"OBJECT","name":"Character","ofType":null}}}},"isDeprecated":false,"deprecationReason":null}],"inputFields":null,"interfaces":[],"enumValues":null,"possibleTypes":null},{"kind":"UNION","name":"Role","description":null,"isOneOf":null,"fields":null,"inputFields":null,"interfaces":null,"enumValues":null,"possibleTypes":[{"kind":"OBJECT","name":"Captain","ofType":null},{"kind":"OBJECT","name":"Engineer","ofType":null},{"kind":"OBJECT","name":"Mechanic","ofType":null},{"kind":"OBJECT","name":"Pilot","ofType":null}]},{"kind":"SCALAR","name":"String","description":null,"isOneOf":null,"fields":null,"inputFields":null,"interfaces":null,"enumValues":null,"possibleTypes":null},{"kind":"OBJECT","name":"__Directive","description":null,"isOneOf":null,"fields":[{"name":"name","description":null,"args":[],"type":{"kind":"NON_NULL","name":null,"ofType":{"kind":"SCALAR","name":"String","ofType":null}},"isDeprecated":false,"deprecationReason":null},{"name":"description","description":null,"args":[],"type":{"kind":"SCALAR","name":"String","ofType":null},"isDeprecated":false,"deprecationReason":null},{"name":"locations","description":null,"args":[],"type":{"kind":"NON_NULL","name":null,"ofType":{"kind":"LIST","name":null,"ofType":{"kind":"NON_NULL","name":null,"ofType":{"kind":"ENUM","name":"__DirectiveLocation","ofType":null}}}},"isDeprecated":false,"deprecationReason":null},{"name":"args","description":null,"args":[{"name":"includeDeprecated","description":null,"type":{"kind":"SCALAR","name":"Boolean","ofType":null},"defaultValue":null}],"type":{"kind":"NON_NULL","name":null,"ofType":{"kind":"LIST","name":null,"ofType":{"kind":"NON_NULL","name":null,"ofType":{"kind":"OBJECT","name":"__InputValue","ofType":null}}}},"isDeprecated":false,"deprecationReason":null},{"name":"isRepeatable","description":null,"args":[],"type":{"kind":"NON_NULL","name":null,"ofType":{"kind":"SCALAR","name":"Boolean","ofType":null}},"isDeprecated":false,"deprecationReason":null}],"inputFields":null,"interfaces":[],"enumValues":null,"possibleTypes":null},{"kind":"ENUM","name":"__DirectiveLocation","description":null,"isOneOf":null,"fields":null,"inputFields":null,"interfaces":null,"enumValues":[{"name":"ARGUMENT_DEFINITION","description":null,"isDeprecated":false,"deprecationReason":null},{"name":"ENUM","description":null,"isDeprecated":false,"deprecationReason":null},{"name":"ENUM_VALUE","description":null,"isDeprecated":false,"deprecationReason":null},{"name":"FIELD","description":null,"isDeprecated":false,"deprecationReason":null},{"name":"FIELD_DEFINITION","description":null,"isDeprecated":false,"deprecationReason":null},{"name":"FRAGMENT_DEFINITION","description":null,"isDeprecated":false,"deprecationReason":null},{"name":"FRAGMENT_SPREAD","description":null,"isDeprecated":false,"deprecationReason":null},{"name":"INLINE_FRAGMENT","description":null,"isDeprecated":false,"deprecationReason":null},{"name":"INPUT_FIELD_DEFINITION","description":null,"isDeprecated":false,"deprecationReason":null},{"name":"INPUT_OBJECT","description":null,"isDeprecated":false,"deprecationReason":null},{"name":"INTERFACE","description":null,"isDeprecated":false,"deprecationReason":null},{"name":"MUTATION","description":null,"isDeprecated":false,"deprecationReason":null},{"name":"OBJECT","description":null,"isDeprecated":false,"deprecationReason":null},{"name":"QUERY","description":null,"isDeprecated":false,"deprecationReason":null},{"name":"SCALAR","description":null,"isDeprecated":false,"deprecationReason":null},{"name":"SCHEMA","description":null,"isDeprecated":false,"deprecationReason":null},{"name":"SUBSCRIPTION","description":null,"isDeprecated":false,"deprecationReason":null},{"name":"UNION","description":null,"isDeprecated":false,"deprecationReason":null},{"name":"VARIABLE_DEFINITION","description":null,"isDeprecated":false,"deprecationReason":null}],"possibleTypes":null},{"kind":"OBJECT","name":"__EnumValue","description":null,"isOneOf":null,"fields":[{"name":"name","description":null,"args":[],"type":{"kind":"NON_NULL","name":null,"ofType":{"kind":"SCALAR","name":"String","ofType":null}},"isDeprecated":false,"deprecationReason":null},{"name":"description","description":null,"args":[],"type":{"kind":"SCALAR","name":"String","ofType":null},"isDeprecated":false,"deprecationReason":null},{"name":"isDeprecated","description":null,"args":[],"type":{"kind":"NON_NULL","name":null,"ofType":{"kind":"SCALAR","name":"Boolean","ofType":null}},"isDeprecated":false,"deprecationReason":null},{"name":"deprecationReason","description":null,"args":[],"type":{"kind":"SCALAR","name":"String","ofType":null},"isDeprecated":false,"deprecationReason":null}],"inputFields":null,"interfaces":[],"enumValues":null,"possibleTypes":null},{"kind":"OBJECT","name":"__Field","description":null,"isOneOf":null,"fields":[{"name":"name","description":null,"args":[],"type":{"kind":"NON_NULL","name":null,"ofType":{"kind":"SCALAR","name":"String","ofType":null}},"isDeprecated":false,"deprecationReason":null},{"name":"description","description":null,"args":[],"type":{"kind":"SCALAR","name":"String","ofType":null},"isDeprecated":false,"deprecationReason":null},{"name":"args","description":null,"args":[{"name":"includeDeprecated","description":null,"type":{"kind":"SCALAR","name":"Boolean","ofType":null},"defaultValue":null}],"type":{"kind":"NON_NULL","name":null,"ofType":{"kind":"LIST","name":null,"ofType":{"kind":"NON_NULL","name":null,"ofType":{"kind":"OBJECT","name":"__InputValue","ofType":null}}}},"isDeprecated":false,"deprecationReason":null},{"name":"type","description":null,"args":[],"type":{"kind":"NON_NULL","name":null,"ofType":{"kind":"OBJECT","name":"__Type","ofType":null}},"isDeprecated":false,"deprecationReason":null},{"name":"isDeprecated","description":null,"args":[],"type":{"kind":"NON_NULL","name":null,"ofType":{"kind":"SCALAR","name":"Boolean","ofType":null}},"isDeprecated":false,"deprecationReason":null},{"name":"deprecationReason","description":null,"args":[],"type":{"kind":"SCALAR","name":"String","ofType":null},"isDeprecated":false,"deprecationReason":null}],"inputFields":null,"interfaces":[],"enumValues":null,"possibleTypes":null},{"kind":"OBJECT","name":"__InputValue","description":null,"isOneOf":null,"fields":[{"name":"name","description":null,"args":[],"type":{"kind":"NON_NULL","name":null,"ofType":{"kind":"SCALAR","name":"String","ofType":null}},"isDeprecated":false,"deprecationReason":null},{"name":"description","description":null,"args":[],"type":{"kind":"SCALAR","name":"String","ofType":null},"isDeprecated":false,"deprecationReason":null},{"name":"type","description":null,"args":[],"type":{"kind":"NON_NULL","name":null,"ofType":{"kind":"OBJECT","name":"__Type","ofType":null}},"isDeprecated":false,"deprecationReason":null},{"name":"defaultValue","description":null,"args":[],"type":{"kind":"SCALAR","name":"String","ofType":null},"isDeprecated":false,"deprecationReason":null},{"name":"isDeprecated","description":null,"args":[],"type":{"kind":"NON_NULL","name":null,"ofType":{"kind":"SCALAR","name":"Boolean","ofType":null}},"isDeprecated":false,"deprecationReason":null},{"name":"deprecationReason","description":null,"args":[],"type":{"kind":"SCALAR","name":"String","ofType":null},"isDeprecated":false,"deprecationReason":null}],"inputFields":null,"interfaces":[],"enumValues":null,"possibleTypes":null},{"kind":"OBJECT","name":"__Schema","description":null,"isOneOf":null,"fields":[{"name":"description","description":null,"args":[],"type":{"kind":"SCALAR","name":"String","ofType":null},"isDeprecated":false,"deprecationReason":null},{"name":"queryType","description":null,"args":[],"type":{"kind":"NON_NULL","name":null,"ofType":{"kind":"OBJECT","name":"__Type","ofType":null}},"isDeprecated":false,"deprecationReason":null},{"name":"mutationType","description":null,"args":[],"type":{"kind":"OBJECT","name":"__Type","ofType":null},"isDeprecated":false,"deprecationReason":null},{"name":"subscriptionType","description":null,"args":[],"type":{"kind":"OBJECT","name":"__Type","ofType":null},"isDeprecated":false,"deprecationReason":null},{"name":"types","description":null,"args":[],"type":{"kind":"NON_NULL","name":null,"ofType":{"kind":"LIST","name":null,"ofType":{"kind":"NON_NULL","name":null,"ofType":{"kind":"OBJECT","name":"__Type","ofType":null}}}},"isDeprecated":false,"deprecationReason":null},{"name":"directives","description":null,"args":[],"type":{"kind":"NON_NULL","name":null,"ofType":{"kind":"LIST","name":null,"ofType":{"kind":"NON_NULL","name":null,"ofType":{"kind":"OBJECT","name":"__Directive","ofType":null}}}},"isDeprecated":false,"deprecationReason":null}],"inputFields":null,"interfaces":[],"enumValues":null,"possibleTypes":null},{"kind":"OBJECT","name":"__Type","description":null,"isOneOf":null,"fields":[{"name":"kind","description":null,"args":[],"type":{"kind":"NON_NULL","name":null,"ofType":{"kind":"ENUM","name":"__TypeKind","ofType":null}},"isDeprecated":false,"deprecationReason":null},{"name":"name","description":null,"args":[],"type":{"kind":"SCALAR","name":"String","ofType":null},"isDeprecated":false,"deprecationReason":null},{"name":"description","description":null,"args":[],"type":{"kind":"SCALAR","name":"String","ofType":null},"isDeprecated":false,"deprecationReason":null},{"name":"fields","description":null,"args":[{"name":"includeDeprecated","description":null,"type":{"kind":"SCALAR","name":"Boolean","ofType":null},"defaultValue":null}],"type":{"kind":"LIST","name":null,"ofType":{"kind":"NON_NULL","name":null,"ofType":{"kind":"OBJECT","name":"__Field","ofType":null}}},"isDeprecated":false,"deprecationReason":null},{"name":"interfaces","description":null,"args":[],"type":{"kind":"LIST","name":null,"ofType":{"kind":"NON_NULL","name":null,"ofType":{"kind":"OBJECT","name":"__Type","ofType":null}}},"isDeprecated":false,"deprecationReason":null},{"name":"possibleTypes","description":null,"args":[],"type":{"kind":"LIST","name":null,"ofType":{"kind":"NON_NULL","name":null,"ofType":{"kind":"OBJECT","name":"__Type","ofType":null}}},"isDeprecated":false,"deprecationReason":null},{"name":"enumValues","description":null,"args":[{"name":"includeDeprecated","description":null,"type":{"kind":"SCALAR","name":"Boolean","ofType":null},"defaultValue":null}],"type":{"kind":"LIST","name":null,"ofType":{"kind":"NON_NULL","name":null,"ofType":{"kind":"OBJECT","name":"__EnumValue","ofType":null}}},"isDeprecated":false,"deprecationReason":null},{"name":"inputFields","description":null,"args":[{"name":"includeDeprecated","description":null,"type":{"kind":"SCALAR","name":"Boolean","ofType":null},"defaultValue":null}],"type":{"kind":"LIST","name":null,"ofType":{"kind":"NON_NULL","name":null,"ofType":{"kind":"OBJECT","name":"__InputValue","ofType":null}}},"isDeprecated":false,"deprecationReason":null},{"name":"ofType","description":null,"args":[],"type":{"kind":"OBJECT","name":"__Type","ofType":null},"isDeprecated":false,"deprecationReason":null},{"name":"specifiedByURL","description":null,"args":[],"type":{"kind":"SCALAR","name":"String","ofType":null},"isDeprecated":false,"deprecationReason":null},{"name":"isOneOf","description":null,"args":[],"type":{"kind":"SCALAR","name":"Boolean","ofType":null},"isDeprecated":false,"deprecationReason":null}],"inputFields":null,"interfaces":[],"enumValues":null,"possibleTypes":null},{"kind":"ENUM","name":"__TypeKind","description":null,"isOneOf":null,"fields":null,"inputFields":null,"interfaces":null,"enumValues":[{"name":"ENUM","description":null,"isDeprecated":false,"deprecationReason":null},{"name":"INPUT_OBJECT","description":null,"isDeprecated":false,"deprecationReason":null},{"name":"INTERFACE","description":null,"isDeprecated":false,"deprecationReason":null},{"name":"LIST","description":null,"isDeprecated":false,"deprecationReason":null},{"name":"NON_NULL","description":null,"isDeprecated":false,"deprecationReason":null},{"name":"OBJECT","description":null,"isDeprecated":false,"deprecationReason":null},{"name":"SCALAR","description":null,"isDeprecated":false,"deprecationReason":null},{"name":"UNION","description":null,"isDeprecated":false,"deprecationReason":null}],"possibleTypes":null}],"directives":[{"name":"skip","description":"The @skip directive may be provided for fields, fragment spreads, and inline fragments, and allows for conditional exclusion during execution as described by the if argument.","locations":["FIELD","FRAGMENT_SPREAD","INLINE_FRAGMENT"],"args":[{"name":"if","description":null,"type":{"kind":"NON_NULL","name":null,"ofType":{"kind":"SCALAR","name":"Boolean","ofType":null}},"defaultValue":null}]},{"name":"include","description":"The @include directive may be provided for fields, fragment spreads, and inline fragments, and allows for conditional inclusion during execution as described by the if argument.","locations":["FIELD","FRAGMENT_SPREAD","INLINE_FRAGMENT"],"args":[{"name":"if","description":null,"type":{"kind":"NON_NULL","name":null,"ofType":{"kind":"SCALAR","name":"Boolean","ofType":null}},"defaultValue":null}]},{"name":"specifiedBy","description":"The @specifiedBy directive is used within the type system definition language to provide a URL for specifying the behavior of custom scalar types. The URL should point to a human-readable specification of the data format, serialization, and coercion rules. It must not appear on built-in scalar types.","locations":["SCALAR"],"args":[{"name":"url","description":null,"type":{"kind":"NON_NULL","name":null,"ofType":{"kind":"SCALAR","name":"String","ofType":null}},"defaultValue":null}]},{"name":"oneOf","description":"The `@oneOf` directive is used within the type system definition language to indicate an Input Object is a OneOf Input Object.","locations":["INPUT_OBJECT"],"args":[]}]}}"""
           )
         }
+      },
+      test("mixes introspection and application fields") {
+        val interpreter = graphQL(resolverIO).interpreter
+        val query       = gqldoc("""
+              query {
+                character(name: "Amos Burton") {
+                  name
+                }
+                __schema {
+                  queryType { name }
+                }
+                __type(name: "Character") {
+                  name
+                }
+              }
+            """)
+
+        interpreter.flatMap(_.execute(query)).map { response =>
+          assertTrue(
+            response.errors.isEmpty,
+            response.data.toString ==
+              """{"character":{"name":"Amos Burton"},"__schema":{"queryType":{"name":"QueryIO"}},"__type":{"name":"Character"}}"""
+          )
+        }
+      },
+      test("runs introspection wrappers only when introspection is selected") {
+        val applicationQuery = gqldoc("""
+              query {
+                character(name: "Amos Burton") { name }
+              }
+            """)
+        val mixedQuery       = gqldoc("""
+              query {
+                character(name: "Amos Burton") { name }
+                __schema { queryType { name } }
+              }
+            """)
+
+        for {
+          invocations <- Ref.make(0)
+          wrapper      = new IntrospectionWrapper[Any] {
+                           def wrap[R1 <: Any](
+                             effect: ZIO[R1, ExecutionError, __Introspection]
+                           ): ZIO[R1, ExecutionError, __Introspection] =
+                             invocations.update(_ + 1) *> effect
+                         }
+          api         <- (graphQL(resolverIO) @@ wrapper).interpreter
+          application <- api.execute(applicationQuery)
+          afterApp    <- invocations.get
+          mixed       <- api.execute(mixedQuery)
+          afterMixed  <- invocations.get
+        } yield assertTrue(
+          application.errors.isEmpty,
+          afterApp == 0,
+          mixed.errors.isEmpty,
+          afterMixed == 1
+        )
+      },
+      test("pure introspection does not evaluate an effectful application root") {
+        for {
+          evaluated <- Ref.make(false)
+          api       <- graphQL(
+                         RootResolver(evaluated.set(true).as(EffectfulRoot("evaluated")))
+                       ).interpreter
+          response  <- api.execute("{ __schema { queryType { name } } }")
+          wasRun    <- evaluated.get
+        } yield assertTrue(response.errors.isEmpty, !wasRun)
+      },
+      test("executes fragment-only introspection on the application query root") {
+        case class Query(value: String)
+
+        val named  =
+          """
+            |query { ...IntrospectionFields }
+            |fragment IntrospectionFields on Query { __schema { queryType { name } } }
+            |""".stripMargin
+        val inline = "query { ... on Query { __type(name: \"Query\") { name } } }"
+
+        for {
+          api            <- graphQL(RootResolver(Query("value"))).interpreter
+          namedResponse  <- api.execute(named)
+          inlineResponse <- api.execute(inline)
+        } yield assertTrue(
+          namedResponse.errors.isEmpty,
+          namedResponse.data.toString == """{"__schema":{"queryType":{"name":"Query"}}}""",
+          inlineResponse.errors.isEmpty,
+          inlineResponse.data.toString == """{"__type":{"name":"Query"}}"""
+        )
       },
       test("introspect type") {
         val interpreter = graphQL(resolverIO).interpreter

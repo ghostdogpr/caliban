@@ -2,7 +2,6 @@ package caliban.schema
 
 import caliban.introspection.adt.{ __Type, TypeVisitor }
 import caliban.parsing.adt.Directive
-import caliban.schema.Types.collectTypes
 
 case class RootSchemaBuilder[-R](
   query: Option[Operation[R]],
@@ -22,16 +21,13 @@ case class RootSchemaBuilder[-R](
       schemaDescription orElse that.schemaDescription
     )
 
-  def types: List[__Type] = {
-    val init = additionalTypes.foldLeft(List.empty[__Type]) { case (acc, t) => collectTypes(t, acc) }
-    (init ++
-      query.map(_.opType).fold(List.empty[__Type])(collectTypes(_, init)) ++
-      mutation.map(_.opType).fold(List.empty[__Type])(collectTypes(_, init)) ++
-      subscription.map(_.opType).fold(List.empty[__Type])(collectTypes(_, init)))
-      .groupBy(t => (t.name, t.kind, t.origin))
-      .flatMap(_._2.headOption)
-      .toList
-  }
+  def types: List[__Type] =
+    Types.collectRootTypes(
+      additionalTypes,
+      query.map(_.opType),
+      mutation.map(_.opType),
+      subscription.map(_.opType)
+    )
 
   def visit(visitor: TypeVisitor): RootSchemaBuilder[R] =
     copy(

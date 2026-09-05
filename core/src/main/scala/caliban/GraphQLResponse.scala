@@ -52,6 +52,56 @@ case class GraphQLResponse[+E](
 }
 
 object GraphQLResponse {
+  private[caliban] def optional[A](value: ObjectValue, name: String)(
+    decode: PartialFunction[ResponseValue, A]
+  ): Option[Option[A]] = {
+    val field = value.getOrNull(name)
+    if ((field eq null) || field == NullValue) Some(None)
+    else decode.lift(field).map(Some(_))
+  }
+
+  private[caliban] def decodeErrors(values: List[ResponseValue]): List[CalibanError] =
+    values.map(value => CalibanError.fromResponseValue(value).getOrElse(malformedRemoteError))
+
+  private val malformedRemoteError: CalibanError.ExecutionError =
+    CalibanError.ExecutionError("Remote GraphQL request failed.")
+
+  private[caliban] def fromDecoded(
+    data: Option[ResponseValue],
+    errors: Option[List[CalibanError]],
+    extensions: Option[ResponseValue.ObjectValue],
+    hasNext: Option[Boolean]
+  ): Option[GraphQLResponse[CalibanError]] =
+    (data, errors) match {
+      case (None, None) => None
+      case _            => Some(GraphQLResponse(data.getOrElse(NullValue), errors.getOrElse(Nil), extensions, hasNext))
+    }
+
+  private[caliban] def fromResponseValue(value: ResponseValue): Option[GraphQLResponse[CalibanError]] =
+    value match {
+      case value @ ObjectValue(fields) =>
+        val data       = fields.collectFirst { case ("data", value) => value }
+        val errors     = fields.collectFirst { case ("errors", value) => value } match {
+          case None | Some(NullValue)  => Some(None)
+          case Some(ListValue(values)) => Some(Some(decodeErrors(values)))
+          case _                       => None
+        }
+        val extensions = optional(value, "extensions") { case value: ObjectValue => value }
+        val hasNext    = optional(value, "hasNext") { case BooleanValue(value) => value }
+        for {
+          decodedErrors <- errors
+          extension     <- extensions
+          next          <- hasNext
+          response      <- fromDecoded(
+                             data,
+                             decodedErrors,
+                             extension,
+                             next
+                           )
+        } yield response
+      case _                           => None
+    }
+
   implicit def tapirSchema[F[_]: IsTapirSchema, E]: F[GraphQLResponse[E]] =
     caliban.interop.tapir.schema.responseSchema.asInstanceOf[F[GraphQLResponse[E]]]
 
