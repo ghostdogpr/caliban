@@ -63,7 +63,181 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
     SchemaTransformation.hideInputField("Filter", "hidden")
   )
 
+  private def transformedContextSelectors(schema: String, transformations: List[SchemaTransformation]) =
+    for {
+      document   <- ZIO.fromEither(Parser.parseQuery(schema))
+      normalized <- ZIO.fromEither(RemoteSchema.normalize(document, promoteOrphans = true))
+      mapping    <- ZIO.fromEither(
+                      SchemaMapping.compile(
+                        "contexts",
+                        normalized.rootType,
+                        normalized.document,
+                        federation = true,
+                        transformations
+                      )
+                    )
+    } yield mapping
+      .transform(normalized.document)
+      .objectTypeDefinitions
+      .flatMap(_.fields)
+      .flatMap(_.args)
+      .flatMap(_.directives)
+      .filter(_.name == "fromContext")
+      .flatMap(_.arguments.get("field"))
+      .collect { case StringValue(value) => value.replaceAll("\\s", "") }
+
   def spec = suite("SchemaTransformationSpec")(
+    test("rewrites context selections through field and type renames") {
+      val schema          =
+        s"""
+           |${federationSchemaPreamble("@key", "@context", "@fromContext").replace("federation/v2.3", "federation/v2.9")}
+           |directive @context(name: String!) repeatable on OBJECT | INTERFACE | UNION
+           |directive @fromContext(field: String!) on ARGUMENT_DEFINITION
+           |type Query { user: User }
+           |type User @key(fields: "id") @context(name: "userContext") {
+           | id: ID!
+           | currency: String!
+           | amount(currency: String @fromContext(field: "$$userContext ... on User { currency }")): Int!
+           |}
+           |""".stripMargin
+      val transformations = List(
+        SchemaTransformation.renameType("User", "Member"),
+        SchemaTransformation.renameField("User", "currency", "money")
+      )
+      for {
+        remote    <- stub("""{"data":{"user":null}}""")
+        runtime   <- Gateway
+                       .compose(
+                         Subgraph
+                           .federation("users", remote.endpoint, schema)
+                           .transform(transformations: _*)
+                       )
+                       .interpreter
+        plan      <- runtime.explain("{ user { amount } }")
+        selectors <- transformedContextSelectors(schema, transformations)
+      } yield assertTrue(plan.nonEmpty, selectors == List("$userContext{...onMember{money}}"))
+    },
+    test("rewrites shared context fields using concrete interface implementations") {
+      val schema          =
+        s"""
+           |${federationSchemaPreamble("@key", "@context", "@fromContext").replace("federation/v2.3", "federation/v2.9")}
+           |directive @context(name: String!) repeatable on OBJECT | INTERFACE | UNION
+           |directive @fromContext(field: String!) on ARGUMENT_DEFINITION
+           |type Query { a: A b: B }
+           |type A @key(fields: "id") @context(name: "ctx") { id: ID! currency: String! tx: Tx }
+           |interface B @context(name: "ctx") { currency: String! tx: Tx }
+           |type C implements B { currency: String! tx: Tx }
+           |type Tx @key(fields: "id") { id: ID! amount(currency: String @fromContext(field: "$$ctx { currency }")): Int! }
+           |""".stripMargin
+      val transformations = List(SchemaTransformation.renameField("A", "currency", "money"))
+      for {
+        remote    <- stub("""{"data":{"a":null}}""")
+        baseline  <- Gateway.compose(Subgraph.federation("contexts", remote.endpoint, schema)).interpreter.exit
+        renamed   <- Gateway
+                       .compose(Subgraph.federation("contexts", remote.endpoint, schema).transform(transformations: _*))
+                       .interpreter
+                       .exit
+        selectors <- transformedContextSelectors(schema, transformations)
+      } yield assertTrue(
+        baseline.isSuccess,
+        renamed.isSuccess,
+        selectors == List("$ctx{...onA{money}...onC{currency}}")
+      )
+    },
+    test("keeps mixed context selections flat when parent field renames differ") {
+      val schema          =
+        s"""
+           |${federationSchemaPreamble("@key", "@context", "@fromContext").replace("federation/v2.3", "federation/v2.9")}
+           |directive @context(name: String!) repeatable on OBJECT | INTERFACE | UNION
+           |directive @fromContext(field: String!) on ARGUMENT_DEFINITION
+           |type Query { a: A c: C }
+           |type A @context(name: "ctx") { currency: String! tx: Tx }
+           |type C @context(name: "ctx") { currency: String! tx: Tx }
+           |type Tx @key(fields: "id") {
+           | id: ID!
+           | amount(currency: String @fromContext(field: "$$ctx { currency ... on A { tx { id } } }")): Int!
+           |}
+           |""".stripMargin
+      val transformations = List(
+        SchemaTransformation.renameType("A", "Member"),
+        SchemaTransformation.renameField("A", "currency", "money"),
+        SchemaTransformation.renameField("A", "tx", "transaction")
+      )
+      for {
+        remote    <- stub("""{"data":{"a":null}}""")
+        baseline  <- Gateway.compose(Subgraph.federation("contexts", remote.endpoint, schema)).interpreter.exit
+        renamed   <- Gateway
+                       .compose(Subgraph.federation("contexts", remote.endpoint, schema).transform(transformations: _*))
+                       .interpreter
+                       .exit
+        selectors <- transformedContextSelectors(schema, transformations)
+      } yield assertTrue(
+        selectors == List("$ctx{...onMember{money}...onC{currency}...onMember{transaction{id}}}"),
+        buildDiagnostics(baseline).exists(_.contains("the context selection resolves to multiple fields")),
+        buildDiagnostics(renamed) == buildDiagnostics(baseline)
+      )
+    },
+    test("preserves flat context fragments for a union through renames") {
+      val schema          =
+        s"""
+           |${federationSchemaPreamble("@key", "@context", "@fromContext").replace("federation/v2.3", "federation/v2.9")}
+           |directive @context(name: String!) repeatable on OBJECT | INTERFACE | UNION
+           |directive @fromContext(field: String!) on ARGUMENT_DEFINITION
+           |type Query { wallet: Wallet }
+           |union Wallet @context(name: "ctx") = User | Account
+           |type User { currency: String! tx: Tx }
+           |type Account { currency: String! tx: Tx }
+           |type Tx @key(fields: "id") {
+           | id: ID!
+           | amount(currency: String @fromContext(field: "$$ctx ... on User { currency } ... on Account { currency }")): Int!
+           |}
+           |""".stripMargin
+      val transformations = List(
+        SchemaTransformation.renameType("User", "Member"),
+        SchemaTransformation.renameField("User", "currency", "money")
+      )
+      for {
+        remote    <- stub("""{"data":{"wallet":null}}""")
+        baseline  <- Gateway.compose(Subgraph.federation("contexts", remote.endpoint, schema)).interpreter.exit
+        renamed   <- Gateway
+                       .compose(Subgraph.federation("contexts", remote.endpoint, schema).transform(transformations: _*))
+                       .interpreter
+                       .exit
+        selectors <- transformedContextSelectors(schema, transformations)
+      } yield assertTrue(
+        baseline.isSuccess,
+        renamed.isSuccess,
+        selectors == List("$ctx{...onMember{money}...onAccount{currency}}")
+      )
+    },
+    test("rewrites list-size slicing arguments and nested sized fields through renames") {
+      val schema =
+        s"""
+           |${federationSchemaPreamble("@listSize").replace("federation/v2.3", "federation/v2.9")}
+           |directive @listSize(slicingArguments: [String!], sizedFields: [String!]) on FIELD_DEFINITION
+           |type Query { books(first: Int): Connection @listSize(slicingArguments: ["first"], sizedFields: ["edges { node }"]) }
+           |type Connection { edges: Edge }
+           |type Edge { node: [Book] }
+           |type Book { title: String }
+           |""".stripMargin
+      for {
+        remote  <- stub("""{"data":{"books":{"items":[]}}}""")
+        runtime <- Gateway
+                     .compose(
+                       Subgraph
+                         .federation("books", remote.endpoint, schema)
+                         .transform(
+                           SchemaTransformation.renameArgument("Query", "books", "first", "limit"),
+                           SchemaTransformation.renameField("Connection", "edges", "items"),
+                           SchemaTransformation.renameField("Edge", "node", "book")
+                         )
+                     )
+                     .withConfig(_.withMaxOperationCost(10))
+                     .interpreter
+        result  <- runtime.execute("{ books(limit: 100) { items { book { title } } } }")
+        sent    <- remote.requests.get
+      } yield assertTrue(result.errors.exists(_.msg.contains("exceeds the configured maximum")), sent.isEmpty)
+    },
     test("does not forward field-definition directives after a field rename") {
       val schema =
         "directive @sql(fields: String!) on FIELD_DEFINITION type Query { product: Product @sql(fields: \"name\") } type Product { name: String }"

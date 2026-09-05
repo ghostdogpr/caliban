@@ -2148,18 +2148,13 @@ private[gateway] object SchemaComposer {
       document.objectTypeDefinitions.exists(_.fields.exists(_.name == "_entities"))
     }
 
-  def fieldSetDirectiveNames(document: Document): (Set[String], Set[String]) = {
-    val names = federationDirectiveNames(document)
-    (names.key ++ names.requires ++ names.provides) -> names.provides
-  }
-
   def federationTransportTypes(document: Document, federation: Boolean): Set[String] =
     if (federation) federationDirectiveNames(document).hiddenTypes else Set.empty
 
   private[internal] def formatSources(sources: Iterable[String]): String =
     sources.toList.distinct.sorted.map(source => s"'$source'").mkString(", ")
 
-  private final case class FederationDirectiveNames(
+  private[composition] final case class FederationDirectiveNames(
     features: List[LinkedFeature],
     federation2: Boolean,
     key: Set[String],
@@ -2184,9 +2179,11 @@ private[gateway] object SchemaComposer {
     supportsProgressiveOverride: Boolean,
     hidden: Set[String],
     hiddenTypes: Set[String]
-  )
+  ) {
+    val fieldSetDirectives: Set[String] = key ++ requires ++ provides
+  }
 
-  private def federationDirectiveNames(document: Document): FederationDirectiveNames = {
+  private[composition] def federationDirectiveNames(document: Document): FederationDirectiveNames = {
     val links                                                                    = linkedFeatures(document)
     val federation                                                               = links.filter(_.identity == FederationIdentity)
     val security                                                                 = links.filter(feature => SecurityFeatureIdentities.contains(feature.identity))
@@ -2381,7 +2378,9 @@ private[gateway] object SchemaComposer {
       case Left(_)         => None
     }
 
-  private def parseContextSelection(value: String): Option[(ComposedGraph.ContextName, List[Selection])] = {
+  private[composition] def parseContextSelection(
+    value: String
+  ): Option[(ComposedGraph.ContextName, List[Selection])] = {
     def skipIgnored(from: Int): Int = {
       var index = from
       var done  = false

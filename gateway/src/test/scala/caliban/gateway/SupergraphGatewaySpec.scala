@@ -111,6 +111,39 @@ object SupergraphGatewaySpec extends ZIOSpecDefault {
     listValues(field(value, root)).map(field(_, "name"))
 
   def spec = suite("Supergraph gateway")(
+    test("preserves inaccessible and cost behavior from linked namespaces and aliases") {
+      ZIO
+        .foreach(List(false, true)) { aliased =>
+          val hidden       = if (aliased) "hidden" else "inaccessible__inaccessible"
+          val cost         = if (aliased) "weight" else "cost__cost"
+          val hiddenImport = if (aliased) ", import: [{ name: \"@inaccessible\", as: \"@hidden\" }]" else ""
+          val costImport   = if (aliased) ", import: [{ name: \"@cost\", as: \"@weight\" }]" else ""
+          for {
+            remote    <- stub("""{"data":{"expensive":"ok","secret":"hidden"}}""")
+            sdl        = s"""
+                     |schema @link(url: "https://specs.apollo.dev/join/v0.5")
+                     | @link(url: "https://specs.apollo.dev/inaccessible/v0.2"$hiddenImport)
+                     | @link(url: "https://specs.apollo.dev/cost/v0.1"$costImport) { query: Query }
+                     |enum join__Graph { A @join__graph(name: "a", url: "${remote.endpoint}") }
+                     |directive @$hidden on FIELD_DEFINITION
+                     |directive @$cost(weight: Int!) on FIELD_DEFINITION
+                     |type Query @join__type(graph: A) {
+                     | secret: String @$hidden
+                     | expensive: String @$cost(weight: 100)
+                     |}
+                     |""".stripMargin
+            runtime   <- Gateway.fromSupergraph(Supergraph.sdl(sdl)).withConfig(_.withMaxOperationCost(10)).interpreter
+            secret    <- runtime.execute("{ secret }")
+            expensive <- runtime.execute("{ expensive }")
+            sent      <- remote.requests.get
+          } yield assertTrue(
+            secret.errors.nonEmpty,
+            expensive.errors.map(_.msg) == List("Operation cost 100 exceeds the configured maximum of 10."),
+            sent.isEmpty
+          )
+        }
+        .map(results => results.reduce(_ && _))
+    },
     test("serves every graph the supergraph declares, through the configured endpoints") {
       for {
         sdl     <- supergraphSchema

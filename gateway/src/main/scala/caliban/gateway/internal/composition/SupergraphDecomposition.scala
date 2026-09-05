@@ -35,7 +35,22 @@ private[gateway] object SupergraphDecomposition {
     "@requiresScopes",
     "@policy",
     "@context",
-    "@fromContext"
+    "@fromContext",
+    "@cost",
+    "@listSize"
+  )
+
+  private val ProjectedFeatures = Map(
+    DirectiveComposition.FederationIdentity   -> FederationImports
+      .map(_.stripPrefix("@"))
+      .toSet
+      .diff(Set("context", "fromContext")),
+    "https://specs.apollo.dev/inaccessible"   -> Set("inaccessible"),
+    "https://specs.apollo.dev/tag"            -> Set("tag"),
+    "https://specs.apollo.dev/authenticated"  -> Set("authenticated"),
+    "https://specs.apollo.dev/requiresScopes" -> Set("requiresScopes"),
+    "https://specs.apollo.dev/policy"         -> Set("policy"),
+    "https://specs.apollo.dev/cost"           -> Set("cost", "listSize")
   )
   private val FederationLink    = Directive(
     "link",
@@ -148,7 +163,17 @@ private[gateway] object SupergraphDecomposition {
       // names come from the context feature and are empty for a supergraph that declares none.
       val contexts         = features.filter(_.identity == ContextIdentity).flatMap(_.directiveNames("context")).toSet
 
-      Context(feature, joinNames(feature), registry, prefixes, linkNames, claimed, subscriptionRoot, contexts)
+      Context(
+        feature,
+        joinNames(feature),
+        registry,
+        prefixes,
+        linkNames,
+        claimed,
+        subscriptionRoot,
+        contexts,
+        features.filter(feature => ProjectedFeatures.contains(feature.identity))
+      )
     }
 
   private def joinNames(feature: LinkedFeature): JoinNames =
@@ -170,7 +195,8 @@ private[gateway] object SupergraphDecomposition {
     linkNames: Set[String],
     claimedDefinitions: Set[String],
     subscriptionRoot: Option[String],
-    contextNames: Set[String]
+    contextNames: Set[String],
+    projectedFeatures: List[LinkedFeature]
   ) {
     val keys: List[String]             = registry.map(_.key)
     val keyByName: Map[String, String] = registry.map(g => g.name -> g.key).toMap
@@ -182,8 +208,9 @@ private[gateway] object SupergraphDecomposition {
 
     /**
      * Directive applications removed from subgraph output: join and link machinery, plus
-     * `@context`. `@inaccessible`, `@tag`, `@deprecated` and composed custom directives all
-     * survive as written.
+     * `@context`. Supported linked feature applications, including `@inaccessible` and `@tag`,
+     * are translated to federation directive names by [[keptDirectives]] before this filter
+     * applies. `@deprecated` and composed custom directives survive as written.
      *
      * `@context` is the exception because it is the one federation directive a supergraph applies
      * with a subgraph-namespaced argument: `@context(name: "orders__userContext")` names the graph
@@ -196,6 +223,11 @@ private[gateway] object SupergraphDecomposition {
 
     /** Directive definitions removed from subgraph output: anything a linked feature supplies. */
     def stripDefinition(name: String): Boolean = claimedDefinitions.contains(name) || stripped(name)
+
+    def projectedName(name: String): Option[String] =
+      projectedFeatures.iterator.map { feature =>
+        feature.sourceDirective(name).filter(ProjectedFeatures(feature.identity).contains)
+      }.collectFirst { case Some(name) => name }
   }
 
   // ---------------------------------------------------------------------------------------------
@@ -516,7 +548,12 @@ private[gateway] object SupergraphDecomposition {
   }
 
   private def keptDirectives(directives: List[Directive], ctx: Context): List[Directive] =
-    directives.filterNot(directive => ctx.stripApplication(directive.name))
+    directives.flatMap { directive =>
+      ctx.projectedName(directive.name) match {
+        case Some(name) => List(directive.copy(name = name))
+        case None       => if (ctx.stripApplication(directive.name)) Nil else List(directive)
+      }
+    }
 
   private def keyDirective(entry: JoinType): Option[Directive] =
     entry.key.map { fields =>

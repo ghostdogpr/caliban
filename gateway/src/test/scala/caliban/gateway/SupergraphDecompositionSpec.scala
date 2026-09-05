@@ -177,6 +177,31 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
     result.map(_.map(graph => graph.name -> graph.url.toString))
 
   def spec = suite("SupergraphDecompositionSpec")(
+    test("projects an imported tag alias to the canonical federation directive") {
+      decompose(
+        s"""
+           |schema @link(url: "$JoinV05")
+           | @link(url: "https://specs.apollo.dev/tag/v0.3", import: [{name: "@tag", as: "@label"}]) { query: Query }
+           |enum join__Graph { A @join__graph(name: "a", url: "http://a/graphql") }
+           |directive @label(name: String!) repeatable on FIELD_DEFINITION
+           |type Query @join__type(graph: A) { hello: String @label(name: "public") }
+           |""".stripMargin
+      ).map { result =>
+        val document   = result.toOption.flatMap(_.get("a"))
+        val directives = document.toList
+          .flatMap(_.objectTypeDefinitions)
+          .filter(_.name == "Query")
+          .flatMap(_.fields)
+          .filter(_.name == "hello")
+          .flatMap(_.directives)
+        assertTrue(
+          directives.map(directive => directive.name -> directive.arguments) == List(
+            "tag" -> Map("name" -> StringValue("public"))
+          ),
+          document.exists(!_.directiveDefinitions.exists(_.name == "label"))
+        )
+      }
+    },
     suite("graph registry")(
       test("resolves every subgraph declared by the join graph enum, in declaration order") {
         fixture.map(result =>

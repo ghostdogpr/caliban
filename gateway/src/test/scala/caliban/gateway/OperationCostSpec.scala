@@ -5,10 +5,26 @@ import caliban.Value.IntValue.IntNumber
 import caliban.ResponseValue.{ ListValue => ResponseListValue }
 import caliban.{ GraphQLRequest, InputValue }
 import caliban.gateway.GatewayTestSupport._
+import caliban.execution.{ Field, RequestPreparation }
+import caliban.gateway.internal.composition.{ ComposedGraph, OperationCost }
+import caliban.gateway.internal.planning.OperationPlan
+import caliban.parsing.Parser
+import caliban.parsing.adt.OperationType
+import caliban.tools.RemoteSchema
 import zio._
 import zio.test._
 
 object OperationCostSpec extends ZIOSpecDefault {
+
+  private final class CountingCosts(values: Map[(String, String), Long])
+      extends Map.WithDefault[(String, String), Long](values, values.default) {
+    var lookups = 0
+
+    override def get(key: (String, String)): Option[Long] = {
+      lookups += 1
+      values.get(key)
+    }
+  }
 
   private val costDefinition =
     "directive @cost(weight: Int!) on ARGUMENT_DEFINITION | ENUM | FIELD_DEFINITION | INPUT_FIELD_DEFINITION | OBJECT | SCALAR"
@@ -50,6 +66,182 @@ object OperationCostSpec extends ZIOSpecDefault {
     }
 
   def spec = suite("OperationCostSpec")(
+    test("does not multiply shared child cost work across nested runtime branches") {
+      val names                           = List("A", "B", "C", "D")
+      val schema                          = "type Query { node: Node } interface Node { child: Node value: String } " +
+        names.map(name => s"type $name implements Node { child: Node value: String }").mkString(" ")
+      def selection(depth: Int): String   =
+        if (depth == 0) "value"
+        else s"child { ${selection(depth - 1)} } " + names.map(name => s"... on $name { value }").mkString(" ")
+      val query                           = s"{ node { ${selection(6)} } }"
+      def count(fields: List[Field]): Int = fields.map(field => 1 + count(field.fields)).sum
+      for {
+        document  <- ZIO.fromEither(Parser.parseQuery(schema))
+        root      <- ZIO.fromEither(RemoteSchema.toRootType(document))
+        operation <- RequestPreparation.parse(query)
+        request   <-
+          RequestPreparation.prepareParsed(GraphQLRequest(query = Some(query)), operation, Map.empty, root, false)
+        weights    = new CountingCosts(names.zipWithIndex.map { case (name, index) =>
+                       (name -> "value") -> (index + 1L)
+                     }.toMap)
+        metadata   = ComposedGraph.CostMetadata(Map.empty, weights, Map.empty, Map.empty, Map.empty)
+        costs      = new OperationCost(root.types, Map("Node" -> names.toSet), metadata)
+        plan       = OperationPlan(OperationType.Query, "Query", request.field.fields, Nil, Nil, Nil, Nil, Some("nodes"))
+        estimated  = costs.estimate(request, plan)
+      } yield assertTrue(
+        estimated == Right(35L),
+        weights.lookups > 0,
+        weights.lookups <= count(request.field.fields) * names.size * 2
+      )
+    },
+    test("retains runtime conditions and aliases when overlapping fields have different children") {
+      val schema  = """
+                     |type Query { node: Node }
+                     |interface Node { child: Child }
+                     |type A implements Node { child: Child }
+                     |type B implements Node { child: Child }
+                     |type Child { cheap: String expensive: String }
+                     |""".stripMargin
+      val queries = List(
+        "{ node { child { cheap } ... on A { child { expensive } } ... on B { child { cheap } } } }" -> 103L,
+        "{ node { a: child { cheap } b: child { cheap } ... on A { a: child { expensive } } } }"     -> 105L
+      )
+      for {
+        document <- ZIO.fromEither(Parser.parseQuery(schema))
+        root     <- ZIO.fromEither(RemoteSchema.toRootType(document))
+        metadata  = ComposedGraph.CostMetadata(
+                      Map.empty,
+                      Map(("Child" -> "cheap") -> 1L, ("Child" -> "expensive") -> 100L),
+                      Map.empty,
+                      Map.empty,
+                      Map.empty
+                    )
+        costs     = new OperationCost(root.types, Map("Node" -> Set("A", "B")), metadata)
+        results  <- ZIO.foreach(queries) { case (query, expected) =>
+                      for {
+                        operation <- RequestPreparation.parse(query)
+                        request   <- RequestPreparation.prepareParsed(
+                                       GraphQLRequest(query = Some(query)),
+                                       operation,
+                                       Map.empty,
+                                       root,
+                                       false
+                                     )
+                        plan       = OperationPlan(
+                                       OperationType.Query,
+                                       "Query",
+                                       request.field.fields,
+                                       Nil,
+                                       Nil,
+                                       Nil,
+                                       Nil,
+                                       Some("nodes")
+                                     )
+                      } yield assertTrue(costs.estimate(request, plan) == Right(expected))
+                    }
+      } yield results.reduce(_ && _)
+    },
+    test("charges omitted input-field defaults in literals and variables") {
+      val inputSchema =
+        s"""
+           |schema @link(url: "https://specs.apollo.dev/federation/v2.9", import: ["@cost"]) { query: Query }
+           |$directives
+           |input Filter { expensive: String = "x" @cost(weight: 100) }
+           |type Query { search(filter: Filter): String }
+           |""".stripMargin
+      for {
+        remote  <- stub("""{"data":{"search":"ok"}}""")
+        runtime <- Gateway
+                     .compose(Subgraph.federation("search", remote.endpoint, inputSchema))
+                     .withConfig(_.withMaxOperationCost(10))
+                     .interpreter
+        results <- ZIO.foreach(
+                     List(
+                       GraphQLRequest(query = Some("{ search(filter: {}) }")),
+                       GraphQLRequest(query = Some("{ search(filter: { expensive: \"x\" }) }")),
+                       GraphQLRequest(
+                         query = Some("query($filter: Filter) { search(filter: $filter) }"),
+                         variables = Some(Map("filter" -> InputValue.ObjectValue(Map.empty)))
+                       )
+                     )
+                   )(runtime.executeRequest(_))
+        sent    <- remote.requests.get
+      } yield assertTrue(
+        results.forall(_.errors.map(_.msg) == List("Operation cost 101 exceeds the configured maximum of 10.")),
+        sent.isEmpty
+      )
+    },
+    test("collects duplicate and overlapping passthrough selections before charging cost") {
+      for {
+        remote  <- stub("""{"data":{"book":{"title":"Caliban"}}}""")
+        runtime <- Gateway
+                     .compose(Subgraph.federation("books", remote.endpoint, schema()))
+                     .withConfig(_.withMaxOperationCost(1))
+                     .interpreter
+        results <- ZIO.foreach(
+                     List(
+                       "{ book { title } }",
+                       "{ book { title } book { title } }",
+                       "{ book { title } ...Books } fragment Books on Query { book { title } }",
+                       "{ book { title ... on Book { title } } }"
+                     )
+                   )(runtime.execute(_))
+        aliased <- runtime.execute("{ a: book { title } b: book { title } }")
+        sent    <- remote.requests.get
+      } yield assertTrue(
+        results.forall(_.errors.isEmpty),
+        sent.size == 4,
+        aliased.errors.map(_.msg) == List("Operation cost 2 exceeds the configured maximum of 1.")
+      )
+    },
+    test("collects overlapping abstract-type fields once per runtime object") {
+      val inputSchema = """
+                          |type Query { node: Node }
+                          |interface Node { book: Book }
+                          |type Product implements Node { book: Book }
+                          |type User implements Node { book: Book }
+                          |type Book { title: String }
+                          |""".stripMargin
+      for {
+        remote  <- stub("""{"data":{"node":null}}""")
+        runtime <- Gateway
+                     .compose(Subgraph.graphql("nodes", remote.endpoint, inputSchema))
+                     .withConfig(_.withMaxOperationCost(2))
+                     .interpreter
+        result  <- runtime.execute(
+                     "{ node { book { title } ... on Product { book { title } } ... on User { book { title } } } }"
+                   )
+        sent    <- remote.requests.get
+      } yield assertTrue(result.errors.isEmpty, sent.size == 1)
+    },
+    test("charges nested defaults in lists without applying defaults to explicit null objects") {
+      val inputSchema =
+        s"""
+           |schema @link(url: "https://specs.apollo.dev/federation/v2.9", import: ["@cost"]) { query: Query }
+           |$directives
+           |input Filter { expensive: String = "x" @cost(weight: 100) }
+           |input Options { filters: [Filter!] = [{}] }
+           |type Query { search(options: Options): String }
+           |""".stripMargin
+      for {
+        remote    <- stub("""{"data":{"search":"ok"}}""")
+        runtime   <- Gateway
+                       .compose(Subgraph.federation("search", remote.endpoint, inputSchema))
+                       .withConfig(_.withMaxOperationCost(10))
+                       .interpreter
+        defaulted <- runtime.execute("{ search(options: {}) }")
+        supplied  <- runtime.execute("{ search(options: { filters: [{}] }) }")
+        nulled    <- runtime.execute("{ search(options: null) }")
+        omitted   <- runtime.execute("{ search }")
+        sent      <- remote.requests.get
+      } yield assertTrue(
+        defaulted.errors.map(_.msg) == List("Operation cost 102 exceeds the configured maximum of 10."),
+        supplied.errors.map(_.msg) == defaulted.errors.map(_.msg),
+        nulled.errors.isEmpty,
+        omitted.errors.isEmpty,
+        sent.size == 2
+      )
+    },
     test("enforces type cost before contacting a subgraph") {
       for {
         remote  <- stub(response)

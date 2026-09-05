@@ -408,6 +408,45 @@ object SupergraphAcquisitionSpec extends ZIOSpecDefault {
           third  <- cdn.conditionOf(2)
         } yield assertTrue(second.contains("\"v1\""), third.isEmpty)
       },
+      test("resolves relative redirect locations against each request URI") {
+        for {
+          cdn      <- cdnEndpoint(
+                        Answer.redirect(Uri.unsafeParse("nested/next"), None),
+                        Answer.redirect(Uri.unsafeParse("../supergraph.graphql"), None),
+                        Answer.sdl()
+                      )
+          backend  <- ZIO.service[SttpClient]
+          result   <- load(httpSource(cdn.base.addPath("start"), _.withMaxRedirects(2)), Some(backend))
+          requests <- cdn.requests.get
+        } yield assertTrue(
+          result.isSuccess,
+          requests.map(_._1) == Vector("start", "nested/next", "supergraph.graphql").map(path =>
+            s"${java.net.URI.create(cdn.base.toString).getPath}/$path"
+          )
+        )
+      },
+      test("query-only redirects retain the resource path and replace its query") {
+        for {
+          requests <- Ref.make(Vector.empty[String])
+          endpoint <- GatewayTestSupport.getEndpoint("query-redirect") { request =>
+                        requests.update(_ :+ request.url.toString) *> ZIO.succeed(
+                          if (request.url.toString.endsWith("?version=2"))
+                            Response(
+                              Status.Ok,
+                              Headers(Header.Custom("Content-Type", "application/graphql")),
+                              Body.fromString(supergraphSdl)
+                            )
+                          else Response(Status.Found, Headers(Header.Custom("Location", "?version=2")), Body.empty)
+                        )
+                      }
+          backend  <- ZIO.service[SttpClient]
+          result   <- load(httpSource(endpoint.addParam("version", "1"), _.withMaxRedirects(1)), Some(backend))
+          sent     <- requests.get
+        } yield assertTrue(
+          result.isSuccess,
+          sent == Vector(s"${endpoint.pathToString}?version=1", s"${endpoint.pathToString}?version=2")
+        )
+      },
       test("the tag stored from a redirecting chain is the first host's, not the storage host's") {
         // Hive answers `302` to a 60-second presigned storage url. The tag that identifies the
         // artifact is the CDN's; the storage object's own tag is meaningless to the CDN, and sending

@@ -7,12 +7,11 @@ import caliban.{ CalibanError, GraphQLResponse, InputValue, ResponseValue }
 import caliban.InputValue.{ ListValue => InputListValue, ObjectValue => InputObjectValue }
 import caliban.ResponseValue.{ ListValue => ResponseListValue, ObjectValue => ResponseObjectValue }
 import caliban.gateway.internal.planning.OperationPlan.RequiredSelection
+import caliban.gateway.internal.composition.ComposedGraph.ContextName
 import caliban.introspection.adt.{ __Field, __InputValue, __Type, __TypeKind }
 import caliban.parsing.adt.{ Definition, Directive, Document, Selection, Type }
 import caliban.parsing.adt.Definition.TypeSystemDefinition._
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
-import caliban.parsing.adt.Definition.TypeSystemExtension._
-import caliban.parsing.adt.Definition.TypeSystemExtension.TypeExtension._
 import caliban.parsing.adt.Type.{ ListType, NamedType }
 import caliban.parsing.Parser
 import caliban.rendering.DocumentRenderer
@@ -73,8 +72,16 @@ private[gateway] final class SchemaMapping private (
 
   def transform(document: Document): Document =
     if (nonEmpty) {
-      val (names, provides) = SchemaComposer.fieldSetDirectiveNames(document)
-      val fieldSets         = FieldSetDirectives(names, provides)
+      val names     = SchemaComposer.federationDirectiveNames(document)
+      val contexts  = document.typeDefinitions.flatMap { tpe =>
+        tpe.directives.filter(directive => names.context.contains(directive.name)).flatMap { directive =>
+          directive.arguments.get("name").collect { case StringValue(name) => ContextName(name) }.toList.flatMap {
+            name =>
+              originalRootType.types.get(tpe.name).toList.flatMap(_.possibleTypeNames.toList.sorted).map(name -> _)
+          }
+        }
+      }.groupBy(_._1).map { case (name, declarations) => name -> declarations.map(_._2).distinct }
+      val fieldSets = DirectiveContext(names, contexts)
       Document(document.definitions.map(transformDefinition(_, fieldSets)), document.sourceMapper)
     } else document
 
@@ -170,7 +177,7 @@ private[gateway] final class SchemaMapping private (
         )
     })
 
-  private def transformDefinition(definition: Definition, fieldSets: FieldSetDirectives): Definition =
+  private def transformDefinition(definition: Definition, fieldSets: DirectiveContext): Definition =
     definition match {
       case value: SchemaDefinition          =>
         value.copy(
@@ -215,52 +222,12 @@ private[gateway] final class SchemaMapping private (
         )
       case value: ScalarTypeDefinition      =>
         value.copy(name = clientType(value.name), directives = transformDirectives(value.directives, Nil, fieldSets))
-      case value: SchemaExtension           =>
-        value.copy(
-          directives = transformDirectives(value.directives, Nil, fieldSets),
-          query = value.query.map(clientType),
-          mutation = value.mutation.map(clientType),
-          subscription = value.subscription.map(clientType)
-        )
-      case value: ObjectTypeExtension       =>
-        value.copy(
-          name = clientType(value.name),
-          implements = value.implements.map(transformNamedType),
-          directives = transformDirectives(value.directives, value.name :: Nil, fieldSets),
-          fields = value.fields.map(transformFieldDefinition(value.name, _, fieldSets))
-        )
-      case value: InterfaceTypeExtension    =>
-        value.copy(
-          name = clientType(value.name),
-          directives = transformDirectives(value.directives, value.name :: Nil, fieldSets),
-          fields = value.fields.map(transformFieldDefinition(value.name, _, fieldSets))
-        )
-      case value: InputObjectTypeExtension  =>
-        value.copy(
-          name = clientType(value.name),
-          directives = transformDirectives(value.directives, Nil, fieldSets),
-          fields = value.fields.map(transformInputValueDefinition(_, fieldSets))
-        )
-      case value: EnumTypeExtension         =>
-        value.copy(
-          name = clientType(value.name),
-          directives = transformDirectives(value.directives, Nil, fieldSets),
-          enumValuesDefinition = transformEnumValues(value.enumValuesDefinition, fieldSets)
-        )
-      case value: UnionTypeExtension        =>
-        value.copy(
-          name = clientType(value.name),
-          directives = transformDirectives(value.directives, Nil, fieldSets),
-          memberTypes = value.memberTypes.map(clientType)
-        )
-      case value: ScalarTypeExtension       =>
-        value.copy(name = clientType(value.name), directives = transformDirectives(value.directives, Nil, fieldSets))
       case other                            => other
     }
 
   private def transformEnumValues(
     values: List[EnumValueDefinition],
-    fieldSets: FieldSetDirectives
+    fieldSets: DirectiveContext
   ): List[EnumValueDefinition] =
     values.map(value =>
       value.copy(
@@ -271,10 +238,9 @@ private[gateway] final class SchemaMapping private (
   private def transformFieldDefinition(
     typeName: String,
     field: FieldDefinition,
-    fieldSets: FieldSetDirectives
+    fieldSets: DirectiveContext
   ): FieldDefinition = {
-    val sourceDefinition = sourceFieldDefinition(typeName, field.name)
-    val outputType       = sourceDefinition.flatMap(_._type.innerType.name).toList
+    val outputType = Type.innerType(field.ofType)
     field.copy(
       name = clientField(typeName, field.name),
       args = field.args.map { argument =>
@@ -282,24 +248,81 @@ private[gateway] final class SchemaMapping private (
           .copy(name = clientArgument(typeName, field.name, argument.name))
       },
       ofType = transformType(field.ofType),
-      directives = transformDirectives(field.directives, typeName :: outputType, fieldSets)
+      directives = transformDirectives(field.directives, List(typeName, outputType), fieldSets).map { directive =>
+        if (fieldSets.names.listSize.contains(directive.name))
+          transformListSize(directive, typeName, field.name, outputType)
+        else directive
+      }
     )
   }
+
+  private def transformListSize(directive: Directive, parent: String, field: String, outputType: String): Directive = {
+    def mapStrings(value: InputValue)(rewrite: String => String): InputValue = value match {
+      case StringValue(value)     => StringValue(rewrite(value))
+      case InputListValue(values) => InputListValue(values.map(value => mapStrings(value)(rewrite)))
+      case other                  => other
+    }
+    directive.copy(arguments = directive.arguments.map {
+      case ("slicingArguments", value) =>
+        "slicingArguments" -> mapStrings(value) { path =>
+          val segments = path.split("\\.", -1).toList
+          (clientArgument(parent, field, segments.head) :: segments.tail).mkString(".")
+        }
+      case ("sizedFields", value)      =>
+        "sizedFields" -> mapStrings(value) { selection =>
+          SchemaComposer
+            .parseFieldSet(selection)
+            .fold(selection)(fields => renderFieldSet(fields.map(transformFieldSetSelection(outputType, _))))
+        }
+      case other                       => other
+    })
+  }
+
+  private def transformFromContext(directive: Directive, fieldSets: DirectiveContext): Directive =
+    directive.arguments
+      .get("field")
+      .collect { case StringValue(value) => value }
+      .flatMap(SchemaComposer.parseContextSelection)
+      .fold(directive) { case (name, selections) =>
+        val rewritten = fieldSets.contextTypes.getOrElse(name, Nil).map { parent =>
+          parent -> selections.map(transformFieldSetSelection(parent, _))
+        }
+        val distinct  = rewritten.map(_._2).distinct
+        val fields    =
+          if (distinct.size <= 1) distinct.headOption.getOrElse(selections)
+          else {
+            val fragments = rewritten.head._2.collect { case fragment: Selection.InlineFragment => fragment }
+            rewritten.map { case (parent, fields) =>
+              Selection.InlineFragment(
+                Some(NamedType(clientType(parent), false)),
+                Nil,
+                fields.filterNot(_.isInstanceOf[Selection.InlineFragment])
+              )
+            } ::: fragments
+          }
+        if (fields == selections) directive
+        else
+          directive.copy(arguments =
+            directive.arguments.updated("field", StringValue(s"$$${name.value} { ${renderFieldSet(fields)} }"))
+          )
+      }
 
   private def transformDirectives(
     directives: List[Directive],
     candidateTypes: List[String],
-    fieldSets: FieldSetDirectives
+    fieldSets: DirectiveContext
   ): List[Directive] =
     directives.map { directive =>
-      if (!fieldSets.names.contains(directive.name)) directive
+      val names = fieldSets.names
+      if (names.fromContext.contains(directive.name)) transformFromContext(directive, fieldSets)
+      else if (!names.fieldSetDirectives.contains(directive.name)) directive
       else
         directive.arguments.get("fields") match {
           case Some(StringValue(value)) =>
             SchemaComposer
               .parseFieldSet(value)
               .flatMap(selections =>
-                fieldSetStart(directive.name, candidateTypes, selections, fieldSets.provides).map(_ -> selections)
+                fieldSetStart(directive.name, candidateTypes, selections, names.provides).map(_ -> selections)
               )
               .fold(directive) { case (startType, selections) =>
                 directive.copy(arguments =
@@ -362,7 +385,7 @@ private[gateway] final class SchemaMapping private (
 
   private def transformInputValueDefinition(
     value: InputValueDefinition,
-    fieldSets: FieldSetDirectives
+    fieldSets: DirectiveContext
   ): InputValueDefinition =
     value.copy(
       ofType = transformType(value.ofType),
@@ -494,7 +517,10 @@ private[gateway] final class SchemaMapping private (
 
 private[gateway] object SchemaMapping {
 
-  private final case class FieldSetDirectives(names: Set[String], provides: Set[String])
+  private final case class DirectiveContext(
+    names: SchemaComposer.FederationDirectiveNames,
+    contextTypes: Map[ContextName, List[String]]
+  )
 
   private final case class CoordinateContext(
     types: Map[String, __Type],

@@ -54,6 +54,14 @@ object SupergraphAcquisition {
       def load(implicit trace: Trace): IO[SupergraphAcquisitionError, Document] = ZIO.fromEither(result)
     }
 
+  private def resolveRedirect(base: Uri, location: Uri): Uri =
+    if (location.scheme.isEmpty && location.authority.isEmpty && location.pathToString.isEmpty)
+      base.copy(
+        querySegments = if (location.querySegments.isEmpty) base.querySegments else location.querySegments,
+        fragmentSegment = location.fragmentSegment
+      )
+    else base.resolve(location)
+
   private def parse(value: String): Either[SupergraphAcquisitionError, Document] =
     Parser.parseQuery(value).left.map(InvalidSupergraphSchema(_))
 
@@ -119,7 +127,7 @@ object SupergraphAcquisition {
                         .header(HeaderNames.Location)
                         .toRight(UnexpectedResponse(meta.code, meta.contentType))
                         .flatMap(Uri.parse(_).left.map(_ => UnexpectedResponse(meta.code, meta.contentType)))
-                        .map(loop(_, redirects + 1, tag))
+                        .map(location => loop(resolveRedirect(uri, location), redirects + 1, tag))
                     else if (meta.code.isRedirect || !allowedMediaType(meta.code, meta.contentType))
                       Left(UnexpectedResponse(meta.code, meta.contentType))
                     else {

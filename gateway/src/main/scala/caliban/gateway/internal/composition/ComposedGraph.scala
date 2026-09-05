@@ -12,7 +12,8 @@ import caliban.parsing.adt.Definition.TypeSystemExtension.TypeExtension._
 import caliban.rendering.DocumentRenderer
 import caliban.schema.RootType
 
-import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicReference
+import scala.annotation.tailrec
 import scala.collection.compat._
 
 /**
@@ -85,7 +86,7 @@ private[gateway] final class ComposedGraph private[internal] (
       else byLabel.updated(condition.label, condition.percentage) -> labels
     }
   }
-  private val routedVariants                                                 = new ConcurrentHashMap[Set[ComposedGraph.OverrideLabel], ComposedGraph]
+  private val routedVariants                                                 = new AtomicReference[List[(Set[ComposedGraph.OverrideLabel], ComposedGraph)]](Nil)
 
   def progressiveOverrides(fieldNames: Set[String]): Map[ComposedGraph.OverrideLabel, Option[BigDecimal]] =
     fieldNames.iterator
@@ -96,15 +97,22 @@ private[gateway] final class ComposedGraph private[internal] (
 
   def hasProgressiveOverrides: Boolean = progressiveOverridesByLabel.nonEmpty
 
-  private[gateway] def routed(activeOverrides: Set[ComposedGraph.OverrideLabel]): ComposedGraph = {
-    val cached = routedVariants.get(activeOverrides)
-    if (cached ne null) cached
-    else {
-      val created = routedGraph(activeOverrides)
-      val raced   = routedVariants.putIfAbsent(activeOverrides, created)
-      if (raced eq null) created else raced
+  private[gateway] def routed(activeOverrides: Set[ComposedGraph.OverrideLabel]): ComposedGraph =
+    routedVariants.get().find(_._1 == activeOverrides) match {
+      case Some((_, graph)) => graph
+      case None             =>
+        val created                           = routedGraph(activeOverrides)
+        @tailrec def publish(): ComposedGraph = {
+          val current = routedVariants.get()
+          current.find(_._1 == activeOverrides) match {
+            case Some((_, graph)) => graph
+            case None             =>
+              val updated = (activeOverrides -> created) :: current.take(ComposedGraph.MaxRoutedVariants - 1)
+              if (routedVariants.compareAndSet(current, updated)) created else publish()
+          }
+        }
+        publish()
     }
-  }
 
   private def routedGraph(activeOverrides: Set[ComposedGraph.OverrideLabel]): ComposedGraph =
     new ComposedGraph(
@@ -450,6 +458,7 @@ private[gateway] final class ComposedGraph private[internal] (
 }
 
 private[gateway] object ComposedGraph {
+  private val MaxRoutedVariants = 16
   private[composition] final case class SecurityDependency(
     source: String,
     sourceType: String,

@@ -7,7 +7,7 @@ import caliban.gateway.GatewayTestSupport._
 import caliban.gateway.internal.composition.{ SchemaComposer, SchemaMapping }
 import caliban.introspection.adt.{ __Directive, __DirectiveLocation }
 import caliban.parsing.{ Parser, SourceMapper }
-import caliban.parsing.adt.{ Directive, Document }
+import caliban.parsing.adt.{ Directive, Document, OperationType }
 import caliban.schema.{ RootType, Types }
 import caliban.tools.RemoteSchema
 import sttp.model.Uri
@@ -270,7 +270,7 @@ object CompositionSpec extends ZIOSpecDefault {
           sent._2.isEmpty
         )
       },
-      test("memoizes routed graph variants") {
+      test("memoizes routed graph variants during concurrent lookups") {
         val result = compose(
           CompositionInput("original", progressiveSchema("type Query { value: String }")),
           CompositionInput(
@@ -283,13 +283,46 @@ object CompositionSpec extends ZIOSpecDefault {
           )
         )
 
+        for {
+          graph    <- ZIO.fromEither(result).orDieWith(errors => new AssertionError(errors.mkString("; ")))
+          label     = graph.progressiveOverrides(Set("value")).keysIterator.next()
+          variants <- ZIO.foreachPar((0 until 64).toList) { index =>
+                        ZIO.succeed(graph.routed(if (index % 2 == 0) Set.empty else Set(label)))
+                      }
+          inactive  = graph.routed(Set.empty)
+          active    = graph.routed(Set(label))
+        } yield assertTrue(
+          (inactive ne active),
+          variants.zipWithIndex.forall { case (graph, index) => graph eq (if (index % 2 == 0) inactive else active) }
+        )
+      },
+      test("evicts old routed graph variants while retaining newly cached routes") {
+        val fields = (0 until 6).toList
+        val result = compose(
+          CompositionInput(
+            "original",
+            progressiveSchema(s"type Query { ${fields.map(i => s"f$i: String").mkString(" ")} }")
+          ),
+          CompositionInput(
+            "replacement",
+            progressiveSchema(
+              s"""type Query { ${fields
+                  .map(i => s"""f$i: String @override(from: "original", label: "rollout$i")""")
+                  .mkString(" ")} }"""
+            )
+          )
+        )
         assertTrue(result.toOption.exists { graph =>
-          val label        = graph.progressiveOverrides(Set("value")).keysIterator.next()
-          val inactive     = graph.routed(Set.empty)
-          val active       = graph.routed(Set(label))
-          val sameInactive = graph.routed(Set.empty)
-          val sameActive   = graph.routed(Set(label))
-          (inactive eq sameInactive) && (active eq sameActive) && (inactive ne active)
+          val labels         = fields.map(i => graph.progressiveOverrides(Set(s"f$i")).keysIterator.next())
+          val first          = graph.routed(Set.empty)
+          val variants       = (1 until 64).map { mask =>
+            val active = labels.zipWithIndex.collect { case (label, bit) if (mask & (1 << bit)) != 0 => label }.toSet
+            active -> graph.routed(active)
+          }
+          val (active, last) = variants.last
+          val selected       = graph.routed(active)
+          (last eq selected) && (first ne graph.routed(Set.empty)) &&
+          fields.forall(i => selected.sources(OperationType.Query, s"f$i") == List("replacement"))
         })
       },
       test("validates progressive override labels and linked versions") {

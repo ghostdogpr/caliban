@@ -8,6 +8,8 @@ import caliban.introspection.adt.{ __InputValue, __Type, __TypeKind }
 import caliban.parsing.adt.OperationType
 import caliban.Value.{ IntValue, NullValue }
 
+import scala.collection.mutable
+
 private object OperationCost {
   final case class FieldCostParts(oneTime: BigInt, perResult: BigInt)
   final case class SizedPath(path: Vector[String], size: BigInt)
@@ -21,7 +23,7 @@ private object OperationCost {
 /**
  * Estimates the subgraph operations in one query plan using the GraphQL cost specification.
  */
-private[composition] final class OperationCost(
+private[gateway] final class OperationCost(
   types: Map[String, __Type],
   runtimeTypesByName: Map[String, Set[String]],
   costs: ComposedGraph.CostMetadata
@@ -36,9 +38,10 @@ private[composition] final class OperationCost(
   def estimate(request: ExecutionRequest, plan: OperationPlan): Either[String, Long] =
     plan.passthroughSubgraph match {
       case Some(source) =>
-        val validation = if (costs.listSizes.isEmpty) None else validateListSizes(request.field.fields, source)
+        val fields     = collectedFields(request.field)
+        val validation = if (costs.listSizes.isEmpty) None else validateListSizes(fields, source)
         validation.toLeft(
-          bounded(operationBase(request.operationType) + fieldsCost(request.field.fields, source))
+          bounded(operationBase(request.operationType) + fieldsCost(fields, source))
         )
       case None         =>
         val validation =
@@ -61,6 +64,25 @@ private[composition] final class OperationCost(
             .foldLeft(BigInt(0))((total, fetches) => total + entityFetchesCost(fetches, multipliers))
           bounded(roots + entities)
         }
+    }
+
+  private def collectedFields(parent: Field): List[Field] =
+    if (parent.allFieldsUniqueNameAndCondition)
+      parent.fields.map(field => field.copy(fields = collectedFields(field)))
+    else {
+      val name         = parent.fieldType.innerType.name.getOrElse("")
+      val runtimeTypes = runtimeTypesByName.getOrElse(name, Set(name))
+      val fields       = mutable.LinkedHashMap.empty[Field, Set[String]]
+      runtimeTypes.toList.sorted.foreach { runtime =>
+        parent.collectFields(runtime).foreach { field =>
+          val shared = field.copy(_condition = None)
+          fields.update(shared, fields.getOrElse(shared, Set.empty) + runtime)
+        }
+      }
+      fields.iterator.map { case (field, members) =>
+        val condition = if (members == runtimeTypes) None else Some(members)
+        field.copy(fields = collectedFields(field), _condition = condition)
+      }.toList
     }
 
   private def operationBase(operation: OperationType): BigInt =
@@ -372,11 +394,10 @@ private[composition] final class OperationCost(
       case __TypeKind.INPUT_OBJECT =>
         value match {
           case InputValue.ObjectValue(values) =>
-            val definitions = tpe.allInputFields.map(field => field.name -> field).toMap
-            values.foldLeft(BigInt(0)) { case (total, (name, nested)) =>
-              definitions.get(name) match {
-                case Some(field) => total + inputValueCost(tpe, field, nested)
-                case None        => total
+            tpe.allInputFields.foldLeft(BigInt(0)) { case (total, field) =>
+              values.get(field.name).orElse(defaultValue(field)) match {
+                case Some(nested) => total + inputValueCost(tpe, field, nested)
+                case None         => total
               }
             }
           case _                              => BigInt(0)
