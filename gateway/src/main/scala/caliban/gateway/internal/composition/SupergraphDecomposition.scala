@@ -246,8 +246,8 @@ private[gateway] object SupergraphDecomposition {
    * wrote. Both rover and Hive namespace as `<subgraph name>__<name>`, using the graph *name* and
    * not the graph enum key, and with no sanitizing at all: a subgraph named `other graph` writes
    * `other graph__userContext` against an enum key of `OTHER_GRAPH`. A subgraph name may itself
-   * contain the separator while a context name may not — the composer requires `[A-Za-z][A-Za-z0-9]*`
-   * — so the last separator is the split.
+   * contain the separator while a context name may not, since the composer requires
+   * `[A-Za-z][A-Za-z0-9]*`, so the last separator is the split.
    */
   private def contextOwner(name: String, ctx: Context): Option[(String, String)] =
     name.lastIndexOf("__") match {
@@ -426,9 +426,10 @@ private[gateway] object SupergraphDecomposition {
         .flatMap(joinField(_).fieldType)
         .flatMap(parseFieldType(_).left.toOption)
         .map(value => s"[supergraph] Field '$coordinate' declares the unparseable type '$value'.")
-      // A context argument exists only inside the join metadata — the composer strips it from the
-      // field it belongs to — so an unreadable entry loses the argument silently rather than
-      // producing a wrong one, which is why it is a diagnostic and not a projection fallback.
+      // A context argument exists only inside the join metadata, because the composer strips it
+      // from the field it belongs to. An unreadable entry therefore loses the argument silently
+      // rather than producing a wrong one, which is why it is a diagnostic and not a projection
+      // fallback.
       val contextual = entries.map(joinField).flatMap { value =>
         value.contextArguments.toList.flatten.map(value.graph.flatMap(ctx.nameByKey.get) -> _)
       }
@@ -470,7 +471,7 @@ private[gateway] object SupergraphDecomposition {
   }
 
   // ---------------------------------------------------------------------------------------------
-  // Projection — total; validation has already run
+  // Projection: total; validation has already run
   // ---------------------------------------------------------------------------------------------
 
   private def project(document: Document, key: String, ctx: Context): Document = {
@@ -528,8 +529,8 @@ private[gateway] object SupergraphDecomposition {
 
   /**
    * GraphQL forbids an object, interface, union, enum or input object that declares no members.
-   * A type the graph belongs to but contributes nothing to projects empty — the ordinary case being
-   * a graph that owns no root fields for one operation — so it is dropped rather than rendered as
+   * A type the graph belongs to but contributes nothing to projects empty, the ordinary case being
+   * a graph that owns no root fields for one operation. It is dropped rather than rendered as
    * invalid SDL.
    *
    * Dropping can leave a dangling reference, but only for a supergraph that was already malformed:
@@ -576,9 +577,9 @@ private[gateway] object SupergraphDecomposition {
 
   /**
    * Rebuilds the arguments the composer folded into `@join__field(contextArguments:)`. A context
-   * argument is removed from the supergraph field outright — `amount(currency: String)` composes
-   * to `amount: Int!` — so the argument, its type and its selection survive only in that
-   * metadata, and only the declaring graph can be given the argument back.
+   * argument is removed from the supergraph field outright, so `amount(currency: String)` composes
+   * to `amount: Int!`. The argument, its type and its selection survive only in that metadata, and
+   * only the declaring graph can be given the argument back.
    *
    * The rebuilt arguments are appended rather than restored to their authored positions, which the
    * supergraph does not record. Nothing downstream can see the difference: `SchemaComposer` hides
@@ -779,7 +780,7 @@ private[gateway] object SupergraphDecomposition {
 
     // Always emitted, even for a graph with no roots at all: `SchemaComposer` derives every
     // federation directive name set from the linked features, so a projection without this link
-    // composes as a non-federation graph -- empty `key`/`external`/`shareable` sets, no entity
+    // composes as a non-federation graph, with empty `key`/`external`/`shareable` sets, no entity
     // lookups, and silently wrong routing rather than a diagnostic.
     Some(SchemaDefinition(FederationLink :: directives, query, mutation, subscription, None))
   }

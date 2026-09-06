@@ -73,7 +73,7 @@ object SupergraphAcquisition {
    *
    *  - The tag stored is the one the **first** host in the chain returned, and `If-None-Match` goes only
    *    to that host. A presigned object's own tag means nothing to the CDN, and sending it back would
-   *    earn a `200` on every future poll - the optimization silently never firing.
+   *    earn a `200` on every future poll, so the optimization would silently never fire.
    *  - The cached document is the last **fetched** one, not the last **activated** one. A supergraph that
    *    fetched but failed to compose keeps its tag, so the next poll answers `304`, re-offers the same
    *    document, and the caller re-attempts the build against the still-older active generation.
@@ -156,14 +156,14 @@ object SupergraphAcquisition {
    * ([[SupergraphAcquisitionError.UnexpectedResponse]]), or the attempt ran out of time
    * ([[SupergraphAcquisitionError.TimedOut]]). Every other failure is the service's authoritative
    * answer and propagates from the endpoint that gave it, so an `AUTHENTICATION_FAILED` is never
-   * re-POSTed - api key and all - to a second host.
+   * re-POSTed, api key and all, to a second host.
    *
    * `acquisition.timeout` is a **per-attempt** budget, as it reads for every other source, so one load
    * costs at most `timeout * endpoints.size`. A first endpoint that blackholes therefore still
    * leaves the next one a full budget, which is the outage failover exists for.
    *
-   * The cursor is endpoint-independent - Apollo's own gateway rotates endpoints against a single id -
-   * so every attempt within a load sends the same `ifAfterId`, and only a successful fetch advances it.
+   * The cursor is endpoint-independent, as Apollo's own gateway rotates endpoints against a single
+   * id, so every attempt within a load sends the same `ifAfterId`. Only a successful fetch advances it.
    */
   private def uplink(config: SupergraphUplinkConfig, http: GatewayHttpClient): UIO[Loader] =
     Ref.make(UplinkState(None, None)).map { state =>
@@ -209,7 +209,7 @@ object SupergraphAcquisition {
                 else
                   // A `ServerError` is a top-level `errors` array with no data; anything else the
                   // client raises here is a shape it could not read. Neither one's payload may be
-                  // rendered - remote free text never reaches a diagnostic.
+                  // rendered: remote free text never reaches a diagnostic.
                   Try(readFromArray[ResponseValue](reply.body.bytes)).toEither.left
                     .map(_ => InvalidUplinkResponse.DecodingFailed)
                     .flatMap(ApolloUplinkClient.decode)

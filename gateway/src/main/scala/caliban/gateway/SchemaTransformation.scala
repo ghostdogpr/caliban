@@ -10,8 +10,8 @@ sealed trait SchemaTransformation
  *
  * Gateway `hide*` transformations correspond to the `Exclude*` terminology used by core schema transformers such as
  * `caliban.transformers.Transformer.ExcludeField`, `caliban.transformers.Transformer.ExcludeInputField`, and
- * `caliban.transformers.Transformer.ExcludeArgument`. Gateway transformations additionally rewrite downstream
- * operations and responses so hidden or renamed subgraph coordinates remain routable.
+ * `caliban.transformers.Transformer.ExcludeArgument`. Gateway transformations also rewrite downstream
+ * operations and responses, so hidden or renamed subgraph coordinates stay routable.
  */
 object SchemaTransformation {
 

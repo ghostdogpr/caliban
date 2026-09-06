@@ -1,13 +1,13 @@
 package caliban.gateway.internal.execution
 
-import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, IncomingRequestHeaders, ResponseValue }
-import caliban.gateway.{ GatewayWrapper, RemoteGraphQLConfig }
-import caliban.gateway.GatewayWrapper.{ Event, Outcome, Result }
-import caliban.gateway.internal.{ AdmissionGate, GatewayHttpClient, SubscriptionTermination }
-import caliban.interop.jsoniter.BoundedOutputStream
-import caliban.parsing.adt.OperationType
 import caliban.ResponseValue.ObjectValue
 import caliban.Value.NullValue
+import caliban.gateway.PhaseHooks.{ Event, Outcome, Result }
+import caliban.gateway.internal.{ AdmissionGate, GatewayHttpClient, SubscriptionTermination }
+import caliban.gateway.{ PhaseHooks, RemoteGraphQLConfig }
+import caliban.interop.jsoniter.BoundedOutputStream
+import caliban.parsing.adt.OperationType
+import caliban._
 import com.github.plokhotnyuk.jsoniter_scala.core._
 import zio._
 import zio.http.{ Header, URL }
@@ -90,7 +90,7 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
   responseStructureLimits: RemoteSubgraphExecutor.ResponseStructureLimits,
   queryCalls: Option[RemoteSubgraphExecutor.InFlightQueryDeduplicator],
   admission: Option[AdmissionGate[R]],
-  wrapper: GatewayWrapper[R],
+  hooks: PhaseHooks[R],
   remoteErrorMessages: Boolean = false,
   fixedHeaders: Option[List[Header]] = None
 ) extends SubgraphExecutor[R] {
@@ -120,22 +120,27 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
                    })
                    else ZIO.succeed(List.empty[Header])
       effectful <- config.effectfulHeaders.mapError(SubgraphExecutor.HeaderFailure(_))
-      values    <- wrapper.outboundHeaders(name, outboundHeaders(incoming, effectful))
-    } yield values)(ZIO.succeed(_))
+      headers   <- if (!hooks.outboundHeaders.enabled) Exit.succeed(outboundHeaders(incoming, effectful))
+                   else
+                     hooks.outboundHeaders.runWith(Event.OutboundHeaders(name, outboundHeaders(incoming, effectful)))(
+                       ev => Exit.succeed(ev.headers)
+                     )((_: Exit[Nothing, List[Header]]) => ())
+    } yield headers)(ZIO.succeed(_))
 
   override def forSubscription(implicit trace: Trace): ZIO[R, SubgraphExecutor.Failure, SubgraphExecutor[R]] =
-    headers.map(values => copied(admission, wrapper, Some(values)))
+    headers.map(values => copied(admission, hooks, Some(values)))
 
   override def subscribe(
     request: GraphQLRequest
   )(implicit trace: Trace): ZIO[R with Scope, Throwable, ZStream[Any, Throwable, GraphQLResponse[CalibanError]]] = {
     val open = for {
       values <- headers.mapError(_ => SubscriptionTermination.Source)
-      traced <- wrapper.attemptHeaders(name, 0, values)
+      traced <-
+        hooks.attemptHeaders.runWith(Event.AttemptHeaders(name, 0, values))(Exit.succeed)((_: Exit[Nothing, Any]) => ())
       body   <- ZIO
                   .fromEither(encode(request.copy(extensions = None)))
                   .mapError(_ => SubscriptionTermination.Source)
-      stream <- subscription.open(traced, request, body)
+      stream <- subscription.open(traced.headers, request, body)
     } yield stream
     admission.fold(open)(_.observed(open))
   }
@@ -164,7 +169,7 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
 
   private def copied[R1 <: R](
     admission: Option[AdmissionGate[R1]],
-    wrapper: GatewayWrapper[R1],
+    hooks: PhaseHooks[R1],
     fixedHeaders: Option[List[Header]]
   ): RemoteSubgraphExecutor[R1] =
     new RemoteSubgraphExecutor(
@@ -175,7 +180,7 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
       responseStructureLimits,
       queryCalls,
       admission,
-      wrapper,
+      hooks,
       remoteErrorMessages,
       fixedHeaders
     )
@@ -186,11 +191,12 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
     replaySafe: Boolean,
     attempt: Int
   )(implicit trace: Trace): ZIO[R, SubgraphExecutor.Failure, GraphQLResponse[CalibanError]] = {
-    val transport   = wrapper.attemptHeaders(name, attempt, headers).flatMap(send(body, _))
+    val transport   =
+      hooks.attemptHeaders.runWith(Event.AttemptHeaders(name, attempt, headers))(ev => send(body, ev.headers))(_ => ())
     val observed    =
-      if (!wrapper.enabled) transport
+      if (!hooks.attempt.enabled) transport
       else
-        wrapper.wrap(Event.Attempt(name, attempt, body.length.toLong, endpoint.host, endpoint.port))(transport)(
+        hooks.attempt.run(Event.Attempt(name, attempt, body.length.toLong, endpoint.host, endpoint.port))(transport)(
           Result.fromExit(_)(
             value =>
               Result(
@@ -209,9 +215,9 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
         )
     val sendAttempt = observed.map(_.response).mapError(_.failure)
     val call        =
-      if (attempt == 0 || !wrapper.enabled) sendAttempt
+      if (attempt == 0 || !hooks.retry.enabled) sendAttempt
       else
-        wrapper.wrap(Event.Retry(name, attempt))(sendAttempt)(
+        hooks.retry.run(Event.Retry(name, attempt))(sendAttempt)(
           SubgraphExecutor.resultFromExit
         )
 
@@ -371,7 +377,7 @@ private[gateway] object RemoteSubgraphExecutor {
     endpoint: URL,
     http: GatewayHttpClient,
     config: RemoteGraphQLConfig[R],
-    wrapper: GatewayWrapper[R],
+    hooks: PhaseHooks[R],
     remoteErrorMessages: Boolean = false,
     admission: Option[AdmissionGate[R]] = None
   )(implicit trace: Trace): ZIO[Scope, Nothing, RemoteSubgraphExecutor[R]] =
@@ -386,8 +392,8 @@ private[gateway] object RemoteSubgraphExecutor {
             admission.fold(
               AdmissionGate.make(
                 config.execution.maxConcurrentCalls,
-                GatewayWrapper.AdmissionKind.Subgraph,
-                wrapper
+                PhaseHooks.AdmissionKind.Subgraph,
+                hooks
               )
             )(ZIO.succeed(_))
           )
@@ -400,7 +406,7 @@ private[gateway] object RemoteSubgraphExecutor {
               ResponseStructureLimits.default,
               calls,
               Some(admission),
-              wrapper,
+              hooks,
               remoteErrorMessages
             )
           }

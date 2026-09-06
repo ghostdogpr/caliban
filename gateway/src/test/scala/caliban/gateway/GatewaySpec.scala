@@ -795,9 +795,9 @@ object GatewaySpec extends ZIOSpecDefault {
         )
       },
       test("reports an empty interface list on every composed object type, including the roots") {
-        // graphql-js `buildClientSchema` — the client GraphiQL builds its schema with — rejects an
-        // object type whose introspected `interfaces` is null, so the composed roots have to answer
-        // with the empty list rather than nothing at all.
+        // graphql-js `buildClientSchema`, which the client GraphiQL builds its schema with, rejects
+        // an object type whose introspected `interfaces` is null, so the composed roots have to
+        // answer with the empty list rather than nothing at all.
         val rootsSchema =
           """
             |schema { query: Query, mutation: Mutation, subscription: Subscription }

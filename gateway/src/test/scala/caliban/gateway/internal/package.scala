@@ -20,7 +20,7 @@ package object internal {
       responseStructureLimits,
       None,
       None,
-      GatewayWrapper.empty,
+      PhaseHooks.empty,
       remoteErrorMessages
     )
 }

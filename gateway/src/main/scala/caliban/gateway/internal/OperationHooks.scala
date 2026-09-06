@@ -1,21 +1,22 @@
 package caliban.gateway.internal
 
-import caliban.execution.ExecutionRequest
-import caliban.gateway.OperationPolicy.{ Allow, Reject, SecurityDirective, SecurityRequirement, ValidatedOperation }
-import caliban.gateway.internal.composition.ComposedGraph.OverrideLabel
-import caliban.gateway.internal.planning.OperationPlan
-import caliban.gateway.{ GatewayWrapper, OperationPolicy, OperationResolver }
-import caliban.parsing.adt.Document
 import caliban.ResponseValue.ObjectValue
 import caliban.Value.StringValue
+import caliban.execution.ExecutionRequest
+import caliban.gateway.OperationPolicy._
+import caliban.gateway.PhaseHooks.Event
+import caliban.gateway.internal.composition.ComposedGraph.OverrideLabel
+import caliban.gateway.internal.planning.OperationPlan
+import caliban.gateway.{ OperationPolicy, OperationResolver, PhaseHooks }
+import caliban.parsing.adt.Document
 import caliban.{ CalibanError, GraphQLRequest }
-import zio.{ Cause, Trace, ZIO }
+import zio.{ Cause, Exit, Trace, ZIO }
 
 private[gateway] final class OperationHooks[-R](
   securityRequirements: OperationPlan => List[SecurityRequirement],
   resolver: Option[OperationResolver[R]],
   policy: Option[OperationPolicy[R]],
-  wrapper: GatewayWrapper[R]
+  hooks: PhaseHooks[R]
 ) {
 
   val cacheable: Boolean = resolver.forall(_.cacheable)
@@ -64,8 +65,14 @@ private[gateway] final class OperationHooks[-R](
     if (labels.isEmpty) ZIO.succeed(Set.empty)
     else {
       val unresolved = labels.map(_.value)
+      val hook       =
+        if (!hooks.overrideLabels.enabled) Exit.succeed(Set.empty[String])
+        else
+          hooks.overrideLabels
+            .runWith(Event.OverrideLabels(request, unresolved))(Exit.succeed)(_ => ())
+            .map(_.active)
       OperationHooks
-        .run(wrapper.activeOverrideLabels(request, unresolved), OperationHooks.OverrideLabelResolutionFailure)
+        .run(hook, OperationHooks.OverrideLabelResolutionFailure)
         .map(_.intersect(unresolved).map(OverrideLabel.apply))
     }
 }

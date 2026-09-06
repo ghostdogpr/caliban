@@ -171,19 +171,19 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
     },
     test("preserves the generation and warm cache when only formatting changes") {
       for {
-        recorded         <- recordEvents
-        (events, wrapper) = recorded
-        remote           <- source()
-        runtime          <- (Gateway.compose(remote.subgraph) @@ wrapper).reloadableForTest
-        _                <- runtime.execute("{ value }")
-        _                <- remote.setSchema("# comment\ntype Query {\n value: String\n}\ntype Mutation { setValue: String }")
-        _                <- poll(runtime)
-        _                <- runtime.execute("{ value }")
-        observed         <- events.get
-        calls            <- remote.checks.get
+        recorded       <- recordEvents
+        (events, hooks) = recorded
+        remote         <- source()
+        runtime        <- Gateway.compose(remote.subgraph).withPhaseHooks(hooks).reloadableForTest
+        _              <- runtime.execute("{ value }")
+        _              <- remote.setSchema("# comment\ntype Query {\n value: String\n}\ntype Mutation { setValue: String }")
+        _              <- poll(runtime)
+        _              <- runtime.execute("{ value }")
+        observed       <- events.get
+        calls          <- remote.checks.get
       } yield assertTrue(
-        observed.count(_ == GatewayWrapper.Event.CacheAccess(GatewayWrapper.CacheResult.Miss)) == 1,
-        observed.count(_ == GatewayWrapper.Event.CacheAccess(GatewayWrapper.CacheResult.Hit)) == 1,
+        observed.count(_ == PhaseHooks.Event.CacheAccess(PhaseHooks.CacheResult.Miss)) == 1,
+        observed.count(_ == PhaseHooks.Event.CacheAccess(PhaseHooks.CacheResult.Hit)) == 1,
         calls == 2
       )
     },
@@ -244,18 +244,18 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
     },
     test("preserves the generation and cache when definitions and fields are reordered") {
       for {
-        recorded         <- recordEvents
-        (events, wrapper) = recorded
-        remote           <- source(changed)
-        runtime          <- (Gateway.compose(remote.subgraph) @@ wrapper).reloadableForTest
-        _                <- runtime.execute("{ value added }")
-        _                <- remote.setSchema("type Mutation { setValue: String } type Query { added: String value: String }")
-        _                <- poll(runtime)
-        _                <- runtime.execute("{ value added }")
-        observed         <- events.get
+        recorded       <- recordEvents
+        (events, hooks) = recorded
+        remote         <- source(changed)
+        runtime        <- Gateway.compose(remote.subgraph).withPhaseHooks(hooks).reloadableForTest
+        _              <- runtime.execute("{ value added }")
+        _              <- remote.setSchema("type Mutation { setValue: String } type Query { added: String value: String }")
+        _              <- poll(runtime)
+        _              <- runtime.execute("{ value added }")
+        observed       <- events.get
       } yield assertTrue(
-        observed.count(_ == GatewayWrapper.Event.CacheAccess(GatewayWrapper.CacheResult.Miss)) == 1,
-        observed.count(_ == GatewayWrapper.Event.CacheAccess(GatewayWrapper.CacheResult.Hit)) == 1
+        observed.count(_ == PhaseHooks.Event.CacheAccess(PhaseHooks.CacheResult.Miss)) == 1,
+        observed.count(_ == PhaseHooks.Event.CacheAccess(PhaseHooks.CacheResult.Hit)) == 1
       )
     },
     test("refreshes ordinary introspection schemas") {

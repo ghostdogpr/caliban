@@ -283,7 +283,7 @@ object GatewayHttpSpec extends ZIOSpecDefault {
                              else
                                ZIO.fail(OperationResolver.Rejection("Document not found.", "PERSISTED_QUERY_NOT_FOUND"))
                            })
-              runtime <- (if (observed) gateway @@ GatewayMetrics.wrapper else gateway).interpreter
+              runtime <- (if (observed) gateway @@ GatewayMetrics.hooks else gateway).interpreter
               url     <- install(QuickAdapter(runtime))
               results <-
                 ZIO.foreach(List("application/json", "application/graphql-response+json")) { mediaType =>

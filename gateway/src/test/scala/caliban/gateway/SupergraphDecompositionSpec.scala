@@ -343,7 +343,7 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
     suite("url validation")(
       // URL decoding is more lenient than it looks: "foo", "not a uri", "://nohost" and
       // "http://" all decode successfully into relative or hostless URLs. Parsing alone is therefore
-      // not validation -- an unusable endpoint would surface much later as a confusing request-time
+      // not validation, and an unusable endpoint would surface much later as a confusing request-time
       // failure. A subgraph endpoint must be an absolute http(s) URI with a non-empty host.
       test("rejects any url that is not an absolute http or https endpoint") {
         val invalid  = List(
@@ -909,9 +909,9 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
         }
       },
       test("translates a progressive override label onto the overriding graph only") {
-        // Rover writes the label into both graphs — the overridden graph gets a bare
-        // `overrideLabel:` entry — but only the graph carrying `override:` can express it, and
-        // the overridden graph must stay a plain owner for the rollout to have anywhere to route.
+        // Rover writes the label into both graphs, giving the overridden graph a bare
+        // `overrideLabel:` entry, but only the graph carrying `override:` can express it. The
+        // overridden graph must stay a plain owner for the rollout to have anywhere to route.
         decompose(
           supergraph(
             """enum join__Graph {
@@ -1072,7 +1072,7 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
     suite("projection: contexts")(
       test("re-emits each graph's own context declarations under the name that graph wrote") {
         // `Character` carries both graphs' declarations side by side, distinguished only by the
-        // namespace — which is the subgraph *name*, while the join enum key is `CHARACTERS`.
+        // namespace, which is the subgraph *name*, while the join enum key is `CHARACTERS`.
         contextProjected.map { graphs =>
           assertTrue(
             contextNames(graphs("characters"), "Character") == List("viewer"),
@@ -1094,7 +1094,7 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
 
           assertTrue(
             // `size` is the only argument the supergraph still declares; the other two are
-            // appended, which the composed schema cannot see — it hides context arguments.
+            // appended, which the composed schema cannot see, since it hides context arguments.
             arguments(characters, "Ship", "fare").map(_.name) == List("size", "currency", "locale"),
             arguments(characters, "Ship", "fare").map(_.ofType) ==
               List(NamedType("Int", nonNull = true), NamedType("String", false), NamedType("String", false)),
@@ -1183,8 +1183,8 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
         )
       },
       test("rejects a context declared for a graph that does not declare the type") {
-        // The declaration can be projected nowhere — graph `b` never receives `Holder` — so
-        // without this the field entry below looks consistent and the failure lands on the
+        // The declaration can be projected nowhere, because graph `b` never receives `Holder`.
+        // Without this the field entry below looks consistent and the failure lands on the
         // projection instead, as `context 'viewer' is not declared by this subgraph`.
         decompose(
           contextSupergraph(
@@ -1247,13 +1247,13 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
     ),
 
     // ---------------------------------------------------------------------------------------
-    // Task 9 — the Hive-composed fixture
+    // Task 9: the Hive-composed fixture
     //
     // Hive composes with `@theguild/federation-composition`, not rover, so its supergraph is a
     // second dialect of the same artifact: a different definition order, different argument
     // printing, and two join definitions rover emits that it does not. None of that may reach the
     // projection. If this suite ever goes red, the reported difference is the specification for
-    // whatever `SupergraphDecomposition` is missing — file it rather than relaxing the assertion.
+    // whatever `SupergraphDecomposition` is missing. File it rather than relaxing the assertion.
     // ---------------------------------------------------------------------------------------
     suite("hive-composed fixture")(
       test("resolves the same subgraph registry, urls included") {

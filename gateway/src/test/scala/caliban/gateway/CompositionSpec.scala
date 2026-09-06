@@ -4,6 +4,7 @@ import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ FloatValue, IntValue, NullValue, StringValue }
 import caliban.CalibanError
 import caliban.gateway.GatewayTestSupport._
+import caliban.gateway.PhaseHooks.Event
 import caliban.gateway.internal.composition.{ SchemaComposer, SchemaMapping }
 import caliban.introspection.adt.{ __Directive, __DirectiveLocation }
 import caliban.parsing.{ Parser, SourceMapper }
@@ -192,14 +193,17 @@ object CompositionSpec extends ZIOSpecDefault {
                                  """{"data":{"value":"replacement","other":"replacement"}}"""
                                else """{"data":{"other":"replacement"}}"""
                              )
-          resolver         = GatewayWrapper.overrideLabels[Any] { (_, labels) =>
-                               seen.update(_ :+ labels) *>
-                                 enabled.get.map(value => if (value) labels + "unknown" else Set.empty[String])
-                             }
-          gateway         <- (Gateway.compose(
-                               Subgraph.federation("original", original.endpoint, originalSchema),
-                               Subgraph.federation("replacement", replacement.endpoint, replacingSchema)
-                             ) @@ resolver).interpreter
+          resolver         = PhaseHooks.overrideLabels(PhaseHandler.incoming { ev =>
+                               seen.update(_ :+ ev.reached) *>
+                                 enabled.get.map(value => ev.activate(if (value) ev.reached + "unknown" else Set.empty[String]))
+                             })
+          gateway         <- Gateway
+                               .compose(
+                                 Subgraph.federation("original", original.endpoint, originalSchema),
+                                 Subgraph.federation("replacement", replacement.endpoint, replacingSchema)
+                               )
+                               .withPhaseHooks(resolver)
+                               .interpreter
           percentOnly     <- gateway.execute("{ other }")
           retained        <- gateway.execute("{ value other }")
           _               <- enabled.set(true)
@@ -253,10 +257,17 @@ object CompositionSpec extends ZIOSpecDefault {
           original    <- stub("""{"data":{"value":"original"}}""")
           replacement <- stub("""{"data":{"value":"replacement"}}""")
           gateway     <-
-            (Gateway.compose(
-              Subgraph.federation("original", original.endpoint, originalSchema),
-              Subgraph.federation("replacement", replacement.endpoint, replacingSchema)
-            ) @@ GatewayWrapper.overrideLabels[Any]((_, _) => ZIO.fail(new RuntimeException(secret)))).interpreter
+            Gateway
+              .compose(
+                Subgraph.federation("original", original.endpoint, originalSchema),
+                Subgraph.federation("replacement", replacement.endpoint, replacingSchema)
+              )
+              .withPhaseHooks(
+                PhaseHooks.overrideLabels(
+                  PhaseHandler.incoming(_ => ZIO.fail(new RuntimeException(secret)))
+                )
+              )
+              .interpreter
           response    <- gateway.execute("{ value }")
           sent        <- original.requests.get.zip(replacement.requests.get)
           cause        = response.errors.collectFirst { case error: CalibanError.ExecutionError =>

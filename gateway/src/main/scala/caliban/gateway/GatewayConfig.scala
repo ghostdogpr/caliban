@@ -24,9 +24,9 @@ final class GatewayConfig private (
 
   /**
    * Sets the maximum total estimated weight of cached prepared operations and plans.
-   * Custom validation functions participate in cache keys by equality (normally reference identity). Reuse those
-   * functions across requests; allocating fresh lambdas causes cache misses and eviction churn.
-   * The list itself may be rebuilt as long as it contains the same function instances.
+   * Custom validation functions are part of the cache key, compared by equality and so normally by reference.
+   * Reuse the same function instances across requests: a fresh lambda per request causes cache misses and
+   * evictions. Rebuilding the list itself is fine as long as it holds those same instances.
    */
   def withMaxOperationCacheWeight(value: Long): GatewayConfig =
     copy(maxOperationCacheWeight = value)

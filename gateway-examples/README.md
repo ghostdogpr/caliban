@@ -29,34 +29,61 @@ sbt "gatewayExamples/runMain example.gateway.federation.FederationGatewayApp"
 
 The Federation GraphiQL page is available at <http://localhost:8090/graphiql>.
 
-## Observability wrappers
+## Observability aspects
 
-Gateway integrations use the same `GatewayWrapper` lifecycle seam. Built-in metrics are opt-in, as shown by `GatewayApp`:
+Gateway integrations attach hooks to named lifecycle phases. Built-in metrics are opt-in, as shown by `GatewayApp`:
 
 ```scala
 import caliban.gateway.{ Gateway, GatewayMetrics }
 
-val gateway = Gateway.compose(first, rest: _*) @@ GatewayMetrics.wrapper
+val gateway = Gateway.compose(first, rest: _*) @@ GatewayMetrics.hooks
 ```
 
-Keeping metrics opt-in means a gateway without wrappers does not perform metric-registry updates, read clocks for metric
-durations, allocate metric labels, or use the instrumented admission path. The wrapper records bounded-cardinality request,
-routing, source-call, physical-attempt, retry, cache, admission, in-flight deduplication, body-size, and overdue metrics.
+Opt-in is worth the extra line. A gateway with no hooks attached never updates a metric registry, reads a clock to time
+one, allocates a label, or takes the instrumented admission path. Attach the aspect, and it records bounded-cardinality
+metrics for requests, routing, source calls, physical attempts, retries, the cache, admission, in-flight deduplication,
+body sizes, and overdue work.
 
-The `gateway-tracing` module provides `GatewayTracing.wrapper`. Wrappers compose with `|+|`, so tracing and metrics can be
-installed together:
+The `gateway-tracing` module provides `GatewayTracing.hooks`. Aspects compose with `@@`, so you can install tracing and
+metrics together:
 
 ```scala
 import caliban.gateway.GatewayMetrics
 import caliban.gateway.tracing.GatewayTracing
 
-val observed = Gateway.compose(first, rest: _*) @@
-  (GatewayMetrics.wrapper |+| GatewayTracing.wrapper)
+val observed = Gateway.compose(first, rest: _*) @@ GatewayMetrics.hooks @@ GatewayTracing.hooks
 ```
 
-`GatewayWrapper.Event` is one lifecycle algebra; `Event.Attempt` represents each physical HTTP attempt, including attempt zero.
-A wrapper receives the event, the effect, and a typed completion function in one `wrap` call. This keeps result metadata inside
-the span or metric scope that owns it and lets custom logging, profiling, policy, or telemetry integrations use the same seam.
-Events expose bounded metadata only and never include raw GraphQL documents, variables, headers, or response bodies. Closed
-event values such as operation type, cache result, admission kind, and deduplication result can be matched exhaustively; request
-deadlines complete with `GatewayWrapper.Outcome.Timeout`.
+An aspect is only a bundle of `PhaseHooks`. To attach hooks of your own, skip the aspect and add them to the gateway
+directly. Hooks accumulate, so this composes with any aspect applied before or after:
+
+```scala
+import caliban.gateway.{ Gateway, GatewayMetrics, PhaseHandler, PhaseHooks }
+import zio.ZIO
+
+val logged = Gateway.compose(first, rest: _*)
+  .withPhaseHooks(
+    PhaseHooks.subgraphCall(
+      PhaseHandler.outgoing((ev, result) => ZIO.logInfo(s"${ev.subgraph} -> ${result.outcome.label}"))
+    )
+  ) @@ GatewayMetrics.hooks
+```
+
+`PhaseHooks.Event` is one lifecycle algebra, with `Event.Attempt` standing for each physical HTTP attempt, attempt zero
+included. A phase handler sees only its own event type, so `PhaseHooks.Attempt` receives an `Event.Attempt` and never has to
+match on the whole algebra.
+
+Pick the constructor that matches how much of the phase you need:
+
+- `PhaseHandler.incoming` runs before the phase and can rewrite the event. `incomingDiscard` is the same without the rewrite.
+- `PhaseHandler.outgoing` sees the phase's typed result.
+- `PhaseHandler.apply` does both and can carry state from one side to the other, which is what brackets the phase effect.
+- `PhaseHandler.scoped` binds a `Scope` to that bracket, so a resource acquired on the way in outlives the outgoing side.
+
+`GatewayTracing` is built from the last two. It opens a span on the way in and records the phase's outcome on it on the
+way out. That keeps result metadata inside the span or metric scope that owns it, and gives custom logging, profiling, policy, and
+telemetry integrations the same seam to hang off.
+
+Events carry a bounded set of data. Closed event values
+such as operation type, cache result, admission kind, and deduplication result match exhaustively. A request that hits its
+deadline completes with `PhaseHooks.Outcome.Timeout`.

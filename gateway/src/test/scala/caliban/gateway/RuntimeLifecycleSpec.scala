@@ -21,7 +21,7 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
       GatewayExecutionControl.make(
         requestLimit,
         GatewaySubscriptionConfig(),
-        GatewayWrapper.empty,
+        PhaseHooks.empty,
         requestTimeout,
         drainTimeout
       )

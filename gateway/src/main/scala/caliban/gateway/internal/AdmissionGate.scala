@@ -1,13 +1,13 @@
 package caliban.gateway.internal
 
-import caliban.gateway.GatewayWrapper
-import caliban.gateway.GatewayWrapper.{ AdmissionKind, Event, Result }
+import caliban.gateway.PhaseHooks
+import caliban.gateway.PhaseHooks.{ AdmissionKind, Event, Result }
 import zio.{ Scope, Semaphore, Trace, UIO, ZIO }
 
 private[gateway] final class AdmissionGate[-R] private (
   semaphore: Semaphore,
   kind: AdmissionKind,
-  wrapper: GatewayWrapper[R]
+  hooks: PhaseHooks[R]
 ) {
 
   def apply[R0, E, A](effect: ZIO[R0, E, A])(implicit trace: Trace): ZIO[R0, E, A] =
@@ -34,13 +34,13 @@ private[gateway] final class AdmissionGate[-R] private (
   private def observeAs[R1 <: R, E, A](work: AdmissionKind)(
     effect: ZIO[R1, E, A]
   )(implicit trace: Trace): ZIO[R1, E, A] =
-    if (!wrapper.enabled) effect else wrapper.wrap(Event.Admission(work))(effect)(Result.classifyExit)
+    if (!hooks.admission.enabled) effect else hooks.admission.run(Event.Admission(work))(effect)(Result.classifyExit)
 
 }
 
 private[gateway] object AdmissionGate {
-  def make[R](limit: Int, kind: AdmissionKind, wrapper: GatewayWrapper[R])(implicit
+  def make[R](limit: Int, kind: AdmissionKind, hooks: PhaseHooks[R])(implicit
     trace: Trace
   ): UIO[AdmissionGate[R]] =
-    Semaphore.make(limit.toLong).map(new AdmissionGate(_, kind, wrapper))
+    Semaphore.make(limit.toLong).map(new AdmissionGate(_, kind, hooks))
 }

@@ -1,8 +1,9 @@
 package caliban.gateway.internal.execution
 
-import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse, PathValue, ResponseValue }
+import caliban.ResponseValue.ObjectValue
+import caliban.Value.{ NullValue, StringValue }
 import caliban.execution.{ ExecutionRequest, Executor, Field }
-import caliban.gateway.GatewayWrapper
+import caliban.gateway.PhaseHooks
 import caliban.gateway.internal.SubscriptionTermination
 import caliban.gateway.internal.composition.ComposedGraph
 import caliban.gateway.internal.execution.EntityExecutor.{ unionBlocked, EntityResult }
@@ -11,15 +12,14 @@ import caliban.gateway.internal.execution.ResponseMerge._
 import caliban.gateway.internal.planning.OperationPlan
 import caliban.gateway.internal.planning.OperationPlan._
 import caliban.introspection.Introspector
-import caliban.parsing.adt.{ Document, OperationType }
-import caliban.parsing.adt.Definition.ExecutableDefinition.OperationDefinition
 import caliban.parsing.SourceMapper
+import caliban.parsing.adt.Definition.ExecutableDefinition.OperationDefinition
+import caliban.parsing.adt.{ Document, OperationType }
 import caliban.rendering.DocumentRenderer
-import caliban.ResponseValue.ObjectValue
 import caliban.schema.{ RootSchema, RootType }
-import caliban.Value.{ NullValue, StringValue }
-import zio.{ Scope, Trace, URIO, ZIO }
+import caliban._
 import zio.stream.ZStream
+import zio.{ Scope, Trace, URIO, ZIO }
 
 import java.util.concurrent.ConcurrentHashMap
 import scala.collection.mutable
@@ -30,7 +30,7 @@ import scala.collection.mutable
 private[gateway] final class PlanExecutor[-R](
   graph: ComposedGraph,
   subgraphExecutors: Map[String, SubgraphExecutor[R]],
-  wrapper: GatewayWrapper[R]
+  hooks: PhaseHooks[R]
 ) {
   private val rootType: RootType                  = graph.rootType
   private lazy val introspection: RootSchema[Any] = Introspector.introspect[Any](rootType)
@@ -74,7 +74,7 @@ private[gateway] final class PlanExecutor[-R](
         executor
           .execute(resolvedRequest, plan.operation)
           .flatMap(response =>
-            wrapper.observeCompletion(
+            hooks.observeCompletion(
               ZIO.succeed(
                 completeSourceResponse(
                   prepared.completion,
@@ -85,13 +85,13 @@ private[gateway] final class PlanExecutor[-R](
               )
             )
           )
-          .catchAll(_ => wrapper.observeCompletion(ZIO.succeed(singleSourceFailure(prepared))))
+          .catchAll(_ => hooks.observeCompletion(ZIO.succeed(singleSourceFailure(prepared))))
       case None               =>
         val introspectionFields = plan.introspectionFields
         if (introspectionFields.isEmpty)
           executeRemote(prepared, execution, resolvedRequest)
             .flatMap(remote =>
-              wrapper.observeCompletion(
+              hooks.observeCompletion(
                 ZIO.succeed(assemble(prepared, remote, GraphQLResponse(ObjectValue.empty, Nil)))
               )
             )
@@ -99,7 +99,7 @@ private[gateway] final class PlanExecutor[-R](
           executeRemote(prepared, execution, resolvedRequest)
             .zipPar(executeIntrospection(execution, introspectionFields))
             .flatMap { case (remote, local) =>
-              wrapper.observeCompletion(ZIO.succeed(assemble(prepared, remote, local)))
+              hooks.observeCompletion(ZIO.succeed(assemble(prepared, remote, local)))
             }
     }
 
@@ -113,7 +113,7 @@ private[gateway] final class PlanExecutor[-R](
       .foreach(subgraphExecutors) { case (name, executor) =>
         (if (used(name)) executor.forSubscription else ZIO.succeed(executor)).map(name -> _)
       }
-      .map(values => new PlanExecutor(graph, values.toMap, wrapper))
+      .map(new PlanExecutor(graph, _, hooks))
   }
 
   def subscribe(prepared: PreparedPlan, execution: ExecutionRequest, resolvedRequest: GraphQLRequest)(implicit
