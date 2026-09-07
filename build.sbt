@@ -790,7 +790,22 @@ lazy val enableMimaSettingsJVM =
       ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.*.<clinit>"),
       ProblemFilters.exclude[DirectMissingMethodProblem]("mdg.engine.proto.reports.*.<clinit>"),
       // private internal method; extra param added to fix nested-list null propagation
-      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.execution.Executor#StepReducer.reduceStep")
+      ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.execution.Executor#StepReducer.reduceStep"),
+      ProblemFilters.exclude[InheritedNewAbstractMethodProblem](
+        "caliban.federation.v2x.FederationDirectivesV2_8.GQLProgressiveOverride"
+      ),
+      ProblemFilters.exclude[InheritedNewAbstractMethodProblem](
+        "caliban.federation.v2x.FederationDirectivesV2_9.GQLProgressiveOverride"
+      ),
+      ProblemFilters.exclude[InheritedNewAbstractMethodProblem](
+        "caliban.federation.v2x.FederationDirectivesV2_10.GQLProgressiveOverride"
+      ),
+      ProblemFilters.exclude[InheritedNewAbstractMethodProblem](
+        "caliban.federation.v2x.FederationDirectivesV2_11.GQLProgressiveOverride"
+      ),
+      ProblemFilters.exclude[InheritedNewAbstractMethodProblem](
+        "caliban.federation.v2x.FederationDirectivesV2_12.GQLProgressiveOverride"
+      )
     )
   )
 

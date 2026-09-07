@@ -111,6 +111,16 @@ object FederationV2 {
     `import` = v2_12.`import`
   )
 
+  private[v2x] val v2_14 = Link(
+    url = s"$federationV2Url/v2.14",
+    `import` = v2_13.`import`
+  )
+
+  private[v2x] val v2_15 = Link(
+    url = s"$federationV2Url/v2.15",
+    `import` = v2_14.`import`
+  )
+
   val connect: Link = ConnectV0.connect
 
   val connect0_2: Link = ConnectV0.connect0_2

@@ -10,7 +10,7 @@ import caliban.schema.Extended
 import scala.annotation.implicitNotFound
 import scala.language.implicitConversions
 
-trait FederationDirectivesV2_12 extends FederationDirectivesV2_11 with CacheableLowPrio {
+trait FederationDirectivesV2_12 extends FederationDirectivesV2_11 with CacheableLowPrio with FederationDirectivesV2_7 {
 
   def CacheTag(format: String): Directive = Directive("cacheTag", Map("format" -> StringValue(format)))
 
