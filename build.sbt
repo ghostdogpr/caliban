@@ -15,8 +15,8 @@ val akkaHttpVersion           = "10.2.10"
 val catsEffect3Version        = "3.7.1"
 val catsMtlVersion            = "1.5.0"
 val circeVersion              = "0.14.16"
-val fs2Version                = "3.13.0"
-val http4sVersion             = "0.23.36"
+val fs2Version                = "3.14.0"
+val http4sVersion             = "0.23.37"
 val javaTimeVersion           = "2.7.0"
 val jsoniterVersion           = "2.40.1"
 val laminextVersion           = "0.17.0"
@@ -34,7 +34,7 @@ val zioInteropCats3Version    = "23.1.0.13"
 val zioInteropReactiveVersion = "2.0.2"
 val zioConfigVersion          = "4.0.8"
 val zqueryVersion             = "0.7.8"
-val zioJsonVersion            = "0.10.0"
+val zioJsonVersion            = "1.0.0"
 val zioHttpVersion            = "3.11.4"
 val zioOpenTelemetryVersion   = "3.1.19"
 
@@ -869,6 +869,9 @@ lazy val enableMimaSettingsJVM =
     mimaBinaryIssueFilters := Seq(
       ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.*.<clinit>"),
       ProblemFilters.exclude[DirectMissingMethodProblem]("mdg.engine.proto.reports.*.<clinit>"),
+      // package-private validation helper removed after its last internal caller
+      ProblemFilters.exclude[MissingClassProblem]("caliban.validation.FieldMap$FieldMapOps"),
+      ProblemFilters.exclude[MissingClassProblem]("caliban.validation.FieldMap$FieldMapOps$"),
       // private internal method; extra param added to fix nested-list null propagation
       ProblemFilters.exclude[DirectMissingMethodProblem]("caliban.execution.Executor#StepReducer.reduceStep"),
       // private implementation details replaced by direct jsoniter codecs

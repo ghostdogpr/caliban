@@ -18,8 +18,6 @@ package object validation {
     final override lazy val hashCode: Int = Hash.caseClassHash(this)
   }
 
-  type FieldMap = Map[String, Set[SelectedField]]
-
   case class Context(
     document: Document,
     rootType: RootType,

@@ -19,6 +19,10 @@ class FragmentValidatorBenchmark {
   @Benchmark
   def fragmentConflicts(): Any =
     run(Validator.validateAll(parsedQuery, rootType))
+
+  @Benchmark
+  def eightyFragments(): Any =
+    run(Validator.validateAll(parsedEightyFragmentsQuery, rootType))
 }
 
 object FragmentValidatorBenchmark {
@@ -161,4 +165,32 @@ object FragmentValidatorBenchmark {
   }
 
   val parsedQuery = run(Parser.parseQuery(query))
+
+  // A 7.5 KB fragment DAG whose operation spreads all 80 fragments. Nested
+  // comparisons revisit the same fragment pairs unless they are memoized by name.
+  val eightyFragmentsQuery: String = {
+    val fragmentCount = 80
+    val fragments = (0 until fragmentCount).map { index =>
+      val name       = f"F$index%02d"
+      val nextSpread =
+        if (index + 1 < fragmentCount) f"...F${index + 1}%02d"
+        else ""
+      s"""fragment $name on Pet {
+         |  $nextSpread
+         |  ... on Dog { name nickname }
+         |  ... on Cat { name }
+         |}
+         |""".stripMargin
+    }.mkString("\n")
+    val spreads = (0 until fragmentCount).map(index => f"...F$index%02d").mkString("\n")
+    s"""$fragments
+       |query {
+       |  pet {
+       |    $spreads
+       |  }
+       |}
+       |""".stripMargin
+  }
+
+  val parsedEightyFragmentsQuery = run(Parser.parseQuery(eightyFragmentsQuery))
 }
