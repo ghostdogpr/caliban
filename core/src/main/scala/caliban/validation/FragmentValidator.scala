@@ -118,6 +118,16 @@ object FragmentValidator {
       }
     }
 
+    private def firstConflict(names: List[String])(check: String => Option[String]): Option[String] = {
+      var remaining = names
+      while (remaining.nonEmpty) {
+        val conflict = check(remaining.head)
+        if (conflict.nonEmpty) return conflict
+        remaining = remaining.tail
+      }
+      None
+    }
+
     private def doTypesConflict(t1: __Type, t2: __Type): Boolean =
       if (isNonNull(t1))
         if (isNonNull(t2)) t1.ofType.flatMap(p1 => t2.ofType.map(p2 => doTypesConflict(p1, p2))).getOrElse(true)
@@ -226,16 +236,10 @@ object FragmentValidator {
         else {
           val directConflict = collectConflictsBetween(fields, fragmentFields, mode)
           if (directConflict.nonEmpty) directConflict
-          else {
-            val nestedFragments = fragmentFields.collected.fragmentNames
-            var remaining       = nestedFragments
-            while (remaining.nonEmpty) {
-              val conflict = collectConflictsBetweenFieldsAndFragment(fields, remaining.head, mode)
-              if (conflict.nonEmpty) return conflict
-              remaining = remaining.tail
-            }
-            None
-          }
+          else
+            firstConflict(fragmentFields.collected.fragmentNames)(
+              collectConflictsBetweenFieldsAndFragment(fields, _, mode)
+            )
         }
       }
 
@@ -254,22 +258,14 @@ object FragmentValidator {
           val directConflict = collectConflictsBetween(fields1, fields2, mode)
           if (directConflict.nonEmpty) directConflict
           else {
-            var nestedFragments = fields2.collected.fragmentNames
-            while (nestedFragments.nonEmpty) {
-              val conflict =
-                collectConflictsBetweenFragments(fragmentName1, nestedFragments.head, mode)
-              if (conflict.nonEmpty) return conflict
-              nestedFragments = nestedFragments.tail
-            }
-
-            nestedFragments = fields1.collected.fragmentNames
-            while (nestedFragments.nonEmpty) {
-              val conflict =
-                collectConflictsBetweenFragments(nestedFragments.head, fragmentName2, mode)
-              if (conflict.nonEmpty) return conflict
-              nestedFragments = nestedFragments.tail
-            }
-            None
+            val conflict = firstConflict(fields2.collected.fragmentNames)(
+              collectConflictsBetweenFragments(fragmentName1, _, mode)
+            )
+            if (conflict.nonEmpty) conflict
+            else
+              firstConflict(fields1.collected.fragmentNames)(
+                collectConflictsBetweenFragments(_, fragmentName2, mode)
+              )
           }
         }
       }
@@ -286,32 +282,19 @@ object FragmentValidator {
       val directConflict = collectConflictsBetween(fields1, fields2, mode)
       if (directConflict.nonEmpty) directConflict
       else {
-        var fragmentNames = fields2.collected.fragmentNames
-        while (fragmentNames.nonEmpty) {
-          val conflict = collectConflictsBetweenFieldsAndFragment(fields1, fragmentNames.head, mode)
-          if (conflict.nonEmpty) return conflict
-          fragmentNames = fragmentNames.tail
+        val fragmentNames1 = fields1.collected.fragmentNames
+        val fragmentNames2 = fields2.collected.fragmentNames
+        val conflict       = firstConflict(fragmentNames2)(collectConflictsBetweenFieldsAndFragment(fields1, _, mode))
+        if (conflict.nonEmpty) conflict
+        else {
+          val reverseConflict =
+            firstConflict(fragmentNames1)(collectConflictsBetweenFieldsAndFragment(fields2, _, mode))
+          if (reverseConflict.nonEmpty) reverseConflict
+          else
+            firstConflict(fragmentNames1) { fragmentName1 =>
+              firstConflict(fragmentNames2)(collectConflictsBetweenFragments(fragmentName1, _, mode))
+            }
         }
-
-        fragmentNames = fields1.collected.fragmentNames
-        while (fragmentNames.nonEmpty) {
-          val conflict = collectConflictsBetweenFieldsAndFragment(fields2, fragmentNames.head, mode)
-          if (conflict.nonEmpty) return conflict
-          fragmentNames = fragmentNames.tail
-        }
-
-        var fragmentNames1 = fields1.collected.fragmentNames
-        while (fragmentNames1.nonEmpty) {
-          var fragmentNames2 = fields2.collected.fragmentNames
-          while (fragmentNames2.nonEmpty) {
-            val conflict =
-              collectConflictsBetweenFragments(fragmentNames1.head, fragmentNames2.head, mode)
-            if (conflict.nonEmpty) return conflict
-            fragmentNames2 = fragmentNames2.tail
-          }
-          fragmentNames1 = fragmentNames1.tail
-        }
-        None
       }
     }
 
@@ -327,13 +310,10 @@ object FragmentValidator {
             collectConflictsBetweenFieldsAndFragment(fields, fragmentName1, ComparisonMode.Overlapping)
           if (conflict.nonEmpty) return conflict
 
-          var fragmentNames2 = fragmentNames1.tail
-          while (fragmentNames2.nonEmpty) {
-            val fragmentConflict =
-              collectConflictsBetweenFragments(fragmentName1, fragmentNames2.head, ComparisonMode.Overlapping)
-            if (fragmentConflict.nonEmpty) return fragmentConflict
-            fragmentNames2 = fragmentNames2.tail
-          }
+          val fragmentConflict = firstConflict(fragmentNames1.tail)(
+            collectConflictsBetweenFragments(fragmentName1, _, ComparisonMode.Overlapping)
+          )
+          if (fragmentConflict.nonEmpty) return fragmentConflict
           fragmentNames1 = fragmentNames1.tail
         }
         None
@@ -364,7 +344,7 @@ object FragmentValidator {
               if (validatedFragments.add(name)) {
                 val definition = context.fragments.getOrElseNull(name)
                 if (definition ne null) {
-                  val fragmentType   = getType(definition.typeCondition, context).getOrElse(parentType)
+                  val fragmentType   = getType(definition.typeCondition, context).getOrElse(rootParentType)
                   val nestedConflict =
                     validateSelectionSets(fragmentType, definition.selectionSet, validatedFragments)
                   if (nestedConflict.nonEmpty) return nestedConflict
