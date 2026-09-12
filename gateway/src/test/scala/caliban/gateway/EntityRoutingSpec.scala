@@ -295,6 +295,42 @@ object EntityRoutingSpec extends ZIOSpecDefault {
             )
         )
       },
+      test("nulls an interface field for an implementation no lookup covers without an error") {
+        val nodesSchema   =
+          s"""
+             |${federationSchemaPreamble("@key")}
+             |type Query { node: Node }
+             |interface Node { id: ID! }
+             |type Product implements Node @key(fields: "id") { id: ID! }
+             |type Service implements Node @key(fields: "id") { id: ID! }
+             |""".stripMargin
+        val detailsSchema =
+          s"""
+             |${federationSchemaPreamble("@key", "@external", "@shareable")}
+             |interface Node { id: ID! label: String }
+             |type Product implements Node @key(fields: "id") { id: ID! @external label: String }
+             |type Service implements Node { id: ID! @shareable label: String }
+             |""".stripMargin
+        val nodeResponse  =
+          """{"data":{"node":{"_caliban_gateway_key":"s1","_caliban_gateway_typename":"Service","_caliban_gateway_runtime_typename":"Service"}}}"""
+
+        for {
+          nodes    <- stub(nodeResponse)
+          details  <- stub("""{"data":{"_entities":[]}}""")
+          gateway  <- Gateway
+                        .compose(
+                          Subgraph.federation("nodes", nodes.endpoint, nodesSchema),
+                          Subgraph.federation("details", details.endpoint, detailsSchema)
+                        )
+                        .interpreter
+          response <- gateway.execute("{ node { label } }")
+          sent     <- details.requests.get
+        } yield assertTrue(
+          response.errors.isEmpty,
+          field(response.data, "node").flatMap(field(_, "label")).contains(NullValue),
+          sent.isEmpty
+        )
+      },
       test("moves an unresolvable child selection to a resolvable parent entity") {
         val productsSchema   =
           s"""

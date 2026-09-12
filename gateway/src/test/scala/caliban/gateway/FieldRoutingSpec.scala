@@ -3,14 +3,46 @@ package caliban.gateway
 import caliban.InputValue.{ ListValue, ObjectValue => InputObjectValue }
 import caliban.ResponseValue.{ ObjectValue => ResponseObjectValue }
 import caliban.Value.IntValue.IntNumber
-import caliban.Value.{ BooleanValue, NullValue, StringValue }
+import caliban.Value.{ BooleanValue, EnumValue, NullValue, StringValue }
 import caliban.gateway.GatewayTestSupport._
-import caliban.InputValue
+import caliban.{ GraphQLRequest, InputValue }
 import sttp.model.Uri
 import zio.{ Scope, ZIO }
 import zio.test._
 
 object FieldRoutingSpec extends ZIOSpecDefault {
+
+  private val productRoots =
+    s"""
+       |${federationSchemaPreamble("@key")}
+       |type Query { product: Product }
+       |type Product @key(fields: "id") { id: ID! }
+       |""".stripMargin
+
+  private val productRoot =
+    """{"data":{"product":{"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}}}"""
+
+  private val nodeRoots =
+    s"""
+       |${federationSchemaPreamble("@key")}
+       |type Query { node: Node }
+       |interface Node @key(fields: "id") { id: ID! }
+       |type Product implements Node @key(fields: "id") { id: ID! }
+       |type Service implements Node @key(fields: "id") { id: ID! }
+       |""".stripMargin
+
+  private def nodeRoot(typename: String, id: String): String =
+    s"""{"data":{"node":{"_caliban_gateway_key":"$id","_caliban_gateway_key_2":"$id","_caliban_gateway_key_3":"$id","_caliban_gateway_typename":"$typename","_caliban_gateway_typename_2":"$typename","_caliban_gateway_runtime_typename":"$typename"}}}"""
+
+  private def productRatings(price: String, expensive: String): String =
+    s"""
+       |${federationSchemaPreamble("@key", "@external", "@requires")}
+       |type Product @key(fields: "id") {
+       |  id: ID! @external
+       |  price: $price @external
+       |  expensive: $expensive @requires(fields: "price")
+       |}
+       |""".stripMargin
 
   def spec = suite("FieldRoutingSpec")(
     suite("requirements and provided fields")(
@@ -524,15 +556,13 @@ object FieldRoutingSpec extends ZIOSpecDefault {
              |  label: String! @requires(fields: "expensive")
              |}
              |""".stripMargin
-        val rootResponse   =
-          """{"data":{"product":{"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product","_caliban_gateway_key_2":"p1","_caliban_gateway_typename_2":"Product","_caliban_gateway_key_3":"p1","_caliban_gateway_typename_3":"Product"}}}"""
         val priceResponse  =
           """{"data":{"_entities":[{"_caliban_gateway_requirement_price":100}]}}"""
         val ratingResponse =
           """{"data":{"_entities":[{"expensive":true,"_caliban_gateway_requirement_expensive":true}]}}"""
 
         for {
-          roots      <- stub(rootResponse)
+          roots      <- stub(productRoot)
           prices     <- stub(priceResponse)
           ratings    <- stub(ratingResponse)
           labels     <- stub("""{"data":{"_entities":[{"label":"premium"}]}}""")
@@ -553,7 +583,7 @@ object FieldRoutingSpec extends ZIOSpecDefault {
           field(response.data, "product").flatMap(field(_, "expensive")).contains(BooleanValue(true)),
           field(response.data, "product").flatMap(field(_, "label")).contains(StringValue("premium")),
           priceSent.size == 1,
-          ratingSent.size == 2,
+          ratingSent.size == 1,
           ratingSent.headOption.flatMap(_.variables).exists(_.toString.contains("100")),
           labelSent.headOption.flatMap(_.variables).exists(_.toString.contains("true"))
         )
@@ -659,6 +689,424 @@ object FieldRoutingSpec extends ZIOSpecDefault {
           sentA.headOption.flatMap(_.query).forall(!_.contains("label")),
           sentB.size == 1,
           sentA.lastOption.flatMap(_.variables).exists(_.toString.contains("100"))
+        )
+      }
+    ),
+    suite("shared keys and merged fetches")(
+      test("shares one injected key and typename alias between sibling entity fetches") {
+        val shippingSchema =
+          s"""
+             |${federationSchemaPreamble("@key", "@external")}
+             |type Product @key(fields: "id") { id: ID! @external shipping: Int! }
+             |""".stripMargin
+        val taxSchema      =
+          s"""
+             |${federationSchemaPreamble("@key", "@external")}
+             |type Product @key(fields: "id") { id: ID! @external tax: Int! }
+             |""".stripMargin
+
+        for {
+          roots    <- stub(productRoot)
+          shipping <- stub("""{"data":{"_entities":[{"shipping":20}]}}""")
+          tax      <- stub("""{"data":{"_entities":[{"tax":3}]}}""")
+          gateway  <- Gateway
+                        .compose(
+                          Subgraph.federation("roots", roots.endpoint, productRoots),
+                          Subgraph.federation("shipping", shipping.endpoint, shippingSchema),
+                          Subgraph.federation("tax", tax.endpoint, taxSchema)
+                        )
+                        .interpreter
+          response <- gateway.execute("{ product { shipping tax } }")
+          rootSent <- roots.requests.get
+          query     = rootSent.headOption.flatMap(_.query).getOrElse("")
+          key       = "_caliban_gateway_key:id"
+          typename  = "_caliban_gateway_typename:__typename"
+        } yield assertTrue(
+          response.errors.isEmpty,
+          field(response.data, "product").flatMap(field(_, "shipping")).contains(IntNumber(20)),
+          field(response.data, "product").flatMap(field(_, "tax")).contains(IntNumber(3)),
+          query.sliding(key.length).count(_ == key) == 1,
+          query.sliding(typename.length).count(_ == typename) == 1,
+          !query.contains("_caliban_gateway_key_2"),
+          !query.contains("_caliban_gateway_typename_2")
+        )
+      },
+      test("reuses a client alias whose selection matches an injected key") {
+        val shippingSchema =
+          s"""
+             |${federationSchemaPreamble("@key", "@external")}
+             |type Product @key(fields: "id") { id: ID! @external shipping: Int! }
+             |""".stripMargin
+
+        for {
+          roots    <- stub(productRoot)
+          shipping <- stub("""{"data":{"_entities":[{"shipping":20}]}}""")
+          gateway  <- Gateway
+                        .compose(
+                          Subgraph.federation("roots", roots.endpoint, productRoots),
+                          Subgraph.federation("shipping", shipping.endpoint, shippingSchema)
+                        )
+                        .interpreter
+          response <- gateway.execute("{ product { _caliban_gateway_key: id shipping } }")
+          rootSent <- roots.requests.get
+          query     = rootSent.headOption.flatMap(_.query).getOrElse("")
+          key       = "_caliban_gateway_key:id"
+        } yield assertTrue(
+          response.errors.isEmpty,
+          field(response.data, "product").flatMap(field(_, "_caliban_gateway_key")).contains(StringValue("p1")),
+          field(response.data, "product").flatMap(field(_, "shipping")).contains(IntNumber(20)),
+          query.sliding(key.length).count(_ == key) == 1,
+          !query.contains("_caliban_gateway_key_2")
+        )
+      },
+      test("merges a requirement fetch with the field fetch of the same subgraph into one call") {
+        val priceSchema    =
+          s"""
+             |${federationSchemaPreamble("@key", "@external")}
+             |type Product @key(fields: "id") { id: ID! @external price: Int! }
+             |""".stripMargin
+        val ratingSchema   = productRatings("Int!", "Boolean!")
+        val priceResponse  =
+          """{"data":{"_entities":[{"price":100,"_caliban_gateway_requirement_price":100}]}}"""
+        val ratingResponse = """{"data":{"_entities":[{"expensive":true}]}}"""
+
+        for {
+          roots      <- stub(productRoot)
+          prices     <- stub(priceResponse)
+          ratings    <- stub(ratingResponse)
+          gateway    <- Gateway
+                          .compose(
+                            Subgraph.federation("roots", roots.endpoint, productRoots),
+                            Subgraph.federation("prices", prices.endpoint, priceSchema),
+                            Subgraph.federation("ratings", ratings.endpoint, ratingSchema)
+                          )
+                          .interpreter
+          plan       <- gateway.explain(GraphQLRequest(query = Some("{ product { price expensive } }")))
+          response   <- gateway.execute("{ product { price expensive } }")
+          priceSent  <- prices.requests.get
+          ratingSent <- ratings.requests.get
+          priceQuery  = priceSent.headOption.flatMap(_.query).getOrElse("")
+        } yield assertTrue(
+          response.errors.isEmpty,
+          field(response.data, "product").flatMap(field(_, "price")).contains(IntNumber(100)),
+          field(response.data, "product").flatMap(field(_, "expensive")).contains(BooleanValue(true)),
+          priceSent.size == 1,
+          priceQuery.contains("_caliban_gateway_requirement_price:price"),
+          ratingSent.size == 1,
+          ratingSent.headOption.flatMap(_.variables).exists(_.toString.contains("100")),
+          plan.linesIterator.count(_.startsWith("fetch prices")) == 1
+        )
+      },
+      test("keeps a prerequisite separate when its provider declares it non-null but composition widens it") {
+        val priceSchema    =
+          s"""
+             |${federationSchemaPreamble("@key", "@external", "@shareable")}
+             |type Product @key(fields: "id") { id: ID! @external displayPrice: Int price: Int! @shareable }
+             |""".stripMargin
+        val catalogSchema  =
+          s"""
+             |${federationSchemaPreamble("@key", "@shareable")}
+             |type Product @key(fields: "id") { id: ID! price: Int @shareable }
+             |""".stripMargin
+        val ratingSchema   = productRatings("Int!", "Boolean")
+        val priceResponse  =
+          """{"data":{"_entities":[null]},"errors":[{"message":"price unavailable","path":["_entities",0,"_caliban_gateway_requirement_price"]}]}"""
+        val ratingResponse = """{"data":{"_entities":[{"expensive":true}]}}"""
+
+        for {
+          roots         <- stub(productRoot)
+          prices        <- stubByRequest(request =>
+                             if (request.query.exists(_.contains("_caliban_gateway_requirement_price"))) priceResponse
+                             else """{"data":{"_entities":[{"displayPrice":10}]}}"""
+                           )
+          catalog       <- stub(priceResponse)
+          ratings       <- stub(ratingResponse)
+          gateway       <- Gateway
+                             .compose(
+                               Subgraph.federation("roots", roots.endpoint, productRoots),
+                               Subgraph.federation("prices", prices.endpoint, priceSchema),
+                               Subgraph.federation("catalog", catalog.endpoint, catalogSchema),
+                               Subgraph.federation("ratings", ratings.endpoint, ratingSchema)
+                             )
+                             .interpreter
+          introspection <- gateway.execute("""{ __type(name: "Product") { fields { name type { kind } } } }""")
+          response      <- gateway.execute("{ product { displayPrice expensive } }")
+          priceSent     <- prices.requests.get
+          catalogSent   <- catalog.requests.get
+          ratingSent    <- ratings.requests.get
+          product        = field(response.data, "product")
+          priceKind      = listValues(field(introspection.data, "__type").flatMap(field(_, "fields")))
+                             .find(field(_, "name").contains(StringValue("price")))
+                             .flatMap(field(_, "type"))
+                             .flatMap(field(_, "kind"))
+        } yield assertTrue(
+          priceKind.contains(EnumValue("SCALAR")),
+          product.flatMap(field(_, "displayPrice")).contains(IntNumber(10)),
+          product.flatMap(field(_, "expensive")).contains(NullValue),
+          response.errors.nonEmpty,
+          priceSent.size + catalogSent.size == 2,
+          ratingSent.isEmpty
+        )
+      },
+      test("keeps a non-null client field separate from a nullable prerequisite it would otherwise erase") {
+        val priceSchema     =
+          s"""
+             |${federationSchemaPreamble("@key", "@external", "@shareable")}
+             |type Product @key(fields: "id") { id: ID! @external displayPrice: Int! @shareable price: Int }
+             |""".stripMargin
+        val catalogSchema   =
+          s"""
+             |${federationSchemaPreamble("@key", "@shareable")}
+             |type Product @key(fields: "id") { id: ID! displayPrice: Int @shareable }
+             |""".stripMargin
+        val ratingSchema    = productRatings("Int", "Boolean")
+        val displayResponse =
+          """{"data":{"_entities":[null]},"errors":[{"message":"displayPrice unavailable","path":["_entities",0,"displayPrice"]}]}"""
+        val priceResponse   = """{"data":{"_entities":[{"_caliban_gateway_requirement_price":100}]}}"""
+        val ratingResponse  = """{"data":{"_entities":[{"expensive":true}]}}"""
+
+        for {
+          roots         <- stub(productRoot)
+          prices        <- stubByRequest(request =>
+                             if (request.query.exists(_.contains("displayPrice"))) displayResponse else priceResponse
+                           )
+          catalog       <- stub(displayResponse)
+          ratings       <- stub(ratingResponse)
+          gateway       <- Gateway
+                             .compose(
+                               Subgraph.federation("roots", roots.endpoint, productRoots),
+                               Subgraph.federation("prices", prices.endpoint, priceSchema),
+                               Subgraph.federation("catalog", catalog.endpoint, catalogSchema),
+                               Subgraph.federation("ratings", ratings.endpoint, ratingSchema)
+                             )
+                             .interpreter
+          introspection <- gateway.execute("""{ __type(name: "Product") { fields { name type { kind } } } }""")
+          response      <- gateway.execute("{ product { displayPrice expensive } }")
+          priceSent     <- prices.requests.get
+          catalogSent   <- catalog.requests.get
+          ratingSent    <- ratings.requests.get
+          product        = field(response.data, "product")
+          displayKind    = listValues(field(introspection.data, "__type").flatMap(field(_, "fields")))
+                             .find(field(_, "name").contains(StringValue("displayPrice")))
+                             .flatMap(field(_, "type"))
+                             .flatMap(field(_, "kind"))
+        } yield assertTrue(
+          displayKind.contains(EnumValue("SCALAR")),
+          product.flatMap(field(_, "displayPrice")).contains(NullValue),
+          product.flatMap(field(_, "expensive")).contains(BooleanValue(true)),
+          response.errors.nonEmpty,
+          priceSent.size + catalogSent.size == 2,
+          ratingSent.size == 1
+        )
+      },
+      test("keeps a lookup that covers every implementation over a cheaper single-implementation merge") {
+        val priceSchema    =
+          s"""
+             |${federationSchemaPreamble("@key", "@external")}
+             |interface Node @key(fields: "id") { id: ID! @external displayPrice: Int price: Int }
+             |type Product implements Node @key(fields: "id") { id: ID! @external displayPrice: Int price: Int }
+             |type Service implements Node @key(fields: "id") { id: ID! @external displayPrice: Int price: Int }
+             |""".stripMargin
+        val ratingSchema   =
+          s"""
+             |${federationSchemaPreamble("@key", "@external", "@requires")}
+             |interface Node @key(fields: "id") {
+             |  id: ID! @external
+             |  price: Int @external
+             |  expensive: Boolean @requires(fields: "price")
+             |}
+             |type Product implements Node @key(fields: "id") {
+             |  id: ID! @external
+             |  price: Int @external
+             |  expensive: Boolean @requires(fields: "price")
+             |}
+             |type Service implements Node @key(fields: "id") {
+             |  id: ID! @external
+             |  price: Int @external
+             |  expensive: Boolean @requires(fields: "price")
+             |}
+             |""".stripMargin
+        val ratingResponse = """{"data":{"_entities":[{"expensive":true}]}}"""
+
+        for {
+          roots      <- stub(nodeRoot("Product", "p1"))
+          prices     <- stubByRequest(request =>
+                          if (request.query.exists(_.contains("_caliban_gateway_requirement_price")))
+                            """{"data":{"_entities":[{"_caliban_gateway_requirement_price":100}]}}"""
+                          else """{"data":{"_entities":[{"displayPrice":10}]}}"""
+                        )
+          ratings    <- stub(ratingResponse)
+          gateway    <- Gateway
+                          .compose(
+                            Subgraph.federation("roots", roots.endpoint, nodeRoots),
+                            Subgraph.federation("prices", prices.endpoint, priceSchema),
+                            Subgraph.federation("ratings", ratings.endpoint, ratingSchema)
+                          )
+                          .interpreter
+          plan       <- gateway.explain(GraphQLRequest(query = Some("{ node { displayPrice expensive } }")))
+          response   <- gateway.execute("{ node { displayPrice expensive } }")
+          priceSent  <- prices.requests.get
+          ratingSent <- ratings.requests.get
+
+          node    = field(response.data, "node")
+          covered = (implementation: String) =>
+                      plan.linesIterator.exists(line =>
+                        line.startsWith("fetch prices") && line.contains("displayPrice") &&
+                          (line.contains("via Node(") || line.contains(s"via $implementation("))
+                      )
+        } yield assertTrue(
+          covered("Product"),
+          covered("Service"),
+          response.errors.isEmpty,
+          node.flatMap(field(_, "displayPrice")).contains(IntNumber(10)),
+          node.flatMap(field(_, "expensive")).contains(BooleanValue(true)),
+          priceSent.nonEmpty,
+          priceSent.forall(_.variables.exists(_.toString.contains("Product"))),
+          ratingSent.size == 1
+        )
+      },
+      test("serves an implementation without its own key through the interface lookup") {
+        val priceSchema    =
+          s"""
+             |${federationSchemaPreamble("@key", "@external", "@shareable")}
+             |interface Node @key(fields: "id") { id: ID! @external displayPrice: Int price: Int }
+             |type Product implements Node @key(fields: "id") { id: ID! @external displayPrice: Int price: Int }
+             |type Service implements Node { id: ID! @shareable displayPrice: Int price: Int }
+             |""".stripMargin
+        val ratingSchema   =
+          s"""
+             |${federationSchemaPreamble("@key", "@external", "@requires")}
+             |interface Node @key(fields: "id") {
+             |  id: ID! @external
+             |  price: Int @external
+             |  expensive: Boolean @requires(fields: "price")
+             |}
+             |type Product implements Node @key(fields: "id") {
+             |  id: ID! @external
+             |  price: Int @external
+             |  expensive: Boolean @requires(fields: "price")
+             |}
+             |type Service implements Node @key(fields: "id") { id: ID! @external price: Int @external expensive: Boolean }
+             |""".stripMargin
+        val ratingResponse = """{"data":{"_entities":[{"expensive":true}]}}"""
+
+        for {
+          roots      <- stub(nodeRoot("Service", "s1"))
+          prices     <- stubByRequest(request =>
+                          if (request.query.exists(_.contains("_caliban_gateway_requirement_price")))
+                            """{"data":{"_entities":[{"_caliban_gateway_requirement_price":100}]}}"""
+                          else """{"data":{"_entities":[{"displayPrice":10}]}}"""
+                        )
+          ratings    <- stub(ratingResponse)
+          gateway    <- Gateway
+                          .compose(
+                            Subgraph.federation("roots", roots.endpoint, nodeRoots),
+                            Subgraph.federation("prices", prices.endpoint, priceSchema),
+                            Subgraph.federation("ratings", ratings.endpoint, ratingSchema)
+                          )
+                          .interpreter
+          plan       <- gateway.explain(GraphQLRequest(query = Some("{ node { displayPrice expensive } }")))
+          response   <- gateway.execute("{ node { displayPrice expensive } }")
+          priceSent  <- prices.requests.get
+          ratingSent <- ratings.requests.get
+          node        = field(response.data, "node")
+        } yield assertTrue(
+          plan.linesIterator.exists(line =>
+            line.startsWith("fetch prices") && line.contains("via Node(") && line.contains("displayPrice")
+          ),
+          response.errors.isEmpty,
+          node.flatMap(field(_, "displayPrice")).contains(IntNumber(10)),
+          node.flatMap(field(_, "expensive")).contains(BooleanValue(true)),
+          priceSent.nonEmpty,
+          priceSent.forall(_.variables.exists(_.toString.contains("Service"))),
+          ratingSent.size == 1
+        )
+      },
+      test("merges a nullable prerequisite with client fields of the same subgraph") {
+        val priceSchema    =
+          s"""
+             |${federationSchemaPreamble("@key", "@external")}
+             |type Product @key(fields: "id") { id: ID! @external displayPrice: Int price: Int }
+             |""".stripMargin
+        val ratingSchema   = productRatings("Int", "Boolean")
+        val priceResponse  =
+          """{"data":{"_entities":[{"displayPrice":10,"_caliban_gateway_requirement_price":100}]}}"""
+        val ratingResponse = """{"data":{"_entities":[{"expensive":true}]}}"""
+
+        for {
+          roots      <- stub(productRoot)
+          prices     <- stub(priceResponse)
+          ratings    <- stub(ratingResponse)
+          gateway    <- Gateway
+                          .compose(
+                            Subgraph.federation("roots", roots.endpoint, productRoots),
+                            Subgraph.federation("prices", prices.endpoint, priceSchema),
+                            Subgraph.federation("ratings", ratings.endpoint, ratingSchema)
+                          )
+                          .interpreter
+          response   <- gateway.execute("{ product { displayPrice expensive } }")
+          priceSent  <- prices.requests.get
+          ratingSent <- ratings.requests.get
+          product     = field(response.data, "product")
+        } yield assertTrue(
+          response.errors.isEmpty,
+          product.flatMap(field(_, "displayPrice")).contains(IntNumber(10)),
+          product.flatMap(field(_, "expensive")).contains(BooleanValue(true)),
+          priceSent.size == 1,
+          ratingSent.size == 1
+        )
+      },
+      test("merges identical prerequisite fetches of different consumers into one call") {
+        val priceSchema    =
+          s"""
+             |${federationSchemaPreamble("@key", "@external")}
+             |type Product @key(fields: "id") { id: ID! @external price: Int! }
+             |""".stripMargin
+        val shippingSchema =
+          s"""
+             |${federationSchemaPreamble("@key", "@external", "@requires")}
+             |type Product @key(fields: "id") {
+             |  id: ID! @external
+             |  price: Int! @external
+             |  shipping: Int! @requires(fields: "price")
+             |}
+             |""".stripMargin
+        val taxSchema      =
+          s"""
+             |${federationSchemaPreamble("@key", "@external", "@requires")}
+             |type Product @key(fields: "id") {
+             |  id: ID! @external
+             |  price: Int! @external
+             |  tax: Int! @requires(fields: "price")
+             |}
+             |""".stripMargin
+        val priceResponse  = """{"data":{"_entities":[{"_caliban_gateway_requirement_price":100}]}}"""
+
+        for {
+          roots        <- stub(productRoot)
+          prices       <- stub(priceResponse)
+          shipping     <- stub("""{"data":{"_entities":[{"shipping":20}]}}""")
+          tax          <- stub("""{"data":{"_entities":[{"tax":3}]}}""")
+          gateway      <- Gateway
+                            .compose(
+                              Subgraph.federation("roots", roots.endpoint, productRoots),
+                              Subgraph.federation("prices", prices.endpoint, priceSchema),
+                              Subgraph.federation("shipping", shipping.endpoint, shippingSchema),
+                              Subgraph.federation("tax", tax.endpoint, taxSchema)
+                            )
+                            .interpreter
+          response     <- gateway.execute("{ product { shipping tax } }")
+          priceSent    <- prices.requests.get
+          shippingSent <- shipping.requests.get
+          taxSent      <- tax.requests.get
+          product       = field(response.data, "product")
+        } yield assertTrue(
+          response.errors.isEmpty,
+          product.flatMap(field(_, "shipping")).contains(IntNumber(20)),
+          product.flatMap(field(_, "tax")).contains(IntNumber(3)),
+          priceSent.size == 1,
+          shippingSent.size == 1,
+          taxSent.size == 1
         )
       }
     )

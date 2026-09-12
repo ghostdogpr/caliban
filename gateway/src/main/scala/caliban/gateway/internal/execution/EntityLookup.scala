@@ -536,7 +536,8 @@ private[internal] final class EntityLookup(
       EntityResult(
         merged,
         errors,
-        blockEntries(batch.blocked, blockedEntries)
+        blockEntries(batch.blocked, blockedEntries),
+        batch.unmatched
       )
     }
 

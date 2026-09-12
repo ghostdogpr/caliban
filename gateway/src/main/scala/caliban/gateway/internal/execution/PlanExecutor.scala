@@ -287,6 +287,7 @@ private[gateway] final class PlanExecutor[-R](
             EntityResult(
               Nil,
               List(CalibanError.ExecutionError("Entity routing dependency cycle detected.")),
+              Map.empty,
               Map.empty
             ) :: Nil
           )
@@ -301,22 +302,21 @@ private[gateway] final class PlanExecutor[-R](
             )
           )
           val patchedRoots  = patchRoots(roots, patchesByRoot)(applyPatches)
+          val unfetched     = results.flatMap(result => result.blocked.toList ::: result.unmatched.toList)
           val nextRoots     =
-            if (!results.exists(_.blocked.nonEmpty)) patchedRoots
+            if (unfetched.isEmpty) patchedRoots
             else {
               val blockedByRoot =
                 mutable.LinkedHashMap.empty[FetchId, mutable.ListBuffer[(List[PathValue], ResponseValue)]]
               val fetchesById   = pending.iterator.map(fetch => fetch.id -> fetch).toMap
-              results.foreach(
-                _.blocked.foreach { case (fetchId, paths) =>
-                  fetchesById.get(fetchId).foreach { fetch =>
-                    val patch = RemoteError.nullObject(fetch.fields)
-                    paths.foreach(path =>
-                      blockedByRoot.getOrElseUpdate(fetch.root, mutable.ListBuffer.empty) += (path -> patch)
-                    )
-                  }
+              unfetched.foreach { case (fetchId, paths) =>
+                fetchesById.get(fetchId).foreach { fetch =>
+                  val patch = RemoteError.nullObject(fetch.fields)
+                  paths.foreach(path =>
+                    blockedByRoot.getOrElseUpdate(fetch.root, mutable.ListBuffer.empty) += (path -> patch)
+                  )
                 }
-              )
+              }
               patchRoots(patchedRoots, blockedByRoot) { (root, patches) =>
                 patches.foldLeft(root) { case (value, (path, patch)) => mergeMissingAt(value, path, patch) }
               }

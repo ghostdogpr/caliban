@@ -70,7 +70,7 @@ private[gateway] final class EntityExecutor[-R](
     val fetches = group.toList
     val batch   = prepareBatch(fetches, candidates, blocked)
 
-    if (batch.entries.isEmpty) ZIO.succeed(EntityResult(Nil, batch.errors, batch.blocked))
+    if (batch.entries.isEmpty) ZIO.succeed(EntityResult(Nil, batch.errors, batch.blocked, batch.unmatched))
     else if (fetches.forall(_.contextArguments.isEmpty))
       executeBatch(fetch, fetches, batch, resolvedRequest, cache)
     else {
@@ -79,14 +79,16 @@ private[gateway] final class EntityExecutor[-R](
         batch.copy(
           entries = entries,
           errors = if (index == 0) batch.errors else Nil,
-          blocked = if (index == 0) batch.blocked else Map.empty
+          blocked = if (index == 0) batch.blocked else Map.empty,
+          unmatched = if (index == 0) batch.unmatched else Map.empty
         )
       }
       ZIO.foreachPar(batches)(executeBatch(fetch, fetches, _, resolvedRequest, cache)).map { results =>
         EntityResult(
           results.flatMap(_.patches),
           results.flatMap(_.errors),
-          unionBlocked(Map.empty, results.flatMap(_.blocked))
+          unionBlocked(Map.empty, results.flatMap(_.blocked)),
+          unionBlocked(Map.empty, results.flatMap(_.unmatched))
         )
       }
     }
@@ -102,7 +104,8 @@ private[gateway] final class EntityExecutor[-R](
     def failure = EntityResult(
       Nil,
       batch.errors ::: fetches.map(fetch => RemoteError.at(fetchPath(fetch))),
-      blockAll(batch)
+      blockAll(batch),
+      batch.unmatched
     )
 
     lookups.prepare(fetch, batch, resolvedRequest, cache) match {
@@ -128,8 +131,14 @@ private[gateway] final class EntityExecutor[-R](
       mutable.LinkedHashMap.empty[Representation, mutable.ListBuffer[EntityLocation]]
     val errors                                                = mutable.ListBuffer.empty[CalibanError]
     val skipped                                               = mutable.Map.empty[FetchId, mutable.Set[List[PathValue]]]
-    def skip(fetch: EntityFetch, path: List[PathValue]): Unit =
-      skipped.getOrElseUpdate(fetch.id, mutable.Set.empty) += path
+    val unmatched                                             = mutable.Map.empty[FetchId, mutable.Set[List[PathValue]]]
+    def record(
+      paths: mutable.Map[FetchId, mutable.Set[List[PathValue]]],
+      fetch: EntityFetch,
+      path: List[PathValue]
+    ): Unit =
+      paths.getOrElseUpdate(fetch.id, mutable.Set.empty) += path
+    def skip(fetch: EntityFetch, path: List[PathValue]): Unit = record(skipped, fetch, path)
 
     fetches.foreach { fetch =>
       val identitySelections = IdentitySelections(fetch.keys.map(key => CorrelationKey(key.field, key)), fetch.typename)
@@ -150,7 +159,7 @@ private[gateway] final class EntityExecutor[-R](
               }
             }
           )
-            skip(fetch, path)
+            record(unmatched, fetch, path)
           else
             sourceRepresentation(fetch, path, obj, candidates, identitySelections) match {
               case Some(representation) =>
@@ -179,7 +188,8 @@ private[gateway] final class EntityExecutor[-R](
         )
       }.toVector,
       errors.toList,
-      skipped.iterator.map { case (fetchId, paths) => fetchId -> paths.toSet }.toMap
+      skipped.iterator.map { case (fetchId, paths) => fetchId -> paths.toSet }.toMap,
+      unmatched.iterator.map { case (fetchId, paths) => fetchId -> paths.toSet }.toMap
     )
   }
 
@@ -304,7 +314,8 @@ private[gateway] object EntityExecutor {
   final case class EntityResult(
     patches: List[EntityPatch],
     errors: List[CalibanError],
-    blocked: Map[FetchId, Set[List[PathValue]]]
+    blocked: Map[FetchId, Set[List[PathValue]]],
+    unmatched: Map[FetchId, Set[List[PathValue]]]
   )
 
   private[internal] final case class CorrelationKey(keyField: String, selection: RequiredSelection)
@@ -506,6 +517,7 @@ private[gateway] object EntityExecutor {
   private[execution] final case class EntityBatch(
     entries: Vector[EntityBatchEntry],
     errors: List[CalibanError],
-    blocked: Map[FetchId, Set[List[PathValue]]]
+    blocked: Map[FetchId, Set[List[PathValue]]],
+    unmatched: Map[FetchId, Set[List[PathValue]]]
   )
 }
