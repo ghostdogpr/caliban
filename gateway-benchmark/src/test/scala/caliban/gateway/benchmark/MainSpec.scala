@@ -5,15 +5,13 @@ import zio.test._
 object MainSpec extends ZIOSpecDefault {
 
   def spec = suite("Gateway benchmark adapter")(
-    test("uses the four pinned benchmark subgraph endpoints") {
-      val sources = Main.benchmarkSubgraphs("http://127.0.0.1:4200/")
+    test("uses the four pinned benchmark subgraph ports") {
+      val sources = Main.benchmarkSubgraphs("127.0.0.1")
 
       assertTrue(
-        sources.map { case (accounts, inventory, products, reviews) =>
-          List(accounts.name, inventory.name, products.name, reviews.name)
-        } == Right(List("accounts", "inventory", "products", "reviews")),
-        sources.isRight,
-        Main.benchmarkSubgraphs("not a uri").isLeft
+        sources.map(_.map(_.name)) == Right(List("accounts", "inventory", "products", "reviews")),
+        Main.benchmarkSubgraphs("").isLeft,
+        Main.benchmarkSubgraphs("not a host").isLeft
       )
     }
   )

@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+SCRIPT_DIR=$(CDPATH= cd -P -- "$(dirname -- "$0")" && pwd)
 JAR="$SCRIPT_DIR/target/caliban-gateway-benchmark.jar"
 
 if [ ! -f "$JAR" ]; then
@@ -9,4 +9,4 @@ if [ ! -f "$JAR" ]; then
     exit 1
 fi
 
-exec java -XX:+UseParallelGC ${JAVA_OPTS:-} -jar "$JAR"
+exec "${JAVA:-java}" -XX:+UseParallelGC ${JAVA_OPTS:-} -jar "$JAR"
