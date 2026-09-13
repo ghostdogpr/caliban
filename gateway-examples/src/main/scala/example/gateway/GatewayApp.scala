@@ -3,19 +3,19 @@ package example.gateway
 import caliban.gateway.{ Gateway, GatewayMetrics, Subgraph }
 import caliban.schema.GenericSchema
 import caliban.{ graphQL, QuickAdapter, RootResolver }
-import sttp.client4.UriContext
 import zio._
+import zio.http._
 
 object GatewayApp extends ZIOAppDefault {
   private val products = Subgraph.graphql(
     "products",
-    uri"http://localhost:8081/graphql",
+    url"http://localhost:8081/graphql",
     ProductsApi.schema
   )
 
   private val reviews = Subgraph.graphql(
     "reviews",
-    uri"http://localhost:8082/graphql"
+    url"http://localhost:8082/graphql"
   )
 
   private val gateway = Gateway.compose(

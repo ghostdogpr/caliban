@@ -5,7 +5,7 @@ import caliban.gateway.GatewayWrapper
 import caliban.gateway.GatewayWrapper.{ Event, Outcome, Result }
 import io.opentelemetry.api.common.Attributes
 import io.opentelemetry.api.trace.{ SpanKind, StatusCode }
-import sttp.model.Header
+import zio.http.Header
 import zio.telemetry.opentelemetry.context.{ IncomingContextCarrier, OutgoingContextCarrier }
 import zio.telemetry.opentelemetry.tracing.{ StatusMapper, Tracing }
 import zio.telemetry.opentelemetry.tracing.propagation.TraceContextPropagator
@@ -124,8 +124,8 @@ object GatewayTracing {
                    }
         _       <- tracing.injectSpan(propagation, carrier)
         names    = values.keySet
-      } yield headers.filterNot(header => names.contains(normalize(header.name))) :::
-        values.iterator.map { case (name, value) => Header(name, value) }.toList
+      } yield headers.filterNot(header => names.contains(normalize(header.headerName))) :::
+        values.iterator.map { case (name, value) => Header.Custom(name, value) }.toList
 
     private def request[R, E, A](
       operationName: Option[String],

@@ -2,13 +2,13 @@ package example.gateway.federation
 
 import caliban.gateway.{ Gateway, Subgraph }
 import caliban.QuickAdapter
-import sttp.client4.UriContext
 import zio._
+import zio.http._
 
 object FederationGatewayApp extends ZIOAppDefault {
   private val gateway = Gateway.compose(
-    Subgraph.federation("products", uri"http://localhost:8088/graphql"),
-    Subgraph.federation("reviews", uri"http://localhost:8089/graphql")
+    Subgraph.federation("products", url"http://localhost:8088/graphql"),
+    Subgraph.federation("reviews", url"http://localhost:8089/graphql")
   )
 
   def run =

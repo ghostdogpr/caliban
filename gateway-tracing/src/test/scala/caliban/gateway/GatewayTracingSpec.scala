@@ -6,9 +6,8 @@ import caliban.gateway.tracing.GatewayTracing
 import caliban.tracing.TracingMock
 import io.opentelemetry.api.common.AttributeKey
 import io.opentelemetry.api.trace.{ SpanId, StatusCode }
-import sttp.model.Header
 import zio.Duration
-import zio.http.Status
+import zio.http.{ Header, Status }
 import zio.telemetry.opentelemetry.tracing.Tracing
 import zio.{ Promise, Scope, ZIO }
 import zio.stream.ZStream
@@ -30,7 +29,8 @@ object GatewayTracingSpec extends ZIOSpecDefault {
         .foreach(List("none", "incoming", "ambient")) { context =>
           val traceId  = "4bf92f3577b34da6a3ce929d0e0e4736"
           val parentId = "00f067aa0ba902b7"
-          val headers  = if (context == "incoming") List(Header("traceparent", s"00-$traceId-$parentId-01")) else Nil
+          val headers  =
+            if (context == "incoming") List(Header.Custom("traceparent", s"00-$traceId-$parentId-01")) else Nil
           for {
             endpoint      <- streamingEndpoint(
                                ZStream.fromIterable(body.getBytes(UTF_8)),
