@@ -2,7 +2,7 @@ package caliban.gateway
 
 import caliban.Value.StringValue
 import caliban.gateway.GatewayTestSupport._
-import sttp.model.Uri
+import zio.http.URL
 import zio.Config.Secret
 import zio._
 import zio.http.{ Body, Header, Headers, MediaType, Response, Server, Status }
@@ -58,7 +58,7 @@ object SupergraphGatewaySpec extends ZIOSpecDefault {
     "# republished, unchanged\n" + sdl.replace("type Query\n", "type Query\n\n")
 
   private final case class Source(
-    endpoint: Uri,
+    endpoint: URL,
     document: Ref[String],
     fetches: Ref[Int],
     characters: Stub,
@@ -66,7 +66,7 @@ object SupergraphGatewaySpec extends ZIOSpecDefault {
   ) {
 
     /** The fixture's routing urls point at fixed ports nothing listens on, so every test redirects them. */
-    def endpoints: String => Option[Uri] =
+    def endpoints: String => Option[URL] =
       Map("characters" -> characters.endpoint, "episodes" -> episodes.endpoint).get
 
     def supergraph: Supergraph[Any] = Supergraph.http(endpoint).withSubgraphEndpoint(endpoints)
@@ -309,7 +309,7 @@ object SupergraphGatewaySpec extends ZIOSpecDefault {
    */
   private val uplinkAcquisition = RemoteGraphQLConfig.Acquisition.default.withTimeout(5.minutes)
 
-  private def uplinkSource(endpoint: Uri) =
+  private def uplinkSource(endpoint: URL) =
     SupergraphUplinkConfig(graphRef, apiKey).withEndpoints(endpoint).withAcquisition(uplinkAcquisition)
 
   private final case class Uplink(uplink: Stub, answer: Ref[String], characters: Stub, episodes: Stub) {

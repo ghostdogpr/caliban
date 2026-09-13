@@ -4,7 +4,7 @@ import caliban._
 import caliban.GraphQLResponseContext.ServerFailure
 import caliban.gateway.internal.GatewayInterpreterImpl.requestShutdownResponse
 import caliban.gateway.internal.execution.SubgraphExecutor
-import sttp.model.Header
+import zio.http.Header
 import zio.{ Trace, URIO, ZIO }
 import zio.stream.ZStream
 
@@ -15,6 +15,9 @@ import zio.stream.ZStream
  * accepted. Its lifetime is bounded by the scope in which it was built.
  */
 trait GatewayInterpreter[-R] extends GraphQLInterpreter[R, CalibanError] {
+
+  private def incoming(headers: List[Header]): List[(String, String)] =
+    headers.map(header => RemoteGraphQLConfig.headerName(header) -> header.renderedValue)
 
   private[gateway] def shutdownResponse(implicit trace: Trace): URIO[Any, GraphQLResponse[CalibanError]] =
     GraphQLResponseContext
@@ -34,7 +37,7 @@ trait GatewayInterpreter[-R] extends GraphQLInterpreter[R, CalibanError] {
   ): ZStream[R, Throwable, GraphQLResponse[CalibanError]] =
     ZStream.unwrapScoped(
       IncomingRequestHeaders
-        .locallyScoped(headers.map(header => header.name -> header.value))
+        .locallyScoped(incoming(headers))
         .as(executeStream(request))
     )
 
@@ -44,7 +47,10 @@ trait GatewayInterpreter[-R] extends GraphQLInterpreter[R, CalibanError] {
   def executeRequest(request: GraphQLRequest, headers: List[Header])(implicit
     trace: Trace
   ): URIO[R, GraphQLResponse[CalibanError]] =
-    IncomingRequestHeaders.locally(headers.map(header => header.name -> header.value))(executeRequest(request))
+    IncomingRequestHeaders
+      .locally(incoming(headers))(
+        executeRequest(request)
+      )
 
   /**
    * Returns a deterministic semantic description of the executable plan for an operation.

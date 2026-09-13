@@ -6,7 +6,7 @@ import caliban.Value.IntValue.IntNumber
 import caliban.Value.{ BooleanValue, EnumValue, NullValue, StringValue }
 import caliban.gateway.GatewayTestSupport._
 import caliban.{ GraphQLRequest, InputValue }
-import sttp.model.Uri
+import zio.http.URL
 import zio.{ Scope, ZIO }
 import zio.test._
 

@@ -17,7 +17,6 @@ import caliban.parsing.adt.Document
 import caliban.parsing.adt.Type.NamedType
 import caliban.schema.RootType
 import caliban.tools.RemoteSchema
-import sttp.client4.httpclient.zio.{ HttpClientZioBackend, SttpClient }
 import zio._
 
 /**
@@ -78,27 +77,25 @@ final class Gateway[-R] private[gateway] (
 
     ZIO.fail(GatewayBuildError.InvalidConfiguration(diagnostics)).when(diagnostics.nonEmpty) *>
       buildInChildScope(
-        HttpClientZioBackend
-          .scoped()
-          .mapError(TransportInitializationFailed(_))
-          .flatMap { backend =>
-            val acquirer = origin match {
-              case Origin.Composed(subgraphs)        => Exit.succeed(acquireUnmanagedSnapshot(subgraphs, backend))
-              case Origin.FromSupergraph(supergraph) =>
-                SupergraphAcquisition
-                  .make(supergraph.source, Some(backend))
-                  .map(acquireManagedSnapshot(supergraph, _))
-            }
-
-            acquirer.flatMap(
-              ReloadableGatewayInterpreterImpl.make(
-                _,
-                config.reloadPollInterval,
-                config.reloadJitter,
-                config.drainTimeout
-              )
-            )
+        openHttpClient.flatMap { http =>
+          val acquirer = origin match {
+            case Origin.Composed(subgraphs)        => Exit.succeed(acquireUnmanagedSnapshot(subgraphs, http))
+            case Origin.FromSupergraph(supergraph) =>
+              SupergraphAcquisition
+                .make(supergraph.source, http)
+                .map(acquireManagedSnapshot(supergraph, _))
           }
+
+          acquirer.flatMap(
+            ReloadableGatewayInterpreterImpl.make(
+              _,
+              config.reloadPollInterval,
+              config.reloadJitter,
+              config.drainTimeout,
+              http
+            )
+          )
+        }
       )
   }
 
@@ -110,31 +107,31 @@ final class Gateway[-R] private[gateway] (
     })
 
     ZIO.fail(GatewayBuildError.InvalidConfiguration(diagnostics)).when(diagnostics.nonEmpty) *>
-      buildInChildScope(buildInterpreter)
+      buildInChildScope(openHttpClient.flatMap(buildInterpreter))
   }
 
-  private[gateway] def buildInterpreter(implicit
+  private def openHttpClient(implicit
+    trace: Trace
+  ): ZIO[Scope, GatewayBuildError, Option[GatewayHttpClient]] =
+    if (origin.hasRemote) GatewayHttpClient.make.asSome.mapError(TransportInitializationFailed(_))
+    else ZIO.none
+
+  private[gateway] def buildInterpreter(http: Option[GatewayHttpClient])(implicit
     trace: Trace
   ): ZIO[Scope, GatewayBuildError, GatewayInterpreterImpl[R]] =
     for {
-      backend    <- if (origin.hasRemote)
-                      HttpClientZioBackend
-                        .scoped()
-                        .asSome
-                        .mapError(TransportInitializationFailed(_))
-                    else ZIO.none
       subgraphs  <- origin match {
                       case Origin.Composed(subgraphs)        => Exit.succeed(subgraphs)
                       case Origin.FromSupergraph(supergraph) =>
                         SupergraphAcquisition
-                          .make(supergraph.source, backend)
+                          .make(supergraph.source, http)
                           .flatMap(decomposeSupergraph(supergraph, _))
                           .map(_._1)
                     }
       successes  <- loadAll(subgraphs)(subgraph =>
                       Gateway.load(
                         subgraph,
-                        backend,
+                        http,
                         config.remoteErrorMessages,
                         wrapper
                       )
@@ -205,22 +202,27 @@ final class Gateway[-R] private[gateway] (
       )
     }
 
-  private def acquireUnmanagedSnapshot[R1 <: R](subgraphs: List[Subgraph[R1]], backend: SttpClient)(implicit
-    trace: Trace
-  ): IO[GatewayBuildError, Gateway.Snapshot[R1]] =
+  private def acquireUnmanagedSnapshot[R1 <: R](
+    subgraphs: List[Subgraph[R1]],
+    http: Option[GatewayHttpClient]
+  )(implicit trace: Trace): IO[GatewayBuildError, Gateway.Snapshot[R1]] =
     for {
       loaded <- loadAll(subgraphs) { subgraph =>
                   subgraph.source match {
                     case Source.Remote(endpoint, SchemaInput.Acquired, federation, remoteConfig) =>
                       val diagnostics = remoteConfig.diagnostics(includeAcquisition = true)
                       (ZIO.fail(SubgraphBuildError.InvalidConfiguration(diagnostics)).when(diagnostics.nonEmpty) *>
-                        RemoteSchemaAcquisition.load(
-                          SchemaInput.Acquired,
-                          endpoint,
-                          federation,
-                          remoteConfig.acquisition,
-                          backend
-                        )).map { document =>
+                        Gateway
+                          .requireHttp(http)
+                          .flatMap(
+                            RemoteSchemaAcquisition.load(
+                              SchemaInput.Acquired,
+                              endpoint,
+                              federation,
+                              remoteConfig.acquisition,
+                              _
+                            )
+                          )).map { document =>
                         val pinned = new Subgraph[R1](
                           subgraph.name,
                           Source.Remote(endpoint, SchemaInput.Parsed(document), federation, remoteConfig),
@@ -306,9 +308,12 @@ object Gateway {
   def fromSupergraph[R](supergraph: Supergraph[R]): Gateway[R] =
     new Gateway[R](Origin.FromSupergraph(supergraph), None, None, GatewayConfig.default, GatewayWrapper.empty)
 
+  private def requireHttp(http: Option[GatewayHttpClient]): IO[SubgraphBuildError, GatewayHttpClient] =
+    ZIO.fromOption(http).orElseFail(RemoteTransportUnavailable)
+
   private def load[R](
     subgraph: Subgraph[R],
-    backend: Option[SttpClient],
+    http: Option[GatewayHttpClient],
     remoteErrorMessages: Boolean,
     wrapper: GatewayWrapper[R]
   )(implicit trace: Trace): ZIO[Scope, SubgraphBuildError, LoadedSubgraph[R]] =
@@ -319,11 +324,9 @@ object Gateway {
           _                <- ZIO
                                 .fail(SubgraphBuildError.InvalidConfiguration(policyDiagnostics))
                                 .when(policyDiagnostics.nonEmpty)
-          client           <- ZIO
-                                .fromOption(backend)
-                                .orElseFail(RemoteTransportUnavailable)
+          httpClient       <- Gateway.requireHttp(http)
           document         <- RemoteSchemaAcquisition
-                                .load(schema, endpoint, federation, config.acquisition, client)
+                                .load(schema, endpoint, federation, config.acquisition, httpClient)
           rootDocument      = ensureFederationTransportQuery(document, federation)
           normalized       <- ZIO
                                 .fromEither(RemoteSchema.normalize(rootDocument, promoteOrphans = federation))
@@ -340,7 +343,7 @@ object Gateway {
           executor         <- RemoteSubgraphExecutor.make(
                                 subgraph.name,
                                 endpoint,
-                                client,
+                                httpClient,
                                 config,
                                 wrapper,
                                 remoteErrorMessages

@@ -36,18 +36,18 @@ The following application combines two remote GraphQL services and exposes the r
 ```scala
 import caliban.QuickAdapter
 import caliban.gateway.{ Gateway, Subgraph }
-import sttp.client4.UriContext
 import zio._
+import zio.http._
 
 object Main extends ZIOAppDefault {
   private val products = Subgraph.graphql(
     "products",
-    uri"http://products:8080/graphql"
+    url"http://products:8080/graphql"
   )
 
   private val reviews = Subgraph.graphql(
     "reviews",
-    uri"http://reviews:8080/graphql"
+    url"http://reviews:8080/graphql"
   )
 
   private val gateway = Gateway.compose(products, reviews)
@@ -125,7 +125,7 @@ Use `Subgraph.graphql` for a regular GraphQL endpoint:
 ```scala
 val catalog = Subgraph.graphql(
   "catalog",
-  uri"http://catalog:8080/graphql"
+  url"http://catalog:8080/graphql"
 )
 ```
 
@@ -134,7 +134,7 @@ By default, the gateway acquires the schema through introspection. You can inste
 ```scala
 val catalog = Subgraph.graphql(
   "catalog",
-  uri"http://catalog:8080/graphql",
+  url"http://catalog:8080/graphql",
   """
     type Query {
       product(id: ID!): Product
@@ -157,12 +157,12 @@ Use `Subgraph.federation` for an Apollo Federation subgraph:
 ```scala
 val products = Subgraph.federation(
   "products",
-  uri"http://products:8080/graphql"
+  url"http://products:8080/graphql"
 )
 
 val reviews = Subgraph.federation(
   "reviews",
-  uri"http://reviews:8080/graphql"
+  url"http://reviews:8080/graphql"
 )
 
 val gateway = Gateway.compose(products, reviews)
@@ -273,9 +273,10 @@ Describe how the reviews service fetches products:
 
 ```scala
 import caliban.gateway.Lookup
+import zio.http._
 
 val reviews = Subgraph
-  .graphql("reviews", uri"http://reviews:8080/graphql", reviewsSdl)
+  .graphql("reviews", url"http://reviews:8080/graphql", reviewsSdl)
   .withLookup(
     Lookup.list(
       "Product",
@@ -302,8 +303,8 @@ Use `RemoteGraphQLConfig` to set timeouts, retries, concurrency, headers, or bod
 
 ```scala
 import caliban.gateway.RemoteGraphQLConfig
-import sttp.model.Header
 import zio._
+import zio.http._
 
 val remoteConfig = RemoteGraphQLConfig.default
   .withExecution(
@@ -314,7 +315,7 @@ val remoteConfig = RemoteGraphQLConfig.default
 
 val products = Subgraph.graphql(
   "products",
-  uri"http://products:8080/graphql",
+  url"http://products:8080/graphql",
   remoteConfig
 )
 ```
@@ -330,7 +331,7 @@ If loading the schema at startup requires authentication, configure its headers 
 ```scala
 val remoteConfig = RemoteGraphQLConfig.default.withAcquisition(
   _.withTimeout(5.seconds)
-    .withHeaders(Header("X-Schema-Token", "schema-secret"))
+    .withHeaders(Header.Custom("X-Schema-Token", "schema-secret"))
 )
 ```
 
@@ -342,7 +343,7 @@ To send the same credentials with every request to a service:
 
 ```scala
 val config = RemoteGraphQLConfig.default.withExecution(
-  _.withHeaders(Header("Authorization", "Bearer service-token"))
+  _.withHeaders(Header.Authorization.Bearer("service-token"))
 )
 ```
 
@@ -352,7 +353,7 @@ If the token must be loaded or refreshed dynamically, use `withExecutionHeadersZ
 val loadToken: Task[String] = ???
 
 val config = RemoteGraphQLConfig.default.withExecutionHeadersZIO(
-  loadToken.map(token => List(Header("Authorization", s"Bearer $token")))
+  loadToken.map(token => List(Header.Authorization.Bearer(token)))
 )
 ```
 
@@ -374,9 +375,10 @@ Transform a subgraph before composition when its source names should not appear 
 
 ```scala
 import caliban.gateway.SchemaTransformation
+import zio.http._
 
 val reviews = Subgraph
-  .graphql("reviews", uri"http://reviews:8080/graphql", reviewsSdl)
+  .graphql("reviews", url"http://reviews:8080/graphql", reviewsSdl)
   .transform(
     SchemaTransformation.renameField("Product", "reviews", "customerReviews"),
     SchemaTransformation.hideField("Product", "internalScore")

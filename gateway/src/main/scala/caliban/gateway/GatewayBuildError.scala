@@ -1,8 +1,8 @@
 package caliban.gateway
 
-import caliban.client.GraphQLResponseError
+import caliban.CalibanError
 import caliban.CalibanError.ParsingError
-import sttp.model.StatusCode
+import zio.http.Status
 import zio.Duration
 
 import scala.util.control.NoStackTrace
@@ -156,7 +156,7 @@ object SchemaAcquisitionError {
   /**
    * The response status or media type was not accepted for schema acquisition.
    */
-  final case class UnexpectedResponse(status: StatusCode, contentType: Option[String]) extends SchemaAcquisitionError {
+  final case class UnexpectedResponse(status: Status, contentType: Option[String]) extends SchemaAcquisitionError {
     override val diagnostics: List[String] = {
       val mediaType = contentType.fold("without a media type")(value => s"with media type '$value'")
       List(s"Schema acquisition response had status ${status.code} $mediaType.")
@@ -175,9 +175,9 @@ object SchemaAcquisitionError {
   /**
    * Introspection completed with GraphQL errors.
    */
-  final case class IntrospectionErrors(errors: List[GraphQLResponseError]) extends SchemaAcquisitionError {
+  final case class IntrospectionErrors(errors: List[CalibanError]) extends SchemaAcquisitionError {
     override val diagnostics: List[String] =
-      List(s"Introspection failed: ${errors.map(_.render(includeExtensions = false)).mkString("; ")}.")
+      List(s"Introspection failed: ${errors.map(_.getMessage).mkString("; ")}.")
   }
 
   /**

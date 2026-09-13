@@ -3,7 +3,7 @@ package caliban.gateway
 import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse }
 import caliban.gateway.GatewayWrapper.{ Event, Outcome, Result }
 import caliban.parsing.adt.OperationType
-import sttp.model.Header
+import zio.http.Header
 import zio.{ Cause, Exit, Trace, URIO, ZIO }
 
 /**

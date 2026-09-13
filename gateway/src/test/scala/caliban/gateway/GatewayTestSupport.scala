@@ -10,9 +10,8 @@ import caliban.tools.RemoteSchema
 import caliban.validation.Validator
 import caliban.{ graphQL, CalibanError, GraphQLRequest, GraphQLResponse, RootResolver, Value }
 import com.github.plokhotnyuk.jsoniter_scala.core.{ readFromArray, writeToString }
-import sttp.model.Uri
 import zio._
-import zio.http.{ Body, Handler, Header, Headers, MediaType, Method, Request, Response, Routes, Server, Status }
+import zio.http._
 import zio.http.netty.NettyConfig
 import zio.metrics.Metric
 import zio.stream.ZStream
@@ -25,13 +24,13 @@ private[gateway] object GatewayTestSupport {
     exit.causeOption.flatMap(_.failureOption).fold(List.empty[String])(_.diagnostics)
 
   final case class Stub(
-    endpoint: Uri,
+    endpoint: URL,
     requests: Ref[Vector[GraphQLRequest]],
     headers: Ref[Vector[Headers]]
   )
 
   val invalidResponse          = """{"unexpected":true}"""
-  val unreachableEndpoint: Uri = Uri.unsafeParse("http://127.0.0.1:1/graphql")
+  val unreachableEndpoint: URL = url"http://127.0.0.1:1/graphql"
 
   // -----------------------------------------------------------------------------------------------
   // Apollo uplink protocol bodies, shared by the loader spec and the gateway spec
@@ -173,31 +172,31 @@ private[gateway] object GatewayTestSupport {
       server   <- ZIO.service[Server]
       _        <- server.install(Routes(Method.POST / path -> handler))
       port     <- server.port
-    } yield Stub(Uri.unsafeParse(s"http://127.0.0.1:$port/$path"), requests, headers)
+    } yield Stub(url"http://127.0.0.1:$port/$path", requests, headers)
 
-  def postEndpoint(prefix: String)(handler: Request => UIO[Response]): ZIO[Server with Ref[Int], Nothing, Uri] =
+  def postEndpoint(prefix: String)(handler: Request => UIO[Response]): ZIO[Server with Ref[Int], Nothing, URL] =
     for {
       id     <- ZIO.serviceWithZIO[Ref[Int]](_.updateAndGet(_ + 1))
       path    = s"$prefix-$id"
       server <- ZIO.service[Server]
       _      <- server.install(Routes(Method.POST / path -> Handler.fromFunctionZIO(handler)))
       port   <- server.port
-    } yield Uri.unsafeParse(s"http://127.0.0.1:$port/$path")
+    } yield url"http://127.0.0.1:$port/$path"
 
-  def getEndpoint(prefix: String)(handler: Request => UIO[Response]): ZIO[Server with Ref[Int], Nothing, Uri] =
+  def getEndpoint(prefix: String)(handler: Request => UIO[Response]): ZIO[Server with Ref[Int], Nothing, URL] =
     for {
       id     <- ZIO.serviceWithZIO[Ref[Int]](_.updateAndGet(_ + 1))
       path    = s"$prefix-$id"
       server <- ZIO.service[Server]
       _      <- server.install(Routes(Method.GET / path -> Handler.fromFunctionZIO(handler)))
       port   <- server.port
-    } yield Uri.unsafeParse(s"http://127.0.0.1:$port/$path")
+    } yield url"http://127.0.0.1:$port/$path"
 
   def streamingEndpoint(
     stream: ZStream[Any, Throwable, Byte],
     status: Status = Status.Ok,
     mediaType: String = "application/graphql-response+json"
-  ): ZIO[Server with Ref[Int], Nothing, Uri] =
+  ): ZIO[Server with Ref[Int], Nothing, URL] =
     postEndpoint("streaming")(_ =>
       ZIO.succeed(
         Response(

@@ -8,9 +8,8 @@ import caliban.gateway.internal.OperationCache.Weighted
 import caliban.gateway.internal._
 import caliban.validation.Validator
 import caliban.{ CalibanError, Configurator, GraphQLRequest, InputValue }
-import sttp.model.Uri
 import zio._
-import zio.http.{ Body, Handler, Header, Headers, Method, Request, Response, Routes, Server, Status }
+import zio.http._
 import zio.metrics.Metric
 import zio.test._
 
@@ -20,7 +19,7 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
   private val schema   = "type Query { value: String }"
   private val request  = GraphQLRequest(query = Some("query Value { value }"), operationName = Some("Value"))
 
-  private def endpoint(handler: Request => UIO[Response]): ZIO[Server with Ref[Int], Nothing, Uri] =
+  private def endpoint(handler: Request => UIO[Response]): ZIO[Server with Ref[Int], Nothing, URL] =
     postEndpoint("runtime-bounds")(handler)
 
   private def graphQLResponse(value: String): Response =

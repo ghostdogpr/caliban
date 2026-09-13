@@ -9,7 +9,7 @@ import caliban.federation.v2_6.{ federated, GQLKey }
 import caliban.gateway.GatewayTestSupport._
 import caliban.schema.{ ArgBuilder, GenericSchema, Schema }
 import caliban.{ graphQL, CalibanError, GraphQLRequest, InputValue, PathValue, ResponseValue, RootResolver }
-import sttp.model.Uri
+import zio.http.URL
 import zio._
 import zio.query.ZQuery
 import zio.test._

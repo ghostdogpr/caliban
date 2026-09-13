@@ -2,13 +2,11 @@ package caliban.gateway
 
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ BooleanValue, StringValue }
-import caliban.client.CalibanClientError
 import caliban.gateway.GatewayTestSupport._
 import caliban.schema.{ GenericSchema, Schema }
-import caliban.tools.IntrospectionClient
+import caliban.gateway.internal.composition.IntrospectionDocument
 import caliban.{ graphQL, GraphQLResponse, RootResolver }
 import com.github.plokhotnyuk.jsoniter_scala.core.writeToString
-import sttp.model.{ Header => SttpHeader }
 import zio._
 import zio.http.{ Body, Handler, Header, Headers, Method, Request, Response, Routes, Server, Status }
 import zio.stream.ZStream
@@ -43,15 +41,11 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
 
   private val reviewResponse = """{"data":{"review":{"body":"Solid"}}}"""
 
-  private def introspectionResponse: UIO[String] = {
-    implicit val config: IntrospectionClient.Config = IntrospectionClient.Config.default
-
+  private def introspectionResponse: UIO[String] =
     for {
       interpreter <- ZIO.fromEither(ProductsApi.api.interpreterEither).orDie
-      request      = IntrospectionClient.introspection.toGraphQL(dropNullInputValues = true)
-      response    <- interpreter.execute(request.query)
+      response    <- interpreter.execute(IntrospectionDocument.Query)
     } yield writeToString(response)
-  }
 
   private def serviceResponse(schema: String): String =
     writeToString(
@@ -70,7 +64,7 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
               List(SubgraphError(_, SchemaAcquisitionError.IntrospectionErrors(errors)))
             )
           ) =>
-        errors.map(_.message)
+        errors.map(_.msg)
       case _ => Nil
     }
 
@@ -279,27 +273,27 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
     },
     test("retains client decoding errors without exposing their messages in diagnostics") {
       val cause       = new RuntimeException("secret response details")
-      val clientError = CalibanClientError.DecodingError("secret decoder context", Some(cause))
+      val clientError = new RuntimeException("secret decoder context", cause)
       val error       = SchemaAcquisitionError.IntrospectionResponseDecodingFailed(clientError)
 
       assertTrue(
         error.getCause eq clientError,
-        !error.diagnostics.exists(_.contains(clientError.msg)),
+        !error.diagnostics.exists(_.contains(clientError.getMessage)),
         !error.diagnostics.exists(_.contains(cause.getMessage))
       )
     },
     test("enforces acquisition headers, redirects, and finite response and parsing limits") {
       val headersConfig   = RemoteGraphQLConfig.default.withAcquisition(
         _.withHeaders(
-          SttpHeader("Authorization", "Bearer schema"),
-          SttpHeader("X-Multi", "first"),
-          SttpHeader("X-Multi", "second")
+          Header.Custom("Authorization", "Bearer schema"),
+          Header.Custom("X-Multi", "first"),
+          Header.Custom("X-Multi", "second")
         )
       )
       val protectedConfig = RemoteGraphQLConfig.default.withAcquisition(
         _.withHeaders(
-          SttpHeader("Content-Type", "text/plain"),
-          SttpHeader("Content-Encoding", "gzip")
+          Header.Custom("Content-Type", "text/plain"),
+          Header.Custom("Content-Encoding", "gzip")
         )
       )
       val responseLimit   = RemoteGraphQLConfig.default.withAcquisition(
@@ -383,7 +377,7 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
                             )
       } yield assertTrue(
         sentHeaders.headOption.flatMap(_.get("Authorization")).contains("Bearer schema"),
-        acquisitionMulti == List("first", "second"),
+        acquisitionMulti == List("first, second"),
         sentHeaders.headOption.flatMap(_.get("Content-Type")).exists(_.startsWith("application/json")),
         sentHeaders.headOption.flatMap(_.get("Accept")).exists(_.contains("application/graphql-response+json")),
         sentHeaders.lift(1).flatMap(_.get("Authorization")).isEmpty,
@@ -494,7 +488,7 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
     },
     test("does not retain failed or interrupted build resources in the caller scope") {
       val protectedConfig = RemoteGraphQLConfig.default.withAcquisition(
-        _.withHeaders(SttpHeader("Content-Encoding", "gzip"))
+        _.withHeaders(Header.Custom("Content-Encoding", "gzip"))
       )
 
       for {

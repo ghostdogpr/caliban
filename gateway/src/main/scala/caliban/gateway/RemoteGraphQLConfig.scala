@@ -1,7 +1,7 @@
 package caliban.gateway
 
 import caliban.gateway.GatewayConfigValidation._
-import sttp.model.Header
+import zio.http.Header
 import zio.{ Duration, ZIO }
 
 /**
@@ -34,7 +34,7 @@ final class RemoteGraphQLConfig[-R] private (
 
   /**
    * Adds effectful request-execution headers and their environment requirement. These headers are not used for
-   * schema acquisition. Repeated header names are preserved as separate outbound values.
+   * schema acquisition. Repeated header names are joined into one comma-separated outbound value.
    */
   def withExecutionHeadersZIO[R1 <: R](value: ZIO[R1, Throwable, List[Header]]): RemoteGraphQLConfig[R1] =
     new RemoteGraphQLConfig(
@@ -89,16 +89,16 @@ object RemoteGraphQLConfig {
       new Acquisition(timeout, maxResponseBytes, maxParsingDepth, value, headers)
 
     /**
-     * Sets static headers sent only during schema acquisition. Repeated header names are preserved as separate
-     * outbound values.
+     * Sets static headers sent only during schema acquisition. Repeated header names are joined into one comma-separated
+     * outbound value.
      */
     def withHeaders(values: Header*): Acquisition =
       new Acquisition(timeout, maxResponseBytes, maxParsingDepth, maxRedirects, values.toList)
 
     private[gateway] def diagnostics: List[String] = {
       val protectedHeaders = headers.collect {
-        case header if isProtocolHeader(header.name) =>
-          s"Schema acquisition header '${header.name}' is owned by the GraphQL transport."
+        case header if isProtocolHeader(headerName(header)) =>
+          s"Schema acquisition header '${headerName(header)}' is owned by the GraphQL transport."
       }
       val timeoutError     = finitePositive(timeout, "Schema acquisition timeout must be finite and positive.")
       val responseError    = positive(maxResponseBytes, "Schema acquisition maxResponseBytes must be positive.")
@@ -180,7 +180,7 @@ object RemoteGraphQLConfig {
       copy(inFlightQueryDeduplication = value)
 
     /**
-     * Sets static outbound headers. Repeated header names are preserved as separate outbound values.
+     * Sets static outbound headers. Repeated header names are joined into one comma-separated outbound value.
      */
     def withHeaders(values: Header*): Execution =
       copy(headers = values.toList)
@@ -207,8 +207,8 @@ object RemoteGraphQLConfig {
       val maxConcurrentCallsError =
         positive(maxConcurrentCalls, "Subgraph execution maxConcurrentCalls must be positive.")
       val protectedHeaders        = headers.collect {
-        case header if isProtocolHeader(header.name) =>
-          s"Subgraph execution header '${header.name}' is owned by the GraphQL transport."
+        case header if isProtocolHeader(headerName(header)) =>
+          s"Subgraph execution header '${headerName(header)}' is owned by the GraphQL transport."
       }
       val protectedForwarding     = forwardedHeaders.toList.sorted.collect {
         case name if isProtocolHeader(name) =>
@@ -277,6 +277,12 @@ object RemoteGraphQLConfig {
 
   private[gateway] def isProtocolHeader(name: String): Boolean =
     ProtocolHeaders.contains(normalize(name))
+
+  private[gateway] def headerName(header: Header): String =
+    header match {
+      case custom: Header.Custom => custom.customName.toString
+      case other                 => other.headerName
+    }
 
   private val ProtocolHeaders = Set(
     "accept",

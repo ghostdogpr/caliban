@@ -10,7 +10,7 @@ import caliban.parsing.{ Parser, SourceMapper }
 import caliban.parsing.adt.{ Directive, Document, OperationType }
 import caliban.schema.{ RootType, Types }
 import caliban.tools.RemoteSchema
-import sttp.model.Uri
+import zio.http.URL
 import zio._
 import zio.test._
 

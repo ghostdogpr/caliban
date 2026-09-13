@@ -1,7 +1,7 @@
 package caliban.gateway
 
 import caliban.CalibanError.ParsingError
-import sttp.model.StatusCode
+import zio.http.Status
 import zio.Duration
 
 sealed trait SupergraphAcquisitionError extends GatewayDiagnosticError
@@ -17,29 +17,28 @@ object SupergraphAcquisitionError {
     override val diagnostics: List[String] = List("Supergraph acquisition request failed")
   }
 
-  final case class TimedOut(timeout: Duration)                                 extends SupergraphAcquisitionError                         {
+  final case class TimedOut(timeout: Duration)                                     extends SupergraphAcquisitionError                         {
     override val diagnostics: List[String] = List(s"Supergraph schema acquisition timed out after $timeout")
   }
-  final case class ResponseTooLarge(maxBytes: Int)                             extends SupergraphAcquisitionError                         {
+  final case class ResponseTooLarge(maxBytes: Int)                                 extends SupergraphAcquisitionError                         {
     override val diagnostics: List[String] = List(s"Supergraph schema acquisition response exceeded $maxBytes bytes.")
   }
-  final case class UnexpectedResponse(status: StatusCode, contentType: Option[String])
-      extends SupergraphAcquisitionError {
+  final case class UnexpectedResponse(status: Status, contentType: Option[String]) extends SupergraphAcquisitionError                         {
     override val diagnostics: List[String] = {
       val mediaType = contentType.fold("without a media type")(value => s"with media type '$value'")
       List(s"Supergraph schema acquisition response has status ${status.code} $mediaType.")
     }
   }
-  final case class ParsingDepthExceeded(maxDepth: Int)                         extends SupergraphAcquisitionError                         {
+  final case class ParsingDepthExceeded(maxDepth: Int)                             extends SupergraphAcquisitionError                         {
     override val diagnostics: List[String] = List(s"Supergraph schema parsing depth exceeded $maxDepth.")
   }
-  final case class FileUnreadable(error: Throwable)                            extends SupergraphAcquisitionError with GatewayCausedError {
+  final case class FileUnreadable(error: Throwable)                                extends SupergraphAcquisitionError with GatewayCausedError {
     override val diagnostics: List[String] = List("Supergraph schema acquisition was unable to read a file.")
   }
-  final case class UplinkFetchFailed(code: String)                             extends SupergraphAcquisitionError                         {
+  final case class UplinkFetchFailed(code: String)                                 extends SupergraphAcquisitionError                         {
     override val diagnostics: List[String] = List(s"Supergraph uplink returned error code '$code'.")
   }
-  final case class InvalidUplinkResponse(reason: InvalidUplinkResponse.Reason) extends SupergraphAcquisitionError                         {
+  final case class InvalidUplinkResponse(reason: InvalidUplinkResponse.Reason)     extends SupergraphAcquisitionError                         {
     override val diagnostics: List[String] =
       List(s"Uplink response was invalid: ${reason.description}.")
   }

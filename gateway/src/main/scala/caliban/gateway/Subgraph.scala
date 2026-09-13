@@ -4,7 +4,7 @@ import caliban.GraphQL
 import caliban.gateway.internal.composition.SchemaMapping
 import caliban.parsing.adt.Document
 import caliban.schema.RootType
-import sttp.model.Uri
+import zio.http.URL
 
 /**
  * A named GraphQL graph that participates in gateway composition and execution.
@@ -34,73 +34,73 @@ object Subgraph {
   /**
    * Describes an ordinary remote GraphQL graph whose schema is acquired through introspection.
    */
-  def graphql(name: String, endpoint: Uri): Subgraph[Any] =
+  def graphql(name: String, endpoint: URL): Subgraph[Any] =
     graphql(name, endpoint, RemoteGraphQLConfig.default)
 
   /**
    * Describes an ordinary remote GraphQL graph with remote GraphQL configuration.
    */
-  def graphql[R](name: String, endpoint: Uri, config: RemoteGraphQLConfig[R]): Subgraph[R] =
+  def graphql[R](name: String, endpoint: URL, config: RemoteGraphQLConfig[R]): Subgraph[R] =
     remote(name, endpoint, SchemaInput.Acquired, federation = false, config = config)
 
   /**
    * Describes an ordinary remote GraphQL graph from pinned SDL.
    */
-  def graphql(name: String, endpoint: Uri, schema: String): Subgraph[Any] =
+  def graphql(name: String, endpoint: URL, schema: String): Subgraph[Any] =
     graphql(name, endpoint, schema, RemoteGraphQLConfig.default)
 
   /**
    * Describes an ordinary remote GraphQL graph from pinned SDL with remote GraphQL configuration.
    */
-  def graphql[R](name: String, endpoint: Uri, schema: String, config: RemoteGraphQLConfig[R]): Subgraph[R] =
+  def graphql[R](name: String, endpoint: URL, schema: String, config: RemoteGraphQLConfig[R]): Subgraph[R] =
     remote(name, endpoint, SchemaInput.Sdl(schema), federation = false, config = config)
 
   /**
    * Describes an ordinary remote GraphQL graph from an already parsed schema document.
    */
-  def graphql(name: String, endpoint: Uri, schema: Document): Subgraph[Any] =
+  def graphql(name: String, endpoint: URL, schema: Document): Subgraph[Any] =
     graphql(name, endpoint, schema, RemoteGraphQLConfig.default)
 
   /**
    * Describes an ordinary remote GraphQL graph from a parsed document with remote GraphQL configuration.
    */
-  def graphql[R](name: String, endpoint: Uri, schema: Document, config: RemoteGraphQLConfig[R]): Subgraph[R] =
+  def graphql[R](name: String, endpoint: URL, schema: Document, config: RemoteGraphQLConfig[R]): Subgraph[R] =
     remote(name, endpoint, SchemaInput.Parsed(schema), federation = false, config = config)
 
   /**
    * Describes a Federation-enabled remote GraphQL subgraph from pinned SDL.
    */
-  def federation(name: String, endpoint: Uri, schema: String): Subgraph[Any] =
+  def federation(name: String, endpoint: URL, schema: String): Subgraph[Any] =
     federation(name, endpoint, schema, RemoteGraphQLConfig.default)
 
   /**
    * Describes a Federation subgraph from pinned SDL with remote GraphQL configuration.
    */
-  def federation[R](name: String, endpoint: Uri, schema: String, config: RemoteGraphQLConfig[R]): Subgraph[R] =
+  def federation[R](name: String, endpoint: URL, schema: String, config: RemoteGraphQLConfig[R]): Subgraph[R] =
     remote(name, endpoint, SchemaInput.Sdl(schema), federation = true, config = config)
 
   /**
    * Describes a Federation-enabled remote GraphQL subgraph from an already parsed schema document.
    */
-  def federation(name: String, endpoint: Uri, schema: Document): Subgraph[Any] =
+  def federation(name: String, endpoint: URL, schema: Document): Subgraph[Any] =
     federation(name, endpoint, schema, RemoteGraphQLConfig.default)
 
   /**
    * Describes a Federation subgraph from a parsed document with remote GraphQL configuration.
    */
-  def federation[R](name: String, endpoint: Uri, schema: Document, config: RemoteGraphQLConfig[R]): Subgraph[R] =
+  def federation[R](name: String, endpoint: URL, schema: Document, config: RemoteGraphQLConfig[R]): Subgraph[R] =
     remote(name, endpoint, SchemaInput.Parsed(schema), federation = true, config = config)
 
   /**
    * Describes a Federation-enabled remote GraphQL subgraph whose schema is acquired through `_service`.
    */
-  def federation(name: String, endpoint: Uri): Subgraph[Any] =
+  def federation(name: String, endpoint: URL): Subgraph[Any] =
     federation(name, endpoint, RemoteGraphQLConfig.default)
 
   /**
    * Describes a Federation subgraph with remote GraphQL configuration.
    */
-  def federation[R](name: String, endpoint: Uri, config: RemoteGraphQLConfig[R]): Subgraph[R] =
+  def federation[R](name: String, endpoint: URL, config: RemoteGraphQLConfig[R]): Subgraph[R] =
     remote(name, endpoint, SchemaInput.Acquired, federation = true, config = config)
 
   /**
@@ -111,7 +111,7 @@ object Subgraph {
 
   private def remote[R](
     name: String,
-    endpoint: Uri,
+    endpoint: URL,
     schema: SchemaInput,
     federation: Boolean,
     config: RemoteGraphQLConfig[R]
@@ -127,7 +127,7 @@ object Subgraph {
 
   private[gateway] object Source {
     final case class Remote[R](
-      endpoint: Uri,
+      endpoint: URL,
       schema: SchemaInput,
       federation: Boolean,
       config: RemoteGraphQLConfig[R]

@@ -10,7 +10,8 @@ private[gateway] final class ReloadableGatewayInterpreterImpl[R] private (
   pollInterval: Duration,
   jitter: Double,
   drainTimeout: Duration,
-  state: Ref[ReloadableGatewayInterpreterImpl.State[R]]
+  state: Ref[ReloadableGatewayInterpreterImpl.State[R]],
+  http: Option[GatewayHttpClient]
 ) extends ReloadableGatewayInterpreter[R] {
   import ReloadableGatewayInterpreterImpl._
 
@@ -96,7 +97,7 @@ private[gateway] final class ReloadableGatewayInterpreterImpl[R] private (
                      }
         _         <- if (!accepted) candidate.close(Exit.unit)
                      else
-                       restore(candidate.extend(snapshot.gateway.buildInterpreter))
+                       restore(candidate.extend(snapshot.gateway.buildInterpreter(http)))
                          .onError(cause => candidate.close(Exit.failCause(cause)) *> clearCandidate(candidate))
                          .flatMap { interpreter =>
                            state.modify { current =>
@@ -180,13 +181,14 @@ private[gateway] object ReloadableGatewayInterpreterImpl {
     acquire: IO[GatewayBuildError, Gateway.Snapshot[R]],
     pollInterval: Duration,
     jitter: Double,
-    drainTimeout: Duration
+    drainTimeout: Duration,
+    http: Option[GatewayHttpClient]
   )(implicit trace: Trace): ZIO[Scope, GatewayBuildError, ReloadableGatewayInterpreter[R]] =
     ZIO.uninterruptibleMask { restore =>
       restore(acquire).flatMap { snapshot =>
         Scope.make.flatMap { initialScope =>
           (for {
-            interpreter <- restore(initialScope.extend(snapshot.gateway.buildInterpreter))
+            interpreter <- restore(initialScope.extend(snapshot.gateway.buildInterpreter(http)))
             state       <- Ref.make(
                              State(
                                Generation(1L, snapshot.fingerprints, interpreter, initialScope),
@@ -196,7 +198,8 @@ private[gateway] object ReloadableGatewayInterpreterImpl {
                                lastFailure = None
                              )
                            )
-            runtime      = new ReloadableGatewayInterpreterImpl(acquire, pollInterval, jitter, drainTimeout, state)
+            runtime      =
+              new ReloadableGatewayInterpreterImpl(acquire, pollInterval, jitter, drainTimeout, state, http)
             worker      <- runtime.loop.interruptible.forkDaemon
             _           <- ZIO.addFinalizer(runtime.close(worker))
           } yield runtime).onError(cause => initialScope.close(Exit.failCause(cause)))

@@ -4,9 +4,6 @@ import caliban.QuickAdapter
 import caliban.gateway.{ Gateway, GatewayInterpreter, Subgraph }
 import com.github.plokhotnyuk.jsoniter_scala.core.{ readFromArray, JsonValueCodec }
 import com.github.plokhotnyuk.jsoniter_scala.macros.JsonCodecMaker
-import sttp.client4.{ asByteArrayAlways, basicRequest }
-import sttp.client4.httpclient.zio.{ HttpClientZioBackend, SttpClient }
-import sttp.model.Uri
 import zio._
 import zio.http._
 
@@ -21,7 +18,9 @@ object Main extends ZIOAppDefault {
   private implicit val subgraphInputsCodec: JsonValueCodec[List[SubgraphInput]] = JsonCodecMaker.make
 
   override def run =
-    program.tapErrorCause(cause => ZIO.logErrorCause("Federation audit adapter failed.", cause))
+    program
+      .provideSome[ZIOAppArgs](Client.default)
+      .tapErrorCause(cause => ZIO.logErrorCause("Federation audit adapter failed.", cause))
 
   private val program =
     ZIO.scoped {
@@ -31,8 +30,7 @@ object Main extends ZIOAppDefault {
                          .fromOption(args.headOption)
                          .orElseFail(new IllegalArgumentException("Expected one Federation audit suite id."))
         auditUrl    <- System.envOrElse("FEDERATION_GATEWAY_AUDIT_URL", DefaultAuditUrl)
-        backend     <- HttpClientZioBackend.scoped()
-        inputs      <- fetchSubgraphs(auditUrl, suite, backend)
+        inputs      <- fetchSubgraphs(auditUrl, suite)
         subgraphs   <- ZIO.foreach(inputs)(toSubgraph)
         interpreter <- buildInterpreter(subgraphs)
         _           <- ZIO.logInfo(s"Serving Federation audit suite '$suite' on port $GatewayPort.")
@@ -40,22 +38,23 @@ object Main extends ZIOAppDefault {
       } yield ()
     }
 
-  private def fetchSubgraphs(auditUrl: String, suite: String, backend: SttpClient): Task[List[SubgraphInput]] =
+  private def fetchSubgraphs(auditUrl: String, suite: String): ZIO[Client, Throwable, List[SubgraphInput]] =
     for {
       endpoint <- ZIO
-                    .fromEither(Uri.parse(s"$auditUrl/$suite/subgraphs"))
-                    .mapError(error => new IllegalArgumentException(error))
-      response <- basicRequest.get(endpoint).response(asByteArrayAlways).send(backend)
+                    .fromEither(URL.decode(s"$auditUrl/$suite/subgraphs"))
+                    .mapError(error => new IllegalArgumentException(error.getMessage, error))
+      response <- Client.batched(Request.get(endpoint))
       _        <- ZIO
-                    .fail(new IllegalStateException(s"Audit fixture request failed with HTTP ${response.code.code}."))
-                    .unless(response.code.isSuccess)
-      inputs   <- ZIO.fromEither(decodeSubgraphs(response.body).left.map(new IllegalArgumentException(_)))
+                    .fail(new IllegalStateException(s"Audit fixture request failed with HTTP ${response.status.code}."))
+                    .unless(response.status.isSuccess)
+      body     <- response.body.asArray
+      inputs   <- ZIO.fromEither(decodeSubgraphs(body).left.map(new IllegalArgumentException(_)))
     } yield inputs
 
   private def toSubgraph(input: SubgraphInput): Task[Subgraph[Any]] =
     ZIO
-      .fromEither(Uri.parse(input.url))
-      .mapError(error => new IllegalArgumentException(s"Invalid endpoint for '${input.name}': $error"))
+      .fromEither(URL.decode(input.url))
+      .mapError(error => new IllegalArgumentException(s"Invalid endpoint for '${input.name}'.", error))
       .map(endpoint => Subgraph.federation(input.name, endpoint, input.sdl))
 
   private def buildInterpreter(subgraphs: List[Subgraph[Any]]): ZIO[Scope, Throwable, GatewayInterpreter[Any]] =

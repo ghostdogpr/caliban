@@ -7,7 +7,6 @@ import caliban.gateway.internal.execution.SubgraphExecutor
 import caliban.schema.Schema.auto._
 import caliban.ws.{ Protocol, WebSocketHooks }
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
-import sttp.model.Uri
 import zio._
 import zio.http._
 import zio.stream.ZStream
@@ -248,7 +247,7 @@ object SubscriptionSpec extends ZIOSpecDefault {
                                 Routes(Method.GET / path -> Handler.fromFunctionZIO[Request](_ => Response.fromSocketApp(socket)))
                               )
             port           <- server.port
-            endpoint        = Uri.unsafeParse(s"http://127.0.0.1:$port/$path")
+            endpoint        = url"http://127.0.0.1:$port/$path"
             config          = RemoteGraphQLConfig.default.withExecution(_.withMaxResponseBytes(128))
             runtime        <- (Gateway.compose(
                                 Subgraph.graphql(
@@ -307,7 +306,7 @@ object SubscriptionSpec extends ZIOSpecDefault {
                           Routes(Method.GET / path -> Handler.fromFunctionZIO[Request](_ => Response.fromSocketApp(socket)))
                         )
         port         <- server.port
-        endpoint      = Uri.unsafeParse(s"http://127.0.0.1:$port/$path")
+        endpoint      = url"http://127.0.0.1:$port/$path"
         wrapper       = new GatewayWrapper[Any] {
                           def wrap[R, E, A](event: GatewayWrapper.Event)(effect: ZIO[R, E, A])(
                             result: Exit[E, A] => GatewayWrapper.Result
@@ -369,7 +368,7 @@ object SubscriptionSpec extends ZIOSpecDefault {
                      Routes(Method.GET / path -> Handler.fromFunctionZIO[Request](_ => Response.fromSocketApp(socket)))
                    )
         port    <- server.port
-        endpoint = Uri.unsafeParse(s"http://127.0.0.1:$port/$path")
+        endpoint = url"http://127.0.0.1:$port/$path"
         config   = RemoteGraphQLConfig.default.withSubscription(
                      RemoteSubscriptionConfig(keepAliveInterval = 60.seconds, connectionTimeout = 1.second)
                    )
@@ -454,7 +453,7 @@ object SubscriptionSpec extends ZIOSpecDefault {
                    )
         _       <- server.install(Routes(Method.GET / path -> handler))
         port    <- server.port
-        endpoint = Uri.unsafeParse(s"http://127.0.0.1:$port/$path")
+        endpoint = url"http://127.0.0.1:$port/$path"
         config   = RemoteGraphQLConfig.default.withSubscription(
                      RemoteSubscriptionConfig(transport = RemoteSubscriptionConfig.Sse(useGet = true))
                    )
@@ -542,9 +541,9 @@ object SubscriptionSpec extends ZIOSpecDefault {
             .withExecutionHeadersZIO(
               headerCalls.update(_ + 1) *> identity.get.map(value =>
                 List(
-                  sttp.model.Header("X-Identity", value),
-                  sttp.model.Header("X-Multi", "first"),
-                  sttp.model.Header("X-Multi", "second")
+                  Header.Custom("X-Identity", value),
+                  Header.Custom("X-Multi", "first"),
+                  Header.Custom("X-Multi", "second")
                 )
               )
             )
@@ -560,7 +559,7 @@ object SubscriptionSpec extends ZIOSpecDefault {
       } yield assertTrue(
         events.size == 2,
         sent == List("captured"),
-        multiValues == List("first", "second"),
+        multiValues == List("first, second"),
         calls == 1,
         checks == 1
       )
@@ -822,13 +821,13 @@ object SubscriptionSpec extends ZIOSpecDefault {
                    )
         _       <- server.install(Routes(Method.GET / path -> handler))
         port    <- server.port
-        endpoint = Uri.unsafeParse(s"http://127.0.0.1:$port/$path")
+        endpoint = url"http://127.0.0.1:$port/$path"
         config   = RemoteGraphQLConfig.default
                      .withExecutionHeadersZIO(
                        ZIO.succeed(
                          List(
-                           sttp.model.Header("X-Multi", "first"),
-                           sttp.model.Header("X-Multi", "second")
+                           Header.Custom("X-Multi", "first"),
+                           Header.Custom("X-Multi", "second")
                          )
                        )
                      )
@@ -841,7 +840,7 @@ object SubscriptionSpec extends ZIOSpecDefault {
         error.exists(_.msg == "Remote GraphQL request failed."),
         error.exists(_.path == List(PathValue.Key("event"))),
         error.flatMap(_.extensions).contains(ResponseValue.ObjectValue(List("code" -> Value.StringValue("FIRST")))),
-        values == List("first", "second")
+        values == List("first, second")
       )
     },
     test("modern upstream WebSocket streams through the public Quick adapter") {
@@ -859,7 +858,7 @@ object SubscriptionSpec extends ZIOSpecDefault {
         server  <- ZIO.service[Server]
         _       <- server.install(QuickAdapter(source).routes(s"/$path", webSocketPath = Some(s"/$path/ws")))
         port    <- server.port
-        endpoint = Uri.unsafeParse(s"http://127.0.0.1:$port/$path")
+        endpoint = url"http://127.0.0.1:$port/$path"
         config   = RemoteGraphQLConfig.default.withSubscription(
                      RemoteSubscriptionConfig(endpoint = Some(endpoint.addPath("ws")))
                    )

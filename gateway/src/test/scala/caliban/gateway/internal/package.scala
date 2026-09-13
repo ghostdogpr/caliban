@@ -1,13 +1,12 @@
 package caliban.gateway
 
 import caliban.gateway.internal.execution.RemoteSubgraphExecutor
-import sttp.client4.httpclient.zio.SttpClient
-import sttp.model.Uri
+import zio.http.URL
 
 package object internal {
   private[gateway] def unmanagedRemoteSubgraphExecutor[R](
-    endpoint: Uri,
-    backend: SttpClient,
+    endpoint: URL,
+    http: GatewayHttpClient,
     config: RemoteGraphQLConfig[R] = RemoteGraphQLConfig.default,
     responseStructureLimits: RemoteSubgraphExecutor.ResponseStructureLimits =
       RemoteSubgraphExecutor.ResponseStructureLimits.default,
@@ -16,7 +15,7 @@ package object internal {
     new RemoteSubgraphExecutor(
       "remote",
       endpoint,
-      backend,
+      http,
       config,
       responseStructureLimits,
       None,

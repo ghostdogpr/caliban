@@ -4,7 +4,7 @@ import caliban.GraphQLResponseContext
 import caliban.GraphQLResponseContext.{ Outcome, ServerFailure }
 import caliban.gateway.GatewayTestSupport._
 import caliban.gateway.internal.GatewayExecutionControl
-import sttp.model.Uri
+import zio.http.URL
 import zio._
 import zio.http.{ Handler, Method, Response, Routes, Server, Status }
 import zio.test._
@@ -39,7 +39,7 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
       case None        => ZIO.succeed(true)
     }.repeatUntil(identity).unit
 
-  private def retryEndpoint(calls: Ref[Int]): ZIO[Server with Ref[Int], Nothing, Uri] =
+  private def retryEndpoint(calls: Ref[Int]): ZIO[Server with Ref[Int], Nothing, URL] =
     postEndpoint("runtime-lifecycle-retry")(_ => calls.update(_ + 1).as(Response.status(Status.ServiceUnavailable)))
 
   def spec = suite("RuntimeLifecycleSpec")(

@@ -8,7 +8,7 @@ import caliban.gateway.internal.{ SchemaFingerprint, SubscriptionTermination }
 import caliban.gateway.internal.execution.SubgraphExecutor
 import caliban.parsing.Parser
 import caliban.schema.{ GenericSchema, Schema }
-import caliban.tools.IntrospectionClient
+import caliban.gateway.internal.composition.IntrospectionDocument
 import com.github.plokhotnyuk.jsoniter_scala.core.writeToString
 import zio._
 import zio.http.{ Body, Header, Request, Server, Status, URL }
@@ -37,14 +37,12 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
     val api                                      = graphQL(RootResolver(Query("old", "new")))
   }
 
-  private def introspectionResponse(api: GraphQL[Any]): UIO[String] = {
-    implicit val config: IntrospectionClient.Config = IntrospectionClient.Config.default
+  private def introspectionResponse(api: GraphQL[Any]): UIO[String] =
     ZIO.fromEither(api.interpreterEither).orDie.flatMap { interpreter =>
       interpreter
-        .execute(IntrospectionClient.introspection.toGraphQL(dropNullInputValues = true).query)
+        .execute(IntrospectionDocument.Query)
         .map(writeToString(_))
     }
-  }
 
   private def serviceResponse(sdl: String): String =
     writeToString(

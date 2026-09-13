@@ -6,7 +6,6 @@ import caliban.gateway.GatewayTestSupport._
 import caliban.schema.{ GenericSchema, Schema }
 import caliban._
 import com.github.plokhotnyuk.jsoniter_scala.core.{ readFromString, writeToString }
-import sttp.model.{ Header => SttpHeader }
 import zio._
 import zio.http._
 import zio.test._
@@ -86,7 +85,7 @@ object GatewayHttpSpec extends ZIOSpecDefault {
                                  _.forwardIncomingHeaders("X-Client")
                                )
                                .withExecutionHeadersZIO(
-                                 executionHeader.get.map(value => List(SttpHeader("X-Fiber", value)))
+                                 executionHeader.get.map(value => List(Header.Custom("X-Fiber", value)))
                                )
           runtime         <- Gateway.compose(Subgraph.graphql("service", source.endpoint, schema, config)).interpreter
           url             <- install(

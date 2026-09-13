@@ -9,7 +9,7 @@ import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition.InputV
 import caliban.parsing.adt.Type.NamedType
 import caliban.parsing.adt.{ Directive, Document }
 import caliban.rendering.DocumentRenderer
-import sttp.model.Uri
+import zio.http.URL
 import zio._
 import zio.test._
 
@@ -341,8 +341,8 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
       }
     ),
     suite("url validation")(
-      // sttp's Uri.parse is far more lenient than it looks: "foo", "not a uri", "://nohost" and
-      // "http://" all parse successfully into relative or hostless URIs. Parsing alone is therefore
+      // URL decoding is more lenient than it looks: "foo", "not a uri", "://nohost" and
+      // "http://" all decode successfully into relative or hostless URLs. Parsing alone is therefore
       // not validation -- an unusable endpoint would surface much later as a confusing request-time
       // failure. A subgraph endpoint must be an absolute http(s) URI with a non-empty host.
       test("rejects any url that is not an absolute http or https endpoint") {

@@ -5,7 +5,7 @@ import caliban.ResponseValue.{ ListValue => ResponseListValue }
 import caliban.Value.IntValue.IntNumber
 import caliban.Value.{ NullValue, StringValue }
 import caliban.gateway.GatewayTestSupport._
-import sttp.model.Uri
+import zio.http.URL
 import zio._
 import zio.test._
 

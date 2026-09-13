@@ -1,7 +1,6 @@
 package caliban.gateway
 
-import sttp.client4.UriContext
-import sttp.model.Uri
+import zio.http._
 import zio.Config.Secret
 
 /**
@@ -15,12 +14,12 @@ import zio.Config.Secret
 final case class SupergraphUplinkConfig private (
   graphRef: String,
   apiKey: Secret,
-  endpoints: List[Uri],
+  endpoints: List[URL],
   acquisition: RemoteGraphQLConfig.Acquisition
 ) {
 
   /** Replaces the uplink endpoints, tried in order. Mirrors `withHeaders`: the argument is the whole list. */
-  def withEndpoints(endpoints: Uri*): SupergraphUplinkConfig =
+  def withEndpoints(endpoints: URL*): SupergraphUplinkConfig =
     copy(endpoints = endpoints.toList)
 
   def withAcquisition(acquisition: RemoteGraphQLConfig.Acquisition): SupergraphUplinkConfig =
@@ -35,9 +34,9 @@ final case class SupergraphUplinkConfig private (
 }
 
 object SupergraphUplinkConfig {
-  val DefaultEndpoints: List[Uri] = List(
-    uri"https://uplink.api.apollographql.com/",
-    uri"https://aws.uplink.api.apollographql.com/"
+  val DefaultEndpoints: List[URL] = List(
+    url"https://uplink.api.apollographql.com/",
+    url"https://aws.uplink.api.apollographql.com/"
   )
 
   def apply(graphRef: String, apiKey: Secret): SupergraphUplinkConfig =

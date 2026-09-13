@@ -1,7 +1,7 @@
 package caliban.gateway
 
 import caliban.InputValue
-import sttp.model.Uri
+import zio.http.{ Scheme, URL }
 import zio.Duration
 
 /**
@@ -9,7 +9,7 @@ import zio.Duration
  */
 final case class RemoteSubscriptionConfig(
   transport: RemoteSubscriptionConfig.Transport = RemoteSubscriptionConfig.WebSocket,
-  endpoint: Option[Uri] = None,
+  endpoint: Option[URL] = None,
   connectionInit: Option[InputValue] = None,
   connectionTimeout: Duration = Duration.fromSeconds(30),
   keepAliveInterval: Duration = Duration.fromSeconds(15),
@@ -18,12 +18,12 @@ final case class RemoteSubscriptionConfig(
   private[gateway] def diagnostics: List[String] = {
     import GatewayConfigValidation._
     positive(bufferSize, "Remote subscription bufferSize must be positive.") :::
-      endpoint.toList.flatMap { uri =>
-        val allowed = transport match {
-          case RemoteSubscriptionConfig.WebSocket => Set("http", "https", "ws", "wss")
-          case _: RemoteSubscriptionConfig.Sse    => Set("http", "https")
+      endpoint.toList.flatMap { url =>
+        val allowed: Set[Scheme] = transport match {
+          case RemoteSubscriptionConfig.WebSocket => Set(Scheme.HTTP, Scheme.HTTPS, Scheme.WS, Scheme.WSS)
+          case _: RemoteSubscriptionConfig.Sse    => Set(Scheme.HTTP, Scheme.HTTPS)
         }
-        if (uri.scheme.exists(allowed)) Nil else List("Remote subscription endpoint has an unsupported URI scheme.")
+        if (url.scheme.exists(allowed)) Nil else List("Remote subscription endpoint has an unsupported URI scheme.")
       } :::
       List(connectionTimeout, keepAliveInterval).flatMap(
         finitePositive(_, "Remote subscription timeouts and keepalive interval must be finite and positive.")

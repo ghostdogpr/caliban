@@ -9,7 +9,7 @@ import caliban.parsing.Parser
 import caliban.schema.{ ArgBuilder, GenericSchema, Schema }
 import caliban.tools.RemoteSchema
 import caliban.{ graphQL, CalibanError, PathValue, RootResolver }
-import sttp.model.Uri
+import zio.http.URL
 import zio._
 import zio.test._
 

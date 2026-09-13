@@ -720,13 +720,12 @@ lazy val gateway = project
   .in(file("gateway"))
   .settings(name := "caliban-gateway")
   .settings(commonSettings)
-  .dependsOn(core, tools, quickAdapter % "test->compile", federation % "test->compile")
+  .dependsOn(core, quickAdapter % "test->compile", federation % "test->compile")
   .disablePlugins(AssemblyPlugin)
   .settings(
     mimaPreviousArtifacts := Set.empty,
     libraryDependencies ++= Seq(
-      "com.softwaremill.sttp.client4" %% "zio"          % sttpVersion,
-      "dev.zio"                       %% "zio-http"     % zioHttpVersion % Test,
+      "dev.zio"                       %% "zio-http"     % zioHttpVersion,
       "dev.zio"                       %% "zio-test"     % zioVersion     % Test,
       "dev.zio"                       %% "zio-test-sbt" % zioVersion     % Test
     )
@@ -759,7 +758,6 @@ lazy val gatewayAudit = project
     name           := "caliban-gateway-audit",
     publish / skip := true,
     libraryDependencies ++= Seq(
-      "com.softwaremill.sttp.client4"         %% "zio"                   % sttpVersion,
       "dev.zio"                               %% "zio-http"              % zioHttpVersion,
       "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros" % jsoniterVersion,
       "dev.zio"                               %% "zio-test"              % zioVersion % Test,

@@ -8,7 +8,7 @@ import caliban.parsing.adt.OperationType
 import caliban.GraphQLRequest
 import caliban.{ graphQL, RootResolver }
 import caliban.schema.Schema.auto._
-import sttp.model.Header
+import zio.http.Header
 import zio.metrics.Metric
 import zio.{ Duration, Exit, Promise, Ref, Scope, Trace, UIO, URIO, ZIO }
 import zio.test.{ assertTrue, Spec, TestAspect, TestClock, TestEnvironment, ZIOSpecDefault }
@@ -247,7 +247,7 @@ object GatewayWrapperSpec extends ZIOSpecDefault {
       override def outboundHeaders(subgraph: String, headers: List[Header])(implicit
         trace: Trace
       ): URIO[Any, List[Header]] =
-        ZIO.succeed(Header("x-gateway-wrapper", subgraph) :: headers)
+        ZIO.succeed(Header.Custom("x-gateway-wrapper", subgraph) :: headers)
     }
 
   private def delaying(entered: Promise[Nothing, Unit]): GatewayWrapper[Any] =

@@ -2,7 +2,6 @@ package caliban.gateway.benchmark
 
 import caliban.QuickAdapter
 import caliban.gateway.{ Gateway, RemoteGraphQLConfig, Subgraph }
-import sttp.model.Uri
 import zio._
 import zio.http._
 
@@ -41,7 +40,11 @@ object Main extends ZIOAppDefault {
       Left("BENCHMARK_SUBGRAPHS_HOST must be a host name or address.")
     else {
       val parsed = SubgraphPorts.map { case (name, port) =>
-        Uri.parse(s"http://$host:$port/graphql").map(uri => Subgraph.federation(name, uri, config))
+        URL
+          .decode(s"http://$host:$port/graphql")
+          .left
+          .map(_.getMessage)
+          .map(url => Subgraph.federation(name, url, config))
       }
       parsed.collectFirst { case Left(error) => error }.toLeft(parsed.collect { case Right(subgraph) => subgraph })
     }

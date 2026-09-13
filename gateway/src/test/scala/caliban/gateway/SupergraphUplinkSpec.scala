@@ -2,16 +2,15 @@ package caliban.gateway
 
 import caliban.Value.{ NullValue, StringValue }
 import caliban.gateway.GatewayTestSupport._
+import caliban.gateway.internal.GatewayHttpClient
 import caliban.gateway.SupergraphAcquisitionError._
 import caliban.gateway.internal.composition.SupergraphAcquisition
 import caliban.parsing.adt.Document
 import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse }
 import com.github.plokhotnyuk.jsoniter_scala.core.{ readFromArray, writeToString }
-import sttp.client4.httpclient.zio.{ HttpClientZioBackend, SttpClient }
-import sttp.model.{ StatusCode, Uri }
 import zio.Config.Secret
 import zio._
-import zio.http.{ Body, Header, Headers, Response, Server, Status }
+import zio.http._
 import zio.test._
 
 /**
@@ -69,7 +68,7 @@ object SupergraphUplinkSpec extends ZIOSpecDefault {
     contentType: String = "application/graphql-response+json"
   )
 
-  private final case class Uplink(endpoint: Uri, requests: Ref[Vector[GraphQLRequest]], answers: Ref[List[Answer]]) {
+  private final case class Uplink(endpoint: URL, requests: Ref[Vector[GraphQLRequest]], answers: Ref[List[Answer]]) {
     def calls: UIO[Int] = requests.get.map(_.size)
 
     /** The `ifAfterId` variable of the nth request, or `None` when it was absent or JSON null. */
@@ -117,13 +116,15 @@ object SupergraphUplinkSpec extends ZIOSpecDefault {
 
   private val fastAcquisition = RemoteGraphQLConfig.Acquisition.default.withTimeout(2.seconds)
 
-  private def configFor(endpoints: Uri*): SupergraphUplinkConfig =
+  private def configFor(endpoints: URL*): SupergraphUplinkConfig =
     SupergraphUplinkConfig(graphRef, apiKey).withEndpoints(endpoints: _*).withAcquisition(fastAcquisition)
 
-  private def loaderFor(config: SupergraphUplinkConfig): ZIO[SttpClient, Nothing, SupergraphAcquisition.Loader] =
-    ZIO.serviceWithZIO[SttpClient](client => SupergraphAcquisition.make(Supergraph.Source.Uplink(config), Some(client)))
+  private def loaderFor(config: SupergraphUplinkConfig): ZIO[GatewayHttpClient, Nothing, SupergraphAcquisition.Loader] =
+    ZIO.serviceWithZIO[GatewayHttpClient](client =>
+      SupergraphAcquisition.make(Supergraph.Source.Uplink(config), Some(client))
+    )
 
-  private def loaderFor(endpoints: Uri*): ZIO[SttpClient, Nothing, SupergraphAcquisition.Loader] =
+  private def loaderFor(endpoints: URL*): ZIO[GatewayHttpClient, Nothing, SupergraphAcquisition.Loader] =
     loaderFor(configFor(endpoints: _*))
 
   /** Fails with the acquisition error, or dies describing what happened instead. */
@@ -139,7 +140,7 @@ object SupergraphUplinkSpec extends ZIOSpecDefault {
   private def queryFields(document: Document): List[String] =
     document.objectTypeDefinitions.filter(_.name == "Query").flatMap(_.fields.map(_.name))
 
-  private val backend: ZLayer[Any, Throwable, SttpClient] = ZLayer.scoped(HttpClientZioBackend.scoped())
+  private val http: ZLayer[Any, Throwable, GatewayHttpClient] = ZLayer.scoped(GatewayHttpClient.make)
 
   /** Every string a diagnostic must never contain: the api key, and any remote free text. */
   private def leaks(diagnostics: List[String], secrets: String*): List[String] =
@@ -167,7 +168,7 @@ object SupergraphUplinkSpec extends ZIOSpecDefault {
       test("withEndpoints replaces the endpoint list rather than appending to the defaults") {
         // Appending would silently keep Apollo's public endpoints in the rotation for anyone
         // pointing at a proxy or a test double.
-        val only = Uri.unsafeParse("https://uplink.internal/")
+        val only = url"https://uplink.internal/"
         assertTrue(SupergraphUplinkConfig(graphRef, apiKey).withEndpoints(only).endpoints == List(only))
       },
       test("an empty graph ref is a diagnostic") {
@@ -497,7 +498,7 @@ object SupergraphUplinkSpec extends ZIOSpecDefault {
           calls  <- first.calls.zip(second.calls)
         } yield assertTrue(
           error.isInstanceOf[UnexpectedResponse],
-          error.asInstanceOf[UnexpectedResponse].status == StatusCode.ServiceUnavailable,
+          error.asInstanceOf[UnexpectedResponse].status == Status.ServiceUnavailable,
           // Each endpoint is tried once per load; a rotation that retried them would poll a whole
           // uplink outage several times over on every cycle.
           calls == ((1, 1))
@@ -530,5 +531,5 @@ object SupergraphUplinkSpec extends ZIOSpecDefault {
         } yield assertTrue(exit.isSuccess, cursor.contains("id-1"), calls == 1)
       }
     )
-  ).provide(testServer, stubIds, backend) @@ TestAspect.sequential @@ TestAspect.withLiveClock
+  ).provide(testServer, stubIds, http) @@ TestAspect.sequential @@ TestAspect.withLiveClock
 }

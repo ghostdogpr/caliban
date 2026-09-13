@@ -9,7 +9,7 @@ import caliban.parsing.adt.Definition.TypeSystemDefinition.{ DirectiveDefinition
 import caliban.parsing.adt.Type.NamedType
 import caliban.parsing.adt.{ Directive, Document, Type }
 import caliban.parsing.{ Parser, SourceMapper }
-import sttp.model.Uri
+import zio.http.{ Scheme, URL }
 
 /**
  * Decomposes an Apollo Federation supergraph into the subgraph documents it was composed from.
@@ -61,7 +61,7 @@ private[gateway] object SupergraphDecomposition {
   )
 
   /** One entry of the join graph enum: a subgraph's identity and endpoint. */
-  final case class Graph(key: String, name: String, url: Uri)
+  final case class Graph(key: String, name: String, url: URL)
 
   /** A subgraph projected out of the supergraph. */
   final case class Projected(graph: Graph, document: Document)
@@ -119,14 +119,13 @@ private[gateway] object SupergraphDecomposition {
           .filter(_.trim.nonEmpty)
           .toRight(List(s"$prefix must declare a non-empty 'name' argument."))
 
-        // `Uri.parse` is extremely lenient: "foo", "not a uri" and "://nohost" all parse into
-        // relative or hostless URIs. Parsing alone is not validation, so require an absolute
+        // Parsing alone is not validation: "foo" decodes into a relative URL. Require an absolute
         // http(s) endpoint rather than let an unusable URL fail later at request time.
         val url = string(directive, "url") match {
           case None        => Left(List(s"$prefix must declare a 'url' argument."))
           case Some(value) =>
-            Uri
-              .parse(value)
+            URL
+              .decode(value)
               .toOption
               .filter(isHttpEndpoint)
               .toRight(List(s"$prefix must declare an absolute http or https 'url'."))
@@ -138,9 +137,8 @@ private[gateway] object SupergraphDecomposition {
         }
     }
 
-  private def isHttpEndpoint(uri: Uri): Boolean =
-    uri.scheme.map(_.toLowerCase(java.util.Locale.ROOT)).exists(s => s == "http" || s == "https") &&
-      uri.host.exists(_.nonEmpty)
+  private def isHttpEndpoint(url: URL): Boolean =
+    url.scheme.exists(scheme => scheme == Scheme.HTTP || scheme == Scheme.HTTPS) && url.host.exists(_.nonEmpty)
 
   // ---------------------------------------------------------------------------------------------
   // Context
