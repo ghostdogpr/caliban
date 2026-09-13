@@ -331,6 +331,36 @@ object EntityRoutingSpec extends ZIOSpecDefault {
           sent.isEmpty
         )
       },
+      test("rejects a plan whose only key provider is the fetch that needs the key") {
+        val accountsSchema =
+          s"""
+             |${federationSchemaPreamble("@key", "@shareable", "@external")}
+             |type Query { node(id: ID!): Node @shareable }
+             |interface Node { id: ID! }
+             |type Account implements Node @key(fields: "id") { id: ID! username: String! }
+             |type Chat implements Node @key(fields: "id") { id: ID! @external account: Account! }
+             |""".stripMargin
+        val chatsSchema    =
+          s"""
+             |${federationSchemaPreamble("@key", "@shareable", "@external")}
+             |type Query { node(id: ID!): Node @shareable }
+             |interface Node { id: ID! }
+             |type Account implements Node @key(fields: "id") { id: ID! @external chats: [Chat!]! }
+             |type Chat implements Node @key(fields: "id") { id: ID! text: String! }
+             |""".stripMargin
+
+        for {
+          accounts <- stub("""{"data":{"node":{"id":"a1","_caliban_gateway_typename":"Account"}}}""")
+          chats    <- stub("""{"data":{"_entities":[]}}""")
+          gateway  <- Gateway
+                        .compose(
+                          Subgraph.federation("accounts", accounts.endpoint, accountsSchema),
+                          Subgraph.federation("chats", chats.endpoint, chatsSchema)
+                        )
+                        .interpreter
+          response <- gateway.execute("""{ node(id: "a1") { id } }""")
+        } yield assertTrue(response.data == NullValue, response.errors.nonEmpty)
+      },
       test("moves an unresolvable child selection to a resolvable parent entity") {
         val productsSchema   =
           s"""
