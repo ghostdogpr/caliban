@@ -1022,6 +1022,51 @@ object FieldRoutingSpec extends ZIOSpecDefault {
           ratingSent.size == 1
         )
       },
+      test("keeps a fetch from depending on itself when siblings share a key alias") {
+        val usersSchema    =
+          s"""
+             |${federationSchemaPreamble("@key")}
+             |type Query { users: [NodeWithName!]! }
+             |interface NodeWithName @key(fields: "id") { id: ID! name: String }
+             |type User implements NodeWithName @key(fields: "id") { id: ID! name: String age: Int }
+             |""".stripMargin
+        val accountsSchema =
+          s"""
+             |${federationSchemaPreamble("@key", "@interfaceObject", "@external", "@requires")}
+             |type Query { anotherUsers: [NodeWithName] }
+             |type NodeWithName @key(fields: "id") @interfaceObject {
+             |  id: ID!
+             |  name: String @external
+             |  username: String @requires(fields: "name")
+             |}
+             |""".stripMargin
+        val rootResponse   =
+          """{"data":{"anotherUsers":[{"id":"u1","_caliban_gateway_key":"u1","_caliban_gateway_key_2":"u1","_caliban_gateway_key_3":"u1","_caliban_gateway_typename":"NodeWithName","_caliban_gateway_typename_2":"NodeWithName","_caliban_gateway_typename_3":"NodeWithName"}]}}"""
+        val usersEntity    =
+          """{"data":{"_entities":[{"name":"u1-name","_caliban_gateway_requirement_name":"u1-name","_caliban_gateway_runtime_typename":"User","_caliban_gateway_runtime_typename_2":"User"}]}}"""
+        val accountsEntity =
+          """{"data":{"_entities":[{"username":"u1-username","_caliban_gateway_key":"u1","_caliban_gateway_typename":"NodeWithName"}]}}"""
+
+        for {
+          users    <- stub(usersEntity)
+          accounts <- stubByRequest(request =>
+                        if (request.query.exists(_.contains("_entities"))) accountsEntity else rootResponse
+                      )
+          gateway  <- Gateway
+                        .compose(
+                          Subgraph.federation("users", users.endpoint, usersSchema),
+                          Subgraph.federation("accounts", accounts.endpoint, accountsSchema)
+                        )
+                        .interpreter
+          response <- gateway.execute("{ anotherUsers { ... on User { username } id name } }")
+          user      = listValues(field(response.data, "anotherUsers")).headOption
+        } yield assertTrue(
+          response.errors.isEmpty,
+          user.flatMap(field(_, "username")).contains(StringValue("u1-username")),
+          user.flatMap(field(_, "id")).contains(StringValue("u1")),
+          user.flatMap(field(_, "name")).contains(StringValue("u1-name"))
+        )
+      },
       test("merges a nullable prerequisite with client fields of the same subgraph") {
         val priceSchema    =
           s"""

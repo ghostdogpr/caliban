@@ -109,7 +109,9 @@ private[gateway] final class OperationPlanner(
           .evaluate(options) { roots =>
             val planned  = rootFetches(roots, operationType)
             val entities =
-              mergeEquivalentFetches(addFetchDependencies(entityFetches(planned.assignments, planned.fetches.size)))
+              mergeEquivalentFetches(
+                addFetchDependencies(entityFetches(planned.assignments, planned.fetches.size), planned.fetches)
+              )
             dependencyDepth(entities).map(PlanCandidate(roots, planned.fetches, entities, _))
           }
           .map(_.minBy(planCost))
@@ -233,7 +235,7 @@ private[gateway] final class OperationPlanner(
   /**
    * Adds dependencies on fetches that supply entity keys or fields needed by @requires.
    */
-  private def addFetchDependencies(fetches: List[EntityFetch]): List[EntityFetch] =
+  private def addFetchDependencies(fetches: List[EntityFetch], roots: List[RootFetch]): List[EntityFetch] =
     if (!fetches.exists(_.mayNeedPrerequisiteFetches)) fetches
     else {
       val byId = fetches.iterator.map(fetch => fetch.id -> fetch).toMap
@@ -250,21 +252,30 @@ private[gateway] final class OperationPlanner(
         else field.fields.flatMap(fieldPaths).map(Vector(field.aliasedName) ++ _)
 
       val providedPaths = fetches.iterator.map(fetch => fetch.id -> fetch.fields.flatMap(fieldPaths)).toMap
+      val rootPaths     = roots.flatMap(_.downstream).flatMap(fieldPaths).toSet
 
       fetches.map { fetch =>
         if (!fetch.mayNeedPrerequisiteFetches) fetch
         else {
-          val required     =
+          val required                                               =
             (fetch.keys ::: fetch.requirements).flatMap(selectionPaths).map(fetch.mergePath ++ _).toSet ++
               fetch.contextArguments.flatMap(argument =>
                 argument.selections.flatMap(selectionPaths).map(argument.sourcePath ++ _)
               )
-          val dependencies = fetches.iterator
+          def provided(candidate: EntityFetch): List[Vector[String]] =
+            providedPaths(candidate.id).map(candidate.mergePath ++ _).filter(required)
+          def providedElsewhere(path: Vector[String]): Boolean       =
+            rootPaths.contains(path) ||
+              fetches.exists(other =>
+                other.id != fetch.id && other.root == fetch.root && provided(other).contains(path)
+              )
+          val dependencies                                           = fetches.iterator
             .filter(_.root == fetch.root)
             .filterNot(candidate => dependsOn(candidate, fetch.id, Set.empty))
-            .filter(candidate =>
-              providedPaths(candidate.id).exists(path => required.contains(candidate.mergePath ++ path))
-            )
+            .filter { candidate =>
+              if (candidate.id == fetch.id) provided(candidate).exists(path => !providedElsewhere(path))
+              else provided(candidate).nonEmpty
+            }
             .map(_.id)
             .toSet
           fetch.copy(dependencies = fetch.dependencies ++ dependencies)
