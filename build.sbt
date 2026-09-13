@@ -725,9 +725,9 @@ lazy val gateway = project
   .settings(
     mimaPreviousArtifacts := Set.empty,
     libraryDependencies ++= Seq(
-      "dev.zio"                       %% "zio-http"     % zioHttpVersion,
-      "dev.zio"                       %% "zio-test"     % zioVersion     % Test,
-      "dev.zio"                       %% "zio-test-sbt" % zioVersion     % Test
+      "dev.zio" %% "zio-http"     % zioHttpVersion,
+      "dev.zio" %% "zio-test"     % zioVersion % Test,
+      "dev.zio" %% "zio-test-sbt" % zioVersion % Test
     )
   )
 
