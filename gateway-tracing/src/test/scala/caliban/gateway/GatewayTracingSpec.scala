@@ -140,7 +140,7 @@ object GatewayTracingSpec extends ZIOSpecDefault {
         spansBefore <- TracingMock.getFinishedSpans.map(_.size)
         response    <- runtime.executeRequest(
                          GraphQLRequest(query = Some("{ value }")),
-                         List(Header("traceparent", s"00-$traceId-$parentId-01"))
+                         List(Header.Custom("traceparent", s"00-$traceId-$parentId-01"))
                        )
         spans       <- TracingMock.getFinishedSpans.map(_.drop(spansBefore))
         gatewaySpans = spans.filter(_.getName.startsWith("caliban.gateway."))

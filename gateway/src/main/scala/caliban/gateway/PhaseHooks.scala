@@ -4,7 +4,7 @@ import caliban.gateway.PhaseHooks.Event.CacheAccess
 import caliban.gateway.PhaseHooks.{ Event, Outcome, Result }
 import caliban.parsing.adt.OperationType
 import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse }
-import sttp.model.Header
+import zio.http.Header
 import zio.{ Cause, Exit, Trace, ZIO }
 
 final case class PhaseHooks[-R] private (
