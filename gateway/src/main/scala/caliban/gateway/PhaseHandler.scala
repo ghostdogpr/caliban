@@ -2,8 +2,6 @@ package caliban.gateway
 
 import zio.{ Exit, Scope, Trace, ZIO }
 
-import scala.collection.mutable.ListBuffer
-
 /**
  * A PhaseHandler is an injectable handler for a specific phase of the gateway execution.
  * For the exact injection points see [[PhaseHooks]] which defines the set of available hooks.

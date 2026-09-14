@@ -276,7 +276,7 @@ final class Gateway[-R] private[gateway] (
     new Gateway(origin, resolver, policy, config, this.hooks ++ hooks)
 
   /**
-   * Adds an integration around the gateway lifecycle.
+   * Symbolic version of `withPhaseHooks`.
    */
   def @@[R1 <: R](hooks: PhaseHooks[R1]): Gateway[R1] =
     withPhaseHooks(hooks)
