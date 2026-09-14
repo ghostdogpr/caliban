@@ -9,6 +9,8 @@ import caliban.introspection.adt.{ __Type, __TypeKind }
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ BooleanValue, EnumValue, FloatValue, IntValue, NullValue, StringValue }
 
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicReference
 import scala.collection.mutable
 
 /**
@@ -18,63 +20,112 @@ private[gateway] final class ResponseCompletion(
   typenameSelections: List[TypenameSelection],
   fetchedFields: FetchedFields = null
 ) {
-  def complete(fields: List[Field], value: ResponseValue, errors: List[CalibanError]): Completion =
-    completeObject(fields, value, Nil, ErrorPathIndex(errors), fetchedFields)
-
   private[this] val hasFetched = fetchedFields ne null
+  private[this] val compiled   = new AtomicReference[List[(List[Field], Array[CompiledField])]](Nil)
 
-  private def completeObject(
-    fields: List[Field],
-    value: ResponseValue,
-    path: List[PathValue],
-    sourceErrors: ErrorPathIndex,
-    fetched: FetchedFields,
-    runtimeType: Option[String] = None,
-    indexed: IndexedFields = null
-  ): Completion =
-    value match {
-      case obj: ObjectValue =>
-        val completed = new mutable.ListBuffer[(String, ResponseValue)]
-        val errors    = new mutable.ListBuffer[CalibanError.ExecutionError]
-        var missing   = false
-        var remaining = fields
+  def complete(fields: List[Field], value: ResponseValue, errors: List[CalibanError]): Completion = {
+    val walk   = new Walk(ErrorPathIndex(errors))
+    val result = walk.completeObject(compiledRoot(fields), value, Nil, null)
+    val found  = walk.errors.toList
+    if (result eq null) BubbleNull(found) else Completed(result, found)
+  }
 
-        val lookup = if (indexed eq null) IndexedFields(obj) else indexed
-
-        while (remaining ne Nil) {
-          val field        = remaining.head
-          val name         = field.aliasedName
-          val fieldPath    = PathValue.Key(name) :: path
-          val value        = lookup.getOrNull(name)
-          val fieldFetched =
-            if ((fetched eq null) || (field.fields.isEmpty && (field._condition.isEmpty || runtimeType.isEmpty))) null
-            else fetched.child(name)
-          val result       =
-            if (
-              field._condition.nonEmpty && hasFetched && runtimeType.exists { typeName =>
-                !fieldSelected(fieldFetched, field, typeName)
-              }
-            )
-              completeValue(field.fieldType, field, NullValue, fieldPath, sourceErrors, fieldFetched)
-            else if (value ne null)
-              completeValue(field.fieldType, field, value, fieldPath, sourceErrors, fieldFetched)
-            else {
-              val invalid = Completed(NullValue, invalidSourceValueErrors(fieldPath.reverse, sourceErrors))
-              if (field.fieldType.kind == __TypeKind.NON_NULL)
-                enforceNonNull(invalid, field, fieldPath, sourceErrors)
-              else invalid
-            }
-          if (result.errors ne Nil) errors ++= result.errors
-          result match {
-            case Completed(completedValue, _) => completed += (name -> completedValue)
-            case _: BubbleNull                => missing = true
-          }
-          remaining = remaining.tail
-        }
-        if (missing) BubbleNull(errors.toList)
-        else Completed(ObjectValue(completed.toList), errors.toList)
-      case _                => Completed(NullValue, invalidSourceValueErrors(path.reverse, sourceErrors))
+  private def compiledRoot(fields: List[Field]): Array[CompiledField] =
+    compiled.get.find(_._1 eq fields) match {
+      case Some((_, root)) => root
+      case None            =>
+        val root = compileFields(fields, fetchedFields, null, Vector.empty)
+        compiled.updateAndGet(current => if (current.exists(_._1 eq fields)) current else (fields, root) :: current)
+        root
     }
+
+  private def compileFields(
+    fields: List[Field],
+    fetched: FetchedFields,
+    runtimeType: String,
+    responsePath: Vector[String]
+  ): Array[CompiledField] = {
+    val result    = new Array[CompiledField](fields.length)
+    var i         = 0
+    var remaining = fields
+    while (remaining ne Nil) {
+      result(i) = compileField(remaining.head, fetched, runtimeType, responsePath)
+      i += 1
+      remaining = remaining.tail
+    }
+    result
+  }
+
+  private def compileField(
+    field: Field,
+    fetched: FetchedFields,
+    runtimeType: String,
+    responsePath: Vector[String]
+  ): CompiledField = {
+    val name         = field.aliasedName
+    val fieldFetched =
+      if ((fetched eq null) || (field.fields.isEmpty && (field._condition.isEmpty || (runtimeType eq null)))) null
+      else fetched.child(name)
+    val unselected   =
+      field._condition.nonEmpty && hasFetched && (runtimeType ne null) && !fieldSelected(
+        fieldFetched,
+        field,
+        runtimeType
+      )
+    new CompiledField(
+      field,
+      name,
+      PathValue.Key(name),
+      unselected,
+      compileType(field.fieldType, field, fieldFetched, responsePath :+ name)
+    )
+  }
+
+  private def compileType(
+    fieldType: __Type,
+    field: Field,
+    fetched: FetchedFields,
+    responsePath: Vector[String]
+  ): CompiledType =
+    fieldType.kind match {
+      case __TypeKind.NON_NULL                     =>
+        new NonNullType(fieldType.ofType.map(compileType(_, field, fetched, responsePath)).orNull)
+      case __TypeKind.LIST                         =>
+        new ListType(fieldType.ofType.map(compileType(_, field, fetched, responsePath)).orNull)
+      case __TypeKind.INTERFACE | __TypeKind.UNION => compileAbstract(fieldType, field, fetched, responsePath)
+      case __TypeKind.OBJECT                       =>
+        val typeName = fieldType.name.getOrElse("")
+        new ObjectType(compileFields(field.collectFields(typeName), fetched, typeName, responsePath))
+      case __TypeKind.ENUM                         =>
+        new EnumType(fieldType.allEnumValues.map(_.name).toSet, fieldType.name.getOrElse("Unknown"))
+      case __TypeKind.SCALAR                       =>
+        fieldType.name match {
+          case Some("String") | Some("ID") => StringScalar
+          case Some("Int")                 => IntScalar
+          case Some("Float")               => FloatScalar
+          case Some("Boolean")             => BooleanScalar
+          case _                           => PassThroughType
+        }
+      case _                                       => PassThroughType
+    }
+
+  private def compileAbstract(
+    fieldType: __Type,
+    field: Field,
+    fetched: FetchedFields,
+    responsePath: Vector[String]
+  ): AbstractType = {
+    val (matching, fallback) = typenameSelections.partition(_.path == responsePath)
+    new AbstractType(
+      fieldType.possibleTypes.getOrElse(Nil).flatMap(_.name).toSet,
+      matching.map(_.responseName) :::
+        field.fields.iterator.filter(_.name == "__typename").map(_.aliasedName).toList :::
+        "__typename" :: fallback.map(_.responseName),
+      field.fields.exists(child => child.name == "__typename" || child._condition.nonEmpty || child.targets.nonEmpty),
+      fieldType.name.getOrElse(""),
+      typeName => compileFields(field.collectFields(typeName), fetched, typeName, responsePath)
+    )
+  }
 
   private def fieldSelected(node: FetchedFields, field: Field, typeName: String): Boolean = {
     if (node eq null) return false
@@ -87,263 +138,143 @@ private[gateway] final class ResponseCompletion(
     false
   }
 
-  private def completeValue(
-    fieldType: __Type,
-    field: Field,
-    value: ResponseValue,
-    path: List[PathValue],
-    sourceErrors: ErrorPathIndex,
-    fetched: FetchedFields
-  ): Completion =
-    fieldType.kind match {
-      case __TypeKind.NON_NULL                     =>
-        val completed = fieldType.ofType
-          .map(completeValue(_, field, value, path, sourceErrors, fetched))
-          .getOrElse(Completed(NullValue, Nil))
-        enforceNonNull(completed, field, path, sourceErrors)
-      case _ if value == NullValue                 => Completed(NullValue, Nil)
-      case __TypeKind.LIST                         =>
-        (value, fieldType.ofType) match {
-          case (ListValue(values), Some(itemType)) =>
-            val abstractType  = listItemAbstractType(itemType)
-            val abstractPlan  =
-              if (abstractType eq null) null else abstractCompletion(abstractType, field, path)
-            val itemIsNonNull = itemType.kind == __TypeKind.NON_NULL
-            val completed     = new mutable.ListBuffer[ResponseValue]
-            val errors        = new mutable.ListBuffer[CalibanError.ExecutionError]
-            var missing       = false
-            var index         = 0
-            var remaining     = values
-            while (remaining ne Nil) {
-              val itemPath = PathValue.Index(index) :: path
-              val result   =
-                if (abstractPlan eq null)
-                  completeValue(itemType, field, remaining.head, itemPath, sourceErrors, fetched)
-                else {
-                  val item =
-                    if (remaining.head == NullValue) Completed(NullValue, Nil)
-                    else
-                      completeAbstract(abstractPlan, field, remaining.head, itemPath, sourceErrors, fetched)
-                  if (itemIsNonNull) enforceNonNull(item, field, itemPath, sourceErrors) else item
-                }
-              if (result.errors ne Nil) errors ++= result.errors
-              result match {
-                case Completed(completedValue, _) => completed += completedValue
-                case _: BubbleNull                => missing = true
-              }
-              index += 1
-              remaining = remaining.tail
-            }
-            if (missing) Completed(NullValue, errors.toList)
-            else Completed(ListValue(completed.toList), errors.toList)
-          case _                                   =>
-            Completed(NullValue, invalidSourceValueErrors(path.reverse, sourceErrors))
-        }
-      case __TypeKind.INTERFACE | __TypeKind.UNION =>
-        completeAbstract(
-          abstractCompletion(fieldType, field, path),
-          field,
-          value,
-          path,
-          sourceErrors,
-          fetched
-        )
-      case __TypeKind.OBJECT                       =>
-        completeNestedObject(
-          fieldType.innerType.name.getOrElse(""),
-          field,
-          value,
-          path,
-          sourceErrors,
-          fetched
-        )
-      case __TypeKind.ENUM                         =>
-        value match {
-          case StringValue(name) if fieldType.allEnumValues.exists(_.name == name) => Completed(value, Nil)
-          case EnumValue(name) if fieldType.allEnumValues.exists(_.name == name)   => Completed(value, Nil)
-          case _                                                                   =>
-            val errors =
-              if (sourceErrors.overlaps(path.reverse)) Nil
+  private final class Walk(sourceErrors: ErrorPathIndex) {
+    val errors = new mutable.ListBuffer[CalibanError.ExecutionError]
+
+    def completeObject(
+      fields: Array[CompiledField],
+      value: ResponseValue,
+      path: List[PathValue],
+      indexed: IndexedFields
+    ): ResponseValue =
+      value match {
+        case obj: ObjectValue =>
+          val lookup    = if (indexed eq null) IndexedFields(obj) else indexed
+          val completed = new mutable.ListBuffer[(String, ResponseValue)]
+          var missing   = false
+          var i         = 0
+          while (i < fields.length) {
+            val field  = fields(i)
+            val found  = if (field.unselected) NullValue else lookup.getOrNull(field.name)
+            val result =
+              if (found ne null) completeValue(field.tpe, field, found, path, field.key)
               else {
-                val enumName = fieldType.name.getOrElse("Unknown")
-                List(
-                  CalibanError.ExecutionError(
-                    s"Invalid value for enum '$enumName'.",
-                    path.reverse,
-                    Some(field.locationInfo)
-                  )
-                )
+                val fieldPath = field.key :: path
+                val before    = errors.length
+                invalid(fieldPath)
+                if (field.tpe.isInstanceOf[NonNullType]) bubble(field, fieldPath, errors.length > before) else NullValue
               }
-            Completed(NullValue, errors)
-        }
-      case __TypeKind.SCALAR                       =>
-        val valid = fieldType.name match {
-          case Some("String") | Some("ID") =>
-            value match {
-              case _: StringValue => true
-              case _              => false
-            }
-          case Some("Int")                 =>
-            value match {
-              case _: IntValue.IntNumber                              => true
-              case IntValue.LongNumber(number) if number.isValidInt   => true
-              case IntValue.BigIntNumber(number) if number.isValidInt => true
-              case _                                                  => false
-            }
-          case Some("Float")               =>
-            value match {
-              case _: IntValue | _: FloatValue => true
-              case _                           => false
-            }
-          case Some("Boolean")             =>
-            value match {
-              case _: BooleanValue => true
-              case _               => false
-            }
-          case _                           => true
-        }
-        if (valid) Completed(value, Nil)
-        else Completed(NullValue, invalidSourceValueErrors(path.reverse, sourceErrors))
-      case _                                       => Completed(value, Nil)
+            if (result eq null) missing = true else completed += ((field.name, result))
+            i += 1
+          }
+          if (missing) null else ObjectValue(completed.toList)
+        case _                => invalid(path)
+      }
+
+    private def completeValue(
+      tpe: CompiledType,
+      field: CompiledField,
+      value: ResponseValue,
+      parentPath: List[PathValue],
+      segment: PathValue
+    ): ResponseValue =
+      tpe match {
+        case t: NonNullType          =>
+          val before    = errors.length
+          val completed = if (t.inner eq null) NullValue else completeValue(t.inner, field, value, parentPath, segment)
+          if (completed eq NullValue) bubble(field, segment :: parentPath, errors.length > before) else completed
+        case _ if value == NullValue => NullValue
+        case t: ListType             =>
+          value match {
+            case ListValue(values) if t.item ne null =>
+              val itemPath  = segment :: parentPath
+              val completed = new mutable.ListBuffer[ResponseValue]
+              var missing   = false
+              var index     = 0
+              var remaining = values
+              while (remaining ne Nil) {
+                val result = completeValue(t.item, field, remaining.head, itemPath, PathValue.Index(index))
+                if (result eq null) missing = true else completed += result
+                index += 1
+                remaining = remaining.tail
+              }
+              if (missing) NullValue else ListValue(completed.toList)
+            case _                                   => invalid(segment :: parentPath)
+          }
+        case t: AbstractType         => completeAbstract(t, value, segment :: parentPath)
+        case t: ObjectType           => completeNested(t.fields, value, segment :: parentPath, null)
+        case t: EnumType             => if (t.valid(value)) value else invalidEnum(t, field, segment :: parentPath)
+        case t: ScalarType           => if (t.valid(value)) value else invalid(segment :: parentPath)
+        case PassThroughType         => value
+      }
+
+    private def completeNested(
+      fields: Array[CompiledField],
+      value: ResponseValue,
+      path: List[PathValue],
+      indexed: IndexedFields
+    ): ResponseValue = {
+      val completed = completeObject(fields, value, path, indexed)
+      if (completed eq null) NullValue else completed
     }
 
-  private def enforceNonNull(
-    completed: Completion,
-    field: Field,
-    path: List[PathValue],
-    sourceErrors: ErrorPathIndex
-  ): Completion =
-    completed match {
-      case Completed(NullValue, _) =>
-        BubbleNull(completed.errors ::: nullViolation(field, path.reverse, sourceErrors, completed.errors.nonEmpty))
-      case _                       => completed
+    private def completeAbstract(tpe: AbstractType, value: ResponseValue, path: List[PathValue]): ResponseValue = {
+      val indexed = value match {
+        case obj: ObjectValue => IndexedFields(obj)
+        case _                => null
+      }
+      val runtime = runtimeType(indexed, tpe.runtimeTypes)
+      if ((runtime ne null) && (tpe.possible.isEmpty || tpe.possible.contains(runtime)))
+        completeNested(tpe.fields(runtime), value, path, indexed)
+      else if ((runtime eq null) && !tpe.requiresRuntime)
+        completeNested(tpe.fields(tpe.defaultType), value, path, indexed)
+      else invalid(path)
     }
 
-  private def listItemAbstractType(itemType: __Type): __Type =
-    itemType.kind match {
-      case __TypeKind.INTERFACE | __TypeKind.UNION => itemType
-      case __TypeKind.NON_NULL                     =>
-        itemType.ofType match {
-          case Some(inner) if inner.kind == __TypeKind.INTERFACE || inner.kind == __TypeKind.UNION => inner
-          case _                                                                                   => null
-        }
-      case _                                       => null
-    }
-
-  private def completeAbstract(
-    completion: AbstractCompletion,
-    field: Field,
-    value: ResponseValue,
-    path: List[PathValue],
-    sourceErrors: ErrorPathIndex,
-    fetched: FetchedFields
-  ): Completion = {
-    val indexed = value match {
-      case obj: ObjectValue => IndexedFields(obj)
-      case _                => null
-    }
-    val runtime = runtimeType(indexed, completion.runtimeTypes)
-    runtime.filter(name => completion.possible.isEmpty || completion.possible.contains(name)) match {
-      case Some(typeName)                                         =>
-        completeNestedObject(typeName, field, value, path, sourceErrors, fetched, indexed)
-      case None if runtime.isEmpty && !completion.requiresRuntime =>
-        completeNestedObject(completion.defaultType, field, value, path, sourceErrors, fetched, indexed)
-      case None                                                   =>
-        Completed(NullValue, invalidSourceValueErrors(path.reverse, sourceErrors))
-    }
-  }
-
-  private def abstractCompletion(
-    fieldType: __Type,
-    field: Field,
-    path: List[PathValue]
-  ): AbstractCompletion = {
-    val matching  = new mutable.ListBuffer[TypenameSelection]
-    val fallback  = new mutable.ListBuffer[TypenameSelection]
-    val expected  = responsePath(path)
-    var remaining = typenameSelections
-    while (remaining ne Nil) {
-      val selection = remaining.head
-      if (selection.path == expected) matching += selection else fallback += selection
-      remaining = remaining.tail
-    }
-    AbstractCompletion(
-      fieldType.possibleTypes.getOrElse(Nil).flatMap(_.name).toSet,
-      matching.toList.map(_.responseName) :::
-        field.fields.iterator.filter(_.name == "__typename").map(_.aliasedName).toList :::
-        "__typename" :: fallback.toList.map(_.responseName),
-      field.fields.exists(child => child.name == "__typename" || child._condition.nonEmpty || child.targets.nonEmpty),
-      fieldType.innerType.name.getOrElse("")
-    )
-  }
-
-  private def completeNestedObject(
-    typeName: String,
-    field: Field,
-    value: ResponseValue,
-    path: List[PathValue],
-    sourceErrors: ErrorPathIndex,
-    fetched: FetchedFields,
-    indexed: IndexedFields = null
-  ): Completion = {
-    val completed =
-      completeObject(field.collectFields(typeName), value, path, sourceErrors, fetched, Some(typeName), indexed)
-    if (completed.bubblesNull) Completed(NullValue, completed.errors) else completed
-  }
-
-  private def nullViolation(
-    field: Field,
-    path: List[PathValue],
-    sourceErrors: ErrorPathIndex,
-    hasCompletedErrors: Boolean
-  ): List[CalibanError.ExecutionError] =
-    if (hasCompletedErrors || sourceErrors.overlaps(path)) Nil
-    else {
-      val parent = field.parentType.flatMap(_.name).getOrElse("Unknown")
-      List(
-        CalibanError.ExecutionError(
-          s"Cannot return null for non-nullable field $parent.${field.name}.",
-          path,
-          Some(field.locationInfo)
+    private def bubble(field: CompiledField, path: List[PathValue], hasCompletedErrors: Boolean): ResponseValue = {
+      val reversed = path.reverse
+      if (!hasCompletedErrors && !sourceErrors.overlaps(reversed)) {
+        val parent = field.source.parentType.flatMap(_.name).getOrElse("Unknown")
+        errors += CalibanError.ExecutionError(
+          s"Cannot return null for non-nullable field $parent.${field.source.name}.",
+          reversed,
+          Some(field.source.locationInfo)
         )
-      )
-    }
-
-  private def invalidSourceValueErrors(
-    path: List[PathValue],
-    sourceErrors: ErrorPathIndex
-  ): List[CalibanError.ExecutionError] =
-    if ((path.isEmpty && sourceErrors.nonEmpty) || sourceErrors.overlaps(path)) Nil else List(RemoteError.at(path))
-
-  private def runtimeType(
-    value: IndexedFields,
-    runtimeTypes: List[String]
-  ): Option[String] = {
-    if (value eq null) return None
-    var remaining = runtimeTypes
-    while (remaining ne Nil) {
-      value.getOrNull(remaining.head) match {
-        case StringValue(name) => return Some(name)
-        case _                 => ()
       }
-      remaining = remaining.tail
+      null
     }
-    None
-  }
 
-  private def responsePath(path: List[PathValue]): Vector[String] = {
-    var names: List[String] = Nil
-    var remaining           = path
-    while (remaining ne Nil) {
-      remaining.head match {
-        case PathValue.Key(name) => names = name :: names
-        case _                   => ()
+    private def invalidEnum(tpe: EnumType, field: CompiledField, path: List[PathValue]): ResponseValue = {
+      val reversed = path.reverse
+      if (!sourceErrors.overlaps(reversed))
+        errors += CalibanError.ExecutionError(
+          s"Invalid value for enum '${tpe.name}'.",
+          reversed,
+          Some(field.source.locationInfo)
+        )
+      NullValue
+    }
+
+    private def invalid(path: List[PathValue]): ResponseValue = {
+      val reversed = path.reverse
+      if (!(reversed.isEmpty && sourceErrors.nonEmpty) && !sourceErrors.overlaps(reversed))
+        errors += RemoteError.at(reversed)
+      NullValue
+    }
+
+    private def runtimeType(value: IndexedFields, runtimeTypes: List[String]): String = {
+      if (value eq null) return null
+      var remaining = runtimeTypes
+      while (remaining ne Nil) {
+        value.getOrNull(remaining.head) match {
+          case StringValue(name) => return name
+          case _                 => ()
+        }
+        remaining = remaining.tail
       }
-      remaining = remaining.tail
+      null
     }
-    names.toVector
   }
-
 }
 
 private[gateway] object ResponseCompletion {
@@ -384,12 +315,72 @@ private[gateway] object ResponseCompletion {
     }
   }
 
-  private final case class AbstractCompletion(
-    possible: Set[String],
-    runtimeTypes: List[String],
-    requiresRuntime: Boolean,
-    defaultType: String
+  private final class CompiledField(
+    val source: Field,
+    val name: String,
+    val key: PathValue,
+    val unselected: Boolean,
+    val tpe: CompiledType
   )
+
+  private sealed abstract class CompiledType
+
+  private final class NonNullType(val inner: CompiledType) extends CompiledType
+
+  private final class ListType(val item: CompiledType) extends CompiledType
+
+  private final class ObjectType(val fields: Array[CompiledField]) extends CompiledType
+
+  private final class AbstractType(
+    val possible: Set[String],
+    val runtimeTypes: List[String],
+    val requiresRuntime: Boolean,
+    val defaultType: String,
+    compile: String => Array[CompiledField]
+  ) extends CompiledType {
+    private val byType = new ConcurrentHashMap[String, Array[CompiledField]]
+
+    def fields(typeName: String): Array[CompiledField] =
+      if (possible.contains(typeName) || typeName == defaultType) byType.computeIfAbsent(typeName, compile(_))
+      else compile(typeName)
+  }
+
+  private final class EnumType(values: Set[String], val name: String) extends CompiledType {
+    def valid(value: ResponseValue): Boolean =
+      value match {
+        case StringValue(found) => values.contains(found)
+        case EnumValue(found)   => values.contains(found)
+        case _                  => false
+      }
+  }
+
+  private sealed abstract class ScalarType extends CompiledType {
+    def valid(value: ResponseValue): Boolean
+  }
+
+  private case object StringScalar extends ScalarType {
+    def valid(value: ResponseValue): Boolean = value.isInstanceOf[StringValue]
+  }
+
+  private case object IntScalar extends ScalarType {
+    def valid(value: ResponseValue): Boolean =
+      value match {
+        case _: IntValue.IntNumber         => true
+        case IntValue.LongNumber(number)   => number.isValidInt
+        case IntValue.BigIntNumber(number) => number.isValidInt
+        case _                             => false
+      }
+  }
+
+  private case object FloatScalar extends ScalarType {
+    def valid(value: ResponseValue): Boolean = value.isInstanceOf[IntValue] || value.isInstanceOf[FloatValue]
+  }
+
+  private case object BooleanScalar extends ScalarType {
+    def valid(value: ResponseValue): Boolean = value.isInstanceOf[BooleanValue]
+  }
+
+  private case object PassThroughType extends CompiledType
 
   private final class ErrorPathIndex private (paths: PathIndex, val nonEmpty: Boolean) {
     def overlaps(path: List[PathValue]): Boolean = paths.overlaps(path)
