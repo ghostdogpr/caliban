@@ -307,7 +307,7 @@ object EntityExecutionSpec extends ZIOSpecDefault {
           productSent.head.query.exists(rendered =>
             rendered.contains("product(id:\"p1\")") &&
               rendered.contains("name") && rendered.contains("_caliban_gateway_key:id") &&
-              rendered.contains("_caliban_gateway_typename:__typename") &&
+              !rendered.contains("_caliban_gateway_typename") &&
               !rendered.contains("reviews")
           ),
           reviewSent.head.query.exists(rendered =>
@@ -325,7 +325,7 @@ object EntityExecutionSpec extends ZIOSpecDefault {
           ),
           explanation ==
             """query
-              |fetch products at $.product fields [name, id (key), __typename (key)]
+              |fetch products at $.product fields [name, id (key)]
               |fetch reviews after products at $.product via Product(id) fields [reviews.body]""".stripMargin,
           !withoutReviews.contains("fetch reviews"),
           withReviews.contains("fetch reviews")

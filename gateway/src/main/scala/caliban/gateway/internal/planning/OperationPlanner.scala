@@ -408,6 +408,7 @@ private[gateway] final class OperationPlanner(
         selectedRoot,
         currentSubgraph,
         Vector(client.aliasedName),
+        isObjectField(selectedRoot, currentSubgraph),
         Set.empty,
         rootSubgraphs.toSet,
         availableKeys(currentSubgraph, selected.fieldType.innerType),
@@ -566,6 +567,7 @@ private[gateway] final class OperationPlanner(
     field: Field,
     currentSubgraph: String,
     path: Vector[String],
+    staticPath: Boolean,
     visitedFetches: Set[EntityFetchKey],
     runtimeSources: Set[String],
     availableExternal: List[ComposedGraph.KeyField],
@@ -632,6 +634,7 @@ private[gateway] final class OperationPlanner(
                        selectedField,
                        currentSubgraph,
                        path,
+                       staticPath,
                        parentType,
                        typeName,
                        visitedFetches,
@@ -667,6 +670,7 @@ private[gateway] final class OperationPlanner(
                          sameSubgraphPlans <- planSameSubgraphFields(
                                                 currentSubgraph,
                                                 path,
+                                                staticPath,
                                                 visitedFetches,
                                                 runtimeSources,
                                                 sameSubgraphFields.toList,
@@ -776,6 +780,7 @@ private[gateway] final class OperationPlanner(
   private def planSameSubgraphFields(
     currentSubgraph: String,
     path: Vector[String],
+    staticPath: Boolean,
     visitedFetches: Set[EntityFetchKey],
     runtimeSources: Set[String],
     fields: List[(Field, List[Field])],
@@ -794,6 +799,7 @@ private[gateway] final class OperationPlanner(
                 child,
                 currentSubgraph,
                 path :+ child.aliasedName,
+                staticPath && isObjectField(child, currentSubgraph),
                 visitedFetches,
                 graph.runtimeSources(
                   runtimeSources,
@@ -1008,6 +1014,7 @@ private[gateway] final class OperationPlanner(
                             entityField,
                             context.currentSubgraph,
                             context.path,
+                            context.staticPath,
                             context.visitedFetches,
                             context.availableExternal,
                             context.provided,
@@ -1028,12 +1035,14 @@ private[gateway] final class OperationPlanner(
                                                          resolved.parentType,
                                                          withPrerequisiteFields,
                                                          resolved.selection,
-                                                         entityTypeCondition(context.parentType, resolved.entityType)
+                                                         entityTypeCondition(context.parentType, resolved.entityType),
+                                                         isStaticEntityType(context, resolved.entityType)
                                                        )
                               planned               <- planFieldCandidates(
                                                          entityField.copy(fields = candidate.fields),
                                                          candidate.targetSubgraph,
                                                          context.path,
+                                                         context.staticPath,
                                                          context.visitedFetches,
                                                          Set(candidate.targetSubgraph),
                                                          resolved.selection.lookup.key,
@@ -1305,6 +1314,7 @@ private[gateway] final class OperationPlanner(
     field: Field,
     currentSubgraph: String,
     path: Vector[String],
+    staticPath: Boolean,
     visitedFetches: Set[EntityFetchKey],
     availableExternal: List[ComposedGraph.KeyField],
     provided: List[Field],
@@ -1316,6 +1326,7 @@ private[gateway] final class OperationPlanner(
         field.copy(fields = requirements),
         currentSubgraph,
         path,
+        staticPath,
         visitedFetches,
         Set(currentSubgraph),
         availableExternal,
@@ -1403,7 +1414,8 @@ private[gateway] final class OperationPlanner(
     parentType: __Type,
     selected: Vector[Field],
     selection: LookupSelection,
-    targets: Option[Set[String]]
+    targets: Option[Set[String]],
+    staticType: Boolean
   ): (Vector[Field], List[RequiredSelection], Option[RequiredSelection]) = {
     val (keyFields, keys)                 = selection match {
       case LookupSelection.InjectedKeys(_, fields) => fields                       -> List.empty[RequiredSelection]
@@ -1427,7 +1439,7 @@ private[gateway] final class OperationPlanner(
     }
     val injectedKeys                      = injected.reverse
     val selections                        = keys ::: injectedKeys
-    val requiresTypename                  = selection.lookup.operation.requiresTypename || targets.nonEmpty
+    val requiresTypename                  = (selection.lookup.operation.requiresTypename && !staticType) || targets.nonEmpty
     val (typenameAlias, injectedTypename) =
       if (!requiresTypename) (None, None)
       else {
@@ -1440,6 +1452,21 @@ private[gateway] final class OperationPlanner(
     val typename                          = typenameAlias.map(RequiredSelection("__typename", _))
     (selected ++ injectedFields ++ injectedTypename, selections, typename)
   }
+
+  private def composedFieldType(field: Field): Option[__Type] =
+    field.parentType.flatMap(parent => Option(parent.getFieldOrNull(field.name))).map(_._type.innerType)
+
+  private def isObjectField(field: Field, currentSubgraph: String): Boolean =
+    composedFieldType(field).exists { composed =>
+      composed.kind == __TypeKind.OBJECT &&
+      field.parentType.flatMap(_.name).flatMap(graph.field(currentSubgraph, _, field.name)).exists { declared =>
+        val fieldType = declared._type.innerType
+        fieldType.kind == __TypeKind.OBJECT && fieldType.name == composed.name
+      }
+    }
+
+  private def isStaticEntityType(context: EntityFetchContext, entityType: String): Boolean =
+    context.staticPath && composedFieldType(context.field).exists(_.name.contains(entityType))
 
   private def sharedInjectedField(selected: Vector[Field], base: String, candidate: Field): Option[Field] = {
     lazy val shape = candidate.copy(alias = None).toSelection
@@ -1724,6 +1751,7 @@ private[gateway] object OperationPlanner {
     field: Field,
     currentSubgraph: String,
     path: Vector[String],
+    staticPath: Boolean,
     parentType: __Type,
     typeName: String,
     visitedFetches: Set[EntityFetchKey],

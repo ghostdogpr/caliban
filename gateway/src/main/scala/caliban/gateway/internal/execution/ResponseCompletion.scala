@@ -506,112 +506,75 @@ private[gateway] object ResponseMerge {
       case Nil                  => value
       case (path, patch) :: Nil => mergeAt(value, path, patch)
       case _                    =>
-        var current   = value
-        var remaining = patches
-        val nested    = new mutable.ListBuffer[(List[PathValue], ResponseValue)]
-        while (remaining ne Nil) {
-          val patch = remaining.head
-          if (patch._1.isEmpty) {
-            if (nested.nonEmpty) {
-              current = applyNestedPatches(current, nested.toList)
-              nested.clear()
-            }
-            current = mergeObject(current, patch._2)
-          } else nested += patch
-          remaining = remaining.tail
-        }
-        if (nested.isEmpty) current else applyNestedPatches(current, nested.toList)
+        val root = new PatchNode
+        patches.foreach { case (path, patch) => root.add(path, patch) }
+        root.patch(value)
     }
 
-  private def applyNestedPatches(
-    value: ResponseValue,
-    patches: List[(List[PathValue], ResponseValue)]
-  ): ResponseValue =
-    patches match {
-      case (path, patch) :: Nil => mergeAt(value, path, patch)
-      case _                    => applyGroupedPatches(value, patches)
-    }
+  private sealed trait PatchEntry
 
-  private def applyGroupedPatches(
-    value: ResponseValue,
-    patches: List[(List[PathValue], ResponseValue)]
-  ): ResponseValue =
-    value match {
-      case ObjectValue(fields) if patches.lengthCompare(4) <= 0 =>
-        var byKey: List[(String, mutable.ListBuffer[(List[PathValue], ResponseValue)])] = Nil
-        var remaining                                                                   = patches
-        while (remaining ne Nil) {
-          val patch = remaining.head
-          patch._1 match {
-            case StringValue(key) :: tail =>
-              var groups = byKey
-              while ((groups ne Nil) && !groups.head._1.equals(key)) groups = groups.tail
-              groups match {
-                case (_, bucket) :: _ => bucket += (tail -> patch._2)
-                case Nil              =>
-                  val bucket = new mutable.ListBuffer[(List[PathValue], ResponseValue)]
-                  bucket += (tail -> patch._2)
-                  byKey = (key -> bucket) :: byKey
-              }
-            case _                        => ()
+  private final case class PatchValue(value: ResponseValue) extends PatchEntry
+
+  private final class PatchNode {
+    private[this] var entries: List[PatchEntry] = Nil
+
+    def add(path: List[PathValue], patch: ResponseValue): Unit =
+      path match {
+        case Nil             => entries = PatchValue(patch) :: entries
+        case segment :: rest =>
+          val group = entries match {
+            case (group: PatchGroup) :: _ => group
+            case _                        =>
+              val created = new PatchGroup
+              entries = created :: entries
+              created
           }
-          remaining = remaining.tail
-        }
-        if (byKey.isEmpty) value
-        else
+          group.nodeAt(segment).add(rest, patch)
+      }
+
+    def patch(value: ResponseValue): ResponseValue =
+      entries.foldRight(value) {
+        case (group: PatchGroup, current) => group.patch(current)
+        case (PatchValue(patch), current) => mergeObject(current, patch)
+      }
+  }
+
+  private final class PatchGroup extends PatchEntry {
+    private[this] var keys: java.util.HashMap[String, PatchNode] = null
+    private[this] var indices: mutable.LongMap[PatchNode]        = null
+
+    def nodeAt(segment: PathValue): PatchNode =
+      segment match {
+        case StringValue(key)          =>
+          if (keys eq null) keys = new java.util.HashMap[String, PatchNode]
+          var node = keys.get(key)
+          if (node eq null) {
+            node = new PatchNode
+            keys.put(key, node)
+          }
+          node
+        case IntValue.IntNumber(index) =>
+          if (indices eq null) indices = mutable.LongMap.empty
+          indices.getOrElseUpdate(index.toLong, new PatchNode)
+      }
+
+    def patch(value: ResponseValue): ResponseValue =
+      value match {
+        case ObjectValue(fields) if keys ne null  =>
           ObjectValue(fields.map { field =>
-            var groups = byKey
-            while ((groups ne Nil) && !groups.head._1.equals(field._1)) groups = groups.tail
-            groups match {
-              case (_, nestedPatches) :: _ => (field._1, applyPatches(field._2, nestedPatches.toList))
-              case Nil                     => field
-            }
+            val node = keys.get(field._1)
+            if (node eq null) field else (field._1, node.patch(field._2))
           })
-      case ObjectValue(fields)                                  =>
-        val byKey     = new java.util.HashMap[String, mutable.ListBuffer[(List[PathValue], ResponseValue)]]
-        var remaining = patches
-        while (remaining ne Nil) {
-          val patch = remaining.head
-          patch._1 match {
-            case StringValue(key) :: tail =>
-              var bucket = byKey.get(key)
-              if (bucket eq null) {
-                bucket = new mutable.ListBuffer[(List[PathValue], ResponseValue)]
-                byKey.put(key, bucket)
-              }
-              bucket += (tail -> patch._2)
-            case _                        => ()
-          }
-          remaining = remaining.tail
-        }
-        if (byKey.isEmpty) value
-        else
-          ObjectValue(fields.map { field =>
-            val nestedPatches = byKey.get(field._1)
-            if (nestedPatches eq null) field
-            else (field._1, applyPatches(field._2, nestedPatches.toList))
-          })
-      case ListValue(values)                                    =>
-        val byIndex = mutable.LongMap.empty[mutable.ListBuffer[(List[PathValue], ResponseValue)]]
-        patches.foreach { patch =>
-          patch._1 match {
-            case IntValue.IntNumber(index) :: tail if index >= 0 =>
-              byIndex.getOrElseUpdate(index.toLong, mutable.ListBuffer.empty) += (tail -> patch._2)
-            case _                                               => ()
-          }
-        }
-        if (byIndex.isEmpty) value
-        else {
+        case ListValue(values) if indices ne null =>
           var index = 0
           ListValue(values.map { nested =>
-            val nestedPatches = byIndex.getOrNull(index.toLong)
-            val patched       = if (nestedPatches eq null) nested else applyPatches(nested, nestedPatches.toList)
+            val node = indices.getOrNull(index.toLong)
             index += 1
-            patched
+            if (node eq null) nested else node.patch(nested)
           })
-        }
-      case other                                                => other
-    }
+        case other                                => other
+      }
+  }
 
   private def mergeAt(
     value: ResponseValue,

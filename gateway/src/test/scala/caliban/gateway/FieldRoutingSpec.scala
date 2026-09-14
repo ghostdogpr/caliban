@@ -698,7 +698,7 @@ object FieldRoutingSpec extends ZIOSpecDefault {
       }
     ),
     suite("shared keys and merged fetches")(
-      test("shares one injected key and typename alias between sibling entity fetches") {
+      test("shares one injected key alias between sibling entity fetches without fetching the typename") {
         val shippingSchema =
           s"""
              |${federationSchemaPreamble("@key", "@external")}
@@ -725,15 +725,71 @@ object FieldRoutingSpec extends ZIOSpecDefault {
           rootSent <- roots.requests.get
           query     = rootSent.headOption.flatMap(_.query).getOrElse("")
           key       = "_caliban_gateway_key:id"
-          typename  = "_caliban_gateway_typename:__typename"
         } yield assertTrue(
           response.errors.isEmpty,
           field(response.data, "product").flatMap(field(_, "shipping")).contains(IntNumber(20)),
           field(response.data, "product").flatMap(field(_, "tax")).contains(IntNumber(3)),
           query.sliding(key.length).count(_ == key) == 1,
-          query.sliding(typename.length).count(_ == typename) == 1,
           !query.contains("_caliban_gateway_key_2"),
-          !query.contains("_caliban_gateway_typename_2")
+          !query.contains("_caliban_gateway_typename")
+        )
+      },
+      test("keeps the typename when conditional branches share an entity path") {
+        val rootsSchema   =
+          s"""
+             |${federationSchemaPreamble("@key")}
+             |type Query { nodes: [Node!]! }
+             |union Node = A | B
+             |type A { child: Product }
+             |type B { child: User }
+             |type Product @key(fields: "id") { id: ID! }
+             |type User @key(fields: "id") { id: ID! }
+             |""".stripMargin
+        val detailsSchema =
+          s"""
+             |${federationSchemaPreamble("@key", "@external")}
+             |type Product @key(fields: "id") { id: ID! @external name: String }
+             |type User @key(fields: "id") { id: ID! @external name: String }
+             |""".stripMargin
+        val rootResponse  =
+          """{"data":{"nodes":[
+            |{"_caliban_gateway_runtime_typename":"A","_caliban_gateway_child":{"_caliban_gateway_key":"p","_caliban_gateway_typename":"Product"}},
+            |{"_caliban_gateway_runtime_typename":"B","_caliban_gateway_child_1":{"_caliban_gateway_key":"u","_caliban_gateway_typename":"User"}}
+            |]}}""".stripMargin.replace("\n", "")
+
+        for {
+          roots    <- stub(rootResponse)
+          details  <-
+            stubByRequest { request =>
+              val entities = request.variables.flatMap(_.get("representations")).toList.flatMap {
+                case ListValue(values) => values
+                case _                 => Nil
+              }
+              val names    = entities.collect { case InputObjectValue(fields) =>
+                (fields.get("__typename"), fields.get("id")) match {
+                  case (Some(StringValue(typename)), Some(StringValue(id))) =>
+                    s"""{"_caliban_gateway_entity_key":"$id","_caliban_gateway_entity_typename":"$typename","name":"$typename-$id"}"""
+                  case _                                                    => "null"
+                }
+              }
+              s"""{"data":{"_entities":[${names.mkString(",")}]}}"""
+            }
+          gateway  <- Gateway
+                        .compose(
+                          Subgraph.federation("roots", roots.endpoint, rootsSchema),
+                          Subgraph.federation("details", details.endpoint, detailsSchema)
+                        )
+                        .interpreter
+          response <- gateway.execute("{ nodes { ... on A { child { name } } ... on B { child { name } } } }")
+          rootSent <- roots.requests.get
+          rendered  = response.data.toString
+        } yield assertTrue(
+          response.errors.isEmpty,
+          rootSent.exists(_.query.exists(_.contains("_caliban_gateway_typename:__typename"))),
+          rendered.contains("Product-p"),
+          rendered.contains("User-u"),
+          !rendered.contains("Product-u"),
+          !rendered.contains("User-p")
         )
       },
       test("reuses a client alias whose selection matches an injected key") {
@@ -1014,11 +1070,13 @@ object FieldRoutingSpec extends ZIOSpecDefault {
           response   <- gateway.execute("{ node { displayPrice expensive } }")
           priceSent  <- prices.requests.get
           ratingSent <- ratings.requests.get
+          rootSent   <- roots.requests.get
           node        = field(response.data, "node")
         } yield assertTrue(
           plan.linesIterator.exists(line =>
             line.startsWith("fetch prices") && line.contains("via Node(") && line.contains("displayPrice")
           ),
+          rootSent.exists(_.query.exists(_.contains("_caliban_gateway_typename:__typename"))),
           response.errors.isEmpty,
           node.flatMap(field(_, "displayPrice")).contains(IntNumber(10)),
           node.flatMap(field(_, "expensive")).contains(BooleanValue(true)),
