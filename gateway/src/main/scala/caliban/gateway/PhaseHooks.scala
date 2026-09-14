@@ -75,11 +75,9 @@ final case class PhaseHooks[-R] private (
   private[gateway] def observeCompletion[R0 <: R, E](effect: ZIO[R0, E, GraphQLResponse[CalibanError]])(implicit
     trace: Trace
   ): ZIO[R0, E, GraphQLResponse[CalibanError]] =
-    if (!self.completion.enabled) effect
-    else
-      self.completion.run(Event.Completion)(effect)(
-        Result.fromExit(_)(Result.fromResponse, _ => Result(Outcome.InternalError))
-      )
+    self.completion.run(Event.Completion)(effect)(
+      Result.fromExit(_)(Result.fromResponse, _ => Result(Outcome.InternalError))
+    )
 }
 
 /**

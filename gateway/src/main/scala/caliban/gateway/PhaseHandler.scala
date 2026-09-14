@@ -43,7 +43,7 @@ sealed abstract class PhaseHandler[-R, Event, +Err, -Res] { self =>
    * Runs the phase handler, if enabled. It receives the initial event, an effect to wrap and a conversion function
    * to convert the result of the wrapped effect into this handler's result type.
    */
-  final def run[R1 <: R, E >: Err, A](event: Event)(effect: ZIO[R1, E, A])(
+  final def run[R1 <: R, E >: Err, A](event: => Event)(effect: ZIO[R1, E, A])(
     result: Exit[E, A] => Res
   )(implicit trace: Trace): ZIO[R1, E, A] =
     if (!enabled) effect

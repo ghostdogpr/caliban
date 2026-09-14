@@ -44,18 +44,17 @@ one, allocates a label, or takes the instrumented admission path. Attach the asp
 metrics for requests, routing, source calls, physical attempts, retries, the cache, admission, in-flight deduplication,
 body sizes, and overdue work.
 
-The `gateway-tracing` module provides `GatewayTracing.hooks`. Aspects compose with `@@`, so you can install tracing and
+The `gateway-tracing` module provides `GatewayTracing.hooks`. Hooks compose with `++`, so you can install tracing and
 metrics together:
 
 ```scala
 import caliban.gateway.GatewayMetrics
 import caliban.gateway.tracing.GatewayTracing
 
-val observed = Gateway.compose(first, rest: _*) @@ GatewayMetrics.hooks @@ GatewayTracing.hooks
+val observed = Gateway.compose(first, rest: _*) @@ (GatewayMetrics.hooks ++ GatewayTracing.hooks)
 ```
 
-An aspect is only a bundle of `PhaseHooks`. To attach hooks of your own, skip the aspect and add them to the gateway
-directly. Hooks accumulate, so this composes with any aspect applied before or after:
+The @@ operator is a symbolic equivalent to `withPhaseHooks`. Hooks accumulate, so this composes with any aspect applied before or after:
 
 ```scala
 import caliban.gateway.{ Gateway, GatewayMetrics, PhaseHandler, PhaseHooks }

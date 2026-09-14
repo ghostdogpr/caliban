@@ -34,7 +34,7 @@ private[gateway] final class AdmissionGate[-R] private (
   private def observeAs[R1 <: R, E, A](work: AdmissionKind)(
     effect: ZIO[R1, E, A]
   )(implicit trace: Trace): ZIO[R1, E, A] =
-    if (!hooks.admission.enabled) effect else hooks.admission.run(Event.Admission(work))(effect)(Result.classifyExit)
+    hooks.admission.run(Event.Admission(work))(effect)(Result.classifyExit)
 
 }
 

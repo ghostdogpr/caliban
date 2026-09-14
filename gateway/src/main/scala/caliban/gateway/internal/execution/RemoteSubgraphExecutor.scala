@@ -194,28 +194,26 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
     val transport   =
       hooks.attemptHeaders.runWith(Event.AttemptHeaders(name, attempt, headers))(ev => send(body, ev.headers))(_ => ())
     val observed    =
-      if (!hooks.attempt.enabled) transport
-      else
-        hooks.attempt.run(Event.Attempt(name, attempt, body.length.toLong, endpoint.host, endpoint.port))(transport)(
-          Result.fromExit(_)(
-            value =>
-              Result(
-                if (value.response.errors.isEmpty) Outcome.Success else Outcome.GraphQLError,
-                errorCount = value.response.errors.size,
-                statusCode = Some(value.statusCode),
-                responseBytes = Some(value.responseBytes)
-              ),
-            failure =>
-              Result(
-                SubgraphExecutor.failureOutcome(failure.failure),
-                statusCode = failure.statusCode,
-                responseBytes = failure.responseBytes
-              )
-          )
+      hooks.attempt.run(Event.Attempt(name, attempt, body.length.toLong, endpoint.host, endpoint.port))(transport)(
+        Result.fromExit(_)(
+          value =>
+            Result(
+              if (value.response.errors.isEmpty) Outcome.Success else Outcome.GraphQLError,
+              errorCount = value.response.errors.size,
+              statusCode = Some(value.statusCode),
+              responseBytes = Some(value.responseBytes)
+            ),
+          failure =>
+            Result(
+              SubgraphExecutor.failureOutcome(failure.failure),
+              statusCode = failure.statusCode,
+              responseBytes = failure.responseBytes
+            )
         )
+      )
     val sendAttempt = observed.map(_.response).mapError(_.failure)
     val call        =
-      if (attempt == 0 || !hooks.retry.enabled) sendAttempt
+      if (attempt == 0) sendAttempt
       else
         hooks.retry.run(Event.Retry(name, attempt))(sendAttempt)(
           SubgraphExecutor.resultFromExit

@@ -80,11 +80,9 @@ private[gateway] final class OperationCache[K, E, V, -R] private (
   private def observe[R0 <: R, E0, A](
     value: CacheResult
   )(effect: ZIO[R0, E0, A])(implicit trace: Trace): ZIO[R0, E0, A] =
-    if (!hooks.cacheAccess.enabled) effect
-    else
-      hooks.cacheAccess.run(Event.CacheAccess(value))(effect)(
-        Result.classifyExit
-      )
+    hooks.cacheAccess.run(Event.CacheAccess(value))(effect)(
+      Result.classifyExit
+    )
 }
 
 private[gateway] object OperationCache {

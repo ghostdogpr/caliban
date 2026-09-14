@@ -46,11 +46,9 @@ private[gateway] final class ObservedSubgraphExecutor[R](
   def execute(request: GraphQLRequest, operationType: OperationType)(implicit
     trace: Trace
   ): ZIO[R, SubgraphExecutor.Failure, GraphQLResponse[CalibanError]] =
-    if (!hooks.subgraphCall.enabled) underlying.execute(request, operationType)
-    else
-      hooks.subgraphCall.run(Event.SubgraphCall(name, operationType))(underlying.execute(request, operationType))(
-        SubgraphExecutor.resultFromExit
-      )
+    hooks.subgraphCall.run(Event.SubgraphCall(name, operationType))(underlying.execute(request, operationType))(
+      SubgraphExecutor.resultFromExit
+    )
 
 }
 
