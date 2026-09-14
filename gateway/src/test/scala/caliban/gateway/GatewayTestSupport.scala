@@ -26,7 +26,8 @@ private[gateway] object GatewayTestSupport {
   final case class Stub(
     endpoint: URL,
     requests: Ref[Vector[GraphQLRequest]],
-    headers: Ref[Vector[Headers]]
+    headers: Ref[Vector[Headers]],
+    combined: Ref[Vector[GraphQLRequest]]
   )
 
   val invalidResponse          = """{"unexpected":true}"""
@@ -151,6 +152,7 @@ private[gateway] object GatewayTestSupport {
     for {
       requests <- Ref.make(Vector.empty[GraphQLRequest])
       headers  <- Ref.make(Vector.empty[Headers])
+      combined <- Ref.make(Vector.empty[GraphQLRequest])
       index    <- Ref.make(0)
       id       <- ZIO.serviceWithZIO[Ref[Int]](_.updateAndGet(_ + 1))
       path      = s"graphql-$id"
@@ -158,11 +160,18 @@ private[gateway] object GatewayTestSupport {
                     for {
                       bytes   <- request.body.asArray.orDie
                       decoded <- ZIO.attempt(readFromArray[GraphQLRequest](bytes)).orDie
-                      _       <- requests.update(_ :+ decoded)
+                      parts    = splitCombined(decoded)
+                      _       <- combined.update(_ :+ decoded).when(parts.nonEmpty)
+                      _       <- requests.update(_ ++ (if (parts.isEmpty) Vector(decoded) else parts.map(_._2)))
                       _       <- headers.update(_ :+ request.headers)
                       _       <- beforeResponse
-                      next    <- index.getAndUpdate(_ + 1)
-                      result  <- response(decoded, next)
+                      result  <- if (parts.isEmpty) index.getAndUpdate(_ + 1).flatMap(response(decoded, _))
+                                 else
+                                   ZIO
+                                     .foreach(parts) { case (alias, part) =>
+                                       index.getAndUpdate(_ + 1).flatMap(response(part, _)).map(alias -> _)
+                                     }
+                                     .map(mergeCombined)
                     } yield Response(
                       result._1,
                       Headers(Header.ContentType(MediaType("application", "graphql-response+json")).untyped),
@@ -172,7 +181,61 @@ private[gateway] object GatewayTestSupport {
       server   <- ZIO.service[Server]
       _        <- server.install(Routes(Method.POST / path -> handler))
       port     <- server.port
-    } yield Stub(url"http://127.0.0.1:$port/$path", requests, headers)
+    } yield Stub(url"http://127.0.0.1:$port/$path", requests, headers, combined)
+
+  private val CombinedAlias    = "_caliban_gateway_entities_"
+  private val CombinedVariable = "_caliban_gateway_representations_"
+
+  private def splitCombined(request: GraphQLRequest): List[(String, GraphQLRequest)] = {
+    val parts = request.query.getOrElse("").split(CombinedAlias).toList.drop(1)
+    parts.zipWithIndex.map { case (part, position) =>
+      val slot     = part.takeWhile(_.isDigit)
+      val trimmed  = part.drop(slot.length + 1).trim
+      val body     = if (position == parts.size - 1) trimmed.dropRight(1) else trimmed
+      val query    = body.replace("$" + CombinedVariable + slot, "$representations")
+      val variable = CombinedVariable + slot
+      (CombinedAlias + slot) -> GraphQLRequest(
+        query = Some(s"query __GatewayEntity($$representations:[_Any!]!){$query}"),
+        operationName = Some("__GatewayEntity"),
+        variables = request.variables.map(values =>
+          Map("representations" -> values.getOrElse(variable, caliban.InputValue.ListValue(Nil)))
+        ),
+        extensions = request.extensions
+      )
+    }
+  }
+
+  private def mergeCombined(results: List[(String, (Status, String))]): (Status, String) =
+    results.find(_._2._1 != Status.Ok).map(_._2).getOrElse {
+      val codec                 = caliban.interop.jsoniter.ValueJsoniter.responseValueCodec
+      val renamed               = results.map { case (alias, (_, body)) =>
+        readFromArray[ResponseValue](body.getBytes(StandardCharsets.UTF_8))(codec) match {
+          case ObjectValue(fields) =>
+            val data   = fields.collectFirst { case ("data", ObjectValue(dataFields)) =>
+              dataFields.collect { case ("_entities", entities) => alias -> entities }
+            }.getOrElse(Nil)
+            val errors = fields.collectFirst { case ("errors", ResponseValue.ListValue(errors)) =>
+              errors.map {
+                case ObjectValue(errorFields) =>
+                  ObjectValue(errorFields.map {
+                    case ("path", ResponseValue.ListValue(Value.StringValue("_entities") :: rest)) =>
+                      "path" -> ResponseValue.ListValue(Value.StringValue(alias) :: rest)
+                    case other                                                                     => other
+                  })
+                case other                    => other
+              }
+            }.getOrElse(Nil)
+            (data, errors)
+          case _                   => (Nil, Nil)
+        }
+      }
+      val data                  = ObjectValue(renamed.flatMap(_._1))
+      val errors                = renamed.flatMap(_._2)
+      val merged: ResponseValue = ObjectValue(
+        ("data" -> data) :: (if (errors.isEmpty) Nil else List("errors" -> ResponseValue.ListValue(errors)))
+      )
+      Status.Ok -> writeToString(merged)(codec)
+    }
 
   def postEndpoint(prefix: String)(handler: Request => UIO[Response]): ZIO[Server with Ref[Int], Nothing, URL] =
     for {

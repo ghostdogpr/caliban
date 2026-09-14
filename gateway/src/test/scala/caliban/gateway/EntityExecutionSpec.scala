@@ -669,33 +669,114 @@ object EntityExecutionSpec extends ZIOSpecDefault {
           )
         )
       },
-      test("keeps incompatible entity routes in separate groups") {
+      test("attributes combined entity call errors to their own group") {
         val argumentReviews = reviewsFederationSchema
+          .replace("reviews: [Review!]!", "reviews(limit: Int!): [Review!]!")
+          .replace("type Review { body: String! }", "type Review { body: String }")
+        val productResponse =
+          """{"data":{"first":[{"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}],"second":[{"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}]}}"""
+        val entity          =
+          """{"_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product","reviews":[{"body":"First"}]}"""
+        val failedEntity    =
+          """{"_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product","reviews":[{"body":null}]}"""
+        val failedResponse  =
+          s"""{"data":{"_entities":[$failedEntity]},"errors":[{"message":"Boom","path":["_entities",0,"reviews",0,"body"]}]}"""
+
+        for {
+          products <- stub(productResponse)
+          reviews  <- stubByRequest { request =>
+                        if (request.query.exists(_.contains("reviews(limit:2)"))) failedResponse
+                        else s"""{"data":{"_entities":[$entity]}}"""
+                      }
+          gateway  <- Gateway
+                        .compose(
+                          Subgraph.federation("products", products.endpoint, listProductsFederationSchema),
+                          Subgraph.federation("reviews", reviews.endpoint, argumentReviews)
+                        )
+                        .interpreter
+          response <-
+            gateway.execute(
+              """{
+                |  first: products { reviews(limit: 1) { body } }
+                |  second: products { reviews(limit: 2) { body } }
+                |}""".stripMargin
+            )
+          combined <- reviews.combined.get
+        } yield assertTrue(
+          combined.size == 1,
+          response.errors.collect { case error: CalibanError.ExecutionError => error.path } == List(
+            List(
+              PathValue.Key("second"),
+              PathValue.Index(0),
+              PathValue.Key("reviews"),
+              PathValue.Index(0),
+              PathValue.Key("body")
+            )
+          ),
+          firstNestedObject(response.data, "first", "reviews").exists(_.contains("body" -> StringValue("First"))),
+          firstNestedObject(response.data, "second", "reviews").exists(_.contains("body" -> NullValue))
+        )
+      },
+      test("sends separate entity calls when the combined request exceeds the size limit") {
+        val argumentReviews = reviewsFederationSchema.replace("reviews: [Review!]!", "reviews(limit: Int!): [Review!]!")
+        val productResponse =
+          """{"data":{"first":[{"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}],"second":[{"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}]}}"""
+        val entity          =
+          """{"_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product","reviews":[{"body":"Body"}]}"""
+        val config          = RemoteGraphQLConfig.default.withExecution(_.withMaxRequestBytes(512))
+
+        for {
+          products <- stub(productResponse)
+          reviews  <- stub(s"""{"data":{"_entities":[$entity]}}""")
+          gateway  <- Gateway
+                        .compose(
+                          Subgraph.federation("products", products.endpoint, listProductsFederationSchema),
+                          Subgraph.federation("reviews", reviews.endpoint, argumentReviews, config)
+                        )
+                        .interpreter
+          response <-
+            gateway.execute(
+              """{
+                |  first: products { reviews(limit: 1) { body } }
+                |  second: products { reviews(limit: 2) { body } }
+                |}""".stripMargin
+            )
+          sent     <- reviews.requests.get
+          combined <- reviews.combined.get
+        } yield assertTrue(
+          response.errors.isEmpty,
+          sent.size == 2,
+          combined.isEmpty,
+          firstNestedObject(response.data, "first", "reviews").exists(_.contains("body" -> StringValue("Body"))),
+          firstNestedObject(response.data, "second", "reviews").exists(_.contains("body" -> StringValue("Body")))
+        )
+      },
+      test("keeps incompatible entity routes in separate groups") {
+        val argumentReviews                      = reviewsFederationSchema
           .replace(
             "reviews: [Review!]!",
             "reviews(limit: Int!): [Review!]!"
           )
           .replace("type Review { body: String! }", "type Review { body: String! rating: Int! }")
-        val productResponse =
+        val productResponse                      =
           """{"data":{"first":[{"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}],"second":[{"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}],"third":[{"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}],"fourth":[{"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}]}}"""
-        val firstResponse   =
-          """{"data":{"_entities":[{"_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product","reviews":[{"body":"First"}]}]}}"""
-        val secondResponse  =
-          """{"data":{"_entities":[{"_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product","reviews":[{"body":"Second"}]}]}}"""
-        val aliasedResponse =
-          """{"data":{"_entities":[{"_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product","feedback":[{"body":"Aliased"}]}]}}"""
-        val shapedResponse  =
-          """{"data":{"_entities":[{"_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product","reviews":[{"body":"Shaped","rating":5}]}]}}"""
+        val firstEntity                          =
+          """{"_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product","reviews":[{"body":"First"}]}"""
+        val secondEntity                         =
+          """{"_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product","reviews":[{"body":"Second"}]}"""
+        val aliasedEntity                        =
+          """{"_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product","feedback":[{"body":"Aliased"}]}"""
+        val shapedEntity                         =
+          """{"_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product","reviews":[{"body":"Shaped","rating":5}]}"""
+        def entityFor(selection: String): String =
+          if (selection.contains("reviews(limit:2)")) secondEntity
+          else if (selection.contains("feedback:reviews")) aliasedEntity
+          else if (selection.contains("{body rating}")) shapedEntity
+          else firstEntity
 
         for {
           products <- stub(productResponse)
-          reviews  <- stubByRequest { request =>
-                        val query = request.query.getOrElse("")
-                        if (query.contains("reviews(limit:2)")) secondResponse
-                        else if (query.contains("feedback:reviews")) aliasedResponse
-                        else if (query.contains("{body rating}")) shapedResponse
-                        else firstResponse
-                      }
+          reviews  <- stubByRequest(request => s"""{"data":{"_entities":[${entityFor(request.query.getOrElse(""))}]}}""")
           gateway  <- Gateway
                         .compose(
                           Subgraph.federation("products", products.endpoint, listProductsFederationSchema),
@@ -712,10 +793,13 @@ object EntityExecutionSpec extends ZIOSpecDefault {
                 |}""".stripMargin
             )
           sentB    <- reviews.requests.get
+          combined <- reviews.combined.get
           validB   <- ZIO.foreach(sentB)(validateRequest(argumentReviews, _).exit)
         } yield assertTrue(
           response.errors.isEmpty,
           sentB.size == 4,
+          combined.size == 1,
+          combined.flatMap(_.query).exists("_caliban_gateway_entities_".r.findAllIn(_).size == 4),
           validB.forall(_.isSuccess),
           sentB.flatMap(_.query).exists(_.contains("reviews(limit:1)")),
           sentB.flatMap(_.query).exists(_.contains("reviews(limit:2)")),

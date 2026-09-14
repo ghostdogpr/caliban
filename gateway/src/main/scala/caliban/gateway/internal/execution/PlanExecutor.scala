@@ -279,7 +279,12 @@ private[gateway] final class PlanExecutor[-R](
   )(implicit trace: Trace): URIO[R, EntityExecution] =
     if (pending.isEmpty) ZIO.succeed(EntityExecution(roots, Nil))
     else {
-      val ready = pending.filter(fetch => fetch.dependencies.forall(completed.contains))
+      val (available, waiting) = pending.partition(fetch => fetch.dependencies.forall(completed.contains))
+      val scheduled            = available.filterNot { fetch =>
+        val key = cache.groupKey(fetch)
+        waiting.exists(cache.groupKey(_) == key) && waiting.forall(!_.dependencies.contains(fetch.id))
+      }
+      val ready                = if (scheduled.isEmpty) available else scheduled
       if (ready.isEmpty)
         ZIO.succeed(
           EntityExecution(
@@ -511,6 +516,9 @@ private[internal] final class PlanExecutionCache {
   val roots: ConcurrentHashMap[FetchId, PlanExecutor.PreparedRoot]        = new ConcurrentHashMap
   val groupKeys: ConcurrentHashMap[FetchId, OperationPlan.EntityGroupKey] = new ConcurrentHashMap
   val lookups: ConcurrentHashMap[FetchId, EntityLookup.PreparedLookup]    = new ConcurrentHashMap
+
+  def groupKey(fetch: EntityFetch): OperationPlan.EntityGroupKey =
+    PlanExecutionCache.memoize(groupKeys, fetch.id)(entityGroupKey(fetch))
 }
 
 /**

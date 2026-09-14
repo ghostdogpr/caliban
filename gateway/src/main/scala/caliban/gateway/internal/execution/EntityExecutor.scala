@@ -23,9 +23,6 @@ private[gateway] final class EntityExecutor[-R](
 ) {
   private val lookups = new EntityLookup(graph)
 
-  private def cachedGroupKey(fetch: EntityFetch, cache: PlanExecutionCache): EntityGroupKey =
-    PlanExecutionCache.memoize(cache.groupKeys, fetch.id)(entityGroupKey(fetch))
-
   def execute(
     fetches: List[EntityFetch],
     roots: Map[FetchId, ResponseValue],
@@ -35,7 +32,7 @@ private[gateway] final class EntityExecutor[-R](
   )(implicit trace: Trace): URIO[R, List[EntityResult]] = {
     val grouped    = mutable.LinkedHashMap.empty[EntityGroupKey, mutable.ListBuffer[EntityFetch]]
     fetches.foreach { fetch =>
-      val key = cachedGroupKey(fetch, cache)
+      val key = cache.groupKey(fetch)
       grouped.get(key) match {
         case Some(group) => group += fetch
         case None        => grouped.put(key, mutable.ListBuffer(fetch))
@@ -55,7 +52,76 @@ private[gateway] final class EntityExecutor[-R](
     grouped.values.toList match {
       case group :: Nil => executeGroup(group, blocked, candidates, resolvedRequest, cache).map(_ :: Nil)
       case groups       =>
-        ZIO.foreachPar(groups)(group => executeGroup(group, blocked, candidates, resolvedRequest, cache))
+        val (combined, separate) = groups.zipWithIndex.partition { case (group, _) => combinable(group.head) }
+        val tasks                =
+          separate.map { case (group, index) =>
+            executeGroup(group, blocked, candidates, resolvedRequest, cache).map(result => List(index -> result))
+          } ::: combined.groupBy { case (group, _) => group.head.source }.toList.map { case (source, same) =>
+            executeCombined(source, same, blocked, candidates, resolvedRequest, cache)
+          }
+        ZIO.foreachPar(tasks)(identity).map(_.flatten.sortBy(_._1).map(_._2))
+    }
+  }
+
+  private def combinable(fetch: EntityFetch): Boolean =
+    fetch.contextArguments.isEmpty && (fetch.lookup.operation match {
+      case _: ComposedGraph.LookupOperation.FederationEntities => true
+      case _                                                   => false
+    })
+
+  private def executeCombined(
+    source: String,
+    groups: List[(mutable.ListBuffer[EntityFetch], Int)],
+    blocked: Map[FetchId, Set[List[PathValue]]],
+    candidates: mutable.HashMap[(FetchId, Vector[String]), List[(List[PathValue], ResponseValue)]],
+    resolvedRequest: GraphQLRequest,
+    cache: PlanExecutionCache
+  )(implicit trace: Trace): URIO[R, List[(Int, EntityResult)]] = {
+    val prepared         = groups.map { case (group, index) =>
+      PreparedGroup(index, group.toList, prepareBatch(group.toList, candidates, blocked))
+    }
+    val (pending, empty) = prepared.partition(_.batch.entries.nonEmpty)
+    val emptyResults     = empty.map { group =>
+      group.index -> EntityResult(Nil, group.batch.errors, group.batch.blocked, group.batch.unmatched)
+    }
+    val executed         = pending match {
+      case Nil          => ZIO.succeed(Nil)
+      case group :: Nil =>
+        executeBatch(group.fetches, group.batch, resolvedRequest, cache).map(result => List(group.index -> result))
+      case _            => executeParts(source, pending, resolvedRequest, cache)
+    }
+    executed.map(_ ::: emptyResults)
+  }
+
+  private def executeParts(
+    source: String,
+    groups: List[PreparedGroup],
+    resolvedRequest: GraphQLRequest,
+    cache: PlanExecutionCache
+  )(implicit trace: Trace): URIO[R, List[(Int, EntityResult)]] = {
+    val calls  = groups.zipWithIndex.flatMap { case (group, slot) =>
+      lookups
+        .prepare(group.fetches.head, group.batch, resolvedRequest, cache, Some(slot))
+        .flatMap(call => call.part.map(part => (group, call, part)))
+    }
+    def failed = groups.map(group => group.index -> failure(group.fetches, group.batch))
+    subgraphExecutors.get(source) match {
+      case Some(executor) if calls.size == groups.size =>
+        executor
+          .execute(EntityLookup.combine(calls.map(_._3), resolvedRequest), OperationType.Query)
+          .map { response =>
+            calls.map { case (group, call, part) =>
+              group.index -> call.complete(EntityLookup.partResponse(response, part), executor.errorPolicy)
+            }
+          }
+          .catchAll {
+            case SubgraphExecutor.RequestTooLarge =>
+              ZIO.foreachPar(groups) { group =>
+                executeBatch(group.fetches, group.batch, resolvedRequest, cache).map(group.index -> _)
+              }
+            case _                                => ZIO.succeed(failed)
+          }
+      case _                                           => ZIO.succeed(failed)
     }
   }
 
@@ -66,13 +132,12 @@ private[gateway] final class EntityExecutor[-R](
     resolvedRequest: GraphQLRequest,
     cache: PlanExecutionCache
   )(implicit trace: Trace): URIO[R, EntityResult] = {
-    val fetch   = group.head
     val fetches = group.toList
     val batch   = prepareBatch(fetches, candidates, blocked)
 
     if (batch.entries.isEmpty) ZIO.succeed(EntityResult(Nil, batch.errors, batch.blocked, batch.unmatched))
     else if (fetches.forall(_.contextArguments.isEmpty))
-      executeBatch(fetch, fetches, batch, resolvedRequest, cache)
+      executeBatch(fetches, batch, resolvedRequest, cache)
     else {
       val grouped = batch.entries.groupBy(_.contextArguments).values.toList
       val batches = grouped.zipWithIndex.map { case (entries, index) =>
@@ -83,7 +148,7 @@ private[gateway] final class EntityExecutor[-R](
           unmatched = if (index == 0) batch.unmatched else Map.empty
         )
       }
-      ZIO.foreachPar(batches)(executeBatch(fetch, fetches, _, resolvedRequest, cache)).map { results =>
+      ZIO.foreachPar(batches)(executeBatch(fetches, _, resolvedRequest, cache)).map { results =>
         EntityResult(
           results.flatMap(_.patches),
           results.flatMap(_.errors),
@@ -95,30 +160,25 @@ private[gateway] final class EntityExecutor[-R](
   }
 
   private def executeBatch(
-    fetch: EntityFetch,
     fetches: List[EntityFetch],
     batch: EntityBatch,
     resolvedRequest: GraphQLRequest,
     cache: PlanExecutionCache
   )(implicit trace: Trace): URIO[R, EntityResult] = {
-    def failure = EntityResult(
-      Nil,
-      batch.errors ::: fetches.map(fetch => RemoteError.at(fetchPath(fetch))),
-      blockAll(batch),
-      batch.unmatched
-    )
+    val fetch  = fetches.head
+    def failed = failure(fetches, batch)
 
-    lookups.prepare(fetch, batch, resolvedRequest, cache) match {
+    lookups.prepare(fetch, batch, resolvedRequest, cache, None) match {
       case Some(lookup) =>
         subgraphExecutors.get(fetch.source) match {
           case Some(executor) =>
             executor
               .execute(lookup.request, OperationType.Query)
               .map(response => lookup.complete(response, executor.errorPolicy))
-              .catchAll(_ => ZIO.succeed(failure))
-          case None           => ZIO.succeed(failure)
+              .catchAll(_ => ZIO.succeed(failed))
+          case None           => ZIO.succeed(failed)
         }
-      case None         => ZIO.succeed(failure)
+      case None         => ZIO.succeed(failed)
     }
   }
 
@@ -297,6 +357,14 @@ private[gateway] final class EntityExecutor[-R](
       case NullValue                            => ()
       case other                                => collected += (reversedPath.reverse -> other)
     }
+
+  private def failure(fetches: List[EntityFetch], batch: EntityBatch): EntityResult =
+    EntityResult(
+      Nil,
+      batch.errors ::: fetches.map(fetch => RemoteError.at(fetchPath(fetch))),
+      blockAll(batch),
+      batch.unmatched
+    )
 
   private def blockAll(batch: EntityBatch): Map[FetchId, Set[List[PathValue]]] =
     blockEntries(batch.blocked, batch.entries)
@@ -504,6 +572,8 @@ private[gateway] object EntityExecutor {
     }
     (remainingLeft eq Nil) && (remainingRight eq Nil)
   }
+
+  private final case class PreparedGroup(index: Int, fetches: List[EntityFetch], batch: EntityBatch)
 
   private[execution] final case class EntityLocation(fetch: EntityFetch, path: List[PathValue])
 

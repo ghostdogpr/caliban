@@ -359,15 +359,19 @@ object FieldRoutingSpec extends ZIOSpecDefault {
         for {
           products            <- stub(productsResponse)
           pricing             <- stub("""{"data":{"_entities":[{"_caliban_gateway_requirement_price":20}]}}""")
-          shipping            <- stubByRequest(request =>
-                                   request.variables
+          shipping            <- stubByRequest { request =>
+                                   val entities = request.variables
                                      .flatMap(_.get("representations"))
-                                     .collect { case ListValue(InputObjectValue(fields) :: Nil) => fields.get("price") }
-                                     .flatten match {
-                                     case Some(IntNumber(10)) => """{"data":{"_entities":[{"shipping":100}]}}"""
-                                     case _                   => """{"data":{"_entities":[{"shipping":200}]}}"""
-                                   }
-                                 )
+                                     .collect { case ListValue(values) => values }
+                                     .getOrElse(Nil)
+                                     .map {
+                                       case InputObjectValue(fields) if fields.get("price").contains(IntNumber(10)) =>
+                                         """{"shipping":100}"""
+                                       case _                                                                       =>
+                                         """{"shipping":200}"""
+                                     }
+                                   s"""{"data":{"_entities":[${entities.mkString(",")}]}}"""
+                                 }
           gateway             <- Gateway
                                    .compose(
                                      Subgraph.federation("products", products.endpoint, productsSchema),
@@ -407,6 +411,7 @@ object FieldRoutingSpec extends ZIOSpecDefault {
           priceRepresentations.collect { case InputObjectValue(fields) => fields.get("id") }.flatten == List(
             StringValue("r1")
           ),
+          sentC.size == 1,
           shippingPrices == List(IntNumber(10), IntNumber(20))
         )
       },
