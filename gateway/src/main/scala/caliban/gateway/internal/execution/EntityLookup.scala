@@ -71,12 +71,12 @@ private[internal] final class EntityLookup(
         GraphQLVariant(correlation, selections(correlation), responseToClient(correlation))
 
       fetch.lookup.operation match {
-        case ComposedGraph.LookupOperation.FederationEntities(correlationKey)                                      =>
+        case ComposedGraph.LookupOperation.FederationEntities(correlatesByKey)                                     =>
           PreparedLookup.Federation(
             executableFields,
             restorer,
             federation(EntityCorrelation.Ordered),
-            correlationKey.map(_ => federation(federationCorrelation(fetch, executableFields)))
+            if (correlatesByKey) Some(federation(federationCorrelation(fetch, executableFields))) else None
           )
         case ComposedGraph.LookupOperation.GraphQLQuery(field, arguments, ComposedGraph.LookupResult.Single)       =>
           PreparedLookup.Single(executableFields, restorer, field, arguments, graphql(EntityCorrelation.Ordered))

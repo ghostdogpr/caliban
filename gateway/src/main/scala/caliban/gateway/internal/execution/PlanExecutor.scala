@@ -194,10 +194,10 @@ private[gateway] final class PlanExecutor[-R](
     pending: List[RootFetch],
     execution: ExecutionRequest,
     resolvedRequest: GraphQLRequest
-  )(implicit trace: Trace): ZIO[R, Nothing, RemoteExecution] = {
+  )(implicit trace: Trace): ZIO[R, Nothing, RemoteExecution.Completed] = {
     val plan = prepared.plan
     pending match {
-      case Nil           => ZIO.succeed(RemoteExecution(Nil, Nil))
+      case Nil           => ZIO.succeed(RemoteExecution.Completed(Nil, Nil, Nil, aborted = false))
       case fetch :: tail =>
         executeRoot(fetch, execution, resolvedRequest, prepared.cache).flatMap { root =>
           val rootData = mutationRootData(fetch, root.response.data)
@@ -216,19 +216,15 @@ private[gateway] final class PlanExecutor[-R](
             )
             if (completed.bubblesNull)
               ZIO.succeed(
-                RemoteExecution(
-                  completedRoot :: Nil,
-                  remote.entities,
-                  completed.errors,
-                  aborted = true
-                )
+                RemoteExecution.Completed(completedRoot :: Nil, remote.entities, completed.errors, aborted = true)
               )
             else
               executeMutations(prepared, tail, execution, resolvedRequest).map(next =>
-                next.copy(
-                  roots = completedRoot :: next.roots,
-                  entities = remote.entities ::: next.entities,
-                  completionErrors = completed.errors ::: next.completionErrors
+                RemoteExecution.Completed(
+                  completedRoot :: next.roots,
+                  remote.entities ::: next.entities,
+                  completed.errors ::: next.completionErrors,
+                  next.aborted
                 )
               )
           }
@@ -248,7 +244,7 @@ private[gateway] final class PlanExecutor[-R](
     roots: List[RootResult],
     resolvedRequest: GraphQLRequest,
     cache: PlanExecutionCache
-  )(implicit trace: Trace): URIO[R, RemoteExecution] = {
+  )(implicit trace: Trace): URIO[R, RemoteExecution.Fetched] = {
     val rootValues = roots.iterator.map(result => result.fetch.id -> result.response.data).toMap
     executeEntities(
       fetches,
@@ -265,7 +261,7 @@ private[gateway] final class PlanExecutor[-R](
           )
         )
       )
-      RemoteExecution(updated, execution.results)
+      RemoteExecution.Fetched(updated, execution.results)
     }
   }
 
@@ -434,13 +430,15 @@ private[gateway] final class PlanExecutor[-R](
             .getOrElse(NullValue)
       field.aliasedName -> value
     })
-    val errors      =
-      local.errors ::: roots.flatMap(_.response.errors) ::: entities.flatMap(_.errors) ::: remote.completionErrors
-    if (remote.aborted) GraphQLResponse(NullValue, errors)
-    else if (plan.operation == OperationType.Mutation) GraphQLResponse(data, errors)
-    else {
-      val completed = prepared.completion.complete(plan.fields, data, errors)
-      GraphQLResponse(completed.toResponseValue, errors ::: completed.errors)
+    val errors      = local.errors ::: roots.flatMap(_.response.errors) ::: entities.flatMap(_.errors)
+    remote match {
+      case RemoteExecution.Fetched(_, _)                           =>
+        val completed = prepared.completion.complete(plan.fields, data, errors)
+        GraphQLResponse(completed.toResponseValue, errors ::: completed.errors)
+      case RemoteExecution.Completed(_, _, completionErrors, true) =>
+        GraphQLResponse(NullValue, errors ::: completionErrors)
+      case RemoteExecution.Completed(_, _, completionErrors, _)    =>
+        GraphQLResponse(data, errors ::: completionErrors)
     }
   }
 
@@ -486,12 +484,21 @@ private[gateway] object PlanExecutor {
 
   private final case class EntityExecution(roots: Map[FetchId, ResponseValue], results: List[EntityResult])
 
-  private final case class RemoteExecution(
-    roots: List[RootResult],
-    entities: List[EntityResult],
-    completionErrors: List[CalibanError] = Nil,
-    aborted: Boolean = false
-  )
+  private sealed trait RemoteExecution {
+    def roots: List[RootResult]
+    def entities: List[EntityResult]
+  }
+
+  private object RemoteExecution {
+    final case class Fetched(roots: List[RootResult], entities: List[EntityResult]) extends RemoteExecution
+
+    final case class Completed(
+      roots: List[RootResult],
+      entities: List[EntityResult],
+      completionErrors: List[CalibanError],
+      aborted: Boolean
+    ) extends RemoteExecution
+  }
 
 }
 

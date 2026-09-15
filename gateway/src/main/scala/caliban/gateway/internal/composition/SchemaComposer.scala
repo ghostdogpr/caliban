@@ -1666,9 +1666,7 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
                 case key if key.resolvable =>
                   ComposedGraph.EntityLookup(
                     key.fields,
-                    ComposedGraph.LookupOperation.FederationEntities(
-                      if (declaresEntityLookup(subgraph, name)) Some(key.fields) else None
-                    ),
+                    ComposedGraph.LookupOperation.FederationEntities(declaresEntityLookup(subgraph, name)),
                     if (interfaceObject) Some(name) else None
                   )
               }

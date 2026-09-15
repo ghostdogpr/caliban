@@ -67,7 +67,7 @@ private[gateway] final class GatewayInterpreterImpl[-R](
       outcome: Outcome
     ): URIO[R, RequestResult] =
       hooks.completion.run(Event.Completion)(
-        GraphQLResponseContext.markServerError(failure).as(RequestResult(response, outcome, None))
+        GraphQLResponseContext.markServerError(failure).as(RequestResult.NotExecuted(response, outcome))
       )(classifyRequestResult)
 
     val preparation = hooks.routing
@@ -80,19 +80,19 @@ private[gateway] final class GatewayInterpreterImpl[-R](
       .runObservedRequest(Event.Request(request.operationName), reservation)(preparation)(
         _.fold(_ => true, _.plan.plan.operation != OperationType.Subscription)
       )(
-        _.fold(
+        _.fold[URIO[R, RequestResult]](
           error =>
             hooks
               .observeCompletion(failPreparation(error))
-              .map(RequestResult(_, preparationOutcome(error), None)),
+              .map(RequestResult.NotExecuted(_, preparationOutcome(error))),
           prepared =>
             executePrepared(prepared).map { response =>
-              RequestResult(
+              RequestResult.Executed(
                 response,
                 if (response.errors.isEmpty) Outcome.Success else Outcome.GraphQLError,
-                Some(prepared.plan.plan.operation),
-                Some(prepared.document),
-                Some(prepared.executionRequest)
+                prepared.plan.plan.operation,
+                prepared.document,
+                prepared.executionRequest
               )
             }
         )
@@ -111,15 +111,11 @@ private[gateway] final class GatewayInterpreterImpl[-R](
    */
   private def observedOperation(exit: Exit[Nothing, RequestResult]): OperationEvent =
     exit match {
-      case Exit.Success(result) =>
-        OperationEvent(
-          result.document,
-          result.executionRequest,
-          result.operationType,
-          result.response.errors,
-          result.outcome
-        )
-      case Exit.Failure(cause)  =>
+      case Exit.Success(RequestResult.Executed(response, outcome, operation, document, execution)) =>
+        OperationEvent(Some(document), Some(execution), Some(operation), response.errors, outcome)
+      case Exit.Success(RequestResult.NotExecuted(response, outcome))                              =>
+        OperationEvent(None, None, None, response.errors, outcome)
+      case Exit.Failure(cause)                                                                     =>
         OperationEvent(None, None, None, Nil, if (cause.isInterrupted) Outcome.Cancelled else Outcome.InternalError)
     }
 
@@ -162,7 +158,11 @@ private[gateway] final class GatewayInterpreterImpl[-R](
 
   private def classifyRequestResult(exit: Exit[Nothing, RequestResult]): Result =
     Result.fromExit(exit)(
-      result => Result(result.outcome, result.operationType, result.response.errors.size),
+      {
+        case RequestResult.Executed(response, outcome, operation, _, _) =>
+          Result(outcome, Some(operation), response.errors.size)
+        case RequestResult.NotExecuted(response, outcome)               => Result(outcome, None, response.errors.size)
+      },
       _ => Result(Outcome.InternalError)
     )
 
@@ -179,12 +179,20 @@ private[gateway] object GatewayInterpreterImpl {
   private[gateway] val requestShutdownResponse =
     GraphQLResponse(NullValue, requestShutdownError :: Nil)
 
-  private final case class RequestResult(
-    response: GraphQLResponse[CalibanError],
-    outcome: Outcome,
-    operationType: Option[OperationType],
-    document: Option[Document] = None,
-    executionRequest: Option[ExecutionRequest] = None
-  )
+  private sealed trait RequestResult {
+    def response: GraphQLResponse[CalibanError]
+  }
+
+  private object RequestResult {
+    final case class Executed(
+      response: GraphQLResponse[CalibanError],
+      outcome: Outcome,
+      operation: OperationType,
+      document: Document,
+      executionRequest: ExecutionRequest
+    ) extends RequestResult
+
+    final case class NotExecuted(response: GraphQLResponse[CalibanError], outcome: Outcome) extends RequestResult
+  }
 
 }

@@ -166,7 +166,7 @@ object ExecutionModelSpec extends ZIOSpecDefault {
                       typename = None,
                       lookup = ComposedGraph.EntityLookup(
                         List(ComposedGraph.KeyField("id", Nil)),
-                        ComposedGraph.LookupOperation.FederationEntities(None)
+                        ComposedGraph.LookupOperation.FederationEntities(correlatesByKey = false)
                       ),
                       fields = List(name),
                       mayNeedPrerequisiteFetches = false

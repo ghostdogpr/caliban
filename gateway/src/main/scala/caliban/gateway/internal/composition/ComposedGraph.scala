@@ -587,7 +587,7 @@ private[gateway] object ComposedGraph {
   }
 
   object LookupOperation {
-    final case class FederationEntities(correlationKey: Option[List[KeyField]]) extends LookupOperation {
+    final case class FederationEntities(correlatesByKey: Boolean) extends LookupOperation {
       val requiresTypename: Boolean = true
     }
 

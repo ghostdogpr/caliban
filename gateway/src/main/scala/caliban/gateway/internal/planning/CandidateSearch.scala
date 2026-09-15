@@ -29,7 +29,7 @@ private[gateway] final class CandidateSearch(limits: Limits) {
   ): Either[PlanningFailure, List[B]] =
     values match {
       case value :: Nil => check.flatMap(_ => evaluate(value)).map(List(_))
-      case Nil          => check.flatMap(_ => Left(PlanningFailure("No complete route candidate was found.")))
+      case Nil          => check.flatMap(_ => Left(PlanningFailure.Rejected("No complete route candidate was found.")))
       case _            =>
         candidates(values.size).flatMap { _ =>
           var remaining    = values
@@ -43,9 +43,9 @@ private[gateway] final class CandidateSearch(limits: Limits) {
             }
             if (stopped.isEmpty) {
               evaluate(remaining.head) match {
-                case Right(candidate)                   => successes = candidate :: successes
-                case Left(failure) if failure.exhausted => stopped = Some(failure)
-                case Left(failure)                      => firstFailure = firstFailure.orElse(Some(failure))
+                case Right(candidate)                         => successes = candidate :: successes
+                case Left(failure: PlanningFailure.Exhausted) => stopped = Some(failure)
+                case Left(failure)                            => firstFailure = firstFailure.orElse(Some(failure))
               }
               remaining = remaining.tail
             }
@@ -53,7 +53,8 @@ private[gateway] final class CandidateSearch(limits: Limits) {
           stopped match {
             case Some(failure)              => Left(failure)
             case None if successes.nonEmpty => Right(successes.reverse)
-            case None                       => Left(firstFailure.getOrElse(PlanningFailure("No complete route candidate was found.")))
+            case None                       =>
+              Left(firstFailure.getOrElse(PlanningFailure.Rejected("No complete route candidate was found.")))
           }
         }
     }
@@ -80,11 +81,18 @@ private[gateway] final class CandidateSearch(limits: Limits) {
     }
 
   private def exhausted(message: String): Either[PlanningFailure, Unit] =
-    Left(PlanningFailure(message, exhausted = true))
+    Left(PlanningFailure.Exhausted(message))
 }
 
 private[gateway] object CandidateSearch {
-  final case class PlanningFailure(message: String, exhausted: Boolean = false)
+  sealed trait PlanningFailure {
+    def message: String
+  }
+
+  object PlanningFailure {
+    final case class Exhausted(message: String) extends PlanningFailure
+    final case class Rejected(message: String)  extends PlanningFailure
+  }
 
   final case class Limits(maxCandidates: Int, maxExpansions: Int, timeout: Duration)
 
