@@ -266,9 +266,7 @@ private[gateway] final class OperationPlanner(
         else {
           val required                                               =
             (fetch.keys ::: fetch.requirements).flatMap(selectionPaths).map(fetch.mergePath ++ _).toSet ++
-              fetch.contextArguments.flatMap(argument =>
-                argument.selections.flatMap(selectionPaths).map(argument.sourcePath ++ _)
-              )
+              fetch.contextArguments.flatMap(argument => argument.projection.paths.map(argument.sourcePath ++ _))
           def provided(candidate: EntityFetch): List[Vector[String]] =
             providedPaths(candidate.id).map { case (path, _) => candidate.mergePath ++ path }.filter(required)
           def providedElsewhere(path: Vector[String]): Boolean       =
@@ -1236,15 +1234,15 @@ private[gateway] final class OperationPlanner(
       }
       if (pending.isEmpty) field -> active
       else {
-        val requirements                  = pending.map { case (_, binding) =>
+        val requirements                 = pending.map { case (_, binding) =>
           binding -> fieldSetFields(binding.argument.selections, parentType)
         }
-        val (injectedFields, selections)  = injectRequirementFields(
+        val (injectedFields, selections) = injectRequirementFields(
           field,
           field.fields.toVector,
           requirements.flatMap(_._2)
         )
-        val withSelections                = requirements
+        val withSelections               = requirements
           .foldLeft((List.empty[(ContextBinding, List[RequiredSelection])], selections)) {
             case ((values, remaining), (binding, fields)) =>
               val (selected, tail) = remaining.splitAt(fields.size)
@@ -1252,15 +1250,15 @@ private[gateway] final class OperationPlanner(
           }
           ._1
           .reverse
-        val needsTypename                 = withSelections.exists(_._2.exists(_.conditions.nonEmpty))
-        val (typenameSelection, typename) =
+        val needsTypename                = withSelections.exists(_._2.exists(_.conditions.nonEmpty))
+        val (typenameAlias, typename)    =
           if (needsTypename) {
             val used              = (field.fields.iterator ++ injectedFields.iterator).map(_.aliasedName).toSet
             val (alias, selected) = privateTypename("_caliban_gateway_context_typename", parentType, used)
-            Some(RequiredSelection("__typename", alias)) -> (selected :: Nil)
+            Some(alias) -> (selected :: Nil)
           } else None -> Nil
-        val selectedField                 = field.copy(fields = field.fields ::: injectedFields ::: typename)
-        val activated                     = pending.zip(withSelections).map { case ((declaration, _), (binding, selected)) =>
+        val selectedField                = field.copy(fields = field.fields ::: injectedFields ::: typename)
+        val activated                    = pending.zip(withSelections).map { case ((declaration, _), (binding, selected)) =>
           ActiveContext(
             declaration.source,
             ContextualArgument(
@@ -1270,14 +1268,35 @@ private[gateway] final class OperationPlanner(
               declaration.name,
               path,
               typeName,
-              selected,
-              typenameSelection
+              contextProjection(selected, typenameAlias)
             )
           )
         }
         selectedField -> (active ::: activated)
       }
     }
+
+  private def contextProjection(
+    selections: List[RequiredSelection],
+    typenameAlias: Option[String]
+  ): ContextProjection = {
+    def chain(selection: RequiredSelection): List[String] =
+      selection.responseName :: selection.children.headOption.fold(List.empty[String])(chain)
+
+    typenameAlias match {
+      case None        => ContextProjection.Path(selections.headOption.fold(List.empty[String])(chain))
+      case Some(alias) =>
+        ContextProjection.ByType(
+          alias,
+          selections.foldLeft(Map.empty[String, List[String]]) { (byType, selection) =>
+            val names = chain(selection)
+            selection.conditions.fold(byType)(_.foldLeft(byType) { (byType, runtimeType) =>
+              if (byType.contains(runtimeType)) byType else byType.updated(runtimeType, names)
+            })
+          }
+        )
+    }
+  }
 
   private def contextualArguments(
     source: String,
@@ -1668,9 +1687,7 @@ private[gateway] final class OperationPlanner(
     entities.foldLeft(0) { (count, entity) =>
       count + entity.keys.foldLeft(0)((value, key) => value + selectionCount(key)) +
         entity.requirements.foldLeft(0)((value, requirement) => value + selectionCount(requirement)) +
-        entity.contextArguments
-          .flatMap(_.selections)
-          .foldLeft(0)((value, selection) => value + selectionCount(selection)) +
+        entity.contextArguments.flatMap(_.projection.paths).foldLeft(0)((value, names) => value + names.size) +
         entity.typename.size
     }
 

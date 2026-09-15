@@ -283,37 +283,33 @@ private[gateway] final class EntityExecutor[-R](
         .lastOption
         .map(_._2)
       source.flatMap { value =>
-        val fields      = IndexedFields(value)
-        val runtimeType = argument.typename
-          .flatMap(selection => fields.get(selection.responseName).collect { case StringValue(name) => name })
-          .getOrElse(argument.sourceType)
-        readContextInput(argument.selections, runtimeType, fields)
+        val fields = IndexedFields(value)
+        val names  = argument.projection match {
+          case ContextProjection.Path(names)                        => names
+          case ContextProjection.ByType(typenameAlias, pathsByType) =>
+            val runtimeType = fields.get(typenameAlias) match {
+              case Some(StringValue(name)) => name
+              case _                       => argument.sourceType
+            }
+            pathsByType.getOrElse(runtimeType, Nil)
+        }
+        projectContextInput(names, fields)
       }.map(argument -> _)
     }
 
-  private def readContextInput(
-    selections: List[RequiredSelection],
-    runtimeType: String,
-    value: IndexedFields
-  ): Option[InputValue] =
-    selections.filter(appliesTo(_, runtimeType)) match {
-      case selection :: Nil => value.get(selection.responseName).flatMap(selectedContextInput(selection, _))
-      case _                => None
+  private def projectContextInput(names: List[String], fields: IndexedFields): Option[InputValue] =
+    names match {
+      case name :: rest => fields.get(name).flatMap(projectContextValue(rest, _))
+      case Nil          => None
     }
 
-  private def selectedContextInput(selection: RequiredSelection, value: ResponseValue): Option[InputValue] =
+  private def projectContextValue(names: List[String], value: ResponseValue): Option[InputValue] =
     if (value == NullValue) Some(NullValue)
-    else if (selection.children.isEmpty) responseInput(value)
+    else if (names.isEmpty) responseInput(value)
     else
       value match {
-        case obj: ObjectValue  =>
-          val fields = IndexedFields(obj)
-          selection.children match {
-            case child :: Nil => fields.get(child.responseName).flatMap(selectedContextInput(child, _))
-            case _            => None
-          }
-        case ListValue(values) =>
-          traverseOption(values)(selectedContextInput(selection, _)).map(InputListValue.apply)
+        case obj: ObjectValue  => projectContextInput(names, IndexedFields(obj))
+        case ListValue(values) => traverseOption(values)(projectContextValue(names, _)).map(InputListValue.apply)
         case _                 => None
       }
 

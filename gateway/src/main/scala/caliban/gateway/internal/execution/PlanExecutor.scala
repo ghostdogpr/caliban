@@ -63,7 +63,7 @@ private[gateway] final class PlanExecutor[-R](
     }
 
   def execute(
-    prepared: PreparedPlan,
+    prepared: PreparedPlan.Request,
     execution: ExecutionRequest,
     resolvedRequest: GraphQLRequest
   )(implicit trace: Trace): ZIO[R, Nothing, GraphQLResponse[CalibanError]] = {
@@ -106,7 +106,7 @@ private[gateway] final class PlanExecutor[-R](
   }
 
   def forSubscription(
-    prepared: PreparedPlan
+    prepared: PreparedPlan.Subscription
   )(implicit trace: Trace): ZIO[R, SubgraphExecutor.Failure, PlanExecutor[R]] = {
     val used = prepared.plan.roots.map(_.source).toSet ++ prepared.plan.entities.map(_.source)
     ZIO
@@ -116,10 +116,14 @@ private[gateway] final class PlanExecutor[-R](
       .map(new PlanExecutor(graph, _, hooks))
   }
 
-  def subscribe(prepared: PreparedPlan, execution: ExecutionRequest, resolvedRequest: GraphQLRequest)(implicit
+  def subscribe(
+    prepared: PreparedPlan.Subscription,
+    execution: ExecutionRequest,
+    resolvedRequest: GraphQLRequest
+  )(implicit
     trace: Trace
   ): ZIO[R with Scope, Throwable, ZStream[Any, Throwable, GraphQLResponse[CalibanError]]] = {
-    val fetch    = prepared.plan.roots.head
+    val fetch    = prepared.source
     val executor = subgraphExecutors(fetch.source)
 
     def open(
@@ -150,38 +154,34 @@ private[gateway] final class PlanExecutor[-R](
     }
   }
 
-  def executeEvent(prepared: PreparedPlan, request: GraphQLRequest, response: GraphQLResponse[CalibanError])(implicit
+  def executeEvent(
+    prepared: PreparedPlan.Subscription,
+    request: GraphQLRequest,
+    response: GraphQLResponse[CalibanError]
+  )(implicit
     trace: Trace
-  ): URIO[R, GraphQLResponse[CalibanError]] = {
-    val plan  = prepared.plan
-    val fetch = plan.roots.head
+  ): URIO[R, GraphQLResponse[CalibanError]] =
     if (response.data == NullValue) ZIO.succeed(response.copy(extensions = None))
     else
       executeEntityFetches(
-        plan.entities,
-        RootResult(fetch, response.copy(extensions = None)) :: Nil,
+        prepared.plan.entities,
+        RootResult(prepared.source, response.copy(extensions = None)) :: Nil,
         request,
         prepared.cache
       ).map { remote =>
         assemble(prepared, remote, GraphQLResponse(ObjectValue.empty, Nil))
       }
-  }
 
   private def executeRemote(
-    prepared: PreparedPlan,
+    prepared: PreparedPlan.Request,
     execution: ExecutionRequest,
     resolvedRequest: GraphQLRequest
   )(implicit trace: Trace): ZIO[R, Nothing, RemoteExecution] = {
     val plan = prepared.plan
-    plan.operation match {
-      case OperationType.Query        =>
-        executeRoots(plan.roots, execution, resolvedRequest, prepared.cache)
-          .flatMap(executeEntityFetches(plan.entities, _, resolvedRequest, prepared.cache))
-      case OperationType.Mutation     =>
-        executeMutations(prepared, plan.roots, execution, resolvedRequest)
-      case OperationType.Subscription => ZIO.succeed(RemoteExecution(Nil, Nil))
-    }
-
+    if (plan.operation == OperationType.Mutation) executeMutations(prepared, plan.roots, execution, resolvedRequest)
+    else
+      executeRoots(plan.roots, execution, resolvedRequest, prepared.cache)
+        .flatMap(executeEntityFetches(plan.entities, _, resolvedRequest, prepared.cache))
   }
 
   /**
@@ -524,9 +524,20 @@ private[internal] final class PlanExecutionCache {
 /**
  * Execution-only memoization, reused with the cached plan and replaced when variables are bound.
  */
-private[gateway] final class PreparedPlan(val plan: OperationPlan) {
+private[gateway] sealed abstract class PreparedPlan(val plan: OperationPlan) {
   lazy val cache: PlanExecutionCache                                 = new PlanExecutionCache
   lazy val completion: ResponseCompletion                            = ResponseCompletion.forPlan(plan)
   def hasVariableReferences: Boolean                                 = plan.hasVariableReferences
-  def bind(variables: Map[String, caliban.InputValue]): PreparedPlan = new PreparedPlan(plan.bind(variables))
+  def bind(variables: Map[String, caliban.InputValue]): PreparedPlan = PreparedPlan(plan.bind(variables))
+}
+
+private[gateway] object PreparedPlan {
+  def apply(plan: OperationPlan): PreparedPlan =
+    if (plan.operation == OperationType.Subscription) new Subscription(plan) else new Request(plan)
+
+  final class Request private[PreparedPlan] (plan: OperationPlan) extends PreparedPlan(plan)
+
+  final class Subscription private[PreparedPlan] (plan: OperationPlan) extends PreparedPlan(plan) {
+    val source: RootFetch = plan.roots.head
+  }
 }

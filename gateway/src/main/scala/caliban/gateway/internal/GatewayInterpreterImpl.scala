@@ -6,7 +6,7 @@ import caliban.Value.NullValue
 import caliban.execution.{ ExecutionRequest, Executor }
 import caliban.gateway.PhaseHooks.{ Event, Outcome, Result }
 import caliban.gateway.internal.GatewayInterpreterImpl._
-import caliban.gateway.internal.execution.PlanExecutor
+import caliban.gateway.internal.execution.{ PlanExecutor, PreparedPlan }
 import caliban.gateway.{ GatewayInterpreter, OperationEvent, PhaseHooks }
 import caliban.parsing.adt.{ Document, OperationType }
 import caliban._
@@ -131,11 +131,11 @@ private[gateway] final class GatewayInterpreterImpl[-R](
   private def executePrepared(prepared: OperationPreparation.Prepared)(implicit
     trace: Trace
   ): URIO[R, GraphQLResponse[CalibanError]] =
-    GraphQLResponseContext.markExecuted *> (
-      if (prepared.plan.plan.operation == OperationType.Subscription)
+    GraphQLResponseContext.markExecuted *> (prepared.plan match {
+      case subscription: PreparedPlan.Subscription =>
         (for {
           frozen  <- executor
-                       .forSubscription(prepared.plan)
+                       .forSubscription(subscription)
                        .mapError(_ => CalibanError.ExecutionError("Subscription headers could not be prepared."))
           env     <- ZIO.environment[R]
           headers <- IncomingRequestHeaders.get
@@ -145,16 +145,17 @@ private[gateway] final class GatewayInterpreterImpl[-R](
               .locallyScoped(headers)
               .as(
                 control.subscriptions
-                  .stream(frozen.subscribe(prepared.plan, prepared.executionRequest, prepared.request))(response =>
-                    frozen.executeEvent(prepared.plan, prepared.request, response)
+                  .stream(frozen.subscribe(subscription, prepared.executionRequest, prepared.request))(response =>
+                    frozen.executeEvent(subscription, prepared.request, response)
                   )
                   .provideEnvironment(env)
               )
           )
           GraphQLResponse(StreamValue(events.map(_.toResponseValue)), Nil)
         }).catchAll(failPreparation)
-      else executor.execute(prepared.plan, prepared.executionRequest, prepared.request)
-    )
+      case request: PreparedPlan.Request           =>
+        executor.execute(request, prepared.executionRequest, prepared.request)
+    })
 
   private def preparationOutcome(error: CalibanError): Outcome =
     if (OperationHooks.isInternalFailure(error)) Outcome.InternalError else Outcome.RequestError

@@ -291,7 +291,7 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
 
   private lazy val compiledLookups = validatedLookups.iterator.flatMap { case (subgraph, lookups) =>
     lookups.iterator.flatMap { case (lookup, result) =>
-      result.value.map((subgraph.name -> lookup.typeName) -> _)
+      result.toOption.map((subgraph.name -> lookup.typeName) -> _)
     }
   }.toMap
 
@@ -308,13 +308,13 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
             s"[${subgraph.name}] More than one lookup is declared for type '$typeName'."
         }
         .toList
-      sourceKind ::: duplicates ::: lookups.flatMap(_._2.diagnostics)
+      sourceKind ::: duplicates ::: lookups.flatMap(_._2.left.getOrElse(Nil))
     }
 
   private def validateLookup(
     subgraph: PreparedSubgraph,
     lookup: Lookup
-  ): ValidationResult[ComposedGraph.LookupOperation.GraphQLQuery] = {
+  ): Either[List[String], ComposedGraph.LookupOperation.GraphQLQuery] = {
     val prefix      = s"[${subgraph.name}]"
     val targetType  = subgraph.rootType.types.get(lookup.typeName)
     val rootName    = subgraph.rootType.queryType.name.getOrElse("Query")
@@ -370,7 +370,7 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
         }
         val shapeErrors =
           if (shapeValid) Nil else List(s"$prefix Lookup field '$rootName.${lookup.field}' must return $shape.")
-        shapeErrors ::: argumentValidation.toList.flatMap(_.diagnostics)
+        shapeErrors ::: argumentValidation.toList.flatMap(_.left.getOrElse(Nil))
     }
     val correlationDiagnostics = (lookup, targetType, sourceField) match {
       case (list: Lookup.ListLookup, Some(target), Some(field)) =>
@@ -383,10 +383,11 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
       case _: Lookup.Single         => ComposedGraph.LookupResult.Single
       case value: Lookup.ListLookup => ComposedGraph.LookupResult.ByKey(value.correlation)
     }
-    val compiled    = argumentValidation
-      .flatMap(_.value)
-      .map(arguments => ComposedGraph.LookupOperation.GraphQLQuery(lookup.field, arguments, result))
-    ValidationResult(diagnostics, if (diagnostics.isEmpty) compiled else None)
+    argumentValidation match {
+      case Some(Right(arguments)) if diagnostics.isEmpty =>
+        Right(ComposedGraph.LookupOperation.GraphQLQuery(lookup.field, arguments, result))
+      case _                                             => Left(diagnostics)
+    }
   }
 
   private def validateLookupArguments(
@@ -395,7 +396,7 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
     lookup: Lookup,
     field: __Field,
     keys: Map[String, __Field]
-  ): ValidationResult[Map[String, ComposedGraph.LookupArgument]] = {
+  ): Either[List[String], Map[String, ComposedGraph.LookupArgument]] = {
     val arguments   = field.allArgs.map(argument => argument.name -> argument).toMap
     val unknown     = lookup.arguments.iterator
       .map(_._1)
@@ -416,9 +417,9 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
           ) && !argument._type.isNullable && argument.defaultValue.isEmpty =>
         s"$prefix Required lookup argument '${lookup.field}.${argument.name}' has no mapping."
     }
-    val mappings    = lookup.arguments.flatMap { case (name, mapping) =>
+    val mappings    = validateAll(lookup.arguments.flatMap { case (name, mapping) =>
       arguments.get(name).toList.map(argument => name -> validateArgument(prefix, name, mapping, argument._type, keys))
-    }
+    })
     val batch       = lookup match {
       case _: Lookup.Single if lookup.arguments.exists(value => containsBatch(value._2))       =>
         List(s"$prefix Single lookup argument mappings cannot contain a batch mapping.")
@@ -434,15 +435,11 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
       else List(s"$prefix Lookup argument mappings must use every declared key field.")
 
     val diagnostics =
-      unknown ::: duplicates ::: missing ::: mappings.flatMap(_._2.diagnostics) ::: batch ::: keyCoverage
-    val compiled    = mappings.foldLeft(Option(Map.empty[String, ComposedGraph.LookupArgument])) {
-      case (values, (name, result)) =>
-        for {
-          map   <- values
-          value <- result.value
-        } yield map.updated(name, value)
+      unknown ::: duplicates ::: missing ::: mappings.left.getOrElse(Nil) ::: batch ::: keyCoverage
+    mappings match {
+      case Right(values) if diagnostics.isEmpty => Right(values.toMap)
+      case _                                    => Left(diagnostics)
     }
-    ValidationResult(diagnostics, if (diagnostics.isEmpty) compiled else None)
   }
 
   private def validateArgument(
@@ -451,29 +448,21 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
     mapping: Lookup.Argument,
     expected: __Type,
     keys: Map[String, __Field]
-  ): ValidationResult[ComposedGraph.LookupArgument] = {
+  ): Either[List[String], ComposedGraph.LookupArgument] = {
     val valueType = nullableType(expected)
     mapping match {
       case Lookup.Argument.Key(field)            =>
-        val diagnostics = keys.get(field) match {
-          case None           => List(s"$prefix Lookup argument '$path' references undeclared key field '$field'.")
-          case Some(keyField) =>
-            if (compatibleValueType(keyField._type, valueType)) Nil
-            else
-              List(
-                s"$prefix Lookup argument '$path' is incompatible with key field '${keyField.name}'."
-              )
+        keys.get(field) match {
+          case None                                                             =>
+            Left(List(s"$prefix Lookup argument '$path' references undeclared key field '$field'."))
+          case Some(keyField) if compatibleValueType(keyField._type, valueType) =>
+            Right(ComposedGraph.LookupArgument.Key(field, valueType))
+          case Some(keyField)                                                   =>
+            Left(List(s"$prefix Lookup argument '$path' is incompatible with key field '${keyField.name}'."))
         }
-        ValidationResult(
-          diagnostics,
-          if (diagnostics.isEmpty) Some(ComposedGraph.LookupArgument.Key(field, valueType)) else None
-        )
       case Lookup.Argument.ObjectMapping(fields) =>
         if (valueType.kind != __TypeKind.INPUT_OBJECT)
-          ValidationResult(
-            List(s"$prefix Lookup argument '$path' maps an object into a non-input-object value."),
-            None
-          )
+          Left(List(s"$prefix Lookup argument '$path' maps an object into a non-input-object value."))
         else {
           val inputFields = valueType.allInputFields.map(field => field.name -> field).toMap
           val duplicates  = fields
@@ -492,37 +481,35 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
             case input if !names.contains(input.name) && !input._type.isNullable && input.defaultValue.isEmpty =>
               s"$prefix Required lookup input field '$path.${input.name}' has no mapping."
           }
-          val mappings    = fields.flatMap { case (name, value) =>
+          val mappings    = validateAll(fields.flatMap { case (name, value) =>
             inputFields
               .get(name)
               .toList
               .map(input => name -> validateArgument(prefix, s"$path.$name", value, input._type, keys))
+          })
+          val diagnostics = duplicates ::: unknown ::: missing ::: mappings.left.getOrElse(Nil)
+          mappings match {
+            case Right(values) if diagnostics.isEmpty => Right(ComposedGraph.LookupArgument.ObjectMapping(values))
+            case _                                    => Left(diagnostics)
           }
-          val diagnostics = duplicates ::: unknown ::: missing ::: mappings.flatMap(_._2.diagnostics)
-          val compiled    = mappings.foldLeft(Option(List.empty[(String, ComposedGraph.LookupArgument)])) {
-            case (values, (name, result)) =>
-              for {
-                list  <- values
-                value <- result.value
-              } yield (name -> value) :: list
-          }
-          ValidationResult(
-            diagnostics,
-            if (diagnostics.isEmpty) compiled.map(values => ComposedGraph.LookupArgument.ObjectMapping(values.reverse))
-            else None
-          )
         }
       case Lookup.Argument.Batch(value)          =>
         if (containsBatch(value))
-          ValidationResult(List(s"$prefix Lookup argument '$path' cannot nest a batch mapping."), None)
+          Left(List(s"$prefix Lookup argument '$path' cannot nest a batch mapping."))
         else if (!valueType.isList)
-          ValidationResult(List(s"$prefix Lookup argument '$path' maps a batch into a non-list value."), None)
-        else {
-          val nested =
-            validateArgument(prefix, path, value, valueType.ofType.map(nullableType).getOrElse(valueType), keys)
-          ValidationResult(nested.diagnostics, nested.value.map(ComposedGraph.LookupArgument.Batch.apply))
-        }
+          Left(List(s"$prefix Lookup argument '$path' maps a batch into a non-list value."))
+        else
+          validateArgument(prefix, path, value, valueType.ofType.map(nullableType).getOrElse(valueType), keys)
+            .map(ComposedGraph.LookupArgument.Batch.apply)
     }
+  }
+
+  private def validateAll[A](
+    results: List[(String, Either[List[String], A])]
+  ): Either[List[String], List[(String, A)]] = {
+    val errors = results.flatMap(_._2.left.getOrElse(Nil))
+    if (errors.nonEmpty) Left(errors)
+    else Right(results.collect { case (name, Right(value)) => name -> value })
   }
 
   private def validateCorrelation(
@@ -2066,8 +2053,6 @@ private[gateway] object SchemaComposer {
     inaccessibleArguments: Set[String],
     contextualArguments: Set[String]
   )
-
-  private final case class ValidationResult[A](diagnostics: List[String], value: Option[A])
 
   private final case class CompositionSubgraph(
     subgraph: PreparedSubgraph,

@@ -127,7 +127,7 @@ object ExecutionModelSpec extends ZIOSpecDefault {
       val field      = Field("product", objectType, Some(queryType), arguments = Map("id" -> InputValue.VariableValue("id")))
       val fetch      = RootFetch(FetchId(0), "products", List(field), List(field), Nil)
       val plan       = OperationPlan(OperationType.Query, "Query", List(field), Nil, List(fetch), Nil, Nil, None)
-      val prepared   = new PreparedPlan(plan)
+      val prepared   = PreparedPlan(plan)
       val cache      = prepared.cache
       val completion = prepared.completion
       val bound      = prepared.bind(Map("id" -> StringValue("p1")))
@@ -172,7 +172,7 @@ object ExecutionModelSpec extends ZIOSpecDefault {
                       mayNeedPrerequisiteFetches = false
                     )
         executor  = new EntityExecutor[Any](graph, Map.empty)
-        plan      = new PreparedPlan(OperationPlan(OperationType.Query, "Query", Nil, Nil, Nil, List(fetch), Nil, None))
+        plan      = PreparedPlan(OperationPlan(OperationType.Query, "Query", Nil, Nil, Nil, List(fetch), Nil, None))
         results  <- executor.execute(
                       List(fetch),
                       Map(rootId -> ObjectValue(List("product" -> ObjectValue(List("id" -> StringValue("p1")))))),

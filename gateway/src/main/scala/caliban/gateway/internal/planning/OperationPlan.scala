@@ -74,9 +74,22 @@ private[gateway] object OperationPlan {
     context: ComposedGraph.ContextName,
     sourcePath: Vector[String],
     sourceType: String,
-    selections: List[RequiredSelection],
-    typename: Option[RequiredSelection]
+    projection: ContextProjection
   )
+
+  sealed trait ContextProjection {
+    def paths: List[List[String]]
+  }
+
+  object ContextProjection {
+    final case class Path(names: List[String]) extends ContextProjection {
+      def paths: List[List[String]] = names :: Nil
+    }
+
+    final case class ByType(typenameAlias: String, pathsByType: Map[String, List[String]]) extends ContextProjection {
+      def paths: List[List[String]] = pathsByType.values.toList.distinct
+    }
+  }
 
   /**
    * The response path and alias of an injected __typename field used during response completion.

@@ -119,11 +119,13 @@ private[gateway] final class OperationPreparation[-R] private (
             plan      <- preparePlan(document, execution, activeOverrides)
           } yield Some((execution, plan))
     } yield {
-      val execution =
-        if (variables.isEmpty && !planned.exists(_._2.hasVariableReferences)) planned.map(_._1)
-        else None
-      val cached    = CachedOperation(document, planned.map(_._2), execution)
-      Weighted(cached, operationWeight(request.query.getOrElse(""), cached.executionPlan, request.operationName))
+      val cached = planned match {
+        case None                    => CachedOperation.DocumentOnly(document)
+        case Some((execution, plan)) =>
+          if (variables.isEmpty && !plan.hasVariableReferences) CachedOperation.Ready(document, execution, plan)
+          else CachedOperation.Planned(document, plan)
+      }
+      Weighted(cached, operationWeight(request.query.getOrElse(""), planned.map(_._2), request.operationName))
     }
 
   private def prepareUncached(
@@ -142,16 +144,16 @@ private[gateway] final class OperationPreparation[-R] private (
     cached: CachedOperation,
     activeOverrides: Set[OverrideLabel]
   )(implicit trace: Trace): IO[CalibanError, Prepared] =
-    (cached.execution, cached.executionPlan) match {
-      case (Some(execution), Some(plan)) =>
-        Exit.succeed(Prepared(request, cached.document, execution, plan))
-      case _                             =>
-        prepareOperation(request, cached.document, Some(List(Validator.validateVariables))) { (variables, execution) =>
-          cached.executionPlan match {
-            case Some(value) if !value.hasVariableReferences => Exit.succeed(value)
-            case Some(value)                                 => Exit.succeed(value.bind(variables))
-            case None                                        => preparePlan(cached.document, execution, activeOverrides)
-          }
+    cached match {
+      case CachedOperation.Ready(document, execution, plan) =>
+        Exit.succeed(Prepared(request, document, execution, plan))
+      case CachedOperation.Planned(document, plan)          =>
+        prepareOperation(request, document, Some(List(Validator.validateVariables))) { (variables, _) =>
+          Exit.succeed(if (plan.hasVariableReferences) plan.bind(variables) else plan)
+        }
+      case CachedOperation.DocumentOnly(document)           =>
+        prepareOperation(request, document, Some(List(Validator.validateVariables))) { (_, execution) =>
+          preparePlan(document, execution, activeOverrides)
         }
     }
 
@@ -185,7 +187,7 @@ private[gateway] final class OperationPreparation[-R] private (
     ZIO
       .blocking(ZIO.fromEither(planner.plan(document, execution, activeOverrides)))
       .mapError(planningFailure)
-      .map(new PreparedPlan(_))
+      .map(PreparedPlan(_))
 
   private def resolveProgressiveOverrides(
     request: GraphQLRequest,
@@ -255,11 +257,13 @@ private[gateway] object OperationPreparation {
     plan: PreparedPlan
   )
 
-  private final case class CachedOperation(
-    document: Document,
-    executionPlan: Option[PreparedPlan],
-    execution: Option[ExecutionRequest]
-  )
+  private sealed trait CachedOperation
+
+  private object CachedOperation {
+    final case class DocumentOnly(document: Document)                                           extends CachedOperation
+    final case class Planned(document: Document, plan: PreparedPlan)                            extends CachedOperation
+    final case class Ready(document: Document, execution: ExecutionRequest, plan: PreparedPlan) extends CachedOperation
+  }
 
   private final case class CacheKey(
     query: String,
