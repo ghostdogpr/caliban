@@ -205,16 +205,15 @@ private[gateway] final class EntityExecutor[-R](
       val blockedPaths       = PathIndex(
         fetch.dependencies.iterator.flatMap(dependency => blocked.getOrElse(dependency, Set.empty).iterator)
       )
-      val objectType         = graph.isObjectType(fetch.entityType)
       candidates.getOrElse((fetch.root, fetch.mergePath), Nil).foreach {
         case (_, NullValue)           => ()
         case (path, obj: ObjectValue) =>
           if (blockedPaths.containsPrefixOf(path))
             skip(fetch, path)
           else if (
-            objectType && fetch.typename.exists { selection =>
+            fetch.typename.exists { selection =>
               obj.getOrNull(selection.responseName) match {
-                case StringValue(runtimeType) => runtimeType != fetch.entityType
+                case StringValue(runtimeType) => !graph.acceptsRuntimeType(fetch.entityType, runtimeType)
                 case _                        => false
               }
             }

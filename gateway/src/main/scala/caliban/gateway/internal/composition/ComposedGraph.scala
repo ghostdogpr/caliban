@@ -69,6 +69,22 @@ private[gateway] final class ComposedGraph private[internal] (
     .groupMap(_._1)(_._2)
     .map { case (typeName, values) => typeName -> values.sorted }
   private val lookupTypes              = entityLookups.keysIterator.map(_._2).toSet
+  private val interfaceObjectsByType   = rootType.types.iterator.flatMap { case (typeName, tpe) =>
+    val interfaces = if (tpe.kind == __TypeKind.OBJECT) tpe.interfaces().getOrElse(Nil).flatMap(_.name) else Nil
+    val inherited  = interfaceObjects.filter { case (_, interfaceName) => interfaces.contains(interfaceName) }
+    if (inherited.isEmpty) Iterator.empty else Iterator.single(typeName -> inherited.toList.sorted)
+  }.toMap
+  private val inheritedFieldSources    = {
+    val fieldsByType = fieldRoutes.keysIterator.toList.groupMap(_._1)(_._2)
+    interfaceObjectsByType.iterator.flatMap { case (typeName, inherited) =>
+      inherited.iterator.flatMap { case (source, interfaceName) =>
+        fieldsByType.getOrElse(interfaceName, Nil).iterator.collect {
+          case field if !fieldRoutes.contains(typeName -> field) && owns(source, interfaceName, field) =>
+            (typeName -> field) -> (source -> interfaceName)
+        }
+      }
+    }.toList.groupMap(_._1)(_._2)
+  }
   private val operationCost            = new OperationCost(rootType.types, runtimeTypesByName, costs)
 
   private val (progressiveOverridesByLabel, progressiveOverridesByFieldName) = {
@@ -157,6 +173,19 @@ private[gateway] final class ComposedGraph private[internal] (
       case sources if sources.contains(preferred) => preferred :: sources.filterNot(_ == preferred)
       case sources                                => sources
     }
+
+  def interfaceObjectFieldSources(typeName: String, field: String, preferred: String): List[(String, String)] = {
+    val (first, rest) = inheritedFieldSources.getOrElse(typeName -> field, Nil).partition(_._1 == preferred)
+    first ::: rest
+  }
+
+  def interfaceObjectTypes(source: String, typeName: String): List[(String, __Type)] =
+    interfaceObjectsByType
+      .getOrElse(typeName, Nil)
+      .collect { case (`source`, interfaceName) =>
+        rootType.types.get(interfaceName).map(interfaceName -> _)
+      }
+      .flatten
 
   def lookups(source: String, typeName: String): List[ComposedGraph.EntityLookup] =
     entityLookups.getOrElse(source -> typeName, Nil)
@@ -347,6 +376,9 @@ private[gateway] final class ComposedGraph private[internal] (
 
   def isObjectType(typeName: String): Boolean =
     rootType.types.get(typeName).exists(_.kind == __TypeKind.OBJECT)
+
+  def acceptsRuntimeType(typeName: String, runtimeType: String): Boolean =
+    runtimeType == typeName || runtimeTypesByName.getOrElse(typeName, Set.empty).contains(runtimeType)
 
   private def isObjectType(source: String, typeName: String): Boolean =
     sourceRuntimeTypes.get(source -> typeName).exists(_.contains(typeName))

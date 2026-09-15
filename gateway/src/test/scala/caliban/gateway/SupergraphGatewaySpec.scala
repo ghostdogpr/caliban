@@ -1,5 +1,6 @@
 package caliban.gateway
 
+import caliban.Value.IntValue.IntNumber
 import caliban.Value.StringValue
 import caliban.gateway.GatewayTestSupport._
 import zio.http.URL
@@ -143,6 +144,32 @@ object SupergraphGatewaySpec extends ZIOSpecDefault {
           )
         }
         .map(results => results.reduce(_ && _))
+    },
+    test("composes a supergraph whose progressive override keeps the overridden field in use") {
+      for {
+        a       <- stub("""{"data":{"_entities":[{"price":20}]}}""")
+        b       <- stub("""{"data":{"widget":{"price":10}}}""")
+        sdl      = s"""
+                 |schema @link(url: "https://specs.apollo.dev/join/v0.5") { query: Query }
+                 |enum join__Graph {
+                 |  A @join__graph(name: "a", url: "${a.endpoint}")
+                 |  B @join__graph(name: "b", url: "${b.endpoint}")
+                 |}
+                 |type Query @join__type(graph: B) { widget: Widget }
+                 |type Widget @join__type(graph: A, key: "id") @join__type(graph: B, key: "id") {
+                 |  id: ID!
+                 |  price: Int @join__field(graph: A, override: "b", overrideLabel: "percent(0)")
+                 |    @join__field(graph: B, usedOverridden: true, overrideLabel: "percent(0)")
+                 |}
+                 |""".stripMargin
+        runtime <- Gateway.fromSupergraph(Supergraph.sdl(sdl)).interpreter
+        result  <- runtime.execute("{ widget { price } }")
+        sentA   <- a.requests.get
+      } yield assertTrue(
+        result.errors.isEmpty,
+        field(result.data, "widget").flatMap(field(_, "price")).contains(IntNumber(10)),
+        sentA.isEmpty
+      )
     },
     test("serves every graph the supergraph declares, through the configured endpoints") {
       for {

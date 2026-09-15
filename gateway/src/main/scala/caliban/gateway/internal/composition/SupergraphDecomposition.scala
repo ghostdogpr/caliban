@@ -663,7 +663,8 @@ private[gateway] object SupergraphDecomposition {
     val translated = entry.toList.flatMap { value =>
       value.requires.map(fields => Directive("requires", Map("fields" -> StringValue(fields)))).toList :::
         value.provides.map(fields => Directive("provides", Map("fields" -> StringValue(fields)))).toList :::
-        (if (value.external || value.usedOverridden) List(Directive("external")) else Nil) :::
+        (if (value.external || (value.usedOverridden && value.overrideLabel.isEmpty)) List(Directive("external"))
+         else Nil) :::
         value.overrideFrom
           .map(from =>
             Directive(

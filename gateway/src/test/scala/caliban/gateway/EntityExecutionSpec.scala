@@ -76,38 +76,26 @@ object EntityExecutionSpec extends ZIOSpecDefault {
     )
   }
 
+  private def progressiveProductSchema(query: String, product: String): String =
+    s"""
+       |schema @link(url: "https://specs.apollo.dev/federation/v2.7", import: ["@key", "@override"]) { query: Query }
+       |$federationDirectives
+       |directive @override(from: String!, label: String) on FIELD_DEFINITION
+       |union _Entity = Product
+       |type Query {
+       |  $query
+       |  _entities(representations: [_Any!]!): [_Entity]!
+       |  _service: _Service!
+       |}
+       |type Product @key(fields: "id") { $product }
+       |""".stripMargin
+
   def spec = suite("EntityExecutionSpec")(
     suite("entity execution")(
       test("routes a progressive entity field override to the selected provider") {
-        val overrideDefinition = "directive @override(from: String!, label: String) on FIELD_DEFINITION"
-        val originalSchema     =
-          s"""
-             |schema @link(url: "https://specs.apollo.dev/federation/v2.7", import: ["@key", "@override"]) { query: Query }
-             |$federationDirectives
-             |$overrideDefinition
-             |union _Entity = Product
-             |type Query {
-             |  product(id: ID!): Product
-             |  _entities(representations: [_Any!]!): [_Entity]!
-             |  _service: _Service!
-             |}
-             |type Product @key(fields: "id") { id: ID! name: String! }
-             |""".stripMargin
-        val replacementSchema  =
-          s"""
-             |schema @link(url: "https://specs.apollo.dev/federation/v2.7", import: ["@key", "@override"]) { query: Query }
-             |$federationDirectives
-             |$overrideDefinition
-             |union _Entity = Product
-             |type Query {
-             |  _entities(representations: [_Any!]!): [_Entity]!
-             |  _service: _Service!
-             |}
-             |type Product @key(fields: "id") {
-             |  id: ID!
-             |  name: String! @override(from: "original", label: "percent(100)")
-             |}
-             |""".stripMargin
+        val originalSchema    = progressiveProductSchema("product(id: ID!): Product", "id: ID! name: String!")
+        val replacementSchema =
+          progressiveProductSchema("", """id: ID! name: String! @override(from: "original", label: "percent(100)")""")
 
         for {
           original    <-
@@ -130,6 +118,30 @@ object EntityExecutionSpec extends ZIOSpecDefault {
           response.errors.isEmpty,
           field(response.data, "product").flatMap(field(_, "name")).contains(StringValue("replacement")),
           sent.size == 1
+        )
+      },
+      test("keeps a progressively overridden field nullable while the original still serves it") {
+        val originalSchema    = progressiveProductSchema("product(id: ID!): Product", "id: ID! name: String sku: String!")
+        val replacementSchema =
+          progressiveProductSchema("", """id: ID! name: String! @override(from: "original", label: "percent(0)")""")
+
+        for {
+          original    <- stub("""{"data":{"product":{"name":null,"sku":"sku-1"}}}""")
+          replacement <- stub("""{"data":{"_entities":[{"name":"replacement"}]}}""")
+          gateway     <- Gateway
+                           .compose(
+                             Subgraph.federation("original", original.endpoint, originalSchema),
+                             Subgraph.federation("replacement", replacement.endpoint, replacementSchema)
+                           )
+                           .interpreter
+          response    <- gateway.execute("{ product(id: \"p1\") { name sku } }")
+          sent        <- replacement.requests.get
+          product      = field(response.data, "product")
+        } yield assertTrue(
+          response.errors.isEmpty,
+          product.flatMap(field(_, "name")).contains(NullValue),
+          product.flatMap(field(_, "sku")).contains(StringValue("sku-1")),
+          sent.isEmpty
         )
       },
       test("executes remote Products, local Pricing, and remote Reviews in one operation") {

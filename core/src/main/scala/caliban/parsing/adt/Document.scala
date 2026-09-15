@@ -8,6 +8,8 @@ import caliban.parsing.adt.Definition.TypeSystemDefinition.{ DirectiveDefinition
 import caliban.parsing.adt.Definition.TypeSystemExtension
 import caliban.parsing.adt.OperationType.{ Mutation, Query, Subscription }
 
+import scala.collection.mutable
+
 case class Document(definitions: List[Definition], sourceMapper: SourceMapper) {
 
   lazy val isIntrospection: Boolean = Introspector.isIntrospection(this)
@@ -58,20 +60,21 @@ case class Document(definitions: List[Definition], sourceMapper: SourceMapper) {
     fragmentPredicate: FragmentDefinition => Boolean = (_: FragmentDefinition) => false
   ): Boolean = {
     val fragments = fragmentDefinitions.iterator.map(fragment => fragment.name -> fragment).toMap
+    val visited   = mutable.HashSet.empty[String]
 
-    def loop(selections: List[Selection], visitedFragments: Set[String]): Boolean =
+    def loop(selections: List[Selection]): Boolean =
       selections.exists { selection =>
         predicate(selection) || (selection match {
-          case Selection.Field(_, _, _, _, selectionSet, _) => loop(selectionSet, visitedFragments)
-          case Selection.InlineFragment(_, _, selectionSet) => loop(selectionSet, visitedFragments)
+          case Selection.Field(_, _, _, _, selectionSet, _) => loop(selectionSet)
+          case Selection.InlineFragment(_, _, selectionSet) => loop(selectionSet)
           case Selection.FragmentSpread(name, _)            =>
-            !visitedFragments.contains(name) && fragments
+            visited.add(name) && fragments
               .get(name)
-              .exists(fragment => fragmentPredicate(fragment) || loop(fragment.selectionSet, visitedFragments + name))
+              .exists(fragment => fragmentPredicate(fragment) || loop(fragment.selectionSet))
         })
       }
 
-    operationDefinition(operationName).exists(operation => loop(operation.selectionSet, Set.empty))
+    operationDefinition(operationName).exists(operation => loop(operation.selectionSet))
   }
 
   private[caliban] def foreachSelection(operationName: Option[String])(f: Selection => Unit): Unit = {

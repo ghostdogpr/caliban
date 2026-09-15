@@ -233,10 +233,11 @@ private[composition] final class TypeComposition(
       val visible    =
         if (values.exists { case (entry, _) => entry.inaccessibleFields.contains(fieldName) }) Nil else values
       val providers  = effectiveFieldProviders(fieldName, visible.map(_._1))
+      val routable   = routableFieldProviders(fieldName, visible.map(_._1))
       val ordered    = visible.sortBy { case (entry, _) => (!providers.exists(_.source == entry.source), entry.source) }
       val hiddenArgs = hiddenArguments(fieldName, values)
       (if (providers.nonEmpty) ordered.headOption else None).map { case (_, field) =>
-        val mergedType = ordered.filter { case (entry, _) => providers.exists(_.source == entry.source) }
+        val mergedType = ordered.filter { case (entry, _) => routable.exists(_.source == entry.source) }
           .map(_._2._type)
           .reduceOption(mergeOutputType)
           .getOrElse(field._type)
@@ -396,9 +397,17 @@ private[composition] object TypeComposition {
     }
   }
 
-  private[composition] def effectiveFieldProviders(field: String, entries: List[SubgraphType]): List[SubgraphType] = {
+  private[composition] def effectiveFieldProviders(field: String, entries: List[SubgraphType]): List[SubgraphType] =
+    fieldProviders(field, entries)(_ => true)
+
+  private[composition] def routableFieldProviders(field: String, entries: List[SubgraphType]): List[SubgraphType] =
+    fieldProviders(field, entries)(_.progressive.isEmpty)
+
+  private def fieldProviders(field: String, entries: List[SubgraphType])(
+    countsOverride: FieldOverride => Boolean
+  ): List[SubgraphType] = {
     val owned      = entries.filter(_.ownedFields.contains(field))
-    val overridden = owned.flatMap(_.overrideFields.get(field).map(_.from)).toSet
+    val overridden = owned.flatMap(_.overrideFields.get(field)).filter(countsOverride).map(_.from).toSet
     owned.filterNot(entry => overridden.contains(entry.source))
   }
 

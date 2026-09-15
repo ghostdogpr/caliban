@@ -22,6 +22,12 @@ object FieldRoutingSpec extends ZIOSpecDefault {
   private val productRoot =
     """{"data":{"product":{"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}}}"""
 
+  private val nodeWithNameAccounts =
+    s"""
+       |${federationSchemaPreamble("@key", "@interfaceObject")}
+       |type NodeWithName @key(fields: "id") @interfaceObject { id: ID! username: String }
+       |""".stripMargin
+
   private val nodeRoots =
     s"""
        |${federationSchemaPreamble("@key")}
@@ -1128,6 +1134,258 @@ object FieldRoutingSpec extends ZIOSpecDefault {
           user.flatMap(field(_, "username")).contains(StringValue("u1-username")),
           user.flatMap(field(_, "id")).contains(StringValue("u1")),
           user.flatMap(field(_, "name")).contains(StringValue("u1-name"))
+        )
+      },
+      test("resolves an interface object field selected through a concrete type") {
+        val usersSchema =
+          s"""
+             |${federationSchemaPreamble("@key")}
+             |type Query { user: User }
+             |interface NodeWithName @key(fields: "id") { id: ID! name: String }
+             |type User implements NodeWithName @key(fields: "id") { id: ID! name: String }
+             |""".stripMargin
+
+        for {
+          users    <- stub("""{"data":{"user":{"_caliban_gateway_key":"u1","_caliban_gateway_typename":"User"}}}""")
+          accounts <- stub("""{"data":{"_entities":[{"username":"u1-username"}]}}""")
+          gateway  <- Gateway
+                        .compose(
+                          Subgraph.federation("users", users.endpoint, usersSchema),
+                          Subgraph.federation("accounts", accounts.endpoint, nodeWithNameAccounts)
+                        )
+                        .interpreter
+          response <- gateway.execute("{ user { username } }")
+          sent     <- accounts.requests.get
+          user      = field(response.data, "user")
+        } yield assertTrue(
+          response.errors.isEmpty,
+          user.flatMap(field(_, "username")).contains(StringValue("u1-username")),
+          sent.size == 1,
+          sent.forall(_.query.exists(_.contains("...on NodeWithName{username"))),
+          sent.forall(_.variables.exists(_.toString.contains("NodeWithName")))
+        )
+      },
+      test("satisfies a requirement on an interface object field through a concrete type") {
+        val usersSchema =
+          s"""
+             |${federationSchemaPreamble("@key", "@external", "@requires")}
+             |type Query { user: User }
+             |interface NodeWithName @key(fields: "id") { id: ID! name: String }
+             |type User implements NodeWithName @key(fields: "id") {
+             |  id: ID!
+             |  name: String
+             |  username: String @external
+             |  display: String @requires(fields: "username")
+             |}
+             |""".stripMargin
+
+        for {
+          users    <- stubByRequest(request =>
+                        if (request.query.exists(_.contains("_entities")))
+                          """{"data":{"_entities":[{"display":"u1-display"}]}}"""
+                        else """{"data":{"user":{"_caliban_gateway_key":"u1","_caliban_gateway_typename":"User"}}}"""
+                      )
+          accounts <- stub("""{"data":{"_entities":[{"_caliban_gateway_requirement_username":"u1-username"}]}}""")
+          gateway  <- Gateway
+                        .compose(
+                          Subgraph.federation("users", users.endpoint, usersSchema),
+                          Subgraph.federation("accounts", accounts.endpoint, nodeWithNameAccounts)
+                        )
+                        .interpreter
+          response <- gateway.execute("{ user { display } }")
+          sent     <- users.requests.get
+          user      = field(response.data, "user")
+        } yield assertTrue(
+          response.errors.isEmpty,
+          user.flatMap(field(_, "display")).contains(StringValue("u1-display")),
+          sent.size == 2,
+          sent.exists(_.variables.exists(_.toString.contains("u1-username")))
+        )
+      },
+      test("resolves an interface object field selected through a union member") {
+        val usersSchema    =
+          s"""
+             |${federationSchemaPreamble("@key")}
+             |type Query { search: [SearchResult!]! }
+             |union SearchResult = User | Team
+             |interface NodeWithName @key(fields: "id") { id: ID! name: String }
+             |type User implements NodeWithName @key(fields: "id") { id: ID! name: String }
+             |type Team { id: ID! }
+             |""".stripMargin
+        val searchResponse =
+          """{"data":{"search":[{"__typename":"User","_caliban_gateway_key":"u1","_caliban_gateway_typename":"User"},{"__typename":"Team","id":"t1","_caliban_gateway_typename":"Team"}]}}"""
+
+        for {
+          users    <- stub(searchResponse)
+          accounts <- stub("""{"data":{"_entities":[{"username":"u1-username"}]}}""")
+          gateway  <- Gateway
+                        .compose(
+                          Subgraph.federation("users", users.endpoint, usersSchema),
+                          Subgraph.federation("accounts", accounts.endpoint, nodeWithNameAccounts)
+                        )
+                        .interpreter
+          response <- gateway.execute("{ search { ... on User { username } ... on Team { id } } }")
+          sent     <- accounts.requests.get
+          results   = listValues(field(response.data, "search"))
+        } yield assertTrue(
+          response.errors.isEmpty,
+          results.headOption.flatMap(field(_, "username")).contains(StringValue("u1-username")),
+          results.lift(1).flatMap(field(_, "id")).contains(StringValue("t1")),
+          sent.size == 1,
+          sent.forall(_.query.exists(_.contains("...on NodeWithName{username"))),
+          sent.forall(
+            _.variables.exists(variables => variables.toString.contains("u1") && !variables.toString.contains("t1"))
+          )
+        )
+      },
+      test("splits union members between an interface object and a concrete entity of the same subgraph") {
+        val usersSchema    =
+          s"""
+             |${federationSchemaPreamble("@key")}
+             |type Query { search: [SearchResult!]! }
+             |union SearchResult = User | Team
+             |interface NodeWithName @key(fields: "id") { id: ID! name: String }
+             |type User implements NodeWithName @key(fields: "id") { id: ID! name: String }
+             |type Team @key(fields: "id") { id: ID! }
+             |""".stripMargin
+        val accountsSchema = s"""$nodeWithNameAccounts\ntype Team @key(fields: "id") { id: ID! motto: String }"""
+        val searchResponse =
+          """{"data":{"search":[{"__typename":"User","_caliban_gateway_key_2":"u1","_caliban_gateway_typename":"User"},{"__typename":"Team","_caliban_gateway_key":"t1","_caliban_gateway_typename":"Team"}]}}"""
+
+        for {
+          users    <- stub(searchResponse)
+          accounts <- stubByRequest { request =>
+                        val query = request.query.getOrElse("")
+                        val user  = """{"username":"u1-username"}"""
+                        val team  = """{"motto":"go"}"""
+                        if (query.contains("username") && query.contains("motto"))
+                          s"""{"data":{"_entities":[$user,$team]}}"""
+                        else if (query.contains("username")) s"""{"data":{"_entities":[$user]}}"""
+                        else s"""{"data":{"_entities":[$team]}}"""
+                      }
+          gateway  <- Gateway
+                        .compose(
+                          Subgraph.federation("users", users.endpoint, usersSchema),
+                          Subgraph.federation("accounts", accounts.endpoint, accountsSchema)
+                        )
+                        .interpreter
+          response <- gateway.execute("{ search { ... on User { username } ... on Team { motto } } }")
+          sent     <- accounts.requests.get
+          queries   = sent.flatMap(_.query)
+          results   = listValues(field(response.data, "search"))
+        } yield assertTrue(
+          response.errors.isEmpty,
+          results.headOption.flatMap(field(_, "username")).contains(StringValue("u1-username")),
+          results.lift(1).flatMap(field(_, "motto")).contains(StringValue("go")),
+          queries.exists(_.contains("...on NodeWithName{username")),
+          queries.exists(_.contains("...on Team{motto")),
+          queries.forall(query => !query.contains("...on NodeWithName{motto") && !query.contains("...on Team{username"))
+        )
+      },
+      test("keeps the fields of two interface objects of the same subgraph apart") {
+        val usersSchema    =
+          s"""
+             |${federationSchemaPreamble("@key")}
+             |type Query { user: User }
+             |interface NodeWithName @key(fields: "id") { id: ID! name: String }
+             |interface Named @key(fields: "id") { id: ID! }
+             |type User implements NodeWithName & Named @key(fields: "id") { id: ID! name: String }
+             |""".stripMargin
+        val accountsSchema =
+          s"""$nodeWithNameAccounts\ntype Named @key(fields: "id") @interfaceObject { id: ID! nickname: String }"""
+
+        for {
+          users    <- stub("""{"data":{"user":{"_caliban_gateway_key":"u1","_caliban_gateway_typename":"User"}}}""")
+          accounts <- stubByRequest { request =>
+                        if (request.query.exists(_.contains("username")))
+                          """{"data":{"_entities":[{"username":"u1-username"}]}}"""
+                        else """{"data":{"_entities":[{"nickname":"nick"}]}}"""
+                      }
+          gateway  <- Gateway
+                        .compose(
+                          Subgraph.federation("users", users.endpoint, usersSchema),
+                          Subgraph.federation("accounts", accounts.endpoint, accountsSchema)
+                        )
+                        .interpreter
+          response <- gateway.execute("{ user { username nickname } }")
+          sent     <- accounts.requests.get
+          queries   = sent.flatMap(_.query)
+          user      = field(response.data, "user")
+        } yield assertTrue(
+          response.errors.isEmpty,
+          user.flatMap(field(_, "username")).contains(StringValue("u1-username")),
+          user.flatMap(field(_, "nickname")).contains(StringValue("nick")),
+          queries.exists(_.contains("...on NodeWithName{username}")),
+          queries.exists(_.contains("...on Named{nickname}")),
+          queries.size == 2
+        )
+      },
+      test("resolves an interface object field for every member of a union that implements it") {
+        val usersSchema    =
+          s"""
+             |${federationSchemaPreamble("@key")}
+             |type Query { search: [SearchResult!]! }
+             |union SearchResult = User | Admin
+             |interface NodeWithName @key(fields: "id") { id: ID! name: String }
+             |type User implements NodeWithName @key(fields: "id") { id: ID! name: String }
+             |type Admin implements NodeWithName @key(fields: "id") { id: ID! name: String }
+             |""".stripMargin
+        val searchResponse =
+          """{"data":{"search":[{"__typename":"User","_caliban_gateway_key":"u1","_caliban_gateway_typename":"User"},{"__typename":"Admin","_caliban_gateway_key":"a1","_caliban_gateway_typename":"Admin"}]}}"""
+
+        for {
+          users    <- stub(searchResponse)
+          accounts <- stub("""{"data":{"_entities":[{"username":"u1-username"},{"username":"a1-username"}]}}""")
+          gateway  <- Gateway
+                        .compose(
+                          Subgraph.federation("users", users.endpoint, usersSchema),
+                          Subgraph.federation("accounts", accounts.endpoint, nodeWithNameAccounts)
+                        )
+                        .interpreter
+          response <- gateway.execute("{ search { ... on User { username } ... on Admin { username } } }")
+          sent     <- accounts.requests.get
+          results   = listValues(field(response.data, "search"))
+        } yield assertTrue(
+          response.errors.isEmpty,
+          results.headOption.flatMap(field(_, "username")).contains(StringValue("u1-username")),
+          results.lift(1).flatMap(field(_, "username")).contains(StringValue("a1-username")),
+          sent.size == 1,
+          sent.forall(_.query.exists(_.contains("...on NodeWithName{username}")))
+        )
+      },
+      test("resolves an interface object field through an unrelated interface parent") {
+        val usersSchema   =
+          s"""
+             |${federationSchemaPreamble("@key")}
+             |type Query { nodes: [Node!]! }
+             |interface Node { id: ID! }
+             |interface NodeWithName @key(fields: "id") { id: ID! name: String }
+             |type User implements Node & NodeWithName @key(fields: "id") { id: ID! name: String }
+             |type Admin implements Node & NodeWithName @key(fields: "id") { id: ID! name: String }
+             |""".stripMargin
+        val nodesResponse =
+          """{"data":{"nodes":[{"__typename":"User","_caliban_gateway_key":"u1","_caliban_gateway_typename":"User"},{"__typename":"Admin","_caliban_gateway_key":"a1","_caliban_gateway_typename":"Admin"}]}}"""
+
+        for {
+          users     <- stub(nodesResponse)
+          accounts  <- stub("""{"data":{"_entities":[{"username":"u1-username"},{"username":"a1-username"}]}}""")
+          gateway   <- Gateway
+                         .compose(
+                           Subgraph.federation("users", users.endpoint, usersSchema),
+                           Subgraph.federation("accounts", accounts.endpoint, nodeWithNameAccounts)
+                         )
+                         .interpreter
+          response  <- gateway.execute("{ nodes { ... on User { username } ... on Admin { username } } }")
+          sent      <- accounts.requests.get
+          usersSent <- users.requests.get
+          results    = listValues(field(response.data, "nodes"))
+        } yield assertTrue(
+          response.errors.isEmpty,
+          results.headOption.flatMap(field(_, "username")).contains(StringValue("u1-username")),
+          results.lift(1).flatMap(field(_, "username")).contains(StringValue("a1-username")),
+          usersSent.size == 1,
+          sent.size == 1,
+          sent.forall(_.query.exists(_.contains("...on NodeWithName{username}")))
         )
       },
       test("merges a nullable prerequisite with client fields of the same subgraph") {

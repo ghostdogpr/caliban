@@ -725,7 +725,12 @@ private[gateway] final class OperationPlanner(
                   if (owner == childParent) Nil
                   else graph.fieldSources(childParent, child.name, currentSubgraph).map(fieldProvider(_, childParent)),
                   if (childParent == typeName) Nil
-                  else graph.fieldSources(typeName, child.name, currentSubgraph).map(fieldProvider(_, typeName))
+                  else graph.fieldSources(typeName, child.name, currentSubgraph).map(fieldProvider(_, typeName)),
+                  if (graph.isInterfaceObject(currentSubgraph, typeName)) Nil
+                  else
+                    graph.interfaceObjectFieldSources(owner, child.name, currentSubgraph).map {
+                      case (source, interfaceName) => fieldProvider(source, interfaceName)
+                    }
                 ).find(_.nonEmpty).getOrElse(Nil)
               }
         candidates.find(_.canResolve).fold(candidates)(List(_))
@@ -861,8 +866,10 @@ private[gateway] final class OperationPlanner(
   )(implicit search: CandidateSearch): Either[PlanningFailure, List[EntityFetchState]] = {
     val resolution = resolveEntityLookups(context, candidate)
     val direct     = resolution.lookups.filter(_.entityType == context.typeName)
-    val concrete   =
-      resolution.lookups.filter(value => value.entityType != context.typeName && graph.isObjectType(value.entityType))
+    val concrete   = resolution.lookups.filter(value =>
+      value.entityType != context.typeName &&
+        (graph.isObjectType(value.entityType) || graph.isInterfaceObject(candidate.targetSubgraph, value.entityType))
+    )
     if (direct.nonEmpty && concrete.nonEmpty)
       search
         .evaluate(
@@ -889,13 +896,20 @@ private[gateway] final class OperationPlanner(
     lookupTypes: List[(String, __Type)],
     concrete: List[ResolvedLookup]
   )(implicit search: CandidateSearch): Either[PlanningFailure, List[EntityFetchState]] = {
-    val types            = concrete.map(_.entityType).distinct
-    val resolved         = types.foldLeft[Either[PlanningFailure, List[EntityFetchState]]](Right(List(state))) {
+    val types                                            = concrete.map(_.entityType).distinct
+    def takes(entityType: String, field: Field): Boolean =
+      field._condition.forall(_.exists(graph.acceptsRuntimeType(entityType, _))) && (
+        field.name == "__typename" ||
+          graph.owns(candidate.targetSubgraph, entityType, field.name) ||
+          (!graph.isInterfaceObject(candidate.targetSubgraph, entityType) &&
+            graph.interfaceObjectFieldSources(entityType, field.name, candidate.targetSubgraph).isEmpty)
+      )
+    val resolved                                         = types.foldLeft[Either[PlanningFailure, List[EntityFetchState]]](Right(List(state))) {
       case (result, entityType) =>
         result.flatMap(states =>
           search
             .evaluate(states) { current =>
-              val fields = candidate.fields.filter(_._condition.forall(_.contains(entityType)))
+              val fields = candidate.fields.filter(takes(entityType, _))
               if (fields.isEmpty) Right(List(current))
               else {
                 val selected = candidate.copy(
@@ -909,10 +923,14 @@ private[gateway] final class OperationPlanner(
             .map(_.flatten)
         )
     }
-    val unresolvedFields = candidate.fields.flatMap { field =>
-      field._condition.flatMap { condition =>
-        val unresolved = condition -- types
-        if (unresolved.isEmpty) None else Some(field.copy(_condition = Some(unresolved)))
+    val unresolvedFields                                 = candidate.fields.flatMap { field =>
+      field._condition match {
+        case Some(condition) =>
+          val unresolved = condition.filterNot(runtimeType =>
+            types.exists(entityType => graph.acceptsRuntimeType(entityType, runtimeType) && takes(entityType, field))
+          )
+          if (unresolved.isEmpty) None else Some(field.copy(_condition = Some(unresolved)))
+        case None            => if (types.exists(takes(_, field))) None else Some(field)
       }
     }
     if (unresolvedFields.isEmpty) resolved
@@ -977,8 +995,9 @@ private[gateway] final class OperationPlanner(
       .filter(name => subgraphTypes.isEmpty || subgraphTypes.contains(name))
     val runtimeTypes  = (conditions ++ knownTypes).filter(graph.isObjectType).toList.distinct.sorted
     // Prefer the declared context type before concrete runtime types; selectLookups orders keys within each type.
+    val inherited     = (context.typeName :: runtimeTypes).flatMap(graph.interfaceObjectTypes(candidate.targetSubgraph, _))
     val lookupTypes   = ((context.typeName, context.parentType) :: runtimeTypes
-      .flatMap(name => graph.rootType.types.get(name).map(name -> _))).distinct
+      .flatMap(name => graph.rootType.types.get(name).map(name -> _)) ::: inherited).distinct
     val lookups       = lookupTypes.flatMap { case (entityType, entityParent) =>
       val selected = selectLookups(
         entityParent,
@@ -1002,6 +1021,20 @@ private[gateway] final class OperationPlanner(
     resolved: ResolvedLookup
   )(implicit search: CandidateSearch): Either[PlanningFailure, List[EntityFetchState]] = {
     val entityField                    = context.field.copy(fieldType = resolved.parentType)
+    val selectedTypes                  =
+      if (candidate.fields.forall(_._condition.nonEmpty)) candidate.fields.flatMap(_._condition).flatten.toSet
+      else Set.empty[String]
+    val condition                      = entityTypeCondition(context.parentType, resolved.entityType).map { types =>
+      val selected = types intersect selectedTypes
+      if (selected.isEmpty) types else selected
+    }
+    val routedThroughInterfaceObject   =
+      resolved.entityType != context.typeName &&
+        graph.isInterfaceObject(candidate.targetSubgraph, resolved.entityType) &&
+        !graph.isInterfaceObject(context.currentSubgraph, context.typeName)
+    val entityFields                   =
+      if (routedThroughInterfaceObject) candidate.fields.map(_.copy(_condition = None, targets = None))
+      else candidate.fields
     val ordinaryRequirements           = fieldSetFields(candidate.requirements, resolved.parentType)
     val (requiredFields, requirements) =
       injectRequirementFields(
@@ -1035,11 +1068,11 @@ private[gateway] final class OperationPlanner(
                                                          resolved.parentType,
                                                          withPrerequisiteFields,
                                                          resolved.selection,
-                                                         entityTypeCondition(context.parentType, resolved.entityType),
+                                                         condition,
                                                          isStaticEntityType(context, resolved.entityType)
                                                        )
                               planned               <- planFieldCandidates(
-                                                         entityField.copy(fields = candidate.fields),
+                                                         entityField.copy(fields = entityFields),
                                                          candidate.targetSubgraph,
                                                          context.path,
                                                          context.staticPath,
@@ -1484,8 +1517,16 @@ private[gateway] final class OperationPlanner(
 
   private def entityTypeCondition(parentType: __Type, entityType: String): Option[Set[String]] =
     parentType.kind match {
-      case __TypeKind.INTERFACE | __TypeKind.UNION if graph.isObjectType(entityType) => Some(Set(entityType))
-      case _                                                                         => None
+      case __TypeKind.INTERFACE | __TypeKind.UNION =>
+        if (parentType.name.contains(entityType)) None
+        else if (graph.isObjectType(entityType)) Some(Set(entityType))
+        else {
+          val implementations = graph.rootType.types.get(entityType).fold(Set.empty[String])(_.possibleTypeNames)
+          val condition       = parentType.possibleTypeNames intersect implementations
+          if (parentType.kind == __TypeKind.INTERFACE && condition == parentType.possibleTypeNames) None
+          else Some(condition)
+        }
+      case _                                       => None
     }
 
   private def selectLookups(

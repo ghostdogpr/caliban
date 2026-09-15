@@ -938,6 +938,31 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
             )
         }
       },
+      test("keeps a used overridden field resolvable while its progressive override rolls out") {
+        decompose(
+          supergraph(
+            """enum join__Graph {
+              |  A @join__graph(name: "a", url: "http://a/graphql")
+              |  B @join__graph(name: "b", url: "http://b/graphql")
+              |}
+              |type Widget @join__type(graph: A, key: "id") @join__type(graph: B, key: "id") {
+              |  id: ID!
+              |  price: Float! @join__field(graph: A, override: "b", overrideLabel: "percent(25)")
+              |    @join__field(graph: B, usedOverridden: true, overrideLabel: "percent(25)")
+              |  label: String! @join__field(graph: A, override: "b") @join__field(graph: B, usedOverridden: true)
+              |}""".stripMargin
+          )
+        ).map {
+          case Left(errors)  => assertTrue(errors == Nil)
+          case Right(graphs) =>
+            assertTrue(
+              fieldDirective(graphs("a"), "Widget", "price", "override").flatMap(_.arguments.get("label")) ==
+                Some(StringValue("percent(25)")),
+              fieldDirectives(graphs("b"), "Widget", "price") == Nil,
+              fieldDirective(graphs("b"), "Widget", "label", "external").isDefined
+            )
+        }
+      },
       test("emits resolvable false and interfaceObject") {
         decompose(
           supergraph(
