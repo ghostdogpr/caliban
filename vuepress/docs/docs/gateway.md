@@ -148,7 +148,7 @@ val catalog = Subgraph.graphql(
 )
 ```
 
-Omit the SDL and the gateway loads it from the service at startup. Pinning it is what you want when introspection is disabled or unavailable. The endpoint still has to be reachable to execute requests, and keeping the pinned SDL in step with what is deployed is now your job.
+Omit the SDL and the gateway loads it from the service at startup. Pin it when introspection is disabled or unavailable. The endpoint still has to be reachable to execute requests, and the pinned SDL has to be kept in step with what is deployed.
 
 ### Federation subgraphs
 
@@ -217,7 +217,7 @@ import zio.Task
 
 def activeLabels(request: GraphQLRequest): Task[Set[String]] = ???
 
-val progressiveOverrides = PhaseHooks.OverrideLabels(
+val progressiveOverrides = PhaseHooks.overrideLabels(
   PhaseHandler.incoming[Any, Event.OverrideLabels, Throwable] { event =>
     activeLabels(event.request).map(labels => event.activate(labels intersect event.reached))
   }
@@ -602,7 +602,7 @@ The request span covers the whole request, so planning, the operation cache and 
 subscription request gets one too, covering its setup; the subscription itself is reported by the subscription spans.
 
 Both hooks are bundles of `PhaseHooks`. `Gateway#withPhaseHooks` adds your own, and it accumulates rather than replaces,
-so custom hooks and the built-in aspects can sit on the same gateway.
+so custom hooks and the built-in ones can sit on the same gateway.
 
 ## Subscriptions
 
@@ -664,7 +664,7 @@ Authenticate during setup. The gateway evaluates authorization once and captures
 
 Remote error messages follow the gateway's `withRemoteErrorMessages` setting. The gateway retains only the `code` extension. Local sources keep Caliban's behavior. A field resolver failure can produce null without an error entry in that event.
 
-The metrics and tracing wrappers include subscription observations. Shutdown waits for resource cleanup, including uninterruptible finalizers.
+The metrics and tracing hooks include subscription observations. Shutdown waits for resource cleanup, including uninterruptible finalizers.
 
 Setup and event spans inherit the incoming `traceparent` or ambient trace context. Without that context, they are independent roots. The gateway does not add a subscription correlation ID.
 

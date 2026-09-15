@@ -135,12 +135,15 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
   )(implicit trace: Trace): ZIO[R with Scope, Throwable, ZStream[Any, Throwable, GraphQLResponse[CalibanError]]] = {
     val open = for {
       values <- headers.mapError(_ => SubscriptionTermination.Source)
-      traced <-
-        hooks.attemptHeaders.runWith(Event.AttemptHeaders(name, 0, values))(Exit.succeed)((_: Exit[Nothing, Any]) => ())
+      traced <- if (!hooks.attemptHeaders.enabled) Exit.succeed(values)
+                else
+                  hooks.attemptHeaders.runWith(Event.AttemptHeaders(name, 0, values))(ev => Exit.succeed(ev.headers))(
+                    (_: Exit[Nothing, List[Header]]) => ()
+                  )
       body   <- ZIO
                   .fromEither(encode(request.copy(extensions = None)))
                   .mapError(_ => SubscriptionTermination.Source)
-      stream <- subscription.open(traced.headers, request, body)
+      stream <- subscription.open(traced, request, body)
     } yield stream
     admission.fold(open)(_.observed(open))
   }
@@ -192,7 +195,11 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
     attempt: Int
   )(implicit trace: Trace): ZIO[R, SubgraphExecutor.Failure, GraphQLResponse[CalibanError]] = {
     val transport   =
-      hooks.attemptHeaders.runWith(Event.AttemptHeaders(name, attempt, headers))(ev => send(body, ev.headers))(_ => ())
+      if (!hooks.attemptHeaders.enabled) send(body, headers)
+      else
+        hooks.attemptHeaders.runWith(Event.AttemptHeaders(name, attempt, headers))(ev => send(body, ev.headers))(_ =>
+          ()
+        )
     val observed    =
       hooks.attempt.run(Event.Attempt(name, attempt, body.length.toLong, endpoint.host, endpoint.port))(transport)(
         Result.fromExit(_)(

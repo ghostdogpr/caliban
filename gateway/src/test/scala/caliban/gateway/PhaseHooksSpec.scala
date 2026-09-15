@@ -111,7 +111,7 @@ object PhaseHooksSpec extends ZIOSpecDefault {
         observed.lastOption.contains(Event.Completion),
         completed.size == observed.size,
         completed.forall(_._2.outcome == PhaseHooks.Outcome.Success),
-        headers.headOption.flatMap(_.get("x-gateway-wrapper")).contains("products")
+        headers.headOption.flatMap(_.get("x-gateway-hook")).contains("products")
       )
     },
     test("classifies intentional resolver rejections as request errors, not internal failures") {
@@ -150,7 +150,7 @@ object PhaseHooksSpec extends ZIOSpecDefault {
         sent.isEmpty
       )
     },
-    test("counts request wrapper work toward the runtime deadline") {
+    test("counts request hook work toward the runtime deadline") {
       for {
         entered                 <- Promise.make[Nothing, Unit]
         recorded                <- recordEventsAndResults
@@ -175,7 +175,7 @@ object PhaseHooksSpec extends ZIOSpecDefault {
         completed.lastOption.exists(_._2.outcome == PhaseHooks.Outcome.Timeout)
       )
     },
-    test("records cache outcomes through the metrics wrapper") {
+    test("records cache outcomes through the metrics hooks") {
       for {
         cache      <- OperationCache.make[String, Nothing, Int, Any](16, GatewayMetrics.hooks)
         missBefore <- counter("caliban_gateway_operation_cache_total", "result", "miss")
@@ -347,7 +347,36 @@ object PhaseHooksSpec extends ZIOSpecDefault {
         exit  <- f.join
         c     <- count.get
       } yield assertTrue(c == 1) && assert(exit)(Assertion.isInterrupted)
-    }
+    },
+    test("runs the outgoing phase when the wrapped effect is interrupted from outside") {
+      for {
+        count   <- Ref.make(0)
+        started <- Promise.make[Nothing, Unit]
+        hooks    = PhaseHooks.request(
+                     PhaseHandler((ev: Event.Request) => ZIO.succeed((ev, ())))((_, _, _) => count.incrementAndGet.unit)
+                   )
+        fiber   <- hooks.request
+                     .run(Event.Request(Some("Interrupt")))(started.succeed(()) *> ZIO.never)(
+                       PhaseHooks.Result.classifyExit
+                     )
+                     .fork
+        _       <- started.await
+        exit    <- fiber.interrupt
+        c       <- count.get
+      } yield assertTrue(c == 1) && assert(exit)(Assertion.isInterrupted)
+    },
+    test("an incoming phase can be interrupted") {
+      for {
+        started <- Promise.make[Nothing, Unit]
+        hooks    =
+          PhaseHooks.request(
+            PhaseHandler((ev: Event.Request) => started.succeed(()) *> ZIO.never.as((ev, ())))((_, _, _) => ZIO.unit)
+          )
+        fiber   <- hooks.request.run(Event.Request(Some("Interrupt")))(ZIO.unit)(PhaseHooks.Result.classifyExit).fork
+        _       <- started.await
+        exit    <- fiber.interrupt
+      } yield assert(exit)(Assertion.isInterrupted)
+    } @@ TestAspect.timeout(Duration.fromSeconds(10))
   ).provideSomeShared[Scope](testServer, stubIds) @@ TestAspect.sequential
 
   /**
@@ -356,7 +385,7 @@ object PhaseHooksSpec extends ZIOSpecDefault {
   private val taggingOutboundHeaders: PhaseHooks[Any] =
     PhaseHooks.outboundHeaders(
       PhaseHandler.incoming(ev =>
-        ZIO.succeed(ev.copy(headers = Header.Custom("x-gateway-wrapper", ev.subgraph) :: ev.headers))
+        ZIO.succeed(ev.copy(headers = Header.Custom("x-gateway-hook", ev.subgraph) :: ev.headers))
       )
     )
 

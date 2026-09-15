@@ -85,9 +85,8 @@ final case class PhaseHooks[-R] private (
  *
  * Each builds hooks that attach a [[PhaseHandler]] to one phase and leave the rest empty. Combine them with `++` and
  * attach the result with `Gateway#withPhaseHooks` or `Gateway#@@`. Combining accumulates
- * rather than replaces, so several integrations can observe the same phase. Within a phase both the incoming and the
- * outgoing sides run in inverted order, so the outgoing side of the first handler runs last. A [[PhaseHandler.scoped]] handler is the exception: it nests the
- * handlers combined after it, so its outgoing side runs after theirs.
+ * rather than replaces, so several integrations can observe the same phase. Within a phase incoming sides run in
+ * combination order and outgoing sides in reverse, so the outgoing side of the first handler runs last.
  *
  * Every phase except [[overrideLabels]] takes handlers that cannot fail, so a handler can never fail the request it
  * observes. Handlers run on the request path, inside whatever timeout the phase they wrap is subject to.

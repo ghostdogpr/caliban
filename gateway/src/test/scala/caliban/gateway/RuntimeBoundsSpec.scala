@@ -98,7 +98,7 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
           runs           <- computations.get
         } yield assertTrue(waiterExit.isInterrupted, leaderValue == 1, cached == 1, runs == 1)
       },
-      test("cleans up an in-flight entry when the miss wrapper interrupts") {
+      test("cleans up an in-flight entry when the miss hook interrupts") {
         for {
           interrupt <- Ref.make(true)
           hooks      = PhaseHooks.cacheAccess(PhaseHandler.incomingDiscard {

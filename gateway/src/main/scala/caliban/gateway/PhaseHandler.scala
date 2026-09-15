@@ -7,8 +7,8 @@ import zio.{ Exit, Scope, Trace, ZIO }
  * For the exact injection points see [[PhaseHooks]] which defines the set of available hooks.
  *
  * On the incoming side a handler receives the phase's event and may modify it; the modified event is what reaches
- * the injection point. On the outgoing side it receives the final event, its own context, and the result of the
- * wrapped execution.
+ * the injection point. On the outgoing side it receives the event its own incoming side produced, its own context,
+ * and the result of the wrapped execution.
  *
  * PhaseHandlers can be composed sequentially using the `++` operator.
  */
@@ -16,14 +16,15 @@ sealed abstract class PhaseHandler[-R, Event, +Err, -Res] { self =>
   import PhaseHandler.Combined
 
   /**
-   * Composes two phase handlers sequentially. The first handler runs first, and the event its incoming side produces
-   * is the input to the second handler. Both handlers receive the final event in their outgoing phase.
+   * Composes two phase handlers sequentially. The first handler's incoming side runs first, and the event it produces
+   * is the input to the second handler. Outgoing sides run in reverse order, so the second handler's outgoing side
+   * runs before the first's.
    */
   def ++[R1 <: R, Err1 >: Err, Res1 <: Res](
     that: PhaseHandler[R1, Event, Err1, Res1]
   ): PhaseHandler[R1, Event, Err1, Res1] =
-    if (self == PhaseHandler.empty) that
-    else if (that == PhaseHandler.empty) self
+    if (self eq PhaseHandler.empty) that
+    else if (that eq PhaseHandler.empty) self
     else
       (self, that) match {
         case (Combined(left), Combined(right)) => Combined(left ++ right)
@@ -48,8 +49,9 @@ sealed abstract class PhaseHandler[-R, Event, +Err, -Res] { self =>
     else runWith[R1, E, A](event)(_ => effect)(result)
 
   /**
-   * Runs the phase handler, if enabled. It receives the initial event, a function to wrap, which itself receives the final event,
-   * and a conversion function to convert the result of the wrapped effect into this handler's result type.
+   * Runs the phase handler, if enabled. It receives the initial event, a function to wrap, which itself receives the
+   * event the incoming side produced, and a conversion function to convert the result of the wrapped effect into this
+   * handler's result type.
    */
   def runWith[R1 <: R, E >: Err, A](event: Event)(fn: Event => ZIO[R1, E, A])(result: Exit[E, A] => Res)(implicit
     trace: Trace
@@ -139,7 +141,7 @@ object PhaseHandler {
     def runWith[R1 <: R, E >: Err, A](event: Ev)(fn: Ev => ZIO[R1, E, A])(
       result: Exit[E, A] => Out
     )(implicit trace: Trace): ZIO[R1, E, A] = ZIO.uninterruptibleMask { restore =>
-      incoming(event).flatMap { case (ev, ctx) =>
+      restore(incoming(event)).flatMap { case (ev, ctx) =>
         restore(fn(ev)).onExit(exit => outgoing(ev, ctx, result(exit)))
       }
     }
