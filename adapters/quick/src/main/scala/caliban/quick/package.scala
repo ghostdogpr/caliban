@@ -129,7 +129,8 @@ package object quick {
           .runServer(port, apiPath, graphiqlPath, uploadPath)
           .provideSomeLayer[R](ZLayer.scoped[Any](Configurator.ref.locallyScoped(executionConfig)))
 
-      ZIOApp.fromZIO(run.asInstanceOf[RIO[Any, Nothing]]).main(Array.empty)
+      val anyRun = run.provideEnvironment(ZEnvironment(ev(())))
+      ZIOApp.fromZIO(anyRun).main(Array.empty)
     }
 
     def provideLayer(layer: ZLayer[Any, Any, R]): UnsafeApi[Any] =

@@ -1,7 +1,7 @@
 package caliban.execution
 
-import caliban.Value.BooleanValue
-import caliban.introspection.adt.__Type
+import caliban.Value.{ BooleanValue, IntValue, StringValue }
+import caliban.introspection.adt.{ __Field, __InputValue, __Type, __TypeKind }
 import caliban.parsing.SourceMapper
 import caliban.parsing.adt.Definition.ExecutableDefinition.FragmentDefinition
 import caliban.parsing.adt.Selection.{ Field => F, FragmentSpread, InlineFragment }
@@ -12,6 +12,7 @@ import caliban.{ InputValue, Value }
 
 import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
+import scala.jdk.CollectionConverters._
 
 /**
  * Represents a field used during the execution of a query
@@ -66,6 +67,43 @@ case class Field(
     val fields0 = fields
     fields0.isEmpty || fields0.tail.isEmpty || inner(fields0)
   }
+
+  private[caliban] def collectFields(typeName: String): List[Field] = {
+    def matchesType(field: Field): Boolean =
+      field._condition.forall(_.contains(typeName))
+
+    if (allFieldsUniqueNameAndCondition) {
+      if (fields.isEmpty || !matchesType(fields.head)) Nil else fields
+    } else {
+      val capacity  = calculateMapCapacity(fields.size)
+      val collected = new java.util.LinkedHashMap[String, Field](capacity)
+      val nil       = Nil
+      var remaining = fields
+
+      while (remaining ne nil) {
+        val field = remaining.head
+        if (matchesType(field))
+          collected.compute(
+            field.aliasedName,
+            (_, existing) =>
+              if (existing eq null) field
+              else existing.copy(fields = existing.fields ::: field.fields)
+          )
+        remaining = remaining.tail
+      }
+
+      collected.values().asScala.toList
+    }
+  }
+
+  /**
+   * Mutable maps resize when their entries exceed `capacity * loadFactor`. Accounting for the default `0.75d` load
+   * factor avoids resizing the collection while fields are merged.
+   *
+   * This is equivalent to `java.util.HashMap.calculateHashMapCapacity`, available on JDK 19 and newer.
+   */
+  private def calculateMapCapacity(nMappings: Int): Int =
+    Math.ceil(nMappings / 0.75d).toInt
 
   def combine(other: Field): Field =
     self.copy(
@@ -190,7 +228,7 @@ object Field {
                 alias,
                 fields,
                 targets = targets,
-                arguments = resolveVariables(arguments, variableDefinitionsMap, variableValues),
+                arguments = resolveVariables(arguments, variableDefinitionsMap, variableValues, selected),
                 directives = resolvedDirectives,
                 _condition = condition,
                 _locationInfo = () => sourceMapper.getLocation(index),
@@ -272,7 +310,8 @@ object Field {
   private def resolveVariables(
     arguments: Map[String, InputValue],
     variableDefinitions: Map[String, VariableDefinition],
-    variableValues: Map[String, InputValue]
+    variableValues: Map[String, InputValue],
+    field: __Field = null
   ): Map[String, InputValue] = {
     def resolveVariable(value: InputValue): Option[InputValue] =
       value match {
@@ -289,8 +328,41 @@ object Field {
           Some(value)
       }
     if (arguments.isEmpty) Map.empty[String, InputValue]
-    else arguments.flatMap { case (k, v) => resolveVariable(v).map(k -> _) }
+    else
+      arguments.flatMap { case (name, value) =>
+        resolveVariable(value).map { resolved =>
+          val definition = if (field eq null) null else field.getArgOrNull(name)
+          name -> (if (definition eq null) resolved else coerceArgument(resolved, definition._type))
+        }
+      }
   }
+
+  private def coerceArgument(value: InputValue, expected: __Type): InputValue =
+    expected.kind match {
+      case __TypeKind.NON_NULL                               => expected.ofType.fold(value)(coerceArgument(value, _))
+      case __TypeKind.LIST                                   =>
+        expected.ofType.fold(value) { element =>
+          value match {
+            case InputValue.ListValue(values) => InputValue.ListValue(values.map(coerceArgument(_, element)))
+            case other                        => other
+          }
+        }
+      case __TypeKind.INPUT_OBJECT                           =>
+        value match {
+          case InputValue.ObjectValue(fields) =>
+            InputValue.ObjectValue(fields.map { case (name, nested) =>
+              val field = expected.getInputFieldOrNull(name)
+              name -> (if (field eq null) nested else coerceArgument(nested, field._type))
+            })
+          case other                          => other
+        }
+      case __TypeKind.SCALAR if expected.name.contains("ID") =>
+        value match {
+          case int: IntValue => StringValue(int.toBigInt.toString)
+          case other         => other
+        }
+      case _                                                 => value
+    }
 
   private def subtypeNames(typeName: String, rootType: RootType): Option[Set[String]] = {
     def loop(sb: mutable.Builder[String, Set[String]], `type`: Option[__Type]): mutable.Builder[String, Set[String]] =

@@ -2,12 +2,14 @@ package caliban.interop.jsoniter
 
 import caliban.CalibanError.ExecutionError
 import caliban.ResponseValue.{ ListValue, ObjectValue }
-import caliban.Value.{ IntValue, StringValue }
+import caliban.Value.{ IntValue, NullValue, StringValue }
 import caliban.parsing.adt.LocationInfo
 import caliban.{ CalibanError, GraphQLResponse, PathValue, ResponseValue, TestUtils }
 import com.github.plokhotnyuk.jsoniter_scala.core._
 import zio.test.Assertion.equalTo
 import zio.test.{ assert, assertTrue, ZIOSpecDefault }
+
+import scala.util.Try
 
 object GraphQLResponseJsoniterSpec extends ZIOSpecDefault {
 
@@ -23,7 +25,7 @@ object GraphQLResponseJsoniterSpec extends ZIOSpecDefault {
           ("myCustomKey", StringValue("my-value"))
         )
 
-        val response = GraphQLResponse(
+        val response: GraphQLResponse[Any] = GraphQLResponse(
           StringValue("data"),
           List(
             ExecutionError(
@@ -46,6 +48,31 @@ object GraphQLResponseJsoniterSpec extends ZIOSpecDefault {
         )
 
         assertTrue(writeToString(response) == """{"data":"data"}""")
+      },
+      test("encodes directly with caller-selected envelope fields [jsoniter]") {
+        val response: GraphQLResponse[Any] = GraphQLResponse(
+          NullValue,
+          List(ExecutionError("boom")),
+          Some(ObjectValue(List("cacheControl" -> StringValue("private"), "traceId" -> StringValue("trace-1"))))
+        )
+        val codec                          = GraphQLResponseJsoniter.codec(
+          keepDataOnErrors = false,
+          excludeExtensions = Set("cacheControl")
+        )
+
+        assertTrue(
+          writeToString(response)(codec) ==
+            """{"errors":[{"message":"boom"}],"extensions":{"traceId":"trace-1"}}"""
+        )
+      },
+      test("direct encoding matches the materialized response envelope [jsoniter]") {
+        val responses: List[GraphQLResponse[Any]] = List(
+          GraphQLResponse(ObjectValue(List("nested" -> ListValue(List(IntValue(1), NullValue)))), Nil),
+          GraphQLResponse(NullValue, List(ExecutionError("boom"))),
+          GraphQLResponse(StringValue("data"), Nil, Some(ObjectValue(Nil)), Some(false))
+        )
+
+        assertTrue(responses.forall(response => writeToString(response) == writeToString(response.toResponseValue)))
       },
       test("can be parsed from JSON [jsoniter]") {
         val req =
@@ -93,6 +120,72 @@ object GraphQLResponseJsoniterSpec extends ZIOSpecDefault {
               )
             )
           )
+        )
+      },
+      test("preserves response extensions when parsing JSON [jsoniter]") {
+        val response = readFromString[GraphQLResponse[CalibanError]](
+          """{"data":{"value":42},"extensions":{"traceId":"trace-1"}}"""
+        )
+
+        assertTrue(
+          response.extensions.contains(ObjectValue(List("traceId" -> StringValue("trace-1"))))
+        )
+      },
+      test("accepts errors-only responses and preserves response metadata [jsoniter]") {
+        val response = readFromString[GraphQLResponse[CalibanError]](
+          """{"errors":[{"message":"boom"}],"extensions":{"traceId":"trace-1"},"hasNext":false}"""
+        )
+
+        assertTrue(
+          response.data == NullValue,
+          response.errors.map(_.msg) == List("boom"),
+          response.extensions.contains(ObjectValue(List("traceId" -> StringValue("trace-1")))),
+          response.hasNext.contains(false)
+        )
+      },
+      test("accepts explicit null data and an empty errors list [jsoniter]") {
+        val explicitNull = readFromString[GraphQLResponse[CalibanError]]("""{"data":null}""")
+        val emptyErrors  = Try(readFromString[GraphQLResponse[CalibanError]]("""{"errors":[]}"""))
+
+        assertTrue(
+          explicitNull == GraphQLResponse(NullValue, Nil),
+          emptyErrors.toOption.contains(GraphQLResponse(NullValue, Nil))
+        )
+      },
+      test(
+        "accepts null response metadata and malformed error entries while rejecting malformed envelopes [jsoniter]"
+      ) {
+        val nullMetadata   = List(
+          """{"data":null,"errors":null}""",
+          """{"data":null,"extensions":null}""",
+          """{"data":null,"hasNext":null}"""
+        )
+        val malformedError = readFromString[GraphQLResponse[CalibanError]]("""{"errors":[null]}""")
+        val invalid        = List(
+          """{}""",
+          """{"errors":{}}""",
+          """{"data":null,"extensions":[]}""",
+          """{"data":null,"hasNext":"false"}"""
+        )
+
+        assertTrue(
+          nullMetadata.forall(value =>
+            Try(readFromString[GraphQLResponse[CalibanError]](value)).toOption.contains(GraphQLResponse(NullValue, Nil))
+          ),
+          malformedError == GraphQLResponse(
+            NullValue,
+            List(CalibanError.ExecutionError("Remote GraphQL request failed."))
+          ),
+          invalid.forall(value => Try(readFromString[GraphQLResponse[CalibanError]](value)).isFailure)
+        )
+      },
+      test("accepts explicit null error metadata [jsoniter]") {
+        val response = readFromString[GraphQLResponse[CalibanError]](
+          """{"errors":[{"message":"boom","path":null,"locations":null,"extensions":null}]}"""
+        )
+
+        assertTrue(
+          response.errors == List(CalibanError.ExecutionError("boom"))
         )
       },
       test("should correctly write keys containing UTF-8") {

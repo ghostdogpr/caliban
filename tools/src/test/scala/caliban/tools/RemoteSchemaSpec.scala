@@ -14,6 +14,8 @@ import caliban.Macros.gqldoc
 import caliban.execution.Feature
 import caliban.transformers.Transformer
 
+import scala.util.Try
+
 object RemoteSchemaSpec extends ZIOSpecDefault {
   sealed trait EnumType  extends Product with Serializable
   case object EnumValue1 extends EnumType
@@ -55,6 +57,15 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
   )
 
   def spec = suite("RemoteSchemaSpec")(
+    test("reports a built-in scalar used as a root type without throwing") {
+      val result = Try {
+        Parser
+          .parseQuery("schema { query: String } type Foo { id: ID }")
+          .flatMap(RemoteSchema.toRootType(_))
+      }
+
+      assertTrue(result.isSuccess, result.toOption.exists(_.isLeft))
+    },
     test("is isomorphic") {
       for {
         introspected <- SchemaLoader.fromCaliban(api).load
@@ -126,6 +137,31 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
         remoteSchema.subscriptionType.flatMap(_.fields(__DeprecatedArgs()).map(_.map(_.name))).contains(List("tick"))
       )
     },
+    test("parseRemoteSchema preserves deprecated fields and arguments by default") {
+      val schema =
+        """
+          |schema { query: Query }
+          |type Query {
+          |  legacy(old: String @deprecated): String @deprecated
+          |}
+          |""".stripMargin
+
+      for {
+        document     <- ZIO.fromEither(Parser.parseQuery(schema))
+        remoteSchema <- ZIO.fromOption(RemoteSchema.parseRemoteSchema(document))
+        defaultFields = remoteSchema.queryType.fields(__DeprecatedArgs()).getOrElse(Nil)
+        allFields     = remoteSchema.queryType.fields(__DeprecatedArgs(Some(true))).getOrElse(Nil)
+        hiddenFields  = remoteSchema.queryType.fields(__DeprecatedArgs(Some(false))).getOrElse(Nil)
+        legacy        = allFields.find(_.name == "legacy")
+        defaultArgs   = legacy.toList.flatMap(_.args(__DeprecatedArgs()))
+        hiddenArgs    = legacy.toList.flatMap(_.args(__DeprecatedArgs(Some(false))))
+      } yield assertTrue(
+        defaultFields.exists(_.name == "legacy"),
+        defaultArgs.exists(_.name == "old"),
+        !hiddenFields.exists(_.name == "legacy"),
+        !hiddenArgs.exists(_.name == "old")
+      )
+    },
     test("preserves interface-implements-interface relationships") {
       val schema =
         """
@@ -142,6 +178,173 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
         resource      = remoteSchema.types.find(_.name.contains("Resource"))
         implemented   = resource.flatMap(_.interfaces()).getOrElse(Nil).flatMap(_.name)
       } yield assertTrue(implemented.contains("Node"))
+    },
+    test("preserves metadata on object types reached through an interface") {
+      val schema =
+        """
+          |type Query { node: Node }
+          |interface Node { id: ID! }
+          |type Product implements Node {
+          |  id: ID!
+          |  legacy: String @deprecated
+          |  url: URL
+          |}
+          |scalar URL @specifiedBy(url: "https://example.com/url")
+          |""".stripMargin
+
+      for {
+        document <- ZIO.fromEither(Parser.parseQuery(schema))
+        rootType <- ZIO.fromEither(RemoteSchema.toRootType(document))
+        product   = rootType.types
+                      .get("Node")
+                      .flatMap(_.possibleTypes)
+                      .flatMap(_.find(_.name.contains("Product")))
+        visible   = product.flatMap(_.fields(__DeprecatedArgs())).getOrElse(Nil)
+        all       = product.flatMap(_.fields(__DeprecatedArgs(Some(true)))).getOrElse(Nil)
+        legacy    = all.find(_.name == "legacy")
+        url       = all.find(_.name == "url").map(_._type.innerType)
+      } yield assertTrue(
+        !visible.exists(_.name == "legacy"),
+        legacy.flatMap(_.deprecationReason).contains("No longer supported"),
+        url.flatMap(_.specifiedByURL).contains("https://example.com/url")
+      )
+    },
+    test("builds a validated RootType from conventional roots and extensions") {
+      val schema =
+        """
+          |type Query {
+          |  value: String
+          |}
+          |
+          |extend type Query {
+          |  version: String
+          |}
+          |
+          |type Mutation {
+          |  update: Boolean
+          |}
+          |
+          |type Subscription {
+          |  events: String
+          |}
+          |""".stripMargin
+
+      for {
+        document <- ZIO.fromEither(Parser.parseQuery(schema))
+        rootType <- ZIO.fromEither(RemoteSchema.toRootType(document))
+        fields    = rootType.queryType.fields(__DeprecatedArgs()).toList.flatten.map(_.name)
+      } yield assertTrue(
+        rootType.queryType.name.contains("Query"),
+        rootType.mutationType.flatMap(_.name).contains("Mutation"),
+        rootType.subscriptionType.flatMap(_.name).contains("Subscription"),
+        fields == List("value", "version")
+      )
+    },
+    test("retains conventional roots when schema metadata is supplied by an extension") {
+      val schema =
+        """
+          |extend schema @link(url: "https://specs.apollo.dev/federation/v2.3")
+          |type Query { value: String }
+          |type Mutation { update: Boolean }
+          |type Subscription { events: String }
+          |""".stripMargin
+
+      for {
+        document <- ZIO.fromEither(Parser.parseQuery(schema))
+        rootType <- ZIO.fromEither(RemoteSchema.toRootType(document))
+      } yield assertTrue(
+        rootType.queryType.name.contains("Query"),
+        rootType.mutationType.flatMap(_.name).contains("Mutation"),
+        rootType.subscriptionType.flatMap(_.name).contains("Subscription")
+      )
+    },
+    test("rejects conflicting operation roots across schema declarations") {
+      val schema =
+        """
+          |schema { query: Query }
+          |extend schema { query: RootQuery }
+          |type Query { value: String }
+          |type RootQuery { value: String }
+          |""".stripMargin
+
+      for {
+        document <- ZIO.fromEither(Parser.parseQuery(schema))
+        result    = RemoteSchema.toRootType(document)
+      } yield assertTrue(
+        result.left.exists(_.msg == "Conflicting query root types are declared: 'Query', 'RootQuery'.")
+      )
+    },
+    test("does not infer Query when a schema definition omits the query root") {
+      val schema =
+        """
+          |schema { mutation: Mutation }
+          |type Query { value: String }
+          |type Mutation { update: Boolean }
+          |""".stripMargin
+
+      for {
+        document <- ZIO.fromEither(Parser.parseQuery(schema))
+        result    = RemoteSchema.toRootType(document)
+      } yield assertTrue(result.left.exists(_.msg == "The query root operation is missing."))
+    },
+    test("reports a missing query root before other document errors") {
+      val schema =
+        """
+          |schema { mutation: Mutation }
+          |type Mutation { update: Missing }
+          |type Duplicate { value: String }
+          |type Duplicate { value: String }
+          |""".stripMargin
+
+      for {
+        document <- ZIO.fromEither(Parser.parseQuery(schema))
+        result    = RemoteSchema.toRootType(document)
+      } yield assertTrue(result.left.exists(_.msg == "The query root operation is missing."))
+    },
+    test("preserves and validates OneOf input objects") {
+      val validSchema   =
+        """
+          |type Query { find(by: Choice!): String }
+          |input Choice @oneOf { id: ID name: String }
+          |""".stripMargin
+      val invalidSchema =
+        """
+          |type Query { find(by: Choice!): String }
+          |input Choice @oneOf { id: ID! }
+          |""".stripMargin
+
+      for {
+        validDocument   <- ZIO.fromEither(Parser.parseQuery(validSchema))
+        invalidDocument <- ZIO.fromEither(Parser.parseQuery(invalidSchema))
+        rootType        <- ZIO.fromEither(RemoteSchema.toRootType(validDocument))
+        oneOf            = rootType.additionalTypes.find(_.name.contains("Choice")).flatMap(_.isOneOf)
+        invalid          = RemoteSchema.toRootType(invalidDocument)
+      } yield assertTrue(oneOf.contains(true), invalid.isLeft)
+    },
+    test("rejects multiple schema definitions") {
+      val schema =
+        """
+          |schema { query: Query }
+          |schema { query: Query }
+          |type Query { value: String }
+          |""".stripMargin
+
+      for {
+        document <- ZIO.fromEither(Parser.parseQuery(schema))
+        result    = RemoteSchema.toRootType(document)
+      } yield assertTrue(result.left.exists(_.msg == "Schema is defined multiple times."))
+    },
+    test("rejects a type shared by multiple root operations") {
+      val schema =
+        """
+          |schema { query: Root mutation: Root }
+          |type Root { value: String }
+          |""".stripMargin
+
+      for {
+        document <- ZIO.fromEither(Parser.parseQuery(schema))
+        result    = RemoteSchema.toRootType(document)
+      } yield assertTrue(result.left.exists(_.msg == "Root operation type 'Root' is used more than once."))
     }
   )
 

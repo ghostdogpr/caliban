@@ -19,7 +19,7 @@ sealed trait HttpInterpreter[-R, E] { self =>
     PublicEndpoint[(GraphQLRequest, ServerRequest), TapirResponse, CalibanResponse[streams.BinaryStream], S]
   ]
 
-  protected def executeRequest[BS](
+  private[tapir] def executeRequest[BS](
     graphQLRequest: GraphQLRequest,
     serverRequest: ServerRequest
   )(implicit streamConstructor: StreamConstructor[BS]): ZIO[R, TapirResponse, CalibanResponse[BS]]
@@ -76,7 +76,11 @@ object HttpInterpreter {
       serverRequest: ServerRequest
     )(implicit streamConstructor: StreamConstructor[BS]): ZIO[R, TapirResponse, CalibanResponse[BS]] = {
       val req = if (serverRequest.method == Method.GET) graphQLRequest.asHttpGetRequest else graphQLRequest
-      interpreter.executeRequest(req).map(buildHttpResponse[E, BS](serverRequest))
+      IncomingRequestHeaders
+        .locally(serverRequest.headers.map(header => header.name -> header.value).toList)(
+          interpreter.executeRequest(req)
+        )
+        .map(response => buildHttpResponse[E, BS](serverRequest)(response))
     }
   }
 

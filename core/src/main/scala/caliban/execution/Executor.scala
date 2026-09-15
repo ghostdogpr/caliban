@@ -23,7 +23,6 @@ import scala.annotation.{ switch, tailrec }
 import scala.collection.compat.{ BuildFrom => _, _ }
 import scala.collection.immutable.VectorBuilder
 import scala.collection.mutable.ListBuffer
-import scala.jdk.CollectionConverters._
 import scala.util.control.NonFatal
 
 object Executor {
@@ -199,7 +198,7 @@ object Executor {
           (aliasedName, field, fieldInfo(f, aliasedName, path, f.directives))
         }
 
-        val filteredFields = mergeFields(currentField, objectName)
+        val filteredFields = currentField.collectFields(objectName)
         val t              =
           if (Feature.isDeferEnabled(flags)) {
             filteredFields.partitionMap { f =>
@@ -367,48 +366,6 @@ object Executor {
           ReducedStep.ExtensionStep(inner, s.extensions)
       }
     }
-
-    private def mergeFields(field: Field, typeName: String): List[Field] = {
-      def matchesTypename(f: Field): Boolean =
-        f._condition.isEmpty || f._condition.get.contains(typeName)
-
-      def mergeFields(fields: List[Field]) = {
-        val map       = new java.util.LinkedHashMap[String, Field](calculateMapCapacity(fields.size))
-        val nil       = Nil
-        var remaining = fields
-        while (remaining ne nil) {
-          val h = remaining.head
-          if (matchesTypename(h)) {
-            map.compute(
-              h.aliasedName,
-              (_, f) =>
-                if (f eq null) h
-                else f.copy(fields = f.fields ::: h.fields)
-            )
-          }
-          remaining = remaining.tail
-        }
-        map.values().asScala.toList
-      }
-
-      val fields = field.fields
-      if (field.allFieldsUniqueNameAndCondition) {
-        if (fields.isEmpty || !matchesTypename(fields.head)) Nil
-        else fields
-      } else mergeFields(fields)
-    }
-
-    /**
-     * The behaviour of mutable Maps (both Java and Scala) is to resize once the number of entries exceeds
-     * the capacity * loadFactor (default of 0.75d) threshold in order to prevent hash collisions.
-     *
-     * This method is a helper method to estimate the initial map size depending on the number of elements the Map is
-     * expected to hold
-     *
-     * NOTE: This method is the same as java.util.HashMap.calculateHashMapCapacity on JDK19+
-     */
-    private def calculateMapCapacity(nMappings: Int): Int =
-      Math.ceil(nMappings / 0.75d).toInt
 
     private def fieldInfo(
       field: Field,

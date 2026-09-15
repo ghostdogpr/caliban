@@ -36,6 +36,15 @@ case class __Field(
   lazy val allArgs: List[__InputValue] =
     args(__DeprecatedArgs.include)
 
+  private lazy val allArgsMap = {
+    val map = collection.mutable.HashMap.empty[String, __InputValue]
+    allArgs.foreach(arg => map.update(arg.name, arg))
+    map
+  }
+
+  private[caliban] def getArgOrNull(name: String): __InputValue =
+    allArgsMap.getOrElse(name, null)
+
   private[caliban] lazy val _type: __Type = `type`()
 
   private[caliban] lazy val allArgNames: Set[String] =

@@ -36,8 +36,8 @@ final class QuickAdapter[R] private (requestHandler: QuickRequestHandler[R]) {
     webSocketPath: Option[String] = None
   ): Routes[R, Nothing] = {
     val apiRoutes     = List(
-      RoutePattern(Method.POST, apiPath) -> handlers.api,
-      RoutePattern(Method.GET, apiPath)  -> handlers.api
+      RoutePattern(Method.GET, apiPath)  -> handlers.api,
+      RoutePattern(Method.POST, apiPath) -> handlers.api
     )
     val graphiqlRoute = graphiqlPath.toList.map { uiPath =>
       RoutePattern(Method.GET, uiPath) -> GraphiQLHandler.handler(apiPath, webSocketPath)
@@ -87,13 +87,55 @@ final class QuickAdapter[R] private (requestHandler: QuickRequestHandler[R]) {
 
   def configureSse(config: quick.SseConfig): QuickAdapter[R] =
     new QuickAdapter(requestHandler.configureSse(config))
+
+  /**
+   * Sets the maximum number of bytes materialized from one HTTP request body.
+   */
+  def withMaxRequestBodyBytes(value: Int): QuickAdapter[R] =
+    new QuickAdapter(requestHandler.withMaxRequestBodyBytes(value))
+
+  /**
+   * Sets the maximum number of bytes materialized from one multipart upload body.
+   */
+  def withMaxUploadBodyBytes(value: Int): QuickAdapter[R] =
+    new QuickAdapter(requestHandler.withMaxUploadBodyBytes(value))
+
+  /**
+   * Sets the maximum number of bytes materialized for one JSON response body.
+   */
+  def withMaxResponseBodyBytes(value: Int): QuickAdapter[R] =
+    new QuickAdapter(requestHandler.withMaxResponseBodyBytes(value))
 }
 
 object QuickAdapter {
   type Configurator[-R] = URIO[R & Scope, Unit]
 
   def apply[R](interpreter: GraphQLInterpreter[R, Any]): QuickAdapter[R] =
-    new QuickAdapter(new QuickRequestHandler(interpreter, quick.WebSocketConfig.default, quick.SseConfig.default))
+    new QuickAdapter(
+      QuickRequestHandler(
+        interpreter,
+        quick.WebSocketConfig.default,
+        quick.SseConfig.default,
+        DefaultMaxRequestBodyBytes,
+        DefaultMaxUploadBodyBytes,
+        DefaultMaxResponseBodyBytes
+      )
+    )
+
+  /**
+   * The default maximum HTTP request-body size: one megabyte.
+   */
+  val DefaultMaxRequestBodyBytes: Int = 1024 * 1024
+
+  /**
+   * The default maximum multipart upload-body size: 16 megabytes.
+   */
+  val DefaultMaxUploadBodyBytes: Int = 16 * 1024 * 1024
+
+  /**
+   * The default maximum JSON response-body size: 16 megabytes.
+   */
+  val DefaultMaxResponseBodyBytes: Int = 16 * 1024 * 1024
 
   def handlers[R](implicit tag: Tag[R], trace: Trace): URIO[QuickAdapter[R], QuickHandlers[R]] =
     ZIO.serviceWith(_.handlers)

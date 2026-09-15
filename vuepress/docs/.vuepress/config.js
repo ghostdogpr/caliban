@@ -63,6 +63,7 @@ module.exports = {
               'optimization',
               'interop',
               'federation',
+              'gateway',
               'relay-connections',
               'schema-reporting',
             ]
