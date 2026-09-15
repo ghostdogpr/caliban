@@ -1,12 +1,12 @@
 package caliban.gateway.internal
 
-import caliban.gateway.{ GatewaySubscriptionConfig, GatewayWrapper }
-import caliban.gateway.GatewayWrapper.{ AdmissionKind, Event, Result }
+import caliban.gateway.PhaseHooks.{ AdmissionKind, Event, Result }
+import caliban.gateway.{ GatewaySubscriptionConfig, PhaseHooks }
 import zio.{ Clock, Duration, Exit, Promise, Ref, Scope, Trace, UIO, URIO, ZIO }
 
 private[gateway] final class GatewayExecutionControl[-R] private (
   requests: AdmissionGate[R],
-  wrapper: GatewayWrapper[R],
+  hooks: PhaseHooks[R],
   val subscriptions: SubscriptionControl[R],
   requestTimeout: Duration,
   drainTimeout: Duration,
@@ -36,7 +36,7 @@ private[gateway] final class GatewayExecutionControl[-R] private (
   )(
     onRejected: => URIO[R1, A]
   )(result: Exit[Nothing, A] => Result)(implicit trace: Trace): URIO[R1, A] = {
-    def observe(effect: URIO[R1, A]): URIO[R1, A] = wrapper.wrap(event)(effect)(result)
+    def observe(effect: URIO[R1, A]): URIO[R1, A] = hooks.request.run(event)(effect)(result)
     leased(reservation)(observe(onRejected)) { lease =>
       // Classify the resolved operation before opening finite-request metrics/spans, while one
       // admission permit, deadline, and drain lease cover preparation and execution together.
@@ -174,20 +174,20 @@ private[gateway] object GatewayExecutionControl {
   def make[R](
     requestLimit: Int,
     subscriptionConfig: GatewaySubscriptionConfig,
-    wrapper: GatewayWrapper[R],
+    hooks: PhaseHooks[R],
     requestTimeout: Duration,
     drainTimeout: Duration
   )(implicit trace: Trace): ZIO[Scope, Nothing, GatewayExecutionControl[R]] =
     for {
-      requests      <- AdmissionGate.make(requestLimit, AdmissionKind.Request, wrapper)
-      subscriptions <- SubscriptionControl.make(subscriptionConfig, requests, wrapper)
+      requests      <- AdmissionGate.make(requestLimit, AdmissionKind.Request, hooks)
+      subscriptions <- SubscriptionControl.make(subscriptionConfig, requests, hooks)
       state         <- Ref.make(State(Set.empty, None))
       drained       <- Promise.make[Nothing, Unit]
       forceStop     <- Promise.make[Nothing, Unit]
       control        =
         new GatewayExecutionControl(
           requests,
-          wrapper,
+          hooks,
           subscriptions,
           requestTimeout,
           drainTimeout,

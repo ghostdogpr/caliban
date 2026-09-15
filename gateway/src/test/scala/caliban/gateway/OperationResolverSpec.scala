@@ -116,35 +116,37 @@ object OperationResolverSpec extends ZIOSpecDefault {
       ZIO
         .foreach(List(false, true)) { uncached =>
           for {
-            remote           <- stub(response)
-            recorded         <- recordEvents
-            (events, wrapper) = recorded
-            calls            <- Ref.make(0)
-            resolve           = (_: GraphQLRequest) =>
-                                  calls.updateAndGet(_ + 1).flatMap {
-                                    case 1 | 2 => ZIO.succeed(query)
-                                    case _     => ZIO.fail(Rejection("Revoked.", "REVOKED"))
-                                  }
-            resolver          = if (uncached) OperationResolver.uncached(resolve) else OperationResolver(resolve)
-            runtime          <- (Gateway
-                                  .compose(Subgraph.graphql("remote", remote.endpoint, schema))
-                                  .withOperationResolver(resolver) @@ wrapper).interpreter
-            first            <- runtime.executeRequest(request)
-            second           <- runtime.executeRequest(request.copy(extensions = Some(Map("documentId" -> StringValue("alias")))))
-            rejected         <- runtime.executeRequest(request)
-            count            <- calls.get
-            sent             <- remote.requests.get
-            observed         <- events.get
+            remote         <- stub(response)
+            recorded       <- recordEvents
+            (events, hooks) = recorded
+            calls          <- Ref.make(0)
+            resolve         = (_: GraphQLRequest) =>
+                                calls.updateAndGet(_ + 1).flatMap {
+                                  case 1 | 2 => ZIO.succeed(query)
+                                  case _     => ZIO.fail(Rejection("Revoked.", "REVOKED"))
+                                }
+            resolver        = if (uncached) OperationResolver.uncached(resolve) else OperationResolver(resolve)
+            runtime        <- (Gateway
+                                .compose(Subgraph.graphql("remote", remote.endpoint, schema))
+                                .withOperationResolver(resolver)
+                                .withPhaseHooks(hooks))
+                                .interpreter
+            first          <- runtime.executeRequest(request)
+            second         <- runtime.executeRequest(request.copy(extensions = Some(Map("documentId" -> StringValue("alias")))))
+            rejected       <- runtime.executeRequest(request)
+            count          <- calls.get
+            sent           <- remote.requests.get
+            observed       <- events.get
           } yield assertTrue(
             first.errors.isEmpty,
             second.errors.isEmpty,
             rejected.errors.flatMap(code) == List(StringValue("REVOKED")),
             count == 3,
             sent.size == 2,
-            observed.count(_ == GatewayWrapper.Event.CacheAccess(GatewayWrapper.CacheResult.Hit)) == (if (uncached) 0
-                                                                                                      else 1),
-            observed.count(_ == GatewayWrapper.Event.CacheAccess(GatewayWrapper.CacheResult.Miss)) == (if (uncached) 0
-                                                                                                       else 1)
+            observed.count(_ == PhaseHooks.Event.CacheAccess(PhaseHooks.CacheResult.Hit)) == (if (uncached) 0
+                                                                                              else 1),
+            observed.count(_ == PhaseHooks.Event.CacheAccess(PhaseHooks.CacheResult.Miss)) == (if (uncached) 0
+                                                                                               else 1)
           )
         }
         .map(_.reduce(_ && _))
@@ -162,7 +164,7 @@ object OperationResolverSpec extends ZIOSpecDefault {
 
       for {
         results <- ZIO.foreach(resolvers) { resolver =>
-                     new OperationHooks[Any](_ => Nil, Some(resolver), None, GatewayWrapper.empty)
+                     new OperationHooks[Any](_ => Nil, Some(resolver), None, PhaseHooks.empty)
                        .resolve(request)
                        .either
                    }
@@ -179,7 +181,7 @@ object OperationResolverSpec extends ZIOSpecDefault {
     },
     test("preserves resolver interruption even when a finalizer dies with a rejection") {
       val resolver = OperationResolver[Any](_ => ZIO.interrupt.ensuring(ZIO.die(Rejection("Not public.", "PRIVATE"))))
-      new OperationHooks[Any](_ => Nil, Some(resolver), None, GatewayWrapper.empty).resolve(request).exit.map { exit =>
+      new OperationHooks[Any](_ => Nil, Some(resolver), None, PhaseHooks.empty).resolve(request).exit.map { exit =>
         assertTrue(exit.causeOption.exists(_.isInterruptedOnly))
       }
     },

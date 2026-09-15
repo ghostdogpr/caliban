@@ -22,7 +22,7 @@ object GatewayApp extends ZIOAppDefault {
     products,
     reviews,
     Subgraph.local("gateway", LocalApi.api)
-  ) @@ GatewayMetrics.wrapper
+  ) @@ GatewayMetrics.hooks
 
   def run =
     for {

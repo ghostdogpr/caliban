@@ -34,7 +34,7 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
       test("single-flights concurrent misses") {
         val requests = 32
         for {
-          cache        <- OperationCache.make[String, String, Int, Any](64, GatewayWrapper.empty)
+          cache        <- OperationCache.make[String, String, Int, Any](64, PhaseHooks.empty)
           ready        <- Ref.make(0)
           start        <- Promise.make[Nothing, Unit]
           computing    <- Promise.make[Nothing, Unit]
@@ -62,7 +62,7 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
       },
       test("evicts entries by total weight") {
         for {
-          cache <- OperationCache.make[String, String, Int, Any](5, GatewayWrapper.empty)
+          cache <- OperationCache.make[String, String, Int, Any](5, PhaseHooks.empty)
           runs  <- Ref.make(0)
           _     <- cache.getOrCompute("first")(runs.update(_ + 1).as(Weighted(1, 3)))
           _     <- cache.getOrCompute("second")(runs.update(_ + 1).as(Weighted(2, 3)))
@@ -75,43 +75,38 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
       },
       test("allows an interrupted waiter to leave without cancelling the shared computation") {
         for {
-          recorded         <- recordEvents
-          (events, wrapper) = recorded
-          cache            <- OperationCache.make[String, String, Int, Any](32, wrapper)
-          computing        <- Promise.make[Nothing, Unit]
-          release          <- Promise.make[Nothing, Unit]
-          computations     <- Ref.make(0)
-          leader           <- cache
-                                .getOrCompute("same")(
-                                  computations.update(_ + 1) *>
-                                    computing.succeed(()).unit *>
-                                    release.await.as(Weighted(1, 4))
-                                )
-                                .fork
-          _                <- computing.await
-          waiter           <- cache.getOrCompute("same")(ZIO.dieMessage("waiter computed")).fork
-          _                <- events.get.repeatUntil(_.contains(GatewayWrapper.Event.CacheAccess(GatewayWrapper.CacheResult.Wait)))
-          waiterExit       <- waiter.interrupt
-          _                <- release.succeed(())
-          leaderValue      <- leader.join
-          cached           <- cache.getOrCompute("same")(ZIO.dieMessage("cache missed"))
-          runs             <- computations.get
+          recorded       <- recordEvents
+          (events, hooks) = recorded
+          cache          <- OperationCache.make[String, String, Int, Any](32, hooks)
+          computing      <- Promise.make[Nothing, Unit]
+          release        <- Promise.make[Nothing, Unit]
+          computations   <- Ref.make(0)
+          leader         <- cache
+                              .getOrCompute("same")(
+                                computations.update(_ + 1) *>
+                                  computing.succeed(()).unit *>
+                                  release.await.as(Weighted(1, 4))
+                              )
+                              .fork
+          _              <- computing.await
+          waiter         <- cache.getOrCompute("same")(ZIO.dieMessage("waiter computed")).fork
+          _              <- events.get.repeatUntil(_.contains(PhaseHooks.Event.CacheAccess(PhaseHooks.CacheResult.Wait)))
+          waiterExit     <- waiter.interrupt
+          _              <- release.succeed(())
+          leaderValue    <- leader.join
+          cached         <- cache.getOrCompute("same")(ZIO.dieMessage("cache missed"))
+          runs           <- computations.get
         } yield assertTrue(waiterExit.isInterrupted, leaderValue == 1, cached == 1, runs == 1)
       },
       test("cleans up an in-flight entry when the miss wrapper interrupts") {
         for {
           interrupt <- Ref.make(true)
-          wrapper    = new GatewayWrapper[Any] {
-                         def wrap[R0, E, A](event: GatewayWrapper.Event)(effect: ZIO[R0, E, A])(
-                           result: Exit[E, A] => GatewayWrapper.Result
-                         )(implicit trace: Trace): ZIO[R0, E, A] =
-                           event match {
-                             case GatewayWrapper.Event.CacheAccess(GatewayWrapper.CacheResult.Miss) =>
-                               interrupt.getAndSet(false).flatMap(if (_) ZIO.interrupt else effect)
-                             case _                                                                 => effect
-                           }
-                       }
-          cache     <- OperationCache.make[String, String, Int, Any](32, wrapper)
+          hooks      = PhaseHooks.cacheAccess(PhaseHandler.incomingDiscard {
+                         case PhaseHooks.Event.CacheAccess(PhaseHooks.CacheResult.Miss) =>
+                           interrupt.getAndSet(false).flatMap(if (_) ZIO.interrupt else ZIO.unit)
+                         case _                                                         => ZIO.unit
+                       })
+          cache     <- OperationCache.make[String, String, Int, Any](32, hooks)
           first     <- cache.getOrCompute("same")(ZIO.succeed(Weighted(1, 4))).exit
           second    <- cache.getOrCompute("same")(ZIO.succeed(Weighted(2, 4)))
         } yield assertTrue(
@@ -121,25 +116,21 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
       },
       test("retries a waiter when the compute leader is interrupted before computation starts") {
         for {
-          firstMiss  <- Ref.make(true)
-          entered    <- Promise.make[Nothing, Unit]
-          joined     <- Promise.make[Nothing, Unit]
-          wrapper     = new GatewayWrapper[Any] {
-                          def wrap[R0, E, A](event: GatewayWrapper.Event)(effect: ZIO[R0, E, A])(
-                            result: Exit[E, A] => GatewayWrapper.Result
-                          )(implicit trace: Trace): ZIO[R0, E, A] =
-                            event match {
-                              case GatewayWrapper.Event.CacheAccess(GatewayWrapper.CacheResult.Miss) =>
-                                firstMiss.getAndSet(false).flatMap {
-                                  case true  => entered.succeed(()).unit *> ZIO.never
-                                  case false => effect
-                                }
-                              case GatewayWrapper.Event.CacheAccess(GatewayWrapper.CacheResult.Wait) =>
-                                joined.succeed(()).unit *> effect
-                              case _                                                                 => effect
-                            }
-                        }
-          cache      <- OperationCache.make[String, String, Int, Any](32, wrapper)
+          firstMiss <- Ref.make(true)
+          entered   <- Promise.make[Nothing, Unit]
+          joined    <- Promise.make[Nothing, Unit]
+          hooks      = PhaseHooks.cacheAccess(PhaseHandler.incomingDiscard {
+                         case PhaseHooks.Event.CacheAccess(PhaseHooks.CacheResult.Miss) =>
+                           firstMiss.getAndSet(false).flatMap {
+                             case true  => entered.succeed(()).unit *> ZIO.never
+                             case false => ZIO.unit
+                           }
+                         case PhaseHooks.Event.CacheAccess(PhaseHooks.CacheResult.Wait) =>
+                           joined.succeed(()).unit
+                         case _                                                         => ZIO.unit
+                       })
+
+          cache      <- OperationCache.make[String, String, Int, Any](32, hooks)
           leader     <- cache.getOrCompute("same")(ZIO.succeed(Weighted(1, 4))).fork
           _          <- entered.await
           waiter     <- cache.getOrCompute("same")(ZIO.succeed(Weighted(2, 4))).fork
@@ -152,21 +143,23 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
     suite("operation preparation")(
       test("caches prepared plans independently of policy evaluation") {
         for {
-          recorded         <- recordEvents
-          (events, wrapper) = recorded
-          policyCalls      <- Ref.make(0)
-          stableRemote     <- stub(response)
-          stable           <- (Gateway
-                                .compose(Subgraph.graphql("stable", stableRemote.endpoint, schema))
-                                .withOperationPolicy(
-                                  OperationPolicy[Any](_ => policyCalls.update(_ + 1).as(Allow))
-                                ) @@ wrapper).interpreter
-          _                <- stable.executeRequest(request)
-          _                <- stable.executeRequest(request)
-          policyRuns       <- policyCalls.get
-          observed         <- events.get
+          recorded       <- recordEvents
+          (events, hooks) = recorded
+          policyCalls    <- Ref.make(0)
+          stableRemote   <- stub(response)
+          stable         <- Gateway
+                              .compose(Subgraph.graphql("stable", stableRemote.endpoint, schema))
+                              .withOperationPolicy(
+                                OperationPolicy[Any](_ => policyCalls.update(_ + 1).as(Allow))
+                              )
+                              .withPhaseHooks(hooks)
+                              .interpreter
+          _              <- stable.executeRequest(request)
+          _              <- stable.executeRequest(request)
+          policyRuns     <- policyCalls.get
+          observed       <- events.get
         } yield assertTrue(
-          observed.count(_ == GatewayWrapper.Event.CacheAccess(GatewayWrapper.CacheResult.Hit)) == 1,
+          observed.count(_ == PhaseHooks.Event.CacheAccess(PhaseHooks.CacheResult.Hit)) == 1,
           policyRuns == 2
         )
       },
@@ -180,18 +173,18 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
           ZIO.scoped(Configurator.setValidations(validations) *> runtime.executeRequest(request))
 
         for {
-          recorded         <- recordEvents
-          (events, wrapper) = recorded
-          gateway           = Gateway.compose(Subgraph.local("local", localGraph(ZIO.succeed("ok")))) @@ wrapper
-          runtime          <- gateway.interpreter
-          first            <- execute(runtime, allowed)
-          second           <- execute(runtime, allowed.map(identity))
-          rejected         <- execute(runtime, denied)
-          restored         <- execute(runtime, allowed)
-          other            <- gateway.interpreter
-          otherRejected    <- execute(other, denied)
-          observed         <- events.get
-          accesses          = observed.collect { case GatewayWrapper.Event.CacheAccess(result) => result }
+          recorded       <- recordEvents
+          (events, hooks) = recorded
+          gateway         = Gateway.compose(Subgraph.local("local", localGraph(ZIO.succeed("ok")))).withPhaseHooks(hooks)
+          runtime        <- gateway.interpreter
+          first          <- execute(runtime, allowed)
+          second         <- execute(runtime, allowed.map(identity))
+          rejected       <- execute(runtime, denied)
+          restored       <- execute(runtime, allowed)
+          other          <- gateway.interpreter
+          otherRejected  <- execute(other, denied)
+          observed       <- events.get
+          accesses        = observed.collect { case PhaseHooks.Event.CacheAccess(result) => result }
         } yield assertTrue(
           first.errors.isEmpty,
           second.errors.isEmpty,
@@ -199,11 +192,11 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
           rejected.errors.map(_.msg) == List("Custom validation rejected."),
           otherRejected.errors.map(_.msg) == List("Custom validation rejected."),
           accesses == Vector(
-            GatewayWrapper.CacheResult.Miss,
-            GatewayWrapper.CacheResult.Hit,
-            GatewayWrapper.CacheResult.Miss,
-            GatewayWrapper.CacheResult.Hit,
-            GatewayWrapper.CacheResult.Miss
+            PhaseHooks.CacheResult.Miss,
+            PhaseHooks.CacheResult.Hit,
+            PhaseHooks.CacheResult.Miss,
+            PhaseHooks.CacheResult.Hit,
+            PhaseHooks.CacheResult.Miss
           )
         )
       },
@@ -349,7 +342,7 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
       test("holds one observed request admission across preparation and execution") {
         for {
           recorded         <- recordEvents
-          (_, wrapper)      = recorded
+          (_, hooks)        = recorded
           routingCalls     <- Ref.make(0)
           firstRouting     <- Promise.make[Nothing, Unit]
           releaseRouting   <- Promise.make[Nothing, Unit]
@@ -363,7 +356,7 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
                                   case _ => secondRouting.succeed(()).as("{ localValue }")
                                 }
                               )
-          runtime          <- (Gateway
+          runtime          <- Gateway
                                 .compose(
                                   Subgraph.local(
                                     "local",
@@ -373,7 +366,9 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
                                   )
                                 )
                                 .withOperationResolver(resolver)
-                                .withConfig(_.withMaxConcurrentRequests(1)) @@ wrapper).interpreter
+                                .withConfig(_.withMaxConcurrentRequests(1))
+                                .withPhaseHooks(hooks)
+                                .interpreter
           first            <- runtime.executeRequest(GraphQLRequest()).fork
           _                <- firstRouting.await
           second           <- runtime.executeRequest(GraphQLRequest()).fork
@@ -518,33 +513,35 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
             .withInFlightQueryDeduplication(false)
         )
         for {
-          recorded         <- recordEvents
-          (events, wrapper) = recorded
-          calls            <- Ref.make(0)
-          retryStarted     <- Promise.make[Nothing, Unit]
-          releaseRetry     <- Promise.make[Nothing, Unit]
-          remote           <- endpoint { _ =>
-                                calls.updateAndGet(_ + 1).flatMap {
-                                  case 1 => ZIO.succeed(Response.status(Status.ServiceUnavailable))
-                                  case 2 => retryStarted.succeed(()).unit *> releaseRetry.await.as(graphQLResponse(response))
-                                  case _ => ZIO.succeed(graphQLResponse(response))
-                                }
+          recorded       <- recordEvents
+          (events, hooks) = recorded
+          calls          <- Ref.make(0)
+          retryStarted   <- Promise.make[Nothing, Unit]
+          releaseRetry   <- Promise.make[Nothing, Unit]
+          remote         <- endpoint { _ =>
+                              calls.updateAndGet(_ + 1).flatMap {
+                                case 1 => ZIO.succeed(Response.status(Status.ServiceUnavailable))
+                                case 2 => retryStarted.succeed(()).unit *> releaseRetry.await.as(graphQLResponse(response))
+                                case _ => ZIO.succeed(graphQLResponse(response))
                               }
-          runtime          <- (Gateway
-                                .compose(Subgraph.graphql("remote", remote, schema, config))
-                                .withConfig(_.withMaxConcurrentRequests(2)) @@ wrapper).interpreter
-          first            <- runtime.executeRequest(request).fork
-          _                <- retryStarted.await
-          second           <- runtime.executeRequest(request).fork
-          _                <- events.get.repeatUntil(
-                                _.count(_.isInstanceOf[GatewayWrapper.Event.SubgraphCall]) == 2
-                              )
-          _                <- TestClock.adjust(Duration.Zero)
-          before           <- calls.get
-          _                <- releaseRetry.succeed(())
-          firstResult      <- first.join
-          secondResult     <- second.join
-          total            <- calls.get
+                            }
+          runtime        <- Gateway
+                              .compose(Subgraph.graphql("remote", remote, schema, config))
+                              .withConfig(_.withMaxConcurrentRequests(2))
+                              .withPhaseHooks(hooks)
+                              .interpreter
+          first          <- runtime.executeRequest(request).fork
+          _              <- retryStarted.await
+          second         <- runtime.executeRequest(request).fork
+          _              <- events.get.repeatUntil(
+                              _.count(_.isInstanceOf[PhaseHooks.Event.SubgraphCall]) == 2
+                            )
+          _              <- TestClock.adjust(Duration.Zero)
+          before         <- calls.get
+          _              <- releaseRetry.succeed(())
+          firstResult    <- first.join
+          secondResult   <- second.join
+          total          <- calls.get
         } yield assertTrue(
           before == 2,
           firstResult.errors.isEmpty,
@@ -565,7 +562,7 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
                        )
           runtime   <- (Gateway
                          .compose(Subgraph.graphql("remote", remote, schema, config))
-                         .withConfig(_.withMaxConcurrentRequests(32)) @@ GatewayMetrics.wrapper).interpreter
+                         .withConfig(_.withMaxConcurrentRequests(32)) @@ GatewayMetrics.hooks).interpreter
           fibers    <- ZIO.foreach(1 to 20)(_ => runtime.executeRequest(request).fork)
           _         <- started.await
           _         <- TestClock.adjust(Duration.Zero)
@@ -585,31 +582,33 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
         val firstRequest = GraphQLRequest(query = operations, operationName = Some("First"))
         val nextRequest  = GraphQLRequest(query = operations, operationName = Some("Second"))
         for {
-          recorded         <- recordEvents
-          (events, wrapper) = recorded
-          calls            <- Ref.make(0)
-          firstStarted     <- Promise.make[Nothing, Unit]
-          nextStarted      <- Promise.make[Nothing, Unit]
-          releaseFirst     <- Promise.make[Nothing, Unit]
-          remote           <- endpoint(_ =>
-                                calls.updateAndGet(_ + 1).flatMap {
-                                  case 1 => firstStarted.succeed(()).unit *> releaseFirst.await.as(graphQLResponse(response))
-                                  case _ => nextStarted.succeed(()).as(graphQLResponse(response))
-                                }
-                              )
-          runtime          <- (Gateway
-                                .compose(Subgraph.graphql("remote", remote, schema, config))
-                                .withConfig(_.withMaxConcurrentRequests(2)) @@ wrapper).interpreter
-          first            <- runtime.executeRequest(firstRequest).fork
-          _                <- firstStarted.await
-          second           <- runtime.executeRequest(nextRequest).fork
-          _                <- events.get.repeatUntil(_.count(_ == GatewayWrapper.Event.Routing) == 2)
-          _                <- TestClock.adjust(Duration.Zero)
-          before           <- calls.get
-          _                <- releaseFirst.succeed(())
-          _                <- nextStarted.await
-          responses        <- first.join.zip(second.join)
-          total            <- calls.get
+          recorded       <- recordEvents
+          (events, hooks) = recorded
+          calls          <- Ref.make(0)
+          firstStarted   <- Promise.make[Nothing, Unit]
+          nextStarted    <- Promise.make[Nothing, Unit]
+          releaseFirst   <- Promise.make[Nothing, Unit]
+          remote         <- endpoint(_ =>
+                              calls.updateAndGet(_ + 1).flatMap {
+                                case 1 => firstStarted.succeed(()).unit *> releaseFirst.await.as(graphQLResponse(response))
+                                case _ => nextStarted.succeed(()).as(graphQLResponse(response))
+                              }
+                            )
+          runtime        <- Gateway
+                              .compose(Subgraph.graphql("remote", remote, schema, config))
+                              .withConfig(_.withMaxConcurrentRequests(2))
+                              .withPhaseHooks(hooks)
+                              .interpreter
+          first          <- runtime.executeRequest(firstRequest).fork
+          _              <- firstStarted.await
+          second         <- runtime.executeRequest(nextRequest).fork
+          _              <- events.get.repeatUntil(_.count(_ == PhaseHooks.Event.Routing) == 2)
+          _              <- TestClock.adjust(Duration.Zero)
+          before         <- calls.get
+          _              <- releaseFirst.succeed(())
+          _              <- nextStarted.await
+          responses      <- first.join.zip(second.join)
+          total          <- calls.get
         } yield assertTrue(
           before == 1,
           responses._1.errors.isEmpty,
@@ -619,7 +618,7 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
       },
       test("releases a source permit when the current call is interrupted") {
         for {
-          gate          <- AdmissionGate.make(1, GatewayWrapper.AdmissionKind.Request, GatewayWrapper.empty)
+          gate          <- AdmissionGate.make(1, PhaseHooks.AdmissionKind.Request, PhaseHooks.empty)
           firstStarted  <- Promise.make[Nothing, Unit]
           secondStarted <- Promise.make[Nothing, Unit]
           first         <- gate(firstStarted.succeed(()).unit *> ZIO.never).fork

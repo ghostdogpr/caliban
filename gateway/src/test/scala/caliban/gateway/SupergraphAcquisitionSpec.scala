@@ -345,19 +345,19 @@ object SupergraphAcquisitionSpec extends ZIOSpecDefault {
     ),
 
     // ---------------------------------------------------------------------------------------
-    // Task 8 — conditional requests
+    // Task 8: conditional requests
     //
     // Hive's CDN honours `ETag` / `If-None-Match` and answers `304` when the supergraph has not
     // changed, which is the common case on every poll. This is an optimization, not a correctness
     // feature: fingerprint dedup in `ReloadableGatewayInterpreterImpl.cycle` already suppresses the
     // swap. The risk being gated is therefore a silently-never-firing optimization, not a wrong
-    // answer — which is exactly what a green suite hides if it only ever exercises `200`.
+    // answer, which is exactly what a green suite hides if it only ever exercises `200`.
     // ---------------------------------------------------------------------------------------
     suite("conditional requests")(
       test("a first load is unconditional, and stores the tag the response carried") {
         for {
           // Both answers are `200`, so this isolates storing and re-sending the tag from whether a
-          // `304` is handled — that has its own tests below, and a shared fixture would report one
+          // `304` is handled. That has its own tests below, and a shared fixture would report one
           // bug twice.
           cdn    <- recordingEndpoint(Answer.sdl(etag = Some("\"v1\"")))
           client <- ZIO.service[GatewayHttpClient]
@@ -449,7 +449,7 @@ object SupergraphAcquisitionSpec extends ZIOSpecDefault {
       test("the tag stored from a redirecting chain is the first host's, not the storage host's") {
         // Hive answers `302` to a 60-second presigned storage url. The tag that identifies the
         // artifact is the CDN's; the storage object's own tag is meaningless to the CDN, and sending
-        // it back guarantees a `200` on every future poll — the optimization silently never fires.
+        // it back guarantees a `200` on every future poll, so the optimization silently never fires.
         for {
           storage <- recordingEndpoint(Answer.sdl(etag = Some("\"storage-object\"")))
           cdn     <- recordingEndpoint(Answer.redirect(storage.endpoint.encode, etag = Some("\"cdn-v1\"")))
@@ -470,7 +470,7 @@ object SupergraphAcquisitionSpec extends ZIOSpecDefault {
       },
       test("a 304 from a redirect target is refused rather than answered from the cache") {
         // Only the first host is asked a conditional question, so this `304` answers one nobody
-        // posed — and the CDN has just said the artifact moved. Returning the cached document would
+        // posed, and the CDN has just said the artifact moved. Returning the cached document would
         // pin the gateway to a supergraph the CDN is actively redirecting away from.
         for {
           storage <- recordingEndpoint(Answer.sdl(etag = Some("\"storage-object\"")), Answer.notModified)
@@ -507,7 +507,7 @@ object SupergraphAcquisitionSpec extends ZIOSpecDefault {
     ),
 
     // ---------------------------------------------------------------------------------------
-    // Task 10 — Supergraph.hive
+    // Task 10: Supergraph.hive
     //
     // A named constructor over `Source.Http`, so the only thing it can get wrong is the shape of
     // the request: the artifact path, the header the CDN authenticates with, and a redirect bound

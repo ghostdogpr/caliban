@@ -1,7 +1,7 @@
 package caliban.gateway.internal
 
-import caliban.gateway.GatewayWrapper
-import caliban.gateway.GatewayWrapper.{ CacheResult, Event, Result }
+import caliban.gateway.PhaseHooks
+import caliban.gateway.PhaseHooks.{ CacheResult, Event, Result }
 import zio.{ Exit, FiberId, Promise, Ref, Trace, UIO, ZIO }
 
 import scala.annotation.tailrec
@@ -10,7 +10,7 @@ import scala.collection.immutable.Queue
 private[gateway] final class OperationCache[K, E, V, -R] private (
   maxWeight: Long,
   state: Ref[OperationCache.State[K, E, V]],
-  wrapper: GatewayWrapper[R]
+  hooks: PhaseHooks[R]
 ) {
   import OperationCache._
 
@@ -80,21 +80,19 @@ private[gateway] final class OperationCache[K, E, V, -R] private (
   private def observe[R0 <: R, E0, A](
     value: CacheResult
   )(effect: ZIO[R0, E0, A])(implicit trace: Trace): ZIO[R0, E0, A] =
-    if (!wrapper.enabled) effect
-    else
-      wrapper.wrap(Event.CacheAccess(value))(effect)(
-        Result.classifyExit
-      )
+    hooks.cacheAccess.run(Event.CacheAccess(value))(effect)(
+      Result.classifyExit
+    )
 }
 
 private[gateway] object OperationCache {
 
   final case class Weighted[+A](value: A, weight: Long)
 
-  def make[K, E, V, R](maxWeight: Long, wrapper: GatewayWrapper[R])(implicit
+  def make[K, E, V, R](maxWeight: Long, hooks: PhaseHooks[R])(implicit
     trace: Trace
   ): UIO[OperationCache[K, E, V, R]] =
-    Ref.make(State.empty[K, E, V]).map(new OperationCache(maxWeight, _, wrapper))
+    Ref.make(State.empty[K, E, V]).map(new OperationCache(maxWeight, _, hooks))
 
   private final case class State[K, E, V](
     entries: Map[K, Weighted[V]],

@@ -36,14 +36,14 @@ object SupergraphRoundTripSpec extends ZIOSpecDefault {
 
   /**
    * Mirrors `Gateway.load`: the federation flag is derived from the document rather than assumed,
-   * and `promoteOrphans` follows it. That is what makes the synthesized `@link` load-bearing — an
-   * unlinked projection composes as an ordinary graph, and `Character` (unreachable from the
-   * `episodes` `Query`) would silently lose its entity lookup.
+   * and `promoteOrphans` follows it. That is what makes the synthesized `@link` required. An
+   * unlinked projection composes as an ordinary graph, and `Character`, unreachable from the
+   * `episodes` `Query`, would silently lose its entity lookup.
    */
   private def prepare(name: String, document: Document): Either[List[String], PreparedSubgraph] = {
     val federation = SchemaComposer.isFederation(document)
     for {
-      // Normalizing rather than only building a root type is load-bearing: it folds `extend schema`
+      // Normalizing rather than only building a root type is necessary: it folds `extend schema`
       // into the schema definition, which is where composition reads `@link` from. A projection
       // declares its schema outright, so only the checked-in originals depend on the merge.
       normalized <- RemoteSchema
@@ -180,7 +180,7 @@ object SupergraphRoundTripSpec extends ZIOSpecDefault {
       // `Character.isCaptain` is owned by `episodes`, but `Episode.characters` is `characters`-only,
       // so `Character` is unreachable from the `episodes` `Query`. It survives composition only
       // through orphan promotion, which is enabled only when the synthesized federation @link is
-      // present — this is the tightest coupling between the link and entity routing.
+      // present. This is the tightest coupling between the link and entity routing.
       characterGraphFromSupergraph.map { graph =>
         assertTrue(
           graph.fieldRoutes.get("Character" -> "isCaptain").contains(List(ComposedGraph.FieldRoute("episodes"))),
