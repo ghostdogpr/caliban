@@ -6,6 +6,7 @@ import caliban.InputValue
 import caliban.introspection.adt._
 import caliban.parsing.{ Parser, SourceMapper }
 import caliban.parsing.adt.{ Directive, Document, OperationType, Selection }
+import caliban.parsing.adt.Definition.TypeSystemDefinition.{ AggregationTypeDefinition, TypeDefinition }
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
 import caliban.parsing.adt.Definition.TypeSystemExtension.SchemaExtension
 import caliban.parsing.adt.Definition.TypeSystemExtension.TypeExtension._
@@ -37,14 +38,16 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
   private val prepared           = sortedSubgraphs.map { subgraph =>
     val names       = namesBySource(subgraph.name)
     val federation2 = names.federation2
+    val schema      = new SchemaInspection(subgraph.document)
     CompositionSubgraph(
       subgraph,
       names,
-      federationKeyCoordinates(subgraph, names),
-      federation1ExtensionKeyCoordinates(subgraph, names, federation2),
+      federationKeyCoordinates(subgraph, names, schema),
+      federation1ExtensionKeyCoordinates(subgraph, names, federation2, schema),
       composedDirectives.hidden(subgraph.name),
       federation2,
-      typeSystemDirectiveApplications(subgraph.document, composedTypeName(subgraph, _))
+      schema,
+      schema.directiveApplications(composedTypeName(subgraph, _))
     )
   }
   private val types              = rootTypes ::: nonRootTypes
@@ -630,93 +633,6 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
       }
     }
 
-  private def typeSystemDirectiveApplications(
-    document: Document,
-    composedName: String => String
-  ): List[TypeSystemDirectiveApplication] = {
-    def unsupported(
-      coordinate: Coordinate,
-      directives: List[Directive]
-    ): TypeSystemDirectiveApplication =
-      TypeSystemDirectiveApplication(coordinate, directives)
-
-    def typeApplication(
-      name: String,
-      directives: List[Directive],
-      location: __DirectiveLocation
-    ): TypeSystemDirectiveApplication = {
-      val typeName = composedName(name)
-      TypeSystemDirectiveApplication(TypeCoordinate(typeName, location), directives)
-    }
-
-    def fieldApplications(typeName: String, fields: List[FieldDefinition]): List[TypeSystemDirectiveApplication] = {
-      val parent = composedName(typeName)
-      fields.flatMap { field =>
-        TypeSystemDirectiveApplication(
-          FieldCoordinate(parent, field.name),
-          field.directives
-        ) :: field.args.map(argument =>
-          unsupported(ArgumentCoordinate(parent, field.name, argument.name), argument.directives)
-        )
-      }
-    }
-
-    def inputApplications(
-      typeName: String,
-      fields: List[InputValueDefinition]
-    ): List[TypeSystemDirectiveApplication] = {
-      val parent = composedName(typeName)
-      fields.map(field => unsupported(InputFieldCoordinate(parent, field.name), field.directives))
-    }
-
-    def enumApplications(
-      typeName: String,
-      values: List[EnumValueDefinition]
-    ): List[TypeSystemDirectiveApplication] = {
-      val parent = composedName(typeName)
-      values.map(value => unsupported(EnumValueCoordinate(parent, value.enumValue), value.directives))
-    }
-
-    val schemas            =
-      document.schemaDefinition.toList.map(definition => unsupported(SchemaCoordinate, definition.directives))
-    val scalarTypes        = document.typeDefinitions.collect { case value: ScalarTypeDefinition =>
-      value.name -> value.directives
-    }
-    val unionTypes         = document.typeDefinitions.collect { case value: UnionTypeDefinition =>
-      value.name -> value.directives
-    }
-    val enumTypes          = document.typeDefinitions.collect { case value: EnumTypeDefinition =>
-      (value.name, value.directives, value.enumValuesDefinition)
-    }
-    val inputTypes         = document.typeDefinitions.collect { case value: InputObjectTypeDefinition =>
-      (value.name, value.directives, value.fields)
-    }
-    val objectLikeTypes    = document.typeDefinitions.collect {
-      case value: ObjectTypeDefinition    =>
-        (value.name, value.directives, value.fields, __DirectiveLocation.OBJECT)
-      case value: InterfaceTypeDefinition =>
-        (value.name, value.directives, value.fields, __DirectiveLocation.INTERFACE)
-    }
-    val types              = scalarTypes.map { case (name, directives) =>
-      typeApplication(name, directives, __DirectiveLocation.SCALAR)
-    } ::: objectLikeTypes.flatMap { case (name, directives, fields, location) =>
-      typeApplication(name, directives, location) :: fieldApplications(name, fields)
-    } ::: unionTypes.map { case (name, directives) =>
-      typeApplication(name, directives, __DirectiveLocation.UNION)
-    } ::: enumTypes.flatMap { case (name, directives, values) =>
-      typeApplication(name, directives, __DirectiveLocation.ENUM) :: enumApplications(name, values)
-    } ::: inputTypes.flatMap { case (name, directives, fields) =>
-      typeApplication(name, directives, __DirectiveLocation.INPUT_OBJECT) :: inputApplications(name, fields)
-    }
-    val directiveArguments = document.directiveDefinitions.flatMap { definition =>
-      definition.args.map(argument =>
-        unsupported(DirectiveArgumentCoordinate(definition.name, argument.name), argument.directives)
-      )
-    }
-
-    schemas ::: types ::: directiveArguments
-  }
-
   private def securityApplications(
     metadata: CompositionSubgraph
   ): Either[List[String], List[ComposedGraph.SecurityApplication]] = {
@@ -858,9 +774,7 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
     if (!subgraph.federation) Right(FederationFieldSets(Nil, Nil))
     else {
       val names        = metadata.directives
-      val fields       = objectLikeEntries(subgraph.document).flatMap { case (name, _, fields) =>
-        fields.map(name -> _)
-      }
+      val fields       = metadata.schema.fields
       val requirements = fields.flatMap { case (typeName, field) =>
         val parent = subgraph.rootType.types.get(typeName)
         compileFieldSet(subgraph, typeName, field.name, field.directives, names.requires, parent)
@@ -892,12 +806,7 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
     val names    = metadata.directives
     if (!subgraph.federation || !names.supportsContexts) Right(FederationContexts(Nil, Nil))
     else {
-      val typeEntries                                             = objectLikeEntries(subgraph.document).map { case (name, directives, _) =>
-        name -> directives
-      } :::
-        subgraph.document.typeDefinitions.collect { case definition: UnionTypeDefinition =>
-          definition.name -> definition.directives
-        }
+      val typeEntries                                             = metadata.schema.contextTypes.map(tpe => tpe.name -> tpe.directives)
       def nonQueryOperationRoot(typeName: String): Option[String] =
         subgraph.rootNames.composed(typeName) match {
           case "Mutation"     => Some("Mutation")
@@ -935,93 +844,91 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
           (subgraph.name -> ComposedGraph.ContextName(name)) -> typeName
         }
       }.groupMap(_._1)(_._2)
-      val arguments                                               = objectLikeEntries(subgraph.document).flatMap { case (typeName, _, fields) =>
-        fields.flatMap { field =>
-          field.args.flatMap { argument =>
-            argument.directives
-              .filter(directive => names.fromContext.contains(directive.name))
-              .map { directive =>
-                val coordinate = s"${composedTypeName(subgraph, typeName)}.${field.name}(${argument.name}:)"
-                val prefix     = s"[${subgraph.name}] Invalid Federation @fromContext application at '$coordinate'"
-                for {
-                  value             <- directive.arguments
-                                         .get("field")
-                                         .collect { case StringValue(value) => value }
-                                         .toRight(s"$prefix: the 'field' argument must be a string.")
-                  parsed            <- parseContextSelection(value).toRight(s"$prefix: the context selection could not be parsed.")
-                  (name, selections) = parsed
-                  contextTypes       = byName.getOrElse(subgraph.name -> name, Nil)
-                  argumentType      <- subgraph.rootType.types
-                                         .get(typeName)
-                                         .flatMap(tpe => Option(tpe.getFieldOrNull(field.name)))
-                                         .flatMap(_.allArgs.find(_.name == argument.name))
-                                         .map(_._type)
-                                         .toRight(s"$prefix: the context argument does not exist in the source schema.")
-                  _                 <- Either.cond(
-                                         contextTypes.nonEmpty,
-                                         (),
-                                         s"$prefix: context '${name.value}' is not declared by this subgraph."
+      val arguments                                               = metadata.schema.fields.flatMap { case (typeName, field) =>
+        field.args.flatMap { argument =>
+          argument.directives
+            .filter(directive => names.fromContext.contains(directive.name))
+            .map { directive =>
+              val coordinate = s"${composedTypeName(subgraph, typeName)}.${field.name}(${argument.name}:)"
+              val prefix     = s"[${subgraph.name}] Invalid Federation @fromContext application at '$coordinate'"
+              for {
+                value             <- directive.arguments
+                                       .get("field")
+                                       .collect { case StringValue(value) => value }
+                                       .toRight(s"$prefix: the 'field' argument must be a string.")
+                parsed            <- parseContextSelection(value).toRight(s"$prefix: the context selection could not be parsed.")
+                (name, selections) = parsed
+                contextTypes       = byName.getOrElse(subgraph.name -> name, Nil)
+                argumentType      <- subgraph.rootType.types
+                                       .get(typeName)
+                                       .flatMap(tpe => Option(tpe.getFieldOrNull(field.name)))
+                                       .flatMap(_.allArgs.find(_.name == argument.name))
+                                       .map(_._type)
+                                       .toRight(s"$prefix: the context argument does not exist in the source schema.")
+                _                 <- Either.cond(
+                                       contextTypes.nonEmpty,
+                                       (),
+                                       s"$prefix: context '${name.value}' is not declared by this subgraph."
+                                     )
+                _                 <- Either.cond(
+                                       argument.ofType.nullable,
+                                       (),
+                                       s"$prefix: context arguments must be nullable."
+                                     )
+                _                 <- Either.cond(
+                                       argument.defaultValue.isEmpty,
+                                       (),
+                                       s"$prefix: context arguments must not define a default value."
+                                     )
+                _                 <- validateContextReceiver(
+                                       subgraph.name,
+                                       composedTypeName(subgraph, typeName),
+                                       field.name,
+                                       prefix
+                                     )
+                _                 <- validateContextSelectionSyntax(selections).left.map(error => s"$prefix: $error")
+                contextParents    <-
+                  contextTypes.foldLeft[Either[String, List[__Type]]](Right(Nil)) { (result, contextType) =>
+                    for {
+                      parents <- result
+                      _       <- Either.cond(
+                                   !types.exists(entry =>
+                                     entry.source == subgraph.name &&
+                                       entry.name == composedTypeName(subgraph, contextType) &&
+                                       entry.interfaceObject
+                                   ),
+                                   (),
+                                   s"$prefix: context type '$contextType' cannot be an @interfaceObject."
+                                 )
+                      parent  <- subgraph.rootType.types
+                                   .get(contextType)
+                                   .toRight(s"$prefix: context type '$contextType' does not exist.")
+                    } yield parent :: parents
+                  }
+                _                 <- validateContextTypeConditions(
+                                       subgraph.rootType,
+                                       contextParents,
+                                       selections
+                                     ).left.map(error => s"$prefix: $error")
+                _                 <- contextParents.foldLeft[Either[String, Unit]](Right(())) { case (result, parent) =>
+                                       result.flatMap(_ =>
+                                         for {
+                                           values <- contextSelectionTypes(subgraph.name, subgraph.rootType, parent, selections).left
+                                                       .map(error => s"$prefix: $error")
+                                           _      <- Either.cond(
+                                                       values.forall(compatibleContextValueType(_, argumentType)),
+                                                       (),
+                                                       s"$prefix: the selected value is incompatible with argument type '${DocumentRenderer
+                                                           .renderTypeName(argumentType)}'."
+                                                     )
+                                         } yield ()
                                        )
-                  _                 <- Either.cond(
-                                         argument.ofType.nullable,
-                                         (),
-                                         s"$prefix: context arguments must be nullable."
-                                       )
-                  _                 <- Either.cond(
-                                         argument.defaultValue.isEmpty,
-                                         (),
-                                         s"$prefix: context arguments must not define a default value."
-                                       )
-                  _                 <- validateContextReceiver(
-                                         subgraph.name,
-                                         composedTypeName(subgraph, typeName),
-                                         field.name,
-                                         prefix
-                                       )
-                  _                 <- validateContextSelectionSyntax(selections).left.map(error => s"$prefix: $error")
-                  contextParents    <-
-                    contextTypes.foldLeft[Either[String, List[__Type]]](Right(Nil)) { (result, contextType) =>
-                      for {
-                        parents <- result
-                        _       <- Either.cond(
-                                     !types.exists(entry =>
-                                       entry.source == subgraph.name &&
-                                         entry.name == composedTypeName(subgraph, contextType) &&
-                                         entry.interfaceObject
-                                     ),
-                                     (),
-                                     s"$prefix: context type '$contextType' cannot be an @interfaceObject."
-                                   )
-                        parent  <- subgraph.rootType.types
-                                     .get(contextType)
-                                     .toRight(s"$prefix: context type '$contextType' does not exist.")
-                      } yield parent :: parents
-                    }
-                  _                 <- validateContextTypeConditions(
-                                         subgraph.rootType,
-                                         contextParents,
-                                         selections
-                                       ).left.map(error => s"$prefix: $error")
-                  _                 <- contextParents.foldLeft[Either[String, Unit]](Right(())) { case (result, parent) =>
-                                         result.flatMap(_ =>
-                                           for {
-                                             values <- contextSelectionTypes(subgraph.name, subgraph.rootType, parent, selections).left
-                                                         .map(error => s"$prefix: $error")
-                                             _      <- Either.cond(
-                                                         values.forall(compatibleContextValueType(_, argumentType)),
-                                                         (),
-                                                         s"$prefix: the selected value is incompatible with argument type '${DocumentRenderer
-                                                             .renderTypeName(argumentType)}'."
-                                                       )
-                                           } yield ()
-                                         )
-                                       }
-                } yield (
-                  (subgraph.name, composedTypeName(subgraph, typeName), field.name) ->
-                    ComposedGraph.ContextArgument(argument.name, name, selections)
-                )
-              }
-          }
+                                     }
+              } yield (
+                (subgraph.name, composedTypeName(subgraph, typeName), field.name) ->
+                  ComposedGraph.ContextArgument(argument.name, name, selections)
+              )
+            }
         }
       }
       val argumentErrors                                          = arguments.collect { case Left(error) => error }
@@ -1531,24 +1438,24 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
     val subgraph = metadata.subgraph
     if (!subgraph.federation) Nil
     else {
-      val definitions = objectLikeEntries(subgraph.document).map { case (name, directives, _) => name -> directives }
+      metadata.schema.objectLikeTypes.flatMap { definition =>
+        val typeName = definition.name
+        definition.directives.filter(directive => metadata.directives.key.contains(directive.name)).flatMap {
+          directive =>
+            val prefix = s"[${subgraph.name}] Invalid @${directive.name} field set on '$typeName'"
+            val result = for {
+              selections <- directiveFieldSet(directive).left.map(error => s"$prefix: $error")
+              _          <- keyFields(selections)
+                              .toRight(
+                                s"$prefix: only fields without aliases, arguments, or directives can be selected."
+                              )
+              parent     <- subgraph.rootType.types
+                              .get(typeName)
+                              .toRight(s"$prefix: the selected parent type does not exist.")
+              _          <- validateFieldSetSelections(subgraph, parent, selections).left.map(error => s"$prefix: $error")
+            } yield ()
 
-      definitions.flatMap { case (typeName, directives) =>
-        directives.filter(directive => metadata.directives.key.contains(directive.name)).flatMap { directive =>
-          val prefix = s"[${subgraph.name}] Invalid @${directive.name} field set on '$typeName'"
-          val result = for {
-            selections <- directiveFieldSet(directive).left.map(error => s"$prefix: $error")
-            _          <- keyFields(selections)
-                            .toRight(
-                              s"$prefix: only fields without aliases, arguments, or directives can be selected."
-                            )
-            parent     <- subgraph.rootType.types
-                            .get(typeName)
-                            .toRight(s"$prefix: the selected parent type does not exist.")
-            _          <- validateFieldSetSelections(subgraph, parent, selections).left.map(error => s"$prefix: $error")
-          } yield ()
-
-          result.fold(_ :: Nil, _ => Nil)
+            result.fold(_ :: Nil, _ => Nil)
         }
       }
     }
@@ -2059,6 +1966,7 @@ private[gateway] object SchemaComposer {
     federation1ExtensionKeyCoordinates: Set[(String, String)],
     hiddenDirectives: Set[String],
     federation2: Boolean,
+    schema: SchemaInspection,
     directiveApplications: List[TypeSystemDirectiveApplication]
   )
 
@@ -2111,12 +2019,57 @@ private[gateway] object SchemaComposer {
   private def hasDirective(directives: Option[List[Directive]], names: Set[String]): Boolean =
     directives.exists(_.exists(directive => names.contains(directive.name)))
 
-  private def objectLikeEntries(document: Document): List[(String, List[Directive], List[FieldDefinition])] =
-    document.typeDefinitions.collect {
-      case definition: ObjectTypeDefinition    => (definition.name, definition.directives, definition.fields)
-      case definition: InterfaceTypeDefinition => (definition.name, definition.directives, definition.fields)
-    }
+  /**
+   * Schema syntax inspected once and shared by directive, context and entity-key compilation.
+   */
+  private final class SchemaInspection(document: Document) {
+    val objectLikeTypes                    = document.typeDefinitions.collect { case value: AggregationTypeDefinition => value }
+    val fields                             = objectLikeTypes.flatMap(tpe => tpe.fields.map(tpe.name -> _))
+    private val unions                     = document.typeDefinitions.collect { case value: UnionTypeDefinition => value }
+    val contextTypes: List[TypeDefinition] = objectLikeTypes ::: unions
 
+    def directiveApplications(composedName: String => String): List[TypeSystemDirectiveApplication] = {
+      def application(coordinate: Coordinate, directives: List[Directive]) =
+        TypeSystemDirectiveApplication(coordinate, directives)
+
+      // Preserve the diagnostic/application order used by composition.
+      val types        = document.typeDefinitions.collect { case value: ScalarTypeDefinition => value } :::
+        contextTypes :::
+        document.typeDefinitions.collect { case value: EnumTypeDefinition => value } :::
+        document.typeDefinitions.collect { case value: InputObjectTypeDefinition => value }
+      val applications = types.flatMap { tpe =>
+        val name                 = composedName(tpe.name)
+        val (location, children) = tpe match {
+          case value: AggregationTypeDefinition =>
+            val location =
+              if (value.isInstanceOf[ObjectTypeDefinition]) __DirectiveLocation.OBJECT
+              else __DirectiveLocation.INTERFACE
+            location -> value.fields.flatMap { field =>
+              application(FieldCoordinate(name, field.name), field.directives) :: field.args.map(argument =>
+                application(ArgumentCoordinate(name, field.name, argument.name), argument.directives)
+              )
+            }
+          case value: EnumTypeDefinition        =>
+            __DirectiveLocation.ENUM -> value.enumValuesDefinition.map(value =>
+              application(EnumValueCoordinate(name, value.enumValue), value.directives)
+            )
+          case value: InputObjectTypeDefinition =>
+            __DirectiveLocation.INPUT_OBJECT -> value.fields.map(field =>
+              application(InputFieldCoordinate(name, field.name), field.directives)
+            )
+          case _: ScalarTypeDefinition          => __DirectiveLocation.SCALAR -> Nil
+          case _: UnionTypeDefinition           => __DirectiveLocation.UNION  -> Nil
+        }
+        application(TypeCoordinate(name, location), tpe.directives) :: children
+      }
+      document.schemaDefinition.toList.map(value => application(SchemaCoordinate, value.directives)) :::
+        applications ::: document.directiveDefinitions.flatMap(definition =>
+          definition.args.map(argument =>
+            application(DirectiveArgumentCoordinate(definition.name, argument.name), argument.directives)
+          )
+        )
+    }
+  }
   private final case class FederationKey(fields: List[ComposedGraph.KeyField], resolvable: Boolean)
 
   def compose(subgraphs: List[PreparedSubgraph]): Either[List[String], ComposedGraph] =
@@ -2291,39 +2244,34 @@ private[gateway] object SchemaComposer {
 
   private def federationKeyCoordinates(
     subgraph: PreparedSubgraph,
-    names: FederationDirectiveNames
-  ): Set[(String, String)] = {
-    val definitions = objectLikeEntries(subgraph.document).map { case (name, directives, _) => name -> directives }
-
-    definitions.iterator.flatMap { case (typeName, directives) =>
-      directives.iterator
+    names: FederationDirectiveNames,
+    schema: SchemaInspection
+  ): Set[(String, String)] =
+    schema.objectLikeTypes.iterator.flatMap { definition =>
+      definition.directives.iterator
         .flatMap(keyDirective(_, names))
-        .flatMap(key => keyCoordinates(subgraph.rootType, typeName, key.fields))
+        .flatMap(key => keyCoordinates(subgraph.rootType, definition.name, key.fields))
     }.toSet
-  }
 
   private def federation1ExtensionKeyCoordinates(
     subgraph: PreparedSubgraph,
     names: FederationDirectiveNames,
-    federation2: Boolean
+    federation2: Boolean,
+    schema: SchemaInspection
   ): Set[(String, String)] =
     if (federation2) Set.empty
     else {
-      val extendedDefinitions = subgraph.document.typeDefinitions.collect {
-        case definition: ObjectTypeDefinition if subgraph.federation1ExtensionTypes(definition.name)            =>
-          definition.name -> definition.directives
-        case definition: InterfaceTypeDefinition if subgraph.federation1ExtensionTypes(definition.name)         =>
-          definition.name -> definition.directives
-        case definition: ObjectTypeDefinition if hasDirective(definition.directives, names.extendsDirective)    =>
-          definition.name -> definition.directives
-        case definition: InterfaceTypeDefinition if hasDirective(definition.directives, names.extendsDirective) =>
-          definition.name -> definition.directives
-      }
+      val extendedDefinitions = schema.objectLikeTypes.filter(definition =>
+        subgraph.federation1ExtensionTypes(definition.name) || hasDirective(
+          definition.directives,
+          names.extendsDirective
+        )
+      )
 
-      extendedDefinitions.iterator.flatMap { case (typeName, directives) =>
-        directives.iterator
+      extendedDefinitions.iterator.flatMap { definition =>
+        definition.directives.iterator
           .flatMap(keyDirective(_, names))
-          .flatMap(_.fields.map(field => typeName -> field.name))
+          .flatMap(_.fields.map(field => definition.name -> field.name))
       }.toSet
     }
 

@@ -24,6 +24,29 @@ private[gateway] final class CandidateSearch(limits: Limits) {
       capacity(count).map(_ => left.flatMap(a => right.map(combine(a, _))))
     }
 
+  /**
+   * Accumulates inputs without introducing search branches or charging the candidate budget.
+   */
+  def fold[A, B](inputs: List[A], initial: B)(
+    step: (B, A) => Either[PlanningFailure, B]
+  ): Either[PlanningFailure, B] =
+    inputs.foldLeft[Either[PlanningFailure, B]](Right(initial)) { (result, input) =>
+      result.flatMap(step(_, input))
+    }
+
+  /**
+   * Expands dependent alternatives with the same rejection and budget rules as evaluate.
+   */
+  def expandAll[A, B](inputs: List[A], initial: B)(
+    step: (B, A) => Either[PlanningFailure, List[B]]
+  ): Either[PlanningFailure, List[B]] =
+    fold(inputs, List(initial))((states, input) => flatEvaluate(states)(step(_, input)))
+
+  def flatEvaluate[A, B](values: List[A])(
+    evaluate: A => Either[PlanningFailure, List[B]]
+  ): Either[PlanningFailure, List[B]] =
+    this.evaluate(values)(evaluate).map(_.flatten)
+
   def evaluate[A, B](values: List[A])(
     evaluate: A => Either[PlanningFailure, B]
   ): Either[PlanningFailure, List[B]] =

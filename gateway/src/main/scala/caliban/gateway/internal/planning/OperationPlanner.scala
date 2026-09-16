@@ -94,15 +94,12 @@ private[gateway] final class OperationPlanner(
     fields: List[Field],
     operationType: OperationType
   )(implicit search: CandidateSearch): Either[PlanningFailure, PlanCandidate] =
-    fields
-      .foldLeft[Either[PlanningFailure, List[List[RootCandidate]]]](Right(List(Nil))) { case (result, field) =>
-        for {
-          accumulated <- result
-          options     <- planRootOptions(field, operationType)
-          combined    <-
-            if (accumulated == List(Nil)) Right(options)
-            else search.combine(accumulated, options)(_ ::: _)
-        } yield combined
+    search
+      .fold(fields, List(List.empty[RootCandidate])) { (accumulated, field) =>
+        planRootOptions(field, operationType).flatMap { options =>
+          if (accumulated == List(Nil)) Right(options)
+          else search.combine(accumulated, options)(_ ::: _)
+        }
       }
       .flatMap(options =>
         search
@@ -131,7 +128,7 @@ private[gateway] final class OperationPlanner(
             subgraphs.map(RootStrategy.Single.apply)
           else subgraphs.map(RootStrategy.Single.apply) ::: RootStrategy.Split :: Nil
         search
-          .evaluate(strategies) {
+          .flatEvaluate(strategies) {
             case RootStrategy.Single(subgraph) =>
               planRootAtSubgraph(
                 field,
@@ -141,25 +138,23 @@ private[gateway] final class OperationPlanner(
                 s"Subgraph '$subgraph' has no executable work for '${field.name}'."
               )
             case RootStrategy.Split            =>
-              subgraphs
-                .foldLeft[Either[PlanningFailure, List[List[RootCandidate]]]](Right(List(Nil))) {
-                  case (result, subgraph) =>
-                    for {
-                      roots    <- result
-                      selected  = rootFieldForSubgraph(field, subgraph, subgraphs)
-                      planned  <-
-                        planRootsAtSubgraph(
-                          field,
-                          selected,
-                          subgraph,
-                          subgraphs,
-                          operationType,
-                          addTypenameFallback = false
-                        )
-                      combined <-
-                        if (planned.isEmpty) Right(roots)
-                        else search.combine(roots, planned)((current, root) => current :+ root)
-                    } yield combined
+              search
+                .fold(subgraphs, List(List.empty[RootCandidate])) { (roots, subgraph) =>
+                  val selected = rootFieldForSubgraph(field, subgraph, subgraphs)
+                  for {
+                    planned  <-
+                      planRootsAtSubgraph(
+                        field,
+                        selected,
+                        subgraph,
+                        subgraphs,
+                        operationType,
+                        addTypenameFallback = false
+                      )
+                    combined <-
+                      if (planned.isEmpty) Right(roots)
+                      else search.combine(roots, planned)((current, root) => current :+ root)
+                  } yield combined
                 }
                 .flatMap { roots =>
                   val complete = roots.filter(_.nonEmpty)
@@ -170,7 +165,6 @@ private[gateway] final class OperationPlanner(
                   )
                 }
           }
-          .map(_.flatten)
       }
     } yield options
   }
@@ -769,14 +763,8 @@ private[gateway] final class OperationPlanner(
   private def providerAssignments(
     selections: List[RoutedSelection]
   )(implicit search: CandidateSearch): Either[PlanningFailure, List[List[(RoutedSelection, FieldProvider)]]] =
-    selections.foldLeft[Either[PlanningFailure, List[List[(RoutedSelection, FieldProvider)]]]](Right(List(Nil))) {
-      case (result, selection) =>
-        for {
-          current  <- result
-          combined <- search.combine(current, selection.providers) { case (values, provider) =>
-                        values ::: List(selection -> provider)
-                      }
-        } yield combined
+    search.fold(selections, List(List.empty[(RoutedSelection, FieldProvider)])) { (current, selection) =>
+      search.combine(current, selection.providers)((values, provider) => values :+ (selection -> provider))
     }
 
   private def planSameSubgraphFields(
@@ -788,41 +776,37 @@ private[gateway] final class OperationPlanner(
     fields: List[(Field, List[Field])],
     activeContexts: List[ActiveContext]
   )(implicit search: CandidateSearch): Either[PlanningFailure, List[EntityFetchState]] =
-    fields
-      .foldLeft[Either[PlanningFailure, List[EntityFetchState]]](
-        Right(List(EntityFetchState(Vector.empty, Nil, Nil, Nil)))
-      ) { case (result, (child, provided)) =>
-        for {
-          current      <- result
-          alternatives <-
-            if (current.isEmpty) Left(PlanningFailure.Rejected("No complete route candidate was found."))
-            else
-              planFieldCandidates(
-                child,
-                currentSubgraph,
-                path :+ child.aliasedName,
-                staticPath && isObjectField(child, currentSubgraph),
-                visitedFetches,
-                graph.runtimeSources(
-                  runtimeSources,
-                  child.parentType.flatMap(_.name).getOrElse(""),
-                  child.name
-                ),
-                availableKeys(currentSubgraph, child.fieldType.innerType),
-                provided,
-                Set.empty,
-                activeContexts
-              )
-          combined     <- search.combine(current, alternatives) { case (values, planned) =>
-                            EntityFetchState(
-                              values.downstream :+ planned.downstream,
-                              values.entities ::: planned.entities,
-                              values.pending ::: wrapPending(child, planned.pending),
-                              values.typenameSelections ::: planned.typenameSelections
-                            )
-                          }
-        } yield combined
-      }
+    search.fold(fields, List(EntityFetchState(Vector.empty, Nil, Nil, Nil))) { case (current, (child, provided)) =>
+      for {
+        alternatives <-
+          if (current.isEmpty) Left(PlanningFailure.Rejected("No complete route candidate was found."))
+          else
+            planFieldCandidates(
+              child,
+              currentSubgraph,
+              path :+ child.aliasedName,
+              staticPath && isObjectField(child, currentSubgraph),
+              visitedFetches,
+              graph.runtimeSources(
+                runtimeSources,
+                child.parentType.flatMap(_.name).getOrElse(""),
+                child.name
+              ),
+              availableKeys(currentSubgraph, child.fieldType.innerType),
+              provided,
+              Set.empty,
+              activeContexts
+            )
+        combined     <- search.combine(current, alternatives) { case (values, planned) =>
+                          EntityFetchState(
+                            values.downstream :+ planned.downstream,
+                            values.entities ::: planned.entities,
+                            values.pending ::: wrapPending(child, planned.pending),
+                            values.typenameSelections ::: planned.typenameSelections
+                          )
+                        }
+      } yield combined
+    }
 
   private def planEntityFetches(
     context: EntityFetchContext,
@@ -849,12 +833,7 @@ private[gateway] final class OperationPlanner(
     initial: EntityFetchState,
     pending: List[PendingFetch]
   )(implicit search: CandidateSearch): Either[PlanningFailure, List[EntityFetchState]] =
-    pending.foldLeft[Either[PlanningFailure, List[EntityFetchState]]](Right(List(initial))) {
-      case (result, candidate) =>
-        result.flatMap(states =>
-          search.evaluate(states)(planEntityFetchCandidates(context, _, candidate)).map(_.flatten)
-        )
-    }
+    search.expandAll(pending, initial)((state, candidate) => planEntityFetchCandidates(context, state, candidate))
 
   private def planEntityFetchCandidates(
     context: EntityFetchContext,
@@ -869,13 +848,12 @@ private[gateway] final class OperationPlanner(
     )
     if (direct.nonEmpty && concrete.nonEmpty)
       search
-        .evaluate(
+        .flatEvaluate(
           List(
             () => planLookupCandidates(context, state, candidate, direct),
             () => planEntityFetchesPerType(context, state, candidate, resolution.lookupTypes, concrete)
           )
         )(_.apply())
-        .map(_.flatten)
     else if (concrete.map(_.entityType).distinct.size > 1)
       planEntityFetchesPerType(context, state, candidate, resolution.lookupTypes, concrete)
     else if (resolution.lookups.nonEmpty) planLookupCandidates(context, state, candidate, resolution.lookups)
@@ -901,24 +879,17 @@ private[gateway] final class OperationPlanner(
           (!graph.isInterfaceObject(candidate.targetSubgraph, entityType) &&
             graph.interfaceObjectFieldSources(entityType, field.name, candidate.targetSubgraph).isEmpty)
       )
-    val resolved                                         = types.foldLeft[Either[PlanningFailure, List[EntityFetchState]]](Right(List(state))) {
-      case (result, entityType) =>
-        result.flatMap(states =>
-          search
-            .evaluate(states) { current =>
-              val fields = candidate.fields.filter(takes(entityType, _))
-              if (fields.isEmpty) Right(List(current))
-              else {
-                val selected = candidate.copy(
-                  fields = fields,
-                  requirements =
-                    fields.flatMap(child => graph.required(candidate.targetSubgraph, entityType, child.name)).distinct
-                )
-                planLookupCandidates(context, current, selected, concrete.filter(_.entityType == entityType))
-              }
-            }
-            .map(_.flatten)
+    val resolved                                         = search.expandAll(types, state) { (current, entityType) =>
+      val fields = candidate.fields.filter(takes(entityType, _))
+      if (fields.isEmpty) Right(List(current))
+      else {
+        val selected = candidate.copy(
+          fields = fields,
+          requirements =
+            fields.flatMap(child => graph.required(candidate.targetSubgraph, entityType, child.name)).distinct
         )
+        planLookupCandidates(context, current, selected, concrete.filter(_.entityType == entityType))
+      }
     }
     val unresolvedFields                                 = candidate.fields.flatMap { field =>
       field._condition match {
@@ -941,10 +912,9 @@ private[gateway] final class OperationPlanner(
           flatten(unresolvedFields)
         )
         search
-          .evaluate(states)(state =>
+          .flatEvaluate(states)(state =>
             enterFetch(context, fetchKey)(planIndirectEntityFetches(_, state, pending, lookupTypes))
           )
-          .map(_.flatten)
       }
   }
 
@@ -955,7 +925,7 @@ private[gateway] final class OperationPlanner(
     lookups: List[ResolvedLookup]
   )(implicit search: CandidateSearch): Either[PlanningFailure, List[EntityFetchState]] =
     search
-      .evaluate(lookups) { lookup =>
+      .flatEvaluate(lookups) { lookup =>
         val fetchKey = EntityFetchKey(
           context.currentSubgraph,
           candidate.targetSubgraph,
@@ -964,7 +934,6 @@ private[gateway] final class OperationPlanner(
         )
         enterFetch(context, fetchKey)(planEntityFetch(_, state, candidate, lookup))
       }
-      .map(_.flatten)
 
   private def enterFetch[A](
     context: EntityFetchContext,

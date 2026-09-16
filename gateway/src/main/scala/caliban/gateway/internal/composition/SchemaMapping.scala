@@ -3,9 +3,9 @@ package caliban.gateway.internal.composition
 import caliban.execution.Field
 import caliban.gateway.{ Lookup, OperationRootNames, SchemaTransformation }
 import caliban.gateway.SchemaTransformation._
-import caliban.{ CalibanError, GraphQLResponse, InputValue, ResponseValue }
+import caliban.InputValue
+import caliban.gateway.internal.execution.ResponseProjection
 import caliban.InputValue.{ ListValue => InputListValue, ObjectValue => InputObjectValue }
-import caliban.ResponseValue.{ ListValue => ResponseListValue, ObjectValue => ResponseObjectValue }
 import caliban.gateway.internal.planning.OperationPlan.RequiredSelection
 import caliban.gateway.internal.composition.ComposedGraph.ContextName
 import caliban.introspection.adt.{ __Field, __InputValue, __Type, __TypeKind }
@@ -418,100 +418,12 @@ private[gateway] final class SchemaMapping private (
     )
   }
 
-  private[internal] def rootResponseMapper(
-    fields: List[Field]
-  ): GraphQLResponse[CalibanError] => GraphQLResponse[CalibanError] =
-    if (renamesNothing) identity
-    else {
-      val mapData = objectResponseMapper(fields)
-      response => response.copy(data = mapData(response.data))
-    }
-
-  private[internal] def entityFieldsResponseMapper(fields: List[Field]): ResponseValue => ResponseValue =
-    if (renamesNothing) identityResponse else objectResponseMapper(fields)
-
-  private val identityResponse: ResponseValue => ResponseValue = identity
-
-  private val typenameResponseMapper: ResponseValue => ResponseValue = {
-    case StringValue(name) => StringValue(clientType(name))
-    case other             => other
-  }
-
-  private def mapSelectedObject(
-    selected: java.util.HashMap[String, ResponseValue => ResponseValue],
-    values: List[(String, ResponseValue)]
-  ): ResponseObjectValue =
-    ResponseObjectValue(values.map { case (name, nested) =>
-      val mapper = selected.get(name)
-      name -> (if (mapper eq null) nested else mapper(nested))
-    })
-
-  private def recursiveSelectedResponseMapper(
-    selected: java.util.HashMap[String, ResponseValue => ResponseValue]
-  ): ResponseValue => ResponseValue = {
-    def map(value: ResponseValue): ResponseValue =
-      value match {
-        case ResponseObjectValue(values) => mapSelectedObject(selected, values)
-        case ResponseListValue(values)   => ResponseListValue(values.map(map))
-        case other                       => other
-      }
-
-    map
-  }
-
-  private def objectResponseMapper(fields: List[Field]): ResponseValue => ResponseValue = {
-    val selected  = new java.util.HashMap[String, ResponseValue => ResponseValue]
-    var remaining = fields
-    while (remaining ne Nil) {
-      val field = remaining.head
-      addResponseMapper(selected, field.aliasedName, fieldResponseMapper(field))
-      remaining = remaining.tail
-    }
-    recursiveSelectedResponseMapper(selected)
-  }
-
-  private def fieldResponseMapper(field: Field): ResponseValue => ResponseValue =
-    if (field.name == "__typename") typenameResponseMapper
-    else if (field.fields.nonEmpty) objectResponseMapper(field.fields)
-    else identityResponse
-
-  private[internal] def requiredResponseMapper(
-    typeName: String,
-    selections: List[RequiredSelection]
-  ): ResponseValue => ResponseValue =
-    if (renamesNothing || selections.isEmpty) identityResponse
-    else {
-      val selected  = new java.util.HashMap[String, ResponseValue => ResponseValue]
-      var remaining = selections
-      while (remaining ne Nil) {
-        val selection = remaining.head
-        val mapper    =
-          if (selection.field == "__typename") typenameResponseMapper
-          else {
-            val sourceName = sourceField(typeName, selection.field)
-            if (selection.children.isEmpty) identityResponse
-            else {
-              val childName = sourceFieldDefinition(sourceType(typeName), sourceName)
-                .flatMap(_._type.innerType.name)
-                .map(clientType)
-                .getOrElse("")
-              requiredResponseMapper(childName, selection.children)
-            }
-          }
-        addResponseMapper(selected, selection.responseName, mapper)
-        remaining = remaining.tail
-      }
-      recursiveSelectedResponseMapper(selected)
-    }
-
-  private def addResponseMapper(
-    selected: java.util.HashMap[String, ResponseValue => ResponseValue],
-    name: String,
-    mapper: ResponseValue => ResponseValue
-  ): Unit = {
-    val existing = selected.get(name)
-    selected.put(name, if (existing eq null) mapper else mapper.compose(existing))
-  }
+  private[internal] def responseProjection(
+    client: List[Field],
+    executable: List[Field],
+    required: List[RequiredSelection] = Nil
+  ): ResponseProjection =
+    ResponseProjection.compile(client, executable, required, typeNames)
 
 }
 

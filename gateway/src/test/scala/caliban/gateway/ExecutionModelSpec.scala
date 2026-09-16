@@ -1,6 +1,6 @@
 package caliban.gateway
 
-import caliban.{ CalibanError, GraphQLRequest, InputValue, PathValue }
+import caliban.{ CalibanError, GraphQLRequest, InputValue, PathValue, ResponseValue }
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ NullValue, StringValue }
 import caliban.execution.Field
@@ -22,7 +22,106 @@ object ExecutionModelSpec extends ZIOSpecDefault {
   private val completion = new ResponseCompletion(Nil)
   private val name       = Field("name", Types.string, Some(objectType))
 
+  private def projectionField(name: String, alias: String, children: List[Field] = Nil): Field =
+    Field(name, Types.string, None, alias = Some(alias), fields = children)
+
   def spec = suite("Execution model")(
+    test("translates typenames and aliases through lists while preserving scalar payloads and correlation fields") {
+      val payload    = ObjectValue(List("__typename" -> StringValue("Source")))
+      val client     = List(
+        projectionField(
+          "items",
+          "items",
+          List(projectionField("__typename", "kind"), projectionField("payload", "payload"))
+        )
+      )
+      val executable = List(
+        projectionField(
+          "items",
+          "_items",
+          List(projectionField("__typename", "_kind"), projectionField("payload", "payload"))
+        )
+      )
+      val required   = List(RequiredSelection("__typename", "_correlationType"))
+      val projection = ResponseProjection.compile(client, executable, required, Map("Source" -> "Client"))
+      val value      = ObjectValue(
+        List(
+          "_items"           -> ListValue(
+            List(ObjectValue(List("_kind" -> StringValue("Source"), "payload" -> payload)), NullValue)
+          ),
+          "_correlationType" -> StringValue("Source")
+        )
+      )
+      assertTrue(
+        projection(value) == ObjectValue(
+          List(
+            "items"            -> ListValue(
+              List(ObjectValue(List("kind" -> StringValue("Client"), "payload" -> payload)), NullValue)
+            ),
+            "_correlationType" -> StringValue("Client")
+          )
+        ),
+        projection.path(List(PathValue.Key("_items"), PathValue.Index(0), PathValue.Key("_kind"))) ==
+          List(PathValue.Key("items"), PathValue.Index(0), PathValue.Key("kind")),
+        projection.path(List(PathValue.Key("unknown"), PathValue.Key("_kind"))) ==
+          List(PathValue.Key("unknown"), PathValue.Key("_kind"))
+      )
+    },
+    test("merges aliases landing on the same client field without losing siblings or null fallback") {
+      val client     =
+        List(
+          projectionField("item", "item", List(projectionField("name", "name"))),
+          projectionField("item", "item", List(projectionField("id", "id")))
+        )
+      val executable = List(client.head.copy(alias = Some("_first")), client(1).copy(alias = Some("_second")))
+      val projection = ResponseProjection.compile(client, executable, Nil, Map.empty)
+      val first      = ObjectValue(List("name" -> StringValue("A")))
+      val second     = ObjectValue(List("id" -> StringValue("1")))
+      assertTrue(
+        projection(ObjectValue(List("_first" -> first, "_second" -> second))) ==
+          ObjectValue(List("item" -> ObjectValue(List("name" -> StringValue("A"), "id" -> StringValue("1"))))),
+        projection(ObjectValue(List("_first" -> NullValue, "_second" -> second))) == ObjectValue(List("item" -> second))
+      )
+    },
+    test("combines fragment selections for values but uses the first fragment for error paths") {
+      val client     = List(
+        projectionField("node", "node", List(projectionField("a", "a"))),
+        projectionField("node", "node", List(projectionField("b", "b")))
+      )
+      val executable =
+        List(
+          projectionField("node", "_node", List(projectionField("a", "_a"))),
+          projectionField("node", "_node", List(projectionField("b", "_b")))
+        )
+      val projection = ResponseProjection.compile(client, executable, Nil, Map.empty)
+      assertTrue(
+        projection(
+          ObjectValue(List("_node" -> ObjectValue(List("_a" -> StringValue("A"), "_b" -> StringValue("B")))))
+        ) ==
+          ObjectValue(List("node" -> ObjectValue(List("a" -> StringValue("A"), "b" -> StringValue("B"))))),
+        projection
+          .path(List(PathValue.Key("_node"), PathValue.Key("_a"))) == List(PathValue.Key("node"), PathValue.Key("a")),
+        projection.path(List(PathValue.Key("_node"), PathValue.Key("_b"))) == List(
+          PathValue.Key("node"),
+          PathValue.Key("_b")
+        )
+      )
+    },
+    test("preserves repeated typename mappings and only transforms selected typenames") {
+      val typename   = projectionField("__typename", "kind")
+      val fields     = List(typename, typename, projectionField("scalar", "scalar"))
+      val payload    = ObjectValue(List("__typename" -> StringValue("A")))
+      val projection = ResponseProjection.compile(fields, fields, Nil, Map("A" -> "B", "B" -> "C"))
+      val result     =
+        projection(ObjectValue(List("kind" -> StringValue("A"), "scalar" -> payload))).asInstanceOf[ObjectValue]
+      assertTrue(result.getOrNull("kind") == StringValue("C"), result.getOrNull("scalar") eq payload)
+    },
+    test("returns untransformed values by reference") {
+      val fields               = List(projectionField("name", "name"))
+      val value: ResponseValue = ObjectValue(List("name" -> StringValue("A")))
+      val projection           = ResponseProjection.compile(fields, fields, Nil, Map("Unused" -> "Renamed"))
+      assertTrue(projection(value) eq value)
+    },
     test("nullable null is a completed value, not a bubbling failure") {
       val data = ObjectValue(List("name" -> NullValue))
       assertTrue(completion.complete(List(name), data, Nil) == Completed(data, Nil))

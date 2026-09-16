@@ -43,11 +43,10 @@ private[gateway] final class PlanExecutor[-R](
     cache: PlanExecutionCache
   ): PreparedRoot =
     PlanExecutionCache.memoize(cache.roots, fetch.id) {
-      val mapping          = graph.mapping(fetch.source)
-      val executable       = fetch.selections.map(graph.executableField(fetch.source, _))
-      val downstream       = executable.map(mapping.rootFieldToSource)
-      val responseToClient = mapping.rootResponseMapper(executable)
-      val operation        = OperationDefinition(
+      val mapping    = graph.mapping(fetch.source)
+      val executable = fetch.selections.map(graph.executableField(fetch.source, _))
+      val downstream = executable.map(mapping.rootFieldToSource)
+      val operation  = OperationDefinition(
         operationType,
         operationName,
         Nil,
@@ -55,10 +54,8 @@ private[gateway] final class PlanExecutor[-R](
         downstream.map(_.toSelection)
       )
       PreparedRoot(
-        executable,
-        responseToClient,
         DocumentRenderer.renderCompact(Document(operation :: Nil, SourceMapper.empty)),
-        ResponseMerge.responseNameRestorer(fetch.selections, executable)
+        mapping.responseProjection(fetch.selections, executable)
       )
     }
 
@@ -378,21 +375,16 @@ private[gateway] final class PlanExecutor[-R](
     errorPolicy: SubgraphExecutor.ErrorPolicy,
     response: GraphQLResponse[CalibanError]
   ): RootResult = {
-    val translated = prepared.responseToClient(response)
-    val errors     = translated.errors.map {
+    val errors = response.errors.map {
       case error: CalibanError.ExecutionError =>
         error
-          .copy(path = ResponseMerge.restoreResponsePath(fetch.selections, prepared.executable, error.path))
+          .copy(path = prepared.projection.path(error.path))
       case error                              => error
-    }
-    val restored   = prepared.restorer match {
-      case Some(mappings) => ResponseMerge.restoreResponseNames(mappings, translated.data)
-      case None           => translated.data
     }
     RootResult(
       fetch,
-      translated.copy(
-        data = restored,
+      response.copy(
+        data = prepared.projection(response.data),
         errors = errorPolicy.routed(fetch.client, errors)
       )
     )
@@ -476,10 +468,8 @@ private[gateway] object PlanExecutor {
   private final case class RootResult(fetch: RootFetch, response: GraphQLResponse[CalibanError])
 
   private[internal] final case class PreparedRoot(
-    executable: List[Field],
-    responseToClient: GraphQLResponse[CalibanError] => GraphQLResponse[CalibanError],
     query: String,
-    restorer: Option[Map[String, ResponseMerge.ResponseNameMapping]]
+    projection: ResponseProjection
   )
 
   private final case class EntityExecution(roots: Map[FetchId, ResponseValue], results: List[EntityResult])

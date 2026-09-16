@@ -45,45 +45,37 @@ private[internal] final class EntityLookup(
       val contextualFields = injectContextArguments(fetch.source, fetch.fields, contextValues)
       val executableFields = graph.executableEntityFields(fetch.source, fetch.entityType, contextualFields)
       val sourceSelections = executableFields.map(mapping.rootFieldToSource).flatMap(fieldSelection)
-      val fieldsToClient   = mapping.entityFieldsResponseMapper(executableFields)
-      val restorer         = ResponseMerge.responseNameRestorer(fetch.fields, executableFields)
 
       def selections(correlation: EntityCorrelation): List[Selection] =
         sourceSelections ::: correlation.required
           .map(value => requiredSelection(mapping.requiredSelectionToSource(fetch.entityType, value)))
 
-      def responseToClient(correlation: EntityCorrelation): ResponseValue => ResponseValue = {
-        val requiredToClient = mapping.requiredResponseMapper(fetch.entityType, correlation.required)
-        value => requiredToClient(fieldsToClient(value))
-      }
+      def projection(correlation: EntityCorrelation): ResponseProjection =
+        mapping.responseProjection(fetch.fields, executableFields, correlation.required)
 
       def federation(correlation: EntityCorrelation): FederationVariant = {
         val fragments = federationFragments(fetch, mapping, selections(correlation))
         FederationVariant(
           correlation,
-          responseToClient(correlation),
+          projection(correlation),
           render(federationOperation(fragments)),
           renderSelections(fragments)
         )
       }
 
       def graphql(correlation: EntityCorrelation): GraphQLVariant =
-        GraphQLVariant(correlation, selections(correlation), responseToClient(correlation))
+        GraphQLVariant(correlation, selections(correlation), projection(correlation))
 
       fetch.lookup.operation match {
         case ComposedGraph.LookupOperation.FederationEntities(correlatesByKey)                                     =>
           PreparedLookup.Federation(
-            executableFields,
-            restorer,
             federation(EntityCorrelation.Ordered),
             if (correlatesByKey) Some(federation(federationCorrelation(fetch, executableFields))) else None
           )
         case ComposedGraph.LookupOperation.GraphQLQuery(field, arguments, ComposedGraph.LookupResult.Single)       =>
-          PreparedLookup.Single(executableFields, restorer, field, arguments, graphql(EntityCorrelation.Ordered))
+          PreparedLookup.Single(field, arguments, graphql(EntityCorrelation.Ordered))
         case ComposedGraph.LookupOperation.GraphQLQuery(field, arguments, byKey: ComposedGraph.LookupResult.ByKey) =>
           PreparedLookup.ByKey(
-            executableFields,
-            restorer,
             field,
             arguments,
             graphql(graphqlCorrelation(fetch, byKey, executableFields))
@@ -185,9 +177,7 @@ private[internal] final class EntityLookup(
         request,
         variant.correlation,
         response,
-        prepared.executableFields,
-        variant.responseToClient,
-        prepared.restorer,
+        variant.projection,
         expected,
         part
       )
@@ -224,7 +214,7 @@ private[internal] final class EntityLookup(
     }
 
     prepared match {
-      case PreparedLookup.Federation(_, _, ordered, keyed)       =>
+      case PreparedLookup.Federation(ordered, keyed)       =>
         val (variant, expected) = keyed match {
           case Some(keyed) =>
             val identities = expectedIdentities
@@ -249,7 +239,7 @@ private[internal] final class EntityLookup(
             val part = CallPart(slot, variant.selections, representations)
             Some(lookupExecution(request, variant, LookupResponse.ListRoot(part.alias), expected, Some(part)))
         }
-      case PreparedLookup.ByKey(_, _, field, mappings, variant)  =>
+      case PreparedLookup.ByKey(field, mappings, variant)  =>
         evaluateArguments(mappings, batch, None).map { arguments =>
           val alias = "_caliban_gateway_lookup"
           lookupCall(
@@ -259,7 +249,7 @@ private[internal] final class EntityLookup(
             expectedIdentities
           )
         }
-      case PreparedLookup.Single(_, _, field, mappings, variant) =>
+      case PreparedLookup.Single(field, mappings, variant) =>
         val selections = traverseOption(batch.entries.zipWithIndex) { case (entry, index) =>
           evaluateArguments(mappings, batch, Some(entry)).map { arguments =>
             val alias = s"_caliban_gateway_lookup_$index"
@@ -439,9 +429,7 @@ private[internal] final class EntityLookup(
     val request: GraphQLRequest,
     correlation: EntityCorrelation,
     shape: LookupResponse,
-    executableFields: List[Field],
-    responseToClient: ResponseValue => ResponseValue,
-    restorer: Option[Map[String, ResponseMerge.ResponseNameMapping]],
+    projection: ResponseProjection,
     expected: Map[EntityIdentity, Int],
     val part: Option[CallPart]
   ) {
@@ -451,18 +439,13 @@ private[internal] final class EntityLookup(
     ): EntityResult =
       correlateResponse(result, errorPolicy)
 
-    private def toClient(value: ResponseValue): ResponseValue = {
-      val translated = responseToClient(value)
-      restorer.fold(translated)(ResponseMerge.restoreResponseNames(_, translated))
-    }
-
     private def correlateResponse(
       response: GraphQLResponse[CalibanError],
       errorPolicy: SubgraphExecutor.ErrorPolicy
     ): EntityResult = {
       val protocolErrors  = mutable.ListBuffer.empty[CalibanError]
       val blockedEntries  = mutable.ListBuffer.empty[EntityBatchEntry]
-      val values          = shape.values(response.data).map { case (index, value) => index -> toClient(value) }
+      val values          = shape.values(response.data).map { case (index, value) => index -> projection(value) }
       val slots           = new Array[ResponseValue](batch.entries.size)
       var federationNulls = 0
 
@@ -565,7 +548,7 @@ private[internal] final class EntityLookup(
           shape.errorIndex(error.path) match {
             case Some((index, tail)) =>
               val locations  = entityLocations(fetch, batch, correlation, expected, values.get(index), index)
-              val clientTail = ResponseMerge.restoreResponsePath(fetch.fields, executableFields, tail)
+              val clientTail = projection.path(tail)
               if (locations.isEmpty) mergedPaths.map(errorPolicy.unusableEntity(error, _))
               else
                 locations.map { location =>
@@ -632,30 +615,21 @@ private[internal] final class EntityLookup(
 }
 
 private[internal] object EntityLookup {
-  private[internal] sealed trait PreparedLookup {
-    def executableFields: List[Field]
-    def restorer: Option[Map[String, ResponseMerge.ResponseNameMapping]]
-  }
+  private[internal] sealed trait PreparedLookup
 
   private[internal] object PreparedLookup {
     final case class Federation(
-      executableFields: List[Field],
-      restorer: Option[Map[String, ResponseMerge.ResponseNameMapping]],
       ordered: FederationVariant,
       keyed: Option[FederationVariant]
     ) extends PreparedLookup
 
     final case class Single(
-      executableFields: List[Field],
-      restorer: Option[Map[String, ResponseMerge.ResponseNameMapping]],
       field: String,
       arguments: Map[String, ComposedGraph.LookupArgument],
       variant: GraphQLVariant
     ) extends PreparedLookup
 
     final case class ByKey(
-      executableFields: List[Field],
-      restorer: Option[Map[String, ResponseMerge.ResponseNameMapping]],
       field: String,
       arguments: Map[String, ComposedGraph.LookupArgument],
       variant: GraphQLVariant
@@ -664,12 +638,12 @@ private[internal] object EntityLookup {
 
   private[internal] sealed trait PreparedVariant {
     def correlation: EntityCorrelation
-    def responseToClient: ResponseValue => ResponseValue
+    def projection: ResponseProjection
   }
 
   private[internal] final case class FederationVariant(
     correlation: EntityCorrelation,
-    responseToClient: ResponseValue => ResponseValue,
+    projection: ResponseProjection,
     query: String,
     selections: String
   ) extends PreparedVariant
@@ -677,7 +651,7 @@ private[internal] object EntityLookup {
   private[internal] final case class GraphQLVariant(
     correlation: EntityCorrelation,
     sourceSelections: List[Selection],
-    responseToClient: ResponseValue => ResponseValue
+    projection: ResponseProjection
   ) extends PreparedVariant
 
   private[internal] final case class CallPart(slot: Int, selections: String, representations: InputValue) {
