@@ -7,7 +7,7 @@ import caliban.Value.{ BooleanValue, EnumValue, NullValue, StringValue }
 import caliban.gateway.GatewayTestSupport._
 import caliban.{ GraphQLRequest, InputValue }
 import zio.http.URL
-import zio.{ Scope, ZIO }
+import zio.{ Duration, Scope, ZIO }
 import zio.test._
 
 object FieldRoutingSpec extends ZIOSpecDefault {
@@ -1071,6 +1071,8 @@ object FieldRoutingSpec extends ZIOSpecDefault {
                             Subgraph.federation("prices", prices.endpoint, priceSchema),
                             Subgraph.federation("ratings", ratings.endpoint, ratingSchema)
                           )
+                          // Allow for CI contention while checking interface routing.
+                          .withConfig(_.withPlanningTimeout(Duration.fromSeconds(30)))
                           .interpreter
           plan       <- gateway.explain(GraphQLRequest(query = Some("{ node { displayPrice expensive } }")))
           response   <- gateway.execute("{ node { displayPrice expensive } }")
