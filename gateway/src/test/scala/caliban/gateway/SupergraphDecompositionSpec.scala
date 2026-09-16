@@ -668,7 +668,7 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
       },
       test("never marks an external field shareable") {
         // `Character.name` is owned by CHARACTERS and external in EPISODES, so EPISODES does not
-        // resolve it and neither projection has two providers.
+        // resolve it and neither projection has two resolving subgraphs.
         projected.map { graphs =>
           assertTrue(
             fieldDirectives(graphs("episodes"), "Character", "name") == List("external"),
@@ -678,7 +678,7 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
       },
       test("discounts a graph another graph has overridden away") {
         // The only difference between the two documents is `override:`. With it there is one
-        // effective provider, so neither projection may claim shareability.
+        // effective resolving subgraph, so neither projection may claim shareability.
         def widget(overrides: String) =
           supergraph(
             s"""enum join__Graph {

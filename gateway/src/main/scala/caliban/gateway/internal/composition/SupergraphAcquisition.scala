@@ -1,14 +1,12 @@
 package caliban.gateway.internal.composition
 
-import caliban.ResponseValue
 import caliban.gateway.SupergraphAcquisitionError._
 import caliban.gateway.internal.GatewayHttpClient
-import caliban.gateway.internal.composition.ApolloUplinkClient.RouterConfig
+import caliban.gateway.internal.composition.ApolloUplinkClient.UplinkResponse
 import caliban.gateway.internal.execution.RemoteTransport
 import caliban.gateway.{ RemoteGraphQLConfig, Supergraph, SupergraphAcquisitionError, SupergraphUplinkConfig }
 import caliban.parsing.Parser
 import caliban.parsing.adt.Document
-import com.github.plokhotnyuk.jsoniter_scala.core.{ readFromArray, writeToArray }
 import zio.{ IO, NonEmptyChunk, Ref, Trace, UIO, ZIO }
 import zio.http.{ Header, QueryParams, Status, URL }
 
@@ -189,50 +187,26 @@ object SupergraphAcquisition {
         private def acquire(endpoint: URL, uplinkState: UplinkState)(implicit
           trace: Trace
         ): IO[SupergraphAcquisitionError, Document] = {
-          val request     = ApolloUplinkClient.request(config.apiKey.stringValue, config.graphRef, uplinkState.cursor)
           val acquisition = config.acquisition
 
-          http
-            .post(endpoint, writeToArray(request), acquisition.headers, acquisition.maxResponseBytes)
-            .mapError[SupergraphAcquisitionError](RequestFailed(_))
-            .flatMap { reply =>
-              val decoded: Either[SupergraphAcquisitionError, RouterConfig] =
-                if (reply.body.limitExceeded) Left(ResponseTooLarge(acquisition.maxResponseBytes))
-                else if (reply.status.isRedirection || !allowedMediaType(reply.status, reply.contentType))
-                  Left(UnexpectedResponse(reply.status, reply.contentType))
-                else if (
-                  RemoteTransport
-                    .validateJsonStructure(reply.body.bytes, acquisition.maxParsingDepth, Int.MaxValue)
-                    .isLeft
-                )
-                  Left(ParsingDepthExceeded(acquisition.maxParsingDepth))
-                else
-                  // A `ServerError` is a top-level `errors` array with no data; anything else the
-                  // client raises here is a shape it could not read. Neither one's payload may be
-                  // rendered: remote free text never reaches a diagnostic.
-                  Try(readFromArray[ResponseValue](reply.body.bytes)).toEither.left
-                    .map(_ => InvalidUplinkResponse.DecodingFailed)
-                    .flatMap(ApolloUplinkClient.decode)
-                    .left
-                    .map(InvalidUplinkResponse(_))
-              ZIO.fromEither(decoded)
-            }
+          ApolloUplinkClient
+            .fetch(endpoint, config, uplinkState.cursor, http)
             .flatMap {
-              case RouterConfig.Success(id, Some(sdl), _) =>
+              case UplinkResponse.Success(id, Some(sdl), _) =>
                 // The cursor advances on a successful fetch and caches the document that fetch produced.
                 // `Unchanged` then re-offers a supergraph that fetched but failed to build, rather than
                 // wedging the gateway on the generation it never managed to replace.
                 if (RemoteSchemaAcquisition.withinGraphQLDepth(sdl, acquisition.maxParsingDepth))
                   ZIO.fromEither(parse(sdl)).tap(document => state.set(UplinkState(Some(id), Some(document))))
                 else ZIO.fail(ParsingDepthExceeded(acquisition.maxParsingDepth))
-              case RouterConfig.Success(_, None, _)       =>
+              case UplinkResponse.Success(_, None, _)       =>
                 // `Unchanged` answers a cursor we sent, so an empty cache means the server answered one we
                 // never stored. Leave the cursor alone: acknowledging it would have every later poll ask
                 // the same unanswerable question.
                 ZIO
                   .fromOption(uplinkState.last)
                   .orElseFail(InvalidUplinkResponse(InvalidUplinkResponse.MissingSupergraphSdl))
-              case RouterConfig.Failed(code, _)           =>
+              case UplinkResponse.Failure(code, _)          =>
                 // The code is a fixed enum and safe to render; the message beside it is remote free text.
                 ZIO.fail(UplinkFetchFailed(code))
             }

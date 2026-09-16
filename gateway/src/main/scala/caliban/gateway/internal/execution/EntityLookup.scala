@@ -33,7 +33,7 @@ private[internal] final class EntityLookup(
     cache: PlanExecutionCache,
     slot: Option[Int]
   ): Option[Call] =
-    buildLookup(fetch, batch, resolvedRequest, graph.mapping(fetch.source), cache, slot)
+    buildLookup(fetch, batch, resolvedRequest, graph.schemaMapping(fetch.source), cache, slot)
 
   private def preparedLookup(
     fetch: EntityFetch,
@@ -43,7 +43,7 @@ private[internal] final class EntityLookup(
   ): PreparedLookup = {
     def prepare: PreparedLookup = {
       val contextualFields = injectContextArguments(fetch.source, fetch.fields, contextValues)
-      val executableFields = graph.executableEntityFields(fetch.source, fetch.entityType, contextualFields)
+      val executableFields = graph.prepareEntityFields(fetch.source, fetch.entityType, contextualFields)
       val sourceSelections = executableFields.map(mapping.rootFieldToSource).flatMap(fieldSelection)
 
       def selections(correlation: EntityCorrelation): List[Selection] =
@@ -354,7 +354,7 @@ private[internal] final class EntityLookup(
         val added  = values.iterator.collect {
           case (context, value) if context.parentType == parent && context.field == field.name =>
             val expected = graph
-              .field(source, parent, field.name)
+              .sourceField(source, parent, field.name)
               .flatMap(_.allArgs.find(_.name == context.argument))
               .map(_._type)
             val input    = expected.fold(value)(coerceContextInput(value, _))

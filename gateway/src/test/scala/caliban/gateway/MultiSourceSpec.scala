@@ -505,7 +505,7 @@ object MultiSourceSpec extends ZIOSpecDefault {
           sent.isEmpty
         )
       },
-      test("selects a viable provider for a shareable mutation root") {
+      test("selects a viable subgraph for a shareable mutation root") {
         val alphaSchema =
           s"""
              |${federationSchemaPreamble("@shareable")}

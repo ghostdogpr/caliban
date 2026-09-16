@@ -1,6 +1,7 @@
 package caliban.gateway
 
 import caliban.gateway.internal.composition.{ ComposedGraph, SchemaComposer, SupergraphDecomposition }
+import caliban.gateway.internal.composition.ComposedGraph.{ RootField, TypeField }
 import caliban.parsing.{ Parser, SourceMapper }
 import caliban.parsing.adt.{ Document, OperationType }
 import caliban.rendering.DocumentRenderer
@@ -158,15 +159,16 @@ object SupergraphRoundTripSpec extends ZIOSpecDefault {
         supergraph <- characterGraphFromSupergraph
         originals  <- characterGraphFromOriginals
       } yield assertTrue(
-        sorted(supergraph.routes.view.mapValues(_.providers).toMap) == sorted(
-          originals.routes.view.mapValues(_.providers).toMap
+        sorted(supergraph.rootRoutes.view.mapValues(_.candidates).toMap) == sorted(
+          originals.rootRoutes.view.mapValues(_.candidates).toMap
         ),
         sorted(supergraph.fieldRoutes) == sorted(originals.fieldRoutes)
       )
     },
     test("routes each root field to the graph that declared it") {
       characterGraphFromSupergraph.map { graph =>
-        def route(field: String) = graph.routes.get(OperationType.Query -> field).map(_.providers.map(_.source))
+        def route(field: String) =
+          graph.rootRoutes.get(RootField(OperationType.Query, field)).map(_.candidates.map(_.source))
 
         assertTrue(
           route("characters").contains(List("characters")),
@@ -183,9 +185,13 @@ object SupergraphRoundTripSpec extends ZIOSpecDefault {
       // present. This is the tightest coupling between the link and entity routing.
       characterGraphFromSupergraph.map { graph =>
         assertTrue(
-          graph.fieldRoutes.get("Character" -> "isCaptain").contains(List(ComposedGraph.FieldRoute("episodes"))),
-          graph.fieldRoutes.get("Character" -> "name").contains(List(ComposedGraph.FieldRoute("characters"))),
-          graph.fieldRoutes.get("Character" -> "biography").contains(List(ComposedGraph.FieldRoute("characters")))
+          graph.fieldRoutes
+            .get(TypeField("Character", "isCaptain"))
+            .contains(List(ComposedGraph.FieldRoute("episodes"))),
+          graph.fieldRoutes.get(TypeField("Character", "name")).contains(List(ComposedGraph.FieldRoute("characters"))),
+          graph.fieldRoutes
+            .get(TypeField("Character", "biography"))
+            .contains(List(ComposedGraph.FieldRoute("characters")))
         )
       }
     },
@@ -195,15 +201,15 @@ object SupergraphRoundTripSpec extends ZIOSpecDefault {
       characterGraphFromSupergraph.map { graph =>
         assertTrue(
           graph.fieldRoutes
-            .get("Episode" -> "season")
+            .get(TypeField("Episode", "season"))
             .map(_.map(_.source).sorted)
             .contains(List("characters", "episodes")),
           graph.fieldRoutes
-            .get("Episode" -> "episode")
+            .get(TypeField("Episode", "episode"))
             .map(_.map(_.source).sorted)
             .contains(List("characters", "episodes")),
-          graph.fieldRoutes.get("Episode" -> "name").contains(List(ComposedGraph.FieldRoute("episodes"))),
-          graph.fieldRoutes.get("Episode" -> "leader").contains(List(ComposedGraph.FieldRoute("characters")))
+          graph.fieldRoutes.get(TypeField("Episode", "name")).contains(List(ComposedGraph.FieldRoute("episodes"))),
+          graph.fieldRoutes.get(TypeField("Episode", "leader")).contains(List(ComposedGraph.FieldRoute("characters")))
         )
       }
     },
@@ -228,7 +234,7 @@ object SupergraphRoundTripSpec extends ZIOSpecDefault {
           )
         ).map { graph =>
           def routes(field: String) =
-            graph.fieldRoutes.getOrElse("Widget" -> field, Nil).map(route => route.source -> route.condition)
+            graph.fieldRoutes.getOrElse(TypeField("Widget", field), Nil).map(route => route.source -> route.condition)
 
           val percent = ComposedGraph.OverrideLabel("percent(25)")
           val flag    = ComposedGraph.OverrideLabel("myFlag")
@@ -276,10 +282,10 @@ object SupergraphRoundTripSpec extends ZIOSpecDefault {
           originals  <- contextGraphFromOriginals
         } yield assertTrue(
           declarations(supergraph) == declarations(originals),
-          supergraph.fromContext("characters", "Ship", "fare") ==
-            originals.fromContext("characters", "Ship", "fare"),
-          supergraph.fromContext("episodes", "Ship", "manifest") ==
-            originals.fromContext("episodes", "Ship", "manifest")
+          supergraph.contextArguments("characters", "Ship", "fare") ==
+            originals.contextArguments("characters", "Ship", "fare"),
+          supergraph.contextArguments("episodes", "Ship", "manifest") ==
+            originals.contextArguments("episodes", "Ship", "manifest")
         )
       },
       test("composes the names the subgraphs wrote rather than the namespaced supergraph ones") {
@@ -287,9 +293,13 @@ object SupergraphRoundTripSpec extends ZIOSpecDefault {
           assertTrue(
             graph.contextDeclarations("Character").map(value => value.source -> value.name.value).sorted ==
               List("characters" -> "viewer", "episodes" -> "crew").sorted,
-            graph.fromContext("characters", "Ship", "fare").map(value => value.argument -> value.context.value) ==
+            graph
+              .contextArguments("characters", "Ship", "fare")
+              .map(value => value.argument -> value.context.value) ==
               List("currency" -> "viewer", "locale" -> "viewer"),
-            graph.fromContext("episodes", "Ship", "manifest").map(value => value.argument -> value.context.value) ==
+            graph
+              .contextArguments("episodes", "Ship", "manifest")
+              .map(value => value.argument -> value.context.value) ==
               List("rank" -> "crew")
           )
         }

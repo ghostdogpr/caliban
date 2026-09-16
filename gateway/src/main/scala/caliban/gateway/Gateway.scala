@@ -140,7 +140,7 @@ final class Gateway[-R] private[gateway] (
                       .fromEither(SchemaComposer.compose(successes.map(_.subgraph)))
                       .mapError(errors => SchemaCompositionFailed(errors.distinct.sorted))
       _          <- ZIO
-                      .fail(GatewayBuildError.InvalidConfiguration(graph.securityPolicyDiagnostics))
+                      .fail(GatewayBuildError.InvalidConfiguration(graph.securityDiagnostics))
                       .when(policy.isEmpty && graph.hasSecurityRequirements)
       control    <- GatewayExecutionControl.make(
                       config.maxConcurrentRequests,
@@ -171,7 +171,7 @@ final class Gateway[-R] private[gateway] (
                       new OperationHooks(graph.securityRequirements, resolver, policy, hooks),
                       config,
                       hooks,
-                      graph.estimatedOperationCost
+                      graph.estimateCost
                     )
     } yield new GatewayInterpreterImpl[R](
       operations,

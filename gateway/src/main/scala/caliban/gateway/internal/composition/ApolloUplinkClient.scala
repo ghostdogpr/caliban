@@ -1,23 +1,129 @@
 package caliban.gateway.internal.composition
 
 import caliban.{ GraphQLRequest, InputValue, ResponseValue }
-import caliban.gateway.SupergraphAcquisitionError.InvalidUplinkResponse
+import caliban.gateway.{ SupergraphAcquisitionError, SupergraphUplinkConfig }
+import caliban.gateway.SupergraphAcquisitionError._
+import caliban.gateway.internal.GatewayHttpClient
+import caliban.gateway.internal.execution.RemoteTransport
 import caliban.gateway.SupergraphAcquisitionError.InvalidUplinkResponse._
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ FloatValue, IntValue, NullValue, StringValue }
 
+import com.github.plokhotnyuk.jsoniter_scala.core.{ readFromArray, writeToArray }
+import zio.{ IO, Trace, ZIO }
+import zio.http.URL
+
 private[gateway] object ApolloUplinkClient {
 
-  sealed trait RouterConfig
+  def fetch(
+    endpoint: URL,
+    config: SupergraphUplinkConfig,
+    ifAfterId: Option[String],
+    http: GatewayHttpClient
+  )(implicit trace: Trace): IO[SupergraphAcquisitionError, UplinkResponse] = {
+    val acquisition = config.acquisition
+    val body        = writeToArray(request(config.apiKey.stringValue, config.graphRef, ifAfterId))
 
-  object RouterConfig {
-    final case class Success(id: String, supergraphSDL: Option[String], minDelaySeconds: Double) extends RouterConfig
-    final case class Failed(code: String, message: String)                                       extends RouterConfig
+    http
+      .post(endpoint, body, acquisition.headers, acquisition.maxResponseBytes)
+      .mapError[SupergraphAcquisitionError](RequestFailed(_))
+      .flatMap { reply =>
+        if (reply.body.limitExceeded) ZIO.fail(ResponseTooLarge(acquisition.maxResponseBytes))
+        else if (
+          !reply.status.isSuccess || RemoteTransport.mediaType(reply.contentType).exists(_.startsWith("text/html"))
+        )
+          ZIO.fail(UnexpectedResponse(reply.status, reply.contentType))
+        else if (
+          RemoteTransport
+            .validateJsonStructure(reply.body.bytes, acquisition.maxParsingDepth, Int.MaxValue)
+            .isLeft
+        )
+          ZIO.fail(ParsingDepthExceeded(acquisition.maxParsingDepth))
+        else
+          // Remote error text must not reach diagnostics, including JSON decoding exceptions.
+          ZIO
+            .attempt(readFromArray[ResponseValue](reply.body.bytes))
+            .mapError(_ => InvalidUplinkResponse.DecodingFailed)
+            .flatMap(response => ZIO.fromEither(decode(response)))
+            .mapError(InvalidUplinkResponse(_))
+      }
   }
 
-  val OperationName = "SupergraphSdl"
+  sealed trait UplinkResponse
 
-  val Query: String =
+  object UplinkResponse {
+    final case class Success(id: String, supergraphSDL: Option[String], minDelaySeconds: Double) extends UplinkResponse
+    final case class Failure(code: String, message: String)                                      extends UplinkResponse
+  }
+
+  private def request(apiKey: String, ref: String, ifAfterId: Option[String]): GraphQLRequest =
+    GraphQLRequest(
+      query = Some(Query),
+      operationName = Some(OperationName),
+      variables = Some(
+        Map[String, InputValue](
+          "apiKey"    -> StringValue(apiKey),
+          "ref"       -> StringValue(ref),
+          "ifAfterId" -> ifAfterId.fold[InputValue](NullValue)(StringValue(_))
+        )
+      )
+    )
+
+  private def decode(response: ResponseValue): Either[InvalidUplinkResponse.Reason, UplinkResponse] =
+    response match {
+      case envelope: ObjectValue =>
+        val hasErrors = envelope.getOrNull("errors") match {
+          case ListValue(values) => values.nonEmpty
+          case _                 => false
+        }
+        envelope.getOrNull("data") match {
+          case data: ObjectValue =>
+            data.getOrNull("routerConfig") match {
+              case value: ObjectValue => if (hasErrors) Left(MissingRouterConfig) else routerConfig(value)
+              case _                  => Left(MissingRouterConfig)
+            }
+          case _                 => Left(if (hasErrors) MissingData else DecodingFailed)
+        }
+      case _                     => Left(DecodingFailed)
+    }
+
+  private def routerConfig(value: ObjectValue): Either[InvalidUplinkResponse.Reason, UplinkResponse] =
+    string(value, "__typename").toRight(DecodingFailed).flatMap {
+      case "RouterConfigResult" =>
+        for {
+          id    <- string(value, "id").toRight(MissingId)
+          sdl   <- string(value, "supergraphSDL").toRight(MissingSupergraphSdl)
+          delay <- number(value, "minDelaySeconds").toRight(DecodingFailed)
+        } yield UplinkResponse.Success(id, Some(sdl), delay)
+      case "FetchError"         =>
+        for {
+          code    <- string(value, "code").toRight(DecodingFailed)
+          message <- string(value, "message").toRight(DecodingFailed)
+        } yield UplinkResponse.Failure(code, message)
+      case "Unchanged"          =>
+        for {
+          id    <- string(value, "id").toRight(MissingId)
+          delay <- number(value, "minDelaySeconds").toRight(DecodingFailed)
+        } yield UplinkResponse.Success(id, None, delay)
+      case _                    => Left(UnknownTypename)
+    }
+
+  private def string(value: ObjectValue, field: String): Option[String] =
+    value.getOrNull(field) match {
+      case StringValue(result) => Some(result)
+      case _                   => None
+    }
+
+  private def number(value: ObjectValue, field: String): Option[Double] =
+    value.getOrNull(field) match {
+      case result: IntValue   => Some(result.toBigInt.toDouble)
+      case result: FloatValue => Some(result.toDouble)
+      case _                  => None
+    }
+
+  private val OperationName = "SupergraphSdl"
+
+  private val Query: String =
     s"""query $OperationName($$apiKey: String!, $$ref: String!, $$ifAfterId: ID) {
        |  routerConfig(apiKey: $$apiKey, ref: $$ref, ifAfterId: $$ifAfterId) {
        |    __typename
@@ -36,69 +142,4 @@ private[gateway] object ApolloUplinkClient {
        |    }
        |  }
        |}""".stripMargin
-
-  def request(apiKey: String, ref: String, ifAfterId: Option[String]): GraphQLRequest =
-    GraphQLRequest(
-      query = Some(Query),
-      operationName = Some(OperationName),
-      variables = Some(
-        Map[String, InputValue](
-          "apiKey"    -> StringValue(apiKey),
-          "ref"       -> StringValue(ref),
-          "ifAfterId" -> ifAfterId.fold[InputValue](NullValue)(StringValue(_))
-        )
-      )
-    )
-
-  def decode(response: ResponseValue): Either[InvalidUplinkResponse.Reason, RouterConfig] =
-    response match {
-      case envelope: ObjectValue =>
-        val hasErrors = envelope.getOrNull("errors") match {
-          case ListValue(values) => values.nonEmpty
-          case _                 => false
-        }
-        envelope.getOrNull("data") match {
-          case data: ObjectValue =>
-            data.getOrNull("routerConfig") match {
-              case value: ObjectValue => if (hasErrors) Left(MissingRouterConfig) else routerConfig(value)
-              case _                  => Left(MissingRouterConfig)
-            }
-          case _                 => Left(if (hasErrors) MissingData else DecodingFailed)
-        }
-      case _                     => Left(DecodingFailed)
-    }
-
-  private def routerConfig(value: ObjectValue): Either[InvalidUplinkResponse.Reason, RouterConfig] =
-    string(value, "__typename").toRight(DecodingFailed).flatMap {
-      case "RouterConfigResult" =>
-        for {
-          id    <- string(value, "id").toRight(MissingId)
-          sdl   <- string(value, "supergraphSDL").toRight(MissingSupergraphSdl)
-          delay <- number(value, "minDelaySeconds").toRight(DecodingFailed)
-        } yield RouterConfig.Success(id, Some(sdl), delay)
-      case "FetchError"         =>
-        for {
-          code    <- string(value, "code").toRight(DecodingFailed)
-          message <- string(value, "message").toRight(DecodingFailed)
-        } yield RouterConfig.Failed(code, message)
-      case "Unchanged"          =>
-        for {
-          id    <- string(value, "id").toRight(MissingId)
-          delay <- number(value, "minDelaySeconds").toRight(DecodingFailed)
-        } yield RouterConfig.Success(id, None, delay)
-      case _                    => Left(UnknownTypename)
-    }
-
-  private def string(value: ObjectValue, field: String): Option[String] =
-    value.getOrNull(field) match {
-      case StringValue(result) => Some(result)
-      case _                   => None
-    }
-
-  private def number(value: ObjectValue, field: String): Option[Double] =
-    value.getOrNull(field) match {
-      case result: IntValue   => Some(result.toBigInt.toDouble)
-      case result: FloatValue => Some(result.toDouble)
-      case _                  => None
-    }
 }

@@ -25,8 +25,8 @@ private object OperationCost {
  */
 private[gateway] final class OperationCost(
   types: Map[String, __Type],
-  runtimeTypesByName: Map[String, Set[String]],
-  costs: ComposedGraph.CostMetadata
+  possibleTypesByName: Map[String, Set[String]],
+  costMetadata: ComposedGraph.CostMetadata
 ) {
   import OperationCost.{ FieldCostParts, SizedField, SizedPath }
 
@@ -39,13 +39,13 @@ private[gateway] final class OperationCost(
     plan.passthroughSubgraph match {
       case Some(source) =>
         val fields     = collectedFields(request.field)
-        val validation = if (costs.listSizes.isEmpty) None else validateListSizes(fields, source)
+        val validation = if (costMetadata.listSizes.isEmpty) None else validateListSizes(fields, source)
         validation.toLeft(
           bounded(operationBase(request.operationType) + fieldsCost(fields, source))
         )
       case None         =>
         val validation =
-          if (costs.listSizes.isEmpty) None
+          if (costMetadata.listSizes.isEmpty) None
           else
             (plan.roots.iterator.map(fetch => validateListSizes(fetch.selections, fetch.source)) ++
               plan.entities.iterator.map(fetch => validateListSizes(fetch.fields, fetch.source))).collectFirst {
@@ -53,7 +53,7 @@ private[gateway] final class OperationCost(
             }
         validation.toLeft {
           val multipliers =
-            if (costs.listSizes.isEmpty) new FetchMultipliers(Map.empty, Map.empty)
+            if (costMetadata.listSizes.isEmpty) new FetchMultipliers(Map.empty, Map.empty)
             else representationMultipliers(plan)
           val roots       = plan.roots.foldLeft(BigInt(0)) { (total, fetch) =>
             total + operationBase(plan.operation) + fieldsCost(fetch.selections, fetch.source)
@@ -71,7 +71,7 @@ private[gateway] final class OperationCost(
       parent.fields.map(field => field.copy(fields = collectedFields(field)))
     else {
       val name         = parent.fieldType.innerType.name.getOrElse("")
-      val runtimeTypes = runtimeTypesByName.getOrElse(name, Set(name))
+      val runtimeTypes = possibleTypesByName.getOrElse(name, Set(name))
       val fields       = mutable.LinkedHashMap.empty[Field, Set[String]]
       runtimeTypes.toList.sorted.foreach { runtime =>
         parent.collectFields(runtime).foreach { field =>
@@ -156,7 +156,7 @@ private[gateway] final class OperationCost(
   )(cost: FieldCostParts => BigInt): BigInt =
     parentType match {
       case Some(tpe) if tpe.kind == __TypeKind.INTERFACE || tpe.kind == __TypeKind.UNION =>
-        runtimeTypesByName
+        possibleTypesByName
           .getOrElse(parent, Set.empty)
           .iterator
           .flatMap(name => types.get(name).flatMap(tpe => Option(tpe.getFieldOrNull(field.name))).map(name -> _))
@@ -232,11 +232,11 @@ private[gateway] final class OperationCost(
     parent: String,
     field: String
   ): List[ComposedGraph.ListSize] = {
-    val direct   = costs.listSizes.get((source, parent, field)).toList
+    val direct   = costMetadata.listSizes.get((source, parent, field)).toList
     val concrete = parentType.toList
       .filter(tpe => tpe.kind == __TypeKind.INTERFACE || tpe.kind == __TypeKind.UNION)
-      .flatMap(_ => runtimeTypesByName.getOrElse(parent, Set.empty))
-      .flatMap(name => costs.listSizes.get((source, name, field)))
+      .flatMap(_ => possibleTypesByName.getOrElse(parent, Set.empty))
+      .flatMap(name => costMetadata.listSizes.get((source, name, field)))
     (direct ::: concrete).distinct
   }
 
@@ -362,7 +362,7 @@ private[gateway] final class OperationCost(
     fieldType: __Type,
     definitions: List[__InputValue]
   ): FieldCostParts = {
-    val oneTime = costs.fields.get(parent -> field.name).fold(BigInt(0))(BigInt(_)) +
+    val oneTime = costMetadata.fields.get(parent -> field.name).fold(BigInt(0))(BigInt(_)) +
       fieldArguments(parent, field, definitions)
     FieldCostParts(oneTime.max(BigInt(0)), outputTypeCost(fieldType).max(BigInt(0)))
   }
@@ -372,7 +372,7 @@ private[gateway] final class OperationCost(
       val name = argument.name
       field.arguments.get(name).orElse(defaultValue(argument)) match {
         case Some(value) =>
-          val base = costs.arguments
+          val base = costMetadata.arguments
             .get((parent, field.name, name))
             .fold(inputTypeCost(argument._type))(BigInt(_))
           total + base + inputFieldCost(value, argument._type)
@@ -407,26 +407,26 @@ private[gateway] final class OperationCost(
 
   private def inputValueCost(parent: __Type, field: __InputValue, value: InputValue): BigInt = {
     val parentName = parent.name.getOrElse("")
-    val base       = costs.inputFields.get(parentName -> field.name).fold(inputTypeCost(field._type))(BigInt(_))
+    val base       = costMetadata.inputFields.get(parentName -> field.name).fold(inputTypeCost(field._type))(BigInt(_))
     base + inputFieldCost(value, field._type)
   }
 
   private def inputTypeCost(tpe: __Type): BigInt = {
     val inner = tpe.innerType
-    costs.types.get(inner.name.getOrElse("")).fold(defaultTypeCost(inner))(BigInt(_))
+    costMetadata.types.get(inner.name.getOrElse("")).fold(defaultTypeCost(inner))(BigInt(_))
   }
 
   private def outputTypeCost(tpe: __Type): BigInt = {
     val inner = tpe.innerType
     inner.kind match {
       case __TypeKind.INTERFACE | __TypeKind.UNION =>
-        val concrete = inner.name.toList.flatMap(name => runtimeTypesByName.getOrElse(name, Set.empty))
+        val concrete = inner.name.toList.flatMap(name => possibleTypesByName.getOrElse(name, Set.empty))
         concrete
-          .map(name => costs.types.get(name).fold(BigInt(1))(BigInt(_)))
+          .map(name => costMetadata.types.get(name).fold(BigInt(1))(BigInt(_)))
           .reduceOption(_ max _)
           .getOrElse(BigInt(1))
       case _                                       =>
-        costs.types.get(inner.name.getOrElse("")).fold(defaultTypeCost(inner))(BigInt(_))
+        costMetadata.types.get(inner.name.getOrElse("")).fold(defaultTypeCost(inner))(BigInt(_))
     }
   }
 

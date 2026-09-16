@@ -281,7 +281,7 @@ object CompositionSpec extends ZIOSpecDefault {
           sent._2.isEmpty
         )
       },
-      test("memoizes routed graph variants during concurrent lookups") {
+      test("caches graphs by active overrides during concurrent lookups") {
         val result = compose(
           CompositionInput("original", progressiveSchema("type Query { value: String }")),
           CompositionInput(
@@ -298,16 +298,16 @@ object CompositionSpec extends ZIOSpecDefault {
           graph    <- ZIO.fromEither(result).orDieWith(errors => new AssertionError(errors.mkString("; ")))
           label     = graph.progressiveOverrides(Set("value")).keysIterator.next()
           variants <- ZIO.foreachPar((0 until 64).toList) { index =>
-                        ZIO.succeed(graph.routed(if (index % 2 == 0) Set.empty else Set(label)))
+                        ZIO.succeed(graph.resolveOverrides(if (index % 2 == 0) Set.empty else Set(label)))
                       }
-          inactive  = graph.routed(Set.empty)
-          active    = graph.routed(Set(label))
+          inactive  = graph.resolveOverrides(Set.empty)
+          active    = graph.resolveOverrides(Set(label))
         } yield assertTrue(
           (inactive ne active),
           variants.zipWithIndex.forall { case (graph, index) => graph eq (if (index % 2 == 0) inactive else active) }
         )
       },
-      test("evicts old routed graph variants while retaining newly cached routes") {
+      test("evicts old override graphs while retaining newly cached graphs") {
         val fields = (0 until 6).toList
         val result = compose(
           CompositionInput(
@@ -325,15 +325,15 @@ object CompositionSpec extends ZIOSpecDefault {
         )
         assertTrue(result.toOption.exists { graph =>
           val labels         = fields.map(i => graph.progressiveOverrides(Set(s"f$i")).keysIterator.next())
-          val first          = graph.routed(Set.empty)
+          val first          = graph.resolveOverrides(Set.empty)
           val variants       = (1 until 64).map { mask =>
             val active = labels.zipWithIndex.collect { case (label, bit) if (mask & (1 << bit)) != 0 => label }.toSet
-            active -> graph.routed(active)
+            active -> graph.resolveOverrides(active)
           }
           val (active, last) = variants.last
-          val selected       = graph.routed(active)
-          (last eq selected) && (first ne graph.routed(Set.empty)) &&
-          fields.forall(i => selected.sources(OperationType.Query, s"f$i") == List("replacement"))
+          val selected       = graph.resolveOverrides(active)
+          (last eq selected) && (first ne graph.resolveOverrides(Set.empty)) &&
+          fields.forall(i => selected.rootFieldSources(OperationType.Query, s"f$i") == List("replacement"))
         })
       },
       test("validates progressive override labels and linked versions") {
@@ -414,9 +414,9 @@ object CompositionSpec extends ZIOSpecDefault {
             )
           ).left.toOption.getOrElse(Nil)
 
-        val inherited                = inheritedOverrides("""@override(from: "original", label: "percent(20)")""")
-        val mixed                    = inheritedOverrides("""@override(from: "original")""")
-        val direct                   = compose(
+        val inherited             = inheritedOverrides("""@override(from: "original", label: "percent(20)")""")
+        val mixed                 = inheritedOverrides("""@override(from: "original")""")
+        val direct                = compose(
           CompositionInput(
             "original",
             progressiveSchema(
@@ -438,7 +438,7 @@ object CompositionSpec extends ZIOSpecDefault {
             )
           )
         ).left.toOption.getOrElse(Nil)
-        val missingInterfaceProvider = compose(
+        val missingInterfaceOwner = compose(
           CompositionInput(
             "original",
             progressiveSchema(
@@ -466,7 +466,7 @@ object CompositionSpec extends ZIOSpecDefault {
           inherited.exists(_.contains("when any declaration is progressive")),
           mixed.exists(_.contains("when any declaration is progressive")),
           direct.exists(_.contains("Direct and inherited @override declarations cannot be combined")),
-          missingInterfaceProvider.exists(
+          missingInterfaceOwner.exists(
             _.contains("requires every participating subgraph to own the interface field; missing 'original'")
           )
         )
@@ -613,7 +613,7 @@ object CompositionSpec extends ZIOSpecDefault {
 
         result.map(exit => assertTrue(buildDiagnostics(exit).exists(_.contains("shareable"))))
       },
-      test("requires each Federation 2 provider to make a key field shareable") {
+      test("requires each resolving Federation 2 subgraph to make a key field shareable") {
         val keyed = schema(
           "type Query { alpha: Product } type Product @key(fields: \"id\") { id: ID! }",
           "@key"

@@ -331,7 +331,7 @@ object EntityRoutingSpec extends ZIOSpecDefault {
           sent.isEmpty
         )
       },
-      test("rejects a plan whose only key provider is the fetch that needs the key") {
+      test("rejects a plan whose only key source is the fetch that needs the key") {
         val accountsSchema =
           s"""
              |${federationSchemaPreamble("@key", "@shareable", "@external")}

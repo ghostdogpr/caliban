@@ -2,6 +2,7 @@ package caliban.gateway.internal.composition
 
 import caliban.gateway.{ Lookup, PreparedSubgraph }
 import caliban.gateway.OperationPolicy.SecurityDirective
+import caliban.gateway.internal.composition.ComposedGraph.{ RootField, SourceField, SourceType, TypeField }
 import caliban.InputValue
 import caliban.introspection.adt._
 import caliban.parsing.{ Parser, SourceMapper }
@@ -55,7 +56,7 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
   private val compiledFieldSets  = prepared.map(federationFieldSets)
   private val compiledContexts   = prepared.map(federationContexts)
   private val compiledCosts      = prepared.map(federationCosts)
-  private val compiledSecurity   = prepared.map(securityApplications)
+  private val compiledSecurity   = prepared.map(securityDirectiveApplications)
 
   def compose: Either[List[String], ComposedGraph] = {
     val diagnostics =
@@ -74,77 +75,77 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
 
     if (diagnostics.nonEmpty) Left(diagnostics)
     else {
-      val composedTypes                                                 = typeComposition.composed
-      def rewrite(tpe: __Type): __Type                                  = rewriteType(tpe, composedTypes)
-      val query                                                         = composedTypes("Query")
-      val mutation                                                      = composedTypes.get("Mutation").filter(_.allFields.nonEmpty)
-      val subscription                                                  = composedTypes.get("Subscription").filter(_.allFields.nonEmpty)
-      val operationTypeNames                                            = Set("Query", "Mutation", "Subscription")
-      val additional                                                    =
+      val composedTypes                                       = typeComposition.composed
+      def rewrite(tpe: __Type): __Type                        = rewriteType(tpe, composedTypes)
+      val query                                               = composedTypes("Query")
+      val mutation                                            = composedTypes.get("Mutation").filter(_.allFields.nonEmpty)
+      val subscription                                        = composedTypes.get("Subscription").filter(_.allFields.nonEmpty)
+      val operationTypeNames                                  = Set("Query", "Mutation", "Subscription")
+      val additional                                          =
         composedTypes.toList.sortBy(_._1).collect {
           case (name, tpe) if !operationTypeNames.contains(name) => tpe
         } :::
           composedDirectives.additionalTypes.filterNot(tpe => tpe.name.exists(composedTypes.contains))
-      val rootType                                                      = RootType(
+      val rootType                                            = RootType(
         query,
         mutation,
         subscription,
         additional,
         composedDirectives.definitions(rewrite)
       )
-      val runtimeTypesByName                                            = rootType.types.iterator.map { case (name, tpe) =>
+      val possibleTypesByName                                 = rootType.types.iterator.map { case (name, tpe) =>
         name -> tpe.possibleTypeNames
       }.toMap
-      val transformationDiagnostics                                     = invalidTransformationDiagnostics(rootType)
-      val directiveDiagnostics                                          = composedDirectives.finalDiagnostics(rootType)
-      val allSecurity                                                   = compiledSecurity.flatMap(_.toOption).flatten
-      val enforcedSecurity                                              = allSecurity.filterNot(_.directive == SecurityDirective.UnsupportedPolicy)
-      val securityVisibilityDiagnostics                                 = hiddenSecurityDiagnostics(enforcedSecurity, rootType)
-      val fieldDefinitions                                              = types
+      val transformationDiagnostics                           = invalidTransformationDiagnostics(rootType)
+      val directiveDiagnostics                                = composedDirectives.finalDiagnostics(rootType)
+      val allSecurity                                         = compiledSecurity.flatMap(_.toOption).flatten
+      val enforcedSecurity                                    = allSecurity.filterNot(_.directive == SecurityDirective.UnsupportedPolicy)
+      val securityVisibilityDiagnostics                       = hiddenSecurityDiagnostics(enforcedSecurity, rootType)
+      val fieldDefinitions                                    = types
         .flatMap(entry => entry.tpe.allFields.map(field => (entry.name -> field.name) -> entry))
         .groupMap(_._1)(_._2)
-      val rootDefinitions                                               = fieldDefinitions.filter { case (_, definitions) =>
+      val rootDefinitions                                     = fieldDefinitions.filter { case (_, definitions) =>
         definitions.exists(_.operation.nonEmpty)
       }
-      val routes: Map[(OperationType, String), ComposedGraph.RootRoute] = rootDefinitions.flatMap {
+      val rootRoutes: Map[RootField, ComposedGraph.RootRoute] = rootDefinitions.flatMap {
         case ((typeName, field), definitions) =>
           val operation = definitions.flatMap(_.operation).head
           composedTypes.get(typeName).flatMap(_.allFields.find(_.name == field)).map { composedField =>
-            val providers = fieldProviderRoutes(field, definitions)
-            val composite = composedField._type.innerType.kind match {
+            val candidates = fieldRouteCandidates(field, definitions)
+            val composite  = composedField._type.innerType.kind match {
               case __TypeKind.OBJECT | __TypeKind.INTERFACE | __TypeKind.UNION => true
               case _                                                           => false
             }
-            (operation -> field) -> ComposedGraph.RootRoute(providers, singleProvider = !composite)
+            RootField(operation, field) -> ComposedGraph.RootRoute(candidates, selectFirst = !composite)
           }
       }
-      val interfaceOverrides                                            = interfaceOverrideTargets(types)
-      val fieldRoutes                                                   =
+      val interfaceOverrides                                  = interfaceOverrideTargets(types)
+      val fieldRoutes                                         =
         fieldDefinitions.filterNot(_._2.exists(_.operation.nonEmpty)).flatMap { case (coordinate, definitions) =>
           val routes = applyInterfaceOverrides(
-            fieldProviderRoutes(coordinate._2, definitions),
+            fieldRouteCandidates(coordinate._2, definitions),
             interfaceOverrides.getOrElse(coordinate, Nil)
           )
-          if (routes.nonEmpty) Some(coordinate -> routes) else None
+          if (routes.nonEmpty) Some(TypeField(coordinate._1, coordinate._2) -> routes) else None
         }
-      val sourceFields                                                  = types.flatMap { entry =>
-        entry.tpe.allFields.map(field => (entry.source, entry.name, field.name) -> field)
+      val sourceFields                                        = types.flatMap { entry =>
+        entry.tpe.allFields.map(field => SourceField(entry.source, entry.name, field.name) -> field)
       }.toMap
-      val lookups                                                       = types
-        .flatMap(entry => entry.entity.toList.flatMap(_.lookups).map((entry.source -> entry.name) -> _))
+      val lookups                                             = types
+        .flatMap(entry => entry.entity.toList.flatMap(_.lookups).map(SourceType(entry.source, entry.name) -> _))
         .groupBy(_._1)
         .map { case (coordinate, values) => coordinate -> values.map(_._2) }
-      val fieldSets                                                     = compiledFieldSets.flatMap(_.toOption)
-      val requirements                                                  = fieldSets.flatMap(_.requirements).toMap
-      val provisions                                                    = fieldSets.flatMap(_.provisions).toMap
-      val contextMetadata                                               = compiledContexts.flatMap(_.toOption)
-      val contexts                                                      = contextMetadata.flatMap(_.definitions).toMap
-      val contextArguments                                              = contextMetadata.flatMap(_.arguments).toMap
-      val costs                                                         = mergeCosts(compiledCosts.flatMap(_.toOption))
-      val transitiveSecurityDiagnostics                                 = missingTransitiveSecurityDiagnostics(
-        ComposedGraph.securityDependencies(requirements, contexts, contextArguments),
+      val fieldSets                                           = compiledFieldSets.flatMap(_.toOption)
+      val requiredFieldSets                                   = fieldSets.flatMap(_.requiredFieldSets).toMap
+      val providedFieldSets                                   = fieldSets.flatMap(_.providedFieldSets).toMap
+      val contextMetadata                                     = compiledContexts.flatMap(_.toOption)
+      val declaredContexts                                    = contextMetadata.flatMap(_.declaredContexts).toMap
+      val contextArgumentBindings                             = contextMetadata.flatMap(_.contextArgumentBindings).toMap
+      val costMetadata                                        = mergeCosts(compiledCosts.flatMap(_.toOption))
+      val transitiveSecurityDiagnostics                       = missingTransitiveSecurityDiagnostics(
+        OperationSecurity.dependencies(requiredFieldSets, declaredContexts, contextArgumentBindings),
         enforcedSecurity,
-        runtimeTypesByName,
+        possibleTypesByName,
         rootType
       )
       if (
@@ -164,23 +165,23 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
           .map(_ =>
             new ComposedGraph(
               rootType,
-              runtimeTypesByName,
-              routes,
+              possibleTypesByName,
+              rootRoutes,
               fieldRoutes,
               sourceFields,
               lookups,
-              requirements,
-              provisions,
-              contexts,
-              contextArguments,
-              types.iterator.filter(_.interfaceObject).map(entry => entry.source -> entry.name).toSet,
+              requiredFieldSets,
+              providedFieldSets,
+              declaredContexts,
+              contextArgumentBindings,
+              types.iterator.filter(_.interfaceObject).map(entry => SourceType(entry.source, entry.name)).toSet,
               sortedSubgraphs.iterator.flatMap { subgraph =>
                 subgraph.rootType.types.iterator.map { case (name, tpe) =>
-                  (subgraph.name -> name) -> tpe.possibleTypeNames
+                  SourceType(subgraph.name, name) -> tpe.possibleTypeNames
                 }
               }.toMap,
               sortedSubgraphs.iterator.map(subgraph => subgraph.name -> subgraph.mapping).toMap,
-              costs,
+              costMetadata,
               allSecurity,
               composedDirectives.schemaDirectives
             )
@@ -189,7 +190,7 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
   }
 
   private def hiddenSecurityDiagnostics(
-    applications: List[ComposedGraph.SecurityApplication],
+    applications: List[ComposedGraph.SecurityDirectiveApplication],
     rootType: RootType
   ): List[String] =
     applications.collect {
@@ -200,22 +201,22 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
     }
 
   private def missingTransitiveSecurityDiagnostics(
-    dependenciesByField: List[ComposedGraph.SecurityDependency],
-    applications: List[ComposedGraph.SecurityApplication],
-    runtimeTypesByName: Map[String, Set[String]],
+    dependenciesByField: List[OperationSecurity.Dependency],
+    applications: List[ComposedGraph.SecurityDirectiveApplication],
+    possibleTypesByName: Map[String, Set[String]],
     rootType: RootType
   ): List[String] = {
     def applicable(selectedType: String, candidateType: String): Boolean =
       selectedType == candidateType || {
-        val selected  = runtimeTypesByName.getOrElse(selectedType, Set.empty)
-        val candidate = runtimeTypesByName.getOrElse(candidateType, Set.empty)
+        val selected  = possibleTypesByName.getOrElse(selectedType, Set.empty)
+        val candidate = possibleTypesByName.getOrElse(candidateType, Set.empty)
         selected.nonEmpty && candidate.nonEmpty && (selected intersect candidate).nonEmpty
       }
 
-    def typeApplications(typeName: String): List[ComposedGraph.SecurityApplication] =
+    def typeApplications(typeName: String): List[ComposedGraph.SecurityDirectiveApplication] =
       applications.filter(application => application.fieldName.isEmpty && applicable(typeName, application.typeName))
 
-    def fieldApplications(typeName: String, fieldName: String): List[ComposedGraph.SecurityApplication] =
+    def fieldApplications(typeName: String, fieldName: String): List[ComposedGraph.SecurityDirectiveApplication] =
       applications.filter(application =>
         application.fieldName.contains(fieldName) && applicable(typeName, application.typeName)
       )
@@ -633,9 +634,9 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
       }
     }
 
-  private def securityApplications(
+  private def securityDirectiveApplications(
     metadata: CompositionSubgraph
-  ): Either[List[String], List[ComposedGraph.SecurityApplication]] = {
+  ): Either[List[String], List[ComposedGraph.SecurityDirectiveApplication]] = {
     val subgraph = metadata.subgraph
     val names    = metadata.directives
     val compiled = metadata.directiveApplications.flatMap { application =>
@@ -643,7 +644,7 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
         application.directives.flatMap(directive =>
           compileSecurityDirective(subgraph.name, application.coordinate.display, directive, names).map(
             _.map { value =>
-              ComposedGraph.SecurityApplication(
+              ComposedGraph.SecurityDirectiveApplication(
                 subgraph.name,
                 typeName,
                 fieldName,
@@ -773,28 +774,28 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
     val subgraph = metadata.subgraph
     if (!subgraph.federation) Right(FederationFieldSets(Nil, Nil))
     else {
-      val names        = metadata.directives
-      val fields       = metadata.schema.fields
-      val requirements = fields.flatMap { case (typeName, field) =>
+      val names             = metadata.directives
+      val fields            = metadata.schema.fields
+      val requiredFieldSets = fields.flatMap { case (typeName, field) =>
         val parent = subgraph.rootType.types.get(typeName)
         compileFieldSet(subgraph, typeName, field.name, field.directives, names.requires, parent)
       }
-      val provisions   = fields.flatMap { case (typeName, field) =>
+      val providedFieldSets = fields.flatMap { case (typeName, field) =>
         val parent   = subgraph.rootType.types.get(typeName)
         val provided = parent.flatMap(tpe => Option(tpe.getFieldOrNull(field.name))).map(_._type.innerType)
         compileFieldSet(subgraph, typeName, field.name, field.directives, names.provides, provided)
       }
-      val errors       = (requirements ::: provisions).collect { case Left(error) => error }
+      val errors            = (requiredFieldSets ::: providedFieldSets).collect { case Left(error) => error }
 
       if (errors.nonEmpty) Left(errors)
       else {
-        val compiledRequirements = requirements.collect { case Right(selections) =>
-          (subgraph.name, composedTypeName(subgraph, selections._1), selections._2) -> selections._3
+        val compiledRequiredFieldSets = requiredFieldSets.collect { case Right(selections) =>
+          SourceField(subgraph.name, composedTypeName(subgraph, selections._1), selections._2) -> selections._3
         }
-        val compiledProvisions   = provisions.collect { case Right(selections) =>
-          (subgraph.name, composedTypeName(subgraph, selections._1), selections._2) -> selections._3
+        val compiledProvidedFieldSets = providedFieldSets.collect { case Right(selections) =>
+          SourceField(subgraph.name, composedTypeName(subgraph, selections._1), selections._2) -> selections._3
         }
-        Right(FederationFieldSets(compiledRequirements, compiledProvisions))
+        Right(FederationFieldSets(compiledRequiredFieldSets, compiledProvidedFieldSets))
       }
     }
   }
@@ -826,7 +827,7 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
                 )
               case None            =>
                 Right(
-                  (subgraph.name -> composedTypeName(subgraph, typeName)) -> ComposedGraph.ContextName(name)
+                  SourceType(subgraph.name, composedTypeName(subgraph, typeName)) -> ComposedGraph.ContextName(name)
                 )
             }
           case Some(StringValue(name))                                                       =>
@@ -925,7 +926,7 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
                                        )
                                      }
               } yield (
-                (subgraph.name, composedTypeName(subgraph, typeName), field.name) ->
+                SourceField(subgraph.name, composedTypeName(subgraph, typeName), field.name) ->
                   ComposedGraph.ContextArgument(argument.name, name, selections)
               )
             }
@@ -1647,7 +1648,7 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
     )
   }
 
-  private def fieldProviderRoutes(
+  private def fieldRouteCandidates(
     field: String,
     entries: List[SubgraphType]
   ): List[ComposedGraph.FieldRoute] = {
@@ -1655,19 +1656,19 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
       Function.unlift(entry =>
         entry.overrideFields
           .get(field)
-          .map(directive => ProviderOverride(directive.from, entry.source, directive.progressive))
+          .map(directive => SubgraphOverride(directive.from, entry.source, directive.progressive))
       )
     )
-    providerRoutes(
-      effectiveFieldProviders(field, entries).map(_.source),
+    routeCandidates(
+      effectiveFieldSources(field, entries).map(_.source),
       overrideDirective,
       source => entries.exists(entry => entry.source == source && entry.ownedFields.contains(field))
     )
   }
 
-  private def providerRoutes(
+  private def routeCandidates(
     effectiveSources: List[String],
-    overrideDirective: Option[ProviderOverride],
+    overrideDirective: Option[SubgraphOverride],
     isOverriddenSourceAvailable: String => Boolean
   ): List[ComposedGraph.FieldRoute] = {
     val routes = overrideDirective.flatMap(directive => directive.progressive.map(directive -> _)) match {
@@ -1724,7 +1725,7 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
 
   private def applyInterfaceOverrides(
     routes: List[ComposedGraph.FieldRoute],
-    overrides: List[ProviderOverride]
+    overrides: List[SubgraphOverride]
   ): List[ComposedGraph.FieldRoute] =
     overrides.foldLeft(routes) { (current, overrideDirective) =>
       overrideDirective.progressive match {
@@ -1748,7 +1749,7 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
       .filter(_.tpe.kind == __TypeKind.INTERFACE)
       .flatMap(entry =>
         entry.overrideFields.iterator.map { case (field, directive) =>
-          (entry.name -> field) -> ProviderOverride(directive.from, entry.source, directive.progressive)
+          (entry.name -> field) -> SubgraphOverride(directive.from, entry.source, directive.progressive)
         }
       )
       .toList
@@ -1765,7 +1766,7 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
           s"[type $interfaceName.$field] Direct and inherited @override declarations cannot be combined when any declaration is progressive."
       }
     }
-    val missingProviders    = inherited.toList.flatMap { case ((interfaceName, field), overrides) =>
+    val missingOwners       = inherited.toList.flatMap { case ((interfaceName, field), overrides) =>
       val interfaceEntries = types.filter(_.name == interfaceName)
       overrides.flatMap { overrideDirective =>
         if (overrideDirective.progressive.isEmpty) Nil
@@ -1781,7 +1782,7 @@ private[gateway] final class SchemaComposer private (subgraphs: List[PreparedSub
         }
       }
     }
-    inheritedCollisions.toList ::: directCollisions ::: missingProviders
+    inheritedCollisions.toList ::: directCollisions ::: missingOwners
   }
 
   private def visibilityDiagnostics: List[String] = {
@@ -1914,7 +1915,7 @@ private[gateway] object SchemaComposer {
   }
 
   private object SecurityProfile {
-    def apply(applications: List[ComposedGraph.SecurityApplication]): SecurityProfile = {
+    def apply(applications: List[ComposedGraph.SecurityDirectiveApplication]): SecurityProfile = {
       val scopes = conjunction(applications.flatMap { application =>
         application.directive match {
           case SecurityDirective.RequiresScopes(values) => Some(values)
@@ -1971,13 +1972,13 @@ private[gateway] object SchemaComposer {
   )
 
   private final case class FederationFieldSets(
-    requirements: List[((String, String, String), List[Selection])],
-    provisions: List[((String, String, String), List[Selection])]
+    requiredFieldSets: List[(SourceField, List[Selection])],
+    providedFieldSets: List[(SourceField, List[Selection])]
   )
 
   private final case class FederationContexts(
-    definitions: List[((String, String), Set[ComposedGraph.ContextName])],
-    arguments: List[((String, String, String), List[ComposedGraph.ContextArgument])]
+    declaredContexts: List[(SourceType, Set[ComposedGraph.ContextName])],
+    contextArgumentBindings: List[(SourceField, List[ComposedGraph.ContextArgument])]
   )
 
   private sealed trait CostEntry

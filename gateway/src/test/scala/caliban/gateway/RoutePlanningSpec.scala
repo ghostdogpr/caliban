@@ -155,7 +155,7 @@ object RoutePlanningSpec extends ZIOSpecDefault {
           }
       )
     },
-    test("chooses the cheaper ordinary GraphQL lookup provider") {
+    test("chooses the cheaper ordinary GraphQL lookup source") {
       val productsSchema =
         """
           |type Query { products: [Product!]! }

@@ -92,7 +92,7 @@ object EntityExecutionSpec extends ZIOSpecDefault {
 
   def spec = suite("EntityExecutionSpec")(
     suite("entity execution")(
-      test("routes a progressive entity field override to the selected provider") {
+      test("routes a progressive entity field override to the selected subgraph") {
         val originalSchema    = progressiveProductSchema("product(id: ID!): Product", "id: ID! name: String!")
         val replacementSchema =
           progressiveProductSchema("", """id: ID! name: String! @override(from: "original", label: "percent(100)")""")

@@ -864,7 +864,7 @@ object FieldRoutingSpec extends ZIOSpecDefault {
           plan.linesIterator.count(_.startsWith("fetch prices")) == 1
         )
       },
-      test("keeps a prerequisite separate when its provider declares it non-null but composition widens it") {
+      test("keeps a prerequisite separate when its source subgraph declares it non-null but composition widens it") {
         val priceSchema    =
           s"""
              |${federationSchemaPreamble("@key", "@external", "@shareable")}

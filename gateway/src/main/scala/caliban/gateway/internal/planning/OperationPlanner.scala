@@ -45,7 +45,7 @@ private[gateway] final class OperationPlanner(
     activeOverrides: Set[OverrideLabel]
   ): Either[PlanningFailure, OperationPlan] = {
     if (graph.hasProgressiveOverrides)
-      return new OperationPlanner(graph.routed(activeOverrides), subgraphCount, limits)
+      return new OperationPlanner(graph.resolveOverrides(activeOverrides), subgraphCount, limits)
         .plan(document, execution, Set.empty)
 
     implicit val search: CandidateSearch = new CandidateSearch(limits)
@@ -118,7 +118,7 @@ private[gateway] final class OperationPlanner(
     field: Field,
     operationType: OperationType
   )(implicit search: CandidateSearch): Either[PlanningFailure, List[List[RootCandidate]]] = {
-    val subgraphs = graph.sources(operationType, field.name)
+    val subgraphs = graph.rootFieldSources(operationType, field.name)
     for {
       _       <-
         Either.cond(subgraphs.nonEmpty, (), PlanningFailure.Rejected(s"No subgraph owns root field '${field.name}'."))
@@ -335,7 +335,8 @@ private[gateway] final class OperationPlanner(
 
   private def declaredNonNull(source: String, entityType: String, field: Field): Boolean =
     field.targets.getOrElse(Set(entityType)).exists { owner =>
-      (owner :: graph.runtimeTypes(source, owner)).flatMap(graph.field(source, _, field.name)) match {
+      (owner :: graph.possibleTypes(source, owner))
+        .flatMap(graph.sourceField(source, _, field.name)) match {
         case Nil          => true
         case declarations => declarations.exists(_._type.kind == __TypeKind.NON_NULL)
       }
@@ -367,7 +368,7 @@ private[gateway] final class OperationPlanner(
     fetches match {
       case fetch :: Nil
           if subgraphCount == 1 && entities.isEmpty && typenameSelections.isEmpty && localFields.isEmpty &&
-            !graph.mapping(fetch.source).nonEmpty =>
+            !graph.schemaMapping(fetch.source).nonEmpty =>
         Some(fetch.source)
       case _ => None
     }
@@ -393,7 +394,7 @@ private[gateway] final class OperationPlanner(
       }
     val canFetchContextRoots                   =
       contextRoots.forall(field =>
-        field.name == "__typename" || graph.sources(operationType, field.name).contains(currentSubgraph)
+        field.name == "__typename" || graph.rootFieldSources(operationType, field.name).contains(currentSubgraph)
       )
     if (!canFetchContextRoots) Right(Nil)
     else
@@ -465,7 +466,7 @@ private[gateway] final class OperationPlanner(
       val typeName = parent.name.getOrElse("")
       fields.flatMap { child =>
         val childParent = child.parentType.flatMap(_.name).getOrElse(typeName)
-        val owners      = candidates.filter(graph.owns(_, childParent, child.name))
+        val owners      = candidates.filter(graph.ownsField(_, childParent, child.name))
         val next        = if (owners.nonEmpty) owners else candidates
         val supplied    = provided.find(providedFieldCovers(_, child))
         val children    = filter(child.fieldType.innerType, child.fields, next, supplied.toList.flatMap(_.fields))
@@ -481,7 +482,7 @@ private[gateway] final class OperationPlanner(
     }
 
     val rootType = field.parentType.flatMap(_.name).getOrElse("")
-    val provided = fieldSetFields(graph.provided(currentSubgraph, rootType, field.name), field.fieldType)
+    val provided = fieldSetFields(graph.providedFieldSet(currentSubgraph, rootType, field.name), field.fieldType)
     field.copy(fields = filter(field.fieldType.innerType, field.fields, rootSubgraphs, provided))
   }
 
@@ -574,20 +575,20 @@ private[gateway] final class OperationPlanner(
     val typeName                           = parentType.name.getOrElse("")
     val fieldParentType                    = selectedField.parentType.flatMap(_.name)
     val subgraphTypeName                   = fieldParentType
-      .flatMap(graph.field(currentSubgraph, _, selectedField.name))
+      .flatMap(graph.sourceField(currentSubgraph, _, selectedField.name))
       .flatMap(_._type.innerType.name)
       .getOrElse(typeName)
     val possibleTypes                      = fieldParentType
-      .map(graph.runtimeTypesForField(runtimeSources, currentSubgraph, _, selectedField.name, subgraphTypeName))
-      .getOrElse(graph.runtimeTypes(currentSubgraph, subgraphTypeName).toSet)
+      .map(graph.possibleReturnTypes(runtimeSources, currentSubgraph, _, selectedField.name, subgraphTypeName))
+      .getOrElse(graph.possibleTypes(currentSubgraph, subgraphTypeName).toSet)
     val providedFields                     = mergeFields(
       provided ::: fieldSetFields(
-        graph.provided(currentSubgraph, fieldParentType.getOrElse(""), selectedField.name),
+        graph.providedFieldSet(currentSubgraph, fieldParentType.getOrElse(""), selectedField.name),
         selectedField.fieldType
       )
     )
     val selections                         = selectedFields(selectedField, parentType, typeName)
-      .filter(graph.appliesOnSource(currentSubgraph, subgraphTypeName, _))
+      .filter(graph.fieldApplies(currentSubgraph, subgraphTypeName, _))
       .filter(child =>
         graph.isInterfaceObject(currentSubgraph, subgraphTypeName) ||
           child._condition.forall(condition => possibleTypes.isEmpty || condition.exists(possibleTypes))
@@ -607,7 +608,7 @@ private[gateway] final class OperationPlanner(
       else None
     val routed                             = selections ::: typenameField.toList.map(_._2)
 
-    val routedSelections = findFieldProviders(
+    val routedSelections = findFieldCandidates(
       routed,
       currentSubgraph,
       parentType,
@@ -618,12 +619,12 @@ private[gateway] final class OperationPlanner(
     )
 
     for {
-      _           <- routedSelections.find(_.providers.isEmpty) match {
+      _           <- routedSelections.find(_.candidates.isEmpty) match {
                        case Some(value) =>
                          Left(PlanningFailure.Rejected(s"No subgraph owns field '$typeName.${value.field.name}'."))
                        case None        => Right(())
                      }
-      assignments <- providerAssignments(routedSelections)
+      assignments <- candidateAssignments(routedSelections)
       context      = EntityFetchContext(
                        selectedField,
                        currentSubgraph,
@@ -640,14 +641,14 @@ private[gateway] final class OperationPlanner(
                        val sameSubgraphFields = mutable.ListBuffer.empty[(Field, List[Field])]
                        val entityFetchFields  =
                          mutable.LinkedHashMap.empty[(String, List[Selection]), mutable.ListBuffer[Field]]
-                       assignment.foreach { case (selection, provider) =>
-                         val remote = provider match {
-                           case FieldProvider.Remote(subgraph, requirements) => Some(subgraph -> requirements)
-                           case FieldProvider.Local(requirements)
+                       assignment.foreach { case (selection, candidate) =>
+                         val remote = candidate match {
+                           case SourceCandidate.Remote(subgraph, requirements) => Some(subgraph -> requirements)
+                           case SourceCandidate.Local(requirements)
                                if graph.hasContextArguments &&
                                  usesContext(currentSubgraph, selection.field, availableContexts, satisfiedRequirements) =>
                              Some(currentSubgraph -> requirements)
-                           case _: FieldProvider.Local                       => None
+                           case _: SourceCandidate.Local                       => None
                          }
                          remote match {
                            case Some(target) =>
@@ -682,7 +683,7 @@ private[gateway] final class OperationPlanner(
     } yield planned.flatten
   }
 
-  private def findFieldProviders(
+  private def findFieldCandidates(
     fields: List[Field],
     currentSubgraph: String,
     parentType: __Type,
@@ -692,46 +693,47 @@ private[gateway] final class OperationPlanner(
     satisfiedRequirements: Set[(String, String)]
   ): List[RoutedSelection] =
     fields.flatMap { child =>
-      val childParent                                   = child.parentType.flatMap(_.name).getOrElse(typeName)
-      val supplied                                      = providedFields.find(candidate => providedFieldCovers(candidate, child))
-      def providers(owner: String): List[FieldProvider] = {
-        def fieldProvider(subgraph: String, declaredType: String): FieldProvider = {
-          val requirements = graph.required(subgraph, declaredType, child.name)
+      val childParent                                             = child.parentType.flatMap(_.name).getOrElse(typeName)
+      val supplied                                                = providedFields.find(candidate => providedFieldCovers(candidate, child))
+      def candidatesForType(owner: String): List[SourceCandidate] = {
+        def sourceCandidate(subgraph: String, declaredType: String): SourceCandidate = {
+          val requirements = graph.requiredFieldSet(subgraph, declaredType, child.name)
           if (
             subgraph == currentSubgraph &&
             (requirements.isEmpty || satisfiedRequirements.contains(declaredType -> child.name))
-          ) FieldProvider.Local(requirements)
-          else FieldProvider.Remote(subgraph, requirements)
+          ) SourceCandidate.Local(requirements)
+          else SourceCandidate.Remote(subgraph, requirements)
         }
-        val candidates                                                           =
+        val candidates                                                               =
           if (child.name == "__typename" && graph.isInterfaceObject(currentSubgraph, typeName))
-            graph.runtimeTypeSource(typeName, currentSubgraph).toList.map(fieldProvider(_, typeName))
-          else if (child.name == "__typename") List(fieldProvider(currentSubgraph, typeName))
+            graph.typenameSource(typeName, currentSubgraph).toList.map(sourceCandidate(_, typeName))
+          else if (child.name == "__typename") List(sourceCandidate(currentSubgraph, typeName))
           else
             supplied
-              .map(_ => List(fieldProvider(currentSubgraph, owner)))
+              .map(_ => List(sourceCandidate(currentSubgraph, owner)))
               .getOrElse {
                 List(
-                  graph.fieldSources(owner, child.name, currentSubgraph).map(fieldProvider(_, owner)),
+                  graph.fieldSources(owner, child.name, currentSubgraph).map(sourceCandidate(_, owner)),
                   if (owner == childParent) Nil
-                  else graph.fieldSources(childParent, child.name, currentSubgraph).map(fieldProvider(_, childParent)),
+                  else
+                    graph.fieldSources(childParent, child.name, currentSubgraph).map(sourceCandidate(_, childParent)),
                   if (childParent == typeName) Nil
-                  else graph.fieldSources(typeName, child.name, currentSubgraph).map(fieldProvider(_, typeName)),
+                  else graph.fieldSources(typeName, child.name, currentSubgraph).map(sourceCandidate(_, typeName)),
                   if (graph.isInterfaceObject(currentSubgraph, typeName)) Nil
                   else
                     graph.interfaceObjectFieldSources(owner, child.name, currentSubgraph).map {
-                      case (source, interfaceName) => fieldProvider(source, interfaceName)
+                      case (source, interfaceName) => sourceCandidate(source, interfaceName)
                     }
                 ).find(_.nonEmpty).getOrElse(Nil)
               }
-        candidates.collectFirst { case local: FieldProvider.Local => local }.fold(candidates)(List(_))
+        candidates.collectFirst { case local: SourceCandidate.Local => local }.fold(candidates)(List(_))
       }
 
-      val directProviders      = providers(childParent)
-      val conditionalProviders =
+      val directCandidates      = candidatesForType(childParent)
+      val conditionalCandidates =
         if (
           child.name != "__typename" && !graph.isInterfaceObject(currentSubgraph, typeName) &&
-          (childParent == typeName || directProviders.isEmpty) &&
+          (childParent == typeName || directCandidates.isEmpty) &&
           (parentType.kind match {
             case __TypeKind.INTERFACE | __TypeKind.UNION => true
             case _                                       => false
@@ -742,16 +744,16 @@ private[gateway] final class OperationPlanner(
               if (possibleTypes.isEmpty) condition else condition intersect possibleTypes
             )
             .flatMap { condition =>
-              val values = providers(condition)
+              val values = candidatesForType(condition)
               if (values.nonEmpty) Some(condition -> values) else None
             }
             .toList
             .sortBy(_._1)
         else Nil
 
-      if (conditionalProviders.isEmpty) RoutedSelection(child, supplied, directProviders) :: Nil
+      if (conditionalCandidates.isEmpty) RoutedSelection(child, supplied, directCandidates) :: Nil
       else
-        conditionalProviders.map { case (condition, values) =>
+        conditionalCandidates.map { case (condition, values) =>
           RoutedSelection(
             child.copy(_condition = Some(Set(condition)), targets = Some(Set(condition))),
             supplied,
@@ -760,11 +762,11 @@ private[gateway] final class OperationPlanner(
         }
     }
 
-  private def providerAssignments(
+  private def candidateAssignments(
     selections: List[RoutedSelection]
-  )(implicit search: CandidateSearch): Either[PlanningFailure, List[List[(RoutedSelection, FieldProvider)]]] =
-    search.fold(selections, List(List.empty[(RoutedSelection, FieldProvider)])) { (current, selection) =>
-      search.combine(current, selection.providers)((values, provider) => values :+ (selection -> provider))
+  )(implicit search: CandidateSearch): Either[PlanningFailure, List[List[(RoutedSelection, SourceCandidate)]]] =
+    search.fold(selections, List(List.empty[(RoutedSelection, SourceCandidate)])) { (current, selection) =>
+      search.combine(current, selection.candidates)((values, candidate) => values :+ (selection -> candidate))
     }
 
   private def planSameSubgraphFields(
@@ -787,7 +789,7 @@ private[gateway] final class OperationPlanner(
               path :+ child.aliasedName,
               staticPath && isObjectField(child, currentSubgraph),
               visitedFetches,
-              graph.runtimeSources(
+              graph.candidateSources(
                 runtimeSources,
                 child.parentType.flatMap(_.name).getOrElse(""),
                 child.name
@@ -875,7 +877,7 @@ private[gateway] final class OperationPlanner(
     def takes(entityType: String, field: Field): Boolean =
       field._condition.forall(_.exists(graph.acceptsRuntimeType(entityType, _))) && (
         field.name == "__typename" ||
-          graph.owns(candidate.targetSubgraph, entityType, field.name) ||
+          graph.ownsField(candidate.targetSubgraph, entityType, field.name) ||
           (!graph.isInterfaceObject(candidate.targetSubgraph, entityType) &&
             graph.interfaceObjectFieldSources(entityType, field.name, candidate.targetSubgraph).isEmpty)
       )
@@ -886,7 +888,7 @@ private[gateway] final class OperationPlanner(
         val selected = candidate.copy(
           fields = fields,
           requirements =
-            fields.flatMap(child => graph.required(candidate.targetSubgraph, entityType, child.name)).distinct
+            fields.flatMap(child => graph.requiredFieldSet(candidate.targetSubgraph, entityType, child.name)).distinct
         )
         planLookupCandidates(context, current, selected, concrete.filter(_.entityType == entityType))
       }
@@ -949,12 +951,13 @@ private[gateway] final class OperationPlanner(
   ): EntityLookupCandidates = {
     val subgraphType  = context.field.parentType
       .flatMap(_.name)
-      .flatMap(graph.field(context.currentSubgraph, _, context.field.name))
+      .flatMap(graph.sourceField(context.currentSubgraph, _, context.field.name))
       .flatMap(_._type.innerType.name)
       .getOrElse(context.typeName)
-    val subgraphTypes = graph.runtimeTypes(context.currentSubgraph, subgraphType)
+    val subgraphTypes = graph.possibleTypes(context.currentSubgraph, subgraphType)
     val knownTypes    =
-      if (subgraphTypes.nonEmpty) subgraphTypes else graph.runtimeTypes(candidate.targetSubgraph, context.typeName)
+      if (subgraphTypes.nonEmpty) subgraphTypes
+      else graph.possibleTypes(candidate.targetSubgraph, context.typeName)
     val conditions    = candidate.fields.iterator
       .flatMap(_._condition)
       .flatMap(_.iterator)
@@ -1142,7 +1145,7 @@ private[gateway] final class OperationPlanner(
   ): List[LookupSelection.SelectedKeys] = {
     val fields = field.collectFields(typeName)
     graph
-      .lookups(targetSubgraph, typeName)
+      .entityLookups(targetSubgraph, typeName)
       .flatMap(lookup =>
         traverseOption(lookup.key)(selectedKeySelection(fields, parentType, _))
           .map(selected => LookupSelection.SelectedKeys(lookup, selected))
@@ -1179,7 +1182,7 @@ private[gateway] final class OperationPlanner(
   private def contextBindings(source: String, fields: List[Field]): List[ContextBinding] =
     fields.flatMap { field =>
       val parent = field.parentType.flatMap(_.name).getOrElse("")
-      graph.fromContext(source, parent, field.name).map(ContextBinding(parent, field.name, _)) :::
+      graph.contextArguments(source, parent, field.name).map(ContextBinding(parent, field.name, _)) :::
         contextBindings(source, field.fields)
     }
 
@@ -1288,7 +1291,7 @@ private[gateway] final class OperationPlanner(
     val parent = field.parentType.flatMap(_.name).getOrElse("")
     !satisfied.contains(parent -> field.name) &&
     graph
-      .fromContext(source, parent, field.name)
+      .contextArguments(source, parent, field.name)
       .exists(argument => active.exists(_.matches(source, ContextBinding(parent, field.name, argument))))
   }
 
@@ -1479,7 +1482,7 @@ private[gateway] final class OperationPlanner(
   private def isObjectField(field: Field, currentSubgraph: String): Boolean =
     composedFieldType(field).exists { composed =>
       composed.kind == __TypeKind.OBJECT &&
-      field.parentType.flatMap(_.name).flatMap(graph.field(currentSubgraph, _, field.name)).exists { declared =>
+      field.parentType.flatMap(_.name).flatMap(graph.sourceField(currentSubgraph, _, field.name)).exists { declared =>
         val fieldType = declared._type.innerType
         fieldType.kind == __TypeKind.OBJECT && fieldType.name == composed.name
       }
@@ -1524,7 +1527,7 @@ private[gateway] final class OperationPlanner(
     availableExternal: List[ComposedGraph.KeyField]
   ): List[(ComposedGraph.EntityLookup, List[RequiredKeyField])] =
     graph
-      .lookups(targetSubgraph, typeName)
+      .entityLookups(targetSubgraph, typeName)
       .flatMap(lookup =>
         requiredKeyFields(parentType, currentSubgraph, lookup.key, availableExternal).toOption.map(lookup -> _)
       )
@@ -1566,12 +1569,12 @@ private[gateway] final class OperationPlanner(
       typeName <- parentType.name.toRight(PlanningFailure.Rejected("Entity key parent type has no name."))
       field    <-
         graph
-          .field(currentSubgraph, typeName, key.name)
+          .sourceField(currentSubgraph, typeName, key.name)
           .toRight(
             PlanningFailure.Rejected(s"Subgraph '$currentSubgraph' does not provide key field '$typeName.${key.name}'.")
           )
       carried   = availableExternal.find(_.name == key.name)
-      owned     = graph.owns(currentSubgraph, typeName, key.name)
+      owned     = graph.ownsField(currentSubgraph, typeName, key.name)
       _        <-
         Either.cond(
           owned || carried.nonEmpty,
@@ -1585,13 +1588,16 @@ private[gateway] final class OperationPlanner(
   private def availableKeys(currentSubgraph: String, tpe: __Type): List[ComposedGraph.KeyField] =
     tpe.name.toList
       .flatMap(typeName =>
-        graph.lookups(currentSubgraph, typeName).flatMap(_.key).filter(declaredKey(currentSubgraph, tpe, _))
+        graph
+          .entityLookups(currentSubgraph, typeName)
+          .flatMap(_.key)
+          .filter(declaredKey(currentSubgraph, tpe, _))
       )
       .distinct
 
   private def declaredKey(currentSubgraph: String, parentType: __Type, key: ComposedGraph.KeyField): Boolean =
     parentType.name.exists { typeName =>
-      graph.field(currentSubgraph, typeName, key.name).exists { field =>
+      graph.sourceField(currentSubgraph, typeName, key.name).exists { field =>
         key.children.forall(declaredKey(currentSubgraph, field._type.innerType, _))
       }
     }
@@ -1618,9 +1624,9 @@ private[gateway] final class OperationPlanner(
     targetSubgraph: String
   ): List[String] =
     graph
-      .lookups(targetSubgraph, typeName)
+      .entityLookups(targetSubgraph, typeName)
       .iterator
-      .flatMap(lookup => graph.sourcesForKey(typeName, lookup.key).iterator)
+      .flatMap(lookup => graph.sourcesDefiningKey(typeName, lookup.key).iterator)
       .filter(candidate => candidate != currentSubgraph && candidate != targetSubgraph)
       .toList
       .distinct
@@ -1753,17 +1759,17 @@ private[gateway] object OperationPlanner {
   private val KeyAliasBase      = "_caliban_gateway_key"
   private val TypenameAliasBase = "_caliban_gateway_typename"
 
-  private sealed trait FieldProvider
+  private sealed trait SourceCandidate
 
-  private object FieldProvider {
-    final case class Local(requirements: List[Selection])                    extends FieldProvider
-    final case class Remote(subgraph: String, requirements: List[Selection]) extends FieldProvider
+  private object SourceCandidate {
+    final case class Local(requirements: List[Selection])                    extends SourceCandidate
+    final case class Remote(subgraph: String, requirements: List[Selection]) extends SourceCandidate
   }
 
   private final case class RoutedSelection(
     field: Field,
     supplied: Option[Field],
-    providers: List[FieldProvider]
+    candidates: List[SourceCandidate]
   )
 
   private final case class EntityFetchKey(

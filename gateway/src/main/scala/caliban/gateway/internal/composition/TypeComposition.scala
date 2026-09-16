@@ -63,7 +63,7 @@ private[composition] final class TypeComposition(
       val operation        = entries.headOption.flatMap(_.operation)
       val coordinate       = operation.fold(s"$name.$fieldName")(value => s"${value.toString.toLowerCase}.$fieldName")
       val contextErrors    = contextualArgumentDiagnostics(coordinate, perEntry)
-      val ownedEntries     = effectiveFieldProviders(fieldName, values.map(_._1))
+      val ownedEntries     = effectiveFieldSources(fieldName, values.map(_._1))
       val owned            = values.filter(value => ownedEntries.exists(_.source == value._1.source))
       val shareable        = owned.nonEmpty && owned.forall { case (entry, _) =>
         entry.subgraphMode != SubgraphMode.Federation2 || entry.shareableFields.contains(fieldName)
@@ -230,13 +230,15 @@ private[composition] final class TypeComposition(
     val base          = entries.head.tpe
     val hidden        = hiddenDirectives(entries)
     val fields        = fieldsByName(entries).toList.sortBy(_._1).flatMap { case (fieldName, values) =>
-      val visible    =
+      val visible          =
         if (values.exists { case (entry, _) => entry.inaccessibleFields.contains(fieldName) }) Nil else values
-      val providers  = effectiveFieldProviders(fieldName, visible.map(_._1))
-      val routable   = routableFieldProviders(fieldName, visible.map(_._1))
-      val ordered    = visible.sortBy { case (entry, _) => (!providers.exists(_.source == entry.source), entry.source) }
-      val hiddenArgs = hiddenArguments(fieldName, values)
-      (if (providers.nonEmpty) ordered.headOption else None).map { case (_, field) =>
+      val effectiveSources = effectiveFieldSources(fieldName, visible.map(_._1))
+      val routable         = routableFieldSources(fieldName, visible.map(_._1))
+      val ordered          = visible.sortBy { case (entry, _) =>
+        (!effectiveSources.exists(_.source == entry.source), entry.source)
+      }
+      val hiddenArgs       = hiddenArguments(fieldName, values)
+      (if (effectiveSources.nonEmpty) ordered.headOption else None).map { case (_, field) =>
         val mergedType = ordered.filter { case (entry, _) => routable.exists(_.source == entry.source) }
           .map(_._2._type)
           .reduceOption(mergeOutputType)
@@ -397,13 +399,13 @@ private[composition] object TypeComposition {
     }
   }
 
-  private[composition] def effectiveFieldProviders(field: String, entries: List[SubgraphType]): List[SubgraphType] =
-    fieldProviders(field, entries)(_ => true)
+  private[composition] def effectiveFieldSources(field: String, entries: List[SubgraphType]): List[SubgraphType] =
+    fieldSources(field, entries)(_ => true)
 
-  private[composition] def routableFieldProviders(field: String, entries: List[SubgraphType]): List[SubgraphType] =
-    fieldProviders(field, entries)(_.progressive.isEmpty)
+  private[composition] def routableFieldSources(field: String, entries: List[SubgraphType]): List[SubgraphType] =
+    fieldSources(field, entries)(_.progressive.isEmpty)
 
-  private def fieldProviders(field: String, entries: List[SubgraphType])(
+  private def fieldSources(field: String, entries: List[SubgraphType])(
     countsOverride: FieldOverride => Boolean
   ): List[SubgraphType] = {
     val owned      = entries.filter(_.ownedFields.contains(field))
@@ -411,7 +413,7 @@ private[composition] object TypeComposition {
     owned.filterNot(entry => overridden.contains(entry.source))
   }
 
-  final case class ProviderOverride(
+  final case class SubgraphOverride(
     from: String,
     by: String,
     progressive: Option[ComposedGraph.ProgressiveOverride]
@@ -419,13 +421,13 @@ private[composition] object TypeComposition {
 
   private[composition] def interfaceOverrideTargets(
     entries: List[SubgraphType]
-  ): Map[(String, String), List[ProviderOverride]] =
+  ): Map[(String, String), List[SubgraphOverride]] =
     entries.iterator
       .filter(_.tpe.kind == __TypeKind.OBJECT)
       .flatMap { entry =>
         entry.tpe.interfaces().getOrElse(Nil).iterator.flatMap(_.name).flatMap { interfaceName =>
           entry.overrideFields.iterator.map { case (field, overrideDirective) =>
-            (interfaceName -> field) -> ProviderOverride(
+            (interfaceName -> field) -> SubgraphOverride(
               overrideDirective.from,
               entry.source,
               overrideDirective.progressive

@@ -196,7 +196,7 @@ object ExecutionModelSpec extends ZIOSpecDefault {
                       SchemaComposer.compose(List(PreparedSubgraph("details", rootType, document, false, Nil, mapping)))
                     )
         node      = rootType.types("Node")
-        fields    = graph.executableEntityFields(
+        fields    = graph.prepareEntityFields(
                       "details",
                       "Node",
                       List(
@@ -280,7 +280,7 @@ object ExecutionModelSpec extends ZIOSpecDefault {
                       plan.cache
                     )
       } yield assertTrue(
-        graph.mapping("products") eq mapping,
+        graph.schemaMapping("products") eq mapping,
         results.size == 1,
         results.head.patches.isEmpty,
         results.head.errors == List(RemoteError.at(path)),

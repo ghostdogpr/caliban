@@ -459,7 +459,7 @@ private[gateway] object SupergraphDecomposition {
         }
       }
       val unroutable =
-        if (subscriptionRoot && providerCount(fieldGraphs(field, members, ctx.names), ctx) > 1)
+        if (subscriptionRoot && resolvingSubgraphCount(fieldGraphs(field, members, ctx.names), ctx) > 1)
           List(
             s"[supergraph] Subscription field '$coordinate' is resolved by more than one graph, " +
               "which the gateway cannot route."
@@ -636,7 +636,7 @@ private[gateway] object SupergraphDecomposition {
     fields.flatMap { field =>
       val owners = fieldGraphs(field, members, ctx.names)
       owners.get(key).map { entry =>
-        projectField(field, entry, key, ctx, shareable = resolves(entry) && providerCount(owners, ctx) > 1)
+        projectField(field, entry, key, ctx, shareable = resolves(entry) && resolvingSubgraphCount(owners, ctx) > 1)
       }
     }
 
@@ -648,7 +648,7 @@ private[gateway] object SupergraphDecomposition {
    * Graphs that actually resolve the field: declared owners, minus the ones that only declare it,
    * minus any graph another graph has overridden away.
    */
-  private def providerCount(owners: Map[String, Option[JoinField]], ctx: Context): Int = {
+  private def resolvingSubgraphCount(owners: Map[String, Option[JoinField]], ctx: Context): Int = {
     val overridden = owners.values.flatten.flatMap(_.overrideFrom).flatMap(ctx.keyByName.get).toSet
     owners.count { case (graph, entry) => resolves(entry) && !overridden.contains(graph) }
   }

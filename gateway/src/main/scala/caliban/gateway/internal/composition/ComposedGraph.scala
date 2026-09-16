@@ -1,14 +1,12 @@
 package caliban.gateway.internal.composition
 
 import caliban.InputValue
-import caliban.execution.{ isMetaField, ExecutionRequest, Field }
+import caliban.execution.{ ExecutionRequest, Field }
 import caliban.gateway.OperationPolicy.{ SecurityDirective, SecurityRequirement }
-import caliban.gateway.internal.composition.ComposedGraph.{ LookupOperation, LookupResult }
+import caliban.gateway.internal.composition.ComposedGraph._
 import caliban.gateway.internal.planning.OperationPlan
 import caliban.introspection.adt._
 import caliban.parsing.adt.{ Directive, OperationType, Selection }
-import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
-import caliban.parsing.adt.Definition.TypeSystemExtension.TypeExtension._
 import caliban.rendering.DocumentRenderer
 import caliban.schema.RootType
 
@@ -19,164 +17,154 @@ import scala.collection.compat._
 /**
  * Immutable schema and ownership metadata produced by composition.
  */
-private[gateway] final class ComposedGraph private[internal] (
+private[gateway] final case class ComposedGraph private[internal] (
   val rootType: RootType,
-  private val runtimeTypesByName: Map[String, Set[String]],
-  private[gateway] val routes: Map[(OperationType, String), ComposedGraph.RootRoute],
-  private[gateway] val fieldRoutes: Map[(String, String), List[ComposedGraph.FieldRoute]],
-  private val sourceFields: Map[(String, String, String), __Field],
-  private val entityLookups: Map[(String, String), List[ComposedGraph.EntityLookup]],
-  private val requirements: Map[(String, String, String), List[Selection]],
-  private val provisions: Map[(String, String, String), List[Selection]],
-  private val contexts: Map[(String, String), Set[ComposedGraph.ContextName]],
-  private val contextArguments: Map[(String, String, String), List[ComposedGraph.ContextArgument]],
-  private val interfaceObjects: Set[(String, String)],
-  private val sourceRuntimeTypes: Map[(String, String), Set[String]],
-  private[internal] val mappings: Map[String, SchemaMapping],
-  private val costs: ComposedGraph.CostMetadata,
-  private val securityApplications: List[ComposedGraph.SecurityApplication],
-  private[gateway] val schemaDirectives: List[Directive]
+  private val possibleTypesByName: Map[String, Set[String]],
+  val rootRoutes: Map[RootField, RootRoute],
+  val fieldRoutes: Map[TypeField, List[FieldRoute]],
+  private val sourceFields: Map[SourceField, __Field],
+  private val entityLookupsByType: Map[SourceType, List[EntityLookup]],
+  private val requiredFieldSets: Map[SourceField, List[Selection]],
+  private val providedFieldSets: Map[SourceField, List[Selection]],
+  private val declaredContexts: Map[SourceType, Set[ContextName]],
+  private val contextBindings: Map[SourceField, List[ContextArgument]],
+  private val interfaceObjects: Set[SourceType],
+  private val sourcePossibleTypes: Map[SourceType, Set[String]],
+  private val schemaMappings: Map[String, SchemaMapping],
+  private val costMetadata: CostMetadata,
+  private val securityApplications: List[SecurityDirectiveApplication],
+  val schemaDirectives: List[Directive]
 ) {
-  private val hasUnsupportedPolicies   = securityApplications.exists(_.directive == SecurityDirective.UnsupportedPolicy)
-  private val requirementsByCoordinate =
-    if (!hasUnsupportedPolicies) Map.empty[(String, String), List[(String, String, List[Selection])]]
-    else
-      ComposedGraph
-        .securityDependencies(requirements, contexts, contextArguments)
-        .groupMap(dependency => dependency.sourceType -> dependency.fieldName)(dependency =>
-          (dependency.source, dependency.dependencyType, dependency.selections)
-        )
-  private val securityByCoordinate     =
-    securityApplications
-      .groupBy(application => application.typeName -> application.fieldName)
-      .map { case (coordinate, values) => coordinate -> values.map(_.directive).distinct }
-  private val securedFieldTypes        = securityApplications
-    .flatMap(application => application.fieldName.map(_ -> application.typeName))
-    .groupMap(_._1)(_._2)
-    .map { case (fieldName, values) => fieldName -> values.distinct.sorted }
-  private val securedTypes             = securityApplications.collect {
-    case application if application.fieldName.isEmpty =>
-      application.typeName
-  }.distinct.sorted
-  private val sourceFieldSources       = sourceFields.keysIterator.map { case (source, owner, name) =>
-    (owner -> name) -> source
-  }.toList
-    .groupMap(_._1)(_._2)
-    .map { case (coordinate, values) => coordinate -> values.sorted }
-  private val lookupSourcesByType      = entityLookups.keysIterator.collect {
-    case (source, typeName) if !interfaceObjects.contains(source -> typeName) => typeName -> source
-  }.toList
-    .groupMap(_._1)(_._2)
-    .map { case (typeName, values) => typeName -> values.sorted }
-  private val lookupTypes              = entityLookups.keysIterator.map(_._2).toSet
-  private val interfaceObjectsByType   = rootType.types.iterator.flatMap { case (typeName, tpe) =>
-    val interfaces = if (tpe.kind == __TypeKind.OBJECT) tpe.interfaces().getOrElse(Nil).flatMap(_.name) else Nil
-    val inherited  = interfaceObjects.filter { case (_, interfaceName) => interfaces.contains(interfaceName) }
-    if (inherited.isEmpty) Iterator.empty else Iterator.single(typeName -> inherited.toList.sorted)
-  }.toMap
-  private val inheritedFieldSources    = {
-    val fieldsByType = fieldRoutes.keysIterator.toList.groupMap(_._1)(_._2)
-    interfaceObjectsByType.iterator.flatMap { case (typeName, inherited) =>
-      inherited.iterator.flatMap { case (source, interfaceName) =>
-        fieldsByType.getOrElse(interfaceName, Nil).iterator.collect {
-          case field if !fieldRoutes.contains(typeName -> field) && owns(source, interfaceName, field) =>
-            (typeName -> field) -> (source -> interfaceName)
-        }
-      }
-    }.toList.groupMap(_._1)(_._2)
-  }
-  private val operationCost            = new OperationCost(rootType.types, runtimeTypesByName, costs)
-
-  private val (progressiveOverridesByLabel, progressiveOverridesByFieldName) = {
-    val conditions = routes.iterator.flatMap { case ((_, field), route) =>
-      route.providers.iterator.flatMap(_.condition.map(field -> _))
-    } ++ fieldRoutes.iterator.flatMap { case ((_, field), routes) =>
-      routes.iterator.flatMap(_.condition.map(field -> _))
-    }
-    conditions.foldLeft(
-      Map.empty[ComposedGraph.OverrideLabel, Option[BigDecimal]] ->
-        Map.empty[String, Set[ComposedGraph.OverrideLabel]]
-    ) { case ((byLabel, byFieldName), (field, condition)) =>
-      val labels = byFieldName.updated(field, byFieldName.getOrElse(field, Set.empty) + condition.label)
-      if (byLabel.contains(condition.label)) byLabel              -> labels
-      else byLabel.updated(condition.label, condition.percentage) -> labels
-    }
-  }
-  private val routedVariants                                                 = new AtomicReference[List[(Set[ComposedGraph.OverrideLabel], ComposedGraph)]](Nil)
-
-  def progressiveOverrides(fieldNames: Set[String]): Map[ComposedGraph.OverrideLabel, Option[BigDecimal]] =
-    fieldNames.iterator
-      .flatMap(progressiveOverridesByFieldName.get)
-      .flatten
-      .flatMap(label => progressiveOverridesByLabel.get(label).map(label -> _))
-      .toMap
-
-  def hasProgressiveOverrides: Boolean = progressiveOverridesByLabel.nonEmpty
-
-  private[gateway] def routed(activeOverrides: Set[ComposedGraph.OverrideLabel]): ComposedGraph =
-    routedVariants.get().find(_._1 == activeOverrides) match {
+  def resolveOverrides(activeOverrides: Set[OverrideLabel]): ComposedGraph =
+    cachedOverrideGraphs.get().find(_._1 == activeOverrides) match {
       case Some((_, graph)) => graph
       case None             =>
-        val created                           = routedGraph(activeOverrides)
-        @tailrec def publish(): ComposedGraph = {
-          val current = routedVariants.get()
+        val created                              = graphForOverrides(activeOverrides)
+        @tailrec def cacheOrGet(): ComposedGraph = {
+          val current = cachedOverrideGraphs.get()
           current.find(_._1 == activeOverrides) match {
             case Some((_, graph)) => graph
             case None             =>
-              val updated = (activeOverrides -> created) :: current.take(ComposedGraph.MaxRoutedVariants - 1)
-              if (routedVariants.compareAndSet(current, updated)) created else publish()
+              val updated = (activeOverrides -> created) :: current.take(MaxCachedOverrideGraphs - 1)
+              if (cachedOverrideGraphs.compareAndSet(current, updated)) created else cacheOrGet()
           }
         }
-        publish()
+        cacheOrGet()
     }
 
-  private def routedGraph(activeOverrides: Set[ComposedGraph.OverrideLabel]): ComposedGraph =
-    new ComposedGraph(
-      rootType,
-      runtimeTypesByName,
-      routes.map { case (coordinate, route) =>
-        coordinate -> route.copy(
-          providers = route.providers.filter(_.enabled(activeOverrides)).map(_.copy(condition = None))
-        )
-      },
-      fieldRoutes.map { case (coordinate, routes) =>
-        coordinate -> routes.filter(_.enabled(activeOverrides)).map(_.copy(condition = None))
-      },
-      sourceFields,
-      entityLookups,
-      requirements,
-      provisions,
-      contexts,
-      contextArguments,
-      interfaceObjects,
-      sourceRuntimeTypes,
-      mappings,
-      costs,
-      securityApplications,
-      schemaDirectives
-    )
+  def hasProgressiveOverrides: Boolean = overridePercentages.nonEmpty
 
-  def estimatedOperationCost(request: ExecutionRequest, plan: OperationPlan): Either[String, Long] =
-    operationCost.estimate(request, plan)
+  def progressiveOverrides(fieldNames: Set[String]): Map[OverrideLabel, Option[BigDecimal]] =
+    fieldNames.iterator
+      .flatMap(overrideLabelsByField.get)
+      .flatten
+      .flatMap(label => overridePercentages.get(label).map(label -> _))
+      .toMap
 
-  def sources(operation: OperationType, field: String): List[String] =
-    routes
-      .get(operation -> field)
+  def rootFieldSources(operation: OperationType, field: String): List[String] =
+    rootRoutes
+      .get(RootField(operation, field))
       .toList
       .flatMap { route =>
-        val selected = route.providers.map(_.source)
-        if (route.singleProvider) selected.headOption.toList else selected
+        val selected = if (route.selectFirst) route.candidates.take(1) else route.candidates
+        selected.map(_.source)
       }
 
   def fieldSources(typeName: String, field: String, preferred: String): List[String] =
-    fieldRoutes.getOrElse(typeName -> field, Nil).map(_.source) match {
+    fieldRoutes.getOrElse(TypeField(typeName, field), Nil).map(_.source) match {
       case sources if sources.contains(preferred) => preferred :: sources.filterNot(_ == preferred)
       case sources                                => sources
     }
 
   def interfaceObjectFieldSources(typeName: String, field: String, preferred: String): List[(String, String)] = {
-    val (first, rest) = inheritedFieldSources.getOrElse(typeName -> field, Nil).partition(_._1 == preferred)
+    val (first, rest) = inheritedFieldSources.getOrElse(TypeField(typeName, field), Nil).partition(_._1 == preferred)
     first ::: rest
+  }
+
+  // Entity lookups allow switching sources. Otherwise, keep the current sources when any can resolve the field.
+  def candidateSources(current: Set[String], parentType: String, field: String): Set[String] = {
+    val candidateSources = fieldRoutes.getOrElse(TypeField(parentType, field), Nil).iterator.map(_.source).toSet
+    if (candidateSources.isEmpty) current
+    else if (lookupTypes.contains(parentType)) candidateSources
+    else {
+      val constrained = current intersect candidateSources
+      if (constrained.isEmpty) candidateSources else constrained
+    }
+  }
+
+  def typenameSource(typeName: String, preferred: String): Option[String] = {
+    val candidates = lookupSourcesByType.getOrElse(typeName, Nil)
+    if (candidates.contains(preferred)) Some(preferred) else candidates.headOption
+  }
+
+  def entityLookups(source: String, typeName: String): List[EntityLookup] =
+    entityLookupsByType.getOrElse(SourceType(source, typeName), Nil)
+
+  def sourcesDefiningKey(typeName: String, fields: List[KeyField]): List[String] =
+    fields match {
+      case Nil       => Nil
+      case head :: _ =>
+        declaringSources
+          .getOrElse(TypeField(typeName, head.name), Nil)
+          .filter(source => fields.forall(definesKeyField(source, typeName, _)))
+    }
+
+  def ownsField(source: String, typeName: String, field: String): Boolean =
+    fieldRoutes
+      .getOrElse(TypeField(typeName, field), Nil)
+      .exists(_.source == source)
+
+  def sourceField(source: String, typeName: String, field: String): Option[__Field] =
+    sourceFields.get(SourceField(source, typeName, field))
+
+  def requiredFieldSet(source: String, typeName: String, field: String): List[Selection] =
+    requiredFieldSets.getOrElse(SourceField(source, typeName, field), Nil)
+
+  def providedFieldSet(source: String, typeName: String, field: String): List[Selection] =
+    providedFieldSets.getOrElse(SourceField(source, typeName, field), Nil)
+
+  def schemaMapping(source: String): SchemaMapping =
+    schemaMappings(source)
+
+  def hasContextArguments: Boolean = contextBindings.nonEmpty
+
+  def contextDeclarations(typeName: String): List[ContextDeclaration] = {
+    val selectedTypes = possibleTypesByName.getOrElse(typeName, Set(typeName))
+    declaredContexts.iterator.flatMap { case (SourceType(source, declaredType), names) =>
+      val declaredTypes = possibleTypesByName.getOrElse(declaredType, Set(declaredType))
+      if (selectedTypes.exists(declaredTypes))
+        names.iterator.map(ContextDeclaration(source, declaredType, _))
+      else Iterator.empty
+    }.toList
+  }
+
+  def contextArguments(source: String, typeName: String, field: String): List[ContextArgument] =
+    contextBindings.getOrElse(SourceField(source, typeName, field), Nil)
+
+  def possibleTypes(source: String, typeName: String): List[String] =
+    sourcePossibleTypes.getOrElse(SourceType(source, typeName), Set.empty).toList.sorted
+
+  def possibleReturnTypes(
+    sources: Set[String],
+    source: String,
+    parentType: String,
+    field: String,
+    outputType: String
+  ): Set[String] = {
+    val candidates =
+      if (sources.nonEmpty) sources.iterator
+      else Iterator.single(source)
+    val available  = candidates.flatMap { candidate =>
+      sourceFields
+        .get(SourceField(candidate, parentType, field))
+        .flatMap(_._type.innerType.name)
+        .map(name => sourcePossibleTypes.getOrElse(SourceType(candidate, name), Set.empty))
+        .filter(_.nonEmpty)
+    }
+    // A selection planned across candidate sources can rely only on concrete return types shared by them.
+    available
+      .reduceOption(_ intersect _)
+      .getOrElse(sourcePossibleTypes.getOrElse(SourceType(source, outputType), Set.empty))
   }
 
   def interfaceObjectTypes(source: String, typeName: String): List[(String, __Type)] =
@@ -187,251 +175,134 @@ private[gateway] final class ComposedGraph private[internal] (
       }
       .flatten
 
-  def lookups(source: String, typeName: String): List[ComposedGraph.EntityLookup] =
-    entityLookups.getOrElse(source -> typeName, Nil)
-
-  def owns(source: String, typeName: String, field: String): Boolean =
-    fieldRoutes
-      .getOrElse(typeName -> field, Nil)
-      .exists(_.source == source)
-
-  def field(source: String, typeName: String, field: String): Option[__Field] =
-    sourceFields.get((source, typeName, field))
-
-  def required(source: String, typeName: String, field: String): List[Selection] =
-    requirements.getOrElse((source, typeName, field), Nil)
-
-  def provided(source: String, typeName: String, field: String): List[Selection] =
-    provisions.getOrElse((source, typeName, field), Nil)
-
-  def contextDeclarations(typeName: String): List[ComposedGraph.ContextDeclaration] = {
-    val selectedTypes = runtimeTypesByName.getOrElse(typeName, Set(typeName))
-    contexts.iterator.flatMap { case ((source, declaredType), names) =>
-      val declaredTypes = runtimeTypesByName.getOrElse(declaredType, Set(declaredType))
-      if ((selectedTypes intersect declaredTypes).nonEmpty)
-        names.iterator.map(ComposedGraph.ContextDeclaration(source, declaredType, _))
-      else Iterator.empty
-    }.toList
-  }
-
-  def fromContext(source: String, typeName: String, field: String): List[ComposedGraph.ContextArgument] =
-    contextArguments.getOrElse((source, typeName, field), Nil)
-
-  def hasContextArguments: Boolean = contextArguments.nonEmpty
-
-  def mapping(source: String): SchemaMapping =
-    mappings(source)
-
-  def hasSecurityRequirements: Boolean = securityApplications.exists(_.directive != SecurityDirective.UnsupportedPolicy)
-
-  def securityPolicyDiagnostics: List[String] =
-    securityApplications
-      .filterNot(_.directive == SecurityDirective.UnsupportedPolicy)
-      .map(application =>
-        s"[${application.source}] Federation ${application.directiveName} at '${application.coordinate}' requires an operation policy."
-      )
-      .distinct
-      .sorted
-
-  def securityRequirements(plan: OperationPlan): List[SecurityRequirement] =
-    if (securityApplications.isEmpty) Nil
-    else {
-      def runtimeTypes(typeName: String): Set[String] =
-        runtimeTypesByName.getOrElse(typeName, Set.empty)
-
-      def overlaps(selectedType: String, candidateType: String, selection: Option[Set[String]]): Boolean =
-        selection.getOrElse(runtimeTypes(selectedType)).exists(runtimeTypes(candidateType))
-
-      def selected(typeName: String, fieldName: Option[String]): List[SecurityRequirement] = {
-        val values = securityByCoordinate.getOrElse(typeName -> fieldName, Nil)
-        if (values.isEmpty) Nil else SecurityRequirement(typeName, fieldName, values) :: Nil
-      }
-
-      // Composition validates these field sets against source definitions, including hidden fields and roots.
-      def requiredFields(source: String, parent: String, selections: List[Selection]): List[Field] =
-        selections.flatMap {
-          case field: Selection.Field             =>
-            sourceFields.get((source, parent, field.name)).toList.map { definition =>
-              Field(
-                field.name,
-                definition._type,
-                Some(__Type(kind = __TypeKind.OBJECT, name = Some(parent))),
-                fields = requiredFields(source, definition._type.innerType.name.getOrElse(""), field.selectionSet)
-              )
-            }
-          case fragment: Selection.InlineFragment =>
-            requiredFields(source, fragment.typeCondition.fold(parent)(_.name), fragment.selectionSet)
-          case _: Selection.FragmentSpread        => Nil
-        }
-
-      def loop(
-        fields: List[Field],
-        root: Boolean,
-        visited: Set[(String, String)] = Set.empty
-      ): List[SecurityRequirement] =
-        fields.flatMap { field =>
-          if (isMetaField(field)) Nil
-          else {
-            val parentType       = field.parentType.flatMap(_.innerType.name).getOrElse("")
-            val outputType       = field.fieldType.innerType.name.getOrElse("")
-            val direct           = selected(parentType, Some(field.name))
-            val rootRequirements = if (root) selected(parentType, None) else Nil
-            val relatedFields    = securedFieldTypes.getOrElse(field.name, Nil).flatMap { typeName =>
-              if (typeName != parentType && overlaps(parentType, typeName, field._condition))
-                selected(typeName, Some(field.name))
-              else Nil
-            }
-            val output           = selected(outputType, None)
-            val relatedOutput    = securedTypes.flatMap { typeName =>
-              if (typeName != outputType && overlaps(outputType, typeName, None)) selected(typeName, None)
-              else Nil
-            }
-            // Only @policy expands runtime checks to implicit dependencies. Auth/scopes retain their existing
-            // client-selection checks and composition-time @requires checks; injected keys add neither.
-            val dependencies     =
-              if (!hasUnsupportedPolicies) Nil
-              else {
-                val coordinate = parentType -> field.name
-                if (visited(coordinate)) Nil
-                else
-                  requirementsByCoordinate.getOrElse(coordinate, Nil).flatMap {
-                    case (source, dependencyType, selections) =>
-                      loop(requiredFields(source, dependencyType, selections), root = false, visited + coordinate)
-                        .filter(_.directives.contains(SecurityDirective.UnsupportedPolicy))
-                  }
-              }
-            rootRequirements ::: direct ::: relatedFields ::: output ::: relatedOutput ::: dependencies ::: loop(
-              field.fields,
-              root = false,
-              visited
-            )
-          }
-        }
-
-      val requested = loop(plan.fields, root = true)
-      // Include implicit fetches and the lookup roots/correlation fields generated later by EntityLookup.
-      val injected  =
-        if (!hasUnsupportedPolicies) Nil
-        else {
-          def generatedFields(source: String, parent: String, names: List[String]): List[Field] =
-            requiredFields(source, parent, names.map(name => Selection.Field(None, name, Map.empty, Nil, Nil, 0)))
-
-          val lookups = plan.entities.flatMap { fetch =>
-            val (root, correlation) = fetch.lookup.operation match {
-              case LookupOperation.GraphQLQuery(name, _, LookupResult.ByKey(fields)) => name        -> fields.keys.toList
-              case LookupOperation.GraphQLQuery(name, _, LookupResult.Single)        => name        -> Nil
-              case _: LookupOperation.FederationEntities                             => "_entities" -> Nil
-            }
-            selected("Query", None) ::: selected("Query", Some(root)) ::: loop(
-              generatedFields(fetch.source, "Query", root :: Nil) :::
-                generatedFields(fetch.source, fetch.entityType, correlation),
-              root = false
-            )
-          }
-          (lookups ::: loop(plan.roots.flatMap(_.downstream) ::: plan.entities.flatMap(_.fields), root = false))
-            .filter(_.directives.contains(SecurityDirective.UnsupportedPolicy))
-        }
-      (requested ::: injected).distinct
-    }
-
   def isInterfaceObject(source: String, typeName: String): Boolean =
-    interfaceObjects.contains(source -> typeName)
-
-  def runtimeTypeSource(typeName: String, preferred: String): Option[String] = {
-    val candidates = lookupSourcesByType.getOrElse(typeName, Nil)
-    if (candidates.contains(preferred)) Some(preferred) else candidates.headOption
-  }
-
-  def runtimeTypes(source: String, typeName: String): List[String] =
-    sourceRuntimeTypes.getOrElse(source -> typeName, Set.empty).toList.sorted
-
-  def runtimeSources(current: Set[String], parentType: String, field: String): Set[String] = {
-    val providers = fieldRoutes.getOrElse(parentType -> field, Nil).iterator.map(_.source).toSet
-    if (providers.isEmpty) current
-    else {
-      val constrained = current intersect providers
-      if (lookupTypes.contains(parentType) || constrained.isEmpty) providers else constrained
-    }
-  }
-
-  def runtimeTypesForField(
-    sources: Set[String],
-    source: String,
-    parentType: String,
-    field: String,
-    outputType: String
-  ): Set[String] = {
-    val candidates =
-      if (sources.nonEmpty) sources.toList.sorted
-      else source :: Nil
-    val available  = candidates.flatMap { candidate =>
-      sourceFields
-        .get((candidate, parentType, field))
-        .flatMap(_._type.innerType.name)
-        .map(name => sourceRuntimeTypes.getOrElse(candidate -> name, Set.empty))
-        .filter(_.nonEmpty)
-    }
-    available.reduceOption(_ intersect _).getOrElse(sourceRuntimeTypes.getOrElse(source -> outputType, Set.empty))
-  }
+    interfaceObjects.contains(SourceType(source, typeName))
 
   def isObjectType(typeName: String): Boolean =
     rootType.types.get(typeName).exists(_.kind == __TypeKind.OBJECT)
 
   def acceptsRuntimeType(typeName: String, runtimeType: String): Boolean =
-    runtimeType == typeName || runtimeTypesByName.getOrElse(typeName, Set.empty).contains(runtimeType)
+    runtimeType == typeName || possibleTypesByName.getOrElse(typeName, Set.empty).contains(runtimeType)
 
-  private def isObjectType(source: String, typeName: String): Boolean =
-    sourceRuntimeTypes.get(source -> typeName).exists(_.contains(typeName))
-
-  def appliesOnSource(source: String, parentType: String, field: Field): Boolean =
+  def fieldApplies(source: String, parentType: String, field: Field): Boolean =
     field._condition.forall(condition =>
       isInterfaceObject(source, parentType) ||
-        sourceRuntimeTypes.getOrElse(source -> parentType, Set.empty).exists(condition)
+        sourcePossibleTypes.getOrElse(SourceType(source, parentType), Set.empty).exists(condition)
     )
 
-  def executableField(source: String, field: Field): Field =
-    executableField(source, None, field)
+  def prepareField(source: String, field: Field): Field =
+    prepareField(source, None, field)
 
-  def executableEntityFields(
-    source: String,
-    entityType: String,
-    fields: List[Field]
-  ): List[Field] =
-    disambiguate(source, fields.map(executableField(source, Some(entityType), _)))
+  def prepareEntityFields(source: String, entityType: String, fields: List[Field]): List[Field] =
+    aliasConflicts(source, fields.map(prepareField(source, Some(entityType), _)))
 
-  private def executableField(
-    source: String,
-    parentType: Option[String],
-    field: Field
-  ): Field = {
+  def estimateCost(request: ExecutionRequest, plan: OperationPlan): Either[String, Long] =
+    operationCost.estimate(request, plan)
+
+  def hasSecurityRequirements: Boolean = operationSecurity.hasRequirements
+
+  def securityDiagnostics: List[String] = operationSecurity.diagnostics
+
+  def securityRequirements(plan: OperationPlan): List[SecurityRequirement] = operationSecurity.requirements(plan)
+
+  private val declaringSources       = sourceFields.keysIterator.map { case SourceField(source, owner, name) =>
+    TypeField(owner, name) -> source
+  }.toList
+    .groupMap(_._1)(_._2)
+    .map { case (coordinate, values) => coordinate -> values.sorted }
+  private val lookupSourcesByType    = entityLookupsByType.keysIterator.collect {
+    case SourceType(source, typeName) if !interfaceObjects.contains(SourceType(source, typeName)) => typeName -> source
+  }.toList
+    .groupMap(_._1)(_._2)
+    .map { case (typeName, values) => typeName -> values.sorted }
+  private val lookupTypes            = entityLookupsByType.keysIterator.map(_.typeName).toSet
+  private val interfaceObjectsByType = rootType.types.iterator.flatMap { case (typeName, tpe) =>
+    val interfaces = if (tpe.kind == __TypeKind.OBJECT) tpe.interfaces().getOrElse(Nil).flatMap(_.name) else Nil
+    val inherited  = interfaceObjects.filter(key => interfaces.contains(key.typeName))
+    if (inherited.isEmpty) Iterator.empty
+    else Iterator.single(typeName -> inherited.toList.map(key => key.source -> key.typeName).sorted)
+  }.toMap
+  private val inheritedFieldSources  = {
+    val fieldsByType = fieldRoutes.keysIterator.toList.groupMap(_.typeName)(_.fieldName)
+    interfaceObjectsByType.iterator.flatMap { case (typeName, inherited) =>
+      inherited.iterator.flatMap { case (source, interfaceName) =>
+        fieldsByType.getOrElse(interfaceName, Nil).iterator.collect {
+          case field if !fieldRoutes.contains(TypeField(typeName, field)) && ownsField(source, interfaceName, field) =>
+            TypeField(typeName, field) -> (source -> interfaceName)
+        }
+      }
+    }.toList.groupMap(_._1)(_._2)
+  }
+  private val operationCost          = new OperationCost(rootType.types, possibleTypesByName, costMetadata)
+
+  private val operationSecurity = new OperationSecurity(
+    possibleTypesByName,
+    sourceFields,
+    requiredFieldSets,
+    declaredContexts,
+    contextBindings,
+    securityApplications
+  )
+
+  private val (overridePercentages, overrideLabelsByField) = {
+    val conditions = rootRoutes.iterator.flatMap { case (RootField(_, field), route) =>
+      route.candidates.iterator.flatMap(_.condition.map(field -> _))
+    } ++ fieldRoutes.iterator.flatMap { case (TypeField(_, field), routes) =>
+      routes.iterator.flatMap(_.condition.map(field -> _))
+    }
+    conditions.foldLeft(
+      Map.empty[OverrideLabel, Option[BigDecimal]] ->
+        Map.empty[String, Set[OverrideLabel]]
+    ) { case ((byLabel, byFieldName), (field, condition)) =>
+      val labels = byFieldName.updated(field, byFieldName.getOrElse(field, Set.empty) + condition.label)
+      if (byLabel.contains(condition.label)) byLabel              -> labels
+      else byLabel.updated(condition.label, condition.percentage) -> labels
+    }
+  }
+  private val cachedOverrideGraphs                         = new AtomicReference[List[(Set[OverrideLabel], ComposedGraph)]](Nil)
+
+  private def graphForOverrides(activeOverrides: Set[OverrideLabel]): ComposedGraph =
+    copy(
+      rootRoutes = rootRoutes.map { case (coordinate, route) =>
+        coordinate -> route.copy(
+          candidates = route.candidates.filter(_.isEnabled(activeOverrides)).map(_.copy(condition = None))
+        )
+      },
+      fieldRoutes = fieldRoutes.map { case (coordinate, routes) =>
+        coordinate -> routes.filter(_.isEnabled(activeOverrides)).map(_.copy(condition = None))
+      }
+    )
+
+  private def isObjectType(source: String, typeName: String): Boolean =
+    sourcePossibleTypes.get(SourceType(source, typeName)).exists(_.contains(typeName))
+
+  private def prepareField(source: String, parentType: Option[String], field: Field): Field = {
     val parent      = parentType.orElse(field.parentType.flatMap(_.innerType.name)).getOrElse("")
     val targets     = field.targets.flatMap { original =>
+      // An @interfaceObject source sees one object, so fragments targeting concrete implementations must be removed.
       if (isInterfaceObject(source, parent)) None
       else {
         field._condition
           .map(
-            _.filter(sourceRuntimeTypes.getOrElse(source -> parent, Set.empty))
+            _.filter(sourcePossibleTypes.getOrElse(SourceType(source, parent), Set.empty))
               .filter(isObjectType(source, _))
           )
           .orElse(Some(original))
       }
     }
     val childParent = sourceFields
-      .get((source, parent, field.name))
+      .get(SourceField(source, parent, field.name))
       .flatMap(_._type.innerType.name)
       .orElse(field.fieldType.innerType.name)
-    val children    = disambiguate(source, field.fields.map(executableField(source, childParent, _)))
+    val children    = aliasConflicts(source, field.fields.map(prepareField(source, childParent, _)))
     field.copy(targets = targets, fields = children)
   }
 
-  private def disambiguate(
-    source: String,
-    fields: List[Field]
-  ): List[Field] = {
-    def responseTypes(field: Field): Set[String] = {
-      val sourceDefinitions = field.targets.toList
-        .flatMap(_.toList)
-        .flatMap(target => this.field(source, target, field.name))
+  private def aliasConflicts(source: String, fields: List[Field]): List[Field] = {
+    def typeSignatures(field: Field): Set[String] = {
+      val sourceDefinitions = field.targets.iterator
+        .flatMap(_.iterator)
+        .flatMap(target => sourceField(source, target, field.name))
         .map(value => DocumentRenderer.renderTypeName(value._type))
         .toSet
       if (sourceDefinitions.nonEmpty) sourceDefinitions else Set(DocumentRenderer.renderTypeName(field.fieldType))
@@ -440,7 +311,7 @@ private[gateway] final class ComposedGraph private[internal] (
     val conflicts = fields
       .groupBy(_.aliasedName)
       .collect {
-        case (name, values) if values.iterator.flatMap(responseTypes).toSet.size > 1 => name
+        case (name, values) if values.iterator.flatMap(typeSignatures).toSet.size > 1 => name
       }
       .toSet
     if (conflicts.isEmpty) fields
@@ -450,7 +321,7 @@ private[gateway] final class ComposedGraph private[internal] (
         .foldLeft((List.empty[Field], initial)) { case ((values, used), field) =>
           if (!conflicts.contains(field.aliasedName)) (field :: values, used)
           else {
-            val alias = privateResponseName(field.aliasedName, used)
+            val alias = unusedAlias(field.aliasedName, used)
             (field.copy(alias = Some(alias)) :: values, used + alias)
           }
         }
@@ -459,7 +330,7 @@ private[gateway] final class ComposedGraph private[internal] (
     }
   }
 
-  private def privateResponseName(responseName: String, used: Set[String]): String = {
+  private def unusedAlias(responseName: String, used: Set[String]): String = {
     val base                     = s"_caliban_gateway_$responseName"
     def loop(index: Int): String = {
       val candidate = if (index == 0) base else s"${base}_$index"
@@ -468,56 +339,19 @@ private[gateway] final class ComposedGraph private[internal] (
     loop(0)
   }
 
-  def sourcesForKey(typeName: String, fields: List[ComposedGraph.KeyField]): List[String] =
-    fields match {
-      case Nil          => Nil
-      case head :: tail =>
-        val first = sourcesForKeyField(typeName, head)
-        first.filter(source => tail.forall(field => sourcesForKeyField(typeName, field).contains(source)))
-    }
-
-  private def sourcesForKeyField(typeName: String, field: ComposedGraph.KeyField): List[String] = {
-    val sources = sourceFieldSources.getOrElse(typeName -> field.name, Nil)
-    if (field.children.isEmpty) sources
-    else
-      sources.filter(source =>
-        sourceFields
-          .get((source, typeName, field.name))
-          .flatMap(_._type.innerType.name)
-          .exists(name => field.children.forall(child => sourcesForKeyField(name, child).contains(source)))
+  private def definesKeyField(source: String, typeName: String, field: KeyField): Boolean =
+    sourceFields.get(SourceField(source, typeName, field.name)).exists { definition =>
+      field.children.isEmpty || definition._type.innerType.name.exists(name =>
+        field.children.forall(definesKeyField(source, name, _))
       )
-  }
+    }
 }
 
 private[gateway] object ComposedGraph {
-  private val MaxRoutedVariants = 16
-  private[composition] final case class SecurityDependency(
-    source: String,
-    sourceType: String,
-    fieldName: String,
-    dependencyType: String,
-    selections: List[Selection],
-    directive: String
-  )
-
-  private[composition] def securityDependencies(
-    requirements: Map[(String, String, String), List[Selection]],
-    contexts: Map[(String, String), Set[ContextName]],
-    contextArguments: Map[(String, String, String), List[ContextArgument]]
-  ): List[SecurityDependency] = {
-    val required   = requirements.toList.map { case ((source, sourceType, fieldName), selections) =>
-      SecurityDependency(source, sourceType, fieldName, sourceType, selections, "@requires")
-    }
-    val contextual = contextArguments.toList.flatMap { case ((source, sourceType, fieldName), arguments) =>
-      arguments.flatMap { argument =>
-        contexts.collect {
-          case ((`source`, contextType), names) if names.contains(argument.context) =>
-            SecurityDependency(source, sourceType, fieldName, contextType, argument.selections, "@fromContext")
-        }
-      }
-    }
-    required ::: contextual
-  }
+  final case class RootField(operation: OperationType, fieldName: String)
+  final case class TypeField(typeName: String, fieldName: String)
+  final case class SourceType(source: String, typeName: String)
+  final case class SourceField(source: String, typeName: String, fieldName: String)
 
   final case class CostMetadata(
     types: Map[String, Long],
@@ -553,16 +387,16 @@ private[gateway] object ComposedGraph {
     percentage: Option[BigDecimal],
     active: Boolean
   ) {
-    def enabled(activeOverrides: Set[OverrideLabel]): Boolean = activeOverrides.contains(label) == active
+    def isEnabled(activeOverrides: Set[OverrideLabel]): Boolean = activeOverrides.contains(label) == active
   }
 
   final case class FieldRoute(source: String, condition: Option[OverrideCondition] = None) {
-    def enabled(activeOverrides: Set[OverrideLabel]): Boolean = condition.forall(_.enabled(activeOverrides))
+    def isEnabled(activeOverrides: Set[OverrideLabel]): Boolean = condition.forall(_.isEnabled(activeOverrides))
   }
 
-  final case class RootRoute(providers: List[FieldRoute], singleProvider: Boolean)
+  final case class RootRoute(candidates: List[FieldRoute], selectFirst: Boolean)
 
-  private[internal] final case class SecurityApplication(
+  private[internal] final case class SecurityDirectiveApplication(
     source: String,
     typeName: String,
     fieldName: Option[String],
@@ -615,4 +449,6 @@ private[gateway] object ComposedGraph {
 
     final case class ByKey(fields: Map[String, String]) extends LookupResult
   }
+
+  private val MaxCachedOverrideGraphs = 16
 }
