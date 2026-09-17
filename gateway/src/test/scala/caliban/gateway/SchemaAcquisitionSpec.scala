@@ -4,7 +4,7 @@ import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ BooleanValue, StringValue }
 import caliban.gateway.GatewayTestSupport._
 import caliban.schema.{ GenericSchema, Schema }
-import caliban.gateway.internal.composition.IntrospectionDocument
+import caliban.gateway.internal.composition.IntrospectionClient
 import caliban.{ graphQL, GraphQLResponse, RootResolver }
 import com.github.plokhotnyuk.jsoniter_scala.core.writeToString
 import zio._
@@ -44,7 +44,7 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
   private def introspectionResponse: UIO[String] =
     for {
       interpreter <- ZIO.fromEither(ProductsApi.api.interpreterEither).orDie
-      response    <- interpreter.execute(IntrospectionDocument.Query)
+      response    <- interpreter.execute(IntrospectionClient.Query)
     } yield writeToString(response)
 
   private def serviceResponse(schema: String): String =

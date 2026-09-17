@@ -44,7 +44,7 @@ private[internal] final class EntityLookup(
     def prepare: PreparedLookup = {
       val contextualFields = injectContextArguments(fetch.source, fetch.fields, contextValues)
       val executableFields = graph.prepareEntityFields(fetch.source, fetch.entityType, contextualFields)
-      val sourceSelections = executableFields.map(mapping.rootFieldToSource).flatMap(fieldSelection)
+      val sourceSelections = executableFields.map(mapping.fieldToSource).flatMap(fieldSelection)
 
       def selections(correlation: EntityCorrelation): List[Selection] =
         sourceSelections ::: correlation.required

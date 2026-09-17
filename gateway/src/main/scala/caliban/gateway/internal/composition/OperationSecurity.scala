@@ -4,6 +4,7 @@ import caliban.execution.{ isMetaField, Field }
 import caliban.gateway.OperationPolicy.{ SecurityDirective, SecurityRequirement }
 import caliban.gateway.internal.composition.ComposedGraph._
 import caliban.gateway.internal.planning.OperationPlan
+import caliban.gateway.internal.planning.OperationPlan.EntityFetch
 import caliban.introspection.adt.{ __Field, __Type, __TypeKind }
 import caliban.parsing.adt.Selection
 
@@ -20,65 +21,42 @@ private[composition] final class OperationSecurity(
   contextBindings: Map[SourceField, List[ContextArgument]],
   securityApplications: List[SecurityDirectiveApplication]
 ) {
+  import OperationSecurity.Dependency
+
   def hasRequirements: Boolean =
     securityApplications.exists(_.directive != SecurityDirective.UnsupportedPolicy)
 
   def diagnostics: List[String] =
-    securityApplications
+    securityApplications.iterator
       .filterNot(_.directive == SecurityDirective.UnsupportedPolicy)
       .map(application =>
         s"[${application.source}] Federation ${application.directiveName} at '${application.coordinate}' requires an operation policy."
       )
+      .toList
       .distinct
       .sorted
 
   def requirements(plan: OperationPlan): List[SecurityRequirement] =
     if (securityApplications.isEmpty) Nil
     else {
-      val requested = collectRequirements(plan.fields, root = true)
-      // Include implicit fetches and the lookup roots/correlation fields generated later by EntityLookup.
-      val injected  =
-        if (!hasUnsupportedPolicies) Nil
-        else {
-          val lookups = plan.entities.flatMap { fetch =>
-            val (root, correlation) = fetch.lookup.operation match {
-              case LookupOperation.GraphQLQuery(name, _, LookupResult.ByKey(fields)) => name        -> fields.keys.toList
-              case LookupOperation.GraphQLQuery(name, _, LookupResult.Single)        => name        -> Nil
-              case _: LookupOperation.FederationEntities                             => "_entities" -> Nil
-            }
-            requirementsAt("Query", None) ::: requirementsAt(
-              "Query",
-              Some(root)
-            ) ::: collectRequirements(
-              fieldsForNames(fetch.source, "Query", root :: Nil) :::
-                fieldsForNames(fetch.source, fetch.entityType, correlation),
-              root = false
-            )
-          }
-          (lookups ::: collectRequirements(
-            plan.roots.flatMap(_.downstream) ::: plan.entities.flatMap(_.fields),
-            root = false
-          ))
-            .filter(_.directives.contains(SecurityDirective.UnsupportedPolicy))
-        }
-      (requested ::: injected).distinct
+      val requested = collectRequirements(plan.fields, atRoot = true)
+      (requested ::: injectedRequirements(plan)).distinct
     }
 
   private val hasUnsupportedPolicies =
     securityApplications.exists(_.directive == SecurityDirective.UnsupportedPolicy)
   private val dependenciesByField    =
-    if (!hasUnsupportedPolicies) Map.empty[TypeField, List[(String, String, List[Selection])]]
+    if (!hasUnsupportedPolicies) Map.empty[TypeField, List[Dependency]]
     else
+      // A composed field must account for dependencies declared by every source.
       OperationSecurity
         .dependencies(requiredFieldSets, declaredContexts, contextBindings)
-        .groupMap(dependency => TypeField(dependency.sourceType, dependency.fieldName))(dependency =>
-          (dependency.source, dependency.dependencyType, dependency.selections)
-        )
+        .groupBy(dependency => TypeField(dependency.parentType, dependency.fieldName))
   private val securityDirectives     =
     securityApplications
       .groupBy(application => application.typeName -> application.fieldName)
-      .map { case (coordinate, values) => coordinate -> values.map(_.directive).distinct }
-  private val securedFieldTypes      = securityApplications
+      .map { case (target, values) => target -> values.map(_.directive).distinct }
+  private val typesBySecuredField    = securityApplications
     .flatMap(application => application.fieldName.map(_ -> application.typeName))
     .groupMap(_._1)(_._2)
     .map { case (fieldName, values) => fieldName -> values.distinct.sorted }
@@ -86,6 +64,28 @@ private[composition] final class OperationSecurity(
     case application if application.fieldName.isEmpty =>
       application.typeName
   }.distinct.sorted
+
+  // Only @policy applies to injected fetches and lookup roots/correlation fields added by EntityLookup.
+  private def injectedRequirements(plan: OperationPlan): List[SecurityRequirement] =
+    if (!hasUnsupportedPolicies) Nil
+    else {
+      val lookups = plan.entities.flatMap(lookupRequirements)
+      val fields  = plan.roots.flatMap(_.downstream) ::: plan.entities.flatMap(_.fields)
+      (lookups ::: collectRequirements(fields, atRoot = false))
+        .filter(_.directives.contains(SecurityDirective.UnsupportedPolicy))
+    }
+
+  private def lookupRequirements(fetch: EntityFetch): List[SecurityRequirement] = {
+    val (lookupField, correlationFields) = fetch.lookup.operation match {
+      case LookupOperation.GraphQLQuery(name, _, LookupResult.ByKey(fields)) => name        -> fields.keys.toList
+      case LookupOperation.GraphQLQuery(name, _, LookupResult.Single)        => name        -> Nil
+      case _: LookupOperation.FederationEntities                             => "_entities" -> Nil
+    }
+    val fields                           = fieldsForNames(fetch.source, "Query", lookupField :: Nil) :::
+      fieldsForNames(fetch.source, fetch.entityType, correlationFields)
+    requirementsAt("Query", None) ::: requirementsAt("Query", Some(lookupField)) :::
+      collectRequirements(fields, atRoot = false)
+  }
 
   private def possibleTypes(typeName: String): Set[String] =
     possibleTypesByName.getOrElse(typeName, Set.empty)
@@ -102,14 +102,17 @@ private[composition] final class OperationSecurity(
   private def fieldsFromSelections(source: String, parent: String, selections: List[Selection]): List[Field] =
     selections.flatMap {
       case field: Selection.Field             =>
-        sourceFields.get(SourceField(source, parent, field.name)).toList.map { definition =>
-          Field(
-            field.name,
-            definition._type,
-            Some(__Type(kind = __TypeKind.OBJECT, name = Some(parent))),
-            fields = fieldsFromSelections(source, definition._type.innerType.name.getOrElse(""), field.selectionSet)
-          )
-        }
+        sourceFields
+          .get(SourceField(source, parent, field.name))
+          .map { definition =>
+            Field(
+              field.name,
+              definition._type,
+              Some(__Type(kind = __TypeKind.OBJECT, name = Some(parent))),
+              fields = fieldsFromSelections(source, definition._type.innerType.name.getOrElse(""), field.selectionSet)
+            )
+          }
+          .toList
       case fragment: Selection.InlineFragment =>
         fieldsFromSelections(source, fragment.typeCondition.fold(parent)(_.name), fragment.selectionSet)
       case _: Selection.FragmentSpread        => Nil
@@ -117,7 +120,7 @@ private[composition] final class OperationSecurity(
 
   private def collectRequirements(
     fields: List[Field],
-    root: Boolean,
+    atRoot: Boolean,
     visited: Set[TypeField] = Set.empty
   ): List[SecurityRequirement] =
     fields.flatMap { field =>
@@ -126,8 +129,8 @@ private[composition] final class OperationSecurity(
         val parentType       = field.parentType.flatMap(_.innerType.name).getOrElse("")
         val outputType       = field.fieldType.innerType.name.getOrElse("")
         val direct           = requirementsAt(parentType, Some(field.name))
-        val rootRequirements = if (root) requirementsAt(parentType, None) else Nil
-        val relatedFields    = securedFieldTypes.getOrElse(field.name, Nil).flatMap { typeName =>
+        val rootRequirements = if (atRoot) requirementsAt(parentType, None) else Nil
+        val relatedFields    = typesBySecuredField.getOrElse(field.name, Nil).flatMap { typeName =>
           if (typeName != parentType && typesOverlap(parentType, typeName, field._condition))
             requirementsAt(typeName, Some(field.name))
           else Nil
@@ -143,21 +146,22 @@ private[composition] final class OperationSecurity(
         val dependencies     =
           if (!hasUnsupportedPolicies) Nil
           else {
-            val coordinate = TypeField(parentType, field.name)
-            if (visited(coordinate)) Nil
+            val fieldKey = TypeField(parentType, field.name)
+            // Break dependency cycles along this path without suppressing sibling selections.
+            if (visited(fieldKey)) Nil
             else
-              dependenciesByField.getOrElse(coordinate, Nil).flatMap { case (source, dependencyType, selections) =>
+              dependenciesByField.getOrElse(fieldKey, Nil).flatMap { dependency =>
                 collectRequirements(
-                  fieldsFromSelections(source, dependencyType, selections),
-                  root = false,
-                  visited + coordinate
+                  fieldsFromSelections(dependency.source, dependency.dependencyType, dependency.selections),
+                  atRoot = false,
+                  visited + fieldKey
                 )
                   .filter(_.directives.contains(SecurityDirective.UnsupportedPolicy))
               }
           }
         rootRequirements ::: direct ::: relatedFields ::: output ::: relatedOutput ::: dependencies ::: collectRequirements(
           field.fields,
-          root = false,
+          atRoot = false,
           visited
         )
       }
@@ -168,9 +172,14 @@ private[composition] final class OperationSecurity(
 }
 
 private[composition] object OperationSecurity {
+
+  /**
+   * Selections needed to resolve a field. The dependency type is its parent for @requires,
+   * or the declaring context's type for @fromContext.
+   */
   final case class Dependency(
     source: String,
-    sourceType: String,
+    parentType: String,
     fieldName: String,
     dependencyType: String,
     selections: List[Selection],
@@ -182,14 +191,14 @@ private[composition] object OperationSecurity {
     declaredContexts: Map[SourceType, Set[ContextName]],
     contextBindings: Map[SourceField, List[ContextArgument]]
   ): List[Dependency] = {
-    val required   = requiredFieldSets.toList.map { case (SourceField(source, sourceType, fieldName), selections) =>
-      Dependency(source, sourceType, fieldName, sourceType, selections, "@requires")
+    val required   = requiredFieldSets.toList.map { case (SourceField(source, parentType, fieldName), selections) =>
+      Dependency(source, parentType, fieldName, parentType, selections, "@requires")
     }
-    val contextual = contextBindings.toList.flatMap { case (SourceField(source, sourceType, fieldName), arguments) =>
+    val contextual = contextBindings.toList.flatMap { case (SourceField(source, parentType, fieldName), arguments) =>
       arguments.flatMap { argument =>
         declaredContexts.collect {
           case (SourceType(`source`, contextType), names) if names.contains(argument.context) =>
-            Dependency(source, sourceType, fieldName, contextType, argument.selections, "@fromContext")
+            Dependency(source, parentType, fieldName, contextType, argument.selections, "@fromContext")
         }
       }
     }

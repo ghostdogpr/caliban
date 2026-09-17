@@ -18,36 +18,20 @@ import caliban.rendering.DocumentRenderer
 import caliban.schema.RootType
 import caliban.Value.{ EnumValue, NullValue, StringValue }
 
+import scala.collection.compat._
+
 private[gateway] final class SchemaMapping private (
-  private[internal] val originalRootType: RootType,
+  private val originalRootType: RootType,
   mappings: SchemaMapping.Mappings
 ) {
   import SchemaMapping._
 
-  private val typeNames                = mappings.typeNames
-  private val fieldNames               = mappings.fieldNames
-  private val argumentNames            = mappings.argumentNames
-  val hiddenTypes                      = mappings.hiddenTypes
-  val hiddenFields                     = mappings.hiddenFields
-  val hiddenArguments                  = mappings.hiddenArguments
-  val hiddenInputFields                = mappings.hiddenInputFields
-  private[internal] val renamesNothing = mappings.renamesNothing
-
-  private val sourceRootNames         = OperationRootNames(originalRootType)
-  private[gateway] lazy val rootNames = sourceRootNames.mapSource(clientType)
-  private val sourceQueryName         = sourceRootNames.source("Query").getOrElse("Query")
-
-  private def clientOwners(sourceType: String): List[String] =
-    clientType(sourceType) :: sourceRootNames.composedAll(sourceType)
-
-  private val sourceTypes     = typeNames.map(_.swap)
-  private val sourceFields    = fieldNames.iterator.map { case ((tpe, field), renamed) =>
-    clientOwners(tpe).map(owner => (owner, renamed) -> field)
-  }.flatten.toMap
-  private val sourceArguments = argumentNames.iterator.map { case ((tpe, field, argument), renamed) =>
-    clientOwners(tpe).map(owner => (owner, clientField(tpe, field), renamed) -> argument)
-  }.flatten.toMap
-  val nonEmpty: Boolean       = mappings.nonEmpty
+  val hiddenTypes       = mappings.hiddenTypes
+  val hiddenFields      = mappings.hiddenFields
+  val hiddenArguments   = mappings.hiddenArguments
+  val hiddenInputFields = mappings.hiddenInputFields
+  lazy val rootNames    = sourceRootNames.mapSource(clientType)
+  val nonEmpty: Boolean = mappings.nonEmpty
 
   def clientType(name: String): String =
     typeNames.getOrElse(name, name)
@@ -61,32 +45,112 @@ private[gateway] final class SchemaMapping private (
   def sourceType(name: String): String =
     sourceTypes.getOrElse(name, name)
 
-  def clientField(typeName: String, field: String): String =
-    fieldNames.getOrElse(typeName -> field, field)
-
-  def sourceField(typeName: String, field: String): String =
-    sourceFields.getOrElse(typeName -> field, field)
-
-  def clientArgument(typeName: String, field: String, argument: String): String =
-    argumentNames.getOrElse((typeName, field, argument), argument)
-
   def transform(document: Document): Document =
     if (nonEmpty) {
-      val names     = SchemaComposer.federationDirectiveNames(document)
-      val contexts  = document.typeDefinitions.flatMap { tpe =>
+      val names            = SchemaComposer.federationDirectiveNames(document)
+      val contexts         = document.typeDefinitions.flatMap { tpe =>
         tpe.directives.filter(directive => names.context.contains(directive.name)).flatMap { directive =>
           directive.arguments.get("name").collect { case StringValue(name) => ContextName(name) }.toList.flatMap {
             name =>
               originalRootType.types.get(tpe.name).toList.flatMap(_.possibleTypeNames.toList.sorted).map(name -> _)
           }
         }
-      }.groupBy(_._1).map { case (name, declarations) => name -> declarations.map(_._2).distinct }
-      val fieldSets = DirectiveContext(names, contexts)
-      Document(document.definitions.map(transformDefinition(_, fieldSets)), document.sourceMapper)
+      }.groupMap(_._1)(_._2).map { case (name, declarations) => name -> declarations.distinct }
+      val directiveContext = DirectiveContext(names, contexts)
+      Document(document.definitions.map(transformDefinition(_, directiveContext)), document.sourceMapper)
     } else document
 
   def transform(lookup: Lookup): Lookup =
     if (nonEmpty) transformLookup(lookup) else lookup
+
+  def fieldToSource(field: Field): Field = {
+    val clientParent       = field.parentType.flatMap(_.innerType.name).getOrElse("")
+    val sourceParent       = sourceRootNames.source(clientParent).getOrElse(sourceType(clientParent))
+    val sourceName         = sourceField(clientParent, field.name)
+    val composedDirectives = field.parentType
+      .flatMap(parent => Option(parent.innerType.getFieldOrNull(field.name)))
+      .flatMap(_.directives)
+      .getOrElse(Nil)
+    val arguments          = field.arguments.map { case (name, value) =>
+      sourceArguments.getOrElse(ArgumentKey(clientParent, field.name, name), name) -> value
+    }
+    val alias              =
+      if (field.alias.isEmpty && sourceName != field.name) Some(field.name)
+      else field.alias
+
+    field.copy(
+      name = sourceName,
+      alias = alias,
+      parentType = originalRootType.types.get(sourceParent),
+      fields = field.fields.map(fieldToSource),
+      targets = field.targets.map(_.map(sourceType)),
+      arguments = arguments,
+      directives =
+        if (composedDirectives.isEmpty) field.directives
+        else field.directives.filterNot(composedDirectives.contains)
+    )
+  }
+
+  def lookupFieldToSource(field: String): String =
+    sourceField(sourceQueryName, field)
+
+  def lookupArgumentsToSource(field: String, arguments: Map[String, InputValue]): Map[String, InputValue] =
+    arguments.map { case (name, value) =>
+      sourceArguments.getOrElse(ArgumentKey(sourceQueryName, field, name), name) -> value
+    }
+
+  def representationToSource(typeName: String, value: InputObjectValue): InputObjectValue =
+    if (renamesNothing) value
+    else mapRepresentation(typeName, value)
+
+  private[internal] def requiredSelectionToSource(
+    parentType: String,
+    selection: RequiredSelection
+  ): RequiredSelection = {
+    val sourceParent = sourceType(parentType)
+    val sourceName   = sourceField(parentType, selection.field)
+    val childType    = sourceFieldDefinition(sourceParent, sourceName).flatMap(_._type.innerType.name).getOrElse("")
+    RequiredSelection(
+      sourceName,
+      selection.responseName,
+      selection.children.map(requiredSelectionToSource(clientType(childType), _))
+    )
+  }
+
+  private[internal] def responseProjection(
+    client: List[Field],
+    executable: List[Field],
+    required: List[RequiredSelection] = Nil
+  ): ResponseProjection =
+    ResponseProjection.compile(client, executable, required, typeNames)
+
+  private val typeNames      = mappings.typeNames
+  private val fieldNames     = mappings.fieldNames
+  private val argumentNames  = mappings.argumentNames
+  private val renamesNothing = mappings.renamesNothing
+
+  private val sourceRootNames = OperationRootNames(originalRootType)
+  private val sourceQueryName = sourceRootNames.source("Query").getOrElse("Query")
+
+  private def clientOwners(sourceType: String): List[String] =
+    clientType(sourceType) :: sourceRootNames.composedAll(sourceType)
+
+  private val sourceTypes     = typeNames.map(_.swap)
+  private val sourceFields    = fieldNames.iterator.flatMap { case ((tpe, field), renamed) =>
+    clientOwners(tpe).map(owner => (owner, renamed) -> field)
+  }.toMap
+  private val sourceArguments = argumentNames.iterator.flatMap { case (ArgumentKey(tpe, field, argument), renamed) =>
+    clientOwners(tpe).map(owner => ArgumentKey(owner, clientField(tpe, field), renamed) -> argument)
+  }.toMap
+
+  private def clientField(typeName: String, field: String): String =
+    fieldNames.getOrElse(typeName -> field, field)
+
+  private def sourceField(typeName: String, field: String): String =
+    sourceFields.getOrElse(typeName -> field, field)
+
+  private def clientArgument(typeName: String, field: String, argument: String): String =
+    argumentNames.getOrElse(ArgumentKey(typeName, field, argument), argument)
 
   private def transformLookup(lookup: Lookup): Lookup = {
     def argument(value: Lookup.Argument): Lookup.Argument = value match {
@@ -111,46 +175,6 @@ private[gateway] final class SchemaMapping private (
         Lookup.list(typeName, keys, field, correlation, arguments: _*)
     }
   }
-
-  def rootFieldToSource(field: Field): Field = {
-    val clientParent       = field.parentType.flatMap(_.innerType.name).getOrElse("")
-    val sourceParent       = sourceRootNames.source(clientParent).getOrElse(sourceType(clientParent))
-    val sourceName         = sourceField(clientParent, field.name)
-    val composedDirectives = field.parentType
-      .flatMap(parent => Option(parent.innerType.getFieldOrNull(field.name)))
-      .flatMap(_.directives)
-      .getOrElse(Nil)
-    val arguments          = field.arguments.map { case (name, value) =>
-      sourceArguments.getOrElse((clientParent, field.name, name), name) -> value
-    }
-    val alias              =
-      if (field.alias.isEmpty && sourceName != field.name) Some(field.name)
-      else field.alias
-
-    field.copy(
-      name = sourceName,
-      alias = alias,
-      parentType = originalRootType.types.get(sourceParent),
-      fields = field.fields.map(rootFieldToSource),
-      targets = field.targets.map(_.map(sourceType)),
-      arguments = arguments,
-      directives =
-        if (composedDirectives.isEmpty) field.directives
-        else field.directives.filterNot(composedDirectives.contains)
-    )
-  }
-
-  def lookupFieldToSource(field: String): String =
-    sourceField(sourceQueryName, field)
-
-  def lookupArgumentsToSource(field: String, arguments: Map[String, InputValue]): Map[String, InputValue] =
-    arguments.map { case (name, value) =>
-      sourceArguments.getOrElse((sourceQueryName, field, name), name) -> value
-    }
-
-  def representationToSource(typeName: String, value: InputObjectValue): InputObjectValue =
-    if (renamesNothing) value
-    else mapRepresentation(typeName, value)
 
   private def mapRepresentation(typeName: String, value: InputObjectValue): InputObjectValue =
     InputObjectValue(value.fields.map {
@@ -177,82 +201,86 @@ private[gateway] final class SchemaMapping private (
         )
     })
 
-  private def transformDefinition(definition: Definition, fieldSets: DirectiveContext): Definition =
+  private def transformDefinition(definition: Definition, directiveContext: DirectiveContext): Definition =
     definition match {
       case value: SchemaDefinition          =>
         value.copy(
-          directives = transformDirectives(value.directives, Nil, fieldSets),
+          directives = transformDirectives(value.directives, Nil, directiveContext),
           query = value.query.map(clientType),
           mutation = value.mutation.map(clientType),
           subscription = value.subscription.map(clientType)
         )
       case value: DirectiveDefinition       =>
-        value.copy(args = value.args.map(transformInputValueDefinition(_, fieldSets)))
+        value.copy(args = value.args.map(transformInputValueDefinition(_, directiveContext)))
       case value: ObjectTypeDefinition      =>
         value.copy(
           name = clientType(value.name),
           implements = value.implements.map(transformNamedType),
-          directives = transformDirectives(value.directives, value.name :: Nil, fieldSets),
-          fields = value.fields.map(transformFieldDefinition(value.name, _, fieldSets))
+          directives = transformDirectives(value.directives, value.name :: Nil, directiveContext),
+          fields = value.fields.map(transformFieldDefinition(value.name, _, directiveContext))
         )
       case value: InterfaceTypeDefinition   =>
         value.copy(
           name = clientType(value.name),
           implements = value.implements.map(transformNamedType),
-          directives = transformDirectives(value.directives, value.name :: Nil, fieldSets),
-          fields = value.fields.map(transformFieldDefinition(value.name, _, fieldSets))
+          directives = transformDirectives(value.directives, value.name :: Nil, directiveContext),
+          fields = value.fields.map(transformFieldDefinition(value.name, _, directiveContext))
         )
       case value: InputObjectTypeDefinition =>
         value.copy(
           name = clientType(value.name),
-          directives = transformDirectives(value.directives, Nil, fieldSets),
-          fields = value.fields.map(transformInputValueDefinition(_, fieldSets))
+          directives = transformDirectives(value.directives, Nil, directiveContext),
+          fields = value.fields.map(transformInputValueDefinition(_, directiveContext))
         )
       case value: EnumTypeDefinition        =>
         value.copy(
           name = clientType(value.name),
-          directives = transformDirectives(value.directives, Nil, fieldSets),
-          enumValuesDefinition = transformEnumValues(value.enumValuesDefinition, fieldSets)
+          directives = transformDirectives(value.directives, Nil, directiveContext),
+          enumValuesDefinition = transformEnumValues(value.enumValuesDefinition, directiveContext)
         )
       case value: UnionTypeDefinition       =>
         value.copy(
           name = clientType(value.name),
-          directives = transformDirectives(value.directives, Nil, fieldSets),
+          directives = transformDirectives(value.directives, Nil, directiveContext),
           memberTypes = value.memberTypes.map(clientType)
         )
       case value: ScalarTypeDefinition      =>
-        value.copy(name = clientType(value.name), directives = transformDirectives(value.directives, Nil, fieldSets))
+        value.copy(
+          name = clientType(value.name),
+          directives = transformDirectives(value.directives, Nil, directiveContext)
+        )
       case other                            => other
     }
 
   private def transformEnumValues(
     values: List[EnumValueDefinition],
-    fieldSets: DirectiveContext
+    directiveContext: DirectiveContext
   ): List[EnumValueDefinition] =
     values.map(value =>
       value.copy(
-        directives = transformDirectives(value.directives, Nil, fieldSets)
+        directives = transformDirectives(value.directives, Nil, directiveContext)
       )
     )
 
   private def transformFieldDefinition(
     typeName: String,
     field: FieldDefinition,
-    fieldSets: DirectiveContext
+    directiveContext: DirectiveContext
   ): FieldDefinition = {
     val outputType = Type.innerType(field.ofType)
     field.copy(
       name = clientField(typeName, field.name),
       args = field.args.map { argument =>
-        transformInputValueDefinition(argument, fieldSets)
+        transformInputValueDefinition(argument, directiveContext)
           .copy(name = clientArgument(typeName, field.name, argument.name))
       },
       ofType = transformType(field.ofType),
-      directives = transformDirectives(field.directives, List(typeName, outputType), fieldSets).map { directive =>
-        if (fieldSets.names.listSize.contains(directive.name))
-          transformListSize(directive, typeName, field.name, outputType)
-        else directive
-      }
+      directives =
+        transformDirectives(field.directives, List(typeName, outputType), directiveContext).map { directive =>
+          if (directiveContext.names.listSize.contains(directive.name))
+            transformListSize(directive, typeName, field.name, outputType)
+          else directive
+        }
     )
   }
 
@@ -278,13 +306,13 @@ private[gateway] final class SchemaMapping private (
     })
   }
 
-  private def transformFromContext(directive: Directive, fieldSets: DirectiveContext): Directive =
+  private def transformFromContext(directive: Directive, directiveContext: DirectiveContext): Directive =
     directive.arguments
       .get("field")
       .collect { case StringValue(value) => value }
       .flatMap(SchemaComposer.parseContextSelection)
       .fold(directive) { case (name, selections) =>
-        val rewritten = fieldSets.contextTypes.getOrElse(name, Nil).map { parent =>
+        val rewritten = directiveContext.contextTypes.getOrElse(name, Nil).map { parent =>
           parent -> selections.map(transformFieldSetSelection(parent, _))
         }
         val distinct  = rewritten.map(_._2).distinct
@@ -310,11 +338,11 @@ private[gateway] final class SchemaMapping private (
   private def transformDirectives(
     directives: List[Directive],
     candidateTypes: List[String],
-    fieldSets: DirectiveContext
+    directiveContext: DirectiveContext
   ): List[Directive] =
     directives.map { directive =>
-      val names = fieldSets.names
-      if (names.fromContext.contains(directive.name)) transformFromContext(directive, fieldSets)
+      val names = directiveContext.names
+      if (names.fromContext.contains(directive.name)) transformFromContext(directive, directiveContext)
       else if (!names.fieldSetDirectives.contains(directive.name)) directive
       else
         directive.arguments.get("fields") match {
@@ -322,7 +350,7 @@ private[gateway] final class SchemaMapping private (
             SchemaComposer
               .parseFieldSet(value)
               .flatMap(selections =>
-                fieldSetStart(directive.name, candidateTypes, selections, names.provides).map(_ -> selections)
+                fieldSetParent(directive.name, candidateTypes, selections, names.provides).map(_ -> selections)
               )
               .fold(directive) { case (startType, selections) =>
                 directive.copy(arguments =
@@ -340,19 +368,20 @@ private[gateway] final class SchemaMapping private (
         }
     }
 
-  private def fieldSetStart(
+  private def fieldSetParent(
     directive: String,
     candidates: List[String],
     selections: List[Selection],
     provides: Set[String]
   ): Option[String] = {
+    // @provides selects on the return type; @key and @requires select on the parent type.
     val ordered =
       if (provides.contains(directive)) candidates.reverse
       else candidates
     ordered.find { candidate =>
-      val fields = originalRootType.types.get(candidate).toList.flatMap(_.allFields).map(_.name).toSet
+      val parent = originalRootType.types.get(candidate)
       selections.forall {
-        case field: Selection.Field => fields.contains(field.name)
+        case field: Selection.Field => parent.exists(tpe => tpe.getFieldOrNull(field.name) ne null)
         case _                      => true
       }
     }
@@ -385,11 +414,11 @@ private[gateway] final class SchemaMapping private (
 
   private def transformInputValueDefinition(
     value: InputValueDefinition,
-    fieldSets: DirectiveContext
+    directiveContext: DirectiveContext
   ): InputValueDefinition =
     value.copy(
       ofType = transformType(value.ofType),
-      directives = transformDirectives(value.directives, Nil, fieldSets)
+      directives = transformDirectives(value.directives, Nil, directiveContext)
     )
 
   private def transformType(tpe: Type): Type =
@@ -401,250 +430,12 @@ private[gateway] final class SchemaMapping private (
   private def transformNamedType(tpe: NamedType): NamedType =
     tpe.copy(name = clientType(tpe.name))
 
-  private[internal] def sourceFieldDefinition(typeName: String, field: String): Option[__Field] =
+  private def sourceFieldDefinition(typeName: String, field: String): Option[__Field] =
     originalRootType.types.get(typeName).flatMap(tpe => Option(tpe.getFieldOrNull(field)))
-
-  private[internal] def requiredSelectionToSource(
-    parentType: String,
-    selection: RequiredSelection
-  ): RequiredSelection = {
-    val sourceParent = sourceType(parentType)
-    val sourceName   = sourceField(parentType, selection.field)
-    val childType    = sourceFieldDefinition(sourceParent, sourceName).flatMap(_._type.innerType.name).getOrElse("")
-    RequiredSelection(
-      sourceName,
-      selection.responseName,
-      selection.children.map(requiredSelectionToSource(clientType(childType), _))
-    )
-  }
-
-  private[internal] def responseProjection(
-    client: List[Field],
-    executable: List[Field],
-    required: List[RequiredSelection] = Nil
-  ): ResponseProjection =
-    ResponseProjection.compile(client, executable, required, typeNames)
 
 }
 
 private[gateway] object SchemaMapping {
-
-  private final case class DirectiveContext(
-    names: SchemaComposer.FederationDirectiveNames,
-    contextTypes: Map[ContextName, List[String]]
-  )
-
-  private final case class CoordinateContext(
-    types: Map[String, __Type],
-    operationRoots: Set[String],
-    transportTypes: Set[String]
-  ) {
-    def isFederation: Boolean = transportTypes.nonEmpty
-  }
-
-  private sealed trait Coordinate {
-    def id: String
-    def display: String
-    def targetScope: String
-    def plural: String
-    final def exists(context: CoordinateContext): Boolean = targetExists(context, currentName)
-    def targetExists(context: CoordinateContext, target: String): Boolean
-
-    def restrictions(change: Change, context: CoordinateContext, prefix: String): List[String]
-
-    final def collision(context: CoordinateContext, target: String, prefix: String): Option[String] =
-      if (target != currentName && targetExists(context, target))
-        Some(s"$prefix $display is transformed to existing ${targetDescription(target)}.")
-      else None
-
-    def currentName: String
-    def targetDescription(target: String): String
-  }
-
-  private final case class TypeCoordinate(name: String) extends Coordinate {
-    val id          = s"type:$name"
-    val display     = s"Type '$name'"
-    val targetScope = "type"
-    val plural      = "Types"
-    val currentName = name
-
-    def targetExists(context: CoordinateContext, target: String): Boolean = context.types.contains(target)
-    def targetDescription(target: String): String                         = s"type '$target'"
-
-    def restrictions(change: Change, context: CoordinateContext, prefix: String): List[String] = {
-      val operation =
-        if (!context.operationRoots.contains(name)) Nil
-        else
-          change.renamed.fold(
-            List(s"$prefix Operation root type '$name' cannot be hidden.")
-          )(_ => List(s"$prefix Operation root type '$name' cannot be renamed."))
-      val transport =
-        if (context.transportTypes.contains(name))
-          List(s"$prefix Federation transport type '$name' cannot be transformed.")
-        else
-          change.renamed
-            .filter(context.transportTypes)
-            .toList
-            .map(target =>
-              s"$prefix Type '$name' cannot be transformed to reserved Federation transport type '$target'."
-            )
-      operation ::: transport
-    }
-  }
-
-  private final case class FieldCoordinate(typeName: String, name: String) extends Coordinate {
-    val id          = s"field:$typeName.$name"
-    val display     = s"Field '$typeName.$name'"
-    val targetScope = s"field:$typeName"
-    val plural      = "Fields"
-    val currentName = name
-
-    def targetExists(context: CoordinateContext, target: String): Boolean =
-      context.types.get(typeName).exists(_.allFields.exists(_.name == target))
-    def targetDescription(target: String): String                         = s"field '$target'"
-
-    def restrictions(change: Change, context: CoordinateContext, prefix: String): List[String] = {
-      val rootTransport = context.isFederation && context.operationRoots.contains(typeName)
-      if (context.transportTypes.contains(typeName) || rootTransport && federationRootFields.contains(name))
-        List(s"$prefix Federation transport field '$typeName.$name' cannot be transformed.")
-      else
-        change.renamed
-          .filter(target => rootTransport && federationRootFields.contains(target))
-          .toList
-          .map(target =>
-            s"$prefix Field '$typeName.$name' cannot be transformed to reserved Federation transport field '$target'."
-          )
-    }
-  }
-
-  private final case class ArgumentCoordinate(typeName: String, field: String, name: String) extends Coordinate {
-    val id          = s"argument:$typeName.$field.$name"
-    val display     = s"Argument '$typeName.$field($name:)'"
-    val targetScope = s"argument:$typeName.$field"
-    val plural      = "Arguments"
-    val currentName = name
-
-    private def definition(context: CoordinateContext, target: String = name): Option[__InputValue] =
-      context.types
-        .get(typeName)
-        .flatMap(tpe => Option(tpe.getFieldOrNull(field)))
-        .flatMap(_.allArgs.find(_.name == target))
-
-    def targetExists(context: CoordinateContext, target: String): Boolean =
-      definition(context, target).nonEmpty
-    def targetDescription(target: String): String                         = s"argument '$target'"
-
-    def restrictions(change: Change, context: CoordinateContext, prefix: String): List[String] = {
-      val required  =
-        if (
-          change.renamed.isEmpty && definition(context)
-            .exists(value => !value._type.isNullable && value.defaultValue.isEmpty)
-        )
-          List(s"$prefix Required argument '$typeName.$field($name:)' cannot be hidden.")
-        else Nil
-      val transport =
-        if (
-          context.transportTypes.contains(typeName) ||
-          context.isFederation && context.operationRoots.contains(typeName) && federationRootFields.contains(field)
-        ) List(s"$prefix Federation transport argument '$typeName.$field($name:)' cannot be transformed.")
-        else Nil
-      required ::: transport
-    }
-  }
-
-  private final case class InputFieldCoordinate(typeName: String, name: String) extends Coordinate {
-    val id          = s"input:$typeName.$name"
-    val display     = s"Input field '$typeName.$name'"
-    val targetScope = s"input:$typeName"
-    val plural      = "Input fields"
-    val currentName = name
-
-    private def definition(context: CoordinateContext): Option[__InputValue] =
-      context.types.get(typeName).flatMap(_.allInputFields.find(_.name == name))
-
-    def targetExists(context: CoordinateContext, target: String): Boolean =
-      context.types.get(typeName).exists(_.allInputFields.exists(_.name == target))
-    def targetDescription(target: String): String                         = s"field '$target'"
-
-    def restrictions(change: Change, context: CoordinateContext, prefix: String): List[String] = {
-      val required  =
-        if (
-          change.renamed.isEmpty && definition(context)
-            .exists(value => !value._type.isNullable && value.defaultValue.isEmpty)
-        )
-          List(s"$prefix Required input field '$typeName.$name' cannot be hidden.")
-        else Nil
-      val transport =
-        if (context.transportTypes.contains(typeName))
-          List(s"$prefix Federation transport input field '$typeName.$name' cannot be transformed.")
-        else Nil
-      required ::: transport
-    }
-  }
-
-  private final case class Change(coordinate: Coordinate, renamed: Option[String])
-
-  private val federationRootFields = Set("_entities", "_service")
-
-  private final case class Mappings(
-    typeNames: Map[String, String] = Map.empty,
-    fieldNames: Map[(String, String), String] = Map.empty,
-    argumentNames: Map[(String, String, String), String] = Map.empty,
-    hiddenTypeSources: Set[String] = Set.empty,
-    hiddenFieldSources: Set[(String, String)] = Set.empty,
-    hiddenArgumentSources: Set[(String, String, String)] = Set.empty,
-    hiddenInputFieldSources: Set[(String, String)] = Set.empty
-  ) {
-    def renamesNothing: Boolean =
-      typeNames.isEmpty && fieldNames.isEmpty && argumentNames.isEmpty
-
-    def nonEmpty: Boolean =
-      !renamesNothing || hiddenTypeSources.nonEmpty || hiddenFieldSources.nonEmpty || hiddenArgumentSources.nonEmpty ||
-        hiddenInputFieldSources.nonEmpty
-
-    def add(change: Change): Mappings =
-      (change.coordinate, change.renamed) match {
-        case (TypeCoordinate(name), Some(renamed))                 => copy(typeNames = typeNames.updated(name, renamed))
-        case (TypeCoordinate(name), None)                          => copy(hiddenTypeSources = hiddenTypeSources + name)
-        case (FieldCoordinate(tpe, name), Some(renamed))           =>
-          copy(fieldNames = fieldNames.updated(tpe -> name, renamed))
-        case (FieldCoordinate(tpe, name), None)                    =>
-          copy(hiddenFieldSources = hiddenFieldSources + (tpe -> name))
-        case (ArgumentCoordinate(tpe, field, name), Some(renamed)) =>
-          copy(argumentNames = argumentNames.updated((tpe, field, name), renamed))
-        case (ArgumentCoordinate(tpe, field, name), None)          =>
-          copy(hiddenArgumentSources = hiddenArgumentSources + ((tpe, field, name)))
-        case (InputFieldCoordinate(tpe, name), _)                  =>
-          copy(hiddenInputFieldSources = hiddenInputFieldSources + (tpe -> name))
-      }
-
-    def renamedType(name: String): String               = typeNames.getOrElse(name, name)
-    def renamedField(tpe: String, name: String): String = fieldNames.getOrElse(tpe -> name, name)
-
-    def hiddenTypes: Set[String]                       = hiddenTypeSources.map(renamedType)
-    def hiddenFields: Set[(String, String)]            = hiddenFieldSources.map { case (tpe, name) =>
-      renamedType(tpe) -> renamedField(tpe, name)
-    }
-    def hiddenArguments: Set[(String, String, String)] = hiddenArgumentSources.map { case (tpe, field, name) =>
-      (renamedType(tpe), renamedField(tpe, field), argumentNames.getOrElse((tpe, field, name), name))
-    }
-    def hiddenInputFields: Set[(String, String)]       = hiddenInputFieldSources.map { case (tpe, name) =>
-      renamedType(tpe) -> name
-    }
-
-  }
-
-  private def normalize(transformation: SchemaTransformation): Change =
-    transformation match {
-      case RenameType(name, renamed)                 => Change(TypeCoordinate(name), Some(renamed))
-      case HideType(name)                            => Change(TypeCoordinate(name), None)
-      case RenameField(tpe, name, renamed)           => Change(FieldCoordinate(tpe, name), Some(renamed))
-      case HideField(tpe, name)                      => Change(FieldCoordinate(tpe, name), None)
-      case RenameArgument(tpe, field, name, renamed) =>
-        Change(ArgumentCoordinate(tpe, field, name), Some(renamed))
-      case HideArgument(tpe, field, name)            => Change(ArgumentCoordinate(tpe, field, name), None)
-      case HideInputField(tpe, name)                 => Change(InputFieldCoordinate(tpe, name), None)
-    }
 
   def compile(
     source: String,
@@ -657,7 +448,7 @@ private[gateway] object SchemaMapping {
     val operationRoots =
       rootType.queryType.name.toSet ++ rootType.mutationType.flatMap(_.name).toSet ++
         rootType.subscriptionType.flatMap(_.name).toSet
-    val context        = CoordinateContext(
+    val context        = ValidationContext(
       rootType.types,
       operationRoots,
       SchemaComposer.federationTransportTypes(document, federation)
@@ -671,7 +462,7 @@ private[gateway] object SchemaMapping {
         s"$prefix ${coordinate.display} does not exist."
     }
     val restrictions               = changes.flatMap(change => change.coordinate.restrictions(change, context, prefix))
-    val hiddenReferences           = referencedHiddenCoordinates(
+    val hiddenReferences           = referencedHiddenInputFields(
       document,
       rootType,
       mappings.hiddenInputFieldSources
@@ -710,41 +501,41 @@ private[gateway] object SchemaMapping {
     else Right(new SchemaMapping(rootType, mappings))
   }
 
-  private[gateway] final case class InputCoordinateReferences(
+  private[composition] final case class InputReferences(
     inputTypes: Set[String] = Set.empty,
     enumValues: Set[(String, String)] = Set.empty,
     inputFields: Set[(String, String)] = Set.empty
   ) {
-    def ++(that: InputCoordinateReferences): InputCoordinateReferences =
-      InputCoordinateReferences(
+    def ++(that: InputReferences): InputReferences =
+      InputReferences(
         inputTypes ++ that.inputTypes,
         enumValues ++ that.enumValues,
         inputFields ++ that.inputFields
       )
   }
 
-  private[gateway] def inputCoordinateReferences(tpe: __Type, value: InputValue): InputCoordinateReferences = {
-    def loop(expected: __Type, input: InputValue): InputCoordinateReferences =
+  private[composition] def inputReferences(tpe: __Type, value: InputValue): InputReferences = {
+    def loop(expected: __Type, input: InputValue): InputReferences =
       expected.kind match {
-        case __TypeKind.NON_NULL     => expected.ofType.fold(InputCoordinateReferences())(loop(_, input))
+        case __TypeKind.NON_NULL     => expected.ofType.fold(InputReferences())(loop(_, input))
         case __TypeKind.LIST         =>
-          expected.ofType.fold(InputCoordinateReferences()) { nested =>
+          expected.ofType.fold(InputReferences()) { nested =>
             input match {
-              case InputListValue(values) => values.foldLeft(InputCoordinateReferences())(_ ++ loop(nested, _))
-              case NullValue              => InputCoordinateReferences()
+              case InputListValue(values) => values.foldLeft(InputReferences())(_ ++ loop(nested, _))
+              case NullValue              => InputReferences()
               case singleton              => loop(nested, singleton)
             }
           }
         case __TypeKind.INPUT_OBJECT =>
           val typeName = expected.name.getOrElse("")
-          val own      = InputCoordinateReferences(inputTypes = Set(typeName))
+          val own      = InputReferences(inputTypes = Set(typeName))
           input match {
             case InputObjectValue(fields) =>
               fields.iterator.foldLeft(own) { case (result, (name, nested)) =>
-                val fieldReference  = InputCoordinateReferences(inputFields = Set(typeName -> name))
+                val fieldReference  = InputReferences(inputFields = Set(typeName -> name))
                 val nestedReference = expected.allInputFields
                   .find(_.name == name)
-                  .fold(InputCoordinateReferences())(field => loop(field._type, nested))
+                  .fold(InputReferences())(field => loop(field._type, nested))
                 result ++ fieldReference ++ nestedReference
               }
             case _                        => own
@@ -756,48 +547,273 @@ private[gateway] object SchemaMapping {
             case StringValue(name) => Some(name)
             case _                 => None
           }
-          InputCoordinateReferences(
+          InputReferences(
             inputTypes = Set(typeName),
             enumValues = valueName.map(typeName -> _).toSet
           )
         case _                       =>
-          InputCoordinateReferences(inputTypes = expected.name.toSet)
+          InputReferences(inputTypes = expected.name.toSet)
       }
 
     loop(tpe, value)
   }
 
-  private def referencedHiddenCoordinates(
+  private final case class ArgumentKey(typeName: String, fieldName: String, argumentName: String)
+
+  private final case class DirectiveContext(
+    names: SchemaComposer.FederationDirectiveNames,
+    contextTypes: Map[ContextName, List[String]]
+  )
+
+  private final case class ValidationContext(
+    types: Map[String, __Type],
+    operationRoots: Set[String],
+    transportTypes: Set[String]
+  ) {
+    def isFederation: Boolean = transportTypes.nonEmpty
+  }
+
+  /**
+   * A schema element targeted by a rename or hide operation, such as Product.price or Query.product(id:).
+   */
+  private sealed trait Coordinate {
+    def id: String
+    def display: String
+    def targetScope: String
+    def plural: String
+    final def exists(context: ValidationContext): Boolean = targetExists(context, currentName)
+    def targetExists(context: ValidationContext, target: String): Boolean
+
+    def restrictions(change: Change, context: ValidationContext, prefix: String): List[String]
+
+    final def collision(context: ValidationContext, target: String, prefix: String): Option[String] =
+      if (target != currentName && targetExists(context, target))
+        Some(s"$prefix $display is transformed to existing ${targetDescription(target)}.")
+      else None
+
+    def currentName: String
+    def targetDescription(target: String): String
+  }
+
+  private final case class TypeCoordinate(name: String) extends Coordinate {
+    val id          = s"type:$name"
+    val display     = s"Type '$name'"
+    val targetScope = "type"
+    val plural      = "Types"
+    val currentName = name
+
+    def targetExists(context: ValidationContext, target: String): Boolean = context.types.contains(target)
+    def targetDescription(target: String): String                         = s"type '$target'"
+
+    def restrictions(change: Change, context: ValidationContext, prefix: String): List[String] = {
+      val operation =
+        if (!context.operationRoots.contains(name)) Nil
+        else
+          change.renamed.fold(
+            List(s"$prefix Operation root type '$name' cannot be hidden.")
+          )(_ => List(s"$prefix Operation root type '$name' cannot be renamed."))
+      val transport =
+        if (context.transportTypes.contains(name))
+          List(s"$prefix Federation transport type '$name' cannot be transformed.")
+        else
+          change.renamed
+            .filter(context.transportTypes)
+            .toList
+            .map(target =>
+              s"$prefix Type '$name' cannot be transformed to reserved Federation transport type '$target'."
+            )
+      operation ::: transport
+    }
+  }
+
+  private final case class FieldCoordinate(typeName: String, name: String) extends Coordinate {
+    val id          = s"field:$typeName.$name"
+    val display     = s"Field '$typeName.$name'"
+    val targetScope = s"field:$typeName"
+    val plural      = "Fields"
+    val currentName = name
+
+    def targetExists(context: ValidationContext, target: String): Boolean =
+      context.types.get(typeName).exists(_.allFields.exists(_.name == target))
+    def targetDescription(target: String): String                         = s"field '$target'"
+
+    def restrictions(change: Change, context: ValidationContext, prefix: String): List[String] = {
+      val rootTransport = context.isFederation && context.operationRoots.contains(typeName)
+      if (context.transportTypes.contains(typeName) || rootTransport && federationRootFields.contains(name))
+        List(s"$prefix Federation transport field '$typeName.$name' cannot be transformed.")
+      else
+        change.renamed
+          .filter(target => rootTransport && federationRootFields.contains(target))
+          .toList
+          .map(target =>
+            s"$prefix Field '$typeName.$name' cannot be transformed to reserved Federation transport field '$target'."
+          )
+    }
+  }
+
+  private final case class ArgumentCoordinate(typeName: String, field: String, name: String) extends Coordinate {
+    val id          = s"argument:$typeName.$field.$name"
+    val display     = s"Argument '$typeName.$field($name:)'"
+    val targetScope = s"argument:$typeName.$field"
+    val plural      = "Arguments"
+    val currentName = name
+
+    private def definition(context: ValidationContext, target: String = name): Option[__InputValue] =
+      context.types
+        .get(typeName)
+        .flatMap(tpe => Option(tpe.getFieldOrNull(field)))
+        .flatMap(_.allArgs.find(_.name == target))
+
+    def targetExists(context: ValidationContext, target: String): Boolean =
+      definition(context, target).nonEmpty
+    def targetDescription(target: String): String                         = s"argument '$target'"
+
+    def restrictions(change: Change, context: ValidationContext, prefix: String): List[String] = {
+      val required  =
+        if (
+          change.renamed.isEmpty && definition(context)
+            .exists(value => !value._type.isNullable && value.defaultValue.isEmpty)
+        )
+          List(s"$prefix Required argument '$typeName.$field($name:)' cannot be hidden.")
+        else Nil
+      val transport =
+        if (
+          context.transportTypes.contains(typeName) ||
+          context.isFederation && context.operationRoots.contains(typeName) && federationRootFields.contains(field)
+        ) List(s"$prefix Federation transport argument '$typeName.$field($name:)' cannot be transformed.")
+        else Nil
+      required ::: transport
+    }
+  }
+
+  private final case class InputFieldCoordinate(typeName: String, name: String) extends Coordinate {
+    val id          = s"input:$typeName.$name"
+    val display     = s"Input field '$typeName.$name'"
+    val targetScope = s"input:$typeName"
+    val plural      = "Input fields"
+    val currentName = name
+
+    private def definition(context: ValidationContext): Option[__InputValue] =
+      context.types.get(typeName).flatMap(_.allInputFields.find(_.name == name))
+
+    def targetExists(context: ValidationContext, target: String): Boolean =
+      context.types.get(typeName).exists(_.allInputFields.exists(_.name == target))
+    def targetDescription(target: String): String                         = s"field '$target'"
+
+    def restrictions(change: Change, context: ValidationContext, prefix: String): List[String] = {
+      val required  =
+        if (
+          change.renamed.isEmpty && definition(context)
+            .exists(value => !value._type.isNullable && value.defaultValue.isEmpty)
+        )
+          List(s"$prefix Required input field '$typeName.$name' cannot be hidden.")
+        else Nil
+      val transport =
+        if (context.transportTypes.contains(typeName))
+          List(s"$prefix Federation transport input field '$typeName.$name' cannot be transformed.")
+        else Nil
+      required ::: transport
+    }
+  }
+
+  // A missing replacement name means the schema element is hidden.
+  private final case class Change(coordinate: Coordinate, renamed: Option[String])
+
+  private val federationRootFields = Set("_entities", "_service")
+
+  private final case class Mappings(
+    typeNames: Map[String, String] = Map.empty,
+    fieldNames: Map[(String, String), String] = Map.empty,
+    argumentNames: Map[ArgumentKey, String] = Map.empty,
+    hiddenTypeSources: Set[String] = Set.empty,
+    hiddenFieldSources: Set[(String, String)] = Set.empty,
+    hiddenArgumentSources: Set[(String, String, String)] = Set.empty,
+    hiddenInputFieldSources: Set[(String, String)] = Set.empty
+  ) {
+    def renamesNothing: Boolean =
+      typeNames.isEmpty && fieldNames.isEmpty && argumentNames.isEmpty
+
+    def nonEmpty: Boolean =
+      !renamesNothing || hiddenTypeSources.nonEmpty || hiddenFieldSources.nonEmpty || hiddenArgumentSources.nonEmpty ||
+        hiddenInputFieldSources.nonEmpty
+
+    def add(change: Change): Mappings =
+      (change.coordinate, change.renamed) match {
+        case (TypeCoordinate(name), Some(renamed))                 => copy(typeNames = typeNames.updated(name, renamed))
+        case (TypeCoordinate(name), None)                          => copy(hiddenTypeSources = hiddenTypeSources + name)
+        case (FieldCoordinate(tpe, name), Some(renamed))           =>
+          copy(fieldNames = fieldNames.updated(tpe -> name, renamed))
+        case (FieldCoordinate(tpe, name), None)                    =>
+          copy(hiddenFieldSources = hiddenFieldSources + (tpe -> name))
+        case (ArgumentCoordinate(tpe, field, name), Some(renamed)) =>
+          copy(argumentNames = argumentNames.updated(ArgumentKey(tpe, field, name), renamed))
+        case (ArgumentCoordinate(tpe, field, name), None)          =>
+          copy(hiddenArgumentSources = hiddenArgumentSources + ((tpe, field, name)))
+        case (InputFieldCoordinate(tpe, name), _)                  =>
+          copy(hiddenInputFieldSources = hiddenInputFieldSources + (tpe -> name))
+      }
+
+    def renamedType(name: String): String               = typeNames.getOrElse(name, name)
+    def renamedField(tpe: String, name: String): String = fieldNames.getOrElse(tpe -> name, name)
+
+    def hiddenTypes: Set[String]                       = hiddenTypeSources.map(renamedType)
+    def hiddenFields: Set[(String, String)]            = hiddenFieldSources.map { case (tpe, name) =>
+      renamedType(tpe) -> renamedField(tpe, name)
+    }
+    def hiddenArguments: Set[(String, String, String)] = hiddenArgumentSources.map { case (tpe, field, name) =>
+      (renamedType(tpe), renamedField(tpe, field), argumentNames.getOrElse(ArgumentKey(tpe, field, name), name))
+    }
+    def hiddenInputFields: Set[(String, String)]       = hiddenInputFieldSources.map { case (tpe, name) =>
+      renamedType(tpe) -> name
+    }
+
+  }
+
+  private def normalize(transformation: SchemaTransformation): Change =
+    transformation match {
+      case RenameType(name, renamed)                 => Change(TypeCoordinate(name), Some(renamed))
+      case HideType(name)                            => Change(TypeCoordinate(name), None)
+      case RenameField(tpe, name, renamed)           => Change(FieldCoordinate(tpe, name), Some(renamed))
+      case HideField(tpe, name)                      => Change(FieldCoordinate(tpe, name), None)
+      case RenameArgument(tpe, field, name, renamed) =>
+        Change(ArgumentCoordinate(tpe, field, name), Some(renamed))
+      case HideArgument(tpe, field, name)            => Change(ArgumentCoordinate(tpe, field, name), None)
+      case HideInputField(tpe, name)                 => Change(InputFieldCoordinate(tpe, name), None)
+    }
+
+  private def referencedHiddenInputFields(
     document: Document,
     rootType: RootType,
     hiddenInputFields: Set[(String, String)]
-  ): Set[(String, String)] = {
-    def directiveValues(directives: List[Directive]): List[(__Type, InputValue)] =
-      directives.flatMap { directive =>
-        rootType.additionalDirectives.find(_.name == directive.name).toList.flatMap { definition =>
-          directive.arguments.toList.flatMap { case (name, value) =>
-            definition.allArgs.find(_.name == name).map(argument => argument._type -> value)
+  ): Set[(String, String)] =
+    if (hiddenInputFields.isEmpty) Set.empty
+    else {
+      def directiveValues(directives: List[Directive]): List[(__Type, InputValue)] =
+        directives.flatMap { directive =>
+          rootType.additionalDirectives.find(_.name == directive.name).toList.flatMap { definition =>
+            directive.arguments.toList.flatMap { case (name, value) =>
+              definition.allArgs.find(_.name == name).map(argument => argument._type -> value)
+            }
           }
         }
+
+      def inputValues(value: __InputValue): List[(__Type, InputValue)] =
+        directiveValues(value.directives.getOrElse(Nil)) ::: value.parsedDefaultValue.map(value._type -> _).toList
+
+      val schemaDirectives = document.schemaDefinition.toList.flatMap(_.directives)
+      val typeValues       = rootType.types.valuesIterator.flatMap { tpe =>
+        directiveValues(tpe.directives.getOrElse(Nil)) :::
+          tpe.allFields.flatMap(field =>
+            directiveValues(field.directives.getOrElse(Nil)) ::: field.allArgs.flatMap(inputValues)
+          ) ::: tpe.allInputFields.flatMap(inputValues) :::
+          tpe.allEnumValues.flatMap(value => directiveValues(value.directives.getOrElse(Nil)))
       }
+      val definitionValues = rootType.additionalDirectives.iterator.flatMap(_.allArgs.flatMap(inputValues))
+      val found            = (directiveValues(schemaDirectives).iterator ++ typeValues ++ definitionValues).map {
+        case (tpe, value) => inputReferences(tpe, value)
+      }
+        .foldLeft(InputReferences())(_ ++ _)
 
-    def inputValues(value: __InputValue): List[(__Type, InputValue)] =
-      directiveValues(value.directives.getOrElse(Nil)) ::: value.parsedDefaultValue.map(value._type -> _).toList
-
-    val schemaDirectives = document.schemaDefinition.toList.flatMap(_.directives)
-    val typeValues       = rootType.types.valuesIterator.flatMap { tpe =>
-      directiveValues(tpe.directives.getOrElse(Nil)) :::
-        tpe.allFields.flatMap(field =>
-          directiveValues(field.directives.getOrElse(Nil)) ::: field.allArgs.flatMap(inputValues)
-        ) ::: tpe.allInputFields.flatMap(inputValues) :::
-        tpe.allEnumValues.flatMap(value => directiveValues(value.directives.getOrElse(Nil)))
+      found.inputFields.filter(hiddenInputFields)
     }
-    val definitionValues = rootType.additionalDirectives.iterator.flatMap(_.allArgs.flatMap(inputValues))
-    val found            = (directiveValues(schemaDirectives).iterator ++ typeValues ++ definitionValues).map {
-      case (tpe, value) => inputCoordinateReferences(tpe, value)
-    }
-      .foldLeft(InputCoordinateReferences())(_ ++ _)
-
-    found.inputFields.filter(hiddenInputFields)
-  }
 }

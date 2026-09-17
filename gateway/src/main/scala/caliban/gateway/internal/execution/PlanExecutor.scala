@@ -45,7 +45,7 @@ private[gateway] final class PlanExecutor[-R](
     PlanExecutionCache.memoize(cache.roots, fetch.id) {
       val mapping    = graph.schemaMapping(fetch.source)
       val executable = fetch.selections.map(graph.prepareField(fetch.source, _))
-      val downstream = executable.map(mapping.rootFieldToSource)
+      val downstream = executable.map(mapping.fieldToSource)
       val operation  = OperationDefinition(
         operationType,
         operationName,
