@@ -15,53 +15,61 @@ import scala.collection.mutable
 private[gateway] final class ResponseProjection private (
   fields: java.util.HashMap[String, ResponseProjection.Entry],
   typeNames: Map[String, String],
-  typenameMappings: Int
+  typenameCount: Int
 ) {
-  private val walk = {
+  def apply(value: ResponseValue): ResponseValue = project(value, restoresNames)
+
+  def path(value: List[PathValue]): List[PathValue] = value match {
+    case PathValue.Key(name) :: tail    =>
+      val entry = fields.get(name)
+      if ((entry eq null) || (entry.path eq null)) value else PathValue.Key(entry.clientName) :: entry.path.path(tail)
+    case PathValue.Index(index) :: tail => PathValue.Index(index) :: path(tail)
+    case _                              => value
+  }
+
+  private val traversesChildren = {
     val entries = fields.values().iterator()
     var found   = false
     while (!found && entries.hasNext) found = entries.next().value.active
     found
   }
 
-  private val active: Boolean = walk || typenameMappings > 0
+  private val active: Boolean = traversesChildren || typenameCount > 0
 
   private val restoresNames: Boolean = {
     val entries = fields.entrySet().iterator()
     var found   = false
     while (!found && entries.hasNext) {
       val entry = entries.next()
-      found = entry.getKey != entry.getValue.name || entry.getValue.value.restoresNames
+      found = entry.getKey != entry.getValue.clientName || entry.getValue.value.restoresNames
     }
     found
   }
-
-  def apply(value: ResponseValue): ResponseValue = project(value, restoresNames)
 
   private def project(value: ResponseValue, restore: Boolean): ResponseValue =
     if (!active && !restore) value
     else
       value match {
-        case StringValue(name) if typenameMappings > 0 =>
+        case StringValue(name) if typenameCount > 0 =>
           var translated = name
           var i          = 0
-          while (i < typenameMappings) {
+          while (i < typenameCount) {
             translated = typeNames.getOrElse(translated, translated)
             i += 1
           }
           StringValue(translated)
-        case _                                         => mapObject(value, restore)
+        case _                                      => projectChildren(value, restore)
       }
 
-  private def mapObject(value: ResponseValue, restore: Boolean): ResponseValue =
-    if (!walk && !restore) value
+  private def projectChildren(value: ResponseValue, restore: Boolean): ResponseValue =
+    if (!traversesChildren && !restore) value
     else
       value match {
         case ObjectValue(values) if restore =>
           val restored = mutable.LinkedHashMap.empty[String, ResponseValue]
           values.foreach { case (name, nested) =>
             val entry       = fields.get(name)
-            val clientName  = if (entry eq null) name else entry.name
+            val clientName  = if (entry eq null) name else entry.clientName
             val clientValue = if (entry eq null) nested else entry.value.project(nested, entry.path ne null)
             restored.update(
               clientName,
@@ -74,24 +82,13 @@ private[gateway] final class ResponseProjection private (
             val entry = fields.get(field._1)
             if ((entry eq null) || !entry.value.active) field else field._1 -> entry.value.project(field._2, false)
           })
-        case ListValue(values)              => ListValue(values.map(mapObject(_, restore)))
+        case ListValue(values)              => ListValue(values.map(projectChildren(_, restore)))
         case other                          => other
       }
 
-  def path(value: List[PathValue]): List[PathValue] = value match {
-    case PathValue.Key(name) :: tail    =>
-      val entry = fields.get(name)
-      if ((entry eq null) || (entry.path eq null)) value else PathValue.Key(entry.name) :: entry.path.path(tail)
-    case PathValue.Index(index) :: tail => PathValue.Index(index) :: path(tail)
-    case _                              => value
-  }
 }
 
 private[gateway] object ResponseProjection {
-  private final case class Entry(name: String, value: ResponseProjection, path: ResponseProjection)
-  private val emptyFields = new java.util.HashMap[String, Entry]
-  private val identity    = new ResponseProjection(emptyFields, Map.empty, 0)
-
   def compile(
     client: List[Field],
     executable: List[Field],
@@ -102,10 +99,10 @@ private[gateway] object ResponseProjection {
       client: List[Field],
       executable: List[Field],
       required: List[RequiredSelection],
-      typenames: Int = 0
+      typenameCount: Int = 0
     ): ResponseProjection = if (client.isEmpty && executable.isEmpty && required.isEmpty) {
-      if (typenames == 0) identity
-      else new ResponseProjection(emptyFields, typeNames, typenames)
+      if (typenameCount == 0) identity
+      else new ResponseProjection(emptyFields, typeNames, typenameCount)
     } else {
       val paired       = executable.zip(client).groupBy(_._1.aliasedName)
       val requirements = required.groupBy(_.responseName)
@@ -128,9 +125,13 @@ private[gateway] object ResponseProjection {
         }
         fields.put(name, Entry(matches.headOption.fold(name)(_._2.aliasedName), child, path))
       }
-      new ResponseProjection(fields, typeNames, typenames)
+      new ResponseProjection(fields, typeNames, typenameCount)
     }
 
     build(client, executable, required)
   }
+
+  private final case class Entry(clientName: String, value: ResponseProjection, path: ResponseProjection)
+  private val emptyFields = new java.util.HashMap[String, Entry]
+  private val identity    = new ResponseProjection(emptyFields, Map.empty, 0)
 }

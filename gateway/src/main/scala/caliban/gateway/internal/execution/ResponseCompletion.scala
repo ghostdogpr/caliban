@@ -20,22 +20,25 @@ private[gateway] final class ResponseCompletion(
   typenameSelections: List[TypenameSelection],
   fetchedFields: FetchedFields = null
 ) {
-  private[this] val hasFetched = fetchedFields ne null
-  private[this] val compiled   = new AtomicReference[List[(List[Field], Array[CompiledField])]](Nil)
-
   def complete(fields: List[Field], value: ResponseValue, errors: List[CalibanError]): Completion = {
-    val walk   = new Walk(ErrorPathIndex(errors))
-    val result = walk.completeObject(compiledRoot(fields), value, Nil, null)
-    val found  = walk.errors.toList
+    val completer = new Completer(ErrorPathIndex(errors))
+    val result    = completer.completeObject(rootFields(fields), value, Nil, null)
+    val found     = completer.errors.toList
     if (result eq null) BubbleNull(found) else Completed(result, found)
   }
 
-  private def compiledRoot(fields: List[Field]): Array[CompiledField] =
-    compiled.get.find(_._1 eq fields) match {
+  private val hasFetchedFields = fetchedFields ne null
+  private val compiledRoots    = new AtomicReference[List[(List[Field], Array[CompiledField])]](Nil)
+
+  // Cached plans reuse the same selection lists, so root lookup intentionally uses reference identity.
+  private def rootFields(fields: List[Field]): Array[CompiledField] =
+    compiledRoots.get.find(_._1 eq fields) match {
       case Some((_, root)) => root
       case None            =>
         val root = compileFields(fields, fetchedFields, null, Vector.empty)
-        compiled.updateAndGet(current => if (current.exists(_._1 eq fields)) current else (fields, root) :: current)
+        compiledRoots.updateAndGet(current =>
+          if (current.exists(_._1 eq fields)) current else (fields, root) :: current
+        )
         root
     }
 
@@ -63,12 +66,12 @@ private[gateway] final class ResponseCompletion(
     responsePath: Vector[String]
   ): CompiledField = {
     val name         = field.aliasedName
-    val fieldFetched =
+    val fetchedChild =
       if ((fetched eq null) || (field.fields.isEmpty && (field._condition.isEmpty || (runtimeType eq null)))) null
       else fetched.child(name)
-    val unselected   =
-      field._condition.nonEmpty && hasFetched && (runtimeType ne null) && !fieldSelected(
-        fieldFetched,
+    val unfetched    =
+      field._condition.nonEmpty && hasFetchedFields && (runtimeType ne null) && !wasFetched(
+        fetchedChild,
         field,
         runtimeType
       )
@@ -76,8 +79,8 @@ private[gateway] final class ResponseCompletion(
       field,
       name,
       PathValue.Key(name),
-      unselected,
-      compileType(field.fieldType, field, fieldFetched, responsePath :+ name)
+      unfetched,
+      compileType(field.fieldType, field, fetchedChild, responsePath :+ name)
     )
   }
 
@@ -127,7 +130,7 @@ private[gateway] final class ResponseCompletion(
     )
   }
 
-  private def fieldSelected(node: FetchedFields, field: Field, typeName: String): Boolean = {
+  private def wasFetched(node: FetchedFields, field: Field, typeName: String): Boolean = {
     if (node eq null) return false
     var remaining = node.fields
     while (remaining ne Nil) {
@@ -138,7 +141,11 @@ private[gateway] final class ResponseCompletion(
     false
   }
 
-  private final class Walk(sourceErrors: ErrorPathIndex) {
+  /**
+   * Paths are accumulated in reverse order. A Scala null signals a non-null violation that must bubble;
+   * NullValue is a completed GraphQL null at a nullable boundary.
+   */
+  private final class Completer(sourceErrors: ErrorPathIndex) {
     val errors = new mutable.ListBuffer[CalibanError.ExecutionError]
 
     def completeObject(
@@ -155,7 +162,7 @@ private[gateway] final class ResponseCompletion(
           var i         = 0
           while (i < fields.length) {
             val field  = fields(i)
-            val found  = if (field.unselected) NullValue else lookup.getOrNull(field.name)
+            val found  = if (field.unfetched) NullValue else lookup.getOrNull(field.name)
             val result =
               if (found ne null) completeValue(field.tpe, field, found, path, field.key)
               else {
@@ -223,11 +230,11 @@ private[gateway] final class ResponseCompletion(
         case obj: ObjectValue => IndexedFields(obj)
         case _                => null
       }
-      val runtime = runtimeType(indexed, tpe.runtimeTypes)
-      if ((runtime ne null) && (tpe.possible.isEmpty || tpe.possible.contains(runtime)))
+      val runtime = runtimeType(indexed, tpe.typenameFields)
+      if ((runtime ne null) && (tpe.possibleTypes.isEmpty || tpe.possibleTypes.contains(runtime)))
         completeNested(tpe.fields(runtime), value, path, indexed)
-      else if ((runtime eq null) && !tpe.requiresRuntime)
-        completeNested(tpe.fields(tpe.defaultType), value, path, indexed)
+      else if ((runtime eq null) && !tpe.requiresTypename)
+        completeNested(tpe.fields(tpe.declaredType), value, path, indexed)
       else invalid(path)
     }
 
@@ -262,9 +269,9 @@ private[gateway] final class ResponseCompletion(
       NullValue
     }
 
-    private def runtimeType(value: IndexedFields, runtimeTypes: List[String]): String = {
+    private def runtimeType(value: IndexedFields, typenameFields: List[String]): String = {
       if (value eq null) return null
-      var remaining = runtimeTypes
+      var remaining = typenameFields
       while (remaining ne Nil) {
         value.getOrNull(remaining.head) match {
           case StringValue(name) => return name
@@ -299,6 +306,25 @@ private[gateway] object ResponseCompletion {
     new ResponseCompletion(plan.typenameSelections, if (nonEmpty) root else null)
   }
 
+  sealed trait Completion {
+    def errors: List[CalibanError.ExecutionError]
+    def bubblesNull: Boolean
+    def toResponseValue: ResponseValue
+  }
+
+  final case class Completed(value: ResponseValue, errors: List[CalibanError.ExecutionError]) extends Completion {
+    def bubblesNull: Boolean           = false
+    def toResponseValue: ResponseValue = value
+  }
+
+  /**
+   * A non-null violation that must propagate to the nearest nullable boundary.
+   */
+  final case class BubbleNull(errors: List[CalibanError.ExecutionError]) extends Completion {
+    def bubblesNull: Boolean           = true
+    def toResponseValue: ResponseValue = NullValue
+  }
+
   private[execution] final class FetchedFields {
     private val children    = new java.util.HashMap[String, FetchedFields](8)
     var fields: List[Field] = Nil
@@ -319,7 +345,7 @@ private[gateway] object ResponseCompletion {
     val source: Field,
     val name: String,
     val key: PathValue,
-    val unselected: Boolean,
+    val unfetched: Boolean,
     val tpe: CompiledType
   )
 
@@ -332,16 +358,16 @@ private[gateway] object ResponseCompletion {
   private final class ObjectType(val fields: Array[CompiledField]) extends CompiledType
 
   private final class AbstractType(
-    val possible: Set[String],
-    val runtimeTypes: List[String],
-    val requiresRuntime: Boolean,
-    val defaultType: String,
+    val possibleTypes: Set[String],
+    val typenameFields: List[String],
+    val requiresTypename: Boolean,
+    val declaredType: String,
     compile: String => Array[CompiledField]
   ) extends CompiledType {
     private val byType = new ConcurrentHashMap[String, Array[CompiledField]]
 
     def fields(typeName: String): Array[CompiledField] =
-      if (possible.contains(typeName) || typeName == defaultType) byType.computeIfAbsent(typeName, compile(_))
+      if (possibleTypes.contains(typeName) || typeName == declaredType) byType.computeIfAbsent(typeName, compile(_))
       else compile(typeName)
   }
 
@@ -399,268 +425,5 @@ private[gateway] object ResponseCompletion {
           nonEmpty = true
         )
   }
-
-  sealed trait Completion {
-    def errors: List[CalibanError.ExecutionError]
-    def bubblesNull: Boolean
-    def toResponseValue: ResponseValue
-  }
-
-  final case class Completed(value: ResponseValue, errors: List[CalibanError.ExecutionError]) extends Completion {
-    def bubblesNull: Boolean           = false
-    def toResponseValue: ResponseValue = value
-  }
-
-  /**
-   * A non-null violation that must propagate to the nearest nullable boundary.
-   */
-  final case class BubbleNull(errors: List[CalibanError.ExecutionError]) extends Completion {
-    def bubblesNull: Boolean           = true
-    def toResponseValue: ResponseValue = NullValue
-  }
-}
-
-/**
- * Ordered response merging. Root merges retain independent non-null results;
- * entity patches overwrite fetched values, while blocked patches only fill missing values.
- */
-private[gateway] object ResponseMerge {
-  def applyPatches(
-    value: ResponseValue,
-    patches: List[(List[PathValue], ResponseValue)]
-  ): ResponseValue =
-    patches match {
-      case Nil                  => value
-      case (path, patch) :: Nil => mergeAt(value, path, patch)
-      case _                    =>
-        val root = new PatchNode
-        patches.foreach { case (path, patch) => root.add(path, patch) }
-        root.patch(value)
-    }
-
-  private sealed trait PatchEntry
-
-  private final case class PatchValue(value: ResponseValue) extends PatchEntry
-
-  private final class PatchNode {
-    private[this] var entries: List[PatchEntry] = Nil
-
-    def add(path: List[PathValue], patch: ResponseValue): Unit =
-      path match {
-        case Nil             => entries = PatchValue(patch) :: entries
-        case segment :: rest =>
-          val group = entries match {
-            case (group: PatchGroup) :: _ => group
-            case _                        =>
-              val created = new PatchGroup
-              entries = created :: entries
-              created
-          }
-          group.nodeAt(segment).add(rest, patch)
-      }
-
-    def patch(value: ResponseValue): ResponseValue =
-      entries.foldRight(value) {
-        case (group: PatchGroup, current) => group.patch(current)
-        case (PatchValue(patch), current) => mergeObject(current, patch)
-      }
-  }
-
-  private final class PatchGroup extends PatchEntry {
-    private[this] var keys: java.util.HashMap[String, PatchNode] = null
-    private[this] var indices: mutable.LongMap[PatchNode]        = null
-
-    def nodeAt(segment: PathValue): PatchNode =
-      segment match {
-        case StringValue(key)          =>
-          if (keys eq null) keys = new java.util.HashMap[String, PatchNode]
-          var node = keys.get(key)
-          if (node eq null) {
-            node = new PatchNode
-            keys.put(key, node)
-          }
-          node
-        case IntValue.IntNumber(index) =>
-          if (indices eq null) indices = mutable.LongMap.empty
-          indices.getOrElseUpdate(index.toLong, new PatchNode)
-      }
-
-    def patch(value: ResponseValue): ResponseValue =
-      value match {
-        case ObjectValue(fields) if keys ne null  =>
-          ObjectValue(fields.map { field =>
-            val node = keys.get(field._1)
-            if (node eq null) field else (field._1, node.patch(field._2))
-          })
-        case ListValue(values) if indices ne null =>
-          var index = 0
-          ListValue(values.map { nested =>
-            val node = indices.getOrNull(index.toLong)
-            index += 1
-            if (node eq null) nested else node.patch(nested)
-          })
-        case other                                => other
-      }
-  }
-
-  private def mergeAt(
-    value: ResponseValue,
-    path: List[PathValue],
-    patch: ResponseValue,
-    missingWins: Boolean = false
-  ): ResponseValue =
-    path match {
-      case Nil          => if (missingWins) mergeObject(patch, value) else mergeObject(value, patch)
-      case head :: tail =>
-        head match {
-          case StringValue(key)          =>
-            value match {
-              case ObjectValue(fields) => ObjectValue(updateFieldAt(fields, key, tail, patch, missingWins))
-              case other               => other
-            }
-          case IntValue.IntNumber(index) =>
-            value match {
-              case ListValue(values) if index >= 0 =>
-                ListValue(updateValueAt(values, index, tail, patch, missingWins))
-              case other                           => other
-            }
-        }
-    }
-
-  def mergeMissingAt(value: ResponseValue, path: List[PathValue], patch: ResponseValue): ResponseValue =
-    mergeAt(value, path, patch, missingWins = true)
-
-  private def updateFieldAt(
-    fields: List[(String, ResponseValue)],
-    key: String,
-    path: List[PathValue],
-    patch: ResponseValue,
-    missingWins: Boolean
-  ): List[(String, ResponseValue)] = {
-    val updated   = new mutable.ListBuffer[(String, ResponseValue)]
-    var found     = false
-    var remaining = fields
-    while (remaining ne Nil) {
-      val field = remaining.head
-      if (field._1.equals(key)) {
-        found = true
-        updated += ((key, mergeAt(field._2, path, patch, missingWins)))
-      } else updated += field
-      remaining = remaining.tail
-    }
-    if (found) updated.toList else fields
-  }
-
-  private def updateValueAt(
-    values: List[ResponseValue],
-    index: Int,
-    path: List[PathValue],
-    patch: ResponseValue,
-    missingWins: Boolean
-  ): List[ResponseValue] = {
-    var reversedPrefix: List[ResponseValue] = Nil
-    var remaining                           = values
-    var position                            = 0
-    while (position < index && (remaining ne Nil)) {
-      reversedPrefix = remaining.head :: reversedPrefix
-      remaining = remaining.tail
-      position += 1
-    }
-    remaining match {
-      case nested :: tail => reversedPrefix reverse_::: (mergeAt(nested, path, patch, missingWins) :: tail)
-      case Nil            => values
-    }
-  }
-
-  private[gateway] def mergeObject(left: ResponseValue, right: ResponseValue): ResponseValue =
-    mergeValues(left, right) {
-      case (ListValue(leftValues), ListValue(rightValues)) if leftValues.size == rightValues.size =>
-        ListValue(leftValues.zip(rightValues).map { case (leftValue, rightValue) =>
-          mergeObject(leftValue, rightValue)
-        })
-      case (_, value)                                                                             => value
-    }
-
-  def mergeRootValue(left: ResponseValue, right: ResponseValue): ResponseValue =
-    mergeValues(left, right) {
-      case (NullValue, value)                                                                     => value
-      case (value, NullValue)                                                                     => value
-      case (ListValue(leftValues), ListValue(rightValues)) if leftValues.size == rightValues.size =>
-        ListValue(leftValues.zip(rightValues).map { case (leftValue, rightValue) =>
-          mergeRootValue(leftValue, rightValue)
-        })
-      case (_, value)                                                                             => value
-    }
-
-  private def mergeValues(
-    left: ResponseValue,
-    right: ResponseValue
-  )(mergeLeaf: (ResponseValue, ResponseValue) => ResponseValue): ResponseValue =
-    (left, right) match {
-      case (leftObj: ObjectValue, rightObj: ObjectValue) =>
-        val leftFields                                          = leftObj.fields
-        var leftSize                                            = 0
-        var remaining                                           = leftFields
-        while (remaining ne Nil) {
-          leftSize += 1
-          remaining = remaining.tail
-        }
-        var positions: java.util.HashMap[String, Integer]       = null
-        if (leftSize >= IndexedFields.WideObjectFields) {
-          positions = new java.util.HashMap[String, Integer](leftSize * 2)
-          var position = 0
-          remaining = leftFields
-          while (remaining ne Nil) {
-            positions.put(remaining.head._1, Integer.valueOf(position))
-            position += 1
-            remaining = remaining.tail
-          }
-        }
-        val matches                                             = new Array[ResponseValue](leftSize)
-        var extras: mutable.ListBuffer[(String, ResponseValue)] = null
-        var rightRemaining                                      = rightObj.fields
-        while (rightRemaining ne Nil) {
-          val field   = rightRemaining.head
-          var matched = false
-          if (positions ne null) {
-            val position = positions.get(field._1)
-            if (position ne null) {
-              matches(position.intValue) = field._2
-              matched = true
-            }
-          } else {
-            var position        = 0
-            var matchedPosition = -1
-            remaining = leftFields
-            while (remaining ne Nil) {
-              if (remaining.head._1.equals(field._1)) matchedPosition = position
-              position += 1
-              remaining = remaining.tail
-            }
-            if (matchedPosition >= 0) {
-              matches(matchedPosition) = field._2
-              matched = true
-            }
-          }
-          if (!matched) {
-            if (extras eq null) extras = new mutable.ListBuffer
-            extras += field
-          }
-          rightRemaining = rightRemaining.tail
-        }
-        val merged                                              = new mutable.ListBuffer[(String, ResponseValue)]
-        var position                                            = 0
-        remaining = leftFields
-        while (remaining ne Nil) {
-          val field   = remaining.head
-          val matched = matches(position)
-          merged += (if (matched eq null) field else (field._1, mergeValues(field._2, matched)(mergeLeaf)))
-          position += 1
-          remaining = remaining.tail
-        }
-        if (extras ne null) merged ++= extras
-        ObjectValue(merged.toList)
-      case _                                             => mergeLeaf(left, right)
-    }
 
 }

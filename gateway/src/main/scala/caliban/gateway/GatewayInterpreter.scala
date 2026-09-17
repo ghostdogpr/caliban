@@ -30,7 +30,7 @@ trait GatewayInterpreter[-R] extends GraphQLInterpreter[R, CalibanError] {
   def executeStream(request: GraphQLRequest)(implicit
     trace: Trace
   ): ZStream[R, Throwable, GraphQLResponse[CalibanError]] =
-    ZStream.unwrap(executeRequest(request).map(SubgraphExecutor.responses))
+    ZStream.unwrap(executeRequest(request).map(SubgraphExecutor.subscriptionResponses))
 
   def executeStream(request: GraphQLRequest, headers: List[Header])(implicit
     trace: Trace

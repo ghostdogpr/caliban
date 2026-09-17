@@ -94,9 +94,7 @@ private[composition] final class SchemaComposer private (subgraphs: List[Prepare
       additional,
       composedDirectives.definitions(rewrite)
     )
-    val possibleTypesByName                                 = rootType.types.iterator.map { case (name, tpe) =>
-      name -> tpe.possibleTypeNames
-    }.toMap
+    val possibleTypesByName                                 = rootType.types.map { case (name, tpe) => name -> tpe.possibleTypeNames }
     val transformationDiagnostics                           = invalidTransformationDiagnostics(rootType)
     val directiveDiagnostics                                = composedDirectives.schemaDiagnostics(rootType)
     val allSecurity                                         = compiledSecurity.flatMap(_.toOption).flatten
@@ -175,13 +173,13 @@ private[composition] final class SchemaComposer private (subgraphs: List[Prepare
             declaredContexts = declaredContexts,
             contextBindings = contextBindings,
             interfaceObjects =
-              types.iterator.filter(_.interfaceObject).map(entry => SourceType(entry.source, entry.name)).toSet,
+              types.filter(_.interfaceObject).map(entry => SourceType(entry.source, entry.name)).toSet,
             sourcePossibleTypes = sortedSubgraphs.iterator.flatMap { subgraph =>
               subgraph.rootType.types.iterator.map { case (name, tpe) =>
                 SourceType(subgraph.name, name) -> tpe.possibleTypeNames
               }
             }.toMap,
-            schemaMappings = sortedSubgraphs.iterator.map(subgraph => subgraph.name -> subgraph.mapping).toMap,
+            schemaMappings = sortedSubgraphs.map(subgraph => subgraph.name -> subgraph.mapping).toMap,
             costMetadata = costMetadata,
             securityApplications = allSecurity,
             schemaDirectives = composedDirectives.schemaDirectives
@@ -409,7 +407,7 @@ private[composition] final class SchemaComposer private (subgraphs: List[Prepare
           s"$prefix Lookup argument '${lookup.field}.$name' is mapped more than once."
       }
       .toList
-    val mappedArguments = lookup.arguments.iterator.map(_._1).toSet
+    val mappedArguments = lookup.arguments.map(_._1).toSet
     val missing         = field.allArgs.collect {
       case argument
           if !mappedArguments.contains(argument.name) && !argument._type.isNullable && argument.defaultValue.isEmpty =>
@@ -474,7 +472,7 @@ private[composition] final class SchemaComposer private (subgraphs: List[Prepare
             case (name, _) if !inputFields.contains(name) =>
               s"$prefix Lookup input field '$path.$name' does not exist."
           }
-          val names       = fields.iterator.map(_._1).toSet
+          val names       = fields.map(_._1).toSet
           val missing     = valueType.allInputFields.collect {
             case input if !names.contains(input.name) && !input._type.isNullable && input.defaultValue.isEmpty =>
               s"$prefix Required lookup input field '$path.${input.name}' has no mapping."
@@ -1466,7 +1464,7 @@ private[composition] final class SchemaComposer private (subgraphs: List[Prepare
   }
 
   private def nonRootTypes: List[SubgraphType] = {
-    val allTypes        = sources.flatMap(metadata => metadata.subgraph.rootType.types.valuesIterator.toList)
+    val allTypes        = sources.flatMap(metadata => metadata.subgraph.rootType.types.values.toList)
     val byName          = allTypes.flatMap(tpe => tpe.name.map(_ -> tpe)).groupMap(_._1)(_._2)
     val implementations = allTypes
       .filter(_.kind == __TypeKind.OBJECT)
@@ -1869,7 +1867,7 @@ private[gateway] object SchemaComposer {
 
   def isFederation(document: Document): Boolean =
     isFederation2(document) || {
-      val typeNames = document.typeDefinitions.iterator.map(_.name).toSet
+      val typeNames = document.typeDefinitions.map(_.name).toSet
       typeNames.contains("_Any") && typeNames.contains("_Entity") &&
       document.objectTypeDefinitions.exists(_.fields.exists(_.name == "_entities"))
     }
@@ -1968,7 +1966,7 @@ private[gateway] object SchemaComposer {
     val costFeature                                                              = links.filter(_.identity == CostIdentity)
     val relevant                                                                 = federation ::: security ::: costFeature
     val imports                                                                  = relevant.flatMap(_.imports)
-    val namespaces                                                               = relevant.iterator.map(_.namespace).toSet ++
+    val namespaces                                                               = relevant.map(_.namespace).toSet ++
       (if (links.nonEmpty) Set("link") else Set.empty)
     val namespacePrefix                                                          = namespaces.map(_ + "__")
     val hiddenTypes                                                              = document.typeDefinitions.iterator
@@ -1977,15 +1975,15 @@ private[gateway] object SchemaComposer {
       .toSet ++ imports.collect { case value if !value.isDirective => value.alias } ++
       Set("_Any", "_Entity", "_FieldSet", "_Service")
     def federationNames(name: String, federation1: Boolean = false): Set[String] =
-      federation.iterator.flatMap(_.directiveNames(name)).toSet ++
+      federation.flatMap(_.directiveNames(name)).toSet ++
         (if (federation1 && federation.isEmpty) Set(name) else Set.empty)
     def partitionNames(
       name: String,
       features: List[LinkedFeature]
     )(available: LinkedFeature => Boolean): (Set[String], Set[String]) = {
       val (supported, unsupported) = features.partition(available)
-      supported.iterator.flatMap(_.directiveNames(name)).toSet ->
-        unsupported.iterator.flatMap(_.directiveNames(name)).toSet
+      supported.flatMap(_.directiveNames(name)).toSet ->
+        unsupported.flatMap(_.directiveNames(name)).toSet
     }
     def securityNames(
       name: String,

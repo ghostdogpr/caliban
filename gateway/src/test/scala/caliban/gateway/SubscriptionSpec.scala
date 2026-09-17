@@ -37,7 +37,7 @@ object SubscriptionSpec extends ZIOSpecDefault {
         ResponseValue.StreamValue(ZStream.succeed(event.toResponseValue) ++ ZStream.fail(failure)),
         Nil
       )
-      SubgraphExecutor.responses(response).either.runCollect.map { values =>
+      SubgraphExecutor.subscriptionResponses(response).either.runCollect.map { values =>
         val decoded  = values.collect { case Right(value) => value }
         val failures = values.collect { case Left(error) => error }
         assertTrue(
@@ -58,7 +58,10 @@ object SubscriptionSpec extends ZIOSpecDefault {
             Nil,
             hasNext = Some(hasNext)
           )
-          SubgraphExecutor.responses(response).runCollect.map(values => assertTrue(values == Chunk(response)))
+          SubgraphExecutor
+            .subscriptionResponses(response)
+            .runCollect
+            .map(values => assertTrue(values == Chunk(response)))
         }
         .map(_.reduce(_ && _))
     },
@@ -399,7 +402,7 @@ object SubscriptionSpec extends ZIOSpecDefault {
                           .withPhaseHooks(hooks)
                           .interpreter
         response     <- gateway.executeRequest(GraphQLRequest(query = Some("query { value }")))
-        events       <- SubgraphExecutor.responses(response).runCollect
+        events       <- SubgraphExecutor.subscriptionResponses(response).runCollect
         observed     <- seen.get
         count        <- resolves.get
       } yield assertTrue(
@@ -664,7 +667,7 @@ object SubscriptionSpec extends ZIOSpecDefault {
       for {
         source   <- api.interpreter
         response <- source.executeRequest(request)
-        native   <- SubgraphExecutor.responses(response).runCollect
+        native   <- SubgraphExecutor.subscriptionResponses(response).runCollect
         gateway  <- Gateway.compose(Subgraph.local("local", api)).interpreter
         events   <- gateway.executeStream(request).runCollect
       } yield assertTrue(

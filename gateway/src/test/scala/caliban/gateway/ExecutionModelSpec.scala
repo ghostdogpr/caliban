@@ -223,19 +223,25 @@ object ExecutionModelSpec extends ZIOSpecDefault {
       )
     },
     test("execution artifacts are reused but variable binding gets an independent cache") {
-      val field      = Field("product", objectType, Some(queryType), arguments = Map("id" -> InputValue.VariableValue("id")))
-      val fetch      = RootFetch(FetchId(0), "products", List(field), List(field), Nil)
-      val plan       = OperationPlan(OperationType.Query, "Query", List(field), Nil, List(fetch), Nil, Nil, None)
-      val prepared   = PreparedPlan(plan)
-      val cache      = prepared.cache
-      val completion = prepared.completion
-      val bound      = prepared.bind(Map("id" -> StringValue("p1")))
+      val field        = Field("product", objectType, Some(queryType), arguments = Map("id" -> InputValue.VariableValue("id")))
+      val fetch        = RootFetch(FetchId(0), "products", List(field), List(field), Nil)
+      val plan         = OperationPlan(OperationType.Query, "Query", List(field), Nil, List(fetch), Nil, Nil, None)
+      val prepared     = PreparedPlan(plan)
+      val cache        = prepared.cache
+      val completion   = prepared.completion
+      val bound        = prepared.bind(Map("id" -> StringValue("p1")))
+      val projection   = ResponseProjection.compile(Nil, Nil, Nil, Map.empty)
+      val originalRoot = PlanExecutor.PreparedRoot("original", projection)
+      val boundRoot    = PlanExecutor.PreparedRoot("bound", projection)
+      val cachedRoot   = cache.root(fetch.id)(originalRoot)
       assertTrue(
         cache eq prepared.cache,
         completion eq prepared.completion,
         prepared.cache ne bound.cache,
         prepared.completion ne bound.completion,
-        bound.cache.roots.isEmpty,
+        cachedRoot eq originalRoot,
+        cache.root(fetch.id)(boundRoot) eq originalRoot,
+        bound.cache.root(fetch.id)(boundRoot) eq boundRoot,
         bound.plan.roots.head.downstream.head.arguments == Map("id" -> StringValue("p1")),
         prepared.plan.roots.head.downstream.head.arguments == Map("id" -> InputValue.VariableValue("id"))
       )

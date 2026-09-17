@@ -200,14 +200,14 @@ private[gateway] final class OperationCost(
   // A nearer @listSize replaces an inherited size for the same path.
   private def preferSizedPaths(primary: List[SizedPath], fallback: List[SizedPath]): List[SizedPath] = {
     val preferred      = maximumSizedPaths(primary)
-    val preferredPaths = preferred.iterator.map(_.path).toSet
+    val preferredPaths = preferred.map(_.path).toSet
     preferred ::: maximumSizedPaths(fallback.filterNot(value => preferredPaths.contains(value.path)))
   }
 
   private def maximumSizedPaths(values: List[SizedPath]): List[SizedPath] =
     values
       .groupBy(_.path)
-      .map { case (path, entries) => SizedPath(path, entries.iterator.map(_.size).max) }
+      .map { case (path, entries) => SizedPath(path, entries.map(_.size).max) }
       .toList
 
   private def listSizes(

@@ -27,12 +27,11 @@ private[composition] final class OperationSecurity(
     securityApplications.exists(_.directive != SecurityDirective.UnsupportedPolicy)
 
   def diagnostics: List[String] =
-    securityApplications.iterator
+    securityApplications
       .filterNot(_.directive == SecurityDirective.UnsupportedPolicy)
       .map(application =>
         s"[${application.source}] Federation ${application.directiveName} at '${application.coordinate}' requires an operation policy."
       )
-      .toList
       .distinct
       .sorted
 

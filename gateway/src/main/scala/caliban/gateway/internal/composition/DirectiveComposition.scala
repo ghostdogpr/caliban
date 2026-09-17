@@ -81,7 +81,7 @@ private[composition] object DirectiveComposition {
     }
 
     val hiddenBySource = sourceDirectives.map { info =>
-      info.source.subgraph.name -> (info.source.protocolDirectives ++ info.definitions.iterator
+      info.source.subgraph.name -> (info.source.protocolDirectives ++ info.definitions
         .map(_.localName)
         .filterNot(BuiltInDirectiveNames))
     }.toMap
@@ -421,7 +421,7 @@ private[composition] object DirectiveComposition {
       }
       LocalDefinition(subgraph.name, definition.name, key, definition)
     }
-    private val definitionsByName             = definitions.iterator.map(definition => definition.localName -> definition).toMap
+    private val definitionsByName             = definitions.map(definition => definition.localName -> definition).toMap
 
     val diagnostics: List[String] = keysByName.toList.collect {
       case (name, keys) if keys.size > 1 =>
@@ -503,7 +503,7 @@ private[composition] object DirectiveComposition {
 
       val schemaApps            = selectedDirectives(Some(schemaDirectives(subgraph.document)), SchemaCoordinate)
       val typeApps              =
-        subgraph.rootType.types.valuesIterator.toList.sortBy(_.name).flatMap(tpe => tpe.name.map(_ -> tpe)).flatMap {
+        subgraph.rootType.types.values.toList.sortBy(_.name).flatMap(tpe => tpe.name.map(_ -> tpe)).flatMap {
           case (sourceName, tpe) =>
             val typeNames = subgraph.rootNames.composedAll(sourceName) match {
               case Nil    => sourceName :: Nil

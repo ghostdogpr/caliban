@@ -83,7 +83,7 @@ private[gateway] final case class ComposedGraph private[internal] (
 
   // Entity lookups allow switching sources. Otherwise, keep the current sources when any can resolve the field.
   def candidateSources(current: Set[String], parentType: String, field: String): Set[String] = {
-    val candidateSources = fieldRoutes.getOrElse(TypeField(parentType, field), Nil).iterator.map(_.source).toSet
+    val candidateSources = fieldRoutes.getOrElse(TypeField(parentType, field), Nil).map(_.source).toSet
     if (candidateSources.isEmpty) current
     else if (lookupTypes.contains(parentType)) candidateSources
     else {
@@ -223,7 +223,7 @@ private[gateway] final case class ComposedGraph private[internal] (
     else Iterator.single(typeName -> inherited.toList.map(key => key.source -> key.typeName).sorted)
   }.toMap
   private val inheritedFieldSources  = {
-    val fieldsByType = fieldRoutes.keysIterator.toList.groupMap(_.typeName)(_.fieldName)
+    val fieldsByType = fieldRoutes.keys.toList.groupMap(_.typeName)(_.fieldName)
     interfaceObjectsByType.iterator.flatMap { case (typeName, inherited) =>
       inherited.iterator.flatMap { case (source, interfaceName) =>
         fieldsByType.getOrElse(interfaceName, Nil).iterator.collect {
@@ -316,7 +316,7 @@ private[gateway] final case class ComposedGraph private[internal] (
       .toSet
     if (conflicts.isEmpty) fields
     else {
-      val initial = fields.iterator.map(_.aliasedName).toSet
+      val initial = fields.map(_.aliasedName).toSet
       fields
         .foldLeft((List.empty[Field], initial)) { case ((values, used), field) =>
           if (!conflicts.contains(field.aliasedName)) (field :: values, used)

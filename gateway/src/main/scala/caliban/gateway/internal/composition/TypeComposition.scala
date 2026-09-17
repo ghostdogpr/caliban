@@ -42,7 +42,7 @@ private[composition] final class TypeComposition(
       .groupMap(_._1)(_._2)
 
   private def hiddenArguments(fieldName: String, values: List[(SubgraphType, __Field)]): Set[String] =
-    values.iterator.flatMap { case (entry, _) =>
+    values.flatMap { case (entry, _) =>
       entry.inaccessibleArguments.collect { case (`fieldName`, argument) => argument }
     }.toSet
 
@@ -58,12 +58,12 @@ private[composition] final class TypeComposition(
           entry.contextualArguments.collect { case (`fieldName`, argument) => argument }
         )
       }
-      val contextualArgs   = perEntry.iterator.flatMap(_.contextualArguments).toSet
+      val contextualArgs   = perEntry.flatMap(_.contextualArguments).toSet
       val inaccessibleArgs = hiddenArguments(fieldName, values)
       val operation        = entries.headOption.flatMap(_.operation)
       val fieldPath        = operation.fold(s"$name.$fieldName")(value => s"${value.toString.toLowerCase}.$fieldName")
       val contextErrors    = contextualArgumentDiagnostics(fieldPath, perEntry)
-      val ownedSources     = effectiveFieldSources(fieldName, values.map(_._1)).iterator.map(_.source).toSet
+      val ownedSources     = effectiveFieldSources(fieldName, values.map(_._1)).map(_.source).toSet
       val owned            = values.filter(value => ownedSources.contains(value._1.source))
       val shareable        = owned.nonEmpty && owned.forall { case (entry, _) =>
         entry.subgraphMode != SubgraphMode.Federation2 || entry.shareableFields.contains(fieldName)
@@ -110,14 +110,14 @@ private[composition] final class TypeComposition(
     }
 
   private def inputDiagnostics(name: String, entries: List[SubgraphType]): List[String] = {
-    val sourceNames = entries.iterator.map(_.source).toSet
+    val sourceNames = entries.map(_.source).toSet
     val fields      = entries
       .flatMap(entry => entry.tpe.allInputFields.map(field => field.name -> (entry -> field)))
       .groupMap(_._1)(_._2)
 
     fields.toList.flatMap { case (fieldName, values) =>
       val signatures  = values.map(value => value._2._type.toType() -> value._2.defaultValue).distinct
-      val omittedFrom = sourceNames -- values.iterator.map(_._1.source)
+      val omittedFrom = sourceNames -- values.map(_._1.source)
       val required    = values.exists(value => !value._2._type.isNullable && value._2.defaultValue.isEmpty)
       if (signatures.size > 1)
         List(
@@ -134,7 +134,7 @@ private[composition] final class TypeComposition(
   private def enumDiagnostics(name: String, entries: List[SubgraphType], usage: EnumUsage): List[String] =
     if (!usage.input || !usage.output) Nil
     else {
-      val hiddenNames = entries.iterator.flatMap(_.inaccessibleEnumValues).toSet
+      val hiddenNames = entries.flatMap(_.inaccessibleEnumValues).toSet
       val valueSets   = entries.map(entry => entry.tpe.allEnumValues.map(_.name).toSet -- hiddenNames)
       if (valueSets.distinct.size > 1)
         List(s"[type $name] Input/output enum values are incompatible between subgraphs: ${sources(entries)}.")
@@ -156,7 +156,7 @@ private[composition] final class TypeComposition(
   }
 
   private def mergeTypes: Map[String, __Type] = {
-    val inaccessibleTypes = types.iterator.filter(_.inaccessible).map(_.name).toSet
+    val inaccessibleTypes = types.filter(_.inaccessible).map(_.name).toSet
     val chosen            = typesByName.flatMap { case (name, entries) =>
       val sorted = entries.sortBy(_.source)
       if (entries.exists(_.inaccessible)) None
@@ -176,7 +176,7 @@ private[composition] final class TypeComposition(
           name -> chosen
         }
     }
-    val interfaceObjects  = types.iterator.filter(_.interfaceObject).map(_.name).toSet
+    val interfaceObjects  = types.filter(_.interfaceObject).map(_.name).toSet
     val expanded          = chosen.map { case (name, tpe) =>
       if (tpe.kind != __TypeKind.OBJECT) name -> tpe
       else {
@@ -228,8 +228,8 @@ private[composition] final class TypeComposition(
     val fields        = fieldsByName(entries).toList.sortBy(_._1).flatMap { case (fieldName, values) =>
       val visible          =
         if (values.exists { case (entry, _) => entry.inaccessibleFields.contains(fieldName) }) Nil else values
-      val effectiveSources = effectiveFieldSources(fieldName, visible.map(_._1)).iterator.map(_.source).toSet
-      val routable         = routableFieldSources(fieldName, visible.map(_._1)).iterator.map(_.source).toSet
+      val effectiveSources = effectiveFieldSources(fieldName, visible.map(_._1)).map(_.source).toSet
+      val routable         = routableFieldSources(fieldName, visible.map(_._1)).map(_.source).toSet
       val ordered          = visible.sortBy { case (entry, _) =>
         (!effectiveSources.contains(entry.source), entry.source)
       }
@@ -285,7 +285,7 @@ private[composition] final class TypeComposition(
   private def mergeInputObject(entries: List[SubgraphType], rewrite: __Type => __Type): __Type = {
     val base        = entries.head.tpe
     val hidden      = hiddenDirectives(entries)
-    val hiddenNames = entries.iterator.flatMap(_.inaccessibleInputFields).toSet
+    val hiddenNames = entries.flatMap(_.inaccessibleInputFields).toSet
     val commonNames =
       entries.map(_.tpe.allInputFields.map(_.name).toSet).reduceOption(_ intersect _).getOrElse(Set.empty)
     val fields      = commonNames.diff(hiddenNames).toList.sorted.flatMap { name =>
@@ -310,7 +310,7 @@ private[composition] final class TypeComposition(
   private def mergeEnum(entries: List[SubgraphType], usage: EnumUsage, rewrite: __Type => __Type): __Type = {
     val base        = entries.head.tpe
     val hidden      = hiddenDirectives(entries)
-    val hiddenNames = entries.iterator.flatMap(_.inaccessibleEnumValues).toSet
+    val hiddenNames = entries.flatMap(_.inaccessibleEnumValues).toSet
     val visible     = entries.map(_.tpe.allEnumValues.filterNot(value => hiddenNames.contains(value.name)))
     val names       =
       if (usage.input) visible.map(_.map(_.name).toSet).reduceOption(_ intersect _).getOrElse(Set.empty)
@@ -416,7 +416,7 @@ private[composition] object TypeComposition {
   private final case class FieldDeclaration(source: String, field: __Field, contextualArguments: Set[String])
 
   private def contextualArgumentDiagnostics(fieldPath: String, entries: List[FieldDeclaration]): List[String] = {
-    val contextual = entries.iterator.flatMap(_.contextualArguments).toSet
+    val contextual = entries.flatMap(_.contextualArguments).toSet
     contextual.toList.sorted.flatMap { argumentName =>
       entries.collect {
         case FieldDeclaration(source, field, contextualArguments)
@@ -509,7 +509,7 @@ private[composition] object TypeComposition {
     }
 
   private def hiddenDirectives(entries: List[SubgraphType]): Set[String] =
-    entries.iterator.flatMap(_.hiddenDirectives).toSet
+    entries.flatMap(_.hiddenDirectives).toSet
 
   private def visibleArguments(field: __Field, hidden: Set[String]): __Field =
     if (hidden.isEmpty) field
@@ -553,7 +553,7 @@ private[composition] object TypeComposition {
             .sortBy(_._1)
         }
         .sortBy { case (name, arguments) =>
-          name -> arguments.iterator.map { case (key, value) => s"$key=$value" }.mkString
+          name -> arguments.map { case (key, value) => s"$key=$value" }.mkString
         }
     )
 

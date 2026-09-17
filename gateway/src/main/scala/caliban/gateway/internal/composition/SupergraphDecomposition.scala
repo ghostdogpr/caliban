@@ -109,7 +109,7 @@ private[gateway] object SupergraphDecomposition {
       feature  <- joinFeature(features).left.map(List(_))
       registry <- graphs(document, feature)
     } yield {
-      val prefixes         = features.iterator.map(_.namespace).toSet.+("link").map(_ + "__")
+      val prefixes         = features.map(_.namespace).toSet.+("link").map(_ + "__")
       val linkNames        = features.filter(_.identity == LinkIdentity).flatMap(_.directiveNames("link")).toSet + "link"
       val claimed          = document.directiveDefinitions.iterator
         .map(_.name)

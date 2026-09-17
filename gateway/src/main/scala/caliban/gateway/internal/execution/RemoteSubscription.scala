@@ -13,12 +13,6 @@ import zio.stream.ZStream
 import java.io.ByteArrayOutputStream
 import java.nio.charset.StandardCharsets.UTF_8
 
-private[gateway] object RemoteSubscription {
-  type Response = GraphQLResponse[CalibanError]
-
-  private val Protocol = "graphql-transport-ws"
-}
-
 private[gateway] final class RemoteSubscription(
   endpoint: URL,
   http: GatewayHttpClient,
@@ -29,7 +23,7 @@ private[gateway] final class RemoteSubscription(
   validate: Array[Byte] => Either[SubgraphExecutor.Failure, Unit],
   remoteErrorMessages: Boolean
 ) {
-  import RemoteSubscription.{ Protocol, Response }
+  import RemoteSubscription._
 
   def open(
     headers: List[Header],
@@ -50,43 +44,9 @@ private[gateway] final class RemoteSubscription(
                         case Some(Scheme.HTTP)  => target.scheme(Scheme.WS)
                         case _                  => target
                       }
-                      websocket(wsTarget, headers, body, ready, emit)
+                      runWebSocket(wsTarget, headers, body, ready, emit)
                     case RemoteSubscriptionConfig.Sse(get)  =>
-                      val httpRequest =
-                        if (get) {
-                          val params =
-                            request.operationName.map("operationName" -> _).toList :::
-                              request.variables
-                                .map(values => "variables" -> writeToString[InputValue](InputValue.ObjectValue(values)))
-                                .toList
-                          Request.get(target.addQueryParams(QueryParams("query" -> request.query.getOrElse(""), params: _*)))
-                        } else
-                          Request.post(target, Body.fromArray(body)).addHeader(GatewayHttpClient.jsonContentType)
-                      ZIO.scoped {
-                        http
-                          .stream(httpRequest.addHeader(Header.Accept(MediaType.text.`event-stream`)), headers)
-                          .flatMap { response =>
-                            val mediaType = RemoteTransport.mediaType(response.rawHeader(Header.ContentType))
-                            if (!response.status.isSuccess || !mediaType.contains("text/event-stream"))
-                              ZIO.fail(SubscriptionTermination.Source)
-                            else {
-                              val parser = new SseDecoder(maxBytes)
-                              ready.succeed(()) *> response.body.asStream
-                                .mapZIO(byte => ZIO.fromEither(parser.feed(byte)))
-                                .collectSome
-                                .takeUntil(_._1 == "complete")
-                                .runForeach {
-                                  case ("complete", _) => ZIO.unit
-                                  case ("next", value) =>
-                                    ZIO
-                                      .fromEither(decode(value.getBytes(UTF_8)))
-                                      .mapError(_ => SubscriptionTermination.Source)
-                                      .flatMap(emit)
-                                  case _               => ZIO.fail(SubscriptionTermination.Source)
-                                } *> ZIO.fail(SubscriptionTermination.Source).unless(parser.completed).unit
-                            }
-                          }
-                      }
+                      runSse(target, headers, request, body, get, ready, emit)
                   }
       _        <- run.mapError {
                     case error: CalibanError.ExecutionError => error
@@ -100,7 +60,53 @@ private[gateway] final class RemoteSubscription(
     // queue.end drains buffered events on success; only a source failure interrupts the consumer immediately.
     queue.stream.interruptWhen(finished.await)
 
-  private def websocket(
+  private def runSse(
+    target: URL,
+    headers: List[Header],
+    request: GraphQLRequest,
+    body: Array[Byte],
+    get: Boolean,
+    ready: Promise[Throwable, Unit],
+    emit: Response => Task[Unit]
+  )(implicit trace: Trace): Task[Unit] = {
+    val httpRequest =
+      if (get) {
+        val params =
+          request.operationName.map("operationName" -> _).toList :::
+            request.variables
+              .map(values => "variables" -> writeToString[InputValue](InputValue.ObjectValue(values)))
+              .toList
+        Request.get(target.addQueryParams(QueryParams("query" -> request.query.getOrElse(""), params: _*)))
+      } else
+        Request.post(target, Body.fromArray(body)).addHeader(GatewayHttpClient.jsonContentType)
+    ZIO.scoped {
+      http
+        .stream(httpRequest.addHeader(Header.Accept(MediaType.text.`event-stream`)), headers)
+        .flatMap { response =>
+          val mediaType = RemoteTransport.mediaType(response.rawHeader(Header.ContentType))
+          if (!response.status.isSuccess || !mediaType.contains("text/event-stream"))
+            ZIO.fail(SubscriptionTermination.Source)
+          else {
+            val parser = new SseDecoder
+            ready.succeed(()) *> response.body.asStream
+              .mapZIO(byte => ZIO.fromEither(parser.feed(byte)))
+              .collectSome
+              .takeUntil(_.name == "complete")
+              .runForeach {
+                case SseEvent("complete", _) => ZIO.unit
+                case SseEvent("next", value) =>
+                  ZIO
+                    .fromEither(decode(value.getBytes(UTF_8)))
+                    .mapError(_ => SubscriptionTermination.Source)
+                    .flatMap(emit)
+                case _                       => ZIO.fail(SubscriptionTermination.Source)
+              } *> ZIO.fail(SubscriptionTermination.Source).unless(parser.isComplete).unit
+          }
+        }
+    }
+  }
+
+  private def runWebSocket(
     endpoint: URL,
     headers: List[Header],
     body: Array[Byte],
@@ -176,7 +182,7 @@ private[gateway] final class RemoteSubscription(
                              case Some(ListValue(values)) if values.nonEmpty =>
                                val errors = values.flatMap(CalibanError.fromResponseValue)
                                if (errors.size != values.size) ZIO.fail(SubscriptionTermination.Source)
-                               else ZIO.fail(RemoteError.disclose(errors.head, remoteErrorMessages))
+                               else ZIO.fail(RemoteError.sanitize(errors.head, remoteErrorMessages))
                              case _                                          => ZIO.fail(SubscriptionTermination.Source)
                            }
                          case _          => ZIO.fail(SubscriptionTermination.Source)
@@ -224,30 +230,31 @@ private[gateway] final class RemoteSubscription(
    * Bounds retained event fields and the current line, including unterminated comments.
    * Completed comments and ignored fields do not consume the next line's budget.
    */
-  private final class SseDecoder(maxBytes: Int) {
-    private val line                                                  = new ByteArrayOutputStream
-    private val data                                                  = new StringBuilder
-    private var event                                                 = ""
-    private var size                                                  = 0L
-    private var afterCR                                               = false
-    private var firstLine                                             = true
-    var completed                                                     = false
-    def feed(byte: Byte): Either[Throwable, Option[(String, String)]] = {
-      val skip = afterCR && byte == 10
-      afterCR = byte == 13
+  private final class SseDecoder {
+    def isComplete: Boolean = complete
+
+    def feed(byte: Byte): Either[Throwable, Option[SseEvent]] = {
+      val skip = afterCarriageReturn && byte == 10
+      afterCarriageReturn = byte == 13
       if (skip) Right(None)
       else if (byte != 10 && byte != 13) {
         if (size + line.size().toLong >= maxBytes) Left(SubscriptionTermination.TooLarge)
-        else { line.write(byte.toInt); Right(None) }
+        else {
+          line.write(byte.toInt)
+          Right(None)
+        }
       } else {
         val decoded = new String(line.toByteArray, UTF_8)
         val text    = if (firstLine) decoded.stripPrefix("\uFEFF") else decoded
         firstLine = false
         line.reset()
         if (text.isEmpty) {
-          val value = if (event == "complete" || data.nonEmpty) Some(event -> data.toString.stripSuffix("\n")) else None
-          completed = event == "complete"
-          event = ""; data.clear(); size = 0
+          val value =
+            if (event == "complete" || data.nonEmpty) Some(SseEvent(event, data.toString.stripSuffix("\n"))) else None
+          complete = event == "complete"
+          event = ""
+          data.clear()
+          size = 0
           Right(value)
         } else {
           val colon    = text.indexOf(':')
@@ -268,5 +275,21 @@ private[gateway] final class RemoteSubscription(
         }
       }
     }
+
+    private val line                = new ByteArrayOutputStream
+    private val data                = new StringBuilder
+    private var event               = ""
+    private var size                = 0L
+    private var afterCarriageReturn = false
+    private var firstLine           = true
+    private var complete            = false
   }
+}
+
+private[gateway] object RemoteSubscription {
+  type Response = GraphQLResponse[CalibanError]
+
+  private final case class SseEvent(name: String, data: String)
+
+  private val Protocol = "graphql-transport-ws"
 }

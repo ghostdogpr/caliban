@@ -138,7 +138,7 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
         _             <- poll(runtime)
         exit          <- active.join
         dormantEvents <- dormant.take(1).runCollect
-        stale         <- SubgraphExecutor.responses(prepared).runDrain.exit
+        stale         <- SubgraphExecutor.subscriptionResponses(prepared).runDrain.exit
         count         <- closed.get
       } yield assertTrue(
         count == 2,

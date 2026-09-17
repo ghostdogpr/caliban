@@ -61,7 +61,7 @@ private[gateway] object IntrospectionClient {
       directives       <- list(schema, "directives", "__schema.directives")(directive)
     } yield {
       val definition = SchemaDefinition(Nil, queryType, mutationType, subscriptionType, None)
-      val userTypes  = types.iterator.flatten.filterNot(_.name.startsWith("__")).toList
+      val userTypes  = types.flatten.filterNot(_.name.startsWith("__"))
       Document(definition :: userTypes ++ directives, SourceMapper.empty)
     }
 

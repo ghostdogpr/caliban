@@ -531,7 +531,7 @@ private[gateway] object SchemaMapping {
           val own      = InputReferences(inputTypes = Set(typeName))
           input match {
             case InputObjectValue(fields) =>
-              fields.iterator.foldLeft(own) { case (result, (name, nested)) =>
+              fields.foldLeft(own) { case (result, (name, nested)) =>
                 val fieldReference  = InputReferences(inputFields = Set(typeName -> name))
                 val nestedReference = expected.allInputFields
                   .find(_.name == name)
