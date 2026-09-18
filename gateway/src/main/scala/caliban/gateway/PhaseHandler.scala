@@ -77,26 +77,20 @@ object PhaseHandler {
    * Constructs a PhaseHandler that only performs an incoming phase, for modifying the incoming event, running
    * pre-processing side-effects, or short-circuiting the wrapped phase by failing.
    */
-  def incoming[R, Ev, Err](
-    incoming: Ev => ZIO[R, Err, Ev]
-  ): PhaseHandler[R, Ev, Err, Any] =
+  def incoming[R, Ev, Err](incoming: Ev => ZIO[R, Err, Ev]): PhaseHandler[R, Ev, Err, Any] =
     Incoming(incoming)
 
   /**
    * Similar to [[incoming]] but does not modify the incoming event.
    */
-  def incomingDiscard[R, Ev, Err](
-    incoming: Ev => ZIO[R, Err, Unit]
-  ): PhaseHandler[R, Ev, Err, Any] =
+  def incomingDiscard[R, Ev, Err](incoming: Ev => ZIO[R, Err, Unit]): PhaseHandler[R, Ev, Err, Any] =
     Incoming((ev: Ev) => incoming(ev).as(ev))
 
   /**
    * Constructs a PhaseHandler that only performs an outgoing phase, for post-processing side-effects. It cannot
    * modify the wrapped event and it cannot fail.
    */
-  def outgoing[R, Ev, Out](
-    outgoing: (Ev, Out) => ZIO[R, Nothing, Unit]
-  ): PhaseHandler[R, Ev, Nothing, Out] =
+  def outgoing[R, Ev, Out](outgoing: (Ev, Out) => ZIO[R, Nothing, Unit]): PhaseHandler[R, Ev, Nothing, Out] =
     Outgoing(outgoing)
 
   /**
@@ -167,21 +161,18 @@ object PhaseHandler {
     def runWith[R1 <: R, E >: Err, A](event: Ev)(fn: Ev => ZIO[R1, E, A])(
       result: Exit[E, A] => Out
     )(implicit trace: Trace): ZIO[R1, E, A] = {
-      def loop[R2 <: R1](
-        remaining: List[PhaseHandler[R2, Ev, Err, Out]],
-        ev0: Ev
-      ): ZIO[R2, E, A] =
+      def runHandlers[R2 <: R1](remaining: List[PhaseHandler[R2, Ev, Err, Out]], currentEvent: Ev): ZIO[R2, E, A] =
         remaining match {
-          case Nil                        => fn(ev0)
-          case Incoming(incoming) :: next => incoming(ev0).flatMap(loop(next, _))
-          case Combined(handlers) :: next => loop(handlers ++ next, ev0)
+          case Nil                        => fn(currentEvent)
+          case Incoming(incoming) :: next => incoming(currentEvent).flatMap(runHandlers(next, _))
+          case Combined(handlers) :: next => runHandlers(handlers ++ next, currentEvent)
           // The scope has to outlive the handler's own outgoing callback, which runs inside `runWith`, so it cannot be
           // shared with the rest of the chain and closed at the end of it.
-          case Scoped(handler) :: next    => ZIO.scoped[R2](loop[R2 with Scope](handler :: next, ev0))
-          case handler :: next            => handler.runWith[R2, E, A](ev0)(loop(next, _))(result)
+          case Scoped(handler) :: next    => ZIO.scoped[R2](runHandlers[R2 with Scope](handler :: next, currentEvent))
+          case handler :: next            => handler.runWith[R2, E, A](currentEvent)(runHandlers(next, _))(result)
         }
 
-      loop(handlers, event)
+      runHandlers(handlers, event)
     }
   }
 }

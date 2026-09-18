@@ -21,8 +21,8 @@ private[gateway] final class GatewayExecutionControl[-R] private (
   )(
     onRejected: => ZIO[R0, E, A]
   )(implicit trace: Trace): ZIO[R0, E, A] =
-    leased(reservation)(onRejected) { lease =>
-      run(lease, requests(effect)).flatMap(_.fold(onTimeout)(ZIO.succeed(_)))
+    withLease(reservation)(onRejected) { lease =>
+      run(lease, requests.withPermit(effect)).flatMap(_.fold(onTimeout)(ZIO.succeed(_)))
     }
 
   def runObservedRequest[R1 <: R, B, A](event: Event.Request, reservation: Option[Lease] = None)(
@@ -37,11 +37,11 @@ private[gateway] final class GatewayExecutionControl[-R] private (
     onRejected: => URIO[R1, A]
   )(result: Exit[Nothing, A] => Result)(implicit trace: Trace): URIO[R1, A] = {
     def observe(effect: URIO[R1, A]): URIO[R1, A] = hooks.request.run(event)(effect)(result)
-    leased(reservation)(observe(onRejected)) { lease =>
+    withLease(reservation)(observe(onRejected)) { lease =>
       // Classify the resolved operation before opening finite-request metrics/spans, while one
       // admission permit, deadline, and drain lease cover preparation and execution together.
       ZIO.scoped[R1] {
-        run(lease, requests.acquire).flatMap {
+        run(lease, requests.acquireScoped).flatMap {
           case None    => observe(onTimeout)
           case Some(_) =>
             run(lease, prepare).flatMap {
@@ -68,31 +68,36 @@ private[gateway] final class GatewayExecutionControl[-R] private (
       }
     }
 
-  private def leased[R, E, A](reservation: Option[Lease])(
+  // Must stay idempotent: request execution and the reload supervisor both end the same lease, including on cancellation.
+  def release(lease: Lease)(implicit trace: Trace): UIO[Unit] =
+    state.modify { current =>
+      val next   = current.copy(requests = current.requests - lease)
+      val signal = next.drainStartedAt.nonEmpty && next.requests.isEmpty
+      signal -> next
+    }
+      .flatMap(signal => drained.succeed(()).unit.when(signal).unit)
+
+  private def withLease[R, E, A](reservation: Option[Lease])(
     onRejected: => ZIO[R, E, A]
   )(
     body: Lease => ZIO[R, E, A]
   )(implicit trace: Trace): ZIO[R, E, A] =
     ZIO.uninterruptibleMask { restore =>
       reservation.fold(reserve)(ZIO.some(_)).flatMap {
-        case Some(lease) => restore(body(lease)).ensuring(end(lease))
+        case Some(lease) => restore(body(lease)).ensuring(release(lease))
         case None        => restore(onRejected)
       }
     }
 
-  private def run[R, E, A](lease: Lease, effect: ZIO[R, E, A])(implicit
-    trace: Trace
-  ): ZIO[R, E, Option[A]] =
+  private def run[R, E, A](lease: Lease, effect: ZIO[R, E, A])(implicit trace: Trace): ZIO[R, E, Option[A]] =
     currentStop(lease).flatMap {
       case Some(Stop.Deadline) => ZIO.none
       case Some(Stop.Drain)    => ZIO.interrupt
       case None                => race(lease, effect)
     }
 
-  private def race[R, E, A](lease: Lease, effect: ZIO[R, E, A])(implicit
-    trace: Trace
-  ): ZIO[R, E, Option[A]] = {
-    val stop: ZIO[R, E, Stop]      = stopAt(lease)
+  private def race[R, E, A](lease: Lease, effect: ZIO[R, E, A])(implicit trace: Trace): ZIO[R, E, Option[A]] = {
+    val stop: ZIO[R, E, Stop]      = awaitStop(lease)
     val work: ZIO[R, E, Option[A]] = effect.map(Some(_))
 
     work.raceWith(stop)(
@@ -115,8 +120,8 @@ private[gateway] final class GatewayExecutionControl[-R] private (
     )
   }
 
-  private def stopAt(lease: Lease)(implicit trace: Trace): UIO[Stop] =
-    remaining(lease).flatMap { value =>
+  private def awaitStop(lease: Lease)(implicit trace: Trace): UIO[Stop] =
+    remainingNanos(lease).flatMap { value =>
       val deadline =
         if (value <= 0L) ZIO.succeed(Stop.Deadline) else Clock.sleep(Duration.fromNanos(value)).as(Stop.Deadline)
       deadline.raceFirst(forceStop.await.as(Stop.Drain)).flatMap(effectiveStop)
@@ -125,30 +130,19 @@ private[gateway] final class GatewayExecutionControl[-R] private (
   private def currentStop(lease: Lease)(implicit trace: Trace): UIO[Option[Stop]] =
     drainExpired.flatMap {
       case true  => ZIO.some(Stop.Drain)
-      case false => remaining(lease).map(value => if (value <= 0L) Some(Stop.Deadline) else None)
+      case false => remainingNanos(lease).map(value => if (value <= 0L) Some(Stop.Deadline) else None)
     }
 
   private def effectiveStop(stop: Stop)(implicit trace: Trace): UIO[Stop] =
     drainExpired.map(if (_) Stop.Drain else stop)
 
-  private def remaining(lease: Lease)(implicit trace: Trace): UIO[Long] =
+  private def remainingNanos(lease: Lease)(implicit trace: Trace): UIO[Long] =
     Clock.nanoTime.map(now => requestTimeout.toNanos - (now - lease.startedAt))
 
   private def drainExpired(implicit trace: Trace): UIO[Boolean] =
     Clock.nanoTime.zipWith(state.get) { (now, current) =>
       current.drainStartedAt.exists(startedAt => now - startedAt >= drainTimeout.toNanos)
     }
-
-  // Must stay idempotent: request execution and the reload supervisor both end the same lease, including on cancellation.
-  def release(lease: Lease)(implicit trace: Trace): UIO[Unit] = end(lease)
-
-  private def end(lease: Lease)(implicit trace: Trace): UIO[Unit] =
-    state.modify { current =>
-      val next   = current.copy(requests = current.requests - lease)
-      val signal = next.drainStartedAt.nonEmpty && next.requests.isEmpty
-      signal -> next
-    }
-      .flatMap(signal => drained.succeed(()).unit.when(signal).unit)
 
   private def close(implicit trace: Trace): UIO[Unit] =
     // Neither lifetime may postpone the other's admission closure or cancellation deadline.
@@ -198,12 +192,9 @@ private[gateway] object GatewayExecutionControl {
       _             <- ZIO.addFinalizer(control.close)
     } yield control
 
-  private[gateway] final class Lease(val startedAt: Long)
+  final class Lease(val startedAt: Long)
 
-  private final case class State(
-    requests: Set[Lease],
-    drainStartedAt: Option[Long]
-  )
+  private final case class State(requests: Set[Lease], drainStartedAt: Option[Long])
 
   private sealed trait Stop
   private object Stop {

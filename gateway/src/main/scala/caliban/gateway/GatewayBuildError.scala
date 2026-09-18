@@ -7,18 +7,6 @@ import zio.Duration
 
 import scala.util.control.NoStackTrace
 
-private[gateway] trait GatewayDiagnosticError extends NoStackTrace with Product with Serializable {
-  def diagnostics: List[String]
-
-  override final def getMessage: String = diagnostics.mkString("\n")
-}
-
-private[gateway] trait GatewayCausedError { self: Throwable =>
-  def error: Throwable
-
-  override final def getCause: Throwable = error
-}
-
 /**
  * Indicates that a [[Gateway]] could not be built.
  *
@@ -104,7 +92,7 @@ object SubgraphBuildError {
   /**
    * The schema document could not be converted into an executable schema.
    */
-  final case class InvalidSchema(error: caliban.CalibanError.ValidationError)
+  final case class InvalidSchema(error: CalibanError.ValidationError)
       extends SubgraphBuildError
       with GatewayCausedError {
     override val diagnostics: List[String] = List(error.getMessage)
@@ -226,7 +214,7 @@ object SchemaAcquisitionError {
   /**
    * The Federation `_service` operation completed with GraphQL errors.
    */
-  final case class FederationErrors(errors: List[caliban.CalibanError]) extends SchemaAcquisitionError {
+  final case class FederationErrors(errors: List[CalibanError]) extends SchemaAcquisitionError {
     override val diagnostics: List[String] =
       List(s"Federation service returned GraphQL errors: ${errors.map(_.getMessage).mkString("; ")}")
   }
@@ -245,4 +233,16 @@ object SchemaAcquisitionError {
   final case class ParsingDepthExceeded(maxDepth: Int) extends SchemaAcquisitionError {
     override val diagnostics: List[String] = List(s"Schema acquisition parsing depth exceeded $maxDepth.")
   }
+}
+
+private[gateway] trait GatewayDiagnosticError extends NoStackTrace with Product with Serializable {
+  def diagnostics: List[String]
+
+  override final def getMessage: String = diagnostics.mkString("\n")
+}
+
+private[gateway] trait GatewayCausedError { self: Throwable =>
+  def error: Throwable
+
+  override final def getCause: Throwable = error
 }

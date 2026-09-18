@@ -621,9 +621,9 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
           gate          <- AdmissionGate.make(1, PhaseHooks.AdmissionKind.Request, PhaseHooks.empty)
           firstStarted  <- Promise.make[Nothing, Unit]
           secondStarted <- Promise.make[Nothing, Unit]
-          first         <- gate(firstStarted.succeed(()).unit *> ZIO.never).fork
+          first         <- gate.withPermit(firstStarted.succeed(()).unit *> ZIO.never).fork
           _             <- firstStarted.await
-          second        <- gate(secondStarted.succeed(()).unit).fork
+          second        <- gate.withPermit(secondStarted.succeed(()).unit).fork
           _             <- TestClock.adjust(Duration.Zero)
           blocked       <- secondStarted.isDone
           firstExit     <- first.interrupt

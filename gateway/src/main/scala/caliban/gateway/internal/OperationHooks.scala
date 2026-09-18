@@ -21,7 +21,7 @@ private[gateway] final class OperationHooks[-R](
 
   val cacheable: Boolean = resolver.forall(_.cacheable)
 
-  private[gateway] def resolve(request: GraphQLRequest)(implicit trace: Trace): ZIO[R, CalibanError, GraphQLRequest] =
+  def resolve(request: GraphQLRequest)(implicit trace: Trace): ZIO[R, CalibanError, GraphQLRequest] =
     resolver match {
       case Some(resolver) =>
         OperationHooks
@@ -30,7 +30,7 @@ private[gateway] final class OperationHooks[-R](
       case None           => ZIO.succeed(request)
     }
 
-  private[gateway] def evaluatePolicy(
+  def evaluatePolicy(
     request: GraphQLRequest,
     document: Document,
     executionRequest: ExecutionRequest,
@@ -42,12 +42,7 @@ private[gateway] final class OperationHooks[-R](
     else
       policy match {
         case Some(policy) =>
-          val operation = new ValidatedOperation(
-            request,
-            document,
-            executionRequest,
-            requirements
-          )
+          val operation = new ValidatedOperation(request, document, executionRequest, requirements)
           OperationHooks
             .run(policy.evaluate(operation), OperationHooks.PolicyFailure)
             .flatMap {
@@ -58,19 +53,16 @@ private[gateway] final class OperationHooks[-R](
       }
   }
 
-  private[gateway] def resolveOverrideLabels(
+  def resolveOverrideLabels(
     request: GraphQLRequest,
     labels: Set[OverrideLabel]
   )(implicit trace: Trace): ZIO[R, CalibanError, Set[OverrideLabel]] =
-    if (labels.isEmpty) ZIO.succeed(Set.empty)
+    if (labels.isEmpty || !hooks.overrideLabels.enabled) ZIO.succeed(Set.empty)
     else {
       val unresolved = labels.map(_.value)
-      val hook       =
-        if (!hooks.overrideLabels.enabled) Exit.succeed(Set.empty[String])
-        else
-          hooks.overrideLabels
-            .runWith(Event.OverrideLabels(request, unresolved))(Exit.succeed)(_ => ())
-            .map(_.active)
+      val hook       = hooks.overrideLabels
+        .runWith(Event.OverrideLabels(request, unresolved))(Exit.succeed)(_ => ())
+        .map(_.active)
       OperationHooks
         .run(hook, OperationHooks.OverrideLabelResolutionFailure)
         .map(_.intersect(unresolved).map(OverrideLabel.apply))
@@ -78,16 +70,16 @@ private[gateway] final class OperationHooks[-R](
 }
 
 private[gateway] object OperationHooks {
-  private val ResolutionFailure              = "Operation resolution failed."
-  private val PolicyFailure                  = "Operation policy failed."
-  private val OverrideLabelResolutionFailure = "Progressive override label resolution failed."
-
   def isInternalFailure(error: CalibanError): Boolean =
     error match {
       case CalibanError.ExecutionError(message, _, _, Some(_), _) =>
         message == ResolutionFailure || message == PolicyFailure || message == OverrideLabelResolutionFailure
       case _                                                      => false
     }
+
+  private val ResolutionFailure              = "Operation resolution failed."
+  private val PolicyFailure                  = "Operation policy failed."
+  private val OverrideLabelResolutionFailure = "Progressive override label resolution failed."
 
   private def run[R, A](
     effect: => ZIO[R, Throwable, A],

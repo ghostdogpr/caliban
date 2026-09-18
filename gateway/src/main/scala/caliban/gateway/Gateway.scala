@@ -79,11 +79,11 @@ final class Gateway[-R] private[gateway] (
       buildInChildScope(
         openHttpClient.flatMap { http =>
           val acquirer = origin match {
-            case Origin.Composed(subgraphs)        => Exit.succeed(acquireUnmanagedSnapshot(subgraphs, http))
+            case Origin.Composed(subgraphs)        => Exit.succeed(acquireSubgraphSnapshot(subgraphs, http))
             case Origin.FromSupergraph(supergraph) =>
               SupergraphAcquisition
                 .make(supergraph.source, http)
-                .map(acquireManagedSnapshot(supergraph, _))
+                .map(acquireSupergraphSnapshot(supergraph, _))
           }
 
           acquirer.flatMap(
@@ -99,6 +99,37 @@ final class Gateway[-R] private[gateway] (
       )
   }
 
+  /**
+   * Transforms the finite operation and admission limits used by each built interpreter.
+   */
+  def withConfig(configure: GatewayConfig => GatewayConfig): Gateway[R] =
+    new Gateway(origin, resolver, policy, configure(config), hooks)
+
+  /**
+   * Resolves canonical GraphQL text before parsing and validation.
+   */
+  def withOperationResolver[R1 <: R](value: OperationResolver[R1]): Gateway[R1] =
+    new Gateway(origin, Some(value), policy, config, hooks)
+
+  /**
+   * Allows or rejects operations after validation and variable coercion.
+   */
+  def withOperationPolicy[R1 <: R](value: OperationPolicy[R1]): Gateway[R1] =
+    new Gateway(origin, resolver, Some(value), config, hooks)
+
+  /**
+   * Adds phase hooks to the gateway lifecycle. Hooks accumulate: each call appends to the hooks already attached,
+   * so several independent integrations can be layered onto the same description.
+   */
+  def withPhaseHooks[R1 <: R](hooks: PhaseHooks[R1]): Gateway[R1] =
+    new Gateway(origin, resolver, policy, config, this.hooks ++ hooks)
+
+  /**
+   * Symbolic version of `withPhaseHooks`.
+   */
+  def @@[R1 <: R](hooks: PhaseHooks[R1]): Gateway[R1] =
+    withPhaseHooks(hooks)
+
   private[gateway] def build(implicit trace: Trace): ZIO[Scope, GatewayBuildError, GatewayInterpreterImpl[R]] = {
     val diagnostics = config.diagnostics ::: (origin match {
       case Origin.Composed(subgraphs) => Gateway.nameDiagnostics(subgraphs)
@@ -110,9 +141,7 @@ final class Gateway[-R] private[gateway] (
       buildInChildScope(openHttpClient.flatMap(buildInterpreter))
   }
 
-  private def openHttpClient(implicit
-    trace: Trace
-  ): ZIO[Scope, GatewayBuildError, Option[GatewayHttpClient]] =
+  private def openHttpClient(implicit trace: Trace): ZIO[Scope, GatewayBuildError, Option[GatewayHttpClient]] =
     if (origin.hasRemote) GatewayHttpClient.make.asSome.mapError(TransportInitializationFailed(_))
     else ZIO.none
 
@@ -128,16 +157,9 @@ final class Gateway[-R] private[gateway] (
                           .flatMap(decomposeSupergraph(supergraph, _))
                           .map(_._1)
                     }
-      successes  <- loadAll(subgraphs)(subgraph =>
-                      Gateway.load(
-                        subgraph,
-                        http,
-                        config.remoteErrorMessages,
-                        hooks
-                      )
-                    )
+      loaded     <- loadAll(subgraphs)(subgraph => Gateway.load(subgraph, http, config.remoteErrorMessages, hooks))
       graph      <- ZIO
-                      .fromEither(SchemaComposer.compose(successes.map(_.subgraph)))
+                      .fromEither(SchemaComposer.compose(loaded.map(_.subgraph)))
                       .mapError(errors => SchemaCompositionFailed(errors.distinct.sorted))
       _          <- ZIO
                       .fail(GatewayBuildError.InvalidConfiguration(graph.securityDiagnostics))
@@ -149,7 +171,7 @@ final class Gateway[-R] private[gateway] (
                       config.requestTimeout,
                       config.drainTimeout
                     )
-      executors   = successes.map { value =>
+      executors   = loaded.map { value =>
                       val name                          = value.subgraph.name
                       val executor: SubgraphExecutor[R] =
                         if (hooks.enabled) new ObservedSubgraphExecutor(name, value.executor, hooks)
@@ -192,17 +214,14 @@ final class Gateway[-R] private[gateway] (
       }
     }
 
-  private def acquireManagedSnapshot[R1 <: R](supergraph: Supergraph[R1], loader: SupergraphAcquisition.Loader)(implicit
-    trace: Trace
+  private def acquireSupergraphSnapshot[R1 <: R](supergraph: Supergraph[R1], loader: SupergraphAcquisition.Loader)(
+    implicit trace: Trace
   ): IO[GatewayBuildError, Gateway.Snapshot[R1]] =
     decomposeSupergraph(supergraph, loader).map { case (subgraphs, fingerprint) =>
-      Gateway.Snapshot(
-        new Gateway(Origin.Composed(subgraphs), resolver, policy, config, hooks),
-        fingerprint
-      )
+      Gateway.Snapshot(new Gateway(Origin.Composed(subgraphs), resolver, policy, config, hooks), fingerprint)
     }
 
-  private def acquireUnmanagedSnapshot[R1 <: R](
+  private def acquireSubgraphSnapshot[R1 <: R](
     subgraphs: List[Subgraph[R1]],
     http: Option[GatewayHttpClient]
   )(implicit trace: Trace): IO[GatewayBuildError, Gateway.Snapshot[R1]] =
@@ -250,40 +269,23 @@ final class Gateway[-R] private[gateway] (
           ZIO.succeed(results.collect { case Right(value) => value })
     }
 
-  /**
-   * Transforms the finite operation and admission limits used by each built interpreter.
-   */
-  def withConfig(configure: GatewayConfig => GatewayConfig): Gateway[R] =
-    new Gateway(origin, resolver, policy, configure(config), hooks)
-
-  /**
-   * Resolves canonical GraphQL text before parsing and validation.
-   */
-  def withOperationResolver[R1 <: R](value: OperationResolver[R1]): Gateway[R1] =
-    new Gateway(origin, Some(value), policy, config, hooks)
-
-  /**
-   * Allows or rejects operations after validation and variable coercion.
-   */
-  def withOperationPolicy[R1 <: R](value: OperationPolicy[R1]): Gateway[R1] =
-    new Gateway(origin, resolver, Some(value), config, hooks)
-
-  /**
-   * Adds phase hooks to the gateway lifecycle. Hooks accumulate: each call appends to the hooks already attached,
-   * so several independent integrations can be layered onto the same description.
-   */
-  def withPhaseHooks[R1 <: R](hooks: PhaseHooks[R1]): Gateway[R1] =
-    new Gateway(origin, resolver, policy, config, this.hooks ++ hooks)
-
-  /**
-   * Symbolic version of `withPhaseHooks`.
-   */
-  def @@[R1 <: R](hooks: PhaseHooks[R1]): Gateway[R1] =
-    withPhaseHooks(hooks)
-
 }
 
 object Gateway {
+
+  /**
+   * Creates a reusable gateway description from one or more subgraphs.
+   */
+  def compose[R](first: Subgraph[R], rest: Subgraph[R]*): Gateway[R] =
+    new Gateway[R](Origin.Composed(first :: rest.toList), None, None, GatewayConfig.default, PhaseHooks.empty)
+
+  /**
+   * Creates a reusable gateway description from an already composed Apollo Federation supergraph, which is
+   * decomposed into the subgraphs it was composed from. Subgraph schemas are never acquired: the supergraph is
+   * the single source of truth for both the schemas and the routing urls.
+   */
+  def fromSupergraph[R](supergraph: Supergraph[R]): Gateway[R] =
+    new Gateway[R](Origin.FromSupergraph(supergraph), None, None, GatewayConfig.default, PhaseHooks.empty)
 
   private[gateway] final case class Snapshot[-R](gateway: Gateway[R], fingerprints: List[String])
 
@@ -301,32 +303,6 @@ object Gateway {
       override val hasRemote: Boolean = true
     }
   }
-
-  /**
-   * Creates a reusable gateway description from one or more subgraphs.
-   */
-  def compose[R](first: Subgraph[R], rest: Subgraph[R]*): Gateway[R] =
-    new Gateway[R](
-      Origin.Composed(first :: rest.toList),
-      None,
-      None,
-      GatewayConfig.default,
-      PhaseHooks.empty
-    )
-
-  /**
-   * Creates a reusable gateway description from an already composed Apollo Federation supergraph, which is
-   * decomposed into the subgraphs it was composed from. Subgraph schemas are never acquired: the supergraph is
-   * the single source of truth for both the schemas and the routing urls.
-   */
-  def fromSupergraph[R](supergraph: Supergraph[R]): Gateway[R] =
-    new Gateway[R](
-      Origin.FromSupergraph(supergraph),
-      None,
-      None,
-      GatewayConfig.default,
-      PhaseHooks.empty
-    )
 
   private def requireHttp(http: Option[GatewayHttpClient]): IO[SubgraphBuildError, GatewayHttpClient] =
     ZIO.fromOption(http).orElseFail(RemoteTransportUnavailable)
@@ -408,10 +384,7 @@ object Gateway {
                        )
     } yield subgraphs -> List(SchemaFingerprint(supergraphDoc))
 
-  private final case class LoadedSubgraph[-R](
-    subgraph: PreparedSubgraph,
-    executor: SubgraphExecutor[R]
-  )
+  private final case class LoadedSubgraph[-R](subgraph: PreparedSubgraph, executor: SubgraphExecutor[R])
 
   private[gateway] def prepareSubgraph[R](
     subgraph: Subgraph[R],

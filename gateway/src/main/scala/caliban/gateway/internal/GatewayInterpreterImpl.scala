@@ -30,9 +30,7 @@ private[gateway] final class GatewayInterpreterImpl[-R](
    * A single-use view. The caller must release it even if execution is interrupted before it starts.
    */
   def reserve(implicit trace: Trace): UIO[Option[GatewayInterpreterImpl[R]]] =
-    control.reserve.map(
-      _.map(lease => new GatewayInterpreterImpl(operations, executor, control, hooks, Some(lease)))
-    )
+    control.reserve.map(_.map(lease => new GatewayInterpreterImpl(operations, executor, control, hooks, Some(lease))))
 
   def retireSubscriptions(implicit trace: Trace): UIO[Unit] = control.subscriptions.stop(SubscriptionTermination.Reload)
 
@@ -61,7 +59,7 @@ private[gateway] final class GatewayInterpreterImpl[-R](
   private def executeObservedRequest(request: GraphQLRequest)(implicit
     trace: Trace
   ): URIO[R, GraphQLResponse[CalibanError]] = {
-    def completion(
+    def completeFailure(
       failure: ServerFailure,
       response: GraphQLResponse[CalibanError],
       outcome: Outcome
@@ -96,12 +94,12 @@ private[gateway] final class GatewayInterpreterImpl[-R](
               )
             }
         )
-      )(completion(ServerFailure.TimedOut, requestTimeoutResponse, Outcome.Timeout))(
-        completion(ServerFailure.Unavailable, requestShutdownResponse, Outcome.RequestError)
+      )(completeFailure(ServerFailure.TimedOut, requestTimeoutResponse, Outcome.Timeout))(
+        completeFailure(ServerFailure.Unavailable, requestShutdownResponse, Outcome.RequestError)
       )(classifyRequestResult)
 
     hooks.observeOperation
-      .run(Event.ObserveOperation(request = request))(execution)(observedOperation)
+      .run(Event.ObserveOperation(request = request))(execution)(operationEvent)
       .map(_.response)
   }
 
@@ -109,7 +107,7 @@ private[gateway] final class GatewayInterpreterImpl[-R](
    * Every request yields exactly one observation, whatever its outcome. Preparation failures, timeouts, shutdowns and
    * interruptions carry no document or execution request; the outcome says which one it was.
    */
-  private def observedOperation(exit: Exit[Nothing, RequestResult]): OperationEvent =
+  private def operationEvent(exit: Exit[Nothing, RequestResult]): OperationEvent =
     exit match {
       case Exit.Success(RequestResult.Executed(response, outcome, operation, document, execution)) =>
         OperationEvent(Some(document), Some(execution), Some(operation), response.errors, outcome)
@@ -171,12 +169,12 @@ private[gateway] final class GatewayInterpreterImpl[-R](
 private[gateway] object GatewayInterpreterImpl {
   private val requestTimeoutError = CalibanError.ExecutionError("Gateway request timed out.")
 
-  private[gateway] val requestShutdownError = CalibanError.ExecutionError("Gateway is shutting down.")
+  val requestShutdownError = CalibanError.ExecutionError("Gateway is shutting down.")
 
   private val requestTimeoutResponse =
     GraphQLResponse(NullValue, requestTimeoutError :: Nil)
 
-  private[gateway] val requestShutdownResponse =
+  val requestShutdownResponse =
     GraphQLResponse(NullValue, requestShutdownError :: Nil)
 
   private sealed trait RequestResult {

@@ -1,6 +1,7 @@
 package caliban.gateway
 
 import caliban.gateway.GatewayConfigValidation._
+import caliban.gateway.RemoteGraphQLConfig.{ Acquisition, Execution }
 import zio.http.Header
 import zio.{ Duration, ZIO }
 
@@ -8,8 +9,8 @@ import zio.{ Duration, ZIO }
  * Immutable acquisition and execution configuration for one remote GraphQL-over-HTTP subgraph.
  */
 final class RemoteGraphQLConfig[-R] private (
-  val acquisition: RemoteGraphQLConfig.Acquisition,
-  val execution: RemoteGraphQLConfig.Execution,
+  val acquisition: Acquisition,
+  val execution: Execution,
   val effectfulHeaders: ZIO[R, Throwable, List[Header]],
   val subscription: RemoteSubscriptionConfig = RemoteSubscriptionConfig()
 ) {
@@ -19,17 +20,13 @@ final class RemoteGraphQLConfig[-R] private (
   /**
    * Transforms the stored schema-acquisition configuration.
    */
-  def withAcquisition(
-    configure: RemoteGraphQLConfig.Acquisition => RemoteGraphQLConfig.Acquisition
-  ): RemoteGraphQLConfig[R] =
+  def withAcquisition(configure: Acquisition => Acquisition): RemoteGraphQLConfig[R] =
     new RemoteGraphQLConfig(configure(acquisition), execution, effectfulHeaders, subscription)
 
   /**
    * Transforms the stored request-execution configuration.
    */
-  def withExecution(
-    configure: RemoteGraphQLConfig.Execution => RemoteGraphQLConfig.Execution
-  ): RemoteGraphQLConfig[R] =
+  def withExecution(configure: Execution => Execution): RemoteGraphQLConfig[R] =
     new RemoteGraphQLConfig(acquisition, configure(execution), effectfulHeaders, subscription)
 
   /**
@@ -37,12 +34,7 @@ final class RemoteGraphQLConfig[-R] private (
    * schema acquisition. Repeated header names are joined into one comma-separated outbound value.
    */
   def withExecutionHeadersZIO[R1 <: R](value: ZIO[R1, Throwable, List[Header]]): RemoteGraphQLConfig[R1] =
-    new RemoteGraphQLConfig(
-      acquisition,
-      execution,
-      effectfulHeaders.zipWith(value)(_ ::: _),
-      subscription
-    )
+    new RemoteGraphQLConfig(acquisition, execution, effectfulHeaders.zipWith(value)(_ ::: _), subscription)
 
   private[gateway] def diagnostics(includeAcquisition: Boolean): List[String] =
     execution.diagnostics ::: (if (includeAcquisition) acquisition.diagnostics else Nil) ::: subscription.diagnostics

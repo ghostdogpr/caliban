@@ -6,7 +6,6 @@ import caliban.gateway.internal.OperationCache.Weighted
 import caliban.gateway.internal.OperationPreparation._
 import caliban.gateway.internal.composition.ComposedGraph.OverrideLabel
 import caliban.gateway.internal.execution.PreparedPlan
-import caliban.gateway.internal.planning.CandidateSearch.PlanningFailure
 import caliban.gateway.internal.planning.{ OperationPlan, OperationPlanner }
 import caliban.gateway.{ GatewayConfig, PhaseHooks }
 import caliban.parsing.adt.{ Directive, Document }
@@ -75,20 +74,14 @@ private[gateway] final class OperationPreparation[-R] private (
     def cached(parse: => IO[CalibanError, Document], activeOverrides: Set[OverrideLabel]) =
       cache
         .getOrCompute(
-          CacheKey(
-            query,
-            request.operationName,
-            request.isHttpGetRequest,
-            preparation,
-            activeOverrides
-          )
+          CacheKey(query, request.operationName, request.isHttpGetRequest, preparation, activeOverrides)
         )(parse.flatMap(computeCached(request, _, preparation, activeOverrides)))
         .flatMap(materialize(request, _, activeOverrides))
 
     if (planner.hasProgressiveOverrides)
       for {
         document        <- RequestPreparation.parse(query)
-        activeOverrides <- resolveProgressiveOverrides(request, document, request.operationName)
+        activeOverrides <- resolveProgressiveOverrides(request, document)
         prepared        <- cached(Exit.succeed(document), activeOverrides)
       } yield prepared
     else
@@ -109,13 +102,7 @@ private[gateway] final class OperationPreparation[-R] private (
         if (hasVariableCondition(document, request.operationName)) ZIO.none
         else
           for {
-            execution <- RequestPreparation.prepareParsed(
-                           request,
-                           document,
-                           variables,
-                           rootType,
-                           skipValidation = true
-                         )
+            execution <- RequestPreparation.prepareParsed(request, document, variables, rootType, skipValidation = true)
             plan      <- preparePlan(document, execution, activeOverrides)
           } yield Some((execution, plan))
     } yield {
@@ -134,7 +121,7 @@ private[gateway] final class OperationPreparation[-R] private (
   )(implicit trace: Trace): ZIO[R, CalibanError, Prepared] =
     for {
       document  <- RequestPreparation.parse(query)
-      overrides <- resolveProgressiveOverrides(request, document, request.operationName)
+      overrides <- resolveProgressiveOverrides(request, document)
       prepared  <-
         prepareOperation(request, document, None)((_, execution) => preparePlan(document, execution, overrides))
     } yield prepared
@@ -186,27 +173,26 @@ private[gateway] final class OperationPreparation[-R] private (
   ): IO[CalibanError, PreparedPlan] =
     ZIO
       .blocking(ZIO.fromEither(planner.plan(document, execution, activeOverrides)))
-      .mapError(planningFailure)
+      .mapError(failure => CalibanError.ValidationError(failure.message, ""))
       .map(PreparedPlan(_))
 
   private def resolveProgressiveOverrides(
     request: GraphQLRequest,
-    document: Document,
-    operationName: Option[String]
+    document: Document
   )(implicit trace: Trace): ZIO[R, CalibanError, Set[OverrideLabel]] = {
-    val overrides = planner.progressiveOverrides(document, operationName).toList.sortBy(_._1.value)
+    val overrides = planner.progressiveOverrides(document, request.operationName).toList.sortBy(_._1.value)
     val custom    = overrides.collect { case (label, None) => label }.toSet
     for {
-      percentages <- ZIO.foreach(overrides) {
-                       case (label, Some(percentage)) =>
-                         if (percentage <= 0) ZIO.none
-                         else if (percentage >= 100) ZIO.some(label)
-                         else
-                           Random.nextDouble.map(value => if (value * 100d < percentage.toDouble) Some(label) else None)
-                       case (_, None)                 => ZIO.none
-                     }
-      resolved    <- hooks.resolveOverrideLabels(request, custom)
-    } yield percentages.flatten.toSet ++ resolved
+      sampled  <- ZIO.foreach(overrides) {
+                    case (label, Some(percentage)) =>
+                      if (percentage <= 0) ZIO.none
+                      else if (percentage >= 100) ZIO.some(label)
+                      else
+                        Random.nextDouble.map(value => if (value * 100d < percentage.toDouble) Some(label) else None)
+                    case (_, None)                 => ZIO.none
+                  }
+      resolved <- hooks.resolveOverrideLabels(request, custom)
+    } yield sampled.flatten.toSet ++ resolved
   }
 
   private def operationWeight(
@@ -214,17 +200,19 @@ private[gateway] final class OperationPreparation[-R] private (
     executionPlan: Option[PreparedPlan],
     operationName: Option[String]
   ): Long = {
-    def fields(values: List[Field]): Long =
+    def fieldWeight(values: List[Field]): Long =
       values.foldLeft(0L)((count, value) =>
-        count + 1L + value.arguments.valuesIterator.map(_.toInputString.length.toLong).sum + fields(value.fields)
+        count + 1L + value.arguments.valuesIterator.map(_.toInputString.length.toLong).sum + fieldWeight(value.fields)
       )
 
     val planWeight = executionPlan
       .map(_.plan)
       .fold(0L)(value =>
-        fields(value.fields) +
-          value.roots.foldLeft(0L)((count, fetch) => count + fields(fetch.client) + fields(fetch.selections)) +
-          value.entities.foldLeft(0L)((count, fetch) => count + fields(fetch.fields)) +
+        fieldWeight(value.fields) +
+          value.roots.foldLeft(0L)((count, fetch) =>
+            count + fieldWeight(fetch.client) + fieldWeight(fetch.downstream) + fieldWeight(fetch.contextRoots)
+          ) +
+          value.entities.foldLeft(0L)((count, fetch) => count + fieldWeight(fetch.fields)) +
           value.typenameSelections.size.toLong
       )
 
@@ -256,6 +244,20 @@ private[gateway] object OperationPreparation {
     executionRequest: ExecutionRequest,
     plan: PreparedPlan
   )
+
+  def make[R](
+    rootType: RootType,
+    planner: OperationPlanner,
+    operationHooks: OperationHooks[R],
+    config: GatewayConfig,
+    phaseHooks: PhaseHooks[R],
+    estimateCost: (ExecutionRequest, OperationPlan) => Either[String, Long]
+  )(implicit trace: Trace): UIO[OperationPreparation[R]] =
+    OperationCache
+      .make[CacheKey, CalibanError, CachedOperation, R](config.maxOperationCacheWeight, phaseHooks)
+      .map(cache =>
+        new OperationPreparation(rootType, planner, operationHooks, cache, config.maxOperationCost, estimateCost)
+      )
 
   private sealed trait CachedOperation
 
@@ -291,27 +293,4 @@ private[gateway] object OperationPreparation {
       )
   }
 
-  def make[R](
-    rootType: RootType,
-    planner: OperationPlanner,
-    operationHooks: OperationHooks[R],
-    config: GatewayConfig,
-    phaseHooks: PhaseHooks[R],
-    estimateCost: (ExecutionRequest, OperationPlan) => Either[String, Long]
-  )(implicit trace: Trace): UIO[OperationPreparation[R]] =
-    OperationCache
-      .make[CacheKey, CalibanError, CachedOperation, R](config.maxOperationCacheWeight, phaseHooks)
-      .map(cache =>
-        new OperationPreparation(
-          rootType,
-          planner,
-          operationHooks,
-          cache,
-          config.maxOperationCost,
-          estimateCost
-        )
-      )
-
-  private def planningFailure(failure: PlanningFailure): CalibanError.ValidationError =
-    CalibanError.ValidationError(failure.message, "")
 }

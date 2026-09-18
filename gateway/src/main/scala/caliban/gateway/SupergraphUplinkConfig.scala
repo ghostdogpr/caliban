@@ -18,7 +18,9 @@ final case class SupergraphUplinkConfig private (
   acquisition: RemoteGraphQLConfig.Acquisition
 ) {
 
-  /** Replaces the uplink endpoints, tried in order. Mirrors `withHeaders`: the argument is the whole list. */
+  /**
+   * Replaces the uplink endpoints, tried in order. Mirrors `withHeaders`: the argument is the whole list.
+   */
   def withEndpoints(endpoints: URL*): SupergraphUplinkConfig =
     copy(endpoints = endpoints.toList)
 

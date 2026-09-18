@@ -27,9 +27,7 @@ private[gateway] final class GatewayHttpClient(client: Client) {
   ): ZIO[Scope, Throwable, Response] =
     client.url(url).addHeaders(joinDuplicates(headers)).socket(app)
 
-  private def send(request: Request, headers: List[Header], maxResponseBytes: Int)(implicit
-    trace: Trace
-  ): Task[Reply] =
+  private def send(request: Request, headers: List[Header], maxResponseBytes: Int)(implicit trace: Trace): Task[Reply] =
     ZIO.scoped {
       client(withHeaders(request, headers)).flatMap { response =>
         response.header(Header.ContentLength).map(_.length) match {
@@ -48,12 +46,15 @@ private[gateway] final class GatewayHttpClient(client: Client) {
 }
 
 private[gateway] object GatewayHttpClient {
+  def make(implicit trace: Trace): ZIO[Scope, Throwable, GatewayHttpClient] =
+    layer.build.map(env => new GatewayHttpClient(env.get[Client]))
+
   final case class Reply(response: Response, body: BoundedBody) {
     def status: Status              = response.status
     def contentType: Option[String] = response.rawHeader(Header.ContentType)
   }
 
-  private[gateway] val jsonContentType =
+  val jsonContentType =
     Header.ContentType(MediaType.application.json, charset = Some(StandardCharsets.UTF_8))
 
   private val jsonHeaders = Headers(
@@ -68,17 +69,14 @@ private[gateway] object GatewayHttpClient {
     headers match {
       case Nil | _ :: Nil => Headers.fromIterable(headers)
       case _              =>
-        val joined    = new java.util.LinkedHashMap[String, (String, java.lang.StringBuilder)]
-        var remaining = headers
-        while (remaining ne Nil) {
-          val header = remaining.head
-          val name   = RemoteGraphQLConfig.headerName(header)
-          val known  = joined.get(header.headerName)
+        val joined = new java.util.LinkedHashMap[String, (String, java.lang.StringBuilder)]
+        headers.foreach { header =>
+          val name  = RemoteGraphQLConfig.headerName(header)
+          val known = joined.get(header.headerName)
           if (known eq null) joined.put(header.headerName, (name, new java.lang.StringBuilder(header.renderedValue)))
           else known._2.append(", ").append(header.renderedValue)
-          remaining = remaining.tail
         }
-        val result    = List.newBuilder[Header]
+        val result = List.newBuilder[Header]
         joined.values.forEach { case (name, value) => result += Header.Custom(name, value.toString) }
         Headers.fromIterable(result.result())
     }
@@ -94,6 +92,4 @@ private[gateway] object GatewayHttpClient {
     ) ++ DnsResolver.system) >>> ZClient.live
   }
 
-  def make(implicit trace: Trace): ZIO[Scope, Throwable, GatewayHttpClient] =
-    layer.build.map(env => new GatewayHttpClient(env.get[Client]))
 }

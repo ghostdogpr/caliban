@@ -553,7 +553,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
         gate           <- AdmissionGate.make(1, PhaseHooks.AdmissionKind.Subgraph, PhaseHooks.empty)
         blockerStarted <- Promise.make[Nothing, Unit]
         releaseBlocker <- Promise.make[Nothing, Unit]
-        blocker        <- gate(blockerStarted.succeed(()).unit *> releaseBlocker.await).fork
+        blocker        <- gate.withPermit(blockerStarted.succeed(()).unit *> releaseBlocker.await).fork
         _              <- blockerStarted.await
         source         <- RemoteSubgraphExecutor
                             .make("remote", remote, http, config, PhaseHooks.empty, admission = Some(gate))

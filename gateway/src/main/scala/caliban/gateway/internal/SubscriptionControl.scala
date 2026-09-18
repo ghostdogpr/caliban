@@ -43,21 +43,20 @@ private[gateway] final class SubscriptionControl[-R] private (
                                token     = new Object
                                started  <- Clock.nanoTime
                                reason   <- Ref.make("cancelled")
-                               admitted <- state.modify { value =>
+                               rejected <- state.modify { value =>
                                              val rejection = value.stopped.orElse(
                                                if (value.active.size >= config.maxActive)
                                                  Some(SubscriptionTermination.Capacity)
                                                else None
                                              )
                                              rejection -> (if (rejection.isEmpty)
-                                                             value.copy(active =
-                                                               value.active
-                                                                 .updated(token, signal)
+                                                             value.copy(
+                                                               active = value.active.updated(token, signal)
                                                              )
                                                            else value)
                                            }
                                _        <-
-                                 ZIO.foreachDiscard(admitted)(error =>
+                                 ZIO.foreachDiscard(rejected)(error =>
                                    notify(Event.SubscriptionAdmission(false))(hooks.subscriptionAdmission) *> ZIO.fail(
                                      error
                                    )
@@ -83,7 +82,7 @@ private[gateway] final class SubscriptionControl[-R] private (
         (signal, reason) = admittedState
         sourceScope     <- ZIO.service[Scope]
         source          <- work
-                             .observedAs[R1 with Scope, Throwable, ZStream[Any, Throwable, GraphQLResponse[CalibanError]]](
+                             .admitAs[R1 with Scope, Throwable, ZStream[Any, Throwable, GraphQLResponse[CalibanError]]](
                                AdmissionKind.SubscriptionSetup
                              ) {
                                hooks.subscriptionSetup
@@ -106,9 +105,9 @@ private[gateway] final class SubscriptionControl[-R] private (
                                  )
                                case _                   => ZIO.unit
                              }
-        queue           <- SubscriptionBuffer.make[GraphQLResponse[CalibanError]](config.bufferSize)
+        buffer          <- SubscriptionBuffer.make[GraphQLResponse[CalibanError]](config.bufferSize)
         _               <- source.runForeach { event =>
-                             queue.offer(event).flatMap {
+                             buffer.offer(event).flatMap {
                                case true  => ZIO.unit
                                case false => ZIO.fail(SubscriptionTermination.Overflow)
                              }
@@ -123,13 +122,11 @@ private[gateway] final class SubscriptionControl[-R] private (
                                    case _                                    => SubscriptionTermination.Source
                                  })
                                  .unit
-                           ).ensuring(queue.end)
+                           ).ensuring(buffer.end)
                              .forkScoped
-        events           = queue.stream.mapZIO { event =>
+        events           = buffer.stream.mapZIO { event =>
                              work
-                               .observedAs[R1, Nothing, GraphQLResponse[CalibanError]](
-                                 AdmissionKind.SubscriptionEvent
-                               ) {
+                               .admitAs[R1, Nothing, GraphQLResponse[CalibanError]](AdmissionKind.SubscriptionEvent) {
                                  hooks.subscriptionEvent.run[R1, Nothing, GraphQLResponse[CalibanError]](
                                    Event.SubscriptionEvent
                                  )(
@@ -160,14 +157,6 @@ private[gateway] final class SubscriptionControl[-R] private (
 }
 
 private[gateway] object SubscriptionControl {
-  private final case class State(
-    stopped: Option[CalibanError.ExecutionError],
-    active: Map[Object, Promise[Nothing, CalibanError.ExecutionError]]
-  )
-  private def terminationReason(error: Throwable): String = error match {
-    case value: CalibanError.ExecutionError => SubscriptionTermination.code(value)
-    case _                                  => "source_error"
-  }
   def make[R](
     config: GatewaySubscriptionConfig,
     work: AdmissionGate[R],
@@ -178,4 +167,14 @@ private[gateway] object SubscriptionControl {
       drained <- Promise.make[Nothing, Unit]
       control  = new SubscriptionControl(config, work, hooks, state, drained)
     } yield control
+
+  private final case class State(
+    stopped: Option[CalibanError.ExecutionError],
+    active: Map[Object, Promise[Nothing, CalibanError.ExecutionError]]
+  )
+
+  private def terminationReason(error: Throwable): String = error match {
+    case value: CalibanError.ExecutionError => SubscriptionTermination.code(value)
+    case _                                  => "source_error"
+  }
 }

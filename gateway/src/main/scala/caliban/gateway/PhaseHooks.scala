@@ -1,6 +1,5 @@
 package caliban.gateway
 
-import caliban.gateway.PhaseHooks.Event.CacheAccess
 import caliban.gateway.PhaseHooks.{ Event, Outcome, Result }
 import caliban.parsing.adt.OperationType
 import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse }
@@ -24,7 +23,7 @@ final case class PhaseHooks[-R] private (
   attempt: PhaseHandler[R, Event.Attempt, Nothing, Result] = PhaseHandler.empty[Event.Attempt],
   retry: PhaseHandler[R, Event.Retry, Nothing, Result] = PhaseHandler.empty[Event.Retry],
   completion: PhaseHandler[R, Event.Completion.type, Nothing, Result] = PhaseHandler.empty[Event.Completion.type],
-  cacheAccess: PhaseHandler[R, Event.CacheAccess, Nothing, Result] = PhaseHandler.empty[CacheAccess],
+  cacheAccess: PhaseHandler[R, Event.CacheAccess, Nothing, Result] = PhaseHandler.empty[Event.CacheAccess],
   admission: PhaseHandler[R, Event.Admission, Nothing, Result] = PhaseHandler.empty[Event.Admission],
   overrideLabels: PhaseHandler[R, Event.OverrideLabels, Throwable, Any] = PhaseHandler.empty[Event.OverrideLabels],
   outboundHeaders: PhaseHandler[R, Event.OutboundHeaders, Nothing, Any] = PhaseHandler.empty[Event.OutboundHeaders],
@@ -97,7 +96,9 @@ final case class PhaseHooks[-R] private (
  */
 object PhaseHooks {
 
-  /** Hooks with every phase empty. The identity of `++`, and what a gateway starts with. */
+  /**
+   * Hooks with every phase empty. The identity of `++`, and what a gateway starts with.
+   */
   val empty: PhaseHooks[Any] = new PhaseHooks[Any]()
 
   /**
@@ -132,9 +133,7 @@ object PhaseHooks {
    * distinguishes the two. Pairs with [[subscriptionTerminated]] to track how many subscriptions are active. No work is
    * bracketed.
    */
-  def subscriptionAdmission[R](
-    handler: PhaseHandler[R, Event.SubscriptionAdmission, Nothing, Result]
-  ): PhaseHooks[R] =
+  def subscriptionAdmission[R](handler: PhaseHandler[R, Event.SubscriptionAdmission, Nothing, Result]): PhaseHooks[R] =
     new PhaseHooks[R](subscriptionAdmission = handler)
 
   /**
@@ -235,9 +234,7 @@ object PhaseHooks {
    * the outcome, including preparation failures, timeouts, shutdown, and interruption. See [[OperationEvent]] for what
    * each of those carries. A handler that wants timings brackets them itself.
    */
-  def observeOperation[R](
-    handler: PhaseHandler[R, Event.ObserveOperation, Nothing, OperationEvent]
-  ): PhaseHooks[R] =
+  def observeOperation[R](handler: PhaseHandler[R, Event.ObserveOperation, Nothing, OperationEvent]): PhaseHooks[R] =
     new PhaseHooks[R](observeOperation = handler)
 
   /**
@@ -297,11 +294,8 @@ object PhaseHooks {
   )
 
   object Result {
-    private[gateway] def fromResponse(response: caliban.GraphQLResponse[_]): Result =
-      Result(
-        if (response.errors.isEmpty) Outcome.Success else Outcome.GraphQLError,
-        errorCount = response.errors.size
-      )
+    private[gateway] def fromResponse(response: GraphQLResponse[_]): Result =
+      Result(if (response.errors.isEmpty) Outcome.Success else Outcome.GraphQLError, errorCount = response.errors.size)
 
     private[gateway] def classifyExit[E, A](exit: Exit[E, A]): Result =
       fromExit(exit)(_ => Result(Outcome.Success), _ => Result(Outcome.InternalError))
@@ -312,7 +306,7 @@ object PhaseHooks {
         case Exit.Failure(cause) => cause.failureOption.fold(fromCause(cause))(failure)
       }
 
-    private[gateway] def fromCause(cause: Cause[_]): Result =
+    private def fromCause(cause: Cause[_]): Result =
       Result(if (cause.isInterrupted) Outcome.Cancelled else Outcome.InternalError)
   }
 

@@ -616,7 +616,7 @@ private[execution] object EntityLookup {
   sealed trait EntityCorrelation {
     def required: List[RequiredSelection]
 
-    def entryIndex(
+    private[execution] def entryIndex(
       fetch: EntityFetch,
       expected: Map[EntityIdentity, Int],
       index: Int,
@@ -628,7 +628,7 @@ private[execution] object EntityLookup {
     case object Ordered extends EntityCorrelation {
       val required: List[RequiredSelection] = Nil
 
-      def entryIndex(
+      private[execution] def entryIndex(
         fetch: EntityFetch,
         expected: Map[EntityIdentity, Int],
         index: Int,
@@ -642,7 +642,7 @@ private[execution] object EntityLookup {
       def required: List[RequiredSelection] =
         identity.keys.map(_.selection) ::: identity.typename.toList
 
-      def entryIndex(
+      private[execution] def entryIndex(
         fetch: EntityFetch,
         expected: Map[EntityIdentity, Int],
         index: Int,

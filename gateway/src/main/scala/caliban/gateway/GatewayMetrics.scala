@@ -72,14 +72,7 @@ object GatewayMetrics {
       PhaseHooks.subscriptionSetup(trackPhaseDuration(subscriptionSetup)) ++
       PhaseHooks
         .request(
-          trackPhase(
-            requestsActive,
-            requestDuration,
-            requests,
-            _ => Set.empty,
-            requestDetailLabels,
-            requestTotalLabels
-          )
+          trackPhase(requestsActive, requestDuration, requests, _ => Set.empty, requestDetailLabels, requestTotalLabels)
         ) ++
       PhaseHooks.subscriptionEvent(trackPhaseDuration(subscriptionEventDuration)) ++
       PhaseHooks.routing(trackPhaseDuration(routingDuration)) ++
@@ -94,25 +87,23 @@ object GatewayMetrics {
         )
       ) ++
       PhaseHooks.retry(PhaseHandler.incomingDiscard(ev => retries.tagged("subgraph", ev.subgraph).update(1L))) ++
-      PhaseHooks.cacheAccess(
-        PhaseHandler.incomingDiscard(ev => cache.tagged("result", ev.result.label).update(1L))
-      ) ++
+      PhaseHooks.cacheAccess(PhaseHandler.incomingDiscard(ev => cache.tagged("result", ev.result.label).update(1L))) ++
       PhaseHooks.admission(PhaseHandler.incomingDiscard(ev => admission.tagged("kind", ev.kind.label).increment))
 
-  private def trackPhase[Event](
+  private def trackPhase[Ev](
     active: Metric.Gauge[Double],
     duration: Metric.Histogram[Double],
     total: Metric.Counter[Long],
-    labels: Event => Set[MetricLabel],
+    labels: Ev => Set[MetricLabel],
     detailLabels: Result => Set[MetricLabel],
     totalLabels: Result => Set[MetricLabel]
-  ): PhaseHandler[Any, Event, Nothing, Result] =
-    PhaseHandler((ev: Event) => enterTrack(active, labels(ev)).map(ev -> _))(
-      (_, ctx: (Long, Set[MetricLabel]), out: Result) =>
-        exitTrack(ctx._1, active, duration, total, ctx._2, detailLabels, totalLabels, out)
+  ): PhaseHandler[Any, Ev, Nothing, Result] =
+    PhaseHandler((ev: Ev) => startPhase(active, labels(ev)).map(ev -> _))(
+      (_, context: (Long, Set[MetricLabel]), result: Result) =>
+        finishPhase(context._1, active, duration, total, context._2, detailLabels, totalLabels, result)
     )
 
-  private def enterTrack(
+  private def startPhase(
     active: Metric.Gauge[Double],
     labels: Set[MetricLabel]
   )(implicit trace: Trace): ZIO[Any, Nothing, (Long, Set[MetricLabel])] =
@@ -120,7 +111,7 @@ object GatewayMetrics {
       active.tagged(labels).increment.as(startedAt -> labels)
     }
 
-  private def exitTrack(
+  private def finishPhase(
     startedAt: Long,
     active: Metric.Gauge[Double],
     duration: Metric.Histogram[Double],
@@ -136,14 +127,14 @@ object GatewayMetrics {
         active.tagged(labels).decrement
     }
 
-  private def trackPhaseDuration[Event](duration: Metric.Histogram[Double])(implicit
+  private def trackPhaseDuration[Ev](duration: Metric.Histogram[Double])(implicit
     trace: Trace
-  ): PhaseHandler[Any, Event, Nothing, Result] =
-    PhaseHandler((ev: Event) => Clock.nanoTime.map(ev -> _))((_, ctx: Long, out: Result) =>
-      exitDuration(ctx, duration, out)
+  ): PhaseHandler[Any, Ev, Nothing, Result] =
+    PhaseHandler((ev: Ev) => Clock.nanoTime.map(ev -> _))((_, startedAt: Long, result: Result) =>
+      recordDuration(startedAt, duration, result)
     )
 
-  private def exitDuration(
+  private def recordDuration(
     startedAt: Long,
     duration: Metric.Histogram[Double],
     result: Result

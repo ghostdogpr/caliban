@@ -16,14 +16,6 @@ import zio.stream.ZStream
  */
 trait GatewayInterpreter[-R] extends GraphQLInterpreter[R, CalibanError] {
 
-  private def incoming(headers: List[Header]): List[(String, String)] =
-    headers.map(header => RemoteGraphQLConfig.headerName(header) -> header.renderedValue)
-
-  private[gateway] def shutdownResponse(implicit trace: Trace): URIO[Any, GraphQLResponse[CalibanError]] =
-    GraphQLResponseContext
-      .markServerError(ServerFailure.Unavailable)
-      .as(requestShutdownResponse)
-
   /**
    * Setup and resources belong to each consumption, not stream construction.
    */
@@ -35,11 +27,7 @@ trait GatewayInterpreter[-R] extends GraphQLInterpreter[R, CalibanError] {
   def executeStream(request: GraphQLRequest, headers: List[Header])(implicit
     trace: Trace
   ): ZStream[R, Throwable, GraphQLResponse[CalibanError]] =
-    ZStream.unwrapScoped(
-      IncomingRequestHeaders
-        .locallyScoped(incoming(headers))
-        .as(executeStream(request))
-    )
+    ZStream.unwrapScoped(IncomingRequestHeaders.locallyScoped(headerValues(headers)).as(executeStream(request)))
 
   /**
    * Executes a request with incoming headers available to configured subgraph forwarding policies.
@@ -48,9 +36,7 @@ trait GatewayInterpreter[-R] extends GraphQLInterpreter[R, CalibanError] {
     trace: Trace
   ): URIO[R, GraphQLResponse[CalibanError]] =
     IncomingRequestHeaders
-      .locally(incoming(headers))(
-        executeRequest(request)
-      )
+      .locally(headerValues(headers))(executeRequest(request))
 
   /**
    * Returns a deterministic semantic description of the executable plan for an operation.
@@ -64,4 +50,12 @@ trait GatewayInterpreter[-R] extends GraphQLInterpreter[R, CalibanError] {
     trace: Trace
   ): ZIO[R, CalibanError, String] =
     explain(GraphQLRequest(query = Some(query), operationName = operationName))
+
+  private def headerValues(headers: List[Header]): List[(String, String)] =
+    headers.map(header => RemoteGraphQLConfig.headerName(header) -> header.renderedValue)
+
+  private[gateway] def shutdownResponse(implicit trace: Trace): URIO[Any, GraphQLResponse[CalibanError]] =
+    GraphQLResponseContext
+      .markServerError(ServerFailure.Unavailable)
+      .as(requestShutdownResponse)
 }

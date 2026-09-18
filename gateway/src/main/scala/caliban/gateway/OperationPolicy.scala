@@ -28,18 +28,16 @@ object OperationPolicy {
    * A composed security requirement reached by the selected fields.
    * Every requirement and directive must be satisfied. `fieldName = None` identifies a type-level application.
    */
-  final case class SecurityRequirement(
-    typeName: String,
-    fieldName: Option[String],
-    directives: List[SecurityDirective]
-  )
+  final case class SecurityRequirement(typeName: String, fieldName: Option[String], directives: List[SecurityDirective])
 
   sealed trait SecurityDirective
 
   object SecurityDirective {
     case object Authenticated extends SecurityDirective
 
-    /** A `@policy` application whose selected operations are always rejected by the gateway. */
+    /**
+     * A `@policy` application whose selected operations are always rejected by the gateway.
+     */
     case object UnsupportedPolicy extends SecurityDirective
 
     /**

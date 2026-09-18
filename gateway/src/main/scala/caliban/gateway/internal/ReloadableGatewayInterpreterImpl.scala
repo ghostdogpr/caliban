@@ -24,6 +24,8 @@ private[gateway] final class ReloadableGatewayInterpreterImpl[R] private (
   def executeRequest(request: GraphQLRequest)(implicit trace: Trace): URIO[R, GraphQLResponse[CalibanError]] =
     use(_.executeRequest(request))(shutdownResponse)
 
+  def lastReloadFailure(implicit trace: Trace): UIO[Option[String]] = state.get.map(_.lastFailure)
+
   private def use[R0, E, A](f: GatewayInterpreterImpl[R] => ZIO[R0, E, A])(
     rejected: => ZIO[R0, E, A]
   )(implicit trace: Trace): ZIO[R0, E, A] =
@@ -47,9 +49,7 @@ private[gateway] final class ReloadableGatewayInterpreterImpl[R] private (
         }
     }
 
-  def lastReloadFailure(implicit trace: Trace): UIO[Option[String]] = state.get.map(_.lastFailure)
-
-  private def loop(implicit trace: Trace): UIO[Unit] =
+  private def refreshLoop(implicit trace: Trace): UIO[Unit] =
     state.get.flatMap { current =>
       if (current.closing) ZIO.unit
       else {
@@ -60,28 +60,28 @@ private[gateway] final class ReloadableGatewayInterpreterImpl[R] private (
               val factor = 1.0 + (2.0 * random - 1.0) * jitter
               Duration.fromNanos(math.max(1L, (pollInterval.toNanos.toDouble * factor).toLong))
             }
-        delay.flatMap(Clock.sleep(_)) *> cycle *> ZIO.suspendSucceed(loop)
+        delay.flatMap(Clock.sleep(_)) *> refresh *> ZIO.suspendSucceed(refreshLoop)
       }
     }
 
-  private def cycle(implicit trace: Trace): UIO[Unit] =
+  private def refresh(implicit trace: Trace): UIO[Unit] =
     (for {
       run <- state.get.map(current => !current.closing && !current.retiring && current.candidate.isEmpty)
       _   <- ZIO.when(run) {
                acquire.flatMap { snapshot =>
                  state.get.flatMap { current =>
                    if (current.closing) ZIO.unit
-                   else if (snapshot.fingerprints == current.active.fingerprints) unchanged
+                   else if (snapshot.fingerprints == current.active.fingerprints) clearFailure
                    else replace(snapshot)
                  }
                }
              }
-    } yield ()).catchAll(error => failed(Some(error))).catchAllCause { cause =>
+    } yield ()).catchAll(error => recordFailure(Some(error))).catchAllCause { cause =>
       if (cause.isInterrupted) ZIO.refailCause(cause)
-      else failed(None)
+      else recordFailure(None)
     }
 
-  private def unchanged(implicit trace: Trace): UIO[Unit] =
+  private def clearFailure(implicit trace: Trace): UIO[Unit] =
     state.modify { current =>
       if (current.closing) false        -> current
       else current.lastFailure.nonEmpty -> current.copy(lastFailure = None)
@@ -133,7 +133,7 @@ private[gateway] final class ReloadableGatewayInterpreterImpl[R] private (
       _       <- state.update(_.copy(retiring = false))
     } yield ()
 
-  private def failed(error: Option[GatewayBuildError])(implicit trace: Trace): UIO[Unit] =
+  private def recordFailure(error: Option[GatewayBuildError])(implicit trace: Trace): UIO[Unit] =
     state.modify { current =>
       if (current.closing) Option.empty[String] -> current
       else {
@@ -148,35 +148,21 @@ private[gateway] final class ReloadableGatewayInterpreterImpl[R] private (
 
   private def close(worker: Fiber.Runtime[Nothing, Unit])(implicit trace: Trace): UIO[Unit] =
     (for {
-      owned <- state.modify { current =>
-                 val owned = current.active.scope :: current.candidate.toList
-                 (owned, current.retiring) -> current.copy(closing = true)
-               }
+      closing           <- state.modify { current =>
+                             val scopes = current.active.scope :: current.candidate.toList
+                             (scopes, current.retiring) -> current.copy(closing = true)
+                           }
+      (scopes, retiring) = closing
       // Retirement owns the old drain timer: interrupting it could abandon the drain.
       // The active generation closes concurrently with that existing retirement.
-      _     <- ZIO
-                 .foreachParDiscard(owned._1)(_.close(Exit.unit))
-                 .zipPar(if (owned._2) worker.await else worker.interrupt)
-      _     <- state.update(_.copy(candidate = None))
+      _                 <- ZIO
+                             .foreachParDiscard(scopes)(_.close(Exit.unit))
+                             .zipPar(if (retiring) worker.await else worker.interrupt)
+      _                 <- state.update(_.copy(candidate = None))
     } yield ()).uninterruptible
 }
 
 private[gateway] object ReloadableGatewayInterpreterImpl {
-  private final case class Generation[-R](
-    id: Long,
-    fingerprints: List[String],
-    interpreter: GatewayInterpreterImpl[R],
-    scope: Scope.Closeable
-  )
-
-  private final case class State[-R](
-    active: Generation[R],
-    retiring: Boolean,
-    candidate: Option[Scope.Closeable],
-    closing: Boolean,
-    lastFailure: Option[String]
-  )
-
   def make[R](
     acquire: IO[GatewayBuildError, Gateway.Snapshot[R]],
     pollInterval: Duration,
@@ -200,12 +186,27 @@ private[gateway] object ReloadableGatewayInterpreterImpl {
                            )
             runtime      =
               new ReloadableGatewayInterpreterImpl(acquire, pollInterval, jitter, drainTimeout, state, http)
-            worker      <- runtime.loop.interruptible.forkDaemon
+            worker      <- runtime.refreshLoop.interruptible.forkDaemon
             _           <- ZIO.addFinalizer(runtime.close(worker))
           } yield runtime).onError(cause => initialScope.close(Exit.failCause(cause)))
         }
       }
     }
+
+  private final case class Generation[-R](
+    id: Long,
+    fingerprints: List[String],
+    interpreter: GatewayInterpreterImpl[R],
+    scope: Scope.Closeable
+  )
+
+  private final case class State[-R](
+    active: Generation[R],
+    retiring: Boolean,
+    candidate: Option[Scope.Closeable],
+    closing: Boolean,
+    lastFailure: Option[String]
+  )
 
   private def safeReason(error: GatewayBuildError): String = error match {
     case _: GatewayBuildError.InvalidConfiguration          => "Invalid gateway configuration."

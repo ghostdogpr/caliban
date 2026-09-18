@@ -15,12 +15,7 @@ object Lookup {
   /**
    * Describes a lookup field that returns one object for one key using deterministically ordered argument mappings.
    */
-  def single(
-    typeName: String,
-    keyFields: List[String],
-    field: String,
-    arguments: (String, Argument)*
-  ): Lookup =
+  def single(typeName: String, keyFields: List[String], field: String, arguments: (String, Argument)*): Lookup =
     Single(typeName, keyFields, field, arguments.toList)
 
   /**

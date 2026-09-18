@@ -80,24 +80,20 @@ private[gateway] final class OperationCache[K, E, V, -R] private (
   private def observe[R0 <: R, E0, A](
     value: CacheResult
   )(effect: ZIO[R0, E0, A])(implicit trace: Trace): ZIO[R0, E0, A] =
-    hooks.cacheAccess.run(Event.CacheAccess(value))(effect)(
-      Result.classifyExit
-    )
+    hooks.cacheAccess.run(Event.CacheAccess(value))(effect)(Result.classifyExit)
 }
 
 private[gateway] object OperationCache {
 
   final case class Weighted[+A](value: A, weight: Long)
 
-  def make[K, E, V, R](maxWeight: Long, hooks: PhaseHooks[R])(implicit
-    trace: Trace
-  ): UIO[OperationCache[K, E, V, R]] =
+  def make[K, E, V, R](maxWeight: Long, hooks: PhaseHooks[R])(implicit trace: Trace): UIO[OperationCache[K, E, V, R]] =
     Ref.make(State.empty[K, E, V]).map(new OperationCache(maxWeight, _, hooks))
 
   private final case class State[K, E, V](
     entries: Map[K, Weighted[V]],
-    order: Queue[K],
-    weight: Long,
+    insertionOrder: Queue[K],
+    totalWeight: Long,
     inFlight: Map[K, Promise[Nothing, Exit[E, V]]]
   ) {
 
@@ -115,8 +111,8 @@ private[gateway] object OperationCache {
         evict(
           copy(
             entries = entries.updated(key, Weighted(weighted.value, entryWeight)),
-            order = order.enqueue(key),
-            weight = weight + entryWeight
+            insertionOrder = insertionOrder.enqueue(key),
+            totalWeight = totalWeight + entryWeight
           ),
           maxWeight
         )
@@ -124,23 +120,23 @@ private[gateway] object OperationCache {
 
     @tailrec
     private def evict(current: State[K, E, V], maxWeight: Long): State[K, E, V] =
-      if (current.weight <= maxWeight) current
+      if (current.totalWeight <= maxWeight) current
       else
-        current.order.dequeueOption match {
+        current.insertionOrder.dequeueOption match {
           case Some((key, remaining)) =>
             current.entries.get(key) match {
               case Some(entry) =>
                 evict(
                   current.copy(
                     entries = current.entries - key,
-                    order = remaining,
-                    weight = current.weight - entry.weight
+                    insertionOrder = remaining,
+                    totalWeight = current.totalWeight - entry.weight
                   ),
                   maxWeight
                 )
-              case None        => evict(current.copy(order = remaining), maxWeight)
+              case None        => evict(current.copy(insertionOrder = remaining), maxWeight)
             }
-          case None                   => current.copy(weight = 0L)
+          case None                   => current.copy(totalWeight = 0L)
         }
   }
 

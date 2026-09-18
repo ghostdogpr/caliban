@@ -42,7 +42,7 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
         headers   <- this.headers
         replaySafe = operationType == OperationType.Query
         rawCall    = executeAttempts(body, headers, replaySafe, attempt = 0)
-        admitted   = admission.fold(rawCall)(_.observed(rawCall))
+        admitted   = admission.fold(rawCall)(_.admit(rawCall))
         response  <- if (replaySafe)
                        queryCalls.fold(admitted)(
                          _.execute(body, headers)(
@@ -71,7 +71,7 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
       body   <- encode(request.copy(extensions = None)).mapError(_ => SubscriptionTermination.Source)
       stream <- subscription.open(traced, request, body)
     } yield stream
-    admission.fold(open)(_.observed(open))
+    admission.fold(open)(_.admit(open))
   }
 
   private val execution        = config.execution
