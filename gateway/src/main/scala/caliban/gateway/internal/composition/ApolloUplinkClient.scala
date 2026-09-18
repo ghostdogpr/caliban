@@ -1,5 +1,6 @@
 package caliban.gateway.internal.composition
 
+import caliban.gateway.TypenameField
 import caliban.{ GraphQLRequest, InputValue, ResponseValue }
 import caliban.gateway.{ SupergraphAcquisitionError, SupergraphUplinkConfig }
 import caliban.gateway.SupergraphAcquisitionError._
@@ -29,14 +30,10 @@ private[gateway] object ApolloUplinkClient {
       .mapError[SupergraphAcquisitionError](RequestFailed(_))
       .flatMap { reply =>
         if (reply.body.limitExceeded) ZIO.fail(ResponseTooLarge(acquisition.maxResponseBytes))
-        else if (
-          !reply.status.isSuccess || RemoteTransport.mediaType(reply.contentType).exists(_.startsWith("text/html"))
-        )
+        else if (!reply.status.isSuccess || RemoteSchemaAcquisition.isHtml(reply.contentType))
           ZIO.fail(UnexpectedResponse(reply.status, reply.contentType))
         else if (
-          RemoteTransport
-            .validateJsonStructure(reply.body.bytes, acquisition.maxParsingDepth, Int.MaxValue)
-            .isLeft
+          RemoteTransport.validateJsonStructure(reply.body.bytes, acquisition.maxParsingDepth, Int.MaxValue).isLeft
         )
           ZIO.fail(ParsingDepthExceeded(acquisition.maxParsingDepth))
         else
@@ -61,7 +58,7 @@ private[gateway] object ApolloUplinkClient {
       query = Some(Query),
       operationName = Some(OperationName),
       variables = Some(
-        Map[String, InputValue](
+        Map(
           "apiKey"    -> StringValue(apiKey),
           "ref"       -> StringValue(ref),
           "ifAfterId" -> ifAfterId.fold[InputValue](NullValue)(StringValue(_))
@@ -76,19 +73,18 @@ private[gateway] object ApolloUplinkClient {
           case ListValue(values) => values.nonEmpty
           case _                 => false
         }
-        envelope.getOrNull("data") match {
-          case data: ObjectValue =>
-            data.getOrNull("routerConfig") match {
-              case value: ObjectValue => if (hasErrors) Left(MissingRouterConfig) else routerConfig(value)
-              case _                  => Left(MissingRouterConfig)
-            }
-          case _                 => Left(if (hasErrors) MissingData else DecodingFailed)
+        (objectField(envelope, "data"), hasErrors) match {
+          case (Some(data), false) =>
+            objectField(data, "routerConfig").toRight(MissingRouterConfig).flatMap(routerConfig)
+          case (Some(_), true)     => Left(MissingRouterConfig)
+          case (None, true)        => Left(MissingData)
+          case (None, false)       => Left(DecodingFailed)
         }
       case _                     => Left(DecodingFailed)
     }
 
   private def routerConfig(value: ObjectValue): Either[InvalidUplinkResponse.Reason, UplinkResponse] =
-    string(value, "__typename").toRight(DecodingFailed).flatMap {
+    string(value, TypenameField).toRight(DecodingFailed).flatMap {
       case "RouterConfigResult" =>
         for {
           id    <- string(value, "id").toRight(MissingId)
@@ -108,6 +104,12 @@ private[gateway] object ApolloUplinkClient {
       case _                    => Left(UnknownTypename)
     }
 
+  private def objectField(value: ObjectValue, field: String): Option[ObjectValue] =
+    value.getOrNull(field) match {
+      case result: ObjectValue => Some(result)
+      case _                   => None
+    }
+
   private def string(value: ObjectValue, field: String): Option[String] =
     value.getOrNull(field) match {
       case StringValue(result) => Some(result)
@@ -121,7 +123,7 @@ private[gateway] object ApolloUplinkClient {
       case _                  => None
     }
 
-  private val OperationName = "SupergraphSdl"
+  private final val OperationName = "SupergraphSdl"
 
   private val Query: String =
     s"""query $OperationName($$apiKey: String!, $$ref: String!, $$ifAfterId: ID) {

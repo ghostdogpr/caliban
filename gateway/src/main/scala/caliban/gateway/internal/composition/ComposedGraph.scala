@@ -1,5 +1,6 @@
 package caliban.gateway.internal.composition
 
+import caliban.gateway.{ innerParentTypeName, responseNames }
 import caliban.InputValue
 import caliban.execution.{ ExecutionRequest, Field }
 import caliban.gateway.OperationPolicy.{ SecurityDirective, SecurityRequirement }
@@ -35,22 +36,21 @@ private[gateway] final case class ComposedGraph private[internal] (
   private val securityApplications: List[SecurityDirectiveApplication],
   val schemaDirectives: List[Directive]
 ) {
-  def resolveOverrides(activeOverrides: Set[OverrideLabel]): ComposedGraph =
-    cachedOverrideGraphs.get().find(_._1 == activeOverrides) match {
-      case Some((_, graph)) => graph
-      case None             =>
-        val created                              = graphForOverrides(activeOverrides)
-        @tailrec def cacheOrGet(): ComposedGraph = {
-          val current = cachedOverrideGraphs.get()
-          current.find(_._1 == activeOverrides) match {
-            case Some((_, graph)) => graph
-            case None             =>
-              val updated = (activeOverrides -> created) :: current.take(MaxCachedOverrideGraphs - 1)
-              if (cachedOverrideGraphs.compareAndSet(current, updated)) created else cacheOrGet()
-          }
-        }
-        cacheOrGet()
+  def resolveOverrides(activeOverrides: Set[OverrideLabel]): ComposedGraph = {
+    lazy val created = graphForOverrides(activeOverrides)
+
+    @tailrec def cacheOrGet(): ComposedGraph = {
+      val current = cachedOverrideGraphs.get()
+      current.find(_._1 == activeOverrides) match {
+        case Some((_, graph)) => graph
+        case None             =>
+          val updated = (activeOverrides -> created) :: current.take(MaxCachedOverrideGraphs - 1)
+          if (cachedOverrideGraphs.compareAndSet(current, updated)) created else cacheOrGet()
+      }
     }
+
+    cacheOrGet()
+  }
 
   def hasProgressiveOverrides: Boolean = overridePercentages.nonEmpty
 
@@ -83,12 +83,12 @@ private[gateway] final case class ComposedGraph private[internal] (
 
   // Entity lookups allow switching sources. Otherwise, keep the current sources when any can resolve the field.
   def candidateSources(current: Set[String], parentType: String, field: String): Set[String] = {
-    val candidateSources = fieldRoutes.getOrElse(TypeField(parentType, field), Nil).map(_.source).toSet
-    if (candidateSources.isEmpty) current
-    else if (lookupTypes.contains(parentType)) candidateSources
+    val routed = fieldRoutes.getOrElse(TypeField(parentType, field), Nil).map(_.source).toSet
+    if (routed.isEmpty) current
+    else if (lookupTypes.contains(parentType)) routed
     else {
-      val constrained = current intersect candidateSources
-      if (constrained.isEmpty) candidateSources else constrained
+      val constrained = current intersect routed
+      if (constrained.isEmpty) routed else constrained
     }
   }
 
@@ -233,9 +233,9 @@ private[gateway] final case class ComposedGraph private[internal] (
       }
     }.toList.groupMap(_._1)(_._2)
   }
-  private val operationCost          = new OperationCost(rootType.types, possibleTypesByName, costMetadata)
-
-  private val operationSecurity = new OperationSecurity(
+  // Graphs resolved for progressive overrides are only planned against, so they never build these.
+  private lazy val operationCost     = new OperationCost(rootType.types, possibleTypesByName, costMetadata)
+  private lazy val operationSecurity = new OperationSecurity(
     possibleTypesByName,
     sourceFields,
     requiredFieldSets,
@@ -277,19 +277,17 @@ private[gateway] final case class ComposedGraph private[internal] (
     sourcePossibleTypes.get(SourceType(source, typeName)).exists(_.contains(typeName))
 
   private def prepareField(source: String, parentType: Option[String], field: Field): Field = {
-    val parent      = parentType.orElse(field.parentType.flatMap(_.innerType.name)).getOrElse("")
-    val targets     = field.targets.flatMap { original =>
-      // An @interfaceObject source sees one object, so fragments targeting concrete implementations must be removed.
+    val parent      = parentType.getOrElse(innerParentTypeName(field))
+    // An @interfaceObject source sees one object, so fragments targeting concrete implementations must be removed.
+    val targets     =
       if (isInterfaceObject(source, parent)) None
-      else {
-        field._condition
-          .map(
+      else
+        field.targets.map(original =>
+          field._condition.fold(original)(
             _.filter(sourcePossibleTypes.getOrElse(SourceType(source, parent), Set.empty))
               .filter(isObjectType(source, _))
           )
-          .orElse(Some(original))
-      }
-    }
+        )
     val childParent = sourceFields
       .get(SourceField(source, parent, field.name))
       .flatMap(_._type.innerType.name)
@@ -316,7 +314,7 @@ private[gateway] final case class ComposedGraph private[internal] (
       .toSet
     if (conflicts.isEmpty) fields
     else {
-      val initial = fields.map(_.aliasedName).toSet
+      val initial = responseNames(fields)
       fields
         .foldLeft((List.empty[Field], initial)) { case ((values, used), field) =>
           if (!conflicts.contains(field.aliasedName)) (field :: values, used)
@@ -352,13 +350,14 @@ private[gateway] object ComposedGraph {
   final case class TypeField(typeName: String, fieldName: String)
   final case class SourceType(source: String, typeName: String)
   final case class SourceField(source: String, typeName: String, fieldName: String)
+  final case class FieldArgument(typeName: String, fieldName: String, argumentName: String)
 
   final case class CostMetadata(
     types: Map[String, Long],
-    fields: Map[(String, String), Long],
-    arguments: Map[(String, String, String), Long],
-    inputFields: Map[(String, String), Long],
-    listSizes: Map[(String, String, String), ListSize]
+    fields: Map[TypeField, Long],
+    arguments: Map[FieldArgument, Long],
+    inputFields: Map[TypeField, Long],
+    listSizes: Map[SourceField, ListSize]
   )
 
   final case class ListSize(
@@ -382,11 +381,7 @@ private[gateway] object ComposedGraph {
 
   final case class ProgressiveOverride(label: OverrideLabel, percentage: Option[BigDecimal])
 
-  final case class OverrideCondition(
-    label: OverrideLabel,
-    percentage: Option[BigDecimal],
-    active: Boolean
-  ) {
+  final case class OverrideCondition(label: OverrideLabel, percentage: Option[BigDecimal], active: Boolean) {
     def isEnabled(activeOverrides: Set[OverrideLabel]): Boolean = activeOverrides.contains(label) == active
   }
 

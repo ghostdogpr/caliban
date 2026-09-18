@@ -14,11 +14,11 @@ object SupergraphAcquisitionError {
   }
 
   final case class RequestFailed(error: Throwable) extends SupergraphAcquisitionError with GatewayCausedError {
-    override val diagnostics: List[String] = List("Supergraph acquisition request failed")
+    override val diagnostics: List[String] = List("Supergraph schema acquisition request failed.")
   }
 
   final case class TimedOut(timeout: Duration) extends SupergraphAcquisitionError {
-    override val diagnostics: List[String] = List(s"Supergraph schema acquisition timed out after $timeout")
+    override val diagnostics: List[String] = List(s"Supergraph schema acquisition timed out after $timeout.")
   }
 
   final case class ResponseTooLarge(maxBytes: Int) extends SupergraphAcquisitionError {
@@ -28,7 +28,7 @@ object SupergraphAcquisitionError {
   final case class UnexpectedResponse(status: Status, contentType: Option[String]) extends SupergraphAcquisitionError {
     override val diagnostics: List[String] = {
       val mediaType = contentType.fold("without a media type")(value => s"with media type '$value'")
-      List(s"Supergraph schema acquisition response has status ${status.code} $mediaType.")
+      List(s"Supergraph schema acquisition response had status ${status.code} $mediaType.")
     }
   }
 

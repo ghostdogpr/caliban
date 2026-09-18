@@ -2,7 +2,6 @@ package caliban.gateway
 
 import caliban.gateway.GatewayTestSupport._
 import caliban.gateway.internal.GatewayHttpClient
-import caliban.gateway.internal.composition.SupergraphAcquisition
 import caliban.parsing.Parser
 import caliban.parsing.adt.Document
 import zio.Config.Secret
@@ -15,60 +14,20 @@ import java.nio.file.{ Files, Path }
 
 object SupergraphAcquisitionSpec extends ZIOSpecDefault {
 
-  private val supergraphSdl =
-    """schema
-      |  @link(url: "https://specs.apollo.dev/link/v1.0")
-      |  @link(url: "https://specs.apollo.dev/join/v0.5", for: EXECUTION)
-      |{
-      |  query: Query
-      |}
-      |
-      |enum join__Graph {
-      |  A @join__graph(name: "a", url: "http://a/graphql")
-      |}
-      |
-      |type Query @join__type(graph: A) { hello: String }
-      |""".stripMargin
+  private def load(source: Supergraph.Source): URIO[GatewayHttpClient, Exit[SupergraphAcquisitionError, Document]] =
+    acquisitionLoader(source).flatMap[GatewayHttpClient, SupergraphAcquisitionError, Document](_.load).exit
 
-  private def load(
-    source: Supergraph.Source,
-    http: Option[GatewayHttpClient] = None
-  ): URIO[Any, Exit[SupergraphAcquisitionError, Document]] =
-    SupergraphAcquisition.make(source, http).flatMap[Any, SupergraphAcquisitionError, Document](_.load).exit
+  private def loadLocal(source: Supergraph.Source): UIO[Exit[SupergraphAcquisitionError, Document]] =
+    localAcquisitionLoader(source).flatMap[Any, SupergraphAcquisitionError, Document](_.load).exit
 
-  private def queryFields(document: Document): List[String] =
-    document.objectTypeDefinitions.filter(_.name == "Query").flatMap(_.fields.map(_.name))
-
-  /** Fails with the acquisition error, or dies describing what happened instead. */
-  private def failure[A](exit: Exit[SupergraphAcquisitionError, A]): UIO[SupergraphAcquisitionError] =
-    exit match {
-      case Exit.Failure(cause) =>
-        ZIO
-          .fromOption(cause.failureOption)
-          .orDieWith(_ => new AssertionError(s"expected a typed failure, got: ${cause.prettyPrint}"))
-      case Exit.Success(value) => ZIO.die(new AssertionError(s"expected a failure, got: $value"))
-    }
-
-  /** A GET endpoint; `GatewayTestSupport` only exposes POST, which subgraph acquisition uses. */
-  private def getEndpoint(
+  private def staticEndpoint(
     body: String,
     status: Status = Status.Ok,
     mediaType: Option[String] = Some("application/graphql")
-  ): ZIO[Server with Ref[Int], Nothing, URL] =
-    for {
-      id     <- ZIO.serviceWithZIO[Ref[Int]](_.updateAndGet(_ + 1))
-      path    = s"supergraph-$id"
-      server <- ZIO.service[Server]
-      headers = mediaType.fold(Headers.empty)(value => Headers(Header.Custom("Content-Type", value)))
-      _      <- server.install(
-                  Routes(
-                    Method.GET / path -> Handler.fromFunctionZIO[Request](_ =>
-                      ZIO.succeed(Response(status, headers, Body.fromString(body)))
-                    )
-                  )
-                )
-      port   <- server.port
-    } yield url"http://127.0.0.1:$port/$path"
+  ): ZIO[Server with Ref[Int], Nothing, URL] = {
+    val headers = mediaType.fold(Headers.empty)(value => Headers(Header.Custom("Content-Type", value)))
+    getEndpoint("supergraph")(_ => ZIO.succeed(Response(status, headers, Body.fromString(body))))
+  }
 
   private def temporaryFile(contents: String): ZIO[Scope, Nothing, Path] =
     ZIO
@@ -92,10 +51,21 @@ object SupergraphAcquisitionSpec extends ZIOSpecDefault {
     etag: Option[String] = None,
     location: Option[String] = None,
     mediaType: Option[String] = Some("application/graphql")
-  )
+  ) {
+    def response: Response =
+      Response(
+        status,
+        Headers(
+          mediaType.map(Header.Custom("Content-Type", _)).toList :::
+            etag.map(Header.Custom("ETag", _)).toList :::
+            location.map(value => Header.Custom("Location", value)).toList
+        ),
+        Body.fromString(body)
+      )
+  }
 
   private object Answer {
-    def sdl(etag: Option[String] = None): Answer           = Answer(body = supergraphSdl, etag = etag)
+    def sdl(etag: Option[String] = None): Answer           = Answer(body = minimalSupergraphSdl, etag = etag)
     def redirect(to: String, etag: Option[String]): Answer =
       Answer(status = Status.Found, etag = etag, location = Some(to), mediaType = None)
     val notModified: Answer                                = Answer(status = Status.NotModified, mediaType = None)
@@ -127,85 +97,44 @@ object SupergraphAcquisitionSpec extends ZIOSpecDefault {
     for {
       recorded  <- Ref.make(Vector.empty[(String, Headers)])
       remaining <- Ref.make(answers.toList)
-      id        <- ZIO.serviceWithZIO[Ref[Int]](_.updateAndGet(_ + 1))
-      prefix     = s"hive-$id"
-      server    <- ZIO.service[Server]
-      _         <- server.install(
+      base      <- routesEndpoint("hive") { path =>
                      Routes(
-                       Method.GET / prefix / trailing -> Handler.fromFunctionZIO[Request] { request =>
-                         for {
-                           _      <- recorded.update(_ :+ (request.path.toString -> request.headers))
-                           answer <- remaining.modify {
-                                       case only :: Nil  => only     -> (only :: Nil)
-                                       case head :: rest => head     -> rest
-                                       case Nil          => Answer() -> Nil
-                                     }
-                         } yield Response(
-                           answer.status,
-                           Headers(
-                             answer.mediaType.map(Header.Custom("Content-Type", _)).toList :::
-                               answer.location.map(value => Header.Custom("Location", value)).toList
-                           ),
-                           Body.fromString(answer.body)
-                         )
+                       Method.GET / path / trailing -> Handler.fromFunctionZIO[Request] { request =>
+                         recorded.update(_ :+ (request.path.toString -> request.headers)) *>
+                           nextAnswer(remaining, Answer()).map(_.response)
                        }
                      )
-                   )
-      port      <- server.port
-    } yield CdnRoute(url"http://127.0.0.1:$port/$prefix", recorded)
+                   }
+    } yield CdnRoute(base, recorded)
 
   /** Answers each request with the head of `answers`, keeping the last one once the list runs out. */
   private def recordingEndpoint(answers: Answer*): ZIO[Server with Ref[Int], Nothing, Route] =
     for {
       recorded  <- Ref.make(Vector.empty[Headers])
       remaining <- Ref.make(answers.toList)
-      id        <- ZIO.serviceWithZIO[Ref[Int]](_.updateAndGet(_ + 1))
-      path       = s"cdn-$id"
-      server    <- ZIO.service[Server]
-      _         <- server.install(
-                     Routes(
-                       Method.GET / path -> Handler.fromFunctionZIO[Request] { request =>
-                         for {
-                           _      <- recorded.update(_ :+ request.headers)
-                           answer <- remaining.modify {
-                                       case only :: Nil  => only     -> (only :: Nil)
-                                       case head :: rest => head     -> rest
-                                       case Nil          => Answer() -> Nil
-                                     }
-                         } yield Response(
-                           answer.status,
-                           Headers(
-                             answer.mediaType.map(Header.Custom("Content-Type", _)).toList :::
-                               answer.etag.map(Header.Custom("ETag", _)).toList :::
-                               answer.location.map(value => Header.Custom("Location", value)).toList
-                           ),
-                           Body.fromString(answer.body)
-                         )
-                       }
-                     )
-                   )
-      port      <- server.port
-    } yield Route(url"http://127.0.0.1:$port/$path", recorded)
-
-  private val http: ZLayer[Any, Throwable, GatewayHttpClient] = ZLayer.scoped(GatewayHttpClient.make)
+      endpoint  <- getEndpoint("cdn") { request =>
+                     recorded.update(_ :+ request.headers) *> nextAnswer(remaining, Answer()).map(_.response)
+                   }
+    } yield Route(endpoint, recorded)
 
   def spec = suite("SupergraphAcquisitionSpec")(
     suite("local sources")(
       test("parses sdl") {
-        load(Supergraph.Source.Sdl(supergraphSdl)).flatMap(exit =>
-          ZIO.fromEither(exit.toEither).orDie.map(document => assertTrue(queryFields(document) == List("hello")))
-        )
+        for {
+          exit     <- loadLocal(Supergraph.Source.Sdl(minimalSupergraphSdl))
+          document <- ZIO.fromEither(exit.toEither).orDie
+        } yield assertTrue(queryFields(document) == List("hello"))
       },
       test("returns a parsed document unchanged") {
         for {
-          document <- ZIO.fromEither(Parser.parseQuery(supergraphSdl)).orDie
-          exit     <- load(Supergraph.Source.Parsed(document))
+          document <- ZIO.fromEither(Parser.parseQuery(minimalSupergraphSdl)).orDie
+          exit     <- loadLocal(Supergraph.Source.Parsed(document))
         } yield assertTrue(exit == Exit.succeed(document))
       },
       test("reports unparseable sdl rather than throwing") {
         for {
-          exit  <- load(Supergraph.Source.Sdl("type Query {"))
-          error <- failure(exit)
+          exit  <- loadLocal(Supergraph.Source.Sdl("type Query {"))
+          error <- acquisitionFailure(exit)
         } yield assertTrue(error.isInstanceOf[SupergraphAcquisitionError.InvalidSupergraphSchema])
       }
     ),
@@ -214,21 +143,11 @@ object SupergraphAcquisitionSpec extends ZIOSpecDefault {
         // The whole point of a file source: the loader is built once and read on every reload.
         ZIO.scoped {
           for {
-            path   <- temporaryFile(supergraphSdl)
-            loader <- SupergraphAcquisition.make(Supergraph.Source.File(path), None)
+            path   <- temporaryFile(minimalSupergraphSdl)
+            loader <- localAcquisitionLoader(Supergraph.Source.File(path))
             first  <- loader.load
-            _      <- ZIO
-                        .attempt(
-                          Files.write(
-                            path,
-                            supergraphSdl
-                              .replace("hello: String", "hello: String goodbye: String")
-                              .getBytes(
-                                StandardCharsets.UTF_8
-                              )
-                          )
-                        )
-                        .orDie
+            rotated = minimalSupergraphSdl.replace("hello: String", "hello: String goodbye: String")
+            _      <- ZIO.attempt(Files.write(path, rotated.getBytes(StandardCharsets.UTF_8))).orDie
             second <- loader.load
           } yield assertTrue(
             queryFields(first) == List("hello"),
@@ -240,11 +159,11 @@ object SupergraphAcquisitionSpec extends ZIOSpecDefault {
         // Two different failures that would otherwise both surface as "could not load".
         ZIO.scoped {
           for {
-            missing     <- load(Supergraph.Source.File(Path.of("/nonexistent/supergraph.graphql")))
-            unreadable  <- failure(missing)
+            missing     <- loadLocal(Supergraph.Source.File(Path.of("/nonexistent/supergraph.graphql")))
+            unreadable  <- acquisitionFailure(missing)
             path        <- temporaryFile("type Query {")
-            malformed   <- load(Supergraph.Source.File(path))
-            unparseable <- failure(malformed)
+            malformed   <- loadLocal(Supergraph.Source.File(path))
+            unparseable <- acquisitionFailure(malformed)
           } yield assertTrue(
             unreadable.isInstanceOf[SupergraphAcquisitionError.FileUnreadable],
             unparseable.isInstanceOf[SupergraphAcquisitionError.InvalidSupergraphSchema]
@@ -255,35 +174,31 @@ object SupergraphAcquisitionSpec extends ZIOSpecDefault {
     suite("http source")(
       test("fetches and parses a served supergraph") {
         for {
-          endpoint <- getEndpoint(supergraphSdl)
-          client   <- ZIO.service[GatewayHttpClient]
-          exit     <- load(httpSource(endpoint, identity), Some(client))
+          endpoint <- staticEndpoint(minimalSupergraphSdl)
+          exit     <- load(httpSource(endpoint, identity))
           document <- ZIO.fromEither(exit.toEither).orDie
         } yield assertTrue(queryFields(document) == List("hello"))
       },
       test("accepts a response with no media type at all") {
         // Static file servers routinely omit it; refusing would make the common case unusable.
         for {
-          endpoint <- getEndpoint(supergraphSdl, mediaType = None)
-          client   <- ZIO.service[GatewayHttpClient]
-          exit     <- load(httpSource(endpoint, identity), Some(client))
+          endpoint <- staticEndpoint(minimalSupergraphSdl, mediaType = None)
+          exit     <- load(httpSource(endpoint, identity))
         } yield assertTrue(exit.isSuccess)
       },
       test("rejects an html page answering 200") {
         // A login or error page is the realistic failure, and it must not surface as a parse error.
         for {
-          endpoint <- getEndpoint("<html><body>Sign in</body></html>", mediaType = Some("text/html; charset=utf-8"))
-          client   <- ZIO.service[GatewayHttpClient]
-          exit     <- load(httpSource(endpoint, identity), Some(client))
-          error    <- failure(exit)
+          endpoint <- staticEndpoint("<html><body>Sign in</body></html>", mediaType = Some("text/html; charset=utf-8"))
+          exit     <- load(httpSource(endpoint, identity))
+          error    <- acquisitionFailure(exit)
         } yield assertTrue(error.isInstanceOf[SupergraphAcquisitionError.UnexpectedResponse])
       },
       test("rejects a non-success status") {
         for {
-          endpoint <- getEndpoint("nope", status = Status.InternalServerError)
-          client   <- ZIO.service[GatewayHttpClient]
-          exit     <- load(httpSource(endpoint, identity), Some(client))
-          error    <- failure(exit)
+          endpoint <- staticEndpoint("nope", status = Status.InternalServerError)
+          exit     <- load(httpSource(endpoint, identity))
+          error    <- acquisitionFailure(exit)
         } yield assertTrue(
           error match {
             case SupergraphAcquisitionError.UnexpectedResponse(status, _) => status.code == 500
@@ -293,52 +208,46 @@ object SupergraphAcquisitionSpec extends ZIOSpecDefault {
       },
       test("stops reading once the response exceeds the byte limit") {
         for {
-          endpoint <- getEndpoint(supergraphSdl)
-          client   <- ZIO.service[GatewayHttpClient]
-          exit     <- load(httpSource(endpoint, _.withMaxResponseBytes(16)), Some(client))
-          error    <- failure(exit)
+          endpoint <- staticEndpoint(minimalSupergraphSdl)
+          exit     <- load(httpSource(endpoint, _.withMaxResponseBytes(16)))
+          error    <- acquisitionFailure(exit)
         } yield assertTrue(error == SupergraphAcquisitionError.ResponseTooLarge(16))
       },
       test("rejects a supergraph nested past the parsing depth") {
         for {
-          endpoint <- getEndpoint(supergraphSdl)
-          client   <- ZIO.service[GatewayHttpClient]
-          exit     <- load(httpSource(endpoint, _.withMaxParsingDepth(1)), Some(client))
-          error    <- failure(exit)
+          endpoint <- staticEndpoint(minimalSupergraphSdl)
+          exit     <- load(httpSource(endpoint, _.withMaxParsingDepth(1)))
+          error    <- acquisitionFailure(exit)
         } yield assertTrue(error == SupergraphAcquisitionError.ParsingDepthExceeded(1))
       },
       test("reports unparseable served sdl") {
         for {
-          endpoint <- getEndpoint("type Query {")
-          client   <- ZIO.service[GatewayHttpClient]
-          exit     <- load(httpSource(endpoint, identity), Some(client))
-          error    <- failure(exit)
+          endpoint <- staticEndpoint("type Query {")
+          exit     <- load(httpSource(endpoint, identity))
+          error    <- acquisitionFailure(exit)
         } yield assertTrue(error.isInstanceOf[SupergraphAcquisitionError.InvalidSupergraphSchema])
       },
       test("fails rather than following a redirect") {
         for {
-          endpoint <- getEndpoint("", status = Status.Found)
-          client   <- ZIO.service[GatewayHttpClient]
-          exit     <- load(httpSource(endpoint, identity), Some(client))
-          error    <- failure(exit)
+          endpoint <- staticEndpoint("", status = Status.Found)
+          exit     <- load(httpSource(endpoint, identity))
+          error    <- acquisitionFailure(exit)
         } yield assertTrue(error.isInstanceOf[SupergraphAcquisitionError.UnexpectedResponse])
       },
       test("fails when the endpoint is unreachable") {
         for {
-          client <- ZIO.service[GatewayHttpClient]
-          exit   <- load(httpSource(unreachableEndpoint, identity), Some(client))
-          error  <- failure(exit)
+          exit  <- load(httpSource(unreachableEndpoint, identity))
+          error <- acquisitionFailure(exit)
         } yield assertTrue(error.isInstanceOf[SupergraphAcquisitionError.RequestFailed])
       },
       test("never leaks the served payload into diagnostics") {
         // The same guarantee `lastReloadFailure` documents: categories and codes, never content.
         val secret = "SUPER_SECRET_TOKEN"
         for {
-          html    <- getEndpoint(s"<html>$secret</html>", mediaType = Some("text/html"))
-          sdl     <- getEndpoint(s"type Query { $secret ")
-          client  <- ZIO.service[GatewayHttpClient]
-          first   <- load(httpSource(html, identity), Some(client)).flatMap(failure(_))
-          second  <- load(httpSource(sdl, identity), Some(client)).flatMap(failure(_))
+          html    <- staticEndpoint(s"<html>$secret</html>", mediaType = Some("text/html"))
+          sdl     <- staticEndpoint(s"type Query { $secret ")
+          first   <- load(httpSource(html, identity)).flatMap(acquisitionFailure(_))
+          second  <- load(httpSource(sdl, identity)).flatMap(acquisitionFailure(_))
           reported = (first.diagnostics ::: second.diagnostics).mkString("\n")
         } yield assertTrue(!reported.contains(secret))
       }
@@ -360,8 +269,7 @@ object SupergraphAcquisitionSpec extends ZIOSpecDefault {
           // `304` is handled. That has its own tests below, and a shared fixture would report one
           // bug twice.
           cdn    <- recordingEndpoint(Answer.sdl(etag = Some("\"v1\"")))
-          client <- ZIO.service[GatewayHttpClient]
-          loader <- SupergraphAcquisition.make(httpSource(cdn.endpoint, identity), Some(client))
+          loader <- acquisitionLoader(httpSource(cdn.endpoint, identity))
           first  <- loader.load
           _      <- loader.load
           before <- cdn.conditionOf(0)
@@ -376,8 +284,7 @@ object SupergraphAcquisitionSpec extends ZIOSpecDefault {
       test("a 304 returns the document last fetched, without re-parsing anything") {
         for {
           cdn    <- recordingEndpoint(Answer.sdl(etag = Some("\"v1\"")), Answer.notModified)
-          client <- ZIO.service[GatewayHttpClient]
-          loader <- SupergraphAcquisition.make(httpSource(cdn.endpoint, identity), Some(client))
+          loader <- acquisitionLoader(httpSource(cdn.endpoint, identity))
           first  <- loader.load
           second <- loader.load
           calls  <- cdn.calls
@@ -387,10 +294,9 @@ object SupergraphAcquisitionSpec extends ZIOSpecDefault {
         // A server answering `304` to an unconditional request. Succeeding with no document would
         // hand the caller a supergraph it never received.
         for {
-          cdn    <- recordingEndpoint(Answer.notModified)
-          client <- ZIO.service[GatewayHttpClient]
-          exit   <- load(httpSource(cdn.endpoint, identity), Some(client))
-          error  <- failure(exit)
+          cdn   <- recordingEndpoint(Answer.notModified)
+          exit  <- load(httpSource(cdn.endpoint, identity))
+          error <- acquisitionFailure(exit)
         } yield assertTrue(error.isInstanceOf[SupergraphAcquisitionError.UnexpectedResponse])
       },
       test("a 200 carrying no ETag leaves the next request unconditional") {
@@ -398,8 +304,7 @@ object SupergraphAcquisitionSpec extends ZIOSpecDefault {
         // about invites a `304` for a document that has in fact changed.
         for {
           cdn    <- recordingEndpoint(Answer.sdl(etag = Some("\"v1\"")), Answer.sdl(etag = None), Answer.sdl())
-          client <- ZIO.service[GatewayHttpClient]
-          loader <- SupergraphAcquisition.make(httpSource(cdn.endpoint, identity), Some(client))
+          loader <- acquisitionLoader(httpSource(cdn.endpoint, identity))
           _      <- loader.load
           _      <- loader.load
           _      <- loader.load
@@ -414,8 +319,7 @@ object SupergraphAcquisitionSpec extends ZIOSpecDefault {
                         Answer.redirect("../supergraph.graphql", None),
                         Answer.sdl()
                       )
-          client   <- ZIO.service[GatewayHttpClient]
-          result   <- load(httpSource(cdn.base.addPath("start"), _.withMaxRedirects(2)), Some(client))
+          result   <- load(httpSource(cdn.base.addPath("start"), _.withMaxRedirects(2)))
           requests <- cdn.requests.get
         } yield assertTrue(
           result.isSuccess,
@@ -427,19 +331,18 @@ object SupergraphAcquisitionSpec extends ZIOSpecDefault {
       test("query-only redirects retain the resource path and replace its query") {
         for {
           requests <- Ref.make(Vector.empty[String])
-          endpoint <- GatewayTestSupport.getEndpoint("query-redirect") { request =>
+          endpoint <- getEndpoint("query-redirect") { request =>
                         requests.update(_ :+ request.url.toString) *> ZIO.succeed(
                           if (request.url.toString.endsWith("?version=2"))
                             Response(
                               Status.Ok,
                               Headers(Header.Custom("Content-Type", "application/graphql")),
-                              Body.fromString(supergraphSdl)
+                              Body.fromString(minimalSupergraphSdl)
                             )
                           else Response(Status.Found, Headers(Header.Custom("Location", "?version=2")), Body.empty)
                         )
                       }
-          client   <- ZIO.service[GatewayHttpClient]
-          result   <- load(httpSource(endpoint.addQueryParam("version", "1"), _.withMaxRedirects(1)), Some(client))
+          result   <- load(httpSource(endpoint.addQueryParam("version", "1"), _.withMaxRedirects(1)))
           sent     <- requests.get
         } yield assertTrue(
           result.isSuccess,
@@ -453,8 +356,7 @@ object SupergraphAcquisitionSpec extends ZIOSpecDefault {
         for {
           storage <- recordingEndpoint(Answer.sdl(etag = Some("\"storage-object\"")))
           cdn     <- recordingEndpoint(Answer.redirect(storage.endpoint.encode, etag = Some("\"cdn-v1\"")))
-          client  <- ZIO.service[GatewayHttpClient]
-          loader  <- SupergraphAcquisition.make(httpSource(cdn.endpoint, _.withMaxRedirects(2)), Some(client))
+          loader  <- acquisitionLoader(httpSource(cdn.endpoint, _.withMaxRedirects(2)))
           _       <- loader.load
           _       <- loader.load
           first   <- cdn.conditionOf(0)
@@ -475,11 +377,10 @@ object SupergraphAcquisitionSpec extends ZIOSpecDefault {
         for {
           storage <- recordingEndpoint(Answer.sdl(etag = Some("\"storage-object\"")), Answer.notModified)
           cdn     <- recordingEndpoint(Answer.redirect(storage.endpoint.encode, etag = Some("\"cdn-v1\"")))
-          client  <- ZIO.service[GatewayHttpClient]
-          loader  <- SupergraphAcquisition.make(httpSource(cdn.endpoint, _.withMaxRedirects(2)), Some(client))
+          loader  <- acquisitionLoader(httpSource(cdn.endpoint, _.withMaxRedirects(2)))
           first   <- loader.load.exit
           second  <- loader.load.exit
-          error   <- failure(second)
+          error   <- acquisitionFailure(second)
         } yield assertTrue(first.isSuccess, error.isInstanceOf[SupergraphAcquisitionError.UnexpectedResponse])
       },
       test("a 304 through a redirecting chain never contacts the storage host") {
@@ -492,8 +393,7 @@ object SupergraphAcquisitionSpec extends ZIOSpecDefault {
                             Answer.redirect(storage.endpoint.encode, etag = Some("\"cdn-v1\"")),
                             Answer.notModified
                           )
-          client       <- ZIO.service[GatewayHttpClient]
-          loader       <- SupergraphAcquisition.make(httpSource(cdn.endpoint, _.withMaxRedirects(2)), Some(client))
+          loader       <- acquisitionLoader(httpSource(cdn.endpoint, _.withMaxRedirects(2)))
           first        <- loader.load
           second       <- loader.load
           cdnCalls     <- cdn.calls
@@ -537,9 +437,7 @@ object SupergraphAcquisitionSpec extends ZIOSpecDefault {
       test("requests the artifact path and authenticates with the CDN key") {
         for {
           cdn      <- cdnEndpoint(Answer.sdl())
-          client   <- ZIO.service[GatewayHttpClient]
-          loader   <-
-            SupergraphAcquisition.make(Supergraph.hive("target-1", Secret("cdn-key"), cdn.base).source, Some(client))
+          loader   <- acquisitionLoader(Supergraph.hive("target-1", Secret("cdn-key"), cdn.base).source)
           document <- loader.load
           path     <- cdn.pathOf(0)
           key      <- cdn.keyOf(0)
@@ -555,9 +453,7 @@ object SupergraphAcquisitionSpec extends ZIOSpecDefault {
         for {
           storage  <- recordingEndpoint(Answer.sdl())
           cdn      <- cdnEndpoint(Answer.redirect(storage.endpoint.encode, etag = None))
-          client   <- ZIO.service[GatewayHttpClient]
-          loader   <-
-            SupergraphAcquisition.make(Supergraph.hive("target-1", Secret("cdn-key"), cdn.base).source, Some(client))
+          loader   <- acquisitionLoader(Supergraph.hive("target-1", Secret("cdn-key"), cdn.base).source)
           document <- loader.load
           key      <- cdn.keyOf(0)
           onward   <- storage.requests.get.map(_.headOption.flatMap(_.rawHeader("X-Hive-CDN-Key")))
@@ -570,5 +466,5 @@ object SupergraphAcquisitionSpec extends ZIOSpecDefault {
         )
       }
     )
-  ).provide(testServer, stubIds, http)
+  ).provide(testServer, stubIds, httpClient)
 }

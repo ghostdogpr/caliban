@@ -18,13 +18,13 @@ private[gateway] final class CandidateSearch(limits: Limits) {
       exhausted("Route planning exceeded the configured duration limit.")
     else Right(())
 
-  def combine[A, B, C](left: List[A], right: List[B])(combine: (A, B) => C): Either[PlanningFailure, List[C]] =
+  def combine[A, B, C](left: List[A], right: List[B])(pair: (A, B) => C): Either[PlanningFailure, List[C]] =
     (left, right) match {
       case (Nil, _) | (_, Nil)  => checkTimeout.map(_ => Nil)
-      case (a :: Nil, b :: Nil) => checkTimeout.map(_ => combine(a, b) :: Nil)
+      case (a :: Nil, b :: Nil) => checkTimeout.map(_ => pair(a, b) :: Nil)
       case _                    =>
         val count = left.size.toLong * right.size.toLong
-        checkCapacity(count).map(_ => left.flatMap(a => right.map(combine(a, _))))
+        checkCapacity(count).map(_ => left.flatMap(a => right.map(pair(a, _))))
     }
 
   /**
@@ -44,17 +44,17 @@ private[gateway] final class CandidateSearch(limits: Limits) {
     fold(inputs, List(initial))((states, input) => flatEvaluate(states)(step(_, input)))
 
   def flatEvaluate[A, B](values: List[A])(
-    evaluate: A => Either[PlanningFailure, List[B]]
+    plan: A => Either[PlanningFailure, List[B]]
   ): Either[PlanningFailure, List[B]] =
-    this.evaluate(values)(evaluate).map(_.flatten)
+    evaluate(values)(plan).map(_.flatten)
 
   /**
    * Rejected routes are skipped; exhausting a budget stops the entire search. A single route does not branch.
    */
-  def evaluate[A, B](values: List[A])(evaluate: A => Either[PlanningFailure, B]): Either[PlanningFailure, List[B]] =
+  def evaluate[A, B](values: List[A])(plan: A => Either[PlanningFailure, B]): Either[PlanningFailure, List[B]] =
     values match {
-      case value :: Nil => checkTimeout.flatMap(_ => evaluate(value)).map(List(_))
-      case Nil          => checkTimeout.flatMap(_ => Left(PlanningFailure.Rejected("No complete route candidate was found.")))
+      case value :: Nil => checkTimeout.flatMap(_ => plan(value)).map(List(_))
+      case Nil          => checkTimeout.flatMap(_ => Left(NoCompleteCandidate))
       case _            =>
         recordCandidates(values.size).flatMap { _ =>
           @tailrec
@@ -66,16 +66,12 @@ private[gateway] final class CandidateSearch(limits: Limits) {
             remaining match {
               case Nil           =>
                 if (successes.nonEmpty) Right(successes.reverse)
-                else Left(firstFailure.getOrElse(PlanningFailure.Rejected("No complete route candidate was found.")))
+                else Left(firstFailure.getOrElse(NoCompleteCandidate))
               case value :: tail =>
-                recordExpansion match {
-                  case Left(failure) => Left(failure)
-                  case Right(_)      =>
-                    evaluate(value) match {
-                      case Right(candidate)                         => collect(tail, candidate :: successes, firstFailure)
-                      case Left(failure: PlanningFailure.Exhausted) => Left(failure)
-                      case Left(failure)                            => collect(tail, successes, firstFailure.orElse(Some(failure)))
-                    }
+                recordExpansion.flatMap(_ => plan(value)) match {
+                  case Right(candidate)                         => collect(tail, candidate :: successes, firstFailure)
+                  case Left(failure: PlanningFailure.Exhausted) => Left(failure)
+                  case Left(failure)                            => collect(tail, successes, firstFailure.orElse(Some(failure)))
                 }
             }
 
@@ -119,5 +115,8 @@ private[gateway] object CandidateSearch {
   }
 
   final case class Limits(maxCandidates: Int, maxExpansions: Int, timeout: Duration)
+
+  private[planning] val NoCompleteCandidate: PlanningFailure =
+    PlanningFailure.Rejected("No complete route candidate was found.")
 
 }

@@ -2,7 +2,7 @@ package caliban.gateway.tracing
 
 import caliban.IncomingRequestHeaders
 import caliban.gateway.PhaseHooks.{ Event, Outcome, Result }
-import caliban.gateway.{ OperationEvent, PhaseHandler, PhaseHooks }
+import caliban.gateway.{ OperationEvent, PhaseHandler, PhaseHooks, RemoteGraphQLConfig }
 import io.opentelemetry.api.common.Attributes
 import io.opentelemetry.api.trace.{ SpanKind, StatusCode }
 import zio.http.Header
@@ -11,7 +11,6 @@ import zio.telemetry.opentelemetry.tracing.propagation.TraceContextPropagator
 import zio.telemetry.opentelemetry.tracing.{ StatusMapper, Tracing }
 import zio.{ Scope, Trace, URIO, ZIO }
 
-import java.util.Locale
 import scala.collection.mutable
 
 /**
@@ -36,8 +35,8 @@ object GatewayTracing {
         contextual = true,
         "caliban.gateway.request",
         SpanKind.SERVER,
-        ev =>
-          ev.request.operationName.fold(Attributes.empty())(name =>
+        event =>
+          event.request.operationName.fold(Attributes.empty())(name =>
             Attributes.builder().put("graphql.operation.name", name).build()
           ),
         event => Result(event.outcome, event.operationType, event.errors.size)
@@ -54,11 +53,11 @@ object GatewayTracing {
           contextual = false,
           "caliban.gateway.subgraph",
           SpanKind.INTERNAL,
-          ev =>
+          event =>
             Attributes
               .builder()
-              .put("graphql.subgraph.name", ev.subgraph)
-              .put("graphql.operation.type", PhaseHooks.operationTypeLabel(ev.operationType))
+              .put("graphql.subgraph.name", event.subgraph)
+              .put("graphql.operation.type", PhaseHooks.operationTypeLabel(event.operationType))
               .build()
         )
       ) ++
@@ -67,15 +66,15 @@ object GatewayTracing {
           contextual = false,
           "caliban.gateway.subgraph.attempt",
           SpanKind.CLIENT,
-          ev => {
+          event => {
             val attributes = Attributes
               .builder()
-              .put("graphql.subgraph.name", ev.subgraph)
+              .put("graphql.subgraph.name", event.subgraph)
               .put("http.request.method", "POST")
-              .put("http.request.body.size", ev.requestBytes)
-              .put("http.request.resend_count", ev.number.toLong)
-            ev.serverAddress.foreach(attributes.put("server.address", _))
-            ev.serverPort.foreach(port => attributes.put("server.port", port.toLong))
+              .put("http.request.body.size", event.requestBytes)
+              .put("http.request.resend_count", event.number.toLong)
+            event.serverAddress.foreach(attributes.put("server.address", _))
+            event.serverPort.foreach(port => attributes.put("server.port", port.toLong))
             attributes.build()
           }
         )
@@ -85,17 +84,17 @@ object GatewayTracing {
           contextual = false,
           "caliban.gateway.retry",
           SpanKind.INTERNAL,
-          ev =>
+          event =>
             Attributes
               .builder()
-              .put("graphql.subgraph.name", ev.subgraph)
-              .put("caliban.gateway.retry.attempt", ev.attempt.toLong)
+              .put("graphql.subgraph.name", event.subgraph)
+              .put("caliban.gateway.retry.attempt", event.attempt.toLong)
               .build()
         )
       ) ++
       PhaseHooks.completion(spanning(contextual = false, "caliban.gateway.completion", SpanKind.INTERNAL)) ++
       PhaseHooks.attemptHeaders(
-        PhaseHandler.incoming(ev => propagatedHeaders(ev.headers).map(headers => ev.copy(headers = headers)))
+        PhaseHandler.incoming(event => propagatedHeaders(event.headers).map(headers => event.copy(headers = headers)))
       )
 
   /** Opens a span around one phase whose outgoing value is already a [[PhaseHooks.Result]]. */
@@ -122,10 +121,51 @@ object GatewayTracing {
     result: Res => Result
   ): PhaseHandler[Tracing, Ev, Nothing, Res] =
     PhaseHandler.scoped(
-      PhaseHandler((ev: Ev) => traced(contextual, name, kind, attributes(ev)).map(ev -> _))((ev, _, out: Res) =>
-        complete(ev, result(out))
+      PhaseHandler((event: Ev) => traced(contextual, name, kind, attributes(event)).map(event -> _))(
+        (event, _, out: Res) => complete(event, result(out))
       )
     )
+
+  /**
+   * Continues the caller's trace when the request carries one, and otherwise opens an ordinary span.
+   */
+  private def traced(contextual: Boolean, name: String, kind: SpanKind, attributes: Attributes)(implicit
+    trace: Trace
+  ): ZIO[Scope with Tracing, Nothing, Unit] =
+    if (!contextual) span(name, kind, attributes)
+    else
+      IncomingRequestHeaders.get.flatMap { headers =>
+        val lowercased =
+          mutable.Map(headers.map { case (name, value) => RemoteGraphQLConfig.lowercaseHeaderName(name) -> value }: _*)
+        if (lowercased.contains("traceparent")) continuedSpan(lowercased, name, kind, attributes)
+        else span(name, kind, attributes)
+      }
+
+  private def continuedSpan(headers: mutable.Map[String, String], name: String, kind: SpanKind, attributes: Attributes)(
+    implicit trace: Trace
+  ): ZIO[Scope with Tracing, Nothing, Unit] =
+    for {
+      tracing       <- ZIO.service[Tracing]
+      spanAndCloser <-
+        tracing.extractSpanUnsafe(propagation, IncomingContextCarrier.default(headers), name, kind, attributes)
+      (span, closer) = spanAndCloser
+      _             <- ZIO.addFinalizerExit {
+                         _.foldExit(
+                           cause => {
+                             span.setStatus(StatusCode.ERROR, cause.prettyPrint)
+                             closer
+                           },
+                           _ => closer
+                         )
+                       }
+    } yield ()
+
+  private def span(name: String, kind: SpanKind, attributes: Attributes)(implicit
+    trace: Trace
+  ): ZIO[Scope with Tracing, Nothing, Unit] =
+    ZIO.serviceWithZIO[Tracing](_.spanScoped(name, kind, attributes, failureStatus))
+
+  private val failureStatus = StatusMapper.failureNoException[Any](_ => StatusCode.ERROR)
 
   private def complete(event: Event, result: Result)(implicit trace: Trace): URIO[Tracing, Unit] =
     ZIO.serviceWithZIO[Tracing] { tracing =>
@@ -180,57 +220,10 @@ object GatewayTracing {
                      carrier: mutable.LinkedHashMap[String, String],
                      key: String,
                      value: String
-                   ): Unit = carrier.update(normalize(key), value)
+                   ): Unit = carrier.update(RemoteGraphQLConfig.lowercaseHeaderName(key), value)
                  }
       _       <- tracing.injectSpan(propagation, carrier)
       names    = values.keySet
-    } yield headers.filterNot(header => names.contains(normalize(header.headerName))) :::
+    } yield headers.filterNot(header => names.contains(RemoteGraphQLConfig.lowercaseHeaderName(header.headerName))) :::
       values.iterator.map { case (name, value) => Header.Custom(name, value) }.toList
-
-  /**
-   * Continues the caller's trace when the request carries one, and otherwise opens an ordinary span.
-   */
-  private def traced(contextual: Boolean, name: String, kind: SpanKind, attributes: Attributes)(implicit
-    trace: Trace
-  ): ZIO[Scope with Tracing, Nothing, Unit] =
-    if (!contextual) span(name, kind, attributes)
-    else
-      IncomingRequestHeaders.get.flatMap { headers =>
-        val normalized = mutable.Map(headers.iterator.map { case (name, value) => normalize(name) -> value }.toSeq: _*)
-        if (normalized.contains("traceparent")) {
-          for {
-            tracing       <- ZIO.service[Tracing]
-            spanAndCloser <- tracing.extractSpanUnsafe(
-                               propagation,
-                               IncomingContextCarrier.default(normalized),
-                               name,
-                               kind,
-                               attributes
-                             )
-            (span, closer) = spanAndCloser
-            _             <- ZIO.addFinalizerExit {
-                               _.foldExit(
-                                 cause => {
-                                   val status =
-                                     cause.failureOption.flatMap(failureStatus.failure.lift).fold(StatusCode.ERROR)(_.statusCode)
-                                   span.setStatus(status, cause.prettyPrint)
-                                   closer
-                                 },
-                                 _ => closer
-                               )
-                             }
-          } yield ()
-        } else span(name, kind, attributes)
-      }
-
-  private def span(
-    name: String,
-    kind: SpanKind,
-    attributes: Attributes = Attributes.empty()
-  )(implicit trace: Trace): ZIO[Scope with Tracing, Nothing, Unit] =
-    ZIO.serviceWithZIO[Tracing](_.spanScoped(name, kind, attributes, failureStatus))
-
-  private val failureStatus = StatusMapper.failureNoException[Any](_ => StatusCode.ERROR)
-
-  private def normalize(value: String): String = value.toLowerCase(Locale.ROOT)
 }

@@ -24,7 +24,7 @@ private[gateway] final class EntityExecutor[-R](
   def execute(
     fetches: List[EntityFetch],
     roots: Map[FetchId, ResponseValue],
-    blocked: Map[FetchId, Set[List[PathValue]]],
+    blocked: FetchPaths,
     resolvedRequest: GraphQLRequest,
     cache: PlanExecutionCache
   )(implicit trace: Trace): URIO[R, List[EntityResult]] = {
@@ -41,10 +41,10 @@ private[gateway] final class EntityExecutor[-R](
         val tasks                =
           separate.map { case (group, index) =>
             executeGroup(group, wave).map(result => List(index -> result))
-          } ::: combined.groupBy { case (group, _) => group.head.source }.toList.map { case (source, same) =>
-            executeCombined(source, same, wave)
+          } ::: combined.groupBy { case (group, _) => group.head.source }.toList.map { case (source, sourceGroups) =>
+            executeCombined(source, sourceGroups, wave)
           }
-        ZIO.foreachPar(tasks)(identity).map(_.flatten.sortBy(_._1).map(_._2))
+        ZIO.collectAllPar(tasks).map(_.flatten.sortBy(_._1).map(_._2))
     }
   }
 
@@ -71,19 +71,15 @@ private[gateway] final class EntityExecutor[-R](
       case _                                                   => false
     })
 
-  private def executeCombined(
-    source: String,
-    groups: List[(mutable.ListBuffer[EntityFetch], Int)],
-    wave: Wave
-  )(implicit trace: Trace): URIO[R, List[(Int, EntityResult)]] = {
+  private def executeCombined(source: String, groups: List[(mutable.ListBuffer[EntityFetch], Int)], wave: Wave)(implicit
+    trace: Trace
+  ): URIO[R, List[(Int, EntityResult)]] = {
     val prepared         = groups.map { case (group, index) =>
       val fetches = group.toList
       PreparedGroup(index, fetches, prepareBatch(fetches, wave))
     }
     val (pending, empty) = prepared.partition(_.batch.entries.nonEmpty)
-    val emptyResults     = empty.map { group =>
-      group.index -> EntityResult(Nil, group.batch.errors, group.batch.blocked, group.batch.unmatched)
-    }
+    val emptyResults     = empty.map(group => group.index -> unfetchedResult(group.batch))
     val executed         = pending match {
       case Nil          => ZIO.succeed(Nil)
       case group :: Nil =>
@@ -93,23 +89,21 @@ private[gateway] final class EntityExecutor[-R](
     executed.map(_ ::: emptyResults)
   }
 
-  private def executeParts(
-    source: String,
-    groups: List[PreparedGroup],
-    wave: Wave
-  )(implicit trace: Trace): URIO[R, List[(Int, EntityResult)]] = {
-    val calls  = groups.zipWithIndex.flatMap { case (group, slot) =>
+  private def executeParts(source: String, groups: List[PreparedGroup], wave: Wave)(implicit
+    trace: Trace
+  ): URIO[R, List[(Int, EntityResult)]] = {
+    val parts  = groups.zipWithIndex.flatMap { case (group, slot) =>
       lookups
         .prepare(group.fetches.head, group.batch, wave.resolvedRequest, wave.cache, Some(slot))
-        .flatMap(call => call.part.map(part => (group, call, part)))
+        .flatMap(call => call.part.map(PreparedPart(group, call, _)))
     }
     def failed = groups.map(group => group.index -> failure(group.fetches, group.batch))
     subgraphExecutors.get(source) match {
-      case Some(executor) if calls.size == groups.size =>
+      case Some(executor) if parts.size == groups.size =>
         executor
-          .execute(EntityLookup.combine(calls.map(_._3), wave.resolvedRequest), OperationType.Query)
+          .execute(EntityLookup.combine(parts.map(_.part), wave.resolvedRequest), OperationType.Query)
           .map { response =>
-            calls.map { case (group, call, part) =>
+            parts.map { case PreparedPart(group, call, part) =>
               group.index -> call.complete(EntityLookup.partResponse(response, part), executor.errorPolicy)
             }
           }
@@ -124,14 +118,13 @@ private[gateway] final class EntityExecutor[-R](
     }
   }
 
-  private def executeGroup(
-    group: mutable.ListBuffer[EntityFetch],
-    wave: Wave
-  )(implicit trace: Trace): URIO[R, EntityResult] = {
+  private def executeGroup(group: mutable.ListBuffer[EntityFetch], wave: Wave)(implicit
+    trace: Trace
+  ): URIO[R, EntityResult] = {
     val fetches = group.toList
     val batch   = prepareBatch(fetches, wave)
 
-    if (batch.entries.isEmpty) ZIO.succeed(EntityResult(Nil, batch.errors, batch.blocked, batch.unmatched))
+    if (batch.entries.isEmpty) ZIO.succeed(unfetchedResult(batch))
     else if (fetches.forall(_.contextArguments.isEmpty))
       executeBatch(fetches, batch, wave)
     else {
@@ -155,11 +148,9 @@ private[gateway] final class EntityExecutor[-R](
     }
   }
 
-  private def executeBatch(
-    fetches: List[EntityFetch],
-    batch: EntityBatch,
-    wave: Wave
-  )(implicit trace: Trace): URIO[R, EntityResult] = {
+  private def executeBatch(fetches: List[EntityFetch], batch: EntityBatch, wave: Wave)(implicit
+    trace: Trace
+  ): URIO[R, EntityResult] = {
     val fetch  = fetches.head
     def failed = failure(fetches, batch)
 
@@ -178,19 +169,19 @@ private[gateway] final class EntityExecutor[-R](
   }
 
   private def prepareBatch(fetches: List[EntityFetch], wave: Wave): EntityBatch = {
-    val candidates                                            = wave.candidates
-    val entries                                               =
-      mutable.LinkedHashMap.empty[Representation, mutable.ListBuffer[EntityLocation]]
-    val errors                                                = mutable.ListBuffer.empty[CalibanError]
-    val skipped                                               = mutable.Map.empty[FetchId, mutable.Set[List[PathValue]]]
-    val unmatched                                             = mutable.Map.empty[FetchId, mutable.Set[List[PathValue]]]
+    val candidates = wave.candidates
+    val entries    = mutable.LinkedHashMap.empty[Representation, mutable.ListBuffer[EntityLocation]]
+    val errors     = mutable.ListBuffer.empty[CalibanError]
+    val blocked    = mutable.Map.empty[FetchId, mutable.Set[List[PathValue]]]
+    val unmatched  = mutable.Map.empty[FetchId, mutable.Set[List[PathValue]]]
+
     def record(
       paths: mutable.Map[FetchId, mutable.Set[List[PathValue]]],
       fetch: EntityFetch,
       path: List[PathValue]
     ): Unit =
       paths.getOrElseUpdate(fetch.id, mutable.Set.empty) += path
-    def skip(fetch: EntityFetch, path: List[PathValue]): Unit = record(skipped, fetch, path)
+    def block(fetch: EntityFetch, path: List[PathValue]): Unit = record(blocked, fetch, path)
 
     fetches.foreach { fetch =>
       val identitySelections = IdentitySelections(fetch.keys.map(key => CorrelationKey(key.field, key)), fetch.typename)
@@ -201,15 +192,8 @@ private[gateway] final class EntityExecutor[-R](
         case (_, NullValue)           => ()
         case (path, obj: ObjectValue) =>
           if (blockedPaths.containsPrefixOf(path))
-            skip(fetch, path)
-          else if (
-            fetch.typename.exists { selection =>
-              obj.getOrNull(selection.responseName) match {
-                case StringValue(runtimeType) => !graph.acceptsRuntimeType(fetch.entityType, runtimeType)
-                case _                        => false
-              }
-            }
-          )
+            block(fetch, path)
+          else if (hasUnmatchedType(fetch, obj))
             record(unmatched, fetch, path)
           else
             sourceRepresentation(fetch, path, obj, candidates, identitySelections) match {
@@ -217,11 +201,11 @@ private[gateway] final class EntityExecutor[-R](
                 entries.getOrElseUpdate(representation, mutable.ListBuffer.empty) += EntityLocation(fetch, path)
               case None                 =>
                 errors += missingRepresentation(fetch, path)
-                skip(fetch, path)
+                block(fetch, path)
             }
         case (path, _)                =>
           errors += missingRepresentation(fetch, path)
-          skip(fetch, path)
+          block(fetch, path)
       }
     }
 
@@ -235,10 +219,18 @@ private[gateway] final class EntityExecutor[-R](
         )
       }.toVector,
       errors.toList,
-      skipped.iterator.map { case (fetchId, paths) => fetchId -> paths.toSet }.toMap,
+      blocked.iterator.map { case (fetchId, paths) => fetchId -> paths.toSet }.toMap,
       unmatched.iterator.map { case (fetchId, paths) => fetchId -> paths.toSet }.toMap
     )
   }
+
+  private def hasUnmatchedType(fetch: EntityFetch, value: ObjectValue): Boolean =
+    fetch.typename.exists { selection =>
+      value.getOrNull(selection.responseName) match {
+        case StringValue(runtimeType) => !graph.acceptsRuntimeType(fetch.entityType, runtimeType)
+        case _                        => false
+      }
+    }
 
   private def sourceRepresentation(
     fetch: EntityFetch,
@@ -341,6 +333,9 @@ private[gateway] final class EntityExecutor[-R](
       case other                                => collected += (reversedPath.reverse -> other)
     }
 
+  private def unfetchedResult(batch: EntityBatch): EntityResult =
+    EntityResult(Nil, batch.errors, batch.blocked, batch.unmatched)
+
   private def failure(fetches: List[EntityFetch], batch: EntityBatch): EntityResult =
     EntityResult(
       Nil,
@@ -350,20 +345,19 @@ private[gateway] final class EntityExecutor[-R](
     )
 
   private def missingRepresentation(fetch: EntityFetch, path: List[PathValue]): CalibanError.ExecutionError =
-    CalibanError.ExecutionError(
-      s"Entity key '${entityKey(fetch)}' was missing from the source result.",
-      path = path
-    )
+    CalibanError.ExecutionError(s"Entity key '${entityKey(fetch)}' was missing from the source result.", path = path)
 }
 
 private[gateway] object EntityExecutor {
   final case class EntityPatch(fetch: EntityFetch, path: List[PathValue], value: ResponseValue)
 
+  type FetchPaths = Map[FetchId, Set[List[PathValue]]]
+
   final case class EntityResult(
     patches: List[EntityPatch],
     errors: List[CalibanError],
-    blocked: Map[FetchId, Set[List[PathValue]]],
-    unmatched: Map[FetchId, Set[List[PathValue]]]
+    blocked: FetchPaths,
+    unmatched: FetchPaths
   )
 
   private[execution] final case class CorrelationKey(keyField: String, selection: RequiredSelection)
@@ -372,10 +366,10 @@ private[gateway] object EntityExecutor {
     keys: List[CorrelationKey],
     typename: Option[RequiredSelection]
   ) {
-    def read(entityType: String, value: IndexedFields): Option[EntityIdentity] = {
+    def read(entityType: String, fields: IndexedFields): Option[EntityIdentity] = {
       val runtimeType = typename match {
         case Some(selection) =>
-          value.get(selection.responseName) match {
+          fields.get(selection.responseName) match {
             case Some(StringValue(value)) => value
             case _                        => null
           }
@@ -385,13 +379,13 @@ private[gateway] object EntityExecutor {
       else
         keys match {
           case key :: Nil =>
-            value.get(key.selection.responseName).flatMap(selectedInput(key.selection, _)) match {
+            fields.get(key.selection.responseName).flatMap(selectedInput(key.selection, _)) match {
               case Some(input) => Some(EntityIdentity(runtimeType, (key.keyField -> input) :: Nil))
               case None        => None
             }
           case selections =>
             traverseOption(selections)(key =>
-              value
+              fields
                 .get(key.selection.responseName)
                 .flatMap(selectedInput(key.selection, _))
                 .map(key.keyField -> _)
@@ -401,25 +395,18 @@ private[gateway] object EntityExecutor {
     }
   }
 
-  private[execution] def blockEntries(
-    blocked: Map[FetchId, Set[List[PathValue]]],
-    entries: Iterable[EntityBatchEntry]
-  ): Map[FetchId, Set[List[PathValue]]] = {
+  private[execution] def blockEntries(blocked: FetchPaths, entries: Iterable[EntityBatchEntry]): FetchPaths = {
     val additions = mutable.Map.empty[FetchId, mutable.Set[List[PathValue]]]
     entries.foreach(
       _.locations.foreach(location => additions.getOrElseUpdate(location.fetch.id, mutable.Set.empty) += location.path)
     )
-    if (additions.isEmpty) blocked
-    else
-      additions.foldLeft(blocked) { case (result, (fetchId, paths)) =>
-        result.updated(fetchId, result.getOrElse(fetchId, Set.empty) ++ paths)
-      }
+    if (additions.isEmpty) blocked else unionBlocked(blocked, additions)
   }
 
   private[execution] def unionBlocked(
-    blocked: Map[FetchId, Set[List[PathValue]]],
-    additions: Iterable[(FetchId, Set[List[PathValue]])]
-  ): Map[FetchId, Set[List[PathValue]]] =
+    blocked: FetchPaths,
+    additions: Iterable[(FetchId, collection.Set[List[PathValue]])]
+  ): FetchPaths =
     additions.foldLeft(blocked) { case (values, (fetchId, paths)) =>
       values.updated(fetchId, values.getOrElse(fetchId, Set.empty) ++ paths)
     }
@@ -453,11 +440,12 @@ private[gateway] object EntityExecutor {
   private[execution] final case class EntityBatch(
     entries: Vector[EntityBatchEntry],
     errors: List[CalibanError],
-    blocked: Map[FetchId, Set[List[PathValue]]],
-    unmatched: Map[FetchId, Set[List[PathValue]]]
+    blocked: FetchPaths,
+    unmatched: FetchPaths
   )
+
   private final case class Wave(
-    blocked: Map[FetchId, Set[List[PathValue]]],
+    blocked: FetchPaths,
     candidates: Candidates,
     resolvedRequest: GraphQLRequest,
     cache: PlanExecutionCache
@@ -468,6 +456,8 @@ private[gateway] object EntityExecutor {
   private type Candidates = collection.Map[CandidatePath, List[(List[PathValue], ResponseValue)]]
 
   private final case class PreparedGroup(index: Int, fetches: List[EntityFetch], batch: EntityBatch)
+
+  private final case class PreparedPart(group: PreparedGroup, call: EntityLookup#Call, part: EntityLookup.CallPart)
 
   private final case class Representation(
     identity: EntityIdentity,
@@ -558,11 +548,9 @@ private[gateway] object EntityExecutor {
     )
   }
 
-  private def readSelections(
-    selections: List[RequiredSelection],
-    fields: IndexedFields,
-    allowNull: Boolean
-  )(applicable: RequiredSelection => Boolean): Option[List[(String, InputValue)]] = {
+  private def readSelections(selections: List[RequiredSelection], fields: IndexedFields, allowNull: Boolean)(
+    applicable: RequiredSelection => Boolean
+  ): Option[List[(String, InputValue)]] = {
     val collected = List.newBuilder[(String, InputValue)]
     var remaining = selections
     while (remaining ne Nil) {

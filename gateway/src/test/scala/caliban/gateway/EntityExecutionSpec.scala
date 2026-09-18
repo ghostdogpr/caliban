@@ -1,15 +1,14 @@
 package caliban.gateway
 
 import caliban.InputValue.{ ListValue, ObjectValue => InputObjectValue }
-import caliban.ResponseValue.{ ListValue => ResponseListValue, ObjectValue => ResponseObjectValue }
+import caliban.ResponseValue.{ ObjectValue => ResponseObjectValue }
 import caliban.Value.IntValue.IntNumber
 import caliban.Value.{ BooleanValue, NullValue, StringValue }
 import caliban.federation.EntityResolver
 import caliban.federation.v2_6.{ federated, GQLKey }
 import caliban.gateway.GatewayTestSupport._
 import caliban.schema.{ ArgBuilder, GenericSchema, Schema }
-import caliban.{ graphQL, CalibanError, GraphQLRequest, InputValue, PathValue, ResponseValue, RootResolver }
-import zio.http.URL
+import caliban.{ graphQL, CalibanError, GraphQLRequest, PathValue, RootResolver }
 import zio._
 import zio.query.ZQuery
 import zio.test._
@@ -18,6 +17,29 @@ object EntityExecutionSpec extends ZIOSpecDefault {
 
   private val listProductsFederationSchema =
     productsFederationSchema.replace("product(id: ID!): Product", "products: [Product!]!")
+
+  private val statusProductsSchema =
+    productsFederationSchema.replace("  product(id: ID!): Product", "  product(id: ID!): Product\n  status: String!")
+
+  private val tableProductResponse =
+    """{"data":{"product":{"name":"Table","_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}}}"""
+
+  private val statusProductResponse =
+    """{"data":{"status":"available","product":{"name":"Table","_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}}}"""
+
+  private val repeatedProductsResponse =
+    """{"data":{"first":[{"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}],"second":[{"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}]}}"""
+
+  private val solidReviewsResponse =
+    """{"data":{"_entities":[{"reviews":[{"body":"Solid"}],"_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product"}]}}"""
+
+  private val nullableReviewsSchema = reviewsFederationSchema.replace("reviews: [Review!]!", "reviews: [Review!]")
+
+  private val limitedReviewsSchema =
+    reviewsFederationSchema.replace("reviews: [Review!]!", "reviews(limit: Int!): [Review!]!")
+
+  private val pricingDownExtensions =
+    ResponseObjectValue(List("code" -> StringValue("PRICING_DOWN"), "debug" -> StringValue("local detail")))
 
   private trait Pricing {
     def currency: UIO[String]
@@ -64,11 +86,7 @@ object EntityExecutionSpec extends ZIOSpecDefault {
           CalibanError.ExecutionError(
             "local pricing unavailable",
             path = List(PathValue.Key("_pricing_internal")),
-            extensions = Some(
-              ResponseObjectValue(
-                List("code" -> StringValue("PRICING_DOWN"), "debug" -> StringValue("local detail"))
-              )
-            )
+            extensions = Some(pricingDownExtensions)
           )
         )
         failure
@@ -106,13 +124,13 @@ object EntityExecutionSpec extends ZIOSpecDefault {
             stub(
               """{"data":{"_entities":[{"name":"replacement","_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product"}]}}"""
             )
-          gateway     <- Gateway
+          runtime     <- Gateway
                            .compose(
                              Subgraph.federation("original", original.endpoint, originalSchema),
                              Subgraph.federation("replacement", replacement.endpoint, replacementSchema)
                            )
                            .interpreter
-          response    <- gateway.execute("{ product(id: \"p1\") { name } }")
+          response    <- runtime.execute("{ product(id: \"p1\") { name } }")
           sent        <- replacement.requests.get
         } yield assertTrue(
           response.errors.isEmpty,
@@ -128,13 +146,13 @@ object EntityExecutionSpec extends ZIOSpecDefault {
         for {
           original    <- stub("""{"data":{"product":{"name":null,"sku":"sku-1"}}}""")
           replacement <- stub("""{"data":{"_entities":[{"name":"replacement"}]}}""")
-          gateway     <- Gateway
+          runtime     <- Gateway
                            .compose(
                              Subgraph.federation("original", original.endpoint, originalSchema),
                              Subgraph.federation("replacement", replacement.endpoint, replacementSchema)
                            )
                            .interpreter
-          response    <- gateway.execute("{ product(id: \"p1\") { name sku } }")
+          response    <- runtime.execute("{ product(id: \"p1\") { name sku } }")
           sent        <- replacement.requests.get
           product      = field(response.data, "product")
         } yield assertTrue(
@@ -147,24 +165,22 @@ object EntityExecutionSpec extends ZIOSpecDefault {
       test("executes remote Products, local Pricing, and remote Reviews in one operation") {
         val productsResponse =
           """{"data":{"product":{"name":"Table","_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product","_caliban_gateway_key_2":"p1","_caliban_gateway_typename_2":"Product"}}}"""
-        val reviewsResponse  =
-          """{"data":{"_entities":[{"reviews":[{"body":"Solid"}],"_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product"}]}}"""
         val pricing          = new Pricing {
           def currency: UIO[String]       = ZIO.succeed("USD")
           def price(id: String): UIO[Int] = ZIO.succeed(if (id == "p1") 125 else 0)
         }
 
-        (for {
+        for {
           products <- stub(productsResponse)
-          reviews  <- stub(reviewsResponse)
-          gateway  <- Gateway
+          reviews  <- stub(solidReviewsResponse)
+          runtime  <- Gateway
                         .compose(
                           Subgraph.federation("products", products.endpoint, productsFederationSchema),
                           Subgraph.local("pricing", PricingApi.api),
                           Subgraph.federation("reviews", reviews.endpoint, reviewsFederationSchema)
                         )
                         .interpreter
-          response <- gateway
+          response <- runtime
                         .execute("{ product(id: \"p1\") { name price reviews { body } } currency }")
                         .provideEnvironment(ZEnvironment(pricing))
           product   = field(response.data, "product")
@@ -174,32 +190,23 @@ object EntityExecutionSpec extends ZIOSpecDefault {
           product.flatMap(field(_, "name")).contains(StringValue("Table")),
           product.flatMap(field(_, "price")).contains(IntNumber(125)),
           onlyNested(product, "reviews").exists(_.contains("body" -> StringValue("Solid")))
-        ))
+        )
       },
       test("preserves local entity failures while retaining independent remote data") {
-        val productsSchema   = productsFederationSchema.replace(
-          "  product(id: ID!): Product",
-          "  product(id: ID!): Product\n  status: String!"
-        )
-        val productsResponse =
-          """{"data":{"status":"available","product":{"name":"Table","_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}}}"""
-        val pricing          = new Pricing {
+        val pricing = new Pricing {
           def currency: UIO[String]       = ZIO.succeed("USD")
           def price(id: String): UIO[Int] = ZIO.succeed(0)
         }
-        val extensions       = ResponseObjectValue(
-          List("code" -> StringValue("PRICING_DOWN"), "debug" -> StringValue("local detail"))
-        )
 
         for {
-          products <- stub(productsResponse)
-          gateway  <- Gateway
+          products <- stub(statusProductResponse)
+          runtime  <- Gateway
                         .compose(
-                          Subgraph.federation("products", products.endpoint, productsSchema),
+                          Subgraph.federation("products", products.endpoint, statusProductsSchema),
                           Subgraph.local("pricing", PricingApi.failingApi)
                         )
                         .interpreter
-          response <- gateway
+          response <- runtime
                         .execute("{ status product(id: \"p1\") { name price } }")
                         .provideEnvironment(ZEnvironment(pricing))
           errors    = executionErrors(response.errors)
@@ -208,20 +215,16 @@ object EntityExecutionSpec extends ZIOSpecDefault {
           field(response.data, "product").contains(NullValue),
           errors.map(_.msg) == List("local pricing unavailable"),
           errors.map(_.path) == List(List(PathValue.Key("product"))),
-          errors.map(_.extensions) == List(Some(extensions)),
+          errors.map(_.extensions) == List(Some(pricingDownExtensions)),
           errors.forall(_.msg != "Remote GraphQL request failed."),
           errors.forall(!_.msg.startsWith("Entity lookup response"))
         )
       },
       test("executes one Federation entity join through the executable plan") {
-        val productResponse          =
-          """{"data":{"product":{"name":"Table","_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}}}"""
         val aliasedProductResponse   =
           """{"data":{"product":{"productId":"p1","__typename":"Product","_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}}}"""
         val collidingProductResponse =
           """{"data":{"product":{"id":"Table","__typename":"Table","_caliban_gateway_key":"Table","_caliban_gateway_typename":"Table","_caliban_gateway_key_2":"p1","_caliban_gateway_typename_2":"Product"}}}"""
-        val reviewResponse           =
-          """{"data":{"_entities":[{"reviews":[{"body":"Solid"}],"_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product"}]}}"""
         val query                    =
           """query Product {
             |  product(id: "p1") {
@@ -238,36 +241,31 @@ object EntityExecutionSpec extends ZIOSpecDefault {
             |}""".stripMargin
 
         for {
-          products        <- stub(productResponse, aliasedProductResponse, collidingProductResponse)
-          reviews         <- stub(reviewResponse)
-          gateway         <- Gateway
-                               .compose(
-                                 Subgraph.federation("products", products.endpoint, productsFederationSchema),
-                                 Subgraph.federation("reviews", reviews.endpoint, reviewsFederationSchema)
-                               )
-                               .interpreter
-          explanation     <- gateway.explain(query, Some("Product"))
-          withoutReviews  <- gateway.explain(
+          products        <- stub(tableProductResponse, aliasedProductResponse, collidingProductResponse)
+          reviews         <- stub(solidReviewsResponse)
+          runtime         <- productsAndReviews(products, reviews).interpreter
+          explanation     <- runtime.explain(query, Some("Product"))
+          withoutReviews  <- runtime.explain(
                                GraphQLRequest(
                                  query = Some(conditionalQuery),
                                  operationName = Some("Product"),
                                  variables = Some(Map("includeReviews" -> BooleanValue(false)))
                                )
                              )
-          withReviews     <- gateway.explain(
+          withReviews     <- runtime.explain(
                                GraphQLRequest(
                                  query = Some(conditionalQuery),
                                  operationName = Some("Product"),
                                  variables = Some(Map("includeReviews" -> BooleanValue(true)))
                                )
                              )
-          response        <- gateway.execute(query, Some("Product"))
-          explicit        <- gateway.execute("{ product(id: \"p1\") { productId: id __typename reviews { body } } }")
+          response        <- runtime.execute(query, Some("Product"))
+          explicit        <- runtime.execute("{ product(id: \"p1\") { productId: id __typename reviews { body } } }")
           colliding       <-
-            gateway.execute(
+            runtime.execute(
               "{ product(id: \"p1\") { id: name __typename: name _caliban_gateway_key: name _caliban_gateway_typename: name reviews { body } } }"
             )
-          introspection   <- gateway.execute(
+          introspection   <- runtime.execute(
                                """{
                                |  query: __type(name: "Query") { fields { name } }
                                |  transport: __type(name: "_Service") { name }
@@ -275,23 +273,16 @@ object EntityExecutionSpec extends ZIOSpecDefault {
                                |  schema: __schema { directives { name } }
                                |}""".stripMargin
                              )
-          productSent     <- products.requests.get
-          reviewSent      <- reviews.requests.get
-          productValid    <- ZIO.foreach(productSent)(validateRequest(productsFederationSchema, _).exit)
-          reviewValid     <- ZIO.foreach(reviewSent)(validateRequest(reviewsFederationSchema, _).exit)
+          productsSent    <- products.requests.get
+          reviewsSent     <- reviews.requests.get
+          productsValid   <- ZIO.foreach(productsSent)(validateRequest(productsFederationSchema, _).exit)
+          reviewsValid    <- ZIO.foreach(reviewsSent)(validateRequest(reviewsFederationSchema, _).exit)
           product          = field(response.data, "product")
           explicitProduct  = field(explicit.data, "product")
           collidingProduct = field(colliding.data, "product")
-          queryFields      = field(introspection.data, "query")
-                               .flatMap(field(_, "fields"))
-                               .collect { case ResponseListValue(values) =>
-                                 values.flatMap(field(_, "name")).collect { case StringValue(name) => name }
-                               }
-          directives       = field(introspection.data, "schema")
-                               .flatMap(field(_, "directives"))
-                               .collect { case ResponseListValue(values) =>
-                                 values.flatMap(field(_, "name")).collect { case StringValue(name) => name }
-                               }
+          queryFields      = introspectedNameStrings(field(introspection.data, "query").flatMap(field(_, "fields")))
+          directives       =
+            introspectedNameStrings(field(introspection.data, "schema").flatMap(field(_, "directives")))
         } yield assertTrue(
           response.errors.isEmpty,
           product.flatMap(field(_, "name")).contains(StringValue("Table")),
@@ -312,23 +303,23 @@ object EntityExecutionSpec extends ZIOSpecDefault {
           collidingProduct.flatMap(field(_, "_caliban_gateway_typename")).contains(StringValue("Table")),
           collidingProduct.flatMap(field(_, "_caliban_gateway_key_2")).isEmpty,
           collidingProduct.flatMap(field(_, "_caliban_gateway_typename_2")).isEmpty,
-          productSent.size == 3,
-          reviewSent.size == 3,
-          productValid.forall(_.isSuccess),
-          reviewValid.forall(_.isSuccess),
-          productSent.head.query.exists(rendered =>
+          productsSent.size == 3,
+          reviewsSent.size == 3,
+          productsValid.forall(_.isSuccess),
+          reviewsValid.forall(_.isSuccess),
+          productsSent.head.query.exists(rendered =>
             rendered.contains("product(id:\"p1\")") &&
               rendered.contains("name") && rendered.contains("_caliban_gateway_key:id") &&
               !rendered.contains("_caliban_gateway_typename") &&
               !rendered.contains("reviews")
           ),
-          reviewSent.head.query.exists(rendered =>
+          reviewsSent.head.query.exists(rendered =>
             rendered.contains("_entities") && rendered.contains("...on Product") &&
               rendered.contains("reviews{body}") &&
               rendered.contains("_caliban_gateway_entity_key:id") &&
               rendered.contains("_caliban_gateway_entity_typename:__typename")
           ),
-          reviewSent.head.variables.contains(
+          reviewsSent.head.variables.contains(
             Map(
               "representations" -> ListValue(
                 List(InputObjectValue(Map("__typename" -> StringValue("Product"), "id" -> StringValue("p1"))))
@@ -344,26 +335,17 @@ object EntityExecutionSpec extends ZIOSpecDefault {
         )
       },
       test("deduplicates identical entity lookups across concurrent requests") {
-        val callers          = 2
-        val productsResponse =
-          """{"data":{"product":{"name":"Table","_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}}}"""
-        val reviewsResponse  =
-          """{"data":{"_entities":[{"reviews":[{"body":"Solid"}],"_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product"}]}}"""
-        val query            = "{ product(id: \"p1\") { name reviews { body } } }"
+        val callers = 2
+        val query   = "{ product(id: \"p1\") { name reviews { body } } }"
 
         for {
           ready        <- Promise.make[Nothing, Unit]
           headerRuns   <- Ref.make(0)
           reviewsConfig = RemoteGraphQLConfig.default
-                            .withExecutionHeadersZIO(
-                              headerRuns
-                                .updateAndGet(_ + 1)
-                                .flatMap(count => ready.succeed(()).unit.when(count == callers)) *>
-                                ready.await.as(Nil)
-                            )
-          products     <- stub(productsResponse)
-          reviews      <- stub(reviewsResponse)
-          gateway      <- Gateway
+                            .withExecutionHeadersZIO(headersAfterEveryCaller(callers, headerRuns, ready))
+          products     <- stub(tableProductResponse)
+          reviews      <- stub(solidReviewsResponse)
+          runtime      <- Gateway
                             .compose(
                               Subgraph.federation("products", products.endpoint, productsFederationSchema),
                               Subgraph.federation(
@@ -374,57 +356,42 @@ object EntityExecutionSpec extends ZIOSpecDefault {
                               )
                             )
                             .interpreter
-          fibers       <- ZIO.foreach(1 to callers)(_ => gateway.execute(query).fork)
+          fibers       <- ZIO.foreach(1 to callers)(_ => runtime.execute(query).fork)
           responses    <- ZIO.foreach(fibers)(_.join)
-          reviewCalls  <- reviews.requests.get
+          sent         <- reviews.requests.get
           totalHeaders <- headerRuns.get
         } yield assertTrue(
           responses.forall(_.errors.isEmpty),
-          reviewCalls.size == 1,
+          sent.size == 1,
           totalHeaders == callers
         )
       },
       test("skips an entity lookup when the nullable parent is null") {
         for {
-          products <- stub("""{"data":{"product":null}}""")
-          reviews  <- stub("""{"data":{"_entities":[]}}""")
-          gateway  <- Gateway
-                        .compose(
-                          Subgraph.federation("products", products.endpoint, productsFederationSchema),
-                          Subgraph.federation("reviews", reviews.endpoint, reviewsFederationSchema)
-                        )
-                        .interpreter
-          response <- gateway.execute("{ product(id: \"missing\") { reviews { body } } }")
-          sentA    <- products.requests.get
-          sentB    <- reviews.requests.get
+          products     <- stub("""{"data":{"product":null}}""")
+          reviews      <- stub("""{"data":{"_entities":[]}}""")
+          runtime      <- productsAndReviews(products, reviews).interpreter
+          response     <- runtime.execute("{ product(id: \"missing\") { reviews { body } } }")
+          productsSent <- products.requests.get
+          reviewsSent  <- reviews.requests.get
         } yield assertTrue(
           response.errors.isEmpty,
           field(response.data, "product").contains(NullValue),
-          sentA.size == 1,
-          sentB.isEmpty
+          productsSent.size == 1,
+          reviewsSent.isEmpty
         )
       },
       test("propagates a nested entity null to the nearest nullable boundary") {
-        val productsSchema  = productsFederationSchema.replace(
-          "  product(id: ID!): Product",
-          "  product(id: ID!): Product\n  status: String!"
-        )
-        val productResponse =
-          """{"data":{"status":"available","product":{"name":"Table","_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}}}"""
-        val reviewResponse  =
+        val reviewResponse =
           """{"data":{"_entities":[{"_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product","reviews":[{"body":null}]}]},"errors":[{"message":"review body unavailable","path":["_entities",0,"reviews",0,"body"],"locations":[{"line":1,"column":2}],"extensions":{"code":"REVIEW_DOWN"}}]}"""
 
         for {
-          products <- stub(productResponse)
+          products <- stub(statusProductResponse)
           reviews  <- stub(reviewResponse)
-          gateway  <- Gateway
-                        .compose(
-                          Subgraph.federation("products", products.endpoint, productsSchema),
-                          Subgraph.federation("reviews", reviews.endpoint, reviewsFederationSchema)
-                        )
+          runtime  <- productsAndReviews(products, reviews, statusProductsSchema)
                         .withConfig(_.withRemoteErrorMessages(true))
                         .interpreter
-          response <- gateway.execute("{ status product(id: \"p1\") { name reviews { body } } }")
+          response <- runtime.execute("{ status product(id: \"p1\") { name reviews { body } } }")
           errors    = executionErrors(response.errors)
         } yield assertTrue(
           field(response.data, "status").contains(StringValue("available")),
@@ -443,21 +410,14 @@ object EntityExecutionSpec extends ZIOSpecDefault {
         )
       },
       test("creates a non-null violation when a source returns null without an error") {
-        val productResponse =
-          """{"data":{"product":{"name":"Table","_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}}}"""
-        val reviewResponse  =
+        val reviewResponse =
           """{"data":{"_entities":[{"_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product","reviews":[{"body":null}]}]}}"""
 
         for {
-          products <- stub(productResponse)
+          products <- stub(tableProductResponse)
           reviews  <- stub(reviewResponse)
-          gateway  <- Gateway
-                        .compose(
-                          Subgraph.federation("products", products.endpoint, productsFederationSchema),
-                          Subgraph.federation("reviews", reviews.endpoint, reviewsFederationSchema)
-                        )
-                        .interpreter
-          response <- gateway.execute("{ product(id: \"p1\") { name reviews { body } } }")
+          runtime  <- productsAndReviews(products, reviews).interpreter
+          response <- runtime.execute("{ product(id: \"p1\") { name reviews { body } } }")
           errors    = executionErrors(response.errors)
         } yield assertTrue(
           field(response.data, "product").contains(NullValue),
@@ -473,23 +433,15 @@ object EntityExecutionSpec extends ZIOSpecDefault {
         )
       },
       test("preserves independent data when an entity transport fails") {
-        val productsSchema  = productsFederationSchema.replace(
-          "  product(id: ID!): Product",
-          "  product(id: ID!): Product\n  status: String!"
-        )
-        val productResponse =
-          """{"data":{"status":"available","product":{"name":"Table","_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}}}"""
-        val unavailable     = unreachableEndpoint
-
         for {
-          products <- stub(productResponse)
-          gateway  <- Gateway
+          products <- stub(statusProductResponse)
+          runtime  <- Gateway
                         .compose(
-                          Subgraph.federation("products", products.endpoint, productsSchema),
-                          Subgraph.federation("reviews", unavailable, reviewsFederationSchema)
+                          Subgraph.federation("products", products.endpoint, statusProductsSchema),
+                          Subgraph.federation("reviews", unreachableEndpoint, reviewsFederationSchema)
                         )
                         .interpreter
-          response <- gateway.execute("{ status product(id: \"p1\") { name reviews { body } } }")
+          response <- runtime.execute("{ status product(id: \"p1\") { name reviews { body } } }")
           errors    = executionErrors(response.errors)
         } yield assertTrue(
           field(response.data, "status").contains(StringValue("available")),
@@ -499,8 +451,6 @@ object EntityExecutionSpec extends ZIOSpecDefault {
         )
       },
       test("attaches unusable entity error paths safely at the merge location") {
-        val productResponse  =
-          """{"data":{"product":{"name":"Table","_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}}}"""
         val reviewResponse   =
           """{"data":{"_entities":[{"_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product","reviews":[{"body":"Solid"}]}]},"errors":[{"message":"internal source detail","path":["_entities","unknown"]}]}"""
         val indexedResponse  =
@@ -509,17 +459,12 @@ object EntityExecutionSpec extends ZIOSpecDefault {
           """{"data":{"_entities":[{"_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product","reviews":[{"body":"Solid"}]}]},"errors":[{"message":"negative source detail","path":["_entities",0,"reviews",-1,"body"]}]}"""
 
         for {
-          products      <- stub(productResponse)
+          products      <- stub(tableProductResponse)
           reviews       <- stub(reviewResponse, indexedResponse, negativeResponse)
-          gateway       <- Gateway
-                             .compose(
-                               Subgraph.federation("products", products.endpoint, productsFederationSchema),
-                               Subgraph.federation("reviews", reviews.endpoint, reviewsFederationSchema)
-                             )
-                             .interpreter
-          response      <- gateway.execute("{ product(id: \"p1\") { name reviews { body } } }")
-          indexed       <- gateway.execute("{ product(id: \"p1\") { name reviews { body } } }")
-          negative      <- gateway.execute("{ product(id: \"p1\") { name reviews { body } } }")
+          runtime       <- productsAndReviews(products, reviews).interpreter
+          response      <- runtime.execute("{ product(id: \"p1\") { name reviews { body } } }")
+          indexed       <- runtime.execute("{ product(id: \"p1\") { name reviews { body } } }")
+          negative      <- runtime.execute("{ product(id: \"p1\") { name reviews { body } } }")
           errors         = executionErrors(response.errors)
           indexedErrors  = executionErrors(indexed.errors)
           negativeErrors = executionErrors(negative.errors)
@@ -544,20 +489,15 @@ object EntityExecutionSpec extends ZIOSpecDefault {
           """{"data":{"_entities":[{"_caliban_gateway_entity_key":"p2","_caliban_gateway_entity_typename":"Product","reviews":[{"body":"Second review"}]},{"_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product","reviews":[{"body":"First review"}]}]}}"""
 
         for {
-          products <- stub(productResponse)
-          reviews  <- stub(reviewResponse)
-          gateway  <- Gateway
-                        .compose(
-                          Subgraph.federation("products", products.endpoint, listProductsFederationSchema),
-                          Subgraph.federation("reviews", reviews.endpoint, reviewsFederationSchema)
-                        )
-                        .interpreter
-          response <- gateway.execute("{ products { name reviews { body } } }")
-          sentA    <- products.requests.get
-          sentB    <- reviews.requests.get
-          validA   <- ZIO.foreach(sentA)(validateRequest(listProductsFederationSchema, _).exit)
-          validB   <- ZIO.foreach(sentB)(validateRequest(reviewsFederationSchema, _).exit)
-          values    = listValues(field(response.data, "products"))
+          products      <- stub(productResponse)
+          reviews       <- stub(reviewResponse)
+          runtime       <- productsAndReviews(products, reviews, listProductsFederationSchema).interpreter
+          response      <- runtime.execute("{ products { name reviews { body } } }")
+          productsSent  <- products.requests.get
+          reviewsSent   <- reviews.requests.get
+          productsValid <- ZIO.foreach(productsSent)(validateRequest(listProductsFederationSchema, _).exit)
+          reviewsValid  <- ZIO.foreach(reviewsSent)(validateRequest(reviewsFederationSchema, _).exit)
+          values         = listValues(field(response.data, "products"))
         } yield assertTrue(
           response.errors.isEmpty,
           values.flatMap(field(_, "name")) == List(
@@ -576,11 +516,11 @@ object EntityExecutionSpec extends ZIOSpecDefault {
               field(value, "_caliban_gateway_key").isEmpty &&
               field(value, "_caliban_gateway_typename").isEmpty
           ),
-          sentA.size == 1,
-          sentB.size == 1,
-          validA.forall(_.isSuccess),
-          validB.forall(_.isSuccess),
-          sentB.head.variables.contains(
+          productsSent.size == 1,
+          reviewsSent.size == 1,
+          productsValid.forall(_.isSuccess),
+          reviewsValid.forall(_.isSuccess),
+          reviewsSent.head.variables.contains(
             Map(
               "representations" -> ListValue(
                 List(
@@ -590,14 +530,13 @@ object EntityExecutionSpec extends ZIOSpecDefault {
               )
             )
           ),
-          sentB.head.query.exists(rendered =>
+          reviewsSent.head.query.exists(rendered =>
             rendered.contains("_caliban_gateway_entity_key:id") &&
               rendered.contains("_caliban_gateway_entity_typename:__typename")
           )
         )
       },
       test("does not correlate a null federation result or its error by position") {
-        val nullableReviews = reviewsFederationSchema.replace("reviews: [Review!]!", "reviews: [Review!]")
         val productResponse =
           """{"data":{"products":[{"name":"First","_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"},{"name":"Second","_caliban_gateway_key":"p2","_caliban_gateway_typename":"Product"}]}}"""
         val reviewResponse  =
@@ -606,13 +545,9 @@ object EntityExecutionSpec extends ZIOSpecDefault {
         for {
           products <- stub(productResponse)
           reviews  <- stub(reviewResponse)
-          gateway  <- Gateway
-                        .compose(
-                          Subgraph.federation("products", products.endpoint, listProductsFederationSchema),
-                          Subgraph.federation("reviews", reviews.endpoint, nullableReviews)
-                        )
-                        .interpreter
-          response <- gateway.execute("{ products { name reviews { body } } }")
+          runtime  <-
+            productsAndReviews(products, reviews, listProductsFederationSchema, nullableReviewsSchema).interpreter
+          response <- runtime.execute("{ products { name reviews { body } } }")
           values    = listValues(field(response.data, "products"))
           errors    = executionErrors(response.errors)
         } yield assertTrue(
@@ -623,7 +558,6 @@ object EntityExecutionSpec extends ZIOSpecDefault {
         )
       },
       test("reports surplus null federation results") {
-        val nullableReviews = reviewsFederationSchema.replace("reviews: [Review!]!", "reviews: [Review!]")
         val productResponse =
           """{"data":{"products":[{"name":"First","_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"},{"name":"Second","_caliban_gateway_key":"p2","_caliban_gateway_typename":"Product"}]}}"""
         val reviewResponse  =
@@ -632,47 +566,36 @@ object EntityExecutionSpec extends ZIOSpecDefault {
         for {
           products <- stub(productResponse)
           reviews  <- stub(reviewResponse)
-          gateway  <- Gateway
-                        .compose(
-                          Subgraph.federation("products", products.endpoint, listProductsFederationSchema),
-                          Subgraph.federation("reviews", reviews.endpoint, nullableReviews)
-                        )
-                        .interpreter
-          response <- gateway.execute("{ products { name reviews { body } } }")
+          runtime  <-
+            productsAndReviews(products, reviews, listProductsFederationSchema, nullableReviewsSchema).interpreter
+          response <- runtime.execute("{ products { name reviews { body } } }")
           errors    = executionErrors(response.errors)
         } yield assertTrue(
           errors.map(_.msg) == List("Entity lookup response contained an unexpected result for 'Product(id)'.")
         )
       },
       test("deduplicates compatible entity routes across the operation") {
-        val orderedReviews  = reviewsFederationSchema.replace(
+        val orderedReviews = reviewsFederationSchema.replace(
           "type Review { body: String! }",
           "type Review { body: String! rating: Int! }"
         )
-        val productResponse =
-          """{"data":{"first":[{"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}],"second":[{"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}]}}"""
-        val reviewResponse  =
+        val reviewResponse =
           """{"data":{"_entities":[{"_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product","reviews":[{"body":"Shared","rating":5}]}]}}"""
 
         for {
-          products <- stub(productResponse)
+          products <- stub(repeatedProductsResponse)
           reviews  <- stub(reviewResponse)
-          gateway  <- Gateway
-                        .compose(
-                          Subgraph.federation("products", products.endpoint, listProductsFederationSchema),
-                          Subgraph.federation("reviews", reviews.endpoint, orderedReviews)
-                        )
-                        .interpreter
-          response <- gateway.execute(
+          runtime  <- productsAndReviews(products, reviews, listProductsFederationSchema, orderedReviews).interpreter
+          response <- runtime.execute(
                         "{ first: products { reviews { body rating } } second: products { reviews { rating body } } }"
                       )
-          sentB    <- reviews.requests.get
+          sent     <- reviews.requests.get
         } yield assertTrue(
           response.errors.isEmpty,
           firstNestedObject(response.data, "first", "reviews").exists(_.contains("body" -> StringValue("Shared"))),
           firstNestedObject(response.data, "second", "reviews").exists(_.contains("body" -> StringValue("Shared"))),
-          sentB.size == 1,
-          sentB.head.variables.contains(
+          sent.size == 1,
+          sent.head.variables.contains(
             Map(
               "representations" -> ListValue(
                 List(InputObjectValue(Map("__typename" -> StringValue("Product"), "id" -> StringValue("p1"))))
@@ -682,11 +605,8 @@ object EntityExecutionSpec extends ZIOSpecDefault {
         )
       },
       test("attributes combined entity call errors to their own group") {
-        val argumentReviews = reviewsFederationSchema
-          .replace("reviews: [Review!]!", "reviews(limit: Int!): [Review!]!")
+        val argumentReviews = limitedReviewsSchema
           .replace("type Review { body: String! }", "type Review { body: String }")
-        val productResponse =
-          """{"data":{"first":[{"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}],"second":[{"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}]}}"""
         val entity          =
           """{"_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product","reviews":[{"body":"First"}]}"""
         val failedEntity    =
@@ -695,19 +615,14 @@ object EntityExecutionSpec extends ZIOSpecDefault {
           s"""{"data":{"_entities":[$failedEntity]},"errors":[{"message":"Boom","path":["_entities",0,"reviews",0,"body"]}]}"""
 
         for {
-          products <- stub(productResponse)
+          products <- stub(repeatedProductsResponse)
           reviews  <- stubByRequest { request =>
                         if (request.query.exists(_.contains("reviews(limit:2)"))) failedResponse
                         else s"""{"data":{"_entities":[$entity]}}"""
                       }
-          gateway  <- Gateway
-                        .compose(
-                          Subgraph.federation("products", products.endpoint, listProductsFederationSchema),
-                          Subgraph.federation("reviews", reviews.endpoint, argumentReviews)
-                        )
-                        .interpreter
+          runtime  <- productsAndReviews(products, reviews, listProductsFederationSchema, argumentReviews).interpreter
           response <-
-            gateway.execute(
+            runtime.execute(
               """{
                 |  first: products { reviews(limit: 1) { body } }
                 |  second: products { reviews(limit: 2) { body } }
@@ -730,24 +645,21 @@ object EntityExecutionSpec extends ZIOSpecDefault {
         )
       },
       test("sends separate entity calls when the combined request exceeds the size limit") {
-        val argumentReviews = reviewsFederationSchema.replace("reviews: [Review!]!", "reviews(limit: Int!): [Review!]!")
-        val productResponse =
-          """{"data":{"first":[{"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}],"second":[{"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}]}}"""
-        val entity          =
+        val entity =
           """{"_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product","reviews":[{"body":"Body"}]}"""
-        val config          = RemoteGraphQLConfig.default.withExecution(_.withMaxRequestBytes(512))
+        val config = RemoteGraphQLConfig.default.withExecution(_.withMaxRequestBytes(512))
 
         for {
-          products <- stub(productResponse)
+          products <- stub(repeatedProductsResponse)
           reviews  <- stub(s"""{"data":{"_entities":[$entity]}}""")
-          gateway  <- Gateway
+          runtime  <- Gateway
                         .compose(
                           Subgraph.federation("products", products.endpoint, listProductsFederationSchema),
-                          Subgraph.federation("reviews", reviews.endpoint, argumentReviews, config)
+                          Subgraph.federation("reviews", reviews.endpoint, limitedReviewsSchema, config)
                         )
                         .interpreter
           response <-
-            gateway.execute(
+            runtime.execute(
               """{
                 |  first: products { reviews(limit: 1) { body } }
                 |  second: products { reviews(limit: 2) { body } }
@@ -764,11 +676,7 @@ object EntityExecutionSpec extends ZIOSpecDefault {
         )
       },
       test("keeps incompatible entity routes in separate groups") {
-        val argumentReviews                      = reviewsFederationSchema
-          .replace(
-            "reviews: [Review!]!",
-            "reviews(limit: Int!): [Review!]!"
-          )
+        val argumentReviews                      = limitedReviewsSchema
           .replace("type Review { body: String! }", "type Review { body: String! rating: Int! }")
         val productResponse                      =
           """{"data":{"first":[{"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}],"second":[{"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}],"third":[{"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}],"fourth":[{"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}]}}"""
@@ -789,14 +697,9 @@ object EntityExecutionSpec extends ZIOSpecDefault {
         for {
           products <- stub(productResponse)
           reviews  <- stubByRequest(request => s"""{"data":{"_entities":[${entityFor(request.query.getOrElse(""))}]}}""")
-          gateway  <- Gateway
-                        .compose(
-                          Subgraph.federation("products", products.endpoint, listProductsFederationSchema),
-                          Subgraph.federation("reviews", reviews.endpoint, argumentReviews)
-                        )
-                        .interpreter
+          runtime  <- productsAndReviews(products, reviews, listProductsFederationSchema, argumentReviews).interpreter
           response <-
-            gateway.execute(
+            runtime.execute(
               """{
                 |  first: products { reviews(limit: 1) { body } }
                 |  second: products { reviews(limit: 2) { body } }
@@ -804,19 +707,19 @@ object EntityExecutionSpec extends ZIOSpecDefault {
                 |  fourth: products { reviews(limit: 1) { body rating } }
                 |}""".stripMargin
             )
-          sentB    <- reviews.requests.get
+          sent     <- reviews.requests.get
           combined <- reviews.combined.get
-          validB   <- ZIO.foreach(sentB)(validateRequest(argumentReviews, _).exit)
+          valid    <- ZIO.foreach(sent)(validateRequest(argumentReviews, _).exit)
         } yield assertTrue(
           response.errors.isEmpty,
-          sentB.size == 4,
+          sent.size == 4,
           combined.size == 1,
           combined.flatMap(_.query).exists("_caliban_gateway_entities_".r.findAllIn(_).size == 4),
-          validB.forall(_.isSuccess),
-          sentB.flatMap(_.query).exists(_.contains("reviews(limit:1)")),
-          sentB.flatMap(_.query).exists(_.contains("reviews(limit:2)")),
-          sentB.flatMap(_.query).exists(_.contains("feedback:reviews(limit:1){body}")),
-          sentB.flatMap(_.query).exists(_.contains("reviews(limit:1){body rating}")),
+          valid.forall(_.isSuccess),
+          sent.flatMap(_.query).exists(_.contains("reviews(limit:1)")),
+          sent.flatMap(_.query).exists(_.contains("reviews(limit:2)")),
+          sent.flatMap(_.query).exists(_.contains("feedback:reviews(limit:1){body}")),
+          sent.flatMap(_.query).exists(_.contains("reviews(limit:1){body rating}")),
           firstNestedObject(response.data, "first", "reviews")
             .exists(_.contains("body" -> StringValue("First"))),
           firstNestedObject(response.data, "second", "reviews")
@@ -838,15 +741,11 @@ object EntityExecutionSpec extends ZIOSpecDefault {
         for {
           products <- stub(productResponse)
           reviews  <- stub(reviewResponse)
-          gateway  <- Gateway
-                        .compose(
-                          Subgraph.federation("products", products.endpoint, listProductsFederationSchema),
-                          Subgraph.federation("reviews", reviews.endpoint, reviewsFederationSchema)
-                        )
+          runtime  <- productsAndReviews(products, reviews, listProductsFederationSchema)
                         .withConfig(_.withRemoteErrorMessages(true))
                         .interpreter
-          response <- gateway.execute("{ products { reviews { _caliban_gateway_entity_key: body } } }")
-          sentB    <- reviews.requests.get
+          response <- runtime.execute("{ products { reviews { _caliban_gateway_entity_key: body } } }")
+          sent     <- reviews.requests.get
           errors    = executionErrors(response.errors)
         } yield assertTrue(
           errors.map(_.msg) == List("review unavailable", "review unavailable"),
@@ -866,8 +765,8 @@ object EntityExecutionSpec extends ZIOSpecDefault {
               PathValue.Key("_caliban_gateway_entity_key")
             )
           ),
-          sentB.size == 1,
-          sentB.head.variables.exists { case variables =>
+          sent.size == 1,
+          sent.head.variables.exists { case variables =>
             variables
               .get("representations")
               .contains(
@@ -887,13 +786,8 @@ object EntityExecutionSpec extends ZIOSpecDefault {
         for {
           products <- stub(productResponse)
           reviews  <- stub(reviewResponse)
-          gateway  <- Gateway
-                        .compose(
-                          Subgraph.federation("products", products.endpoint, listProductsFederationSchema),
-                          Subgraph.federation("reviews", reviews.endpoint, reviewsFederationSchema)
-                        )
-                        .interpreter
-          response <- gateway.execute("{ products { reviews { body } } }")
+          runtime  <- productsAndReviews(products, reviews, listProductsFederationSchema).interpreter
+          response <- runtime.execute("{ products { reviews { body } } }")
           errors    = executionErrors(response.errors)
         } yield assertTrue(
           errors.map(_.msg) == List("Remote GraphQL request failed."),
@@ -901,7 +795,6 @@ object EntityExecutionSpec extends ZIOSpecDefault {
         )
       },
       test("handles null, missing, extra, and duplicate entity results deterministically") {
-        val nullableReviews = reviewsFederationSchema.replace("reviews: [Review!]!", "reviews: [Review!]")
         val productResponse =
           """{"data":{"products":[{"name":"First","_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"},{"name":"Second","_caliban_gateway_key":"p2","_caliban_gateway_typename":"Product"},{"name":"Third","_caliban_gateway_key":"p3","_caliban_gateway_typename":"Product"}]}}"""
         val reviewResponse  =
@@ -910,14 +803,10 @@ object EntityExecutionSpec extends ZIOSpecDefault {
         for {
           products <- stub(productResponse)
           reviews  <- stub(reviewResponse)
-          gateway  <- Gateway
-                        .compose(
-                          Subgraph.federation("products", products.endpoint, listProductsFederationSchema),
-                          Subgraph.federation("reviews", reviews.endpoint, nullableReviews)
-                        )
-                        .interpreter
-          response <- gateway.execute("{ products { name reviews { body } } }")
-          sentB    <- reviews.requests.get
+          runtime  <-
+            productsAndReviews(products, reviews, listProductsFederationSchema, nullableReviewsSchema).interpreter
+          response <- runtime.execute("{ products { name reviews { body } } }")
+          sent     <- reviews.requests.get
           values    = listValues(field(response.data, "products"))
           errors    = executionErrors(response.errors)
         } yield assertTrue(
@@ -935,7 +824,7 @@ object EntityExecutionSpec extends ZIOSpecDefault {
             List(PathValue.Key("products")),
             List(PathValue.Key("products"))
           ),
-          sentB.size == 1
+          sent.size == 1
         )
       },
       test("correlates duplicate entity keys with distinct requirement values by position") {
@@ -965,14 +854,14 @@ object EntityExecutionSpec extends ZIOSpecDefault {
             stub(
               """{"data":{"_entities":[{"shippingEstimate":100},{"shippingEstimate":200}]},"errors":[{"message":"estimate warning","path":["_entities",1,"shippingEstimate"]}]}"""
             )
-          gateway   <- Gateway
+          runtime   <- Gateway
                          .compose(
                            Subgraph.federation("products", products.endpoint, productsSchema),
                            Subgraph.federation("inventory", inventory.endpoint, inventorySchema)
                          )
                          .withConfig(_.withRemoteErrorMessages(true))
                          .interpreter
-          response  <- gateway.execute("{ products { shippingEstimate } }")
+          response  <- runtime.execute("{ products { shippingEstimate } }")
           sent      <- inventory.requests.get
           errors     = executionErrors(response.errors)
           values     = listValues(field(response.data, "products"))

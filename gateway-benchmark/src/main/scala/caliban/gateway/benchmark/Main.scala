@@ -1,7 +1,7 @@
 package caliban.gateway.benchmark
 
 import caliban.QuickAdapter
-import caliban.gateway.{ Gateway, RemoteGraphQLConfig, Subgraph }
+import caliban.gateway.{ traverseEither, Gateway, RemoteGraphQLConfig, Subgraph }
 import zio._
 import zio.http._
 
@@ -12,7 +12,7 @@ object Main extends ZIOAppDefault {
   private val SubgraphPorts        =
     List("accounts" -> 5221, "inventory" -> 5222, "products" -> 5223, "reviews" -> 5224)
 
-  override def run =
+  override def run: RIO[Scope, Unit] =
     program.tapErrorCause(cause => ZIO.logErrorCause("Gateway benchmark adapter failed.", cause))
 
   private val program =
@@ -39,14 +39,13 @@ object Main extends ZIOAppDefault {
     if (host.isEmpty || host.exists(char => char.isWhitespace || char == '/'))
       Left("BENCHMARK_SUBGRAPHS_HOST must be a host name or address.")
     else {
-      val parsed = SubgraphPorts.map { case (name, port) =>
+      traverseEither(SubgraphPorts) { case (name, port) =>
         URL
           .decode(s"http://$host:$port/graphql")
           .left
           .map(_.getMessage)
           .map(url => Subgraph.federation(name, url, config))
       }
-      parsed.collectFirst { case Left(error) => error }.toLeft(parsed.collect { case Right(subgraph) => subgraph })
     }
   }
 }

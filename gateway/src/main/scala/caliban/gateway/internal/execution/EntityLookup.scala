@@ -6,7 +6,7 @@ import caliban.gateway.internal.composition.{ ComposedGraph, SchemaMapping }
 import caliban.gateway.internal.execution.EntityExecutor._
 import caliban.gateway.internal.execution.EntityLookup._
 import caliban.gateway.internal.planning.OperationPlan._
-import caliban.gateway.traverseOption
+import caliban.gateway._
 import caliban.InputValue.{ ListValue => InputListValue, ObjectValue => InputObjectValue, VariableValue }
 import caliban.introspection.adt.{ __Type, __TypeKind }
 import caliban.parsing.adt.{ Document, OperationType, Selection, VariableDefinition }
@@ -33,113 +33,119 @@ private[execution] final class EntityLookup(graph: ComposedGraph) {
   ): Option[Call] = {
     val mapping       = graph.schemaMapping(fetch.source)
     val contextValues = batch.entries.headOption.map(_.contextArguments).getOrElse(Map.empty)
-    val prepared      = prepareLookup(fetch, mapping, cache, contextValues)
 
-    def expectedIdentities: Map[EntityIdentity, Int] =
-      batch.entries.iterator.zipWithIndex.map { case (entry, index) =>
-        correlationIdentity(fetch, entry.identity) -> index
-      }.toMap
-
-    def call(
-      request: GraphQLRequest,
-      variant: PreparedVariant,
-      response: ResponseShape,
-      expected: Map[EntityIdentity, Int],
-      part: Option[CallPart] = None
-    ): Call =
-      new Call(fetch, batch, request, variant.correlation, response, variant.projection, expected, part)
-
-    def lookupField(
-      field: String,
-      alias: String,
-      arguments: Map[String, InputValue],
-      variant: GraphQLVariant
-    ): Selection.Field =
-      Selection.Field(
-        Some(alias),
-        mapping.lookupFieldToSource(field),
-        mapping.lookupArgumentsToSource(field, arguments),
-        Nil,
-        variant.sourceSelections,
-        0
-      )
-
-    def queryCall(
-      selections: List[Selection],
-      variant: GraphQLVariant,
-      response: ResponseShape,
-      expected: Map[EntityIdentity, Int]
-    ): Call = {
-      val operation = OperationDefinition(OperationType.Query, Some("__GatewayLookup"), Nil, Nil, selections)
-      val request   = GraphQLRequest(
-        query = Some(render(operation)),
-        operationName = operation.name,
-        extensions = resolvedRequest.extensions
-      )
-      call(request, variant, response, expected)
-    }
-
-    prepared match {
-      case PreparedLookup.Federation(ordered, keyed)       =>
-        // Duplicate identities need positional correlation to distinguish their requirement values.
-        val (variant, expected) = keyed match {
-          case Some(keyed) =>
-            val identities = expectedIdentities
-            if (identities.size == batch.entries.size) keyed -> identities
-            else ordered                                     -> Map.empty[EntityIdentity, Int]
-          case None        => ordered -> Map.empty[EntityIdentity, Int]
-        }
-        val representations     = InputListValue(
-          batch.entries
-            .map(entry => mapping.representationToSource(fetch.entityType, federationRepresentation(fetch, entry)))
-            .toList
-        )
-        val request             = GraphQLRequest(
-          query = Some(variant.query),
-          operationName = Some("__GatewayEntity"),
-          variables = Some(Map("representations" -> representations)),
-          extensions = resolvedRequest.extensions
-        )
-        slot match {
-          case None       => Some(call(request, variant, ResponseShape.ListRoot("_entities"), expected))
-          case Some(slot) =>
-            val part = CallPart(slot, variant.selections, representations)
-            Some(call(request, variant, ResponseShape.ListRoot(part.alias), expected, Some(part)))
-        }
+    prepareLookup(fetch, mapping, cache, contextValues) match {
+      case lookup: PreparedLookup.Federation               =>
+        Some(federationCall(fetch, batch, mapping, lookup, resolvedRequest, slot))
       case PreparedLookup.ByKey(field, mappings, variant)  =>
         evaluateArguments(mappings, batch, None).map { arguments =>
-          val alias = "_caliban_gateway_lookup"
-          queryCall(
-            List(lookupField(field, alias, arguments, variant)),
+          val request =
+            lookupRequest(List(lookupField(mapping, field, LookupAlias, arguments, variant)), resolvedRequest)
+          new Call(
+            fetch,
+            batch,
+            request,
             variant,
-            ResponseShape.ListRoot(alias),
-            expectedIdentities
+            ResponseShape.ListRoot(LookupAlias),
+            expectedIdentities(fetch, batch),
+            None
           )
         }
       case PreparedLookup.Single(field, mappings, variant) =>
         val selections = traverseOption(batch.entries.zipWithIndex) { case (entry, index) =>
           evaluateArguments(mappings, batch, Some(entry)).map { arguments =>
-            val alias = s"_caliban_gateway_lookup_$index"
-            lookupField(field, alias, arguments, variant) -> (alias -> index)
+            val alias = s"${LookupAlias}_$index"
+            lookupField(mapping, field, alias, arguments, variant) -> (alias -> index)
           }
         }
         selections.map { generated =>
-          val (values, indices) = generated.unzip
-          queryCall(values, variant, ResponseShape.Aliases(indices.toMap), Map.empty[EntityIdentity, Int])
+          val (fields, indices) = generated.unzip
+          val request           = lookupRequest(fields, resolvedRequest)
+          new Call(
+            fetch,
+            batch,
+            request,
+            variant,
+            ResponseShape.Aliases(indices.toMap),
+            Map.empty[EntityIdentity, Int],
+            None
+          )
         }
     }
+  }
+
+  private def federationCall(
+    fetch: EntityFetch,
+    batch: EntityBatch,
+    mapping: SchemaMapping,
+    lookup: PreparedLookup.Federation,
+    resolvedRequest: GraphQLRequest,
+    slot: Option[Int]
+  ): Call = {
+    // Duplicate identities need positional correlation to distinguish their requirement values.
+    val (variant, expected) = lookup.keyed match {
+      case Some(keyed) =>
+        val identities = expectedIdentities(fetch, batch)
+        if (identities.size == batch.entries.size) keyed -> identities
+        else lookup.ordered                              -> Map.empty[EntityIdentity, Int]
+      case None        => lookup.ordered -> Map.empty[EntityIdentity, Int]
+    }
+    val representations     = InputListValue(
+      batch.entries
+        .map(entry => mapping.representationToSource(fetch.entityType, federationRepresentation(fetch, entry)))
+        .toList
+    )
+    val request             = GraphQLRequest(
+      query = Some(variant.query),
+      operationName = Some(EntityOperationName),
+      variables = Some(Map(RepresentationsVariable -> representations)),
+      extensions = resolvedRequest.extensions
+    )
+    slot match {
+      case None       => new Call(fetch, batch, request, variant, ResponseShape.ListRoot(EntitiesField), expected, None)
+      case Some(slot) =>
+        val part = CallPart(slot, variant.selections, representations)
+        new Call(fetch, batch, request, variant, ResponseShape.ListRoot(part.alias), expected, Some(part))
+    }
+  }
+
+  private def lookupField(
+    mapping: SchemaMapping,
+    field: String,
+    alias: String,
+    arguments: Map[String, InputValue],
+    variant: GraphQLVariant
+  ): Selection.Field =
+    Selection.Field(
+      Some(alias),
+      mapping.lookupFieldToSource(field),
+      mapping.lookupArgumentsToSource(field, arguments),
+      Nil,
+      variant.sourceSelections,
+      0
+    )
+
+  private def lookupRequest(selections: List[Selection], resolvedRequest: GraphQLRequest): GraphQLRequest = {
+    val operation = OperationDefinition(OperationType.Query, Some(LookupOperationName), Nil, Nil, selections)
+    GraphQLRequest(
+      query = Some(render(operation)),
+      operationName = operation.name,
+      extensions = resolvedRequest.extensions
+    )
   }
 
   final class Call private[EntityLookup] (
     fetch: EntityFetch,
     batch: EntityBatch,
     val request: GraphQLRequest,
-    correlation: EntityCorrelation,
+    variant: PreparedVariant,
     shape: ResponseShape,
-    projection: ResponseProjection,
     expected: Map[EntityIdentity, Int],
     val part: Option[CallPart]
   ) {
+    private val correlation = variant.correlation
+    private val projection  = variant.projection
+
     def complete(response: GraphQLResponse[CalibanError], errorPolicy: SubgraphExecutor.ErrorPolicy): EntityResult = {
       val values   = shape.values(response.data).map { case (index, value) => index -> projection(value) }
       val assigned = assign(values)
@@ -320,13 +326,13 @@ private[execution] final class EntityLookup(graph: ComposedGraph) {
   }
 
   private def federationCorrelation(fetch: EntityFetch, executableFields: List[Field]): EntityCorrelation.Federation = {
-    val usedNames = executableFields.iterator.map(_.aliasedName).toSet
-    val ordered   = correlationKeys(fetch.keys.map(key => key.field -> key), usedNames, "_caliban_gateway_entity_key")
+    val usedNames = responseNames(executableFields)
+    val ordered   = correlationKeys(fetch.keys.map(key => key.field -> key), usedNames, EntityKeyAliasBase)
     val names     = usedNames ++ ordered.iterator.map(_.selection.responseName)
     EntityCorrelation.Federation(
       IdentitySelections(
         ordered,
-        Some(RequiredSelection("__typename", privateAlias("_caliban_gateway_entity_typename", names)))
+        Some(RequiredSelection(TypenameField, privateAlias(EntityTypenameAliasBase, names)))
       )
     )
   }
@@ -337,7 +343,7 @@ private[execution] final class EntityLookup(graph: ComposedGraph) {
     executableFields: List[Field]
   ): EntityCorrelation.ByKey = {
     val fields     = result.fields
-    val usedNames  = executableFields.iterator.map(_.aliasedName).toSet
+    val usedNames  = responseNames(executableFields)
     val configured = fetch.keys.flatMap(key =>
       fields.collectFirst {
         case (responseField, keyField) if keyField == key.field => responseField -> keyField
@@ -350,7 +356,7 @@ private[execution] final class EntityLookup(graph: ComposedGraph) {
             keyField -> RequiredSelection(responseField, responseField)
           },
           usedNames,
-          "_caliban_gateway_lookup_key"
+          LookupKeyAliasBase
         ),
         None
       )
@@ -386,17 +392,22 @@ private[execution] final class EntityLookup(graph: ComposedGraph) {
   private def federationOperation(fragments: List[Selection]): OperationDefinition = {
     val entityField = Selection.Field(
       None,
-      "_entities",
-      Map("representations" -> VariableValue("representations")),
+      EntitiesField,
+      Map(RepresentationsArgument -> VariableValue(RepresentationsVariable)),
       Nil,
       fragments,
       0
     )
     OperationDefinition(
       OperationType.Query,
-      Some("__GatewayEntity"),
+      Some(EntityOperationName),
       List(
-        VariableDefinition("representations", ListType(NamedType("_Any", nonNull = true), nonNull = true), None, Nil)
+        VariableDefinition(
+          RepresentationsVariable,
+          ListType(NamedType(AnyType, nonNull = true), nonNull = true),
+          None,
+          Nil
+        )
       ),
       Nil,
       List(entityField)
@@ -436,7 +447,7 @@ private[execution] final class EntityLookup(graph: ComposedGraph) {
     if (values.isEmpty) fields
     else
       fields.map { field =>
-        val parent = field.parentType.flatMap(_.name).getOrElse("")
+        val parent = parentTypeName(field)
         val added  = values.iterator.collect {
           case (context, value) if context.parentType == parent && context.field == field.name =>
             val expected = graph
@@ -469,7 +480,7 @@ private[execution] final class EntityLookup(graph: ComposedGraph) {
   private def federationRepresentation(fetch: EntityFetch, entry: EntityBatchEntry): InputObjectValue =
     InputObjectValue(
       entry.identity.keys.toMap ++ entry.requirements +
-        ("__typename" -> StringValue(fetch.lookup.representationType.getOrElse(entry.identity.typename)))
+        (TypenameField -> StringValue(fetch.lookup.representationType.getOrElse(entry.identity.typename)))
     )
 
   private def evaluateArguments(
@@ -525,10 +536,10 @@ private[execution] object EntityLookup {
   def combine(parts: List[CallPart], resolvedRequest: GraphQLRequest): GraphQLRequest =
     GraphQLRequest(
       query = Some(
-        parts.map(part => s"$$${part.variable}:[_Any!]!").mkString("query __GatewayEntity(", ",", ")") +
+        parts.map(part => s"$$${part.variable}:[$AnyType!]!").mkString("query " + EntityOperationName + "(", ",", ")") +
           parts.map(_.field).mkString("{", " ", "}")
       ),
-      operationName = Some("__GatewayEntity"),
+      operationName = Some(EntityOperationName),
       variables = Some(parts.map(part => part.variable -> part.representations).toMap),
       extensions = resolvedRequest.extensions
     )
@@ -583,15 +594,29 @@ private[execution] object EntityLookup {
 
   final case class CallPart(slot: Int, selections: String, representations: InputValue) {
     val alias: String    = s"${CallPart.AliasPrefix}$slot"
-    val variable: String = s"_caliban_gateway_representations_$slot"
-    def field: String    = s"$alias:_entities(representations:$$$variable)$selections"
+    val variable: String = s"${CallPart.VariablePrefix}$slot"
+    def field: String    = s"$alias:$EntitiesField($RepresentationsArgument:$$$variable)$selections"
   }
 
   object CallPart {
     def isPartAlias(alias: String): Boolean = alias.startsWith(AliasPrefix)
 
-    private val AliasPrefix = "_caliban_gateway_entities_"
+    private final val AliasPrefix    = "_caliban_gateway_entities_"
+    private final val VariablePrefix = "_caliban_gateway_representations_"
   }
+
+  private final val EntityOperationName     = "__GatewayEntity"
+  private final val LookupOperationName     = "__GatewayLookup"
+  private final val RepresentationsVariable = "representations"
+  private final val LookupAlias             = "_caliban_gateway_lookup"
+  private final val LookupKeyAliasBase      = "_caliban_gateway_lookup_key"
+  private final val EntityKeyAliasBase      = "_caliban_gateway_entity_key"
+  private final val EntityTypenameAliasBase = "_caliban_gateway_entity_typename"
+
+  private def expectedIdentities(fetch: EntityFetch, batch: EntityBatch): Map[EntityIdentity, Int] =
+    batch.entries.iterator.zipWithIndex.map { case (entry, index) =>
+      correlationIdentity(fetch, entry.identity) -> index
+    }.toMap
 
   private def correlationIdentity(fetch: EntityFetch, identity: EntityIdentity): EntityIdentity =
     fetch.lookup.representationType.fold(identity)(typename => identity.copy(typename = typename))

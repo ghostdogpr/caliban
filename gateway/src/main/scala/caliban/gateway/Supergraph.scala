@@ -11,54 +11,92 @@ final class Supergraph[-R] private[gateway] (
   private[gateway] val config: String => RemoteGraphQLConfig[R],
   private[gateway] val endpoints: String => Option[URL]
 ) {
+
+  /**
+   * Sets the remote GraphQL configuration of each subgraph, looked up by the subgraph name declared in
+   * `@join__graph`. Without it, every subgraph uses `RemoteGraphQLConfig.default`. Acquisition settings are
+   * unused, since the subgraph schemas come from the supergraph.
+   */
   def withSubgraphConfig[R1 <: R](value: String => RemoteGraphQLConfig[R1]): Supergraph[R1] =
     new Supergraph(source, value, endpoints)
 
+  /**
+   * Overrides the routing url of each subgraph, looked up by the subgraph name declared in `@join__graph`. A
+   * subgraph for which the function returns `None` keeps the url from the supergraph.
+   */
   def withSubgraphEndpoint(value: String => Option[URL]): Supergraph[R] = new Supergraph(source, config, value)
 }
 
 object Supergraph {
   private val HiveCdn: URL = url"https://cdn.graphql-hive.com"
 
-  def sdl(value: String): Supergraph[Any]                       =
-    new Supergraph(Source.Sdl(value), _ => RemoteGraphQLConfig.default, _ => None)
-  def parsed(value: Document): Supergraph[Any]                  =
-    new Supergraph(Source.Parsed(value), _ => RemoteGraphQLConfig.default, _ => None)
-  def file(path: Path): Supergraph[Any]                         =
-    new Supergraph(Source.File(path), _ => RemoteGraphQLConfig.default, _ => None)
+  /**
+   * Describes a supergraph from SDL. It is parsed once and never reloaded.
+   */
+  def sdl(value: String): Supergraph[Any] = fromSource(Source.Sdl(value))
+
+  /**
+   * Describes a supergraph from an already parsed schema document. It is never reloaded.
+   */
+  def parsed(value: Document): Supergraph[Any] = fromSource(Source.Parsed(value))
+
+  /**
+   * Describes a supergraph read from a file. A reloadable gateway reads the file again on every poll.
+   */
+  def file(path: Path): Supergraph[Any] = fromSource(Source.File(path))
+
+  /**
+   * Describes a supergraph fetched with a GET request. It follows no redirects unless `config` allows them, and the
+   * configured headers go to `endpoint` only, never to a redirect target. Polls send the last `ETag` in
+   * `If-None-Match`.
+   */
   def http(
     endpoint: URL,
     config: RemoteGraphQLConfig.Acquisition = RemoteGraphQLConfig.Acquisition.default
   ): Supergraph[Any] =
-    new Supergraph(Source.Http(endpoint, config), _ => RemoteGraphQLConfig.default, _ => None)
-  def uplink(graphRef: String, apiKey: Secret): Supergraph[Any] = uplink(SupergraphUplinkConfig(graphRef, apiKey))
-  def uplink(config: SupergraphUplinkConfig): Supergraph[Any]   =
-    new Supergraph(Source.Uplink(config), _ => RemoteGraphQLConfig.default, _ => None)
+    fromSource(Source.Http(endpoint, config))
 
+  /**
+   * Describes a supergraph polled from the Apollo GraphOS Uplink for a graph ref such as `my-graph@production`,
+   * using Apollo's default uplink endpoints. A reloadable gateway must poll it no more often than every ten
+   * seconds.
+   */
+  def uplink(graphRef: String, apiKey: Secret): Supergraph[Any] = uplink(SupergraphUplinkConfig(graphRef, apiKey))
+
+  /**
+   * Describes a supergraph polled from the Apollo GraphOS Uplink with custom endpoints or acquisition settings.
+   */
+  def uplink(config: SupergraphUplinkConfig): Supergraph[Any] = fromSource(Source.Uplink(config))
+
+  /**
+   * Describes a supergraph fetched from the Hive CDN for a target, authenticated with a CDN access key. It
+   * follows at most two redirects.
+   */
   def hive(targetId: String, cdnKey: Secret, cdn: URL = HiveCdn): Supergraph[Any] =
-    new Supergraph(
-      Source.Http(
-        cdn / "artifacts" / "v1" / targetId / "supergraph",
-        RemoteGraphQLConfig.Acquisition.default
-          .withHeaders(Header.Custom("X-Hive-CDN-Key", cdnKey.stringValue))
-          .withMaxRedirects(2)
-      ),
-      _ => RemoteGraphQLConfig.default,
-      _ => None
+    http(
+      cdn / "artifacts" / "v1" / targetId / "supergraph",
+      RemoteGraphQLConfig.Acquisition.default
+        .withHeaders(Header.Custom("X-Hive-CDN-Key", cdnKey.stringValue))
+        .withMaxRedirects(2)
     )
 
-  private[gateway] sealed trait Source { def refreshable: Boolean }
-  private[gateway] object Source       {
-    final case class Sdl(value: String)                     extends Source { override val refreshable: Boolean = false }
-    final case class Parsed(value: Document)                extends Source { override val refreshable: Boolean = false }
-    final case class File(path: Path)                       extends Source { override val refreshable: Boolean = true  }
-    final case class Http(
-      endpoint: URL,
-      config: RemoteGraphQLConfig.Acquisition = RemoteGraphQLConfig.Acquisition.default
-    ) extends Source {
-      override val refreshable: Boolean = true
-    }
-    final case class Uplink(config: SupergraphUplinkConfig) extends Source { override val refreshable: Boolean = true  }
+  private def fromSource(source: Source): Supergraph[Any] =
+    new Supergraph(source, _ => RemoteGraphQLConfig.default, _ => None)
+
+  private[gateway] sealed trait Source {
+    def refreshable: Boolean =
+      this match {
+        case _: Source.Sdl | _: Source.Parsed                   => false
+        case _: Source.File | _: Source.Http | _: Source.Uplink => true
+      }
+  }
+
+  private[gateway] object Source {
+    final case class Sdl(value: String)                                           extends Source
+    final case class Parsed(value: Document)                                      extends Source
+    final case class File(path: Path)                                             extends Source
+    final case class Http(endpoint: URL, config: RemoteGraphQLConfig.Acquisition) extends Source
+    final case class Uplink(config: SupergraphUplinkConfig)                       extends Source
   }
 
 }

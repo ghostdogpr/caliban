@@ -13,30 +13,9 @@ object ProductsApi extends ZIOAppDefault with GenericSchema[Any] {
   final case class ProductArgs(id: String)
   final case class Query(product: ProductArgs => Option[Product], products: List[Product])
 
-  val schema: String =
-    """
-      |type Query {
-      |  product(id: String!): Product
-      |  products: [Product!]!
-      |}
-      |
-      |type Product {
-      |  id: String!
-      |  name: String!
-      |  price: Int!
-      |}
-      |""".stripMargin
+  private val products = List(Product("caliban", "Caliban", 0), Product("zio", "ZIO", 0))
 
-  private val products = List(
-    Product("caliban", "Caliban", 0),
-    Product("zio", "ZIO", 0)
-  )
-
-  private val api = graphQL(
-    RootResolver(
-      Query(args => products.find(_.id == args.id), products)
-    )
-  )
+  private val api = graphQL(RootResolver(Query(args => products.find(_.id == args.id), products)))
 
   def run: Task[Unit] =
     Console.printLine("Products API: http://localhost:8081/graphiql") *>

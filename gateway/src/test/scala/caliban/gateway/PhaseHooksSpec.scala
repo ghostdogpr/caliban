@@ -6,8 +6,6 @@ import caliban.gateway.internal.OperationCache
 import caliban.gateway.internal.OperationCache.Weighted
 import caliban.parsing.adt.OperationType
 import caliban.GraphQLRequest
-import caliban.{ graphQL, RootResolver }
-import caliban.schema.Schema.auto._
 import zio.http.Header
 import zio.{ Duration, Promise, Ref, Scope, ZIO }
 import zio.test.{ assert, assertTrue, Assertion, Spec, TestAspect, TestClock, TestEnvironment, ZIOSpecDefault }
@@ -15,23 +13,13 @@ import zio.stream.ZStream
 
 object PhaseHooksSpec extends ZIOSpecDefault {
 
-  final case class MetricQuery(value: String)
-  final case class MetricSubscription(event: ZStream[Any, Throwable, Int])
-
   private val schema = "type Query { value: String! }"
 
   def spec: Spec[TestEnvironment with Scope, Any] = suite("PhaseHooksSpec")(
     test("idle subscriptions use dedicated lifetime and admission metrics") {
       for {
         opened           <- Promise.make[Nothing, Unit]
-        source            = graphQL(
-                              RootResolver(
-                                queryResolver = Some(MetricQuery("ok")),
-                                mutationResolver = Option.empty[Unit],
-                                subscriptionResolver =
-                                  Some(MetricSubscription(ZStream.fromZIO(opened.succeed(())) *> ZStream.never))
-                              )
-                            )
+        source            = subscriptionGraph(ZStream.fromZIO(opened.succeed(())) *> ZStream.never)
         runtime          <- (Gateway.compose(Subgraph.local("local", source)) @@ GatewayMetrics.hooks).interpreter
         requestsBefore   <- counter("caliban_gateway_requests_total", "outcome", "success")
         admittedBefore   <- counter("caliban_gateway_subscription_admission_total", "result", "accepted")
@@ -56,13 +44,7 @@ object PhaseHooksSpec extends ZIOSpecDefault {
       )
     },
     test("subscription event counts come from duration metrics and finite work uses distinct admission kinds") {
-      val source = graphQL(
-        RootResolver(
-          queryResolver = Some(MetricQuery("ok")),
-          mutationResolver = Option.empty[Unit],
-          subscriptionResolver = Some(MetricSubscription(ZStream(1, 2)))
-        )
-      )
+      val source = subscriptionGraph(ZStream(1, 2))
       for {
         runtime        <- (Gateway.compose(Subgraph.local("local", source)) @@ GatewayMetrics.hooks).interpreter
         setupBefore    <- counter("caliban_gateway_admission_total", "kind", "subscription_setup")
@@ -86,7 +68,7 @@ object PhaseHooksSpec extends ZIOSpecDefault {
       for {
         recorded                <- recordEventsAndResults
         (events, results, hooks) = recorded
-        remote                  <- stub("""{"data":{"value":"ok"}}""")
+        remote                  <- stub(okResponse)
         runtime                 <- Gateway
                                      .compose(Subgraph.graphql("products", remote.endpoint, schema))
                                      .withPhaseHooks(hooks ++ taggingOutboundHeaders)
@@ -118,7 +100,7 @@ object PhaseHooksSpec extends ZIOSpecDefault {
       for {
         recorded           <- recordEventsAndResults
         (_, results, hooks) = recorded
-        remote             <- stub("""{"data":{"value":"ok"}}""")
+        remote             <- stub(okResponse)
         runtime            <- (Gateway
                                 .compose(Subgraph.graphql("remote", remote.endpoint, schema))
                                 .withOperationResolver(
@@ -155,7 +137,7 @@ object PhaseHooksSpec extends ZIOSpecDefault {
         entered                 <- Promise.make[Nothing, Unit]
         recorded                <- recordEventsAndResults
         (events, results, hooks) = recorded
-        remote                  <- stub("""{"data":{"value":"ok"}}""")
+        remote                  <- stub(okResponse)
         runtime                 <- Gateway
                                      .compose(Subgraph.graphql("products", remote.endpoint, schema))
                                      .withConfig(_.withRequestTimeout(Duration.fromSeconds(1)))
@@ -165,12 +147,12 @@ object PhaseHooksSpec extends ZIOSpecDefault {
         _                       <- entered.await
         _                       <- TestClock.adjust(Duration.fromSeconds(2))
         response                <- fiber.join
-        requests                <- remote.requests.get
+        sent                    <- remote.requests.get
         observed                <- events.get
         completed               <- results.get
       } yield assertTrue(
         response.errors.map(_.msg) == List("Gateway request timed out."),
-        requests.isEmpty,
+        sent.isEmpty,
         observed.lastOption.contains(Event.Completion),
         completed.lastOption.exists(_._2.outcome == PhaseHooks.Outcome.Timeout)
       )
@@ -192,9 +174,9 @@ object PhaseHooksSpec extends ZIOSpecDefault {
     test("records request and local execution metrics without local admission") {
       for {
         started        <- Promise.make[Nothing, Unit]
-        runtime        <- (Gateway
-                            .compose(Subgraph.local("local", localGraph(started.succeed(()).unit *> ZIO.never)))
-                            .withConfig(_.withRequestTimeout(Duration.fromSeconds(1))) @@ GatewayMetrics.hooks).interpreter
+        runtime        <-
+          (localGateway(started.succeed(()).unit *> ZIO.never)
+            .withConfig(_.withRequestTimeout(Duration.fromSeconds(1))) @@ GatewayMetrics.hooks).interpreter
         requestBefore  <- counter("caliban_gateway_admission_total", "kind", "request")
         subgraphBefore <- counter("caliban_gateway_admission_total", "kind", "subgraph")
         requestsBefore <- counter("caliban_gateway_requests_total", "outcome", "error")
@@ -235,7 +217,7 @@ object PhaseHooksSpec extends ZIOSpecDefault {
         direct   <- Ref.make(Vector.empty[OperationEvent])
         inScope  <- Ref.make(Vector.empty[OperationEvent])
         order    <- Ref.make(Vector.empty[String])
-        remote   <- stub("""{"data":{"value":"ok"}}""")
+        remote   <- stub(okResponse)
         runtime  <- Gateway
                       .compose(Subgraph.graphql("products", remote.endpoint, schema))
                       .withPhaseHooks(observingScoped(inScope, order) ++ observing(direct, order))
@@ -261,7 +243,7 @@ object PhaseHooksSpec extends ZIOSpecDefault {
         entered  <- Promise.make[Nothing, Unit]
         observed <- Ref.make(Vector.empty[OperationEvent])
         order    <- Ref.make(Vector.empty[String])
-        remote   <- stub("""{"data":{"value":"ok"}}""")
+        remote   <- stub(okResponse)
         runtime  <- Gateway
                       .compose(Subgraph.graphql("products", remote.endpoint, schema))
                       .withConfig(_.withRequestTimeout(Duration.fromSeconds(1)))
@@ -273,14 +255,14 @@ object PhaseHooksSpec extends ZIOSpecDefault {
         response <- fiber.join
         events   <- observed.get
         sequence <- order.get
-        requests <- remote.requests.get
+        sent     <- remote.requests.get
       } yield assertTrue(
         response.errors.map(_.msg) == List("Gateway request timed out."),
         events.map(_.outcome) == Vector(PhaseHooks.Outcome.Timeout),
         events.forall(event => event.document.isEmpty && event.executionRequest.isEmpty),
         events.forall(_.operationType.isEmpty),
         sequence == Vector("direct-in", "direct-out"),
-        requests.isEmpty
+        sent.isEmpty
       )
     },
     test("observes an interrupted request as cancelled") {
@@ -288,8 +270,7 @@ object PhaseHooksSpec extends ZIOSpecDefault {
         started  <- Promise.make[Nothing, Unit]
         observed <- Ref.make(Vector.empty[OperationEvent])
         order    <- Ref.make(Vector.empty[String])
-        runtime  <- Gateway
-                      .compose(Subgraph.local("local", localGraph(started.succeed(()).unit *> ZIO.never)))
+        runtime  <- localGateway(started.succeed(()).unit *> ZIO.never)
                       .withPhaseHooks(observing(observed, order))
                       .interpreter
         fiber    <- runtime.execute("{ value }").fork
@@ -307,7 +288,7 @@ object PhaseHooksSpec extends ZIOSpecDefault {
       for {
         observed <- Ref.make(Vector.empty[OperationEvent])
         order    <- Ref.make(Vector.empty[String])
-        remote   <- stub("""{"data":{"value":"ok"}}""")
+        remote   <- stub(okResponse)
         runtime  <- Gateway
                       .compose(Subgraph.graphql("remote", remote.endpoint, schema))
                       .withOperationResolver(
@@ -334,27 +315,31 @@ object PhaseHooksSpec extends ZIOSpecDefault {
       for {
         count <- Ref.make(0)
         // Should execute both incoming and outgoing phases
-        first  = PhaseHooks.request(
-                   PhaseHandler((ev: Event.Request) => ZIO.succeed((ev, ())))((_, _, _) => count.incrementAndGet.unit)
-                 )
+        first  =
+          PhaseHooks.request(
+            PhaseHandler((event: Event.Request) => ZIO.succeed((event, ())))((_, _, _) => count.incrementAndGet.unit)
+          )
         // Interrupts on the incoming phase triggering fork to halt
         second =
           PhaseHooks.request(
-            PhaseHandler((ev: Event.Request) => ZIO.interrupt.as((ev, ())))((_, _, _) => count.incrementAndGet.unit)
+            PhaseHandler((event: Event.Request) => ZIO.interrupt.as((event, ())))((_, _, _) =>
+              count.incrementAndGet.unit
+            )
           )
         hooks  = first ++ second
-        f     <- hooks.request.run(Event.Request(Some("Interrupt")))(ZIO.unit)(PhaseHooks.Result.classifyExit).exit.fork
-        exit  <- f.join
-        c     <- count.get
-      } yield assertTrue(c == 1) && assert(exit)(Assertion.isInterrupted)
+        fiber <- hooks.request.run(Event.Request(Some("Interrupt")))(ZIO.unit)(PhaseHooks.Result.classifyExit).exit.fork
+        exit  <- fiber.join
+        runs  <- count.get
+      } yield assertTrue(runs == 1) && assert(exit)(Assertion.isInterrupted)
     },
     test("runs the outgoing phase when the wrapped effect is interrupted from outside") {
       for {
         count   <- Ref.make(0)
         started <- Promise.make[Nothing, Unit]
-        hooks    = PhaseHooks.request(
-                     PhaseHandler((ev: Event.Request) => ZIO.succeed((ev, ())))((_, _, _) => count.incrementAndGet.unit)
-                   )
+        hooks    =
+          PhaseHooks.request(
+            PhaseHandler((event: Event.Request) => ZIO.succeed((event, ())))((_, _, _) => count.incrementAndGet.unit)
+          )
         fiber   <- hooks.request
                      .run(Event.Request(Some("Interrupt")))(started.succeed(()) *> ZIO.never)(
                        PhaseHooks.Result.classifyExit
@@ -362,15 +347,17 @@ object PhaseHooksSpec extends ZIOSpecDefault {
                      .fork
         _       <- started.await
         exit    <- fiber.interrupt
-        c       <- count.get
-      } yield assertTrue(c == 1) && assert(exit)(Assertion.isInterrupted)
+        runs    <- count.get
+      } yield assertTrue(runs == 1) && assert(exit)(Assertion.isInterrupted)
     },
     test("an incoming phase can be interrupted") {
       for {
         started <- Promise.make[Nothing, Unit]
         hooks    =
           PhaseHooks.request(
-            PhaseHandler((ev: Event.Request) => started.succeed(()) *> ZIO.never.as((ev, ())))((_, _, _) => ZIO.unit)
+            PhaseHandler((event: Event.Request) => started.succeed(()) *> ZIO.never.as((event, ())))((_, _, _) =>
+              ZIO.unit
+            )
           )
         fiber   <- hooks.request.run(Event.Request(Some("Interrupt")))(ZIO.unit)(PhaseHooks.Result.classifyExit).fork
         _       <- started.await
@@ -384,8 +371,8 @@ object PhaseHooksSpec extends ZIOSpecDefault {
    */
   private val taggingOutboundHeaders: PhaseHooks[Any] =
     PhaseHooks.outboundHeaders(
-      PhaseHandler.incoming(ev =>
-        ZIO.succeed(ev.copy(headers = Header.Custom("x-gateway-hook", ev.subgraph) :: ev.headers))
+      PhaseHandler.incoming(event =>
+        ZIO.succeed(event.copy(headers = Header.Custom("x-gateway-hook", event.subgraph) :: event.headers))
       )
     )
 
@@ -400,8 +387,8 @@ object PhaseHooksSpec extends ZIOSpecDefault {
    */
   private def observing(into: Ref[Vector[OperationEvent]], order: Ref[Vector[String]]): PhaseHooks[Any] =
     PhaseHooks.observeOperation(
-      PhaseHandler[Any, Event.ObserveOperation, Nothing, Unit, OperationEvent](ev =>
-        order.update(_ :+ "direct-in").as((ev, ()))
+      PhaseHandler[Any, Event.ObserveOperation, Nothing, Unit, OperationEvent](event =>
+        order.update(_ :+ "direct-in").as((event, ()))
       )((_, _, event) => into.update(_ :+ event) *> order.update(_ :+ "direct-out"))
     )
 
@@ -411,9 +398,9 @@ object PhaseHooksSpec extends ZIOSpecDefault {
   private def observingScoped(into: Ref[Vector[OperationEvent]], order: Ref[Vector[String]]): PhaseHooks[Any] =
     PhaseHooks.observeOperation(
       PhaseHandler.scoped[Any, Event.ObserveOperation, Nothing, OperationEvent](
-        PhaseHandler[Scope, Event.ObserveOperation, Nothing, Unit, OperationEvent](ev =>
+        PhaseHandler[Scope, Event.ObserveOperation, Nothing, Unit, OperationEvent](event =>
           order.update(_ :+ "scoped-in") *>
-            ZIO.addFinalizer(order.update(_ :+ "scope-closed")).as((ev, ()))
+            ZIO.addFinalizer(order.update(_ :+ "scope-closed")).as((event, ()))
         )((_, _, event) => into.update(_ :+ event) *> order.update(_ :+ "scoped-out"))
       )
     )

@@ -112,7 +112,7 @@ object QuickAdapter {
 
   def apply[R](interpreter: GraphQLInterpreter[R, Any]): QuickAdapter[R] =
     new QuickAdapter(
-      QuickRequestHandler(
+      new QuickRequestHandler(
         interpreter,
         quick.WebSocketConfig.default,
         quick.SseConfig.default,

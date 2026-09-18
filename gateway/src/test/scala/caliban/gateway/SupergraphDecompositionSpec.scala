@@ -1,5 +1,6 @@
 package caliban.gateway
 
+import caliban.gateway.GatewayTestSupport.supergraphResource
 import caliban.gateway.internal.composition.SupergraphDecomposition
 import caliban.gateway.internal.composition.SupergraphDecomposition.Graph
 import caliban.InputValue
@@ -13,11 +14,15 @@ import zio.http.URL
 import zio._
 import zio.test._
 
-import scala.io.Source
-
 object SupergraphDecompositionSpec extends ZIOSpecDefault {
 
   private val JoinV05 = "https://specs.apollo.dev/join/v0.5"
+
+  private val TwoGraphs =
+    """enum join__Graph {
+      |  A @join__graph(name: "a", url: "http://a/graphql")
+      |  B @join__graph(name: "b", url: "http://b/graphql")
+      |}""".stripMargin
 
   /** Wraps a body in the minimum schema definition that makes a document look like a supergraph. */
   private def supergraph(body: String, join: String = JoinV05, as: String = ""): String = {
@@ -78,15 +83,10 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
   private def graphs(sdl: String): UIO[Either[List[String], List[Graph]]] =
     ZIO.fromEither(Parser.parseQuery(sdl)).orDie.map(SupergraphDecomposition.graphs)
 
-  private def resource(name: String): UIO[String] =
-    ZIO
-      .scoped(ZIO.fromAutoCloseable(ZIO.attempt(Source.fromResource(s"supergraph/$name"))).map(_.mkString))
-      .orDie
-
-  private val fixtureSdl: UIO[String] = resource("supergraph.graphql")
+  private val fixtureSdl: UIO[String] = supergraphResource("supergraph.graphql")
 
   /** The same two subgraphs composed by Hive's composer rather than rover's. See the fixture README. */
-  private val hiveFixtureSdl: UIO[String] = resource("supergraph-hive.graphql")
+  private val hiveFixtureSdl: UIO[String] = supergraphResource("supergraph-hive.graphql")
 
   private val fixture: UIO[Either[List[String], List[Graph]]] = fixtureSdl.flatMap(graphs)
 
@@ -107,7 +107,7 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
 
   /** The rover-composed `@context`/`@fromContext` fixture, projected. See the fixture README. */
   private val contextProjected: UIO[Map[String, Document]] =
-    projectionOf(resource("context-supergraph.graphql"))
+    projectionOf(supergraphResource("context-supergraph.graphql"))
 
   /**
    * Definitions rendered one at a time and sorted, so two projections compare on content rather than
@@ -134,12 +134,7 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
   private def directiveOn(document: Document, typeName: String, name: String): Option[Directive] =
     document.typeDefinitions.find(_.name == typeName).flatMap(_.directives.find(_.name == name))
 
-  private def fieldDirective(
-    document: Document,
-    typeName: String,
-    fieldName: String,
-    name: String
-  ): Option[Directive] =
+  private def fieldDirective(document: Document, typeName: String, fieldName: String, name: String): Option[Directive] =
     document.objectTypeDefinitions
       .find(_.name == typeName)
       .flatMap(_.fields.find(_.name == fieldName))
@@ -535,13 +530,10 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
       test("overrides a field type when the join field declares one") {
         decompose(
           supergraph(
-            """enum join__Graph {
-              |  A @join__graph(name: "a", url: "http://a/graphql")
-              |  B @join__graph(name: "b", url: "http://b/graphql")
-              |}
-              |type Widget @join__type(graph: A) @join__type(graph: B) {
-              |  size: Int! @join__field(graph: A) @join__field(graph: B, type: "String")
-              |}""".stripMargin
+            s"""$TwoGraphs
+               |type Widget @join__type(graph: A) @join__type(graph: B) {
+               |  size: Int! @join__field(graph: A) @join__field(graph: B, type: "String")
+               |}""".stripMargin
           )
         ).map { result =>
           def sizeType(graphs: Map[String, Document], graph: String) =
@@ -561,14 +553,11 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
         // "shared by every graph", not "owned by none".
         decompose(
           supergraph(
-            """enum join__Graph {
-              |  A @join__graph(name: "a", url: "http://a/graphql")
-              |  B @join__graph(name: "b", url: "http://b/graphql")
-              |}
-              |type Captain @join__type(graph: A) @join__type(graph: B) { rank: String! }
-              |type Pilot @join__type(graph: A) @join__type(graph: B) { hours: Int! }
-              |union Role @join__type(graph: A) @join__type(graph: B) = Captain | Pilot
-              |enum Origin @join__type(graph: A) @join__type(graph: B) { EARTH MARS }""".stripMargin
+            s"""$TwoGraphs
+               |type Captain @join__type(graph: A) @join__type(graph: B) { rank: String! }
+               |type Pilot @join__type(graph: A) @join__type(graph: B) { hours: Int! }
+               |union Role @join__type(graph: A) @join__type(graph: B) = Captain | Pilot
+               |enum Origin @join__type(graph: A) @join__type(graph: B) { EARTH MARS }""".stripMargin
           )
         ).map { result =>
           def members(graphs: Map[String, Document], graph: String) =
@@ -637,13 +626,10 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
         // and no roots must still render as SDL a parser accepts.
         decompose(
           supergraph(
-            """enum join__Graph {
-              |  A @join__graph(name: "a", url: "http://a/graphql")
-              |  B @join__graph(name: "b", url: "http://b/graphql")
-              |}
-              |type Widget @join__type(graph: A) @join__type(graph: B) {
-              |  size: Int! @join__field(graph: A)
-              |}""".stripMargin
+            s"""$TwoGraphs
+               |type Widget @join__type(graph: A) @join__type(graph: B) {
+               |  size: Int! @join__field(graph: A)
+               |}""".stripMargin
           )
         ).map { result =>
           val rendered = result.map(graphs => DocumentRenderer.render(graphs("b")))
@@ -681,10 +667,7 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
         // effective resolving subgraph, so neither projection may claim shareability.
         def widget(overrides: String) =
           supergraph(
-            s"""enum join__Graph {
-               |  A @join__graph(name: "a", url: "http://a/graphql")
-               |  B @join__graph(name: "b", url: "http://b/graphql")
-               |}
+            s"""$TwoGraphs
                |type Widget @join__type(graph: A) @join__type(graph: B) {
                |  size: Int! @join__field(graph: A$overrides) @join__field(graph: B)
                |}""".stripMargin
@@ -744,25 +727,22 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
         // a member of the type but owns none of its members must not emit a bare `type Widget`.
         decompose(
           supergraph(
-            """enum join__Graph {
-              |  A @join__graph(name: "a", url: "http://a/graphql")
-              |  B @join__graph(name: "b", url: "http://b/graphql")
-              |}
-              |type Widget @join__type(graph: A) @join__type(graph: B) {
-              |  size: Int! @join__field(graph: A)
-              |}
-              |interface Named @join__type(graph: A) @join__type(graph: B) {
-              |  name: String! @join__field(graph: A)
-              |}
-              |input Filter @join__type(graph: A) @join__type(graph: B) {
-              |  size: Int @join__field(graph: A)
-              |}
-              |type Captain @join__type(graph: A) @join__type(graph: B) { rank: String! }
-              |union Role @join__type(graph: A) @join__type(graph: B)
-              |  @join__unionMember(graph: A, member: "Captain") = Captain
-              |enum Origin @join__type(graph: A) @join__type(graph: B) {
-              |  EARTH @join__enumValue(graph: A)
-              |}""".stripMargin
+            s"""$TwoGraphs
+               |type Widget @join__type(graph: A) @join__type(graph: B) {
+               |  size: Int! @join__field(graph: A)
+               |}
+               |interface Named @join__type(graph: A) @join__type(graph: B) {
+               |  name: String! @join__field(graph: A)
+               |}
+               |input Filter @join__type(graph: A) @join__type(graph: B) {
+               |  size: Int @join__field(graph: A)
+               |}
+               |type Captain @join__type(graph: A) @join__type(graph: B) { rank: String! }
+               |union Role @join__type(graph: A) @join__type(graph: B)
+               |  @join__unionMember(graph: A, member: "Captain") = Captain
+               |enum Origin @join__type(graph: A) @join__type(graph: B) {
+               |  EARTH @join__enumValue(graph: A)
+               |}""".stripMargin
           )
         ).map { result =>
           val absent = Set("Widget", "Named", "Filter", "Role", "Origin")
@@ -798,11 +778,8 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
       test("rejects a join field entry naming a graph the type does not declare") {
         decompose(
           supergraph(
-            """enum join__Graph {
-              |  A @join__graph(name: "a", url: "http://a/graphql")
-              |  B @join__graph(name: "b", url: "http://b/graphql")
-              |}
-              |type Widget @join__type(graph: A) { size: Int! @join__field(graph: B) }""".stripMargin
+            s"""$TwoGraphs
+               |type Widget @join__type(graph: A) { size: Int! @join__field(graph: B) }""".stripMargin
           )
         ).map(result =>
           assertTrue(
@@ -879,16 +856,13 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
       test("translates requires, provides, override, external and usedOverridden") {
         decompose(
           supergraph(
-            """enum join__Graph {
-              |  A @join__graph(name: "a", url: "http://a/graphql")
-              |  B @join__graph(name: "b", url: "http://b/graphql")
-              |}
-              |type Widget @join__type(graph: A, key: "id") @join__type(graph: B, key: "id") {
-              |  id: ID!
-              |  price: Float! @join__field(graph: A, requires: "weight", provides: "vendor")
-              |  weight: Float! @join__field(graph: A, external: true) @join__field(graph: B)
-              |  label: String! @join__field(graph: A, override: "b") @join__field(graph: B, usedOverridden: true)
-              |}""".stripMargin
+            s"""$TwoGraphs
+               |type Widget @join__type(graph: A, key: "id") @join__type(graph: B, key: "id") {
+               |  id: ID!
+               |  price: Float! @join__field(graph: A, requires: "weight", provides: "vendor")
+               |  weight: Float! @join__field(graph: A, external: true) @join__field(graph: B)
+               |  label: String! @join__field(graph: A, override: "b") @join__field(graph: B, usedOverridden: true)
+               |}""".stripMargin
           )
         ).map {
           case Left(errors)  => assertTrue(errors == Nil)
@@ -914,15 +888,12 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
         // overridden graph must stay a plain owner for the rollout to have anywhere to route.
         decompose(
           supergraph(
-            """enum join__Graph {
-              |  A @join__graph(name: "a", url: "http://a/graphql")
-              |  B @join__graph(name: "b", url: "http://b/graphql")
-              |}
-              |type Widget @join__type(graph: A, key: "id") @join__type(graph: B, key: "id") {
-              |  id: ID!
-              |  price: Float! @join__field(graph: A, override: "b", overrideLabel: "percent(25)")
-              |    @join__field(graph: B, overrideLabel: "percent(25)")
-              |}""".stripMargin
+            s"""$TwoGraphs
+               |type Widget @join__type(graph: A, key: "id") @join__type(graph: B, key: "id") {
+               |  id: ID!
+               |  price: Float! @join__field(graph: A, override: "b", overrideLabel: "percent(25)")
+               |    @join__field(graph: B, overrideLabel: "percent(25)")
+               |}""".stripMargin
           )
         ).map {
           case Left(errors)  => assertTrue(errors == Nil)
@@ -941,16 +912,13 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
       test("keeps a used overridden field resolvable while its progressive override rolls out") {
         decompose(
           supergraph(
-            """enum join__Graph {
-              |  A @join__graph(name: "a", url: "http://a/graphql")
-              |  B @join__graph(name: "b", url: "http://b/graphql")
-              |}
-              |type Widget @join__type(graph: A, key: "id") @join__type(graph: B, key: "id") {
-              |  id: ID!
-              |  price: Float! @join__field(graph: A, override: "b", overrideLabel: "percent(25)")
-              |    @join__field(graph: B, usedOverridden: true, overrideLabel: "percent(25)")
-              |  label: String! @join__field(graph: A, override: "b") @join__field(graph: B, usedOverridden: true)
-              |}""".stripMargin
+            s"""$TwoGraphs
+               |type Widget @join__type(graph: A, key: "id") @join__type(graph: B, key: "id") {
+               |  id: ID!
+               |  price: Float! @join__field(graph: A, override: "b", overrideLabel: "percent(25)")
+               |    @join__field(graph: B, usedOverridden: true, overrideLabel: "percent(25)")
+               |  label: String! @join__field(graph: A, override: "b") @join__field(graph: B, usedOverridden: true)
+               |}""".stripMargin
           )
         ).map {
           case Left(errors)  => assertTrue(errors == Nil)
@@ -966,15 +934,12 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
       test("emits resolvable false and interfaceObject") {
         decompose(
           supergraph(
-            """enum join__Graph {
-              |  A @join__graph(name: "a", url: "http://a/graphql")
-              |  B @join__graph(name: "b", url: "http://b/graphql")
-              |}
-              |type Media @join__type(graph: A, key: "id", isInterfaceObject: true)
-              |  @join__type(graph: B, key: "id", resolvable: false) {
-              |  id: ID!
-              |  title: String!
-              |}""".stripMargin
+            s"""$TwoGraphs
+               |type Media @join__type(graph: A, key: "id", isInterfaceObject: true)
+               |  @join__type(graph: B, key: "id", resolvable: false) {
+               |  id: ID!
+               |  title: String!
+               |}""".stripMargin
           )
         ).map { result =>
           def key(graphs: Map[String, Document], graph: String) =
@@ -1025,15 +990,12 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
       test("filters implements by graph") {
         decompose(
           supergraph(
-            """enum join__Graph {
-              |  A @join__graph(name: "a", url: "http://a/graphql")
-              |  B @join__graph(name: "b", url: "http://b/graphql")
-              |}
-              |interface Node @join__type(graph: A) @join__type(graph: B) { id: ID! }
-              |type Widget implements Node @join__type(graph: A) @join__type(graph: B)
-              |  @join__implements(graph: A, interface: "Node") {
-              |  id: ID!
-              |}""".stripMargin
+            s"""$TwoGraphs
+               |interface Node @join__type(graph: A) @join__type(graph: B) { id: ID! }
+               |type Widget implements Node @join__type(graph: A) @join__type(graph: B)
+               |  @join__implements(graph: A, interface: "Node") {
+               |  id: ID!
+               |}""".stripMargin
           )
         ).map { result =>
           def implemented(graphs: Map[String, Document], graph: String) =
@@ -1048,15 +1010,12 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
       test("filters input object fields by graph") {
         decompose(
           supergraph(
-            """enum join__Graph {
-              |  A @join__graph(name: "a", url: "http://a/graphql")
-              |  B @join__graph(name: "b", url: "http://b/graphql")
-              |}
-              |input Filter @join__type(graph: A) @join__type(graph: B) {
-              |  onlyA: String @join__field(graph: A)
-              |  shared: String
-              |}
-              |type Widget @join__type(graph: A) @join__type(graph: B) { size(filter: Filter): Int! }""".stripMargin
+            s"""$TwoGraphs
+               |input Filter @join__type(graph: A) @join__type(graph: B) {
+               |  onlyA: String @join__field(graph: A)
+               |  shared: String
+               |}
+               |type Widget @join__type(graph: A) @join__type(graph: B) { size(filter: Filter): Int! }""".stripMargin
           )
         ).map { result =>
           def inputs(graphs: Map[String, Document], graph: String) =
@@ -1071,12 +1030,9 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
       test("names only the operation roots a graph actually populates") {
         decompose(
           supergraph(
-            """enum join__Graph {
-              |  A @join__graph(name: "a", url: "http://a/graphql")
-              |  B @join__graph(name: "b", url: "http://b/graphql")
-              |}
-              |type Mutation @join__type(graph: A) { save: Boolean! @join__field(graph: A) }
-              |type Subscription @join__type(graph: B) { watch: Boolean! @join__field(graph: B) }""".stripMargin
+            s"""$TwoGraphs
+               |type Mutation @join__type(graph: A) { save: Boolean! @join__field(graph: A) }
+               |type Subscription @join__type(graph: B) { watch: Boolean! @join__field(graph: B) }""".stripMargin
           )
         ).map { result =>
           def roots(graphs: Map[String, Document], graph: String) =
@@ -1148,15 +1104,12 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
       test("declares a context on an interface and a union, not only on an object") {
         decompose(
           contextSupergraph(
-            """enum join__Graph {
-              |  A @join__graph(name: "a", url: "http://a/graphql")
-              |  B @join__graph(name: "b", url: "http://b/graphql")
-              |}
-              |interface Node @join__type(graph: A) @join__type(graph: B)
-              |  @context(name: "a__nodeContext") { id: ID! }
-              |union Holder @join__type(graph: A) @join__type(graph: B)
-              |  @context(name: "b__holderContext") = Widget
-              |type Widget @join__type(graph: A) @join__type(graph: B) { size: Int! }""".stripMargin
+            s"""$TwoGraphs
+               |interface Node @join__type(graph: A) @join__type(graph: B)
+               |  @context(name: "a__nodeContext") { id: ID! }
+               |union Holder @join__type(graph: A) @join__type(graph: B)
+               |  @context(name: "b__holderContext") = Widget
+               |type Widget @join__type(graph: A) @join__type(graph: B) { size: Int! }""".stripMargin
           )
         ).map {
           case Left(errors)  => assertTrue(errors == Nil)
@@ -1189,15 +1142,12 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
         // project an argument no subgraph can resolve.
         decompose(
           contextSupergraph(
-            """enum join__Graph {
-              |  A @join__graph(name: "a", url: "http://a/graphql")
-              |  B @join__graph(name: "b", url: "http://b/graphql")
-              |}
-              |type Holder @join__type(graph: B) @context(name: "b__viewer") { id: ID! }
-              |type Widget @join__type(graph: A) {
-              |  size(unit: String): Int! @join__field(graph: A,
-              |    contextArguments: [{context: "b__viewer", name: "unit", type: "String", selection: " { id }"}])
-              |}""".stripMargin
+            s"""$TwoGraphs
+               |type Holder @join__type(graph: B) @context(name: "b__viewer") { id: ID! }
+               |type Widget @join__type(graph: A) {
+               |  size(unit: String): Int! @join__field(graph: A,
+               |    contextArguments: [{context: "b__viewer", name: "unit", type: "String", selection: " { id }"}])
+               |}""".stripMargin
           )
         ).map(result =>
           assertTrue(
@@ -1213,15 +1163,12 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
         // projection instead, as `context 'viewer' is not declared by this subgraph`.
         decompose(
           contextSupergraph(
-            """enum join__Graph {
-              |  A @join__graph(name: "a", url: "http://a/graphql")
-              |  B @join__graph(name: "b", url: "http://b/graphql")
-              |}
-              |type Holder @join__type(graph: A) @context(name: "b__viewer") { id: ID! }
-              |type Widget @join__type(graph: B) {
-              |  size(unit: String): Int! @join__field(graph: B,
-              |    contextArguments: [{context: "b__viewer", name: "unit", type: "String", selection: " { id }"}])
-              |}""".stripMargin
+            s"""$TwoGraphs
+               |type Holder @join__type(graph: A) @context(name: "b__viewer") { id: ID! }
+               |type Widget @join__type(graph: B) {
+               |  size(unit: String): Int! @join__field(graph: B,
+               |    contextArguments: [{context: "b__viewer", name: "unit", type: "String", selection: " { id }"}])
+               |}""".stripMargin
           )
         ).map(result =>
           assertTrue(

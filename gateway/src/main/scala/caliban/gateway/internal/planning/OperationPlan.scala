@@ -174,8 +174,11 @@ private[gateway] object OperationPlan {
     def renderSelection(selection: Selection): String =
       DocumentRenderer.selectionsRenderer.renderCompact(selection :: Nil)
 
+    def sortedArguments(arguments: Map[String, InputValue]): ListMap[String, InputValue] =
+      ListMap(arguments.toList.sortBy(_._1): _*)
+
     def canonicalDirective(directive: Directive): Directive =
-      directive.copy(arguments = ListMap(directive.arguments.toList.sortBy(_._1): _*), index = 0)
+      directive.copy(arguments = sortedArguments(directive.arguments), index = 0)
 
     def canonicalSelections(selections: List[Selection]): List[Selection] = {
       val canonical = selections.map(canonicalSelection)
@@ -193,7 +196,7 @@ private[gateway] object OperationPlan {
       selection match {
         case field: Selection.Field             =>
           field.copy(
-            arguments = ListMap(field.arguments.toList.sortBy(_._1): _*),
+            arguments = sortedArguments(field.arguments),
             directives = field.directives.map(canonicalDirective),
             selectionSet = canonicalSelections(field.selectionSet),
             index = 0
@@ -226,14 +229,15 @@ private[gateway] object OperationPlan {
           case InputValue.ListValue(values)       =>
             Some(InputValue.ListValue(values.map(value => bindValue(value).getOrElse(NullValue))))
           case InputValue.ObjectValue(fields)     =>
-            Some(InputValue.ObjectValue(fields.flatMap { case (name, value) => bindValue(value).map(name -> _) }))
+            Some(InputValue.ObjectValue(bindArguments(fields)))
           case value                              => Some(value)
         }
 
+      def bindArguments(arguments: Map[String, InputValue]): Map[String, InputValue] =
+        arguments.flatMap { case (name, value) => bindValue(value).map(name -> _) }
+
       def bindDirective(directive: Directive): Directive =
-        directive.copy(arguments = directive.arguments.flatMap { case (name, value) =>
-          bindValue(value).map(name -> _)
-        })
+        directive.copy(arguments = bindArguments(directive.arguments))
 
       def bindFragment(fragment: Fragment): Fragment =
         fragment.copy(directives = fragment.directives.map(bindDirective))
@@ -241,7 +245,7 @@ private[gateway] object OperationPlan {
       def bindField(field: Field): Field =
         field.copy(
           fields = field.fields.map(bindField),
-          arguments = field.arguments.flatMap { case (name, value) => bindValue(value).map(name -> _) },
+          arguments = bindArguments(field.arguments),
           directives = field.directives.map(bindDirective),
           fragment = field.fragment.map(bindFragment)
         )
@@ -293,29 +297,27 @@ private[gateway] object OperationPlan {
   }
 
   private def render(plan: OperationPlan): String = {
-    val header  = plan.operation.toString.toLowerCase
-    val roots   = plan.roots.flatMap { fetch =>
+    val header      = plan.operation.toString.toLowerCase
+    val rootLines   = plan.roots.flatMap { fetch =>
       fetch.client.zip(fetch.downstream).map { case (client, downstream) =>
-        val entity = plan.entities.find(_.mergePath.headOption.contains(client.aliasedName))
-        val fields = fieldPaths(downstream.fields).map { path =>
-          entity
-            .flatMap(join =>
-              join.keys.find(_.responseName == path).orElse(join.typename.filter(_.responseName == path))
-            )
-            .map(selection => s"${selection.field} (key)")
-            .getOrElse(path)
+        val keySelections = plan.entities
+          .find(_.mergePath.headOption.contains(client.aliasedName))
+          .toList
+          .flatMap(entity => entity.keys ::: entity.typename.toList)
+        val fields        = fieldPaths(downstream.fields).map { path =>
+          keySelections.find(_.responseName == path).map(selection => s"${selection.field} (key)").getOrElse(path)
         }
         s"fetch ${fetch.source} at $$.${client.aliasedName} fields ${fields.mkString("[", ", ", "]")}"
       }
     }
-    val sources = (plan.roots.iterator.map(fetch => fetch.id -> fetch.source) ++
+    val sources     = (plan.roots.iterator.map(fetch => fetch.id -> fetch.source) ++
       plan.entities.iterator.map(fetch => fetch.id -> fetch.source)).toMap
-    val joins   = plan.entities.map { fetch =>
+    val entityLines = plan.entities.map { fetch =>
       val dependencies = fetch.dependencies.toList.sortBy(_.value).flatMap(sources.get).distinct.mkString(",")
       s"fetch ${fetch.source} after $dependencies at $$.${fetch.mergePath.mkString(".")} " +
         s"via ${fetch.entityType}(${fetch.keys.map(_.field).mkString(",")}) fields ${fieldPaths(fetch.fields).mkString("[", ", ", "]")}"
     }
-    (header :: roots ::: joins).mkString("\n")
+    (header :: rootLines ::: entityLines).mkString("\n")
   }
 
 }

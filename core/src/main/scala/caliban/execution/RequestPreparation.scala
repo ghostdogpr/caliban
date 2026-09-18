@@ -14,48 +14,15 @@ import zio.{ Exit, IO, Trace }
  */
 private[caliban] object RequestPreparation {
 
-  private[caliban] def prepareParsed(
-    request: GraphQLRequest,
-    document: Document,
-    variables: Map[String, InputValue],
-    rootType: RootType,
-    skipValidation: Boolean,
-    validations: Option[List[Validator.QueryValidation]] = None
-  )(implicit trace: Trace): IO[ValidationError, ExecutionRequest] =
-    Configurator.ref.getWith { config =>
-      prepare(request, document, variables, rootType, config, skipValidation, validations.getOrElse(config.validations))
-    }
-
-  private def prepare(
-    request: GraphQLRequest,
-    document: Document,
-    variables: Map[String, InputValue],
-    rootType: RootType,
-    config: ExecutionConfiguration,
-    skipValidation: Boolean,
-    validations: List[Validator.QueryValidation]
-  )(implicit trace: Trace): IO[ValidationError, ExecutionRequest] =
-    Validator
-      .prepare(
-        document,
-        rootType,
-        request.operationName,
-        variables,
-        config.skipValidation || skipValidation,
-        validations
-      )
-      .fold(Exit.fail, checkHttpMethod(config)(request, _))
-
   def parse(query: String): IO[CalibanError.ParsingError, Document] =
     Exit.fromEither(Parser.parseQuery(query))
 
-  def coerceVariables(
-    document: Document,
-    request: GraphQLRequest,
-    rootType: RootType
-  )(implicit trace: Trace): IO[ValidationError, Map[String, InputValue]] =
+  def coerceVariables(document: Document, request: GraphQLRequest, rootType: RootType)(implicit
+    trace: Trace
+  ): IO[ValidationError, Map[String, InputValue]] =
     Configurator.ref.getWith { config =>
-      checkIntrospection(config, document, request.operationName) *>
+      if (isIntrospectionDisabled(config, document, request.operationName)) introspectionDisabled
+      else
         Exit.fromEither(
           VariablesCoercer.coerceVariables(
             request.variables.getOrElse(Map.empty),
@@ -67,20 +34,45 @@ private[caliban] object RequestPreparation {
         )
     }
 
-  private[caliban] def checkIntrospection(
+  def prepareParsed(
+    request: GraphQLRequest,
     document: Document,
-    operationName: Option[String]
-  )(implicit trace: Trace): IO[ValidationError, Unit] =
-    Configurator.ref.getWith(config => checkIntrospection(config, document, operationName))
+    variables: Map[String, InputValue],
+    rootType: RootType,
+    skipValidation: Boolean,
+    validations: Option[List[Validator.QueryValidation]] = None
+  )(implicit trace: Trace): IO[ValidationError, ExecutionRequest] =
+    Configurator.ref.getWith { config =>
+      Validator.prepare(
+        document,
+        rootType,
+        request.operationName,
+        variables,
+        config.skipValidation || skipValidation,
+        validations.getOrElse(config.validations)
+      ) match {
+        case Right(execution) => checkHttpMethod(config, request, execution)
+        case Left(error)      => Exit.fail(error)
+      }
+    }
 
-  private def checkIntrospection(
+  def checkIntrospection(document: Document, operationName: Option[String])(implicit
+    trace: Trace
+  ): IO[ValidationError, Unit] =
+    Configurator.ref.getWith { config =>
+      if (isIntrospectionDisabled(config, document, operationName)) introspectionDisabled
+      else Exit.unit
+    }
+
+  private def introspectionDisabled: IO[ValidationError, Nothing] =
+    Exit.fail(CalibanError.ValidationError("Introspection is disabled", ""))
+
+  private def isIntrospectionDisabled(
     config: ExecutionConfiguration,
     document: Document,
     operationName: Option[String]
-  ): IO[ValidationError, Unit] =
-    if (!config.enableIntrospection && hasIntrospection(document, operationName))
-      Exit.fail(CalibanError.ValidationError("Introspection is disabled", ""))
-    else Exit.unit
+  ): Boolean =
+    !config.enableIntrospection && hasIntrospection(document, operationName)
 
   private def hasIntrospection(document: Document, operationName: Option[String]): Boolean =
     document
@@ -93,8 +85,10 @@ private[caliban] object RequestPreparation {
       )
 
   private def checkHttpMethod(
-    config: ExecutionConfiguration
-  )(request: GraphQLRequest, execution: ExecutionRequest): IO[ValidationError, ExecutionRequest] =
+    config: ExecutionConfiguration,
+    request: GraphQLRequest,
+    execution: ExecutionRequest
+  ): IO[ValidationError, ExecutionRequest] =
     if (
       execution.operationType == OperationType.Mutation &&
       !config.allowMutationsOverGetRequests &&

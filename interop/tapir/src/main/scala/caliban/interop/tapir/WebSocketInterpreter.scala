@@ -53,9 +53,7 @@ object WebSocketInterpreter {
           Protocol
             .fromName(selected)
             .make(
-              interpreter.wrapExecutionWith(
-                IncomingRequestHeaders.locally(serverRequest.headers.map(h => h.name -> h.value).toList)(_)
-              ),
+              interpreter.wrapExecutionWith(IncomingRequestHeaders.locally(headerValues(serverRequest))(_)),
               keepAliveTime,
               webSocketHooks
             )

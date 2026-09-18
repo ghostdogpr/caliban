@@ -84,7 +84,7 @@ for {
 } yield ()
 ```
 
-Startup still requires a valid initial interpreter, and at least one subgraph must acquire its schema remotely. From then on the gateway polls ordinary acquired schemas through introspection and Federation schemas through `_service`. Pinned SDL, parsed documents, local graphs, endpoints, and configuration stay fixed.
+Startup still requires a valid initial interpreter, and at least one subgraph must acquire its schema remotely. From then on the gateway polls ordinary acquired schemas through introspection and Federation schemas through `_service`. Pinned SDL, parsed documents, local graphs, endpoints, and configuration stay fixed. A gateway built with `Gateway.fromSupergraph` reloads only from a file, HTTP, or registry source, and Apollo Uplink requires a poll interval of at least ten seconds, jitter included.
 
 Each refresh collects every acquired schema under the acquisition timeout and body-size limit you configured for that subgraph. One acquisition HTTP client serves the whole lifetime of the reloadable interpreter, while each interpreter generation gets its own execution client. A failed collection leaves the current generation in place.
 
@@ -174,14 +174,18 @@ The gateway reads entity information from the Federation schemas. You do not nee
 
 ### Supergraphs
 
-apollo-router and hive-router consume a single supergraph document. Every constituent subgraph is merged into one schema and annotated with routing directives. It can come from a local file or from a schema registry. If you are moving from one of those routers, `Gateway.fromSupergraph` takes the same document.
+apollo-router and hive-router consume a single supergraph document. Every constituent subgraph is merged into one schema and annotated with routing directives. It can come from a local file, an HTTP URL, or a schema registry. If you are moving from one of those routers, `Gateway.fromSupergraph` takes the same document.
 
 ```scala
 import zio.Config.Secret
+import zio.http._
 import caliban.gateway.{ Gateway, Supergraph }
 
 // From a file
 val file = Supergraph.file(java.nio.file.Paths.get("supergraph.graphql"))
+
+// From an HTTP URL
+val http = Supergraph.http(url"https://example.com/supergraph.graphql")
 
 // From a raw SDL string; `Supergraph.parsed` takes an already parsed Caliban document
 val sdl = Supergraph.sdl("<a raw supergraph sdl string>")
@@ -226,7 +230,7 @@ val progressiveOverrides = PhaseHooks.overrideLabels(
 val gateway = Gateway.compose(products, reviews) @@ progressiveOverrides
 ```
 
-The event carries the request and, in `reached`, the custom labels the selected operation actually touched. Pass `activate` the subset that should use the overriding subgraph; anything you activate that the operation did not reach is ignored. Labels nobody activates fall back to the original subgraph, which is also what happens when you attach no hook at all. `activate` accumulates rather than replaces, so several hooks can each contribute without clearing one another.
+The event carries the request and, in `reached`, the custom labels the selected operation actually touched. Pass `activate` the subset that should use the overriding subgraph. Anything you activate that the operation did not reach is ignored. Labels nobody activates fall back to the original subgraph, which is also what happens when you attach no hook at all. `activate` accumulates rather than replaces, so several hooks can each contribute without clearing one another.
 
 The gateway calls the hook once per relevant request, before it checks the operation cache, and skips it entirely for percentage-only operations or ones that reach no custom labels. Each combination of active labels gets its own cached plan, so keep the lookup cheap and the number of combinations it can return small. A failing hook produces an internal execution error without contacting a subgraph.
 
@@ -322,7 +326,7 @@ val products = Subgraph.graphql(
 
 The configuration applies to that subgraph alone, so each remote service can run on different settings.
 
-Retries are off by default. Once you enable them, the gateway only repeats requests that are safe to repeat.
+Retries are off by default. Once you enable them, the gateway repeats only requests that are safe to repeat.
 
 Concurrent identical remote queries share one in-flight call by default. Sharing requires a matching request body and matching outbound headers wherever those affect request semantics, and mutations never share a call. Turn it off for a subgraph with `.withExecution(_.withInFlightQueryDeduplication(false))`.
 
@@ -365,7 +369,7 @@ val config = RemoteGraphQLConfig.default.withExecution(
 )
 ```
 
-Matching ignores header-name case. Prefer an explicit allowlist; `forwardAllIncomingHeaders` is only safe when every header a client can send is safe to hand a subgraph.
+Matching ignores header-name case. Prefer an explicit allowlist. `forwardAllIncomingHeaders` is safe only when every header a client can send is safe to hand a subgraph.
 
 `QuickAdapter` handles forwarded headers automatically. If you build your own HTTP integration, pass the incoming headers with `interpreter.executeRequest(request, headers)`.
 
@@ -385,7 +389,7 @@ val reviews = Subgraph
   )
 ```
 
-Clients see the new names; the remote service still receives the original ones.
+Clients see the new names. The remote service still receives the original ones.
 
 You can rename types, fields, and arguments, and hide types, fields, optional arguments, and optional input fields. Enum values and input-field names stay as they are. Invalid or conflicting changes fail at startup.
 
@@ -475,7 +479,7 @@ The helper looks `product-v1` up in the registry and keeps the request's operati
 
 For a database or another lookup, use `OperationResolver(resolve)`. The `resolve` function has the type `GraphQLRequest => ZIO[R, Throwable, String]`. It runs on every request before the gateway checks the preparation cache. Use `OperationResolver.uncached(resolve)` to disable prepared-document and plan reuse. Validation still applies. The resolver runs for `executeRequest`, `executeStream`, and `explain(request)`, but not for `check(query)`.
 
-Custom validations set through `Configurator.setValidations` form part of the preparation cache key, and that key compares function identity. Reuse the same validation instances across requests, from a single `ExecutionConfiguration` for example. Rebuilding the list around those same functions is fine; allocating a fresh lambda per request is not, and it costs you cache misses and evictions. The cache stays bounded by weight either way.
+Custom validations set through `Configurator.setValidations` form part of the preparation cache key, and that key compares function identity. Reuse the same validation instances across requests, from a single `ExecutionConfiguration` for example. Rebuilding the list around those same functions is fine. A fresh lambda per request is not: it causes cache misses and evictions. The cache stays bounded by weight either way.
 
 To return a safe message and `extensions.code`, fail a custom resolver with `ZIO.fail(OperationResolver.Rejection(message, code))`. `QuickAdapter` returns these rejections with HTTP 200. The gateway hides unexpected failures.
 
@@ -598,8 +602,8 @@ val gateway = Gateway.compose(products, reviews) @@
 ```
 
 The tracing hooks create spans for gateway requests and remote calls. `QuickAdapter` propagates incoming trace headers.
-The request span covers the whole request, so planning, the operation cache and remote calls are nested inside it. A
-subscription request gets one too, covering its setup; the subscription itself is reported by the subscription spans.
+The request span covers the whole request, so planning, the operation cache, and remote calls are nested inside it. A
+subscription request gets one too, covering its setup. The subscription spans report the subscription itself.
 
 Both hooks are bundles of `PhaseHooks`. `Gateway#withPhaseHooks` adds your own, and it accumulates rather than replaces,
 so custom hooks and the built-in ones can sit on the same gateway.
@@ -636,7 +640,7 @@ val events = interpreter.executeStream(
 )
 ```
 
-Every consumption of the stream starts a new subscription, and cancelling one releases its resources. Authenticate at the point of consumption rather than at construction, and supply scoped dependencies on the stream with `provideLayer`. Interpreter middleware covers setup only, so `interpreter.mapError` will not touch errors from individual events. Transform those with `events.map`.
+Every consumption of the stream starts a new subscription, and cancelling one releases its resources. Authenticate at the point of consumption rather than at construction, and supply scoped dependencies on the stream with `provideLayer`. Interpreter middleware covers setup only, so `interpreter.mapError` does not touch errors from individual events. Transform those with `events.map`.
 
 ### Limits and reconnecting
 

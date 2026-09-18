@@ -7,7 +7,7 @@ import caliban.gateway.internal.OperationPreparation._
 import caliban.gateway.internal.composition.ComposedGraph.OverrideLabel
 import caliban.gateway.internal.execution.PreparedPlan
 import caliban.gateway.internal.planning.{ OperationPlan, OperationPlanner }
-import caliban.gateway.{ GatewayConfig, PhaseHooks }
+import caliban.gateway.{ errorCode, isInclusionDirective, GatewayConfig, PhaseHooks }
 import caliban.parsing.adt.{ Directive, Document }
 import caliban.schema.RootType
 import caliban.validation.Validator
@@ -17,7 +17,7 @@ import zio.{ Exit, IO, Random, Trace, UIO, ZIO }
 private[gateway] final class OperationPreparation[-R] private (
   rootType: RootType,
   planner: OperationPlanner,
-  hooks: OperationHooks[R],
+  operationHooks: OperationHooks[R],
   cache: OperationCache[CacheKey, CalibanError, CachedOperation, R],
   maxOperationCost: Option[Long],
   estimateCost: (ExecutionRequest, OperationPlan) => Either[String, Long]
@@ -31,40 +31,15 @@ private[gateway] final class OperationPreparation[-R] private (
 
   def prepare(request: GraphQLRequest)(implicit trace: Trace): ZIO[R, CalibanError, Prepared] =
     for {
-      resolved   <- hooks.resolve(request)
+      resolved   <- operationHooks.resolve(request)
       query       = resolved.query.getOrElse("")
       config     <- Configurator.ref.get
       preparation = PreparationConfig.from(config)
-      prepared   <- if (hooks.cacheable) prepareCached(resolved, query, preparation)
+      prepared   <- if (operationHooks.cacheable) prepareCached(resolved, query, preparation)
                     else prepareUncached(resolved, query)
       _          <- enforceCost(prepared)
-      _          <- hooks.evaluatePolicy(resolved, prepared.document, prepared.executionRequest, prepared.plan.plan)
+      _          <- operationHooks.evaluatePolicy(resolved, prepared.document, prepared.executionRequest, prepared.plan.plan)
     } yield prepared
-
-  private def enforceCost(prepared: Prepared): IO[CalibanError.ValidationError, Unit] =
-    maxOperationCost match {
-      case Some(maximum) =>
-        def reject(message: String, code: String) =
-          ZIO.fail(
-            CalibanError.ValidationError(
-              message,
-              "",
-              extensions = Some(ResponseValue.ObjectValue(List("code" -> Value.StringValue(code))))
-            )
-          )
-
-        estimateCost(prepared.executionRequest, prepared.plan.plan) match {
-          case Left(error)      => reject(error, "COST_QUERY_PARSE_FAILURE")
-          case Right(estimated) =>
-            if (estimated > maximum)
-              reject(
-                s"Operation cost $estimated exceeds the configured maximum of $maximum.",
-                "COST_ESTIMATED_TOO_EXPENSIVE"
-              )
-            else ZIO.unit
-        }
-      case None          => ZIO.unit
-    }
 
   private def prepareCached(
     request: GraphQLRequest,
@@ -120,10 +95,10 @@ private[gateway] final class OperationPreparation[-R] private (
     query: String
   )(implicit trace: Trace): ZIO[R, CalibanError, Prepared] =
     for {
-      document  <- RequestPreparation.parse(query)
-      overrides <- resolveProgressiveOverrides(request, document)
-      prepared  <-
-        prepareOperation(request, document, None)((_, execution) => preparePlan(document, execution, overrides))
+      document        <- RequestPreparation.parse(query)
+      activeOverrides <- resolveProgressiveOverrides(request, document)
+      prepared        <-
+        prepareOperation(request, document, None)((_, execution) => preparePlan(document, execution, activeOverrides))
     } yield prepared
 
   private def materialize(
@@ -135,11 +110,11 @@ private[gateway] final class OperationPreparation[-R] private (
       case CachedOperation.Ready(document, execution, plan) =>
         Exit.succeed(Prepared(request, document, execution, plan))
       case CachedOperation.Planned(document, plan)          =>
-        prepareOperation(request, document, Some(List(Validator.validateVariables))) { (variables, _) =>
+        prepareOperation(request, document, VariableValidation) { (variables, _) =>
           Exit.succeed(if (plan.hasVariableReferences) plan.bind(variables) else plan)
         }
       case CachedOperation.DocumentOnly(document)           =>
-        prepareOperation(request, document, Some(List(Validator.validateVariables))) { (_, execution) =>
+        prepareOperation(request, document, VariableValidation) { (_, execution) =>
           preparePlan(document, execution, activeOverrides)
         }
     }
@@ -191,9 +166,27 @@ private[gateway] final class OperationPreparation[-R] private (
                         Random.nextDouble.map(value => if (value * 100d < percentage.toDouble) Some(label) else None)
                     case (_, None)                 => ZIO.none
                   }
-      resolved <- hooks.resolveOverrideLabels(request, custom)
+      resolved <- operationHooks.resolveOverrideLabels(request, custom)
     } yield sampled.flatten.toSet ++ resolved
   }
+
+  private def enforceCost(prepared: Prepared): IO[CalibanError.ValidationError, Unit] =
+    maxOperationCost match {
+      case Some(maximum) =>
+        def reject(message: String, code: String) =
+          ZIO.fail(CalibanError.ValidationError(message, "", extensions = errorCode(code)))
+
+        estimateCost(prepared.executionRequest, prepared.plan.plan) match {
+          case Left(error)                             => reject(error, "COST_QUERY_PARSE_FAILURE")
+          case Right(estimated) if estimated > maximum =>
+            reject(
+              s"Operation cost $estimated exceeds the configured maximum of $maximum.",
+              "COST_ESTIMATED_TOO_EXPENSIVE"
+            )
+          case Right(_)                                => ZIO.unit
+        }
+      case None          => ZIO.unit
+    }
 
   private def operationWeight(
     query: String,
@@ -227,7 +220,7 @@ private[gateway] final class OperationPreparation[-R] private (
 
   private def hasVariableCondition(document: Document, operationName: Option[String]): Boolean = {
     def isVariableCondition(directive: Directive): Boolean =
-      (directive.name == "skip" || directive.name == "include") && directive.arguments.values.exists {
+      isInclusionDirective(directive) && directive.arguments.values.exists {
         case _: VariableValue => true
         case _                => false
       }
@@ -244,6 +237,8 @@ private[gateway] object OperationPreparation {
     executionRequest: ExecutionRequest,
     plan: PreparedPlan
   )
+
+  private val VariableValidation: Option[List[Validator.QueryValidation]] = Some(List(Validator.validateVariables))
 
   def make[R](
     rootType: RootType,

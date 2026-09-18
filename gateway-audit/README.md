@@ -6,13 +6,25 @@ The canonical upstream repository, reviewed commit, and review date live in [`up
 unmodified upstream reporter and requires every reported case to pass. `verify-results.sh` rejects failures, duplicate
 cases, and missing or inconsistent result summaries.
 
-To run the audit locally, set `CALIBAN_ROOT` to this repository and run the commands from a checkout of the pinned
-upstream repository:
+## Prepare
+
+Install Node.js, sbt, and a JDK. Then check out the pinned upstream repository:
 
 ```sh
 CALIBAN_ROOT=/path/to/caliban
 . "$CALIBAN_ROOT/gateway-audit/upstream.env"
+git clone "$FEDERATION_GATEWAY_AUDIT_REPOSITORY" /path/to/federation-gateway-audit
+git -C /path/to/federation-gateway-audit checkout "$FEDERATION_GATEWAY_AUDIT_REVISION"
+npm --prefix /path/to/federation-gateway-audit ci --ignore-scripts
+```
+
+## Run
+
+Build the adapter, then run the commands from the upstream checkout:
+
+```sh
 "$CALIBAN_ROOT/gateway-audit/install.sh"
+cd /path/to/federation-gateway-audit
 npm start -- test \
   --cwd "$CALIBAN_ROOT/gateway-audit" \
   --run-script ./run.sh \
@@ -21,3 +33,11 @@ npm start -- test \
   --write "$CALIBAN_ROOT/gateway-audit/results.txt"
 "$CALIBAN_ROOT/gateway-audit/verify-results.sh" "$CALIBAN_ROOT/gateway-audit/results.txt"
 ```
+
+## Adapter settings
+
+The adapter serves `/graphql` and `/health` on port 4000.
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `FEDERATION_GATEWAY_AUDIT_URL` | `http://127.0.0.1:4200` | Where the adapter fetches each suite's subgraph descriptions |

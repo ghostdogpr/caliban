@@ -20,7 +20,7 @@ import java.nio.charset.StandardCharsets.UTF_8
 import scala.util.Try
 import scala.util.control.NonFatal
 
-final private class QuickRequestHandler[R] private (
+final private class QuickRequestHandler[R](
   interpreter: GraphQLInterpreter[R, Any],
   wsConfig: quick.WebSocketConfig[R],
   sseConfig: quick.SseConfig,
@@ -78,23 +78,17 @@ final private class QuickRequestHandler[R] private (
   def handleHttpRequest(request: Request)(implicit
     trace: Trace
   ): URIO[R, Response] =
-    if (request.method != Method.GET && request.method != Method.POST)
-      ZIO.succeed(methodNotAllowed("GET, POST"))
+    if (request.method != Method.GET && request.method != Method.POST) ZIO.succeed(MethodNotAllowedResponse)
     else
       responseEncoding(request) match {
-        case None           => ZIO.succeed(NotAcceptableResponse)
-        case Some(encoding) =>
-          if (request.body.mediaType.exists(MediaType.multipart.`form-data`.matches(_, ignoreParameters = true)))
-            handleUploadRequest(request, encoding)
-          else
-            ZIO.suspendSucceed {
-              transformHttpRequest(request)
-                .flatMap(req => executeRequest(request, req, encoding))
-                .foldZIO(
-                  Exit.succeed,
-                  Exit.succeed
-                )
-            }
+        case None                                       => ZIO.succeed(NotAcceptableResponse)
+        case Some(encoding) if isUploadRequest(request) => handleUploadRequest(request, encoding)
+        case Some(encoding)                             =>
+          ZIO.suspendSucceed {
+            transformHttpRequest(request)
+              .flatMap(req => executeRequest(request, req, encoding))
+              .foldZIO(Exit.succeed, Exit.succeed)
+          }
       }
 
   def handleUploadRequest(request: Request)(implicit trace: Trace): URIO[R, Response] =
@@ -108,10 +102,7 @@ final private class QuickRequestHandler[R] private (
   ): URIO[R, Response] = ZIO.suspendSucceed {
     transformUploadRequest(request).flatMap { case (req, fileHandle) =>
       executeRequest(request, req, encoding).provideSomeLayer[R](fileHandle)
-    }.foldZIO(
-      Exit.succeed,
-      Exit.succeed
-    )
+    }.foldZIO(Exit.succeed, Exit.succeed)
   }
 
   def handleWebSocketRequest(request: Request)(implicit trace: Trace): URIO[R, Response] =
@@ -121,11 +112,7 @@ final private class QuickRequestHandler[R] private (
         case None        => Protocol.Legacy
       }
       Handler
-        .webSocket(ch =>
-          IncomingRequestHeaders.locally(request.headers.iterator.map(h => h.headerName -> h.renderedValue).toList)(
-            webSocketChannelListener(protocol)(ch)
-          )
-        )
+        .webSocket(ch => IncomingRequestHeaders.locally(headerValues(request))(webSocketChannelListener(protocol)(ch)))
         .withConfig(wsConfig.zHttpConfig.subProtocol(Some(protocol.name)))
     }
 
@@ -154,10 +141,10 @@ final private class QuickRequestHandler[R] private (
     def decodeBody(body: Body) = {
 
       def decodeApplicationGql() =
-        readBody(body).map(bytes => GraphQLRequest(Some(new String(bytes, UTF_8))))
+        readBody(body, maxRequestBodyBytes).map(bytes => GraphQLRequest(Some(new String(bytes, UTF_8))))
 
       def decodeJson(): ZIO[Any, Response, GraphQLRequest] =
-        readBody(body).foldZIO(
+        readBody(body, maxRequestBodyBytes).foldZIO(
           Exit.fail,
           arr =>
             try checkNonEmptyRequest(readFromArray[GraphQLRequest](arr, readerConfig))
@@ -233,19 +220,14 @@ final private class QuickRequestHandler[R] private (
 
   }
 
-  private def executeRequest(httpRequest: Request, req: GraphQLRequest, encoding: ResponseEncoding)(implicit
+  private def executeRequest(request: Request, req: GraphQLRequest, encoding: ResponseEncoding)(implicit
     trace: Trace
   ): ZIO[R, Response, Response] =
-    IncomingRequestHeaders
-      .locally(
-        httpRequest.headers.iterator.map(header => header.headerName -> header.renderedValue).toList
-      )(
-        GraphQLResponseContext
-          .captureResponse(
-            interpreter.executeRequest(if (httpRequest.method == Method.GET) req.asHttpGetRequest else req)
-          )
-          .map(result => buildResponse(httpRequest, result, encoding))
-      )
+    IncomingRequestHeaders.locally(headerValues(request))(
+      GraphQLResponseContext
+        .captureResponse(interpreter.executeRequest(if (request.method == Method.GET) req.asHttpGetRequest else req))
+        .map(result => buildResponse(request, result, encoding))
+    )
 
   private def responseHeaders(headers: Headers, cacheDirective: Option[String]): Headers =
     cacheDirective match {
@@ -254,15 +236,15 @@ final private class QuickRequestHandler[R] private (
     }
 
   private def buildResponse(
-    httpReq: Request,
+    request: Request,
     result: GraphQLResponseContext.Classified[GraphQLResponse[Any]],
     encoding: ResponseEncoding
   )(implicit trace: Trace): Response = {
     val response       = result.value
     val outcome        = result.outcome
     val cacheDirective = response.extensions.flatMap(HttpUtils.computeCacheDirective)
-    val mutationOnGet  =
-      httpReq.method == Method.GET && response.errors.contains(HttpUtils.MutationOverGetError)
+    val isGraphQLJson  = encoding == ResponseEncoding.GraphQLJson
+    val mutationOnGet  = request.method == Method.GET && response.errors.contains(HttpUtils.MutationOverGetError)
 
     def responseStatus(requestErrorsAreBadRequests: Boolean): Status =
       if (mutationOnGet) Status.MethodNotAllowed
@@ -298,21 +280,20 @@ final private class QuickRequestHandler[R] private (
           body = Body.fromStreamChunked(encodeMultipartMixedResponse(resp, ZStream.succeed(resp.data)))
         )
       case resp                                                       =>
-        val contentType                                 = if (encoding == ResponseEncoding.GraphQLJson) ContentTypeGql else ContentTypeJson
-        val codec: JsonValueCodec[GraphQLResponse[Any]] = responseCodec(
-          keepDataOnErrors = encoding != ResponseEncoding.GraphQLJson || outcome == Outcome.Executed,
+        val contentType = if (isGraphQLJson) ContentTypeGql else ContentTypeJson
+        val codec       = responseCodec(
+          keepDataOnErrors = !isGraphQLJson || outcome == Outcome.Executed,
           excludeCacheDirective = cacheDirective.isDefined
         )
         try {
           val bytes = GraphQLResponseJsoniter.writeToArray(resp, maxResponseBodyBytes, codec)
           Response(
-            status = responseStatus(requestErrorsAreBadRequests = encoding == ResponseEncoding.GraphQLJson),
+            status = responseStatus(requestErrorsAreBadRequests = isGraphQLJson),
             headers = responseHeaders(contentType, cacheDirective) ++ allowPost(mutationOnGet),
             body = Body.fromArray(bytes)
           )
         } catch {
-          case BoundedOutputStream.LimitExceeded =>
-            errorResponse(Status.InternalServerError, "Encoded GraphQL response exceeds the configured limit.")
+          case BoundedOutputStream.LimitExceeded => errorResponse(Status.InternalServerError, ResponseLimitMessage)
         }
     }
   }
@@ -357,25 +338,11 @@ final private class QuickRequestHandler[R] private (
   private def encodeResponseValue(value: ResponseValue): Array[Byte] =
     GraphQLResponseJsoniter.writeToArray(value, maxResponseBodyBytes, ValueJsoniter.responseValueCodec)
 
-  private lazy val responseLimitErrorBytes: Array[Byte] =
-    writeToArray(
-      GraphQLResponse(
-        NullValue,
-        List(CalibanError.ExecutionError("Encoded GraphQL response exceeds the configured limit."))
-      ).toResponseValue
-    )(ValueJsoniter.responseValueCodec)
-
-  private lazy val responseLimitErrorSse: ServerSentEvent[String] =
-    ServerSentEvent(new String(responseLimitErrorBytes, UTF_8), Some("next"))
-
   private def isFtv1Request(req: Request) =
     req.headers.get(GraphQLRequest.`apollo-federation-include-trace`) match {
       case None    => false
       case Some(h) => h.equalsIgnoreCase(GraphQLRequest.ftv1)
     }
-
-  private def readBody(body: Body)(implicit trace: Trace): IO[Response, Array[Byte]] =
-    readBody(body, maxRequestBodyBytes)
 
   private def readBody(body: Body, maxBytes: Int)(implicit trace: Trace): IO[Response, Array[Byte]] =
     body.knownContentLength match {
@@ -401,14 +368,11 @@ final private class QuickRequestHandler[R] private (
 
   private def responseEncoding(request: Request): Option[ResponseEncoding] =
     request.headers.get(Header.Accept.name) match {
-      case None                                                                                  => Some(ResponseEncoding.Json)
-      case Some(value) if value.trim == "*/*" || value.trim.equalsIgnoreCase("application/json") =>
-        Some(ResponseEncoding.Json)
-      case Some(value)                                                                           =>
-        Header.Accept
-          .parse(value)
-          .toOption
-          .flatMap(accept => ResponseEncoding.negotiate(accept.mimeTypes.toList))
+      case None        => JsonEncoding
+      case Some(value) =>
+        val accept = value.trim
+        if (accept == "*/*" || accept.equalsIgnoreCase("application/json")) JsonEncoding
+        else Header.Accept.parse(value).toOption.flatMap(header => ResponseEncoding.negotiate(header.mimeTypes.toList))
     }
 
   private def webSocketChannelListener(protocol: Protocol)(ch: WebSocketChannel)(implicit trace: Trace): RIO[R, Unit] =
@@ -438,23 +402,6 @@ final private class QuickRequestHandler[R] private (
 }
 
 object QuickRequestHandler {
-  private[caliban] def apply[R](
-    interpreter: GraphQLInterpreter[R, Any],
-    wsConfig: quick.WebSocketConfig[R],
-    sseConfig: quick.SseConfig,
-    maxRequestBodyBytes: Int,
-    maxUploadBodyBytes: Int,
-    maxResponseBodyBytes: Int
-  ): QuickRequestHandler[R] =
-    new QuickRequestHandler(
-      interpreter,
-      wsConfig,
-      sseConfig,
-      maxRequestBodyBytes,
-      maxUploadBodyBytes,
-      maxResponseBodyBytes
-    )
-
   private sealed trait ResponseEncoding
 
   private object ResponseEncoding {
@@ -464,17 +411,16 @@ object QuickRequestHandler {
     case object Multipart   extends ResponseEncoding
 
     private final case class Supported(value: ResponseEncoding, mediaType: MediaType)
-    private final case class Negotiated(
-      value: ResponseEncoding,
-      quality: Double,
-      specificity: Int,
-      preference: Int
-    )
-    private final case class MatchedRange(
-      value: Header.Accept.MediaTypeWithQFactor,
-      specificity: Int,
-      position: Int
-    )
+    private final case class Negotiated(value: ResponseEncoding, quality: Double, specificity: Int, preference: Int)  {
+      def isPreferredOver(other: Negotiated): Boolean =
+        quality > other.quality ||
+          (quality == other.quality && specificity > other.specificity) ||
+          (quality == other.quality && specificity == other.specificity && preference < other.preference)
+    }
+    private final case class MatchedRange(value: Header.Accept.MediaTypeWithQFactor, specificity: Int, position: Int) {
+      def isPreferredOver(other: MatchedRange): Boolean =
+        specificity > other.specificity || (specificity == other.specificity && position < other.position)
+    }
 
     private val supported = List(
       Supported(GraphQLJson, MediaType("application", "graphql-response+json")),
@@ -491,29 +437,16 @@ object QuickRequestHandler {
     def negotiate(ranges: List[Header.Accept.MediaTypeWithQFactor]): Option[ResponseEncoding] =
       if (ranges.exists(range => range.mediaType.parameters.contains("q") && range.qFactor.isEmpty)) None
       else
-        supported.zipWithIndex.flatMap { case (candidate, preference) =>
+        supported.zipWithIndex.flatMap { case (candidate, position) =>
           bestMatch(candidate.mediaType, ranges).flatMap { range =>
-            val quality = range.value.qFactor.getOrElse(1d)
-            if (quality > 0d && quality <= 1d)
-              Some(
-                Negotiated(
-                  candidate.value,
-                  quality,
-                  range.specificity,
-                  if (range.specificity == 0 && candidate.value == Json) -1 else preference
-                )
-              )
+            val quality        = range.value.qFactor.getOrElse(1d)
+            val matchesAnyType = range.specificity == 0
+            val preference     = if (matchesAnyType && candidate.value == Json) -1 else position
+            if (quality > 0d && quality <= 1d) Some(Negotiated(candidate.value, quality, range.specificity, preference))
             else None
           }
-        }.reduceOption { (current, candidate) =>
-          if (
-            candidate.quality > current.quality ||
-            (candidate.quality == current.quality && candidate.specificity > current.specificity) ||
-            (candidate.quality == current.quality && candidate.specificity == current.specificity &&
-              candidate.preference < current.preference)
-          ) candidate
-          else current
-        }.map(_.value)
+        }.reduceOption((current, candidate) => if (candidate.isPreferredOver(current)) candidate else current)
+          .map(_.value)
 
     private def bestMatch(
       candidate: MediaType,
@@ -522,19 +455,11 @@ object QuickRequestHandler {
       ranges.zipWithIndex.collect {
         case (range, position) if matches(candidate, range.mediaType) =>
           MatchedRange(range, specificity(range.mediaType), position)
-      }.reduceOption { (current, matched) =>
-        if (
-          matched.specificity > current.specificity ||
-          (matched.specificity == current.specificity && matched.position < current.position)
-        ) matched
-        else current
-      }
+      }.reduceOption((current, matched) => if (matched.isPreferredOver(current)) matched else current)
 
     private def matches(candidate: MediaType, range: MediaType): Boolean = {
       val ignoreBoundary = isMultipart(range)
-      val parameters     = range.parameters.filterNot { case (name, _) =>
-        name.equalsIgnoreCase("q") || ignoreBoundary && name.equalsIgnoreCase("boundary")
-      }
+      val parameters     = range.parameters.filterNot { case (name, _) => isIgnoredParameter(name, ignoreBoundary) }
       (range.mainType == "*" || range.mainType.equalsIgnoreCase(candidate.mainType)) &&
       (range.subType == "*" || range.subType.equalsIgnoreCase(candidate.subType)) &&
       parameters.forall {
@@ -554,11 +479,12 @@ object QuickRequestHandler {
         else if (mediaType.subType == "*") 1
         else 2
       val ignoreBoundary  = isMultipart(mediaType)
-      val parameters      = mediaType.parameters.keysIterator.count(name =>
-        !name.equalsIgnoreCase("q") && !(ignoreBoundary && name.equalsIgnoreCase("boundary"))
-      )
+      val parameters      = mediaType.parameters.keysIterator.count(!isIgnoredParameter(_, ignoreBoundary))
       typeSpecificity * 100 + parameters
     }
+
+    private def isIgnoredParameter(name: String, ignoreBoundary: Boolean): Boolean =
+      name.equalsIgnoreCase("q") || ignoreBoundary && name.equalsIgnoreCase("boundary")
 
     private def isMultipart(mediaType: MediaType): Boolean =
       mediaType.mainType.equalsIgnoreCase("multipart")
@@ -574,12 +500,31 @@ object QuickRequestHandler {
   private def errorResponse(status: Status, message: String) =
     Response(status, body = Body.fromString(message))
 
-  private def methodNotAllowed(allow: String) =
-    errorResponse(Status.MethodNotAllowed, "Method not allowed.")
-      .addHeader(Header.Custom("Allow", allow))
-
   private def allowPost(enabled: Boolean): Headers =
-    if (enabled) Headers(Header.Custom("Allow", "POST")) else Headers.empty
+    if (enabled) AllowPostHeaders else Headers.empty
+
+  private def isUploadRequest(request: Request): Boolean =
+    request.body.mediaType.exists(MediaType.multipart.`form-data`.matches(_, ignoreParameters = true))
+
+  private def headerValues(request: Request): List[(String, String)] =
+    request.headers.iterator.map(header => header.headerName -> header.renderedValue).toList
+
+  private val AllowPostHeaders = Headers(Header.Custom("Allow", "POST"))
+
+  private val MethodNotAllowedResponse =
+    errorResponse(Status.MethodNotAllowed, "Method not allowed.").addHeader(Header.Custom("Allow", "GET, POST"))
+
+  private val JsonEncoding: Option[ResponseEncoding] = Some(ResponseEncoding.Json)
+
+  private final val ResponseLimitMessage = "Encoded GraphQL response exceeds the configured limit."
+
+  private lazy val responseLimitErrorBytes: Array[Byte] =
+    writeToArray(
+      GraphQLResponse(NullValue, List(CalibanError.ExecutionError(ResponseLimitMessage))).toResponseValue
+    )(ValueJsoniter.responseValueCodec)
+
+  private lazy val responseLimitErrorSse: ServerSentEvent[String] =
+    ServerSentEvent(new String(responseLimitErrorBytes, UTF_8), Some("next"))
 
   private val ContentTypeJson =
     Headers(Header.ContentType(MediaType.application.json).untyped)

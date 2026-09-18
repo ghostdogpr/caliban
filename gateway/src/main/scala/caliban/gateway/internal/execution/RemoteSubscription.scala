@@ -18,24 +18,24 @@ private[gateway] final class RemoteSubscription(
   http: GatewayHttpClient,
   config: RemoteSubscriptionConfig,
   maxBytes: Int,
-  decode: Array[Byte] => Either[SubgraphExecutor.Failure, RemoteSubscription.Response],
-  decodeValue: ResponseValue => Either[SubgraphExecutor.Failure, RemoteSubscription.Response],
+  decode: Array[Byte] => Either[SubgraphExecutor.Failure, GraphQLResponse[CalibanError]],
+  decodeValue: ResponseValue => Either[SubgraphExecutor.Failure, GraphQLResponse[CalibanError]],
   validate: Array[Byte] => Either[SubgraphExecutor.Failure, Unit],
   remoteErrorMessages: Boolean
 ) {
   import RemoteSubscription._
 
-  def open(
-    headers: List[Header],
-    request: GraphQLRequest,
-    body: Array[Byte]
-  )(implicit trace: Trace): ZIO[Scope, Throwable, ZStream[Any, Throwable, Response]] =
+  def open(headers: List[Header], request: GraphQLRequest, body: Array[Byte])(implicit
+    trace: Trace
+  ): ZIO[Scope, Throwable, ZStream[Any, Throwable, GraphQLResponse[CalibanError]]] =
     for {
-      queue    <- SubscriptionBuffer.make[Response](config.bufferSize)
+      queue    <- SubscriptionBuffer.make[GraphQLResponse[CalibanError]](config.bufferSize)
       finished <- Promise.make[Throwable, Nothing]
       ready    <- Promise.make[Throwable, Unit]
-      emit      = (response: Response) =>
-                    queue.offer(response).flatMap(ok => ZIO.fail(SubscriptionTermination.Overflow).unless(ok).unit)
+      emit      = (response: GraphQLResponse[CalibanError]) =>
+                    queue
+                      .offer(response)
+                      .flatMap(offered => ZIO.fail(SubscriptionTermination.Overflow).unless(offered).unit)
       target    = config.endpoint.getOrElse(endpoint)
       run       = config.transport match {
                     case RemoteSubscriptionConfig.WebSocket =>
@@ -48,13 +48,14 @@ private[gateway] final class RemoteSubscription(
                     case RemoteSubscriptionConfig.Sse(get)  =>
                       runSse(target, headers, request, body, get, ready, emit)
                   }
-      _        <- run.mapError {
-                    case error: CalibanError.ExecutionError => error
-                    case _                                  => SubscriptionTermination.Source
-                  }.exit.flatMap {
-                    case Exit.Success(_)     => queue.end
-                    case Exit.Failure(cause) => ready.failCause(cause) *> finished.failCause(cause).unit
-                  }.forkScoped
+      _        <- run
+                    .mapError(SubscriptionTermination.fromFailure)
+                    .exit
+                    .flatMap {
+                      case Exit.Success(_)     => queue.end
+                      case Exit.Failure(cause) => ready.failCause(cause) *> finished.failCause(cause).unit
+                    }
+                    .forkScoped
       _        <- ready.await.timeoutFail(SubscriptionTermination.SetupTimeout)(config.connectionTimeout)
     } yield
     // queue.end drains buffered events on success; only a source failure interrupts the consumer immediately.
@@ -67,7 +68,7 @@ private[gateway] final class RemoteSubscription(
     body: Array[Byte],
     get: Boolean,
     ready: Promise[Throwable, Unit],
-    emit: Response => Task[Unit]
+    emit: GraphQLResponse[CalibanError] => Task[Unit]
   )(implicit trace: Trace): Task[Unit] = {
     val httpRequest =
       if (get) {
@@ -91,15 +92,15 @@ private[gateway] final class RemoteSubscription(
             ready.succeed(()) *> response.body.asStream
               .mapZIO(byte => ZIO.fromEither(parser.feed(byte)))
               .collectSome
-              .takeUntil(_.name == "complete")
+              .takeUntil(_.name == SseEvent.Complete)
               .runForeach {
-                case SseEvent("complete", _) => ZIO.unit
-                case SseEvent("next", value) =>
+                case SseEvent(SseEvent.Complete, _) => ZIO.unit
+                case SseEvent(SseEvent.Next, value) =>
                   ZIO
                     .fromEither(decode(value.getBytes(UTF_8)))
                     .mapError(_ => SubscriptionTermination.Source)
                     .flatMap(emit)
-                case _                       => ZIO.fail(SubscriptionTermination.Source)
+                case _                              => ZIO.fail(SubscriptionTermination.Source)
               } *> ZIO.fail(SubscriptionTermination.Source).unless(parser.isComplete).unit
           }
         }
@@ -111,7 +112,7 @@ private[gateway] final class RemoteSubscription(
     headers: List[Header],
     body: Array[Byte],
     ready: Promise[Throwable, Unit],
-    emit: Response => Task[Unit]
+    emit: GraphQLResponse[CalibanError] => Task[Unit]
   )(implicit trace: Trace): Task[Unit] = ZIO.scoped {
     for {
       connected <- Promise.make[Nothing, WebSocketChannel]
@@ -126,47 +127,43 @@ private[gateway] final class RemoteSubscription(
       socket    <- connected.await
       _         <- ZIO.addFinalizer(socket.shutdown)
       _         <- awaitHandshake(socket)
-      send       =
-        (message: GraphQLWSInput) =>
-          socket
-            .send(ChannelEvent.Read(WebSocketFrame.Text(writeToString(message))))
-            .timeoutFail(SubscriptionTermination.Source)(config.connectionTimeout)
-      _         <- send(GraphQLWSInput("connection_init", None, config.connectionInit))
+      sendText   = (text: String) =>
+                     socket
+                       .send(ChannelEvent.Read(WebSocketFrame.Text(text)))
+                       .timeoutFail(SubscriptionTermination.Source)(config.connectionTimeout)
+      send       = (message: GraphQLWSInput) => sendText(writeToString(message))
+      _         <- send(GraphQLWSInput(MessageType.ConnectionInit, None, config.connectionInit))
       pong      <- Ref.make(Option.empty[Promise[Nothing, Unit]])
       read       = readMessage(socket)
       control    = (message: GraphQLWSOutput) =>
                      message.`type` match {
-                       case "ping" =>
-                         socket
-                           .send(
-                             ChannelEvent.Read(
-                               WebSocketFrame.Text(writeToString(GraphQLWSOutput("pong", None, message.payload)))
-                             )
-                           )
-                           .timeoutFail(SubscriptionTermination.Source)(config.connectionTimeout)
-                       case "pong" => pong.get.flatMap(ZIO.foreachDiscard(_)(_.succeed(())))
-                       case _      => ZIO.fail(SubscriptionTermination.Source)
+                       case MessageType.Ping =>
+                         sendText(writeToString(GraphQLWSOutput(MessageType.Pong, None, message.payload)))
+                       case MessageType.Pong => pong.get.flatMap(ZIO.foreachDiscard(_)(_.succeed(())))
+                       case _                => ZIO.fail(SubscriptionTermination.Source)
                      }
       _         <- read.flatMap { first =>
                      def ack(message: GraphQLWSOutput): Task[Unit] =
-                       if (message.`type` == "connection_ack") ZIO.unit else control(message) *> read.flatMap(ack)
+                       if (message.`type` == MessageType.ConnectionAck) ZIO.unit
+                       else control(message) *> read.flatMap(ack)
                      ack(first)
                    }
       payload   <- ZIO.attempt(readFromArray[InputValue](body))
-      _         <- send(GraphQLWSInput("subscribe", Some("1"), Some(payload)))
-      _         <- ZIO.addFinalizer(send(GraphQLWSInput("complete", Some("1"), None)).ignore)
+      _         <- send(GraphQLWSInput(MessageType.Subscribe, Some(SubscriptionId), Some(payload)))
+      _         <- ZIO.addFinalizer(send(GraphQLWSInput(MessageType.Complete, Some(SubscriptionId), None)).ignore)
       _         <- ready.succeed(())
       heartbeat  = (Clock.sleep(config.keepAliveInterval) *> Promise.make[Nothing, Unit].flatMap { received =>
-                     pong.set(Some(received)) *> send(GraphQLWSInput("ping", None, None)) *>
+                     pong.set(Some(received)) *> send(GraphQLWSInput(MessageType.Ping, None, None)) *>
                        received.await.timeoutFail(SubscriptionTermination.Source)(config.connectionTimeout) *> pong
                          .set(None)
                    }).forever
       receive    = read.flatMap { message =>
-                     if (message.`type` == "ping" || message.`type` == "pong") control(message).as(true)
-                     else if (!message.id.contains("1")) ZIO.fail(SubscriptionTermination.Source)
+                     if (message.`type` == MessageType.Ping || message.`type` == MessageType.Pong)
+                       control(message).as(true)
+                     else if (!message.id.contains(SubscriptionId)) ZIO.fail(SubscriptionTermination.Source)
                      else
                        message.`type` match {
-                         case "next"     =>
+                         case MessageType.Next     =>
                            message.payload match {
                              case Some(value) =>
                                ZIO
@@ -176,8 +173,8 @@ private[gateway] final class RemoteSubscription(
                                  .as(true)
                              case None        => ZIO.fail(SubscriptionTermination.Source)
                            }
-                         case "complete" => ZIO.succeed(false)
-                         case "error"    =>
+                         case MessageType.Complete => ZIO.succeed(false)
+                         case MessageType.Error    =>
                            message.payload match {
                              case Some(ListValue(values)) if values.nonEmpty =>
                                val errors = values.flatMap(CalibanError.fromResponseValue)
@@ -185,7 +182,7 @@ private[gateway] final class RemoteSubscription(
                                else ZIO.fail(RemoteError.sanitize(errors.head, remoteErrorMessages))
                              case _                                          => ZIO.fail(SubscriptionTermination.Source)
                            }
-                         case _          => ZIO.fail(SubscriptionTermination.Source)
+                         case _                    => ZIO.fail(SubscriptionTermination.Source)
                        }
                    }.repeatWhile(identity).unit
       _         <- receive.raceFirst(heartbeat)
@@ -242,28 +239,30 @@ private[gateway] final class RemoteSubscription(
     def isComplete: Boolean = complete
 
     def feed(byte: Byte): Either[Throwable, Option[SseEvent]] = {
-      val skip = afterCarriageReturn && byte == 10
-      afterCarriageReturn = byte == 13
-      if (skip) Right(None)
-      else if (byte != 10 && byte != 13) {
+      val skip = afterCarriageReturn && byte == LineFeed
+      afterCarriageReturn = byte == CarriageReturn
+      if (skip) NoEvent
+      else if (byte != LineFeed && byte != CarriageReturn) {
         if (size + line.size().toLong >= maxBytes) Left(SubscriptionTermination.TooLarge)
         else {
           line.write(byte.toInt)
-          Right(None)
+          NoEvent
         }
       } else {
         val decoded = new String(line.toByteArray, UTF_8)
-        val text    = if (firstLine) decoded.stripPrefix("\uFEFF") else decoded
+        val text    = if (firstLine) decoded.stripPrefix(ByteOrderMark) else decoded
         firstLine = false
         line.reset()
         if (text.isEmpty) {
-          val value =
-            if (event == "complete" || data.nonEmpty) Some(SseEvent(event, data.toString.stripSuffix("\n"))) else None
-          complete = event == "complete"
+          val result =
+            if (event == SseEvent.Complete || data.nonEmpty)
+              Right(Some(SseEvent(event, data.toString.stripSuffix("\n"))))
+            else NoEvent
+          complete = event == SseEvent.Complete
           event = ""
           data.clear()
           size = 0
-          Right(value)
+          result
         } else {
           val colon    = text.indexOf(':')
           val key      = if (colon < 0) text else text.substring(0, colon)
@@ -277,8 +276,8 @@ private[gateway] final class RemoteSubscription(
           else {
             size = nextSize
             if (key == "event") event = value
-            else if (key == "data") data.append(value).append('\n')
-            Right(None)
+            else if (key == "data") data.append(value).append(LineFeed)
+            NoEvent
           }
         }
       }
@@ -288,9 +287,29 @@ private[gateway] final class RemoteSubscription(
 }
 
 private[gateway] object RemoteSubscription {
-  type Response = GraphQLResponse[CalibanError]
-
   private final case class SseEvent(name: String, data: String)
 
-  private val Protocol = "graphql-transport-ws"
+  private object SseEvent {
+    final val Next     = "next"
+    final val Complete = "complete"
+  }
+
+  private val NoEvent: Either[Throwable, Option[SseEvent]] = Right(None)
+
+  private final val Protocol       = "graphql-transport-ws"
+  private final val SubscriptionId = "1"
+  private final val LineFeed       = '\n'
+  private final val CarriageReturn = '\r'
+  private final val ByteOrderMark  = "\uFEFF"
+
+  private object MessageType {
+    final val ConnectionInit = "connection_init"
+    final val ConnectionAck  = "connection_ack"
+    final val Ping           = "ping"
+    final val Pong           = "pong"
+    final val Subscribe      = "subscribe"
+    final val Next           = "next"
+    final val Error          = "error"
+    final val Complete       = "complete"
+  }
 }

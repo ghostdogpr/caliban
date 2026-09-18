@@ -5,7 +5,7 @@ import caliban.gateway.{ GatewaySubscriptionConfig, PhaseHooks }
 import zio.{ Clock, Duration, Exit, Promise, Ref, Scope, Trace, UIO, URIO, ZIO }
 
 private[gateway] final class GatewayExecutionControl[-R] private (
-  requests: AdmissionGate[R],
+  admission: AdmissionGate[R],
   hooks: PhaseHooks[R],
   val subscriptions: SubscriptionControl[R],
   requestTimeout: Duration,
@@ -22,7 +22,7 @@ private[gateway] final class GatewayExecutionControl[-R] private (
     onRejected: => ZIO[R0, E, A]
   )(implicit trace: Trace): ZIO[R0, E, A] =
     withLease(reservation)(onRejected) { lease =>
-      run(lease, requests.withPermit(effect)).flatMap(_.fold(onTimeout)(ZIO.succeed(_)))
+      run(lease, admission.withPermit(effect)).flatMap(_.fold(onTimeout)(ZIO.succeed(_)))
     }
 
   def runObservedRequest[R1 <: R, B, A](event: Event.Request, reservation: Option[Lease] = None)(
@@ -41,14 +41,14 @@ private[gateway] final class GatewayExecutionControl[-R] private (
       // Classify the resolved operation before opening finite-request metrics/spans, while one
       // admission permit, deadline, and drain lease cover preparation and execution together.
       ZIO.scoped[R1] {
-        run(lease, requests.acquireScoped).flatMap {
+        run(lease, admission.acquireScoped).flatMap {
           case None    => observe(onTimeout)
           case Some(_) =>
             run(lease, prepare).flatMap {
               case None           => observe(onTimeout)
               case Some(prepared) =>
                 val finite   = isFinite(prepared)
-                val work     = if (finite) requests.observe(execute(prepared)) else execute(prepared)
+                val work     = if (finite) admission.observe(execute(prepared)) else execute(prepared)
                 val response = run(lease, work).flatMap(_.fold(onTimeout)(ZIO.succeed(_)))
                 if (finite) observe(response) else response
             }
@@ -63,7 +63,7 @@ private[gateway] final class GatewayExecutionControl[-R] private (
       val lease = new Lease(startedAt)
       state.modify { current =>
         if (current.drainStartedAt.isEmpty)
-          Some(lease) -> current.copy(requests = current.requests + lease)
+          Some(lease) -> current.copy(leases = current.leases + lease)
         else None     -> current
       }
     }
@@ -71,8 +71,8 @@ private[gateway] final class GatewayExecutionControl[-R] private (
   // Must stay idempotent: request execution and the reload supervisor both end the same lease, including on cancellation.
   def release(lease: Lease)(implicit trace: Trace): UIO[Unit] =
     state.modify { current =>
-      val next   = current.copy(requests = current.requests - lease)
-      val signal = next.drainStartedAt.nonEmpty && next.requests.isEmpty
+      val next   = current.copy(leases = current.leases - lease)
+      val signal = next.drainStartedAt.nonEmpty && next.leases.isEmpty
       signal -> next
     }
       .flatMap(signal => drained.succeed(()).unit.when(signal).unit)
@@ -104,18 +104,14 @@ private[gateway] final class GatewayExecutionControl[-R] private (
       (exit, stopFiber) => stopFiber.interrupt *> (exit: ZIO[Any, E, Option[A]]),
       (exit, workFiber) =>
         exit match {
-          case Exit.Success(stop)  =>
-            stop match {
-              case Stop.Deadline =>
-                workFiber.interrupt.uninterruptible *>
-                  effectiveStop(Stop.Deadline).flatMap {
-                    case Stop.Deadline => ZIO.none
-                    case Stop.Drain    => ZIO.interrupt
-                  }
-              case Stop.Drain    =>
-                workFiber.interrupt.uninterruptible *> ZIO.interrupt
-            }
-          case Exit.Failure(cause) => workFiber.interrupt.uninterruptible *> ZIO.failCause(cause)
+          case Exit.Success(Stop.Deadline) =>
+            workFiber.interrupt.uninterruptible *>
+              effectiveStop(Stop.Deadline).flatMap {
+                case Stop.Deadline => ZIO.none
+                case Stop.Drain    => ZIO.interrupt
+              }
+          case Exit.Success(Stop.Drain)    => workFiber.interrupt.uninterruptible *> ZIO.interrupt
+          case Exit.Failure(cause)         => workFiber.interrupt.uninterruptible *> ZIO.failCause(cause)
         }
     )
   }
@@ -152,10 +148,8 @@ private[gateway] final class GatewayExecutionControl[-R] private (
     (for {
       startedAt <- Clock.nanoTime
       empty     <- state.modify { current =>
-                     val next = current.copy(
-                       drainStartedAt = Some(startedAt)
-                     )
-                     next.requests.isEmpty -> next
+                     val next = current.copy(drainStartedAt = Some(startedAt))
+                     next.leases.isEmpty -> next
                    }
       _         <- drained.succeed(()).unit.when(empty)
       done      <- drained.await.interruptible.timeout(drainTimeout).map(_.isDefined)
@@ -173,14 +167,14 @@ private[gateway] object GatewayExecutionControl {
     drainTimeout: Duration
   )(implicit trace: Trace): ZIO[Scope, Nothing, GatewayExecutionControl[R]] =
     for {
-      requests      <- AdmissionGate.make(requestLimit, AdmissionKind.Request, hooks)
-      subscriptions <- SubscriptionControl.make(subscriptionConfig, requests, hooks)
+      admission     <- AdmissionGate.make(requestLimit, AdmissionKind.Request, hooks)
+      subscriptions <- SubscriptionControl.make(subscriptionConfig, admission, hooks)
       state         <- Ref.make(State(Set.empty, None))
       drained       <- Promise.make[Nothing, Unit]
       forceStop     <- Promise.make[Nothing, Unit]
       control        =
         new GatewayExecutionControl(
-          requests,
+          admission,
           hooks,
           subscriptions,
           requestTimeout,
@@ -194,7 +188,7 @@ private[gateway] object GatewayExecutionControl {
 
   final class Lease(val startedAt: Long)
 
-  private final case class State(requests: Set[Lease], drainStartedAt: Option[Long])
+  private final case class State(leases: Set[Lease], drainStartedAt: Option[Long])
 
   private sealed trait Stop
   private object Stop {

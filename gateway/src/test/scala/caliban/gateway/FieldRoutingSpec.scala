@@ -1,26 +1,14 @@
 package caliban.gateway
 
 import caliban.InputValue.{ ListValue, ObjectValue => InputObjectValue }
-import caliban.ResponseValue.{ ObjectValue => ResponseObjectValue }
 import caliban.Value.IntValue.IntNumber
 import caliban.Value.{ BooleanValue, EnumValue, NullValue, StringValue }
 import caliban.gateway.GatewayTestSupport._
-import caliban.{ GraphQLRequest, InputValue }
-import zio.http.URL
+import caliban.{ GraphQLRequest, InputValue, ResponseValue }
 import zio.{ Duration, Scope, ZIO }
 import zio.test._
 
 object FieldRoutingSpec extends ZIOSpecDefault {
-
-  private val productRoots =
-    s"""
-       |${federationSchemaPreamble("@key")}
-       |type Query { product: Product }
-       |type Product @key(fields: "id") { id: ID! }
-       |""".stripMargin
-
-  private val productRoot =
-    """{"data":{"product":{"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}}}"""
 
   private val nodeWithNameAccounts =
     s"""
@@ -40,20 +28,44 @@ object FieldRoutingSpec extends ZIOSpecDefault {
   private def nodeRoot(typename: String, id: String): String =
     s"""{"data":{"node":{"_caliban_gateway_key":"$id","_caliban_gateway_key_2":"$id","_caliban_gateway_key_3":"$id","_caliban_gateway_typename":"$typename","_caliban_gateway_typename_2":"$typename","_caliban_gateway_runtime_typename":"$typename"}}}"""
 
-  private def productRatings(price: String, expensive: String): String =
+  private val productShippingSchema =
+    s"""
+       |${federationSchemaPreamble("@key", "@external")}
+       |type Product @key(fields: "id") { id: ID! @external shipping: Int! }
+       |""".stripMargin
+
+  private def productRequiringPrice(field: String, price: String = "Int!"): String =
     s"""
        |${federationSchemaPreamble("@key", "@external", "@requires")}
        |type Product @key(fields: "id") {
        |  id: ID! @external
        |  price: $price @external
-       |  expensive: $expensive @requires(fields: "price")
+       |  $field @requires(fields: "price")
        |}
        |""".stripMargin
+
+  private val pricesByRequest =
+    stubByRequest(request =>
+      if (request.query.exists(_.contains("_caliban_gateway_requirement_price")))
+        """{"data":{"_entities":[{"_caliban_gateway_requirement_price":100}]}}"""
+      else """{"data":{"_entities":[{"displayPrice":10}]}}"""
+    )
+
+  private def fieldKind(introspection: ResponseValue, name: String): Option[ResponseValue] =
+    listValues(field(introspection, "__type").flatMap(field(_, "fields")))
+      .find(field(_, "name").contains(StringValue(name)))
+      .flatMap(field(_, "type"))
+      .flatMap(field(_, "kind"))
+
+  private def representations(request: GraphQLRequest): List[InputValue] =
+    request.variables.flatMap(_.get("representations")).toList.flatMap {
+      case ListValue(values) => values
+      case _                 => Nil
+    }
 
   def spec = suite("FieldRoutingSpec")(
     suite("requirements and provided fields")(
       test("rejects invalid requirement and provision field sets with source diagnostics") {
-        val endpoint          = unreachableEndpoint
         val malformedRequires =
           s"""
              |${federationSchemaPreamble("@key", "@external", "@requires")}
@@ -80,15 +92,15 @@ object FieldRoutingSpec extends ZIOSpecDefault {
 
         for {
           requires           <- Gateway
-                                  .compose(Subgraph.federation("inventory", endpoint, malformedRequires))
+                                  .compose(Subgraph.federation("inventory", unreachableEndpoint, malformedRequires))
                                   .interpreter
                                   .exit
           provides           <- Gateway
-                                  .compose(Subgraph.federation("reviews", endpoint, invalidProvides))
+                                  .compose(Subgraph.federation("reviews", unreachableEndpoint, invalidProvides))
                                   .interpreter
                                   .exit
           unknown            <- ZIO.foreach(unknownRequires)(schema =>
-                                  Gateway.compose(Subgraph.federation("inventory", endpoint, schema)).interpreter.exit
+                                  Gateway.compose(Subgraph.federation("inventory", unreachableEndpoint, schema)).interpreter.exit
                                 )
           requiresDiagnostics = buildDiagnostics(requires)
           providesDiagnostics = buildDiagnostics(provides)
@@ -134,25 +146,25 @@ object FieldRoutingSpec extends ZIOSpecDefault {
           """{"data":{"_entities":[{"shippingEstimate":220}]}}"""
 
         for {
-          products  <- stub(productResponse)
-          inventory <- stub(inventoryResponse)
-          gateway   <- Gateway
-                         .compose(
-                           Subgraph.federation("products", products.endpoint, productsSchema),
-                           Subgraph.federation("inventory", inventory.endpoint, inventorySchema)
-                         )
-                         .interpreter
-          response  <- gateway.execute("{ product { shippingEstimate } }")
-          sentA     <- products.requests.get
-          sentB     <- inventory.requests.get
+          products      <- stub(productResponse)
+          inventory     <- stub(inventoryResponse)
+          runtime       <- Gateway
+                             .compose(
+                               Subgraph.federation("products", products.endpoint, productsSchema),
+                               Subgraph.federation("inventory", inventory.endpoint, inventorySchema)
+                             )
+                             .interpreter
+          response      <- runtime.execute("{ product { shippingEstimate } }")
+          productsSent  <- products.requests.get
+          inventorySent <- inventory.requests.get
         } yield assertTrue(
           response.errors.isEmpty,
           field(response.data, "product").flatMap(field(_, "shippingEstimate")).contains(IntNumber(220)),
           field(response.data, "product").forall(fieldNames(_) == List("shippingEstimate")),
-          sentA.headOption
+          productsSent.headOption
             .flatMap(_.query)
             .exists(query => query.contains("price(multiplier:2)") && query.contains("weight")),
-          sentB.headOption
+          inventorySent.headOption
             .flatMap(_.variables)
             .contains(
               Map(
@@ -195,13 +207,13 @@ object FieldRoutingSpec extends ZIOSpecDefault {
         for {
           products <- stub(productResponse)
           shipping <- stub("""{"data":{"_entities":[{"shipping":5}]}}""")
-          gateway  <- Gateway
+          runtime  <- Gateway
                         .compose(
                           Subgraph.federation("products", products.endpoint, productsSchema),
                           Subgraph.federation("shipping", shipping.endpoint, shippingSchema)
                         )
                         .interpreter
-          response <- gateway.execute("{ product { shipping } }")
+          response <- runtime.execute("{ product { shipping } }")
           sent     <- shipping.requests.get
           tags      = sent.headOption
                         .flatMap(_.variables)
@@ -249,28 +261,28 @@ object FieldRoutingSpec extends ZIOSpecDefault {
           """{"data":{"_entities":[{"shippingEstimate":40}]}}"""
 
         for {
-          products  <- stub(productResponse)
-          inventory <- stub(inventoryResponse)
-          gateway   <- Gateway
-                         .compose(
-                           Subgraph
-                             .federation("products", products.endpoint, productsSchema)
-                             .transform(SchemaTransformation.renameType("PhysicalDetails", "PhysicalItem")),
-                           Subgraph
-                             .federation("inventory", inventory.endpoint, inventorySchema)
-                             .transform(SchemaTransformation.renameType("PhysicalDetails", "PhysicalItem"))
-                         )
-                         .interpreter
-          response  <- gateway.execute("{ product { shippingEstimate } }")
-          sentA     <- products.requests.get
-          sentB     <- inventory.requests.get
+          products      <- stub(productResponse)
+          inventory     <- stub(inventoryResponse)
+          runtime       <- Gateway
+                             .compose(
+                               Subgraph
+                                 .federation("products", products.endpoint, productsSchema)
+                                 .transform(SchemaTransformation.renameType("PhysicalDetails", "PhysicalItem")),
+                               Subgraph
+                                 .federation("inventory", inventory.endpoint, inventorySchema)
+                                 .transform(SchemaTransformation.renameType("PhysicalDetails", "PhysicalItem"))
+                             )
+                             .interpreter
+          response      <- runtime.execute("{ product { shippingEstimate } }")
+          productsSent  <- products.requests.get
+          inventorySent <- inventory.requests.get
         } yield assertTrue(
           response.errors.isEmpty,
           field(response.data, "product").flatMap(field(_, "shippingEstimate")).contains(IntNumber(40)),
-          sentA.headOption
+          productsSent.headOption
             .flatMap(_.query)
             .exists(query => query.contains("...on PhysicalDetails{dimensions code}") && query.contains("__typename")),
-          sentB.headOption
+          inventorySent.headOption
             .flatMap(_.variables)
             .contains(
               Map(
@@ -314,25 +326,25 @@ object FieldRoutingSpec extends ZIOSpecDefault {
           """{"data":{"_entities":[{"name":"Routed"}]}}"""
 
         for {
-          products <- stub(productsResponse)
-          catalog  <- stub(catalogResponse)
-          gateway  <- Gateway
-                        .compose(
-                          Subgraph.federation("products", products.endpoint, productsSchema),
-                          Subgraph.federation("catalog", catalog.endpoint, catalogSchema)
-                        )
-                        .interpreter
-          response <- gateway.execute("{ featured { name } regular { name } }")
-          sentA    <- products.requests.get
-          sentB    <- catalog.requests.get
+          products     <- stub(productsResponse)
+          catalog      <- stub(catalogResponse)
+          runtime      <- Gateway
+                            .compose(
+                              Subgraph.federation("products", products.endpoint, productsSchema),
+                              Subgraph.federation("catalog", catalog.endpoint, catalogSchema)
+                            )
+                            .interpreter
+          response     <- runtime.execute("{ featured { name } regular { name } }")
+          productsSent <- products.requests.get
+          catalogSent  <- catalog.requests.get
         } yield assertTrue(
           response.errors.isEmpty,
           field(response.data, "featured").flatMap(field(_, "name")).contains(StringValue("Provided")),
           field(response.data, "regular").flatMap(field(_, "name")).contains(StringValue("Routed")),
-          sentA.headOption
+          productsSent.headOption
             .flatMap(_.query)
             .exists(query => query.contains("featured{name}") && !query.contains("regular{name}")),
-          sentB.size == 1
+          catalogSent.size == 1
         )
       },
       test("uses a path-scoped provision to satisfy a downstream requirement") {
@@ -350,15 +362,7 @@ object FieldRoutingSpec extends ZIOSpecDefault {
              |${federationSchemaPreamble("@key")}
              |type Product @key(fields: "id") { id: ID! price: Int! }
              |""".stripMargin
-        val shippingSchema   =
-          s"""
-             |${federationSchemaPreamble("@key", "@external", "@requires")}
-             |type Product @key(fields: "id") {
-             |  id: ID! @external
-             |  price: Int! @external
-             |  shipping: Int! @requires(fields: "price")
-             |}
-             |""".stripMargin
+        val shippingSchema   = productRequiringPrice("shipping: Int!")
         val productsResponse =
           """{"data":{"featured":{"_caliban_gateway_requirement_price":10,"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"},"regular":{"_caliban_gateway_key":"r1","_caliban_gateway_typename":"Product","_caliban_gateway_key_2":"r1","_caliban_gateway_typename_2":"Product"}}}"""
 
@@ -366,48 +370,35 @@ object FieldRoutingSpec extends ZIOSpecDefault {
           products            <- stub(productsResponse)
           pricing             <- stub("""{"data":{"_entities":[{"_caliban_gateway_requirement_price":20}]}}""")
           shipping            <- stubByRequest { request =>
-                                   val entities = request.variables
-                                     .flatMap(_.get("representations"))
-                                     .collect { case ListValue(values) => values }
-                                     .getOrElse(Nil)
-                                     .map {
-                                       case InputObjectValue(fields) if fields.get("price").contains(IntNumber(10)) =>
-                                         """{"shipping":100}"""
-                                       case _                                                                       =>
-                                         """{"shipping":200}"""
-                                     }
+                                   val entities = representations(request).map {
+                                     case InputObjectValue(fields) if fields.get("price").contains(IntNumber(10)) =>
+                                       """{"shipping":100}"""
+                                     case _                                                                       =>
+                                       """{"shipping":200}"""
+                                   }
                                    s"""{"data":{"_entities":[${entities.mkString(",")}]}}"""
                                  }
-          gateway             <- Gateway
+          runtime             <- Gateway
                                    .compose(
                                      Subgraph.federation("products", products.endpoint, productsSchema),
                                      Subgraph.federation("pricing", pricing.endpoint, pricingSchema),
                                      Subgraph.federation("shipping", shipping.endpoint, shippingSchema)
                                    )
                                    .interpreter
-          response            <- gateway.execute("{ featured { shipping } regular { shipping } }")
-          sentA               <- products.requests.get
-          sentB               <- pricing.requests.get
-          sentC               <- shipping.requests.get
-          priceRepresentations = sentB
-                                   .flatMap(_.variables)
-                                   .flatMap(_.get("representations"))
-                                   .collect { case ListValue(values) => values }
-                                   .flatten
-                                   .toList
-          shippingPrices       = sentC
-                                   .flatMap(_.variables)
-                                   .flatMap(_.get("representations"))
-                                   .collect { case ListValue(values) => values }
-                                   .flatten
+          response            <- runtime.execute("{ featured { shipping } regular { shipping } }")
+          productsSent        <- products.requests.get
+          pricingSent         <- pricing.requests.get
+          shippingSent        <- shipping.requests.get
+          priceRepresentations = pricingSent.toList.flatMap(representations)
+          shippingPrices       = shippingSent.toList
+                                   .flatMap(representations)
                                    .collect { case InputObjectValue(fields) => fields.get("price") }
                                    .flatten
-                                   .toList
         } yield assertTrue(
           response.errors.isEmpty,
           field(response.data, "featured").flatMap(field(_, "shipping")).contains(IntNumber(100)),
           field(response.data, "regular").flatMap(field(_, "shipping")).contains(IntNumber(200)),
-          sentA.headOption
+          productsSent.headOption
             .flatMap(_.query)
             .exists(query =>
               query.contains("featured{_caliban_gateway_requirement_price:price") &&
@@ -417,7 +408,7 @@ object FieldRoutingSpec extends ZIOSpecDefault {
           priceRepresentations.collect { case InputObjectValue(fields) => fields.get("id") }.flatten == List(
             StringValue("r1")
           ),
-          sentC.size == 1,
+          shippingSent.size == 1,
           shippingPrices == List(IntNumber(10), IntNumber(20))
         )
       },
@@ -447,38 +438,38 @@ object FieldRoutingSpec extends ZIOSpecDefault {
           """{"data":{"product":{"_caliban_gateway_requirement_price_multiplier_1":10,"_caliban_gateway_requirement_weight":2,"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product","_caliban_gateway_requirement_price_multiplier_2":20,"_caliban_gateway_requirement_weight_2":2,"_caliban_gateway_key_2":"p1","_caliban_gateway_typename_2":"Product"}}}"""
 
         for {
-          products  <- stub(productResponse)
-          inventory <- stubByRequest(request =>
-                         if (request.query.exists(_.contains("shippingEstimateDouble")))
-                           """{"data":{"_entities":[{"shippingEstimateDouble":40}]}}"""
-                         else """{"data":{"_entities":[{"shippingEstimate":20}]}}"""
-                       )
-          gateway   <- Gateway
-                         .compose(
-                           Subgraph.federation("products", products.endpoint, productsSchema),
-                           Subgraph.federation("inventory", inventory.endpoint, inventorySchema)
-                         )
-                         .interpreter
-          response  <- gateway.execute("{ product { shippingEstimate shippingEstimateDouble } }")
-          sentA     <- products.requests.get
-          sentB     <- inventory.requests.get
-          values     = field(response.data, "product")
-          prices     = sentB
-                         .flatMap(_.variables)
-                         .flatMap(_.get("representations"))
-                         .collect { case ListValue(InputObjectValue(fields) :: Nil) =>
-                           fields.get("price")
-                         }
-                         .flatten
-                         .toSet
+          products      <- stub(productResponse)
+          inventory     <- stubByRequest(request =>
+                             if (request.query.exists(_.contains("shippingEstimateDouble")))
+                               """{"data":{"_entities":[{"shippingEstimateDouble":40}]}}"""
+                             else """{"data":{"_entities":[{"shippingEstimate":20}]}}"""
+                           )
+          runtime       <- Gateway
+                             .compose(
+                               Subgraph.federation("products", products.endpoint, productsSchema),
+                               Subgraph.federation("inventory", inventory.endpoint, inventorySchema)
+                             )
+                             .interpreter
+          response      <- runtime.execute("{ product { shippingEstimate shippingEstimateDouble } }")
+          productsSent  <- products.requests.get
+          inventorySent <- inventory.requests.get
+          values         = field(response.data, "product")
+          prices         = inventorySent
+                             .flatMap(_.variables)
+                             .flatMap(_.get("representations"))
+                             .collect { case ListValue(InputObjectValue(fields) :: Nil) =>
+                               fields.get("price")
+                             }
+                             .flatten
+                             .toSet
         } yield assertTrue(
           response.errors.isEmpty,
           values.flatMap(field(_, "shippingEstimate")).contains(IntNumber(20)),
           values.flatMap(field(_, "shippingEstimateDouble")).contains(IntNumber(40)),
-          sentA.headOption
+          productsSent.headOption
             .flatMap(_.query)
             .exists(query => query.contains("price(multiplier:1)") && query.contains("price(multiplier:2)")),
-          sentB.size == 2,
+          inventorySent.size == 2,
           prices == Set[InputValue](IntNumber(10), IntNumber(20))
         )
       },
@@ -489,75 +480,40 @@ object FieldRoutingSpec extends ZIOSpecDefault {
              |type Query { product: Product }
              |type Product @key(fields: "id") { id: ID! price: Int! }
              |""".stripMargin
-        val shippingSchema  =
-          s"""
-             |${federationSchemaPreamble("@key", "@external", "@requires")}
-             |type Product @key(fields: "id") {
-             |  id: ID! @external
-             |  price: Int! @external
-             |  shipping: Int! @requires(fields: "price")
-             |}
-             |""".stripMargin
-        val taxSchema       =
-          s"""
-             |${federationSchemaPreamble("@key", "@external", "@requires")}
-             |type Product @key(fields: "id") {
-             |  id: ID! @external
-             |  price: Int! @external
-             |  tax: Int! @requires(fields: "price")
-             |}
-             |""".stripMargin
+        val shippingSchema  = productRequiringPrice("shipping: Int!")
+        val taxSchema       = productRequiringPrice("tax: Int!")
         val productResponse =
           """{"data":{"product":{"_caliban_gateway_requirement_price":10,"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product","_caliban_gateway_key_2":"p1","_caliban_gateway_typename_2":"Product"}}}"""
 
         for {
-          products <- stub(productResponse)
-          shipping <- stub("""{"data":{"_entities":[{"shipping":20}]}}""")
-          tax      <- stub("""{"data":{"_entities":[{"tax":3}]}}""")
-          gateway  <- Gateway
-                        .compose(
-                          Subgraph.federation("products", products.endpoint, productsSchema),
-                          Subgraph.federation("shipping", shipping.endpoint, shippingSchema),
-                          Subgraph.federation("tax", tax.endpoint, taxSchema)
-                        )
-                        .interpreter
-          response <- gateway.execute("{ product { shipping tax } }")
-          sentA    <- products.requests.get
-          sentB    <- shipping.requests.get
-          sentC    <- tax.requests.get
-          query     = sentA.headOption.flatMap(_.query).getOrElse("")
-          alias     = "_caliban_gateway_requirement_price:price"
+          products     <- stub(productResponse)
+          shipping     <- stub("""{"data":{"_entities":[{"shipping":20}]}}""")
+          tax          <- stub("""{"data":{"_entities":[{"tax":3}]}}""")
+          runtime      <- Gateway
+                            .compose(
+                              Subgraph.federation("products", products.endpoint, productsSchema),
+                              Subgraph.federation("shipping", shipping.endpoint, shippingSchema),
+                              Subgraph.federation("tax", tax.endpoint, taxSchema)
+                            )
+                            .interpreter
+          response     <- runtime.execute("{ product { shipping tax } }")
+          productsSent <- products.requests.get
+          shippingSent <- shipping.requests.get
+          taxSent      <- tax.requests.get
+          query         = productsSent.headOption.flatMap(_.query).getOrElse("")
+          alias         = "_caliban_gateway_requirement_price:price"
         } yield assertTrue(
           response.errors.isEmpty,
           field(response.data, "product").flatMap(field(_, "shipping")).contains(IntNumber(20)),
           field(response.data, "product").flatMap(field(_, "tax")).contains(IntNumber(3)),
           query.sliding(alias.length).count(_ == alias) == 1,
           !query.contains("_caliban_gateway_requirement_price_2"),
-          sentB.size == 1,
-          sentC.size == 1
+          shippingSent.size == 1,
+          taxSent.size == 1
         )
       },
       test("orders recursive requirements before their dependents") {
-        val rootsSchema    =
-          s"""
-             |${federationSchemaPreamble("@key")}
-             |type Query { product: Product }
-             |type Product @key(fields: "id") { id: ID! }
-             |""".stripMargin
-        val priceSchema    =
-          s"""
-             |${federationSchemaPreamble("@key", "@external")}
-             |type Product @key(fields: "id") { id: ID! @external price: Int! }
-             |""".stripMargin
-        val ratingSchema   =
-          s"""
-             |${federationSchemaPreamble("@key", "@external", "@requires")}
-             |type Product @key(fields: "id") {
-             |  id: ID! @external
-             |  price: Int! @external
-             |  expensive: Boolean! @requires(fields: "price")
-             |}
-             |""".stripMargin
+        val ratingSchema   = productRequiringPrice("expensive: Boolean!")
         val labelSchema    =
           s"""
              |${federationSchemaPreamble("@key", "@external", "@requires")}
@@ -573,30 +529,30 @@ object FieldRoutingSpec extends ZIOSpecDefault {
           """{"data":{"_entities":[{"expensive":true,"_caliban_gateway_requirement_expensive":true}]}}"""
 
         for {
-          roots      <- stub(productRoot)
-          prices     <- stub(priceResponse)
-          ratings    <- stub(ratingResponse)
-          labels     <- stub("""{"data":{"_entities":[{"label":"premium"}]}}""")
-          gateway    <- Gateway
-                          .compose(
-                            Subgraph.federation("roots", roots.endpoint, rootsSchema),
-                            Subgraph.federation("prices", prices.endpoint, priceSchema),
-                            Subgraph.federation("ratings", ratings.endpoint, ratingSchema),
-                            Subgraph.federation("labels", labels.endpoint, labelSchema)
-                          )
-                          .interpreter
-          response   <- gateway.execute("{ product { expensive label } }")
-          priceSent  <- prices.requests.get
-          ratingSent <- ratings.requests.get
-          labelSent  <- labels.requests.get
+          roots       <- stub(productRootResponse)
+          prices      <- stub(priceResponse)
+          ratings     <- stub(ratingResponse)
+          labels      <- stub("""{"data":{"_entities":[{"label":"premium"}]}}""")
+          runtime     <- Gateway
+                           .compose(
+                             Subgraph.federation("roots", roots.endpoint, productRootSchema),
+                             Subgraph.federation("prices", prices.endpoint, productPriceSchema),
+                             Subgraph.federation("ratings", ratings.endpoint, ratingSchema),
+                             Subgraph.federation("labels", labels.endpoint, labelSchema)
+                           )
+                           .interpreter
+          response    <- runtime.execute("{ product { expensive label } }")
+          pricesSent  <- prices.requests.get
+          ratingsSent <- ratings.requests.get
+          labelsSent  <- labels.requests.get
         } yield assertTrue(
           response.errors.isEmpty,
           field(response.data, "product").flatMap(field(_, "expensive")).contains(BooleanValue(true)),
           field(response.data, "product").flatMap(field(_, "label")).contains(StringValue("premium")),
-          priceSent.size == 1,
-          ratingSent.size == 1,
-          ratingSent.headOption.flatMap(_.variables).exists(_.toString.contains("100")),
-          labelSent.headOption.flatMap(_.variables).exists(_.toString.contains("true"))
+          pricesSent.size == 1,
+          ratingsSent.size == 1,
+          ratingsSent.headOption.flatMap(_.variables).exists(_.toString.contains("100")),
+          labelsSent.headOption.flatMap(_.variables).exists(_.toString.contains("true"))
         )
       },
       test("blocks dependent requirement routes while preserving independent root data") {
@@ -606,20 +562,7 @@ object FieldRoutingSpec extends ZIOSpecDefault {
              |type Query { status: String! product: Product }
              |type Product @key(fields: "id") { id: ID! }
              |""".stripMargin
-        val priceSchema  =
-          s"""
-             |${federationSchemaPreamble("@key", "@external")}
-             |type Product @key(fields: "id") { id: ID! @external price: Int! }
-             |""".stripMargin
-        val ratingSchema =
-          s"""
-             |${federationSchemaPreamble("@key", "@external", "@requires")}
-             |type Product @key(fields: "id") {
-             |  id: ID! @external
-             |  price: Int! @external
-             |  expensive: Boolean! @requires(fields: "price")
-             |}
-             |""".stripMargin
+        val ratingSchema = productRequiringPrice("expensive: Boolean!")
         val labelSchema  =
           s"""
              |${federationSchemaPreamble("@key", "@external", "@requires")}
@@ -633,29 +576,29 @@ object FieldRoutingSpec extends ZIOSpecDefault {
           """{"data":{"status":"ok","product":{"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product","_caliban_gateway_key_2":"p1","_caliban_gateway_typename_2":"Product","_caliban_gateway_key_3":"p1","_caliban_gateway_typename_3":"Product"}}}"""
 
         for {
-          roots      <- stub(rootResponse)
-          prices     <- stub("""{"data":{"_entities":[null]}}""")
-          ratings    <- stub("""{"data":{"_entities":[{"_caliban_gateway_requirement_expensive":true}]}}""")
-          labels     <- stub("""{"data":{"_entities":[{"label":"premium"}]}}""")
-          gateway    <- Gateway
-                          .compose(
-                            Subgraph.federation("roots", roots.endpoint, rootsSchema),
-                            Subgraph.federation("prices", prices.endpoint, priceSchema),
-                            Subgraph.federation("ratings", ratings.endpoint, ratingSchema),
-                            Subgraph.federation("labels", labels.endpoint, labelSchema)
-                          )
-                          .interpreter
-          response   <- gateway.execute("{ status product { label } }")
-          priceSent  <- prices.requests.get
-          ratingSent <- ratings.requests.get
-          labelSent  <- labels.requests.get
+          roots       <- stub(rootResponse)
+          prices      <- stub("""{"data":{"_entities":[null]}}""")
+          ratings     <- stub("""{"data":{"_entities":[{"_caliban_gateway_requirement_expensive":true}]}}""")
+          labels      <- stub("""{"data":{"_entities":[{"label":"premium"}]}}""")
+          runtime     <- Gateway
+                           .compose(
+                             Subgraph.federation("roots", roots.endpoint, rootsSchema),
+                             Subgraph.federation("prices", prices.endpoint, productPriceSchema),
+                             Subgraph.federation("ratings", ratings.endpoint, ratingSchema),
+                             Subgraph.federation("labels", labels.endpoint, labelSchema)
+                           )
+                           .interpreter
+          response    <- runtime.execute("{ status product { label } }")
+          pricesSent  <- prices.requests.get
+          ratingsSent <- ratings.requests.get
+          labelsSent  <- labels.requests.get
         } yield assertTrue(
           field(response.data, "status").contains(StringValue("ok")),
           field(response.data, "product").contains(NullValue),
           response.errors.nonEmpty,
-          priceSent.size == 1,
-          ratingSent.isEmpty,
-          labelSent.isEmpty
+          pricesSent.size == 1,
+          ratingsSent.isEmpty,
+          labelsSent.isEmpty
         )
       },
       test("executes a locally owned dependent field after its remote requirements") {
@@ -678,58 +621,53 @@ object FieldRoutingSpec extends ZIOSpecDefault {
           """{"data":{"product":{"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product","_caliban_gateway_key_2":"p1","_caliban_gateway_typename_2":"Product"}}}"""
 
         for {
-          products <- stubByRequest(request =>
-                        if (request.query.exists(_.contains("_entities")))
-                          """{"data":{"_entities":[{"label":"premium"}]}}"""
-                        else rootResponse
-                      )
-          pricing  <- stub("""{"data":{"_entities":[{"_caliban_gateway_requirement_price":100}]}}""")
-          gateway  <- Gateway
-                        .compose(
-                          Subgraph.federation("products", products.endpoint, productsSchema),
-                          Subgraph.federation("pricing", pricing.endpoint, pricingSchema)
-                        )
-                        .interpreter
-          response <- gateway.execute("{ product { label } }")
-          sentA    <- products.requests.get
-          sentB    <- pricing.requests.get
+          products     <- stubByRequest(request =>
+                            if (request.query.exists(_.contains("_entities")))
+                              """{"data":{"_entities":[{"label":"premium"}]}}"""
+                            else rootResponse
+                          )
+          pricing      <- stub("""{"data":{"_entities":[{"_caliban_gateway_requirement_price":100}]}}""")
+          runtime      <- Gateway
+                            .compose(
+                              Subgraph.federation("products", products.endpoint, productsSchema),
+                              Subgraph.federation("pricing", pricing.endpoint, pricingSchema)
+                            )
+                            .interpreter
+          response     <- runtime.execute("{ product { label } }")
+          productsSent <- products.requests.get
+          pricingSent  <- pricing.requests.get
         } yield assertTrue(
           response.errors.isEmpty,
           field(response.data, "product").flatMap(field(_, "label")).contains(StringValue("premium")),
-          sentA.size == 2,
-          sentA.headOption.flatMap(_.query).forall(!_.contains("label")),
-          sentB.size == 1,
-          sentA.lastOption.flatMap(_.variables).exists(_.toString.contains("100"))
+          productsSent.size == 2,
+          productsSent.headOption.flatMap(_.query).forall(!_.contains("label")),
+          pricingSent.size == 1,
+          productsSent.lastOption.flatMap(_.variables).exists(_.toString.contains("100"))
         )
       }
     ),
     suite("shared keys and merged fetches")(
       test("shares one injected key alias between sibling entity fetches without fetching the typename") {
-        val shippingSchema =
-          s"""
-             |${federationSchemaPreamble("@key", "@external")}
-             |type Product @key(fields: "id") { id: ID! @external shipping: Int! }
-             |""".stripMargin
-        val taxSchema      =
+        val taxSchema =
           s"""
              |${federationSchemaPreamble("@key", "@external")}
              |type Product @key(fields: "id") { id: ID! @external tax: Int! }
              |""".stripMargin
 
         for {
-          roots    <- stub(productRoot)
+          roots    <- stub(productRootResponse)
           shipping <- stub("""{"data":{"_entities":[{"shipping":20}]}}""")
           tax      <- stub("""{"data":{"_entities":[{"tax":3}]}}""")
-          gateway  <- Gateway
+          runtime  <- Gateway
                         .compose(
-                          Subgraph.federation("roots", roots.endpoint, productRoots),
-                          Subgraph.federation("shipping", shipping.endpoint, shippingSchema),
+                          Subgraph.federation("roots", roots.endpoint, productRootSchema),
+                          Subgraph.federation("shipping", shipping.endpoint, productShippingSchema),
                           Subgraph.federation("tax", tax.endpoint, taxSchema)
                         )
                         .interpreter
-          response <- gateway.execute("{ product { shipping tax } }")
-          rootSent <- roots.requests.get
-          query     = rootSent.headOption.flatMap(_.query).getOrElse("")
+          response <- runtime.execute("{ product { shipping tax } }")
+          sent     <- roots.requests.get
+          query     = sent.headOption.flatMap(_.query).getOrElse("")
           key       = "_caliban_gateway_key:id"
         } yield assertTrue(
           response.errors.isEmpty,
@@ -767,11 +705,7 @@ object FieldRoutingSpec extends ZIOSpecDefault {
           roots    <- stub(rootResponse)
           details  <-
             stubByRequest { request =>
-              val entities = request.variables.flatMap(_.get("representations")).toList.flatMap {
-                case ListValue(values) => values
-                case _                 => Nil
-              }
-              val names    = entities.collect { case InputObjectValue(fields) =>
+              val names = representations(request).collect { case InputObjectValue(fields) =>
                 (fields.get("__typename"), fields.get("id")) match {
                   case (Some(StringValue(typename)), Some(StringValue(id))) =>
                     s"""{"_caliban_gateway_entity_key":"$id","_caliban_gateway_entity_typename":"$typename","name":"$typename-$id"}"""
@@ -780,18 +714,18 @@ object FieldRoutingSpec extends ZIOSpecDefault {
               }
               s"""{"data":{"_entities":[${names.mkString(",")}]}}"""
             }
-          gateway  <- Gateway
+          runtime  <- Gateway
                         .compose(
                           Subgraph.federation("roots", roots.endpoint, rootsSchema),
                           Subgraph.federation("details", details.endpoint, detailsSchema)
                         )
                         .interpreter
-          response <- gateway.execute("{ nodes { ... on A { child { name } } ... on B { child { name } } } }")
-          rootSent <- roots.requests.get
+          response <- runtime.execute("{ nodes { ... on A { child { name } } ... on B { child { name } } } }")
+          sent     <- roots.requests.get
           rendered  = response.data.toString
         } yield assertTrue(
           response.errors.isEmpty,
-          rootSent.exists(_.query.exists(_.contains("_caliban_gateway_typename:__typename"))),
+          sent.exists(_.query.exists(_.contains("_caliban_gateway_typename:__typename"))),
           rendered.contains("Product-p"),
           rendered.contains("User-u"),
           !rendered.contains("Product-u"),
@@ -799,24 +733,18 @@ object FieldRoutingSpec extends ZIOSpecDefault {
         )
       },
       test("reuses a client alias whose selection matches an injected key") {
-        val shippingSchema =
-          s"""
-             |${federationSchemaPreamble("@key", "@external")}
-             |type Product @key(fields: "id") { id: ID! @external shipping: Int! }
-             |""".stripMargin
-
         for {
-          roots    <- stub(productRoot)
+          roots    <- stub(productRootResponse)
           shipping <- stub("""{"data":{"_entities":[{"shipping":20}]}}""")
-          gateway  <- Gateway
+          runtime  <- Gateway
                         .compose(
-                          Subgraph.federation("roots", roots.endpoint, productRoots),
-                          Subgraph.federation("shipping", shipping.endpoint, shippingSchema)
+                          Subgraph.federation("roots", roots.endpoint, productRootSchema),
+                          Subgraph.federation("shipping", shipping.endpoint, productShippingSchema)
                         )
                         .interpreter
-          response <- gateway.execute("{ product { _caliban_gateway_key: id shipping } }")
-          rootSent <- roots.requests.get
-          query     = rootSent.headOption.flatMap(_.query).getOrElse("")
+          response <- runtime.execute("{ product { _caliban_gateway_key: id shipping } }")
+          sent     <- roots.requests.get
+          query     = sent.headOption.flatMap(_.query).getOrElse("")
           key       = "_caliban_gateway_key:id"
         } yield assertTrue(
           response.errors.isEmpty,
@@ -827,40 +755,35 @@ object FieldRoutingSpec extends ZIOSpecDefault {
         )
       },
       test("merges a requirement fetch with the field fetch of the same subgraph into one call") {
-        val priceSchema    =
-          s"""
-             |${federationSchemaPreamble("@key", "@external")}
-             |type Product @key(fields: "id") { id: ID! @external price: Int! }
-             |""".stripMargin
-        val ratingSchema   = productRatings("Int!", "Boolean!")
+        val ratingSchema   = productRequiringPrice("expensive: Boolean!")
         val priceResponse  =
           """{"data":{"_entities":[{"price":100,"_caliban_gateway_requirement_price":100}]}}"""
         val ratingResponse = """{"data":{"_entities":[{"expensive":true}]}}"""
 
         for {
-          roots      <- stub(productRoot)
-          prices     <- stub(priceResponse)
-          ratings    <- stub(ratingResponse)
-          gateway    <- Gateway
-                          .compose(
-                            Subgraph.federation("roots", roots.endpoint, productRoots),
-                            Subgraph.federation("prices", prices.endpoint, priceSchema),
-                            Subgraph.federation("ratings", ratings.endpoint, ratingSchema)
-                          )
-                          .interpreter
-          plan       <- gateway.explain(GraphQLRequest(query = Some("{ product { price expensive } }")))
-          response   <- gateway.execute("{ product { price expensive } }")
-          priceSent  <- prices.requests.get
-          ratingSent <- ratings.requests.get
-          priceQuery  = priceSent.headOption.flatMap(_.query).getOrElse("")
+          roots       <- stub(productRootResponse)
+          prices      <- stub(priceResponse)
+          ratings     <- stub(ratingResponse)
+          runtime     <- Gateway
+                           .compose(
+                             Subgraph.federation("roots", roots.endpoint, productRootSchema),
+                             Subgraph.federation("prices", prices.endpoint, productPriceSchema),
+                             Subgraph.federation("ratings", ratings.endpoint, ratingSchema)
+                           )
+                           .interpreter
+          plan        <- runtime.explain(GraphQLRequest(query = Some("{ product { price expensive } }")))
+          response    <- runtime.execute("{ product { price expensive } }")
+          pricesSent  <- prices.requests.get
+          ratingsSent <- ratings.requests.get
+          priceQuery   = pricesSent.headOption.flatMap(_.query).getOrElse("")
         } yield assertTrue(
           response.errors.isEmpty,
           field(response.data, "product").flatMap(field(_, "price")).contains(IntNumber(100)),
           field(response.data, "product").flatMap(field(_, "expensive")).contains(BooleanValue(true)),
-          priceSent.size == 1,
+          pricesSent.size == 1,
           priceQuery.contains("_caliban_gateway_requirement_price:price"),
-          ratingSent.size == 1,
-          ratingSent.headOption.flatMap(_.variables).exists(_.toString.contains("100")),
+          ratingsSent.size == 1,
+          ratingsSent.headOption.flatMap(_.variables).exists(_.toString.contains("100")),
           plan.linesIterator.count(_.startsWith("fetch prices")) == 1
         )
       },
@@ -875,44 +798,41 @@ object FieldRoutingSpec extends ZIOSpecDefault {
              |${federationSchemaPreamble("@key", "@shareable")}
              |type Product @key(fields: "id") { id: ID! price: Int @shareable }
              |""".stripMargin
-        val ratingSchema   = productRatings("Int!", "Boolean")
+        val ratingSchema   = productRequiringPrice("expensive: Boolean")
         val priceResponse  =
           """{"data":{"_entities":[null]},"errors":[{"message":"price unavailable","path":["_entities",0,"_caliban_gateway_requirement_price"]}]}"""
         val ratingResponse = """{"data":{"_entities":[{"expensive":true}]}}"""
 
         for {
-          roots         <- stub(productRoot)
+          roots         <- stub(productRootResponse)
           prices        <- stubByRequest(request =>
                              if (request.query.exists(_.contains("_caliban_gateway_requirement_price"))) priceResponse
                              else """{"data":{"_entities":[{"displayPrice":10}]}}"""
                            )
           catalog       <- stub(priceResponse)
           ratings       <- stub(ratingResponse)
-          gateway       <- Gateway
+          runtime       <- Gateway
                              .compose(
-                               Subgraph.federation("roots", roots.endpoint, productRoots),
+                               Subgraph.federation("roots", roots.endpoint, productRootSchema),
                                Subgraph.federation("prices", prices.endpoint, priceSchema),
                                Subgraph.federation("catalog", catalog.endpoint, catalogSchema),
                                Subgraph.federation("ratings", ratings.endpoint, ratingSchema)
                              )
                              .interpreter
-          introspection <- gateway.execute("""{ __type(name: "Product") { fields { name type { kind } } } }""")
-          response      <- gateway.execute("{ product { displayPrice expensive } }")
-          priceSent     <- prices.requests.get
+          introspection <- runtime.execute("""{ __type(name: "Product") { fields { name type { kind } } } }""")
+          response      <- runtime.execute("{ product { displayPrice expensive } }")
+          pricesSent    <- prices.requests.get
           catalogSent   <- catalog.requests.get
-          ratingSent    <- ratings.requests.get
+          ratingsSent   <- ratings.requests.get
           product        = field(response.data, "product")
-          priceKind      = listValues(field(introspection.data, "__type").flatMap(field(_, "fields")))
-                             .find(field(_, "name").contains(StringValue("price")))
-                             .flatMap(field(_, "type"))
-                             .flatMap(field(_, "kind"))
+          priceKind      = fieldKind(introspection.data, "price")
         } yield assertTrue(
           priceKind.contains(EnumValue("SCALAR")),
           product.flatMap(field(_, "displayPrice")).contains(IntNumber(10)),
           product.flatMap(field(_, "expensive")).contains(NullValue),
           response.errors.nonEmpty,
-          priceSent.size + catalogSent.size == 2,
-          ratingSent.isEmpty
+          pricesSent.size + catalogSent.size == 2,
+          ratingsSent.isEmpty
         )
       },
       test("keeps a non-null client field separate from a nullable prerequisite it would otherwise erase") {
@@ -926,44 +846,41 @@ object FieldRoutingSpec extends ZIOSpecDefault {
              |${federationSchemaPreamble("@key", "@shareable")}
              |type Product @key(fields: "id") { id: ID! displayPrice: Int @shareable }
              |""".stripMargin
-        val ratingSchema    = productRatings("Int", "Boolean")
+        val ratingSchema    = productRequiringPrice("expensive: Boolean", "Int")
         val displayResponse =
           """{"data":{"_entities":[null]},"errors":[{"message":"displayPrice unavailable","path":["_entities",0,"displayPrice"]}]}"""
         val priceResponse   = """{"data":{"_entities":[{"_caliban_gateway_requirement_price":100}]}}"""
         val ratingResponse  = """{"data":{"_entities":[{"expensive":true}]}}"""
 
         for {
-          roots         <- stub(productRoot)
+          roots         <- stub(productRootResponse)
           prices        <- stubByRequest(request =>
                              if (request.query.exists(_.contains("displayPrice"))) displayResponse else priceResponse
                            )
           catalog       <- stub(displayResponse)
           ratings       <- stub(ratingResponse)
-          gateway       <- Gateway
+          runtime       <- Gateway
                              .compose(
-                               Subgraph.federation("roots", roots.endpoint, productRoots),
+                               Subgraph.federation("roots", roots.endpoint, productRootSchema),
                                Subgraph.federation("prices", prices.endpoint, priceSchema),
                                Subgraph.federation("catalog", catalog.endpoint, catalogSchema),
                                Subgraph.federation("ratings", ratings.endpoint, ratingSchema)
                              )
                              .interpreter
-          introspection <- gateway.execute("""{ __type(name: "Product") { fields { name type { kind } } } }""")
-          response      <- gateway.execute("{ product { displayPrice expensive } }")
-          priceSent     <- prices.requests.get
+          introspection <- runtime.execute("""{ __type(name: "Product") { fields { name type { kind } } } }""")
+          response      <- runtime.execute("{ product { displayPrice expensive } }")
+          pricesSent    <- prices.requests.get
           catalogSent   <- catalog.requests.get
-          ratingSent    <- ratings.requests.get
+          ratingsSent   <- ratings.requests.get
           product        = field(response.data, "product")
-          displayKind    = listValues(field(introspection.data, "__type").flatMap(field(_, "fields")))
-                             .find(field(_, "name").contains(StringValue("displayPrice")))
-                             .flatMap(field(_, "type"))
-                             .flatMap(field(_, "kind"))
+          displayKind    = fieldKind(introspection.data, "displayPrice")
         } yield assertTrue(
           displayKind.contains(EnumValue("SCALAR")),
           product.flatMap(field(_, "displayPrice")).contains(NullValue),
           product.flatMap(field(_, "expensive")).contains(BooleanValue(true)),
           response.errors.nonEmpty,
-          priceSent.size + catalogSent.size == 2,
-          ratingSent.size == 1
+          pricesSent.size + catalogSent.size == 2,
+          ratingsSent.size == 1
         )
       },
       test("keeps a lookup that covers every implementation over a cheaper single-implementation merge") {
@@ -996,24 +913,20 @@ object FieldRoutingSpec extends ZIOSpecDefault {
         val ratingResponse = """{"data":{"_entities":[{"expensive":true}]}}"""
 
         for {
-          roots      <- stub(nodeRoot("Product", "p1"))
-          prices     <- stubByRequest(request =>
-                          if (request.query.exists(_.contains("_caliban_gateway_requirement_price")))
-                            """{"data":{"_entities":[{"_caliban_gateway_requirement_price":100}]}}"""
-                          else """{"data":{"_entities":[{"displayPrice":10}]}}"""
-                        )
-          ratings    <- stub(ratingResponse)
-          gateway    <- Gateway
-                          .compose(
-                            Subgraph.federation("roots", roots.endpoint, nodeRoots),
-                            Subgraph.federation("prices", prices.endpoint, priceSchema),
-                            Subgraph.federation("ratings", ratings.endpoint, ratingSchema)
-                          )
-                          .interpreter
-          plan       <- gateway.explain(GraphQLRequest(query = Some("{ node { displayPrice expensive } }")))
-          response   <- gateway.execute("{ node { displayPrice expensive } }")
-          priceSent  <- prices.requests.get
-          ratingSent <- ratings.requests.get
+          roots       <- stub(nodeRoot("Product", "p1"))
+          prices      <- pricesByRequest
+          ratings     <- stub(ratingResponse)
+          runtime     <- Gateway
+                           .compose(
+                             Subgraph.federation("roots", roots.endpoint, nodeRoots),
+                             Subgraph.federation("prices", prices.endpoint, priceSchema),
+                             Subgraph.federation("ratings", ratings.endpoint, ratingSchema)
+                           )
+                           .interpreter
+          plan        <- runtime.explain(GraphQLRequest(query = Some("{ node { displayPrice expensive } }")))
+          response    <- runtime.execute("{ node { displayPrice expensive } }")
+          pricesSent  <- prices.requests.get
+          ratingsSent <- ratings.requests.get
 
           node    = field(response.data, "node")
           covered = (implementation: String) =>
@@ -1027,9 +940,9 @@ object FieldRoutingSpec extends ZIOSpecDefault {
           response.errors.isEmpty,
           node.flatMap(field(_, "displayPrice")).contains(IntNumber(10)),
           node.flatMap(field(_, "expensive")).contains(BooleanValue(true)),
-          priceSent.nonEmpty,
-          priceSent.forall(_.variables.exists(_.toString.contains("Product"))),
-          ratingSent.size == 1
+          pricesSent.nonEmpty,
+          pricesSent.forall(_.variables.exists(_.toString.contains("Product"))),
+          ratingsSent.size == 1
         )
       },
       test("serves an implementation without its own key through the interface lookup") {
@@ -1058,39 +971,35 @@ object FieldRoutingSpec extends ZIOSpecDefault {
         val ratingResponse = """{"data":{"_entities":[{"expensive":true}]}}"""
 
         for {
-          roots      <- stub(nodeRoot("Service", "s1"))
-          prices     <- stubByRequest(request =>
-                          if (request.query.exists(_.contains("_caliban_gateway_requirement_price")))
-                            """{"data":{"_entities":[{"_caliban_gateway_requirement_price":100}]}}"""
-                          else """{"data":{"_entities":[{"displayPrice":10}]}}"""
-                        )
-          ratings    <- stub(ratingResponse)
-          gateway    <- Gateway
-                          .compose(
-                            Subgraph.federation("roots", roots.endpoint, nodeRoots),
-                            Subgraph.federation("prices", prices.endpoint, priceSchema),
-                            Subgraph.federation("ratings", ratings.endpoint, ratingSchema)
-                          )
-                          // Allow for CI contention while checking interface routing.
-                          .withConfig(_.withPlanningTimeout(Duration.fromSeconds(30)))
-                          .interpreter
-          plan       <- gateway.explain(GraphQLRequest(query = Some("{ node { displayPrice expensive } }")))
-          response   <- gateway.execute("{ node { displayPrice expensive } }")
-          priceSent  <- prices.requests.get
-          ratingSent <- ratings.requests.get
-          rootSent   <- roots.requests.get
-          node        = field(response.data, "node")
+          roots       <- stub(nodeRoot("Service", "s1"))
+          prices      <- pricesByRequest
+          ratings     <- stub(ratingResponse)
+          runtime     <- Gateway
+                           .compose(
+                             Subgraph.federation("roots", roots.endpoint, nodeRoots),
+                             Subgraph.federation("prices", prices.endpoint, priceSchema),
+                             Subgraph.federation("ratings", ratings.endpoint, ratingSchema)
+                           )
+                           // Allow for CI contention while checking interface routing.
+                           .withConfig(_.withPlanningTimeout(Duration.fromSeconds(30)))
+                           .interpreter
+          plan        <- runtime.explain(GraphQLRequest(query = Some("{ node { displayPrice expensive } }")))
+          response    <- runtime.execute("{ node { displayPrice expensive } }")
+          pricesSent  <- prices.requests.get
+          ratingsSent <- ratings.requests.get
+          rootsSent   <- roots.requests.get
+          node         = field(response.data, "node")
         } yield assertTrue(
           plan.linesIterator.exists(line =>
             line.startsWith("fetch prices") && line.contains("via Node(") && line.contains("displayPrice")
           ),
-          rootSent.exists(_.query.exists(_.contains("_caliban_gateway_typename:__typename"))),
+          rootsSent.exists(_.query.exists(_.contains("_caliban_gateway_typename:__typename"))),
           response.errors.isEmpty,
           node.flatMap(field(_, "displayPrice")).contains(IntNumber(10)),
           node.flatMap(field(_, "expensive")).contains(BooleanValue(true)),
-          priceSent.nonEmpty,
-          priceSent.forall(_.variables.exists(_.toString.contains("Service"))),
-          ratingSent.size == 1
+          pricesSent.nonEmpty,
+          pricesSent.forall(_.variables.exists(_.toString.contains("Service"))),
+          ratingsSent.size == 1
         )
       },
       test("keeps a fetch from depending on itself when siblings share a key alias") {
@@ -1123,13 +1032,13 @@ object FieldRoutingSpec extends ZIOSpecDefault {
           accounts <- stubByRequest(request =>
                         if (request.query.exists(_.contains("_entities"))) accountsEntity else rootResponse
                       )
-          gateway  <- Gateway
+          runtime  <- Gateway
                         .compose(
                           Subgraph.federation("users", users.endpoint, usersSchema),
                           Subgraph.federation("accounts", accounts.endpoint, accountsSchema)
                         )
                         .interpreter
-          response <- gateway.execute("{ anotherUsers { ... on User { username } id name } }")
+          response <- runtime.execute("{ anotherUsers { ... on User { username } id name } }")
           user      = listValues(field(response.data, "anotherUsers")).headOption
         } yield assertTrue(
           response.errors.isEmpty,
@@ -1150,13 +1059,13 @@ object FieldRoutingSpec extends ZIOSpecDefault {
         for {
           users    <- stub("""{"data":{"user":{"_caliban_gateway_key":"u1","_caliban_gateway_typename":"User"}}}""")
           accounts <- stub("""{"data":{"_entities":[{"username":"u1-username"}]}}""")
-          gateway  <- Gateway
+          runtime  <- Gateway
                         .compose(
                           Subgraph.federation("users", users.endpoint, usersSchema),
                           Subgraph.federation("accounts", accounts.endpoint, nodeWithNameAccounts)
                         )
                         .interpreter
-          response <- gateway.execute("{ user { username } }")
+          response <- runtime.execute("{ user { username } }")
           sent     <- accounts.requests.get
           user      = field(response.data, "user")
         } yield assertTrue(
@@ -1188,13 +1097,13 @@ object FieldRoutingSpec extends ZIOSpecDefault {
                         else """{"data":{"user":{"_caliban_gateway_key":"u1","_caliban_gateway_typename":"User"}}}"""
                       )
           accounts <- stub("""{"data":{"_entities":[{"_caliban_gateway_requirement_username":"u1-username"}]}}""")
-          gateway  <- Gateway
+          runtime  <- Gateway
                         .compose(
                           Subgraph.federation("users", users.endpoint, usersSchema),
                           Subgraph.federation("accounts", accounts.endpoint, nodeWithNameAccounts)
                         )
                         .interpreter
-          response <- gateway.execute("{ user { display } }")
+          response <- runtime.execute("{ user { display } }")
           sent     <- users.requests.get
           user      = field(response.data, "user")
         } yield assertTrue(
@@ -1220,13 +1129,13 @@ object FieldRoutingSpec extends ZIOSpecDefault {
         for {
           users    <- stub(searchResponse)
           accounts <- stub("""{"data":{"_entities":[{"username":"u1-username"}]}}""")
-          gateway  <- Gateway
+          runtime  <- Gateway
                         .compose(
                           Subgraph.federation("users", users.endpoint, usersSchema),
                           Subgraph.federation("accounts", accounts.endpoint, nodeWithNameAccounts)
                         )
                         .interpreter
-          response <- gateway.execute("{ search { ... on User { username } ... on Team { id } } }")
+          response <- runtime.execute("{ search { ... on User { username } ... on Team { id } } }")
           sent     <- accounts.requests.get
           results   = listValues(field(response.data, "search"))
         } yield assertTrue(
@@ -1265,13 +1174,13 @@ object FieldRoutingSpec extends ZIOSpecDefault {
                         else if (query.contains("username")) s"""{"data":{"_entities":[$user]}}"""
                         else s"""{"data":{"_entities":[$team]}}"""
                       }
-          gateway  <- Gateway
+          runtime  <- Gateway
                         .compose(
                           Subgraph.federation("users", users.endpoint, usersSchema),
                           Subgraph.federation("accounts", accounts.endpoint, accountsSchema)
                         )
                         .interpreter
-          response <- gateway.execute("{ search { ... on User { username } ... on Team { motto } } }")
+          response <- runtime.execute("{ search { ... on User { username } ... on Team { motto } } }")
           sent     <- accounts.requests.get
           queries   = sent.flatMap(_.query)
           results   = listValues(field(response.data, "search"))
@@ -1303,13 +1212,13 @@ object FieldRoutingSpec extends ZIOSpecDefault {
                           """{"data":{"_entities":[{"username":"u1-username"}]}}"""
                         else """{"data":{"_entities":[{"nickname":"nick"}]}}"""
                       }
-          gateway  <- Gateway
+          runtime  <- Gateway
                         .compose(
                           Subgraph.federation("users", users.endpoint, usersSchema),
                           Subgraph.federation("accounts", accounts.endpoint, accountsSchema)
                         )
                         .interpreter
-          response <- gateway.execute("{ user { username nickname } }")
+          response <- runtime.execute("{ user { username nickname } }")
           sent     <- accounts.requests.get
           queries   = sent.flatMap(_.query)
           user      = field(response.data, "user")
@@ -1338,13 +1247,13 @@ object FieldRoutingSpec extends ZIOSpecDefault {
         for {
           users    <- stub(searchResponse)
           accounts <- stub("""{"data":{"_entities":[{"username":"u1-username"},{"username":"a1-username"}]}}""")
-          gateway  <- Gateway
+          runtime  <- Gateway
                         .compose(
                           Subgraph.federation("users", users.endpoint, usersSchema),
                           Subgraph.federation("accounts", accounts.endpoint, nodeWithNameAccounts)
                         )
                         .interpreter
-          response <- gateway.execute("{ search { ... on User { username } ... on Admin { username } } }")
+          response <- runtime.execute("{ search { ... on User { username } ... on Admin { username } } }")
           sent     <- accounts.requests.get
           results   = listValues(field(response.data, "search"))
         } yield assertTrue(
@@ -1369,25 +1278,25 @@ object FieldRoutingSpec extends ZIOSpecDefault {
           """{"data":{"nodes":[{"__typename":"User","_caliban_gateway_key":"u1","_caliban_gateway_typename":"User"},{"__typename":"Admin","_caliban_gateway_key":"a1","_caliban_gateway_typename":"Admin"}]}}"""
 
         for {
-          users     <- stub(nodesResponse)
-          accounts  <- stub("""{"data":{"_entities":[{"username":"u1-username"},{"username":"a1-username"}]}}""")
-          gateway   <- Gateway
-                         .compose(
-                           Subgraph.federation("users", users.endpoint, usersSchema),
-                           Subgraph.federation("accounts", accounts.endpoint, nodeWithNameAccounts)
-                         )
-                         .interpreter
-          response  <- gateway.execute("{ nodes { ... on User { username } ... on Admin { username } } }")
-          sent      <- accounts.requests.get
-          usersSent <- users.requests.get
-          results    = listValues(field(response.data, "nodes"))
+          users        <- stub(nodesResponse)
+          accounts     <- stub("""{"data":{"_entities":[{"username":"u1-username"},{"username":"a1-username"}]}}""")
+          runtime      <- Gateway
+                            .compose(
+                              Subgraph.federation("users", users.endpoint, usersSchema),
+                              Subgraph.federation("accounts", accounts.endpoint, nodeWithNameAccounts)
+                            )
+                            .interpreter
+          response     <- runtime.execute("{ nodes { ... on User { username } ... on Admin { username } } }")
+          accountsSent <- accounts.requests.get
+          usersSent    <- users.requests.get
+          results       = listValues(field(response.data, "nodes"))
         } yield assertTrue(
           response.errors.isEmpty,
           results.headOption.flatMap(field(_, "username")).contains(StringValue("u1-username")),
           results.lift(1).flatMap(field(_, "username")).contains(StringValue("a1-username")),
           usersSent.size == 1,
-          sent.size == 1,
-          sent.forall(_.query.exists(_.contains("...on NodeWithName{username}")))
+          accountsSent.size == 1,
+          accountsSent.forall(_.query.exists(_.contains("...on NodeWithName{username}")))
         )
       },
       test("merges a nullable prerequisite with client fields of the same subgraph") {
@@ -1396,75 +1305,54 @@ object FieldRoutingSpec extends ZIOSpecDefault {
              |${federationSchemaPreamble("@key", "@external")}
              |type Product @key(fields: "id") { id: ID! @external displayPrice: Int price: Int }
              |""".stripMargin
-        val ratingSchema   = productRatings("Int", "Boolean")
+        val ratingSchema   = productRequiringPrice("expensive: Boolean", "Int")
         val priceResponse  =
           """{"data":{"_entities":[{"displayPrice":10,"_caliban_gateway_requirement_price":100}]}}"""
         val ratingResponse = """{"data":{"_entities":[{"expensive":true}]}}"""
 
         for {
-          roots      <- stub(productRoot)
-          prices     <- stub(priceResponse)
-          ratings    <- stub(ratingResponse)
-          gateway    <- Gateway
-                          .compose(
-                            Subgraph.federation("roots", roots.endpoint, productRoots),
-                            Subgraph.federation("prices", prices.endpoint, priceSchema),
-                            Subgraph.federation("ratings", ratings.endpoint, ratingSchema)
-                          )
-                          .interpreter
-          response   <- gateway.execute("{ product { displayPrice expensive } }")
-          priceSent  <- prices.requests.get
-          ratingSent <- ratings.requests.get
-          product     = field(response.data, "product")
+          roots       <- stub(productRootResponse)
+          prices      <- stub(priceResponse)
+          ratings     <- stub(ratingResponse)
+          runtime     <- Gateway
+                           .compose(
+                             Subgraph.federation("roots", roots.endpoint, productRootSchema),
+                             Subgraph.federation("prices", prices.endpoint, priceSchema),
+                             Subgraph.federation("ratings", ratings.endpoint, ratingSchema)
+                           )
+                           .interpreter
+          response    <- runtime.execute("{ product { displayPrice expensive } }")
+          pricesSent  <- prices.requests.get
+          ratingsSent <- ratings.requests.get
+          product      = field(response.data, "product")
         } yield assertTrue(
           response.errors.isEmpty,
           product.flatMap(field(_, "displayPrice")).contains(IntNumber(10)),
           product.flatMap(field(_, "expensive")).contains(BooleanValue(true)),
-          priceSent.size == 1,
-          ratingSent.size == 1
+          pricesSent.size == 1,
+          ratingsSent.size == 1
         )
       },
       test("merges identical prerequisite fetches of different consumers into one call") {
-        val priceSchema    =
-          s"""
-             |${federationSchemaPreamble("@key", "@external")}
-             |type Product @key(fields: "id") { id: ID! @external price: Int! }
-             |""".stripMargin
-        val shippingSchema =
-          s"""
-             |${federationSchemaPreamble("@key", "@external", "@requires")}
-             |type Product @key(fields: "id") {
-             |  id: ID! @external
-             |  price: Int! @external
-             |  shipping: Int! @requires(fields: "price")
-             |}
-             |""".stripMargin
-        val taxSchema      =
-          s"""
-             |${federationSchemaPreamble("@key", "@external", "@requires")}
-             |type Product @key(fields: "id") {
-             |  id: ID! @external
-             |  price: Int! @external
-             |  tax: Int! @requires(fields: "price")
-             |}
-             |""".stripMargin
+        val shippingSchema = productRequiringPrice("shipping: Int!")
+        val taxSchema      = productRequiringPrice("tax: Int!")
         val priceResponse  = """{"data":{"_entities":[{"_caliban_gateway_requirement_price":100}]}}"""
 
         for {
-          roots        <- stub(productRoot)
+          roots        <- stub(productRootResponse)
           prices       <- stub(priceResponse)
           shipping     <- stub("""{"data":{"_entities":[{"shipping":20}]}}""")
           tax          <- stub("""{"data":{"_entities":[{"tax":3}]}}""")
-          gateway      <- Gateway
+          runtime      <- Gateway
                             .compose(
-                              Subgraph.federation("roots", roots.endpoint, productRoots),
-                              Subgraph.federation("prices", prices.endpoint, priceSchema),
+                              Subgraph.federation("roots", roots.endpoint, productRootSchema),
+                              Subgraph.federation("prices", prices.endpoint, productPriceSchema),
                               Subgraph.federation("shipping", shipping.endpoint, shippingSchema),
                               Subgraph.federation("tax", tax.endpoint, taxSchema)
                             )
                             .interpreter
-          response     <- gateway.execute("{ product { shipping tax } }")
-          priceSent    <- prices.requests.get
+          response     <- runtime.execute("{ product { shipping tax } }")
+          pricesSent   <- prices.requests.get
           shippingSent <- shipping.requests.get
           taxSent      <- tax.requests.get
           product       = field(response.data, "product")
@@ -1472,7 +1360,7 @@ object FieldRoutingSpec extends ZIOSpecDefault {
           response.errors.isEmpty,
           product.flatMap(field(_, "shipping")).contains(IntNumber(20)),
           product.flatMap(field(_, "tax")).contains(IntNumber(3)),
-          priceSent.size == 1,
+          pricesSent.size == 1,
           shippingSent.size == 1,
           taxSent.size == 1
         )

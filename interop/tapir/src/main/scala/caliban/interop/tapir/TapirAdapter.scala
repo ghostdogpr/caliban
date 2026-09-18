@@ -248,4 +248,7 @@ object TapirAdapter {
   def isFtv1Header(r: Header): Boolean =
     r.name == GraphQLRequest.`apollo-federation-include-trace` && r.value == GraphQLRequest.ftv1
 
+  private[tapir] def headerValues(request: ServerRequest): List[(String, String)] =
+    request.headers.map(header => header.name -> header.value).toList
+
 }

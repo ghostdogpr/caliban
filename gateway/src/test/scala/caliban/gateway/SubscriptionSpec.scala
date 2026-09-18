@@ -2,7 +2,7 @@ package caliban.gateway
 
 import caliban._
 import caliban.gateway.GatewayTestSupport._
-import caliban.gateway.internal.{ GatewayExecutionControl, SubscriptionControl, SubscriptionTermination }
+import caliban.gateway.internal.{ GatewayExecutionControl, SubscriptionTermination }
 import caliban.gateway.internal.execution.SubgraphExecutor
 import caliban.schema.Schema.auto._
 import caliban.ws.{ Protocol, WebSocketHooks }
@@ -16,18 +16,35 @@ import java.nio.charset.StandardCharsets.UTF_8
 
 object SubscriptionSpec extends ZIOSpecDefault {
   final case class Query(value: String)
-  final case class Subscription(event: ZStream[Any, Throwable, Int])
-  private val request                                     = GraphQLRequest(query = Some("subscription { event }"))
-  private def local(events: ZStream[Any, Throwable, Int]) = Subgraph.local(
-    "local",
-    graphQL(
-      RootResolver(
-        queryResolver = Some(Query("ok")),
-        mutationResolver = Option.empty[Unit],
-        subscriptionResolver = Some(Subscription(events))
-      )
-    )
-  )
+  private val request = GraphQLRequest(query = Some("subscription { event }"))
+
+  private def subscriptionGateway(events: ZStream[Any, Throwable, Int]): Gateway[Any] =
+    Gateway.compose(Subgraph.local("local", subscriptionGraph(events)))
+
+  private def remoteGateway(endpoint: URL, schema: String, config: RemoteGraphQLConfig[Any]): Gateway[Any] =
+    Gateway.compose(Subgraph.graphql("remote", endpoint, schema, config))
+
+  private def sseResponse(body: String): Response =
+    Response(headers = Headers(Header.Custom("Content-Type", "text/event-stream")), body = Body.fromString(body))
+
+  private def socketEndpoint(prefix: String)(
+    handle: WebSocketChannel => Task[Unit]
+  ): ZIO[Server with Ref[Int], Nothing, URL] =
+    getEndpoint(prefix)(_ => Response.fromSocketApp(transportWsSocket(handle)))
+
+  private def transportWsSocket(handle: WebSocketChannel => Task[Unit]): WebSocketApp[Any] =
+    Handler.webSocket(handle).withConfig(WebSocketConfig.default.subProtocol(Some("graphql-transport-ws")))
+
+  private def acknowledgeThen(channel: WebSocketChannel)(respond: PartialFunction[String, Task[Unit]]): Task[Unit] =
+    channel.receiveAll {
+      case ChannelEvent.Read(WebSocketFrame.Text(text)) =>
+        readFromString[GraphQLWSInput](text).`type` match {
+          case "connection_init" =>
+            channel.send(ChannelEvent.Read(WebSocketFrame.Text("""{"type":"connection_ack"}""")))
+          case other             => respond.applyOrElse(other, (_: String) => ZIO.unit)
+        }
+      case _                                            => ZIO.unit
+    }
 
   def spec = suite("SubscriptionSpec")(
     test("envelope errors retain public fields while terminal failures retain identity") {
@@ -101,6 +118,26 @@ object SubscriptionSpec extends ZIOSpecDefault {
         }
         .map(_.reduce(_ && _))
     },
+    test("setup and stream failures from the source report the same termination reason") {
+      val boom    = new RuntimeException("boom")
+      val remote  = CalibanError.ExecutionError("remote failure")
+      val sources = List[ZIO[Scope, Throwable, ZStream[Any, Throwable, GraphQLResponse[CalibanError]]]](
+        ZIO.fail(boom),
+        ZIO.die(boom),
+        ZIO.succeed(ZStream.fail(boom)),
+        ZIO.succeed(ZStream.fail(remote))
+      )
+      for {
+        recorded     <- recordEvents
+        (seen, hooks) = recorded
+        work         <- GatewayExecutionControl.make(1, GatewaySubscriptionConfig(), hooks, 30.seconds, 1.second)
+        _            <- ZIO.foreachDiscard(sources)(open => work.subscriptions.stream(open)(ZIO.succeed(_)).runDrain.exit)
+        observed     <- seen.get
+      } yield assertTrue(
+        observed.collect { case PhaseHooks.Event.SubscriptionTerminated(reason, _) => reason } ==
+          Vector.fill(sources.size)("SUBSCRIPTION_SOURCE_ERROR")
+      )
+    },
     test("passthrough subscriptions preserve resolved directives and variables") {
       val schema    =
         "directive @trace(label: String!) on SUBSCRIPTION | FRAGMENT_DEFINITION type Query { value: String } type Subscription { event: Int }"
@@ -113,22 +150,13 @@ object SubscriptionSpec extends ZIOSpecDefault {
           postEndpoint("subscription-directive")(req =>
             req.body.asString.orDie
               .flatMap(body => sent.set(Some(readFromString[GraphQLRequest](body))))
-              .as(
-                Response(
-                  headers = Headers(Header.Custom("Content-Type", "text/event-stream")),
-                  body = Body.fromString("event: next\ndata: {\"data\":{\"event\":1}}\n\nevent: complete\n\n")
-                )
-              )
+              .as(sseResponse(sseBody(1)))
           )
-        config    = RemoteGraphQLConfig.default.withSubscription(
-                      RemoteSubscriptionConfig(transport = RemoteSubscriptionConfig.Sse())
-                    )
-        gateway  <- Gateway
-                      .compose(Subgraph.graphql("remote", endpoint, schema, config))
+        runtime  <- remoteGateway(endpoint, schema, sseConfig)
                       .withOperationResolver(OperationResolver(_ => ZIO.succeed(query)))
                       .interpreter
         events   <-
-          gateway
+          runtime
             .executeStream(
               GraphQLRequest(query = Some("persisted-id"), operationName = Some("Events"), variables = variables)
             )
@@ -147,21 +175,13 @@ object SubscriptionSpec extends ZIOSpecDefault {
           val body    = ignored + s"""data: {"data":$newline""" + ignored +
             s"""data: {"event":1}}$newline$newline""" + s"event: complete$newline$newline"
           for {
-            endpoint <- streamingEndpoint(ZStream.fromIterable(body.getBytes(UTF_8)), mediaType = "text/event-stream")
-            config    = RemoteGraphQLConfig.default
-                          .withExecution(_.withMaxResponseBytes(128))
-                          .withSubscription(RemoteSubscriptionConfig(transport = RemoteSubscriptionConfig.Sse()))
-            gateway  <- Gateway
-                          .compose(
-                            Subgraph.graphql(
-                              "remote",
-                              endpoint,
-                              "type Query { value: String } type Subscription { event: Int }",
-                              config
-                            )
-                          )
-                          .interpreter
-            events   <- gateway.executeStream(request).runCollect
+            endpoint <- sseEndpoint(body)
+            runtime  <- remoteGateway(
+                          endpoint,
+                          subscriptionSchema,
+                          sseConfig.withExecution(_.withMaxResponseBytes(128))
+                        ).interpreter
+            events   <- runtime.executeStream(request).runCollect
           } yield assertTrue(events.map(_.data.toString).toList == List("{\"event\":1}"))
         }
         .map(_.reduce(_ && _))
@@ -169,24 +189,15 @@ object SubscriptionSpec extends ZIOSpecDefault {
     test("SSE comments do not reset the accumulated data limit") {
       val body = "event: next\n" + (("data: " + ("x" * 40) + "\n: heartbeat\n") * 4)
       for {
-        endpoint <- streamingEndpoint(ZStream.fromIterable(body.getBytes(UTF_8)), mediaType = "text/event-stream")
-        config    = RemoteGraphQLConfig.default
-                      .withExecution(_.withMaxResponseBytes(128))
-                      .withSubscription(RemoteSubscriptionConfig(transport = RemoteSubscriptionConfig.Sse()))
-        gateway  <-
-          Gateway
-            .compose(
-              Subgraph
-                .graphql("remote", endpoint, "type Query { value: String } type Subscription { event: Int }", config)
-            )
-            .interpreter
-        exit     <- gateway.executeStream(request).runCollect.exit
+        endpoint <- sseEndpoint(body)
+        runtime  <-
+          remoteGateway(endpoint, subscriptionSchema, sseConfig.withExecution(_.withMaxResponseBytes(128))).interpreter
+        exit     <- runtime.executeStream(request).runCollect.exit
       } yield assertTrue(
         exit.causeOption.flatMap(_.failureOption).contains(SubscriptionTermination.TooLarge)
       )
     },
     test("remote stream size limits preserve the termination code and observation") {
-      val schema = "type Query { value: String } type Subscription { event: Int }"
       for {
         recorded     <- recordEvents
         (seen, hooks) = recorded
@@ -198,12 +209,9 @@ object SubscriptionSpec extends ZIOSpecDefault {
                             .flatMap(text => ZStream.fromIterable(text.getBytes(UTF_8))),
                           mediaType = "text/event-stream"
                         )
-        config        = RemoteGraphQLConfig.default
-                          .withExecution(_.withMaxResponseBytes(128))
-                          .withSubscription(RemoteSubscriptionConfig(transport = RemoteSubscriptionConfig.Sse()))
-        gateway      <-
-          (Gateway.compose(Subgraph.graphql("remote", endpoint, schema, config)).withPhaseHooks(hooks)).interpreter
-        running      <- gateway.executeStream(request).tap(_ => first.succeed(())).runDrain.exit.forkScoped
+        config        = sseConfig.withExecution(_.withMaxResponseBytes(128))
+        runtime      <- remoteGateway(endpoint, subscriptionSchema, config).withPhaseHooks(hooks).interpreter
+        running      <- runtime.executeStream(request).tap(_ => first.succeed(())).runDrain.exit.forkScoped
         _            <- input.offer("event: next\ndata: {\"data\":{\"event\":1}}\n\n")
         _            <- first.await
         _            <- input.offer(":" + ("x" * 129))
@@ -223,47 +231,22 @@ object SubscriptionSpec extends ZIOSpecDefault {
           for {
             recorded     <- recordEvents
             (seen, hooks) = recorded
-            socket        = Handler
-                              .webSocket(channel =>
-                                channel.receiveAll {
-                                  case ChannelEvent.Read(WebSocketFrame.Text(text)) =>
-                                    readFromString[GraphQLWSInput](text).`type` match {
-                                      case "connection_init" =>
-                                        channel.send(ChannelEvent.Read(WebSocketFrame.Text("""{"type":"connection_ack"}""")))
-                                      case "subscribe"       =>
-                                        ZIO.foreachDiscard(parts.zipWithIndex) { case (part, index) =>
-                                          val last  = index == parts.size - 1
-                                          val frame =
-                                            if (index == 0) WebSocketFrame.Text(part, last)
-                                            else WebSocketFrame.Continuation(Chunk.fromArray(part.getBytes(UTF_8)), last)
-                                          channel.send(ChannelEvent.Read(frame))
-                                        }
-                                      case _                 => ZIO.unit
-                                    }
-                                  case _                                            => ZIO.unit
+            endpoint     <- socketEndpoint("subscription-ws-size")(channel =>
+                              acknowledgeThen(channel) { case "subscribe" =>
+                                ZIO.foreachDiscard(parts.zipWithIndex) { case (part, index) =>
+                                  val last  = index == parts.size - 1
+                                  val frame =
+                                    if (index == 0) WebSocketFrame.Text(part, last)
+                                    else WebSocketFrame.Continuation(Chunk.fromArray(part.getBytes(UTF_8)), last)
+                                  channel.send(ChannelEvent.Read(frame))
                                 }
-                              )
-                              .withConfig(WebSocketConfig.default.subProtocol(Some("graphql-transport-ws")))
-            id           <- ZIO.serviceWithZIO[Ref[Int]](_.updateAndGet(_ + 1))
-            path          = s"subscription-ws-size-$id"
-            server       <- ZIO.service[Server]
-            _            <- server.install(
-                              Routes(Method.GET / path -> Handler.fromFunctionZIO[Request](_ => Response.fromSocketApp(socket)))
+                              }
                             )
-            port         <- server.port
-            endpoint      = url"http://127.0.0.1:$port/$path"
             config        = RemoteGraphQLConfig.default.withExecution(_.withMaxResponseBytes(128))
-            runtime      <- (Gateway
-                              .compose(
-                                Subgraph.graphql(
-                                  "remote",
-                                  endpoint,
-                                  "type Query { value: String } type Subscription { event: String }",
-                                  config
-                                )
-                              )
-                              .withPhaseHooks(hooks))
-                              .interpreter
+            runtime      <-
+              remoteGateway(endpoint, "type Query { value: String } type Subscription { event: String }", config)
+                .withPhaseHooks(hooks)
+                .interpreter
             exit         <- runtime.executeStream(request).runDrain.exit
             observed     <- seen.get
           } yield assertTrue(
@@ -275,54 +258,34 @@ object SubscriptionSpec extends ZIOSpecDefault {
         .map(_.reduce(_ && _))
     },
     test("upstream buffer overflow keeps its code and emits the overflow observation") {
-      val schema = "type Query { value: String } type Subscription { event: Int }"
       for {
         closed       <- Promise.make[Nothing, Unit]
         release      <- Promise.make[Nothing, Unit]
         recorded     <- recordEvents
         (seen, hooks) = recorded
-        socket        = Handler
-                          .webSocket(channel =>
-                            ZIO.scoped {
-                              channel.awaitShutdown.ensuring(closed.succeed(())).forkScoped *>
-                                channel.receiveAll {
-                                  case ChannelEvent.Read(WebSocketFrame.Text(text)) =>
-                                    readFromString[GraphQLWSInput](text).`type` match {
-                                      case "connection_init" =>
-                                        channel.send(ChannelEvent.Read(WebSocketFrame.Text("""{"type":"connection_ack"}""")))
-                                      case "subscribe"       =>
-                                        ZIO.foreachDiscard(1 to 2)(value =>
-                                          channel.send(
-                                            ChannelEvent.Read(
-                                              WebSocketFrame.Text(
-                                                s"""{"type":"next","id":"1","payload":{"data":{"event":$value}}}"""
-                                              )
-                                            )
-                                          )
-                                        )
-                                      case _                 => ZIO.unit
-                                    }
-                                  case _                                            => ZIO.unit
-                                }
-                            }
-                          )
-                          .withConfig(WebSocketConfig.default.subProtocol(Some("graphql-transport-ws")))
-        id           <- ZIO.serviceWithZIO[Ref[Int]](_.updateAndGet(_ + 1))
-        path          = s"subscription-ws-overflow-$id"
-        server       <- ZIO.service[Server]
-        _            <- server.install(
-                          Routes(Method.GET / path -> Handler.fromFunctionZIO[Request](_ => Response.fromSocketApp(socket)))
+        endpoint     <- socketEndpoint("subscription-ws-overflow")(channel =>
+                          ZIO.scoped {
+                            channel.awaitShutdown.ensuring(closed.succeed(())).forkScoped *>
+                              acknowledgeThen(channel) { case "subscribe" =>
+                                ZIO.foreachDiscard(1 to 2)(value =>
+                                  channel.send(
+                                    ChannelEvent.Read(
+                                      WebSocketFrame.Text(
+                                        s"""{"type":"next","id":"1","payload":{"data":{"event":$value}}}"""
+                                      )
+                                    )
+                                  )
+                                )
+                              }
+                          }
                         )
-        port         <- server.port
-        endpoint      = url"http://127.0.0.1:$port/$path"
         config        = RemoteGraphQLConfig.default.withSubscription(RemoteSubscriptionConfig(bufferSize = 1))
-        gateway      <- Gateway
-                          .compose(Subgraph.graphql("remote", endpoint, schema, config))
+        runtime      <- remoteGateway(endpoint, subscriptionSchema, config)
                           .withPhaseHooks(
                             hooks ++ PhaseHooks.subscriptionSetup(PhaseHandler.outgoing((_, _) => release.await))
                           )
                           .interpreter
-        running      <- gateway.executeStream(request).runDrain.exit.forkScoped
+        running      <- runtime.executeStream(request).runDrain.exit.forkScoped
         _            <- closed.await
         _            <- release.succeed(())
         exit         <- running.join
@@ -336,55 +299,37 @@ object SubscriptionSpec extends ZIOSpecDefault {
       )
     },
     test("pong timeout is independent of the longer keepalive interval") {
-      val schema = "type Query { value: String } type Subscription { event: Int }"
       for {
-        first   <- Promise.make[Nothing, Unit]
-        ping    <- Promise.make[Nothing, Unit]
-        socket   = Handler
-                     .webSocket(channel =>
-                       channel.receiveAll {
-                         case ChannelEvent.Read(WebSocketFrame.Text(text)) =>
-                           readFromString[GraphQLWSInput](text).`type` match {
-                             case "connection_init" =>
-                               channel.send(ChannelEvent.Read(WebSocketFrame.Text("""{"type":"connection_ack"}""")))
-                             case "subscribe"       =>
-                               val parts = """{"type":"next","id":"1","payload":{"data":{"event":1}}}""".grouped(8).toList
-                               ZIO.foreachDiscard(parts.zipWithIndex) { case (part, index) =>
-                                 val frame =
-                                   if (index == 0) WebSocketFrame.Text(part, false)
-                                   else
-                                     WebSocketFrame.Continuation(
-                                       Chunk.fromArray(part.getBytes(UTF_8)),
-                                       index == parts.size - 1
-                                     )
-                                 channel.send(ChannelEvent.Read(frame))
-                               }
-                             case "ping"            => ping.succeed(()).unit
-                             case _                 => ZIO.unit
-                           }
-                         case _                                            => ZIO.unit
-                       }
-                     )
-                     .withConfig(WebSocketConfig.default.subProtocol(Some("graphql-transport-ws")))
-        id      <- ZIO.serviceWithZIO[Ref[Int]](_.updateAndGet(_ + 1))
-        path     = s"subscription-ws-pong-$id"
-        server  <- ZIO.service[Server]
-        _       <- server.install(
-                     Routes(Method.GET / path -> Handler.fromFunctionZIO[Request](_ => Response.fromSocketApp(socket)))
-                   )
-        port    <- server.port
-        endpoint = url"http://127.0.0.1:$port/$path"
-        config   = RemoteGraphQLConfig.default.withSubscription(
-                     RemoteSubscriptionConfig(keepAliveInterval = 60.seconds, connectionTimeout = 1.second)
-                   )
-        gateway <- Gateway.compose(Subgraph.graphql("remote", endpoint, schema, config)).interpreter
-        running <- gateway.executeStream(request).tap(_ => first.succeed(())).runDrain.forkScoped
-        _       <- first.await
-        _       <- TestClock.adjust(60.seconds)
-        _       <- ping.await
-        _       <- TestClock.adjust(2.seconds)
-        exit    <- Live.live(running.await.timeout(1.second))
-        _       <- running.interrupt
+        first    <- Promise.make[Nothing, Unit]
+        ping     <- Promise.make[Nothing, Unit]
+        endpoint <- socketEndpoint("subscription-ws-pong")(channel =>
+                      acknowledgeThen(channel) {
+                        case "subscribe" =>
+                          val parts = """{"type":"next","id":"1","payload":{"data":{"event":1}}}""".grouped(8).toList
+                          ZIO.foreachDiscard(parts.zipWithIndex) { case (part, index) =>
+                            val frame =
+                              if (index == 0) WebSocketFrame.Text(part, false)
+                              else
+                                WebSocketFrame.Continuation(
+                                  Chunk.fromArray(part.getBytes(UTF_8)),
+                                  index == parts.size - 1
+                                )
+                            channel.send(ChannelEvent.Read(frame))
+                          }
+                        case "ping"      => ping.succeed(()).unit
+                      }
+                    )
+        config    = RemoteGraphQLConfig.default.withSubscription(
+                      RemoteSubscriptionConfig(keepAliveInterval = 60.seconds, connectionTimeout = 1.second)
+                    )
+        runtime  <- remoteGateway(endpoint, subscriptionSchema, config).interpreter
+        running  <- runtime.executeStream(request).tap(_ => first.succeed(())).runDrain.forkScoped
+        _        <- first.await
+        _        <- TestClock.adjust(60.seconds)
+        _        <- ping.await
+        _        <- TestClock.adjust(2.seconds)
+        exit     <- Live.live(running.await.timeout(1.second))
+        _        <- running.interrupt
       } yield assertTrue(
         exit.flatMap(_.causeOption).flatMap(_.failureOption).contains(SubscriptionTermination.Source)
       )
@@ -394,14 +339,13 @@ object SubscriptionSpec extends ZIOSpecDefault {
         recorded     <- recordEvents
         (seen, hooks) = recorded
         resolves     <- Ref.make(0)
-        gateway      <- Gateway
-                          .compose(local(ZStream(1, 2)))
+        runtime      <- subscriptionGateway(ZStream(1, 2))
                           .withOperationResolver(
                             OperationResolver(_ => resolves.update(_ + 1).as("subscription { event }"))
                           )
                           .withPhaseHooks(hooks)
                           .interpreter
-        response     <- gateway.executeRequest(GraphQLRequest(query = Some("query { value }")))
+        response     <- runtime.executeRequest(GraphQLRequest(query = Some("query { value }")))
         events       <- SubgraphExecutor.subscriptionResponses(response).runCollect
         observed     <- seen.get
         count        <- resolves.get
@@ -420,13 +364,13 @@ object SubscriptionSpec extends ZIOSpecDefault {
         owner    <- Scope.make
         source    =
           ZStream.acquireReleaseWith(opened.succeed(()))(_ => closing.succeed(()) *> release.await) *> ZStream.never
-        gateway  <- owner.extend(Gateway.compose(local(source)).withConfig(_.withDrainTimeout(1.second)).interpreter)
-        running  <- gateway.executeStream(request).runDrain.exit.forkScoped
+        runtime  <- owner.extend(subscriptionGateway(source).withConfig(_.withDrainTimeout(1.second)).interpreter)
+        running  <- runtime.executeStream(request).runDrain.exit.forkScoped
         _        <- opened.await
         stopping <- owner.close(Exit.unit).forkScoped
         _        <- closing.await
         _        <- TestClock.adjust(2.seconds)
-        rejected <- gateway.execute("{ value }")
+        rejected <- runtime.execute("{ value }")
         pending  <- stopping.poll
         _        <- release.succeed(())
         _        <- stopping.join
@@ -437,32 +381,18 @@ object SubscriptionSpec extends ZIOSpecDefault {
       )
     },
     test("SSE GET supports BOM, CR line endings, and a distinct completion event") {
-      val schema = "type Query { value: String } type Subscription { event: Int }"
-      val body   = "\uFEFF: heartbeat\r\revent: next\rdata: {\"data\":{\"event\":1}}\r\revent: complete\r\r"
+      val body = "\uFEFF: heartbeat\r\revent: next\rdata: {\"data\":{\"event\":1}}\r\revent: complete\r\r"
       for {
-        sent    <- Ref.make(Option.empty[String])
-        id      <- ZIO.serviceWithZIO[Ref[Int]](_.updateAndGet(_ + 1))
-        path     = s"subscription-get-$id"
-        server  <- ZIO.service[Server]
-        handler  = Handler.fromFunctionZIO[Request](req =>
-                     sent
-                       .set(req.url.queryParams.getAll("query").headOption)
-                       .as(
-                         Response(
-                           headers = Headers(Header.Custom("Content-Type", "text/event-stream")),
-                           body = Body.fromString(body)
-                         )
-                       )
-                   )
-        _       <- server.install(Routes(Method.GET / path -> handler))
-        port    <- server.port
-        endpoint = url"http://127.0.0.1:$port/$path"
-        config   = RemoteGraphQLConfig.default.withSubscription(
-                     RemoteSubscriptionConfig(transport = RemoteSubscriptionConfig.Sse(useGet = true))
-                   )
-        gateway <- Gateway.compose(Subgraph.graphql("remote", endpoint, schema, config)).interpreter
-        events  <- gateway.executeStream(request).runCollect
-        query   <- sent.get
+        sent     <- Ref.make(Option.empty[String])
+        endpoint <- getEndpoint("subscription-get")(req =>
+                      sent.set(req.url.queryParams.getAll("query").headOption).as(sseResponse(body))
+                    )
+        config    = RemoteGraphQLConfig.default.withSubscription(
+                      RemoteSubscriptionConfig(transport = RemoteSubscriptionConfig.Sse(useGet = true))
+                    )
+        runtime  <- remoteGateway(endpoint, subscriptionSchema, config).interpreter
+        events   <- runtime.executeStream(request).runCollect
+        query    <- sent.get
       } yield assertTrue(
         events.map(_.data.toString).toList == List("{\"event\":1}"),
         query.exists(_.startsWith("subscription"))
@@ -471,23 +401,22 @@ object SubscriptionSpec extends ZIOSpecDefault {
     test("source completion drains every buffered event in order") {
       val values = (1 to 100).toList
       for {
-        gateway <- Gateway
-                     .compose(local(ZStream.fromIterable(values)))
+        runtime <- subscriptionGateway(ZStream.fromIterable(values))
                      .withConfig(_.withSubscriptions(GatewaySubscriptionConfig(bufferSize = 128)))
                      .interpreter
-        events  <- gateway.executeStream(request).runCollect
+        events  <- runtime.executeStream(request).runCollect
       } yield assertTrue(events.map(_.data.toString).toList == values.map(i => s"""{"event":$i}"""))
     },
     test("two subscriptions on one socket hold and release independent slots") {
       for {
         closed      <- Ref.make(0)
         source       = (ZStream.succeed(1) ++ ZStream.never).ensuring(closed.update(_ + 1))
-        gateway     <- Gateway.compose(local(source)).interpreter
+        runtime     <- subscriptionGateway(source).interpreter
         input       <- Queue.unbounded[GraphQLWSInput]
         output      <- Queue.unbounded[Either[GraphQLWSClose, GraphQLWSOutput]]
         pipe        <-
           Protocol.GraphQLWS
-            .make(gateway, None, WebSocketHooks.empty[Any, CalibanError])
+            .make(runtime, None, WebSocketHooks.empty[Any, CalibanError])
         socket      <- pipe(ZStream.fromQueue(input)).runForeach(output.offer).forkScoped
         _           <- input.offer(GraphQLWSInput("connection_init", None, None))
         _           <- output.take
@@ -511,9 +440,6 @@ object SubscriptionSpec extends ZIOSpecDefault {
       } yield assertTrue(firstClosed == 1, allClosed == 2)
     },
     test("captures effectful headers during setup and evaluates policy only once") {
-      val schema = "type Query { value: String } type Subscription { event: Int }"
-      val body   =
-        "event: next\ndata: {\"data\":{\"event\":1}}\n\nevent: next\ndata: {\"data\":{\"event\":2}}\n\nevent: complete\n\n"
       for {
         identity    <- FiberRef.make("later")
         headers     <- Ref.make(List.empty[String])
@@ -523,24 +449,11 @@ object SubscriptionSpec extends ZIOSpecDefault {
         endpoint    <- postEndpoint("subscription-identity")(req =>
                          headers
                            .update(_ ++ req.headers.get("X-Identity").toList)
-                           .zipRight(
-                             multi.set(
-                               req.headers.iterator
-                                 .filter(_.headerName.equalsIgnoreCase("X-Multi"))
-                                 .map(_.renderedValue)
-                                 .toList
-                             )
-                           )
-                           .as(
-                             Response(
-                               headers = Headers(Header.Custom("Content-Type", "text/event-stream")),
-                               body = Body.fromString(body)
-                             )
-                           )
+                           .zipRight(multi.set(renderedHeaderValues(req.headers, "X-Multi")))
+                           .as(sseResponse(sseBody(1, 2)))
                        )
         config       =
-          RemoteGraphQLConfig.default
-            .withSubscription(RemoteSubscriptionConfig(transport = RemoteSubscriptionConfig.Sse()))
+          sseConfig
             .withExecutionHeadersZIO(
               headerCalls.update(_ + 1) *> identity.get.map(value =>
                 List(
@@ -550,11 +463,11 @@ object SubscriptionSpec extends ZIOSpecDefault {
                 )
               )
             )
-        gateway     <- Gateway
-                         .compose(Subgraph.graphql("remote", endpoint, schema, config))
-                         .withOperationPolicy(OperationPolicy[Any](_ => policies.update(_ + 1).as(OperationPolicy.Allow)))
-                         .interpreter
-        events      <- identity.locally("captured")(gateway.executeStream(request).runCollect)
+        runtime     <-
+          remoteGateway(endpoint, subscriptionSchema, config)
+            .withOperationPolicy(OperationPolicy[Any](_ => policies.update(_ + 1).as(OperationPolicy.Allow)))
+            .interpreter
+        events      <- identity.locally("captured")(runtime.executeStream(request).runCollect)
         sent        <- headers.get
         multiValues <- multi.get
         calls       <- headerCalls.get
@@ -570,13 +483,12 @@ object SubscriptionSpec extends ZIOSpecDefault {
     test("idle subscriptions ignore the ordinary request timeout") {
       for {
         opened    <- Promise.make[Nothing, Unit]
-        gateway   <- Gateway
-                       .compose(local(ZStream.fromZIO(opened.succeed(())) *> ZStream.never))
+        runtime   <- subscriptionGateway(ZStream.fromZIO(opened.succeed(())) *> ZStream.never)
                        .withConfig(
                          _.withRequestTimeout(1.second)
                        )
                        .interpreter
-        running   <- gateway.executeStream(request).runDrain.exit.forkScoped
+        running   <- runtime.executeStream(request).runDrain.exit.forkScoped
         _         <- opened.await
         _         <- TestClock.adjust(2.seconds)
         idle      <- running.poll
@@ -588,9 +500,9 @@ object SubscriptionSpec extends ZIOSpecDefault {
     test("ordinary interpreter middleware preserves subscriptions and its response transformation") {
       for {
         opened   <- Ref.make(0)
-        gateway  <- Gateway.compose(local(ZStream.fromZIO(opened.updateAndGet(_ + 1)))).interpreter
+        runtime  <- subscriptionGateway(ZStream.fromZIO(opened.updateAndGet(_ + 1))).interpreter
         wrapped   =
-          gateway.wrapExecutionWith(
+          runtime.wrapExecutionWith(
             _.map(_.copy(extensions = Some(ResponseValue.ObjectValue(List("wrapped" -> Value.BooleanValue(true))))))
           )
         response <- wrapped.executeRequest(request)
@@ -611,12 +523,11 @@ object SubscriptionSpec extends ZIOSpecDefault {
         stalled       = PhaseHooks.subscriptionEvent(
                           PhaseHandler.incomingDiscard(_ => processing.succeed(()).unit *> ZIO.never)
                         )
-        gateway      <- Gateway
-                          .compose(local(ZStream.fromQueue(queue)))
+        runtime      <- subscriptionGateway(ZStream.fromQueue(queue))
                           .withConfig(_.withSubscriptions(GatewaySubscriptionConfig(bufferSize = 1)))
                           .withPhaseHooks(hooks ++ stalled)
                           .interpreter
-        running      <- gateway.executeStream(request).runDrain.exit.forkScoped
+        running      <- runtime.executeStream(request).runDrain.exit.forkScoped
         _            <- queue.offer(1)
         _            <- processing.await
         _            <- queue.offerAll(List(2, 3, 4))
@@ -633,10 +544,10 @@ object SubscriptionSpec extends ZIOSpecDefault {
     },
     test("local events are ordered, planned once, and executeRequest returns an ordinary StreamValue") {
       for {
-        gateway <- Gateway.compose(local(ZStream(1, 2, 3))).interpreter
-        plan    <- gateway.explain(request)
-        events  <- gateway.executeStream(request).runCollect
-        finite  <- gateway.executeRequest(request)
+        runtime <- subscriptionGateway(ZStream(1, 2, 3)).interpreter
+        plan    <- runtime.explain(request)
+        events  <- runtime.executeStream(request).runCollect
+        finite  <- runtime.executeRequest(request)
       } yield assertTrue(
         plan.nonEmpty,
         events.map(_.data.toString).toList == List("{\"event\":1}", "{\"event\":2}", "{\"event\":3}"),
@@ -668,8 +579,8 @@ object SubscriptionSpec extends ZIOSpecDefault {
         source   <- api.interpreter
         response <- source.executeRequest(request)
         native   <- SubgraphExecutor.subscriptionResponses(response).runCollect
-        gateway  <- Gateway.compose(Subgraph.local("local", api)).interpreter
-        events   <- gateway.executeStream(request).runCollect
+        runtime  <- Gateway.compose(Subgraph.local("local", api)).interpreter
+        events   <- runtime.executeStream(request).runCollect
       } yield assertTrue(
         events == native,
         events.size == 2,
@@ -687,22 +598,21 @@ object SubscriptionSpec extends ZIOSpecDefault {
           ZStream.acquireReleaseWith(opened.succeed(()))(_ => closing.succeed(()) *> release.await) *> (ZStream.succeed(
             1
           ) ++ ZStream.never)
-        gateway  <-
-          Gateway
-            .compose(local(source))
+        runtime  <-
+          subscriptionGateway(source)
             .withConfig(_.withMaxConcurrentRequests(1).withSubscriptions(GatewaySubscriptionConfig(maxActive = 1)))
             .interpreter
-        running  <- gateway.executeStream(request).runDrain.forkScoped
+        running  <- runtime.executeStream(request).runDrain.forkScoped
         _        <- opened.await
-        rejected <- gateway.executeStream(request).runDrain.exit
-        query    <- gateway.execute("{ value }")
+        rejected <- runtime.executeStream(request).runDrain.exit
+        query    <- runtime.execute("{ value }")
         stopping <- running.interrupt.forkScoped
         _        <- closing.await
-        during   <- gateway.executeStream(request).runDrain.exit
+        during   <- runtime.executeStream(request).runDrain.exit
         pending  <- stopping.poll
         _        <- release.succeed(())
         _        <- stopping.join
-        next     <- gateway.executeStream(request).take(1).runCollect
+        next     <- runtime.executeStream(request).take(1).runCollect
       } yield assertTrue(
         rejected.isFailure,
         query.errors.isEmpty,
@@ -715,8 +625,8 @@ object SubscriptionSpec extends ZIOSpecDefault {
       for {
         opens        <- Ref.make(0)
         gatewayScope <- Scope.make
-        gateway      <- gatewayScope.extend(Gateway.compose(local(ZStream.fromZIO(opens.updateAndGet(_ + 1)))).interpreter)
-        result        = gateway.executeStream(request)
+        runtime      <- gatewayScope.extend(subscriptionGateway(ZStream.fromZIO(opens.updateAndGet(_ + 1))).interpreter)
+        result        = runtime.executeStream(request)
         _            <- gatewayScope.close(Exit.unit)
         responses    <- result.runCollect
         count        <- opens.get
@@ -726,19 +636,12 @@ object SubscriptionSpec extends ZIOSpecDefault {
       )
     },
     test("SSE source preserves data and redacts errors and response extensions") {
-      val schema = "type Query { value: String } type Subscription { event: Int }"
-      val body   =
+      val body =
         "event: next\ndata: {\"data\":{\"event\":1},\"errors\":[{\"message\":\"secret\",\"path\":[\"event\"],\"extensions\":{\"secret\":true}},{\"message\":\"second secret\",\"path\":[\"event\"]}],\"extensions\":{\"secret\":true}}\n\nevent: complete\n\n"
       for {
-        endpoint <- streamingEndpoint(
-                      ZStream.fromIterable(body.getBytes(UTF_8)),
-                      mediaType = "text/event-stream"
-                    )
-        config    = RemoteGraphQLConfig.default.withSubscription(
-                      RemoteSubscriptionConfig(transport = RemoteSubscriptionConfig.Sse())
-                    )
-        gateway  <- Gateway.compose(Subgraph.graphql("remote", endpoint, schema, config)).interpreter
-        events   <- gateway.executeStream(request).runCollect
+        endpoint <- sseEndpoint(body)
+        runtime  <- remoteGateway(endpoint, subscriptionSchema, sseConfig).interpreter
+        events   <- runtime.executeStream(request).runCollect
       } yield assertTrue(
         events.size == 1,
         events.head.errors.size == 2,
@@ -756,25 +659,19 @@ object SubscriptionSpec extends ZIOSpecDefault {
         )
         .mkString + "event: complete\n\n"
       for {
-        endpoint <- streamingEndpoint(
-                      ZStream.fromIterable(body.getBytes(UTF_8)),
-                      mediaType = "text/event-stream"
-                    )
+        endpoint <- sseEndpoint(body)
         reviews  <-
           stub(
             """{"data":{"_entities":[{"reviews":[{"body":"one"}],"_caliban_gateway_entity_key":"1","_caliban_gateway_entity_typename":"Product"}]}}""",
             """{"data":{"_entities":[{"reviews":[{"body":"two"}],"_caliban_gateway_entity_key":"1","_caliban_gateway_entity_typename":"Product"}]}}"""
           )
-        config    = RemoteGraphQLConfig.default.withSubscription(
-                      RemoteSubscriptionConfig(transport = RemoteSubscriptionConfig.Sse())
-                    )
-        gateway  <- Gateway
+        runtime  <- Gateway
                       .compose(
-                        Subgraph.federation("products", endpoint, products, config),
+                        Subgraph.federation("products", endpoint, products, sseConfig),
                         Subgraph.federation("reviews", reviews.endpoint, reviewsFederationSchema)
                       )
                       .interpreter
-        events   <- gateway
+        events   <- runtime
                       .executeStream(GraphQLRequest(query = Some("subscription { changed { name reviews { body } } }")))
                       .runCollect
         sent     <- reviews.requests.get
@@ -787,56 +684,30 @@ object SubscriptionSpec extends ZIOSpecDefault {
       )
     },
     test("upstream WebSocket terminal errors retain only the first disclosed error") {
-      val schema   = "type Query { value: String } type Subscription { event: Int }"
       val terminal =
         """{"type":"error","id":"1","payload":[{"message":"secret first","path":["event"],"extensions":{"code":"FIRST","secret":true}},{"message":"secret second","path":["event"],"extensions":{"code":"SECOND"}}]}"""
-      val socket   = Handler
-        .webSocket(channel =>
-          channel.receiveAll {
-            case ChannelEvent.Read(WebSocketFrame.Text(text)) =>
-              val message = readFromString[GraphQLWSInput](text)
-              message.`type` match {
-                case "connection_init" =>
-                  channel.send(ChannelEvent.Read(WebSocketFrame.Text("""{"type":"connection_ack"}""")))
-                case "subscribe"       => channel.send(ChannelEvent.Read(WebSocketFrame.Text(terminal)))
-                case _                 => ZIO.unit
-              }
-            case _                                            => ZIO.unit
-          }
-        )
-        .withConfig(WebSocketConfig.default.subProtocol(Some("graphql-transport-ws")))
+      val socket   = transportWsSocket(channel =>
+        acknowledgeThen(channel) { case "subscribe" => channel.send(ChannelEvent.Read(WebSocketFrame.Text(terminal))) }
+      )
       for {
-        sent    <- Ref.make(List.empty[String])
-        id      <- ZIO.serviceWithZIO[Ref[Int]](_.updateAndGet(_ + 1))
-        path     = s"subscription-ws-error-$id"
-        server  <- ZIO.service[Server]
-        handler  = Handler.fromFunctionZIO[Request](req =>
-                     sent
-                       .set(
-                         req.headers.iterator
-                           .filter(_.headerName.equalsIgnoreCase("X-Multi"))
-                           .map(_.renderedValue)
-                           .toList
-                       )
-                       .zipRight(Response.fromSocketApp(socket))
-                   )
-        _       <- server.install(Routes(Method.GET / path -> handler))
-        port    <- server.port
-        endpoint = url"http://127.0.0.1:$port/$path"
-        config   = RemoteGraphQLConfig.default
-                     .withExecutionHeadersZIO(
-                       ZIO.succeed(
-                         List(
-                           Header.Custom("X-Multi", "first"),
-                           Header.Custom("X-Multi", "second")
-                         )
-                       )
-                     )
-                     .withSubscription(RemoteSubscriptionConfig())
-        gateway <- Gateway.compose(Subgraph.graphql("remote", endpoint, schema, config)).interpreter
-        exit    <- gateway.executeStream(request).runDrain.exit
-        error    = exit.causeOption.flatMap(_.failureOption).collect { case e: CalibanError.ExecutionError => e }
-        values  <- sent.get
+        sent     <- Ref.make(List.empty[String])
+        endpoint <- getEndpoint("subscription-ws-error")(req =>
+                      sent.set(renderedHeaderValues(req.headers, "X-Multi")).zipRight(Response.fromSocketApp(socket))
+                    )
+        config    = RemoteGraphQLConfig.default
+                      .withExecutionHeadersZIO(
+                        ZIO.succeed(
+                          List(
+                            Header.Custom("X-Multi", "first"),
+                            Header.Custom("X-Multi", "second")
+                          )
+                        )
+                      )
+                      .withSubscription(RemoteSubscriptionConfig())
+        runtime  <- remoteGateway(endpoint, subscriptionSchema, config).interpreter
+        exit     <- runtime.executeStream(request).runDrain.exit
+        error     = exit.causeOption.flatMap(_.failureOption).collect { case e: CalibanError.ExecutionError => e }
+        values   <- sent.get
       } yield assertTrue(
         error.exists(_.msg == "Remote GraphQL request failed."),
         error.exists(_.path == List(PathValue.Key("event"))),
@@ -845,26 +716,17 @@ object SubscriptionSpec extends ZIOSpecDefault {
       )
     },
     test("modern upstream WebSocket streams through the public Quick adapter") {
-      val api = graphQL(
-        RootResolver(
-          queryResolver = Some(Query("ok")),
-          mutationResolver = Option.empty[Unit],
-          subscriptionResolver = Some(Subscription(ZStream(1, 2)))
-        )
-      )
+      val api = subscriptionGraph(ZStream(1, 2))
       for {
-        source  <- api.interpreter
-        id      <- ZIO.serviceWithZIO[Ref[Int]](_.updateAndGet(_ + 1))
-        path     = s"subscription-ws-$id"
-        server  <- ZIO.service[Server]
-        _       <- server.install(QuickAdapter(source).routes(s"/$path", webSocketPath = Some(s"/$path/ws")))
-        port    <- server.port
-        endpoint = url"http://127.0.0.1:$port/$path"
-        config   = RemoteGraphQLConfig.default.withSubscription(
-                     RemoteSubscriptionConfig(endpoint = Some(endpoint.addPath("ws")))
-                   )
-        gateway <- Gateway.compose(Subgraph.graphql("remote", endpoint, api.render, config)).interpreter
-        events  <- gateway.executeStream(request).runCollect
+        source   <- api.interpreter
+        endpoint <- routesEndpoint("subscription-ws")(path =>
+                      QuickAdapter(source).routes(s"/$path", webSocketPath = Some(s"/$path/ws"))
+                    )
+        config    = RemoteGraphQLConfig.default.withSubscription(
+                      RemoteSubscriptionConfig(endpoint = Some(endpoint.addPath("ws")))
+                    )
+        runtime  <- remoteGateway(endpoint, api.render, config).interpreter
+        events   <- runtime.executeStream(request).runCollect
       } yield assertTrue(
         events.map(_.data.toString).toList == List("{\"event\":1}", "{\"event\":2}")
       )
@@ -901,8 +763,8 @@ object SubscriptionSpec extends ZIOSpecDefault {
     },
     test("Quick SSE emits complete envelopes and a completion event") {
       for {
-        gateway  <- Gateway.compose(local(ZStream(1, 2))).interpreter
-        response <- QuickAdapter(gateway).handlers.api
+        runtime  <- subscriptionGateway(ZStream(1, 2)).interpreter
+        response <- QuickAdapter(runtime).handlers.api
                       .runZIO(
                         Request
                           .post(

@@ -53,9 +53,7 @@ object RoutePlanningSpec extends ZIOSpecDefault {
   def spec = suite("Route planning")(
     test("chooses a complete field owner with fewer dependent calls") {
       for {
-        root       <- stub(
-                        """{"data":{"product":{"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}}}"""
-                      )
+        root       <- stub(productRootResponse)
         costly     <- stub("""{"data":{"_entities":[{"label":"costly"}]}}""")
         direct     <- stub("""{"data":{"_entities":[{"label":"direct"}]}}""")
         costs      <- stub("""{"data":{"_entities":[{"cost":10}]}}""")
@@ -71,7 +69,7 @@ object RoutePlanningSpec extends ZIOSpecDefault {
         response   <- runtime.execute("{ product { label } }")
         costlySent <- costly.requests.get
         directSent <- direct.requests.get
-        costSent   <- costs.requests.get
+        costsSent  <- costs.requests.get
       } yield assertTrue(
         response.errors.isEmpty,
         field(response.data, "product").flatMap(field(_, "label")).contains(StringValue("direct")),
@@ -79,33 +77,31 @@ object RoutePlanningSpec extends ZIOSpecDefault {
         plan.contains("fetch c-direct after a-root"),
         costlySent.isEmpty,
         directSent.size == 1,
-        costSent.isEmpty
+        costsSent.isEmpty
       )
     },
     test("uses a stable source-name tie-break for equivalent routes") {
       for {
-        root     <- stub(
-                      """{"data":{"product":{"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}}}"""
-                    )
-        zOwner   <- stub("""{"data":{"_entities":[{"label":"z"}]}}""")
-        aOwner   <- stub("""{"data":{"_entities":[{"label":"a"}]}}""")
-        runtime  <- Gateway
-                      .compose(
-                        Subgraph.federation("root", root.endpoint, rootSchema),
-                        Subgraph.federation("z-owner", zOwner.endpoint, directOwnerSchema),
-                        Subgraph.federation("a-owner", aOwner.endpoint, directOwnerSchema)
-                      )
-                      .interpreter
-        plan     <- runtime.explain("{ product { label } }")
-        response <- runtime.execute("{ product { label } }")
-        aSent    <- aOwner.requests.get
-        zSent    <- zOwner.requests.get
+        root       <- stub(productRootResponse)
+        zOwner     <- stub("""{"data":{"_entities":[{"label":"z"}]}}""")
+        aOwner     <- stub("""{"data":{"_entities":[{"label":"a"}]}}""")
+        runtime    <- Gateway
+                        .compose(
+                          Subgraph.federation("root", root.endpoint, rootSchema),
+                          Subgraph.federation("z-owner", zOwner.endpoint, directOwnerSchema),
+                          Subgraph.federation("a-owner", aOwner.endpoint, directOwnerSchema)
+                        )
+                        .interpreter
+        plan       <- runtime.explain("{ product { label } }")
+        response   <- runtime.execute("{ product { label } }")
+        aOwnerSent <- aOwner.requests.get
+        zOwnerSent <- zOwner.requests.get
       } yield assertTrue(
         response.errors.isEmpty,
         field(response.data, "product").flatMap(field(_, "label")).contains(StringValue("a")),
         plan.contains("fetch a-owner after root"),
-        aSent.size == 1,
-        zSent.isEmpty
+        aOwnerSent.size == 1,
+        zOwnerSent.isEmpty
       )
     },
     test("chooses the usable Federation key with fewer internal selections") {
@@ -128,9 +124,7 @@ object RoutePlanningSpec extends ZIOSpecDefault {
            |""".stripMargin
 
       for {
-        products <- stub(
-                      """{"data":{"product":{"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}}}"""
-                    )
+        products <- stub(productRootResponse)
         reviews  <- stub("""{"data":{"_entities":[{"reviews":[{"body":"good"}]}]}}""")
         runtime  <- Gateway
                       .compose(
@@ -268,31 +262,31 @@ object RoutePlanningSpec extends ZIOSpecDefault {
            |""".stripMargin
 
       for {
-        origin            <- stub(
-                               """{"data":{"thing":{"_caliban_gateway_key":"a1","_caliban_gateway_typename":"Thing"}}}"""
-                             )
-        helper            <- stub("""{"data":{"_entities":[]}}""")
-        longIntermediate  <- stub("""{"data":{"_entities":[]}}""")
-        shortIntermediate <-
+        origin                <- stub(
+                                   """{"data":{"thing":{"_caliban_gateway_key":"a1","_caliban_gateway_typename":"Thing"}}}"""
+                                 )
+        helper                <- stub("""{"data":{"_entities":[]}}""")
+        longIntermediate      <- stub("""{"data":{"_entities":[]}}""")
+        shortIntermediate     <-
           stub(
             """{"data":{"_entities":[{"_caliban_gateway_key":"d1","_caliban_gateway_typename":"Thing"}]}}"""
           )
-        target            <- stub("""{"data":{"_entities":[{"label":"short"}]}}""")
-        runtime           <- Gateway
-                               .compose(
-                                 Subgraph.federation("a-origin", origin.endpoint, originSchema),
-                                 Subgraph.federation("b-helper", helper.endpoint, helperSchema),
-                                 Subgraph.federation("c-long", longIntermediate.endpoint, longIntermediateSchema),
-                                 Subgraph.federation("d-short", shortIntermediate.endpoint, shortIntermediateSchema),
-                                 Subgraph.federation("e-target", target.endpoint, targetSchema)
-                               )
-                               .interpreter
-        plan              <- runtime.explain("{ thing { label } }")
-        response          <- runtime.execute("{ thing { label } }")
-        helperSent        <- helper.requests.get
-        longSent          <- longIntermediate.requests.get
-        shortSent         <- shortIntermediate.requests.get
-        targetSent        <- target.requests.get
+        target                <- stub("""{"data":{"_entities":[{"label":"short"}]}}""")
+        runtime               <- Gateway
+                                   .compose(
+                                     Subgraph.federation("a-origin", origin.endpoint, originSchema),
+                                     Subgraph.federation("b-helper", helper.endpoint, helperSchema),
+                                     Subgraph.federation("c-long", longIntermediate.endpoint, longIntermediateSchema),
+                                     Subgraph.federation("d-short", shortIntermediate.endpoint, shortIntermediateSchema),
+                                     Subgraph.federation("e-target", target.endpoint, targetSchema)
+                                   )
+                                   .interpreter
+        plan                  <- runtime.explain("{ thing { label } }")
+        response              <- runtime.execute("{ thing { label } }")
+        helperSent            <- helper.requests.get
+        longIntermediateSent  <- longIntermediate.requests.get
+        shortIntermediateSent <- shortIntermediate.requests.get
+        targetSent            <- target.requests.get
       } yield assertTrue(
         response.errors.isEmpty,
         field(response.data, "thing").flatMap(field(_, "label")).contains(StringValue("short")),
@@ -300,8 +294,8 @@ object RoutePlanningSpec extends ZIOSpecDefault {
         plan.contains("fetch d-short after a-origin"),
         plan.contains("fetch e-target after d-short"),
         helperSent.isEmpty,
-        longSent.isEmpty,
-        shortSent.size == 1,
+        longIntermediateSent.isEmpty,
+        shortIntermediateSent.size == 1,
         targetSent.size == 1
       )
     },
@@ -436,9 +430,7 @@ object RoutePlanningSpec extends ZIOSpecDefault {
     },
     test("keeps unambiguous plans on the direct path") {
       for {
-        root      <- stub(
-                       """{"data":{"product":{"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}}}"""
-                     )
+        root      <- stub(productRootResponse)
         owner     <- stub("""{"data":{"_entities":[{"label":"direct"}]}}""")
         runtime   <- Gateway
                        .compose(
@@ -462,32 +454,26 @@ object RoutePlanningSpec extends ZIOSpecDefault {
     },
     test("prefers a requirement-free local owner without expanding remote shareable alternatives") {
       for {
-        root     <- stub("""{"data":{"product":{"id":"p1"}}}""")
-        replica  <- stub("""{"data":{"_entities":[]}}""")
-        runtime  <- Gateway
-                      .compose(
-                        Subgraph.federation("root", root.endpoint, rootSchema),
-                        Subgraph.federation("replica", replica.endpoint, shareableReplicaSchema)
-                      )
-                      .withConfig(_.withMaxPlanningCandidates(1))
-                      .interpreter
-        response <- runtime.execute("{ product { id } }")
-        rootSent <- root.requests.get
-        remote   <- replica.requests.get
+        root        <- stub("""{"data":{"product":{"id":"p1"}}}""")
+        replica     <- stub("""{"data":{"_entities":[]}}""")
+        runtime     <- Gateway
+                         .compose(
+                           Subgraph.federation("root", root.endpoint, rootSchema),
+                           Subgraph.federation("replica", replica.endpoint, shareableReplicaSchema)
+                         )
+                         .withConfig(_.withMaxPlanningCandidates(1))
+                         .interpreter
+        response    <- runtime.execute("{ product { id } }")
+        rootSent    <- root.requests.get
+        replicaSent <- replica.requests.get
       } yield assertTrue(
         response.errors.isEmpty,
         field(response.data, "product").flatMap(field(_, "id")).contains(StringValue("p1")),
         rootSent.size == 1,
-        remote.isEmpty
+        replicaSent.isEmpty
       )
     },
     test("plans invariant nested alternatives once within the candidate budget") {
-      val rootsSchema    =
-        s"""
-           |${federationSchemaPreamble("@key")}
-           |type Query { product: Product }
-           |type Product @key(fields: "id") { id: ID! }
-           |""".stripMargin
       val productsSchema =
         s"""
            |${federationSchemaPreamble("@key", "@external")}
@@ -511,7 +497,7 @@ object RoutePlanningSpec extends ZIOSpecDefault {
 
       Gateway
         .compose(
-          Subgraph.federation("roots", unreachableEndpoint, rootsSchema),
+          Subgraph.federation("roots", unreachableEndpoint, productRootSchema),
           Subgraph.federation("products", unreachableEndpoint, productsSchema),
           Subgraph.federation("values-a", unreachableEndpoint, valueSchema),
           Subgraph.federation("values-b", unreachableEndpoint, valueSchema)
@@ -545,21 +531,21 @@ object RoutePlanningSpec extends ZIOSpecDefault {
            |""".stripMargin
 
       for {
-        roots    <- stub("""{"data":{"nodes":[]}}""")
-        details  <- stub("""{"data":{"_entities":[]}}""")
-        gateway  <- Gateway
-                      .compose(
-                        Subgraph.federation("roots", roots.endpoint, rootsSchema),
-                        Subgraph.federation("details", details.endpoint, detailsSchema)
-                      )
-                      .interpreter
-        response <- gateway.execute("{ nodes { ... on C { detail } } }")
-        rootSent <- roots.requests.get
-        sent     <- details.requests.get
+        roots       <- stub("""{"data":{"nodes":[]}}""")
+        details     <- stub("""{"data":{"_entities":[]}}""")
+        runtime     <- Gateway
+                         .compose(
+                           Subgraph.federation("roots", roots.endpoint, rootsSchema),
+                           Subgraph.federation("details", details.endpoint, detailsSchema)
+                         )
+                         .interpreter
+        response    <- runtime.execute("{ nodes { ... on C { detail } } }")
+        rootsSent   <- roots.requests.get
+        detailsSent <- details.requests.get
       } yield assertTrue(
         response.errors.nonEmpty,
-        rootSent.isEmpty,
-        sent.isEmpty
+        rootsSent.isEmpty,
+        detailsSent.isEmpty
       )
     },
     test("fails safely before source work when planning guardrails are exhausted") {

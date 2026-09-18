@@ -148,9 +148,13 @@ private[gateway] final class ObservedSubgraphExecutor[R](
       SubgraphExecutor.resultFromExit
     )
 
-  override def forSubscription(implicit trace: Trace)                    =
+  override def forSubscription(implicit trace: Trace): ZIO[R, SubgraphExecutor.Failure, SubgraphExecutor[R]] =
     underlying.forSubscription.map(new ObservedSubgraphExecutor(name, _, hooks))
-  override def subscribe(request: GraphQLRequest)(implicit trace: Trace) = underlying.subscribe(request)
+
+  override def subscribe(request: GraphQLRequest)(implicit
+    trace: Trace
+  ): ZIO[R with Scope, Throwable, ZStream[Any, Throwable, GraphQLResponse[CalibanError]]] =
+    underlying.subscribe(request)
 
 }
 
@@ -163,6 +167,8 @@ private[gateway] final class LocalSubgraphExecutor[-R](interpreter: GraphQLInter
   ): ZIO[R, SubgraphExecutor.Failure, GraphQLResponse[CalibanError]] =
     GraphQLResponseContext.capture(interpreter.executeRequest(request.copy(extensions = None))).map(_.value)
 
-  override def subscribe(request: GraphQLRequest)(implicit trace: Trace) =
+  override def subscribe(request: GraphQLRequest)(implicit
+    trace: Trace
+  ): ZIO[R with Scope, Throwable, ZStream[Any, Throwable, GraphQLResponse[CalibanError]]] =
     interpreter.executeRequest(request.copy(extensions = None)).map(SubgraphExecutor.subscriptionResponses)
 }

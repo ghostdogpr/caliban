@@ -30,20 +30,15 @@ private[caliban] object GraphQLResponseContext {
     Unsafe.unsafe(implicit unsafe => FiberRef.unsafe.make(initial))
 
   def capture[R, E, A](effect: ZIO[R, E, A]): ZIO[R, E, Classified[A]] =
-    captureWith(effect)((value, state) => Classified(value, state.outcome))
+    captureWith(effect)((value, classification) => Classified(value, classification.outcome))
 
-  def captureResponse[R, E, A](
-    effect: ZIO[R, E, GraphQLResponse[A]]
-  ): ZIO[R, E, Classified[GraphQLResponse[A]]] =
-    captureWith(effect) { (response, outcome) =>
-      val classifiedOutcome =
-        if (!outcome.definitive && response.errors.exists(isRequestError)) Outcome.RequestError
-        else outcome.outcome
-      Classified(response, classifiedOutcome)
+  def captureResponse[R, E, A](effect: ZIO[R, E, GraphQLResponse[A]]): ZIO[R, E, Classified[GraphQLResponse[A]]] =
+    captureWith(effect) { (response, classification) =>
+      val outcome =
+        if (!classification.definitive && response.errors.exists(isRequestError)) Outcome.RequestError
+        else classification.outcome
+      Classified(response, outcome)
     }
-
-  private def captureWith[R, E, A, B](effect: ZIO[R, E, A])(f: (A, Classification) => B): ZIO[R, E, B] =
-    current.locally(initial)(effect.zipWith(current.get)(f))
 
   def markRequestError(error: CalibanError): UIO[Unit] =
     if (isRequestError(error)) current.set(Classification(Outcome.RequestError, definitive = true))
@@ -54,6 +49,9 @@ private[caliban] object GraphQLResponseContext {
 
   def markExecuted: UIO[Unit] =
     current.set(Classification(Outcome.Executed, definitive = true))
+
+  private def captureWith[R, E, A, B](effect: ZIO[R, E, A])(f: (A, Classification) => B): ZIO[R, E, B] =
+    current.locally(initial)(effect.zipWith(current.get)(f))
 
   private def isRequestError(error: Any): Boolean =
     error match {

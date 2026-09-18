@@ -33,18 +33,17 @@ private[caliban] object SchemaValidator {
     subscriptionType: Option[String]
   ): Either[ValidationError, Unit] = {
     val duplicate  = document.typeDefinitions.groupBy(_.name).collectFirst { case (name, _ :: _ :: _) => name }
-    val byName     = document.typeDefinitions.iterator.map(definition => definition.name -> definition).toMap
+    val names      = document.typeDefinitions.iterator.map(_.name).toSet
     val references =
       queryType.iterator ++ mutationType.iterator ++ subscriptionType.iterator ++
         document.typeDefinitions.iterator.flatMap(typeReferences) ++
         document.directiveDefinitions.iterator.flatMap(_.args.iterator.map(argument => Type.innerType(argument.ofType)))
-    val missing    = references.find(name => !byName.contains(name) && !DocumentRenderer.isBuiltinScalar(name))
-    val error      =
-      duplicate
-        .map(name => ValidationError(s"Type '$name' is defined multiple times.", ""))
-        .orElse(missing.map(name => ValidationError(s"Schema references undefined type '$name'.", "")))
+    val missing    = references.find(name => !names.contains(name) && !DocumentRenderer.isBuiltinScalar(name))
 
-    error.fold[Either[ValidationError, Unit]](Right(()))(Left(_))
+    duplicate
+      .map(name => ValidationError(s"Type '$name' is defined multiple times.", ""))
+      .orElse(missing.map(name => ValidationError(s"Schema references undefined type '$name'.", "")))
+      .toLeft(())
   }
 
   private[caliban] def validateRootType(rootType: RootType): Either[ValidationError, Unit] = {

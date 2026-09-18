@@ -3,18 +3,22 @@ package caliban.gateway
 import caliban.ResponseValue
 import caliban.ResponseValue.ObjectValue
 import caliban.execution.RequestPreparation
+import caliban.gateway.internal.GatewayHttpClient
+import caliban.gateway.internal.composition.{ IntrospectionClient, SupergraphAcquisition }
 import caliban.introspection.Introspector
 import caliban.parsing.Parser
+import caliban.parsing.adt.Document
 import caliban.schema.{ GenericSchema, Schema }
 import caliban.tools.RemoteSchema
 import caliban.validation.Validator
-import caliban.{ graphQL, CalibanError, GraphQLRequest, GraphQLResponse, RootResolver, Value }
+import caliban.{ graphQL, CalibanError, GraphQL, GraphQLRequest, GraphQLResponse, RootResolver, Value }
 import com.github.plokhotnyuk.jsoniter_scala.core.{ readFromArray, writeToString }
 import zio._
 import zio.http._
 import zio.http.netty.NettyConfig
 import zio.metrics.Metric
 import zio.stream.ZStream
+import zio.test.TestClock
 
 import java.nio.charset.StandardCharsets
 
@@ -23,6 +27,48 @@ private[gateway] object GatewayTestSupport {
   def buildDiagnostics[A](exit: Exit[GatewayBuildError, A]): List[String] =
     exit.causeOption.flatMap(_.failureOption).fold(List.empty[String])(_.diagnostics)
 
+  def compositionDiagnostics[R](gateway: Gateway[R]): URIO[Scope, List[String]] =
+    gateway.interpreter.exit.map(buildDiagnostics)
+
+  def prepareSubgraph(
+    subgraph: Subgraph[Any],
+    document: Document,
+    federation: Boolean
+  ): Either[List[String], PreparedSubgraph] =
+    for {
+      // Normalizing rather than only building a root type is necessary: it folds `extend schema`
+      // into the schema definition, which is where composition reads `@link` from. A projection
+      // declares its schema outright, so only the checked-in originals depend on the merge.
+      normalized <- RemoteSchema
+                      .normalize(document, promoteOrphans = federation)
+                      .left
+                      .map(error => List(s"[${subgraph.name}] ${error.getMessage}"))
+      prepared   <- Gateway
+                      .prepareSubgraph(subgraph, normalized, document, federation)
+                      .left
+                      .map(SubgraphError(subgraph.name, _).diagnostics)
+    } yield prepared
+
+  def introspectionResponse(api: GraphQL[Any]): UIO[String] =
+    ZIO.fromEither(api.interpreterEither).orDie.flatMap { interpreter =>
+      interpreter
+        .execute(IntrospectionClient.Query)
+        .map(writeToString(_))
+    }
+
+  def serviceResponse(sdl: String): String =
+    writeToString(
+      GraphQLResponse[Any](
+        ObjectValue(List("_service" -> ObjectValue(List("sdl" -> Value.StringValue(sdl))))),
+        Nil
+      )
+    )
+
+  def supergraphResource(name: String): UIO[String] =
+    ZIO
+      .scoped(ZIO.fromAutoCloseable(ZIO.attempt(scala.io.Source.fromResource(s"supergraph/$name"))).map(_.mkString))
+      .orDie
+
   final case class Stub(
     endpoint: URL,
     requests: Ref[Vector[GraphQLRequest]],
@@ -30,8 +76,71 @@ private[gateway] object GatewayTestSupport {
     combined: Ref[Vector[GraphQLRequest]]
   )
 
+  val okResponse               = """{"data":{"value":"ok"}}"""
   val invalidResponse          = """{"unexpected":true}"""
   val unreachableEndpoint: URL = url"http://127.0.0.1:1/graphql"
+
+  val minimalSupergraphSdl: String =
+    """schema
+      |  @link(url: "https://specs.apollo.dev/link/v1.0")
+      |  @link(url: "https://specs.apollo.dev/join/v0.5", for: EXECUTION)
+      |{
+      |  query: Query
+      |}
+      |
+      |enum join__Graph {
+      |  A @join__graph(name: "a", url: "http://a/graphql")
+      |}
+      |
+      |type Query @join__type(graph: A) { hello: String }
+      |""".stripMargin
+
+  def queryFields(document: Document): List[String] =
+    document.objectTypeDefinitions.filter(_.name == "Query").flatMap(_.fields.map(_.name))
+
+  val httpClient: ZLayer[Any, Throwable, GatewayHttpClient] = ZLayer.scoped(GatewayHttpClient.make)
+
+  def acquisitionLoader(source: Supergraph.Source): URIO[GatewayHttpClient, SupergraphAcquisition.Loader] =
+    ZIO.serviceWithZIO[GatewayHttpClient](client => SupergraphAcquisition.make(source, Some(client)))
+
+  def localAcquisitionLoader(source: Supergraph.Source): UIO[SupergraphAcquisition.Loader] =
+    SupergraphAcquisition.make(source, None)
+
+  /** Fails with the acquisition error, or dies describing what happened instead. */
+  def acquisitionFailure[A](exit: Exit[SupergraphAcquisitionError, A]): UIO[SupergraphAcquisitionError] =
+    exit match {
+      case Exit.Failure(cause) =>
+        ZIO
+          .fromOption(cause.failureOption)
+          .orDieWith(_ => new AssertionError(s"expected a typed failure, got: ${cause.prettyPrint}"))
+      case Exit.Success(value) => ZIO.die(new AssertionError(s"expected a failure, got: $value"))
+    }
+
+  implicit final class TestGatewayOps[R](private val gateway: Gateway[R]) extends AnyVal {
+
+    /** One-second polls with no jitter; sources without a published floor accept any interval. */
+    def reloadableForTest(implicit trace: Trace): ZIO[Scope, GatewayBuildError, ReloadableGatewayInterpreter[R]] =
+      reloadableEvery(1.second)
+
+    def reloadableEvery(interval: Duration)(implicit
+      trace: Trace
+    ): ZIO[Scope, GatewayBuildError, ReloadableGatewayInterpreter[R]] =
+      gateway.withConfig(_.withReloadPollInterval(interval).withReloadJitter(0.0)).reloadable
+  }
+
+  // The next poll timer is installed only after the current refresh and retirement finish.
+  def awaitPoll(interval: Duration = 1.second): UIO[Unit] =
+    Clock.instant.flatMap(now => TestClock.sleeps.repeatUntil(_.contains(now.plus(interval)))).unit
+
+  def poll(runtime: ReloadableGatewayInterpreter[_], interval: Duration = 1.second): UIO[Option[String]] =
+    TestClock.adjust(interval) *> awaitPoll(interval) *> runtime.lastReloadFailure
+
+  def nextAnswer[A](remaining: Ref[List[A]], fallback: A): UIO[A] =
+    remaining.modify {
+      case only :: Nil  => only     -> (only :: Nil)
+      case head :: rest => head     -> rest
+      case Nil          => fallback -> Nil
+    }
 
   // -----------------------------------------------------------------------------------------------
   // Apollo uplink protocol bodies, shared by the loader spec and the gateway spec
@@ -124,6 +233,33 @@ private[gateway] object GatewayTestSupport {
        |}
        |type Product @key(fields: "id") { id: ID! @external reviews: [Review!]! }
        |type Review { body: String! }
+       |""".stripMargin
+
+  def productsAndReviews(
+    products: Stub,
+    reviews: Stub,
+    productsSchema: String = productsFederationSchema,
+    reviewsSchema: String = reviewsFederationSchema
+  ): Gateway[Any] =
+    Gateway.compose(
+      Subgraph.federation("products", products.endpoint, productsSchema),
+      Subgraph.federation("reviews", reviews.endpoint, reviewsSchema)
+    )
+
+  val productRootSchema =
+    s"""
+       |${federationSchemaPreamble("@key")}
+       |type Query { product: Product }
+       |type Product @key(fields: "id") { id: ID! }
+       |""".stripMargin
+
+  val productRootResponse =
+    """{"data":{"product":{"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}}}"""
+
+  val productPriceSchema =
+    s"""
+       |${federationSchemaPreamble("@key", "@external")}
+       |type Product @key(fields: "id") { id: ID! @external price: Int! }
        |""".stripMargin
 
   def stub(responses: String*): ZIO[Server with Ref[Int], Nothing, Stub] =
@@ -238,20 +374,17 @@ private[gateway] object GatewayTestSupport {
     }
 
   def postEndpoint(prefix: String)(handler: Request => UIO[Response]): ZIO[Server with Ref[Int], Nothing, URL] =
-    for {
-      id     <- ZIO.serviceWithZIO[Ref[Int]](_.updateAndGet(_ + 1))
-      path    = s"$prefix-$id"
-      server <- ZIO.service[Server]
-      _      <- server.install(Routes(Method.POST / path -> Handler.fromFunctionZIO(handler)))
-      port   <- server.port
-    } yield url"http://127.0.0.1:$port/$path"
+    routesEndpoint(prefix)(path => Routes(Method.POST / path -> Handler.fromFunctionZIO(handler)))
 
   def getEndpoint(prefix: String)(handler: Request => UIO[Response]): ZIO[Server with Ref[Int], Nothing, URL] =
+    routesEndpoint(prefix)(path => Routes(Method.GET / path -> Handler.fromFunctionZIO(handler)))
+
+  def routesEndpoint(prefix: String)(routes: String => Routes[Any, Response]): ZIO[Server with Ref[Int], Nothing, URL] =
     for {
       id     <- ZIO.serviceWithZIO[Ref[Int]](_.updateAndGet(_ + 1))
       path    = s"$prefix-$id"
       server <- ZIO.service[Server]
-      _      <- server.install(Routes(Method.GET / path -> Handler.fromFunctionZIO(handler)))
+      _      <- server.install(routes(path))
       port   <- server.port
     } yield url"http://127.0.0.1:$port/$path"
 
@@ -270,9 +403,27 @@ private[gateway] object GatewayTestSupport {
       )
     )
 
-  def tracked(
-    body: String
-  ): UIO[(ZStream[Any, Throwable, Byte], Ref[Int], Promise[Nothing, Unit])] =
+  def sseEndpoint(body: String): ZIO[Server with Ref[Int], Nothing, URL] =
+    streamingEndpoint(ZStream.fromIterable(body.getBytes(StandardCharsets.UTF_8)), mediaType = "text/event-stream")
+
+  def sseBody(events: Int*): String =
+    events.map(event => s"""event: next\ndata: {"data":{"event":$event}}\n\n""").mkString + "event: complete\n\n"
+
+  val sseConfig: RemoteGraphQLConfig[Any] =
+    RemoteGraphQLConfig.default.withSubscription(RemoteSubscriptionConfig(transport = RemoteSubscriptionConfig.Sse()))
+
+  val subscriptionSchema = "type Query { value: String } type Subscription { event: Int }"
+
+  def headersAfterEveryCaller(callers: Int, headerRuns: Ref[Int], ready: Promise[Nothing, Unit]): UIO[List[Header]] =
+    headerRuns
+      .updateAndGet(_ + 1)
+      .flatMap(count => ready.succeed(()).unit.when(count == callers)) *>
+      ready.await.as(Nil)
+
+  def renderedHeaderValues(headers: Headers, name: String): List[String] =
+    headers.iterator.filter(_.headerName.equalsIgnoreCase(name)).map(_.renderedValue).toList
+
+  def tracked(body: String): UIO[(ZStream[Any, Throwable, Byte], Ref[Int], Promise[Nothing, Unit])] =
     for {
       releases <- Ref.make(0)
       released <- Promise.make[Nothing, Unit]
@@ -308,12 +459,14 @@ private[gateway] object GatewayTestSupport {
       .flatMap(field(_, child))
       .collect { case ResponseValue.ListValue(ObjectValue(fields) :: Nil) => fields }
 
-  def firstNestedObject(
-    value: ResponseValue,
-    root: String,
-    child: String
-  ): Option[List[(String, ResponseValue)]] =
+  def firstNestedObject(value: ResponseValue, root: String, child: String): Option[List[(String, ResponseValue)]] =
     listValues(field(value, root)).headOption.flatMap(value => onlyNested(Some(value), child))
+
+  def introspectedNames(list: Option[ResponseValue]): Option[List[ResponseValue]] =
+    list.collect { case ResponseValue.ListValue(values) => values.flatMap(field(_, "name")) }
+
+  def introspectedNameStrings(list: Option[ResponseValue]): Option[List[String]] =
+    introspectedNames(list).map(_.collect { case Value.StringValue(name) => name })
 
   def fieldNames(value: ResponseValue): List[String] =
     value match {
@@ -347,6 +500,12 @@ private[gateway] object GatewayTestSupport {
     LocalApi.api
   }
 
+  def localGateway(effect: UIO[String]): Gateway[Any] =
+    Gateway.compose(Subgraph.local("local", localGraph(effect)))
+
+  def localValueGateway(effect: UIO[String]): Gateway[Any] =
+    Gateway.compose(Subgraph.local("local", localValueGraph(effect)))
+
   def localValueGraph(effect: UIO[String]) = {
     object LocalApi extends GenericSchema[Any] {
       import auto._
@@ -355,6 +514,24 @@ private[gateway] object GatewayTestSupport {
       val api                                      = graphQL(RootResolver(Query(effect)))
     }
     LocalApi.api
+  }
+
+  def subscriptionGraph(events: ZStream[Any, Throwable, Int]): GraphQL[Any] = {
+    object SubscriptionApi extends GenericSchema[Any] {
+      import auto._
+      final case class Query(value: String)
+      final case class Subscription(event: ZStream[Any, Throwable, Int])
+      implicit val queryType: Schema[Any, Query]               = gen
+      implicit val subscriptionType: Schema[Any, Subscription] = gen
+      val api                                                  = graphQL(
+        RootResolver(
+          queryResolver = Some(Query("ok")),
+          mutationResolver = Option.empty[Unit],
+          subscriptionResolver = Some(Subscription(events))
+        )
+      )
+    }
+    SubscriptionApi.api
   }
 
   /**
@@ -389,7 +566,7 @@ private[gateway] object GatewayTestSupport {
     Ref.make(Vector.empty[PhaseHooks.Event]).map { events =>
       val hooks = everyResultPhase(new PhaseRecorder {
         def handler[Ev <: PhaseHooks.Event]: PhaseHandler[Any, Ev, Nothing, PhaseHooks.Result] =
-          PhaseHandler.incomingDiscard((ev: Ev) => events.update(_ :+ ev))
+          PhaseHandler.incomingDiscard((event: Ev) => events.update(_ :+ event))
       })
 
       (events, hooks)
@@ -412,8 +589,8 @@ private[gateway] object GatewayTestSupport {
     } yield {
       val hooks = everyResultPhase(new PhaseRecorder {
         def handler[Ev <: PhaseHooks.Event]: PhaseHandler[Any, Ev, Nothing, PhaseHooks.Result] =
-          PhaseHandler((ev: Ev) => events.update(_ :+ ev).as((ev, ())))((ev, _, result) =>
-            results.update(_ :+ (ev -> result))
+          PhaseHandler((event: Ev) => events.update(_ :+ event).as((event, ())))((event, _, result) =>
+            results.update(_ :+ (event -> result))
           )
       })
 

@@ -2,6 +2,7 @@ package caliban.gateway.internal.execution
 
 import caliban.{ PathValue, ResponseValue }
 import caliban.execution.Field
+import caliban.gateway.TypenameField
 import caliban.gateway.internal.planning.OperationPlan.RequiredSelection
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.StringValue
@@ -19,12 +20,13 @@ private[gateway] final class ResponseProjection private (
 ) {
   def apply(value: ResponseValue): ResponseValue = project(value, restoresNames)
 
-  def path(value: List[PathValue]): List[PathValue] = value match {
+  def path(errorPath: List[PathValue]): List[PathValue] = errorPath match {
     case PathValue.Key(name) :: tail    =>
       val entry = fields.get(name)
-      if ((entry eq null) || (entry.path eq null)) value else PathValue.Key(entry.clientName) :: entry.path.path(tail)
+      if ((entry eq null) || (entry.path eq null)) errorPath
+      else PathValue.Key(entry.clientName) :: entry.path.path(tail)
     case PathValue.Index(index) :: tail => PathValue.Index(index) :: path(tail)
-    case _                              => value
+    case _                              => errorPath
   }
 
   private val traversesChildren = {
@@ -100,38 +102,38 @@ private[gateway] object ResponseProjection {
       executable: List[Field],
       required: List[RequiredSelection],
       typenameCount: Int = 0
-    ): ResponseProjection = if (client.isEmpty && executable.isEmpty && required.isEmpty) {
-      if (typenameCount == 0) identity
-      else new ResponseProjection(emptyFields, typeNames, typenameCount)
-    } else {
-      val paired       = executable.zip(client).groupBy(_._1.aliasedName)
-      val requirements = required.groupBy(_.responseName)
-      val fields       = new java.util.HashMap[String, Entry]
-      (paired.keySet ++ requirements.keySet).foreach { name =>
-        val matches         = paired.getOrElse(name, Nil)
-        val selections      = requirements.getOrElse(name, Nil)
-        val childClient     = matches.flatMap(_._2.fields)
-        val childExecutable = matches.flatMap(_._1.fields)
-        val count           =
-          if (typeNames.isEmpty) 0
-          else matches.count(_._1.name == "__typename") + selections.count(_.field == "__typename")
-        val child           =
-          build(childClient, childExecutable, selections.flatMap(_.children), count)
-        val path            = matches match {
-          // Aliases shared by fragments combine for values, but errors retain first-match field lookup.
-          case (source, target) :: _ :: _ => build(target.fields, source.fields, Nil)
-          case Nil                        => null // Correlation selections have no client path or alias restoration.
-          case _                          => child
+    ): ResponseProjection =
+      if (client.isEmpty && executable.isEmpty && required.isEmpty)
+        if (typenameCount == 0) Identity else new ResponseProjection(EmptyFields, typeNames, typenameCount)
+      else {
+        val paired       = executable.zip(client).groupBy(_._1.aliasedName)
+        val requirements = required.groupBy(_.responseName)
+        val fields       = new java.util.HashMap[String, Entry]
+        (paired.keySet ++ requirements.keySet).foreach { name =>
+          val matches         = paired.getOrElse(name, Nil)
+          val selections      = requirements.getOrElse(name, Nil)
+          val childClient     = matches.flatMap(_._2.fields)
+          val childExecutable = matches.flatMap(_._1.fields)
+          val count           =
+            if (typeNames.isEmpty) 0
+            else matches.count(_._1.name == TypenameField) + selections.count(_.field == TypenameField)
+          val child           =
+            build(childClient, childExecutable, selections.flatMap(_.children), count)
+          val path            = matches match {
+            // Aliases shared by fragments combine for values, but errors retain first-match field lookup.
+            case (source, target) :: _ :: _ => build(target.fields, source.fields, Nil)
+            case Nil                        => null // Correlation selections have no client path or alias restoration.
+            case _                          => child
+          }
+          fields.put(name, Entry(matches.headOption.fold(name)(_._2.aliasedName), child, path))
         }
-        fields.put(name, Entry(matches.headOption.fold(name)(_._2.aliasedName), child, path))
+        new ResponseProjection(fields, typeNames, typenameCount)
       }
-      new ResponseProjection(fields, typeNames, typenameCount)
-    }
 
     build(client, executable, required)
   }
 
   private final case class Entry(clientName: String, value: ResponseProjection, path: ResponseProjection)
-  private val emptyFields = new java.util.HashMap[String, Entry]
-  private val identity    = new ResponseProjection(emptyFields, Map.empty, 0)
+  private val EmptyFields = new java.util.HashMap[String, Entry]
+  private val Identity    = new ResponseProjection(EmptyFields, Map.empty, 0)
 }

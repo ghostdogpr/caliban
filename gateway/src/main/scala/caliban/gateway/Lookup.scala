@@ -30,7 +30,7 @@ object Lookup {
     correlation: Map[String, String],
     arguments: (String, Argument)*
   ): Lookup =
-    ListLookup(typeName, keyFields, field, arguments.toList, correlation)
+    ByKey(typeName, keyFields, field, arguments.toList, correlation)
 
   /**
    * A declarative lookup-argument mapping.
@@ -66,7 +66,7 @@ object Lookup {
     arguments: List[(String, Argument)]
   ) extends Lookup
 
-  private[gateway] final case class ListLookup(
+  private[gateway] final case class ByKey(
     typeName: String,
     keyFields: List[String],
     field: String,

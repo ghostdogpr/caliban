@@ -88,10 +88,7 @@ object RemoteGraphQLConfig {
       new Acquisition(timeout, maxResponseBytes, maxParsingDepth, maxRedirects, values.toList)
 
     private[gateway] def diagnostics: List[String] = {
-      val protectedHeaders = headers.collect {
-        case header if isProtocolHeader(headerName(header)) =>
-          s"Schema acquisition header '${headerName(header)}' is owned by the GraphQL transport."
-      }
+      val protectedHeaders = protocolHeaderDiagnostics("Schema acquisition", headers)
       val timeoutError     = finitePositive(timeout, "Schema acquisition timeout must be finite and positive.")
       val responseError    = positive(maxResponseBytes, "Schema acquisition maxResponseBytes must be positive.")
       val parsingError     = positive(maxParsingDepth, "Schema acquisition maxParsingDepth must be positive.")
@@ -181,7 +178,7 @@ object RemoteGraphQLConfig {
      * Selects incoming request headers to forward by case-insensitive name.
      */
     def forwardIncomingHeaders(names: String*): Execution =
-      copy(forwardedHeaders = names.iterator.map(normalize).toSet, forwardsAllIncomingHeaders = false)
+      copy(forwardedHeaders = names.iterator.map(lowercaseHeaderName).toSet, forwardsAllIncomingHeaders = false)
 
     /**
      * Explicitly enables forwarding of all incoming headers except transport-owned headers.
@@ -198,10 +195,7 @@ object RemoteGraphQLConfig {
         finiteNonNegative(retryBackoff, "Subgraph execution retry backoff must be finite and non-negative.")
       val maxConcurrentCallsError =
         positive(maxConcurrentCalls, "Subgraph execution maxConcurrentCalls must be positive.")
-      val protectedHeaders        = headers.collect {
-        case header if isProtocolHeader(headerName(header)) =>
-          s"Subgraph execution header '${headerName(header)}' is owned by the GraphQL transport."
-      }
+      val protectedHeaders        = protocolHeaderDiagnostics("Subgraph execution", headers)
       val protectedForwarding     = forwardedHeaders.toList.sorted.collect {
         case name if isProtocolHeader(name) =>
           s"Incoming header '$name' is owned by the GraphQL transport and cannot be forwarded."
@@ -264,16 +258,21 @@ object RemoteGraphQLConfig {
   val default: RemoteGraphQLConfig[Any] =
     new RemoteGraphQLConfig(Acquisition.default, Execution.default, ZIO.succeed(Nil))
 
-  private[gateway] def normalize(name: String): String =
+  private[gateway] def lowercaseHeaderName(name: String): String =
     name.toLowerCase(java.util.Locale.ROOT)
 
   private[gateway] def isProtocolHeader(name: String): Boolean =
-    ProtocolHeaders.contains(normalize(name))
+    ProtocolHeaders.contains(lowercaseHeaderName(name))
 
   private[gateway] def headerName(header: Header): String =
     header match {
       case custom: Header.Custom => custom.customName.toString
       case other                 => other.headerName
+    }
+
+  private def protocolHeaderDiagnostics(owner: String, headers: List[Header]): List[String] =
+    headers.map(headerName).collect {
+      case name if isProtocolHeader(name) => s"$owner header '$name' is owned by the GraphQL transport."
     }
 
   private val ProtocolHeaders = Set(

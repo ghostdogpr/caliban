@@ -11,18 +11,28 @@ import scala.collection.mutable
  * entity patches overwrite fetched values, while blocked patches only fill missing values.
  */
 private[gateway] object ResponseMerge {
-  def applyPatches(value: ResponseValue, patches: List[(List[PathValue], ResponseValue)]): ResponseValue =
+  type Patch = (List[PathValue], ResponseValue)
+
+  def applyPatches(value: ResponseValue, patches: List[Patch]): ResponseValue =
     patches match {
       case Nil                  => value
-      case (path, patch) :: Nil => mergeAt(value, path, patch)
+      case (path, patch) :: Nil => mergeAt(value, path, patch, onlyMissing = false)
       case _                    =>
         val root = new PatchNode
         patches.foreach { case (path, patch) => root.add(path, patch) }
         root.patch(value)
     }
 
-  def mergeMissingAt(value: ResponseValue, path: List[PathValue], patch: ResponseValue): ResponseValue =
-    mergeAt(value, path, patch, onlyMissing = true)
+  def fillMissing(value: ResponseValue, patches: List[Patch]): ResponseValue = {
+    var filled    = value
+    var remaining = patches
+    while (remaining ne Nil) {
+      val patch = remaining.head
+      filled = mergeAt(filled, patch._1, patch._2, onlyMissing = true)
+      remaining = remaining.tail
+    }
+    filled
+  }
 
   def mergeObject(left: ResponseValue, right: ResponseValue): ResponseValue =
     mergeValues(left, right) {
@@ -113,23 +123,19 @@ private[gateway] object ResponseMerge {
     value: ResponseValue,
     path: List[PathValue],
     patch: ResponseValue,
-    onlyMissing: Boolean = false
+    onlyMissing: Boolean
   ): ResponseValue =
     path match {
-      case Nil          => if (onlyMissing) mergeObject(patch, value) else mergeObject(value, patch)
-      case head :: tail =>
-        head match {
-          case StringValue(key)          =>
-            value match {
-              case ObjectValue(fields) => ObjectValue(updateFieldAt(fields, key, tail, patch, onlyMissing))
-              case other               => other
-            }
-          case IntValue.IntNumber(index) =>
-            value match {
-              case ListValue(values) if index >= 0 =>
-                ListValue(updateValueAt(values, index, tail, patch, onlyMissing))
-              case other                           => other
-            }
+      case Nil                               => if (onlyMissing) mergeObject(patch, value) else mergeObject(value, patch)
+      case StringValue(key) :: tail          =>
+        value match {
+          case ObjectValue(fields) => ObjectValue(updateFieldAt(fields, key, tail, patch, onlyMissing))
+          case other               => other
+        }
+      case IntValue.IntNumber(index) :: tail =>
+        value match {
+          case ListValue(values) if index >= 0 => ListValue(updateValueAt(values, index, tail, patch, onlyMissing))
+          case other                           => other
         }
     }
 
@@ -175,71 +181,79 @@ private[gateway] object ResponseMerge {
     }
   }
 
-  private def mergeValues(
-    left: ResponseValue,
-    right: ResponseValue
-  )(mergeLeaf: (ResponseValue, ResponseValue) => ResponseValue): ResponseValue =
+  private def mergeValues(left: ResponseValue, right: ResponseValue)(
+    mergeLeaf: (ResponseValue, ResponseValue) => ResponseValue
+  ): ResponseValue =
     (left, right) match {
-      case (leftObj: ObjectValue, rightObj: ObjectValue) =>
-        val leftFields                                          = leftObj.fields
-        val leftSize                                            = leftFields.size
-        var remaining                                           = leftFields
-        var positions: java.util.HashMap[String, Integer]       = null
-        if (leftSize >= IndexedFields.IndexThreshold) {
-          positions = new java.util.HashMap[String, Integer](leftSize * 2)
-          var position = 0
-          remaining = leftFields
-          while (remaining ne Nil) {
-            positions.put(remaining.head._1, Integer.valueOf(position))
-            position += 1
-            remaining = remaining.tail
-          }
-        }
-        val matches                                             = new Array[ResponseValue](leftSize)
-        var extras: mutable.ListBuffer[(String, ResponseValue)] = null
-        var rightRemaining                                      = rightObj.fields
-        while (rightRemaining ne Nil) {
-          val field   = rightRemaining.head
-          var matched = false
-          if (positions ne null) {
-            val position = positions.get(field._1)
-            if (position ne null) {
-              matches(position.intValue) = field._2
-              matched = true
-            }
-          } else {
-            var position        = 0
-            var matchedPosition = -1
-            remaining = leftFields
-            while (remaining ne Nil) {
-              if (remaining.head._1.equals(field._1)) matchedPosition = position
-              position += 1
-              remaining = remaining.tail
-            }
-            if (matchedPosition >= 0) {
-              matches(matchedPosition) = field._2
-              matched = true
-            }
-          }
-          if (!matched) {
-            if (extras eq null) extras = new mutable.ListBuffer
-            extras += field
-          }
-          rightRemaining = rightRemaining.tail
-        }
-        val merged                                              = new mutable.ListBuffer[(String, ResponseValue)]
-        var position                                            = 0
-        remaining = leftFields
-        while (remaining ne Nil) {
-          val field   = remaining.head
-          val matched = matches(position)
-          merged += (if (matched eq null) field else (field._1, mergeValues(field._2, matched)(mergeLeaf)))
-          position += 1
-          remaining = remaining.tail
-        }
-        if (extras ne null) merged ++= extras
-        ObjectValue(merged.toList)
-      case _                                             => mergeLeaf(left, right)
+      case (leftObject: ObjectValue, rightObject: ObjectValue) =>
+        ObjectValue(mergeFields(leftObject.fields, rightObject.fields)(mergeLeaf))
+      case _                                                   => mergeLeaf(left, right)
     }
 
+  private def mergeFields(left: List[(String, ResponseValue)], right: List[(String, ResponseValue)])(
+    mergeLeaf: (ResponseValue, ResponseValue) => ResponseValue
+  ): List[(String, ResponseValue)] = {
+    val leftSize                                            = left.size
+    val positions                                           = indexPositions(left, leftSize)
+    val matches                                             = new Array[ResponseValue](leftSize)
+    var extras: mutable.ListBuffer[(String, ResponseValue)] = null
+    var remaining                                           = right
+    while (remaining ne Nil) {
+      val field    = remaining.head
+      val position =
+        if (positions ne null) indexedPositionOf(positions, field._1) else lastPositionOf(left, field._1)
+      if (position >= 0) matches(position) = field._2
+      else {
+        if (extras eq null) extras = new mutable.ListBuffer
+        extras += field
+      }
+      remaining = remaining.tail
+    }
+    val merged                                              = new mutable.ListBuffer[(String, ResponseValue)]
+    var position                                            = 0
+    remaining = left
+    while (remaining ne Nil) {
+      val field   = remaining.head
+      val matched = matches(position)
+      merged += (if (matched eq null) field else (field._1, mergeValues(field._2, matched)(mergeLeaf)))
+      position += 1
+      remaining = remaining.tail
+    }
+    if (extras ne null) merged ++= extras
+    merged.toList
+  }
+
+  /**
+   * Returns null for objects below the index threshold, which `lastPositionOf` scans instead.
+   */
+  private def indexPositions(fields: List[(String, ResponseValue)], size: Int): java.util.HashMap[String, Integer] =
+    if (size < IndexedFields.IndexThreshold) null
+    else {
+      val positions = new java.util.HashMap[String, Integer](size * 2)
+      var position  = 0
+      var remaining = fields
+      while (remaining ne Nil) {
+        positions.put(remaining.head._1, Integer.valueOf(position))
+        position += 1
+        remaining = remaining.tail
+      }
+      positions
+    }
+
+  private def indexedPositionOf(positions: java.util.HashMap[String, Integer], name: String): Int = {
+    val position = positions.get(name)
+    if (position eq null) -1 else position.intValue
+  }
+
+  private def lastPositionOf(fields: List[(String, ResponseValue)], name: String): Int = {
+    var position  = 0
+    var found     = -1
+    var remaining = fields
+    while (remaining ne Nil) {
+      if (remaining.head._1.equals(name)) found = position
+      position += 1
+      remaining = remaining.tail
+    }
+    found
+  }
 }

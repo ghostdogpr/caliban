@@ -17,7 +17,7 @@ object Main extends ZIOAppDefault {
   private[audit] final case class SubgraphInput(name: String, url: String, sdl: String)
   private implicit val subgraphInputsCodec: JsonValueCodec[List[SubgraphInput]] = JsonCodecMaker.make
 
-  override def run =
+  override def run: ZIO[ZIOAppArgs, Throwable, Unit] =
     program
       .provideSome[ZIOAppArgs](Client.default)
       .tapErrorCause(cause => ZIO.logErrorCause("Federation audit adapter failed.", cause))

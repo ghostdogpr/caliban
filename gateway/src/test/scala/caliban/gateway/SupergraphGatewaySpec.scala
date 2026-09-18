@@ -1,18 +1,16 @@
 package caliban.gateway
 
+import caliban.ResponseValue
 import caliban.Value.IntValue.IntNumber
 import caliban.Value.StringValue
 import caliban.gateway.GatewayTestSupport._
-import zio.http.URL
 import zio.Config.Secret
 import zio._
-import zio.http.{ Body, Header, Headers, MediaType, Response, Server, Status }
+import zio.http.{ Body, Header, Headers, MediaType, Response, Server, Status, URL }
 import zio.test._
 
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
-
-import scala.io.{ Source => ScalaSource }
 
 /**
  * Reload behaviour for a gateway built from a supergraph rather than a hand-listed subgraph set.
@@ -23,24 +21,7 @@ import scala.io.{ Source => ScalaSource }
  */
 object SupergraphGatewaySpec extends ZIOSpecDefault {
 
-  private implicit final class TestGatewayOps[R](private val gateway: Gateway[R]) extends AnyVal {
-
-    /** One-second polls with no jitter; sources without a published floor accept any interval. */
-    def reloadableForTest(implicit trace: Trace): ZIO[Scope, GatewayBuildError, ReloadableGatewayInterpreter[R]] =
-      reloadableEvery(1.second)
-
-    def reloadableEvery(interval: Duration)(implicit
-      trace: Trace
-    ): ZIO[Scope, GatewayBuildError, ReloadableGatewayInterpreter[R]] =
-      gateway.withConfig(_.withReloadPollInterval(interval).withReloadJitter(0.0)).reloadable
-  }
-
-  private def resource(name: String): UIO[String] =
-    ZIO
-      .scoped(ZIO.fromAutoCloseable(ZIO.attempt(ScalaSource.fromResource(s"supergraph/$name"))).map(_.mkString))
-      .orDie
-
-  private val supergraphSchema: UIO[String] = resource("supergraph.graphql")
+  private val supergraphSchema: UIO[String] = supergraphResource("supergraph.graphql")
 
   /** A root field only `characters` can resolve, so activating it proves the new generation is live. */
   private def withCrew(sdl: String): String =
@@ -58,31 +39,19 @@ object SupergraphGatewaySpec extends ZIOSpecDefault {
   private def reformatted(sdl: String): String =
     "# republished, unchanged\n" + sdl.replace("type Query\n", "type Query\n\n")
 
-  private final case class Source(
-    endpoint: URL,
-    document: Ref[String],
-    fetches: Ref[Int],
-    characters: Stub,
-    episodes: Stub
-  ) {
+  private final case class Subgraphs(characters: Stub, episodes: Stub) {
 
     /** The fixture's routing urls point at fixed ports nothing listens on, so every test redirects them. */
     def endpoints: String => Option[URL] =
       Map("characters" -> characters.endpoint, "episodes" -> episodes.endpoint).get
 
-    def supergraph: Supergraph[Any] = Supergraph.http(endpoint).withSubgraphEndpoint(endpoints)
-
-    def setSchema(sdl: String): UIO[Unit] = document.set(sdl)
-
     /** Every request the projected subgraphs received, so acquisition traffic can be ruled out. */
-    def subgraphQueries: UIO[Vector[String]] =
+    def queries: UIO[Vector[String]] =
       characters.requests.get.zipWith(episodes.requests.get)(_ ++ _).map(_.flatMap(_.query))
   }
 
-  private def source(sdl: String): ZIO[Server with Ref[Int], Nothing, Source] =
+  private val subgraphStubs: ZIO[Server with Ref[Int], Nothing, Subgraphs] =
     for {
-      document   <- Ref.make(sdl)
-      fetches    <- Ref.make(0)
       characters <-
         stubByRequestZIO(_ =>
           ZIO.succeed(
@@ -90,25 +59,32 @@ object SupergraphGatewaySpec extends ZIOSpecDefault {
           )
         )
       episodes   <- stubByRequestZIO(_ => ZIO.succeed("""{"data":{"episodes":[{"name":"Dulcinea"}]}}"""))
-      endpoint   <- getEndpoint("supergraph") { _ =>
-                      fetches.update(_ + 1) *> document.get.map { text =>
-                        Response(
-                          Status.Ok,
-                          Headers(Header.ContentType(MediaType.text.plain).untyped),
-                          Body.fromString(text)
-                        )
-                      }
-                    }
-    } yield Source(endpoint, document, fetches, characters, episodes)
+    } yield Subgraphs(characters, episodes)
 
-  // The next poll timer is installed only after the current refresh and retirement finish.
-  private def awaitPoll(interval: Duration): UIO[Unit] =
-    Clock.instant.flatMap(now => TestClock.sleeps.repeatUntil(_.contains(now.plus(interval)))).unit
+  private final case class Source(endpoint: URL, document: Ref[String], fetches: Ref[Int], subgraphs: Subgraphs) {
 
-  private def poll(runtime: ReloadableGatewayInterpreter[_], interval: Duration = 1.second): UIO[Option[String]] =
-    TestClock.adjust(interval) *> awaitPoll(interval) *> runtime.lastReloadFailure
+    def supergraph: Supergraph[Any] = Supergraph.http(endpoint).withSubgraphEndpoint(subgraphs.endpoints)
 
-  private def names(value: caliban.ResponseValue, root: String): List[Option[caliban.ResponseValue]] =
+    def setSchema(sdl: String): UIO[Unit] = document.set(sdl)
+  }
+
+  private def source(sdl: String): ZIO[Server with Ref[Int], Nothing, Source] =
+    for {
+      document  <- Ref.make(sdl)
+      fetches   <- Ref.make(0)
+      subgraphs <- subgraphStubs
+      endpoint  <- getEndpoint("supergraph") { _ =>
+                     fetches.update(_ + 1) *> document.get.map { text =>
+                       Response(
+                         Status.Ok,
+                         Headers(Header.ContentType(MediaType.text.plain).untyped),
+                         Body.fromString(text)
+                       )
+                     }
+                   }
+    } yield Source(endpoint, document, fetches, subgraphs)
+
+  private def names(value: ResponseValue, root: String): List[Option[ResponseValue]] =
     listValues(field(value, root)).map(field(_, "name"))
 
   def spec = suite("Supergraph gateway")(
@@ -164,11 +140,11 @@ object SupergraphGatewaySpec extends ZIOSpecDefault {
                  |""".stripMargin
         runtime <- Gateway.fromSupergraph(Supergraph.sdl(sdl)).interpreter
         result  <- runtime.execute("{ widget { price } }")
-        sentA   <- a.requests.get
+        sent    <- a.requests.get
       } yield assertTrue(
         result.errors.isEmpty,
         field(result.data, "widget").flatMap(field(_, "price")).contains(IntNumber(10)),
-        sentA.isEmpty
+        sent.isEmpty
       )
     },
     test("serves every graph the supergraph declares, through the configured endpoints") {
@@ -177,7 +153,7 @@ object SupergraphGatewaySpec extends ZIOSpecDefault {
         remote  <- source(sdl)
         runtime <- Gateway.fromSupergraph(remote.supergraph).reloadableForTest
         result  <- runtime.execute("{ characters { name } episodes { name } }")
-        queries <- remote.subgraphQueries
+        queries <- remote.subgraphs.queries
         fetches <- remote.fetches.get
       } yield assertTrue(
         result.errors.isEmpty,
@@ -198,7 +174,7 @@ object SupergraphGatewaySpec extends ZIOSpecDefault {
         _       <- remote.setSchema(withCrew(sdl))
         failed  <- poll(runtime)
         after   <- runtime.execute("{ crew { name } }")
-        queries <- remote.subgraphQueries
+        queries <- remote.subgraphs.queries
         fetches <- remote.fetches.get
       } yield assertTrue(
         before.isFailure,
@@ -271,7 +247,7 @@ object SupergraphGatewaySpec extends ZIOSpecDefault {
         sdl      <- supergraphSchema
         remote   <- source(sdl)
         pinned    = remote.supergraph
-        static    = Supergraph.sdl(sdl).withSubgraphEndpoint(remote.endpoints)
+        static    = Supergraph.sdl(sdl).withSubgraphEndpoint(remote.subgraphs.endpoints)
         rejected <- Gateway.fromSupergraph(static).reloadableForTest.exit
         runtime  <- Gateway.fromSupergraph(static).interpreter
         result   <- runtime.execute("{ characters { name } episodes { name } }")
@@ -298,7 +274,9 @@ object SupergraphGatewaySpec extends ZIOSpecDefault {
           (text: String) => ZIO.attemptBlocking(Files.write(path, text.getBytes(StandardCharsets.UTF_8))).unit.orDie
         _       <- write(sdl)
         runtime <-
-          Gateway.fromSupergraph(Supergraph.file(path).withSubgraphEndpoint(remote.endpoints)).reloadableForTest
+          Gateway
+            .fromSupergraph(Supergraph.file(path).withSubgraphEndpoint(remote.subgraphs.endpoints))
+            .reloadableForTest
         before  <- runtime.check("{ crew { name } }").exit
         _       <- write(withCrew(sdl))
         failed  <- poll(runtime)
@@ -339,11 +317,9 @@ object SupergraphGatewaySpec extends ZIOSpecDefault {
   private def uplinkSource(endpoint: URL) =
     SupergraphUplinkConfig(graphRef, apiKey).withEndpoints(endpoint).withAcquisition(uplinkAcquisition)
 
-  private final case class Uplink(uplink: Stub, answer: Ref[String], characters: Stub, episodes: Stub) {
+  private final case class Uplink(uplink: Stub, answer: Ref[String], subgraphs: Subgraphs) {
     def supergraph: Supergraph[Any] =
-      Supergraph
-        .uplink(uplinkSource(uplink.endpoint))
-        .withSubgraphEndpoint(Map("characters" -> characters.endpoint, "episodes" -> episodes.endpoint).get)
+      Supergraph.uplink(uplinkSource(uplink.endpoint)).withSubgraphEndpoint(subgraphs.endpoints)
 
     /** What every later poll is answered with, until it is set again. */
     def serve(body: String): UIO[Unit] = answer.set(body)
@@ -355,25 +331,16 @@ object SupergraphGatewaySpec extends ZIOSpecDefault {
       uplink.requests.get.map(
         _.lift(index).flatMap(_.variables).flatMap(_.get("ifAfterId")).collect { case StringValue(value) => value }
       )
-
-    def subgraphQueries: UIO[Vector[String]] =
-      characters.requests.get.zipWith(episodes.requests.get)(_ ++ _).map(_.flatMap(_.query))
   }
 
   private def uplinkOf(sdl: String): ZIO[Server with Ref[Int], Nothing, Uplink] =
     for {
-      answer     <- Ref.make(uplinkConfigResult("id-1", sdl))
+      answer    <- Ref.make(uplinkConfigResult("id-1", sdl))
       // The uplink speaks GraphQL over POST and answers `application/graphql-response+json`, which is
       // exactly what the subgraph stub already does.
-      uplink     <- stubByRequestZIO(_ => answer.get)
-      characters <-
-        stubByRequestZIO(_ =>
-          ZIO.succeed(
-            """{"data":{"characters":[{"name":"Naomi"}],"crew":[{"name":"Amos"}],"character":{"name":"Naomi"}}}"""
-          )
-        )
-      episodes   <- stubByRequestZIO(_ => ZIO.succeed("""{"data":{"episodes":[{"name":"Dulcinea"}]}}"""))
-    } yield Uplink(uplink, answer, characters, episodes)
+      uplink    <- stubByRequestZIO(_ => answer.get)
+      subgraphs <- subgraphStubs
+    } yield Uplink(uplink, answer, subgraphs)
 
   private def uplinkPoll(runtime: ReloadableGatewayInterpreter[_]): UIO[Option[String]] =
     poll(runtime, uplinkPollInterval)
@@ -387,7 +354,7 @@ object SupergraphGatewaySpec extends ZIOSpecDefault {
         result  <- runtime.execute("{ characters { name } episodes { name } }")
         polls   <- remote.polls
         cursor  <- remote.cursorOf(0)
-        queries <- remote.subgraphQueries
+        queries <- remote.subgraphs.queries
       } yield assertTrue(
         result.errors.isEmpty,
         names(result.data, "characters") == List(Some(StringValue("Naomi"))),
@@ -426,7 +393,8 @@ object SupergraphGatewaySpec extends ZIOSpecDefault {
         recorded       <- recordEvents
         (events, hooks) = recorded
         remote         <- uplinkOf(sdl)
-        runtime        <- Gateway.fromSupergraph(remote.supergraph).withPhaseHooks(hooks).reloadableEvery(uplinkPollInterval)
+        runtime        <-
+          Gateway.fromSupergraph(remote.supergraph).withPhaseHooks(hooks).reloadableEvery(uplinkPollInterval)
         _              <- runtime.execute("{ characters { name } }")
         _              <- remote.serve(uplinkUnchanged("id-1"))
         failed         <- uplinkPoll(runtime)

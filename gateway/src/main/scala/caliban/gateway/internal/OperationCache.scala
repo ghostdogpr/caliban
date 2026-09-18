@@ -78,9 +78,9 @@ private[gateway] final class OperationCache[K, E, V, -R] private (
     observe(CacheResult.Hit)(ZIO.succeed(value))
 
   private def observe[R0 <: R, E0, A](
-    value: CacheResult
+    result: CacheResult
   )(effect: ZIO[R0, E0, A])(implicit trace: Trace): ZIO[R0, E0, A] =
-    hooks.cacheAccess.run(Event.CacheAccess(value))(effect)(Result.classifyExit)
+    hooks.cacheAccess.run(Event.CacheAccess(result))(effect)(Result.classifyExit)
 }
 
 private[gateway] object OperationCache {

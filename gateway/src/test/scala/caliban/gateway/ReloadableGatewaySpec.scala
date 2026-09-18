@@ -1,15 +1,12 @@
 package caliban.gateway
 
-import caliban.{ graphQL, GraphQL, GraphQLRequest, GraphQLResponse, QuickAdapter, RootResolver }
-import caliban.ResponseValue.ObjectValue
+import caliban.{ graphQL, GraphQLRequest, QuickAdapter, RootResolver }
 import caliban.Value.StringValue
 import caliban.gateway.GatewayTestSupport._
 import caliban.gateway.internal.{ SchemaFingerprint, SubscriptionTermination }
 import caliban.gateway.internal.execution.SubgraphExecutor
 import caliban.parsing.Parser
 import caliban.schema.{ GenericSchema, Schema }
-import caliban.gateway.internal.composition.IntrospectionClient
-import com.github.plokhotnyuk.jsoniter_scala.core.writeToString
 import zio._
 import zio.http.{ Body, Header, Request, Server, Status, URL }
 import zio.stream.ZStream
@@ -20,15 +17,8 @@ import java.time.temporal.ChronoUnit
 import java.util.concurrent.TimeUnit
 
 object ReloadableGatewaySpec extends ZIOSpecDefault {
-  private val schema                                          = "type Query { value: String } type Mutation { setValue: String }"
-  private val changed                                         = "type Query { value: String added: String } type Mutation { setValue: String }"
-  private val configureReload: GatewayConfig => GatewayConfig =
-    _.withReloadPollInterval(1.second).withReloadJitter(0.0)
-
-  private implicit final class TestGatewayOps[R](private val gateway: Gateway[R]) extends AnyVal {
-    def reloadableForTest(implicit trace: Trace): ZIO[Scope, GatewayBuildError, ReloadableGatewayInterpreter[R]] =
-      gateway.withConfig(configureReload).reloadable
-  }
+  private val schema  = "type Query { value: String } type Mutation { setValue: String }"
+  private val changed = "type Query { value: String added: String } type Mutation { setValue: String }"
 
   private object UpdatedApi extends GenericSchema[Any] {
     import auto._
@@ -36,21 +26,6 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
     implicit val querySchema: Schema[Any, Query] = gen
     val api                                      = graphQL(RootResolver(Query("old", "new")))
   }
-
-  private def introspectionResponse(api: GraphQL[Any]): UIO[String] =
-    ZIO.fromEither(api.interpreterEither).orDie.flatMap { interpreter =>
-      interpreter
-        .execute(IntrospectionClient.Query)
-        .map(writeToString(_))
-    }
-
-  private def serviceResponse(sdl: String): String =
-    writeToString(
-      GraphQLResponse[Any](
-        ObjectValue(List("_service" -> ObjectValue(List("sdl" -> StringValue(sdl))))),
-        Nil
-      )
-    )
 
   private final case class Source(stub: Stub, response: Ref[String], checks: Ref[Int], beforeSchema: Ref[UIO[Unit]]) {
     def setSchema(sdl: String): UIO[Unit] = response.set(serviceResponse(sdl))
@@ -68,13 +43,6 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
                     else ZIO.succeed("""{"data":{"value":"old","added":"new","setValue":"saved","setAdded":"saved"}}""")
                   }
     } yield Source(stub, response, checks, before)
-
-  // The next poll timer is installed only after the current refresh and retirement finish.
-  private def awaitPoll: UIO[Unit] =
-    Clock.instant.flatMap(now => TestClock.sleeps.repeatUntil(_.contains(now.plusSeconds(1)))).unit
-
-  private def poll(runtime: ReloadableGatewayInterpreter[_]): UIO[Option[String]] =
-    TestClock.adjust(1.second) *> awaitPoll *> runtime.lastReloadFailure
 
   private def awaitSchema(runtime: GatewayInterpreter[Any], query: String): UIO[Unit] =
     ZTestLogger.logOutput.repeatUntil(_.exists(_.message() == "Gateway activated generation 2.")) *>
@@ -104,6 +72,8 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
             )
       }
     }
+
+  private def fingerprint(sdl: String): String = SchemaFingerprint(Parser.parseQuery(sdl).toOption.get)
 
   def spec = suite("Reloadable gateway")(
     test("reload terminates active subscriptions promptly and unstarted streams use the new generation") {
@@ -150,7 +120,7 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
     test("rejects static-only gateways and invalid reload configuration") {
       for {
         remote  <- source()
-        static  <- Gateway.compose(Subgraph.local("local", localGraph(ZIO.succeed("value")))).reloadable.exit
+        static  <- localGateway(ZIO.succeed("value")).reloadable.exit
         results <- ZIO.foreach(
                      List[GatewayConfig => GatewayConfig](
                        _.withReloadPollInterval(Duration.Zero),
@@ -160,8 +130,8 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
                        _.withReloadJitter(Double.NaN)
                      )
                    )(configure => Gateway.compose(remote.subgraph).withConfig(configure).reloadable.exit)
-        calls   <- remote.checks.get
-      } yield assertTrue(static.isFailure, results.forall(_.isFailure), calls == 0)
+        checks  <- remote.checks.get
+      } yield assertTrue(static.isFailure, results.forall(_.isFailure), checks == 0)
     },
     test("fails startup without an initial usable generation") {
       for {
@@ -180,11 +150,11 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
         _              <- poll(runtime)
         _              <- runtime.execute("{ value }")
         observed       <- events.get
-        calls          <- remote.checks.get
+        checks         <- remote.checks.get
       } yield assertTrue(
         observed.count(_ == PhaseHooks.Event.CacheAccess(PhaseHooks.CacheResult.Miss)) == 1,
         observed.count(_ == PhaseHooks.Event.CacheAccess(PhaseHooks.CacheResult.Hit)) == 1,
-        calls == 2
+        checks == 2
       )
     },
     test("builds from the checked snapshot and updates an existing HTTP adapter") {
@@ -288,7 +258,7 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
         checks  <- remote.checks.get
         result  <- runtime.execute("{ value }")
         _       <- release.succeed(())
-        _       <- awaitPoll
+        _       <- awaitPoll()
       } yield assertTrue(checks == 2, result.errors.isEmpty)
     },
     test("uses acquisition timeouts and recovers without replacing an unchanged generation") {
@@ -307,7 +277,7 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
         _         <- started.await
         _         <- TestClock.adjust(1.second)
         failed    <- runtime.lastReloadFailure.repeatUntil(_.nonEmpty)
-        _         <- awaitPoll
+        _         <- awaitPoll()
         result    <- runtime.execute("{ value }")
         _         <- release.succeed(())
         _         <- TestClock.adjust(1.second)
@@ -335,10 +305,10 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
         _       <- remote.setSchema(changed)
         _       <- poll(runtime)
         result  <- runtime.execute("{ added pinned local }")
-        calls   <- pinned.requests.get
+        sent    <- pinned.requests.get
       } yield assertTrue(
         result.errors.isEmpty,
-        calls.size == 1,
+        sent.size == 1,
         field(result.data, "local").contains(StringValue("local"))
       )
     },
@@ -433,12 +403,12 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
         after   <- runtime.execute("mutation After { setAdded }", Some("After"))
         _       <- release.succeed(())
         old     <- before.join
-        _       <- awaitPoll
-        calls   <- remote.stub.requests.get
+        _       <- awaitPoll()
+        sent    <- remote.stub.requests.get
       } yield assertTrue(
         old.errors.isEmpty,
         after.errors.isEmpty,
-        calls.count(_.query.exists(_.contains("mutation"))) == 2
+        sent.count(_.query.exists(_.contains("mutation"))) == 2
       )
     },
     test("a paused reservation neither blocks publication nor replays mutation work") {
@@ -456,11 +426,11 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
         _           <- poll(runtime)
         _           <- release.succeed(())
         response    <- pending.join
-        requests    <- remote.stub.requests.get
+        sent        <- remote.stub.requests.get
       } yield assertTrue(
         independent.errors.isEmpty,
         response.errors.isEmpty,
-        requests.count(_.query.exists(_.contains("mutation"))) == 1
+        sent.count(_.query.exists(_.contains("mutation"))) == 1
       )
     },
     test("releases a racing reservation after admission closes but before draining starts") {
@@ -483,12 +453,12 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
         _              <- closeEntered.await
         _              <- requestRelease.succeed(())
         response       <- pending.join
-        requests       <- remote.stub.requests.get
+        sent           <- remote.stub.requests.get
         _              <- closeRelease.succeed(())
         _              <- closing.join
       } yield assertTrue(
         response.errors.exists(_.msg == "Gateway is shutting down."),
-        !requests.exists(_.query.exists(_.contains("mutation")))
+        !sent.exists(_.query.exists(_.contains("mutation")))
       )
     },
     test("bounds generations and pauses polling behind uninterruptible retirement") {
@@ -521,7 +491,7 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
         pending     <- old.poll
         _           <- release.succeed(())
         exit        <- old.await
-        _           <- awaitPoll
+        _           <- awaitPoll()
         _           <- poll(runtime)
         newest      <- runtime.check("{ newest }").exit
       } yield assertTrue(
@@ -550,9 +520,9 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
         rejected <- runtime.execute("{ value }")
         check    <- runtime.check("{ value }").exit
         explain  <- runtime.explain("{ value }").exit
-        calls    <- remote.checks.get
+        checks   <- remote.checks.get
       } yield assertTrue(
-        calls == 2,
+        checks == 2,
         rejected.errors.exists(_.msg == "Gateway is shutting down."),
         check.isFailure,
         explain.isFailure
@@ -610,8 +580,7 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
       )
     },
     test("fingerprints ignore locations but retain directive arguments and descriptions") {
-      def fingerprint(sdl: String): String = SchemaFingerprint(Parser.parseQuery(sdl).toOption.get)
-      val original                         = "type Query { value: String @deprecated(reason: \"old\") }"
+      val original = "type Query { value: String @deprecated(reason: \"old\") }"
       assertTrue(
         fingerprint(original) == fingerprint("# comment\n" + original.replace("@deprecated", "\n @deprecated")),
         fingerprint(original) != fingerprint(original.replace("old", "new")),
@@ -619,8 +588,7 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
       )
     },
     test("fingerprints canonicalize schema declarations but retain ordered values and directives") {
-      def fingerprint(sdl: String): String = SchemaFingerprint(Parser.parseQuery(sdl).toOption.get)
-      val equivalent                       = List(
+      val equivalent = List(
         "type Query { x(a: Int, b: Int): String y: Int }"                          -> "type Query { y: Int x(b: Int, a: Int): String }",
         "input Input { a: Int b: Int } enum E { A B }"                             -> "enum E { B A } input Input { b: Int a: Int }",
         "union U = A | B"                                                          -> "union U = B | A",
@@ -640,12 +608,11 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
       )
     },
     test("fingerprints preserve directive order across extensions of the same target") {
-      def fingerprint(sdl: String): String = SchemaFingerprint(Parser.parseQuery(sdl).toOption.get)
-      val typeFirst                        = "extend type Query @d(a: 1)"
-      val typeSecond                       = "extend type Query @d(a: 2)"
-      val schemaFirst                      = "extend schema @d(a: 1)"
-      val schemaSecond                     = "extend schema @d(a: 2)"
-      val other                            = "extend type Other @d(a: 3)"
+      val typeFirst    = "extend type Query @d(a: 1)"
+      val typeSecond   = "extend type Query @d(a: 2)"
+      val schemaFirst  = "extend schema @d(a: 1)"
+      val schemaSecond = "extend schema @d(a: 2)"
+      val other        = "extend type Other @d(a: 3)"
       assertTrue(
         fingerprint(s"$typeFirst $typeSecond") != fingerprint(s"$typeSecond $typeFirst"),
         fingerprint(s"$schemaFirst $schemaSecond") != fingerprint(s"$schemaSecond $schemaFirst"),

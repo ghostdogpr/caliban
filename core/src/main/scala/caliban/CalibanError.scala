@@ -1,7 +1,7 @@
 package caliban
 
 import caliban.ResponseValue.{ ListValue, ObjectValue }
-import caliban.Value.{ IntValue, NullValue, StringValue }
+import caliban.Value.{ IntValue, StringValue }
 import caliban.parsing.adt.LocationInfo
 import com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec
 
@@ -19,41 +19,51 @@ sealed trait CalibanError extends NoStackTrace with Product with Serializable {
 
 object CalibanError {
 
+  private[caliban] final val RemoteErrorMessage = "Remote GraphQL request failed."
+
   private[caliban] def fromResponseValue(value: ResponseValue): Option[CalibanError] =
     value match {
-      case value @ ObjectValue(fields) =>
-        val message    = fields.collectFirst { case ("message", StringValue(value)) => value }
-          .getOrElse("Remote GraphQL request failed.")
-        val path       = fields.collectFirst { case ("path", value) => value } match {
-          case None | Some(NullValue)  => Nil
-          case Some(ListValue(values)) =>
-            val decoded = values.map {
-              case value: StringValue        => Some(value: PathValue)
-              case value: IntValue.IntNumber => Some(value: PathValue)
-              case _                         => None
-            }
-            if (decoded.forall(_.nonEmpty)) decoded.flatten else Nil
-          case _                       => Nil
+      case error: ObjectValue =>
+        val message    = error.getOrNull("message") match {
+          case StringValue(message) => message
+          case _                    => RemoteErrorMessage
         }
-        val locations  = fields.collectFirst { case ("locations", value) => value } match {
-          case None | Some(NullValue)  => None
-          case Some(ListValue(values)) =>
-            val decoded = values.map {
-              case ObjectValue(location) =>
-                for {
-                  line   <- location.collectFirst { case ("line", IntValue.IntNumber(value)) => value }
-                  column <- location.collectFirst { case ("column", IntValue.IntNumber(value)) => value }
-                } yield LocationInfo(column, line)
-              case _                     => None
-            }
-            if (decoded.forall(_.nonEmpty)) decoded.flatten.headOption else None
+        val path       = error.getOrNull("path") match {
+          case ListValue(values) => decodeAll(values)(decodePathValue).getOrElse(Nil)
+          case _                 => Nil
+        }
+        val location   = error.getOrNull("locations") match {
+          case ListValue(values) => decodeAll(values)(decodeLocation).flatMap(_.headOption)
+          case _                 => None
+        }
+        val extensions = error.getOrNull("extensions") match {
+          case extensions: ObjectValue => Some(extensions)
           case _                       => None
         }
-        val extensions = GraphQLResponse
-          .optional(value, "extensions") { case value: ObjectValue => value }
-          .getOrElse(None)
-        Some(ExecutionError(message, path, locations, extensions = extensions))
-      case _                           => None
+        Some(ExecutionError(message, path, location, extensions = extensions))
+      case _                  => None
+    }
+
+  private def decodeAll[A](values: List[ResponseValue])(decode: ResponseValue => Option[A]): Option[List[A]] = {
+    val decoded = values.map(decode)
+    if (decoded.forall(_.isDefined)) Some(decoded.flatten) else None
+  }
+
+  private def decodePathValue(value: ResponseValue): Option[PathValue] =
+    value match {
+      case key: StringValue          => Some(key)
+      case index: IntValue.IntNumber => Some(index)
+      case _                         => None
+    }
+
+  private def decodeLocation(value: ResponseValue): Option[LocationInfo] =
+    value match {
+      case ObjectValue(fields) =>
+        for {
+          line   <- fields.collectFirst { case ("line", IntValue.IntNumber(line)) => line }
+          column <- fields.collectFirst { case ("column", IntValue.IntNumber(column)) => column }
+        } yield LocationInfo(column, line)
+      case _                   => None
     }
 
   /**

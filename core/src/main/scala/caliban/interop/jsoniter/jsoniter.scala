@@ -268,11 +268,7 @@ private[caliban] object ErrorJsoniter {
 private[caliban] object GraphQLResponseJsoniter {
   val graphQLResponseCodec: JsonValueCodec[GraphQLResponse[Any]] = codec()
 
-  def writeToArray[A](
-    value: A,
-    maxBytes: Int,
-    codec: JsonValueCodec[A]
-  ): Array[Byte] = {
+  def writeToArray[A](value: A, maxBytes: Int, codec: JsonValueCodec[A]): Array[Byte] = {
     val output = new BoundedOutputStream(maxBytes)
     writeToStream(value, output)(codec)
     output.toByteArray
@@ -354,34 +350,36 @@ private[caliban] object GraphQLResponseJsoniter {
           }
           out.writeArrayEnd()
         }
-        x.extensions.foreach { extensions =>
-          val visible =
-            excludeExtensions.isEmpty || extensions.fields.exists(field => !excludeExtensions.contains(field._1))
-          if (visible) {
-            out.writeKey("extensions")
-            out.writeObjectStart()
-            var fields = extensions.fields
-            while (fields ne Nil) {
-              val field = fields.head
-              if (!excludeExtensions.contains(field._1)) {
-                out.writeKey(field._1)
-                ValueJsoniter.responseValueCodec.encodeValue(field._2, out)
-              }
-              fields = fields.tail
-            }
-            out.writeObjectEnd()
-          }
-        }
-        x.hasNext.foreach { hasNext =>
+        if (x.extensions.nonEmpty) encodeExtensions(x.extensions.get, out)
+        if (x.hasNext.nonEmpty) {
           out.writeKey("hasNext")
-          out.writeVal(hasNext)
+          out.writeVal(x.hasNext.get)
         }
         out.writeObjectEnd()
       }
-      override def nullValue: GraphQLResponse[Any]                             =
+
+      private def encodeExtensions(extensions: ResponseValue.ObjectValue, out: JsonWriter): Unit = {
+        val visible =
+          excludeExtensions.isEmpty || extensions.fields.exists(field => !excludeExtensions.contains(field._1))
+        if (visible) {
+          out.writeKey("extensions")
+          out.writeObjectStart()
+          var fields = extensions.fields
+          while (fields ne Nil) {
+            val field = fields.head
+            if (!excludeExtensions.contains(field._1)) {
+              out.writeKey(field._1)
+              ValueJsoniter.responseValueCodec.encodeValue(field._2, out)
+            }
+            fields = fields.tail
+          }
+          out.writeObjectEnd()
+        }
+      }
+
+      override def nullValue: GraphQLResponse[Any] =
         null.asInstanceOf[GraphQLResponse[Any]]
     }
-
 }
 
 private[caliban] final class BoundedOutputStream(maxBytes: Int) extends OutputStream {

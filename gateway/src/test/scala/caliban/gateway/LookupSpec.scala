@@ -4,7 +4,7 @@ import caliban.ResponseValue.ListValue
 import caliban.Value.{ NullValue, StringValue }
 import caliban.gateway.GatewayTestSupport._
 import caliban.schema.{ ArgBuilder, GenericSchema, Schema }
-import caliban.{ graphQL, CalibanError, PathValue, RootResolver }
+import caliban.{ graphQL, PathValue, ResponseValue, RootResolver }
 import zio._
 import zio.test._
 
@@ -32,7 +32,7 @@ object LookupSpec extends ZIOSpecDefault {
     )
   }
 
-  private val productsSchema =
+  private val defaultProductsSchema =
     """
       |type Query {
       |  products: [Product]
@@ -46,7 +46,7 @@ object LookupSpec extends ZIOSpecDefault {
       |}
       |""".stripMargin
 
-  private val reviewsSchema =
+  private val defaultReviewsSchema =
     """
       |input ProductRefInput {
       |  productId: ID!
@@ -140,6 +140,18 @@ object LookupSpec extends ZIOSpecDefault {
       |}
       |""".stripMargin
 
+  private def lookupGateway(
+    products: Stub,
+    reviews: Stub,
+    lookup: Lookup,
+    productsSchema: String = defaultProductsSchema,
+    reviewsSchema: String = defaultReviewsSchema
+  ): Gateway[Any] =
+    Gateway.compose(
+      Subgraph.graphql("products", products.endpoint, productsSchema),
+      Subgraph.graphql("reviews", reviews.endpoint, reviewsSchema).withLookup(lookup)
+    )
+
   def spec = suite("LookupSpec")(
     test("batches compound arguments and correlates ordinary lookup results by key") {
       val reviewsResponse =
@@ -148,15 +160,10 @@ object LookupSpec extends ZIOSpecDefault {
       for {
         products <- stub(productsResponse)
         reviews  <- stub(reviewsResponse)
-        gateway  <- Gateway
-                      .compose(
-                        Subgraph.graphql("products", products.endpoint, productsSchema),
-                        Subgraph.graphql("reviews", reviews.endpoint, reviewsSchema).withLookup(keyedLookup)
-                      )
-                      .interpreter
-        response <- gateway.execute("{ status products { name reviews { body } } }")
-        requests <- reviews.requests.get
-        valid    <- ZIO.foreach(requests)(validateRequest(reviewsSchema, _).exit)
+        runtime  <- lookupGateway(products, reviews, keyedLookup).interpreter
+        response <- runtime.execute("{ status products { name reviews { body } } }")
+        sent     <- reviews.requests.get
+        valid    <- ZIO.foreach(sent)(validateRequest(defaultReviewsSchema, _).exit)
         values    = listValues(field(response.data, "products"))
       } yield assertTrue(
         response.errors.isEmpty,
@@ -164,9 +171,9 @@ object LookupSpec extends ZIOSpecDefault {
         values.flatMap(field(_, "name")) == List(StringValue("Table"), StringValue("Chair")),
         values.flatMap(reviewBody) ==
           List(StringValue("Table review"), StringValue("Chair review")),
-        requests.size == 1,
+        sent.size == 1,
         valid.forall(_.isSuccess),
-        requests.headOption
+        sent.headOption
           .flatMap(_.query)
           .exists(query =>
             query.contains("productsByRefs") &&
@@ -182,13 +189,8 @@ object LookupSpec extends ZIOSpecDefault {
       for {
         products <- stub(nullKeyResponse)
         reviews  <- stub("""{"data":{"_caliban_gateway_lookup":[]}}""")
-        gateway  <- Gateway
-                      .compose(
-                        Subgraph.graphql("products", products.endpoint, productsSchema),
-                        Subgraph.graphql("reviews", reviews.endpoint, reviewsSchema).withLookup(keyedLookup)
-                      )
-                      .interpreter
-        response <- gateway.execute("{ products { name reviews { body } } }")
+        runtime  <- lookupGateway(products, reviews, keyedLookup).interpreter
+        response <- runtime.execute("{ products { name reviews { body } } }")
         sent     <- reviews.requests.get
       } yield assertTrue(
         sent.isEmpty,
@@ -213,13 +215,13 @@ object LookupSpec extends ZIOSpecDefault {
 
       for {
         products <- stub(localProductsResponse)
-        gateway  <- Gateway
+        runtime  <- Gateway
                       .compose(
                         Subgraph.graphql("products", products.endpoint, localProductsSchema),
                         Subgraph.local("reviews", LocalReviews.api).withLookup(localLookup)
                       )
                       .interpreter
-        response <- gateway.execute("{ products { name reviews { body } } }")
+        response <- runtime.execute("{ products { name reviews { body } } }")
         values    = listValues(field(response.data, "products"))
       } yield assertTrue(
         response.errors.isEmpty,
@@ -232,23 +234,18 @@ object LookupSpec extends ZIOSpecDefault {
         """{"data":{"_caliban_gateway_lookup_0":{"reviews":[{"body":"Table review"}]},"_caliban_gateway_lookup_1":{"reviews":[{"body":"Chair review"}]}}}"""
 
       for {
-        productsB <- stub(productsResponse)
-        reviewsB  <- stub(singleResponse)
-        single    <- Gateway
-                       .compose(
-                         Subgraph.graphql("products", productsB.endpoint, productsSchema),
-                         Subgraph.graphql("reviews", reviewsB.endpoint, reviewsSchema).withLookup(singleLookup)
-                       )
-                       .interpreter
-        responseB <- single.execute("{ products { name reviews { body } } }")
-        sentB     <- reviewsB.requests.get
-        singles    = listValues(field(responseB.data, "products"))
+        products <- stub(productsResponse)
+        reviews  <- stub(singleResponse)
+        runtime  <- lookupGateway(products, reviews, singleLookup).interpreter
+        response <- runtime.execute("{ products { name reviews { body } } }")
+        sent     <- reviews.requests.get
+        values    = listValues(field(response.data, "products"))
       } yield assertTrue(
-        responseB.errors.isEmpty,
-        singles.flatMap(reviewBody) ==
+        response.errors.isEmpty,
+        values.flatMap(reviewBody) ==
           List(StringValue("Table review"), StringValue("Chair review")),
-        sentB.size == 1,
-        sentB.headOption
+        sent.size == 1,
+        sent.headOption
           .flatMap(_.query)
           .exists(query =>
             query.contains("_caliban_gateway_lookup_0:productByRef") &&
@@ -265,35 +262,27 @@ object LookupSpec extends ZIOSpecDefault {
         """{"data":{"_caliban_gateway_lookup_0":{"reviews":[{"body":"Table review"}]},"_caliban_gateway_lookup_1":{"reviews":[{"body":"Chair review"}]}}}"""
 
       for {
-        productsA <- stub(enumProductsResponse)
-        reviewsA  <- stub(listResponse)
-        list      <- Gateway
-                       .compose(
-                         Subgraph.graphql("products", productsA.endpoint, enumProductsSchema),
-                         Subgraph.graphql("reviews", reviewsA.endpoint, enumReviewsSchema).withLookup(keyedLookup)
-                       )
-                       .interpreter
-        responseA <- list.execute("{ products { name reviews { body } } }")
-        sentA     <- reviewsA.requests.get
-        validA    <- ZIO.foreach(sentA)(validateRequest(enumReviewsSchema, _).exit)
-        productsB <- stub(enumProductsResponse)
-        reviewsB  <- stub(singleResponse)
-        single    <- Gateway
-                       .compose(
-                         Subgraph.graphql("products", productsB.endpoint, enumProductsSchema),
-                         Subgraph.graphql("reviews", reviewsB.endpoint, enumReviewsSchema).withLookup(singleLookup)
-                       )
-                       .interpreter
-        responseB <- single.execute("{ products { name reviews { body } } }")
-        sentB     <- reviewsB.requests.get
-        validB    <- ZIO.foreach(sentB)(validateRequest(enumReviewsSchema, _).exit)
+        listProducts   <- stub(enumProductsResponse)
+        listReviews    <- stub(listResponse)
+        list           <-
+          lookupGateway(listProducts, listReviews, keyedLookup, enumProductsSchema, enumReviewsSchema).interpreter
+        listResult     <- list.execute("{ products { name reviews { body } } }")
+        listSent       <- listReviews.requests.get
+        listValid      <- ZIO.foreach(listSent)(validateRequest(enumReviewsSchema, _).exit)
+        singleProducts <- stub(enumProductsResponse)
+        singleReviews  <- stub(singleResponse)
+        single         <-
+          lookupGateway(singleProducts, singleReviews, singleLookup, enumProductsSchema, enumReviewsSchema).interpreter
+        singleResult   <- single.execute("{ products { name reviews { body } } }")
+        singleSent     <- singleReviews.requests.get
+        singleValid    <- ZIO.foreach(singleSent)(validateRequest(enumReviewsSchema, _).exit)
       } yield assertTrue(
-        responseA.errors.isEmpty,
-        responseB.errors.isEmpty,
-        validA.forall(_.isSuccess),
-        validB.forall(_.isSuccess),
-        sentA.headOption.flatMap(_.query).exists(_.contains("regionCode:US")),
-        sentB.headOption.flatMap(_.query).exists(_.contains("regionCode:EU"))
+        listResult.errors.isEmpty,
+        singleResult.errors.isEmpty,
+        listValid.forall(_.isSuccess),
+        singleValid.forall(_.isSuccess),
+        listSent.headOption.flatMap(_.query).exists(_.contains("regionCode:US")),
+        singleSent.headOption.flatMap(_.query).exists(_.contains("regionCode:EU"))
       )
     },
     test("reverse-maps renamed enum keys inside nested remote lookup inputs") {
@@ -324,7 +313,7 @@ object LookupSpec extends ZIOSpecDefault {
           stub(
             """{"data":{"_caliban_gateway_lookup":[{"_caliban_gateway_lookup_key":"p1","_caliban_gateway_lookup_key_2":"US","reviews":[{"body":"Table review"}]}]}}"""
           )
-        gateway  <- Gateway
+        runtime  <- Gateway
                       .compose(
                         Subgraph.graphql("products", products.endpoint, productsSchema).transform(transformation),
                         Subgraph
@@ -333,7 +322,7 @@ object LookupSpec extends ZIOSpecDefault {
                           .transform(transformation)
                       )
                       .interpreter
-        response <- gateway.execute("{ products { name reviews { body } } }")
+        response <- runtime.execute("{ products { name reviews { body } } }")
         sent     <- reviews.requests.get
         valid    <- ZIO.foreach(sent)(validateRequest(reviewsSchema, _).exit)
       } yield assertTrue(
@@ -348,21 +337,16 @@ object LookupSpec extends ZIOSpecDefault {
         """{"data":{"_caliban_gateway_lookup":[{"_caliban_gateway_lookup_key":"p1","_caliban_gateway_lookup_key_2":"us","reviews":[{"body":"Table review"}]}]}}"""
 
       for {
-        productsA <- stub(productsResponse)
-        reviewsA  <- stub(shortResponse)
-        keyed     <- Gateway
-                       .compose(
-                         Subgraph.graphql("products", productsA.endpoint, productsSchema),
-                         Subgraph.graphql("reviews", reviewsA.endpoint, reviewsSchema).withLookup(keyedLookup)
-                       )
-                       .interpreter
-        responseA <- keyed.execute("{ products { name reviews { body } } }")
-        valuesA    = listValues(field(responseA.data, "products"))
+        products <- stub(productsResponse)
+        reviews  <- stub(shortResponse)
+        runtime  <- lookupGateway(products, reviews, keyedLookup).interpreter
+        response <- runtime.execute("{ products { name reviews { body } } }")
+        values    = listValues(field(response.data, "products"))
       } yield assertTrue(
-        valuesA.size == 2,
-        valuesA.lift(1).contains(NullValue),
-        responseA.errors.map(_.msg) == List("Cannot return null for non-nullable field Product.reviews."),
-        !responseA.errors.exists(_.msg.contains("omitted a result"))
+        values.size == 2,
+        values.lift(1).contains(NullValue),
+        response.errors.map(_.msg) == List("Cannot return null for non-nullable field Product.reviews."),
+        !response.errors.exists(_.msg.contains("omitted a result"))
       )
     },
     test("relocates ordinary lookup failures without losing independent data") {
@@ -375,14 +359,10 @@ object LookupSpec extends ZIOSpecDefault {
             """{"data":{"status":"available","products":[{"name":"Table","_caliban_gateway_key":"p1","_caliban_gateway_key_2":"us"}]}}"""
           )
         reviews  <- stub(reviewsResponse)
-        gateway  <- Gateway
-                      .compose(
-                        Subgraph.graphql("products", products.endpoint, productsSchema),
-                        Subgraph.graphql("reviews", reviews.endpoint, reviewsSchema).withLookup(keyedLookup)
-                      )
+        runtime  <- lookupGateway(products, reviews, keyedLookup)
                       .withConfig(_.withRemoteErrorMessages(true))
                       .interpreter
-        response <- gateway.execute("{ status products { name reviews { body } } }")
+        response <- runtime.execute("{ status products { name reviews { body } } }")
         errors    = executionErrors(response.errors)
       } yield assertTrue(
         field(response.data, "status").contains(StringValue("available")),
@@ -395,7 +375,6 @@ object LookupSpec extends ZIOSpecDefault {
       )
     },
     test("rejects invalid ordinary lookup metadata during gateway build") {
-      val endpoint           = unreachableEndpoint
       val missingKey         = Lookup.list(
         "Product",
         List("missing"),
@@ -473,50 +452,48 @@ object LookupSpec extends ZIOSpecDefault {
         "ref" -> refArgument
       )
 
-      def buildDiagnostics(lookup: Lookup, schema: String = reviewsSchema) =
-        Gateway
-          .compose(
-            Subgraph.graphql("products", endpoint, productsSchema),
-            Subgraph.graphql("reviews", endpoint, schema).withLookup(lookup)
+      def lookupDiagnostics(lookup: Lookup, schema: String = defaultReviewsSchema) =
+        compositionDiagnostics(
+          Gateway.compose(
+            Subgraph.graphql("products", unreachableEndpoint, defaultProductsSchema),
+            Subgraph.graphql("reviews", unreachableEndpoint, schema).withLookup(lookup)
           )
-          .interpreter
-          .either
-          .map(_.fold(_.diagnostics, _ => Nil))
+        )
 
       for {
-        key         <- buildDiagnostics(missingKey)
-        shape       <- buildDiagnostics(wrongShape)
-        batch       <- buildDiagnostics(missingBatch)
-        correlation <- buildDiagnostics(badCorrelation)
-        nullable    <- buildDiagnostics(keyedLookup, reviewsSchema.replace("[Product!]!", "[Product]!"))
-        unknown     <- buildDiagnostics(unknownArgument)
-        single      <- buildDiagnostics(singleBatch)
-        outside     <- buildDiagnostics(keyOutsideBatch)
-        types       <- buildDiagnostics(wrongTypes)
-        nested      <- buildDiagnostics(nestedBatch)
-        coverage    <- buildDiagnostics(partialKeys)
-        repeated    <- buildDiagnostics(duplicateArguments)
-        nonScalar   <- buildDiagnostics(keyedLookup, reviewsSchema.replace("region: String!", "region: Review!"))
-        listKey     <- buildDiagnostics(keyedLookup, reviewsSchema.replace("region: String!", "region: [String!]!"))
-        duplicate   <- Gateway
-                         .compose(
-                           Subgraph.graphql("products", endpoint, productsSchema),
+        key         <- lookupDiagnostics(missingKey)
+        shape       <- lookupDiagnostics(wrongShape)
+        batch       <- lookupDiagnostics(missingBatch)
+        correlation <- lookupDiagnostics(badCorrelation)
+        nullable    <- lookupDiagnostics(keyedLookup, defaultReviewsSchema.replace("[Product!]!", "[Product]!"))
+        unknown     <- lookupDiagnostics(unknownArgument)
+        single      <- lookupDiagnostics(singleBatch)
+        outside     <- lookupDiagnostics(keyOutsideBatch)
+        types       <- lookupDiagnostics(wrongTypes)
+        nested      <- lookupDiagnostics(nestedBatch)
+        coverage    <- lookupDiagnostics(partialKeys)
+        repeated    <- lookupDiagnostics(duplicateArguments)
+        nonScalar   <-
+          lookupDiagnostics(keyedLookup, defaultReviewsSchema.replace("region: String!", "region: Review!"))
+        listKey     <-
+          lookupDiagnostics(keyedLookup, defaultReviewsSchema.replace("region: String!", "region: [String!]!"))
+        duplicate   <- compositionDiagnostics(
+                         Gateway.compose(
+                           Subgraph.graphql("products", unreachableEndpoint, defaultProductsSchema),
                            Subgraph
-                             .graphql("reviews", endpoint, reviewsSchema)
+                             .graphql("reviews", unreachableEndpoint, defaultReviewsSchema)
                              .withLookup(keyedLookup)
                              .withLookup(keyedLookup)
                          )
-                         .interpreter
-                         .either
-                         .map(_.fold(_.diagnostics, _ => Nil))
-        federation  <- Gateway
-                         .compose(
-                           Subgraph.graphql("products", endpoint, productsSchema),
-                           Subgraph.federation("reviews", endpoint, reviewsSchema).withLookup(keyedLookup)
+                       )
+        federation  <- compositionDiagnostics(
+                         Gateway.compose(
+                           Subgraph.graphql("products", unreachableEndpoint, defaultProductsSchema),
+                           Subgraph
+                             .federation("reviews", unreachableEndpoint, defaultReviewsSchema)
+                             .withLookup(keyedLookup)
                          )
-                         .interpreter
-                         .either
-                         .map(_.fold(_.diagnostics, _ => Nil))
+                       )
       } yield assertTrue(
         key.exists(_.contains("[reviews] Lookup key field 'Product.missing' does not exist")),
         shape.exists(_.contains("[reviews] Lookup field 'Query.productsByRefs' must return 'Product'")),
@@ -537,8 +514,8 @@ object LookupSpec extends ZIOSpecDefault {
         federation.exists(_.contains("[reviews] Ordinary GraphQL lookups cannot be declared on a Federation subgraph"))
       )
     }
-  ).provideSomeShared[zio.Scope](testServer, stubIds) @@ TestAspect.sequential
+  ).provideSomeShared[Scope](testServer, stubIds) @@ TestAspect.sequential
 
-  private def reviewBody(value: caliban.ResponseValue): Option[caliban.ResponseValue] =
+  private def reviewBody(value: ResponseValue): Option[ResponseValue] =
     field(value, "reviews").collect { case ListValue(review :: _) => review }.flatMap(field(_, "body"))
 }

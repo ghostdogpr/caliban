@@ -5,13 +5,11 @@ import caliban.Value.{ FloatValue, IntValue, NullValue, StringValue }
 import caliban.CalibanError
 import caliban.gateway.GatewayTestSupport._
 import caliban.gateway.PhaseHooks.Event
-import caliban.gateway.internal.composition.{ SchemaComposer, SchemaMapping }
+import caliban.gateway.internal.composition.{ ComposedGraph, SchemaComposer, SchemaMapping }
 import caliban.introspection.adt.{ __Directive, __DirectiveLocation }
 import caliban.parsing.{ Parser, SourceMapper }
 import caliban.parsing.adt.{ Directive, Document, OperationType }
 import caliban.schema.{ RootType, Types }
-import caliban.tools.RemoteSchema
-import zio.http.URL
 import zio._
 import zio.test._
 
@@ -23,8 +21,6 @@ object CompositionSpec extends ZIOSpecDefault {
     transformations: List[SchemaTransformation] = Nil
   )
 
-  private val endpoint = unreachableEndpoint
-
   private def schema(body: String, imports: String*): String =
     federationSchemaPreambleWithQueryRoot(imports: _*) + body
 
@@ -32,6 +28,17 @@ object CompositionSpec extends ZIOSpecDefault {
     schema(body, ("@override" +: imports): _*)
       .replace("federation/v2.3", "federation/v2.7")
       .replace("directive @override(from: String!)", "directive @override(from: String!, label: String)")
+
+  private def progressiveGateway(
+    original: Stub,
+    originalSchema: String,
+    replacement: Stub,
+    replacementSchema: String
+  ): Gateway[Any] =
+    Gateway.compose(
+      Subgraph.federation("original", original.endpoint, originalSchema),
+      Subgraph.federation("replacement", replacement.endpoint, replacementSchema)
+    )
 
   private val directiveDefinitions =
     """
@@ -63,31 +70,15 @@ object CompositionSpec extends ZIOSpecDefault {
        |$body
        |""".stripMargin
 
-  private def compose(inputs: CompositionInput*) = {
-    val subgraphs = inputs.toList.foldRight(Right(Nil): Either[List[String], List[PreparedSubgraph]]) {
-      case (input, result) =>
-        for {
-          tail             <- result
-          document         <- Parser.parseQuery(input.schema).left.map(error => List(s"[${input.name}] ${error.getMessage}"))
-          normalized       <- RemoteSchema
-                                .normalize(document, promoteOrphans = true)
-                                .left
-                                .map(error => List(s"[${input.name}] ${error.getMessage}"))
-          subgraph          = Subgraph.federation(input.name, endpoint, document).transform(input.transformations: _*)
-          preparedSubgraph <- Gateway
-                                .prepareSubgraph(
-                                  subgraph,
-                                  normalized.rootType,
-                                  normalized.document,
-                                  document,
-                                  federation = true
-                                )
-                                .left
-                                .map(SubgraphError(input.name, _).diagnostics)
-        } yield preparedSubgraph :: tail
-    }
-    subgraphs.flatMap(SchemaComposer.compose)
-  }
+  private def compose(inputs: CompositionInput*): Either[List[String], ComposedGraph] =
+    traverseEither(inputs.toList) { input =>
+      Parser.parseQuery(input.schema).left.map(error => List(s"[${input.name}] ${error.getMessage}")).flatMap {
+        document =>
+          val subgraph =
+            Subgraph.federation(input.name, unreachableEndpoint, document).transform(input.transformations: _*)
+          prepareSubgraph(subgraph, document, federation = true)
+      }
+    }.flatMap(SchemaComposer.compose)
 
   private def directives(value: Option[List[Directive]]): List[(String, Map[String, caliban.InputValue])] =
     value.getOrElse(Nil).map(directive => directive.name -> directive.arguments)
@@ -112,40 +103,32 @@ object CompositionSpec extends ZIOSpecDefault {
         val originalSchema           = progressiveSchema("type Query { value: String }")
 
         for {
-          originalZero    <- stub("""{"data":{"value":"original"}}""")
-          replacingZero   <- stub("""{"data":{"value":"replacement"}}""")
-          zeroGateway     <- Gateway
-                               .compose(
-                                 Subgraph.federation("original", originalZero.endpoint, originalSchema),
-                                 Subgraph.federation("replacement", replacingZero.endpoint, replacing("percent(0)"))
-                               )
-                               .interpreter
-          zeroResponse    <- zeroGateway.execute("{ value }")
-          originalFull    <- stub("""{"data":{"value":"original"}}""")
-          replacingFull   <- stub("""{"data":{"value":"replacement"}}""")
-          fullGateway     <- Gateway
-                               .compose(
-                                 Subgraph.federation("original", originalFull.endpoint, originalSchema),
-                                 Subgraph.federation("replacement", replacingFull.endpoint, replacing("percent(100)"))
-                               )
-                               .interpreter
-          fullResponse    <- fullGateway.execute("{ value }")
-          zeroOriginal    <- originalZero.requests.get
-          zeroReplacement <- replacingZero.requests.get
-          fullOriginal    <- originalFull.requests.get
-          fullReplacement <- replacingFull.requests.get
+          originalZero      <- stub("""{"data":{"value":"original"}}""")
+          replacingZero     <- stub("""{"data":{"value":"replacement"}}""")
+          zeroGateway       <-
+            progressiveGateway(originalZero, originalSchema, replacingZero, replacing("percent(0)")).interpreter
+          zeroResponse      <- zeroGateway.execute("{ value }")
+          originalFull      <- stub("""{"data":{"value":"original"}}""")
+          replacingFull     <- stub("""{"data":{"value":"replacement"}}""")
+          fullGateway       <-
+            progressiveGateway(originalFull, originalSchema, replacingFull, replacing("percent(100)")).interpreter
+          fullResponse      <- fullGateway.execute("{ value }")
+          originalZeroSent  <- originalZero.requests.get
+          replacingZeroSent <- replacingZero.requests.get
+          originalFullSent  <- originalFull.requests.get
+          replacingFullSent <- replacingFull.requests.get
         } yield assertTrue(
           field(zeroResponse.data, "value").contains(StringValue("original")),
-          zeroOriginal.size == 1,
-          zeroReplacement.isEmpty,
+          originalZeroSent.size == 1,
+          replacingZeroSent.isEmpty,
           field(fullResponse.data, "value").contains(StringValue("replacement")),
-          fullOriginal.isEmpty,
-          fullReplacement.size == 1
+          originalFullSent.isEmpty,
+          replacingFullSent.size == 1
         )
       },
       test("resolves a shared label once and caches both progressive plans") {
-        val originalSchema  = progressiveSchema("type Query { value: String other: String }")
-        val replacingSchema = progressiveSchema(
+        val originalSchema    = progressiveSchema("type Query { value: String other: String }")
+        val replacementSchema = progressiveSchema(
           """type Query {
             |  value: String @override(from: "original", label: "percent(50)")
             |  other: String @override(from: "original", label: "percent(50)")
@@ -155,15 +138,10 @@ object CompositionSpec extends ZIOSpecDefault {
         for {
           original        <- stub("""{"data":{"value":"original","other":"original"}}""")
           replacement     <- stub("""{"data":{"value":"replacement","other":"replacement"}}""")
-          gateway         <- Gateway
-                               .compose(
-                                 Subgraph.federation("original", original.endpoint, originalSchema),
-                                 Subgraph.federation("replacement", replacement.endpoint, replacingSchema)
-                               )
-                               .interpreter
+          runtime         <- progressiveGateway(original, originalSchema, replacement, replacementSchema).interpreter
           _               <- TestRandom.feedDoubles(0.1, 0.9)
-          replaced        <- gateway.execute("{ value other }")
-          retained        <- gateway.execute("{ value other }")
+          replaced        <- runtime.execute("{ value other }")
+          retained        <- runtime.execute("{ value other }")
           originalSent    <- original.requests.get
           replacementSent <- replacement.requests.get
         } yield assertTrue(
@@ -176,8 +154,8 @@ object CompositionSpec extends ZIOSpecDefault {
         )
       },
       test("resolves custom override labels once per request") {
-        val originalSchema  = progressiveSchema("type Query { value: String other: String }")
-        val replacingSchema = progressiveSchema(
+        val originalSchema    = progressiveSchema("type Query { value: String other: String }")
+        val replacementSchema = progressiveSchema(
           """type Query {
             |  value: String @override(from: "original", label: "rollout")
             |  other: String @override(from: "original", label: "percent(100)")
@@ -197,17 +175,13 @@ object CompositionSpec extends ZIOSpecDefault {
                                seen.update(_ :+ ev.reached) *>
                                  enabled.get.map(value => ev.activate(if (value) ev.reached + "unknown" else Set.empty[String]))
                              })
-          gateway         <- Gateway
-                               .compose(
-                                 Subgraph.federation("original", original.endpoint, originalSchema),
-                                 Subgraph.federation("replacement", replacement.endpoint, replacingSchema)
-                               )
+          runtime         <- progressiveGateway(original, originalSchema, replacement, replacementSchema)
                                .withPhaseHooks(resolver)
                                .interpreter
-          percentOnly     <- gateway.execute("{ other }")
-          retained        <- gateway.execute("{ value other }")
+          percentOnly     <- runtime.execute("{ other }")
+          retained        <- runtime.execute("{ value other }")
           _               <- enabled.set(true)
-          replaced        <- gateway.execute("{ value other }")
+          replaced        <- runtime.execute("{ value other }")
           resolvedLabels  <- seen.get
           originalSent    <- original.requests.get
           replacementSent <- replacement.requests.get
@@ -223,21 +197,16 @@ object CompositionSpec extends ZIOSpecDefault {
         )
       },
       test("keeps unresolved custom override labels inactive") {
-        val originalSchema  = progressiveSchema("type Query { value: String }")
-        val replacingSchema = progressiveSchema(
+        val originalSchema    = progressiveSchema("type Query { value: String }")
+        val replacementSchema = progressiveSchema(
           """type Query { value: String @override(from: "original", label: "rollout") }"""
         )
 
         for {
           original        <- stub("""{"data":{"value":"original"}}""")
           replacement     <- stub("""{"data":{"value":"replacement"}}""")
-          gateway         <- Gateway
-                               .compose(
-                                 Subgraph.federation("original", original.endpoint, originalSchema),
-                                 Subgraph.federation("replacement", replacement.endpoint, replacingSchema)
-                               )
-                               .interpreter
-          response        <- gateway.execute("{ value }")
+          runtime         <- progressiveGateway(original, originalSchema, replacement, replacementSchema).interpreter
+          response        <- runtime.execute("{ value }")
           originalSent    <- original.requests.get
           replacementSent <- replacement.requests.get
         } yield assertTrue(
@@ -247,28 +216,23 @@ object CompositionSpec extends ZIOSpecDefault {
         )
       },
       test("masks custom override label resolver failures") {
-        val originalSchema  = progressiveSchema("type Query { value: String }")
-        val replacingSchema = progressiveSchema(
+        val originalSchema    = progressiveSchema("type Query { value: String }")
+        val replacementSchema = progressiveSchema(
           """type Query { value: String @override(from: "original", label: "rollout") }"""
         )
-        val secret          = "resolver-secret"
+        val secret            = "resolver-secret"
 
         for {
           original    <- stub("""{"data":{"value":"original"}}""")
           replacement <- stub("""{"data":{"value":"replacement"}}""")
-          gateway     <-
-            Gateway
-              .compose(
-                Subgraph.federation("original", original.endpoint, originalSchema),
-                Subgraph.federation("replacement", replacement.endpoint, replacingSchema)
-              )
-              .withPhaseHooks(
-                PhaseHooks.overrideLabels(
-                  PhaseHandler.incoming(_ => ZIO.fail(new RuntimeException(secret)))
-                )
-              )
-              .interpreter
-          response    <- gateway.execute("{ value }")
+          runtime     <- progressiveGateway(original, originalSchema, replacement, replacementSchema)
+                           .withPhaseHooks(
+                             PhaseHooks.overrideLabels(
+                               PhaseHandler.incoming(_ => ZIO.fail(new RuntimeException(secret)))
+                             )
+                           )
+                           .interpreter
+          response    <- runtime.execute("{ value }")
           sent        <- original.requests.get.zip(replacement.requests.get)
           cause        = response.errors.collectFirst { case error: CalibanError.ExecutionError =>
                            error.innerThrowable
@@ -475,21 +439,21 @@ object CompositionSpec extends ZIOSpecDefault {
         val valueSchema = schema("type Query { value: String @shareable }", "@shareable")
 
         for {
-          alpha         <- stub("""{"data":{"value":"alpha"}}""")
-          beta          <- stub("""{"data":{"value":"beta"}}""")
-          gateway       <- Gateway
-                             .compose(
-                               Subgraph.federation("beta", beta.endpoint, valueSchema),
-                               Subgraph.federation("alpha", alpha.endpoint, valueSchema)
-                             )
-                             .interpreter
-          response      <- gateway.execute("{ value }")
-          alphaRequests <- alpha.requests.get
-          betaRequests  <- beta.requests.get
+          alpha     <- stub("""{"data":{"value":"alpha"}}""")
+          beta      <- stub("""{"data":{"value":"beta"}}""")
+          runtime   <- Gateway
+                         .compose(
+                           Subgraph.federation("beta", beta.endpoint, valueSchema),
+                           Subgraph.federation("alpha", alpha.endpoint, valueSchema)
+                         )
+                         .interpreter
+          response  <- runtime.execute("{ value }")
+          alphaSent <- alpha.requests.get
+          betaSent  <- beta.requests.get
         } yield assertTrue(
           field(response.data, "value").contains(StringValue("alpha")),
-          alphaRequests.size == 1,
-          betaRequests.isEmpty
+          alphaSent.size == 1,
+          betaSent.isEmpty
         )
       },
       test("coalesces compatible partial results for a shareable object root") {
@@ -507,25 +471,25 @@ object CompositionSpec extends ZIOSpecDefault {
         )
 
         for {
-          names         <- stub("""{"data":{"product":{"id":"p1","name":"Table"}}}""")
-          prices        <- stub("""{"data":{"product":{"id":"p1","price":10}}}""")
-          stock         <- stub("""{"data":{"product":{"stock":5}}}""")
-          gateway       <- Gateway
-                             .compose(
-                               Subgraph.federation("names", names.endpoint, namesSchema),
-                               Subgraph.federation("prices", prices.endpoint, priceSchema),
-                               Subgraph.federation("stock", stock.endpoint, stockSchema)
-                             )
-                             .interpreter
-          response      <- gateway.execute("{ product { id name price } }")
-          stockRequests <- stock.requests.get
-          product        = field(response.data, "product")
+          names    <- stub("""{"data":{"product":{"id":"p1","name":"Table"}}}""")
+          prices   <- stub("""{"data":{"product":{"id":"p1","price":10}}}""")
+          stock    <- stub("""{"data":{"product":{"stock":5}}}""")
+          runtime  <- Gateway
+                        .compose(
+                          Subgraph.federation("names", names.endpoint, namesSchema),
+                          Subgraph.federation("prices", prices.endpoint, priceSchema),
+                          Subgraph.federation("stock", stock.endpoint, stockSchema)
+                        )
+                        .interpreter
+          response <- runtime.execute("{ product { id name price } }")
+          sent     <- stock.requests.get
+          product   = field(response.data, "product")
         } yield assertTrue(
           response.errors.isEmpty,
           product.flatMap(field(_, "id")).contains(StringValue("p1")),
           product.flatMap(field(_, "name")).contains(StringValue("Table")),
           product.flatMap(field(_, "price")).contains(IntValue(10)),
-          stockRequests.isEmpty
+          sent.isEmpty
         )
       },
       test("retains an entity fetch below a multiply provided root") {
@@ -557,16 +521,16 @@ object CompositionSpec extends ZIOSpecDefault {
             stub(
               """{"data":{"_entities":[{"reviews":[{"body":"Great"}],"_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product"}]}}"""
             )
-          gateway       <- Gateway
+          runtime       <- Gateway
                              .compose(
                                Subgraph.federation("names", names.endpoint, namesSchema),
                                Subgraph.federation("prices", prices.endpoint, pricesSchema),
                                Subgraph.federation("reviews", reviews.endpoint, reviewsSchema)
                              )
                              .interpreter
-          response      <- gateway.execute("{ product { name price details { __typename } reviews { body } } }")
-          reviewCalls   <- reviews.requests.get
-          priceCalls    <- prices.requests.get
+          response      <- runtime.execute("{ product { name price details { __typename } reviews { body } } }")
+          reviewsSent   <- reviews.requests.get
+          pricesSent    <- prices.requests.get
           product        = field(response.data, "product")
           responseReview = product.flatMap(field(_, "reviews"))
         } yield assertTrue(
@@ -575,8 +539,8 @@ object CompositionSpec extends ZIOSpecDefault {
           product.flatMap(field(_, "price")).contains(IntValue(10)),
           product.flatMap(field(_, "details")).flatMap(field(_, "__typename")).contains(StringValue("Details")),
           responseReview.exists(_.toString.contains("Great")),
-          reviewCalls.size == 1,
-          priceCalls.forall(_.query.forall(query => !query.contains("details")))
+          reviewsSent.size == 1,
+          pricesSent.forall(_.query.forall(query => !query.contains("details")))
         )
       },
       test("routes an overridden root field only to the overriding source") {
@@ -584,34 +548,32 @@ object CompositionSpec extends ZIOSpecDefault {
         val replacing = schema("type Query { feed: String @override(from: \"products\") }", "@override")
 
         for {
-          products        <- stub("""{"data":{"feed":"old"}}""")
-          inventory       <- stub("""{"data":{"feed":"new"}}""")
-          gateway         <- Gateway
-                               .compose(
-                                 Subgraph.federation("products", products.endpoint, original),
-                                 Subgraph.federation("inventory", inventory.endpoint, replacing)
-                               )
-                               .interpreter
-          response        <- gateway.execute("{ feed }")
-          productRequests <- products.requests.get
-          inventoryCalls  <- inventory.requests.get
+          products      <- stub("""{"data":{"feed":"old"}}""")
+          inventory     <- stub("""{"data":{"feed":"new"}}""")
+          runtime       <- Gateway
+                             .compose(
+                               Subgraph.federation("products", products.endpoint, original),
+                               Subgraph.federation("inventory", inventory.endpoint, replacing)
+                             )
+                             .interpreter
+          response      <- runtime.execute("{ feed }")
+          productsSent  <- products.requests.get
+          inventorySent <- inventory.requests.get
         } yield assertTrue(
           field(response.data, "feed").contains(StringValue("new")),
-          productRequests.isEmpty,
-          inventoryCalls.size == 1
+          productsSent.isEmpty,
+          inventorySent.size == 1
         )
       },
       test("rejects fields shared without compatible shareability") {
         val valueSchema = schema("type Query { value: String }", "@shareable")
-        val result      = Gateway
-          .compose(
-            Subgraph.federation("alpha", endpoint, valueSchema),
-            Subgraph.federation("beta", endpoint, valueSchema)
-          )
-          .interpreter
-          .exit
 
-        result.map(exit => assertTrue(buildDiagnostics(exit).exists(_.contains("shareable"))))
+        compositionDiagnostics(
+          Gateway.compose(
+            Subgraph.federation("alpha", unreachableEndpoint, valueSchema),
+            Subgraph.federation("beta", unreachableEndpoint, valueSchema)
+          )
+        ).map(diagnostics => assertTrue(diagnostics.exists(_.contains("shareable"))))
       },
       test("requires each resolving Federation 2 subgraph to make a key field shareable") {
         val keyed = schema(
@@ -620,26 +582,22 @@ object CompositionSpec extends ZIOSpecDefault {
         )
         val plain = schema("type Query { beta: Product } type Product { id: ID! }")
 
-        Gateway
-          .compose(
-            Subgraph.federation("alpha", endpoint, keyed),
-            Subgraph.federation("beta", endpoint, plain)
+        compositionDiagnostics(
+          Gateway.compose(
+            Subgraph.federation("alpha", unreachableEndpoint, keyed),
+            Subgraph.federation("beta", unreachableEndpoint, plain)
           )
-          .interpreter
-          .exit
-          .map(exit => assertTrue(buildDiagnostics(exit).exists(_.contains("shareable"))))
+        ).map(diagnostics => assertTrue(diagnostics.exists(_.contains("shareable"))))
       },
       test("does not treat an unimported custom directive as Federation shareability") {
         val valueSchema = schema("type Query { value: String @shareable }")
 
-        Gateway
-          .compose(
-            Subgraph.federation("alpha", endpoint, valueSchema),
-            Subgraph.federation("beta", endpoint, valueSchema)
+        compositionDiagnostics(
+          Gateway.compose(
+            Subgraph.federation("alpha", unreachableEndpoint, valueSchema),
+            Subgraph.federation("beta", unreachableEndpoint, valueSchema)
           )
-          .interpreter
-          .exit
-          .map(exit => assertTrue(buildDiagnostics(exit).exists(_.contains("shareable"))))
+        ).map(diagnostics => assertTrue(diagnostics.exists(_.contains("shareable"))))
       },
       test("allows an override to name a source that is no longer present") {
         val base     = schema("type Query { value: String @shareable }", "@shareable")
@@ -651,8 +609,8 @@ object CompositionSpec extends ZIOSpecDefault {
 
         Gateway
           .compose(
-            Subgraph.federation("alpha", endpoint, base),
-            Subgraph.federation("beta", endpoint, migrated)
+            Subgraph.federation("alpha", unreachableEndpoint, base),
+            Subgraph.federation("beta", unreachableEndpoint, migrated)
           )
           .interpreter
           .exit
@@ -670,8 +628,8 @@ object CompositionSpec extends ZIOSpecDefault {
 
         Gateway
           .compose(
-            Subgraph.federation("alpha", endpoint, external),
-            Subgraph.federation("beta", endpoint, overriding)
+            Subgraph.federation("alpha", unreachableEndpoint, external),
+            Subgraph.federation("beta", unreachableEndpoint, overriding)
           )
           .interpreter
           .exit
@@ -685,14 +643,14 @@ object CompositionSpec extends ZIOSpecDefault {
 
         for {
           source       <- stub("""{"data":{"product":{"id":"p1"}}}""")
-          gateway      <- Gateway.compose(Subgraph.federation("products", source.endpoint, externalOnly)).interpreter
-          response     <- gateway.execute("{ product { code } }")
-          introspected <- gateway.execute("{ __type(name: \"Product\") { fields { name } } }")
-          requests     <- source.requests.get
+          runtime      <- Gateway.compose(Subgraph.federation("products", source.endpoint, externalOnly)).interpreter
+          response     <- runtime.execute("{ product { code } }")
+          introspected <- runtime.execute("{ __type(name: \"Product\") { fields { name } } }")
+          sent         <- source.requests.get
         } yield assertTrue(
           response.errors.nonEmpty,
           !introspected.toResponseValue.toString.contains("code"),
-          requests.isEmpty
+          sent.isEmpty
         )
       },
       test("does not widen an owned field from an external declaration") {
@@ -732,13 +690,13 @@ object CompositionSpec extends ZIOSpecDefault {
               """{"data":{"productInA":{"id":"p1","pid":"p1-pid","name":"p1-name","_caliban_gateway_key":"p1","_caliban_gateway_key_2":"p1-name","_caliban_gateway_typename":"Product"}}}"""
             )
           prices   <- stub("""{"data":{"_entities":[{"price":12.3,"upc":"upc1"}]}}""")
-          gateway  <- Gateway
+          runtime  <- Gateway
                         .compose(
                           Subgraph.federation("a", products.endpoint, productsSchema),
                           Subgraph.federation("b", prices.endpoint, pricesSchema)
                         )
                         .interpreter
-          response <- gateway.execute("{ productInA { id pid price upc name } }")
+          response <- runtime.execute("{ productInA { id pid price upc name } }")
           sent     <- prices.requests.get
           product   = field(response.data, "productInA")
         } yield assertTrue(
@@ -765,23 +723,18 @@ object CompositionSpec extends ZIOSpecDefault {
           "@key"
         )
 
-        Gateway
-          .compose(
-            Subgraph.federation("malformed", endpoint, malformed),
-            Subgraph.federation("unknown", endpoint, unknown)
+        compositionDiagnostics(
+          Gateway.compose(
+            Subgraph.federation("malformed", unreachableEndpoint, malformed),
+            Subgraph.federation("unknown", unreachableEndpoint, unknown)
           )
-          .interpreter
-          .exit
-          .map { exit =>
-            val diagnostics = buildDiagnostics(exit)
-            assertTrue(
-              diagnostics.count(_.contains("Invalid @key field set")) == 2,
-              diagnostics.exists(message =>
-                message.startsWith("[malformed]") && message.contains("could not be parsed")
-              ),
-              diagnostics.exists(message => message.startsWith("[unknown]") && message.contains("does not exist"))
-            )
-          }
+        ).map { diagnostics =>
+          assertTrue(
+            diagnostics.count(_.contains("Invalid @key field set")) == 2,
+            diagnostics.exists(message => message.startsWith("[malformed]") && message.contains("could not be parsed")),
+            diagnostics.exists(message => message.startsWith("[unknown]") && message.contains("does not exist"))
+          )
+        }
       },
       test("rejects incompatible external and overridden declarations") {
         val idOwner    = schema("type Query { alpha: Product } type Product { id: ID }", "@external")
@@ -792,26 +745,23 @@ object CompositionSpec extends ZIOSpecDefault {
         val feedOwner  = schema("type Query { feed: String }", "@override")
         val feedNext   = schema("type Query { feed: Int @override(from: \"feed-owner\") }", "@override")
 
-        Gateway
-          .compose(
-            Subgraph.federation("id-owner", endpoint, idOwner),
-            Subgraph.federation("id-external", endpoint, idExternal),
-            Subgraph.federation("feed-owner", endpoint, feedOwner),
-            Subgraph.federation("feed-next", endpoint, feedNext)
+        compositionDiagnostics(
+          Gateway.compose(
+            Subgraph.federation("id-owner", unreachableEndpoint, idOwner),
+            Subgraph.federation("id-external", unreachableEndpoint, idExternal),
+            Subgraph.federation("feed-owner", unreachableEndpoint, feedOwner),
+            Subgraph.federation("feed-next", unreachableEndpoint, feedNext)
           )
-          .interpreter
-          .exit
-          .map { exit =>
-            val diagnostics = buildDiagnostics(exit)
-            assertTrue(
-              diagnostics.exists(_.startsWith("[type Product.id]")),
-              diagnostics.exists(message =>
-                message.startsWith("[query.feed]") && message.contains("'feed-owner'") && message.contains(
-                  "'feed-next'"
-                )
+        ).map { diagnostics =>
+          assertTrue(
+            diagnostics.exists(_.startsWith("[type Product.id]")),
+            diagnostics.exists(message =>
+              message.startsWith("[query.feed]") && message.contains("'feed-owner'") && message.contains(
+                "'feed-next'"
               )
             )
-          }
+          )
+        }
       },
       test("attributes competing overrides to their sources") {
         val original  = schema("type Query { value: String }", "@override")
@@ -820,22 +770,19 @@ object CompositionSpec extends ZIOSpecDefault {
           "@override"
         )
 
-        Gateway
-          .compose(
-            Subgraph.federation("alpha", endpoint, original),
-            Subgraph.federation("beta", endpoint, replacing),
-            Subgraph.federation("gamma", endpoint, replacing)
+        compositionDiagnostics(
+          Gateway.compose(
+            Subgraph.federation("alpha", unreachableEndpoint, original),
+            Subgraph.federation("beta", unreachableEndpoint, replacing),
+            Subgraph.federation("gamma", unreachableEndpoint, replacing)
           )
-          .interpreter
-          .exit
-          .map { exit =>
-            val diagnostics = buildDiagnostics(exit)
-            assertTrue(
-              diagnostics.exists(message =>
-                message.contains("@override") && message.contains("'beta'") && message.contains("'gamma'")
-              )
+        ).map { diagnostics =>
+          assertTrue(
+            diagnostics.exists(message =>
+              message.contains("@override") && message.contains("'beta'") && message.contains("'gamma'")
             )
-          }
+          )
+        }
       }
     ),
     suite("visibility")(
@@ -849,11 +796,9 @@ object CompositionSpec extends ZIOSpecDefault {
           "@inaccessible"
         )
 
-        Gateway
-          .compose(Subgraph.federation("states", endpoint, hiddenSchema))
-          .interpreter
-          .exit
-          .map(exit => assertTrue(buildDiagnostics(exit).exists(_.contains("return type is inaccessible"))))
+        compositionDiagnostics(Gateway.compose(Subgraph.federation("states", unreachableEndpoint, hiddenSchema))).map(
+          diagnostics => assertTrue(diagnostics.exists(_.contains("return type is inaccessible")))
+        )
       },
       test("removes inaccessible fields and enum values from the client schema") {
         val hiddenSchema = schema(
@@ -870,11 +815,11 @@ object CompositionSpec extends ZIOSpecDefault {
                             """{"data":{"product":{"id":"p1","state":"ACTIVE"}}}""",
                             """{"data":{"hiddenState":"HIDDEN"}}"""
                           )
-          gateway      <- Gateway.compose(Subgraph.federation("products", source.endpoint, hiddenSchema)).interpreter
-          visible      <- gateway.execute("{ product { id state } }")
-          hidden       <- gateway.execute("{ secret product { internal } }")
-          introspected <- gateway.execute("{ __type(name: \"State\") { enumValues { name } } }")
-          value        <- gateway.execute("{ hiddenState }")
+          runtime      <- Gateway.compose(Subgraph.federation("products", source.endpoint, hiddenSchema)).interpreter
+          visible      <- runtime.execute("{ product { id state } }")
+          hidden       <- runtime.execute("{ secret product { internal } }")
+          introspected <- runtime.execute("{ __type(name: \"State\") { enumValues { name } } }")
+          value        <- runtime.execute("{ hiddenState }")
         } yield assertTrue(
           visible.errors.isEmpty,
           hidden.data == NullValue,
@@ -900,15 +845,15 @@ object CompositionSpec extends ZIOSpecDefault {
         for {
           alpha    <- stub("""{"data":{"search":"ok"}}""")
           beta     <- stub("""{"data":{"search":"ok"}}""")
-          gateway  <- Gateway
+          runtime  <- Gateway
                         .compose(
                           Subgraph.federation("alpha", alpha.endpoint, visible),
                           Subgraph.federation("beta", beta.endpoint, hidden)
                         )
                         .interpreter
-          response <- gateway.execute("{ search(term: \"secret\") }")
-          requests <- alpha.requests.get.zip(beta.requests.get)
-        } yield assertTrue(response.errors.nonEmpty, requests._1.isEmpty, requests._2.isEmpty)
+          response <- runtime.execute("{ search(term: \"secret\") }")
+          sent     <- alpha.requests.get.zip(beta.requests.get)
+        } yield assertTrue(response.errors.nonEmpty, sent._1.isEmpty, sent._2.isEmpty)
       },
       test("rejects visible input coordinates that reference inaccessible types") {
         val argumentSchema = schema(
@@ -920,20 +865,17 @@ object CompositionSpec extends ZIOSpecDefault {
           "@inaccessible"
         )
 
-        Gateway
-          .compose(
-            Subgraph.federation("arguments", endpoint, argumentSchema),
-            Subgraph.federation("inputs", endpoint, inputSchema)
+        compositionDiagnostics(
+          Gateway.compose(
+            Subgraph.federation("arguments", unreachableEndpoint, argumentSchema),
+            Subgraph.federation("inputs", unreachableEndpoint, inputSchema)
           )
-          .interpreter
-          .exit
-          .map { exit =>
-            val diagnostics = buildDiagnostics(exit)
-            assertTrue(
-              diagnostics.exists(_.startsWith("[arguments]")),
-              diagnostics.exists(_.startsWith("[inputs]"))
-            )
-          }
+        ).map { diagnostics =>
+          assertTrue(
+            diagnostics.exists(_.startsWith("[arguments]")),
+            diagnostics.exists(_.startsWith("[inputs]"))
+          )
+        }
       },
       test("allows inaccessible owners to reference inaccessible types") {
         val hiddenSchema = schema(
@@ -942,7 +884,7 @@ object CompositionSpec extends ZIOSpecDefault {
         )
 
         Gateway
-          .compose(Subgraph.federation("hidden", endpoint, hiddenSchema))
+          .compose(Subgraph.federation("hidden", unreachableEndpoint, hiddenSchema))
           .interpreter
           .exit
           .map(exit => assertTrue(exit.isSuccess))
@@ -961,8 +903,8 @@ object CompositionSpec extends ZIOSpecDefault {
 
         Gateway
           .compose(
-            Subgraph.federation("alpha", endpoint, alpha),
-            Subgraph.federation("beta", endpoint, beta)
+            Subgraph.federation("alpha", unreachableEndpoint, alpha),
+            Subgraph.federation("beta", unreachableEndpoint, beta)
           )
           .interpreter
           .exit
@@ -983,9 +925,11 @@ object CompositionSpec extends ZIOSpecDefault {
         )
 
         for {
-          argument <- Gateway.compose(Subgraph.federation("argument", endpoint, argumentSchema)).interpreter.exit
-          input    <- Gateway.compose(Subgraph.federation("input", endpoint, inputSchema)).interpreter.exit
-          default  <- Gateway.compose(Subgraph.federation("default", endpoint, defaultSchema)).interpreter.exit
+          argument <-
+            Gateway.compose(Subgraph.federation("argument", unreachableEndpoint, argumentSchema)).interpreter.exit
+          input    <- Gateway.compose(Subgraph.federation("input", unreachableEndpoint, inputSchema)).interpreter.exit
+          default  <-
+            Gateway.compose(Subgraph.federation("default", unreachableEndpoint, defaultSchema)).interpreter.exit
         } yield assertTrue(
           argument.isFailure,
           input.isFailure,
@@ -1007,17 +951,10 @@ object CompositionSpec extends ZIOSpecDefault {
              |input Secret @inaccessible { value: String }
              |""".stripMargin
 
-        Gateway
-          .compose(Subgraph.federation("operations", endpoint, operationSchema))
-          .interpreter
-          .exit
-          .map(exit =>
+        compositionDiagnostics(Gateway.compose(Subgraph.federation("operations", unreachableEndpoint, operationSchema)))
+          .map(diagnostics =>
             assertTrue(
-              exit.causeOption
-                .flatMap(_.failureOption)
-                .exists(
-                  _.diagnostics.exists(message => message.startsWith("[operations]") && message.contains("foo.secret"))
-                )
+              diagnostics.exists(message => message.startsWith("[operations]") && message.contains("foo.secret"))
             )
           )
       },
@@ -1033,9 +970,9 @@ object CompositionSpec extends ZIOSpecDefault {
 
         for {
           source   <- stub("""{"data":{"product":{"id":"p1"}}}""")
-          gateway  <- Gateway.compose(Subgraph.federation("products", source.endpoint, hiddenSchema)).interpreter
+          runtime  <- Gateway.compose(Subgraph.federation("products", source.endpoint, hiddenSchema)).interpreter
           response <-
-            gateway.execute(
+            runtime.execute(
               "{ visible: __type(name: \"Product\") { interfaces { name } } hidden: __type(name: \"HiddenInterface\") { name } }"
             )
         } yield assertTrue(
@@ -1056,9 +993,9 @@ object CompositionSpec extends ZIOSpecDefault {
 
         for {
           source   <- stub("""{"data":{"result":{"__typename":"Product","id":"p1"}}}""")
-          gateway  <- Gateway.compose(Subgraph.federation("search", source.endpoint, hiddenSchema)).interpreter
+          runtime  <- Gateway.compose(Subgraph.federation("search", source.endpoint, hiddenSchema)).interpreter
           response <-
-            gateway.execute(
+            runtime.execute(
               "{ search: __type(name: \"Search\") { possibleTypes { name } } hidden: __type(name: \"HiddenResult\") { name } }"
             )
         } yield assertTrue(
@@ -1095,22 +1032,18 @@ object CompositionSpec extends ZIOSpecDefault {
         for {
           alpha        <- stub("""{"data":{"alpha":{"id":"p1"}}}""")
           beta         <- stub("""{"data":{"beta":{"id":"p1"}}}""")
-          gateway      <- Gateway
+          runtime      <- Gateway
                             .compose(
                               Subgraph.federation("alpha", alpha.endpoint, hidden),
                               Subgraph.federation("beta", beta.endpoint, visible)
                             )
                             .interpreter
           response     <-
-            gateway.execute(
+            runtime.execute(
               "{ product: __type(name: \"Product\") { fields { name } } filter: __type(name: \"Filter\") { inputFields { name } } output: __type(name: \"HiddenOutput\") { name } input: __type(name: \"HiddenInput\") { name } }"
             )
-          productFields = field(response.data, "product")
-                            .flatMap(field(_, "fields"))
-                            .collect { case ListValue(values) => values.flatMap(field(_, "name")) }
-          inputFields   = field(response.data, "filter")
-                            .flatMap(field(_, "inputFields"))
-                            .collect { case ListValue(values) => values.flatMap(field(_, "name")) }
+          productFields = introspectedNames(field(response.data, "product").flatMap(field(_, "fields")))
+          inputFields   = introspectedNames(field(response.data, "filter").flatMap(field(_, "inputFields")))
         } yield assertTrue(
           response.errors.isEmpty,
           productFields.contains(List(StringValue("id"))),
@@ -1130,14 +1063,14 @@ object CompositionSpec extends ZIOSpecDefault {
         for {
           alpha   <- stub("""{"data":{"alpha":1}}""")
           beta    <- stub("""{"data":{"beta":2}}""")
-          gateway <- Gateway
+          runtime <- Gateway
                        .compose(
                          Subgraph.graphql("alpha", alpha.endpoint, alphaSchema),
                          Subgraph.graphql("beta", beta.endpoint, betaSchema)
                        )
                        .interpreter
-          valid   <- gateway.execute("{ alpha(filter: { required: 1 }) beta(filter: { required: 2 }) }")
-          invalid <- gateway.execute("{ alpha(filter: { required: 1, alphaOnly: 2 }) }")
+          valid   <- runtime.execute("{ alpha(filter: { required: 1 }) beta(filter: { required: 2 }) }")
+          invalid <- runtime.execute("{ alpha(filter: { required: 1, alphaOnly: 2 }) }")
         } yield assertTrue(
           field(valid.data, "alpha").contains(IntValue(1)),
           field(valid.data, "beta").contains(IntValue(2)),
@@ -1158,13 +1091,13 @@ object CompositionSpec extends ZIOSpecDefault {
           beta     <- stub(
                         """{"data":{"beta":{"_caliban_gateway_runtime_typename":"Review","body":"good"}}}"""
                       )
-          gateway  <- Gateway
+          runtime  <- Gateway
                         .compose(
                           Subgraph.graphql("alpha", alpha.endpoint, alphaSchema),
                           Subgraph.graphql("beta", beta.endpoint, betaSchema)
                         )
                         .interpreter
-          response <- gateway.execute(
+          response <- runtime.execute(
                         "{ alpha { ... on Product { id } } beta { ... on Review { body } } }"
                       )
         } yield assertTrue(response.errors.isEmpty)
@@ -1192,32 +1125,30 @@ object CompositionSpec extends ZIOSpecDefault {
         for {
           alpha          <- stub("""{"data":{"search":null}}""")
           beta           <- stub("""{"data":{"productByName":null}}""")
-          gateway        <- Gateway
+          runtime        <- Gateway
                               .compose(
                                 Subgraph.graphql("alpha", alpha.endpoint, alphaSchema),
                                 Subgraph.graphql("beta", beta.endpoint, betaSchema)
                               )
                               .interpreter
           response       <-
-            gateway.execute(
+            runtime.execute(
               "{ product: __type(name: \"Product\") { interfaces { fields { name } } } search: __type(name: \"Search\") { possibleTypes { fields { name } } } }"
             )
           product         = field(response.data, "product")
           search          = field(response.data, "search")
-          interfaceFields = product
-                              .flatMap(field(_, "interfaces"))
-                              .collect { case ListValue(interface :: Nil) => interface }
-                              .flatMap(field(_, "fields"))
-                              .collect { case ListValue(values) =>
-                                values.flatMap(field(_, "name")).collect { case StringValue(name) => name }.toSet
-                              }
-          possibleFields  = search
-                              .flatMap(field(_, "possibleTypes"))
-                              .collect { case ListValue(possible :: Nil) => possible }
-                              .flatMap(field(_, "fields"))
-                              .collect { case ListValue(values) =>
-                                values.flatMap(field(_, "name")).collect { case StringValue(name) => name }.toSet
-                              }
+          interfaceFields = introspectedNameStrings(
+                              product
+                                .flatMap(field(_, "interfaces"))
+                                .collect { case ListValue(interface :: Nil) => interface }
+                                .flatMap(field(_, "fields"))
+                            ).map(_.toSet)
+          possibleFields  = introspectedNameStrings(
+                              search
+                                .flatMap(field(_, "possibleTypes"))
+                                .collect { case ListValue(possible :: Nil) => possible }
+                                .flatMap(field(_, "fields"))
+                            ).map(_.toSet)
         } yield assertTrue(
           response.errors.isEmpty,
           interfaceFields.contains(Set("id", "name")),
@@ -1230,14 +1161,12 @@ object CompositionSpec extends ZIOSpecDefault {
         val betaSchema  =
           "type Query { beta(value: State): State } enum State { ACTIVE }"
 
-        Gateway
-          .compose(
-            Subgraph.graphql("alpha", endpoint, alphaSchema),
-            Subgraph.graphql("beta", endpoint, betaSchema)
+        compositionDiagnostics(
+          Gateway.compose(
+            Subgraph.graphql("alpha", unreachableEndpoint, alphaSchema),
+            Subgraph.graphql("beta", unreachableEndpoint, betaSchema)
           )
-          .interpreter
-          .exit
-          .map(exit => assertTrue(buildDiagnostics(exit).exists(_.contains("Input/output enum"))))
+        ).map(diagnostics => assertTrue(diagnostics.exists(_.contains("Input/output enum"))))
       },
       test("ignores input enum usage from unreachable types") {
         val alphaSchema =
@@ -1247,8 +1176,8 @@ object CompositionSpec extends ZIOSpecDefault {
 
         Gateway
           .compose(
-            Subgraph.graphql("alpha", endpoint, alphaSchema),
-            Subgraph.graphql("beta", endpoint, betaSchema)
+            Subgraph.graphql("alpha", unreachableEndpoint, alphaSchema),
+            Subgraph.graphql("beta", unreachableEndpoint, betaSchema)
           )
           .interpreter
           .exit
@@ -1268,8 +1197,8 @@ object CompositionSpec extends ZIOSpecDefault {
 
         Gateway
           .compose(
-            Subgraph.federation("alpha", endpoint, alphaSchema),
-            Subgraph.federation("beta", endpoint, betaSchema)
+            Subgraph.federation("alpha", unreachableEndpoint, alphaSchema),
+            Subgraph.federation("beta", unreachableEndpoint, betaSchema)
           )
           .interpreter
           .exit
@@ -1281,20 +1210,17 @@ object CompositionSpec extends ZIOSpecDefault {
         val betaSchema  =
           "type Query { value(filter: Filter, count: Int = 2): Int } input Filter { limit: Int = 2 }"
 
-        Gateway
-          .compose(
-            Subgraph.graphql("alpha", endpoint, alphaSchema),
-            Subgraph.graphql("beta", endpoint, betaSchema)
+        compositionDiagnostics(
+          Gateway.compose(
+            Subgraph.graphql("alpha", unreachableEndpoint, alphaSchema),
+            Subgraph.graphql("beta", unreachableEndpoint, betaSchema)
           )
-          .interpreter
-          .exit
-          .map { exit =>
-            val diagnostics = buildDiagnostics(exit)
-            assertTrue(
-              diagnostics.exists(_.startsWith("[query.value]")),
-              diagnostics.exists(_.startsWith("[type Filter.limit]"))
-            )
-          }
+        ).map { diagnostics =>
+          assertTrue(
+            diagnostics.exists(_.startsWith("[query.value]")),
+            diagnostics.exists(_.startsWith("[type Filter.limit]"))
+          )
+        }
       }
     ),
     suite("directive metadata")(
@@ -1807,7 +1733,7 @@ object CompositionSpec extends ZIOSpecDefault {
         )
 
         for {
-          remote   <- stub("""{"data":{"value":"ok"}}""")
+          remote   <- stub(okResponse)
           runtime  <- Gateway.compose(Subgraph.federation("valid", remote.endpoint, valid)).interpreter
           response <- runtime.execute("{ __schema { directives { name isRepeatable locations } } }")
           names     = listValues(field(response.data, "__schema").flatMap(field(_, "directives"))).flatMap {

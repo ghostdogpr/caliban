@@ -1,5 +1,6 @@
 package caliban.gateway.internal.composition
 
+import caliban.gateway.{ check, fieldDiagnosticPrefix, formatSources, isRequiredInput }
 import caliban.gateway.internal.composition.ComposedGraph.TypeField
 import caliban.gateway.internal.composition.TypeComposition._
 import caliban.introspection.adt._
@@ -17,17 +18,15 @@ private[composition] final class TypeComposition(
 ) {
   lazy val diagnostics: List[String] =
     typesByName.toList.flatMap { case (name, entries) =>
-      val kinds = entries.map(_.tpe.kind).distinct
-      if (kinds.size > 1)
-        List(s"[type $name] Kinds are incompatible between subgraphs: ${sources(entries)}.")
-      else
-        kinds.headOption.toList.flatMap {
-          case __TypeKind.OBJECT | __TypeKind.INTERFACE => objectDiagnostics(name, entries)
-          case __TypeKind.INPUT_OBJECT                  => inputDiagnostics(name, entries)
-          case __TypeKind.ENUM                          => enumDiagnostics(name, entries, enumUsage(name))
-          case __TypeKind.SCALAR                        => scalarDiagnostics(name, entries)
-          case _                                        => Nil
-        }
+      entries.map(_.tpe.kind).distinct match {
+        case (__TypeKind.OBJECT | __TypeKind.INTERFACE) :: Nil => objectDiagnostics(name, entries)
+        case __TypeKind.INPUT_OBJECT :: Nil                    => inputDiagnostics(name, entries)
+        case __TypeKind.ENUM :: Nil                            => enumDiagnostics(name, entries, enumUsage(name))
+        case __TypeKind.SCALAR :: Nil                          => scalarDiagnostics(name, entries)
+        case _ :: _ :: _                                       =>
+          List(s"[type $name] Kinds are incompatible between subgraphs: ${sources(entries)}.")
+        case _                                                 => Nil
+      }
     }
 
   lazy val composed: Map[String, __Type] = mergeTypes
@@ -41,7 +40,7 @@ private[composition] final class TypeComposition(
       .flatMap(entry => entry.tpe.allFields.map(field => field.name -> (entry -> field)))
       .groupMap(_._1)(_._2)
 
-  private def hiddenArguments(fieldName: String, values: List[(SubgraphType, __Field)]): Set[String] =
+  private def inaccessibleArguments(fieldName: String, values: List[(SubgraphType, __Field)]): Set[String] =
     values.flatMap { case (entry, _) =>
       entry.inaccessibleArguments.collect { case (`fieldName`, argument) => argument }
     }.toSet
@@ -51,62 +50,51 @@ private[composition] final class TypeComposition(
 
   private def objectDiagnostics(name: String, entries: List[SubgraphType]): List[String] =
     fieldsByName(entries).toList.flatMap { case (fieldName, values) =>
-      val perEntry         = values.map { case (entry, field) =>
+      val declarations       = values.map { case (entry, field) =>
         FieldDeclaration(
           entry.source,
           field,
           entry.contextualArguments.collect { case (`fieldName`, argument) => argument }
         )
       }
-      val contextualArgs   = perEntry.flatMap(_.contextualArguments).toSet
-      val inaccessibleArgs = hiddenArguments(fieldName, values)
-      val operation        = entries.headOption.flatMap(_.operation)
-      val fieldPath        = operation.fold(s"$name.$fieldName")(value => s"${value.toString.toLowerCase}.$fieldName")
-      val contextErrors    = contextualArgumentDiagnostics(fieldPath, perEntry)
-      val ownedSources     = effectiveFieldSources(fieldName, values.map(_._1)).map(_.source).toSet
-      val owned            = values.filter(value => ownedSources.contains(value._1.source))
-      val shareable        = owned.nonEmpty && owned.forall { case (entry, _) =>
+      val operation          = entries.headOption.flatMap(_.operation)
+      val fieldPath          = operation.fold(s"$name.$fieldName")(value => s"${value.toString.toLowerCase}.$fieldName")
+      val ownedSources       = effectiveFieldSources(fieldName, values.map(_._1)).map(_.source).toSet
+      val owned              = values.map(_._1).filter(entry => ownedSources.contains(entry.source))
+      val shareable          = owned.nonEmpty && owned.forall { entry =>
         entry.subgraphMode != SubgraphMode.Federation2 || entry.shareableFields.contains(fieldName)
       }
-      val hiddenArgs       = contextualArgs ++ inaccessibleArgs
-      val compatible       = fieldsCompatible(values.map { case (_, field) =>
-        visibleArguments(field, hiddenArgs)
-      })
-      val prefix           = operation.fold(s"[type $name.$fieldName]")(value => s"[${value.toString.toLowerCase}.$fieldName]")
+      val hiddenArguments    =
+        declarations.flatMap(_.contextualArguments).toSet ++ inaccessibleArguments(fieldName, values)
+      val compatible         = fieldsCompatible(values.map { case (_, field) => visibleArguments(field, hiddenArguments) })
+      val sharedSubscription = operation.contains(OperationType.Subscription) &&
+        (owned.size > 1 || values.exists { case (entry, _) => entry.shareableFields.contains(fieldName) })
+      val sharedOrdinary     =
+        operation.nonEmpty && compatible && owned.size > 1 && owned.exists(_.subgraphMode == SubgraphMode.Ordinary)
+      val sharedUnshareable  = compatible && owned.size > 1 && entries.exists(_.tpe.kind == __TypeKind.OBJECT) &&
+        (operation match {
+          case Some(_) =>
+            owned.forall(_.subgraphMode != SubgraphMode.Ordinary) &&
+            owned.exists(entry =>
+              entry.subgraphMode == SubgraphMode.Federation2 && !entry.shareableFields.contains(fieldName)
+            )
+          case None    => owned.exists(_.subgraphMode == SubgraphMode.Federation2) && !shareable
+        })
+      val prefix             = fieldDiagnosticPrefix(operation, name, fieldName)
       overrideDiagnostics(
         prefix,
         values.map { case (entry, _) => entry.source -> entry.overrideFields.get(fieldName).map(_.from) }
-      ) ::: contextErrors :::
-        (if (
-           operation.contains(OperationType.Subscription) &&
-           (owned.size > 1 || values.exists { case (entry, _) => entry.shareableFields.contains(fieldName) })
-         )
-           List(s"$prefix Subscription fields require one effective owner and cannot be @shareable.")
-         else Nil) :::
-        (if (
-           operation.nonEmpty && compatible && owned.size > 1 &&
-           owned.exists(value => value._1.subgraphMode == SubgraphMode.Ordinary)
-         )
-           List(s"$prefix Field is resolved by multiple ordinary subgraphs: ${sources(owned.map(_._1))}.")
-         else Nil) :::
-        (if (!compatible) List(s"$prefix Definitions are incompatible between subgraphs: ${sources(values.map(_._1))}.")
-         else Nil) :::
-        (if (
-           compatible && owned.size > 1 && entries.exists(_.tpe.kind == __TypeKind.OBJECT) &&
-           (operation match {
-             case Some(_) =>
-               owned.forall(_._1.subgraphMode != SubgraphMode.Ordinary) && owned
-                 .exists(value =>
-                   value._1.subgraphMode == SubgraphMode.Federation2 &&
-                     !value._1.shareableFields.contains(fieldName)
-                 )
-             case None    => owned.exists(_._1.subgraphMode == SubgraphMode.Federation2) && !shareable
-           })
-         )
-           List(
-             s"$prefix Field is resolved by multiple subgraphs without compatible @shareable declarations: ${sources(owned.map(_._1))}."
-           )
-         else Nil)
+      ) ::: contextualArgumentDiagnostics(fieldPath, declarations) :::
+        check(
+          !sharedSubscription,
+          s"$prefix Subscription fields require one effective owner and cannot be @shareable."
+        ) :::
+        check(!sharedOrdinary, s"$prefix Field is resolved by multiple ordinary subgraphs: ${sources(owned)}.") :::
+        check(compatible, s"$prefix Definitions are incompatible between subgraphs: ${sources(values.map(_._1))}.") :::
+        check(
+          !sharedUnshareable,
+          s"$prefix Field is resolved by multiple subgraphs without compatible @shareable declarations: ${sources(owned)}."
+        )
     }
 
   private def inputDiagnostics(name: String, entries: List[SubgraphType]): List[String] = {
@@ -118,7 +106,7 @@ private[composition] final class TypeComposition(
     fields.toList.flatMap { case (fieldName, values) =>
       val signatures  = values.map(value => value._2._type.toType() -> value._2.defaultValue).distinct
       val omittedFrom = sourceNames -- values.map(_._1.source)
-      val required    = values.exists(value => !value._2._type.isNullable && value._2.defaultValue.isEmpty)
+      val required    = values.exists(value => isRequiredInput(value._2))
       if (signatures.size > 1)
         List(
           s"[type $name.$fieldName] Input field definitions are incompatible between subgraphs: ${sources(values.map(_._1))}."
@@ -136,23 +124,20 @@ private[composition] final class TypeComposition(
     else {
       val hiddenNames = entries.flatMap(_.inaccessibleEnumValues).toSet
       val valueSets   = entries.map(entry => entry.tpe.allEnumValues.map(_.name).toSet -- hiddenNames)
-      if (valueSets.distinct.size > 1)
-        List(s"[type $name] Input/output enum values are incompatible between subgraphs: ${sources(entries)}.")
-      else Nil
+      check(
+        valueSets.distinct.size <= 1,
+        s"[type $name] Input/output enum values are incompatible between subgraphs: ${sources(entries)}."
+      )
     }
 
   private def scalarDiagnostics(name: String, entries: List[SubgraphType]): List[String] = {
-    val hidden = hiddenDirectives(entries)
-    if (
-      entries
-        .map(entry =>
-          scalarSignature(entry.tpe.copy(directives = filterHiddenDirectives(entry.tpe.directives, hidden)))
-        )
-        .distinct
-        .size > 1
+    val hidden     = hiddenDirectives(entries)
+    val signatures =
+      entries.map(entry => scalarSignature(entry.tpe, filterHiddenDirectives(entry.tpe.directives, hidden)))
+    check(
+      signatures.distinct.size <= 1,
+      s"[type $name] Definitions are incompatible between subgraphs: ${sources(entries)}."
     )
-      List(s"[type $name] Definitions are incompatible between subgraphs: ${sources(entries)}.")
-    else Nil
   }
 
   private def mergeTypes: Map[String, __Type] = {
@@ -164,7 +149,7 @@ private[composition] final class TypeComposition(
         sorted.headOption.map { base =>
           // Type references are rewritten when their field thunks run, after composed is initialized.
           val rewrite = rewriteType(_: __Type, composed)
-          val chosen  = base.tpe.kind match {
+          val merged  = base.tpe.kind match {
             case __TypeKind.OBJECT | __TypeKind.INTERFACE =>
               mergeObject(sorted, rewrite, inaccessibleTypes)
             case __TypeKind.UNION                         => mergeUnion(sorted, rewrite, inaccessibleTypes)
@@ -173,7 +158,7 @@ private[composition] final class TypeComposition(
             case _                                        =>
               directives.attachType(sanitizeType(base.tpe, rewrite, hiddenDirectives(sorted)), name)
           }
-          name -> chosen
+          name -> merged
         }
     }
     val interfaceObjects  = types.filter(_.interfaceObject).map(_.name).toSet
@@ -233,17 +218,19 @@ private[composition] final class TypeComposition(
       val ordered          = visible.sortBy { case (entry, _) =>
         (!effectiveSources.contains(entry.source), entry.source)
       }
-      val hiddenArgs       = hiddenArguments(fieldName, values)
-      (if (effectiveSources.nonEmpty) ordered.headOption else None).map { case (_, field) =>
-        val mergedType = ordered.filter { case (entry, _) => routable.contains(entry.source) }
-          .map(_._2._type)
-          .reduceOption(mergeOutputType)
-          .getOrElse(field._type)
-        directives.attachField(
-          entries.head.name,
-          sanitizeField(field.copy(`type` = () => mergedType), rewrite, hidden, hiddenArgs)
-        )
-      }
+      val inaccessible     = inaccessibleArguments(fieldName, values)
+      if (effectiveSources.isEmpty) None
+      else
+        ordered.headOption.map { case (_, field) =>
+          val mergedType = ordered.filter { case (entry, _) => routable.contains(entry.source) }
+            .map(_._2._type)
+            .reduceOption(mergeOutputType)
+            .getOrElse(field._type)
+          directives.attachField(
+            entries.head.name,
+            sanitizeField(field.copy(`type` = () => mergedType), rewrite, hidden, inaccessible)
+          )
+        }
     }
     val interfaces    = mergeReferencedTypes(entries, _.interfaces().getOrElse(Nil), inaccessibleTypes)
     val possibleTypes = mergeReferencedTypes(entries, _.possibleTypes.getOrElse(Nil), inaccessibleTypes)
@@ -358,15 +345,9 @@ private[composition] object TypeComposition {
     case object Federation2 extends SubgraphMode
   }
 
-  final case class FieldOverride(
-    from: String,
-    progressive: Option[ComposedGraph.ProgressiveOverride]
-  )
+  final case class FieldOverride(from: String, progressive: Option[ComposedGraph.ProgressiveOverride])
 
-  final case class EntityDefinition(
-    keyFields: Set[String],
-    lookups: List[ComposedGraph.EntityLookup]
-  )
+  final case class EntityDefinition(keyFields: Set[String], lookups: List[ComposedGraph.EntityLookup])
 
   final case class EnumUsage(input: Boolean, output: Boolean)
 
@@ -374,11 +355,7 @@ private[composition] object TypeComposition {
     val empty: EnumUsage = EnumUsage(input = false, output = false)
   }
 
-  final case class SubgraphOverride(
-    from: String,
-    by: String,
-    progressive: Option[ComposedGraph.ProgressiveOverride]
-  )
+  final case class SubgraphOverride(from: String, by: String, progressive: Option[ComposedGraph.ProgressiveOverride])
 
   def effectiveFieldSources(field: String, entries: List[SubgraphType]): List[SubgraphType] =
     fieldSources(field, entries)(_ => true)
@@ -420,9 +397,8 @@ private[composition] object TypeComposition {
     contextual.toList.sorted.flatMap { argumentName =>
       entries.collect {
         case FieldDeclaration(source, field, contextualArguments)
-            if !contextualArguments.contains(argumentName) && field.allArgs.exists(argument =>
-              argument.name == argumentName && !argument._type.isNullable && argument.defaultValue.isEmpty
-            ) =>
+            if !contextualArguments.contains(argumentName) && field.allArgs
+              .exists(argument => argument.name == argumentName && isRequiredInput(argument)) =>
           s"[$source] Argument '$fieldPath($argumentName:)' must be nullable or define a default value because it is supplied by @fromContext in another subgraph."
       }
     }
@@ -446,13 +422,10 @@ private[composition] object TypeComposition {
       case (source, from) if source == from => s"$prefix Subgraph '$source' cannot @override itself."
     }
     val overridingSources = overrides.map(_._1).distinct.sorted
-    val competing         =
-      if (overridingSources.size > 1)
-        List(
-          s"$prefix Subgraphs ${SchemaComposer.formatSources(overridingSources)} declare @override for the field."
-        )
-      else Nil
-    invalid ::: competing
+    invalid ::: check(
+      overridingSources.size <= 1,
+      s"$prefix Subgraphs ${formatSources(overridingSources)} declare @override for the field."
+    )
   }
 
   private def compatibleField(left: __Field, right: __Field): Boolean = {
@@ -516,7 +489,7 @@ private[composition] object TypeComposition {
     else field.copy(args = args => field.args(args).filterNot(argument => hidden.contains(argument.name)))
 
   private def sources(entries: List[SubgraphType]): String =
-    SchemaComposer.formatSources(entries.map(_.source))
+    formatSources(entries.map(_.source))
 
   private def sanitizeType(tpe: __Type, rewrite: __Type => __Type, hiddenDirectives: Set[String]): __Type =
     tpe.copy(
@@ -542,11 +515,17 @@ private[composition] object TypeComposition {
       directives = filterHiddenDirectives(field.directives, hiddenDirectives)
     )
 
-  private def scalarSignature(tpe: __Type): (String, Option[String], List[(String, List[(String, String)])]) =
-    (
+  private final case class ScalarSignature(
+    name: String,
+    specifiedByURL: Option[String],
+    directives: List[(String, List[(String, String)])]
+  )
+
+  private def scalarSignature(tpe: __Type, directives: Option[List[Directive]]): ScalarSignature =
+    ScalarSignature(
       tpe.name.getOrElse(""),
       tpe.specifiedByURL,
-      tpe.directives
+      directives
         .getOrElse(Nil)
         .map { directive =>
           directive.name -> directive.arguments.toList.map { case (name, value) => name -> value.toInputString }

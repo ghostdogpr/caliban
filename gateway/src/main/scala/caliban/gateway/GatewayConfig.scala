@@ -116,8 +116,10 @@ final class GatewayConfig private (
       finitePositive(requestTimeout, "Gateway request timeout must be finite and positive."),
       finitePositive(drainTimeout, "Gateway drain timeout must be finite and positive."),
       finitePositive(reloadPollInterval, "Gateway reload poll interval must be finite and positive."),
-      if (!reloadJitter.isNaN && reloadJitter >= 0.0 && reloadJitter < 1.0) Nil
-      else List("Gateway reload jitter must be finite and between zero (inclusive) and one (exclusive).")
+      check(
+        !reloadJitter.isNaN && reloadJitter >= 0.0 && reloadJitter < 1.0,
+        "Gateway reload jitter must be finite and between zero (inclusive) and one (exclusive)."
+      )
     ).flatten ::: subscriptions.diagnostics
 
   private def copy(
@@ -174,14 +176,14 @@ object GatewayConfig {
 
 private[gateway] object GatewayConfigValidation {
   def positive(value: Long, message: String): List[String] =
-    if (value > 0) Nil else message :: Nil
+    check(value > 0, message)
 
   def nonNegative(value: Long, message: String): List[String] =
-    if (value >= 0) Nil else message :: Nil
+    check(value >= 0, message)
 
   def finitePositive(value: Duration, message: String): List[String] =
-    if (value.compareTo(Duration.Zero) > 0 && value.compareTo(Duration.Infinity) < 0) Nil else message :: Nil
+    check(value.compareTo(Duration.Zero) > 0 && value.compareTo(Duration.Infinity) < 0, message)
 
   def finiteNonNegative(value: Duration, message: String): List[String] =
-    if (value.compareTo(Duration.Zero) >= 0 && value.compareTo(Duration.Infinity) < 0) Nil else message :: Nil
+    check(value.compareTo(Duration.Zero) >= 0 && value.compareTo(Duration.Infinity) < 0, message)
 }

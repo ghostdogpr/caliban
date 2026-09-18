@@ -46,6 +46,9 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
       .execute(value, operation)
       .either
 
+  private def remoteGateway[R](endpoint: URL, config: RemoteGraphQLConfig[R]): Gateway[R] =
+    Gateway.compose(Subgraph.graphql("remote", endpoint, schema, config))
+
   private def endpoint(handler: Request => UIO[Response]): ZIO[Server with Ref[Int], Nothing, URL] =
     postEndpoint("graphql-http")(handler)
 
@@ -70,15 +73,13 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
       uri     <- endpoint { _ =>
                    calls.updateAndGet(_ + 1).flatMap { count =>
                      ZIO.when(count == expectedCalls)(started.succeed(()).unit) *>
-                       release.await.as(Response.json("""{"data":{"value":"ok"}}"""))
+                       release.await.as(Response.json(okResponse))
                    }
                  }
     } yield BlockedEndpoint(uri, calls, started, release)
 
   def spec = suite("GraphQLHttpSpec")(
     test("classifies status, media type, malformed envelopes, and redirects") {
-      val valid = """{"data":{"value":"ok"}}"""
-
       for {
         http                <- GatewayHttpClient.make
         graphQlError        <- fixed(
@@ -86,8 +87,8 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
                                  Some("application/graphql-response+json; charset=utf-8"),
                                  """{"errors":[{"message":"unavailable"}]}"""
                                )
-        legacySuccess       <- fixed(Status.Ok, Some("application/json"), valid)
-        legacyFailure       <- fixed(Status.ServiceUnavailable, Some("application/json"), valid)
+        legacySuccess       <- fixed(Status.Ok, Some("application/json"), okResponse)
+        legacyFailure       <- fixed(Status.ServiceUnavailable, Some("application/json"), okResponse)
         textFailure         <- fixed(Status.ServiceUnavailable, Some("text/plain"), "overloaded")
         untypedFailure      <- fixed(Status.ServiceUnavailable, None, "overloaded")
         malformed           <- fixed(Status.Ok, Some("application/graphql-response+json"), "{")
@@ -102,9 +103,9 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
                                  """{"data":{"value":"ok"},"hasNext":true}"""
                                )
         empty               <- fixed(Status.Ok, Some("application/graphql-response+json"), "")
-        unsupported         <- fixed(Status.Ok, Some("text/plain"), valid)
+        unsupported         <- fixed(Status.Ok, Some("text/plain"), okResponse)
         redirectCalls       <- Ref.make(0)
-        redirectTarget      <- endpoint(_ => redirectCalls.update(_ + 1).as(Response.json(valid)))
+        redirectTarget      <- endpoint(_ => redirectCalls.update(_ + 1).as(Response.json(okResponse)))
         redirect            <- endpoint(_ =>
                                  ZIO.succeed(
                                    Response(
@@ -162,7 +163,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
         requestEndpoint <- endpoint(_ =>
                              requestCalls
                                .update(_ + 1)
-                               .as(Response.json("""{"data":{"value":"ok"}}"""))
+                               .as(Response.json(okResponse))
                            )
         oversizedBody   <- fixed(
                              Status.Ok,
@@ -210,14 +211,14 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
                         Body.fromString("source-secret-body")
                       )
                     }
-        gateway  <- Gateway.compose(Subgraph.graphql("remote", remote, schema)).interpreter
+        runtime  <- remoteGateway(remote, RemoteGraphQLConfig.default).interpreter
         outbound  = GraphQLRequest(
                       query = Some("query Value($input: String) { value(input: $input) }"),
                       operationName = Some("Value"),
                       variables = Some(Map("input" -> StringValue("한국어-secret"))),
                       extensions = Some(Map("private" -> StringValue("extension-secret")))
                     )
-        response <- gateway.executeRequest(outbound)
+        response <- runtime.executeRequest(outbound)
         sent     <- captured.await
         rendered  = response.errors.map(_.msg).mkString(" ")
       } yield assertTrue(
@@ -237,7 +238,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
       Live.live {
         for {
           http                                             <- GatewayHttpClient.make
-          successTracked                                   <- tracked("""{"data":{"value":"ok"}}""")
+          successTracked                                   <- tracked(okResponse)
           (successStream, successReleases, successReleased) = successTracked
           successEndpoint                                  <- streamingEndpoint(successStream)
           success                                          <- call(successEndpoint, http)
@@ -256,10 +257,11 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
           timeoutStarted                                   <- Promise.make[Nothing, Unit]
           timeoutReleases                                  <- Ref.make(0)
           timeoutReleased                                  <- Promise.make[Nothing, Unit]
-          timeoutEndpoint                                  <- streamingEndpoint(
-                                                                (ZStream.fromZIO(timeoutStarted.succeed(()).unit).drain ++ ZStream.never)
-                                                                  .ensuring(timeoutReleases.update(_ + 1) *> timeoutReleased.succeed(()).unit)
-                                                              )
+          timeoutEndpoint                                  <-
+            streamingEndpoint(
+              (ZStream.fromZIO(timeoutStarted.succeed(()).unit).drain ++ ZStream.never)
+                .ensuring(timeoutReleases.update(_ + 1) *> timeoutReleased.succeed(()).unit)
+            )
           timeoutFailure                                   <-
             call(timeoutEndpoint, http, short)
           _                                                <- timeoutStarted.await
@@ -268,11 +270,12 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
           interruptComplete                                <- Promise.make[Nothing, Unit]
           interruptReleases                                <- Ref.make(0)
           interruptReleased                                <- Promise.make[Nothing, Unit]
-          interruptEndpoint                                <- streamingEndpoint(
-                                                                (ZStream.fromZIO(interruptStarted.succeed(()).unit).drain ++
-                                                                  ZStream.fromZIO(interruptComplete.await).drain)
-                                                                  .ensuring(interruptReleases.update(_ + 1) *> interruptReleased.succeed(()).unit)
-                                                              )
+          interruptEndpoint                                <-
+            streamingEndpoint(
+              (ZStream.fromZIO(interruptStarted.succeed(()).unit).drain ++
+                ZStream.fromZIO(interruptComplete.await).drain)
+                .ensuring(interruptReleases.update(_ + 1) *> interruptReleased.succeed(()).unit)
+            )
           interruptFiber                                   <-
             unmanagedRemoteSubgraphExecutor(interruptEndpoint, http).execute(request, OperationType.Query).fork
           _                                                <- interruptStarted.await
@@ -316,7 +319,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
         )
 
       for {
-        remote <- stub("""{"data":{"value":"ok"}}""")
+        remote <- stub(okResponse)
         exit   <- Gateway
                     .compose(
                       Subgraph.graphql("first", remote.endpoint, firstPolicy),
@@ -324,10 +327,10 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
                     )
                     .interpreter
                     .exit
-        calls  <- remote.requests.get
+        sent   <- remote.requests.get
         errors  = buildDiagnostics(exit)
       } yield assertTrue(
-        calls.isEmpty,
+        sent.isEmpty,
         errors.count(_.startsWith("[first]")) == 5,
         errors.count(_.startsWith("[second]")) == 4,
         errors.exists(_.contains("timeout must be finite and positive")),
@@ -361,9 +364,9 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
       }
 
       for {
-        remote   <- stub("""{"data":{"value":"ok"}}""")
-        gateway  <- Gateway.compose(Subgraph.graphql("remote", remote.endpoint, schema, policy)).interpreter
-        response <- gateway
+        remote   <- stub(okResponse)
+        runtime  <- remoteGateway(remote.endpoint, policy).interpreter
+        response <- runtime
                       .executeRequest(
                         request,
                         List(
@@ -376,12 +379,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
                       .provideEnvironment(ZEnvironment(environment))
         sent     <- remote.headers.get
         headers   = sent.headOption
-        multi     = headers.fold(List.empty[String])(
-                      _.iterator
-                        .filter(_.headerName.equalsIgnoreCase("X-Multi"))
-                        .map(_.renderedValue)
-                        .toList
-                    )
+        multi     = headers.fold(List.empty[String])(renderedHeaderValues(_, "X-Multi"))
       } yield assertTrue(
         response.errors.isEmpty,
         headers.flatMap(_.get("X-Forwarded")).contains("incoming"),
@@ -403,9 +401,9 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
         .withExecutionHeadersZIO(ZIO.succeed(List(Header.Custom("X-Trusted", "effectful"))))
 
       for {
-        remote  <- stub("""{"data":{"value":"ok"}}""")
-        gateway <- Gateway.compose(Subgraph.graphql("remote", remote.endpoint, schema, config)).interpreter
-        _       <- gateway.executeRequest(
+        remote  <- stub(okResponse)
+        runtime <- remoteGateway(remote.endpoint, config).interpreter
+        _       <- runtime.executeRequest(
                      request,
                      List(
                        Header.Custom("Connection", "Authorization, X-Trusted"),
@@ -436,9 +434,9 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
         )
 
       for {
-        remote  <- stub("""{"data":{"value":"ok"}}""")
-        gateway <- Gateway.compose(Subgraph.graphql("remote", remote.endpoint, schema, config)).interpreter
-        _       <- gateway.executeRequest(
+        remote  <- stub(okResponse)
+        runtime <- remoteGateway(remote.endpoint, config).interpreter
+        _       <- runtime.executeRequest(
                      request,
                      List(
                        Header.Custom("Authorization", "Bearer incoming"),
@@ -467,13 +465,13 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
       )
 
       for {
-        remote   <- stub("""{"data":{"value":"ok"}}""")
-        gateway  <- Gateway.compose(Subgraph.graphql("remote", remote.endpoint, schema, config)).interpreter
-        response <- gateway.executeRequest(request)
-        calls    <- remote.requests.get
+        remote   <- stub(okResponse)
+        runtime  <- remoteGateway(remote.endpoint, config).interpreter
+        response <- runtime.executeRequest(request)
+        sent     <- remote.requests.get
         rendered  = response.errors.map(_.msg).mkString(" ")
       } yield assertTrue(
-        calls.isEmpty,
+        sent.isEmpty,
         response.errors.map(_.msg) == List("Remote GraphQL request failed."),
         !rendered.contains(secret)
       )
@@ -484,7 +482,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
 
       for {
         http            <- GatewayHttpClient.make
-        remote          <- stub("""{"data":{"value":"ok"}}""")
+        remote          <- stub(okResponse)
         headerResult    <- call(remote.endpoint, http, config)
         transportResult <- call(unreachableEndpoint, http)
       } yield assertTrue(
@@ -504,16 +502,11 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
       for {
         ready        <- Promise.make[Nothing, Unit]
         headerRuns   <- Ref.make(0)
-        config        = RemoteGraphQLConfig.default
-                          .withExecutionHeadersZIO(
-                            headerRuns
-                              .updateAndGet(_ + 1)
-                              .flatMap(count => ready.succeed(()).unit.when(count == callers)) *>
-                              ready.await.as(Nil)
-                          )
+        config        =
+          RemoteGraphQLConfig.default.withExecutionHeadersZIO(headersAfterEveryCaller(callers, headerRuns, ready))
         remote       <- blockedEndpoint(expectedCalls = 1)
-        gateway      <- Gateway.compose(Subgraph.graphql("remote", remote.uri, schema, config)).interpreter
-        fibers       <- ZIO.foreach(1 to callers)(_ => gateway.executeRequest(request).fork)
+        runtime      <- remoteGateway(remote.uri, config).interpreter
+        fibers       <- ZIO.foreach(1 to callers)(_ => runtime.executeRequest(request).fork)
         _            <- remote.started.await
         _            <- Live.live(ZIO.sleep(250.millis))
         shared       <- remote.calls.get
@@ -535,8 +528,8 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
 
       for {
         remote    <- blockedEndpoint(expectedCalls = 2)
-        gateway   <- Gateway.compose(Subgraph.graphql("remote", remote.uri, schema, config)).interpreter
-        fibers    <- ZIO.foreach(1 to 2)(_ => gateway.executeRequest(request).fork)
+        runtime   <- remoteGateway(remote.uri, config).interpreter
+        fibers    <- ZIO.foreach(1 to 2)(_ => runtime.executeRequest(request).fork)
         started   <- Live.live(remote.started.await.timeout(2.seconds))
         _         <- remote.release.succeed(())
         responses <- ZIO.foreach(fibers)(_.join)
@@ -549,7 +542,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
       for {
         http           <- GatewayHttpClient.make
         calls          <- Ref.make(0)
-        remote         <- endpoint(_ => calls.update(_ + 1).as(Response.json("""{"data":{"value":"ok"}}""")))
+        remote         <- endpoint(_ => calls.update(_ + 1).as(Response.json(okResponse)))
         gate           <- AdmissionGate.make(1, PhaseHooks.AdmissionKind.Subgraph, PhaseHooks.empty)
         blockerStarted <- Promise.make[Nothing, Unit]
         releaseBlocker <- Promise.make[Nothing, Unit]
@@ -582,7 +575,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
         remote     <- endpoint { _ =>
                         calls.updateAndGet(_ + 1).flatMap {
                           case 1 => started.succeed(()).unit *> release.await.as(unavailable)
-                          case _ => ZIO.succeed(Response.json("""{"data":{"value":"ok"}}"""))
+                          case _ => ZIO.succeed(Response.json(okResponse))
                         }
                       }
         source     <- RemoteSubgraphExecutor.make("remote", remote, http, config, PhaseHooks.empty)
@@ -609,19 +602,14 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
         headerRuns   <- Ref.make(0)
         config        = RemoteGraphQLConfig.default
                           .withExecution(_.withRetries(1, Duration.Zero))
-                          .withExecutionHeadersZIO(
-                            headerRuns
-                              .updateAndGet(_ + 1)
-                              .flatMap(count => ready.succeed(()).unit.when(count == callers)) *>
-                              ready.await.as(Nil)
-                          )
+                          .withExecutionHeadersZIO(headersAfterEveryCaller(callers, headerRuns, ready))
         calls        <- Ref.make(0)
         firstStarted <- Promise.make[Nothing, Unit]
         releaseFirst <- Promise.make[Nothing, Unit]
         remote       <- endpoint { _ =>
                           calls.updateAndGet(_ + 1).flatMap {
                             case 1 => firstStarted.succeed(()).unit *> releaseFirst.await.as(unavailable)
-                            case _ => ZIO.succeed(Response.json("""{"data":{"value":"ok"}}"""))
+                            case _ => ZIO.succeed(Response.json(okResponse))
                           }
                         }
         http         <- GatewayHttpClient.make
@@ -795,7 +783,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
         headerCalls      <- Ref.make(0)
         queryEndpoint    <- endpoint { _ =>
                               queryCalls.updateAndGet(_ + 1).map { attempt =>
-                                if (attempt < 3) unavailable else Response.json("""{"data":{"value":"ok"}}""")
+                                if (attempt < 3) unavailable else Response.json(okResponse)
                               }
                             }
         countedPolicy     = policy.withExecutionHeadersZIO(

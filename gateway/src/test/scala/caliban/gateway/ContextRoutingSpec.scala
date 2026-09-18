@@ -17,6 +17,17 @@ object ContextRoutingSpec extends ZIOSpecDefault {
     federationSchemaPreamble(imports: _*)
       .replace("federation/v2.3", "federation/v2.8") + contextDirectives
 
+  private val userContextSchema =
+    s"""
+       |${preamble("@key", "@context", "@fromContext")}
+       |type Query { user: User }
+       |type User @key(fields: "id") @context(name: "userContext") {
+       |  id: ID!
+       |  currency: String!
+       |  amount(currency: String @fromContext(field: "$$userContext { currency }")): Int!
+       |}
+       |""".stripMargin
+
   def spec = suite("ContextRoutingSpec")(
     test("injects per-entity context arguments into downstream fetches") {
       val usersSchema        =
@@ -43,11 +54,11 @@ object ContextRoutingSpec extends ZIOSpecDefault {
            |""".stripMargin
 
       for {
-        users        <-
+        users            <-
           stub(
             """{"data":{"users":[{"_caliban_gateway_requirement_currency":"USD","_caliban_gateway_requirement_currency_User":"USD","_caliban_gateway_context_typename":"User","_caliban_gateway_key":"u1","_caliban_gateway_typename":"User"},{"_caliban_gateway_requirement_currency":"EUR","_caliban_gateway_requirement_currency_User":"EUR","_caliban_gateway_context_typename":"User","_caliban_gateway_key":"u2","_caliban_gateway_typename":"User"}]}}"""
           )
-        transactions <-
+        transactions     <-
           stubByRequest { request =>
             val query = request.query.getOrElse("")
             if (query.contains("currency:\"")) {
@@ -56,43 +67,32 @@ object ContextRoutingSpec extends ZIOSpecDefault {
             } else
               """{"data":{"_entities":[{"transactions":[{"_caliban_gateway_key":"t1","_caliban_gateway_typename":"Transaction"}]},{"transactions":[{"_caliban_gateway_key":"t2","_caliban_gateway_typename":"Transaction"}]}]}}"""
           }
-        gateway      <- Gateway
-                          .compose(
-                            Subgraph.federation("users", users.endpoint, usersSchema),
-                            Subgraph.federation("transactions", transactions.endpoint, transactionsSchema)
-                          )
-                          .interpreter
-        response     <- gateway.execute("{ users { transactions { amount } } }")
-        sentUsers    <- users.requests.get
-        sentTx       <- transactions.requests.get
-        amounts       = listValues(field(response.data, "users")).flatMap { user =>
-                          listValues(field(user, "transactions")).flatMap(field(_, "amount"))
-                        }
+        runtime          <- Gateway
+                              .compose(
+                                Subgraph.federation("users", users.endpoint, usersSchema),
+                                Subgraph.federation("transactions", transactions.endpoint, transactionsSchema)
+                              )
+                              .interpreter
+        response         <- runtime.execute("{ users { transactions { amount } } }")
+        usersSent        <- users.requests.get
+        transactionsSent <- transactions.requests.get
+        amounts           = listValues(field(response.data, "users")).flatMap { user =>
+                              listValues(field(user, "transactions")).flatMap(field(_, "amount"))
+                            }
       } yield assertTrue(
         response.errors.isEmpty,
         amounts == List(IntNumber(100), IntNumber(200)),
-        sentUsers.headOption.flatMap(_.query).exists(_.contains("_caliban_gateway_requirement_currency")),
-        sentTx.size == 3,
-        sentTx.flatMap(_.query).exists(_.contains("amount(currency:\"USD\")")),
-        sentTx.flatMap(_.query).exists(_.contains("amount(currency:\"EUR\")"))
+        usersSent.headOption.flatMap(_.query).exists(_.contains("_caliban_gateway_requirement_currency")),
+        transactionsSent.size == 3,
+        transactionsSent.flatMap(_.query).exists(_.contains("amount(currency:\"USD\")")),
+        transactionsSent.flatMap(_.query).exists(_.contains("amount(currency:\"EUR\")"))
       )
     },
     test("hides context-supplied arguments from the composed API") {
-      val schema =
-        s"""
-           |${preamble("@key", "@context", "@fromContext")}
-           |type Query { user: User }
-           |type User @key(fields: "id") @context(name: "userContext") {
-           |  id: ID!
-           |  currency: String!
-           |  amount(currency: String @fromContext(field: "$$userContext { currency }")): Int!
-           |}
-           |""".stripMargin
-
       for {
         remote  <- stub("""{"data":{"user":null}}""")
-        gateway <- Gateway.compose(Subgraph.federation("users", remote.endpoint, schema)).interpreter
-        result  <- gateway.execute("{ __type(name: \"User\") { fields { name args { name } } } }")
+        runtime <- Gateway.compose(Subgraph.federation("users", remote.endpoint, userContextSchema)).interpreter
+        result  <- runtime.execute("{ __type(name: \"User\") { fields { name args { name } } } }")
         fields   = field(result.data, "__type").toList.flatMap(value => listValues(field(value, "fields")))
         amount   = fields.find(value => field(value, "name").contains(caliban.Value.StringValue("amount")))
       } yield assertTrue(
@@ -101,17 +101,6 @@ object ContextRoutingSpec extends ZIOSpecDefault {
       )
     },
     test("splits a same-subgraph context field into an entity fetch") {
-      val schema =
-        s"""
-           |${preamble("@key", "@context", "@fromContext")}
-           |type Query { user: User }
-           |type User @key(fields: "id") @context(name: "userContext") {
-           |  id: ID!
-           |  currency: String!
-           |  amount(currency: String @fromContext(field: "$$userContext { currency }")): Int!
-           |}
-           |""".stripMargin
-
       for {
         remote   <- stubByRequest(request =>
                       if (request.query.exists(_.contains("_entities")))
@@ -119,8 +108,8 @@ object ContextRoutingSpec extends ZIOSpecDefault {
                       else
                         """{"data":{"user":{"_caliban_gateway_requirement_currency":"USD","_caliban_gateway_key":"u1","_caliban_gateway_typename":"User"}}}"""
                     )
-        gateway  <- Gateway.compose(Subgraph.federation("users", remote.endpoint, schema)).interpreter
-        response <- gateway.execute("{ user { amount } }")
+        runtime  <- Gateway.compose(Subgraph.federation("users", remote.endpoint, userContextSchema)).interpreter
+        response <- runtime.execute("{ user { amount } }")
         sent     <- remote.requests.get
       } yield assertTrue(
         response.errors.isEmpty,
@@ -155,9 +144,9 @@ object ContextRoutingSpec extends ZIOSpecDefault {
                       else
                         """{"data":{"product":{"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"},"_caliban_gateway_requirement_me_locale":{"locale":"en"}}}"""
                     )
-        gateway  <- Gateway.compose(Subgraph.federation("products", remote.endpoint, schema)).interpreter
-        response <- gateway.execute("{ product { price } }")
-        plan     <- gateway.explain("{ product { price } other }")
+        runtime  <- Gateway.compose(Subgraph.federation("products", remote.endpoint, schema)).interpreter
+        response <- runtime.execute("{ product { price } }")
+        plan     <- runtime.explain("{ product { price } other }")
         sent     <- remote.requests.get
       } yield assertTrue(
         response.errors.isEmpty,
@@ -182,8 +171,8 @@ object ContextRoutingSpec extends ZIOSpecDefault {
 
       for {
         remote  <- stub("{}")
-        gateway <- Gateway.compose(Subgraph.federation("products", remote.endpoint, schema)).interpreter
-        plan    <- gateway.explain("{ product { label } }").exit
+        runtime <- Gateway.compose(Subgraph.federation("products", remote.endpoint, schema)).interpreter
+        plan    <- runtime.explain("{ product { label } }").exit
       } yield assertTrue(plan.isSuccess)
     },
     test("preserves list wrappers in nested context selections") {
@@ -230,28 +219,28 @@ object ContextRoutingSpec extends ZIOSpecDefault {
            |""".stripMargin
 
       for {
-        pricing   <- stubByRequest(request =>
-                       if (request.query.exists(_.contains("price(currency:\"USD\")")))
-                         """{"data":{"_entities":[{"price":9}]}}"""
-                       else
-                         """{"data":{"product":{"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product","_caliban_gateway_key_2":"p1","_caliban_gateway_typename_2":"Product"}}}"""
-                     )
-        products  <- stub("""{"data":{"_entities":[{"_caliban_gateway_requirement_currency":"USD"}]}}""")
-        gateway   <- Gateway
-                       .compose(
-                         Subgraph.federation("pricing", pricing.endpoint, pricingSchema),
-                         Subgraph.federation("products", products.endpoint, productsSchema)
-                       )
-                       .interpreter
-        response  <- gateway.execute("{ product { price } }")
-        sent      <- pricing.requests.get
-        selectors <- products.requests.get
+        pricing      <- stubByRequest(request =>
+                          if (request.query.exists(_.contains("price(currency:\"USD\")")))
+                            """{"data":{"_entities":[{"price":9}]}}"""
+                          else
+                            """{"data":{"product":{"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product","_caliban_gateway_key_2":"p1","_caliban_gateway_typename_2":"Product"}}}"""
+                        )
+        products     <- stub("""{"data":{"_entities":[{"_caliban_gateway_requirement_currency":"USD"}]}}""")
+        runtime      <- Gateway
+                          .compose(
+                            Subgraph.federation("pricing", pricing.endpoint, pricingSchema),
+                            Subgraph.federation("products", products.endpoint, productsSchema)
+                          )
+                          .interpreter
+        response     <- runtime.execute("{ product { price } }")
+        pricingSent  <- pricing.requests.get
+        productsSent <- products.requests.get
       } yield assertTrue(
         response.errors.isEmpty,
         field(response.data, "product").flatMap(field(_, "price")).contains(IntNumber(9)),
-        sent.size == 2,
-        selectors.size == 1,
-        sent.lastOption.flatMap(_.query).exists(_.contains("price(currency:\"USD\")"))
+        pricingSent.size == 2,
+        productsSent.size == 1,
+        pricingSent.lastOption.flatMap(_.query).exists(_.contains("price(currency:\"USD\")"))
       )
     },
     test("preserves custom-scalar values at direct and nested selector leaves") {
@@ -282,8 +271,8 @@ object ContextRoutingSpec extends ZIOSpecDefault {
                       else
                         """{"data":{"user":{"_caliban_gateway_requirement_metadata":{"locale":"en"},"_caliban_gateway_requirement_profile_metadata":{"metadata":{"locale":"fr"}},"child":{"_caliban_gateway_key":"c1","_caliban_gateway_typename":"Child"}}}}"""
                     )
-        gateway  <- Gateway.compose(Subgraph.federation("contexts", remote.endpoint, schema)).interpreter
-        response <- gateway.execute("{ user { child { result } } }")
+        runtime  <- Gateway.compose(Subgraph.federation("contexts", remote.endpoint, schema)).interpreter
+        response <- runtime.execute("{ user { child { result } } }")
         sent     <- remote.requests.get
         entity    = sent.lastOption.flatMap(_.query).getOrElse("")
       } yield assertTrue(
@@ -313,16 +302,12 @@ object ContextRoutingSpec extends ZIOSpecDefault {
            |}
            |""".stripMargin
 
-      Gateway
-        .compose(
+      compositionDiagnostics(
+        Gateway.compose(
           Subgraph.federation("contextual", unreachableEndpoint, contextual),
           Subgraph.federation("required", unreachableEndpoint, required)
         )
-        .interpreter
-        .exit
-        .map(exit =>
-          assertTrue(buildDiagnostics(exit).exists(_.contains("must be nullable or define a default value")))
-        )
+      ).map(diagnostics => assertTrue(diagnostics.exists(_.contains("must be nullable or define a default value"))))
     },
     test("ignores non-contextual inaccessible arguments during compatibility checks") {
       val withoutArgument =
@@ -354,17 +339,16 @@ object ContextRoutingSpec extends ZIOSpecDefault {
            |""".stripMargin
 
       for {
-        mutation     <- Gateway
-                          .compose(Subgraph.federation("mutation", unreachableEndpoint, schema("Mutation")))
-                          .interpreter
-                          .exit
-        subscription <- Gateway
-                          .compose(Subgraph.federation("subscription", unreachableEndpoint, schema("Subscription")))
-                          .interpreter
-                          .exit
+        mutation     <- compositionDiagnostics(
+                          Gateway.compose(Subgraph.federation("mutation", unreachableEndpoint, schema("Mutation")))
+                        )
+        subscription <-
+          compositionDiagnostics(
+            Gateway.compose(Subgraph.federation("subscription", unreachableEndpoint, schema("Subscription")))
+          )
       } yield assertTrue(
-        buildDiagnostics(mutation).exists(_.contains("not supported on the Mutation root type")),
-        buildDiagnostics(subscription).exists(_.contains("not supported on the Subscription root type"))
+        mutation.exists(_.contains("not supported on the Mutation root type")),
+        subscription.exists(_.contains("not supported on the Subscription root type"))
       )
     },
     test("accepts type-conditioned selectors across context locations") {
@@ -398,16 +382,6 @@ object ContextRoutingSpec extends ZIOSpecDefault {
         .map(exit => assertTrue(exit.isSuccess))
     },
     test("validates the context feature version, names, selectors, and argument nullability") {
-      val base              =
-        s"""
-           |${preamble("@key", "@context", "@fromContext")}
-           |type Query { user: User }
-           |type User @key(fields: "id") @context(name: "userContext") {
-           |  id: ID!
-           |  currency: String!
-           |  amount(currency: String @fromContext(field: "$$userContext { currency }")): Int!
-           |}
-           |""".stripMargin
       val abstractCondition =
         s"""
            |${preamble("@key", "@context", "@fromContext")}
@@ -443,15 +417,15 @@ object ContextRoutingSpec extends ZIOSpecDefault {
            |}
            |""".stripMargin
       val schemas           = List(
-        base.replace("federation/v2.8", "federation/v2.7"),
-        base.replace("name: \"userContext\"", "name: \"user_context\""),
-        base.replace("{ currency }", "{ missing }"),
-        base.replace("currency: String @fromContext", "currency: String! @fromContext"),
-        base.replace("amount(currency: String @fromContext", "amount(currency: Int @fromContext"),
-        base.replace("{ currency }", "{ id currency }"),
-        base.replace("{ currency }", "{ currency @skip(if: true) }"),
-        base.replace("currency: String @fromContext", "currency: String = \"USD\" @fromContext"),
-        base.replace(
+        userContextSchema.replace("federation/v2.8", "federation/v2.7"),
+        userContextSchema.replace("name: \"userContext\"", "name: \"user_context\""),
+        userContextSchema.replace("{ currency }", "{ missing }"),
+        userContextSchema.replace("currency: String @fromContext", "currency: String! @fromContext"),
+        userContextSchema.replace("amount(currency: String @fromContext", "amount(currency: Int @fromContext"),
+        userContextSchema.replace("{ currency }", "{ id currency }"),
+        userContextSchema.replace("{ currency }", "{ currency @skip(if: true) }"),
+        userContextSchema.replace("currency: String @fromContext", "currency: String = \"USD\" @fromContext"),
+        userContextSchema.replace(
           "$userContext { currency }",
           "$userContext ... on User { currency } ... on User { currency }"
         ),
@@ -461,13 +435,11 @@ object ContextRoutingSpec extends ZIOSpecDefault {
       )
 
       for {
-        exits      <- ZIO.foreach(schemas.zipWithIndex) { case (schema, index) =>
-                        Gateway
-                          .compose(Subgraph.federation(s"invalid-$index", unreachableEndpoint, schema))
-                          .interpreter
-                          .exit
-                      }
-        diagnostics = exits.map(buildDiagnostics)
+        diagnostics <- ZIO.foreach(schemas.zipWithIndex) { case (schema, index) =>
+                         compositionDiagnostics(
+                           Gateway.compose(Subgraph.federation(s"invalid-$index", unreachableEndpoint, schema))
+                         )
+                       }
       } yield assertTrue(
         diagnostics(0).exists(_.contains("not available in the linked feature version")),
         diagnostics(1).exists(_.contains("Invalid Federation @context name")),

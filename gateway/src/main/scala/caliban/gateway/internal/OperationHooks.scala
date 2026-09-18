@@ -1,13 +1,11 @@
 package caliban.gateway.internal
 
-import caliban.ResponseValue.ObjectValue
-import caliban.Value.StringValue
 import caliban.execution.ExecutionRequest
 import caliban.gateway.OperationPolicy._
 import caliban.gateway.PhaseHooks.Event
 import caliban.gateway.internal.composition.ComposedGraph.OverrideLabel
 import caliban.gateway.internal.planning.OperationPlan
-import caliban.gateway.{ OperationPolicy, OperationResolver, PhaseHooks }
+import caliban.gateway.{ errorCode, OperationPolicy, OperationResolver, PhaseHooks }
 import caliban.parsing.adt.Document
 import caliban.{ CalibanError, GraphQLRequest }
 import zio.{ Cause, Exit, Trace, ZIO }
@@ -92,12 +90,7 @@ private[gateway] object OperationHooks {
         cause.interruptOption.fold[Cause[CalibanError]](
           cause.failures match {
             case (rejection: OperationResolver.Rejection) :: Nil if allowRejection && cause.defects.isEmpty =>
-              Cause.fail(
-                CalibanError.ExecutionError(
-                  rejection.message,
-                  extensions = Some(ObjectValue(List("code" -> StringValue(rejection.code))))
-                )
-              )
+              Cause.fail(CalibanError.ExecutionError(rejection.message, extensions = errorCode(rejection.code)))
             case _                                                                                          =>
               Cause.fail(CalibanError.ExecutionError(failureMessage, innerThrowable = Some(cause.squash)))
           }

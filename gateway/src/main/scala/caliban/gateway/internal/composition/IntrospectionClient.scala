@@ -1,10 +1,10 @@
 package caliban.gateway.internal.composition
 
 import caliban.{ InputValue, ResponseValue }
-import caliban.gateway.{ RemoteGraphQLConfig, SchemaAcquisitionError }
+import caliban.gateway.{ traverseEither, RemoteGraphQLConfig, SchemaAcquisitionError }
 import caliban.gateway.SchemaAcquisitionError._
 import caliban.gateway.internal.GatewayHttpClient
-import caliban.parsing.adt.{ Directive, Document, Type }
+import caliban.parsing.adt.{ Directive, Directives, Document, Type }
 import caliban.parsing.adt.Definition.TypeSystemDefinition._
 import caliban.parsing.adt.Definition.TypeSystemDefinition.DirectiveLocation._
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
@@ -25,28 +25,19 @@ private[gateway] object IntrospectionClient {
     config: RemoteGraphQLConfig.Acquisition,
     http: GatewayHttpClient
   )(implicit trace: Trace): IO[SchemaAcquisitionError, Document] =
-    RemoteSchemaAcquisition
-      .fetchBytes(endpoint, Query, OperationName, config, http)
-      .flatMap { bytes =>
-        for {
-          response <- ZIO
-                        .attempt(readFromArray[ResponseValue](bytes))
-                        .mapError(IntrospectionResponseDecodingFailed(_))
-          _        <- ZIO
-                        .fail(ParsingDepthExceeded(config.maxParsingDepth))
-                        .unless(defaultValuesWithinDepth(response, config.maxParsingDepth))
-          envelope <- ZIO
-                        .fromEither(asObject(response, "response"))
-                        .mapError(IntrospectionResponseDecodingFailed(_))
-          errors   <- ZIO
-                        .fromOption(RemoteSchemaAcquisition.responseErrors(envelope))
-                        .orElseFail(IntrospectionResponseDecodingFailed(InvalidResponse("errors")))
-          _        <- ZIO.fail(IntrospectionErrors(errors)).when(errors.nonEmpty)
-          document <- ZIO
-                        .fromEither(decode(envelope.getOrNull("data")))
-                        .mapError(IntrospectionResponseDecodingFailed(_))
-        } yield document
-      }
+    for {
+      bytes    <- RemoteSchemaAcquisition.fetchBytes(endpoint, Query, OperationName, config, http)
+      response <- ZIO.attempt(readFromArray[ResponseValue](bytes)).mapError(IntrospectionResponseDecodingFailed(_))
+      _        <- ZIO
+                    .fail(ParsingDepthExceeded(config.maxParsingDepth))
+                    .unless(defaultValuesWithinDepth(response, config.maxParsingDepth))
+      envelope <- ZIO.fromEither(asObject(response, "response")).mapError(IntrospectionResponseDecodingFailed(_))
+      errors   <- ZIO
+                    .fromOption(RemoteSchemaAcquisition.responseErrors(envelope))
+                    .orElseFail(IntrospectionResponseDecodingFailed(InvalidResponse("errors")))
+      _        <- ZIO.fail(IntrospectionErrors(errors)).when(errors.nonEmpty)
+      document <- ZIO.fromEither(decode(envelope.getOrNull("data"))).mapError(IntrospectionResponseDecodingFailed(_))
+    } yield document
 
   private final case class InvalidResponse(path: String)
       extends Exception(s"Unexpected introspection response shape at '$path'.")
@@ -90,15 +81,18 @@ private[gateway] object IntrospectionClient {
                          case "INTERFACE"         =>
                            Right(Some(InterfaceTypeDefinition(description, name, namedTypes(interfaces), Nil, fields)))
                          case "UNION"             =>
-                           Right(Some(UnionTypeDefinition(description, name, Nil, namedTypes(possibleTypes).map(_.name))))
+                           Right(
+                             Some(UnionTypeDefinition(description, name, Nil, namedTypes(possibleTypes).map(_.name)))
+                           )
                          case "ENUM"              => Right(Some(EnumTypeDefinition(description, name, Nil, enumValues)))
-                         case "INPUT_OBJECT"      => Right(Some(InputObjectTypeDefinition(description, name, Nil, inputFields)))
+                         case "INPUT_OBJECT"      =>
+                           Right(Some(InputObjectTypeDefinition(description, name, Nil, inputFields)))
                          case "LIST" | "NON_NULL" => Right(None)
                          case _                   => Left(InvalidResponse(s"$path.kind"))
                        }
     } yield definition
 
-  private def namedTypes(types: List[Type]): List[NamedType] = types.collect { case t: NamedType => t }
+  private def namedTypes(types: List[Type]): List[NamedType] = types.collect { case named: NamedType => named }
 
   private def field(value: ResponseValue, path: String): Either[InvalidResponse, FieldDefinition] =
     for {
@@ -150,17 +144,20 @@ private[gateway] object IntrospectionClient {
     } yield DirectiveDefinition(description, name, args, repeatable, locations.toSet)
 
   private def typeRef(value: ResponseValue, path: String): Either[InvalidResponse, Type] =
-    asObject(value, path).flatMap { obj =>
-      string(obj, "kind", path).flatMap {
-        case "NON_NULL" =>
-          wrappedType(obj, path).map {
-            case NamedType(name, _)  => NamedType(name, nonNull = true)
-            case ListType(ofType, _) => ListType(ofType, nonNull = true)
-          }
-        case "LIST"     => wrappedType(obj, path).map(ListType(_, nonNull = false))
-        case _          => optionalString(obj, "name", path).map(name => NamedType(name.getOrElse(""), nonNull = false))
-      }
-    }
+    for {
+      obj  <- asObject(value, path)
+      kind <- string(obj, "kind", path)
+      tpe  <- kind match {
+                case "NON_NULL" =>
+                  wrappedType(obj, path).map {
+                    case NamedType(name, _)  => NamedType(name, nonNull = true)
+                    case ListType(ofType, _) => ListType(ofType, nonNull = true)
+                  }
+                case "LIST"     => wrappedType(obj, path).map(ListType(_, nonNull = false))
+                case _          =>
+                  optionalString(obj, "name", path).map(name => NamedType(name.getOrElse(""), nonNull = false))
+              }
+    } yield tpe
 
   private def wrappedType(obj: ObjectValue, path: String): Either[InvalidResponse, Type] =
     obj.getOrNull("ofType") match {
@@ -177,7 +174,7 @@ private[gateway] object IntrospectionClient {
       else
         List(
           Directive(
-            "deprecated",
+            Directives.DeprecatedDirective,
             reason.fold(Map.empty[String, InputValue])(value => Map("reason" -> StringValue(value)))
           )
         )
@@ -246,19 +243,7 @@ private[gateway] object IntrospectionClient {
     obj.getOrNull(field) match {
       case null | NullValue => Right(None)
       case ListValue(items) =>
-        val builder                  = List.newBuilder[A]
-        var index                    = 0
-        var failure: InvalidResponse = null
-        var remaining                = items
-        while ((remaining ne Nil) && (failure eq null)) {
-          read(remaining.head, s"$path[$index]") match {
-            case Right(item) => builder += item
-            case Left(error) => failure = error
-          }
-          index += 1
-          remaining = remaining.tail
-        }
-        if (failure eq null) Right(Some(builder.result())) else Left(failure)
+        traverseEither(items.zipWithIndex) { case (item, index) => read(item, s"$path[$index]") }.map(Some(_))
       case _                => Left(InvalidResponse(path))
     }
 
@@ -274,7 +259,7 @@ private[gateway] object IntrospectionClient {
       case _                   => true
     }
 
-  private val OperationName = "__CalibanGatewayIntrospection"
+  private final val OperationName = "__CalibanGatewayIntrospection"
 
   // Shared with test fixtures that generate introspection responses.
   val Query: String =

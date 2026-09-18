@@ -5,7 +5,6 @@ import caliban.ResponseValue.{ ListValue => ResponseListValue }
 import caliban.Value.IntValue.IntNumber
 import caliban.Value.{ NullValue, StringValue }
 import caliban.gateway.GatewayTestSupport._
-import zio.http.URL
 import zio._
 import zio.test._
 
@@ -62,13 +61,8 @@ object EntityRoutingSpec extends ZIOSpecDefault {
         for {
           products <- stub(productResponse)
           reviews  <- stub(reviewResponse)
-          gateway  <- Gateway
-                        .compose(
-                          Subgraph.federation("products", products.endpoint, productsSchema),
-                          Subgraph.federation("reviews", reviews.endpoint, reviewsSchema)
-                        )
-                        .interpreter
-          response <- gateway.execute("{ product { id name reviews { body } } }")
+          runtime  <- productsAndReviews(products, reviews, productsSchema, reviewsSchema).interpreter
+          response <- runtime.execute("{ product { id name reviews { body } } }")
           sent     <- reviews.requests.get
         } yield assertTrue(
           response.errors.isEmpty,
@@ -120,26 +114,26 @@ object EntityRoutingSpec extends ZIOSpecDefault {
           """{"data":{"_entities":[{"author":{"name":"Alice"}},{"author":{"name":"Bob"}}]}}"""
 
         for {
-          books       <- stub(booksResponse)
-          identities  <- stub(identitiesResponse)
-          authors     <- stub(authorsResponse)
-          gateway     <- Gateway
-                           .compose(
-                             Subgraph.federation("books", books.endpoint, booksSchema),
-                             Subgraph.federation("identities", identities.endpoint, identitiesSchema),
-                             Subgraph.federation("authors", authors.endpoint, authorsSchema)
-                           )
-                           .interpreter
-          response    <- gateway.execute("{ books { upc author { name } } }")
-          authorCalls <- authors.requests.get
-          values       = field(response.data, "books").collect { case ResponseListValue(items) => items }.getOrElse(Nil)
+          books      <- stub(booksResponse)
+          identities <- stub(identitiesResponse)
+          authors    <- stub(authorsResponse)
+          runtime    <- Gateway
+                          .compose(
+                            Subgraph.federation("books", books.endpoint, booksSchema),
+                            Subgraph.federation("identities", identities.endpoint, identitiesSchema),
+                            Subgraph.federation("authors", authors.endpoint, authorsSchema)
+                          )
+                          .interpreter
+          response   <- runtime.execute("{ books { upc author { name } } }")
+          sent       <- authors.requests.get
+          values      = listValues(field(response.data, "books"))
         } yield assertTrue(
           response.errors.isEmpty,
           values.headOption.flatMap(field(_, "author")).flatMap(field(_, "name")).contains(StringValue("Alice")),
           values.lift(1).flatMap(field(_, "author")).flatMap(field(_, "name")).contains(StringValue("Bob")),
           values.lift(2).flatMap(field(_, "author")).contains(NullValue),
-          authorCalls.size == 1,
-          authorCalls.headOption
+          sent.size == 1,
+          sent.headOption
             .flatMap(_.variables)
             .contains(
               Map(
@@ -183,48 +177,31 @@ object EntityRoutingSpec extends ZIOSpecDefault {
           """{"data":{"_entities":[{"label":"reachable"}]}}"""
 
         for {
-          roots        <- stub(rootResponse)
-          unreachable  <- stub("""{"data":{"_entities":[]}}""")
-          intermediate <- stub(intermediateResponse)
-          target       <- stub(targetResponse)
-          gateway      <- Gateway
-                            .compose(
-                              Subgraph.federation("a-roots", roots.endpoint, rootsSchema),
-                              Subgraph.federation("b-unreachable", unreachable.endpoint, unreachableSchema),
-                              Subgraph.federation("c-intermediate", intermediate.endpoint, intermediateSchema),
-                              Subgraph.federation("d-target", target.endpoint, targetSchema)
-                            )
-                            .interpreter
-          response     <- gateway.execute("{ thing { a label } }")
-          bCalls       <- unreachable.requests.get
-          cCalls       <- intermediate.requests.get
-          dCalls       <- target.requests.get
+          roots            <- stub(rootResponse)
+          unreachable      <- stub("""{"data":{"_entities":[]}}""")
+          intermediate     <- stub(intermediateResponse)
+          target           <- stub(targetResponse)
+          runtime          <- Gateway
+                                .compose(
+                                  Subgraph.federation("a-roots", roots.endpoint, rootsSchema),
+                                  Subgraph.federation("b-unreachable", unreachable.endpoint, unreachableSchema),
+                                  Subgraph.federation("c-intermediate", intermediate.endpoint, intermediateSchema),
+                                  Subgraph.federation("d-target", target.endpoint, targetSchema)
+                                )
+                                .interpreter
+          response         <- runtime.execute("{ thing { a label } }")
+          unreachableSent  <- unreachable.requests.get
+          intermediateSent <- intermediate.requests.get
+          targetSent       <- target.requests.get
         } yield assertTrue(
           response.errors.isEmpty,
           field(response.data, "thing").flatMap(field(_, "label")).contains(StringValue("reachable")),
-          bCalls.isEmpty,
-          cCalls.size == 1,
-          dCalls.size == 1
+          unreachableSent.isEmpty,
+          intermediateSent.size == 1,
+          targetSent.size == 1
         )
       },
       test("executes independent entity routes concurrently") {
-        val productsSchema  =
-          s"""
-             |${federationSchemaPreamble("@key")}
-             |type Query { product: Product }
-             |type Product @key(fields: "id") { id: ID! }
-             |""".stripMargin
-        val reviewsSchema   =
-          s"""
-             |${federationSchemaPreamble("@key", "@external")}
-             |type Product @key(fields: "id") { id: ID! @external reviews: [Review!]! }
-             |type Review { body: String! }
-             |""".stripMargin
-        val pricesSchema    =
-          s"""
-             |${federationSchemaPreamble("@key", "@external")}
-             |type Product @key(fields: "id") { id: ID! @external price: Int! }
-             |""".stripMargin
         val productResponse =
           """{"data":{"product":{"id":"p1","_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product","_caliban_gateway_key_2":"p1","_caliban_gateway_typename_2":"Product"}}}"""
 
@@ -235,14 +212,14 @@ object EntityRoutingSpec extends ZIOSpecDefault {
           products <- stub(productResponse)
           reviews  <- stubWith(barrier, """{"data":{"_entities":[{"reviews":[{"body":"Solid"}]}]}}""")
           prices   <- stubWith(barrier, """{"data":{"_entities":[{"price":100}]}}""")
-          gateway  <- Gateway
+          runtime  <- Gateway
                         .compose(
-                          Subgraph.federation("products", products.endpoint, productsSchema),
-                          Subgraph.federation("reviews", reviews.endpoint, reviewsSchema),
-                          Subgraph.federation("prices", prices.endpoint, pricesSchema)
+                          Subgraph.federation("products", products.endpoint, productRootSchema),
+                          Subgraph.federation("reviews", reviews.endpoint, authoredReviewsFederationSchema),
+                          Subgraph.federation("prices", prices.endpoint, productPriceSchema)
                         )
                         .interpreter
-          response <- gateway.execute("{ product { id reviews { body } price } }")
+          response <- runtime.execute("{ product { id reviews { body } price } }")
         } yield assertTrue(
           response.errors.isEmpty,
           field(response.data, "product").flatMap(field(_, "price")).contains(IntNumber(100)),
@@ -272,13 +249,13 @@ object EntityRoutingSpec extends ZIOSpecDefault {
         for {
           nodes    <- stub(nodeResponse)
           details  <- stub(detailsResponse)
-          gateway  <- Gateway
+          runtime  <- Gateway
                         .compose(
                           Subgraph.federation("nodes", nodes.endpoint, nodesSchema),
                           Subgraph.federation("details", details.endpoint, detailsSchema)
                         )
                         .interpreter
-          response <- gateway.execute("{ node { id label } }")
+          response <- runtime.execute("{ node { id label } }")
           sent     <- details.requests.get
         } yield assertTrue(
           response.errors.isEmpty,
@@ -317,13 +294,13 @@ object EntityRoutingSpec extends ZIOSpecDefault {
         for {
           nodes    <- stub(nodeResponse)
           details  <- stub("""{"data":{"_entities":[]}}""")
-          gateway  <- Gateway
+          runtime  <- Gateway
                         .compose(
                           Subgraph.federation("nodes", nodes.endpoint, nodesSchema),
                           Subgraph.federation("details", details.endpoint, detailsSchema)
                         )
                         .interpreter
-          response <- gateway.execute("{ node { label } }")
+          response <- runtime.execute("{ node { label } }")
           sent     <- details.requests.get
         } yield assertTrue(
           response.errors.isEmpty,
@@ -352,13 +329,13 @@ object EntityRoutingSpec extends ZIOSpecDefault {
         for {
           accounts <- stub("""{"data":{"node":{"id":"a1","_caliban_gateway_typename":"Account"}}}""")
           chats    <- stub("""{"data":{"_entities":[]}}""")
-          gateway  <- Gateway
+          runtime  <- Gateway
                         .compose(
                           Subgraph.federation("accounts", accounts.endpoint, accountsSchema),
                           Subgraph.federation("chats", chats.endpoint, chatsSchema)
                         )
                         .interpreter
-          response <- gateway.execute("""{ node(id: "a1") { id } }""")
+          response <- runtime.execute("""{ node(id: "a1") { id } }""")
         } yield assertTrue(response.data == NullValue, response.errors.nonEmpty)
       },
       test("moves an unresolvable child selection to a resolvable parent entity") {
@@ -384,13 +361,13 @@ object EntityRoutingSpec extends ZIOSpecDefault {
         for {
           products <- stub(productsResponse)
           details  <- stub(detailsResponse)
-          gateway  <- Gateway
+          runtime  <- Gateway
                         .compose(
                           Subgraph.federation("products", products.endpoint, productsSchema),
                           Subgraph.federation("details", details.endpoint, detailsSchema)
                         )
                         .interpreter
-          response <- gateway.execute("{ products { id category { id details { products } } } }")
+          response <- runtime.execute("{ products { id category { id details { products } } } }")
           sent     <- details.requests.get
           category  = field(response.data, "products").collect { case ResponseListValue(product :: Nil) => product }
                         .flatMap(field(_, "category"))
@@ -425,8 +402,8 @@ object EntityRoutingSpec extends ZIOSpecDefault {
 
         for {
           products <- stub("""{"data":{"product":{"id":"p1","name":"Table"}}}""")
-          gateway  <- Gateway.compose(Subgraph.federation("products", products.endpoint, linkedSchema)).interpreter
-          response <- gateway.execute("{ product { id name } }")
+          runtime  <- Gateway.compose(Subgraph.federation("products", products.endpoint, linkedSchema)).interpreter
+          response <- runtime.execute("{ product { id name } }")
         } yield assertTrue(
           response.errors.isEmpty,
           field(response.data, "product").flatMap(field(_, "id")).contains(StringValue("p1")),
@@ -446,10 +423,10 @@ object EntityRoutingSpec extends ZIOSpecDefault {
 
         for {
           products      <- stub(sourceResponse)
-          gateway       <- Gateway.compose(Subgraph.federation("products", products.endpoint, linkedSchema)).interpreter
-          query         <- gateway.execute("{ product { name } }")
-          mutation      <- gateway.execute("mutation { updateProduct { name } }")
-          introspection <- gateway.execute("{ __schema { queryType { name } mutationType { name } } }")
+          runtime       <- Gateway.compose(Subgraph.federation("products", products.endpoint, linkedSchema)).interpreter
+          query         <- runtime.execute("{ product { name } }")
+          mutation      <- runtime.execute("mutation { updateProduct { name } }")
+          introspection <- runtime.execute("{ __schema { queryType { name } mutationType { name } } }")
         } yield assertTrue(
           query.errors.isEmpty,
           field(query.data, "product").flatMap(field(_, "name")).contains(StringValue("Table")),
@@ -481,26 +458,17 @@ object EntityRoutingSpec extends ZIOSpecDefault {
           .replace("@external", "@fed__external")
 
         for {
-          products  <- stub(productResponse)
-          reviews   <- stub(reviewResponse)
-          gateway   <- Gateway
-                         .compose(
-                           Subgraph.federation("products", products.endpoint, productsSchema),
-                           Subgraph.federation("reviews", reviews.endpoint, reviewsSchema)
-                         )
-                         .interpreter
-          response  <- gateway.execute("{ product(id: \"p1\") { name reviews { body } } }")
-          metadata  <-
-            gateway.execute(
+          products     <- stub(productResponse)
+          reviews      <- stub(reviewResponse)
+          runtime      <- productsAndReviews(products, reviews, productsSchema, reviewsSchema).interpreter
+          response     <- runtime.execute("{ product(id: \"p1\") { name reviews { body } } }")
+          metadata     <-
+            runtime.execute(
               "{ transport: __type(name: \"fed__FieldSet\") { name } schema: __schema { directives { name } } }"
             )
-          sentA     <- products.requests.get
-          sentB     <- reviews.requests.get
-          directives = field(metadata.data, "schema")
-                         .flatMap(field(_, "directives"))
-                         .collect { case ResponseListValue(values) =>
-                           values.flatMap(field(_, "name")).collect { case StringValue(name) => name }
-                         }
+          productsSent <- products.requests.get
+          reviewsSent  <- reviews.requests.get
+          directives    = introspectedNameStrings(field(metadata.data, "schema").flatMap(field(_, "directives")))
         } yield assertTrue(
           response.errors.isEmpty,
           metadata.errors.isEmpty,
@@ -509,9 +477,9 @@ object EntityRoutingSpec extends ZIOSpecDefault {
             .exists(_.contains("body" -> StringValue("Solid"))),
           field(metadata.data, "transport").contains(NullValue),
           directives.exists(names => !names.contains("fed__key") && !names.contains("fed__external")),
-          sentA.size == 1,
-          sentB.size == 1,
-          sentB.head.query.exists(query =>
+          productsSent.size == 1,
+          reviewsSent.size == 1,
+          reviewsSent.head.query.exists(query =>
             query.contains("_entities") && !query.contains("_caliban_gateway_entity_key")
           )
         )
@@ -543,13 +511,8 @@ object EntityRoutingSpec extends ZIOSpecDefault {
               """{"data":{"product":{"_caliban_gateway_key":{"internalId":"o1"},"_caliban_gateway_typename":"Product"}}}"""
             )
           reviews  <- stub("""{"data":{"_entities":[{"reviews":[{"body":"Solid"}]}]}}""")
-          gateway  <- Gateway
-                        .compose(
-                          Subgraph.federation("products", products.endpoint, productsSchema),
-                          Subgraph.federation("reviews", reviews.endpoint, reviewsSchema)
-                        )
-                        .interpreter
-          response <- gateway.execute("{ product { reviews { body } } }")
+          runtime  <- productsAndReviews(products, reviews, productsSchema, reviewsSchema).interpreter
+          response <- runtime.execute("{ product { reviews { body } } }")
           sent     <- reviews.requests.get
         } yield assertTrue(
           response.errors.isEmpty,
@@ -572,7 +535,6 @@ object EntityRoutingSpec extends ZIOSpecDefault {
         )
       },
       test("hides imported Federation directive aliases from the client schema") {
-        val endpoint = unreachableEndpoint
         val products = productsFederationSchema
           .replace("import: [\"@key\"]", "import: [{ name: \"@key\", as: \"@entityKey\" }]")
           .replace("directive @key", "directive @entityKey")
@@ -588,18 +550,15 @@ object EntityRoutingSpec extends ZIOSpecDefault {
           )
 
         for {
-          gateway       <- Gateway
+          runtime       <- Gateway
                              .compose(
-                               Subgraph.federation("products", endpoint, products),
-                               Subgraph.federation("reviews", endpoint, reviews)
+                               Subgraph.federation("products", unreachableEndpoint, products),
+                               Subgraph.federation("reviews", unreachableEndpoint, reviews)
                              )
                              .interpreter
-          introspection <- gateway.execute("{ __schema { directives { name } } }")
-          directives     = field(introspection.data, "__schema")
-                             .flatMap(field(_, "directives"))
-                             .collect { case ResponseListValue(values) =>
-                               values.flatMap(field(_, "name")).collect { case StringValue(name) => name }
-                             }
+          introspection <- runtime.execute("{ __schema { directives { name } } }")
+          directives     =
+            introspectedNameStrings(field(introspection.data, "__schema").flatMap(field(_, "directives")))
         } yield assertTrue(
           introspection.errors.isEmpty,
           directives.exists(names => !names.contains("entityKey") && !names.contains("outside"))
@@ -626,20 +585,20 @@ object EntityRoutingSpec extends ZIOSpecDefault {
           roots     <- stub("""{"data":{"thing":{"seed":"root"}}}""")
           left      <- stub("""{"data":{"_entities":[]}}""")
           right     <- stub("""{"data":{"_entities":[]}}""")
-          gateway   <- Gateway
+          runtime   <- Gateway
                          .compose(
                            Subgraph.graphql("roots", roots.endpoint, rootsSchema),
                            Subgraph.federation("left", left.endpoint, leftSchema),
                            Subgraph.federation("right", right.endpoint, rightSchema)
                          )
                          .interpreter
-          response  <- gateway.execute("{ thing { b c } }")
-          rootSent  <- roots.requests.get
+          response  <- runtime.execute("{ thing { b c } }")
+          rootsSent <- roots.requests.get
           leftSent  <- left.requests.get
           rightSent <- right.requests.get
         } yield assertTrue(
           response.errors.map(_.msg) == List("Entity routing dependency cycle detected."),
-          rootSent.isEmpty,
+          rootsSent.isEmpty,
           leftSent.isEmpty,
           rightSent.isEmpty
         )
@@ -657,25 +616,25 @@ object EntityRoutingSpec extends ZIOSpecDefault {
              |""".stripMargin
 
         for {
-          roots     <- stub("""{"data":{"thing":{"id":"t1"}}}""")
-          externalA <- stub("""{"data":{"_entities":[]}}""")
-          externalB <- stub("""{"data":{"_entities":[]}}""")
-          gateway   <- Gateway
-                         .compose(
-                           Subgraph.graphql("roots", roots.endpoint, rootsSchema),
-                           Subgraph.federation("external-a", externalA.endpoint, externalSchema),
-                           Subgraph.federation("external-b", externalB.endpoint, externalSchema)
-                         )
-                         .interpreter
-          response  <- gateway.execute("{ thing { ghost } }")
-          rootSent  <- roots.requests.get
-          sentA     <- externalA.requests.get
-          sentB     <- externalB.requests.get
+          roots         <- stub("""{"data":{"thing":{"id":"t1"}}}""")
+          externalA     <- stub("""{"data":{"_entities":[]}}""")
+          externalB     <- stub("""{"data":{"_entities":[]}}""")
+          runtime       <- Gateway
+                             .compose(
+                               Subgraph.graphql("roots", roots.endpoint, rootsSchema),
+                               Subgraph.federation("external-a", externalA.endpoint, externalSchema),
+                               Subgraph.federation("external-b", externalB.endpoint, externalSchema)
+                             )
+                             .interpreter
+          response      <- runtime.execute("{ thing { ghost } }")
+          rootsSent     <- roots.requests.get
+          externalASent <- externalA.requests.get
+          externalBSent <- externalB.requests.get
         } yield assertTrue(
           response.errors.map(_.msg) == List("Field 'ghost' does not exist on type 'Thing'."),
-          rootSent.isEmpty,
-          sentA.isEmpty,
-          sentB.isEmpty
+          rootsSent.isEmpty,
+          externalASent.isEmpty,
+          externalBSent.isEmpty
         )
       },
       test("rejects unsatisfied entity routing obligations before contacting a subgraph") {
@@ -695,18 +654,13 @@ object EntityRoutingSpec extends ZIOSpecDefault {
 
         def rejected(productsSchema: String, reviewsSchema: String, query: String) =
           for {
-            products <- stub("""{"data":{"product":null}}""")
-            reviews  <- stub("""{"data":{"_entities":[]}}""")
-            gateway  <- Gateway
-                          .compose(
-                            Subgraph.federation("products", products.endpoint, productsSchema),
-                            Subgraph.federation("reviews", reviews.endpoint, reviewsSchema)
-                          )
-                          .interpreter
-            response <- gateway.execute(query)
-            sentA    <- products.requests.get
-            sentB    <- reviews.requests.get
-          } yield (response.errors.map(_.msg), sentA, sentB)
+            products     <- stub("""{"data":{"product":null}}""")
+            reviews      <- stub("""{"data":{"_entities":[]}}""")
+            runtime      <- productsAndReviews(products, reviews, productsSchema, reviewsSchema).interpreter
+            response     <- runtime.execute(query)
+            productsSent <- products.requests.get
+            reviewsSent  <- reviews.requests.get
+          } yield (response.errors.map(_.msg), productsSent, reviewsSent)
 
         for {
           lookup      <- rejected(

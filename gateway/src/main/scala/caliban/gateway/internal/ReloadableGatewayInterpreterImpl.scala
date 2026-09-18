@@ -52,30 +52,29 @@ private[gateway] final class ReloadableGatewayInterpreterImpl[R] private (
   private def refreshLoop(implicit trace: Trace): UIO[Unit] =
     state.get.flatMap { current =>
       if (current.closing) ZIO.unit
-      else {
-        val delay =
-          if (jitter == 0.0) ZIO.succeed(pollInterval)
-          else
-            Random.nextDouble.map { random =>
-              val factor = 1.0 + (2.0 * random - 1.0) * jitter
-              Duration.fromNanos(math.max(1L, (pollInterval.toNanos.toDouble * factor).toLong))
-            }
-        delay.flatMap(Clock.sleep(_)) *> refresh *> ZIO.suspendSucceed(refreshLoop)
-      }
+      else pollDelay.flatMap(Clock.sleep(_)) *> refresh *> ZIO.suspendSucceed(refreshLoop)
     }
+
+  private def pollDelay(implicit trace: Trace): UIO[Duration] =
+    if (jitter == 0.0) ZIO.succeed(pollInterval)
+    else
+      Random.nextDouble.map { random =>
+        val factor = 1.0 + (2.0 * random - 1.0) * jitter
+        Duration.fromNanos(math.max(1L, (pollInterval.toNanos.toDouble * factor).toLong))
+      }
 
   private def refresh(implicit trace: Trace): UIO[Unit] =
     (for {
-      run <- state.get.map(current => !current.closing && !current.retiring && current.candidate.isEmpty)
-      _   <- ZIO.when(run) {
-               acquire.flatMap { snapshot =>
-                 state.get.flatMap { current =>
-                   if (current.closing) ZIO.unit
-                   else if (snapshot.fingerprints == current.active.fingerprints) clearFailure
-                   else replace(snapshot)
-                 }
-               }
-             }
+      idle <- state.get.map(current => !current.closing && !current.retiring && current.candidate.isEmpty)
+      _    <- ZIO.when(idle) {
+                acquire.flatMap { snapshot =>
+                  state.get.flatMap { current =>
+                    if (current.closing) ZIO.unit
+                    else if (snapshot.fingerprints == current.active.fingerprints) clearFailure
+                    else replace(snapshot)
+                  }
+                }
+              }
     } yield ()).catchAll(error => recordFailure(Some(error))).catchAllCause { cause =>
       if (cause.isInterrupted) ZIO.refailCause(cause)
       else recordFailure(None)
@@ -85,7 +84,7 @@ private[gateway] final class ReloadableGatewayInterpreterImpl[R] private (
     state.modify { current =>
       if (current.closing) false        -> current
       else current.lastFailure.nonEmpty -> current.copy(lastFailure = None)
-    }.flatMap(recovered => ZIO.logInfo("Gateway schema refresh recovered.").when(recovered).unit)
+    }.flatMap(recovered => ZIO.logInfo(RecoveredMessage).when(recovered).unit)
 
   private def replace(snapshot: Gateway.Snapshot[R])(implicit trace: Trace): IO[GatewayBuildError, Unit] =
     ZIO.uninterruptibleMask { restore =>
@@ -99,24 +98,29 @@ private[gateway] final class ReloadableGatewayInterpreterImpl[R] private (
                      else
                        restore(candidate.extend(snapshot.gateway.buildInterpreter(http)))
                          .onError(cause => candidate.close(Exit.failCause(cause)) *> clearCandidate(candidate))
-                         .flatMap { interpreter =>
-                           state.modify { current =>
-                             if (current.closing) Option.empty[(Generation[R], Boolean)] -> current
-                             else
-                               Some((current.active, current.lastFailure.nonEmpty))      -> current.copy(
-                                 active = Generation(current.active.id + 1L, snapshot.fingerprints, interpreter, candidate),
-                                 retiring = true,
-                                 candidate = None,
-                                 lastFailure = None
-                               )
-                           }.flatMap {
-                             case None                   => candidate.close(Exit.unit) *> clearCandidate(candidate)
-                             case Some((old, recovered)) =>
-                               (ZIO.logInfo("Gateway schema refresh recovered.").when(recovered) *>
-                                 ZIO.logInfo(s"Gateway activated generation ${old.id + 1L}.")).ensuring(retire(old))
-                           }
-                         }
+                         .flatMap(activate(snapshot, candidate, _))
       } yield ()
+    }
+
+  private def activate(
+    snapshot: Gateway.Snapshot[R],
+    candidate: Scope.Closeable,
+    interpreter: GatewayInterpreterImpl[R]
+  )(implicit trace: Trace): UIO[Unit] =
+    state.modify { current =>
+      if (current.closing) Option.empty[(Generation[R], Boolean)] -> current
+      else
+        Some((current.active, current.lastFailure.nonEmpty))      -> current.copy(
+          active = Generation(current.active.id + 1L, snapshot.fingerprints, interpreter, candidate),
+          retiring = true,
+          candidate = None,
+          lastFailure = None
+        )
+    }.flatMap {
+      case None                   => candidate.close(Exit.unit) *> clearCandidate(candidate)
+      case Some((old, recovered)) =>
+        (ZIO.logInfo(RecoveredMessage).when(recovered) *>
+          ZIO.logInfo(s"Gateway activated generation ${old.id + 1L}.")).ensuring(retire(old))
     }
 
   private def clearCandidate(candidate: Scope.Closeable)(implicit trace: Trace): UIO[Unit] =
@@ -140,8 +144,8 @@ private[gateway] final class ReloadableGatewayInterpreterImpl[R] private (
         val reason = error.fold("Unexpected refresh failure.")(safeReason)
         (if (current.lastFailure.contains(reason)) None else Some(reason)) -> current.copy(lastFailure = Some(reason))
       }
-    }.flatMap(value =>
-      ZIO.foreachDiscard(value)(reason =>
+    }.flatMap(changed =>
+      ZIO.foreachDiscard(changed)(reason =>
         ZIO.logWarning(s"Gateway schema refresh failed: $reason Keeping the active generation.")
       )
     )
@@ -163,6 +167,8 @@ private[gateway] final class ReloadableGatewayInterpreterImpl[R] private (
 }
 
 private[gateway] object ReloadableGatewayInterpreterImpl {
+  private final val RecoveredMessage = "Gateway schema refresh recovered."
+
   def make[R](
     acquire: IO[GatewayBuildError, Gateway.Snapshot[R]],
     pollInterval: Duration,

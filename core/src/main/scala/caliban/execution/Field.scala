@@ -70,7 +70,7 @@ case class Field(
 
   private[caliban] def collectFields(typeName: String): List[Field] = {
     def matchesType(field: Field): Boolean =
-      field._condition.forall(_.contains(typeName))
+      field._condition.isEmpty || field._condition.get.contains(typeName)
 
     if (allFieldsUniqueNameAndCondition) {
       if (fields.isEmpty || !matchesType(fields.head)) Nil else fields
@@ -339,13 +339,18 @@ object Field {
 
   private def coerceArgument(value: InputValue, expected: __Type): InputValue =
     expected.kind match {
-      case __TypeKind.NON_NULL                               => expected.ofType.fold(value)(coerceArgument(value, _))
+      case __TypeKind.NON_NULL                               =>
+        expected.ofType match {
+          case Some(ofType) => coerceArgument(value, ofType)
+          case None         => value
+        }
       case __TypeKind.LIST                                   =>
-        expected.ofType.fold(value) { element =>
-          value match {
-            case InputValue.ListValue(values) => InputValue.ListValue(values.map(coerceArgument(_, element)))
-            case other                        => other
-          }
+        value match {
+          case InputValue.ListValue(values) if expected.ofType.isDefined =>
+            val element = expected.ofType.get
+            InputValue.ListValue(values.map(coerceArgument(_, element)))
+          case single if expected.ofType.isDefined                       => coerceArgument(single, expected.ofType.get)
+          case _                                                         => value
         }
       case __TypeKind.INPUT_OBJECT                           =>
         value match {

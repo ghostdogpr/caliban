@@ -48,15 +48,14 @@ object GatewayHttpSpec extends ZIOSpecDefault {
        |type Review { body: String! }
        |""".stripMargin
 
+  private val greetingResponse = """{"data":{"greeting":"hello"}}"""
+  private val greetingQuery    = """{"query":"{ greeting }"}"""
+
+  private def serviceGateway(endpoint: URL): Gateway[Any] =
+    Gateway.compose(Subgraph.graphql("service", endpoint, schema))
+
   private def install(adapter: QuickAdapter[Any]): ZIO[Server with Ref[Int], Nothing, URL] =
-    for {
-      id     <- ZIO.serviceWithZIO[Ref[Int]](_.updateAndGet(_ + 1))
-      path    = s"gateway-http-$id"
-      server <- ZIO.service[Server]
-      _      <- server.install(adapter.routes(s"/$path"))
-      port   <- server.port
-      url    <- ZIO.fromEither(URL.decode(s"http://127.0.0.1:$port/$path")).orDie
-    } yield url
+    routesEndpoint("gateway-http")(path => adapter.routes(s"/$path"))
 
   private def post(url: URL, body: String, accept: String = "application/graphql-response+json"): Request =
     Request
@@ -114,15 +113,15 @@ object GatewayHttpSpec extends ZIOSpecDefault {
       },
       test("preserves disabled introspection through Quick configuration") {
         for {
-          source  <- stub("""{"data":{"greeting":"hello"}}""")
-          runtime <- Gateway.compose(Subgraph.graphql("service", source.endpoint, schema)).interpreter
+          source  <- stub(greetingResponse)
+          runtime <- serviceGateway(source.endpoint).interpreter
           url     <- install(QuickAdapter(runtime).configure(ExecutionConfiguration(enableIntrospection = false)))
           result  <- execute(post(url, """{"query":"{ __schema { queryType { name } } }"}"""))
-          calls   <- source.requests.get
+          sent    <- source.requests.get
         } yield assertTrue(
           result.response.status == Status.BadRequest,
           result.body.contains("Introspection is disabled"),
-          calls.isEmpty
+          sent.isEmpty
         )
       },
       test("returns timeouts as GraphQL execution results") {
@@ -230,13 +229,13 @@ object GatewayHttpSpec extends ZIOSpecDefault {
       },
       test("enforces the configured encoded response limit") {
         for {
-          source   <- stub("""{"data":{"greeting":"hello"}}""")
-          runtime  <- Gateway.compose(Subgraph.graphql("service", source.endpoint, schema)).interpreter
+          source   <- stub(greetingResponse)
+          runtime  <- serviceGateway(source.endpoint).interpreter
           response <- QuickAdapter(runtime)
                         .withMaxResponseBodyBytes(16)
                         .handlers
                         .api
-                        .runZIO(post(URL.empty, """{"query":"{ greeting }"}"""))
+                        .runZIO(post(URL.empty, greetingQuery))
           body     <- response.body.asString.orDie
         } yield assertTrue(
           response.status == Status.InternalServerError,
@@ -247,7 +246,7 @@ object GatewayHttpSpec extends ZIOSpecDefault {
     suite("GraphQL over HTTP")(
       test("serves trusted-document IDs without query text and rejects raw-text fallback") {
         for {
-          source   <- stub("""{"data":{"greeting":"hello"}}""")
+          source   <- stub(greetingResponse)
           runtime  <- Gateway
                         .compose(Subgraph.graphql("service", source.endpoint, schema))
                         .withOperationResolver(
@@ -258,9 +257,9 @@ object GatewayHttpSpec extends ZIOSpecDefault {
                         .interpreter
           url      <- install(QuickAdapter(runtime))
           resolved <- execute(post(url, """{"extensions":{"documentId":"greeting-v1"}}"""))
-          missing  <- execute(post(url, """{"query":"{ greeting }"}"""))
+          missing  <- execute(post(url, greetingQuery))
           unknown  <- execute(post(url, """{"query":"{ greeting }","extensions":{"documentId":"unknown"}}"""))
-          calls    <- source.requests.get
+          sent     <- source.requests.get
         } yield assertTrue(
           resolved.response.status == Status.Ok,
           resolved.body == """{"data":{"greeting":"hello"}}""",
@@ -268,14 +267,28 @@ object GatewayHttpSpec extends ZIOSpecDefault {
           missing.body.contains("\"code\":\"TRUSTED_DOCUMENT_ID_INVALID\""),
           unknown.response.status == Status.Ok,
           unknown.body.contains("\"code\":\"TRUSTED_DOCUMENT_NOT_FOUND\""),
-          calls.size == 1
+          sent.size == 1
         )
       },
       test("serializes public resolver rejections as HTTP 200 while internal failures remain HTTP 500") {
+        def serialized(url: URL, mediaType: String) =
+          for {
+            rejected <- execute(post(url, """{"extensions":{"documentId":"unknown"}}""", mediaType))
+            failed   <- execute(post(url, """{"query":"internal"}""", mediaType))
+          } yield assertTrue(
+            rejected.response.status == Status.Ok,
+            rejected.body ==
+              """{"data":null,"errors":[{"message":"Document not found.","extensions":{"code":"PERSISTED_QUERY_NOT_FOUND"}}]}""",
+            failed.response.status == Status.InternalServerError,
+            failed.body.contains("Operation resolution failed."),
+            !failed.body.contains("resolver-secret"),
+            !failed.body.contains("PERSISTED_QUERY_NOT_FOUND")
+          )
+
         ZIO
           .foreach(List(false, true)) { observed =>
             for {
-              source  <- stub("""{"data":{"greeting":"hello"}}""")
+              source  <- stub(greetingResponse)
               gateway  = Gateway
                            .compose(Subgraph.graphql("service", source.endpoint, schema))
                            .withOperationResolver(OperationResolver[Any] { request =>
@@ -285,23 +298,9 @@ object GatewayHttpSpec extends ZIOSpecDefault {
                            })
               runtime <- (if (observed) gateway @@ GatewayMetrics.hooks else gateway).interpreter
               url     <- install(QuickAdapter(runtime))
-              results <-
-                ZIO.foreach(List("application/json", "application/graphql-response+json")) { mediaType =>
-                  for {
-                    rejected <- execute(post(url, """{"extensions":{"documentId":"unknown"}}""", mediaType))
-                    failed   <- execute(post(url, """{"query":"internal"}""", mediaType))
-                  } yield assertTrue(
-                    rejected.response.status == Status.Ok,
-                    rejected.body ==
-                      """{"data":null,"errors":[{"message":"Document not found.","extensions":{"code":"PERSISTED_QUERY_NOT_FOUND"}}]}""",
-                    failed.response.status == Status.InternalServerError,
-                    failed.body.contains("Operation resolution failed."),
-                    !failed.body.contains("resolver-secret"),
-                    !failed.body.contains("PERSISTED_QUERY_NOT_FOUND")
-                  )
-                }
-              calls   <- source.requests.get
-            } yield results.reduce(_ && _) && assertTrue(calls.isEmpty)
+              results <- ZIO.foreach(List("application/json", "application/graphql-response+json"))(serialized(url, _))
+              sent    <- source.requests.get
+            } yield results.reduce(_ && _) && assertTrue(sent.isEmpty)
           }
           .map(_.reduce(_ && _))
       },
@@ -310,9 +309,9 @@ object GatewayHttpSpec extends ZIOSpecDefault {
           source    <- stubByRequest { request =>
                          if (request.query.exists(_.contains("failing")))
                            """{"data":{"failing":null},"errors":[{"message":"source failed","path":["failing"]}]}"""
-                         else """{"data":{"greeting":"hello"}}"""
+                         else greetingResponse
                        }
-          runtime   <- Gateway.compose(Subgraph.graphql("service", source.endpoint, schema)).interpreter
+          runtime   <- serviceGateway(source.endpoint).interpreter
           url       <- install(QuickAdapter(runtime))
           gqlParse  <- execute(post(url, """{"query":"query {"}"""))
           legacy    <- execute(post(url, """{"query":"{ unknown }"}""", "application/json"))
@@ -349,7 +348,7 @@ object GatewayHttpSpec extends ZIOSpecDefault {
       test("accepts an empty remote errors array when data is present") {
         for {
           source  <- stub("""{"data":{"greeting":"hello"},"errors":[]}""")
-          runtime <- Gateway.compose(Subgraph.graphql("service", source.endpoint, schema)).interpreter
+          runtime <- serviceGateway(source.endpoint).interpreter
           result  <- runtime.execute("{ greeting }")
         } yield assertTrue(
           field(result.data, "greeting").contains(StringValue("hello")),
@@ -359,24 +358,24 @@ object GatewayHttpSpec extends ZIOSpecDefault {
       test("rejects mutations over GET with Allow POST") {
         for {
           source  <- stub("""{"data":{"setValue":"saved"}}""")
-          runtime <- Gateway.compose(Subgraph.graphql("service", source.endpoint, schema)).interpreter
+          runtime <- serviceGateway(source.endpoint).interpreter
           url     <- install(QuickAdapter(runtime))
           request  = Request
                        .get(url.addQueryParam("query", "mutation { setValue(value: \"next\") }"))
                        .addHeader(Header.Custom("Accept", "application/graphql-response+json"))
           result  <- execute(request)
-          calls   <- source.requests.get
+          sent    <- source.requests.get
         } yield assertTrue(
           result.response.status == Status.MethodNotAllowed,
           result.response.headers.get(Header.Allow).exists(_.renderedValue == "POST"),
           !result.body.contains("\"data\""),
-          calls.isEmpty
+          sent.isEmpty
         )
       },
       test("rejects unsupported methods, media types, and response encodings") {
         for {
-          source          <- stub("""{"data":{"greeting":"hello"}}""")
-          runtime         <- Gateway.compose(Subgraph.graphql("service", source.endpoint, schema)).interpreter
+          source          <- stub(greetingResponse)
+          runtime         <- serviceGateway(source.endpoint).interpreter
           url             <- install(QuickAdapter(runtime))
           method          <- execute(Request(method = Method.DELETE, url = url))
           contentType     <- execute(
@@ -387,46 +386,46 @@ object GatewayHttpSpec extends ZIOSpecDefault {
                                  )
                                  .addHeader(Header.Custom("Accept", "application/graphql-response+json"))
                              )
-          accept          <- execute(post(url, """{"query":"{ greeting }"}""", "text/plain"))
+          accept          <- execute(post(url, greetingQuery, "text/plain"))
           fallback        <- execute(
                                post(
                                  url,
-                                 """{"query":"{ greeting }"}""",
+                                 greetingQuery,
                                  "application/graphql-response+json;q=0, application/json"
                                )
                              )
-          multipart       <- execute(post(url, """{"query":"{ greeting }"}""", "multipart/mixed"))
+          multipart       <- execute(post(url, greetingQuery, "multipart/mixed"))
           bounded         <- execute(
                                post(
                                  url,
-                                 """{"query":"{ greeting }"}""",
+                                 greetingQuery,
                                  "multipart/mixed; boundary=\"graphql\"; deferSpec=20220824"
                                )
                              )
           quoted          <- execute(
                                post(
                                  url,
-                                 """{"query":"{ greeting }"}""",
+                                 greetingQuery,
                                  "multipart/mixed; boundary=\"graphql\"; deferSpec=\"20220824\""
                                )
                              )
           multipartRange  <- execute(
                                post(
                                  url,
-                                 """{"query":"{ greeting }"}""",
+                                 greetingQuery,
                                  "multipart/*; boundary=\"graphql\"; deferSpec=20220824"
                                )
                              )
           invalidBoundary <- execute(
-                               post(url, """{"query":"{ greeting }"}""", "application/json; boundary=graphql")
+                               post(url, greetingQuery, "application/json; boundary=graphql")
                              )
           wildcard        <- execute(
-                               post(url, """{"query":"{ greeting }"}""", "application/json;q=0, */*;q=1")
+                               post(url, greetingQuery, "application/json;q=0, */*;q=1")
                              )
           parameters      <- execute(
                                post(
                                  url,
-                                 """{"query":"{ greeting }"}""",
+                                 greetingQuery,
                                  "application/json;profile=unsupported;q=1, application/graphql-response+json;q=0.5"
                                )
                              )
@@ -456,27 +455,25 @@ object GatewayHttpSpec extends ZIOSpecDefault {
         val interpreter = new GraphQLInterpreter[Any, CalibanError] {
           def check(query: String)(implicit trace: Trace): IO[CalibanError, Unit] = ZIO.unit
 
-          def executeRequest(request: GraphQLRequest)(implicit
-            trace: Trace
-          ): UIO[GraphQLResponse[CalibanError]] =
+          def executeRequest(request: GraphQLRequest)(implicit trace: Trace): UIO[GraphQLResponse[CalibanError]] =
             ZIO.succeed(GraphQLResponse(NullValue, List(CalibanError.ExecutionError("pathless"))))
         }
 
         for {
           response <- QuickAdapter(interpreter).handlers.api
-                        .runZIO(post(URL.empty, """{"query":"{ greeting }"}"""))
+                        .runZIO(post(URL.empty, greetingQuery))
           body     <- response.body.asString.orDie
         } yield assertTrue(response.status == Status.Ok, body.contains("pathless"))
       },
       test("rejects request bodies larger than the finite default") {
         for {
-          source  <- stub("""{"data":{"greeting":"hello"}}""")
-          runtime <- Gateway.compose(Subgraph.graphql("service", source.endpoint, schema)).interpreter
+          source  <- stub(greetingResponse)
+          runtime <- serviceGateway(source.endpoint).interpreter
           url     <- install(QuickAdapter(runtime))
-          body     = """{"query":"{ greeting }"}""" + (" " * (1024 * 1024))
+          body     = greetingQuery + (" " * (1024 * 1024))
           result  <- execute(post(url.addQueryParam("query", "{ greeting }"), body))
-          calls   <- source.requests.get
-        } yield assertTrue(result.response.status == Status.RequestEntityTooLarge, calls.isEmpty)
+          sent    <- source.requests.get
+        } yield assertTrue(result.response.status == Status.RequestEntityTooLarge, sent.isEmpty)
       }
     )
   ).provideSomeShared[Scope](testServer, stubIds, ZClient.default) @@ TestAspect.sequential

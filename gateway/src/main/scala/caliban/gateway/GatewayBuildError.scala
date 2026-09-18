@@ -48,11 +48,11 @@ object GatewayBuildError {
   }
 
   final case class SupergraphAcquisitionFailed(error: SupergraphAcquisitionError) extends GatewayBuildError {
-    def diagnostics: List[String] = error.diagnostics
+    override val diagnostics: List[String] = error.diagnostics
   }
 
   final case class SupergraphDecompositionFailed(errors: List[String]) extends GatewayBuildError {
-    def diagnostics: List[String] = errors
+    override val diagnostics: List[String] = errors
   }
 
 }
@@ -61,11 +61,10 @@ object GatewayBuildError {
  * Identifies a build failure belonging to one subgraph.
  */
 final case class SubgraphError(name: String, error: SubgraphBuildError) {
-  def diagnostics: List[String] =
-    error.diagnostics.map { message =>
-      val prefix = s"[$name]"
-      if (message.startsWith(prefix)) message else s"$prefix $message"
-    }
+  def diagnostics: List[String] = {
+    val prefix = s"[$name]"
+    error.diagnostics.map(message => if (message.startsWith(prefix)) message else s"$prefix $message")
+  }
 }
 
 /**
@@ -165,7 +164,7 @@ object SchemaAcquisitionError {
    */
   final case class IntrospectionErrors(errors: List[CalibanError]) extends SchemaAcquisitionError {
     override val diagnostics: List[String] =
-      List(s"Introspection failed: ${errors.map(_.getMessage).mkString("; ")}.")
+      List(s"Introspection failed: ${errors.map(_.getMessage).mkString("; ")}")
   }
 
   /**

@@ -2,11 +2,11 @@ package caliban.gateway
 
 import caliban.Value.StringValue
 import caliban.Value.IntValue.IntNumber
-import caliban.ResponseValue.{ ListValue => ResponseListValue }
-import caliban.{ GraphQLRequest, InputValue }
+import caliban.{ CalibanError, GraphQLRequest, InputValue }
 import caliban.gateway.GatewayTestSupport._
 import caliban.execution.{ Field, RequestPreparation }
 import caliban.gateway.internal.composition.{ ComposedGraph, OperationCost }
+import caliban.gateway.internal.composition.ComposedGraph.TypeField
 import caliban.gateway.internal.planning.OperationPlan
 import caliban.parsing.Parser
 import caliban.parsing.adt.OperationType
@@ -16,11 +16,11 @@ import zio.test._
 
 object OperationCostSpec extends ZIOSpecDefault {
 
-  private final class CountingCosts(values: Map[(String, String), Long])
-      extends Map.WithDefault[(String, String), Long](values, values.default) {
+  private final class CountingCosts(values: Map[TypeField, Long])
+      extends Map.WithDefault[TypeField, Long](values, values.default) {
     var lookups = 0
 
-    override def get(key: (String, String)): Option[Long] = {
+    override def get(key: TypeField): Option[Long] = {
       lookups += 1
       values.get(key)
     }
@@ -56,14 +56,17 @@ object OperationCostSpec extends ZIOSpecDefault {
   private val query    = "{ book { title address { zipCode } } }"
   private val response = """{"data":{"book":{"title":"Caliban","address":{"zipCode":1}}}}"""
 
-  private def code(error: caliban.CalibanError): Option[String] =
-    error match {
-      case value: caliban.CalibanError.ValidationError =>
-        value.extensions.flatMap(_.fields.collectFirst { case ("code", StringValue(code)) => code })
-      case value: caliban.CalibanError.ExecutionError  =>
-        value.extensions.flatMap(_.fields.collectFirst { case ("code", StringValue(code)) => code })
-      case _                                           => None
+  private def code(error: CalibanError): Option[String] = {
+    val extensions = error match {
+      case value: CalibanError.ValidationError => value.extensions
+      case value: CalibanError.ExecutionError  => value.extensions
+      case _                                   => None
     }
+    extensions.flatMap(_.fields.collectFirst { case ("code", StringValue(code)) => code })
+  }
+
+  private def costLimitedGateway(maxCost: Long)(first: Subgraph[Any], rest: Subgraph[Any]*): Gateway[Any] =
+    Gateway.compose(first, rest: _*).withConfig(_.withMaxOperationCost(maxCost))
 
   def spec = suite("OperationCostSpec")(
     test("does not multiply shared child cost work across nested runtime branches") {
@@ -82,7 +85,7 @@ object OperationCostSpec extends ZIOSpecDefault {
         request   <-
           RequestPreparation.prepareParsed(GraphQLRequest(query = Some(query)), operation, Map.empty, root, false)
         weights    = new CountingCosts(names.zipWithIndex.map { case (name, index) =>
-                       (name -> "value") -> (index + 1L)
+                       TypeField(name, "value") -> (index + 1L)
                      }.toMap)
         metadata   = ComposedGraph.CostMetadata(Map.empty, weights, Map.empty, Map.empty, Map.empty)
         costs      = new OperationCost(root.types, Map("Node" -> names.toSet), metadata)
@@ -111,7 +114,7 @@ object OperationCostSpec extends ZIOSpecDefault {
         root     <- ZIO.fromEither(RemoteSchema.toRootType(document))
         metadata  = ComposedGraph.CostMetadata(
                       Map.empty,
-                      Map(("Child" -> "cheap") -> 1L, ("Child" -> "expensive") -> 100L),
+                      Map(TypeField("Child", "cheap") -> 1L, TypeField("Child", "expensive") -> 100L),
                       Map.empty,
                       Map.empty,
                       Map.empty
@@ -151,10 +154,7 @@ object OperationCostSpec extends ZIOSpecDefault {
            |""".stripMargin
       for {
         remote  <- stub("""{"data":{"search":"ok"}}""")
-        runtime <- Gateway
-                     .compose(Subgraph.federation("search", remote.endpoint, inputSchema))
-                     .withConfig(_.withMaxOperationCost(10))
-                     .interpreter
+        runtime <- costLimitedGateway(10)(Subgraph.federation("search", remote.endpoint, inputSchema)).interpreter
         results <- ZIO.foreach(
                      List(
                        GraphQLRequest(query = Some("{ search(filter: {}) }")),
@@ -174,10 +174,7 @@ object OperationCostSpec extends ZIOSpecDefault {
     test("collects duplicate and overlapping passthrough selections before charging cost") {
       for {
         remote  <- stub("""{"data":{"book":{"title":"Caliban"}}}""")
-        runtime <- Gateway
-                     .compose(Subgraph.federation("books", remote.endpoint, schema()))
-                     .withConfig(_.withMaxOperationCost(1))
-                     .interpreter
+        runtime <- costLimitedGateway(1)(Subgraph.federation("books", remote.endpoint, schema())).interpreter
         results <- ZIO.foreach(
                      List(
                        "{ book { title } }",
@@ -204,10 +201,7 @@ object OperationCostSpec extends ZIOSpecDefault {
                           |""".stripMargin
       for {
         remote  <- stub("""{"data":{"node":null}}""")
-        runtime <- Gateway
-                     .compose(Subgraph.graphql("nodes", remote.endpoint, inputSchema))
-                     .withConfig(_.withMaxOperationCost(2))
-                     .interpreter
+        runtime <- costLimitedGateway(2)(Subgraph.graphql("nodes", remote.endpoint, inputSchema)).interpreter
         result  <- runtime.execute(
                      "{ node { book { title } ... on Product { book { title } } ... on User { book { title } } } }"
                    )
@@ -225,10 +219,7 @@ object OperationCostSpec extends ZIOSpecDefault {
            |""".stripMargin
       for {
         remote    <- stub("""{"data":{"search":"ok"}}""")
-        runtime   <- Gateway
-                       .compose(Subgraph.federation("search", remote.endpoint, inputSchema))
-                       .withConfig(_.withMaxOperationCost(10))
-                       .interpreter
+        runtime   <- costLimitedGateway(10)(Subgraph.federation("search", remote.endpoint, inputSchema)).interpreter
         defaulted <- runtime.execute("{ search(options: {}) }")
         supplied  <- runtime.execute("{ search(options: { filters: [{}] }) }")
         nulled    <- runtime.execute("{ search(options: null) }")
@@ -245,10 +236,7 @@ object OperationCostSpec extends ZIOSpecDefault {
     test("enforces type cost before contacting a subgraph") {
       for {
         remote  <- stub(response)
-        runtime <- Gateway
-                     .compose(Subgraph.federation("books", remote.endpoint, schema()))
-                     .withConfig(_.withMaxOperationCost(5))
-                     .interpreter
+        runtime <- costLimitedGateway(5)(Subgraph.federation("books", remote.endpoint, schema())).interpreter
         result  <- runtime.execute(query)
         sent    <- remote.requests.get
       } yield assertTrue(
@@ -260,10 +248,7 @@ object OperationCostSpec extends ZIOSpecDefault {
     test("accepts an operation at the configured maximum") {
       for {
         remote  <- stub(response)
-        runtime <- Gateway
-                     .compose(Subgraph.federation("books", remote.endpoint, schema()))
-                     .withConfig(_.withMaxOperationCost(6))
-                     .interpreter
+        runtime <- costLimitedGateway(6)(Subgraph.federation("books", remote.endpoint, schema())).interpreter
         result  <- runtime.execute(query)
         sent    <- remote.requests.get
       } yield assertTrue(result.errors.isEmpty, sent.size == 1)
@@ -271,10 +256,9 @@ object OperationCostSpec extends ZIOSpecDefault {
     test("adds field cost to return-type cost") {
       for {
         remote  <- stub(response)
-        runtime <- Gateway
-                     .compose(Subgraph.federation("books", remote.endpoint, schema(fieldWeight = Some(2))))
-                     .withConfig(_.withMaxOperationCost(7))
-                     .interpreter
+        runtime <- costLimitedGateway(7)(
+                     Subgraph.federation("books", remote.endpoint, schema(fieldWeight = Some(2)))
+                   ).interpreter
         result  <- runtime.execute(query)
         sent    <- remote.requests.get
       } yield assertTrue(
@@ -294,10 +278,7 @@ object OperationCostSpec extends ZIOSpecDefault {
            |""".stripMargin
       for {
         remote  <- stub("""{"data":{"node":{"id":"p1"}}}""")
-        runtime <- Gateway
-                     .compose(Subgraph.federation("nodes", remote.endpoint, interfaceSchema))
-                     .withConfig(_.withMaxOperationCost(5))
-                     .interpreter
+        runtime <- costLimitedGateway(5)(Subgraph.federation("nodes", remote.endpoint, interfaceSchema)).interpreter
         result  <- runtime.execute("{ node { id } }")
         sent    <- remote.requests.get
       } yield assertTrue(
@@ -318,10 +299,7 @@ object OperationCostSpec extends ZIOSpecDefault {
            |""".stripMargin
       for {
         remote  <- stub("""{"data":{"node":{"search":"result"}}}""")
-        runtime <- Gateway
-                     .compose(Subgraph.federation("nodes", remote.endpoint, interfaceSchema))
-                     .withConfig(_.withMaxOperationCost(5))
-                     .interpreter
+        runtime <- costLimitedGateway(5)(Subgraph.federation("nodes", remote.endpoint, interfaceSchema)).interpreter
         result  <- runtime.execute("{ node { search(filter: { term: \"caliban\" }) } }")
         sent    <- remote.requests.get
       } yield assertTrue(
@@ -332,10 +310,7 @@ object OperationCostSpec extends ZIOSpecDefault {
     test("supports an imported alias") {
       for {
         remote  <- stub(response)
-        runtime <- Gateway
-                     .compose(Subgraph.federation("books", remote.endpoint, schema("expensive")))
-                     .withConfig(_.withMaxOperationCost(5))
-                     .interpreter
+        runtime <- costLimitedGateway(5)(Subgraph.federation("books", remote.endpoint, schema("expensive"))).interpreter
         result  <- runtime.execute(query)
         sent    <- remote.requests.get
       } yield assertTrue(
@@ -353,10 +328,7 @@ object OperationCostSpec extends ZIOSpecDefault {
            |""".stripMargin
       for {
         remote  <- stub("""{"data":{"search":"result"}}""")
-        runtime <- Gateway
-                     .compose(Subgraph.federation("search", remote.endpoint, inputSchema))
-                     .withConfig(_.withMaxOperationCost(8))
-                     .interpreter
+        runtime <- costLimitedGateway(8)(Subgraph.federation("search", remote.endpoint, inputSchema)).interpreter
         result  <- runtime.execute("{ search(filter: { term: \"caliban\" }) }")
         sent    <- remote.requests.get
       } yield assertTrue(
@@ -376,10 +348,7 @@ object OperationCostSpec extends ZIOSpecDefault {
            |""".stripMargin
       for {
         remote  <- stub("""{"data":{"books":[]}}""")
-        runtime <- Gateway
-                     .compose(Subgraph.federation("books", remote.endpoint, listSchema))
-                     .withConfig(_.withMaxOperationCost(5))
-                     .interpreter
+        runtime <- costLimitedGateway(5)(Subgraph.federation("books", remote.endpoint, listSchema)).interpreter
         result  <- runtime.execute("{ books { author { name } } }")
         sent    <- remote.requests.get
       } yield assertTrue(
@@ -402,15 +371,9 @@ object OperationCostSpec extends ZIOSpecDefault {
            |""".stripMargin
       for {
         remote          <- stub("""{"data":{"items":[]}}""")
-        rejectedRuntime <- Gateway
-                             .compose(Subgraph.federation("items", remote.endpoint, listSchema))
-                             .withConfig(_.withMaxOperationCost(9))
-                             .interpreter
+        rejectedRuntime <- costLimitedGateway(9)(Subgraph.federation("items", remote.endpoint, listSchema)).interpreter
         rejected        <- rejectedRuntime.execute("{ items(limit: 3) { name } }")
-        acceptedRuntime <- Gateway
-                             .compose(Subgraph.federation("items", remote.endpoint, listSchema))
-                             .withConfig(_.withMaxOperationCost(10))
-                             .interpreter
+        acceptedRuntime <- costLimitedGateway(10)(Subgraph.federation("items", remote.endpoint, listSchema)).interpreter
         accepted        <- acceptedRuntime.execute("{ items(limit: 3) { name } }")
         sent            <- remote.requests.get
       } yield assertTrue(
@@ -433,10 +396,7 @@ object OperationCostSpec extends ZIOSpecDefault {
            |""".stripMargin
       for {
         remote   <- stub("{}")
-        runtime  <- Gateway
-                      .compose(Subgraph.federation("books", remote.endpoint, listSchema))
-                      .withConfig(_.withMaxOperationCost(3))
-                      .interpreter
+        runtime  <- costLimitedGateway(3)(Subgraph.federation("books", remote.endpoint, listSchema)).interpreter
         list     <- runtime.execute("{ books { title } }")
         argument <- runtime.execute("{ search }")
         sent     <- remote.requests.get
@@ -460,10 +420,7 @@ object OperationCostSpec extends ZIOSpecDefault {
            |""".stripMargin
       for {
         remote   <- stub("""{"data":{"books":[]}}""", """{"data":{"books":[]}}""")
-        runtime  <- Gateway
-                      .compose(Subgraph.federation("books", remote.endpoint, listSchema))
-                      .withConfig(_.withMaxOperationCost(3))
-                      .interpreter
+        runtime  <- costLimitedGateway(3)(Subgraph.federation("books", remote.endpoint, listSchema)).interpreter
         rejected <- runtime.execute("{ books(first: -10, last: 4) { title } }")
         accepted <- runtime.execute("{ books(first: -10) { title } }")
         sent     <- remote.requests.get
@@ -489,10 +446,7 @@ object OperationCostSpec extends ZIOSpecDefault {
            |""".stripMargin
       for {
         remote    <- stub("""{"data":{"byIds":[]}}""")
-        runtime   <- Gateway
-                       .compose(Subgraph.federation("books", remote.endpoint, listSchema))
-                       .withConfig(_.withMaxOperationCost(2))
-                       .interpreter
+        runtime   <- costLimitedGateway(2)(Subgraph.federation("books", remote.endpoint, listSchema)).interpreter
         nested    <- runtime.executeRequest(
                        GraphQLRequest(
                          query = Some("query Search($input: Search) { search(input: $input) { title } }"),
@@ -528,10 +482,7 @@ object OperationCostSpec extends ZIOSpecDefault {
            |""".stripMargin
       for {
         remote    <- stub("""{"data":{"books":[]}}""")
-        runtime   <- Gateway
-                       .compose(Subgraph.federation("books", remote.endpoint, listSchema))
-                       .withConfig(_.withMaxOperationCost(100))
-                       .interpreter
+        runtime   <- costLimitedGateway(100)(Subgraph.federation("books", remote.endpoint, listSchema)).interpreter
         missing   <- runtime.execute("{ books { title } }")
         duplicate <- runtime.execute("{ books(first: 1, last: 2) { title } }")
         sent      <- remote.requests.get
@@ -558,10 +509,7 @@ object OperationCostSpec extends ZIOSpecDefault {
            |""".stripMargin
       for {
         remote  <- stub("""{"data":{"books":{"results":{"page":[]},"recent":[]}}}""")
-        runtime <- Gateway
-                     .compose(Subgraph.federation("books", remote.endpoint, listSchema))
-                     .withConfig(_.withMaxOperationCost(5))
-                     .interpreter
+        runtime <- costLimitedGateway(5)(Subgraph.federation("books", remote.endpoint, listSchema)).interpreter
         result  <- runtime.execute("{ books(first: 3) { results { page { title } } recent { title } } }")
         sent    <- remote.requests.get
       } yield assertTrue(
@@ -584,10 +532,7 @@ object OperationCostSpec extends ZIOSpecDefault {
            |""".stripMargin
       for {
         remote  <- stub("{}")
-        runtime <- Gateway
-                     .compose(Subgraph.federation("items", remote.endpoint, listSchema))
-                     .withConfig(_.withMaxOperationCost(5))
-                     .interpreter
+        runtime <- costLimitedGateway(5)(Subgraph.federation("items", remote.endpoint, listSchema)).interpreter
         result  <- runtime.execute("{ container { items { parts { value } } } }")
         sent    <- remote.requests.get
       } yield assertTrue(
@@ -614,10 +559,7 @@ object OperationCostSpec extends ZIOSpecDefault {
            |""".stripMargin
       for {
         remote  <- stub("{}")
-        runtime <- Gateway
-                     .compose(Subgraph.federation("books", remote.endpoint, listSchema))
-                     .withConfig(_.withMaxOperationCost(8))
-                     .interpreter
+        runtime <- costLimitedGateway(8)(Subgraph.federation("books", remote.endpoint, listSchema)).interpreter
         result  <- runtime.execute("{ container { holder(filter: \"all\") { page { title } } } }")
         sent    <- remote.requests.get
       } yield assertTrue(
@@ -642,15 +584,9 @@ object OperationCostSpec extends ZIOSpecDefault {
            |""".stripMargin
       for {
         remote          <- stub("""{"data":{"container":{"results":{"page":[]}}}}""")
-        rejectedRuntime <- Gateway
-                             .compose(Subgraph.federation("books", remote.endpoint, listSchema))
-                             .withConfig(_.withMaxOperationCost(3))
-                             .interpreter
+        rejectedRuntime <- costLimitedGateway(3)(Subgraph.federation("books", remote.endpoint, listSchema)).interpreter
         rejected        <- rejectedRuntime.execute("{ container { results { page { title } } } }")
-        acceptedRuntime <- Gateway
-                             .compose(Subgraph.federation("books", remote.endpoint, listSchema))
-                             .withConfig(_.withMaxOperationCost(4))
-                             .interpreter
+        acceptedRuntime <- costLimitedGateway(4)(Subgraph.federation("books", remote.endpoint, listSchema)).interpreter
         accepted        <- acceptedRuntime.execute("{ container { results { page { title } } } }")
         sent            <- remote.requests.get
       } yield assertTrue(
@@ -676,15 +612,9 @@ object OperationCostSpec extends ZIOSpecDefault {
       val query      = "{ container { groups { items { name } } featured { items { name } } } }"
       for {
         remote          <- stub("""{"data":{"container":{"groups":[],"featured":{"items":[]}}}}""")
-        rejectedRuntime <- Gateway
-                             .compose(Subgraph.federation("items", remote.endpoint, listSchema))
-                             .withConfig(_.withMaxOperationCost(12))
-                             .interpreter
+        rejectedRuntime <- costLimitedGateway(12)(Subgraph.federation("items", remote.endpoint, listSchema)).interpreter
         rejected        <- rejectedRuntime.execute(query)
-        acceptedRuntime <- Gateway
-                             .compose(Subgraph.federation("items", remote.endpoint, listSchema))
-                             .withConfig(_.withMaxOperationCost(13))
-                             .interpreter
+        acceptedRuntime <- costLimitedGateway(13)(Subgraph.federation("items", remote.endpoint, listSchema)).interpreter
         accepted        <- acceptedRuntime.execute(query)
         sent            <- remote.requests.get
       } yield assertTrue(
@@ -713,10 +643,7 @@ object OperationCostSpec extends ZIOSpecDefault {
           stub(
             """{"data":{"container":{"node":{"_caliban_gateway_runtime_typename":"Product","__typename":"Product","page":[]}}}}"""
           )
-        runtime <- Gateway
-                     .compose(Subgraph.federation("books", remote.endpoint, listSchema))
-                     .withConfig(_.withMaxOperationCost(4))
-                     .interpreter
+        runtime <- costLimitedGateway(4)(Subgraph.federation("books", remote.endpoint, listSchema)).interpreter
         result  <- runtime.execute(
                      "{ container { node { ... on Product { page { title } } ... on User { page { title } } } } }"
                    )
@@ -732,10 +659,7 @@ object OperationCostSpec extends ZIOSpecDefault {
            |""".stripMargin
       for {
         remote  <- stub("""{"data":{"expensive":"value"}}""")
-        runtime <- Gateway
-                     .compose(Subgraph.federation("custom", remote.endpoint, customRoot))
-                     .withConfig(_.withMaxOperationCost(4))
-                     .interpreter
+        runtime <- costLimitedGateway(4)(Subgraph.federation("custom", remote.endpoint, customRoot)).interpreter
         result  <- runtime.execute("{ expensive }")
         sent    <- remote.requests.get
       } yield assertTrue(
@@ -757,20 +681,13 @@ object OperationCostSpec extends ZIOSpecDefault {
            |""".stripMargin
       for {
         remote        <- stub("""{"data":{"books":[]}}""")
-        limited       <- Gateway
-                           .compose(Subgraph.federation("books", remote.endpoint, aliased))
-                           .withConfig(_.withMaxOperationCost(2))
-                           .interpreter
+        limited       <- costLimitedGateway(2)(Subgraph.federation("books", remote.endpoint, aliased)).interpreter
         rejected      <- limited.execute("{ books { title } }")
         introspection <- Gateway
                            .compose(Subgraph.federation("books", remote.endpoint, aliased))
                            .interpreter
                            .flatMap(_.execute("{ __schema { directives { name } } }"))
-        directives     = field(introspection.data, "__schema")
-                           .flatMap(field(_, "directives"))
-                           .collect { case ResponseListValue(values) =>
-                             values.flatMap(field(_, "name")).collect { case StringValue(name) => name }
-                           }
+        directives     = introspectedNameStrings(field(introspection.data, "__schema").flatMap(field(_, "directives")))
       } yield assertTrue(
         rejected.errors.flatMap(code) == List("COST_ESTIMATED_TOO_EXPENSIVE"),
         introspection.errors.isEmpty,
@@ -787,89 +704,42 @@ object OperationCostSpec extends ZIOSpecDefault {
            |type Cursor { page: [Book!]! }
            |type Book { title: String }
            |""".stripMargin
+      def diagnostics(name: String, schema: String)     =
+        compositionDiagnostics(Gateway.compose(Subgraph.federation(name, unreachableEndpoint, schema)))
       for {
-        oldVersion <- Gateway
-                        .compose(
-                          Subgraph.federation(
-                            "old",
-                            unreachableEndpoint,
-                            invalid("v2.8", "@listSize(slicingArguments: [\"first\"], sizedFields: [\"page\"])")
-                          )
-                        )
-                        .interpreter
-                        .exit
-        badPath    <- Gateway
-                        .compose(
-                          Subgraph.federation(
-                            "bad-path",
-                            unreachableEndpoint,
-                            invalid("v2.9", "@listSize(slicingArguments: [\"missing\"], sizedFields: [\"unknown\"])")
-                          )
-                        )
-                        .interpreter
-                        .exit
-        badSized   <- Gateway
-                        .compose(
-                          Subgraph.federation(
-                            "bad-sized",
-                            unreachableEndpoint,
-                            invalid("v2.9", "@listSize(assumedSize: 2, sizedFields: [\"unknown\"])")
-                          )
-                        )
-                        .interpreter
-                        .exit
-        listInput  <- Gateway
-                        .compose(
-                          Subgraph.federation(
-                            "list-input",
-                            unreachableEndpoint,
-                            invalid("v2.9", "@listSize(slicingArguments: [\"filters.first\"], sizedFields: [\"page\"])")
-                              .replace(
-                                "type Query { books(first: Int): Cursor!",
-                                "input Filter { first: Int } type Query { books(first: Int, filters: [Filter!]): Cursor!"
-                              )
-                          )
-                        )
-                        .interpreter
-                        .exit
-        manyLeaves <- Gateway
-                        .compose(
-                          Subgraph.federation(
-                            "many-leaves",
-                            unreachableEndpoint,
-                            invalid("v2.9", "@listSize(assumedSize: 2, sizedFields: [\"page recent\"])")
-                              .replace(
-                                "type Cursor { page: [Book!]! }",
-                                "type Cursor { page: [Book!]! recent: [Book!]! }"
-                              )
-                          )
-                        )
-                        .interpreter
-                        .exit
-        mixedLinks <- Gateway
-                        .compose(
-                          Subgraph.federation(
-                            "mixed-links",
-                            unreachableEndpoint,
-                            s"""
-                               |schema
-                               |  @link(url: "https://specs.apollo.dev/federation/v2.9", import: ["@cost"])
-                               |  @link(url: "https://specs.apollo.dev/cost/v0.2", import: [{ name: "@cost", as: "@futureCost" }])
-                               |  { query: Query }
-                               |$directives
-                               |${costDefinition.replace("@cost", "@futureCost")}
-                               |type Query { value: String @futureCost(weight: 5) }
-                               |""".stripMargin
-                          )
-                        )
-                        .interpreter
-                        .exit
-        oldErrors   = buildDiagnostics(oldVersion)
-        pathErrors  = buildDiagnostics(badPath)
-        sizedErrors = buildDiagnostics(badSized)
-        listErrors  = buildDiagnostics(listInput)
-        leafErrors  = buildDiagnostics(manyLeaves)
-        linkErrors  = buildDiagnostics(mixedLinks)
+        oldErrors   <-
+          diagnostics("old", invalid("v2.8", "@listSize(slicingArguments: [\"first\"], sizedFields: [\"page\"])"))
+        pathErrors  <- diagnostics(
+                         "bad-path",
+                         invalid("v2.9", "@listSize(slicingArguments: [\"missing\"], sizedFields: [\"unknown\"])")
+                       )
+        sizedErrors <-
+          diagnostics("bad-sized", invalid("v2.9", "@listSize(assumedSize: 2, sizedFields: [\"unknown\"])"))
+        listErrors  <- diagnostics(
+                         "list-input",
+                         invalid("v2.9", "@listSize(slicingArguments: [\"filters.first\"], sizedFields: [\"page\"])")
+                           .replace(
+                             "type Query { books(first: Int): Cursor!",
+                             "input Filter { first: Int } type Query { books(first: Int, filters: [Filter!]): Cursor!"
+                           )
+                       )
+        leafErrors  <- diagnostics(
+                         "many-leaves",
+                         invalid("v2.9", "@listSize(assumedSize: 2, sizedFields: [\"page recent\"])")
+                           .replace("type Cursor { page: [Book!]! }", "type Cursor { page: [Book!]! recent: [Book!]! }")
+                       )
+        linkErrors  <- diagnostics(
+                         "mixed-links",
+                         s"""
+                           |schema
+                           |  @link(url: "https://specs.apollo.dev/federation/v2.9", import: ["@cost"])
+                           |  @link(url: "https://specs.apollo.dev/cost/v0.2", import: [{ name: "@cost", as: "@futureCost" }])
+                           |  { query: Query }
+                           |$directives
+                           |${costDefinition.replace("@cost", "@futureCost")}
+                           |type Query { value: String @futureCost(weight: 5) }
+                           |""".stripMargin
+                       )
       } yield assertTrue(
         oldErrors.exists(_.contains("@listSize requires Federation v2.9 or cost spec v0.1")),
         pathErrors.exists(_.contains("slicing argument 'missing' must resolve to an Int or list argument")),
@@ -907,29 +777,21 @@ object OperationCostSpec extends ZIOSpecDefault {
            |""".stripMargin
       for {
         productsRemote <-
-          stub(
-            """{"data":{"product":{"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}}}"""
-          )
+          stub(productRootResponse)
         reviewsRemote  <-
           stub(
             """{"data":{"_entities":[{"expensive":"yes","_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product"}]}}"""
           )
-        rejected       <- Gateway
-                            .compose(
-                              Subgraph.federation("products", productsRemote.endpoint, products),
-                              Subgraph.federation("reviews", reviewsRemote.endpoint, reviews)
-                            )
-                            .withConfig(_.withMaxOperationCost(10))
-                            .interpreter
+        rejected       <- costLimitedGateway(10)(
+                            Subgraph.federation("products", productsRemote.endpoint, products),
+                            Subgraph.federation("reviews", reviewsRemote.endpoint, reviews)
+                          ).interpreter
         rejectedResult <- rejected.execute("{ product { expensive } }")
         rejectedSent   <- productsRemote.requests.get.zip(reviewsRemote.requests.get)
-        accepted       <- Gateway
-                            .compose(
-                              Subgraph.federation("products", productsRemote.endpoint, products),
-                              Subgraph.federation("reviews", reviewsRemote.endpoint, reviews)
-                            )
-                            .withConfig(_.withMaxOperationCost(11))
-                            .interpreter
+        accepted       <- costLimitedGateway(11)(
+                            Subgraph.federation("products", productsRemote.endpoint, products),
+                            Subgraph.federation("reviews", reviewsRemote.endpoint, reviews)
+                          ).interpreter
         acceptedResult <- accepted.execute("{ product { expensive } }")
         sent           <- productsRemote.requests.get.zip(reviewsRemote.requests.get)
       } yield assertTrue(
@@ -970,13 +832,10 @@ object OperationCostSpec extends ZIOSpecDefault {
       for {
         productsRemote <- stub("{}")
         reviewsRemote  <- stub("{}")
-        runtime        <- Gateway
-                            .compose(
-                              Subgraph.federation("products", productsRemote.endpoint, products),
-                              Subgraph.federation("reviews", reviewsRemote.endpoint, reviews)
-                            )
-                            .withConfig(_.withMaxOperationCost(8))
-                            .interpreter
+        runtime        <- costLimitedGateway(8)(
+                            Subgraph.federation("products", productsRemote.endpoint, products),
+                            Subgraph.federation("reviews", reviewsRemote.endpoint, reviews)
+                          ).interpreter
         result         <- runtime.execute("{ products { reviews { body } } }")
         sent           <- productsRemote.requests.get.zip(reviewsRemote.requests.get)
       } yield assertTrue(
@@ -1015,13 +874,10 @@ object OperationCostSpec extends ZIOSpecDefault {
       for {
         cursorsRemote <- stub("{}")
         booksRemote   <- stub("{}")
-        runtime       <- Gateway
-                           .compose(
-                             Subgraph.federation("cursors", cursorsRemote.endpoint, cursors),
-                             Subgraph.federation("books", booksRemote.endpoint, books)
-                           )
-                           .withConfig(_.withMaxOperationCost(3))
-                           .interpreter
+        runtime       <- costLimitedGateway(3)(
+                           Subgraph.federation("cursors", cursorsRemote.endpoint, cursors),
+                           Subgraph.federation("books", booksRemote.endpoint, books)
+                         ).interpreter
         result        <- runtime.execute("{ cursor { page { title } } }")
         sent          <- cursorsRemote.requests.get.zip(booksRemote.requests.get)
       } yield assertTrue(
@@ -1109,13 +965,10 @@ object OperationCostSpec extends ZIOSpecDefault {
       for {
         first   <- stub("""{"data":{"value":"first"}}""")
         second  <- stub("""{"data":{"value":"second"}}""")
-        runtime <- Gateway
-                     .compose(
-                       Subgraph.federation("first", first.endpoint, shared(5)),
-                       Subgraph.federation("second", second.endpoint, shared(10))
-                     )
-                     .withConfig(_.withMaxOperationCost(9))
-                     .interpreter
+        runtime <- costLimitedGateway(9)(
+                     Subgraph.federation("first", first.endpoint, shared(5)),
+                     Subgraph.federation("second", second.endpoint, shared(10))
+                   ).interpreter
         result  <- runtime.execute("{ value }")
         sent    <- first.requests.get.zip(second.requests.get)
       } yield assertTrue(
@@ -1133,10 +986,7 @@ object OperationCostSpec extends ZIOSpecDefault {
           |""".stripMargin
       for {
         remote  <- stub("""{"data":{"update":"ok"}}""")
-        runtime <- Gateway
-                     .compose(Subgraph.graphql("mutation", remote.endpoint, mutationSchema))
-                     .withConfig(_.withMaxOperationCost(9))
-                     .interpreter
+        runtime <- costLimitedGateway(9)(Subgraph.graphql("mutation", remote.endpoint, mutationSchema)).interpreter
         result  <- runtime.execute("mutation { update }")
         sent    <- remote.requests.get
       } yield assertTrue(
@@ -1146,13 +996,11 @@ object OperationCostSpec extends ZIOSpecDefault {
     },
     test("rejects a non-positive operation cost limit at build time") {
       for {
-        exit <- Gateway
-                  .compose(Subgraph.local("local", localValueGraph(ZIO.succeed("ok"))))
-                  .withConfig(_.withMaxOperationCost(0))
-                  .interpreter
-                  .exit
+        diagnostics <- compositionDiagnostics(
+                         localValueGateway(ZIO.succeed("ok")).withConfig(_.withMaxOperationCost(0))
+                       )
       } yield assertTrue(
-        buildDiagnostics(exit) == List("Gateway maxOperationCost must be positive.")
+        diagnostics == List("Gateway maxOperationCost must be positive.")
       )
     }
   ).provideSomeShared[Scope](testServer, stubIds) @@ TestAspect.sequential

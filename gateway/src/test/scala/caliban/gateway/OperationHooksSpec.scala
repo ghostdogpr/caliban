@@ -5,8 +5,9 @@ import caliban.InputValue.ObjectValue
 import caliban.gateway.GatewayTestSupport._
 import caliban.gateway.OperationPolicy.{ Allow, Reject }
 import caliban.gateway.internal.OperationHooks
-import caliban.{ CalibanError, GraphQLRequest }
+import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse }
 import zio._
+import zio.http.URL
 import zio.test._
 
 object OperationHooksSpec extends ZIOSpecDefault {
@@ -19,20 +20,25 @@ object OperationHooksSpec extends ZIOSpecDefault {
     def allow(operationName: Option[String]): UIO[Boolean]
   }
 
-  private val schema   = "type Query { value(input: String): String }"
-  private val query    = "query Value($input: String) { value(input: $input) }"
-  private val request  = GraphQLRequest(
+  private val schema  = "type Query { value(input: String): String }"
+  private val query   = "query Value($input: String) { value(input: $input) }"
+  private val request = GraphQLRequest(
     query = Some(query),
     operationName = Some("Value"),
     variables = Some(Map("input" -> StringValue("hello")))
   )
-  private val response = """{"data":{"value":"ok"}}"""
+
+  private def remoteGateway(endpoint: URL, name: String = "remote"): Gateway[Any] =
+    Gateway.compose(Subgraph.graphql(name, endpoint, schema))
+
+  private def executionCause(response: GraphQLResponse[CalibanError]): Option[Throwable] =
+    response.errors.collectFirst { case error: CalibanError.ExecutionError => error.innerThrowable }.flatten
 
   def spec = suite("OperationHooksSpec")(
     test("uses request text directly when no resolver is configured") {
       for {
-        remote  <- stub(response)
-        runtime <- Gateway.compose(Subgraph.graphql("remote", remote.endpoint, schema)).interpreter
+        remote  <- stub(okResponse)
+        runtime <- remoteGateway(remote.endpoint).interpreter
         result  <- runtime.executeRequest(request)
         sent    <- remote.requests.get
       } yield assertTrue(
@@ -44,7 +50,7 @@ object OperationHooksSpec extends ZIOSpecDefault {
     },
     test("resolves an identifier and evaluates policy with both environments and FiberRef context") {
       for {
-        remote    <- stub(response)
+        remote    <- stub(okResponse)
         observed  <- Ref.make(List.empty[String])
         context   <- FiberRef.make("missing")
         resolver   = OperationResolver[Documents] { request =>
@@ -60,8 +66,7 @@ object OperationHooksSpec extends ZIOSpecDefault {
                          allowed <- ZIO.serviceWithZIO[Decisions](_.allow(operation.executionRequest.operationName))
                        } yield if (allowed) Allow else Reject()
                      }
-        gateway    = (Gateway
-                       .compose(Subgraph.graphql("remote", remote.endpoint, schema))
+        gateway    = (remoteGateway(remote.endpoint)
                        .withOperationResolver(resolver)
                        .withOperationPolicy(policy): Gateway[Documents with Decisions])
         runtime   <- gateway.interpreter
@@ -95,13 +100,12 @@ object OperationHooksSpec extends ZIOSpecDefault {
     },
     test("runs policy only after validation and rejects without contacting a source") {
       for {
-        remote    <- stub(response)
+        remote    <- stub(okResponse)
         calls     <- Ref.make(0)
         policy     = OperationPolicy[Any] { _ =>
                        calls.update(_ + 1).as(Reject())
                      }
-        runtime   <- Gateway
-                       .compose(Subgraph.graphql("remote", remote.endpoint, schema))
+        runtime   <- remoteGateway(remote.endpoint)
                        .withOperationPolicy(policy)
                        .interpreter
         invalid   <- runtime.executeRequest(GraphQLRequest(query = Some("{ missing }")))
@@ -121,9 +125,8 @@ object OperationHooksSpec extends ZIOSpecDefault {
     },
     test("returns an explicit public policy rejection reason") {
       for {
-        remote  <- stub(response)
-        runtime <- Gateway
-                     .compose(Subgraph.graphql("remote", remote.endpoint, schema))
+        remote  <- stub(okResponse)
+        runtime <- remoteGateway(remote.endpoint)
                      .withOperationPolicy(OperationPolicy[Any](_ => ZIO.succeed(Reject("Operation denied."))))
                      .interpreter
         result  <- runtime.executeRequest(request)
@@ -135,16 +138,14 @@ object OperationHooksSpec extends ZIOSpecDefault {
       val secretPolicy   = "policy-secret"
 
       for {
-        remote          <- stub(response)
-        resolverRuntime <- Gateway
-                             .compose(Subgraph.graphql("resolver", remote.endpoint, schema))
+        remote          <- stub(okResponse)
+        resolverRuntime <- remoteGateway(remote.endpoint, "resolver")
                              .withOperationResolver(
                                OperationResolver.uncached[Any](_ => ZIO.fail(new RuntimeException(secretResolver)))
                              )
                              .interpreter
         resolverResult  <- resolverRuntime.executeRequest(request)
-        policyRuntime   <- Gateway
-                             .compose(Subgraph.graphql("policy", remote.endpoint, schema))
+        policyRuntime   <- remoteGateway(remote.endpoint, "policy")
                              .withOperationPolicy(
                                OperationPolicy[Any](_ => ZIO.dieMessage(secretPolicy))
                              )
@@ -152,12 +153,8 @@ object OperationHooksSpec extends ZIOSpecDefault {
         policyResult    <- policyRuntime.executeRequest(request)
         sent            <- remote.requests.get
         messages         = (resolverResult.errors ::: policyResult.errors).map(_.msg)
-        resolverCause    = resolverResult.errors.collectFirst { case error: CalibanError.ExecutionError =>
-                             error.innerThrowable
-                           }.flatten
-        policyCause      = policyResult.errors.collectFirst { case error: CalibanError.ExecutionError =>
-                             error.innerThrowable
-                           }.flatten
+        resolverCause    = executionCause(resolverResult)
+        policyCause      = executionCause(policyResult)
       } yield assertTrue(
         resolverResult.errors.map(_.msg) == List("Operation resolution failed."),
         policyResult.errors.map(_.msg) == List("Operation policy failed."),
@@ -170,13 +167,12 @@ object OperationHooksSpec extends ZIOSpecDefault {
     },
     test("preserves hook interruption") {
       for {
-        remote  <- stub(response)
+        remote  <- stub(okResponse)
         started <- Promise.make[Nothing, Unit]
         policy   = OperationPolicy[Any](_ =>
                      started.succeed(()).unit *> ZIO.never.ensuring(ZIO.dieMessage("hook-finalizer-secret"))
                    )
-        runtime <- Gateway
-                     .compose(Subgraph.graphql("remote", remote.endpoint, schema))
+        runtime <- remoteGateway(remote.endpoint)
                      .withOperationPolicy(policy)
                      .interpreter
         fiber   <- runtime.executeRequest(request).fork

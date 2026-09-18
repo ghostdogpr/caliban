@@ -10,8 +10,7 @@ import caliban.parsing.SourceMapper
 import caliban.rendering.{ DocumentRenderer, Renderer }
 import caliban.schema._
 import caliban.transformers.Transformer
-import caliban.validation.SchemaValidator
-import caliban.validation.Validator
+import caliban.validation.{ SchemaValidator, Validator }
 import caliban.wrappers.Wrapper
 import caliban.wrappers.Wrapper._
 import zio.stacktracer.TracingImplicits.disableAutoTrace
@@ -122,8 +121,7 @@ trait GraphQL[-R] { self =>
           )
           RootSchema(query, schema.mutation, schema.subscription)
         }
-        private lazy val rootTypeWithIntrospection: RootType    =
-          Introspector.withIntrospection(rootType)
+        private lazy val rootTypeWithIntrospection: RootType    = Introspector.withIntrospection(rootType)
 
         override def check(query: String)(implicit trace: Trace): IO[CalibanError, Unit] =
           RequestPreparation.parse(query).flatMap(Validator.validate(_, rootTypeWithIntrospection))
@@ -149,13 +147,7 @@ trait GraphQL[-R] { self =>
           req: GraphQLRequest,
           coercedVars: Map[String, InputValue]
         )(doc: Document)(implicit trace: Trace): IO[ValidationError, ExecutionRequest] =
-          RequestPreparation.prepareParsed(
-            req,
-            doc,
-            coercedVars,
-            rootTypeWithIntrospection,
-            skipValidation = false
-          )
+          RequestPreparation.prepareParsed(req, doc, coercedVars, rootTypeWithIntrospection, skipValidation = false)
 
         private def execution[R1 <: R](
           fieldWrappers: List[FieldWrapper[R1]]

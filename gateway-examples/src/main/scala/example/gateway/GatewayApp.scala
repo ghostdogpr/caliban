@@ -6,22 +6,31 @@ import caliban.{ graphQL, QuickAdapter, RootResolver }
 import zio._
 import zio.http._
 
-object GatewayApp extends ZIOAppDefault {
-  private val products = Subgraph.graphql(
-    "products",
-    url"http://localhost:8081/graphql",
-    ProductsApi.schema
-  )
+object GatewayApp extends ZIOAppDefault with GenericSchema[Any] {
+  import auto._
 
-  private val reviews = Subgraph.graphql(
-    "reviews",
-    url"http://localhost:8082/graphql"
-  )
+  final case class Query(gatewayMessage: String)
+
+  private val localApi = graphQL(RootResolver(Query("Served by an in-process Caliban subgraph")))
+
+  private val productsSchema =
+    """
+      |type Query {
+      |  product(id: String!): Product
+      |  products: [Product!]!
+      |}
+      |
+      |type Product {
+      |  id: String!
+      |  name: String!
+      |  price: Int!
+      |}
+      |""".stripMargin
 
   private val gateway = Gateway.compose(
-    products,
-    reviews,
-    Subgraph.local("gateway", LocalApi.api)
+    Subgraph.graphql("products", url"http://localhost:8081/graphql", productsSchema),
+    Subgraph.graphql("reviews", url"http://localhost:8082/graphql"),
+    Subgraph.local("gateway", localApi)
   ) @@ GatewayMetrics.hooks
 
   def run =
@@ -30,12 +39,4 @@ object GatewayApp extends ZIOAppDefault {
       _           <- Console.printLine("Gateway: http://localhost:8080/graphiql")
       _           <- QuickAdapter(interpreter).runServer(8080, "/graphql", graphiqlPath = Some("/graphiql"))
     } yield ()
-
-  private object LocalApi extends GenericSchema[Any] {
-    import auto._
-
-    final case class Query(gatewayMessage: String)
-
-    val api = graphQL(RootResolver(Query("Served by an in-process Caliban subgraph")))
-  }
 }

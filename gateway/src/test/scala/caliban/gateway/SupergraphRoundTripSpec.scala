@@ -1,16 +1,14 @@
 package caliban.gateway
 
+import caliban.gateway.GatewayTestSupport._
 import caliban.gateway.internal.composition.{ ComposedGraph, SchemaComposer, SupergraphDecomposition }
 import caliban.gateway.internal.composition.ComposedGraph.{ RootField, TypeField }
 import caliban.parsing.{ Parser, SourceMapper }
 import caliban.parsing.adt.{ Document, OperationType }
 import caliban.rendering.DocumentRenderer
-import caliban.tools.RemoteSchema
 import scala.collection.compat._
 import zio._
 import zio.test._
-
-import scala.io.Source
 
 /**
  * Composing the projections of `supergraph.graphql` must land in the same place as composing the
@@ -27,12 +25,7 @@ import scala.io.Source
  */
 object SupergraphRoundTripSpec extends ZIOSpecDefault {
 
-  private def resource(name: String): UIO[String] =
-    ZIO
-      .scoped(ZIO.fromAutoCloseable(ZIO.attempt(Source.fromResource(s"supergraph/$name"))).map(_.mkString))
-      .orDie
-
-  private def parse(name: String, sdl: String): UIO[Document] =
+  private def parse(sdl: String): UIO[Document] =
     ZIO.fromEither(Parser.parseQuery(sdl)).orDie
 
   /**
@@ -41,53 +34,28 @@ object SupergraphRoundTripSpec extends ZIOSpecDefault {
    * unlinked projection composes as an ordinary graph, and `Character`, unreachable from the
    * `episodes` `Query`, would silently lose its entity lookup.
    */
-  private def prepare(name: String, document: Document): Either[List[String], PreparedSubgraph] = {
-    val federation = SchemaComposer.isFederation(document)
-    for {
-      // Normalizing rather than only building a root type is necessary: it folds `extend schema`
-      // into the schema definition, which is where composition reads `@link` from. A projection
-      // declares its schema outright, so only the checked-in originals depend on the merge.
-      normalized <- RemoteSchema
-                      .normalize(document, promoteOrphans = federation)
-                      .left
-                      .map(error => List(s"[$name] ${error.getMessage}"))
-      prepared   <- Gateway
-                      .prepareSubgraph(
-                        Subgraph.federation(name, GatewayTestSupport.unreachableEndpoint, document),
-                        normalized.rootType,
-                        normalized.document,
-                        document,
-                        federation
-                      )
-                      .left
-                      .map(SubgraphError(name, _).diagnostics)
-    } yield prepared
-  }
+  private def prepare(name: String, document: Document): Either[List[String], PreparedSubgraph] =
+    prepareSubgraph(
+      Subgraph.federation(name, unreachableEndpoint, document),
+      document,
+      SchemaComposer.isFederation(document)
+    )
 
   private def composeAll(documents: List[(String, Document)]): Either[List[String], ComposedGraph] =
-    documents
-      .foldRight(Right(Nil): Either[List[String], List[PreparedSubgraph]]) { case ((name, document), result) =>
-        result.flatMap(tail => prepare(name, document).map(_ :: tail))
-      }
-      .flatMap(SchemaComposer.compose(_))
+    traverseEither(documents) { case (name, document) => prepare(name, document) }.flatMap(SchemaComposer.compose(_))
 
   /** The checked-in subgraphs, composed exactly as a hand-listed gateway would compose them. */
   private def fromOriginals(names: (String, String)*): UIO[ComposedGraph] =
     for {
       documents <- ZIO.foreach(names.toList) { case (name, file) =>
-                     resource(file).flatMap(parse(name, _)).map(name -> _)
+                     supergraphResource(file).flatMap(parse).map(name -> _)
                    }
       composed  <- orDie(composeAll(documents))
     } yield composed
 
   /** The same graph reached by decomposing the supergraph and composing the projections. */
   private def fromSupergraph(file: String): UIO[ComposedGraph] =
-    for {
-      sdl       <- resource(file)
-      document  <- parse("supergraph", sdl)
-      projected <- orDie(SupergraphDecomposition.decompose(document))
-      composed  <- orDie(composeAll(projected.map(entry => entry.graph.name -> entry.document)))
-    } yield composed
+    supergraphResource(file).flatMap(composeProjections)
 
   private val characterGraphFromSupergraph: UIO[ComposedGraph] = fromSupergraph("supergraph.graphql")
 
@@ -127,13 +95,16 @@ object SupergraphRoundTripSpec extends ZIOSpecDefault {
 
   private def composeProjections(sdl: String): UIO[ComposedGraph] =
     for {
-      document  <- parse("supergraph", sdl)
+      document  <- parse(sdl)
       projected <- orDie(SupergraphDecomposition.decompose(document))
       composed  <- orDie(composeAll(projected.map(entry => entry.graph.name -> entry.document)))
     } yield composed
 
   private def orDie[A](result: Either[List[String], A]): UIO[A] =
     ZIO.fromEither(result).orDieWith(errors => new AssertionError(errors.mkString("\n")))
+
+  private def sortedRoutes[K](routes: Map[K, List[ComposedGraph.FieldRoute]]): Map[K, List[ComposedGraph.FieldRoute]] =
+    routes.view.mapValues(_.sortBy(_.source)).toMap
 
   /** Every composed type as SDL, name-ordered, so the comparison is stable and readable on failure. */
   private def render(graph: ComposedGraph): String =
@@ -153,16 +124,14 @@ object SupergraphRoundTripSpec extends ZIOSpecDefault {
     test("decomposing then composing yields the same routing as composing the originals") {
       // Schema equality above cannot see ownership: this is the assertion that fails if the field
       // inclusion rule is inverted.
-      def sorted[K](routes: Map[K, List[ComposedGraph.FieldRoute]]) = routes.view.mapValues(_.sortBy(_.source)).toMap
-
       for {
         supergraph <- characterGraphFromSupergraph
         originals  <- characterGraphFromOriginals
       } yield assertTrue(
-        sorted(supergraph.rootRoutes.view.mapValues(_.candidates).toMap) == sorted(
+        sortedRoutes(supergraph.rootRoutes.view.mapValues(_.candidates).toMap) == sortedRoutes(
           originals.rootRoutes.view.mapValues(_.candidates).toMap
         ),
-        sorted(supergraph.fieldRoutes) == sorted(originals.fieldRoutes)
+        sortedRoutes(supergraph.fieldRoutes) == sortedRoutes(originals.fieldRoutes)
       )
     },
     test("routes each root field to the graph that declared it") {
@@ -260,14 +229,12 @@ object SupergraphRoundTripSpec extends ZIOSpecDefault {
     ),
     suite("contexts")(
       test("decomposing then composing yields the same schema and routing as composing the originals") {
-        def sorted[K](routes: Map[K, List[ComposedGraph.FieldRoute]]) = routes.view.mapValues(_.sortBy(_.source)).toMap
-
         for {
           supergraph <- contextGraphFromSupergraph
           originals  <- contextGraphFromOriginals
         } yield assertTrue(
           render(supergraph) == render(originals),
-          sorted(supergraph.fieldRoutes) == sorted(originals.fieldRoutes)
+          sortedRoutes(supergraph.fieldRoutes) == sortedRoutes(originals.fieldRoutes)
         )
       },
       test("reaches the same context declarations and arguments as composing the originals") {

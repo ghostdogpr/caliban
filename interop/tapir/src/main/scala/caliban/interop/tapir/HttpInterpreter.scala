@@ -77,10 +77,8 @@ object HttpInterpreter {
     )(implicit streamConstructor: StreamConstructor[BS]): ZIO[R, TapirResponse, CalibanResponse[BS]] = {
       val req = if (serverRequest.method == Method.GET) graphQLRequest.asHttpGetRequest else graphQLRequest
       IncomingRequestHeaders
-        .locally(serverRequest.headers.map(header => header.name -> header.value).toList)(
-          interpreter.executeRequest(req)
-        )
-        .map(response => buildHttpResponse[E, BS](serverRequest)(response))
+        .locally(headerValues(serverRequest))(interpreter.executeRequest(req))
+        .map(buildHttpResponse[E, BS](serverRequest))
     }
   }
 

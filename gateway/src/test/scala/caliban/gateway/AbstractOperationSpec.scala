@@ -146,6 +146,15 @@ object AbstractOperationSpec extends ZIOSpecDefault {
       |type Query { outcome: Named }
       |""".stripMargin
 
+  private val userRootResponse =
+    """{"data":{"users":[{"_caliban_gateway_key":"u1","_caliban_gateway_typename":"User"}]}}"""
+
+  private def usersAndAccounts(users: Stub, accounts: Stub): Gateway[Any] =
+    Gateway.compose(
+      Subgraph.federation("users", users.endpoint, mismatchedUserSchema),
+      Subgraph.federation("accounts", accounts.endpoint, accountSchema)
+    )
+
   def spec = suite("AbstractOperationSpec")(
     suite("abstract selections")(
       test("preserves mutually exclusive union fragments on their capable root source") {
@@ -157,15 +166,15 @@ object AbstractOperationSpec extends ZIOSpecDefault {
         for {
           primary   <- stub(response)
           secondary <- stub("""{"data":{}}""")
-          gateway   <- Gateway
+          runtime   <- Gateway
                          .compose(
                            Subgraph.federation("primary", primary.endpoint, primaryUnionSchema),
                            Subgraph.federation("secondary", secondary.endpoint, partialUnionSchema)
                          )
                          .interpreter
-          result    <- gateway.execute(query)
-          requests  <- primary.requests.get
-          valid     <- ZIO.foreach(requests)(validateRequest(primaryUnionSchema, _).exit)
+          result    <- runtime.execute(query)
+          sent      <- primary.requests.get
+          valid     <- ZIO.foreach(sent)(validateRequest(primaryUnionSchema, _).exit)
           actions    = listValues(field(result.data, "response").flatMap(field(_, "actions")))
         } yield assertTrue(
           result.errors.isEmpty,
@@ -181,25 +190,25 @@ object AbstractOperationSpec extends ZIOSpecDefault {
           """query Users($includeMain: Boolean!) { users { name __typename ...AdminFields @include(if: $includeMain) } } fragment AdminFields on Admin { main: isMain }"""
 
         for {
-          users      <- stubByRequest(request => interfaceEntityResponse(request))
+          users      <- stubByRequest(interfaceEntityResponse)
           profiles   <-
             stub(
               """{"data":{"users":[{"name":"Ada","_caliban_gateway_key":"u1","_caliban_gateway_typename":"User"}]}}"""
             )
-          gateway    <- Gateway
+          runtime    <- Gateway
                           .compose(
                             Subgraph.federation("users", users.endpoint, usersSchema),
                             Subgraph.federation("profiles", profiles.endpoint, profilesSchema)
                           )
                           .interpreter
-          result     <- gateway.executeRequest(
+          result     <- runtime.executeRequest(
                           GraphQLRequest(
                             query = Some(query),
                             variables = Some(Map("includeMain" -> BooleanValue(true)))
                           )
                         )
-          hidden     <- gateway.execute("{ users { name ... on Admin { main: isMain } } }")
-          skipped    <- gateway.executeRequest(
+          hidden     <- runtime.execute("{ users { name ... on Admin { main: isMain } } }")
+          skipped    <- runtime.executeRequest(
                           GraphQLRequest(
                             query = Some(
                               """query Users($includeMain: Boolean!) { users { name ...AdminFields @include(if: $includeMain) } } fragment AdminFields on Admin { main: isMain }"""
@@ -207,8 +216,8 @@ object AbstractOperationSpec extends ZIOSpecDefault {
                             variables = Some(Map("includeMain" -> BooleanValue(false)))
                           )
                         )
-          calls      <- users.requests.get
-          valid      <- ZIO.foreach(calls)(validateRequest(usersExecutableSchema, _).exit)
+          sent       <- users.requests.get
+          valid      <- ZIO.foreach(sent)(validateRequest(usersExecutableSchema, _).exit)
           user        = field(result.data, "users").collect { case ListValue(value :: Nil) => value }
           hiddenUser  = field(hidden.data, "users").collect { case ListValue(value :: Nil) => value }
           skippedUser = field(skipped.data, "users").collect { case ListValue(value :: Nil) => value }
@@ -223,7 +232,7 @@ object AbstractOperationSpec extends ZIOSpecDefault {
           hiddenUser.flatMap(field(_, "__typename")).isEmpty,
           skippedUser.flatMap(field(_, "name")).contains(StringValue("Ada")),
           skippedUser.flatMap(field(_, "main")).isEmpty,
-          calls.size == 2,
+          sent.size == 2,
           valid.forall(_.isSuccess)
         )
       },
@@ -248,19 +257,19 @@ object AbstractOperationSpec extends ZIOSpecDefault {
               else
                 """{"data":{"anotherUsers":[{"__typename":"User","id":"u1","username":"ada","_caliban_gateway_key":"u1","_caliban_gateway_typename":"User","_caliban_gateway_runtime_typename":"User"}]}}"""
             }
-          gateway        <- Gateway
+          runtime        <- Gateway
                               .compose(
                                 Subgraph.federation("owner", owner.endpoint, interfaceOwnerSchema),
                                 Subgraph.federation("interface", interface.endpoint, interfaceObjectSchema)
                               )
                               .interpreter
-          plan           <- gateway.explain(query).exit
-          reverse        <- gateway.explain(reverseQuery).exit
-          forwardResult  <- gateway.execute(query)
-          result         <- gateway.execute(reverseQuery)
-          calls          <- interface.requests.get
+          plan           <- runtime.explain(query).exit
+          reverse        <- runtime.explain(reverseQuery).exit
+          forwardResult  <- runtime.execute(query)
+          result         <- runtime.execute(reverseQuery)
+          sent           <- interface.requests.get
           user            = field(result.data, "users").collect { case ListValue(value :: Nil) => value }
-          representations = calls.flatMap(_.variables).flatMap(_.get("representations"))
+          representations = sent.flatMap(_.variables).flatMap(_.get("representations"))
         } yield assertTrue(
           plan.isSuccess,
           reverse.isSuccess,
@@ -302,20 +311,20 @@ object AbstractOperationSpec extends ZIOSpecDefault {
                   }
                 }
               b          <- stub("""{"data":{}}""")
-              gateway    <- Gateway
+              runtime    <- Gateway
                               .compose(
                                 Subgraph.federation("a", a.endpoint, schema(partialNestedA)),
                                 Subgraph.federation("b", b.endpoint, schema(partialNestedB))
                               )
                               .interpreter
-              result     <- gateway.execute(query)
-              missing    <- omitCommon.set(true) *> gateway.execute(query)
-              calls      <- a.requests.get
-              valid      <- ZIO.foreach(calls)(validateRequest(schema(partialNestedA), _).exit)
-              queries     = calls.flatMap(_.query)
+              result     <- runtime.execute(query)
+              missing    <- omitCommon.set(true) *> runtime.execute(query)
+              sent       <- a.requests.get
+              valid      <- ZIO.foreach(sent)(validateRequest(schema(partialNestedA), _).exit)
+              queries     = sent.flatMap(_.query)
             } yield assertTrue(
               result.errors.isEmpty,
-              calls.nonEmpty,
+              sent.nonEmpty,
               valid.forall(_.isSuccess),
               queries.forall(_.contains("OnlyA") == !resolvable),
               queries.forall(!_.contains("OnlyB")),
@@ -346,29 +355,29 @@ object AbstractOperationSpec extends ZIOSpecDefault {
           """{ users { id name } accounts { ... on User { id name similarAccounts { ... on User { id name } ... on Admin { id name } } } ... on Admin { id name similarAccounts { ... on User { id name } ... on Admin { id name } } } } }"""
 
         for {
-          users        <-
+          users    <-
             stub(
               """{"data":{"users":[{"id":"u1","_caliban_gateway_key":"u1","_caliban_gateway_typename":"User"}]}}"""
             )
-          accounts     <-
+          accounts <-
             stubByRequest { request =>
               if (request.query.exists(_.contains("_entities")))
                 """{"data":{"_entities":[{"__typename":"User","name":"u1-name"}]}}"""
               else
                 """{"data":{"accounts":[{"_caliban_gateway_runtime_typename":"User","_caliban_gateway_id":"u1","name":"u1-name","similarAccounts":[{"_caliban_gateway_runtime_typename":"User","_caliban_gateway_id":"u1","name":"u1-name"},{"_caliban_gateway_runtime_typename":"Admin","_caliban_gateway_id_1":"a1","name":"a1-name"}]},{"_caliban_gateway_runtime_typename":"Admin","_caliban_gateway_id_1":"a1","name":"a1-name","similarAccounts":[{"_caliban_gateway_runtime_typename":"User","_caliban_gateway_id":"u1","name":"u1-name"},{"_caliban_gateway_runtime_typename":"Admin","_caliban_gateway_id_1":"a1","name":"a1-name"}]}]}}"""
             }
-          gateway      <- Gateway
-                            .compose(
-                              Subgraph.federation("a", users.endpoint, mismatchedUserSchema),
-                              Subgraph.federation("b", accounts.endpoint, accountSchema)
-                            )
-                            .interpreter
-          plan         <- gateway.explain(query).exit
-          result       <- gateway.execute(query)
-          accountCalls <- accounts.requests.get
-          valid        <- ZIO.foreach(accountCalls.filterNot(_.query.exists(_.contains("_entities"))))(
-                            validateRequest(accountSchema, _).exit
-                          )
+          runtime  <- Gateway
+                        .compose(
+                          Subgraph.federation("a", users.endpoint, mismatchedUserSchema),
+                          Subgraph.federation("b", accounts.endpoint, accountSchema)
+                        )
+                        .interpreter
+          plan     <- runtime.explain(query).exit
+          result   <- runtime.execute(query)
+          sent     <- accounts.requests.get
+          valid    <- ZIO.foreach(sent.filterNot(_.query.exists(_.contains("_entities"))))(
+                        validateRequest(accountSchema, _).exit
+                      )
         } yield assertTrue(
           plan.isSuccess,
           result.errors.isEmpty,
@@ -394,24 +403,24 @@ object AbstractOperationSpec extends ZIOSpecDefault {
           """{"data":{"actors":[{"__typename":"User","_caliban_gateway_key":"u1","_caliban_gateway_typename":"User","_caliban_gateway_runtime_typename":"User"},{"__typename":"Admin","_caliban_gateway_typename":"Admin","_caliban_gateway_runtime_typename":"Admin"}]}}"""
 
         for {
-          source   <- stub(sourceResponse)
-          target   <-
+          source  <- stub(sourceResponse)
+          target  <-
             stub("""{"data":{"_caliban_gateway_lookup":[{"_caliban_gateway_lookup_key":"u1","detail":"user"}]}}""")
-          gateway  <- Gateway
-                        .compose(
-                          Subgraph.graphql("source", source.endpoint, abstractLookupSourceSchema),
-                          Subgraph
-                            .graphql("target", target.endpoint, abstractLookupTargetSchema)
-                            .withLookup(abstractLookup)
-                        )
-                        .interpreter
-          result   <- gateway.execute("{ actors { __typename ... on User { detail } } }")
-          requests <- target.requests.get
-          actors    = listValues(field(result.data, "actors"))
+          runtime <- Gateway
+                       .compose(
+                         Subgraph.graphql("source", source.endpoint, abstractLookupSourceSchema),
+                         Subgraph
+                           .graphql("target", target.endpoint, abstractLookupTargetSchema)
+                           .withLookup(abstractLookup)
+                       )
+                       .interpreter
+          result  <- runtime.execute("{ actors { __typename ... on User { detail } } }")
+          sent    <- target.requests.get
+          actors   = listValues(field(result.data, "actors"))
         } yield assertTrue(
           result.errors.isEmpty,
-          requests.size == 1,
-          requests.headOption.flatMap(_.query).exists(_.contains("usersByIds(ids:[\"u1\"])")),
+          sent.size == 1,
+          sent.headOption.flatMap(_.query).exists(_.contains("usersByIds(ids:[\"u1\"])")),
           actors.lift(0).flatMap(field(_, "detail")).contains(StringValue("user")),
           actors.lift(1).flatMap(field(_, "detail")).isEmpty
         )
@@ -423,13 +432,8 @@ object AbstractOperationSpec extends ZIOSpecDefault {
         for {
           users    <- stub("""{"data":{}}""")
           accounts <- stub(response)
-          gateway  <- Gateway
-                        .compose(
-                          Subgraph.federation("users", users.endpoint, mismatchedUserSchema),
-                          Subgraph.federation("accounts", accounts.endpoint, accountSchema)
-                        )
-                        .interpreter
-          result   <- gateway.execute("{ accounts { ... on User { id } ... on Admin { id } } }")
+          runtime  <- usersAndAccounts(users, accounts).interpreter
+          result   <- runtime.execute("{ accounts { ... on User { id } ... on Admin { id } } }")
         } yield assertTrue(
           executionErrors(result.errors).map(_.path) ==
             List(List(PathValue.Key("accounts"), PathValue.Index(0), PathValue.Key("id")))
@@ -440,17 +444,10 @@ object AbstractOperationSpec extends ZIOSpecDefault {
           """{"data":{"_entities":[{"similarAccounts":[{"_caliban_gateway_runtime_typename":"User","_caliban_gateway_id":null}]}]},"errors":[{"message":"failed","path":["_entities",0,"similarAccounts",0,"_caliban_gateway_id"]}]}"""
 
         for {
-          users    <- stub(
-                        """{"data":{"users":[{"_caliban_gateway_key":"u1","_caliban_gateway_typename":"User"}]}}"""
-                      )
+          users    <- stub(userRootResponse)
           accounts <- stub(entityResponse)
-          gateway  <- Gateway
-                        .compose(
-                          Subgraph.federation("users", users.endpoint, mismatchedUserSchema),
-                          Subgraph.federation("accounts", accounts.endpoint, accountSchema)
-                        )
-                        .interpreter
-          result   <- gateway.execute(
+          runtime  <- usersAndAccounts(users, accounts).interpreter
+          result   <- runtime.execute(
                         "{ users { similarAccounts { ... on User { id } ... on Admin { id } } } }"
                       )
         } yield assertTrue(
@@ -471,24 +468,24 @@ object AbstractOperationSpec extends ZIOSpecDefault {
           """{"data":{"response":{"actions":[{"_caliban_gateway_runtime_typename":"Alpha","value":"alpha"}]}}}"""
 
         for {
-          source   <- stub(response)
-          gateway  <- Gateway.compose(Subgraph.graphql("source", source.endpoint, primaryUnionSchema)).interpreter
-          result   <- gateway.execute("{ response { actions { ... on Alpha { value } } } }")
-          requests <- source.requests.get
-          action    = field(result.data, "response")
-                        .flatMap(field(_, "actions"))
-                        .collect { case ListValue(value :: Nil) => value }
+          source  <- stub(response)
+          runtime <- Gateway.compose(Subgraph.graphql("source", source.endpoint, primaryUnionSchema)).interpreter
+          result  <- runtime.execute("{ response { actions { ... on Alpha { value } } } }")
+          sent    <- source.requests.get
+          action   = field(result.data, "response")
+                       .flatMap(field(_, "actions"))
+                       .collect { case ListValue(value :: Nil) => value }
         } yield assertTrue(
           result.errors.isEmpty,
           action.flatMap(field(_, "value")).contains(StringValue("alpha")),
-          requests.headOption.flatMap(_.query).exists(_.contains("_caliban_gateway_runtime_typename:__typename"))
+          sent.headOption.flatMap(_.query).exists(_.contains("_caliban_gateway_runtime_typename:__typename"))
         )
       },
       test("uses an aliased typename as single-source runtime evidence") {
         for {
           source  <- stub("""{"data":{"outcome":{"kind":"TextResult"}}}""")
-          gateway <- Gateway.compose(Subgraph.graphql("source", source.endpoint, nullableAbstractSchema)).interpreter
-          result  <- gateway.execute("{ outcome { kind: __typename } }")
+          runtime <- Gateway.compose(Subgraph.graphql("source", source.endpoint, nullableAbstractSchema)).interpreter
+          result  <- runtime.execute("{ outcome { kind: __typename } }")
         } yield assertTrue(
           result.errors.isEmpty,
           field(result.data, "outcome").flatMap(field(_, "kind")).contains(StringValue("TextResult"))
@@ -500,9 +497,9 @@ object AbstractOperationSpec extends ZIOSpecDefault {
 
         for {
           source  <- stub(response)
-          gateway <- Gateway.compose(Subgraph.graphql("source", source.endpoint, nullableAbstractSchema)).interpreter
+          runtime <- Gateway.compose(Subgraph.graphql("source", source.endpoint, nullableAbstractSchema)).interpreter
           result  <-
-            gateway.execute(
+            runtime.execute(
               "{ first: outcome { ... on TextResult { text } } other: otherOutcome { ... on TextResult { _caliban_gateway_runtime_typename: text } kind: __typename } }"
             )
         } yield assertTrue(
@@ -516,8 +513,8 @@ object AbstractOperationSpec extends ZIOSpecDefault {
       test("prefers a typed typename alias over an ordinary field named typename") {
         for {
           source  <- stub("""{"data":{"outcome":{"__typename":"ordinary label","kind":"Concrete"}}}""")
-          gateway <- Gateway.compose(Subgraph.graphql("source", source.endpoint, aliasedInterfaceSchema)).interpreter
-          result  <- gateway.execute("{ outcome { __typename: label kind: __typename } }")
+          runtime <- Gateway.compose(Subgraph.graphql("source", source.endpoint, aliasedInterfaceSchema)).interpreter
+          result  <- runtime.execute("{ outcome { __typename: label kind: __typename } }")
         } yield assertTrue(
           result.errors.isEmpty,
           field(result.data, "outcome")
@@ -530,16 +527,16 @@ object AbstractOperationSpec extends ZIOSpecDefault {
         for {
           source  <- stub("""{"data":{"outcome":{"text":"value"}}}""")
           other   <- stub("""{"data":{}}""")
-          gateway <- Gateway
+          runtime <- Gateway
                        .compose(
                          Subgraph.graphql("source", source.endpoint, nullableAbstractSchema),
                          Subgraph.graphql("other", other.endpoint, unrelatedSchema)
                        )
                        .interpreter
-          result  <- gateway.execute("{ outcome { ... on TextResult { text } } }")
+          result  <- runtime.execute("{ outcome { ... on TextResult { text } } }")
           errors   = executionErrors(result.errors)
         } yield assertTrue(
-          field(result.data, "outcome").contains(caliban.Value.NullValue),
+          field(result.data, "outcome").contains(NullValue),
           errors.map(_.path) == List(List(PathValue.Key("outcome"))),
           errors.forall(_.msg == "Remote GraphQL request failed.")
         )
@@ -549,17 +546,10 @@ object AbstractOperationSpec extends ZIOSpecDefault {
           """{"data":{"_entities":[{"similarAccounts":[{"_caliban_gateway_runtime_typename":"Unknown","_caliban_gateway_id":"u2"}]}]}}"""
 
         for {
-          users    <- stub(
-                        """{"data":{"users":[{"_caliban_gateway_key":"u1","_caliban_gateway_typename":"User"}]}}"""
-                      )
+          users    <- stub(userRootResponse)
           accounts <- stub(entityResponse)
-          gateway  <- Gateway
-                        .compose(
-                          Subgraph.federation("users", users.endpoint, mismatchedUserSchema),
-                          Subgraph.federation("accounts", accounts.endpoint, accountSchema)
-                        )
-                        .interpreter
-          result   <- gateway.execute(
+          runtime  <- usersAndAccounts(users, accounts).interpreter
+          result   <- runtime.execute(
                         "{ users { similarAccounts { ... on User { id } ... on Admin { id } } } }"
                       )
           errors    = executionErrors(result.errors)

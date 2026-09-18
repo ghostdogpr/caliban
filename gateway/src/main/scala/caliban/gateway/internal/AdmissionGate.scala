@@ -6,7 +6,7 @@ import zio.{ Scope, Semaphore, Trace, UIO, ZIO }
 
 private[gateway] final class AdmissionGate[-R] private (
   semaphore: Semaphore,
-  kind: AdmissionKind,
+  defaultKind: AdmissionKind,
   hooks: PhaseHooks[R]
 ) {
 
@@ -17,18 +17,18 @@ private[gateway] final class AdmissionGate[-R] private (
     semaphore.withPermitScoped
 
   def admit[R1 <: R, E, A](effect: ZIO[R1, E, A])(implicit trace: Trace): ZIO[R1, E, A] =
-    admitAs(kind)(effect)
+    admitAs(defaultKind)(effect)
 
   def observe[R1 <: R, E, A](effect: ZIO[R1, E, A])(implicit trace: Trace): ZIO[R1, E, A] =
-    observeAs(kind)(effect)
+    observeAs(defaultKind)(effect)
 
-  def admitAs[R1 <: R, E, A](work: AdmissionKind)(effect: ZIO[R1, E, A])(implicit trace: Trace): ZIO[R1, E, A] =
-    withPermit(observeAs(work)(effect))
+  def admitAs[R1 <: R, E, A](kind: AdmissionKind)(effect: ZIO[R1, E, A])(implicit trace: Trace): ZIO[R1, E, A] =
+    withPermit(observeAs(kind)(effect))
 
-  private def observeAs[R1 <: R, E, A](work: AdmissionKind)(
-    effect: ZIO[R1, E, A]
-  )(implicit trace: Trace): ZIO[R1, E, A] =
-    hooks.admission.run(Event.Admission(work))(effect)(Result.classifyExit)
+  private def observeAs[R1 <: R, E, A](kind: AdmissionKind)(effect: ZIO[R1, E, A])(implicit
+    trace: Trace
+  ): ZIO[R1, E, A] =
+    hooks.admission.run(Event.Admission(kind))(effect)(Result.classifyExit)
 
 }
 

@@ -1,7 +1,7 @@
 package caliban.gateway.internal.composition
 
 import caliban.ResponseValue
-import caliban.gateway.{ RemoteGraphQLConfig, SchemaAcquisitionError }
+import caliban.gateway.{ RemoteGraphQLConfig, SchemaAcquisitionError, ServiceField }
 import caliban.gateway.internal.GatewayHttpClient
 import caliban.gateway.SchemaAcquisitionError._
 import caliban.gateway.SchemaAcquisitionError.InvalidFederationResponse._
@@ -20,34 +20,29 @@ private[composition] object FederationClient {
     config: RemoteGraphQLConfig.Acquisition,
     http: GatewayHttpClient
   )(implicit trace: Trace): IO[SchemaAcquisitionError, Document] =
-    RemoteSchemaAcquisition
-      .fetchBytes(endpoint, Query, OperationName, config, http)
-      .flatMap { bytes =>
-        for {
-          decoded  <- ZIO
-                        .attempt(readFromArray[ResponseValue](bytes))
-                        .mapError(FederationResponseDecodingFailed(_))
-          sdl      <- ZIO.fromEither(decode(decoded))
-          _        <- ZIO
-                        .fail(ParsingDepthExceeded(config.maxParsingDepth))
-                        .unless(RemoteSchemaAcquisition.withinGraphQLDepth(sdl, config.maxParsingDepth))
-          document <- ZIO.fromEither(Parser.parseQuery(sdl)).mapError(InvalidFederationSchema(_))
-        } yield document
-      }
+    for {
+      bytes    <- RemoteSchemaAcquisition.fetchBytes(endpoint, Query, OperationName, config, http)
+      decoded  <- ZIO.attempt(readFromArray[ResponseValue](bytes)).mapError(FederationResponseDecodingFailed(_))
+      sdl      <- ZIO.fromEither(decode(decoded))
+      _        <- ZIO
+                    .fail(ParsingDepthExceeded(config.maxParsingDepth))
+                    .unless(RemoteSchemaAcquisition.withinGraphQLDepth(sdl, config.maxParsingDepth))
+      document <- ZIO.fromEither(Parser.parseQuery(sdl)).mapError(InvalidFederationSchema(_))
+    } yield document
 
   private def decode(value: ResponseValue): Either[SchemaAcquisitionError, String] =
     value match {
-      case objectValue: ObjectValue =>
+      case envelope: ObjectValue =>
         for {
           errors  <-
-            RemoteSchemaAcquisition.responseErrors(objectValue).toRight(InvalidFederationResponse(InvalidErrors))
+            RemoteSchemaAcquisition.responseErrors(envelope).toRight(InvalidFederationResponse(InvalidErrors))
           _       <- if (errors.isEmpty) Right(()) else Left(FederationErrors(errors))
-          data    <- objectField(objectValue, "data", MissingData)
-          service <- objectField(data, "_service", MissingService)
+          data    <- objectField(envelope, "data", MissingData)
+          service <- objectField(data, ServiceField, MissingService)
           sdl     <- service.fields.collectFirst { case ("sdl", StringValue(value)) => value }
                        .toRight(InvalidFederationResponse(MissingSdl))
         } yield sdl
-      case _                        => Left(InvalidFederationResponse(ExpectedResponseObject))
+      case _                     => Left(InvalidFederationResponse(ExpectedResponseObject))
     }
 
   private def objectField(
@@ -58,6 +53,6 @@ private[composition] object FederationClient {
     value.fields.collectFirst { case (`name`, nested: ObjectValue) => nested }
       .toRight(InvalidFederationResponse(missing))
 
-  private val OperationName = "__CalibanGatewayServiceSchema"
-  private val Query         = s"query $OperationName { _service { sdl } }"
+  private final val OperationName = "__CalibanGatewayServiceSchema"
+  private val Query               = s"query $OperationName { _service { sdl } }"
 }

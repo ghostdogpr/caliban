@@ -15,6 +15,8 @@ case class __Field(
   deprecationReason: Option[String] = None,
   @GQLExcluded directives: Option[List[Directive]] = None
 ) {
+  import caliban.syntax._
+
   @transient @threadUnsafe
   final override lazy val hashCode: Int = caliban.Hash.caseClassHash(this)
 
@@ -43,7 +45,7 @@ case class __Field(
   }
 
   private[caliban] def getArgOrNull(name: String): __InputValue =
-    allArgsMap.getOrElse(name, null)
+    allArgsMap.getOrElseNull(name)
 
   private[caliban] lazy val _type: __Type = `type`()
 

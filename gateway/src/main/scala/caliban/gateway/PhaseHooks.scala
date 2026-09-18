@@ -74,9 +74,7 @@ final case class PhaseHooks[-R] private (
   private[gateway] def observeCompletion[R0 <: R, E](effect: ZIO[R0, E, GraphQLResponse[CalibanError]])(implicit
     trace: Trace
   ): ZIO[R0, E, GraphQLResponse[CalibanError]] =
-    self.completion.run(Event.Completion)(effect)(
-      Result.fromExit(_)(Result.fromResponse, _ => Result(Outcome.InternalError))
-    )
+    self.completion.run(Event.Completion)(effect)(Result.classifyResponse(_))
 }
 
 /**
@@ -262,6 +260,9 @@ object PhaseHooks {
     case object InvalidResponse extends Outcome { val label = "invalid_response" }
     case object Cancelled       extends Outcome { val label = "cancelled"        }
     case object InternalError   extends Outcome { val label = "internal_error"   }
+
+    private[gateway] def fromResponse(response: GraphQLResponse[_]): Outcome =
+      if (response.errors.isEmpty) Success else GraphQLError
   }
 
   sealed trait CacheResult extends Product with Serializable {
@@ -295,10 +296,13 @@ object PhaseHooks {
 
   object Result {
     private[gateway] def fromResponse(response: GraphQLResponse[_]): Result =
-      Result(if (response.errors.isEmpty) Outcome.Success else Outcome.GraphQLError, errorCount = response.errors.size)
+      Result(Outcome.fromResponse(response), errorCount = response.errors.size)
 
     private[gateway] def classifyExit[E, A](exit: Exit[E, A]): Result =
       fromExit(exit)(_ => Result(Outcome.Success), _ => Result(Outcome.InternalError))
+
+    private[gateway] def classifyResponse[E](exit: Exit[E, GraphQLResponse[_]]): Result =
+      fromExit(exit)(fromResponse, _ => Result(Outcome.InternalError))
 
     private[gateway] def fromExit[E, A](exit: Exit[E, A])(success: A => Result, failure: E => Result): Result =
       exit match {

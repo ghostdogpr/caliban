@@ -3,7 +3,7 @@ package caliban.gateway.internal.composition
 import caliban.{ CalibanError, GraphQLRequest }
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.NullValue
-import caliban.gateway.{ RemoteGraphQLConfig, SchemaAcquisitionError, SchemaInput }
+import caliban.gateway.{ RemoteGraphQLConfig, SchemaAcquisitionError, SchemaInput, Subgraph }
 import caliban.gateway.internal.GatewayHttpClient
 import caliban.gateway.internal.execution.RemoteTransport
 import caliban.gateway.SchemaAcquisitionError._
@@ -15,20 +15,17 @@ import zio.http.URL
 
 private[gateway] object RemoteSchemaAcquisition {
 
-  def load(
-    input: SchemaInput,
-    endpoint: URL,
-    federation: Boolean,
-    config: RemoteGraphQLConfig.Acquisition,
-    http: GatewayHttpClient
-  )(implicit trace: Trace): IO[SchemaAcquisitionError, Document] =
-    input match {
+  def load(remote: Subgraph.Source.Remote[_], http: GatewayHttpClient)(implicit
+    trace: Trace
+  ): IO[SchemaAcquisitionError, Document] =
+    remote.schema match {
       case SchemaInput.Sdl(value)    => ZIO.fromEither(Parser.parseQuery(value)).mapError(InvalidProvidedSchema(_))
       case SchemaInput.Parsed(value) => ZIO.succeed(value)
       case SchemaInput.Acquired      =>
+        val config      = remote.config.acquisition
         val acquisition =
-          if (federation) FederationClient.fetch(endpoint, config, http)
-          else IntrospectionClient.fetch(endpoint, config, http)
+          if (remote.federation) FederationClient.fetch(remote.endpoint, config, http)
+          else IntrospectionClient.fetch(remote.endpoint, config, http)
 
         acquisition.timeoutFail(TimedOut(config.timeout))(config.timeout)
     }
@@ -104,6 +101,9 @@ private[gateway] object RemoteSchemaAcquisition {
     }
     depth <= maxDepth
   }
+
+  private[composition] def isHtml(contentType: Option[String]): Boolean =
+    RemoteTransport.mediaType(contentType).exists(_.startsWith("text/html"))
 
   private def isJsonResponse(reply: GatewayHttpClient.Reply): Boolean = {
     val mediaType = RemoteTransport.mediaType(reply.contentType)

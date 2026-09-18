@@ -1,15 +1,26 @@
 package caliban.gateway
 
-import caliban.ResponseValue.{ ListValue => ResponseListValue }
 import caliban.Value.IntValue.IntNumber
-import caliban.Value.{ NullValue, StringValue }
+import caliban.Value.{ BooleanValue, NullValue, StringValue }
 import caliban.gateway.GatewayTestSupport._
 import caliban.{ CalibanError, GraphQLRequest, PathValue }
-import zio.http.URL
 import zio._
 import zio.test._
 
 object MultiSourceSpec extends ZIOSpecDefault {
+
+  private val reviewMutationSchema = "type Query { reviews: [String!]! } type Mutation { addReview: Boolean! }"
+
+  private def graphqlProductsAndReviews(
+    products: Stub,
+    reviews: Stub,
+    productsSchema: String,
+    reviewsSchema: String
+  ): Gateway[Any] =
+    Gateway.compose(
+      Subgraph.graphql("products", products.endpoint, productsSchema),
+      Subgraph.graphql("reviews", reviews.endpoint, reviewsSchema)
+    )
 
   def spec = suite("MultiSourceSpec")(
     suite("root execution")(
@@ -35,37 +46,33 @@ object MultiSourceSpec extends ZIOSpecDefault {
             |""".stripMargin
 
         for {
-          started         <- Ref.make(0)
-          release         <- Promise.make[Nothing, Unit]
-          beforeResponse   = started.updateAndGet(_ + 1).flatMap {
-                               case 2 => release.succeed(()).unit
-                               case _ => release.await
-                             }
-          products        <- stubWith(beforeResponse, """{"data":{"featured":{"id":"p1","name":"Table"}}}""")
-          reviews         <-
+          started       <- Ref.make(0)
+          release       <- Promise.make[Nothing, Unit]
+          beforeResponse = started.updateAndGet(_ + 1).flatMap {
+                             case 2 => release.succeed(()).unit
+                             case _ => release.await
+                           }
+          products      <- stubWith(beforeResponse, """{"data":{"featured":{"id":"p1","name":"Table"}}}""")
+          reviews       <-
             stubWith(
               beforeResponse,
               """{"data":{"recent":[{"body":"Solid"}]},"errors":[{"message":"review warning","path":["recent",0,"body"],"locations":[{"line":1,"column":2}]}]}"""
             )
-          gateway         <- Gateway
-                               .compose(
-                                 Subgraph.graphql("products", products.endpoint, productsSchema),
-                                 Subgraph.graphql("reviews", reviews.endpoint, reviewsSchema)
-                               )
-                               .withConfig(_.withRemoteErrorMessages(true))
-                               .interpreter
-          request          = GraphQLRequest(
-                               query = Some(query),
-                               operationName = Some("Dashboard"),
-                               variables = Some(Map("id" -> StringValue("p1"), "limit" -> IntNumber(1))),
-                               extensions = Some(Map("client" -> StringValue("gateway-spec")))
-                             )
-          response        <- gateway.executeRequest(request)
-          productRequests <- products.requests.get
-          reviewRequests  <- reviews.requests.get
-          productValid    <- ZIO.foreach(productRequests)(validateRequest(productsSchema, _).exit)
-          reviewValid     <- ZIO.foreach(reviewRequests)(validateRequest(reviewsSchema, _).exit)
-          names            = fieldNames(response.data)
+          runtime       <- graphqlProductsAndReviews(products, reviews, productsSchema, reviewsSchema)
+                             .withConfig(_.withRemoteErrorMessages(true))
+                             .interpreter
+          request        = GraphQLRequest(
+                             query = Some(query),
+                             operationName = Some("Dashboard"),
+                             variables = Some(Map("id" -> StringValue("p1"), "limit" -> IntNumber(1))),
+                             extensions = Some(Map("client" -> StringValue("gateway-spec")))
+                           )
+          response      <- runtime.executeRequest(request)
+          productsSent  <- products.requests.get
+          reviewsSent   <- reviews.requests.get
+          productsValid <- ZIO.foreach(productsSent)(validateRequest(productsSchema, _).exit)
+          reviewsValid  <- ZIO.foreach(reviewsSent)(validateRequest(reviewsSchema, _).exit)
+          names          = fieldNames(response.data)
         } yield assertTrue(
           names == List("recent", "featured"),
           field(response.data, "featured").flatMap(field(_, "name")).contains(StringValue("Table")),
@@ -75,20 +82,20 @@ object MultiSourceSpec extends ZIOSpecDefault {
             List(StringValue("recent"), IntNumber(0), StringValue("body"))
           ),
           executionErrors(response.errors).forall(_.locationInfo.isEmpty),
-          productRequests.size == 1,
-          reviewRequests.size == 1,
-          productRequests.head.operationName.contains("Dashboard"),
-          reviewRequests.head.operationName.contains("Dashboard"),
-          productRequests.head.variables.isEmpty,
-          reviewRequests.head.variables.isEmpty,
-          productValid.forall(_.isSuccess),
-          reviewValid.forall(_.isSuccess),
-          productRequests.head.extensions.isEmpty,
-          reviewRequests.head.extensions.isEmpty,
-          productRequests.head.query.exists(query =>
+          productsSent.size == 1,
+          reviewsSent.size == 1,
+          productsSent.head.operationName.contains("Dashboard"),
+          reviewsSent.head.operationName.contains("Dashboard"),
+          productsSent.head.variables.isEmpty,
+          reviewsSent.head.variables.isEmpty,
+          productsValid.forall(_.isSuccess),
+          reviewsValid.forall(_.isSuccess),
+          productsSent.head.extensions.isEmpty,
+          reviewsSent.head.extensions.isEmpty,
+          productsSent.head.query.exists(query =>
             query.contains("featured:product(id:\"p1\")") && !query.contains("reviews")
           ),
-          reviewRequests.head.query.exists(query =>
+          reviewsSent.head.query.exists(query =>
             query.contains("recent:reviews(limit:1)") && !query.contains("product")
           )
         )
@@ -100,13 +107,8 @@ object MultiSourceSpec extends ZIOSpecDefault {
         for {
           products <- stub("""{"data":{"featured":{"name":"Table"}}}""")
           reviews  <- stub(invalidResponse)
-          gateway  <- Gateway
-                        .compose(
-                          Subgraph.graphql("products", products.endpoint, productsSchema),
-                          Subgraph.graphql("reviews", reviews.endpoint, reviewsSchema)
-                        )
-                        .interpreter
-          response <- gateway.execute("{ featured { name } recent { body } }")
+          runtime  <- graphqlProductsAndReviews(products, reviews, productsSchema, reviewsSchema).interpreter
+          response <- runtime.execute("{ featured { name } recent { body } }")
           errors    = executionErrors(response.errors)
         } yield assertTrue(
           field(response.data, "featured").flatMap(field(_, "name")).contains(StringValue("Table")),
@@ -122,8 +124,8 @@ object MultiSourceSpec extends ZIOSpecDefault {
 
         for {
           source   <- stub(result)
-          gateway  <- Gateway.compose(Subgraph.graphql("values", source.endpoint, schema)).interpreter
-          response <- gateway.execute("{ first { value } second { value } }")
+          runtime  <- Gateway.compose(Subgraph.graphql("values", source.endpoint, schema)).interpreter
+          response <- runtime.execute("{ first { value } second { value } }")
           sent     <- source.requests.get
           errors    = executionErrors(response.errors)
         } yield assertTrue(
@@ -193,13 +195,8 @@ object MultiSourceSpec extends ZIOSpecDefault {
         for {
           products     <- stub("""{"data":{"product":"Table"}}""")
           reviews      <- stub("""{"data":{"reviews":["Solid"]}}""")
-          gateway      <- Gateway
-                            .compose(
-                              Subgraph.graphql("products", products.endpoint, productsSchema),
-                              Subgraph.graphql("reviews", reviews.endpoint, reviewsSchema)
-                            )
-                            .interpreter
-          response     <- gateway.execute(
+          runtime      <- graphqlProductsAndReviews(products, reviews, productsSchema, reviewsSchema).interpreter
+          response     <- runtime.execute(
                             """{
                           |  __schema {
                           |    queryType { fields { name } }
@@ -207,36 +204,26 @@ object MultiSourceSpec extends ZIOSpecDefault {
                           |  }
                           |}""".stripMargin
                           )
-          productSent  <- products.requests.get
-          reviewSent   <- reviews.requests.get
+          productsSent <- products.requests.get
+          reviewsSent  <- reviews.requests.get
           schema        = field(response.data, "__schema")
-          queryNames    = schema
-                            .flatMap(field(_, "queryType"))
-                            .flatMap(field(_, "fields"))
-                            .collect { case ResponseListValue(fields) =>
-                              fields.flatMap(field(_, "name")).collect { case StringValue(name) => name }
-                            }
-          mutationNames = schema
-                            .flatMap(field(_, "mutationType"))
-                            .flatMap(field(_, "fields"))
-                            .collect { case ResponseListValue(fields) =>
-                              fields.flatMap(field(_, "name")).collect { case StringValue(name) => name }
-                            }
+          queryNames    = introspectedNameStrings(schema.flatMap(field(_, "queryType")).flatMap(field(_, "fields")))
+          mutationNames = introspectedNameStrings(schema.flatMap(field(_, "mutationType")).flatMap(field(_, "fields")))
         } yield assertTrue(
           response.errors.isEmpty,
           queryNames.exists(_.toSet == Set("product", "reviews")),
           mutationNames.exists(_.toSet == Set("updateProduct", "addReview")),
-          productSent.isEmpty,
-          reviewSent.isEmpty
+          productsSent.isEmpty,
+          reviewsSent.isEmpty
         )
       },
       test("advertises executable subscription roots") {
         val schema = "type Query { value: String } type Subscription { changes: String }"
 
         for {
-          source   <- stub("""{"data":{"value":"ok"}}""")
-          gateway  <- Gateway.compose(Subgraph.graphql("values", source.endpoint, schema)).interpreter
-          response <- gateway.execute("{ __schema { subscriptionType { name } } }")
+          source   <- stub(okResponse)
+          runtime  <- Gateway.compose(Subgraph.graphql("values", source.endpoint, schema)).interpreter
+          response <- runtime.execute("{ __schema { subscriptionType { name } } }")
           sent     <- source.requests.get
         } yield assertTrue(
           response.errors.isEmpty,
@@ -252,39 +239,31 @@ object MultiSourceSpec extends ZIOSpecDefault {
         val reviewsSchema  = "type Query { reviews: [Review!]! } type Review { body: String! }"
 
         for {
-          products    <- stub("""{"data":{"product":"Table"}}""")
-          reviews     <- stub("""{"data":{"reviews":[{"body":"Solid"}]}}""")
-          gateway     <- Gateway
-                           .compose(
-                             Subgraph.graphql("products", products.endpoint, productsSchema),
-                             Subgraph.graphql("reviews", reviews.endpoint, reviewsSchema)
-                           )
-                           .interpreter
-          response    <- gateway.execute(
-                           """{
+          products     <- stub("""{"data":{"product":"Table"}}""")
+          reviews      <- stub("""{"data":{"reviews":[{"body":"Solid"}]}}""")
+          runtime      <- graphqlProductsAndReviews(products, reviews, productsSchema, reviewsSchema).interpreter
+          response     <- runtime.execute(
+                            """{
                           |  product
                           |  __schema { queryType { fields { name } } }
                           |  __type(name: "Review") { name }
                           |}""".stripMargin
-                         )
-          productSent <- products.requests.get
-          reviewSent  <- reviews.requests.get
-          names        = fieldNames(response.data)
-          queryNames   = field(response.data, "__schema")
-                           .flatMap(field(_, "queryType"))
-                           .flatMap(field(_, "fields"))
-                           .collect { case ResponseListValue(fields) =>
-                             fields.flatMap(field(_, "name")).collect { case StringValue(name) => name }
-                           }
+                          )
+          productsSent <- products.requests.get
+          reviewsSent  <- reviews.requests.get
+          names         = fieldNames(response.data)
+          queryNames    = introspectedNameStrings(
+                            field(response.data, "__schema").flatMap(field(_, "queryType")).flatMap(field(_, "fields"))
+                          )
         } yield assertTrue(
           response.errors.isEmpty,
           names == List("product", "__schema", "__type"),
           field(response.data, "product").contains(StringValue("Table")),
           queryNames.exists(_.toSet == Set("product", "reviews")),
           field(response.data, "__type").flatMap(field(_, "name")).contains(StringValue("Review")),
-          productSent.size == 1,
-          reviewSent.isEmpty,
-          productSent.head.query.exists(query => query.contains("product") && !query.contains("__schema"))
+          productsSent.size == 1,
+          reviewsSent.isEmpty,
+          productsSent.head.query.exists(query => query.contains("product") && !query.contains("__schema"))
         )
       }
     ),
@@ -304,13 +283,8 @@ object MultiSourceSpec extends ZIOSpecDefault {
                              """{"data":{"updated":true}}"""
                            )
           reviews       <- stubWith(secondStarted.succeed(()).unit, """{"data":{"added":true}}""")
-          gateway       <- Gateway
-                             .compose(
-                               Subgraph.graphql("products", products.endpoint, productsSchema),
-                               Subgraph.graphql("reviews", reviews.endpoint, reviewsSchema)
-                             )
-                             .interpreter
-          execution     <- gateway
+          runtime       <- graphqlProductsAndReviews(products, reviews, productsSchema, reviewsSchema).interpreter
+          execution     <- runtime
                              .execute(
                                """mutation Changes {
                              |  updated: updateProduct(id: "p1")
@@ -324,8 +298,8 @@ object MultiSourceSpec extends ZIOSpecDefault {
           _             <- releaseFirst.succeed(()).when(first)
           response      <- execution.join
           secondAfter   <- secondStarted.isDone
-          productSent   <- products.requests.get
-          reviewSent    <- reviews.requests.get
+          productsSent  <- products.requests.get
+          reviewsSent   <- reviews.requests.get
           names          = fieldNames(response.data)
         } yield assertTrue(
           first,
@@ -333,10 +307,10 @@ object MultiSourceSpec extends ZIOSpecDefault {
           secondAfter,
           response.errors.isEmpty,
           names == List("updated", "added"),
-          field(response.data, "updated").contains(caliban.Value.BooleanValue(true)),
-          field(response.data, "added").contains(caliban.Value.BooleanValue(true)),
-          productSent.size == 1,
-          reviewSent.size == 1
+          field(response.data, "updated").contains(BooleanValue(true)),
+          field(response.data, "added").contains(BooleanValue(true)),
+          productsSent.size == 1,
+          reviewsSent.size == 1
         )
       },
       test("does not coalesce mutation roots on the same source") {
@@ -345,21 +319,21 @@ object MultiSourceSpec extends ZIOSpecDefault {
 
         for {
           backend  <- stub("""{"data":{"incremented":1}}""", """{"data":{"assigned":10}}""")
-          gateway  <- Gateway.compose(Subgraph.graphql("counter", backend.endpoint, schema)).interpreter
-          response <- gateway.execute(
+          runtime  <- Gateway.compose(Subgraph.graphql("counter", backend.endpoint, schema)).interpreter
+          response <- runtime.execute(
                         """mutation {
                           |  incremented: increment(by: 1)
                           |  assigned: set(value: 10)
                           |}""".stripMargin
                       )
-          requests <- backend.requests.get
+          sent     <- backend.requests.get
         } yield assertTrue(
           response.errors.isEmpty,
           field(response.data, "incremented").contains(IntNumber(1)),
           field(response.data, "assigned").contains(IntNumber(10)),
-          requests.size == 2,
-          requests.headOption.flatMap(_.query).exists(query => query.contains("increment") && !query.contains("set")),
-          requests
+          sent.size == 2,
+          sent.headOption.flatMap(_.query).exists(query => query.contains("increment") && !query.contains("set")),
+          sent
             .drop(1)
             .headOption
             .flatMap(_.query)
@@ -398,13 +372,13 @@ object MultiSourceSpec extends ZIOSpecDefault {
                           """{"data":{"_entities":[{"isExpensive":true,"isAvailable":true}]}}"""
                         else """{"data":{"added":true}}"""
                       )
-          gateway  <- Gateway
+          runtime  <- Gateway
                         .compose(
                           Subgraph.federation("products", products.endpoint, productsSchema),
                           Subgraph.federation("reviews", reviews.endpoint, reviewsSchema)
                         )
                         .interpreter
-          response <- gateway.execute(
+          response <- runtime.execute(
                         """mutation {
                           |  updated: updateProduct { price isExpensive isAvailable }
                           |  added: addReview
@@ -415,11 +389,11 @@ object MultiSourceSpec extends ZIOSpecDefault {
           response.errors.isEmpty,
           field(response.data, "updated")
             .flatMap(field(_, "isExpensive"))
-            .contains(caliban.Value.BooleanValue(true)),
+            .contains(BooleanValue(true)),
           field(response.data, "updated")
             .flatMap(field(_, "isAvailable"))
-            .contains(caliban.Value.BooleanValue(true)),
-          field(response.data, "added").contains(caliban.Value.BooleanValue(true)),
+            .contains(BooleanValue(true)),
+          field(response.data, "added").contains(BooleanValue(true)),
           sent.size == 2,
           sent.headOption.flatMap(_.query).exists(_.contains("_entities")),
           sent.drop(1).headOption.flatMap(_.query).exists(_.contains("addReview"))
@@ -428,26 +402,20 @@ object MultiSourceSpec extends ZIOSpecDefault {
       test("continues with later mutation roots after a field error") {
         val productsSchema =
           "type Query { product: String } type Mutation { updateProduct: Boolean }"
-        val reviewsSchema  =
-          "type Query { reviews: [String!]! } type Mutation { addReview: Boolean! }"
 
         for {
           products <- stub(
                         """{"data":{"updated":null},"errors":[{"message":"update failed","path":["updated"]}]}"""
                       )
           reviews  <- stub("""{"data":{"added":true}}""")
-          gateway  <- Gateway
-                        .compose(
-                          Subgraph.graphql("products", products.endpoint, productsSchema),
-                          Subgraph.graphql("reviews", reviews.endpoint, reviewsSchema)
-                        )
+          runtime  <- graphqlProductsAndReviews(products, reviews, productsSchema, reviewMutationSchema)
                         .withConfig(_.withRemoteErrorMessages(true))
                         .interpreter
-          response <- gateway.execute("mutation { updated: updateProduct added: addReview }")
+          response <- runtime.execute("mutation { updated: updateProduct added: addReview }")
           sent     <- reviews.requests.get
         } yield assertTrue(
           field(response.data, "updated").contains(NullValue),
-          field(response.data, "added").contains(caliban.Value.BooleanValue(true)),
+          field(response.data, "added").contains(BooleanValue(true)),
           response.errors.map(_.msg) == List("update failed"),
           sent.size == 1
         )
@@ -455,22 +423,16 @@ object MultiSourceSpec extends ZIOSpecDefault {
       test("stops after a top-level non-null mutation failure") {
         val productsSchema =
           "type Query { product: String } type Mutation { updateProduct: Boolean! }"
-        val reviewsSchema  =
-          "type Query { reviews: [String!]! } type Mutation { addReview: Boolean! }"
 
         for {
           products <- stub(
                         """{"data":null,"errors":[{"message":"update failed","path":["updated"]}]}"""
                       )
           reviews  <- stub("""{"data":{"added":true}}""")
-          gateway  <- Gateway
-                        .compose(
-                          Subgraph.graphql("products", products.endpoint, productsSchema),
-                          Subgraph.graphql("reviews", reviews.endpoint, reviewsSchema)
-                        )
+          runtime  <- graphqlProductsAndReviews(products, reviews, productsSchema, reviewMutationSchema)
                         .withConfig(_.withRemoteErrorMessages(true))
                         .interpreter
-          response <- gateway.execute("mutation { updated: updateProduct added: addReview }")
+          response <- runtime.execute("mutation { updated: updateProduct added: addReview }")
           sent     <- reviews.requests.get
         } yield assertTrue(
           response.data == NullValue,
@@ -481,8 +443,6 @@ object MultiSourceSpec extends ZIOSpecDefault {
       test("retains earlier completion errors when a later mutation root aborts") {
         val productsSchema =
           "enum Status { READY } type Query { product: String } type Mutation { status: Status fail: Boolean! }"
-        val reviewsSchema  =
-          "type Query { reviews: [String!]! } type Mutation { addReview: Boolean! }"
 
         for {
           products <- stub(
@@ -490,14 +450,10 @@ object MultiSourceSpec extends ZIOSpecDefault {
                         """{"data":{"failed":null},"errors":[{"message":"update failed","path":["failed"]}]}"""
                       )
           reviews  <- stub("""{"data":{"added":true}}""")
-          gateway  <- Gateway
-                        .compose(
-                          Subgraph.graphql("products", products.endpoint, productsSchema),
-                          Subgraph.graphql("reviews", reviews.endpoint, reviewsSchema)
-                        )
+          runtime  <- graphqlProductsAndReviews(products, reviews, productsSchema, reviewMutationSchema)
                         .withConfig(_.withRemoteErrorMessages(true))
                         .interpreter
-          response <- gateway.execute("mutation { status failed: fail added: addReview }")
+          response <- runtime.execute("mutation { status failed: fail added: addReview }")
           sent     <- reviews.requests.get
         } yield assertTrue(
           response.data == NullValue,
@@ -524,13 +480,13 @@ object MultiSourceSpec extends ZIOSpecDefault {
         for {
           alpha     <- stub("""{"data":{"published":{"id":"p1"}}}""")
           beta      <- stub("""{"data":{"published":{"title":"Ready"}}}""")
-          gateway   <- Gateway
+          runtime   <- Gateway
                          .compose(
                            Subgraph.federation("alpha", alpha.endpoint, alphaSchema),
                            Subgraph.federation("beta", beta.endpoint, betaSchema)
                          )
                          .interpreter
-          response  <- gateway.execute("mutation { published: publish { title } }")
+          response  <- runtime.execute("mutation { published: publish { title } }")
           alphaSent <- alpha.requests.get
           betaSent  <- beta.requests.get
         } yield assertTrue(
@@ -547,28 +503,23 @@ object MultiSourceSpec extends ZIOSpecDefault {
           "type Query { reviews: [String!]! } type Mutation { addReview(text: String!): Boolean! }"
 
         for {
-          products  <- stub("""{"data":{"updated":true}}""")
-          reviews   <- stub("""{"data":{"added":true}}""")
-          gateway   <- Gateway
-                         .compose(
-                           Subgraph.graphql("products", products.endpoint, productsSchema),
-                           Subgraph.graphql("reviews", reviews.endpoint, reviewsSchema)
-                         )
-                         .interpreter
-          response  <- gateway.execute(
-                         """mutation {
+          products     <- stub("""{"data":{"updated":true}}""")
+          reviews      <- stub("""{"data":{"added":true}}""")
+          runtime      <- graphqlProductsAndReviews(products, reviews, productsSchema, reviewsSchema).interpreter
+          response     <- runtime.execute(
+                            """mutation {
                           |  updated: updateProduct(id: "p1")
                           |  updated: updateProduct(id: "p1")
                           |}""".stripMargin
-                       )
-          sent      <- products.requests.get
-          untouched <- reviews.requests.get
-          names      = fieldNames(response.data)
+                          )
+          productsSent <- products.requests.get
+          reviewsSent  <- reviews.requests.get
+          names         = fieldNames(response.data)
         } yield assertTrue(
           response.errors.isEmpty,
           names == List("updated"),
-          sent.size == 1,
-          untouched.isEmpty
+          productsSent.size == 1,
+          reviewsSent.isEmpty
         )
       },
       test("rejects custom operation directives in split requests") {
@@ -578,25 +529,20 @@ object MultiSourceSpec extends ZIOSpecDefault {
           "type Query { reviews: [String!]! }"
 
         for {
-          products    <- stub("""{"data":{"product":"Table"}}""")
-          reviews     <- stub("""{"data":{"reviews":["Solid"]}}""")
-          gateway     <- Gateway
-                           .compose(
-                             Subgraph.graphql("products", products.endpoint, productsSchema),
-                             Subgraph.graphql("reviews", reviews.endpoint, reviewsSchema)
-                           )
-                           .interpreter
-          response    <- gateway.execute(
-                           """query Traced @trace(label: "client") { product reviews }""",
-                           Some("Traced")
-                         )
-          productSent <- products.requests.get
-          reviewSent  <- reviews.requests.get
+          products     <- stub("""{"data":{"product":"Table"}}""")
+          reviews      <- stub("""{"data":{"reviews":["Solid"]}}""")
+          runtime      <- graphqlProductsAndReviews(products, reviews, productsSchema, reviewsSchema).interpreter
+          response     <- runtime.execute(
+                            """query Traced @trace(label: "client") { product reviews }""",
+                            Some("Traced")
+                          )
+          productsSent <- products.requests.get
+          reviewsSent  <- reviews.requests.get
         } yield assertTrue(
           response.data == NullValue,
           response.errors.map(_.msg) == List("Custom executable directives are not supported by this gateway."),
-          productSent.isEmpty,
-          reviewSent.isEmpty
+          productsSent.isEmpty,
+          reviewsSent.isEmpty
         )
       },
       test("rejects custom fragment-definition directives before routing") {
@@ -606,37 +552,31 @@ object MultiSourceSpec extends ZIOSpecDefault {
           "directive @trace on FRAGMENT_DEFINITION type Query { reviews: [String!]! }"
 
         for {
-          products    <- stub("""{"data":{"product":"Table"}}""")
-          reviews     <- stub("""{"data":{"reviews":["Solid"]}}""")
-          gateway     <- Gateway
-                           .compose(
-                             Subgraph.graphql("products", products.endpoint, productsSchema),
-                             Subgraph.graphql("reviews", reviews.endpoint, reviewsSchema)
-                           )
-                           .interpreter
-          response    <- gateway.execute(
-                           """query { ...Fields } fragment Fields on Query @trace { product reviews }"""
-                         )
-          productSent <- products.requests.get
-          reviewSent  <- reviews.requests.get
+          products     <- stub("""{"data":{"product":"Table"}}""")
+          reviews      <- stub("""{"data":{"reviews":["Solid"]}}""")
+          runtime      <- graphqlProductsAndReviews(products, reviews, productsSchema, reviewsSchema).interpreter
+          response     <- runtime.execute(
+                            """query { ...Fields } fragment Fields on Query @trace { product reviews }"""
+                          )
+          productsSent <- products.requests.get
+          reviewsSent  <- reviews.requests.get
         } yield assertTrue(
           response.errors.map(_.msg) == List("Custom executable directives are not supported by this gateway."),
-          productSent.isEmpty,
-          reviewSent.isEmpty
+          productsSent.isEmpty,
+          reviewsSent.isEmpty
         )
       }
     ),
     suite("composition")(
       test("accumulates deterministic source-attributed composition diagnostics") {
-        val endpoint = unreachableEndpoint
-        val alpha    = Subgraph.graphql(
+        val alpha = Subgraph.graphql(
           "alpha",
-          endpoint,
+          unreachableEndpoint,
           "type Query { duplicate: String alpha: Product } type Product { value: String }"
         )
-        val beta     = Subgraph.graphql(
+        val beta  = Subgraph.graphql(
           "beta",
-          endpoint,
+          unreachableEndpoint,
           "type Query { duplicate: Int beta: Product } type Product { value: Int }"
         )
 
@@ -657,10 +597,9 @@ object MultiSourceSpec extends ZIOSpecDefault {
         )
       },
       test("rejects compatible duplicate roots from ordinary subgraphs") {
-        val endpoint = unreachableEndpoint
-        val schema   = "type Query { duplicate: String }"
-        val alpha    = Subgraph.graphql("alpha", endpoint, schema)
-        val beta     = Subgraph.graphql("beta", endpoint, schema)
+        val schema = "type Query { duplicate: String }"
+        val alpha  = Subgraph.graphql("alpha", unreachableEndpoint, schema)
+        val beta   = Subgraph.graphql("beta", unreachableEndpoint, schema)
 
         for {
           forward <- Gateway.compose(alpha, beta).interpreter.exit

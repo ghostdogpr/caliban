@@ -1,5 +1,6 @@
 package caliban.gateway.internal.composition
 
+import caliban.gateway.{ innerParentTypeName, EntitiesField }
 import caliban.execution.{ isMetaField, Field }
 import caliban.gateway.OperationPolicy.{ SecurityDirective, SecurityRequirement }
 import caliban.gateway.internal.composition.ComposedGraph._
@@ -70,15 +71,14 @@ private[composition] final class OperationSecurity(
     else {
       val lookups = plan.entities.flatMap(lookupRequirements)
       val fields  = plan.roots.flatMap(_.downstream) ::: plan.entities.flatMap(_.fields)
-      (lookups ::: collectRequirements(fields, atRoot = false))
-        .filter(_.directives.contains(SecurityDirective.UnsupportedPolicy))
+      policyRequirements(lookups ::: collectRequirements(fields, atRoot = false))
     }
 
   private def lookupRequirements(fetch: EntityFetch): List[SecurityRequirement] = {
     val (lookupField, correlationFields) = fetch.lookup.operation match {
-      case LookupOperation.GraphQLQuery(name, _, LookupResult.ByKey(fields)) => name        -> fields.keys.toList
-      case LookupOperation.GraphQLQuery(name, _, LookupResult.Single)        => name        -> Nil
-      case _: LookupOperation.FederationEntities                             => "_entities" -> Nil
+      case LookupOperation.GraphQLQuery(name, _, LookupResult.ByKey(fields)) => name          -> fields.keys.toList
+      case LookupOperation.GraphQLQuery(name, _, LookupResult.Single)        => name          -> Nil
+      case _: LookupOperation.FederationEntities                             => EntitiesField -> Nil
     }
     val fields                           = fieldsForNames(fetch.source, "Query", lookupField :: Nil) :::
       fieldsForNames(fetch.source, fetch.entityType, correlationFields)
@@ -125,7 +125,7 @@ private[composition] final class OperationSecurity(
     fields.flatMap { field =>
       if (isMetaField(field)) Nil
       else {
-        val parentType       = field.parentType.flatMap(_.innerType.name).getOrElse("")
+        val parentType       = innerParentTypeName(field)
         val outputType       = field.fieldType.innerType.name.getOrElse("")
         val direct           = requirementsAt(parentType, Some(field.name))
         val rootRequirements = if (atRoot) requirementsAt(parentType, None) else Nil
@@ -136,35 +136,29 @@ private[composition] final class OperationSecurity(
         }
         val output           = requirementsAt(outputType, None)
         val relatedOutput    = securedTypes.flatMap { typeName =>
-          if (typeName != outputType && typesOverlap(outputType, typeName, None))
-            requirementsAt(typeName, None)
+          if (typeName != outputType && typesOverlap(outputType, typeName, None)) requirementsAt(typeName, None)
           else Nil
         }
         // Only @policy expands runtime checks to implicit dependencies. Auth/scopes retain their existing
         // client-selection checks and composition-time @requires checks; injected keys add neither.
         val dependencies     =
-          if (!hasUnsupportedPolicies) Nil
-          else {
-            val fieldKey = TypeField(parentType, field.name)
-            // Break dependency cycles along this path without suppressing sibling selections.
-            if (visited(fieldKey)) Nil
-            else
-              dependenciesByField.getOrElse(fieldKey, Nil).flatMap { dependency =>
-                collectRequirements(
-                  fieldsFromSelections(dependency.source, dependency.dependencyType, dependency.selections),
-                  atRoot = false,
-                  visited + fieldKey
-                )
-                  .filter(_.directives.contains(SecurityDirective.UnsupportedPolicy))
-              }
-          }
-        rootRequirements ::: direct ::: relatedFields ::: output ::: relatedOutput ::: dependencies ::: collectRequirements(
-          field.fields,
-          atRoot = false,
-          visited
-        )
+          if (hasUnsupportedPolicies) dependencyRequirements(TypeField(parentType, field.name), visited) else Nil
+        val nested           = collectRequirements(field.fields, atRoot = false, visited)
+        rootRequirements ::: direct ::: relatedFields ::: output ::: relatedOutput ::: dependencies ::: nested
       }
     }
+
+  private def dependencyRequirements(fieldKey: TypeField, visited: Set[TypeField]): List[SecurityRequirement] =
+    // Break dependency cycles along this path without suppressing sibling selections.
+    if (visited(fieldKey)) Nil
+    else
+      dependenciesByField.getOrElse(fieldKey, Nil).flatMap { dependency =>
+        val fields = fieldsFromSelections(dependency.source, dependency.dependencyType, dependency.selections)
+        policyRequirements(collectRequirements(fields, atRoot = false, visited + fieldKey))
+      }
+
+  private def policyRequirements(requirements: List[SecurityRequirement]): List[SecurityRequirement] =
+    requirements.filter(_.directives.contains(SecurityDirective.UnsupportedPolicy))
 
   private def fieldsForNames(source: String, parent: String, names: List[String]): List[Field] =
     fieldsFromSelections(source, parent, names.map(name => Selection.Field(None, name, Map.empty, Nil, Nil, 0)))

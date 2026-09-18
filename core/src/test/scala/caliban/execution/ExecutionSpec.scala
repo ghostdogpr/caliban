@@ -454,6 +454,20 @@ object ExecutionSpec extends ZIOSpecDefault {
           variable.data.toString == """{"test":"456"}"""
         )
       },
+      test("coerces a single integer literal for a list of String-backed IDs") {
+        final case class StringId(value: String)
+        implicit val idSchema: Schema[Any, StringId]    =
+          Schema.scalarSchema("ID", None, None, None, id => StringValue(id.value))
+        implicit val idArgBuilder: ArgBuilder[StringId] = ArgBuilder.string.map(StringId.apply)
+        case class IdsArgs(ids: List[StringId])
+        case class Queries(test: IdsArgs => List[StringId])
+        val interpreter                                 = graphQL(RootResolver(Queries(_.ids))).interpreter
+
+        for {
+          api      <- interpreter
+          response <- api.execute("{ test(ids: 1) }")
+        } yield assertTrue(response.data.toString == """{"test":["1"]}""")
+      },
       test("mapError preserves response metadata") {
         val response    = GraphQLResponse(
           Value.StringValue("data"),

@@ -84,7 +84,7 @@ object PhaseHandler {
    * Similar to [[incoming]] but does not modify the incoming event.
    */
   def incomingDiscard[R, Ev, Err](incoming: Ev => ZIO[R, Err, Unit]): PhaseHandler[R, Ev, Err, Any] =
-    Incoming((ev: Ev) => incoming(ev).as(ev))
+    Incoming((event: Ev) => incoming(event).as(event))
 
   /**
    * Constructs a PhaseHandler that only performs an outgoing phase, for post-processing side-effects. It cannot
@@ -135,8 +135,8 @@ object PhaseHandler {
     def runWith[R1 <: R, E >: Err, A](event: Ev)(fn: Ev => ZIO[R1, E, A])(
       result: Exit[E, A] => Out
     )(implicit trace: Trace): ZIO[R1, E, A] = ZIO.uninterruptibleMask { restore =>
-      restore(incoming(event)).flatMap { case (ev, ctx) =>
-        restore(fn(ev)).onExit(exit => outgoing(ev, ctx, result(exit)))
+      restore(incoming(event)).flatMap { case (updated, ctx) =>
+        restore(fn(updated)).onExit(exit => outgoing(updated, ctx, result(exit)))
       }
     }
   }

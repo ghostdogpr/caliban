@@ -15,7 +15,6 @@ import caliban.parsing.adt.Definition.TypeSystemExtension.SchemaExtension
 import caliban.parsing.adt.Definition.TypeSystemExtension.TypeExtension.ObjectTypeExtension
 import caliban.parsing.adt.Document
 import caliban.parsing.adt.Type.NamedType
-import caliban.schema.RootType
 import caliban.tools.RemoteSchema
 import zio._
 
@@ -43,42 +42,11 @@ final class Gateway[-R] private[gateway] (
    * Builds a stable interpreter that polls acquired remote schemas and replaces changed generations.
    * Pinned schemas and local graphs remain fixed. Admission limits apply separately to each generation.
    */
-  def reloadable(implicit trace: Trace): ZIO[Scope, GatewayBuildError, ReloadableGatewayInterpreter[R]] = {
-    val originDiagnostics = origin match {
-      case Origin.FromSupergraph(supergraph) =>
-        val refreshable =
-          if (supergraph.source.refreshable) Nil
-          else List("Gateway reload from supergraph requires a remote source.")
-
-        val uplink = supergraph.source match {
-          case Supergraph.Source.Uplink(uplinkConfig) =>
-            // Uplink asks clients not to poll faster than the `minDelaySeconds` it answers with, and
-            // Apollo's published floor is ten seconds. Jitter is what reaches the wire, so the fastest
-            // poll the configuration permits is what has to clear the floor.
-            val floor =
-              if (config.minimumReloadPollInterval < 10.seconds)
-                List("Supergraph uplink polling requires a reload poll interval of at least ten seconds.")
-              else Nil
-            uplinkConfig.diagnostics ::: floor
-          case _                                      => Nil
-        }
-
-        refreshable ::: uplink
-      case Origin.Composed(subgraphs)        =>
-        val acquired = subgraphs.exists(_.source match {
-          case Source.Remote(_, SchemaInput.Acquired, _, _) => true
-          case _                                            => false
-        })
-        Gateway.nameDiagnostics(subgraphs) :::
-          (if (acquired) Nil else List("Gateway reload requires at least one acquired remote schema."))
-    }
-
-    val diagnostics = config.diagnostics ::: originDiagnostics
-
-    ZIO.fail(GatewayBuildError.InvalidConfiguration(diagnostics)).when(diagnostics.nonEmpty) *>
+  def reloadable(implicit trace: Trace): ZIO[Scope, GatewayBuildError, ReloadableGatewayInterpreter[R]] =
+    validate(config.diagnostics ::: reloadDiagnostics) *>
       buildInChildScope(
         openHttpClient.flatMap { http =>
-          val acquirer = origin match {
+          val acquire = origin match {
             case Origin.Composed(subgraphs)        => Exit.succeed(acquireSubgraphSnapshot(subgraphs, http))
             case Origin.FromSupergraph(supergraph) =>
               SupergraphAcquisition
@@ -86,7 +54,7 @@ final class Gateway[-R] private[gateway] (
                 .map(acquireSupergraphSnapshot(supergraph, _))
           }
 
-          acquirer.flatMap(
+          acquire.flatMap(
             ReloadableGatewayInterpreterImpl.make(
               _,
               config.reloadPollInterval,
@@ -97,7 +65,6 @@ final class Gateway[-R] private[gateway] (
           )
         }
       )
-  }
 
   /**
    * Transforms the finite operation and admission limits used by each built interpreter.
@@ -131,15 +98,43 @@ final class Gateway[-R] private[gateway] (
     withPhaseHooks(hooks)
 
   private[gateway] def build(implicit trace: Trace): ZIO[Scope, GatewayBuildError, GatewayInterpreterImpl[R]] = {
-    val diagnostics = config.diagnostics ::: (origin match {
+    val originDiagnostics = origin match {
       case Origin.Composed(subgraphs) => Gateway.nameDiagnostics(subgraphs)
       // Subgraph names come from the supergraph's graph registry, which the decomposition validates.
       case Origin.FromSupergraph(_)   => Nil
-    })
+    }
 
-    ZIO.fail(GatewayBuildError.InvalidConfiguration(diagnostics)).when(diagnostics.nonEmpty) *>
+    validate(config.diagnostics ::: originDiagnostics) *>
       buildInChildScope(openHttpClient.flatMap(buildInterpreter))
   }
+
+  private def reloadDiagnostics: List[String] =
+    origin match {
+      case Origin.FromSupergraph(supergraph) =>
+        val uplink = supergraph.source match {
+          case Supergraph.Source.Uplink(uplinkConfig) =>
+            // Uplink asks clients not to poll faster than the `minDelaySeconds` it answers with, and
+            // Apollo's published floor is ten seconds. Jitter is what reaches the wire, so the fastest
+            // poll the configuration permits is what has to clear the floor.
+            uplinkConfig.diagnostics ::: check(
+              config.minimumReloadPollInterval >= Gateway.UplinkMinPollInterval,
+              "Supergraph uplink polling requires a reload poll interval of at least ten seconds."
+            )
+          case _                                      => Nil
+        }
+
+        check(supergraph.source.refreshable, "Gateway reload from supergraph requires a remote source.") ::: uplink
+      case Origin.Composed(subgraphs)        =>
+        val acquired = subgraphs.exists(_.source match {
+          case Source.Remote(_, SchemaInput.Acquired, _, _) => true
+          case _                                            => false
+        })
+        Gateway.nameDiagnostics(subgraphs) :::
+          check(acquired, "Gateway reload requires at least one acquired remote schema.")
+    }
+
+  private def validate(diagnostics: List[String])(implicit trace: Trace): IO[GatewayBuildError, Unit] =
+    ZIO.fail(GatewayBuildError.InvalidConfiguration(diagnostics)).when(diagnostics.nonEmpty).unit
 
   private def openHttpClient(implicit trace: Trace): ZIO[Scope, GatewayBuildError, Option[GatewayHttpClient]] =
     if (origin.hasRemote) GatewayHttpClient.make.asSome.mapError(TransportInitializationFailed(_))
@@ -157,7 +152,7 @@ final class Gateway[-R] private[gateway] (
                           .flatMap(decomposeSupergraph(supergraph, _))
                           .map(_._1)
                     }
-      loaded     <- loadAll(subgraphs)(subgraph => Gateway.load(subgraph, http, config.remoteErrorMessages, hooks))
+      loaded     <- loadAll(subgraphs)(Gateway.load(_, http, config.remoteErrorMessages, hooks))
       graph      <- ZIO
                       .fromEither(SchemaComposer.compose(loaded.map(_.subgraph)))
                       .mapError(errors => SchemaCompositionFailed(errors.distinct.sorted))
@@ -226,34 +221,7 @@ final class Gateway[-R] private[gateway] (
     http: Option[GatewayHttpClient]
   )(implicit trace: Trace): IO[GatewayBuildError, Gateway.Snapshot[R1]] =
     for {
-      loaded <- loadAll(subgraphs) { subgraph =>
-                  subgraph.source match {
-                    case Source.Remote(endpoint, SchemaInput.Acquired, federation, remoteConfig) =>
-                      val diagnostics = remoteConfig.diagnostics(includeAcquisition = true)
-                      (ZIO.fail(SubgraphBuildError.InvalidConfiguration(diagnostics)).when(diagnostics.nonEmpty) *>
-                        Gateway
-                          .requireHttp(http)
-                          .flatMap(
-                            RemoteSchemaAcquisition.load(
-                              SchemaInput.Acquired,
-                              endpoint,
-                              federation,
-                              remoteConfig.acquisition,
-                              _
-                            )
-                          )).map { document =>
-                        val pinned = new Subgraph[R1](
-                          subgraph.name,
-                          Source.Remote(endpoint, SchemaInput.Parsed(document), federation, remoteConfig),
-                          subgraph.lookups,
-                          subgraph.transformations
-                        )
-                        (pinned, Some(SchemaFingerprint(document)))
-                      }
-                    case _                                                                       =>
-                      ZIO.succeed(subgraph -> Option.empty[String])
-                  }
-                }
+      loaded <- loadAll(subgraphs)(Gateway.pinAcquiredSchema(_, http))
     } yield Gateway.Snapshot(
       new Gateway(Origin.Composed(loaded.map(_._1)), resolver, policy, config, hooks),
       loaded.flatMap(_._2)
@@ -304,8 +272,7 @@ object Gateway {
     }
   }
 
-  private def requireHttp(http: Option[GatewayHttpClient]): IO[SubgraphBuildError, GatewayHttpClient] =
-    ZIO.fromOption(http).orElseFail(RemoteTransportUnavailable)
+  private val UplinkMinPollInterval = 10.seconds
 
   private def load[R](
     subgraph: Subgraph[R],
@@ -314,114 +281,109 @@ object Gateway {
     hooks: PhaseHooks[R]
   )(implicit trace: Trace): ZIO[Scope, SubgraphBuildError, LoadedSubgraph[R]] =
     subgraph.source match {
-      case Source.Remote(endpoint, schema, federation, config) =>
-        val policyDiagnostics = config.diagnostics(schema == SchemaInput.Acquired)
+      case remote @ Source.Remote(endpoint, _, federation, config) =>
         for {
-          _                <- ZIO
-                                .fail(SubgraphBuildError.InvalidConfiguration(policyDiagnostics))
-                                .when(policyDiagnostics.nonEmpty)
-          httpClient       <- Gateway.requireHttp(http)
-          document         <- RemoteSchemaAcquisition
-                                .load(schema, endpoint, federation, config.acquisition, httpClient)
-          rootDocument      = ensureFederationTransportQuery(document, federation)
-          normalized       <- ZIO
-                                .fromEither(RemoteSchema.normalize(rootDocument, promoteOrphans = federation))
-                                .mapError(InvalidSchema(_))
-          preparedSubgraph <- ZIO.fromEither(
-                                prepareSubgraph(
-                                  subgraph,
-                                  normalized.rootType,
-                                  normalized.document,
-                                  document,
-                                  federation
-                                )
-                              )
-          executor         <- RemoteSubgraphExecutor.make(
-                                subgraph.name,
-                                endpoint,
-                                httpClient,
-                                config,
-                                hooks,
-                                remoteErrorMessages
-                              )
-        } yield LoadedSubgraph(preparedSubgraph, executor)
-      case Source.Local(graph)                                 =>
+          httpClient  <- requireHttpClient(remote, http)
+          document    <- RemoteSchemaAcquisition.load(remote, httpClient)
+          rootDocument = ensureFederationTransportQuery(document, federation)
+          normalized  <- ZIO
+                           .fromEither(RemoteSchema.normalize(rootDocument, promoteOrphans = federation))
+                           .mapError(InvalidSchema(_))
+          prepared    <- ZIO.fromEither(prepareSubgraph(subgraph, normalized, document, federation))
+          executor    <-
+            RemoteSubgraphExecutor.make(subgraph.name, endpoint, httpClient, config, hooks, remoteErrorMessages)
+        } yield LoadedSubgraph(prepared, executor)
+      case Source.Local(graph)                                     =>
         val document   = graph.toDocument
         val federation = SchemaComposer.isFederation(document)
         for {
-          normalized       <- ZIO
-                                .fromEither(RemoteSchema.normalize(document))
-                                .mapError(InvalidSchema(_))
-          preparedSubgraph <- ZIO.fromEither(
-                                prepareSubgraph(
-                                  subgraph,
-                                  normalized.rootType,
-                                  normalized.document,
-                                  document,
-                                  federation
-                                )
-                              )
-          interpreter      <- ZIO.fromEither(graph.interpreterEither).mapError(InvalidSchema(_))
-        } yield LoadedSubgraph(preparedSubgraph, new LocalSubgraphExecutor(interpreter))
+          normalized  <- ZIO.fromEither(RemoteSchema.normalize(document)).mapError(InvalidSchema(_))
+          prepared    <- ZIO.fromEither(prepareSubgraph(subgraph, normalized, document, federation))
+          interpreter <- ZIO.fromEither(graph.interpreterEither).mapError(InvalidSchema(_))
+        } yield LoadedSubgraph(prepared, new LocalSubgraphExecutor(interpreter))
     }
+
+  private def pinAcquiredSchema[R](subgraph: Subgraph[R], http: Option[GatewayHttpClient])(implicit
+    trace: Trace
+  ): IO[SubgraphBuildError, (Subgraph[R], Option[String])] =
+    subgraph.source match {
+      case remote @ Source.Remote(_, SchemaInput.Acquired, _, _) =>
+        requireHttpClient(remote, http)
+          .flatMap(RemoteSchemaAcquisition.load(remote, _))
+          .map { document =>
+            val pinned = remote.copy(schema = SchemaInput.Parsed(document))
+            (
+              new Subgraph[R](subgraph.name, pinned, subgraph.lookups, subgraph.transformations),
+              Some(SchemaFingerprint(document))
+            )
+          }
+      case _                                                     =>
+        ZIO.succeed(subgraph -> None)
+    }
+
+  private def requireHttpClient(remote: Source.Remote[_], http: Option[GatewayHttpClient])(implicit
+    trace: Trace
+  ): IO[SubgraphBuildError, GatewayHttpClient] = {
+    val diagnostics = remote.config.diagnostics(includeAcquisition = remote.schema == SchemaInput.Acquired)
+    ZIO.fail(SubgraphBuildError.InvalidConfiguration(diagnostics)).when(diagnostics.nonEmpty) *>
+      ZIO.fromOption(http).orElseFail(RemoteTransportUnavailable)
+  }
 
   private def decomposeSupergraph[R](
     supergraph: Supergraph[R],
     loader: SupergraphAcquisition.Loader
   )(implicit trace: Trace): IO[GatewayBuildError, (List[Subgraph[R]], List[String])] =
     for {
-      supergraphDoc <- loader.load.mapError(SupergraphAcquisitionFailed(_))
-      projected     <- ZIO
-                         .fromEither(SupergraphDecomposition.decompose(supergraphDoc))
-                         .mapError(SupergraphDecompositionFailed(_))
-      subgraphs      = projected.map(p =>
-                         Subgraph.federation(
-                           name = p.graph.name,
-                           endpoint = supergraph.endpoints(p.graph.name).getOrElse(p.graph.url),
-                           schema = p.document,
-                           config = supergraph.config(p.graph.name)
-                         )
+      document    <- loader.load.mapError(SupergraphAcquisitionFailed(_))
+      projections <- ZIO
+                       .fromEither(SupergraphDecomposition.decompose(document))
+                       .mapError(SupergraphDecompositionFailed(_))
+      subgraphs    = projections.map(projection =>
+                       Subgraph.federation(
+                         name = projection.graph.name,
+                         endpoint = supergraph.endpoints(projection.graph.name).getOrElse(projection.graph.url),
+                         schema = projection.document,
+                         config = supergraph.config(projection.graph.name)
                        )
-    } yield subgraphs -> List(SchemaFingerprint(supergraphDoc))
+                     )
+    } yield subgraphs -> List(SchemaFingerprint(document))
 
   private final case class LoadedSubgraph[-R](subgraph: PreparedSubgraph, executor: SubgraphExecutor[R])
 
   private[gateway] def prepareSubgraph[R](
     subgraph: Subgraph[R],
-    sourceRootType: RootType,
-    normalizedDocument: Document,
+    normalized: RemoteSchema.Normalized,
     sourceDocument: Document,
     federation: Boolean
   ): Either[SubgraphBuildError, PreparedSubgraph] =
     for {
-      mapping       <- SchemaMapping
-                         .compile(
-                           subgraph.name,
-                           sourceRootType,
-                           normalizedDocument,
-                           federation,
-                           subgraph.transformations
-                         )
-                         .left
-                         .map(InvalidTransformations(_))
+      mapping       <-
+        SchemaMapping
+          .compile(subgraph.name, normalized.rootType, normalized.document, federation, subgraph.transformations)
+          .left
+          .map(InvalidTransformations(_))
       extensionTypes = SchemaComposer.federation1ExtensionTypes(sourceDocument).map(mapping.clientType)
-      normalized    <- if (mapping.nonEmpty)
+      transformed   <- if (mapping.nonEmpty)
                          RemoteSchema
-                           .normalize(mapping.transform(normalizedDocument), promoteOrphans = federation)
+                           .normalize(mapping.transform(normalized.document), promoteOrphans = federation)
                            .left
                            .map(InvalidSchema(_))
-                       else Right(RemoteSchema.Normalized(sourceRootType, normalizedDocument))
+                       else Right(normalized)
     } yield PreparedSubgraph(
       subgraph.name,
-      normalized.rootType,
-      normalized.document,
+      transformed.rootType,
+      transformed.document,
       federation,
       subgraph.lookups.map(mapping.transform),
       mapping,
       extensionTypes
     )
 
-  private def ensureFederationTransportQuery(document: Document, federation: Boolean): Document = {
+  private def ensureFederationTransportQuery(document: Document, federation: Boolean): Document =
+    if (!federation || hasQueryRoot(document)) document
+    else addFederationQueryRoot(document)
+
+  private def hasQueryRoot(document: Document): Boolean = {
     val schemaExtensions     = document.typeExtensions.collect { case extension: SchemaExtension => extension }
     val hasDeclaredQuery     =
       document.schemaDefinition.flatMap(_.query).nonEmpty || schemaExtensions.exists(_.query.nonEmpty)
@@ -433,64 +395,61 @@ object Gateway {
             case _                              => false
           }
       )
+    hasDeclaredQuery || hasConventionalQuery
+  }
 
-    if (!federation || hasDeclaredQuery || hasConventionalQuery) document
-    else {
-      val names    = document.typeDefinitions.iterator.map(_.name).toSet ++ document.typeExtensions.collect {
-        case extension: ObjectTypeExtension => extension.name
-      }
-      val rootName = Iterator
-        .from(1)
-        .map(index => if (index == 1) "CalibanGatewayFederationQuery" else s"CalibanGatewayFederationQuery$index")
-        .find(name => !names.contains(name))
-        .get
-      val root     = ObjectTypeDefinition(
-        None,
-        rootName,
-        Nil,
-        Nil,
-        List(FieldDefinition(None, "_service", Nil, NamedType("_Service", nonNull = true), Nil))
-      )
-      val service  =
-        if (names.contains("_Service")) Nil
-        else
-          List(
-            ObjectTypeDefinition(
-              None,
-              "_Service",
-              Nil,
-              Nil,
-              List(FieldDefinition(None, "sdl", Nil, NamedType("String", nonNull = true), Nil))
-            )
-          )
-      val schema   = document.schemaDefinition match {
-        case Some(_) =>
-          document.definitions.map {
-            case definition: SchemaDefinition if definition.query.isEmpty => definition.copy(query = Some(rootName))
-            case definition                                               => definition
-          }
-        case None    =>
-          SchemaDefinition(
-            Nil,
-            Some(rootName),
-            if (names.contains("Mutation")) Some("Mutation") else None,
-            if (names.contains("Subscription")) Some("Subscription") else None,
-            None
-          ) :: document.definitions
-      }
-
-      Document(schema ::: root :: service, document.sourceMapper)
+  private def addFederationQueryRoot(document: Document): Document = {
+    val names    = document.typeDefinitions.iterator.map(_.name).toSet ++ document.typeExtensions.collect {
+      case extension: ObjectTypeExtension => extension.name
     }
+    val rootName = Iterator
+      .from(1)
+      .map(index => if (index == 1) "CalibanGatewayFederationQuery" else s"CalibanGatewayFederationQuery$index")
+      .find(name => !names.contains(name))
+      .get
+    val root     = ObjectTypeDefinition(
+      None,
+      rootName,
+      Nil,
+      Nil,
+      List(FieldDefinition(None, ServiceField, Nil, NamedType(ServiceType, nonNull = true), Nil))
+    )
+    val service  =
+      if (names.contains(ServiceType)) Nil
+      else
+        List(
+          ObjectTypeDefinition(
+            None,
+            ServiceType,
+            Nil,
+            Nil,
+            List(FieldDefinition(None, "sdl", Nil, NamedType("String", nonNull = true), Nil))
+          )
+        )
+    val schema   = document.schemaDefinition match {
+      case Some(_) =>
+        document.definitions.map {
+          case definition: SchemaDefinition if definition.query.isEmpty => definition.copy(query = Some(rootName))
+          case definition                                               => definition
+        }
+      case None    =>
+        SchemaDefinition(
+          Nil,
+          Some(rootName),
+          if (names.contains("Mutation")) Some("Mutation") else None,
+          if (names.contains("Subscription")) Some("Subscription") else None,
+          None
+        ) :: document.definitions
+    }
+
+    Document(schema ::: root :: service, document.sourceMapper)
   }
 
   private def nameDiagnostics[R](subgraphs: List[Subgraph[R]]): List[String] = {
     val blank     = subgraphs.collect {
       case subgraph if subgraph.name.trim.isEmpty => "[subgraph] Name must not be empty."
     }
-    val duplicate = subgraphs
-      .groupBy(_.name)
-      .collect { case (name, values) if values.size > 1 => s"[subgraph '$name'] Name is used more than once." }
-      .toList
+    val duplicate = duplicates(subgraphs.map(_.name)).map(name => s"[subgraph '$name'] Name is used more than once.")
 
     (blank ::: duplicate).sorted
   }

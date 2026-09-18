@@ -28,10 +28,10 @@ final case class SupergraphUplinkConfig private (
     copy(acquisition = acquisition)
 
   private[gateway] def diagnostics: List[String] =
-    acquisition.diagnostics ::: (if (graphRef.nonEmpty) Nil
-                                 else List("Supergraph uplink graph ref must not be empty.")) :::
-      (if (apiKey.value.nonEmpty) Nil else List("Supergraph uplink apikey must not be empty.")) :::
-      (if (endpoints.nonEmpty) Nil else List("Supergraph uplink must have at least one endpoint."))
+    acquisition.diagnostics :::
+      check(graphRef.nonEmpty, "Supergraph uplink graph ref must not be empty.") :::
+      check(apiKey.value.nonEmpty, "Supergraph uplink apikey must not be empty.") :::
+      check(endpoints.nonEmpty, "Supergraph uplink must have at least one endpoint.")
 
 }
 

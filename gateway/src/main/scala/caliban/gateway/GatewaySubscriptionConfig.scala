@@ -1,5 +1,6 @@
 package caliban.gateway
 
+import caliban.gateway.GatewayConfigValidation._
 import zio.Duration
 
 /**
@@ -11,11 +12,9 @@ final case class GatewaySubscriptionConfig(
   setupTimeout: Duration = Duration.fromSeconds(30),
   eventTimeout: Duration = Duration.fromSeconds(30)
 ) {
-  private[gateway] def diagnostics: List[String] = {
-    import GatewayConfigValidation._
+  private[gateway] def diagnostics: List[String] =
     positive(maxActive, "Subscription maxActive must be positive.") :::
       positive(bufferSize, "Subscription bufferSize must be positive.") :::
       finitePositive(setupTimeout, "Subscription setupTimeout must be finite and positive.") :::
       finitePositive(eventTimeout, "Subscription eventTimeout must be finite and positive.")
-  }
 }

@@ -6,14 +6,14 @@ import caliban.gateway.internal.OperationHooks
 import caliban.{ CalibanError, GraphQLRequest, InputValue, ResponseValue }
 import caliban.Value.StringValue
 import zio._
+import zio.http.URL
 import zio.test._
 
 object OperationResolverSpec extends ZIOSpecDefault {
 
-  private val schema   = "type Query { value(input: String): String }"
-  private val query    = "query Value($input: String) { value(input: $input) }"
-  private val response = """{"data":{"value":"ok"}}"""
-  private val request  = GraphQLRequest(
+  private val schema  = "type Query { value(input: String): String }"
+  private val query   = "query Value($input: String) { value(input: $input) }"
+  private val request = GraphQLRequest(
     operationName = Some("Value"),
     variables = Some(Map("input" -> StringValue("hello"))),
     extensions = Some(Map("documentId" -> StringValue("value-v1")))
@@ -25,13 +25,18 @@ object OperationResolverSpec extends ZIOSpecDefault {
   private def code(error: CalibanError): Option[ResponseValue] =
     field(error.toResponseValue, "extensions").flatMap(field(_, "code"))
 
+  private def remoteGateway(endpoint: URL): Gateway[Any] =
+    Gateway.compose(Subgraph.graphql("remote", endpoint, schema))
+
+  private def resolverHooks(resolver: OperationResolver[Any]): OperationHooks[Any] =
+    new OperationHooks[Any](_ => Nil, Some(resolver), None, PhaseHooks.empty)
+
   def spec = suite("OperationResolverSpec")(
     test("trusted documents override client text and preserve request fields, including on cache hits") {
       for {
-        remote   <- stub(response)
+        remote   <- stub(okResponse)
         seen     <- Ref.make(List.empty[GraphQLRequest])
-        runtime  <- Gateway
-                      .compose(Subgraph.graphql("remote", remote.endpoint, schema))
+        runtime  <- remoteGateway(remote.endpoint)
                       .withOperationResolver(OperationResolver.trustedDocuments(Map("value-v1" -> query))(documentId))
                       .withOperationPolicy(
                         OperationPolicy[Any](operation => seen.update(_ :+ operation.request).as(OperationPolicy.Allow))
@@ -61,11 +66,10 @@ object OperationResolverSpec extends ZIOSpecDefault {
       val unknown = request.copy(extensions = Some(Map("documentId" -> StringValue("private-unknown-id"))))
 
       for {
-        remote      <- stub(response)
+        remote      <- stub(okResponse)
         policyCalls <- Ref.make(0)
         runtime     <-
-          Gateway
-            .compose(Subgraph.graphql("remote", remote.endpoint, schema))
+          remoteGateway(remote.endpoint)
             .withOperationResolver(OperationResolver.trustedDocuments(Map("value-v1" -> query))(documentId))
             .withOperationPolicy(OperationPolicy[Any](_ => policyCalls.update(_ + 1).as(OperationPolicy.Allow)))
             .interpreter
@@ -94,9 +98,8 @@ object OperationResolverSpec extends ZIOSpecDefault {
     },
     test("resolves explain requests while check still validates literal text") {
       for {
-        remote   <- stub(response)
-        runtime  <- Gateway
-                      .compose(Subgraph.graphql("remote", remote.endpoint, schema))
+        remote   <- stub(okResponse)
+        runtime  <- remoteGateway(remote.endpoint)
                       .withOperationResolver(OperationResolver.trustedDocuments(Map("value-v1" -> query))(documentId))
                       .interpreter
         plan     <- runtime.explain(request)
@@ -116,7 +119,7 @@ object OperationResolverSpec extends ZIOSpecDefault {
       ZIO
         .foreach(List(false, true)) { uncached =>
           for {
-            remote         <- stub(response)
+            remote         <- stub(okResponse)
             recorded       <- recordEvents
             (events, hooks) = recorded
             calls          <- Ref.make(0)
@@ -126,10 +129,9 @@ object OperationResolverSpec extends ZIOSpecDefault {
                                   case _     => ZIO.fail(Rejection("Revoked.", "REVOKED"))
                                 }
             resolver        = if (uncached) OperationResolver.uncached(resolve) else OperationResolver(resolve)
-            runtime        <- (Gateway
-                                .compose(Subgraph.graphql("remote", remote.endpoint, schema))
+            runtime        <- remoteGateway(remote.endpoint)
                                 .withOperationResolver(resolver)
-                                .withPhaseHooks(hooks))
+                                .withPhaseHooks(hooks)
                                 .interpreter
             first          <- runtime.executeRequest(request)
             second         <- runtime.executeRequest(request.copy(extensions = Some(Map("documentId" -> StringValue("alias")))))
@@ -164,7 +166,7 @@ object OperationResolverSpec extends ZIOSpecDefault {
 
       for {
         results <- ZIO.foreach(resolvers) { resolver =>
-                     new OperationHooks[Any](_ => Nil, Some(resolver), None, PhaseHooks.empty)
+                     resolverHooks(resolver)
                        .resolve(request)
                        .either
                    }
@@ -181,15 +183,14 @@ object OperationResolverSpec extends ZIOSpecDefault {
     },
     test("preserves resolver interruption even when a finalizer dies with a rejection") {
       val resolver = OperationResolver[Any](_ => ZIO.interrupt.ensuring(ZIO.die(Rejection("Not public.", "PRIVATE"))))
-      new OperationHooks[Any](_ => Nil, Some(resolver), None, PhaseHooks.empty).resolve(request).exit.map { exit =>
+      resolverHooks(resolver).resolve(request).exit.map { exit =>
         assertTrue(exit.causeOption.exists(_.isInterruptedOnly))
       }
     },
     test("does not expose resolver rejections returned by a policy") {
       for {
-        remote  <- stub(response)
-        runtime <- Gateway
-                     .compose(Subgraph.graphql("remote", remote.endpoint, schema))
+        remote  <- stub(okResponse)
+        runtime <- remoteGateway(remote.endpoint)
                      .withOperationPolicy(OperationPolicy[Any](_ => ZIO.fail(Rejection("Private.", "PRIVATE"))))
                      .interpreter
         result  <- runtime.executeRequest(request.copy(query = Some(query)))

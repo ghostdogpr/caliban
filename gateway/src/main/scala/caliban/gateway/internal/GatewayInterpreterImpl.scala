@@ -22,9 +22,7 @@ private[gateway] final class GatewayInterpreterImpl[-R](
 ) extends GatewayInterpreter[R] {
 
   def check(query: String)(implicit trace: Trace): IO[CalibanError, Unit] =
-    control.runRequest(operations.check(query), reservation)(ZIO.fail(requestTimeoutError))(
-      ZIO.fail(requestShutdownError)
-    )
+    runRequest(operations.check(query))
 
   /**
    * A single-use view. The caller must release it even if execution is interrupted before it starts.
@@ -37,12 +35,7 @@ private[gateway] final class GatewayInterpreterImpl[-R](
   def release(implicit trace: Trace): UIO[Unit] = reservation.fold[UIO[Unit]](ZIO.unit)(control.release(_))
 
   def explain(request: GraphQLRequest)(implicit trace: Trace): ZIO[R, CalibanError, String] =
-    control
-      .runRequest(operations.prepare(request).map(prepared => prepared.plan.plan.render), reservation)(
-        ZIO.fail(requestTimeoutError)
-      )(
-        ZIO.fail(requestShutdownError)
-      )
+    runRequest(operations.prepare(request).map(_.plan.plan.render))
 
   def executeRequest(request: GraphQLRequest)(implicit trace: Trace): URIO[R, GraphQLResponse[CalibanError]] =
     if (hooks.enabled) executeObservedRequest(request)
@@ -55,6 +48,9 @@ private[gateway] final class GatewayInterpreterImpl[-R](
       )(
         shutdownResponse
       )
+
+  private def runRequest[R1, A](effect: ZIO[R1, CalibanError, A])(implicit trace: Trace): ZIO[R1, CalibanError, A] =
+    control.runRequest(effect, reservation)(ZIO.fail(requestTimeoutError))(ZIO.fail(requestShutdownError))
 
   private def executeObservedRequest(request: GraphQLRequest)(implicit
     trace: Trace
@@ -87,7 +83,7 @@ private[gateway] final class GatewayInterpreterImpl[-R](
             executePrepared(prepared).map { response =>
               RequestResult.Executed(
                 response,
-                if (response.errors.isEmpty) Outcome.Success else Outcome.GraphQLError,
+                Outcome.fromResponse(response),
                 prepared.plan.plan.operation,
                 prepared.document,
                 prepared.executionRequest

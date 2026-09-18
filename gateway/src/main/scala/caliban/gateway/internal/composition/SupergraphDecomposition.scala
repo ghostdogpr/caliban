@@ -2,6 +2,7 @@ package caliban.gateway.internal.composition
 
 import caliban.InputValue
 import caliban.Value.{ BooleanValue, EnumValue, StringValue }
+import caliban.gateway._
 import caliban.gateway.internal.composition.DirectiveComposition.LinkedFeature
 import caliban.parsing.adt.Definition
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
@@ -46,16 +47,13 @@ private[gateway] object SupergraphDecomposition {
       results     = enumType.enumValuesDefinition.map(graphEntry(names, _))
       failures    = results.flatMap(_.left.getOrElse(Nil))
       entries     = results.collect { case Right(graph) => graph }
-      empty       = if (enumType.enumValuesDefinition.isEmpty)
-                      List(s"[supergraph] The join graph enum '${enumType.name}' declares no subgraphs.")
-                    else Nil
-      duplicates  = entries
-                      .groupBy(_.name)
-                      .collect { case (name, _ :: _ :: _) =>
-                        s"[supergraph] Subgraph name '$name' is declared more than once."
-                      }
-                      .toList
-      diagnostics = (failures ::: empty ::: duplicates).distinct.sorted
+      empty       = check(
+                      enumType.enumValuesDefinition.nonEmpty,
+                      s"[supergraph] The join graph enum '${enumType.name}' declares no subgraphs."
+                    )
+      repeated    =
+        duplicates(entries.map(_.name)).map(name => s"[supergraph] Subgraph name '$name' is declared more than once.")
+      diagnostics = (failures ::: empty ::: repeated).distinct.sorted
       graphs     <- if (diagnostics.nonEmpty) Left(diagnostics) else Right(entries)
     } yield graphs
 
@@ -211,6 +209,9 @@ private[gateway] object SupergraphDecomposition {
   private def joinTypes(directives: List[Directive], names: JoinNames): List[Directive] =
     directives.filter(directive => names.tpe.contains(directive.name))
 
+  private def joinFields(field: FieldDefinition, names: JoinNames): List[JoinField] =
+    field.directives.filter(directive => names.field.contains(directive.name)).map(joinField)
+
   /**
    * Graph keys a type belongs to. A type with no `@join__type` at all is a shared value type.
    */
@@ -232,7 +233,7 @@ private[gateway] object SupergraphDecomposition {
     members: List[String],
     names: JoinNames
   ): Map[String, Option[JoinField]] = {
-    val entries = field.directives.filter(directive => names.field.contains(directive.name)).map(joinField)
+    val entries = joinFields(field, names)
 
     if (entries.isEmpty) members.map(_ -> None).toMap
     else {
@@ -273,15 +274,17 @@ private[gateway] object SupergraphDecomposition {
       .toSet
 
   private def extensionDiagnostics(document: Document): List[String] =
-    if (document.typeExtensions.isEmpty) Nil
-    else List("[supergraph] A supergraph is fully composed and must not declare type extensions.")
+    check(
+      document.typeExtensions.isEmpty,
+      "[supergraph] A supergraph is fully composed and must not declare type extensions."
+    )
 
   private def typeDiagnostics(definition: TypeDefinition, ctx: ProjectionContext): List[String] = {
     val entries  = joinTypes(definition.directives, ctx.names).map(joinType)
-    val missing  =
-      if (entries.exists(_.isEmpty))
-        List(s"[supergraph] Type '${definition.name}' has a join type entry without a 'graph' argument.")
-      else Nil
+    val missing  = check(
+      entries.forall(_.nonEmpty),
+      s"[supergraph] Type '${definition.name}' has a join type entry without a 'graph' argument."
+    )
     val unknown  = entries.flatten
       .map(_.graph)
       .filterNot(ctx.nameByKey.contains)
@@ -323,19 +326,16 @@ private[gateway] object SupergraphDecomposition {
 
     fields.flatMap { field =>
       val fieldName  = s"${definition.name}.${field.name}"
-      val entries    = field.directives.filter(directive => ctx.names.field.contains(directive.name)).map(joinField)
+      val entries    = joinFields(field, ctx.names)
       val scoped     = entries.flatMap(_.graph)
       val unknown    = scoped
         .filterNot(members.contains)
         .distinct
         .sorted
         .map(graph => s"[supergraph] Field '$fieldName' names graph '$graph', which does not declare the type.")
-      val repeated   = scoped
-        .groupBy(identity)
-        .collect { case (graph, _ :: _ :: _) =>
-          s"[supergraph] Field '$fieldName' declares more than one entry for graph '$graph'."
-        }
-        .toList
+      val repeated   = duplicates(scoped).map(graph =>
+        s"[supergraph] Field '$fieldName' declares more than one entry for graph '$graph'."
+      )
       val types      = entries
         .flatMap(_.fieldType)
         .flatMap(parseFieldType(_).left.toOption)
@@ -369,13 +369,11 @@ private[gateway] object SupergraphDecomposition {
             .toList
         }
       }
-      val unroutable =
-        if (subscriptionRoot && resolvingSubgraphCount(fieldGraphs(field, members, ctx.names), ctx) > 1)
-          List(
-            s"[supergraph] Subscription field '$fieldName' is resolved by more than one graph, " +
-              "which the gateway cannot route."
-          )
-        else Nil
+      val unroutable = check(
+        !subscriptionRoot || resolvingSubgraphCount(fieldGraphs(field, members, ctx.names), ctx) <= 1,
+        s"[supergraph] Subscription field '$fieldName' is resolved by more than one graph, " +
+          "which the gateway cannot route."
+      )
 
       unknown ::: repeated ::: types ::: argTypes ::: selections ::: contexts ::: unroutable
     }
@@ -699,8 +697,8 @@ private[gateway] object SupergraphDecomposition {
     projectedFeatures: List[LinkedFeature]
   ) {
     val keys: List[String]             = registry.map(_.key)
-    val keyByName: Map[String, String] = registry.map(g => g.name -> g.key).toMap
-    val nameByKey: Map[String, String] = registry.map(g => g.key -> g.name).toMap
+    val keyByName: Map[String, String] = registry.map(graph => graph.name -> graph.key).toMap
+    val nameByKey: Map[String, String] = registry.map(graph => graph.key -> graph.name).toMap
     val graphNames: Set[String]        = keyByName.keySet
 
     /**
@@ -728,12 +726,7 @@ private[gateway] object SupergraphDecomposition {
       }.collectFirst { case Some(name) => name }
   }
 
-  private final case class JoinType(
-    graph: String,
-    key: Option[String],
-    resolvable: Boolean,
-    isInterfaceObject: Boolean
-  )
+  private final case class JoinType(graph: String, key: Option[String], resolvable: Boolean, isInterfaceObject: Boolean)
 
   private final case class JoinField(
     graph: Option[String],
@@ -756,15 +749,9 @@ private[gateway] object SupergraphDecomposition {
     directive: Set[String]
   )
 
-  private final case class ContextArgument(
-    name: String,
-    contextType: String,
-    context: String,
-    selection: String
-  )
+  private final case class ContextArgument(name: String, contextType: String, context: String, selection: String)
 
   private val JoinIdentity      = "https://specs.apollo.dev/join"
-  private val LinkIdentity      = "https://specs.apollo.dev/link"
   private val ContextIdentity   = "https://specs.apollo.dev/context"
   private val FederationImports = List(
     "@key",
@@ -786,21 +773,18 @@ private[gateway] object SupergraphDecomposition {
   )
 
   private val ProjectedFeatures = Map(
-    DirectiveComposition.FederationIdentity   -> FederationImports
-      .map(_.stripPrefix("@"))
-      .toSet
-      .diff(Set("context", "fromContext")),
-    "https://specs.apollo.dev/inaccessible"   -> Set("inaccessible"),
-    "https://specs.apollo.dev/tag"            -> Set("tag"),
-    "https://specs.apollo.dev/authenticated"  -> Set("authenticated"),
-    "https://specs.apollo.dev/requiresScopes" -> Set("requiresScopes"),
-    "https://specs.apollo.dev/policy"         -> Set("policy"),
-    "https://specs.apollo.dev/cost"           -> Set("cost", "listSize")
+    FederationIdentity                      -> FederationImports.map(_.stripPrefix("@")).toSet.diff(Set("context", "fromContext")),
+    "https://specs.apollo.dev/inaccessible" -> Set("inaccessible"),
+    "https://specs.apollo.dev/tag"          -> Set("tag"),
+    AuthenticatedIdentity                   -> Set("authenticated"),
+    RequiresScopesIdentity                  -> Set("requiresScopes"),
+    PolicyIdentity                          -> Set("policy"),
+    CostIdentity                            -> Set("cost", "listSize")
   )
   private val FederationLink    = Directive(
     "link",
     Map[String, InputValue](
-      "url"    -> StringValue("https://specs.apollo.dev/federation/v2.9"),
+      "url"    -> StringValue(s"$FederationIdentity/v2.9"),
       "import" -> InputValue.ListValue(FederationImports.map(StringValue(_)))
     )
   )

@@ -1,12 +1,12 @@
 package caliban.gateway
 
-import caliban.GraphQLResponseContext
+import caliban.{ GraphQLRequest, GraphQLResponseContext }
 import caliban.GraphQLResponseContext.{ Outcome, ServerFailure }
+import caliban.Value.{ NullValue, StringValue }
 import caliban.gateway.GatewayTestSupport._
-import caliban.gateway.internal.GatewayExecutionControl
-import zio.http.URL
+import caliban.gateway.internal.{ GatewayExecutionControl, GatewayInterpreterImpl }
 import zio._
-import zio.http.{ Handler, Method, Response, Routes, Server, Status }
+import zio.http.{ Response, Status }
 import zio.test._
 
 object RuntimeLifecycleSpec extends ZIOSpecDefault {
@@ -33,20 +33,17 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
       case None        => ZIO.succeed(true)
     }.repeatUntil(identity).unit
 
-  private def awaitDrain(runtime: caliban.gateway.internal.GatewayInterpreterImpl[Any]): UIO[Unit] =
+  private def awaitDrain(runtime: GatewayInterpreterImpl[Any]): UIO[Unit] =
     runtime.reserve.flatMap {
       case Some(lease) => lease.release.as(false)
       case None        => ZIO.succeed(true)
     }.repeatUntil(identity).unit
 
-  private def retryEndpoint(calls: Ref[Int]): ZIO[Server with Ref[Int], Nothing, URL] =
-    postEndpoint("runtime-lifecycle-retry")(_ => calls.update(_ + 1).as(Response.status(Status.ServiceUnavailable)))
-
   def spec = suite("RuntimeLifecycleSpec")(
     test("executes a reserved request when draining starts before execution") {
       for {
         scope   <- Scope.make
-        runtime <- scope.extend(Gateway.compose(Subgraph.local("local", localGraph(ZIO.succeed("accepted")))).build)
+        runtime <- scope.extend(localGateway(ZIO.succeed("accepted")).build)
         request <- runtime.reserve.someOrFailException
         closing <- scope.close(Exit.unit).fork
         _       <- awaitDrain(runtime)
@@ -54,13 +51,13 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
         _       <- closing.join
       } yield assertTrue(
         result.errors.isEmpty,
-        field(result.data, "value").contains(caliban.Value.StringValue("accepted"))
+        field(result.data, "value").contains(StringValue("accepted"))
       )
     },
     test("releases a reservation cancelled before request execution") {
       for {
         scope    <- Scope.make
-        runtime  <- scope.extend(Gateway.compose(Subgraph.local("local", localGraph(ZIO.never))).build)
+        runtime  <- scope.extend(localGateway(ZIO.never).build)
         request  <- runtime.reserve.someOrFailException
         closing  <- scope.close(Exit.unit).fork
         _        <- awaitDrain(runtime)
@@ -77,12 +74,11 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
         resolver     = OperationResolver.uncached[Any](_ =>
                          (resolving.succeed(()).unit *> ZIO.never).onInterrupt(interrupted.succeed(()).unit)
                        )
-        runtime     <- Gateway
-                         .compose(Subgraph.local("local", localGraph(sourceCalls.update(_ + 1).as("value"))))
+        runtime     <- localGateway(sourceCalls.update(_ + 1).as("value"))
                          .withOperationResolver(resolver)
                          .withConfig(_.withRequestTimeout(1.second))
                          .build
-        fiber       <- runtime.executeRequest(caliban.GraphQLRequest()).fork
+        fiber       <- runtime.executeRequest(GraphQLRequest()).fork
         _           <- resolving.await
         _           <- TestClock.adjust(1.second)
         response    <- fiber.join
@@ -97,15 +93,7 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
       for {
         started     <- Promise.make[Nothing, Unit]
         interrupted <- Promise.make[Nothing, Unit]
-        runtime     <- Gateway
-                         .compose(
-                           Subgraph.local(
-                             "local",
-                             localGraph(
-                               (started.succeed(()).unit *> ZIO.never).onInterrupt(interrupted.succeed(()).unit)
-                             )
-                           )
-                         )
+        runtime     <- localGateway((started.succeed(()).unit *> ZIO.never).onInterrupt(interrupted.succeed(()).unit))
                          .withConfig(_.withRequestTimeout(1.hour))
                          .build
         fiber       <- runtime.execute("{ value }").fork
@@ -166,20 +154,16 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
       for {
         started  <- Promise.make[Nothing, Unit]
         release  <- Promise.make[Nothing, Unit]
-        runtime  <- Gateway
-                      .compose(
-                        Subgraph.local(
-                          "local",
-                          localGraph(started.succeed(()).unit *> ZIO.uninterruptible(release.await).as("late"))
-                        )
-                      )
+        runtime  <- localGateway(started.succeed(()).unit *> ZIO.uninterruptible(release.await).as("late"))
                       .withConfig(_.withRequestTimeout(1.second))
                       .build
-        response <- runtime.execute("{ value }").fork.flatMap { fiber =>
-                      started.await *> TestClock.adjust(1.second) *> release.succeed(()) *> fiber.join
-                    }
+        fiber    <- runtime.execute("{ value }").fork
+        _        <- started.await
+        _        <- TestClock.adjust(1.second)
+        _        <- release.succeed(())
+        response <- fiber.join
       } yield assertTrue(
-        response.data == caliban.Value.NullValue,
+        response.data == NullValue,
         response.errors.map(_.msg) == List("Gateway request timed out.")
       )
     },
@@ -191,7 +175,9 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
       )
       for {
         calls    <- Ref.make(0)
-        endpoint <- retryEndpoint(calls)
+        endpoint <- postEndpoint("runtime-lifecycle-retry")(_ =>
+                      calls.update(_ + 1).as(Response.status(Status.ServiceUnavailable))
+                    )
         runtime  <- Gateway
                       .compose(Subgraph.graphql("remote", endpoint, "type Query { value: String }", remoteConfig))
                       .withConfig(_.withRequestTimeout(1.second))
@@ -237,8 +223,7 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
         release  <- Promise.make[Nothing, Unit]
         runtime  <-
           scope.extend(
-            Gateway
-              .compose(Subgraph.local("local", localGraph(started.succeed(()).unit *> release.await.as("done"))))
+            localGateway(started.succeed(()).unit *> release.await.as("done"))
               .withConfig(_.withRequestTimeout(1.hour).withDrainTimeout(1.hour))
               .build
           )
@@ -283,13 +268,7 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
         started <- Promise.make[Nothing, Unit]
         release <- Promise.make[Nothing, Unit]
         runtime <- scope.extend(
-                     Gateway
-                       .compose(
-                         Subgraph.local(
-                           "local",
-                           localGraph(started.succeed(()).unit *> ZIO.uninterruptible(release.await).as("late"))
-                         )
-                       )
+                     localGateway(started.succeed(()).unit *> ZIO.uninterruptible(release.await).as("late"))
                        .withConfig(
                          _.withRequestTimeout(1.second)
                            .withDrainTimeout(1.second)
@@ -316,8 +295,7 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
         scope   <- Scope.make
         started <- Promise.make[Nothing, Unit]
         runtime <- scope.extend(
-                     Gateway
-                       .compose(Subgraph.local("local", localGraph(started.succeed(()).unit *> ZIO.never)))
+                     localGateway(started.succeed(()).unit *> ZIO.never)
                        .withConfig(
                          _.withRequestTimeout(1.second)
                            .withDrainTimeout(1.second)
@@ -337,8 +315,7 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
     },
     test("rejects non-finite request and drain deadlines at build time") {
       for {
-        exit <- Gateway
-                  .compose(Subgraph.local("local", localGraph(ZIO.succeed("value"))))
+        exit <- localGateway(ZIO.succeed("value"))
                   .withConfig(
                     _.withRequestTimeout(Duration.Zero)
                       .withDrainTimeout(Duration.Infinity)

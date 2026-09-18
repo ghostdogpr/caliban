@@ -9,7 +9,6 @@ import caliban.parsing.Parser
 import caliban.schema.{ ArgBuilder, GenericSchema, Schema }
 import caliban.tools.RemoteSchema
 import caliban.{ graphQL, CalibanError, PathValue, RootResolver }
-import zio.http.URL
 import zio._
 import zio.test._
 
@@ -63,6 +62,11 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
     SchemaTransformation.hideInputField("Filter", "hidden")
   )
 
+  private val contextPreamble =
+    s"""${federationSchemaPreamble("@key", "@context", "@fromContext").replace("federation/v2.3", "federation/v2.9")}
+       |directive @context(name: String!) repeatable on OBJECT | INTERFACE | UNION
+       |directive @fromContext(field: String!) on ARGUMENT_DEFINITION""".stripMargin
+
   private def transformedContextSelectors(schema: String, transformations: List[SchemaTransformation]) =
     for {
       document   <- ZIO.fromEither(Parser.parseQuery(schema))
@@ -90,9 +94,7 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
     test("rewrites context selections through field and type renames") {
       val schema          =
         s"""
-           |${federationSchemaPreamble("@key", "@context", "@fromContext").replace("federation/v2.3", "federation/v2.9")}
-           |directive @context(name: String!) repeatable on OBJECT | INTERFACE | UNION
-           |directive @fromContext(field: String!) on ARGUMENT_DEFINITION
+           |$contextPreamble
            |type Query { user: User }
            |type User @key(fields: "id") @context(name: "userContext") {
            | id: ID!
@@ -120,9 +122,7 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
     test("rewrites shared context fields using concrete interface implementations") {
       val schema          =
         s"""
-           |${federationSchemaPreamble("@key", "@context", "@fromContext").replace("federation/v2.3", "federation/v2.9")}
-           |directive @context(name: String!) repeatable on OBJECT | INTERFACE | UNION
-           |directive @fromContext(field: String!) on ARGUMENT_DEFINITION
+           |$contextPreamble
            |type Query { a: A b: B }
            |type A @key(fields: "id") @context(name: "ctx") { id: ID! currency: String! tx: Tx }
            |interface B @context(name: "ctx") { currency: String! tx: Tx }
@@ -147,9 +147,7 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
     test("keeps mixed context selections flat when parent field renames differ") {
       val schema          =
         s"""
-           |${federationSchemaPreamble("@key", "@context", "@fromContext").replace("federation/v2.3", "federation/v2.9")}
-           |directive @context(name: String!) repeatable on OBJECT | INTERFACE | UNION
-           |directive @fromContext(field: String!) on ARGUMENT_DEFINITION
+           |$contextPreamble
            |type Query { a: A c: C }
            |type A @context(name: "ctx") { currency: String! tx: Tx }
            |type C @context(name: "ctx") { currency: String! tx: Tx }
@@ -165,24 +163,22 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
       )
       for {
         remote    <- stub("""{"data":{"a":null}}""")
-        baseline  <- Gateway.compose(Subgraph.federation("contexts", remote.endpoint, schema)).interpreter.exit
-        renamed   <- Gateway
-                       .compose(Subgraph.federation("contexts", remote.endpoint, schema).transform(transformations: _*))
-                       .interpreter
-                       .exit
+        baseline  <- compositionDiagnostics(Gateway.compose(Subgraph.federation("contexts", remote.endpoint, schema)))
+        renamed   <-
+          compositionDiagnostics(
+            Gateway.compose(Subgraph.federation("contexts", remote.endpoint, schema).transform(transformations: _*))
+          )
         selectors <- transformedContextSelectors(schema, transformations)
       } yield assertTrue(
         selectors == List("$ctx{...onMember{money}...onC{currency}...onMember{transaction{id}}}"),
-        buildDiagnostics(baseline).exists(_.contains("the context selection resolves to multiple fields")),
-        buildDiagnostics(renamed) == buildDiagnostics(baseline)
+        baseline.exists(_.contains("the context selection resolves to multiple fields")),
+        renamed == baseline
       )
     },
     test("preserves flat context fragments for a union through renames") {
       val schema          =
         s"""
-           |${federationSchemaPreamble("@key", "@context", "@fromContext").replace("federation/v2.3", "federation/v2.9")}
-           |directive @context(name: String!) repeatable on OBJECT | INTERFACE | UNION
-           |directive @fromContext(field: String!) on ARGUMENT_DEFINITION
+           |$contextPreamble
            |type Query { wallet: Wallet }
            |union Wallet @context(name: "ctx") = User | Account
            |type User { currency: String! tx: Tx }
@@ -243,19 +239,19 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
         "directive @sql(fields: String!) on FIELD_DEFINITION type Query { product: Product @sql(fields: \"name\") } type Product { name: String }"
 
       for {
-        remote   <- stub("""{"data":{"item":{"name":"Table"}}}""")
-        gateway  <- Gateway
-                      .compose(
-                        Subgraph
-                          .graphql("products", remote.endpoint, schema)
-                          .transform(SchemaTransformation.renameField("Query", "product", "item"))
-                      )
-                      .interpreter
-        result   <- gateway.execute("{ item { name } }")
-        requests <- remote.requests.get
+        remote  <- stub("""{"data":{"item":{"name":"Table"}}}""")
+        runtime <- Gateway
+                     .compose(
+                       Subgraph
+                         .graphql("products", remote.endpoint, schema)
+                         .transform(SchemaTransformation.renameField("Query", "product", "item"))
+                     )
+                     .interpreter
+        result  <- runtime.execute("{ item { name } }")
+        sent    <- remote.requests.get
       } yield assertTrue(
         result.errors.isEmpty,
-        requests.headOption.flatMap(_.query).exists(query => query.contains("item:product") && !query.contains("@sql"))
+        sent.headOption.flatMap(_.query).exists(query => query.contains("item:product") && !query.contains("@sql"))
       )
     },
     test("renames and hides remote schema coordinates while translating execution") {
@@ -263,14 +259,14 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
 
       for {
         remote     <- stub(response)
-        gateway    <- Gateway
+        runtime    <- Gateway
                         .compose(
                           Subgraph
                             .graphql("products", remote.endpoint, remoteSchema)
                             .transform(remoteTransformations: _*)
                         )
                         .interpreter
-        result     <- gateway.execute(
+        result     <- runtime.execute(
                         """{
                       |  item(sku: "p1", filter: { term: "wood" }) { id title status }
                       |  itemType: __type(name: "Item") { fields { name } }
@@ -280,16 +276,10 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
                       |  stateType: __type(name: "Status") { enumValues { name } }
                       |}""".stripMargin
                       )
-        requests   <- remote.requests.get
-        itemFields  = field(result.data, "itemType")
-                        .flatMap(field(_, "fields"))
-                        .collect { case ListValue(values) => values.flatMap(field(_, "name")) }
-        inputFields = field(result.data, "filterType")
-                        .flatMap(field(_, "inputFields"))
-                        .collect { case ListValue(values) => values.flatMap(field(_, "name")) }
-        enumValues  = field(result.data, "stateType")
-                        .flatMap(field(_, "enumValues"))
-                        .collect { case ListValue(values) => values.flatMap(field(_, "name")) }
+        sent       <- remote.requests.get
+        itemFields  = introspectedNames(field(result.data, "itemType").flatMap(field(_, "fields")))
+        inputFields = introspectedNames(field(result.data, "filterType").flatMap(field(_, "inputFields")))
+        enumValues  = introspectedNames(field(result.data, "stateType").flatMap(field(_, "enumValues")))
       } yield assertTrue(
         result.errors.isEmpty,
         field(result.data, "item").flatMap(field(_, "title")).contains(StringValue("Table")),
@@ -299,8 +289,8 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
         enumValues.contains(List(StringValue("ACTIVE"), StringValue("LEGACY"))),
         field(result.data, "sourceType").contains(NullValue),
         field(result.data, "hiddenType").contains(NullValue),
-        requests.size == 1,
-        requests.head.query.exists(query =>
+        sent.size == 1,
+        sent.head.query.exists(query =>
           query.contains("item:product(id:\"p1\",filter:{term:\"wood\"})") &&
             query.contains("title:name") && !query.contains("__type")
         )
@@ -315,10 +305,10 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
       )
 
       for {
-        gateway <- Gateway
+        runtime <- Gateway
                      .compose(Subgraph.local("echo", LocalApi.api).transform(transformations: _*))
                      .interpreter
-        result  <- gateway.execute("{ say(message: \"hello\") { text state } }")
+        result  <- runtime.execute("{ say(message: \"hello\") { text state } }")
       } yield assertTrue(
         result.errors.isEmpty,
         field(result.data, "say").exists {
@@ -334,7 +324,7 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
 
       for {
         remote  <- stub(response)
-        gateway <- Gateway
+        runtime <- Gateway
                      .compose(
                        Subgraph
                          .graphql("products", remote.endpoint, remoteSchema)
@@ -344,7 +334,7 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
                          )
                      )
                      .interpreter
-        result  <- gateway.execute("{ item(id: \"p1\") { title } }")
+        result  <- runtime.execute("{ item(id: \"p1\") { title } }")
       } yield assertTrue(
         result.errors.collectFirst { case error: CalibanError.ExecutionError => error.path }.contains(
           List(PathValue.Key("item"), PathValue.Key("title"))
@@ -356,23 +346,23 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
         "schema { query: RootQuery } type RootQuery { product(id: ID!): Product } type Product { name: String! }"
 
       for {
-        remote   <- stub("""{"data":{"item":{"name":"Table"}}}""")
-        gateway  <- Gateway
-                      .compose(
-                        Subgraph
-                          .graphql("products", remote.endpoint, schema)
-                          .transform(
-                            SchemaTransformation.renameField("RootQuery", "product", "item"),
-                            SchemaTransformation.renameArgument("RootQuery", "product", "id", "sku")
-                          )
-                      )
-                      .interpreter
-        result   <- gateway.execute("{ item(sku: \"p1\") { name } }")
-        requests <- remote.requests.get
+        remote  <- stub("""{"data":{"item":{"name":"Table"}}}""")
+        runtime <- Gateway
+                     .compose(
+                       Subgraph
+                         .graphql("products", remote.endpoint, schema)
+                         .transform(
+                           SchemaTransformation.renameField("RootQuery", "product", "item"),
+                           SchemaTransformation.renameArgument("RootQuery", "product", "id", "sku")
+                         )
+                     )
+                     .interpreter
+        result  <- runtime.execute("{ item(sku: \"p1\") { name } }")
+        sent    <- remote.requests.get
       } yield assertTrue(
         result.errors.isEmpty,
         field(result.data, "item").flatMap(field(_, "name")).contains(StringValue("Table")),
-        requests.headOption.flatMap(_.query).exists(_.contains("item:product(id:\"p1\")"))
+        sent.headOption.flatMap(_.query).exists(_.contains("item:product(id:\"p1\")"))
       )
     },
     test("preserves custom directive values through field renames") {
@@ -412,30 +402,30 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
         "directive @flag(status: Status = ACTIVE) on FIELD_DEFINITION type Query { product: Product } type Product { name: String @flag(status: ACTIVE) } enum Status { ACTIVE }"
 
       for {
-        remote   <- stub("""{"data":{"product":{"name":"Table"}}}""")
-        gateway  <- Gateway
-                      .compose(
-                        Subgraph
-                          .graphql("directives", remote.endpoint, schema)
-                          .transform(SchemaTransformation.renameType("Status", "State"))
-                      )
-                      .interpreter
-        result   <- gateway.execute("{ __schema { directives { name args { name defaultValue } } } }")
-        value    <- gateway.execute("{ product { name } }")
-        requests <- remote.requests.get
-        default   = field(result.data, "__schema")
-                      .flatMap(field(_, "directives"))
-                      .collect { case ListValue(values) => values }
-                      .flatMap(_.find(field(_, "name").contains(StringValue("flag"))))
-                      .flatMap(field(_, "args"))
-                      .collect { case ListValue(values) => values }
-                      .flatMap(_.find(field(_, "name").contains(StringValue("status"))))
-                      .flatMap(field(_, "defaultValue"))
+        remote  <- stub("""{"data":{"product":{"name":"Table"}}}""")
+        runtime <- Gateway
+                     .compose(
+                       Subgraph
+                         .graphql("directives", remote.endpoint, schema)
+                         .transform(SchemaTransformation.renameType("Status", "State"))
+                     )
+                     .interpreter
+        result  <- runtime.execute("{ __schema { directives { name args { name defaultValue } } } }")
+        value   <- runtime.execute("{ product { name } }")
+        sent    <- remote.requests.get
+        default  = field(result.data, "__schema")
+                     .flatMap(field(_, "directives"))
+                     .collect { case ListValue(values) => values }
+                     .flatMap(_.find(field(_, "name").contains(StringValue("flag"))))
+                     .flatMap(field(_, "args"))
+                     .collect { case ListValue(values) => values }
+                     .flatMap(_.find(field(_, "name").contains(StringValue("status"))))
+                     .flatMap(field(_, "defaultValue"))
       } yield assertTrue(
         result.errors.isEmpty,
         value.errors.isEmpty,
         default.contains(StringValue("ACTIVE")),
-        requests.headOption.flatMap(_.query).exists(!_.contains("@flag"))
+        sent.headOption.flatMap(_.query).exists(!_.contains("@flag"))
       )
     },
     test("uses an aliased provides directive's output type for field-set transformations") {
@@ -461,18 +451,17 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
            |type Query { status: String }
            |type Details { price: Int! }
            |""".stripMargin
-      val endpoint      = unreachableEndpoint
 
       Gateway
         .compose(
           Subgraph
-            .federation("catalog", endpoint, catalogSchema)
+            .federation("catalog", unreachableEndpoint, catalogSchema)
             .transform(
               SchemaTransformation.renameField("Product", "price", "productCost"),
               SchemaTransformation.renameField("Details", "price", "detailCost")
             ),
           Subgraph
-            .federation("details", endpoint, detailsSchema)
+            .federation("details", unreachableEndpoint, detailsSchema)
             .transform(SchemaTransformation.renameField("Details", "price", "detailCost"))
         )
         .interpreter
@@ -507,36 +496,36 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
       )
 
       for {
-        products      <-
+        products     <-
           stub(
             """{"data":{"product":{"sku":"p1","cost":100,"_caliban_gateway_requirement_cost":100,"_caliban_gateway_key":"p1","_caliban_gateway_typename":"Product"}}}"""
           )
-        shipping      <- stub("""{"data":{"_entities":[{"shipping":12}]}}""")
-        prices        <- stub("""{"data":{"_entities":[{"price":100}]}}""")
-        gateway       <- Gateway
-                           .compose(
-                             Subgraph
-                               .federation("products", products.endpoint, productsSchema)
-                               .transform(transformations: _*),
-                             Subgraph
-                               .federation("shipping", shipping.endpoint, shippingSchema)
-                               .transform(
-                                 (transformations :+ SchemaTransformation
-                                   .renameField("Product", "shippingEstimate", "shipping")): _*
-                               ),
-                             Subgraph
-                               .federation("prices", prices.endpoint, pricesSchema)
-                               .transform(transformations: _*)
-                           )
-                           .interpreter
-        response      <- gateway.execute("{ product(id: \"p1\") { sku cost shipping } }")
-        requests      <- shipping.requests.get
-        priceRequests <- prices.requests.get
+        shipping     <- stub("""{"data":{"_entities":[{"shipping":12}]}}""")
+        prices       <- stub("""{"data":{"_entities":[{"price":100}]}}""")
+        runtime      <- Gateway
+                          .compose(
+                            Subgraph
+                              .federation("products", products.endpoint, productsSchema)
+                              .transform(transformations: _*),
+                            Subgraph
+                              .federation("shipping", shipping.endpoint, shippingSchema)
+                              .transform(
+                                (transformations :+ SchemaTransformation
+                                  .renameField("Product", "shippingEstimate", "shipping")): _*
+                              ),
+                            Subgraph
+                              .federation("prices", prices.endpoint, pricesSchema)
+                              .transform(transformations: _*)
+                          )
+                          .interpreter
+        response     <- runtime.execute("{ product(id: \"p1\") { sku cost shipping } }")
+        shippingSent <- shipping.requests.get
+        pricesSent   <- prices.requests.get
       } yield assertTrue(
         response.errors.isEmpty,
-        priceRequests.isEmpty,
+        pricesSent.isEmpty,
         field(response.data, "product").flatMap(field(_, "shipping")).contains(IntValue(12)),
-        requests.headOption
+        shippingSent.headOption
           .flatMap(_.variables)
           .exists(
             _.get("representations").contains(
@@ -553,7 +542,7 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
               )
             )
           ),
-        requests.headOption
+        shippingSent.headOption
           .flatMap(_.query)
           .exists(query => query.contains("...on Product") && query.contains("shipping:shippingEstimate"))
       )
@@ -637,7 +626,7 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
           stub(
             """{"data":{"_caliban_gateway_lookup":[{"_caliban_gateway_lookup_key":"p1","feedback":[{"body":"Solid"}]}]}}"""
           )
-        gateway  <- Gateway
+        runtime  <- Gateway
                       .compose(
                         Subgraph
                           .graphql("products", products.endpoint, productsSchema)
@@ -648,8 +637,8 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
                           .transform(reviewTransforms: _*)
                       )
                       .interpreter
-        response <- gateway.execute("{ products { name feedback { body } } }")
-        requests <- reviews.requests.get
+        response <- runtime.execute("{ products { name feedback { body } } }")
+        sent     <- reviews.requests.get
       } yield assertTrue(
         response.errors.isEmpty,
         field(response.data, "products").collect { case ListValue(value :: Nil) => value }
@@ -657,7 +646,7 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
           .collect { case ListValue(value :: Nil) => value }
           .flatMap(field(_, "body"))
           .contains(StringValue("Solid")),
-        requests.headOption
+        sent.headOption
           .flatMap(_.query)
           .exists(query =>
             query.contains("_caliban_gateway_lookup:productsByRefs(refs:[{productId:\"p1\"}])") &&
@@ -666,43 +655,38 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
       )
     },
     test("attributes transformations that leave composed types structurally invalid") {
-      val schema   =
+      val schema =
         "type Query { empty: Empty state: Status search(input: Only): String } type Empty { value: String } input Only { value: String } enum Status { ACTIVE }"
-      val endpoint = unreachableEndpoint
 
-      Gateway
-        .compose(
+      compositionDiagnostics(
+        Gateway.compose(
           Subgraph
-            .graphql("products", endpoint, schema)
+            .graphql("products", unreachableEndpoint, schema)
             .transform(
               SchemaTransformation.hideField("Empty", "value"),
               SchemaTransformation.hideInputField("Only", "value")
             )
         )
-        .interpreter
-        .exit
-        .map { exit =>
-          val diagnostics = buildDiagnostics(exit)
-          assertTrue(
-            diagnostics.forall(_.startsWith("[products]")),
-            diagnostics.exists(_.contains("object 'Empty' with no visible fields")),
-            diagnostics.exists(_.contains("input object 'Only' with no visible fields"))
-          )
-        }
+      ).map { diagnostics =>
+        assertTrue(
+          diagnostics.forall(_.startsWith("[products]")),
+          diagnostics.exists(_.contains("object 'Empty' with no visible fields")),
+          diagnostics.exists(_.contains("input object 'Only' with no visible fields"))
+        )
+      }
     },
     test("rejects transformed Federation transport coordinates") {
-      val schema   =
+      val schema =
         s"""
            |${federationSchemaPreambleWithQueryRoot("@key")}
            |type Query { product: Product }
            |type Product @key(fields: "id") { id: ID! }
            |""".stripMargin
-      val endpoint = unreachableEndpoint
 
-      Gateway
-        .compose(
+      compositionDiagnostics(
+        Gateway.compose(
           Subgraph
-            .federation("products", endpoint, schema)
+            .federation("products", unreachableEndpoint, schema)
             .transform(
               SchemaTransformation.renameType("_Any", "Representation"),
               SchemaTransformation.renameType("Product", "_Entity"),
@@ -711,18 +695,15 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
               SchemaTransformation.renameArgument("Query", "_entities", "representations", "values")
             )
         )
-        .interpreter
-        .exit
-        .map { exit =>
-          val diagnostics = buildDiagnostics(exit)
-          assertTrue(
-            diagnostics.forall(_.startsWith("[products]")),
-            diagnostics.exists(_.contains("Federation transport type '_Any' cannot be transformed")),
-            diagnostics.exists(_.contains("Federation transport field 'Query._entities' cannot be transformed")),
-            diagnostics.exists(_.contains("cannot be transformed to reserved Federation transport type '_Entity'")),
-            diagnostics.exists(_.contains("cannot be transformed to reserved Federation transport field '_service'"))
-          )
-        }
+      ).map { diagnostics =>
+        assertTrue(
+          diagnostics.forall(_.startsWith("[products]")),
+          diagnostics.exists(_.contains("Federation transport type '_Any' cannot be transformed")),
+          diagnostics.exists(_.contains("Federation transport field 'Query._entities' cannot be transformed")),
+          diagnostics.exists(_.contains("cannot be transformed to reserved Federation transport type '_Entity'")),
+          diagnostics.exists(_.contains("cannot be transformed to reserved Federation transport field '_service'"))
+        )
+      }
     },
     test("allows transport-like coordinate names in ordinary GraphQL schemas") {
       val schema =
@@ -730,7 +711,7 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
 
       for {
         remote  <- stub("""{"data":{"entities":"ok","service":{"value":"value"}}}""")
-        gateway <- Gateway
+        runtime <- Gateway
                      .compose(
                        Subgraph
                          .graphql("ordinary", remote.endpoint, schema)
@@ -741,35 +722,30 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
                          )
                      )
                      .interpreter
-        result  <- gateway.execute("{ entities service { value } }")
+        result  <- runtime.execute("{ entities service { value } }")
       } yield assertTrue(result.errors.isEmpty)
     },
     test("rejects hidden input fields referenced by directives or defaults") {
-      val schema   =
+      val schema =
         "directive @flag(filter: Filter = { hidden: \"directive-default\" }) on FIELD_DEFINITION input Filter { visible: String hidden: String } type Query { value(filter: Filter = { hidden: \"field-default\" }): String @flag(filter: { hidden: \"applied\" }) }"
-      val endpoint = unreachableEndpoint
 
-      Gateway
-        .compose(
+      compositionDiagnostics(
+        Gateway.compose(
           Subgraph
-            .graphql("products", endpoint, schema)
+            .graphql("products", unreachableEndpoint, schema)
             .transform(SchemaTransformation.hideInputField("Filter", "hidden"))
         )
-        .interpreter
-        .exit
-        .map { exit =>
-          val diagnostics = buildDiagnostics(exit)
-          assertTrue(
-            diagnostics.exists(
-              _.contains("Hidden input field 'Filter.hidden' is referenced by a directive or default value")
-            )
+      ).map { diagnostics =>
+        assertTrue(
+          diagnostics.exists(
+            _.contains("Hidden input field 'Filter.hidden' is referenced by a directive or default value")
           )
-        }
+        )
+      }
     },
     test("rejects invalid and colliding transformations with source diagnostics") {
-      val endpoint = unreachableEndpoint
       val subgraph = Subgraph
-        .graphql("products", endpoint, remoteSchema)
+        .graphql("products", unreachableEndpoint, remoteSchema)
         .transform(
           SchemaTransformation.renameField("Product", "name", "id"),
           SchemaTransformation.hideField("Product", "name"),
@@ -782,25 +758,20 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
           SchemaTransformation.renameField("Product", "secret", "__LEGACY")
         )
 
-      Gateway
-        .compose(subgraph)
-        .interpreter
-        .exit
-        .map { exit =>
-          val diagnostics = buildDiagnostics(exit)
-          assertTrue(
-            diagnostics.forall(_.startsWith("[products]")),
-            diagnostics.exists(_.contains("Field 'Product.name' is transformed to existing field 'id'")),
-            diagnostics.exists(_.contains("Coordinate 'Product.name' has conflicting transformations")),
-            diagnostics.exists(_.contains("Type 'Product' is transformed to existing type 'Query'")),
-            diagnostics.exists(_.contains("Operation root type 'Query' cannot be renamed")),
-            diagnostics.exists(_.contains("Argument 'Query.product(missing:)' does not exist")),
-            diagnostics.exists(_.contains("Required argument 'Query.product(id:)' cannot be hidden")),
-            diagnostics.exists(_.contains("Operation root type 'Query' cannot be hidden")),
-            diagnostics.exists(_.contains("invalid GraphQL name 'a b'")),
-            diagnostics.exists(_.contains("reserved GraphQL name '__LEGACY'"))
-          )
-        }
+      compositionDiagnostics(Gateway.compose(subgraph)).map { diagnostics =>
+        assertTrue(
+          diagnostics.forall(_.startsWith("[products]")),
+          diagnostics.exists(_.contains("Field 'Product.name' is transformed to existing field 'id'")),
+          diagnostics.exists(_.contains("Coordinate 'Product.name' has conflicting transformations")),
+          diagnostics.exists(_.contains("Type 'Product' is transformed to existing type 'Query'")),
+          diagnostics.exists(_.contains("Operation root type 'Query' cannot be renamed")),
+          diagnostics.exists(_.contains("Argument 'Query.product(missing:)' does not exist")),
+          diagnostics.exists(_.contains("Required argument 'Query.product(id:)' cannot be hidden")),
+          diagnostics.exists(_.contains("Operation root type 'Query' cannot be hidden")),
+          diagnostics.exists(_.contains("invalid GraphQL name 'a b'")),
+          diagnostics.exists(_.contains("reserved GraphQL name '__LEGACY'"))
+        )
+      }
     }
   ).provideSomeShared[Scope](testServer, stubIds) @@ TestAspect.sequential
 }

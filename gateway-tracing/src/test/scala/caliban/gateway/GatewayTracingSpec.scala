@@ -5,45 +5,37 @@ import caliban.gateway.GatewayTestSupport._
 import caliban.gateway.tracing.GatewayTracing
 import caliban.tracing.TracingMock
 import io.opentelemetry.api.common.AttributeKey
-import io.opentelemetry.api.trace.{ SpanId, StatusCode }
-import zio.Duration
+import io.opentelemetry.api.trace.{ SpanId, SpanKind, StatusCode }
 import zio.http.{ Header, Status }
 import zio.telemetry.opentelemetry.tracing.Tracing
-import zio.{ Promise, Scope, ZIO }
-import zio.stream.ZStream
+import zio.{ Duration, Promise, Scope, ZIO }
 import zio.test.{ assertTrue, Spec, TestAspect, TestClock, TestEnvironment, ZIOSpecDefault }
-
-import java.nio.charset.StandardCharsets.UTF_8
 
 import scala.jdk.CollectionConverters._
 
 object GatewayTracingSpec extends ZIOSpecDefault {
 
-  private val schema = "type Query { value: String! }"
+  private val schema   = "type Query { value: String! }"
+  private val traceId  = "4bf92f3577b34da6a3ce929d0e0e4736"
+  private val parentId = "00f067aa0ba902b7"
+
+  private def tracedGateway(
+    remote: Stub,
+    config: RemoteGraphQLConfig[Any] = RemoteGraphQLConfig.default
+  ): Gateway[Tracing] =
+    Gateway.compose(Subgraph.graphql("products", remote.endpoint, schema, config)) @@ GatewayTracing.hooks
 
   def spec: Spec[TestEnvironment with Scope, Any] = suite("Gateway tracing")(
     test("subscription spans inherit supplied context and are independent without it") {
-      val body =
-        "event: next\ndata: {\"data\":{\"event\":1}}\n\nevent: next\ndata: {\"data\":{\"event\":2}}\n\nevent: complete\n\n"
       ZIO
         .foreach(List("none", "incoming", "ambient")) { context =>
-          val traceId  = "4bf92f3577b34da6a3ce929d0e0e4736"
-          val parentId = "00f067aa0ba902b7"
-          val headers  =
+          val headers =
             if (context == "incoming") List(Header.Custom("traceparent", s"00-$traceId-$parentId-01")) else Nil
           for {
-            endpoint      <- streamingEndpoint(
-                               ZStream.fromIterable(body.getBytes(UTF_8)),
-                               mediaType = "text/event-stream"
-                             )
-            config         = RemoteGraphQLConfig.default.withSubscription(
-                               RemoteSubscriptionConfig(transport = RemoteSubscriptionConfig.Sse())
-                             )
+            endpoint      <- sseEndpoint(sseBody(1, 2))
             runtime       <-
-              (Gateway.compose(
-                Subgraph
-                  .graphql("remote", endpoint, "type Query { value: String } type Subscription { event: Int }", config)
-              ) @@ GatewayTracing.hooks).interpreter
+              (Gateway.compose(Subgraph.graphql("remote", endpoint, subscriptionSchema, sseConfig)) @@
+                GatewayTracing.hooks).interpreter
             before        <- TracingMock.getFinishedSpans.map(_.size)
             consume        = runtime
                                .executeStream(GraphQLRequest(query = Some("subscription { event }")), headers)
@@ -80,11 +72,8 @@ object GatewayTracingSpec extends ZIOSpecDefault {
     },
     test("traces a remote request without recording raw GraphQL data and propagates W3C context") {
       for {
-        remote        <- stub("""{"data":{"value":"ok"}}""")
-        gateway        = (Gateway.compose(
-                           Subgraph.graphql("products", remote.endpoint, schema)
-                         ) @@ GatewayTracing.hooks: Gateway[Tracing])
-        runtime       <- gateway.interpreter
+        remote        <- stub(okResponse)
+        runtime       <- tracedGateway(remote).interpreter
         spansBefore   <- TracingMock.getFinishedSpans.map(_.size)
         response      <- ZIO.serviceWithZIO[Tracing](_.span("caller")(runtime.execute("query PublicName { value }")))
         sentHeaders   <- remote.headers.get
@@ -116,11 +105,11 @@ object GatewayTracingSpec extends ZIOSpecDefault {
           gatewaySpans.find(_.getName == "caliban.gateway.subgraph").map(_.getSpanId),
         gatewaySpans
           .find(_.getName == "caliban.gateway.subgraph")
-          .exists(_.getKind == io.opentelemetry.api.trace.SpanKind.INTERNAL),
+          .exists(_.getKind == SpanKind.INTERNAL),
         gatewaySpans
           .find(_.getName == "caliban.gateway.subgraph.attempt")
           .exists(span =>
-            span.getKind == io.opentelemetry.api.trace.SpanKind.CLIENT &&
+            span.getKind == SpanKind.CLIENT &&
               span.getAttributes.get(AttributeKey.longKey("http.response.status_code")) == 200L &&
               span.getAttributes.get(AttributeKey.longKey("http.request.resend_count")) == 0L
           ),
@@ -129,14 +118,9 @@ object GatewayTracingSpec extends ZIOSpecDefault {
       )
     },
     test("keeps preparation in the caller's trace when only a traceparent header arrives") {
-      val traceId  = "4bf92f3577b34da6a3ce929d0e0e4736"
-      val parentId = "00f067aa0ba902b7"
-
       for {
-        remote      <- stub("""{"data":{"value":"ok"}}""")
-        runtime     <- (Gateway.compose(
-                         Subgraph.graphql("products", remote.endpoint, schema)
-                       ) @@ GatewayTracing.hooks).interpreter
+        remote      <- stub(okResponse)
+        runtime     <- tracedGateway(remote).interpreter
         spansBefore <- TracingMock.getFinishedSpans.map(_.size)
         response    <- runtime.executeRequest(
                          GraphQLRequest(query = Some("{ value }")),
@@ -160,14 +144,12 @@ object GatewayTracingSpec extends ZIOSpecDefault {
       for {
         remote      <- stubWithStatuses(
                          Status.ServiceUnavailable -> "{}",
-                         Status.Ok                 -> """{"data":{"value":"ok"}}"""
+                         Status.Ok                 -> okResponse
                        )
-        runtime     <- (Gateway.compose(
-                         Subgraph.graphql("products", remote.endpoint, schema, config)
-                       ) @@ GatewayTracing.hooks).interpreter
+        runtime     <- tracedGateway(remote, config).interpreter
         spansBefore <- TracingMock.getFinishedSpans.map(_.size)
         response    <- ZIO.serviceWithZIO[Tracing](_.span("caller")(runtime.execute("{ value }")))
-        requests    <- remote.requests.get
+        sent        <- remote.requests.get
         headers     <- remote.headers.get
         spans       <- TracingMock.getFinishedSpans.map(_.drop(spansBefore))
         retrySpan    = spans.find(_.getName == "caliban.gateway.retry")
@@ -176,7 +158,7 @@ object GatewayTracingSpec extends ZIOSpecDefault {
                          .sortBy(_.getAttributes.get(AttributeKey.longKey("http.request.resend_count")).longValue())
       } yield assertTrue(
         response.errors.isEmpty,
-        requests.size == 2,
+        sent.size == 2,
         retrySpan.nonEmpty,
         attempts.map(_.getAttributes.get(AttributeKey.longKey("http.request.resend_count")).longValue()) == List(
           0L,
@@ -215,15 +197,13 @@ object GatewayTracingSpec extends ZIOSpecDefault {
       for {
         started   <- Promise.make[Nothing, Unit]
         release   <- Promise.make[Nothing, Unit]
-        remote    <- stubWith(started.succeed(()).unit *> release.await, """{"data":{"value":"ok"}}""")
-        runtime   <- (Gateway.compose(
-                       Subgraph.graphql("products", remote.endpoint, schema)
-                     ) @@ GatewayTracing.hooks).interpreter
+        remote    <- stubWith(started.succeed(()).unit *> release.await, okResponse)
+        runtime   <- tracedGateway(remote).interpreter
         fibers    <- ZIO.foreach(1 to 2)(index =>
                        ZIO.serviceWithZIO[Tracing](_.span(s"caller-$index")(runtime.execute("{ value }"))).fork
                      )
         _         <- started.await
-        _         <- TestClock.adjust(zio.Duration.Zero)
+        _         <- TestClock.adjust(Duration.Zero)
         before    <- remote.requests.get
         _         <- release.succeed(())
         responses <- ZIO.foreach(fibers)(_.join)

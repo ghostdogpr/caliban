@@ -47,7 +47,7 @@ diff /tmp/composed.graphql context-supergraph.graphql
 
 Two constraints shape those subgraphs, and both fail confusingly if broken:
 
-- **A context field must only be reachable *through* its context type.** `Ship` is reachable solely
+- **A context field must be reachable only *through* its context type.** `Ship` is reachable solely
   via `Character.ship`, and adding a `Query.ships` root makes rover reject the whole composition
   with `SATISFIABILITY_ERROR: could not find a match for required context`.
 - **Every subgraph needs a query root.** `Query.shipCount` exists only so the `episodes` projection

@@ -84,13 +84,14 @@ object Validator {
     } else check(document, rootType, variables, validations)
 
     fragments.flatMap { fragments =>
-      val operation = document
-        .operationDefinition(operationName)
-        .toRight(
-          operationName.fold(ValidationError("Operation name is required.", ""))(name =>
-            ValidationError(s"Unknown operation $name.", "")
-          )
-        )
+      val operation = document.operationDefinition(operationName) match {
+        case Some(op) => Right(op)
+        case None     =>
+          operationName match {
+            case Some(name) => failValidation(s"Unknown operation $name.", "")
+            case None       => failValidation("Operation name is required.", "")
+          }
+      }
 
       operation.flatMap { op =>
         (op.operationType match {

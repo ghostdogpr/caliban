@@ -65,8 +65,8 @@ private[execution] object PathIndex {
     }
   }
 
-  private val LinearLimit = 4
-  private val Empty       = new PathIndex(null, Nil)
+  private final val LinearLimit = 4
+  private val Empty             = new PathIndex(null, Nil)
 
   private final class Node {
     val children = new java.util.HashMap[PathValue, Node]
