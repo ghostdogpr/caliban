@@ -172,8 +172,7 @@ private[composition] final class SchemaComposer private (subgraphs: List[Prepare
             providedFieldSets = providedFieldSets,
             declaredContexts = declaredContexts,
             contextBindings = contextBindings,
-            interfaceObjects =
-              types.filter(_.interfaceObject).map(entry => SourceType(entry.source, entry.name)).toSet,
+            interfaceObjects = types.filter(_.interfaceObject).map(entry => SourceType(entry.source, entry.name)).toSet,
             sourcePossibleTypes = sortedSubgraphs.iterator.flatMap { subgraph =>
               subgraph.rootType.types.iterator.map { case (name, tpe) =>
                 SourceType(subgraph.name, name) -> tpe.possibleTypeNames
