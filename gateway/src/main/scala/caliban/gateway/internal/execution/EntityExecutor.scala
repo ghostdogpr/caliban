@@ -523,7 +523,7 @@ private[gateway] object EntityExecutor {
     else
       value match {
         case obj: ObjectValue  =>
-          selectedObject(selection.children, selection.runtimeTypeAlias, obj, allowNull)
+          selectedObject(selection.children, selection.typenameAlias, obj, allowNull)
         case ListValue(values) =>
           traverseOption(values)(selectedInput(selection, _, allowNull)).map(InputListValue.apply)
         case _                 => None
@@ -541,12 +541,12 @@ private[gateway] object EntityExecutor {
 
   private def selectedObject(
     selections: List[RequiredSelection],
-    runtimeTypeAlias: Option[String],
+    typenameAlias: Option[String],
     value: ObjectValue,
     allowNull: Boolean
   ): Option[InputObjectValue] = {
     val fields     = IndexedFields(value)
-    val applicable = runtimeTypeAlias match {
+    val applicable = typenameAlias match {
       case None        => Some(selections)
       case Some(alias) =>
         fields.get(alias).collect { case StringValue(runtimeType) =>

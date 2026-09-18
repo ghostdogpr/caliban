@@ -9,6 +9,7 @@ import caliban.rendering.DocumentRenderer
 import caliban.Scala3Annotations.threadUnsafe
 import caliban.Value.NullValue
 
+import scala.annotation.tailrec
 import scala.collection.immutable.ListMap
 
 /**
@@ -30,7 +31,7 @@ private[gateway] final case class OperationPlan(
 
   lazy val introspectionFields: List[Field] = localFields.filter(isIntrospectionField)
 
-  lazy val hasVariableReferences: Boolean = PlanVariables.references(this)
+  lazy val hasVariableReferences: Boolean = PlanVariables.hasReferences(this)
 
   private[internal] def bind(variables: Map[String, InputValue]): OperationPlan =
     PlanVariables.bind(this, variables)
@@ -44,18 +45,8 @@ private[gateway] object OperationPlan {
     responseName: String,
     children: List[RequiredSelection] = Nil,
     conditions: Option[Set[String]] = None,
-    runtimeTypeAlias: Option[String] = None
+    typenameAlias: Option[String] = None
   )
-
-  def privateAlias(base: String, used: Set[String]): String = {
-    var candidate = base
-    var suffix    = 2
-    while (used.contains(candidate)) {
-      candidate = s"${base}_$suffix"
-      suffix += 1
-    }
-    candidate
-  }
 
   final case class RootFetch(
     id: FetchId,
@@ -115,7 +106,71 @@ private[gateway] object OperationPlan {
     lazy val selectionKey: String = canonicalSelectionKey(fields)
   }
 
-  private[internal] def canonicalSelectionKey(fields: List[Field]): String = {
+  private[internal] final case class EntityGroupKey(
+    source: String,
+    entityType: String,
+    lookup: ComposedGraph.EntityLookup,
+    keys: List[RequiredSelection],
+    requirements: List[RequiredSelection],
+    contextArguments: List[ContextualArgument],
+    selection: String
+  ) {
+    @transient @threadUnsafe
+    final override lazy val hashCode: Int = Hash.caseClassHash(this)
+  }
+
+  def privateAlias(base: String, used: Set[String]): String = {
+    @tailrec
+    def find(candidate: String, suffix: Int): String =
+      if (used.contains(candidate)) find(s"${base}_$suffix", suffix + 1)
+      else candidate
+
+    find(base, 2)
+  }
+
+  /**
+   * Counts compatible entity batches by dependency wave. Dependencies outside this list are already satisfied.
+   */
+  def logicalCallCount(fetches: List[EntityFetch]): Int = {
+    val fetchIds = fetches.iterator.map(_.id).toSet
+
+    def count(pending: List[EntityFetch], completed: Set[FetchId], calls: Int): Int =
+      if (pending.isEmpty) calls
+      else {
+        val (ready, waiting) =
+          pending.partition(fetch => fetch.dependencies.forall(id => completed.contains(id) || !fetchIds(id)))
+        if (ready.isEmpty) calls
+        else {
+          val readyIds = ready.iterator.map(_.id).toSet
+          count(
+            waiting,
+            completed ++ readyIds,
+            calls + ready.iterator.map(entityGroupKey).toSet.size
+          )
+        }
+      }
+
+    count(fetches, Set.empty, 0)
+  }
+
+  private[internal] def entityGroupKey(fetch: EntityFetch): EntityGroupKey =
+    EntityGroupKey(
+      fetch.source,
+      fetch.entityType,
+      fetch.lookup,
+      fetch.keys,
+      fetch.requirements,
+      fetch.contextArguments,
+      fetch.selectionKey
+    )
+
+  private[planning] def fieldPaths(fields: List[Field]): List[String] =
+    fields.flatMap { field =>
+      if (field.fields.isEmpty) List(field.aliasedName)
+      else fieldPaths(field.fields).map(child => s"${field.aliasedName}.$child")
+    }
+
+  private def canonicalSelectionKey(fields: List[Field]): String = {
     def renderSelection(selection: Selection): String =
       DocumentRenderer.selectionsRenderer.renderCompact(selection :: Nil)
 
@@ -156,11 +211,11 @@ private[gateway] object OperationPlan {
     DocumentRenderer.selectionsRenderer.renderCompact(selections)
   }
 
-  private[internal] object PlanVariables {
+  private object PlanVariables {
 
-    def references(plan: OperationPlan): Boolean =
+    def hasReferences(plan: OperationPlan): Boolean =
       plan.fields.exists(fieldReferences) ||
-        plan.roots.exists(fetch => fetch.client.exists(fieldReferences) || fetch.selections.exists(fieldReferences)) ||
+        plan.roots.exists(rootReferences) ||
         plan.entities.exists(fetch => fetch.fields.exists(fieldReferences))
 
     def bind(plan: OperationPlan, variables: Map[String, InputValue]): OperationPlan = {
@@ -192,7 +247,7 @@ private[gateway] object OperationPlan {
         )
 
       def bindRoot(fetch: RootFetch): RootFetch =
-        if (fetch.client.exists(fieldReferences) || fetch.selections.exists(fieldReferences))
+        if (rootReferences(fetch))
           fetch.copy(
             client = fetch.client.map(bindField),
             downstream = fetch.downstream.map(bindField),
@@ -211,6 +266,10 @@ private[gateway] object OperationPlan {
         entities = plan.entities.map(bindEntity)
       )
     }
+
+    private def rootReferences(fetch: RootFetch): Boolean =
+      fetch.client.exists(fieldReferences) || fetch.downstream.exists(fieldReferences) ||
+        fetch.contextRoots.exists(fieldReferences)
 
     private def fieldReferences(field: Field): Boolean =
       field.arguments.valuesIterator.exists(valueReferences) ||
@@ -233,61 +292,12 @@ private[gateway] object OperationPlan {
       }
   }
 
-  private[internal] final case class EntityGroupKey(
-    source: String,
-    entityType: String,
-    lookup: ComposedGraph.EntityLookup,
-    keys: List[RequiredSelection],
-    requirements: List[RequiredSelection],
-    contextArguments: List[ContextualArgument],
-    selection: String
-  ) {
-    @transient @threadUnsafe
-    final override lazy val hashCode: Int = Hash.caseClassHash(this)
-  }
-
-  private[gateway] def logicalCallCount(fetches: List[EntityFetch]): Int = {
-    val fetchIds = fetches.iterator.map(_.id).toSet
-
-    def count(
-      pending: List[EntityFetch],
-      completed: Set[FetchId],
-      calls: Int
-    ): Int =
-      if (pending.isEmpty) calls
-      else {
-        val ready = pending.filter(fetch => fetch.dependencies.forall(id => completed.contains(id) || !fetchIds(id)))
-        if (ready.isEmpty) calls
-        else {
-          val readyIds = ready.iterator.map(_.id).toSet
-          count(
-            pending.filterNot(fetch => readyIds.contains(fetch.id)),
-            completed ++ readyIds,
-            calls + ready.iterator.map(entityGroupKey).toSet.size
-          )
-        }
-      }
-
-    count(fetches, Set.empty, 0)
-  }
-
-  private[internal] def entityGroupKey(fetch: EntityFetch): EntityGroupKey =
-    EntityGroupKey(
-      fetch.source,
-      fetch.entityType,
-      fetch.lookup,
-      fetch.keys,
-      fetch.requirements,
-      fetch.contextArguments,
-      fetch.selectionKey
-    )
-
   private def render(plan: OperationPlan): String = {
     val header  = plan.operation.toString.toLowerCase
     val roots   = plan.roots.flatMap { fetch =>
       fetch.client.zip(fetch.downstream).map { case (client, downstream) =>
         val entity = plan.entities.find(_.mergePath.headOption.contains(client.aliasedName))
-        val fields = flatten(downstream.fields).map { path =>
+        val fields = fieldPaths(downstream.fields).map { path =>
           entity
             .flatMap(join =>
               join.keys.find(_.responseName == path).orElse(join.typename.filter(_.responseName == path))
@@ -303,15 +313,9 @@ private[gateway] object OperationPlan {
     val joins   = plan.entities.map { fetch =>
       val dependencies = fetch.dependencies.toList.sortBy(_.value).flatMap(sources.get).distinct.mkString(",")
       s"fetch ${fetch.source} after $dependencies at $$.${fetch.mergePath.mkString(".")} " +
-        s"via ${fetch.entityType}(${fetch.keys.map(_.field).mkString(",")}) fields ${flatten(fetch.fields).mkString("[", ", ", "]")}"
+        s"via ${fetch.entityType}(${fetch.keys.map(_.field).mkString(",")}) fields ${fieldPaths(fetch.fields).mkString("[", ", ", "]")}"
     }
     (header :: roots ::: joins).mkString("\n")
   }
-
-  private[planning] def flatten(fields: List[Field]): List[String] =
-    fields.flatMap { field =>
-      if (field.fields.isEmpty) List(field.aliasedName)
-      else flatten(field.fields).map(child => s"${field.aliasedName}.$child")
-    }
 
 }

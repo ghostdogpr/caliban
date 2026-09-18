@@ -231,6 +231,14 @@ private[gateway] final class RemoteSubscription(
    * Completed comments and ignored fields do not consume the next line's budget.
    */
   private final class SseDecoder {
+    private val line                = new ByteArrayOutputStream
+    private val data                = new StringBuilder
+    private var event               = ""
+    private var size                = 0L
+    private var afterCarriageReturn = false
+    private var firstLine           = true
+    private var complete            = false
+
     def isComplete: Boolean = complete
 
     def feed(byte: Byte): Either[Throwable, Option[SseEvent]] = {
@@ -276,13 +284,6 @@ private[gateway] final class RemoteSubscription(
       }
     }
 
-    private val line                = new ByteArrayOutputStream
-    private val data                = new StringBuilder
-    private var event               = ""
-    private var size                = 0L
-    private var afterCarriageReturn = false
-    private var firstLine           = true
-    private var complete            = false
   }
 }
 
