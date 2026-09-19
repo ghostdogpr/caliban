@@ -205,11 +205,15 @@ object SupergraphUplinkSpec extends ZIOSpecDefault {
         assertTrue(UplinkFetchFailed("ACCESS_DENIED").getMessage.contains("ACCESS_DENIED"))
       },
       test("a caused error keeps its payload in the cause channel, never in the diagnostic") {
-        val cause = new IllegalStateException("Bearer service:caliban-gateway:s3cr3t-uplink-key")
-        val error = RequestFailed(cause)
+        val cause      = new IllegalStateException("Bearer service:caliban-gateway:s3cr3t-uplink-key")
+        val error      = RequestFailed(cause)
+        val buildError = GatewayBuildError.SupergraphAcquisitionFailed(error)
         assertTrue(
           error.getCause == cause,
-          leaks(error.diagnostics, apiKey.stringValue).isEmpty
+          buildError.getCause eq error,
+          buildError.getCause.getCause eq cause,
+          buildError.diagnostics == error.diagnostics,
+          leaks(buildError.diagnostics, apiKey.stringValue).isEmpty
         )
       }
     ),
@@ -306,7 +310,7 @@ object SupergraphUplinkSpec extends ZIOSpecDefault {
           leaks(error.diagnostics, "invalid key", "service:xyz").isEmpty
         )
       },
-      test("unparseable supergraph sdl is reported as an invalid schema, and does not advance the cursor") {
+      test("a supergraph schema parsing failure does not advance the cursor") {
         for {
           stub    <- uplinkStub(
                        Answer(uplinkConfigResult("id-1", "type Query {")),
@@ -318,7 +322,7 @@ object SupergraphUplinkSpec extends ZIOSpecDefault {
           _       <- loader.load
           cursor1 <- stub.cursorOf(1)
         } yield assertTrue(
-          error.isInstanceOf[InvalidSupergraphSchema],
+          error.isInstanceOf[SchemaParsingFailed],
           // A document we could not parse must not be acknowledged, or it is never re-offered.
           cursor1.isEmpty
         )
@@ -454,7 +458,7 @@ object SupergraphUplinkSpec extends ZIOSpecDefault {
           exit   <- loader.load.exit
           error  <- acquisitionFailure(exit)
           calls  <- second.calls
-        } yield assertTrue(error.isInstanceOf[InvalidSupergraphSchema], calls == 0)
+        } yield assertTrue(error.isInstanceOf[SchemaParsingFailed], calls == 0)
       },
       test("gives up once every endpoint has been tried, rather than retrying forever") {
         for {

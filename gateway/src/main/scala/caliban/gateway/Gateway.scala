@@ -288,7 +288,7 @@ object Gateway {
           rootDocument = ensureFederationTransportQuery(document, federation)
           normalized  <- ZIO
                            .fromEither(RemoteSchema.normalize(rootDocument, promoteOrphans = federation))
-                           .mapError(InvalidSchema(_))
+                           .mapError(SchemaValidationFailed(_))
           prepared    <- ZIO.fromEither(prepareSubgraph(subgraph, normalized, document, federation))
           executor    <-
             RemoteSubgraphExecutor.make(subgraph.name, endpoint, httpClient, config, hooks, remoteErrorMessages)
@@ -297,9 +297,9 @@ object Gateway {
         val document   = graph.toDocument
         val federation = SchemaComposer.isFederation(document)
         for {
-          normalized  <- ZIO.fromEither(RemoteSchema.normalize(document)).mapError(InvalidSchema(_))
+          normalized  <- ZIO.fromEither(RemoteSchema.normalize(document)).mapError(SchemaValidationFailed(_))
           prepared    <- ZIO.fromEither(prepareSubgraph(subgraph, normalized, document, federation))
-          interpreter <- ZIO.fromEither(graph.interpreterEither).mapError(InvalidSchema(_))
+          interpreter <- ZIO.fromEither(graph.interpreterEither).mapError(SchemaValidationFailed(_))
         } yield LoadedSubgraph(prepared, new LocalSubgraphExecutor(interpreter))
     }
 
@@ -326,7 +326,7 @@ object Gateway {
   ): IO[SubgraphBuildError, GatewayHttpClient] = {
     val diagnostics = remote.config.diagnostics(includeAcquisition = remote.schema == SchemaInput.Acquired)
     ZIO.fail(SubgraphBuildError.InvalidConfiguration(diagnostics)).when(diagnostics.nonEmpty) *>
-      ZIO.fromOption(http).orElseFail(RemoteTransportUnavailable)
+      ZIO.fromOption(http).orElseFail(MissingHttpClient)
   }
 
   private def decomposeSupergraph[R](
@@ -367,7 +367,7 @@ object Gateway {
                          RemoteSchema
                            .normalize(mapping.transform(normalized.document), promoteOrphans = federation)
                            .left
-                           .map(InvalidSchema(_))
+                           .map(SchemaValidationFailed(_))
                        else Right(normalized)
     } yield PreparedSubgraph(
       subgraph.name,

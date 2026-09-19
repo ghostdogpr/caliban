@@ -3,10 +3,10 @@ package caliban.gateway.internal.composition
 import caliban.{ CalibanError, GraphQLRequest }
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.NullValue
-import caliban.gateway.{ RemoteGraphQLConfig, SchemaAcquisitionError, SchemaInput, Subgraph }
+import caliban.gateway.{ RemoteGraphQLConfig, SchemaInput, Subgraph, SubgraphAcquisitionError }
 import caliban.gateway.internal.GatewayHttpClient
 import caliban.gateway.internal.execution.RemoteTransport
-import caliban.gateway.SchemaAcquisitionError._
+import caliban.gateway.SubgraphAcquisitionError._
 import caliban.parsing.adt.Document
 import caliban.parsing.Parser
 import com.github.plokhotnyuk.jsoniter_scala.core.writeToArray
@@ -17,9 +17,9 @@ private[gateway] object RemoteSchemaAcquisition {
 
   def load(remote: Subgraph.Source.Remote[_], http: GatewayHttpClient)(implicit
     trace: Trace
-  ): IO[SchemaAcquisitionError, Document] =
+  ): IO[SubgraphAcquisitionError, Document] =
     remote.schema match {
-      case SchemaInput.Sdl(value)    => ZIO.fromEither(Parser.parseQuery(value)).mapError(InvalidProvidedSchema(_))
+      case SchemaInput.Sdl(value)    => ZIO.fromEither(Parser.parseQuery(value)).mapError(ProvidedSchemaParsingFailed(_))
       case SchemaInput.Parsed(value) => ZIO.succeed(value)
       case SchemaInput.Acquired      =>
         val config      = remote.config.acquisition
@@ -36,18 +36,18 @@ private[gateway] object RemoteSchemaAcquisition {
     operationName: String,
     config: RemoteGraphQLConfig.Acquisition,
     http: GatewayHttpClient
-  )(implicit trace: Trace): IO[SchemaAcquisitionError, Array[Byte]] = {
+  )(implicit trace: Trace): IO[SubgraphAcquisitionError, Array[Byte]] = {
     val request = GraphQLRequest(query = Some(query), operationName = Some(operationName))
 
     http
       .post(endpoint, writeToArray(request), config.headers, config.maxResponseBytes)
-      .mapError[SchemaAcquisitionError](RequestFailed(_))
+      .mapError[SubgraphAcquisitionError](RequestFailed(_))
       .flatMap(validateResponse(_, config))
   }
 
   private def validateResponse(reply: GatewayHttpClient.Reply, config: RemoteGraphQLConfig.Acquisition)(implicit
     trace: Trace
-  ): IO[SchemaAcquisitionError, Array[Byte]] =
+  ): IO[SubgraphAcquisitionError, Array[Byte]] =
     if (reply.body.limitExceeded)
       ZIO.fail(ResponseTooLarge(config.maxResponseBytes))
     else if (reply.status.isRedirection || !isJsonResponse(reply))

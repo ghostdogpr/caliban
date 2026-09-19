@@ -7,13 +7,25 @@ import zio.Duration
 
 import scala.util.control.NoStackTrace
 
+private[gateway] trait GatewayError extends NoStackTrace with Product with Serializable {
+  def diagnostics: List[String]
+
+  override final def getMessage: String = diagnostics.mkString("\n")
+}
+
+private[gateway] trait GatewayCausedError { self: Throwable =>
+  def error: Throwable
+
+  override final def getCause: Throwable = error
+}
+
 /**
  * Indicates that a [[Gateway]] could not be built.
  *
  * The cases identify broad failure categories. [[diagnostics]] is a rendered view intended for logs and command-line
  * output; callers can pattern match on the cases and their fields when they need structured error handling.
  */
-sealed trait GatewayBuildError extends GatewayDiagnosticError
+sealed trait GatewayBuildError extends GatewayError
 
 object GatewayBuildError {
 
@@ -47,7 +59,9 @@ object GatewayBuildError {
     override val diagnostics: List[String] = errors
   }
 
-  final case class SupergraphAcquisitionFailed(error: SupergraphAcquisitionError) extends GatewayBuildError {
+  final case class SupergraphAcquisitionFailed(error: SupergraphAcquisitionError)
+      extends GatewayBuildError
+      with GatewayCausedError {
     override val diagnostics: List[String] = error.diagnostics
   }
 
@@ -70,7 +84,7 @@ final case class SubgraphError(name: String, error: SubgraphBuildError) {
 /**
  * A failure that prevented a subgraph from being loaded.
  */
-sealed trait SubgraphBuildError extends GatewayDiagnosticError
+sealed trait SubgraphBuildError extends GatewayError
 
 object SubgraphBuildError {
 
@@ -82,16 +96,16 @@ object SubgraphBuildError {
   }
 
   /**
-   * A remote subgraph was loaded without an available HTTP transport.
+   * A remote subgraph has no HTTP client for schema acquisition or request execution.
    */
-  case object RemoteTransportUnavailable extends SubgraphBuildError {
-    override val diagnostics: List[String] = List("Remote GraphQL transport is unavailable.")
+  case object MissingHttpClient extends SubgraphBuildError {
+    override val diagnostics: List[String] = List("No HTTP client is available for the remote subgraph.")
   }
 
   /**
-   * The schema document could not be converted into an executable schema.
+   * The parsed schema document failed validation while preparing an executable subgraph.
    */
-  final case class InvalidSchema(error: CalibanError.ValidationError)
+  final case class SchemaValidationFailed(error: CalibanError.ValidationError)
       extends SubgraphBuildError
       with GatewayCausedError {
     override val diagnostics: List[String] = List(error.getMessage)
@@ -106,44 +120,46 @@ object SubgraphBuildError {
 }
 
 /**
- * A failure while obtaining a remote subgraph's schema.
+ * A failure while obtaining or parsing a remote subgraph's schema, including supplied SDL.
  */
-sealed trait SchemaAcquisitionError extends SubgraphBuildError
+sealed trait SubgraphAcquisitionError extends SubgraphBuildError
 
-object SchemaAcquisitionError {
+object SubgraphAcquisitionError {
 
   /**
    * A provided SDL document could not be parsed.
    */
-  final case class InvalidProvidedSchema(error: ParsingError) extends SchemaAcquisitionError with GatewayCausedError {
+  final case class ProvidedSchemaParsingFailed(error: ParsingError)
+      extends SubgraphAcquisitionError
+      with GatewayCausedError {
     override val diagnostics: List[String] = List(error.getMessage)
   }
 
   /**
    * The remote acquisition request failed before a response was received.
    */
-  final case class RequestFailed(error: Throwable) extends SchemaAcquisitionError with GatewayCausedError {
+  final case class RequestFailed(error: Throwable) extends SubgraphAcquisitionError with GatewayCausedError {
     override val diagnostics: List[String] = List("Schema acquisition request failed.")
   }
 
   /**
    * Schema acquisition did not finish within its configured timeout.
    */
-  final case class TimedOut(timeout: Duration) extends SchemaAcquisitionError {
+  final case class TimedOut(timeout: Duration) extends SubgraphAcquisitionError {
     override val diagnostics: List[String] = List(s"Schema acquisition timed out after $timeout.")
   }
 
   /**
    * The response exceeded the configured byte limit.
    */
-  final case class ResponseTooLarge(maxBytes: Int) extends SchemaAcquisitionError {
+  final case class ResponseTooLarge(maxBytes: Int) extends SubgraphAcquisitionError {
     override val diagnostics: List[String] = List(s"Schema acquisition response exceeded $maxBytes bytes.")
   }
 
   /**
    * The response status or media type was not accepted for schema acquisition.
    */
-  final case class UnexpectedResponse(status: Status, contentType: Option[String]) extends SchemaAcquisitionError {
+  final case class UnexpectedResponse(status: Status, contentType: Option[String]) extends SubgraphAcquisitionError {
     override val diagnostics: List[String] = {
       val mediaType = contentType.fold("without a media type")(value => s"with media type '$value'")
       List(s"Schema acquisition response had status ${status.code} $mediaType.")
@@ -154,7 +170,7 @@ object SchemaAcquisitionError {
    * The introspection response could not be decoded.
    */
   final case class IntrospectionResponseDecodingFailed(error: Throwable)
-      extends SchemaAcquisitionError
+      extends SubgraphAcquisitionError
       with GatewayCausedError {
     override val diagnostics: List[String] = List("Introspection response could not be decoded.")
   }
@@ -162,7 +178,7 @@ object SchemaAcquisitionError {
   /**
    * Introspection completed with GraphQL errors.
    */
-  final case class IntrospectionErrors(errors: List[CalibanError]) extends SchemaAcquisitionError {
+  final case class IntrospectionErrors(errors: List[CalibanError]) extends SubgraphAcquisitionError {
     override val diagnostics: List[String] =
       List(s"Introspection failed: ${errors.map(_.getMessage).mkString("; ")}")
   }
@@ -171,7 +187,7 @@ object SchemaAcquisitionError {
    * The Federation response body was not valid JSON.
    */
   final case class FederationResponseDecodingFailed(error: Throwable)
-      extends SchemaAcquisitionError
+      extends SubgraphAcquisitionError
       with GatewayCausedError {
     override val diagnostics: List[String] = List("Federation service response could not be decoded.")
   }
@@ -179,7 +195,8 @@ object SchemaAcquisitionError {
   /**
    * The Federation `_service` response did not contain usable SDL.
    */
-  final case class InvalidFederationResponse(reason: InvalidFederationResponse.Reason) extends SchemaAcquisitionError {
+  final case class InvalidFederationResponse(reason: InvalidFederationResponse.Reason)
+      extends SubgraphAcquisitionError {
     override val diagnostics: List[String] =
       List(s"Federation service response was invalid: ${reason.description}.")
   }
@@ -213,7 +230,7 @@ object SchemaAcquisitionError {
   /**
    * The Federation `_service` operation completed with GraphQL errors.
    */
-  final case class FederationErrors(errors: List[CalibanError]) extends SchemaAcquisitionError {
+  final case class FederationErrors(errors: List[CalibanError]) extends SubgraphAcquisitionError {
     override val diagnostics: List[String] =
       List(s"Federation service returned GraphQL errors: ${errors.map(_.getMessage).mkString("; ")}")
   }
@@ -221,7 +238,9 @@ object SchemaAcquisitionError {
   /**
    * The Federation service SDL could not be parsed.
    */
-  final case class InvalidFederationSchema(error: ParsingError) extends SchemaAcquisitionError with GatewayCausedError {
+  final case class FederationSchemaParsingFailed(error: ParsingError)
+      extends SubgraphAcquisitionError
+      with GatewayCausedError {
     override val diagnostics: List[String] =
       List(s"Federation service schema could not be parsed: ${error.getMessage}")
   }
@@ -229,19 +248,81 @@ object SchemaAcquisitionError {
   /**
    * JSON or GraphQL nesting exceeded the configured parsing-depth limit.
    */
-  final case class ParsingDepthExceeded(maxDepth: Int) extends SchemaAcquisitionError {
+  final case class ParsingDepthExceeded(maxDepth: Int) extends SubgraphAcquisitionError {
     override val diagnostics: List[String] = List(s"Schema acquisition parsing depth exceeded $maxDepth.")
   }
 }
 
-private[gateway] trait GatewayDiagnosticError extends NoStackTrace with Product with Serializable {
-  def diagnostics: List[String]
+sealed trait SupergraphAcquisitionError extends GatewayError
 
-  override final def getMessage: String = diagnostics.mkString("\n")
-}
+object SupergraphAcquisitionError {
+  final case class SchemaParsingFailed(error: ParsingError) extends SupergraphAcquisitionError with GatewayCausedError {
+    override val diagnostics: List[String] = List(error.getMessage)
+  }
 
-private[gateway] trait GatewayCausedError { self: Throwable =>
-  def error: Throwable
+  final case class RequestFailed(error: Throwable) extends SupergraphAcquisitionError with GatewayCausedError {
+    override val diagnostics: List[String] = List("Supergraph schema acquisition request failed.")
+  }
 
-  override final def getCause: Throwable = error
+  final case class TimedOut(timeout: Duration) extends SupergraphAcquisitionError {
+    override val diagnostics: List[String] = List(s"Supergraph schema acquisition timed out after $timeout.")
+  }
+
+  final case class ResponseTooLarge(maxBytes: Int) extends SupergraphAcquisitionError {
+    override val diagnostics: List[String] = List(s"Supergraph schema acquisition response exceeded $maxBytes bytes.")
+  }
+
+  final case class UnexpectedResponse(status: Status, contentType: Option[String]) extends SupergraphAcquisitionError {
+    override val diagnostics: List[String] = {
+      val mediaType = contentType.fold("without a media type")(value => s"with media type '$value'")
+      List(s"Supergraph schema acquisition response had status ${status.code} $mediaType.")
+    }
+  }
+
+  final case class ParsingDepthExceeded(maxDepth: Int) extends SupergraphAcquisitionError {
+    override val diagnostics: List[String] = List(s"Supergraph schema parsing depth exceeded $maxDepth.")
+  }
+
+  final case class FileReadFailed(error: Throwable) extends SupergraphAcquisitionError with GatewayCausedError {
+    override val diagnostics: List[String] = List("Supergraph schema acquisition was unable to read a file.")
+  }
+
+  final case class UplinkFetchFailed(code: String) extends SupergraphAcquisitionError {
+    override val diagnostics: List[String] = List(s"Supergraph uplink returned error code '$code'.")
+  }
+
+  final case class InvalidUplinkResponse(reason: InvalidUplinkResponse.Reason) extends SupergraphAcquisitionError {
+    override val diagnostics: List[String] =
+      List(s"Uplink response was invalid: ${reason.description}.")
+  }
+
+  object InvalidUplinkResponse {
+    sealed trait Reason extends Product with Serializable {
+      def description: String
+    }
+
+    case object MissingData extends Reason {
+      override val description: String = "the 'data' field was missing or not an object"
+    }
+
+    case object MissingRouterConfig extends Reason {
+      override val description: String = "the 'routerConfig' field was missing or not an object"
+    }
+
+    case object UnknownTypename extends Reason {
+      override val description: String = "the '__typename' field was unknown"
+    }
+
+    case object MissingSupergraphSdl extends Reason {
+      override val description: String = "the 'supergraphSDL' field was missing or not a string"
+    }
+
+    case object MissingId extends Reason {
+      override val description: String = "the 'id' field was missing"
+    }
+
+    case object DecodingFailed extends Reason {
+      override val description: String = "the response could not be decoded"
+    }
+  }
 }

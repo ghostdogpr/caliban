@@ -42,7 +42,7 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
     result match {
       case Left(
             GatewayBuildError.SubgraphLoadingFailed(
-              List(SubgraphError(_, SchemaAcquisitionError.IntrospectionErrors(errors)))
+              List(SubgraphError(_, SubgraphAcquisitionError.IntrospectionErrors(errors)))
             )
           ) =>
         errors.map(_.msg)
@@ -187,7 +187,7 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
         ),
         result.left.exists {
           case GatewayBuildError.SubgraphLoadingFailed(
-                List(SubgraphError("reviews", SchemaAcquisitionError.FederationErrors(errors)))
+                List(SubgraphError("reviews", SubgraphAcquisitionError.FederationErrors(errors)))
               ) =>
             errors.nonEmpty
           case _ => false
@@ -195,7 +195,7 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
       )
     },
     test("classifies malformed Federation service responses") {
-      import SchemaAcquisitionError.InvalidFederationResponse._
+      import SubgraphAcquisitionError.InvalidFederationResponse._
 
       val cases = List(
         "[]"                           -> ExpectedResponseObject,
@@ -212,7 +212,7 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
             result <- Gateway.compose(Subgraph.federation("reviews", remote.endpoint)).interpreter.either
           } yield result.left.toOption.collect {
             case GatewayBuildError.SubgraphLoadingFailed(
-                  List(SubgraphError("reviews", SchemaAcquisitionError.InvalidFederationResponse(reason)))
+                  List(SubgraphError("reviews", SubgraphAcquisitionError.InvalidFederationResponse(reason)))
                 ) =>
               reason
           }.contains(expected)
@@ -245,7 +245,7 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
     },
     test("retains request failure causes without exposing their messages in diagnostics") {
       val cause = new RuntimeException("secret endpoint and response details")
-      val error = SchemaAcquisitionError.RequestFailed(cause)
+      val error = SubgraphAcquisitionError.RequestFailed(cause)
 
       assertTrue(
         error.getCause eq cause,
@@ -255,7 +255,7 @@ object SchemaAcquisitionSpec extends ZIOSpecDefault {
     test("retains client decoding errors without exposing their messages in diagnostics") {
       val cause       = new RuntimeException("secret response details")
       val clientError = new RuntimeException("secret decoder context", cause)
-      val error       = SchemaAcquisitionError.IntrospectionResponseDecodingFailed(clientError)
+      val error       = SubgraphAcquisitionError.IntrospectionResponseDecodingFailed(clientError)
 
       assertTrue(
         error.getCause eq clientError,

@@ -49,7 +49,7 @@ private[gateway] object SupergraphAcquisition {
       def load(implicit trace: Trace): IO[SupergraphAcquisitionError, Document] =
         ZIO
           .attemptBlocking(new String(Files.readAllBytes(path), StandardCharsets.UTF_8))
-          .mapError(FileUnreadable(_))
+          .mapError(FileReadFailed(_))
           .flatMap(value => ZIO.fromEither(parse(value)))
     }
 
@@ -166,7 +166,7 @@ private[gateway] object SupergraphAcquisition {
       .orDieWith(_ => new IllegalStateException("A remote supergraph source requires an HTTP client."))
 
   private def parse(value: String): Either[SupergraphAcquisitionError, Document] =
-    Parser.parseQuery(value).left.map(InvalidSupergraphSchema(_))
+    Parser.parseQuery(value).left.map(SchemaParsingFailed(_))
 
   private def parseWithinDepth(sdl: String, maxDepth: Int)(implicit
     trace: Trace

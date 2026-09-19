@@ -5,7 +5,7 @@ import caliban.GraphQLResponseContext.ServerFailure
 import caliban.gateway.internal.GatewayInterpreterImpl.requestShutdownResponse
 import caliban.gateway.internal.execution.SubgraphExecutor
 import zio.http.Header
-import zio.{ Trace, URIO, ZIO }
+import zio.{ Trace, UIO, URIO, ZIO }
 import zio.stream.ZStream
 
 /**
@@ -58,4 +58,16 @@ trait GatewayInterpreter[-R] extends GraphQLInterpreter[R, CalibanError] {
     GraphQLResponseContext
       .markServerError(ServerFailure.Unavailable)
       .as(requestShutdownResponse)
+}
+
+/**
+ * A stable interpreter whose acquired schemas are refreshed within its owning scope.
+ */
+trait ReloadableGatewayInterpreter[-R] extends GatewayInterpreter[R] {
+
+  /**
+   * A bounded diagnostic for the latest failed refresh, cleared after a successful check.
+   * Remote messages, schemas, response bodies and exception causes are never retained.
+   */
+  def lastReloadFailure(implicit trace: Trace): UIO[Option[String]]
 }

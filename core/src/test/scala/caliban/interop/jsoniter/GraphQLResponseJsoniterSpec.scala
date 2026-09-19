@@ -25,7 +25,7 @@ object GraphQLResponseJsoniterSpec extends ZIOSpecDefault {
           ("myCustomKey", StringValue("my-value"))
         )
 
-        val response: GraphQLResponse[Any] = GraphQLResponse(
+        val response = GraphQLResponse(
           StringValue("data"),
           List(
             ExecutionError(

@@ -1,8 +1,8 @@
 package caliban.gateway.internal.composition
 
 import caliban.{ InputValue, ResponseValue }
-import caliban.gateway.{ traverseEither, RemoteGraphQLConfig, SchemaAcquisitionError }
-import caliban.gateway.SchemaAcquisitionError._
+import caliban.gateway.{ traverseEither, RemoteGraphQLConfig, SubgraphAcquisitionError }
+import caliban.gateway.SubgraphAcquisitionError._
 import caliban.gateway.internal.GatewayHttpClient
 import caliban.parsing.adt.{ Directive, Directives, Document, Type }
 import caliban.parsing.adt.Definition.TypeSystemDefinition._
@@ -24,7 +24,7 @@ private[gateway] object IntrospectionClient {
     endpoint: URL,
     config: RemoteGraphQLConfig.Acquisition,
     http: GatewayHttpClient
-  )(implicit trace: Trace): IO[SchemaAcquisitionError, Document] =
+  )(implicit trace: Trace): IO[SubgraphAcquisitionError, Document] =
     for {
       bytes    <- RemoteSchemaAcquisition.fetchBytes(endpoint, Query, OperationName, config, http)
       response <- ZIO.attempt(readFromArray[ResponseValue](bytes)).mapError(IntrospectionResponseDecodingFailed(_))

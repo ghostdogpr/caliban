@@ -135,7 +135,7 @@ object SupergraphAcquisitionSpec extends ZIOSpecDefault {
         for {
           exit  <- loadLocal(Supergraph.Source.Sdl("type Query {"))
           error <- acquisitionFailure(exit)
-        } yield assertTrue(error.isInstanceOf[SupergraphAcquisitionError.InvalidSupergraphSchema])
+        } yield assertTrue(error.isInstanceOf[SupergraphAcquisitionError.SchemaParsingFailed])
       }
     ),
     suite("file source")(
@@ -165,8 +165,8 @@ object SupergraphAcquisitionSpec extends ZIOSpecDefault {
             malformed   <- loadLocal(Supergraph.Source.File(path))
             unparseable <- acquisitionFailure(malformed)
           } yield assertTrue(
-            unreadable.isInstanceOf[SupergraphAcquisitionError.FileUnreadable],
-            unparseable.isInstanceOf[SupergraphAcquisitionError.InvalidSupergraphSchema]
+            unreadable.isInstanceOf[SupergraphAcquisitionError.FileReadFailed],
+            unparseable.isInstanceOf[SupergraphAcquisitionError.SchemaParsingFailed]
           )
         }
       }
@@ -225,7 +225,7 @@ object SupergraphAcquisitionSpec extends ZIOSpecDefault {
           endpoint <- staticEndpoint("type Query {")
           exit     <- load(httpSource(endpoint, identity))
           error    <- acquisitionFailure(exit)
-        } yield assertTrue(error.isInstanceOf[SupergraphAcquisitionError.InvalidSupergraphSchema])
+        } yield assertTrue(error.isInstanceOf[SupergraphAcquisitionError.SchemaParsingFailed])
       },
       test("fails rather than following a redirect") {
         for {

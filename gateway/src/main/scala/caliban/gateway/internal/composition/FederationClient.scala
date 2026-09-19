@@ -1,10 +1,10 @@
 package caliban.gateway.internal.composition
 
 import caliban.ResponseValue
-import caliban.gateway.{ RemoteGraphQLConfig, SchemaAcquisitionError, ServiceField }
+import caliban.gateway.{ RemoteGraphQLConfig, ServiceField, SubgraphAcquisitionError }
 import caliban.gateway.internal.GatewayHttpClient
-import caliban.gateway.SchemaAcquisitionError._
-import caliban.gateway.SchemaAcquisitionError.InvalidFederationResponse._
+import caliban.gateway.SubgraphAcquisitionError._
+import caliban.gateway.SubgraphAcquisitionError.InvalidFederationResponse._
 import caliban.parsing.adt.Document
 import caliban.parsing.Parser
 import caliban.ResponseValue.ObjectValue
@@ -19,7 +19,7 @@ private[composition] object FederationClient {
     endpoint: URL,
     config: RemoteGraphQLConfig.Acquisition,
     http: GatewayHttpClient
-  )(implicit trace: Trace): IO[SchemaAcquisitionError, Document] =
+  )(implicit trace: Trace): IO[SubgraphAcquisitionError, Document] =
     for {
       bytes    <- RemoteSchemaAcquisition.fetchBytes(endpoint, Query, OperationName, config, http)
       decoded  <- ZIO.attempt(readFromArray[ResponseValue](bytes)).mapError(FederationResponseDecodingFailed(_))
@@ -27,10 +27,10 @@ private[composition] object FederationClient {
       _        <- ZIO
                     .fail(ParsingDepthExceeded(config.maxParsingDepth))
                     .unless(RemoteSchemaAcquisition.withinGraphQLDepth(sdl, config.maxParsingDepth))
-      document <- ZIO.fromEither(Parser.parseQuery(sdl)).mapError(InvalidFederationSchema(_))
+      document <- ZIO.fromEither(Parser.parseQuery(sdl)).mapError(FederationSchemaParsingFailed(_))
     } yield document
 
-  private def decode(value: ResponseValue): Either[SchemaAcquisitionError, String] =
+  private def decode(value: ResponseValue): Either[SubgraphAcquisitionError, String] =
     value match {
       case envelope: ObjectValue =>
         for {
@@ -49,7 +49,7 @@ private[composition] object FederationClient {
     value: ObjectValue,
     name: String,
     missing: InvalidFederationResponse.Reason
-  ): Either[SchemaAcquisitionError, ObjectValue] =
+  ): Either[SubgraphAcquisitionError, ObjectValue] =
     value.fields.collectFirst { case (`name`, nested: ObjectValue) => nested }
       .toRight(InvalidFederationResponse(missing))
 
