@@ -52,17 +52,23 @@ object HttpUtils {
       done: Sse,
       heartbeater: Option[ZStream[Any, Nothing, Sse]] = None
     )(implicit trace: Trace): UStream[Sse] = {
-      val stream = (resp.data match {
+      def initialErrors =
+        if (resp.errors.isEmpty) ZStream.empty
+        else ZStream.succeed(GraphQLResponse(NullValue, resp.errors).toResponseValue)
+      val values        = resp.data match {
+        // Top-level streams with hasNext (even false) are incremental; without it, elements are full subscription responses.
+        case StreamValue(stream) if resp.hasNext.isEmpty          =>
+          (initialErrors ++ stream)
+            .catchAll(error => ZStream.succeed(GraphQLResponse(NullValue, List(error)).toResponseValue))
         case ObjectValue((fieldName, StreamValue(stream)) :: Nil) =>
-          // Report errors in an initial event sent immediately
-          val init =
-            if (resp.errors.isEmpty) ZStream.empty else ZStream.succeed(GraphQLResponse(NullValue, resp.errors))
-          init ++ stream.either.map {
-            case Right(r)  => GraphQLResponse(ObjectValue(List(fieldName -> r)), Nil)
-            case Left(err) => GraphQLResponse(ObjectValue(List(fieldName -> NullValue)), List(err))
+          // Report errors in an initial event sent immediately.
+          initialErrors ++ stream.either.map {
+            case Right(r)  => GraphQLResponse(ObjectValue(List(fieldName -> r)), Nil).toResponseValue
+            case Left(err) => GraphQLResponse(ObjectValue(List(fieldName -> NullValue)), List(err)).toResponseValue
           }
-        case _                                                    => ZStream.succeed(resp)
-      }).map(v => toSse(v.toResponseValue))
+        case _                                                    => ZStream.succeed(resp.toResponseValue)
+      }
+      val stream        = values.map(toSse)
 
       (heartbeater match {
         case None    => stream

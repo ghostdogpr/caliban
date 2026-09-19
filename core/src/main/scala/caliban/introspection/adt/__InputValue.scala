@@ -19,7 +19,6 @@ case class __InputValue(
   @GQLExcluded parentType: () => Option[__Type] = () => None
 ) {
   def toInputValueDefinition: InputValueDefinition = {
-    val default       = defaultValue.flatMap(v => Parser.parseInputValue(v).toOption)
     val allDirectives = (if (isDeprecated)
                            List(
                              Directive(
@@ -28,11 +27,12 @@ case class __InputValue(
                              )
                            )
                          else Nil) ++ directives.getOrElse(Nil)
-    InputValueDefinition(description, name, _type.toType(), default, allDirectives)
+    InputValueDefinition(description, name, _type.toType(), parsedDefaultValue, allDirectives)
   }
 
-  private[caliban] lazy val _type: __Type = `type`()
-  private[caliban] lazy val _parentType   = parentType()
+  private[caliban] lazy val _type: __Type      = `type`()
+  private[caliban] lazy val _parentType        = parentType()
+  private[caliban] lazy val parsedDefaultValue = defaultValue.flatMap(value => Parser.parseInputValue(value).toOption)
 
   /**
    * Makes the [[`type`]] nullable as required by the spec for OneOf Input Objects

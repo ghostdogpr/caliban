@@ -52,6 +52,49 @@ case class GraphQLResponse[+E](
 }
 
 object GraphQLResponse {
+  private[caliban] def fromResponseValue(value: ResponseValue): Option[GraphQLResponse[CalibanError]] =
+    value match {
+      case response: ObjectValue =>
+        for {
+          errors     <- response.getOrNull("errors") match {
+                          case null | NullValue  => AbsentField
+                          case ListValue(values) => Some(Some(decodeErrors(values)))
+                          case _                 => None
+                        }
+          extensions <- response.getOrNull("extensions") match {
+                          case null | NullValue        => AbsentField
+                          case extensions: ObjectValue => Some(Some(extensions))
+                          case _                       => None
+                        }
+          hasNext    <- response.getOrNull("hasNext") match {
+                          case null | NullValue      => AbsentField
+                          case BooleanValue(hasNext) => Some(Some(hasNext))
+                          case _                     => None
+                        }
+          decoded    <- fromDecoded(Option(response.getOrNull("data")), errors, extensions, hasNext)
+        } yield decoded
+      case _                     => None
+    }
+
+  private[caliban] def fromDecoded(
+    data: Option[ResponseValue],
+    errors: Option[List[CalibanError]],
+    extensions: Option[ObjectValue],
+    hasNext: Option[Boolean]
+  ): Option[GraphQLResponse[CalibanError]] =
+    (data, errors) match {
+      case (None, None) => None
+      case _            => Some(GraphQLResponse(data.getOrElse(NullValue), errors.getOrElse(Nil), extensions, hasNext))
+    }
+
+  private[caliban] def decodeErrors(values: List[ResponseValue]): List[CalibanError] =
+    values.map(value => CalibanError.fromResponseValue(value).getOrElse(malformedRemoteError))
+
+  private val malformedRemoteError: CalibanError.ExecutionError =
+    CalibanError.ExecutionError(CalibanError.RemoteErrorMessage)
+
+  private val AbsentField: Some[None.type] = Some(None)
+
   implicit def tapirSchema[F[_]: IsTapirSchema, E]: F[GraphQLResponse[E]] =
     caliban.interop.tapir.schema.responseSchema.asInstanceOf[F[GraphQLResponse[E]]]
 

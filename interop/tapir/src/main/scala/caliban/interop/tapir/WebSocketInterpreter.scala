@@ -52,7 +52,11 @@ object WebSocketInterpreter {
         case Some(selected) =>
           Protocol
             .fromName(selected)
-            .make(interpreter, keepAliveTime, webSocketHooks)
+            .make(
+              interpreter.wrapExecutionWith(IncomingRequestHeaders.locally(headerValues(serverRequest))(_)),
+              keepAliveTime,
+              webSocketHooks
+            )
             .map(res => Right((selected, res)))
         case None           =>
           ZIO.succeed(Left(TapirResponse(sttp.model.StatusCode.BadRequest)))
