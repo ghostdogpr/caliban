@@ -120,16 +120,42 @@ object GatewaySpec extends ZIOSpecDefault {
 
   private val echoAndStatus: Gateway[Any] =
     Gateway.compose(
-      Subgraph.local("echo", LocalSchemas.EchoApi.api),
-      Subgraph.local("status", LocalSchemas.EnumApi.api)
+      Subgraph.graphql("echo", LocalSchemas.EchoApi.api),
+      Subgraph.graphql("status", LocalSchemas.EnumApi.api)
     )
 
   def spec = suite("GatewaySpec")(
     suite("local subgraphs")(
+      test("uses explicit Federation 1 composition for local schemas without federation metadata") {
+        val api = localGraph(ZIO.succeed("shared"))
+        for {
+          ordinary <- compositionDiagnostics(
+                        Gateway.compose(Subgraph.graphql("first", api), Subgraph.graphql("second", api))
+                      )
+          runtime  <- Gateway.compose(Subgraph.federation("first", api), Subgraph.federation("second", api)).interpreter
+          response <- runtime.execute("{ value }")
+        } yield assertTrue(
+          ordinary.exists(_.contains("Field is resolved by multiple ordinary subgraphs")),
+          response.errors.isEmpty,
+          field(response.data, "value").contains(StringValue("shared"))
+        )
+      },
+      test("keeps ordinary local composition explicit even when the API has federation metadata") {
+        val api = localGraph(ZIO.succeed("shared")) @@ caliban.federation.v2_6.federated
+        compositionDiagnostics(
+          Gateway.compose(Subgraph.graphql("first", api), Subgraph.graphql("second", api))
+        ).map(diagnostics =>
+          assertTrue(
+            diagnostics.exists(message =>
+              message.contains("query.value") && message.contains("Field is resolved by multiple ordinary subgraphs")
+            )
+          )
+        )
+      },
       test("executes local roots with their accumulated environments") {
         val description: Gateway[Greeting with Audience] = Gateway.compose(
-          Subgraph.local("greeting", LocalSchemas.GreetingApi.api),
-          Subgraph.local("audience", LocalSchemas.AudienceApi.api)
+          Subgraph.graphql("greeting", LocalSchemas.GreetingApi.api),
+          Subgraph.graphql("audience", LocalSchemas.AudienceApi.api)
         )
         val environment                                  = ZLayer.succeed(new Greeting {
           def value: UIO[String] = ZIO.succeed("hello")
@@ -188,7 +214,7 @@ object GatewaySpec extends ZIOSpecDefault {
       },
       test("completes enum values returned by a local subgraph") {
         for {
-          runtime  <- Gateway.compose(Subgraph.local("status", LocalSchemas.EnumApi.api)).interpreter
+          runtime  <- Gateway.compose(Subgraph.graphql("status", LocalSchemas.EnumApi.api)).interpreter
           response <- runtime.execute("{ status }")
         } yield assertTrue(
           response.errors.isEmpty,
@@ -217,7 +243,7 @@ object GatewaySpec extends ZIOSpecDefault {
             Schema.api
           }
           interpreter <- ZIO.fromEither(api.interpreterEither).orDie
-          runtime     <- Gateway.compose(Subgraph.local("local", api)).interpreter
+          runtime     <- Gateway.compose(Subgraph.graphql("local", api)).interpreter
           request      = GraphQLRequest(query = Some("{ context failure }"))
           direct      <- context.locally("request-context")(interpreter.executeRequest(request))
           response    <- context.locally("request-context")(runtime.executeRequest(request))
@@ -231,7 +257,7 @@ object GatewaySpec extends ZIOSpecDefault {
       test("isolates local request-error classification from the gateway request") {
         for {
           runtime    <- Gateway
-                          .compose(Subgraph.local("local", localGraph(ZIO.succeed("ok")) @@ maxDepth(0)))
+                          .compose(Subgraph.graphql("local", localGraph(ZIO.succeed("ok")) @@ maxDepth(0)))
                           .interpreter
           classified <- GraphQLResponseContext.capture(runtime.execute("{ value }"))
         } yield assertTrue(
@@ -255,7 +281,7 @@ object GatewaySpec extends ZIOSpecDefault {
         for {
           runtime  <- Gateway
                         .compose(
-                          Subgraph.local(
+                          Subgraph.graphql(
                             "local",
                             localGraph(ZIO.succeed("ok")) @@ ApolloPersistedQueries.wrapper
                           )
@@ -278,7 +304,7 @@ object GatewaySpec extends ZIOSpecDefault {
             }
             Schema.api
           }
-          runtime <- Gateway.compose(Subgraph.local("local", api)).interpreter
+          runtime <- Gateway.compose(Subgraph.graphql("local", api)).interpreter
           fiber   <- runtime.execute("{ blocked }").fork
           _       <- started.await
           exit    <- fiber.interrupt

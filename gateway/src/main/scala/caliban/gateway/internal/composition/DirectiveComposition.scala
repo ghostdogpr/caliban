@@ -4,6 +4,7 @@ import caliban.InputValue
 import caliban.InputValue.{ ListValue => InputListValue, ObjectValue => InputObjectValue }
 import caliban.Value._
 import caliban.gateway._
+import caliban.gateway.internal.composition.SchemaComposer.PreparedSubgraph
 import caliban.gateway.internal.composition.ComposedGraph.TypeField
 import caliban.introspection.adt._
 import caliban.parsing.Parser

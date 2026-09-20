@@ -466,7 +466,7 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
           remote        <- stubWith(remoteStarted.succeed(()).unit *> release.await, okResponse)
           runtime       <- Gateway
                              .compose(
-                               Subgraph.local(
+                               Subgraph.graphql(
                                  "local",
                                  localValueGraph(localStarted.succeed(()).unit *> release.await.as("local"))
                                ),

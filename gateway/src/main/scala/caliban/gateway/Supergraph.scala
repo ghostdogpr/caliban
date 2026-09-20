@@ -1,6 +1,10 @@
 package caliban.gateway
 
+import caliban.gateway.GatewayBuildError.{ SupergraphAcquisitionFailed, SupergraphDecompositionFailed }
+import caliban.gateway.internal.SchemaFingerprint
+import caliban.gateway.internal.composition.{ SupergraphAcquisition, SupergraphDecomposition }
 import caliban.parsing.adt.Document
+import zio.{ IO, Trace, ZIO }
 import zio.http._
 import zio.Config.Secret
 
@@ -25,6 +29,24 @@ final class Supergraph[-R] private[gateway] (
    * subgraph for which the function returns `None` keeps the url from the supergraph.
    */
   def withSubgraphEndpoint(value: String => Option[URL]): Supergraph[R] = new Supergraph(source, config, value)
+
+  private[gateway] def load(
+    loader: SupergraphAcquisition.Loader
+  )(implicit trace: Trace): IO[GatewayBuildError, (List[Subgraph[R]], List[String])] =
+    for {
+      document    <- loader.load.mapError(SupergraphAcquisitionFailed(_))
+      projections <- ZIO
+                       .fromEither(SupergraphDecomposition.decompose(document))
+                       .mapError(SupergraphDecompositionFailed(_))
+      subgraphs    = projections.map(projection =>
+                       Subgraph.federation(
+                         name = projection.graph.name,
+                         endpoint = endpoints(projection.graph.name).getOrElse(projection.graph.url),
+                         schema = projection.document,
+                         config = config(projection.graph.name)
+                       )
+                     )
+    } yield subgraphs -> List(SchemaFingerprint(document))
 }
 
 object Supergraph {

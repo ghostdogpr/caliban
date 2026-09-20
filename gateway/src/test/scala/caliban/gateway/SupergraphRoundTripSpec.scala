@@ -28,21 +28,13 @@ object SupergraphRoundTripSpec extends ZIOSpecDefault {
   private def parse(sdl: String): UIO[Document] =
     ZIO.fromEither(Parser.parseQuery(sdl)).orDie
 
-  /**
-   * Mirrors `Gateway.load`: the federation flag is derived from the document rather than assumed,
-   * and `promoteOrphans` follows it. That is what makes the synthesized `@link` required. An
-   * unlinked projection composes as an ordinary graph, and `Character`, unreachable from the
-   * `episodes` `Query`, would silently lose its entity lookup.
-   */
-  private def prepare(name: String, document: Document): Either[List[String], PreparedSubgraph] =
-    prepareSubgraph(
-      Subgraph.federation(name, unreachableEndpoint, document),
-      document,
-      SchemaComposer.isFederation(document)
-    )
-
   private def composeAll(documents: List[(String, Document)]): Either[List[String], ComposedGraph] =
-    traverseEither(documents) { case (name, document) => prepare(name, document) }.flatMap(SchemaComposer.compose(_))
+    SchemaComposer
+      .compose(documents.map { case (name, document) =>
+        Subgraph.federation(name, unreachableEndpoint, document) -> document
+      })
+      .left
+      .map(_.diagnostics)
 
   /** The checked-in subgraphs, composed exactly as a hand-listed gateway would compose them. */
   private def fromOriginals(names: (String, String)*): UIO[ComposedGraph] =

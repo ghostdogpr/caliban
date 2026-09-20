@@ -96,13 +96,6 @@ object SubgraphBuildError {
   }
 
   /**
-   * A remote subgraph has no HTTP client for schema acquisition or request execution.
-   */
-  case object MissingHttpClient extends SubgraphBuildError {
-    override val diagnostics: List[String] = List("No HTTP client is available for the remote subgraph.")
-  }
-
-  /**
    * The parsed schema document failed validation while preparing an executable subgraph.
    */
   final case class SchemaValidationFailed(error: CalibanError.ValidationError)

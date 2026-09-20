@@ -5,11 +5,9 @@ import caliban.Value.{ FloatValue, IntValue, NullValue, StringValue }
 import caliban.CalibanError
 import caliban.gateway.GatewayTestSupport._
 import caliban.gateway.PhaseHooks.Event
-import caliban.gateway.internal.composition.{ ComposedGraph, SchemaComposer, SchemaMapping }
-import caliban.introspection.adt.{ __Directive, __DirectiveLocation }
-import caliban.parsing.{ Parser, SourceMapper }
-import caliban.parsing.adt.{ Directive, Document, OperationType }
-import caliban.schema.{ RootType, Types }
+import caliban.gateway.internal.composition.{ ComposedGraph, SchemaComposer }
+import caliban.parsing.Parser
+import caliban.parsing.adt.{ Directive, OperationType }
 import zio._
 import zio.test._
 
@@ -72,13 +70,12 @@ object CompositionSpec extends ZIOSpecDefault {
 
   private def compose(inputs: CompositionInput*): Either[List[String], ComposedGraph] =
     traverseEither(inputs.toList) { input =>
-      Parser.parseQuery(input.schema).left.map(error => List(s"[${input.name}] ${error.getMessage}")).flatMap {
-        document =>
-          val subgraph =
-            Subgraph.federation(input.name, unreachableEndpoint, document).transform(input.transformations: _*)
-          prepareSubgraph(subgraph, document, federation = true)
+      Parser.parseQuery(input.schema).left.map(error => List(s"[${input.name}] ${error.getMessage}")).map { document =>
+        val subgraph =
+          Subgraph.federation(input.name, unreachableEndpoint, document).transform(input.transformations: _*)
+        subgraph -> document
       }
-    }.flatMap(SchemaComposer.compose)
+    }.flatMap(subgraphs => SchemaComposer.compose(subgraphs).left.map(_.diagnostics))
 
   private def directives(value: Option[List[Directive]]): List[(String, Map[String, caliban.InputValue])] =
     value.getOrElse(Nil).map(directive => directive.name -> directive.arguments)
@@ -1224,32 +1221,21 @@ object CompositionSpec extends ZIOSpecDefault {
       }
     ),
     suite("directive metadata")(
-      test("retains metadata when one source type backs multiple operation roots") {
-        val root     = Types.makeObject(
-          Some("Root"),
-          None,
-          Types.makeField("value", None, Nil, () => Types.string) :: Nil,
-          Directive("mark") :: Nil
-        )
-        val rootType = RootType(
-          root,
-          Some(root),
-          None,
-          additionalDirectives = __Directive(
-            "mark",
-            None,
-            Set(__DirectiveLocation.OBJECT),
-            _ => Nil,
-            isRepeatable = false
-          ) :: Nil
-        )
-        val document = Document(Nil, SourceMapper.empty)
-        val result   = SchemaMapping
-          .compile("local", rootType, document, federation = false, Nil)
-          .flatMap(mapping =>
-            SchemaComposer.compose(
-              PreparedSubgraph("local", rootType, document, federation = false, Nil, mapping) :: Nil
-            )
+      test("retains metadata when operation roots are renamed during composition") {
+        val result = Parser
+          .parseQuery("""
+                        |schema { query: Read mutation: Write }
+                        |directive @mark on OBJECT
+                        |type Read @mark { value: String }
+                        |type Write @mark { value: String }
+                        |""".stripMargin)
+          .left
+          .map(error => List(error.getMessage))
+          .flatMap(document =>
+            SchemaComposer
+              .compose(List(Subgraph.graphql("local", unreachableEndpoint, document) -> document))
+              .left
+              .map(_.diagnostics)
           )
 
         assertTrue(
@@ -1259,6 +1245,20 @@ object CompositionSpec extends ZIOSpecDefault {
             graph.rootType.mutationType.exists(tpe => directives(tpe.directives).exists(_._1 == "mark"))
           )
         )
+      },
+      test("rejects a source type used for multiple operation roots") {
+        val result = Parser
+          .parseQuery("schema { query: Root mutation: Root } type Root { value: String }")
+          .left
+          .map(error => List(error.getMessage))
+          .flatMap(document =>
+            SchemaComposer
+              .compose(List(Subgraph.graphql("local", unreachableEndpoint, document) -> document))
+              .left
+              .map(_.diagnostics)
+          )
+
+        assertTrue(result.left.exists(_.exists(_.contains("Root operation type 'Root' is used more than once."))))
       },
       test("retains tag metadata across visible type-system coordinates") {
         val result = compose(

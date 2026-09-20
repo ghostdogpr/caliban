@@ -11,7 +11,7 @@ private[gateway] final class ReloadableGatewayInterpreterImpl[R] private (
   jitter: Double,
   drainTimeout: Duration,
   state: Ref[ReloadableGatewayInterpreterImpl.State[R]],
-  http: Option[GatewayHttpClient]
+  http: GatewayHttpClient
 ) extends ReloadableGatewayInterpreter[R] {
   import ReloadableGatewayInterpreterImpl._
 
@@ -174,7 +174,7 @@ private[gateway] object ReloadableGatewayInterpreterImpl {
     pollInterval: Duration,
     jitter: Double,
     drainTimeout: Duration,
-    http: Option[GatewayHttpClient]
+    http: GatewayHttpClient
   )(implicit trace: Trace): ZIO[Scope, GatewayBuildError, ReloadableGatewayInterpreter[R]] =
     ZIO.uninterruptibleMask { restore =>
       restore(acquire).flatMap { snapshot =>

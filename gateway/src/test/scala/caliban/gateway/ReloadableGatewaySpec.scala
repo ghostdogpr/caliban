@@ -97,7 +97,7 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
                            1
                          ) ++ ZStream.never)
         runtime       <- Gateway
-                           .compose(remote.subgraph, Subgraph.local("local", Api.api(stream)))
+                           .compose(remote.subgraph, Subgraph.graphql("local", Api.api(stream)))
                            .reloadableForTest
         request        = GraphQLRequest(query = Some("subscription { event }"))
         prepared      <- runtime.executeRequest(request)
@@ -298,7 +298,7 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
                        remote.subgraph,
                        Subgraph.graphql("pinned", pinned.endpoint, "type Query { pinned: String }"),
                        Subgraph
-                         .local("local", localGraph(ZIO.succeed("local")))
+                         .graphql("local", localGraph(ZIO.succeed("local")))
                          .transform(SchemaTransformation.renameField("Query", "value", "local"))
                      )
                      .reloadableForTest
@@ -471,7 +471,7 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
             .compose(
               remote.subgraph,
               Subgraph
-                .local("local", localGraph(started.succeed(()).unit *> ZIO.uninterruptible(release.await).as("done")))
+                .graphql("local", localGraph(started.succeed(()).unit *> ZIO.uninterruptible(release.await).as("done")))
             )
             .withConfig(
               _.withMaxConcurrentRequests(Int.MaxValue).withRequestTimeout(1.hour).withDrainTimeout(2.seconds)
@@ -545,7 +545,7 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
                              }
         runtime           <- scope.extend(
                                Gateway
-                                 .compose(remote.subgraph, Subgraph.local("local", localGraph(effect)))
+                                 .compose(remote.subgraph, Subgraph.graphql("local", localGraph(effect)))
                                  .withConfig(_.withRequestTimeout(1.hour).withDrainTimeout(2.seconds))
                                  .reloadableForTest
                              )

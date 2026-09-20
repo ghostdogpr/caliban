@@ -1,9 +1,11 @@
 package caliban.gateway
 
 import caliban.GraphQL
-import caliban.gateway.internal.composition.SchemaMapping
+import caliban.gateway.internal.GatewayHttpClient
+import caliban.gateway.internal.composition.RemoteSchemaAcquisition
+import caliban.gateway.internal.execution.{ LocalSubgraphExecutor, RemoteSubgraphExecutor, SubgraphExecutor }
 import caliban.parsing.adt.Document
-import caliban.schema.RootType
+import zio.{ IO, Scope, Trace, ZIO }
 import zio.http.URL
 
 /**
@@ -15,6 +17,7 @@ final class Subgraph[-R] private[gateway] (
   private[gateway] val lookups: List[Lookup],
   private[gateway] val transformations: List[SchemaTransformation]
 ) {
+  import Subgraph.{ Executable, Source }
 
   /**
    * Adds an explicit ordinary GraphQL object lookup to this subgraph.
@@ -27,6 +30,27 @@ final class Subgraph[-R] private[gateway] (
    */
   def transform(values: SchemaTransformation*): Subgraph[R] =
     new Subgraph[R](name, source, lookups, transformations ::: values.toList)
+
+  private[gateway] def load[R1 <: R](
+    http: GatewayHttpClient,
+    remoteErrorMessages: Boolean,
+    hooks: PhaseHooks[R1]
+  )(implicit trace: Trace): ZIO[Scope, SubgraphBuildError, Executable[R1]] =
+    source match {
+      case remote @ Source.Remote(endpoint, _, _, config) =>
+        for {
+          _        <- remote.validateConfig
+          document <- RemoteSchemaAcquisition.load(remote, http)
+          executor <- RemoteSubgraphExecutor.make(name, endpoint, http, config, hooks, remoteErrorMessages)
+        } yield Executable(this, document, executor)
+      case Source.Local(graph, _)                         =>
+        ZIO
+          .fromEither(graph.interpreterEither)
+          .mapBoth(
+            SubgraphBuildError.SchemaValidationFailed(_),
+            interpreter => Executable(this, graph.toDocument, new LocalSubgraphExecutor(interpreter))
+          )
+    }
 }
 
 object Subgraph {
@@ -68,6 +92,12 @@ object Subgraph {
     remote(name, endpoint, SchemaInput.Parsed(schema), federation = false, config = config)
 
   /**
+   * Describes an ordinary in-process Caliban graph whose environment is supplied when the gateway executes.
+   */
+  def graphql[R](name: String, graph: GraphQL[R]): Subgraph[R] =
+    new Subgraph[R](name, Source.Local(graph, federation = false), Nil, Nil)
+
+  /**
    * Describes a Federation-enabled remote GraphQL subgraph from pinned SDL.
    */
   def federation(name: String, endpoint: URL, schema: String): Subgraph[Any] =
@@ -104,10 +134,11 @@ object Subgraph {
     remote(name, endpoint, SchemaInput.Acquired, federation = true, config = config)
 
   /**
-   * Describes an in-process Caliban graph whose environment is supplied when the gateway executes.
+   * Describes an in-process Federation graph whose environment is supplied when the gateway executes.
+   * The graph must already provide its Federation entity resolvers.
    */
-  def local[R](name: String, graph: GraphQL[R]): Subgraph[R] =
-    new Subgraph[R](name, Source.Local(graph), Nil, Nil)
+  def federation[R](name: String, graph: GraphQL[R]): Subgraph[R] =
+    new Subgraph[R](name, Source.Local(graph, federation = true), Nil, Nil)
 
   private def remote[R](
     name: String,
@@ -118,68 +149,32 @@ object Subgraph {
   ): Subgraph[R] =
     new Subgraph[R](name, Source.Remote(endpoint, schema, federation, config), Nil, Nil)
 
+  private[gateway] final case class Executable[-R](
+    subgraph: Subgraph[R],
+    document: Document,
+    executor: SubgraphExecutor[R]
+  )
+
   private[gateway] sealed trait Source[-R] {
-    def isRemote: Boolean = this match {
-      case _: Source.Remote[_] => true
-      case _                   => false
-    }
+    def federation: Boolean
   }
 
   private[gateway] object Source {
-    final case class Remote[R](
-      endpoint: URL,
-      schema: SchemaInput,
-      federation: Boolean,
-      config: RemoteGraphQLConfig[R]
-    ) extends Source[R]
-    final case class Local[R](graph: GraphQL[R]) extends Source[R]
+    final case class Remote[R](endpoint: URL, schema: SchemaInput, federation: Boolean, config: RemoteGraphQLConfig[R])
+        extends Source[R] {
+      def validateConfig(implicit trace: Trace): IO[SubgraphBuildError, Unit] = {
+        val diagnostics = config.diagnostics(includeAcquisition = schema == SchemaInput.Acquired)
+        ZIO.fail(SubgraphBuildError.InvalidConfiguration(diagnostics)).when(diagnostics.nonEmpty).unit
+      }
+    }
+    final case class Local[R](graph: GraphQL[R], federation: Boolean) extends Source[R]
   }
-}
 
-private[gateway] final case class PreparedSubgraph(
-  name: String,
-  rootType: RootType,
-  document: Document,
-  federation: Boolean,
-  lookups: List[Lookup],
-  mapping: SchemaMapping,
-  federation1ExtensionTypes: Set[String] = Set.empty
-) {
-  val rootNames: OperationRootNames = mapping.rootNames
-}
+  private[gateway] sealed trait SchemaInput
 
-private[gateway] final case class OperationRootNames private (entries: List[(String, String)]) {
-  private val composedBySource = entries.groupBy(_._2).map { case (source, values) => source -> values.map(_._1) }
-  private val sourceByComposed = entries.toMap
-
-  val sourceNames: Set[String] = entries.iterator.map(_._2).toSet
-
-  def source(composed: String): Option[String] = sourceByComposed.get(composed)
-
-  def composed(source: String): String = composedAll(source).headOption.getOrElse(source)
-
-  def composedAll(source: String): List[String] = composedBySource.getOrElse(source, Nil)
-
-  def mapSource(f: String => String): OperationRootNames = OperationRootNames(entries.map { case (operation, source) =>
-    operation -> f(source)
-  })
-}
-
-private[gateway] object OperationRootNames {
-  def apply(rootType: RootType): OperationRootNames =
-    OperationRootNames(
-      List(
-        rootType.queryType.name.map("Query" -> _),
-        rootType.mutationType.flatMap(_.name).map("Mutation" -> _),
-        rootType.subscriptionType.flatMap(_.name).map("Subscription" -> _)
-      ).flatten
-    )
-}
-
-private[gateway] sealed trait SchemaInput
-
-private[gateway] object SchemaInput {
-  final case class Sdl(value: String)      extends SchemaInput
-  final case class Parsed(value: Document) extends SchemaInput
-  case object Acquired                     extends SchemaInput
+  private[gateway] object SchemaInput {
+    final case class Sdl(value: String)      extends SchemaInput
+    final case class Parsed(value: Document) extends SchemaInput
+    case object Acquired                     extends SchemaInput
+  }
 }

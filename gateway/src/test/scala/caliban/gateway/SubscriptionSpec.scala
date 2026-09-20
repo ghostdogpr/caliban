@@ -19,7 +19,7 @@ object SubscriptionSpec extends ZIOSpecDefault {
   private val request = GraphQLRequest(query = Some("subscription { event }"))
 
   private def subscriptionGateway(events: ZStream[Any, Throwable, Int]): Gateway[Any] =
-    Gateway.compose(Subgraph.local("local", subscriptionGraph(events)))
+    Gateway.compose(Subgraph.graphql("local", subscriptionGraph(events)))
 
   private def remoteGateway(endpoint: URL, schema: String, config: RemoteGraphQLConfig[Any]): Gateway[Any] =
     Gateway.compose(Subgraph.graphql("remote", endpoint, schema, config))
@@ -579,7 +579,7 @@ object SubscriptionSpec extends ZIOSpecDefault {
         source   <- api.interpreter
         response <- source.executeRequest(request)
         native   <- SubgraphExecutor.subscriptionResponses(response).runCollect
-        runtime  <- Gateway.compose(Subgraph.local("local", api)).interpreter
+        runtime  <- Gateway.compose(Subgraph.graphql("local", api)).interpreter
         events   <- runtime.executeStream(request).runCollect
       } yield assertTrue(
         events == native,

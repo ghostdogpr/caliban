@@ -4,7 +4,7 @@ import caliban.{ CalibanError, GraphQLRequest, InputValue, PathValue, ResponseVa
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ NullValue, StringValue }
 import caliban.execution.Field
-import caliban.gateway.internal.composition.{ ComposedGraph, SchemaComposer, SchemaMapping }
+import caliban.gateway.internal.composition.{ ComposedGraph, SchemaComposer }
 import caliban.gateway.internal.execution._
 import caliban.gateway.internal.execution.ResponseCompletion.{ BubbleNull, Completed }
 import caliban.gateway.internal.planning.OperationPlan
@@ -12,7 +12,6 @@ import caliban.gateway.internal.planning.OperationPlan._
 import caliban.parsing.Parser
 import caliban.parsing.adt.OperationType
 import caliban.schema.Types
-import caliban.tools.RemoteSchema
 import zio.{ IO, ZIO }
 import zio.test._
 
@@ -25,14 +24,15 @@ object ExecutionModelSpec extends ZIOSpecDefault {
   private def projectionField(name: String, alias: String, children: List[Field] = Nil): Field =
     Field(name, Types.string, None, alias = Some(alias), fields = children)
 
-  private def composeSingle(name: String, schema: String): IO[Any, (PreparedSubgraph, ComposedGraph)] =
+  private def composeSingle(name: String, schema: String): IO[Any, ComposedGraph] =
     for {
       document <- ZIO.fromEither(Parser.parseQuery(schema))
-      rootType <- ZIO.fromEither(RemoteSchema.toRootType(document))
-      mapping  <- ZIO.fromEither(SchemaMapping.compile(name, rootType, document, federation = false, Nil))
-      subgraph  = PreparedSubgraph(name, rootType, document, false, Nil, mapping)
-      graph    <- ZIO.fromEither(SchemaComposer.compose(List(subgraph)))
-    } yield (subgraph, graph)
+      graph    <- ZIO.fromEither(
+                    SchemaComposer.compose(
+                      List(Subgraph.graphql(name, GatewayTestSupport.unreachableEndpoint, document) -> document)
+                    )
+                  )
+    } yield graph
 
   def spec = suite("Execution model")(
     test("translates typenames and aliases through lists while preserving scalar payloads and correlation fields") {
@@ -198,30 +198,29 @@ object ExecutionModelSpec extends ZIOSpecDefault {
           |""".stripMargin
 
       for {
-        composed         <- composeSingle("details", schema)
-        (subgraph, graph) = composed
-        node              = subgraph.rootType.types("Node")
-        fields            = graph.prepareEntityFields(
-                              "details",
-                              "Node",
-                              List(
-                                Field(
-                                  "label",
-                                  Types.string.nonNull,
-                                  Some(node),
-                                  alias = Some("entity_key"),
-                                  targets = Some(Set("User"))
-                                ),
-                                Field(
-                                  "label",
-                                  Types.string,
-                                  Some(node),
-                                  alias = Some("entity_key"),
-                                  targets = Some(Set("Admin"))
-                                )
-                              )
-                            )
-        names             = responseNames(fields)
+        graph <- composeSingle("details", schema)
+        node   = graph.rootType.types("Node")
+        fields = graph.prepareEntityFields(
+                   "details",
+                   "Node",
+                   List(
+                     Field(
+                       "label",
+                       Types.string.nonNull,
+                       Some(node),
+                       alias = Some("entity_key"),
+                       targets = Some(Set("User"))
+                     ),
+                     Field(
+                       "label",
+                       Types.string,
+                       Some(node),
+                       alias = Some("entity_key"),
+                       targets = Some(Set("Admin"))
+                     )
+                   )
+                 )
+        names  = responseNames(fields)
       } yield assertTrue(
         fields.map(_.aliasedName) == List("_caliban_gateway_entity_key", "_caliban_gateway_entity_key_1"),
         privateAlias("_caliban_gateway_entity_key", names) == "_caliban_gateway_entity_key_2"
@@ -257,37 +256,35 @@ object ExecutionModelSpec extends ZIOSpecDefault {
       val fetchId = FetchId(1)
       val path    = List(PathValue.Key("product"))
       for {
-        composed         <- composeSingle("products", schema)
-        (subgraph, graph) = composed
-        fetch             = EntityFetch(
-                              id = fetchId,
-                              root = rootId,
-                              source = "products",
-                              dependencies = Set(rootId),
-                              mergePath = Vector("product"),
-                              entityType = "Product",
-                              keys = List(RequiredSelection("id", "id")),
-                              requirements = Nil,
-                              contextArguments = Nil,
-                              typename = None,
-                              lookup = ComposedGraph.EntityLookup(
-                                List(ComposedGraph.KeyField("id", Nil)),
-                                ComposedGraph.LookupOperation.FederationEntities(correlatesByKey = false)
-                              ),
-                              fields = List(name),
-                              mayNeedPrerequisiteFetches = false
-                            )
-        executor          = new EntityExecutor[Any](graph, Map.empty)
-        plan              = PreparedPlan(OperationPlan(OperationType.Query, "Query", Nil, Nil, Nil, List(fetch), Nil, None))
-        results          <- executor.execute(
-                              List(fetch),
-                              Map(rootId -> ObjectValue(List("product" -> ObjectValue(List("id" -> StringValue("p1")))))),
-                              Map.empty,
-                              GraphQLRequest(),
-                              plan.cache
-                            )
+        graph   <- composeSingle("products", schema)
+        fetch    = EntityFetch(
+                     id = fetchId,
+                     root = rootId,
+                     source = "products",
+                     dependencies = Set(rootId),
+                     mergePath = Vector("product"),
+                     entityType = "Product",
+                     keys = List(RequiredSelection("id", "id")),
+                     requirements = Nil,
+                     contextArguments = Nil,
+                     typename = None,
+                     lookup = ComposedGraph.EntityLookup(
+                       List(ComposedGraph.KeyField("id", Nil)),
+                       ComposedGraph.LookupOperation.FederationEntities(correlatesByKey = false)
+                     ),
+                     fields = List(name),
+                     mayNeedPrerequisiteFetches = false
+                   )
+        executor = new EntityExecutor[Any](graph, Map.empty)
+        plan     = PreparedPlan(OperationPlan(OperationType.Query, "Query", Nil, Nil, Nil, List(fetch), Nil, None))
+        results <- executor.execute(
+                     List(fetch),
+                     Map(rootId -> ObjectValue(List("product" -> ObjectValue(List("id" -> StringValue("p1")))))),
+                     Map.empty,
+                     GraphQLRequest(),
+                     plan.cache
+                   )
       } yield assertTrue(
-        graph.schemaMapping("products") eq subgraph.mapping,
         results.size == 1,
         results.head.patches.isEmpty,
         results.head.errors == List(RemoteError.at(path)),

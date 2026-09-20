@@ -218,7 +218,7 @@ object LookupSpec extends ZIOSpecDefault {
         runtime  <- Gateway
                       .compose(
                         Subgraph.graphql("products", products.endpoint, localProductsSchema),
-                        Subgraph.local("reviews", LocalReviews.api).withLookup(localLookup)
+                        Subgraph.graphql("reviews", LocalReviews.api).withLookup(localLookup)
                       )
                       .interpreter
         response <- runtime.execute("{ products { name reviews { body } } }")

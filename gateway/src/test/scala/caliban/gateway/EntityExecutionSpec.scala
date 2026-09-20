@@ -176,7 +176,7 @@ object EntityExecutionSpec extends ZIOSpecDefault {
           runtime  <- Gateway
                         .compose(
                           Subgraph.federation("products", products.endpoint, productsFederationSchema),
-                          Subgraph.local("pricing", PricingApi.api),
+                          Subgraph.federation("pricing", PricingApi.api),
                           Subgraph.federation("reviews", reviews.endpoint, reviewsFederationSchema)
                         )
                         .interpreter
@@ -203,7 +203,7 @@ object EntityExecutionSpec extends ZIOSpecDefault {
           runtime  <- Gateway
                         .compose(
                           Subgraph.federation("products", products.endpoint, statusProductsSchema),
-                          Subgraph.local("pricing", PricingApi.failingApi)
+                          Subgraph.federation("pricing", PricingApi.failingApi)
                         )
                         .interpreter
           response <- runtime

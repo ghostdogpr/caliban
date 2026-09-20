@@ -3,7 +3,8 @@ package caliban.gateway.internal.composition
 import caliban.{ CalibanError, GraphQLRequest }
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.NullValue
-import caliban.gateway.{ RemoteGraphQLConfig, SchemaInput, Subgraph, SubgraphAcquisitionError }
+import caliban.gateway.{ RemoteGraphQLConfig, Subgraph, SubgraphAcquisitionError }
+import caliban.gateway.Subgraph.SchemaInput
 import caliban.gateway.internal.GatewayHttpClient
 import caliban.gateway.internal.execution.RemoteTransport
 import caliban.gateway.SubgraphAcquisitionError._

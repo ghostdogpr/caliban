@@ -306,7 +306,7 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
 
       for {
         runtime <- Gateway
-                     .compose(Subgraph.local("echo", LocalApi.api).transform(transformations: _*))
+                     .compose(Subgraph.graphql("echo", LocalApi.api).transform(transformations: _*))
                      .interpreter
         result  <- runtime.execute("{ say(message: \"hello\") { text state } }")
       } yield assertTrue(

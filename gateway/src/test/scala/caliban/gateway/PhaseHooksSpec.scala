@@ -20,7 +20,7 @@ object PhaseHooksSpec extends ZIOSpecDefault {
       for {
         opened           <- Promise.make[Nothing, Unit]
         source            = subscriptionGraph(ZStream.fromZIO(opened.succeed(())) *> ZStream.never)
-        runtime          <- (Gateway.compose(Subgraph.local("local", source)) @@ GatewayMetrics.hooks).interpreter
+        runtime          <- (Gateway.compose(Subgraph.graphql("local", source)) @@ GatewayMetrics.hooks).interpreter
         requestsBefore   <- counter("caliban_gateway_requests_total", "outcome", "success")
         admittedBefore   <- counter("caliban_gateway_subscription_admission_total", "result", "accepted")
         terminatedBefore <- counter("caliban_gateway_subscription_terminations_total", "reason", "cancelled")
@@ -46,7 +46,7 @@ object PhaseHooksSpec extends ZIOSpecDefault {
     test("subscription event counts come from duration metrics and finite work uses distinct admission kinds") {
       val source = subscriptionGraph(ZStream(1, 2))
       for {
-        runtime        <- (Gateway.compose(Subgraph.local("local", source)) @@ GatewayMetrics.hooks).interpreter
+        runtime        <- (Gateway.compose(Subgraph.graphql("local", source)) @@ GatewayMetrics.hooks).interpreter
         setupBefore    <- counter("caliban_gateway_admission_total", "kind", "subscription_setup")
         workBefore     <- counter("caliban_gateway_admission_total", "kind", "subscription_event")
         requestsBefore <- counter("caliban_gateway_admission_total", "kind", "request")

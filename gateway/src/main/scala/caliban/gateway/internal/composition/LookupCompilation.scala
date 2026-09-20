@@ -1,6 +1,7 @@
 package caliban.gateway.internal.composition
 
 import caliban.gateway._
+import caliban.gateway.internal.composition.SchemaComposer.PreparedSubgraph
 import caliban.gateway.internal.composition.ComposedGraph._
 import caliban.introspection.adt._
 

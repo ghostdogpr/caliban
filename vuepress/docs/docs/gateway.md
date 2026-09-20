@@ -118,6 +118,8 @@ The gateway logs activation, failure, recovery, and overdue retirement, and supp
 
 Give every subgraph a unique name such as `products` or `reviews`. Caliban uses it in error messages and monitoring data.
 
+Choose `Subgraph.graphql` for ordinary GraphQL composition or `Subgraph.federation` for Federation composition. Both accept a remote URL or a local Caliban `GraphQL` API.
+
 ### Ordinary GraphQL services
 
 Use `Subgraph.graphql` for a regular GraphQL endpoint:
@@ -236,7 +238,7 @@ The gateway calls the hook once per relevant request, before it checks the opera
 
 ### In-process Caliban APIs
 
-Use `Subgraph.local` to include a Caliban API without an HTTP call:
+Pass a Caliban API to `Subgraph.graphql` to execute it in process:
 
 ```scala
 import caliban._
@@ -251,10 +253,19 @@ object LocalApi extends GenericSchema[Any] {
   val api = graphQL(RootResolver(Query("v1")))
 }
 
-val local = Subgraph.local("gateway", LocalApi.api)
+val local = Subgraph.graphql("gateway", LocalApi.api)
 ```
 
-You can pass remote, Federation, and local subgraphs to the same `Gateway.compose` call.
+For a local Federation API, use `Subgraph.federation` with an API already configured through Caliban's Federation support:
+
+```scala
+import caliban.federation.v2_6.federated
+
+val federatedApi = LocalApi.api @@ federated
+val localFederation = Subgraph.federation("gateway", federatedApi)
+```
+
+The constructor selects composition semantics. It does not add Federation entity resolvers to the API or infer the mode from schema directives. You can mix local and remote subgraphs in one `Gateway.compose` call.
 
 ## Connecting objects across ordinary services
 

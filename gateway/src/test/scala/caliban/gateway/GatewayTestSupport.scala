@@ -30,25 +30,6 @@ private[gateway] object GatewayTestSupport {
   def compositionDiagnostics[R](gateway: Gateway[R]): URIO[Scope, List[String]] =
     gateway.interpreter.exit.map(buildDiagnostics)
 
-  def prepareSubgraph(
-    subgraph: Subgraph[Any],
-    document: Document,
-    federation: Boolean
-  ): Either[List[String], PreparedSubgraph] =
-    for {
-      // Normalizing rather than only building a root type is necessary: it folds `extend schema`
-      // into the schema definition, which is where composition reads `@link` from. A projection
-      // declares its schema outright, so only the checked-in originals depend on the merge.
-      normalized <- RemoteSchema
-                      .normalize(document, promoteOrphans = federation)
-                      .left
-                      .map(error => List(s"[${subgraph.name}] ${error.getMessage}"))
-      prepared   <- Gateway
-                      .prepareSubgraph(subgraph, normalized, document, federation)
-                      .left
-                      .map(SubgraphError(subgraph.name, _).diagnostics)
-    } yield prepared
-
   def introspectionResponse(api: GraphQL[Any]): UIO[String] =
     ZIO.fromEither(api.interpreterEither).orDie.flatMap { interpreter =>
       interpreter
@@ -101,10 +82,7 @@ private[gateway] object GatewayTestSupport {
   val httpClient: ZLayer[Any, Throwable, GatewayHttpClient] = ZLayer.scoped(GatewayHttpClient.make)
 
   def acquisitionLoader(source: Supergraph.Source): URIO[GatewayHttpClient, SupergraphAcquisition.Loader] =
-    ZIO.serviceWithZIO[GatewayHttpClient](client => SupergraphAcquisition.make(source, Some(client)))
-
-  def localAcquisitionLoader(source: Supergraph.Source): UIO[SupergraphAcquisition.Loader] =
-    SupergraphAcquisition.make(source, None)
+    ZIO.serviceWithZIO[GatewayHttpClient](client => SupergraphAcquisition.make(source, client))
 
   /** Fails with the acquisition error, or dies describing what happened instead. */
   def acquisitionFailure[A](exit: Exit[SupergraphAcquisitionError, A]): UIO[SupergraphAcquisitionError] =
@@ -501,10 +479,10 @@ private[gateway] object GatewayTestSupport {
   }
 
   def localGateway(effect: UIO[String]): Gateway[Any] =
-    Gateway.compose(Subgraph.local("local", localGraph(effect)))
+    Gateway.compose(Subgraph.graphql("local", localGraph(effect)))
 
   def localValueGateway(effect: UIO[String]): Gateway[Any] =
-    Gateway.compose(Subgraph.local("local", localValueGraph(effect)))
+    Gateway.compose(Subgraph.graphql("local", localValueGraph(effect)))
 
   def localValueGraph(effect: UIO[String]) = {
     object LocalApi extends GenericSchema[Any] {

@@ -30,7 +30,7 @@ object GatewayApp extends ZIOAppDefault with GenericSchema[Any] {
   private val gateway = Gateway.compose(
     Subgraph.graphql("products", url"http://localhost:8081/graphql", productsSchema),
     Subgraph.graphql("reviews", url"http://localhost:8082/graphql"),
-    Subgraph.local("gateway", localApi)
+    Subgraph.graphql("gateway", localApi)
   ) @@ GatewayMetrics.hooks
 
   def run =

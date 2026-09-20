@@ -17,9 +17,6 @@ object SupergraphAcquisitionSpec extends ZIOSpecDefault {
   private def load(source: Supergraph.Source): URIO[GatewayHttpClient, Exit[SupergraphAcquisitionError, Document]] =
     acquisitionLoader(source).flatMap[GatewayHttpClient, SupergraphAcquisitionError, Document](_.load).exit
 
-  private def loadLocal(source: Supergraph.Source): UIO[Exit[SupergraphAcquisitionError, Document]] =
-    localAcquisitionLoader(source).flatMap[Any, SupergraphAcquisitionError, Document](_.load).exit
-
   private def staticEndpoint(
     body: String,
     status: Status = Status.Ok,
@@ -121,19 +118,19 @@ object SupergraphAcquisitionSpec extends ZIOSpecDefault {
     suite("local sources")(
       test("parses sdl") {
         for {
-          exit     <- loadLocal(Supergraph.Source.Sdl(minimalSupergraphSdl))
+          exit     <- load(Supergraph.Source.Sdl(minimalSupergraphSdl))
           document <- ZIO.fromEither(exit.toEither).orDie
         } yield assertTrue(queryFields(document) == List("hello"))
       },
       test("returns a parsed document unchanged") {
         for {
           document <- ZIO.fromEither(Parser.parseQuery(minimalSupergraphSdl)).orDie
-          exit     <- loadLocal(Supergraph.Source.Parsed(document))
+          exit     <- load(Supergraph.Source.Parsed(document))
         } yield assertTrue(exit == Exit.succeed(document))
       },
       test("reports unparseable sdl rather than throwing") {
         for {
-          exit  <- loadLocal(Supergraph.Source.Sdl("type Query {"))
+          exit  <- load(Supergraph.Source.Sdl("type Query {"))
           error <- acquisitionFailure(exit)
         } yield assertTrue(error.isInstanceOf[SupergraphAcquisitionError.SchemaParsingFailed])
       }
@@ -144,7 +141,7 @@ object SupergraphAcquisitionSpec extends ZIOSpecDefault {
         ZIO.scoped {
           for {
             path   <- temporaryFile(minimalSupergraphSdl)
-            loader <- localAcquisitionLoader(Supergraph.Source.File(path))
+            loader <- acquisitionLoader(Supergraph.Source.File(path))
             first  <- loader.load
             rotated = minimalSupergraphSdl.replace("hello: String", "hello: String goodbye: String")
             _      <- ZIO.attempt(Files.write(path, rotated.getBytes(StandardCharsets.UTF_8))).orDie
@@ -159,10 +156,10 @@ object SupergraphAcquisitionSpec extends ZIOSpecDefault {
         // Two different failures that would otherwise both surface as "could not load".
         ZIO.scoped {
           for {
-            missing     <- loadLocal(Supergraph.Source.File(Path.of("/nonexistent/supergraph.graphql")))
+            missing     <- load(Supergraph.Source.File(Path.of("/nonexistent/supergraph.graphql")))
             unreadable  <- acquisitionFailure(missing)
             path        <- temporaryFile("type Query {")
-            malformed   <- loadLocal(Supergraph.Source.File(path))
+            malformed   <- load(Supergraph.Source.File(path))
             unparseable <- acquisitionFailure(malformed)
           } yield assertTrue(
             unreadable.isInstanceOf[SupergraphAcquisitionError.FileReadFailed],

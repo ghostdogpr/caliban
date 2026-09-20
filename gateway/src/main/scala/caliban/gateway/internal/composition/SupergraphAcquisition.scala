@@ -24,13 +24,13 @@ private[gateway] object SupergraphAcquisition {
     def load(implicit trace: Trace): IO[SupergraphAcquisitionError, Document]
   }
 
-  def make(source: Supergraph.Source, http: Option[GatewayHttpClient]): UIO[Loader] =
+  def make(source: Supergraph.Source, http: GatewayHttpClient): UIO[Loader] =
     source match {
       case Supergraph.Source.Sdl(value)             => ZIO.succeed(constant(parse(value)))
       case Supergraph.Source.Parsed(value)          => ZIO.succeed(constant(Right(value)))
       case Supergraph.Source.File(path)             => ZIO.succeed(file(path))
-      case Supergraph.Source.Http(endpoint, config) => httpClientOrDie(http).flatMap(remote(endpoint, config, _))
-      case Supergraph.Source.Uplink(config)         => httpClientOrDie(http).flatMap(uplink(config, _))
+      case Supergraph.Source.Http(endpoint, config) => remote(endpoint, config, http)
+      case Supergraph.Source.Uplink(config)         => uplink(config, http)
     }
 
   /**
@@ -158,12 +158,6 @@ private[gateway] object SupergraphAcquisition {
         }
       }
     }
-
-  // The caller chooses whether to create a client, so its absence is a wiring defect.
-  private def httpClientOrDie(http: Option[GatewayHttpClient]): UIO[GatewayHttpClient] =
-    ZIO
-      .fromOption(http)
-      .orDieWith(_ => new IllegalStateException("A remote supergraph source requires an HTTP client."))
 
   private def parse(value: String): Either[SupergraphAcquisitionError, Document] =
     Parser.parseQuery(value).left.map(SchemaParsingFailed(_))

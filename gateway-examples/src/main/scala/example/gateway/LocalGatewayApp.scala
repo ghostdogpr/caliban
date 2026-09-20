@@ -11,7 +11,7 @@ object LocalGatewayApp extends ZIOAppDefault with GenericSchema[Any] {
   final case class Query(greeting: String)
 
   private val localApi = graphQL(RootResolver(Query("Hello from a local subgraph")))
-  private val gateway  = Gateway.compose(Subgraph.local("local", localApi))
+  private val gateway  = Gateway.compose(Subgraph.graphql("local", localApi))
 
   def run =
     for {

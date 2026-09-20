@@ -576,9 +576,7 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
     ),
     suite("projection: federation link")(
       test("links the federation feature in every projection") {
-        // Without this every directive-name set in SchemaComposer.federationDirectiveNames comes
-        // back empty and isFederation2 is false, so the projections compose as ordinary graphs
-        // with no entity lookups instead of failing loudly.
+        // The federation link identifies the imported directives and their version for composition.
         projected.map { graphs =>
           def link(document: Document) =
             document.schemaDefinition.toList

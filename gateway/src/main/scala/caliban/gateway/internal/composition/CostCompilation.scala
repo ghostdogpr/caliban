@@ -3,7 +3,7 @@ package caliban.gateway.internal.composition
 import caliban.InputValue
 import caliban.gateway._
 import caliban.gateway.internal.composition.ComposedGraph._
-import caliban.gateway.internal.composition.SchemaComposer.FederationDirectiveNames
+import caliban.gateway.internal.composition.SchemaComposer.{ FederationDirectiveNames, PreparedSubgraph }
 import caliban.introspection.adt._
 import caliban.parsing.adt.{ Directive, Selection }
 import caliban.Value.{ BooleanValue, IntValue, StringValue }

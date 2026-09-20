@@ -127,7 +127,7 @@ object GatewayHttpSpec extends ZIOSpecDefault {
       test("returns timeouts as GraphQL execution results") {
         for {
           runtime        <- Gateway
-                              .compose(Subgraph.local("service", TimeoutApi.api))
+                              .compose(Subgraph.graphql("service", TimeoutApi.api))
                               .withConfig(_.withRequestTimeout(20.millis))
                               .interpreter
           gqlFiber       <- QuickAdapter(runtime).handlers.api
