@@ -2,6 +2,7 @@ package caliban.gateway.internal
 
 import caliban.InputValue.VariableValue
 import caliban.execution.{ ExecutionRequest, Field, RequestPreparation }
+import caliban.gateway.PhaseHooks.{ Event, SecurityDirective, SecurityRequirement }
 import caliban.gateway.internal.OperationCache.Weighted
 import caliban.gateway.internal.OperationPreparation._
 import caliban.gateway.internal.composition.ComposedGraph.OverrideLabel
@@ -12,14 +13,15 @@ import caliban.parsing.adt.{ Directive, Document }
 import caliban.schema.RootType
 import caliban.validation.Validator
 import caliban._
-import zio.{ Exit, IO, Random, Trace, UIO, ZIO }
+import zio.{ Cause, Exit, IO, Random, Trace, UIO, ZIO }
 
 private[gateway] final class OperationPreparation[-R] private (
   rootType: RootType,
   planner: OperationPlanner,
-  operationHooks: OperationHooks[R],
+  securityRequirements: OperationPlan => List[SecurityRequirement],
   cache: OperationCache[CacheKey, CalibanError, CachedOperation, R],
   maxOperationCost: Option[Long],
+  hooks: PhaseHooks[R],
   estimateCost: (ExecutionRequest, OperationPlan) => Either[String, Long]
 ) {
 
@@ -31,15 +33,68 @@ private[gateway] final class OperationPreparation[-R] private (
 
   def prepare(request: GraphQLRequest)(implicit trace: Trace): ZIO[R, CalibanError, Prepared] =
     for {
-      resolved   <- operationHooks.resolve(request)
-      query       = resolved.query.getOrElse("")
+      resolved   <- resolve(request)
+      query       = resolved.request.query.getOrElse("")
       config     <- Configurator.ref.get
       preparation = PreparationConfig.from(config)
-      prepared   <- if (operationHooks.cacheable) prepareCached(resolved, query, preparation)
-                    else prepareUncached(resolved, query)
+      prepared   <- if (resolved.cacheable) prepareCached(resolved.request, query, preparation)
+                    else prepareUncached(resolved.request, query)
       _          <- enforceCost(prepared)
-      _          <- operationHooks.evaluatePolicy(resolved, prepared.document, prepared.executionRequest, prepared.plan.plan)
+      _          <- authorize(
+                      resolved.request,
+                      prepared.document,
+                      prepared.executionRequest,
+                      prepared.plan.plan
+                    )
     } yield prepared
+
+  private def resolve(
+    request: GraphQLRequest
+  )(implicit trace: Trace): ZIO[R, CalibanError, Event.Resolution] = {
+    val event = Event.Resolution(request)
+    if (!hooks.resolution.enabled) Exit.succeed(event)
+    else
+      runHook(
+        hooks.resolution.runWith(event)(Exit.succeed)(_ => ()),
+        ResolutionFailure,
+        rejection = { case PhaseHooks.Rejection(message, code) =>
+          CalibanError.ExecutionError(message, extensions = errorCode(code))
+        }
+      )
+  }
+
+  private def authorize(
+    request: GraphQLRequest,
+    document: Document,
+    executionRequest: ExecutionRequest,
+    plan: OperationPlan
+  )(implicit trace: Trace): ZIO[R, CalibanError, Unit] = {
+    val requirements = securityRequirements(plan)
+    if (requirements.exists(_.directives.contains(SecurityDirective.UnsupportedPolicy)))
+      ZIO.fail(CalibanError.ValidationError("Operation selects fields guarded by unsupported @policy directives.", ""))
+    else if (!hooks.authorization.enabled) ZIO.unit
+    else
+      runHook(
+        hooks.authorization
+          .run(Event.Authorization(request, document, executionRequest, requirements))(ZIO.unit)(_ => ()),
+        PolicyFailure,
+        rejection = { case PhaseHooks.Denial(reason) => CalibanError.ValidationError(reason, "") }
+      )
+  }
+
+  private def resolveOverrideLabels(
+    request: GraphQLRequest,
+    labels: Set[OverrideLabel]
+  )(implicit trace: Trace): ZIO[R, CalibanError, Set[OverrideLabel]] =
+    if (labels.isEmpty || !hooks.overrideLabels.enabled) ZIO.succeed(Set.empty)
+    else {
+      val unresolved = labels.map(_.value)
+      val hook       = hooks.overrideLabels
+        .runWith(Event.OverrideLabels(request, unresolved))(Exit.succeed)(_ => ())
+        .map(_.active)
+      runHook(hook, OverrideLabelResolutionFailure)
+        .map(_.intersect(unresolved).map(OverrideLabel.apply))
+    }
 
   private def prepareCached(
     request: GraphQLRequest,
@@ -166,7 +221,7 @@ private[gateway] final class OperationPreparation[-R] private (
                         Random.nextDouble.map(value => if (value * 100d < percentage.toDouble) Some(label) else None)
                     case (_, None)                 => ZIO.none
                   }
-      resolved <- operationHooks.resolveOverrideLabels(request, custom)
+      resolved <- resolveOverrideLabels(request, custom)
     } yield sampled.flatten.toSet ++ resolved
   }
 
@@ -243,7 +298,7 @@ private[gateway] object OperationPreparation {
   def make[R](
     rootType: RootType,
     planner: OperationPlanner,
-    operationHooks: OperationHooks[R],
+    securityRequirements: OperationPlan => List[SecurityRequirement],
     config: GatewayConfig,
     phaseHooks: PhaseHooks[R],
     estimateCost: (ExecutionRequest, OperationPlan) => Either[String, Long]
@@ -251,7 +306,44 @@ private[gateway] object OperationPreparation {
     OperationCache
       .make[CacheKey, CalibanError, CachedOperation, R](config.maxOperationCacheWeight, phaseHooks)
       .map(cache =>
-        new OperationPreparation(rootType, planner, operationHooks, cache, config.maxOperationCost, estimateCost)
+        new OperationPreparation(
+          rootType,
+          planner,
+          securityRequirements,
+          cache,
+          config.maxOperationCost,
+          phaseHooks,
+          estimateCost
+        )
+      )
+
+  def isInternalFailure(error: CalibanError): Boolean =
+    error match {
+      case CalibanError.ExecutionError(message, _, _, Some(_), _) =>
+        message == ResolutionFailure || message == PolicyFailure || message == OverrideLabelResolutionFailure
+      case _                                                      => false
+    }
+
+  private val ResolutionFailure              = "Operation resolution failed."
+  private val PolicyFailure                  = "Operation policy failed."
+  private val OverrideLabelResolutionFailure = "Progressive override label resolution failed."
+
+  private def runHook[R, A](
+    effect: => ZIO[R, Throwable, A],
+    failureMessage: String,
+    rejection: PartialFunction[Throwable, CalibanError] = PartialFunction.empty
+  )(implicit trace: Trace): ZIO[R, CalibanError, A] =
+    ZIO
+      .suspendSucceed(effect)
+      .mapErrorCause(cause =>
+        cause.interruptOption.fold[Cause[CalibanError]](
+          cause.failures match {
+            case failure :: Nil if cause.defects.isEmpty && rejection.isDefinedAt(failure) =>
+              Cause.fail(rejection(failure))
+            case _                                                                         =>
+              Cause.fail(CalibanError.ExecutionError(failureMessage, innerThrowable = Some(cause.squash)))
+          }
+        )(fiberId => Cause.interrupt(fiberId))
       )
 
   private sealed trait CachedOperation

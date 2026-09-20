@@ -1,15 +1,15 @@
 package caliban.gateway
 
 import caliban.gateway.GatewayTestSupport._
-import caliban.gateway.OperationResolver.Rejection
-import caliban.gateway.internal.OperationHooks
+import caliban.gateway.PhaseHooks.Rejection
+import caliban.gateway.internal.OperationPreparation
 import caliban.{ CalibanError, GraphQLRequest, InputValue, ResponseValue }
 import caliban.Value.StringValue
 import zio._
 import zio.http.URL
 import zio.test._
 
-object OperationResolverSpec extends ZIOSpecDefault {
+object OperationResolutionSpec extends ZIOSpecDefault {
 
   private val schema  = "type Query { value(input: String): String }"
   private val query   = "query Value($input: String) { value(input: $input) }"
@@ -28,18 +28,44 @@ object OperationResolverSpec extends ZIOSpecDefault {
   private def remoteGateway(endpoint: URL): Gateway[Any] =
     Gateway.compose(Subgraph.graphql("remote", endpoint, schema))
 
-  private def resolverHooks(resolver: OperationResolver[Any]): OperationHooks[Any] =
-    new OperationHooks[Any](_ => Nil, Some(resolver), None, PhaseHooks.empty)
-
-  def spec = suite("OperationResolverSpec")(
+  def spec = suite("OperationResolutionSpec")(
+    test("composes resolution handlers and prepares the transformed request") {
+      for {
+        remote   <- stub(okResponse)
+        seen     <- Ref.make(List.empty[String])
+        handler   =
+          (name: String, query: String) =>
+            PhaseHooks(resolution = PhaseHandler[Any, PhaseHooks.Event.Resolution, Throwable, Unit, Any] { event =>
+              seen
+                .update(_ :+ s"$name-in:${event.request.query.getOrElse("")}")
+                .as(
+                  (event.copy(request = event.request.copy(query = Some(query))), ())
+                )
+            } { (event, _, _) =>
+              seen.update(_ :+ s"$name-out:${event.request.query.getOrElse("")}")
+            })
+        runtime  <- remoteGateway(remote.endpoint)
+                      .withPhaseHooks(handler("first", "intermediate"))
+                      .withPhaseHooks(handler("second", query))
+                      .interpreter
+        response <- runtime.executeRequest(request)
+        observed <- seen.get
+        sent     <- remote.requests.get
+      } yield assertTrue(
+        response.errors.isEmpty,
+        observed == List("first-in:", "second-in:intermediate", s"second-out:$query", "first-out:intermediate"),
+        sent.map(_.query) == Vector(Some(query)),
+        sent.map(_.variables) == Vector(request.variables)
+      )
+    },
     test("trusted documents override client text and preserve request fields, including on cache hits") {
       for {
         remote   <- stub(okResponse)
         seen     <- Ref.make(List.empty[GraphQLRequest])
         runtime  <- remoteGateway(remote.endpoint)
-                      .withOperationResolver(OperationResolver.trustedDocuments(Map("value-v1" -> query))(documentId))
-                      .withOperationPolicy(
-                        OperationPolicy[Any](operation => seen.update(_ :+ operation.request).as(OperationPolicy.Allow))
+                      .withPhaseHooks(PhaseHooks.trustedDocuments(Map("value-v1" -> query))(documentId))
+                      .withPhaseHooks(
+                        PhaseHooks.authorization[Any](operation => seen.update(_ :+ operation.request).unit)
                       )
                       .interpreter
         first    <- runtime.executeRequest(request)
@@ -70,8 +96,10 @@ object OperationResolverSpec extends ZIOSpecDefault {
         policyCalls <- Ref.make(0)
         runtime     <-
           remoteGateway(remote.endpoint)
-            .withOperationResolver(OperationResolver.trustedDocuments(Map("value-v1" -> query))(documentId))
-            .withOperationPolicy(OperationPolicy[Any](_ => policyCalls.update(_ + 1).as(OperationPolicy.Allow)))
+            .withPhaseHooks(PhaseHooks.trustedDocuments(Map("value-v1" -> query))(documentId))
+            .withPhaseHooks(
+              PhaseHooks.authorization[Any](_ => policyCalls.update(_ + 1).unit)
+            )
             .interpreter
         rejected    <- ZIO.foreach(invalid)(r => runtime.executeRequest(r.copy(query = Some(query))))
         missing     <- runtime.executeRequest(unknown.copy(query = Some(query)))
@@ -87,12 +115,14 @@ object OperationResolverSpec extends ZIOSpecDefault {
       )
     },
     test("uses the caller's extraction format and keeps IDs opaque") {
-      val resolver = OperationResolver.trustedDocuments(Map(" opaque ID " -> query))(_.operationName)
+      val resolver                         = PhaseHooks.trustedDocuments(Map(" opaque ID " -> query))(_.operationName)
+      def resolve(request: GraphQLRequest) =
+        resolver.resolution.runWith(PhaseHooks.Event.Resolution(request))(event => ZIO.succeed(event.request))(_ => ())
       for {
-        resolved <- resolver.resolve(GraphQLRequest(operationName = Some(" opaque ID ")))
-        rejected <- resolver.resolve(GraphQLRequest(operationName = Some("opaque ID"))).either
+        resolved <- resolve(GraphQLRequest(operationName = Some(" opaque ID ")))
+        rejected <- resolve(GraphQLRequest(operationName = Some("opaque ID"))).either
       } yield assertTrue(
-        resolved == query,
+        resolved.query.contains(query),
         rejected == Left(Rejection("Trusted document not found.", "TRUSTED_DOCUMENT_NOT_FOUND"))
       )
     },
@@ -100,7 +130,7 @@ object OperationResolverSpec extends ZIOSpecDefault {
       for {
         remote   <- stub(okResponse)
         runtime  <- remoteGateway(remote.endpoint)
-                      .withOperationResolver(OperationResolver.trustedDocuments(Map("value-v1" -> query))(documentId))
+                      .withPhaseHooks(PhaseHooks.trustedDocuments(Map("value-v1" -> query))(documentId))
                       .interpreter
         plan     <- runtime.explain(request)
         rejected <- runtime.explain(request.copy(extensions = None)).either
@@ -128,9 +158,10 @@ object OperationResolverSpec extends ZIOSpecDefault {
                                   case 1 | 2 => ZIO.succeed(query)
                                   case _     => ZIO.fail(Rejection("Revoked.", "REVOKED"))
                                 }
-            resolver        = if (uncached) OperationResolver.uncached(resolve) else OperationResolver(resolve)
+            resolver        = PhaseHooks.resolution(resolve, cacheable = !uncached) ++
+                                PhaseHooks.resolution[Any](request => ZIO.succeed(request.query.getOrElse("")))
             runtime        <- remoteGateway(remote.endpoint)
-                                .withOperationResolver(resolver)
+                                .withPhaseHooks(resolver)
                                 .withPhaseHooks(hooks)
                                 .interpreter
             first          <- runtime.executeRequest(request)
@@ -156,48 +187,56 @@ object OperationResolverSpec extends ZIOSpecDefault {
     test("exposes only explicit resolver rejections, never defects or arbitrary Caliban errors") {
       val rejection = Rejection("Safe public message.", "PERSISTED_QUERY_NOT_FOUND")
       val resolvers = List(
-        OperationResolver[Any](_ => ZIO.fail(rejection)),
-        OperationResolver[Any](_ => ZIO.die(rejection)),
-        OperationResolver[Any](_ => throw rejection),
-        OperationResolver[Any](_ => ZIO.fail(CalibanError.ExecutionError("private-message"))),
-        OperationResolver[Any](_ => ZIO.fail(rejection).ensuring(ZIO.dieMessage("private-finalizer"))),
-        OperationResolver.trustedDocuments(Map("value-v1" -> query))(_ => throw rejection)
+        PhaseHooks.resolution[Any](_ => ZIO.fail(rejection)),
+        PhaseHooks.resolution[Any](_ => ZIO.die(rejection)),
+        PhaseHooks.resolution[Any](_ => throw rejection),
+        PhaseHooks.resolution[Any](_ => ZIO.fail(CalibanError.ExecutionError("private-message"))),
+        PhaseHooks.resolution[Any](_ => ZIO.fail(rejection).ensuring(ZIO.dieMessage("private-finalizer"))),
+        PhaseHooks.trustedDocuments(Map("value-v1" -> query))(_ => throw rejection)
       )
 
       for {
+        remote  <- stub(okResponse)
         results <- ZIO.foreach(resolvers) { resolver =>
-                     resolverHooks(resolver)
-                       .resolve(request)
-                       .either
+                     remoteGateway(remote.endpoint)
+                       .withPhaseHooks(resolver)
+                       .interpreter
+                       .flatMap(_.explain(request).either)
                    }
         errors   = results.flatMap(_.left.toOption)
       } yield assertTrue(
         errors.size == resolvers.size,
         errors.headOption.exists(_.msg == rejection.message),
         errors.headOption.flatMap(code).contains(StringValue(rejection.code)),
-        errors.headOption.exists(!OperationHooks.isInternalFailure(_)),
+        errors.headOption.exists(!OperationPreparation.isInternalFailure(_)),
         errors.drop(1).forall(_.msg == "Operation resolution failed."),
         errors.drop(1).forall(code(_).isEmpty),
-        errors.drop(1).forall(error => OperationHooks.isInternalFailure(error))
+        errors.drop(1).forall(error => OperationPreparation.isInternalFailure(error))
       )
     },
     test("preserves resolver interruption even when a finalizer dies with a rejection") {
-      val resolver = OperationResolver[Any](_ => ZIO.interrupt.ensuring(ZIO.die(Rejection("Not public.", "PRIVATE"))))
-      resolverHooks(resolver).resolve(request).exit.map { exit =>
-        assertTrue(exit.causeOption.exists(_.isInterruptedOnly))
-      }
+      val resolver =
+        PhaseHooks.resolution[Any](_ => ZIO.interrupt.ensuring(ZIO.die(Rejection("Not public.", "PRIVATE"))))
+      for {
+        remote  <- stub(okResponse)
+        runtime <- remoteGateway(remote.endpoint).withPhaseHooks(resolver).interpreter
+        exit    <- runtime.explain(request).exit
+      } yield assertTrue(exit.causeOption.exists(_.isInterruptedOnly))
     },
     test("does not expose resolver rejections returned by a policy") {
       for {
         remote  <- stub(okResponse)
-        runtime <- remoteGateway(remote.endpoint)
-                     .withOperationPolicy(OperationPolicy[Any](_ => ZIO.fail(Rejection("Private.", "PRIVATE"))))
-                     .interpreter
+        runtime <-
+          remoteGateway(remote.endpoint)
+            .withPhaseHooks(
+              PhaseHooks.authorization[Any](_ => ZIO.fail(Rejection("Private.", "PRIVATE")))
+            )
+            .interpreter
         result  <- runtime.executeRequest(request.copy(query = Some(query)))
         sent    <- remote.requests.get
       } yield assertTrue(
         result.errors.map(_.msg) == List("Operation policy failed."),
-        result.errors.forall(error => OperationHooks.isInternalFailure(error)),
+        result.errors.forall(error => OperationPreparation.isInternalFailure(error)),
         result.errors.forall(code(_).isEmpty),
         sent.isEmpty
       )

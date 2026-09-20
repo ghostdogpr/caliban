@@ -2,7 +2,7 @@ package caliban.gateway.internal.composition
 
 import caliban.gateway.{ innerParentTypeName, EntitiesField }
 import caliban.execution.{ isMetaField, Field }
-import caliban.gateway.OperationPolicy.{ SecurityDirective, SecurityRequirement }
+import caliban.gateway.PhaseHooks.{ SecurityDirective, SecurityRequirement }
 import caliban.gateway.internal.composition.ComposedGraph._
 import caliban.gateway.internal.planning.OperationPlan
 import caliban.gateway.internal.planning.OperationPlan.EntityFetch
@@ -31,7 +31,7 @@ private[composition] final class OperationSecurity(
     securityApplications
       .filterNot(_.directive == SecurityDirective.UnsupportedPolicy)
       .map(application =>
-        s"[${application.source}] Federation ${application.directiveName} at '${application.coordinate}' requires an operation policy."
+        s"[${application.source}] Federation ${application.directiveName} at '${application.coordinate}' requires an authorization hook."
       )
       .distinct
       .sorted

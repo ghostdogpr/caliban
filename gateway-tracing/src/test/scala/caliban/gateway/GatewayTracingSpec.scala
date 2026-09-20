@@ -7,11 +7,13 @@ import caliban.tracing.TracingMock
 import io.opentelemetry.api.common.AttributeKey
 import io.opentelemetry.api.trace.{ SpanId, SpanKind, StatusCode }
 import zio.http.{ Header, Status }
+import zio.stream.ZStream
 import zio.telemetry.opentelemetry.tracing.Tracing
 import zio.{ Duration, Promise, Scope, ZIO }
 import zio.test.{ assertTrue, Spec, TestAspect, TestClock, TestEnvironment, ZIOSpecDefault }
 
 import scala.jdk.CollectionConverters._
+import java.nio.charset.StandardCharsets.UTF_8
 
 object GatewayTracingSpec extends ZIOSpecDefault {
 
@@ -32,10 +34,18 @@ object GatewayTracingSpec extends ZIOSpecDefault {
           val headers =
             if (context == "incoming") List(Header.Custom("traceparent", s"00-$traceId-$parentId-01")) else Nil
           for {
-            endpoint      <- sseEndpoint(sseBody(1, 2))
+            setupFinished <- Promise.make[Nothing, Unit]
+            endpoint      <- streamingEndpoint(
+                               ZStream.fromIterable(": ready\n\n".getBytes(UTF_8)) ++
+                                 (ZStream.fromZIO(setupFinished.await).drain ++
+                                   ZStream.fromIterable(sseBody(1, 2).getBytes(UTF_8))),
+                               mediaType = "text/event-stream"
+                             )
             runtime       <-
               (Gateway.compose(Subgraph.graphql("remote", endpoint, subscriptionSchema, sseConfig)) @@
-                GatewayTracing.hooks).interpreter
+                (GatewayTracing.hooks ++ PhaseHooks.subscriptionSetup(
+                  PhaseHandler.outgoing((_, _) => setupFinished.succeed(()).unit)
+                ))).interpreter
             before        <- TracingMock.getFinishedSpans.map(_.size)
             consume        = runtime
                                .executeStream(GraphQLRequest(query = Some("subscription { event }")), headers)
@@ -47,6 +57,8 @@ object GatewayTracingSpec extends ZIOSpecDefault {
             caller         = spans.find(_.getName == "subscription-caller")
             requestSpan    = spans.find(_.getName == "caliban.gateway.request")
             setup          = observed.find(_.getName == "caliban.gateway.subscription.setup")
+            subgraph       = spans.find(_.getName == "caliban.gateway.subgraph")
+            attempts       = spans.filter(_.getName == "caliban.gateway.subgraph.attempt")
             eventSpans     = observed.filter(_.getName == "caliban.gateway.subscription.event")
             expectedParent = context match {
                                case "incoming" => Some(parentId)
@@ -58,6 +70,13 @@ object GatewayTracingSpec extends ZIOSpecDefault {
             events.size == 2,
             observed.count(_.getName == "caliban.gateway.subscription.setup") == 1,
             eventSpans.size == 2,
+            attempts.size == 1,
+            subgraph.exists(span => setup.map(_.getSpanId).contains(span.getParentSpanId)),
+            attempts.forall(span =>
+              subgraph.map(_.getSpanId).contains(span.getParentSpanId) &&
+                span.getAttributes.get(AttributeKey.stringKey("http.request.method")) == "POST" &&
+                span.getAttributes.get(AttributeKey.longKey("http.request.resend_count")) == 0L
+            ),
             // The request span covers preparation and stream construction; the subscription outlives it.
             spans.count(_.getName == "caliban.gateway.request") == 1,
             observed.forall(span => !requestSpan.map(_.getSpanId).contains(span.getParentSpanId)),
@@ -86,7 +105,7 @@ object GatewayTracingSpec extends ZIOSpecDefault {
         response.errors.isEmpty,
         gatewaySpans.map(_.getName).toSet == Set(
           "caliban.gateway.request",
-          "caliban.gateway.routing",
+          "caliban.gateway.preparation",
           "caliban.gateway.subgraph",
           "caliban.gateway.subgraph.attempt",
           "caliban.gateway.completion"
@@ -119,23 +138,23 @@ object GatewayTracingSpec extends ZIOSpecDefault {
     },
     test("keeps preparation in the caller's trace when only a traceparent header arrives") {
       for {
-        remote      <- stub(okResponse)
-        runtime     <- tracedGateway(remote).interpreter
-        spansBefore <- TracingMock.getFinishedSpans.map(_.size)
-        response    <- runtime.executeRequest(
-                         GraphQLRequest(query = Some("{ value }")),
-                         List(Header.Custom("traceparent", s"00-$traceId-$parentId-01"))
-                       )
-        spans       <- TracingMock.getFinishedSpans.map(_.drop(spansBefore))
-        gatewaySpans = spans.filter(_.getName.startsWith("caliban.gateway."))
-        requestSpan  = gatewaySpans.find(_.getName == "caliban.gateway.request")
-        routingSpan  = gatewaySpans.find(_.getName == "caliban.gateway.routing")
+        remote         <- stub(okResponse)
+        runtime        <- tracedGateway(remote).interpreter
+        spansBefore    <- TracingMock.getFinishedSpans.map(_.size)
+        response       <- runtime.executeRequest(
+                            GraphQLRequest(query = Some("{ value }")),
+                            List(Header.Custom("traceparent", s"00-$traceId-$parentId-01"))
+                          )
+        spans          <- TracingMock.getFinishedSpans.map(_.drop(spansBefore))
+        gatewaySpans    = spans.filter(_.getName.startsWith("caliban.gateway."))
+        requestSpan     = gatewaySpans.find(_.getName == "caliban.gateway.request")
+        preparationSpan = gatewaySpans.find(_.getName == "caliban.gateway.preparation")
       } yield assertTrue(
         response.errors.isEmpty,
-        routingSpan.nonEmpty,
+        preparationSpan.nonEmpty,
         gatewaySpans.forall(_.getTraceId == traceId),
         requestSpan.map(_.getParentSpanId).contains(parentId),
-        routingSpan.map(_.getParentSpanId) == requestSpan.map(_.getSpanId)
+        preparationSpan.map(_.getParentSpanId) == requestSpan.map(_.getSpanId)
       )
     },
     test("traces retry attempts") {
@@ -152,14 +171,13 @@ object GatewayTracingSpec extends ZIOSpecDefault {
         sent        <- remote.requests.get
         headers     <- remote.headers.get
         spans       <- TracingMock.getFinishedSpans.map(_.drop(spansBefore))
-        retrySpan    = spans.find(_.getName == "caliban.gateway.retry")
         attempts     = spans
                          .filter(_.getName == "caliban.gateway.subgraph.attempt")
                          .sortBy(_.getAttributes.get(AttributeKey.longKey("http.request.resend_count")).longValue())
       } yield assertTrue(
         response.errors.isEmpty,
         sent.size == 2,
-        retrySpan.nonEmpty,
+        !spans.exists(_.getName == "caliban.gateway.retry"),
         attempts.map(_.getAttributes.get(AttributeKey.longKey("http.request.resend_count")).longValue()) == List(
           0L,
           1L

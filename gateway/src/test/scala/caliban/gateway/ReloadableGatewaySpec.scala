@@ -385,13 +385,13 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
         remote  <- source()
         started <- Promise.make[Nothing, Unit]
         release <- Promise.make[Nothing, Unit]
-        resolver = OperationResolver[Any](request =>
+        resolver = PhaseHooks.resolution[Any](request =>
                      (if (request.operationName.contains("Before")) started.succeed(()).unit *> release.await
                       else ZIO.unit).as(request.query.getOrElse(""))
                    )
         runtime <- Gateway
                      .compose(remote.subgraph)
-                     .withOperationResolver(resolver)
+                     .withPhaseHooks(resolver)
                      .withConfig(_.withRequestTimeout(1.hour).withDrainTimeout(10.seconds))
                      .reloadableForTest
         _       <- ZIO.addFinalizer(release.succeed(()).unit)

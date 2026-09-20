@@ -1,71 +1,71 @@
 package caliban.gateway
 
+import caliban.execution.ExecutionRequest
+import caliban.parsing.adt.Document
 import caliban.gateway.PhaseHooks.{ Event, Outcome, Result }
 import caliban.parsing.adt.OperationType
 import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse }
 import zio.http.Header
 import zio.{ Cause, Exit, Trace, ZIO }
 
-final case class PhaseHooks[-R] private (
+import scala.util.control.NoStackTrace
+
+/**
+ * Gateway handlers grouped by phase. Use named arguments to attach full [[PhaseHandler]] values,
+ * or the companion helpers for individual phases. Combine bundles with `++`.
+ */
+final case class PhaseHooks[-R](
+  operation: PhaseHandler[R, Event.Operation, Nothing, OperationEvent] = PhaseHandler.empty[Event.Operation],
+  preparation: PhaseHandler[R, Event.Preparation.type, Nothing, Result] = PhaseHandler.empty[Event.Preparation.type],
+  resolution: PhaseHandler[R, Event.Resolution, Throwable, Any] = PhaseHandler.empty[Event.Resolution],
+  overrideLabels: PhaseHandler[R, Event.OverrideLabels, Throwable, Any] = PhaseHandler.empty[Event.OverrideLabels],
+  cacheAccess: PhaseHandler[R, Event.CacheAccess, Nothing, Result] = PhaseHandler.empty[Event.CacheAccess],
+  authorization: PhaseHandler[R, Event.Authorization, Throwable, Any] = PhaseHandler.empty[Event.Authorization],
+  execution: PhaseHandler[R, Event.Execution, Nothing, Result] = PhaseHandler.empty[Event.Execution],
+  subgraphCall: PhaseHandler[R, Event.SubgraphCall, Nothing, Result] = PhaseHandler.empty[Event.SubgraphCall],
+  attempt: PhaseHandler[R, Event.Attempt, Nothing, Result] = PhaseHandler.empty[Event.Attempt],
+  completion: PhaseHandler[R, Event.Completion.type, Nothing, Result] = PhaseHandler.empty[Event.Completion.type],
+  subscriptionAdmission: PhaseHandler[R, Event.SubscriptionAdmission, Nothing, Result] =
+    PhaseHandler.empty[Event.SubscriptionAdmission],
   subscriptionSetup: PhaseHandler[R, Event.SubscriptionSetup.type, Nothing, Result] =
     PhaseHandler.empty[Event.SubscriptionSetup.type],
   subscriptionEvent: PhaseHandler[R, Event.SubscriptionEvent.type, Nothing, Result] =
     PhaseHandler.empty[Event.SubscriptionEvent.type],
   subscriptionTerminated: PhaseHandler[R, Event.SubscriptionTerminated, Nothing, Result] =
-    PhaseHandler.empty[Event.SubscriptionTerminated],
-  subscriptionAdmission: PhaseHandler[R, Event.SubscriptionAdmission, Nothing, Result] =
-    PhaseHandler.empty[Event.SubscriptionAdmission],
-  subscriptionOverflow: PhaseHandler[R, Event.SubscriptionOverflow.type, Nothing, Result] =
-    PhaseHandler.empty[Event.SubscriptionOverflow.type],
-  request: PhaseHandler[R, Event.Request, Nothing, Result] = PhaseHandler.empty[Event.Request],
-  routing: PhaseHandler[R, Event.Routing.type, Nothing, Result] = PhaseHandler.empty[Event.Routing.type],
-  subgraphCall: PhaseHandler[R, Event.SubgraphCall, Nothing, Result] = PhaseHandler.empty[Event.SubgraphCall],
-  attempt: PhaseHandler[R, Event.Attempt, Nothing, Result] = PhaseHandler.empty[Event.Attempt],
-  retry: PhaseHandler[R, Event.Retry, Nothing, Result] = PhaseHandler.empty[Event.Retry],
-  completion: PhaseHandler[R, Event.Completion.type, Nothing, Result] = PhaseHandler.empty[Event.Completion.type],
-  cacheAccess: PhaseHandler[R, Event.CacheAccess, Nothing, Result] = PhaseHandler.empty[Event.CacheAccess],
-  overrideLabels: PhaseHandler[R, Event.OverrideLabels, Throwable, Any] = PhaseHandler.empty[Event.OverrideLabels],
-  outboundHeaders: PhaseHandler[R, Event.OutboundHeaders, Nothing, Any] = PhaseHandler.empty[Event.OutboundHeaders],
-  attemptHeaders: PhaseHandler[R, Event.AttemptHeaders, Nothing, Any] = PhaseHandler.empty[Event.AttemptHeaders],
-  observeOperation: PhaseHandler[R, Event.ObserveOperation, Nothing, OperationEvent] =
-    PhaseHandler.empty[Event.ObserveOperation]
+    PhaseHandler.empty[Event.SubscriptionTerminated]
 ) { self =>
   val enabled: Boolean =
-    self.subscriptionSetup.enabled ||
-      self.subscriptionEvent.enabled ||
-      self.subscriptionTerminated.enabled ||
-      self.subscriptionAdmission.enabled ||
-      self.subscriptionOverflow.enabled ||
-      self.request.enabled ||
-      self.routing.enabled ||
+    self.operation.enabled ||
+      self.preparation.enabled ||
+      self.resolution.enabled ||
+      self.overrideLabels.enabled ||
+      self.cacheAccess.enabled ||
+      self.authorization.enabled ||
+      self.execution.enabled ||
       self.subgraphCall.enabled ||
       self.attempt.enabled ||
-      self.retry.enabled ||
       self.completion.enabled ||
-      self.cacheAccess.enabled ||
-      self.overrideLabels.enabled ||
-      self.outboundHeaders.enabled ||
-      self.attemptHeaders.enabled ||
-      self.observeOperation.enabled
+      self.subscriptionAdmission.enabled ||
+      self.subscriptionSetup.enabled ||
+      self.subscriptionEvent.enabled ||
+      self.subscriptionTerminated.enabled
 
   def ++[R1 <: R](that: PhaseHooks[R1]): PhaseHooks[R1] =
     copy(
-      subscriptionSetup = self.subscriptionSetup ++ that.subscriptionSetup,
-      subscriptionEvent = self.subscriptionEvent ++ that.subscriptionEvent,
-      subscriptionTerminated = self.subscriptionTerminated ++ that.subscriptionTerminated,
-      subscriptionAdmission = self.subscriptionAdmission ++ that.subscriptionAdmission,
-      subscriptionOverflow = self.subscriptionOverflow ++ that.subscriptionOverflow,
-      request = self.request ++ that.request,
-      routing = self.routing ++ that.routing,
+      operation = self.operation ++ that.operation,
+      preparation = self.preparation ++ that.preparation,
+      resolution = self.resolution ++ that.resolution,
+      overrideLabels = self.overrideLabels ++ that.overrideLabels,
+      cacheAccess = self.cacheAccess ++ that.cacheAccess,
+      authorization = self.authorization ++ that.authorization,
+      execution = self.execution ++ that.execution,
       subgraphCall = self.subgraphCall ++ that.subgraphCall,
       attempt = self.attempt ++ that.attempt,
-      retry = self.retry ++ that.retry,
       completion = self.completion ++ that.completion,
-      cacheAccess = self.cacheAccess ++ that.cacheAccess,
-      overrideLabels = self.overrideLabels ++ that.overrideLabels,
-      outboundHeaders = self.outboundHeaders ++ that.outboundHeaders,
-      attemptHeaders = self.attemptHeaders ++ that.attemptHeaders,
-      observeOperation = self.observeOperation ++ that.observeOperation
+      subscriptionAdmission = self.subscriptionAdmission ++ that.subscriptionAdmission,
+      subscriptionSetup = self.subscriptionSetup ++ that.subscriptionSetup,
+      subscriptionEvent = self.subscriptionEvent ++ that.subscriptionEvent,
+      subscriptionTerminated = self.subscriptionTerminated ++ that.subscriptionTerminated
     )
 
   private[gateway] def observeCompletion[R0 <: R, E](effect: ZIO[R0, E, GraphQLResponse[CalibanError]])(implicit
@@ -75,48 +75,156 @@ final case class PhaseHooks[-R] private (
 }
 
 /**
- * Constructors for single-phase [[PhaseHooks]], one per phase of the gateway lifecycle.
+ * Hooks for preparing and executing gateway operations.
  *
- * Each builds hooks that attach a [[PhaseHandler]] to one phase and leave the rest empty. Combine them with `++` and
- * attach the result with `Gateway#withPhaseHooks` or `Gateway#@@`. Combining accumulates
- * rather than replaces, so several integrations can observe the same phase. Within a phase incoming sides run in
- * combination order and outgoing sides in reverse, so the outgoing side of the first handler runs last.
+ * Each constructor attaches a handler to one phase. Combine hooks with `++` and attach them with
+ * `Gateway#withPhaseHooks` or `Gateway#@@`. Incoming callbacks run in combination order. Outgoing callbacks
+ * run in reverse order.
  *
- * Every phase except [[overrideLabels]] takes handlers that cannot fail, so a handler can never fail the request it
- * observes. Handlers run on the request path, inside whatever timeout the phase they wrap is subject to.
+ * Constructors follow entry order for queries and mutations. [[operation]] wraps [[preparation]] and
+ * [[execution]]. Subscriptions have separate admission, setup, event, and termination hooks. Failures can
+ * skip later phases.
  *
- * A handler's outgoing side receives the value the phase produces: the phase's own [[PhaseHooks.Result]] for most
- * hooks, an [[OperationEvent]] for [[observeOperation]]. Hooks that only transform their event produce nothing
- * useful for an outgoing side, and are noted as such below.
+ * `resolution`, [[overrideLabels]], and `authorization` allow typed failures. Other handlers cannot fail
+ * through the typed error channel. Hook work counts toward the timeout of its enclosing phase.
+ *
+ * Most outgoing callbacks receive a [[Result]] for that phase. [[operation]] receives an [[OperationEvent]].
+ * `resolution`, [[overrideLabels]], and `authorization` receive `Unit`.
  */
 object PhaseHooks {
 
   /**
-   * Hooks with every phase empty. The identity of `++`, and what a gateway starts with.
+   * No handlers. Combining these hooks with another bundle leaves that bundle unchanged.
    */
   val empty: PhaseHooks[Any] = new PhaseHooks[Any]()
 
   /**
-   * Brackets opening the source of one subscription: the subscribe call to the owning subgraph and the upstream
-   * connection it needs. Runs once per subscription, and handler work counts against
-   * [[GatewaySubscriptionConfig]]`.setupTimeout`. The outgoing [[PhaseHooks.Result]] says whether the source
-   * opened.
+   * Wraps the whole request, including preparation, execution, and response assembly.
+   * The outgoing callback receives one [[OperationEvent]], including on failure, timeout, shutdown, or interruption.
+   * For subscriptions, this phase ends when the gateway returns the stream. Stream processing has its own hooks.
+   */
+  def operation[R](handler: PhaseHandler[R, Event.Operation, Nothing, OperationEvent]): PhaseHooks[R] =
+    new PhaseHooks[R](operation = handler)
+
+  /**
+   * Wraps document resolution, parsing, validation, authorization, and query planning, including [[cacheAccess]].
+   * Runs before [[execution]]. The result reports whether preparation succeeded.
+   */
+  def preparation[R](handler: PhaseHandler[R, Event.Preparation.type, Nothing, Result]): PhaseHooks[R] =
+    new PhaseHooks[R](preparation = handler)
+
+  /**
+   * Supplies query text before parsing and cache lookup, including on cache hits. Other request fields stay unchanged.
+   * Setting `cacheable` to false disables document and plan caching for this request. Later resolution handlers
+   * still run, and this helper preserves any earlier decision to disable caching.
+   *
+   * Runs for execution and `explain(request)`, but not `check(query)`. Fail with [[Rejection]] to return a public
+   * message and error code. The gateway masks unexpected failures and defects.
+   * Use `PhaseHooks(resolution = handler)` to change other request fields or make caching decisions per request.
+   */
+  def resolution[R](
+    resolve: GraphQLRequest => ZIO[R, Throwable, String],
+    cacheable: Boolean = true
+  ): PhaseHooks[R] =
+    new PhaseHooks[R](resolution = PhaseHandler.incoming[R, Event.Resolution, Throwable] { event =>
+      resolve(event.request).map(query =>
+        event.copy(request = event.request.copy(query = Some(query)), cacheable = event.cacheable && cacheable)
+      )
+    })
+
+  /**
+   * Selects active custom `@override` labels before plan lookup, when the operation uses those labels.
+   * Return an event with the chosen labels in `active`. The gateway ignores labels outside `reached` and handles
+   * built-in `percent(x)` labels itself. A handler failure rejects the request with a resolution error.
+   */
+  def overrideLabels[R](handler: PhaseHandler[R, Event.OverrideLabels, Throwable, Any]): PhaseHooks[R] =
+    new PhaseHooks[R](overrideLabels = handler)
+
+  /**
+   * Wraps a prepared-operation cache lookup, including computation on a miss or waiting for another request's
+   * computation. The event identifies a hit, miss, or wait. Skipped when caching is disabled.
+   */
+  def cacheAccess[R](handler: PhaseHandler[R, Event.CacheAccess, Nothing, Result]): PhaseHooks[R] =
+    new PhaseHooks[R](cacheAccess = handler)
+
+  /**
+   * Allows or rejects a validated operation after variable coercion, cost checks, and planning.
+   * Runs on cache hits and for `explain(request)`, but not `check(query)`. Changes to the event do not alter
+   * execution. Every handler must succeed. A failure stops authorization and prevents execution.
+   *
+   * Fail with [[Denial]] to return a public reason. The gateway masks unexpected failures and defects.
+   * Use `PhaseHooks(authorization = handler)` to attach a full [[PhaseHandler]].
+   */
+  def authorization[R](authorize: Event.Authorization => ZIO[R, Throwable, Unit]): PhaseHooks[R] =
+    new PhaseHooks[R](authorization = PhaseHandler.incomingDiscard(authorize))
+
+  /**
+   * Wraps query or mutation execution and response assembly after [[preparation]].
+   * Also covers error responses for preparation failures, request timeouts, and shutdown rejections.
+   * Successful subscriptions use [[subscriptionSetup]] and [[subscriptionEvent]] instead.
+   * The event carries the operation name supplied by the client.
+   */
+  def execution[R](handler: PhaseHandler[R, Event.Execution, Nothing, Result]): PhaseHooks[R] =
+    new PhaseHooks[R](execution = handler)
+
+  /**
+   * Wraps one local or remote subgraph call, including deduplication and retries, or opening a subscription.
+   * Runs for each caller, even when callers share a single remote request. Use [[attempt]] to count transport requests.
+   *
+   * For remote calls, runs after configured headers are resolved. The returned event supplies the headers used for
+   * deduplication and retries. Local calls have no transport headers and ignore header changes.
+   * Callbacks use the enclosing gateway deadline. The remote timeout bounds header acquisition and transport.
+   * Subscription connections keep their opening headers. Calls made while processing events run this hook separately.
+   */
+  def subgraphCall[R](handler: PhaseHandler[R, Event.SubgraphCall, Nothing, Result]): PhaseHooks[R] =
+    new PhaseHooks[R](subgraphCall = handler)
+
+  /**
+   * Wraps one remote request and response decoding, or opening a remote subscription.
+   * Runs after query deduplication. Attempt number zero is the first request. Higher numbers are retries.
+   * The returned event supplies the headers to send. Other event fields describe the attempt.
+   *
+   * The result includes the HTTP status code and response size when available for queries and mutations.
+   * Opening a subscription uses attempt zero, and its headers remain fixed for the stream's lifetime.
+   */
+  def attempt[R](handler: PhaseHandler[R, Event.Attempt, Nothing, Result]): PhaseHooks[R] =
+    new PhaseHooks[R](attempt = handler)
+
+  /**
+   * Wraps client response assembly, including merging subgraph results and producing gateway error responses.
+   * Use [[operation]] to observe the whole request.
+   */
+  def completion[R](handler: PhaseHandler[R, Event.Completion.type, Nothing, Result]): PhaseHooks[R] =
+    new PhaseHooks[R](completion = handler)
+
+  /**
+   * Reports whether a subscription was admitted. The event's `accepted` flag is false for a rejection.
+   * Together with [[subscriptionTerminated]], this hook can track active subscriptions.
+   * This is a notification with no work to wrap. Use `PhaseHandler.incomingDiscard`.
+   */
+  def subscriptionAdmission[R](handler: PhaseHandler[R, Event.SubscriptionAdmission, Nothing, Result]): PhaseHooks[R] =
+    new PhaseHooks[R](subscriptionAdmission = handler)
+
+  /**
+   * Wraps opening a subscription source, including any upstream connection.
+   * Runs once per subscription. Hook work counts toward `setupTimeout` in [[GatewaySubscriptionConfig]].
+   * The result reports whether the source opened.
    */
   def subscriptionSetup[R](handler: PhaseHandler[R, Event.SubscriptionSetup.type, Nothing, Result]): PhaseHooks[R] =
     new PhaseHooks[R](subscriptionSetup = handler)
 
   /**
-   * Brackets the work that turns one buffered source event into the response delivered to the client. Runs once per
-   * event, and handler work counts against [[GatewaySubscriptionConfig]]`.eventTimeout`. The outgoing
-   * [[PhaseHooks.Result]] carries that event's outcome and error count.
+   * Wraps processing one source event into a client response, including any subgraph calls it needs.
+   * Hook work counts toward `eventTimeout` in [[GatewaySubscriptionConfig]].
+   * The result reports the event's outcome and GraphQL error count.
    */
   def subscriptionEvent[R](handler: PhaseHandler[R, Event.SubscriptionEvent.type, Nothing, Result]): PhaseHooks[R] =
     new PhaseHooks[R](subscriptionEvent = handler)
 
   /**
-   * Notified once per admitted subscription when its slot is released, from the finalizer of the subscription's scope,
-   * whatever ended it. The event carries the termination reason and the subscription's lifetime in nanoseconds. No work
-   * is bracketed, so use the incoming-only constructors of [[PhaseHandler]].
+   * Reports when an admitted subscription releases its slot, once per subscription during scope cleanup.
+   * The event carries its lifetime in nanoseconds and termination reason, including `SUBSCRIPTION_OVERFLOW`.
+   * This is a notification with no work to wrap. Use `PhaseHandler.incomingDiscard`.
    */
   def subscriptionTerminated[R](
     handler: PhaseHandler[R, Event.SubscriptionTerminated, Nothing, Result]
@@ -124,116 +232,87 @@ object PhaseHooks {
     new PhaseHooks[R](subscriptionTerminated = handler)
 
   /**
-   * Notified when a subscription is admitted or turned away, before a rejection fails its caller; `accepted`
-   * distinguishes the two. Pairs with [[subscriptionTerminated]] to track how many subscriptions are active. No work is
-   * bracketed.
-   */
-  def subscriptionAdmission[R](handler: PhaseHandler[R, Event.SubscriptionAdmission, Nothing, Result]): PhaseHooks[R] =
-    new PhaseHooks[R](subscriptionAdmission = handler)
-
-  /**
-   * Notified when a subscription's buffer overflows, just before the subscription is terminated for it. No work is
-   * bracketed.
-   */
-  def subscriptionOverflow[R](
-    handler: PhaseHandler[R, Event.SubscriptionOverflow.type, Nothing, Result]
-  ): PhaseHooks[R] =
-    new PhaseHooks[R](subscriptionOverflow = handler)
-
-  /**
-   * Brackets execution of one query or mutation once [[routing]] has resolved it, and the responses produced when a
-   * request is rejected during drain or exhausts its deadline. A subscription reaches this
-   * phase only on those failure paths; its streaming work is covered by [[subscriptionSetup]] and
-   * [[subscriptionEvent]]. The event carries the operation name the client supplied.
-   */
-  def request[R](handler: PhaseHandler[R, Event.Request, Nothing, Result]): PhaseHooks[R] =
-    new PhaseHooks[R](request = handler)
-
-  /**
-   * Brackets one HTTP attempt against a remote subgraph: the [[attemptHeaders]] handler, the round trip, and decoding
-   * of the response. The event carries the subgraph, the zero-based attempt number, the request size and the resolved
-   * server address; the outgoing [[PhaseHooks.Result]] adds the status code and response size whenever the
-   * transport got that far.
-   */
-  def attempt[R](handler: PhaseHandler[R, Event.Attempt, Nothing, Result]): PhaseHooks[R] =
-    new PhaseHooks[R](attempt = handler)
-
-  /**
-   * Brackets a retried attempt against a remote subgraph, attempt 1 onwards, so it fires once per retry rather than
-   * once per call. Each occurrence sits inside the same [[subgraphCall]] and around its own [[attempt]].
-   */
-  def retry[R](handler: PhaseHandler[R, Event.Retry, Nothing, Result]): PhaseHooks[R] =
-    new PhaseHooks[R](retry = handler)
-
-  /**
-   * Brackets assembling the response returned to the client: merging subgraph and introspection data, completing a
-   * passthrough response, or producing the canned response for a preparation failure, timeout or shutdown. It covers
-   * that assembly rather than the request as a whole. Use [[observeOperation]] for one observation per request.
-   */
-  def completion[R](handler: PhaseHandler[R, Event.Completion.type, Nothing, Result]): PhaseHooks[R] =
-    new PhaseHooks[R](completion = handler)
-
-  /**
-   * Brackets one lookup in the prepared-operation cache during [[routing]]. The event's result says whether it was a
-   * hit, a miss whose preparation this request runs, or a wait on preparation already in flight for another request, so
-   * only the last two bracket significant work.
-   */
-  def cacheAccess[R](handler: PhaseHandler[R, Event.CacheAccess, Nothing, Result]): PhaseHooks[R] =
-    new PhaseHooks[R](cacheAccess = handler)
-
-  /**
-   * Brackets preparation of an incoming request: parsing, validation, policy checks, and planning, including the
-   * [[cacheAccess]] lookup that may serve it. Preparation runs alongside [[request]] rather than inside it, so this
-   * phase is a sibling of that one. The outgoing [[PhaseHooks.Result]] says whether preparation succeeded.
-   */
-  def routing[R](handler: PhaseHandler[R, Event.Routing.type, Nothing, Result]): PhaseHooks[R] =
-    new PhaseHooks[R](routing = handler)
-
-  /**
-   * Brackets one logical call to a subgraph, remote or local, enclosing deduplication and every
-   * [[attempt]] and [[retry]] the call makes. It fires per logical call even when deduplication serves the response
-   * from a call another request is already making, so it does not count transport round trips. Opening a subscription
-   * does not go through it. The event carries the subgraph name and the operation type.
-   */
-  def subgraphCall[R](handler: PhaseHandler[R, Event.SubgraphCall, Nothing, Result]): PhaseHooks[R] =
-    new PhaseHooks[R](subgraphCall = handler)
-
-  /**
-   * Selects the headers sent to a subgraph, once per header computation: per call, or once per subscription, whose
-   * headers are then frozen for its lifetime. The event carries the forwarded and configured headers already resolved,
-   * and the headers of the event the handler returns are the ones used. This phase only transforms its event, so an
-   * outgoing side receives nothing useful.
-   */
-  def outboundHeaders[R](handler: PhaseHandler[R, Event.OutboundHeaders, Nothing, Any]): PhaseHooks[R] =
-    new PhaseHooks[R](outboundHeaders = handler)
-
-  /**
-   * Adjusts the headers of a single attempt, once [[outboundHeaders]] has settled the call's headers, for values that
-   * differ between attempts such as trace context. Runs per attempt, and once with attempt `0` when opening a
-   * subscription. As with [[outboundHeaders]], the returned event's headers are the ones used and an outgoing side
-   * receives nothing useful.
-   */
-  def attemptHeaders[R](handler: PhaseHandler[R, Event.AttemptHeaders, Nothing, Any]): PhaseHooks[R] =
-    new PhaseHooks[R](attemptHeaders = handler)
-
-  /**
-   * The outermost phase: it brackets the whole request and yields exactly one [[OperationEvent]] per request, whatever
-   * the outcome, including preparation failures, timeouts, shutdown, and interruption. See [[OperationEvent]] for what
-   * each of those carries. A handler that wants timings brackets them itself.
-   */
-  def observeOperation[R](handler: PhaseHandler[R, Event.ObserveOperation, Nothing, OperationEvent]): PhaseHooks[R] =
-    new PhaseHooks[R](observeOperation = handler)
-
-  /**
-   * Selects the custom progressive `@override` labels that are active for a request. The gateway resolves built-in
-   * `percent(x)` labels itself and ignores unknown labels in the returned set.
+   * Resolves document IDs from a fixed registry. Registered text replaces any query text in the request.
+   * The gateway never registers new documents or falls back to client query text.
    *
-   * Runs during [[routing]], and is the one phase whose handler may fail: a failure fails the request with a resolution
-   * error. Like the header hooks, it only transforms its event, so an outgoing side receives nothing useful. The
-   * labels the returned event has activated are the ones applied.
+   * Missing, malformed, or empty IDs fail with `TRUSTED_DOCUMENT_ID_INVALID`.
+   * Unknown IDs fail with `TRUSTED_DOCUMENT_NOT_FOUND`. Operations still pass through `authorization`.
    */
-  def overrideLabels[R](handler: PhaseHandler[R, Event.OverrideLabels, Throwable, Any]): PhaseHooks[R] =
-    new PhaseHooks[R](overrideLabels = handler)
+  def trustedDocuments(documents: Map[String, String])(extractId: GraphQLRequest => Option[String]): PhaseHooks[Any] =
+    resolution[Any] { request =>
+      extractId(request).filter(_.nonEmpty) match {
+        case None     =>
+          ZIO.fail(Rejection("A non-empty trusted document ID is required.", "TRUSTED_DOCUMENT_ID_INVALID"))
+        case Some(id) =>
+          documents.get(id) match {
+            case Some(document) => ZIO.succeed(document)
+            case None           => ZIO.fail(Rejection("Trusted document not found.", "TRUSTED_DOCUMENT_NOT_FOUND"))
+          }
+      }
+    }
+
+  /**
+   * Checks `@authenticated` and `@requiresScopes` using claims already verified by the application.
+   * `None` means anonymous. `Some` means authenticated, even when `scopes` returns an empty set.
+   * Reads claims once per protected authorization check, including cache hits. Unprotected operations skip the lookup.
+   *
+   * A scope requirement passes when the caller has every scope in at least one alternative. An empty list of
+   * alternatives or an empty alternative requires only authentication. All requirements must pass, including
+   * those on possible runtime branches.
+   */
+  def fromClaims[R, C](readClaims: ZIO[R, Throwable, Option[C]])(scopes: C => Set[String]): PhaseHooks[R] =
+    authorization[R] { operation =>
+      if (operation.securityRequirements.isEmpty) ZIO.unit
+      else
+        readClaims.flatMap {
+          case None         => ZIO.fail(Denial())
+          case Some(claims) =>
+            val granted = scopes(claims)
+            val allowed = operation.securityRequirements.forall(_.directives.forall {
+              case SecurityDirective.UnsupportedPolicy            => false
+              case SecurityDirective.Authenticated                => true
+              case SecurityDirective.RequiresScopes(alternatives) =>
+                alternatives.isEmpty || alternatives.exists(_.forall(granted.contains))
+            })
+            if (allowed) ZIO.unit else ZIO.fail(Denial())
+        }
+    }
+
+  /**
+   * A public rejection from `resolution`. Fail with `ZIO.fail` to expose `message` and `extensions.code`.
+   * Throwing this exception produces a defect, which the gateway masks.
+   */
+  final case class Rejection(message: String, code: String) extends Exception(message) with NoStackTrace
+
+  /**
+   * A public rejection from `authorization`. Fail with `ZIO.fail` to expose `reason`.
+   * The gateway masks thrown exceptions and failures accompanied by defects.
+   */
+  final case class Denial(reason: String = "Operation rejected by gateway policy.")
+      extends Exception(reason)
+      with NoStackTrace
+
+  /**
+   * Security directives that apply to a type or field selected by the operation.
+   * Every requirement and directive must pass. `fieldName = None` means the directives apply to the type.
+   */
+  final case class SecurityRequirement(typeName: String, fieldName: Option[String], directives: List[SecurityDirective])
+
+  sealed trait SecurityDirective
+
+  object SecurityDirective {
+    case object Authenticated extends SecurityDirective
+
+    /**
+     * An unsupported `@policy` directive. The gateway rejects operations that select it.
+     */
+    case object UnsupportedPolicy extends SecurityDirective
+
+    /**
+     * Alternative sets of required scopes. The caller needs every scope in at least one inner list.
+     */
+    final case class RequiresScopes(scopes: List[List[String]]) extends SecurityDirective
+  }
 
   sealed trait Outcome extends Product with Serializable {
     def label: String
@@ -295,32 +374,14 @@ object PhaseHooks {
   sealed trait Event extends Product with Serializable
 
   object Event {
-    case object SubscriptionSetup                                                 extends Event
-    case object SubscriptionEvent                                                 extends Event
-    final case class SubscriptionTerminated(reason: String, durationNanos: Long)  extends Event
-    final case class SubscriptionAdmission(accepted: Boolean)                     extends Event
-    case object SubscriptionOverflow                                              extends Event
-    final case class Request(operationName: Option[String])                       extends Event
-    case object Routing                                                           extends Event
-    final case class SubgraphCall(subgraph: String, operationType: OperationType) extends Event
-    final case class Attempt(
-      subgraph: String,
-      number: Int,
-      requestBytes: Long,
-      serverAddress: Option[String],
-      serverPort: Option[Int]
-    ) extends Event
-    final case class Retry(subgraph: String, attempt: Int)                        extends Event
-    case object Completion                                                        extends Event
-    final case class CacheAccess(result: CacheResult)                             extends Event
+    final case class Operation(request: GraphQLRequest)                             extends Event
+    case object Preparation                                                         extends Event
+    final case class Resolution(request: GraphQLRequest, cacheable: Boolean = true) extends Event
 
     /**
-     * The custom progressive `@override` labels the selected operation reached, and the subset a handler has
-     * activated so far. Labels stay inactive unless a handler activates them, so several handlers can each
-     * contribute without one clearing another's selection.
-     *
-     * The gateway resolves built-in `percent(x)` labels itself and ignores anything activated that the operation
-     * did not reach.
+     * Custom `@override` labels used by the operation and the labels activated by earlier handlers.
+     * Call `activate` to add labels without clearing earlier choices. Labels outside `reached` are ignored.
+     * The gateway handles built-in `percent(x)` labels separately.
      */
     final case class OverrideLabels(
       request: GraphQLRequest,
@@ -329,9 +390,33 @@ object PhaseHooks {
     ) extends Event {
       def activate(labels: Set[String]): OverrideLabels = copy(active = active ++ labels)
     }
-    final case class OutboundHeaders(subgraph: String, headers: List[Header])              extends Event
-    final case class AttemptHeaders(subgraph: String, attempt: Int, headers: List[Header]) extends Event
-    final case class ObserveOperation(request: GraphQLRequest)                             extends Event
+    final case class CacheAccess(result: CacheResult)                            extends Event
+    final case class Authorization(
+      request: GraphQLRequest,
+      document: Document,
+      executionRequest: ExecutionRequest,
+      securityRequirements: List[SecurityRequirement]
+    ) extends Event
+    final case class Execution(operationName: Option[String])                    extends Event
+    final case class SubgraphCall(
+      subgraph: String,
+      operationType: OperationType,
+      headers: List[Header] = Nil
+    ) extends Event
+    final case class Attempt(
+      subgraph: String,
+      number: Int,
+      requestBytes: Long,
+      serverAddress: Option[String],
+      serverPort: Option[Int],
+      headers: List[Header],
+      method: String = "POST"
+    ) extends Event
+    case object Completion                                                       extends Event
+    final case class SubscriptionAdmission(accepted: Boolean)                    extends Event
+    case object SubscriptionSetup                                                extends Event
+    case object SubscriptionEvent                                                extends Event
+    final case class SubscriptionTerminated(reason: String, durationNanos: Long) extends Event
   }
 
   private[gateway] def operationTypeLabel(operationType: OperationType): String =

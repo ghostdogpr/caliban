@@ -117,9 +117,7 @@ private[gateway] final class SubscriptionControl[-R] private (
     }.catchAllCause(cause =>
       if (cause.isInterruptedOnly) ZIO.unit
       else
-        ZIO.whenDiscard(cause.failureOption.exists(_ eq SubscriptionTermination.Overflow))(
-          notify(Event.SubscriptionOverflow)(hooks.subscriptionOverflow)
-        ) *> signal
+        signal
           .succeed(cause.failureOption.fold(SubscriptionTermination.Source)(SubscriptionTermination.fromFailure))
           .unit
     ).ensuring(buffer.end)

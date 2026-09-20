@@ -2,8 +2,8 @@ package caliban.gateway
 
 import caliban.Value.{ BooleanValue, StringValue }
 import caliban.gateway.GatewayTestSupport._
-import caliban.gateway.OperationPolicy.SecurityDirective.{ Authenticated, RequiresScopes }
-import caliban.gateway.OperationPolicy.{ Reject, SecurityRequirement }
+import caliban.gateway.PhaseHooks.SecurityDirective.{ Authenticated, RequiresScopes }
+import caliban.gateway.PhaseHooks.{ Denial, SecurityRequirement }
 import caliban.GraphQLRequest
 import zio._
 import zio.test._
@@ -80,10 +80,10 @@ object SecurityPolicySpec extends ZIOSpecDefault {
        |type Private implements Node @requiresScopes(scopes: [["read:private"]]) { value: String }
        |""".stripMargin
 
-  private val allowAll: OperationPolicy[Any] = OperationPolicy[Any](_ => ZIO.succeed(OperationPolicy.Allow))
+  private val allowAll: PhaseHooks[Any] = PhaseHooks.authorization[Any](_ => ZIO.unit)
 
-  private def rejectRecording(observed: Ref[List[SecurityRequirement]]): OperationPolicy[Any] =
-    OperationPolicy[Any](operation => observed.set(operation.securityRequirements).as(Reject()))
+  private def rejectRecording(observed: Ref[List[SecurityRequirement]]): PhaseHooks[Any] =
+    PhaseHooks.authorization(operation => observed.set(operation.securityRequirements) *> ZIO.fail(Denial()))
 
   private final case class Claims(scope: String)
 
@@ -136,7 +136,7 @@ object SecurityPolicySpec extends ZIOSpecDefault {
             Subgraph.graphql("products", products.endpoint, "type Query { product: Product } type Product { id: ID! }"),
             transformed
           )
-          .withOperationPolicy(allowAll)
+          .withPhaseHooks(allowAll)
           .interpreter
       root          = if (renamed) "lookup" else lookupName
       arguments     = if (single) "id: \"p1\"" else "ids: [\"p1\"]"
@@ -187,7 +187,7 @@ object SecurityPolicySpec extends ZIOSpecDefault {
         claims  <- FiberRef.make(Option.empty[Claims])
         runtime <- Gateway
                      .compose(Subgraph.federation("claims", remote.endpoint, claimsSchema))
-                     .withOperationPolicy(OperationPolicy.fromClaims(claims.get)(claimScopes))
+                     .withPhaseHooks(PhaseHooks.fromClaims(claims.get)(claimScopes))
                      .interpreter
         results <- ZIO.foreach(cases) { case (query, scope, allowed) =>
                      claims.locally(scope.map(Claims(_)))(runtime.execute(query)).map { result =>
@@ -210,10 +210,10 @@ object SecurityPolicySpec extends ZIOSpecDefault {
         service   = new RequestClaims {
                       def current: Task[Option[Claims]] = calls.update(_ + 1) *> claims.get
                     }
-        policy    = OperationPolicy.fromClaims(ZIO.serviceWithZIO[RequestClaims](_.current))(claimScopes)
+        policy    = PhaseHooks.fromClaims(ZIO.serviceWithZIO[RequestClaims](_.current))(claimScopes)
         runtime  <- Gateway
                       .compose(Subgraph.federation("claims", remote.endpoint, claimsSchema))
-                      .withOperationPolicy(policy)
+                      .withPhaseHooks(policy)
                       .interpreter
         allowed  <- claims
                       .locally(Some(Claims("admin")))(runtime.execute(query))
@@ -240,7 +240,7 @@ object SecurityPolicySpec extends ZIOSpecDefault {
         readClaims       = calls.update(_ + 1) *> ZIO.fail(new RuntimeException("claims-secret"))
         runtime         <- Gateway
                              .compose(Subgraph.federation("claims", remote.endpoint, claimsSchema))
-                             .withOperationPolicy(OperationPolicy.fromClaims[Any, Claims](readClaims)(claimScopes))
+                             .withPhaseHooks(PhaseHooks.fromClaims[Any, Claims](readClaims)(claimScopes))
                              .interpreter
         publicResult    <- runtime.executeRequest(query)
         introspection   <- runtime.execute("{ __schema { queryType { name } } }")
@@ -263,7 +263,7 @@ object SecurityPolicySpec extends ZIOSpecDefault {
         remote  <- stub("""{"data":{"login":"ok"}}""")
         runtime <- Gateway
                      .compose(Subgraph.federation("claims", remote.endpoint, claimsSchema))
-                     .withOperationPolicy(OperationPolicy.fromClaims(ZIO.some(Claims("")))(scopes))
+                     .withPhaseHooks(PhaseHooks.fromClaims(ZIO.some(Claims("")))(scopes))
                      .interpreter
         result  <- runtime.execute("{ login }")
         sent    <- remote.requests.get
@@ -277,7 +277,7 @@ object SecurityPolicySpec extends ZIOSpecDefault {
         claims       <- FiberRef.make(Option.empty[Claims])
         runtime      <- Gateway
                           .compose(Subgraph.federation("claims", remote.endpoint, claimsSchema))
-                          .withOperationPolicy(OperationPolicy.fromClaims(claims.get)(claimScopes))
+                          .withPhaseHooks(PhaseHooks.fromClaims(claims.get)(claimScopes))
                           .interpreter
         rejected     <- claims.locally(Some(Claims("")))(runtime.execute(query))
         publicResult <- runtime.execute("{ node { ... on Public { value } } }")
@@ -290,15 +290,25 @@ object SecurityPolicySpec extends ZIOSpecDefault {
         sent.size == 1
       )
     },
-    test("requires a policy for aliased and namespace-qualified Federation security directives") {
+    test("requires enabled authorization for aliased and namespace-qualified Federation security directives") {
+      val hooks = List(
+        PhaseHooks.empty,
+        PhaseHooks.resolution[Any](request => ZIO.succeed(request.query.getOrElse(""))),
+        PhaseHooks(authorization = PhaseHandler.empty[PhaseHooks.Event.Authorization])
+      )
       for {
         remote      <- stub("""{"data":{"node":null}}""")
-        diagnostics <-
-          compositionDiagnostics(Gateway.compose(Subgraph.federation("secure", remote.endpoint, securitySchema)))
+        diagnostics <- ZIO.foreach(hooks) { hook =>
+                         compositionDiagnostics(
+                           Gateway
+                             .compose(Subgraph.federation("secure", remote.endpoint, securitySchema))
+                             .withPhaseHooks(hook)
+                         )
+                       }
         sent        <- remote.requests.get
       } yield assertTrue(
-        diagnostics.exists(message => message.startsWith("[secure]") && message.contains("@authenticated")),
-        diagnostics.exists(message => message.startsWith("[secure]") && message.contains("@requiresScopes")),
+        diagnostics.forall(_.exists(message => message.startsWith("[secure]") && message.contains("@authenticated"))),
+        diagnostics.forall(_.exists(message => message.startsWith("[secure]") && message.contains("@requiresScopes"))),
         sent.isEmpty
       )
     },
@@ -317,9 +327,9 @@ object SecurityPolicySpec extends ZIOSpecDefault {
         remote     <- stub("""{"data":{"open":"ok"}}""")
         claimsRead <- Ref.make(0)
         configured  = List(
-                        Option.empty[OperationPolicy[Any]],
+                        Option.empty[PhaseHooks[Any]],
                         Some(allowAll),
-                        Some(OperationPolicy.fromClaims(claimsRead.update(_ + 1).as(Some(Claims("admin"))))(claimScopes))
+                        Some(PhaseHooks.fromClaims(claimsRead.update(_ + 1).as(Some(Claims("admin"))))(claimScopes))
                       )
         cases       = for {
                         expression <- expressions
@@ -328,7 +338,7 @@ object SecurityPolicySpec extends ZIOSpecDefault {
         results    <- ZIO.foreach(cases) { case (expression, policy) =>
                         val gateway = Gateway.compose(Subgraph.federation("secure", remote.endpoint, schema(expression)))
                         for {
-                          runtime  <- policy.fold(gateway)(gateway.withOperationPolicy(_)).interpreter
+                          runtime  <- policy.fold(gateway)(gateway.withPhaseHooks(_)).interpreter
                           first    <- runtime.execute("{ value }")
                           cached   <- runtime.execute("{ value }")
                           skipped  <-
@@ -504,7 +514,7 @@ object SecurityPolicySpec extends ZIOSpecDefault {
                          Subgraph.federation("alpha", alpha.endpoint, authenticatedSchema),
                          Subgraph.federation("beta", beta.endpoint, scopesSchema)
                        )
-                       .withOperationPolicy(rejectRecording(observed))
+                       .withPhaseHooks(rejectRecording(observed))
                        .interpreter
         _         <- runtime.execute("{ value }")
         seen      <- observed.get
@@ -535,12 +545,12 @@ object SecurityPolicySpec extends ZIOSpecDefault {
       for {
         remote        <- stub("""{"data":{"node":null}}""")
         observed      <- Ref.make(Vector.empty[List[SecurityRequirement]])
-        policy         = OperationPolicy[Any] { operation =>
-                           observed.update(_ :+ operation.securityRequirements).as(Reject())
+        policy         = PhaseHooks.authorization[Any] { operation =>
+                           observed.update(_ :+ operation.securityRequirements) *> ZIO.fail(Denial())
                          }
         runtime       <- Gateway
                            .compose(Subgraph.federation("secure", remote.endpoint, securitySchema))
-                           .withOperationPolicy(policy)
+                           .withPhaseHooks(policy)
                            .interpreter
         included      <- runtime.executeRequest(request)
         skipped       <- runtime.executeRequest(
@@ -602,7 +612,7 @@ object SecurityPolicySpec extends ZIOSpecDefault {
         observed <- Ref.make(List.empty[SecurityRequirement])
         runtime  <- Gateway
                       .compose(Subgraph.federation("nested", remote.endpoint, schema))
-                      .withOperationPolicy(rejectRecording(observed))
+                      .withPhaseHooks(rejectRecording(observed))
                       .interpreter
         _        <- runtime.execute("{ node { ... on Private { child { secret } } } }")
         seen     <- observed.get
@@ -635,7 +645,7 @@ object SecurityPolicySpec extends ZIOSpecDefault {
         observed <- Ref.make(List.empty[SecurityRequirement])
         runtime  <- Gateway
                       .compose(Subgraph.federation("interfaces", remote.endpoint, schema))
-                      .withOperationPolicy(rejectRecording(observed))
+                      .withPhaseHooks(rejectRecording(observed))
                       .interpreter
         _        <- runtime.execute("{ node { value } }")
         seen     <- observed.get
@@ -670,7 +680,7 @@ object SecurityPolicySpec extends ZIOSpecDefault {
         diagnostics <- compositionDiagnostics(
                          Gateway
                            .compose(Subgraph.federation("hidden", remote.endpoint, schema))
-                           .withOperationPolicy(allowAll)
+                           .withPhaseHooks(allowAll)
                        )
         sent        <- remote.requests.get
       } yield assertTrue(
@@ -702,7 +712,7 @@ object SecurityPolicySpec extends ZIOSpecDefault {
         diagnostics <- compositionDiagnostics(
                          Gateway
                            .compose(Subgraph.federation("transitive", remote.endpoint, schema))
-                           .withOperationPolicy(allowAll)
+                           .withPhaseHooks(allowAll)
                        )
         sent        <- remote.requests.get
       } yield assertTrue(
@@ -741,7 +751,7 @@ object SecurityPolicySpec extends ZIOSpecDefault {
         diagnostics <- compositionDiagnostics(
                          Gateway
                            .compose(Subgraph.federation("context-security", remote.endpoint, schema))
-                           .withOperationPolicy(allowAll)
+                           .withPhaseHooks(allowAll)
                        )
         sent        <- remote.requests.get
       } yield assertTrue(
@@ -776,7 +786,7 @@ object SecurityPolicySpec extends ZIOSpecDefault {
         remote <- stub("""{"data":{"product":null}}""")
         exit   <- Gateway
                     .compose(Subgraph.federation("transitive-authentication", remote.endpoint, schema))
-                    .withOperationPolicy(allowAll)
+                    .withPhaseHooks(allowAll)
                     .interpreter
                     .exit
         sent   <- remote.requests.get
@@ -805,7 +815,7 @@ object SecurityPolicySpec extends ZIOSpecDefault {
         remote <- stub("""{"data":{"product":null}}""")
         exit   <- Gateway
                     .compose(Subgraph.federation("sufficient", remote.endpoint, schema))
-                    .withOperationPolicy(allowAll)
+                    .withPhaseHooks(allowAll)
                     .interpreter
                     .exit
         sent   <- remote.requests.get

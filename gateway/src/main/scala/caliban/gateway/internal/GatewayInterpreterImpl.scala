@@ -43,11 +43,7 @@ private[gateway] final class GatewayInterpreterImpl[-R](
       control.runRequest(
         operations.prepare(request).foldZIO(failPreparation, executePrepared),
         reservation
-      )(
-        GraphQLResponseContext.markServerError(ServerFailure.TimedOut).as(requestTimeoutResponse)
-      )(
-        shutdownResponse
-      )
+      )(GraphQLResponseContext.markServerError(ServerFailure.TimedOut).as(requestTimeoutResponse))(shutdownResponse)
 
   private def runRequest[R1, A](effect: ZIO[R1, CalibanError, A])(implicit trace: Trace): ZIO[R1, CalibanError, A] =
     control.runRequest(effect, reservation)(ZIO.fail(requestTimeoutError))(ZIO.fail(requestShutdownError))
@@ -64,14 +60,14 @@ private[gateway] final class GatewayInterpreterImpl[-R](
         GraphQLResponseContext.markServerError(failure).as(RequestResult.NotExecuted(response, outcome))
       )(classifyRequestResult)
 
-    val preparation = hooks.routing
-      .run(Event.Routing)(operations.prepare(request))(
+    val preparation = hooks.preparation
+      .run(Event.Preparation)(operations.prepare(request))(
         Result.fromExit(_)(_ => Result(Outcome.Success), error => Result(preparationOutcome(error)))
       )
       .either
 
     val execution = control
-      .runObservedRequest(Event.Request(request.operationName), reservation)(preparation)(
+      .runObservedRequest(Event.Execution(request.operationName), reservation)(preparation)(
         _.fold(_ => true, _.plan.plan.operation != OperationType.Subscription)
       )(
         _.fold[URIO[R, RequestResult]](
@@ -94,8 +90,8 @@ private[gateway] final class GatewayInterpreterImpl[-R](
         completeFailure(ServerFailure.Unavailable, requestShutdownResponse, Outcome.RequestError)
       )(classifyRequestResult)
 
-    hooks.observeOperation
-      .run(Event.ObserveOperation(request = request))(execution)(operationEvent)
+    hooks.operation
+      .run(Event.Operation(request = request))(execution)(operationEvent)
       .map(_.response)
   }
 
@@ -114,7 +110,7 @@ private[gateway] final class GatewayInterpreterImpl[-R](
     }
 
   private def failPreparation(error: CalibanError)(implicit trace: Trace): UIO[GraphQLResponse[CalibanError]] =
-    (if (OperationHooks.isInternalFailure(error))
+    (if (OperationPreparation.isInternalFailure(error))
        GraphQLResponseContext.markServerError(ServerFailure.Internal)
      else GraphQLResponseContext.markRequestError(error)) *> Executor.fail(error)
 
@@ -148,7 +144,7 @@ private[gateway] final class GatewayInterpreterImpl[-R](
     })
 
   private def preparationOutcome(error: CalibanError): Outcome =
-    if (OperationHooks.isInternalFailure(error)) Outcome.InternalError else Outcome.RequestError
+    if (OperationPreparation.isInternalFailure(error)) Outcome.InternalError else Outcome.RequestError
 
   private def classifyRequestResult(exit: Exit[Nothing, RequestResult]): Result =
     Result.fromExit(exit)(

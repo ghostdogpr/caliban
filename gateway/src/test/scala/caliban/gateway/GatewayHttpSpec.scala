@@ -249,8 +249,8 @@ object GatewayHttpSpec extends ZIOSpecDefault {
           source   <- stub(greetingResponse)
           runtime  <- Gateway
                         .compose(Subgraph.graphql("service", source.endpoint, schema))
-                        .withOperationResolver(
-                          OperationResolver.trustedDocuments(Map("greeting-v1" -> "{ greeting }")) { request =>
+                        .withPhaseHooks(
+                          PhaseHooks.trustedDocuments(Map("greeting-v1" -> "{ greeting }")) { request =>
                             request.extensions.flatMap(_.get("documentId")).collect { case StringValue(id) => id }
                           }
                         )
@@ -291,10 +291,10 @@ object GatewayHttpSpec extends ZIOSpecDefault {
               source  <- stub(greetingResponse)
               gateway  = Gateway
                            .compose(Subgraph.graphql("service", source.endpoint, schema))
-                           .withOperationResolver(OperationResolver[Any] { request =>
+                           .withPhaseHooks(PhaseHooks.resolution[Any] { request =>
                              if (request.query.contains("internal")) ZIO.fail(new RuntimeException("resolver-secret"))
                              else
-                               ZIO.fail(OperationResolver.Rejection("Document not found.", "PERSISTED_QUERY_NOT_FOUND"))
+                               ZIO.fail(PhaseHooks.Rejection("Document not found.", "PERSISTED_QUERY_NOT_FOUND"))
                            })
               runtime <- (if (observed) gateway @@ GatewayMetrics.hooks else gateway).interpreter
               url     <- install(QuickAdapter(runtime))

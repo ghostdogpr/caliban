@@ -24,7 +24,7 @@ object GatewayMetrics {
   private val requests                  = Metric.counter("caliban_gateway_requests_total")
   private val requestDuration           = Metric.histogram("caliban_gateway_request_duration_seconds", durationBuckets)
   private val requestsActive            = Metric.gauge("caliban_gateway_requests_active")
-  private val routingDuration           = Metric.histogram("caliban_gateway_routing_duration_seconds", durationBuckets)
+  private val preparationDuration       = Metric.histogram("caliban_gateway_preparation_duration_seconds", durationBuckets)
   private val subgraphCalls             = Metric.counter("caliban_gateway_subgraph_calls_total")
   private val subgraphCallDuration      = Metric.histogram("caliban_gateway_subgraph_call_duration_seconds", durationBuckets)
   private val subgraphCallsActive       = Metric.gauge("caliban_gateway_subgraph_calls_active")
@@ -69,16 +69,16 @@ object GatewayMetrics {
           subscriptionsActive.decrement *> subscriptionTerminated
             .tagged("reason", reason)
             .increment *>
-            subscriptionLifetime.update(seconds(duration))
+            subscriptionLifetime.update(seconds(duration)) *>
+            subscriptionOverflow.increment.whenDiscard(reason == "SUBSCRIPTION_OVERFLOW")
         }) ++
-      PhaseHooks.subscriptionOverflow(PhaseHandler.incomingDiscard(_ => subscriptionOverflow.increment)) ++
       PhaseHooks.subscriptionSetup(trackPhaseDuration(subscriptionSetup)) ++
       PhaseHooks
-        .request(
+        .execution(
           trackPhase(requestsActive, requestDuration, requests, _ => Set.empty, requestDetailLabels, requestTotalLabels)
         ) ++
       PhaseHooks.subscriptionEvent(trackPhaseDuration(subscriptionEventDuration)) ++
-      PhaseHooks.routing(trackPhaseDuration(routingDuration)) ++
+      PhaseHooks.preparation(trackPhaseDuration(preparationDuration)) ++
       PhaseHooks.subgraphCall(
         trackPhase(
           subgraphCallsActive,
@@ -89,8 +89,10 @@ object GatewayMetrics {
           noLabels
         )
       ) ++
-      PhaseHooks.retry(
-        PhaseHandler.incomingDiscard(event => retries.tagged(SubgraphLabel, event.subgraph).update(1L))
+      PhaseHooks.attempt(
+        PhaseHandler.incomingDiscard(event =>
+          retries.tagged(SubgraphLabel, event.subgraph).increment.whenDiscard(event.number > 0)
+        )
       ) ++
       PhaseHooks.cacheAccess(
         PhaseHandler.incomingDiscard(event => cache.tagged(ResultLabel, event.result.label).update(1L))

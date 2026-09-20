@@ -69,11 +69,12 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
         resolving   <- Promise.make[Nothing, Unit]
         interrupted <- Promise.make[Nothing, Unit]
         sourceCalls <- Ref.make(0)
-        resolver     = OperationResolver.uncached[Any](_ =>
-                         (resolving.succeed(()).unit *> ZIO.never).onInterrupt(interrupted.succeed(()).unit)
+        resolver     = PhaseHooks.resolution[Any](
+                         _ => (resolving.succeed(()).unit *> ZIO.never).onInterrupt(interrupted.succeed(()).unit),
+                         cacheable = false
                        )
         runtime     <- localGateway(sourceCalls.update(_ + 1).as("value"))
-                         .withOperationResolver(resolver)
+                         .withPhaseHooks(resolver)
                          .withConfig(_.withRequestTimeout(1.second))
                          .build
         fiber       <- runtime.executeRequest(GraphQLRequest()).fork

@@ -17,25 +17,17 @@ private[gateway] final class GatewayExecutionControl[-R] private (
 
   def runRequest[R0, E, A](effect: ZIO[R0, E, A], reservation: Option[Lease] = None)(
     onTimeout: => ZIO[R0, E, A]
-  )(
-    onRejected: => ZIO[R0, E, A]
-  )(implicit trace: Trace): ZIO[R0, E, A] =
+  )(onRejected: => ZIO[R0, E, A])(implicit trace: Trace): ZIO[R0, E, A] =
     withLease(reservation)(onRejected) { lease =>
       run(lease, effect).flatMap(_.fold(onTimeout)(ZIO.succeed(_)))
     }
 
-  def runObservedRequest[R1 <: R, B, A](event: Event.Request, reservation: Option[Lease] = None)(
+  def runObservedRequest[R1 <: R, B, A](event: Event.Execution, reservation: Option[Lease] = None)(
     prepare: URIO[R1, B]
-  )(
-    isFinite: B => Boolean
-  )(
-    execute: B => URIO[R1, A]
-  )(
+  )(isFinite: B => Boolean)(execute: B => URIO[R1, A])(
     onTimeout: => URIO[R1, A]
-  )(
-    onRejected: => URIO[R1, A]
-  )(result: Exit[Nothing, A] => Result)(implicit trace: Trace): URIO[R1, A] = {
-    def observe(effect: URIO[R1, A]): URIO[R1, A] = hooks.request.run(event)(effect)(result)
+  )(onRejected: => URIO[R1, A])(result: Exit[Nothing, A] => Result)(implicit trace: Trace): URIO[R1, A] = {
+    def observe(effect: URIO[R1, A]): URIO[R1, A] = hooks.execution.run(event)(effect)(result)
     withLease(reservation)(observe(onRejected)) { lease =>
       // Classify the resolved operation before opening finite-request metrics/spans, while one
       // deadline and drain lease cover preparation and execution together.
@@ -65,14 +57,11 @@ private[gateway] final class GatewayExecutionControl[-R] private (
       val next   = current.copy(leases = current.leases - lease)
       val signal = next.drainStartedAt.nonEmpty && next.leases.isEmpty
       signal -> next
-    }
-      .flatMap(signal => drained.succeed(()).unit.when(signal).unit)
+    }.flatMap(signal => drained.succeed(()).unit.when(signal).unit)
 
-  private def withLease[R, E, A](reservation: Option[Lease])(
-    onRejected: => ZIO[R, E, A]
-  )(
-    body: Lease => ZIO[R, E, A]
-  )(implicit trace: Trace): ZIO[R, E, A] =
+  private def withLease[R, E, A](
+    reservation: Option[Lease]
+  )(onRejected: => ZIO[R, E, A])(body: Lease => ZIO[R, E, A])(implicit trace: Trace): ZIO[R, E, A] =
     ZIO.uninterruptibleMask { restore =>
       reservation.fold(reserve)(ZIO.some(_)).flatMap {
         case Some(lease) => restore(body(lease)).ensuring(release(lease))
@@ -132,7 +121,7 @@ private[gateway] final class GatewayExecutionControl[-R] private (
     }
 
   private def close(implicit trace: Trace): UIO[Unit] =
-    // Neither lifetime may postpone the other's admission closure or cancellation deadline.
+    // Shut down requests and subscriptions in parallel so each starts its drain timeout immediately.
     closeRequests.zipPar(subscriptions.close).unit.uninterruptible
 
   private def closeRequests(implicit trace: Trace): UIO[Unit] =

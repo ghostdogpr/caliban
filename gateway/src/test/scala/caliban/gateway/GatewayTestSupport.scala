@@ -524,12 +524,10 @@ private[gateway] object GatewayTestSupport {
       PhaseHooks.subscriptionEvent(recorder.handler) ++
       PhaseHooks.subscriptionTerminated(recorder.handler) ++
       PhaseHooks.subscriptionAdmission(recorder.handler) ++
-      PhaseHooks.subscriptionOverflow(recorder.handler) ++
-      PhaseHooks.request(recorder.handler) ++
-      PhaseHooks.routing(recorder.handler) ++
+      PhaseHooks.execution(recorder.handler) ++
+      PhaseHooks.preparation(recorder.handler) ++
       PhaseHooks.subgraphCall(recorder.handler) ++
       PhaseHooks.attempt(recorder.handler) ++
-      PhaseHooks.retry(recorder.handler) ++
       PhaseHooks.completion(recorder.handler) ++
       PhaseHooks.cacheAccess(recorder.handler)
 

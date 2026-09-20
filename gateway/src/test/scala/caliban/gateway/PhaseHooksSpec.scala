@@ -6,8 +6,8 @@ import caliban.gateway.internal.OperationCache
 import caliban.gateway.internal.OperationCache.Weighted
 import caliban.parsing.adt.OperationType
 import caliban.GraphQLRequest
-import zio.http.Header
-import zio.{ Duration, Promise, Ref, Scope, ZIO }
+import zio.http.{ Header, Status }
+import zio.{ Duration, FiberRef, Promise, Ref, Scope, ZIO }
 import zio.test.{ assert, assertTrue, Assertion, Spec, TestAspect, TestClock, TestEnvironment, ZIOSpecDefault }
 import zio.stream.ZStream
 
@@ -62,7 +62,7 @@ object PhaseHooksSpec extends ZIOSpecDefault {
         remote                  <- stub(okResponse)
         runtime                 <- Gateway
                                      .compose(Subgraph.graphql("products", remote.endpoint, schema))
-                                     .withPhaseHooks(hooks ++ taggingOutboundHeaders)
+                                     .withPhaseHooks(hooks ++ taggingSubgraphCalls)
                                      .interpreter
         response                <-
           runtime.executeRequest(GraphQLRequest(query = Some("query Named { value }"), operationName = Some("Named")))
@@ -71,11 +71,11 @@ object PhaseHooksSpec extends ZIOSpecDefault {
         headers                 <- remote.headers.get
       } yield assertTrue(
         response.errors.isEmpty,
-        observed.headOption.contains(Event.Routing),
-        observed.collect { case event: Event.Request => event } == Vector(Event.Request(Some("Named"))),
+        observed.headOption.contains(Event.Preparation),
+        observed.collect { case event: Event.Execution => event } == Vector(Event.Execution(Some("Named"))),
         observed.contains(Event.CacheAccess(CacheResult.Miss)),
         observed.contains(Event.SubgraphCall("products", OperationType.Query)),
-        observed.collect { case Event.Attempt(subgraph, number, _, _, _) => subgraph -> number } ==
+        observed.collect { case event: Event.Attempt => event.subgraph -> event.number } ==
           Vector("products" -> 0),
         observed.lastOption.contains(Event.Completion),
         completed.size == observed.size,
@@ -83,19 +83,110 @@ object PhaseHooksSpec extends ZIOSpecDefault {
         headers.headOption.flatMap(_.get("x-gateway-hook")).contains("products")
       )
     },
+    test("transforms headers for each attempt and counts only retries") {
+      val config  = RemoteGraphQLConfig.default.withExecution(_.withRetries(1, Duration.Zero))
+      val headers = PhaseHooks.attempt(
+        PhaseHandler.incoming[Any, Event.Attempt, Nothing](event =>
+          ZIO.succeed(event.copy(headers = Header.Custom("X-Attempt", event.number.toString) :: event.headers))
+        )
+      )
+      for {
+        calls      <- Ref.make(0)
+        callHeaders =
+          PhaseHooks.subgraphCall(
+            PhaseHandler.incoming[Any, Event.SubgraphCall, Nothing](event =>
+              calls
+                .updateAndGet(_ + 1)
+                .map(number => event.copy(headers = Header.Custom("X-Call", number.toString) :: event.headers))
+            )
+          )
+        remote     <- stubWithStatuses(Status.ServiceUnavailable -> "{}", Status.Ok -> okResponse)
+        runtime    <- (Gateway.compose(Subgraph.graphql("products", remote.endpoint, schema, config)) @@
+                        (callHeaders ++ headers ++ GatewayMetrics.hooks)).interpreter
+        before     <- counter("caliban_gateway_retries_total", "subgraph", "products")
+        response   <- runtime.execute("{ value }")
+        sent       <- remote.headers.get
+        after      <- counter("caliban_gateway_retries_total", "subgraph", "products")
+        callCount  <- calls.get
+      } yield assertTrue(
+        response.errors.isEmpty,
+        sent.map(_.get("x-attempt")) == Vector(Some("0"), Some("1")),
+        sent.map(_.get("x-call")) == Vector(Some("1"), Some("1")),
+        callCount == 1,
+        after == before + 1d
+      )
+    },
+    test("keeps calls with different hook headers separate during deduplication") {
+      for {
+        identity    <- FiberRef.make("")
+        arrivals    <- Ref.make(0)
+        bothStarted <- Promise.make[Nothing, Unit]
+        release     <- Promise.make[Nothing, Unit]
+        remote      <-
+          stubWith(
+            arrivals.updateAndGet(_ + 1).flatMap(count => bothStarted.succeed(()).unit.whenDiscard(count == 2)) *>
+              release.await,
+            okResponse
+          )
+        headers      =
+          PhaseHooks.subgraphCall(
+            PhaseHandler.incoming[Any, Event.SubgraphCall, Nothing](event =>
+              identity.get.map(value => event.copy(headers = Header.Custom("X-Identity", value) :: event.headers))
+            )
+          )
+        runtime     <- (Gateway.compose(Subgraph.graphql("products", remote.endpoint, schema)) @@ headers).interpreter
+        first       <- identity.locally("first")(runtime.execute("{ value }")).forkScoped
+        second      <- identity.locally("second")(runtime.execute("{ value }")).forkScoped
+        _           <- bothStarted.await
+        _           <- release.succeed(())
+        responses   <- first.join.zip(second.join)
+        sent        <- remote.headers.get
+      } yield assertTrue(
+        responses._1.errors.isEmpty,
+        responses._2.errors.isEmpty,
+        sent.flatMap(_.get("x-identity")).toSet == Set("first", "second"),
+        sent.size == 2
+      )
+    } @@ TestAspect.timeout(Duration.fromSeconds(10)),
+    test("reports subgraph timeouts after spending part of the deadline resolving headers") {
+      for {
+        headersStarted     <- Promise.make[Nothing, Unit]
+        requestStarted     <- Promise.make[Nothing, Unit]
+        recorded           <- recordEventsAndResults
+        (_, results, hooks) = recorded
+        remote             <- stubWith(requestStarted.succeed(()).unit *> ZIO.never, okResponse)
+        config              = RemoteGraphQLConfig.default
+                                .withExecution(_.withTimeout(Duration.fromSeconds(2)).withInFlightQueryDeduplication(false))
+                                .withExecutionHeadersZIO(
+                                  headersStarted.succeed(()) *> ZIO.sleep(Duration.fromSeconds(1)).as(Nil)
+                                )
+        runtime            <- (Gateway.compose(Subgraph.graphql("products", remote.endpoint, schema, config)) @@ hooks).interpreter
+        fiber              <- runtime.execute("{ value }").forkScoped
+        _                  <- headersStarted.await
+        _                  <- TestClock.adjust(Duration.fromSeconds(1))
+        _                  <- requestStarted.await
+        _                  <- TestClock.adjust(Duration.fromSeconds(1))
+        response           <- fiber.join
+        completed          <- results.get
+      } yield assertTrue(
+        response.errors.nonEmpty,
+        completed.collect { case (_: Event.SubgraphCall, result) => result.outcome } == Vector(
+          PhaseHooks.Outcome.Timeout
+        )
+      )
+    } @@ TestAspect.timeout(Duration.fromSeconds(10)),
     test("classifies intentional resolver rejections as request errors, not internal failures") {
       for {
         recorded           <- recordEventsAndResults
         (_, results, hooks) = recorded
         remote             <- stub(okResponse)
-        runtime            <- (Gateway
-                                .compose(Subgraph.graphql("remote", remote.endpoint, schema))
-                                .withOperationResolver(
-                                  OperationResolver[Any](_ =>
-                                    ZIO.fail(OperationResolver.Rejection("Not found.", "PERSISTED_QUERY_NOT_FOUND"))
-                                  )
-                                )
-                                .withPhaseHooks(hooks) @@ GatewayMetrics.hooks).interpreter
+        runtime            <-
+          (Gateway
+            .compose(Subgraph.graphql("remote", remote.endpoint, schema))
+            .withPhaseHooks(
+              PhaseHooks.resolution[Any](_ => ZIO.fail(PhaseHooks.Rejection("Not found.", "PERSISTED_QUERY_NOT_FOUND")))
+            )
+            .withPhaseHooks(hooks) @@ GatewayMetrics.hooks).interpreter
         before             <- histogram(
                                 "caliban_gateway_request_duration_seconds",
                                 "outcome"        -> "request_error",
@@ -109,17 +200,17 @@ object PhaseHooksSpec extends ZIOSpecDefault {
                               )
         completed          <- results.get
         sent               <- remote.requests.get
-        routing             = completed.collect { case (Event.Routing, result) => result.outcome }
+        preparation         = completed.collect { case (Event.Preparation, result) => result.outcome }
       } yield assertTrue(
         response.errors.map(_.msg) == List("Not found."),
-        routing == Vector(PhaseHooks.Outcome.RequestError),
+        preparation == Vector(PhaseHooks.Outcome.RequestError),
         completed.lastOption.exists(_._2.outcome == PhaseHooks.Outcome.RequestError),
         !completed.exists(_._2.outcome == PhaseHooks.Outcome.InternalError),
         after == before + 1L,
         sent.isEmpty
       )
     },
-    test("counts request hook work toward the runtime deadline") {
+    test("counts execution hook work toward the runtime deadline") {
       for {
         entered                 <- Promise.make[Nothing, Unit]
         recorded                <- recordEventsAndResults
@@ -270,15 +361,14 @@ object PhaseHooksSpec extends ZIOSpecDefault {
         observed <- Ref.make(Vector.empty[OperationEvent])
         order    <- Ref.make(Vector.empty[String])
         remote   <- stub(okResponse)
-        runtime  <- Gateway
-                      .compose(Subgraph.graphql("remote", remote.endpoint, schema))
-                      .withOperationResolver(
-                        OperationResolver[Any](_ =>
-                          ZIO.fail(OperationResolver.Rejection("Not found.", "PERSISTED_QUERY_NOT_FOUND"))
-                        )
-                      )
-                      .withPhaseHooks(observing(observed, order))
-                      .interpreter
+        runtime  <-
+          Gateway
+            .compose(Subgraph.graphql("remote", remote.endpoint, schema))
+            .withPhaseHooks(
+              PhaseHooks.resolution[Any](_ => ZIO.fail(PhaseHooks.Rejection("Not found.", "PERSISTED_QUERY_NOT_FOUND")))
+            )
+            .withPhaseHooks(observing(observed, order))
+            .interpreter
         response <- runtime.executeRequest(GraphQLRequest())
         events   <- observed.get
         sequence <- order.get
@@ -297,18 +387,19 @@ object PhaseHooksSpec extends ZIOSpecDefault {
         count <- Ref.make(0)
         // Should execute both incoming and outgoing phases
         first  =
-          PhaseHooks.request(
-            PhaseHandler((event: Event.Request) => ZIO.succeed((event, ())))((_, _, _) => count.incrementAndGet.unit)
+          PhaseHooks.execution(
+            PhaseHandler((event: Event.Execution) => ZIO.succeed((event, ())))((_, _, _) => count.incrementAndGet.unit)
           )
         // Interrupts on the incoming phase triggering fork to halt
         second =
-          PhaseHooks.request(
-            PhaseHandler((event: Event.Request) => ZIO.interrupt.as((event, ())))((_, _, _) =>
+          PhaseHooks.execution(
+            PhaseHandler((event: Event.Execution) => ZIO.interrupt.as((event, ())))((_, _, _) =>
               count.incrementAndGet.unit
             )
           )
         hooks  = first ++ second
-        fiber <- hooks.request.run(Event.Request(Some("Interrupt")))(ZIO.unit)(PhaseHooks.Result.classifyExit).exit.fork
+        fiber <-
+          hooks.execution.run(Event.Execution(Some("Interrupt")))(ZIO.unit)(PhaseHooks.Result.classifyExit).exit.fork
         exit  <- fiber.join
         runs  <- count.get
       } yield assertTrue(runs == 1) && assert(exit)(Assertion.isInterrupted)
@@ -318,11 +409,11 @@ object PhaseHooksSpec extends ZIOSpecDefault {
         count   <- Ref.make(0)
         started <- Promise.make[Nothing, Unit]
         hooks    =
-          PhaseHooks.request(
-            PhaseHandler((event: Event.Request) => ZIO.succeed((event, ())))((_, _, _) => count.incrementAndGet.unit)
+          PhaseHooks.execution(
+            PhaseHandler((event: Event.Execution) => ZIO.succeed((event, ())))((_, _, _) => count.incrementAndGet.unit)
           )
-        fiber   <- hooks.request
-                     .run(Event.Request(Some("Interrupt")))(started.succeed(()) *> ZIO.never)(
+        fiber   <- hooks.execution
+                     .run(Event.Execution(Some("Interrupt")))(started.succeed(()) *> ZIO.never)(
                        PhaseHooks.Result.classifyExit
                      )
                      .fork
@@ -335,12 +426,12 @@ object PhaseHooksSpec extends ZIOSpecDefault {
       for {
         started <- Promise.make[Nothing, Unit]
         hooks    =
-          PhaseHooks.request(
-            PhaseHandler((event: Event.Request) => started.succeed(()) *> ZIO.never.as((event, ())))((_, _, _) =>
+          PhaseHooks.execution(
+            PhaseHandler((event: Event.Execution) => started.succeed(()) *> ZIO.never.as((event, ())))((_, _, _) =>
               ZIO.unit
             )
           )
-        fiber   <- hooks.request.run(Event.Request(Some("Interrupt")))(ZIO.unit)(PhaseHooks.Result.classifyExit).fork
+        fiber   <- hooks.execution.run(Event.Execution(Some("Interrupt")))(ZIO.unit)(PhaseHooks.Result.classifyExit).fork
         _       <- started.await
         exit    <- fiber.interrupt
       } yield assert(exit)(Assertion.isInterrupted)
@@ -350,15 +441,15 @@ object PhaseHooksSpec extends ZIOSpecDefault {
   /**
    * Tags every outbound subgraph call with the subgraph it is addressed to.
    */
-  private val taggingOutboundHeaders: PhaseHooks[Any] =
-    PhaseHooks.outboundHeaders(
+  private val taggingSubgraphCalls: PhaseHooks[Any] =
+    PhaseHooks.subgraphCall(
       PhaseHandler.incoming(event =>
         ZIO.succeed(event.copy(headers = Header.Custom("x-gateway-hook", event.subgraph) :: event.headers))
       )
     )
 
   private def delaying(entered: Promise[Nothing, Unit]): PhaseHooks[Any] =
-    PhaseHooks.request(
+    PhaseHooks.execution(
       PhaseHandler.incomingDiscard(_ => entered.succeed(()).unit *> ZIO.sleep(Duration.fromSeconds(2)))
     )
 
@@ -367,8 +458,8 @@ object PhaseHooksSpec extends ZIOSpecDefault {
    * so a test can tell "the handler ran and produced no observation" apart from "the handler never ran".
    */
   private def observing(into: Ref[Vector[OperationEvent]], order: Ref[Vector[String]]): PhaseHooks[Any] =
-    PhaseHooks.observeOperation(
-      PhaseHandler[Any, Event.ObserveOperation, Nothing, Unit, OperationEvent](event =>
+    PhaseHooks.operation(
+      PhaseHandler[Any, Event.Operation, Nothing, Unit, OperationEvent](event =>
         order.update(_ :+ "direct-in").as((event, ()))
       )((_, _, event) => into.update(_ :+ event) *> order.update(_ :+ "direct-out"))
     )
@@ -377,9 +468,9 @@ object PhaseHooksSpec extends ZIOSpecDefault {
    * The same recorder behind a [[Scope]], to pin the invariant that the scope outlives the handler's own outgoing side.
    */
   private def observingScoped(into: Ref[Vector[OperationEvent]], order: Ref[Vector[String]]): PhaseHooks[Any] =
-    PhaseHooks.observeOperation(
-      PhaseHandler.scoped[Any, Event.ObserveOperation, Nothing, OperationEvent](
-        PhaseHandler[Scope, Event.ObserveOperation, Nothing, Unit, OperationEvent](event =>
+    PhaseHooks.operation(
+      PhaseHandler.scoped[Any, Event.Operation, Nothing, OperationEvent](
+        PhaseHandler[Scope, Event.Operation, Nothing, Unit, OperationEvent](event =>
           order.update(_ :+ "scoped-in") *>
             ZIO.addFinalizer(order.update(_ :+ "scope-closed")).as((event, ()))
         )((_, _, event) => into.update(_ :+ event) *> order.update(_ :+ "scoped-out"))

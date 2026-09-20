@@ -4,7 +4,7 @@ import caliban.ResponseValue.ObjectValue
 import caliban.Value.NullValue
 import caliban.gateway.PhaseHooks.{ Event, Outcome, Result }
 import caliban.gateway.internal.{ GatewayHttpClient, SubscriptionTermination }
-import caliban.gateway.{ PhaseHooks, RemoteGraphQLConfig }
+import caliban.gateway.{ PhaseHooks, RemoteGraphQLConfig, RemoteSubscriptionConfig }
 import caliban.interop.jsoniter.BoundedOutputStream
 import caliban.parsing.adt.OperationType
 import caliban._
@@ -35,10 +35,9 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
   def execute(request: GraphQLRequest, operationType: OperationType)(implicit
     trace: Trace
   ): ZIO[R, SubgraphExecutor.Failure, GraphQLResponse[CalibanError]] = {
-    val logicalCall =
+    def call(headers: List[Header]) =
       for {
         body      <- encode(request.copy(extensions = None))
-        headers   <- resolveHeaders
         replaySafe = operationType == OperationType.Query
         rawCall    = executeAttempts(body, headers, replaySafe, attempt = 0)
         response  <- if (replaySafe)
@@ -50,7 +49,20 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
                      else rawCall
       } yield response
 
-    logicalCall.timeoutFail(SubgraphExecutor.TimeoutFailure)(execution.timeout)
+    if (!hooks.subgraphCall.enabled)
+      resolveHeaders.flatMap(call).timeoutFail(SubgraphExecutor.TimeoutFailure)(execution.timeout)
+    else
+      for {
+        started  <- Clock.nanoTime
+        headers  <- resolveHeaders.timeoutFail(SubgraphExecutor.TimeoutFailure)(execution.timeout)
+        response <- hooks.subgraphCall.runWith(Event.SubgraphCall(name, operationType, headers)) { event =>
+                      Clock.nanoTime.flatMap { now =>
+                        val remaining = execution.timeout.minusNanos(now - started)
+                        if (remaining.isNegative || remaining.isZero) ZIO.fail(SubgraphExecutor.TimeoutFailure)
+                        else call(event.headers).timeoutFail(SubgraphExecutor.TimeoutFailure)(remaining)
+                      }
+                    }(SubgraphExecutor.resultFromExit)
+      } yield response
   }
 
   override def forSubscription(implicit trace: Trace): ZIO[R, SubgraphExecutor.Failure, SubgraphExecutor[R]] =
@@ -59,16 +71,40 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
   override def subscribe(
     request: GraphQLRequest
   )(implicit trace: Trace): ZIO[R with Scope, Throwable, ZStream[Any, Throwable, GraphQLResponse[CalibanError]]] =
-    for {
-      values <- resolveHeaders.mapError(_ => SubscriptionTermination.Source)
-      traced <- if (!hooks.attemptHeaders.enabled) Exit.succeed(values)
-                else
-                  hooks.attemptHeaders.runWith(Event.AttemptHeaders(name, 0, values))(event =>
-                    Exit.succeed(event.headers)
-                  )((_: Exit[Nothing, List[Header]]) => ())
-      body   <- encode(request.copy(extensions = None)).mapError(_ => SubscriptionTermination.Source)
-      stream <- subscription.open(traced, request, body)
-    } yield stream
+    ZIO.serviceWithZIO[Scope] { sourceScope =>
+      def open(headers: List[Header]) =
+        encode(request.copy(extensions = None)).mapError(_ => SubscriptionTermination.Source).flatMap { body =>
+          if (!hooks.attempt.enabled) sourceScope.extend(subscription.open(headers, request, body))
+          else {
+            val target = config.subscription.endpoint.getOrElse(endpoint)
+            val method = config.subscription.transport match {
+              case RemoteSubscriptionConfig.Sse(false) => "POST"
+              case _                                   => "GET"
+            }
+            hooks.attempt.runWith(
+              Event.Attempt(
+                name,
+                0,
+                if (method == "POST") body.length.toLong else 0L,
+                target.host,
+                target.port,
+                headers,
+                method
+              )
+            )(event => sourceScope.extend(subscription.open(event.headers, request, body)))(
+              Result.fromExit(_)(_ => Result(Outcome.Success), _ => Result(Outcome.TransportError))
+            )
+          }
+        }
+
+      resolveHeaders.mapError(_ => SubscriptionTermination.Source).flatMap { headers =>
+        if (!hooks.subgraphCall.enabled) open(headers)
+        else
+          hooks.subgraphCall.runWith(Event.SubgraphCall(name, OperationType.Subscription, headers))(event =>
+            open(event.headers)
+          )(Result.fromExit(_)(_ => Result(Outcome.Success), _ => Result(Outcome.TransportError)))
+      }
+    }
 
   private val execution        = config.execution
   private val staticHeaders    = sanitizeHeaders(execution.headers)
@@ -94,12 +130,7 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
                        })
                        else ZIO.succeed(List.empty[Header])
           effectful <- config.effectfulHeaders.mapError(SubgraphExecutor.HeaderFailure(_))
-          headers   <- if (!hooks.outboundHeaders.enabled) Exit.succeed(outboundHeaders(incoming, effectful))
-                       else
-                         hooks.outboundHeaders.runWith(
-                           Event.OutboundHeaders(name, outboundHeaders(incoming, effectful))
-                         )(event => Exit.succeed(event.headers))((_: Exit[Nothing, List[Header]]) => ())
-        } yield headers
+        } yield outboundHeaders(incoming, effectful)
     }
 
   private def withHeaders(headers: List[Header]): RemoteSubgraphExecutor[R] =
@@ -118,35 +149,29 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
   private def executeAttempts(body: Array[Byte], headers: List[Header], replaySafe: Boolean, attempt: Int)(implicit
     trace: Trace
   ): ZIO[R, SubgraphExecutor.Failure, GraphQLResponse[CalibanError]] = {
-    val transport   =
-      if (!hooks.attemptHeaders.enabled) send(body, headers)
+    val response =
+      if (!hooks.attempt.enabled) send(body, headers)
       else
-        hooks.attemptHeaders.runWith(Event.AttemptHeaders(name, attempt, headers))(event => send(body, event.headers))(
-          _ => ()
+        hooks.attempt.runWith(Event.Attempt(name, attempt, body.length.toLong, endpoint.host, endpoint.port, headers))(
+          event => send(body, event.headers)
+        )(
+          Result.fromExit(_)(
+            value =>
+              Result(
+                Outcome.fromResponse(value.response),
+                errorCount = value.response.errors.size,
+                statusCode = Some(value.statusCode),
+                responseBytes = Some(value.responseBytes)
+              ),
+            failure =>
+              Result(
+                SubgraphExecutor.failureOutcome(failure.failure),
+                statusCode = failure.statusCode,
+                responseBytes = failure.responseBytes
+              )
+          )
         )
-    val observed    =
-      hooks.attempt.run(Event.Attempt(name, attempt, body.length.toLong, endpoint.host, endpoint.port))(transport)(
-        Result.fromExit(_)(
-          value =>
-            Result(
-              Outcome.fromResponse(value.response),
-              errorCount = value.response.errors.size,
-              statusCode = Some(value.statusCode),
-              responseBytes = Some(value.responseBytes)
-            ),
-          failure =>
-            Result(
-              SubgraphExecutor.failureOutcome(failure.failure),
-              statusCode = failure.statusCode,
-              responseBytes = failure.responseBytes
-            )
-        )
-      )
-    val sendAttempt = observed.map(_.response).mapError(_.failure)
-    val call        =
-      if (attempt == 0) sendAttempt
-      else
-        hooks.retry.run(Event.Retry(name, attempt))(sendAttempt)(SubgraphExecutor.resultFromExit)
+    val call     = response.map(_.response).mapError(_.failure)
 
     call.catchAll { failure =>
       if (replaySafe && attempt < execution.retries && retryable(failure))

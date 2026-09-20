@@ -5,7 +5,7 @@ import caliban.execution.ExecutionRequest
 import caliban.parsing.adt.{ Document, OperationType }
 
 /**
- * Everything observable about one operation, delivered to the `observeOperation` phase once per request.
+ * Everything observable about one operation, delivered to the `operation` phase once per request.
  *
  * `document` and `executionRequest` are absent whenever the request never reached execution: a preparation failure, a
  * timeout, a shutdown, or an interruption. That traffic is still reported rather than dropped. A handler that needs

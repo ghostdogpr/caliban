@@ -3,14 +3,14 @@ package caliban.gateway
 import caliban.Value.StringValue
 import caliban.InputValue.ObjectValue
 import caliban.gateway.GatewayTestSupport._
-import caliban.gateway.OperationPolicy.{ Allow, Reject }
-import caliban.gateway.internal.OperationHooks
+import caliban.gateway.PhaseHooks.Denial
+import caliban.gateway.internal.OperationPreparation
 import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse }
 import zio._
 import zio.http.URL
 import zio.test._
 
-object OperationHooksSpec extends ZIOSpecDefault {
+object OperationAuthorizationSpec extends ZIOSpecDefault {
 
   private trait Documents {
     def resolve(id: String): UIO[String]
@@ -34,7 +34,7 @@ object OperationHooksSpec extends ZIOSpecDefault {
   private def executionCause(response: GraphQLResponse[CalibanError]): Option[Throwable] =
     response.errors.collectFirst { case error: CalibanError.ExecutionError => error.innerThrowable }.flatten
 
-  def spec = suite("OperationHooksSpec")(
+  def spec = suite("OperationAuthorizationSpec")(
     test("uses request text directly when no resolver is configured") {
       for {
         remote  <- stub(okResponse)
@@ -53,22 +53,23 @@ object OperationHooksSpec extends ZIOSpecDefault {
         remote    <- stub(okResponse)
         observed  <- Ref.make(List.empty[String])
         context   <- FiberRef.make("missing")
-        resolver   = OperationResolver[Documents] { request =>
+        resolver   = PhaseHooks.resolution[Documents] { request =>
                        request.extensions.flatMap(_.get("operationId")) match {
                          case Some(StringValue(id)) => ZIO.serviceWithZIO[Documents](_.resolve(id))
                          case _                     => ZIO.fail(new IllegalArgumentException("operationId is required"))
                        }
                      }
-        policy     = OperationPolicy[Decisions] { operation =>
+        policy     = PhaseHooks.authorization[Decisions] { operation =>
                        for {
                          value   <- context.get
                          _       <- observed.update(value :: _)
                          allowed <- ZIO.serviceWithZIO[Decisions](_.allow(operation.executionRequest.operationName))
-                       } yield if (allowed) Allow else Reject()
+                         _       <- ZIO.fail(Denial()).unless(allowed)
+                       } yield ()
                      }
         gateway    = (remoteGateway(remote.endpoint)
-                       .withOperationResolver(resolver)
-                       .withOperationPolicy(policy): Gateway[Documents with Decisions])
+                       .withPhaseHooks(resolver)
+                       .withPhaseHooks(policy): Gateway[Documents with Decisions])
         runtime   <- gateway.interpreter
         documents  = new Documents {
                        def resolve(id: String): UIO[String] =
@@ -102,11 +103,11 @@ object OperationHooksSpec extends ZIOSpecDefault {
       for {
         remote    <- stub(okResponse)
         calls     <- Ref.make(0)
-        policy     = OperationPolicy[Any] { _ =>
-                       calls.update(_ + 1).as(Reject())
+        policy     = PhaseHooks.authorization[Any] { _ =>
+                       calls.update(_ + 1) *> ZIO.fail(Denial())
                      }
         runtime   <- remoteGateway(remote.endpoint)
-                       .withOperationPolicy(policy)
+                       .withPhaseHooks(policy)
                        .interpreter
         invalid   <- runtime.executeRequest(GraphQLRequest(query = Some("{ missing }")))
         malformed <- runtime.executeRequest(
@@ -123,11 +124,68 @@ object OperationHooksSpec extends ZIOSpecDefault {
         sent.isEmpty
       )
     },
+    test("composed authorization runs on cache hits and stops at the first denial") {
+      for {
+        remote         <- stub(okResponse)
+        recorded       <- recordEvents
+        (events, hooks) = recorded
+        calls          <- Ref.make(List.empty[String])
+        allowed        <- Ref.make(true)
+        first           = PhaseHooks.authorization[Any](_ => calls.update(_ :+ "first"))
+        second          = PhaseHooks.authorization[Any] { _ =>
+                            calls.update(_ :+ "second") *> allowed.get.flatMap {
+                              case true  => ZIO.unit
+                              case false => ZIO.fail(Denial())
+                            }
+                          }
+        last            = PhaseHooks.authorization[Any](_ => calls.update(_ :+ "last"))
+        runtime        <- remoteGateway(remote.endpoint).withPhaseHooks(first ++ second ++ last ++ hooks).interpreter
+        initial        <- runtime.executeRequest(request)
+        cached         <- runtime.executeRequest(request)
+        _              <- allowed.set(false)
+        denied         <- runtime.executeRequest(request)
+        observed       <- calls.get
+        cachedEvents   <- events.get
+        sent           <- remote.requests.get
+      } yield assertTrue(
+        initial.errors.isEmpty,
+        cached.errors.isEmpty,
+        denied.errors.map(_.msg) == List("Operation rejected by gateway policy."),
+        observed == List("first", "second", "last", "first", "second", "last", "first", "second"),
+        cachedEvents.count(_ == PhaseHooks.Event.CacheAccess(PhaseHooks.CacheResult.Hit)) == 2,
+        sent.size == 2
+      )
+    },
+    test("exposes only explicit authorization denials without defects") {
+      val denial = Denial("Safe reason.")
+      val hooks  = List(
+        PhaseHooks.authorization[Any](_ => ZIO.fail(denial)),
+        PhaseHooks.authorization[Any](_ => ZIO.die(denial)),
+        PhaseHooks.authorization[Any](_ => throw denial),
+        PhaseHooks.authorization[Any](_ => ZIO.fail(denial).ensuring(ZIO.dieMessage("private-finalizer"))),
+        PhaseHooks.authorization[Any](_ => ZIO.fail(CalibanError.ValidationError("private-reason", "")))
+      )
+      for {
+        remote  <- stub(okResponse)
+        results <- ZIO.foreach(hooks) { hook =>
+                     remoteGateway(remote.endpoint).withPhaseHooks(hook).interpreter.flatMap(_.executeRequest(request))
+                   }
+        sent    <- remote.requests.get
+      } yield assertTrue(
+        results.head.errors.map(_.msg) == List("Safe reason."),
+        results.head.errors.forall(_.isInstanceOf[CalibanError.ValidationError]),
+        results.tail.forall(_.errors.map(_.msg) == List("Operation policy failed.")),
+        results.tail.forall(_.errors.forall(error => OperationPreparation.isInternalFailure(error))),
+        sent.isEmpty
+      )
+    },
     test("returns an explicit public policy rejection reason") {
       for {
         remote  <- stub(okResponse)
         runtime <- remoteGateway(remote.endpoint)
-                     .withOperationPolicy(OperationPolicy[Any](_ => ZIO.succeed(Reject("Operation denied."))))
+                     .withPhaseHooks(
+                       PhaseHooks.authorization[Any](_ => ZIO.fail(Denial("Operation denied.")))
+                     )
                      .interpreter
         result  <- runtime.executeRequest(request)
         sent    <- remote.requests.get
@@ -139,17 +197,22 @@ object OperationHooksSpec extends ZIOSpecDefault {
 
       for {
         remote          <- stub(okResponse)
-        resolverRuntime <- remoteGateway(remote.endpoint, "resolver")
-                             .withOperationResolver(
-                               OperationResolver.uncached[Any](_ => ZIO.fail(new RuntimeException(secretResolver)))
-                             )
-                             .interpreter
+        resolverRuntime <-
+          remoteGateway(remote.endpoint, "resolver")
+            .withPhaseHooks(
+              PhaseHooks.resolution[Any](
+                _ => ZIO.fail(new RuntimeException(secretResolver)),
+                cacheable = false
+              )
+            )
+            .interpreter
         resolverResult  <- resolverRuntime.executeRequest(request)
-        policyRuntime   <- remoteGateway(remote.endpoint, "policy")
-                             .withOperationPolicy(
-                               OperationPolicy[Any](_ => ZIO.dieMessage(secretPolicy))
-                             )
-                             .interpreter
+        policyRuntime   <-
+          remoteGateway(remote.endpoint, "policy")
+            .withPhaseHooks(
+              PhaseHooks.authorization[Any](_ => ZIO.dieMessage(secretPolicy))
+            )
+            .interpreter
         policyResult    <- policyRuntime.executeRequest(request)
         sent            <- remote.requests.get
         messages         = (resolverResult.errors ::: policyResult.errors).map(_.msg)
@@ -169,36 +232,17 @@ object OperationHooksSpec extends ZIOSpecDefault {
       for {
         remote  <- stub(okResponse)
         started <- Promise.make[Nothing, Unit]
-        policy   = OperationPolicy[Any](_ =>
+        policy   = PhaseHooks.authorization[Any](_ =>
                      started.succeed(()).unit *> ZIO.never.ensuring(ZIO.dieMessage("hook-finalizer-secret"))
                    )
         runtime <- remoteGateway(remote.endpoint)
-                     .withOperationPolicy(policy)
+                     .withPhaseHooks(policy)
                      .interpreter
         fiber   <- runtime.executeRequest(request).fork
         _       <- started.await
         exit    <- fiber.interrupt
         sent    <- remote.requests.get
       } yield assertTrue(exit.causeOption.exists(_.isInterruptedOnly), sent.isEmpty)
-    },
-    test("only uncached resolvers bypass the operation cache") {
-      val stable = new OperationHooks[Any](
-        _ => Nil,
-        Some(OperationResolver[Any](_ => ZIO.succeed(query))),
-        Some(OperationPolicy[Any](_ => ZIO.succeed(Allow))),
-        PhaseHooks.empty
-      )
-      val bypass = new OperationHooks[Any](
-        _ => Nil,
-        Some(OperationResolver.uncached[Any](_ => ZIO.succeed(query))),
-        None,
-        PhaseHooks.empty
-      )
-
-      assertTrue(
-        stable.cacheable,
-        !bypass.cacheable
-      )
     }
   ).provideSomeShared[Scope](testServer, stubIds) @@ TestAspect.sequential
 }

@@ -9,6 +9,7 @@ import caliban.ws.{ Protocol, WebSocketHooks }
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import zio._
 import zio.http._
+import zio.metrics.Metric
 import zio.stream.ZStream
 import zio.test._
 
@@ -152,7 +153,7 @@ object SubscriptionSpec extends ZIOSpecDefault {
               .as(sseResponse(sseBody(1)))
           )
         runtime  <- remoteGateway(endpoint, schema, sseConfig)
-                      .withOperationResolver(OperationResolver(_ => ZIO.succeed(query)))
+                      .withPhaseHooks(PhaseHooks.resolution(_ => ZIO.succeed(query)))
                       .interpreter
         events   <-
           runtime
@@ -256,7 +257,7 @@ object SubscriptionSpec extends ZIOSpecDefault {
         }
         .map(_.reduce(_ && _))
     },
-    test("upstream buffer overflow keeps its code and emits the overflow observation") {
+    test("upstream buffer overflow keeps its code and reports the termination reason") {
       for {
         closed       <- Promise.make[Nothing, Unit]
         release      <- Promise.make[Nothing, Unit]
@@ -291,7 +292,6 @@ object SubscriptionSpec extends ZIOSpecDefault {
         observations <- seen.get
       } yield assertTrue(
         exit.causeOption.flatMap(_.failureOption).contains(SubscriptionTermination.Overflow),
-        observations.count(_ == PhaseHooks.Event.SubscriptionOverflow) == 1,
         observations.collect { case PhaseHooks.Event.SubscriptionTerminated(reason, _) => reason } == Vector(
           "SUBSCRIPTION_OVERFLOW"
         )
@@ -338,12 +338,13 @@ object SubscriptionSpec extends ZIOSpecDefault {
         recorded     <- recordEvents
         (seen, hooks) = recorded
         resolves     <- Ref.make(0)
-        runtime      <- subscriptionGateway(ZStream(1, 2))
-                          .withOperationResolver(
-                            OperationResolver(_ => resolves.update(_ + 1).as("subscription { event }"))
-                          )
-                          .withPhaseHooks(hooks)
-                          .interpreter
+        runtime      <-
+          subscriptionGateway(ZStream(1, 2))
+            .withPhaseHooks(
+              PhaseHooks.resolution(_ => resolves.update(_ + 1).as("subscription { event }"))
+            )
+            .withPhaseHooks(hooks)
+            .interpreter
         response     <- runtime.executeRequest(GraphQLRequest(query = Some("query { value }")))
         events       <- SubgraphExecutor.subscriptionResponses(response).runCollect
         observed     <- seen.get
@@ -351,7 +352,7 @@ object SubscriptionSpec extends ZIOSpecDefault {
       } yield assertTrue(
         response.data.isInstanceOf[ResponseValue.StreamValue],
         events.map(_.data.toString).toList == List("{\"event\":1}", "{\"event\":2}"),
-        !observed.exists(_.isInstanceOf[PhaseHooks.Event.Request]),
+        !observed.exists(_.isInstanceOf[PhaseHooks.Event.Execution]),
         count == 1
       )
     },
@@ -438,13 +439,14 @@ object SubscriptionSpec extends ZIOSpecDefault {
         _           <- socket.interrupt
       } yield assertTrue(firstClosed == 1, allClosed == 2)
     },
-    test("captures effectful headers during setup and evaluates policy only once") {
+    test("captures configured headers before streaming and edits them when opening the subgraph") {
       for {
         identity    <- FiberRef.make("later")
         headers     <- Ref.make(List.empty[String])
         multi       <- Ref.make(List.empty[String])
         policies    <- Ref.make(0)
         headerCalls <- Ref.make(0)
+        hookCalls   <- Ref.make(0)
         endpoint    <- postEndpoint("subscription-identity")(req =>
                          headers
                            .update(_ ++ req.headers.get("X-Identity").toList)
@@ -464,19 +466,31 @@ object SubscriptionSpec extends ZIOSpecDefault {
             )
         runtime     <-
           remoteGateway(endpoint, subscriptionSchema, config)
-            .withOperationPolicy(OperationPolicy[Any](_ => policies.update(_ + 1).as(OperationPolicy.Allow)))
+            .withPhaseHooks(
+              PhaseHooks.authorization[Any](_ => policies.update(_ + 1).unit)
+            )
+            .withPhaseHooks(
+              PhaseHooks.subgraphCall(
+                PhaseHandler.incoming[Any, PhaseHooks.Event.SubgraphCall, Nothing](event =>
+                  hookCalls.update(_ + 1).as(event.copy(headers = event.headers :+ Header.Custom("X-Multi", "hook")))
+                )
+              )
+            )
             .interpreter
-        events      <- identity.locally("captured")(runtime.executeStream(request).runCollect)
+        response    <- identity.locally("captured")(runtime.executeRequest(request))
+        events      <- SubgraphExecutor.subscriptionResponses(response).runCollect
         sent        <- headers.get
         multiValues <- multi.get
         calls       <- headerCalls.get
         checks      <- policies.get
+        edits       <- hookCalls.get
       } yield assertTrue(
         events.size == 2,
         sent == List("captured"),
-        multiValues == List("first, second"),
+        multiValues == List("first, second, hook"),
         calls == 1,
-        checks == 1
+        checks == 1,
+        edits == 1
       )
     },
     test("idle subscriptions ignore the ordinary request timeout") {
@@ -513,7 +527,7 @@ object SubscriptionSpec extends ZIOSpecDefault {
         count == 0
       )
     },
-    test("overflow sheds the operation and records a separate termination") {
+    test("overflow sheds the operation and records its termination") {
       for {
         queue        <- Queue.unbounded[Int]
         processing   <- Promise.make[Nothing, Unit]
@@ -524,21 +538,23 @@ object SubscriptionSpec extends ZIOSpecDefault {
                         )
         runtime      <- subscriptionGateway(ZStream.fromQueue(queue))
                           .withConfig(_.withSubscriptions(GatewaySubscriptionConfig(bufferSize = 1)))
-                          .withPhaseHooks(hooks ++ stalled)
+                          .withPhaseHooks(hooks ++ stalled ++ GatewayMetrics.hooks)
                           .interpreter
+        before       <- Metric.counter("caliban_gateway_subscription_overflows_total").value.map(_.count)
         running      <- runtime.executeStream(request).runDrain.exit.forkScoped
         _            <- queue.offer(1)
         _            <- processing.await
         _            <- queue.offerAll(List(2, 3, 4))
         exit         <- running.join
         events       <- seen.get
+        after        <- Metric.counter("caliban_gateway_subscription_overflows_total").value.map(_.count)
       } yield assertTrue(
         exit.causeOption.flatMap(_.failureOption).contains(SubscriptionTermination.Overflow),
-        events.contains(PhaseHooks.Event.SubscriptionOverflow),
+        after == before + 1L,
         events.collect { case PhaseHooks.Event.SubscriptionTerminated(reason, _) => reason } == Vector(
           "SUBSCRIPTION_OVERFLOW"
         ),
-        !events.exists(_.isInstanceOf[PhaseHooks.Event.Request])
+        !events.exists(_.isInstanceOf[PhaseHooks.Event.Execution])
       )
     },
     test("local events are ordered, planned once, and executeRequest returns an ordinary StreamValue") {

@@ -213,28 +213,7 @@ type Product {
 
 The gateway resolves `percent(x)` labels itself: one random decision per label per request, for any percentage between 0 and 100. Nothing is sticky across requests, and fields sharing a label share the decision.
 
-For a custom label, attach an override-label hook:
-
-```scala
-import caliban.GraphQLRequest
-import caliban.gateway.{ Gateway, PhaseHandler, PhaseHooks }
-import caliban.gateway.PhaseHooks.Event
-import zio.Task
-
-def activeLabels(request: GraphQLRequest): Task[Set[String]] = ???
-
-val progressiveOverrides = PhaseHooks.overrideLabels(
-  PhaseHandler.incoming[Any, Event.OverrideLabels, Throwable] { event =>
-    activeLabels(event.request).map(labels => event.activate(labels intersect event.reached))
-  }
-)
-
-val gateway = Gateway.compose(products, reviews) @@ progressiveOverrides
-```
-
-The event carries the request and, in `reached`, the custom labels the selected operation actually touched. Pass `activate` the subset that should use the overriding subgraph. Anything you activate that the operation did not reach is ignored. Labels nobody activates fall back to the original subgraph, which is also what happens when you attach no hook at all. `activate` accumulates rather than replaces, so several hooks can each contribute without clearing one another.
-
-The gateway calls the hook once per relevant request, before it checks the operation cache, and skips it entirely for percentage-only operations or ones that reach no custom labels. Each combination of active labels gets its own cached plan, so keep the lookup cheap and the number of combinations it can return small. A failing hook produces an internal execution error without contacting a subgraph.
+For custom labels, use an [override-label hook](#progressive-override-labels).
 
 ### In-process Caliban APIs
 
@@ -448,21 +427,48 @@ QuickAdapter(interpreter)
   .runServer(4000, "/graphql")
 ```
 
-## Persisted and trusted documents
+## Hooks
+
+Use `PhaseHooks` to resolve documents, authorize operations, select progressive overrides, adjust outbound headers, and observe execution. Attach hooks with `gateway.withPhaseHooks(hooks)` or `gateway @@ hooks`. Calls accumulate rather than replace existing hooks. Combine bundles with `++`.
+
+A `PhaseHandler` has an incoming side and an optional outgoing side. Incoming handlers run in registration order; outgoing handlers run in reverse order. Use `PhaseHandler.incoming` to transform an event, `incomingDiscard` for a check or side effect, or `outgoing` to observe its result. `PhaseHandler.scoped` keeps resources alive until that handler’s outgoing callback finishes.
+
+Hooks are listed in entry order for a query or mutation. `operation` wraps both `preparation` and `execution`.
+
+| Hook | What it covers |
+| --- | --- |
+| `operation` | The whole request, from preparation to response assembly, including failures. |
+| `preparation` | All work before execution, including document resolution, parsing, validation, authorization, and planning. |
+| `resolution` | Supplies query text, for example from a persisted document ID. Runs before parsing, even on cache hits. |
+| `overrideLabels` | Selects active custom `@override` labels before plan lookup. |
+| `cacheAccess` | Cache lookup and preparation on a miss. Skipped when caching is disabled. |
+| `authorization` | Allows or rejects a validated operation before execution, even on cache hits. |
+| `execution` | Runs the query or mutation plan and assembles the response. |
+| `subgraphCall` | One local or remote call, including deduplication and retries. Can change remote headers. |
+| `attempt` | One remote request and response. Can change headers. Repeats for each retry. |
+| `completion` | Builds the client response from subgraph results or gateway errors. |
+
+Outgoing callbacks run as each phase finishes. Subgraph calls may run in parallel. Failure paths skip later work and may reach `completion` directly.
+
+Subscriptions use a separate lifecycle: `subscriptionAdmission`, `subscriptionSetup`, `subscriptionEvent`, and `subscriptionTerminated`. The termination event carries the reason, including `SUBSCRIPTION_OVERFLOW`. Opening a remote subscription also runs `subgraphCall` and `attempt`. Processing events may make further subgraph calls. Successful subscriptions skip `execution`.
+
+Resolution, authorization, and override-label handlers can fail. The other phases have no typed failure channel. Hook work runs inside the deadline of its enclosing phase. Resolution and authorization also run for `explain(request)`; `check(query)` validates literal text without them.
+
+### Persisted and trusted documents
 
 Clients usually send the full GraphQL query with each request. With persisted documents, they send an ID and the server looks up the query text. Trusted documents restrict clients to queries that your application has registered.
 
-`OperationResolver` handles this lookup. It takes an incoming request and returns the query text that the gateway parses, validates, and executes. Use `trustedDocuments` for an in-memory registry:
+`PhaseHooks.resolution` handles this lookup before parsing, validation, and cache lookup. Use `PhaseHooks.trustedDocuments` for an in-memory registry:
 
 ```scala
 import caliban.Value.StringValue
-import caliban.gateway.{ Gateway, OperationResolver }
+import caliban.gateway.{ Gateway, PhaseHooks }
 
 val documents = Map(
   "product-v1" -> "query Product($id: ID!) { product(id: $id) { name } }"
 )
 
-val resolver = OperationResolver.trustedDocuments(documents) { request =>
+val documentsHook = PhaseHooks.trustedDocuments(documents) { request =>
   request.extensions.flatMap(_.get("documentId")).collect {
     case StringValue(id) => id
   }
@@ -470,7 +476,7 @@ val resolver = OperationResolver.trustedDocuments(documents) { request =>
 
 val gateway = Gateway
   .compose(products, reviews)
-  .withOperationResolver(resolver)
+  .withPhaseHooks(documentsHook)
 ```
 
 The client can now omit `query`:
@@ -485,19 +491,46 @@ The client can now omit `query`:
 
 The helper looks `product-v1` up in the registry and keeps the request's operation name, variables, and extensions. It ignores any query text the client sends and never registers new documents. A missing, malformed, or empty ID comes back as `TRUSTED_DOCUMENT_ID_INVALID` in `extensions.code`, an unknown one as `TRUSTED_DOCUMENT_NOT_FOUND`. Registration is not authorization. For that, add an [operation policy](#authorizing-operations).
 
-For a database or another lookup, use `OperationResolver(resolve)`. The `resolve` function has the type `GraphQLRequest => ZIO[R, Throwable, String]`. It runs on every request before the gateway checks the preparation cache. Use `OperationResolver.uncached(resolve)` to disable prepared-document and plan reuse. Validation still applies. The resolver runs for `executeRequest`, `executeStream`, and `explain(request)`, but not for `check(query)`.
+For a database or another lookup, use `PhaseHooks.resolution(resolve)`, where `resolve` has the type `GraphQLRequest => ZIO[R, Throwable, String]`. Attach it with `withPhaseHooks` or `@@`. The function replaces only query text and runs on every request before cache lookup, including cache hits. Pass `cacheable = false` to disable prepared-document and plan reuse. Validation still applies. Resolution runs for `executeRequest`, `executeStream`, and `explain(request)`, but not for `check(query)`.
+
+For more control, use `PhaseHooks(resolution = handler)` with a `PhaseHandler` over `PhaseHooks.Event.Resolution`. The returned event supplies the request and cache choice used by preparation. Multiple resolution handlers compose with `++`: each receives the previous handler’s event, and outgoing callbacks run in reverse order. The query-text helper preserves any earlier decision to disable caching.
 
 Custom validations set through `Configurator.setValidations` form part of the preparation cache key, and that key compares function identity. Reuse the same validation instances across requests, from a single `ExecutionConfiguration` for example. Rebuilding the list around those same functions is fine. A fresh lambda per request is not: it causes cache misses and evictions. The cache stays bounded by weight either way.
 
-To return a safe message and `extensions.code`, fail a custom resolver with `ZIO.fail(OperationResolver.Rejection(message, code))`. `QuickAdapter` returns these rejections with HTTP 200. The gateway hides unexpected failures.
+To return a safe message and `extensions.code`, fail a custom resolver with `ZIO.fail(PhaseHooks.Rejection(message, code))`. `QuickAdapter` returns these rejections with HTTP 200. The gateway hides unexpected failures.
 
-## Authorizing operations
+### Progressive override labels
 
-Use `OperationPolicy.fromClaims` to enforce `@authenticated` and `@requiresScopes` before an operation runs. Your authentication layer must verify the JWT first. This helper only maps trusted claims to scopes.
+For a custom label, attach an override-label hook:
 
 ```scala
 import caliban.GraphQLRequest
-import caliban.gateway.{ Gateway, GatewayInterpreter, OperationPolicy }
+import caliban.gateway.{ Gateway, PhaseHandler, PhaseHooks }
+import caliban.gateway.PhaseHooks.Event
+import zio.Task
+
+def activeLabels(request: GraphQLRequest): Task[Set[String]] = ???
+
+val progressiveOverrides = PhaseHooks.overrideLabels(
+  PhaseHandler.incoming[Any, Event.OverrideLabels, Throwable] { event =>
+    activeLabels(event.request).map(labels => event.activate(labels intersect event.reached))
+  }
+)
+
+val gateway = Gateway.compose(products, reviews) @@ progressiveOverrides
+```
+
+The event carries the request and, in `reached`, the custom labels the selected operation actually touched. Pass `activate` the subset that should use the overriding subgraph. Anything you activate that the operation did not reach is ignored. Labels nobody activates fall back to the original subgraph, which is also what happens when you attach no hook at all. `activate` accumulates rather than replaces, so several hooks can each contribute without clearing one another.
+
+The gateway calls the hook once per relevant request, before it checks the operation cache, and skips it entirely for percentage-only operations or ones that reach no custom labels. Each combination of active labels gets its own cached plan, so keep the lookup cheap and the number of combinations it can return small. A failing hook produces an internal execution error without contacting a subgraph.
+
+### Authorizing operations
+
+Use `PhaseHooks.fromClaims` to enforce `@authenticated` and `@requiresScopes` before an operation runs. Your authentication layer must verify the JWT first. This helper only maps trusted claims to scopes.
+
+```scala
+import caliban.GraphQLRequest
+import caliban.gateway.{ Gateway, GatewayInterpreter, PhaseHooks }
 import zio.{ Task, ZIO, ZLayer }
 
 final case class VerifiedClaims(scope: String)
@@ -505,7 +538,7 @@ trait RequestClaims {
   def current: Task[Option[VerifiedClaims]]
 }
 
-val policy = OperationPolicy.fromClaims(
+val authorization = PhaseHooks.fromClaims(
   ZIO.serviceWithZIO[RequestClaims](_.current)
 ) { claims =>
   claims.scope.split(" ").filter(_.nonEmpty).toSet
@@ -513,7 +546,7 @@ val policy = OperationPolicy.fromClaims(
 
 val secured = Gateway
   .compose(products, reviews)
-  .withOperationPolicy(policy)
+  .withPhaseHooks(authorization)
 
 // Build secured.interpreter once; supply verified claims for each request:
 def execute(
@@ -527,13 +560,70 @@ def execute(
 )
 ```
 
-`None` means anonymous. `Some` means authenticated, even when the claim has no scopes. The policy reads claims once per protected execution, including cache hits. Public operations skip the lookup. In `[["read", "tenant"], ["admin"]]`, a user needs both `read` and `tenant`, or needs `admin`. An empty `[]` or `[[]]` requires authentication but no scopes.
+`None` means anonymous. `Some` means authenticated, even when the claim has no scopes. The hook reads claims once per protected execution, including cache hits. Public operations skip the lookup. In `[["read", "tenant"], ["admin"]]`, a user needs both `read` and `tenant`, or needs `admin`. An empty `[]` or `[[]]` requires authentication but no scopes.
 
-The gateway records `@policy` as a deny-only guard, including aliased and namespace-qualified applications. Composition and reload still succeed. Before contacting a subgraph, the gateway rejects an operation that selects a guarded coordinate or depends on one through a lookup or `@requires`. A custom policy cannot override this rejection. Unrelated operations remain available. The same checks apply to `explain(request)`.
+The gateway records `@policy` as a deny-only guard, including aliased and namespace-qualified applications. Composition and reload still succeed. Before contacting a subgraph, the gateway rejects an operation that selects a guarded coordinate or depends on one through a lookup or `@requires`. An authorization hook cannot override this rejection. Unrelated operations remain available. The same checks apply to `explain(request)`.
 
 The helper checks every protected field that the operation could select, including fields on possible interface implementations. If any check fails, it rejects the whole operation. Denials and claim failures return generic messages.
 
-Schemas with `@authenticated` or `@requiresScopes` require an operation policy at startup. A schema that contains only `@policy` needs no policy configuration. Custom policies can inspect `operation.securityRequirements`, which identify protected types and fields. Use `OperationPolicy.Reject()` unless the rejection reason is safe to return to clients.
+Schemas with `@authenticated` or `@requiresScopes` require an enabled `authorization` hook at startup. Other hooks do not satisfy this requirement. A schema that contains only `@policy` needs no authorization hook.
+
+For custom checks, use `PhaseHooks.authorization(operation => ...)`, returning `ZIO.unit` to allow the operation or failing with `PhaseHooks.Denial()` to deny it. Supply a custom denial reason only if it is safe to return to clients. The operation includes the resolved request, parsed document, validated execution request, and `securityRequirements` identifying protected types and fields.
+
+Authorization runs after validation, variable coercion, cost checks, and planning, including on cache hits and for `explain(request)`. It does not run for `check(query)`. Combine checks with `++`; every check must succeed, and a denial prevents later checks and subgraph execution. Use `PhaseHooks(authorization = handler)` to attach a full `PhaseHandler` over `PhaseHooks.Event.Authorization`. Unexpected failures and defects are masked, including thrown denials.
+
+### Subgraph request headers
+
+Use remote-service configuration for [static credentials, token loading, and forwarding client headers](#authentication-and-request-headers). Use `subgraphCall` to adjust the resulting headers across subgraphs:
+
+```scala
+import caliban.gateway.{ Gateway, PhaseHandler, PhaseHooks }
+import caliban.gateway.PhaseHooks.Event
+import zio.ZIO
+import zio.http.Header
+
+val headers = PhaseHooks.subgraphCall(
+  PhaseHandler.incoming[Any, Event.SubgraphCall, Nothing] { event =>
+    ZIO.succeed(event.copy(headers = Header.Custom("X-Gateway", "caliban") :: event.headers))
+  }
+)
+
+val gateway = Gateway.compose(products, reviews) @@ headers
+```
+
+The headers returned by `subgraphCall` participate in query deduplication and stay the same across retries. Local calls ignore header changes.
+
+Use `attempt` for headers that change per attempt, such as trace context. Return `event.copy(headers = ...)` from its incoming handler. These changes happen after deduplication and do not affect whether calls are shared.
+
+Subscriptions capture configured and effectful headers once. Both hooks run when opening the connection, which keeps those headers for its lifetime. Later enrichment calls run `subgraphCall` separately and can adjust the captured headers.
+
+### Metrics and tracing
+
+Metrics are opt-in:
+
+```scala
+import caliban.gateway.{ Gateway, GatewayMetrics }
+
+val gateway = Gateway.compose(products, reviews) @@ GatewayMetrics.hooks
+```
+
+The built-in metrics report requests, preparation, subgraph calls, retries, operation-cache activity, and subscriptions. Retries are counted from attempt numbers; subscription overflows are counted on termination.
+
+Add OpenTelemetry tracing with the optional tracing module:
+
+```scala
+import caliban.gateway.GatewayMetrics
+import caliban.gateway.tracing.GatewayTracing
+
+val gateway = Gateway.compose(products, reviews) @@
+  (GatewayMetrics.hooks ++ GatewayTracing.hooks)
+```
+
+The tracing hooks create spans for gateway requests and remote calls. `QuickAdapter` propagates incoming trace headers.
+The request span covers the whole request, so planning, the operation cache, and remote calls are nested inside it. A
+subscription request gets one too, covering its setup. The subscription spans report the subscription itself.
+
+Combine these bundles with your own hooks using `++` or additional `withPhaseHooks` calls.
 
 ## Introspection and remote errors
 
@@ -586,35 +676,6 @@ fetch reviews after products at $.product via Product(id) fields [customerReview
 Each `fetch` shows the subgraph name. Here, `products` and `reviews` are the names passed to `Subgraph.graphql`. `$` is the root of the client response, so `$.product` refers to the `product` field at the root. The `(key)` marker identifies a field used as a key for a later lookup. The gateway may reuse a client selection or add the field itself. `after products` means that the fetch depends on the result from `products`.
 
 Use the plan to test a new lookup or find why the gateway sends a field to a specific service.
-
-### Metrics and tracing
-
-Metrics are opt-in:
-
-```scala
-import caliban.gateway.{ Gateway, GatewayMetrics }
-
-val gateway = Gateway.compose(products, reviews) @@ GatewayMetrics.hooks
-```
-
-The built-in metrics report requests, routing, subgraph calls, retries, operation-cache activity, and subscriptions.
-
-Add OpenTelemetry tracing with the optional tracing module:
-
-```scala
-import caliban.gateway.GatewayMetrics
-import caliban.gateway.tracing.GatewayTracing
-
-val gateway = Gateway.compose(products, reviews) @@
-  (GatewayMetrics.hooks ++ GatewayTracing.hooks)
-```
-
-The tracing hooks create spans for gateway requests and remote calls. `QuickAdapter` propagates incoming trace headers.
-The request span covers the whole request, so planning, the operation cache, and remote calls are nested inside it. A
-subscription request gets one too, covering its setup. The subscription spans report the subscription itself.
-
-Both hooks are bundles of `PhaseHooks`. `Gateway#withPhaseHooks` adds your own, and it accumulates rather than replaces,
-so custom hooks and the built-in ones can sit on the same gateway.
 
 ## Subscriptions
 

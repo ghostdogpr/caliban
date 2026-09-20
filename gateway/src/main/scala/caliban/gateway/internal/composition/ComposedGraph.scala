@@ -3,7 +3,7 @@ package caliban.gateway.internal.composition
 import caliban.gateway.{ innerParentTypeName, responseNames }
 import caliban.InputValue
 import caliban.execution.{ ExecutionRequest, Field }
-import caliban.gateway.OperationPolicy.{ SecurityDirective, SecurityRequirement }
+import caliban.gateway.PhaseHooks.{ SecurityDirective, SecurityRequirement }
 import caliban.gateway.internal.composition.ComposedGraph._
 import caliban.gateway.internal.planning.OperationPlan
 import caliban.introspection.adt._

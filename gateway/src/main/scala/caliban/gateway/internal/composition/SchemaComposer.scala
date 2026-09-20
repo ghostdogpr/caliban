@@ -1,7 +1,7 @@
 package caliban.gateway.internal.composition
 
 import caliban.gateway._
-import caliban.gateway.OperationPolicy.SecurityDirective
+import caliban.gateway.PhaseHooks.SecurityDirective
 import caliban.gateway.GatewayBuildError.{ SchemaCompositionFailed, SubgraphLoadingFailed }
 import caliban.gateway.SubgraphBuildError.{ InvalidTransformations, SchemaValidationFailed }
 import caliban.gateway.internal.composition.ComposedGraph._

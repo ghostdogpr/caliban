@@ -48,7 +48,7 @@ final class Subgraph[-R] private[gateway] (
           .fromEither(graph.interpreterEither)
           .mapBoth(
             SubgraphBuildError.SchemaValidationFailed(_),
-            interpreter => Executable(this, graph.toDocument, new LocalSubgraphExecutor(interpreter))
+            interpreter => Executable(this, graph.toDocument, new LocalSubgraphExecutor(name, interpreter, hooks))
           )
     }
 }

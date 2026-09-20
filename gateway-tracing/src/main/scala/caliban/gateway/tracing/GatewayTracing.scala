@@ -24,14 +24,13 @@ object GatewayTracing {
   /**
    * The spans this integration records, as phase hooks.
    *
-   * The request-level SERVER span hangs off `observeOperation`, the outermost phase, so routing and the operation cache
-   * fall inside it rather than beside it. Some hooks carry no span of their own and are left untouched: the request
-   * phase itself, cache access, subscription admission, termination and overflow, override labels and
-   * outbound headers.
+   * The request-level SERVER span hangs off `operation`, the outermost phase, so preparation and the operation cache
+   * fall inside it rather than beside it. Some hooks carry no span of their own and are left untouched: the execution
+   * phase itself, cache access, subscription admission, termination, and override labels.
    */
   val hooks: PhaseHooks[Tracing] =
-    PhaseHooks.observeOperation(
-      spanningWith[Event.ObserveOperation, OperationEvent](
+    PhaseHooks.operation(
+      spanningWith[Event.Operation, OperationEvent](
         contextual = true,
         "caliban.gateway.request",
         SpanKind.SERVER,
@@ -47,7 +46,7 @@ object GatewayTracing {
       PhaseHooks.subscriptionEvent(
         spanning(contextual = true, "caliban.gateway.subscription.event", SpanKind.INTERNAL)
       ) ++
-      PhaseHooks.routing(spanning(contextual = false, "caliban.gateway.routing", SpanKind.INTERNAL)) ++
+      PhaseHooks.preparation(spanning(contextual = false, "caliban.gateway.preparation", SpanKind.INTERNAL)) ++
       PhaseHooks.subgraphCall(
         spanning[Event.SubgraphCall](
           contextual = false,
@@ -70,32 +69,18 @@ object GatewayTracing {
             val attributes = Attributes
               .builder()
               .put("graphql.subgraph.name", event.subgraph)
-              .put("http.request.method", "POST")
+              .put("http.request.method", event.method)
               .put("http.request.body.size", event.requestBytes)
               .put("http.request.resend_count", event.number.toLong)
             event.serverAddress.foreach(attributes.put("server.address", _))
             event.serverPort.foreach(port => attributes.put("server.port", port.toLong))
             attributes.build()
           }
+        ) ++ PhaseHandler.incoming[Tracing, Event.Attempt, Nothing](event =>
+          propagatedHeaders(event.headers).map(headers => event.copy(headers = headers))
         )
       ) ++
-      PhaseHooks.retry(
-        spanning[Event.Retry](
-          contextual = false,
-          "caliban.gateway.retry",
-          SpanKind.INTERNAL,
-          event =>
-            Attributes
-              .builder()
-              .put("graphql.subgraph.name", event.subgraph)
-              .put("caliban.gateway.retry.attempt", event.attempt.toLong)
-              .build()
-        )
-      ) ++
-      PhaseHooks.completion(spanning(contextual = false, "caliban.gateway.completion", SpanKind.INTERNAL)) ++
-      PhaseHooks.attemptHeaders(
-        PhaseHandler.incoming(event => propagatedHeaders(event.headers).map(headers => event.copy(headers = headers)))
-      )
+      PhaseHooks.completion(spanning(contextual = false, "caliban.gateway.completion", SpanKind.INTERNAL))
 
   /** Opens a span around one phase whose outgoing value is already a [[PhaseHooks.Result]]. */
   private def spanning[Ev <: Event](
@@ -111,7 +96,7 @@ object GatewayTracing {
    *
    * The span has to enclose the phase effect, which is what a [[PhaseHandler]] with both an incoming and an outgoing
    * side is for; the cheaper incoming-only handlers cannot express it. `result` adapts hooks that report something
-   * other than a [[PhaseHooks.Result]], such as the [[OperationEvent]] of `observeOperation`.
+   * other than a [[PhaseHooks.Result]], such as the [[OperationEvent]] of `operation`.
    */
   private def spanningWith[Ev <: Event, Res](
     contextual: Boolean,
@@ -178,7 +163,7 @@ object GatewayTracing {
               .put("graphql.operation.type", "subscription")
               .put("graphql.response.error.count", result.errorCount.toLong)
               .put("caliban.gateway.subscription.outcome", result.outcome.label)
-          case _: Event.ObserveOperation                         =>
+          case _: Event.Operation                                =>
             result.operationType.foreach(operationType =>
               attributes.put("graphql.operation.type", PhaseHooks.operationTypeLabel(operationType))
             )

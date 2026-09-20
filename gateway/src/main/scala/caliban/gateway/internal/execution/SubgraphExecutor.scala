@@ -134,41 +134,24 @@ private[gateway] object SubgraphExecutor {
   case object InvalidResponse                         extends Failure
 }
 
-private[gateway] final class ObservedSubgraphExecutor[R](
+private[gateway] final class LocalSubgraphExecutor[-R](
   name: String,
-  underlying: SubgraphExecutor[R],
+  interpreter: GraphQLInterpreter[R, CalibanError],
   hooks: PhaseHooks[R]
 ) extends SubgraphExecutor[R] {
-  val errorPolicy: ErrorPolicy = underlying.errorPolicy
-
-  def execute(request: GraphQLRequest, operationType: OperationType)(implicit
-    trace: Trace
-  ): ZIO[R, SubgraphExecutor.Failure, GraphQLResponse[CalibanError]] =
-    hooks.subgraphCall.run(Event.SubgraphCall(name, operationType))(underlying.execute(request, operationType))(
-      SubgraphExecutor.resultFromExit
-    )
-
-  override def forSubscription(implicit trace: Trace): ZIO[R, SubgraphExecutor.Failure, SubgraphExecutor[R]] =
-    underlying.forSubscription.map(new ObservedSubgraphExecutor(name, _, hooks))
-
-  override def subscribe(request: GraphQLRequest)(implicit
-    trace: Trace
-  ): ZIO[R with Scope, Throwable, ZStream[Any, Throwable, GraphQLResponse[CalibanError]]] =
-    underlying.subscribe(request)
-
-}
-
-private[gateway] final class LocalSubgraphExecutor[-R](interpreter: GraphQLInterpreter[R, CalibanError])
-    extends SubgraphExecutor[R] {
   val errorPolicy: ErrorPolicy = ErrorPolicy.Local
 
   def execute(request: GraphQLRequest, operationType: OperationType)(implicit
     trace: Trace
   ): ZIO[R, SubgraphExecutor.Failure, GraphQLResponse[CalibanError]] =
-    GraphQLResponseContext.capture(interpreter.executeRequest(request.copy(extensions = None))).map(_.value)
+    hooks.subgraphCall.run(Event.SubgraphCall(name, operationType))(
+      GraphQLResponseContext.capture(interpreter.executeRequest(request.copy(extensions = None))).map(_.value)
+    )(SubgraphExecutor.resultFromExit)
 
   override def subscribe(request: GraphQLRequest)(implicit
     trace: Trace
   ): ZIO[R with Scope, Throwable, ZStream[Any, Throwable, GraphQLResponse[CalibanError]]] =
-    interpreter.executeRequest(request.copy(extensions = None)).map(SubgraphExecutor.subscriptionResponses)
+    hooks.subgraphCall.run(Event.SubgraphCall(name, OperationType.Subscription))(
+      interpreter.executeRequest(request.copy(extensions = None)).map(SubgraphExecutor.subscriptionResponses)
+    )(Result.classifyExit(_))
 }

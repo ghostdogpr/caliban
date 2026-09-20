@@ -3,7 +3,6 @@ package caliban.gateway
 import caliban.ResponseValue.ObjectValue
 import caliban.Value.{ BooleanValue, NullValue, StringValue }
 import caliban.gateway.GatewayTestSupport._
-import caliban.gateway.OperationPolicy.Allow
 import caliban.gateway.internal.OperationCache.Weighted
 import caliban.gateway.internal._
 import caliban.validation.Validator
@@ -152,13 +151,14 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
           (events, hooks) = recorded
           policyCalls    <- Ref.make(0)
           stableRemote   <- stub(okResponse)
-          stable         <- Gateway
-                              .compose(Subgraph.graphql("stable", stableRemote.endpoint, valueSchema))
-                              .withOperationPolicy(
-                                OperationPolicy[Any](_ => policyCalls.update(_ + 1).as(Allow))
-                              )
-                              .withPhaseHooks(hooks)
-                              .interpreter
+          stable         <-
+            Gateway
+              .compose(Subgraph.graphql("stable", stableRemote.endpoint, valueSchema))
+              .withPhaseHooks(
+                PhaseHooks.authorization[Any](_ => policyCalls.update(_ + 1).unit)
+              )
+              .withPhaseHooks(hooks)
+              .interpreter
           _              <- stable.executeRequest(request)
           _              <- stable.executeRequest(request)
           policyRuns     <- policyCalls.get
