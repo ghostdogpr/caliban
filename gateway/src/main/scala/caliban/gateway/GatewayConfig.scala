@@ -12,7 +12,6 @@ final class GatewayConfig private (
   val maxPlanningExpansions: Int,
   val planningTimeout: Duration,
   val maxOperationCost: Option[Long],
-  val maxConcurrentRequests: Int,
   val requestTimeout: Duration,
   val drainTimeout: Duration,
   val reloadPollInterval: Duration,
@@ -64,13 +63,7 @@ final class GatewayConfig private (
     copy(maxOperationCost = None)
 
   /**
-   * Sets the maximum number of requests executing within this interpreter.
-   */
-  def withMaxConcurrentRequests(value: Int): GatewayConfig =
-    copy(maxConcurrentRequests = value)
-
-  /**
-   * Sets the maximum duration of one request, including admission and response completion.
+   * Sets the maximum duration of one request, including preparation and response completion.
    */
   def withRequestTimeout(value: Duration): GatewayConfig =
     copy(requestTimeout = value)
@@ -112,7 +105,6 @@ final class GatewayConfig private (
       positive(maxPlanningExpansions, "Gateway maxPlanningExpansions must be positive."),
       finitePositive(planningTimeout, "Gateway planning timeout must be finite and positive."),
       maxOperationCost.toList.flatMap(value => positive(value, "Gateway maxOperationCost must be positive.")),
-      positive(maxConcurrentRequests, "Gateway maxConcurrentRequests must be positive."),
       finitePositive(requestTimeout, "Gateway request timeout must be finite and positive."),
       finitePositive(drainTimeout, "Gateway drain timeout must be finite and positive."),
       finitePositive(reloadPollInterval, "Gateway reload poll interval must be finite and positive."),
@@ -128,7 +120,6 @@ final class GatewayConfig private (
     maxPlanningExpansions: Int = maxPlanningExpansions,
     planningTimeout: Duration = planningTimeout,
     maxOperationCost: Option[Long] = maxOperationCost,
-    maxConcurrentRequests: Int = maxConcurrentRequests,
     requestTimeout: Duration = requestTimeout,
     drainTimeout: Duration = drainTimeout,
     reloadPollInterval: Duration = reloadPollInterval,
@@ -142,7 +133,6 @@ final class GatewayConfig private (
       maxPlanningExpansions,
       planningTimeout,
       maxOperationCost,
-      maxConcurrentRequests,
       requestTimeout,
       drainTimeout,
       reloadPollInterval,
@@ -164,7 +154,6 @@ object GatewayConfig {
       maxPlanningExpansions = 100000,
       planningTimeout = Duration.fromSeconds(2),
       maxOperationCost = None,
-      maxConcurrentRequests = 1024,
       requestTimeout = Duration.fromSeconds(30),
       drainTimeout = Duration.fromSeconds(30),
       reloadPollInterval = Duration.fromSeconds(30),

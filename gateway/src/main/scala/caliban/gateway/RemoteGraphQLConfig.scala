@@ -126,7 +126,6 @@ object RemoteGraphQLConfig {
     val maxResponseBytes: Int,
     val retries: Int,
     val retryBackoff: Duration,
-    val maxConcurrentCalls: Int,
     val inFlightQueryDeduplication: Boolean,
     val headers: List[Header],
     val forwardedHeaders: Set[String],
@@ -158,12 +157,6 @@ object RemoteGraphQLConfig {
       copy(retries = count, retryBackoff = backoff)
 
     /**
-     * Sets the maximum number of concurrent logical calls admitted for this subgraph.
-     */
-    def withMaxConcurrentCalls(value: Int): Execution =
-      copy(maxConcurrentCalls = value)
-
-    /**
      * Enables or disables sharing one in-flight remote call between concurrent identical queries.
      */
     def withInFlightQueryDeduplication(value: Boolean): Execution =
@@ -188,21 +181,19 @@ object RemoteGraphQLConfig {
       copy(forwardedHeaders = Set.empty, forwardsAllIncomingHeaders = true)
 
     private[gateway] def diagnostics: List[String] = {
-      val timeoutError            = finitePositive(timeout, "Subgraph execution timeout must be finite and positive.")
-      val requestError            = positive(maxRequestBytes, "Subgraph execution maxRequestBytes must be positive.")
-      val responseError           = positive(maxResponseBytes, "Subgraph execution maxResponseBytes must be positive.")
-      val retryError              = nonNegative(retries, "Subgraph execution retry count must be non-negative.")
-      val backoffError            =
+      val timeoutError        = finitePositive(timeout, "Subgraph execution timeout must be finite and positive.")
+      val requestError        = positive(maxRequestBytes, "Subgraph execution maxRequestBytes must be positive.")
+      val responseError       = positive(maxResponseBytes, "Subgraph execution maxResponseBytes must be positive.")
+      val retryError          = nonNegative(retries, "Subgraph execution retry count must be non-negative.")
+      val backoffError        =
         finiteNonNegative(retryBackoff, "Subgraph execution retry backoff must be finite and non-negative.")
-      val maxConcurrentCallsError =
-        positive(maxConcurrentCalls, "Subgraph execution maxConcurrentCalls must be positive.")
-      val protectedHeaders        = protocolHeaderDiagnostics("Subgraph execution", headers)
-      val protectedForwarding     = forwardedHeaders.toList.sorted.collect {
+      val protectedHeaders    = protocolHeaderDiagnostics("Subgraph execution", headers)
+      val protectedForwarding = forwardedHeaders.toList.sorted.collect {
         case name if isProtocolHeader(name) =>
           s"Incoming header '$name' is owned by the GraphQL transport and cannot be forwarded."
       }
 
-      timeoutError ::: requestError ::: responseError ::: retryError ::: backoffError ::: maxConcurrentCallsError :::
+      timeoutError ::: requestError ::: responseError ::: retryError ::: backoffError :::
         protectedHeaders ::: protectedForwarding
     }
 
@@ -212,7 +203,6 @@ object RemoteGraphQLConfig {
       maxResponseBytes: Int = maxResponseBytes,
       retries: Int = retries,
       retryBackoff: Duration = retryBackoff,
-      maxConcurrentCalls: Int = maxConcurrentCalls,
       inFlightQueryDeduplication: Boolean = inFlightQueryDeduplication,
       headers: List[Header] = headers,
       forwardedHeaders: Set[String] = forwardedHeaders,
@@ -224,7 +214,6 @@ object RemoteGraphQLConfig {
         maxResponseBytes,
         retries,
         retryBackoff,
-        maxConcurrentCalls,
         inFlightQueryDeduplication,
         headers,
         forwardedHeaders,
@@ -245,7 +234,6 @@ object RemoteGraphQLConfig {
         maxResponseBytes = 16 * 1024 * 1024,
         retries = 0,
         retryBackoff = Duration.fromMillis(100),
-        maxConcurrentCalls = 64,
         inFlightQueryDeduplication = true,
         headers = Nil,
         forwardedHeaders = Set.empty,

@@ -30,7 +30,6 @@ object GatewayMetrics {
   private val subgraphCallsActive       = Metric.gauge("caliban_gateway_subgraph_calls_active")
   private val retries                   = Metric.counter("caliban_gateway_retries_total")
   private val cache                     = Metric.counter("caliban_gateway_operation_cache_total")
-  private val admission                 = Metric.counter("caliban_gateway_admission_total")
   private val subscriptionsActive       = Metric.gauge("caliban_gateway_subscriptions_active")
   private val subscriptionAdmission     = Metric.counter("caliban_gateway_subscription_admission_total")
   private val subscriptionTerminated    = Metric.counter("caliban_gateway_subscription_terminations_total")
@@ -95,8 +94,7 @@ object GatewayMetrics {
       ) ++
       PhaseHooks.cacheAccess(
         PhaseHandler.incomingDiscard(event => cache.tagged(ResultLabel, event.result.label).update(1L))
-      ) ++
-      PhaseHooks.admission(PhaseHandler.incomingDiscard(event => admission.tagged("kind", event.kind.label).increment))
+      )
 
   private def trackPhase[Ev](
     active: Metric.Gauge[Double],

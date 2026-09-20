@@ -2,16 +2,15 @@ package caliban.gateway.internal
 
 import caliban._
 import caliban.gateway._
-import caliban.gateway.PhaseHooks.{ AdmissionKind, Event, Result }
+import caliban.gateway.PhaseHooks.{ Event, Result }
 import zio._
 import zio.stream.ZStream
 
 /**
- * Lifetime admission is independent of finite execution admission, including while pulling the source.
+ * Bounds subscription lifetimes and buffered events, and coordinates source cleanup during shutdown.
  */
 private[gateway] final class SubscriptionControl[-R] private (
   config: GatewaySubscriptionConfig,
-  admission: AdmissionGate[R],
   hooks: PhaseHooks[R],
   state: Ref[SubscriptionControl.State],
   drained: Promise[Nothing, Unit]
@@ -86,18 +85,15 @@ private[gateway] final class SubscriptionControl[-R] private (
     reason: Ref[String]
   )(implicit trace: Trace): ZIO[R1 with Scope, Throwable, ZStream[Any, Throwable, Response]] =
     ZIO.serviceWithZIO[Scope] { sourceScope =>
-      admission
-        .admitAs[R1 with Scope, Throwable, ZStream[Any, Throwable, Response]](AdmissionKind.SubscriptionSetup) {
-          hooks.subscriptionSetup
-            .run[R1 with Scope, Throwable, ZStream[Any, Throwable, Response]](Event.SubscriptionSetup)(
-              sourceScope.extend[R1](open)
-            )(
-              Result.fromExit(_)(
-                _ => Result(PhaseHooks.Outcome.Success),
-                _ => Result(PhaseHooks.Outcome.TransportError)
-              )
-            )
-        }
+      hooks.subscriptionSetup
+        .run[R1 with Scope, Throwable, ZStream[Any, Throwable, Response]](Event.SubscriptionSetup)(
+          sourceScope.extend[R1](open)
+        )(
+          Result.fromExit(_)(
+            _ => Result(PhaseHooks.Outcome.Success),
+            _ => Result(PhaseHooks.Outcome.TransportError)
+          )
+        )
         .timeoutFail(SubscriptionTermination.SetupTimeout)(config.setupTimeout)
         .raceFirst(signal.await.flatMap(ZIO.fail(_)))
         .onExit {
@@ -132,12 +128,10 @@ private[gateway] final class SubscriptionControl[-R] private (
     process: Response => URIO[R1, Response]
   )(implicit trace: Trace): ZStream[R1, Throwable, Response] =
     buffer.stream.mapZIO { event =>
-      admission
-        .admitAs[R1, Nothing, Response](AdmissionKind.SubscriptionEvent) {
-          hooks.subscriptionEvent.run[R1, Nothing, Response](Event.SubscriptionEvent)(process(event))(
-            Result.classifyResponse(_)
-          )
-        }
+      hooks.subscriptionEvent
+        .run[R1, Nothing, Response](Event.SubscriptionEvent)(process(event))(
+          Result.classifyResponse(_)
+        )
         .timeoutFail(SubscriptionTermination.EventTimeout)(config.eventTimeout)
     }
       .concat(
@@ -162,13 +156,12 @@ private[gateway] final class SubscriptionControl[-R] private (
 private[gateway] object SubscriptionControl {
   def make[R](
     config: GatewaySubscriptionConfig,
-    admission: AdmissionGate[R],
     hooks: PhaseHooks[R]
   )(implicit trace: Trace): ZIO[Scope, Nothing, SubscriptionControl[R]] =
     for {
       state   <- Ref.make(State(None, Map.empty))
       drained <- Promise.make[Nothing, Unit]
-      control  = new SubscriptionControl(config, admission, hooks, state, drained)
+      control  = new SubscriptionControl(config, hooks, state, drained)
     } yield control
 
   private type Response = GraphQLResponse[CalibanError]

@@ -380,7 +380,7 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
         result.errors.isEmpty
       )
     },
-    test("pins admitted mutations across replacement and keeps limits per interpreter") {
+    test("pins admitted mutations across replacement") {
       for {
         remote  <- source()
         started <- Promise.make[Nothing, Unit]
@@ -392,7 +392,7 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
         runtime <- Gateway
                      .compose(remote.subgraph)
                      .withOperationResolver(resolver)
-                     .withConfig(_.withMaxConcurrentRequests(1).withRequestTimeout(1.hour).withDrainTimeout(10.seconds))
+                     .withConfig(_.withRequestTimeout(1.hour).withDrainTimeout(10.seconds))
                      .reloadableForTest
         _       <- ZIO.addFinalizer(release.succeed(()).unit)
         before  <- runtime.execute("mutation Before { setValue }", Some("Before")).fork
@@ -474,7 +474,7 @@ object ReloadableGatewaySpec extends ZIOSpecDefault {
                 .graphql("local", localGraph(started.succeed(()).unit *> ZIO.uninterruptible(release.await).as("done")))
             )
             .withConfig(
-              _.withMaxConcurrentRequests(Int.MaxValue).withRequestTimeout(1.hour).withDrainTimeout(2.seconds)
+              _.withRequestTimeout(1.hour).withDrainTimeout(2.seconds)
             )
             .reloadableForTest
         _           <- ZIO.addFinalizer(release.succeed(()).unit)

@@ -150,7 +150,6 @@ final class Gateway[-R] private[gateway] (
                        .fail(GatewayBuildError.InvalidConfiguration(graph.securityDiagnostics))
                        .when(policy.isEmpty && graph.hasSecurityRequirements)
       control     <- GatewayExecutionControl.make(
-                       config.maxConcurrentRequests,
                        config.subscriptions,
                        hooks,
                        config.requestTimeout,

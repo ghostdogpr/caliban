@@ -1,7 +1,7 @@
 package caliban.gateway
 
 import caliban.gateway.GatewayTestSupport._
-import caliban.gateway.PhaseHooks.{ AdmissionKind, CacheResult, Event }
+import caliban.gateway.PhaseHooks.{ CacheResult, Event }
 import caliban.gateway.internal.OperationCache
 import caliban.gateway.internal.OperationCache.Weighted
 import caliban.parsing.adt.OperationType
@@ -43,24 +43,15 @@ object PhaseHooksSpec extends ZIOSpecDefault {
         terminatedAfter == terminatedBefore + 1d
       )
     },
-    test("subscription event counts come from duration metrics and finite work uses distinct admission kinds") {
+    test("subscription event counts come from duration metrics") {
       val source = subscriptionGraph(ZStream(1, 2))
       for {
-        runtime        <- (Gateway.compose(Subgraph.graphql("local", source)) @@ GatewayMetrics.hooks).interpreter
-        setupBefore    <- counter("caliban_gateway_admission_total", "kind", "subscription_setup")
-        workBefore     <- counter("caliban_gateway_admission_total", "kind", "subscription_event")
-        requestsBefore <- counter("caliban_gateway_admission_total", "kind", "request")
-        eventsBefore   <- histogram("caliban_gateway_subscription_event_duration_seconds", "outcome" -> "success")
-        events         <- runtime.executeStream(GraphQLRequest(query = Some("subscription { event }"))).runCollect
-        setupAfter     <- counter("caliban_gateway_admission_total", "kind", "subscription_setup")
-        workAfter      <- counter("caliban_gateway_admission_total", "kind", "subscription_event")
-        requestsAfter  <- counter("caliban_gateway_admission_total", "kind", "request")
-        eventsAfter    <- histogram("caliban_gateway_subscription_event_duration_seconds", "outcome" -> "success")
+        runtime      <- (Gateway.compose(Subgraph.graphql("local", source)) @@ GatewayMetrics.hooks).interpreter
+        eventsBefore <- histogram("caliban_gateway_subscription_event_duration_seconds", "outcome" -> "success")
+        events       <- runtime.executeStream(GraphQLRequest(query = Some("subscription { event }"))).runCollect
+        eventsAfter  <- histogram("caliban_gateway_subscription_event_duration_seconds", "outcome" -> "success")
       } yield assertTrue(
         events.size == 2,
-        setupAfter == setupBefore + 1d,
-        workAfter == workBefore + 2d,
-        requestsAfter == requestsBefore,
         eventsAfter == eventsBefore + 2L
       )
     },
@@ -81,13 +72,9 @@ object PhaseHooksSpec extends ZIOSpecDefault {
       } yield assertTrue(
         response.errors.isEmpty,
         observed.headOption.contains(Event.Routing),
-        observed.dropWhile(!_.isInstanceOf[Event.Request]).take(2) == Vector(
-          Event.Request(Some("Named")),
-          Event.Admission(AdmissionKind.Request)
-        ),
+        observed.collect { case event: Event.Request => event } == Vector(Event.Request(Some("Named"))),
         observed.contains(Event.CacheAccess(CacheResult.Miss)),
         observed.contains(Event.SubgraphCall("products", OperationType.Query)),
-        observed.contains(Event.Admission(AdmissionKind.Subgraph)),
         observed.collect { case Event.Attempt(subgraph, number, _, _, _) => subgraph -> number } ==
           Vector("products" -> 0),
         observed.lastOption.contains(Event.Completion),
@@ -171,14 +158,12 @@ object PhaseHooksSpec extends ZIOSpecDefault {
         hitAfter == hitBefore + 1.0
       )
     },
-    test("records request and local execution metrics without local admission") {
+    test("records request and local execution metrics") {
       for {
         started        <- Promise.make[Nothing, Unit]
         runtime        <-
           (localGateway(started.succeed(()).unit *> ZIO.never)
             .withConfig(_.withRequestTimeout(Duration.fromSeconds(1))) @@ GatewayMetrics.hooks).interpreter
-        requestBefore  <- counter("caliban_gateway_admission_total", "kind", "request")
-        subgraphBefore <- counter("caliban_gateway_admission_total", "kind", "subgraph")
         requestsBefore <- counter("caliban_gateway_requests_total", "outcome", "error")
         callsBefore    <- counter("caliban_gateway_subgraph_calls_total", "subgraph", "local")
         durationBefore <- histogram(
@@ -191,8 +176,6 @@ object PhaseHooksSpec extends ZIOSpecDefault {
         requestsActive <- gauge("caliban_gateway_requests_active")
         _              <- TestClock.adjust(Duration.fromSeconds(1))
         response       <- responseFiber.join
-        requestAfter   <- counter("caliban_gateway_admission_total", "kind", "request")
-        subgraphAfter  <- counter("caliban_gateway_admission_total", "kind", "subgraph")
         requestsAfter  <- counter("caliban_gateway_requests_total", "outcome", "error")
         callsAfter     <- counter("caliban_gateway_subgraph_calls_total", "subgraph", "local")
         durationAfter  <- histogram(
@@ -204,8 +187,6 @@ object PhaseHooksSpec extends ZIOSpecDefault {
       } yield assertTrue(
         response.errors.map(_.msg) == List("Gateway request timed out."),
         requestsActive == 1.0,
-        requestAfter == requestBefore + 1.0,
-        subgraphAfter == subgraphBefore,
         requestsAfter == requestsBefore + 1.0,
         callsAfter == callsBefore + 1.0,
         durationAfter == durationBefore + 1L,

@@ -320,7 +320,6 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
                       _.withMaxPlanningCandidates(0)
                         .withMaxPlanningExpansions(0)
                         .withPlanningTimeout(Duration.Infinity)
-                        .withMaxConcurrentRequests(0)
                     )
                     .interpreter
                     .exit
@@ -328,130 +327,19 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
           buildDiagnostics(exit) == List(
             "Gateway maxPlanningCandidates must be positive.",
             "Gateway maxPlanningExpansions must be positive.",
-            "Gateway planning timeout must be finite and positive.",
-            "Gateway maxConcurrentRequests must be positive."
+            "Gateway planning timeout must be finite and positive."
           )
         )
       }
     ),
-    suite("admission")(
-      test("holds one observed request admission across preparation and execution") {
-        for {
-          recorded         <- recordEvents
-          (_, hooks)        = recorded
-          routingCalls     <- Ref.make(0)
-          firstRouting     <- Promise.make[Nothing, Unit]
-          releaseRouting   <- Promise.make[Nothing, Unit]
-          secondRouting    <- Promise.make[Nothing, Unit]
-          executionStarted <- Promise.make[Nothing, Unit]
-          releaseExecution <- Promise.make[Nothing, Unit]
-          resolver          = OperationResolver[Any](_ =>
-                                routingCalls.updateAndGet(_ + 1).flatMap {
-                                  case 1 =>
-                                    firstRouting.succeed(()).unit *> releaseRouting.await.as("{ localValue }")
-                                  case _ => secondRouting.succeed(()).as("{ localValue }")
-                                }
-                              )
-          runtime          <- localValueGateway(executionStarted.succeed(()).unit *> releaseExecution.await.as("ok"))
-                                .withOperationResolver(resolver)
-                                .withConfig(_.withMaxConcurrentRequests(1))
-                                .withPhaseHooks(hooks)
-                                .interpreter
-          first            <- runtime.executeRequest(GraphQLRequest()).fork
-          _                <- firstRouting.await
-          second           <- runtime.executeRequest(GraphQLRequest()).fork
-          _                <- TestClock.adjust(Duration.Zero)
-          _                <- releaseRouting.succeed(())
-          next             <- executionStarted.await.as("execution").race(secondRouting.await.as("routing"))
-          _                <- releaseExecution.succeed(())
-          responses        <- first.join.zip(second.join)
-        } yield assertTrue(
-          next == "execution",
-          responses._1.errors.isEmpty,
-          responses._2.errors.isEmpty
-        )
-      },
-      test("removes interrupted request waiters and releases the request permit") {
-        for {
-          started <- Promise.make[Nothing, Unit]
-          release <- Promise.make[Nothing, Unit]
-          calls   <- Ref.make(0)
-          effect   = calls.updateAndGet(_ + 1).flatMap { index =>
-                       if (index == 1) started.succeed(()).unit *> release.await.as("first")
-                       else ZIO.succeed("next")
-                     }
-          runtime <- localValueGateway(effect)
-                       .withConfig(_.withMaxConcurrentRequests(1))
-                       .interpreter
-          first   <- runtime.execute("{ localValue }").fork
-          _       <- started.await
-          second  <- runtime.execute("{ localValue }").fork
-          _       <- TestClock.adjust(Duration.Zero)
-          exit    <- second.interrupt
-          _       <- release.succeed(())
-          _       <- first.join
-          third   <- runtime.execute("{ localValue }")
-          count   <- calls.get
-        } yield assertTrue(
-          exit.isInterrupted,
-          field(third.data, "localValue").contains(StringValue("next")),
-          count == 2
-        )
-      },
-      test("applies request admission to explain planning") {
-        for {
-          started <- Promise.make[Nothing, Unit]
-          release <- Promise.make[Nothing, Unit]
-          calls   <- Ref.make(0)
-          resolver = OperationResolver[Any](_ =>
-                       calls.updateAndGet(_ + 1).flatMap { index =>
-                         if (index == 1) started.succeed(()).unit *> release.await.as("{ localValue }")
-                         else ZIO.succeed("{ localValue }")
-                       }
-                     )
-          runtime <- localValueGateway(ZIO.succeed("value"))
-                       .withOperationResolver(resolver)
-                       .withConfig(_.withMaxConcurrentRequests(1))
-                       .interpreter
-          first   <- runtime.explain(GraphQLRequest()).fork
-          _       <- started.await
-          second  <- runtime.explain(GraphQLRequest()).fork
-          _       <- TestClock.adjust(Duration.Zero)
-          exit    <- second.interrupt
-          _       <- release.succeed(())
-          plan    <- first.join
-        } yield assertTrue(
-          exit.isInterrupted,
-          plan.contains("fetch local")
-        )
-      },
-      test("applies request admission to validation checks") {
-        for {
-          started  <- Promise.make[Nothing, Unit]
-          release  <- Promise.make[Nothing, Unit]
-          runtime  <- localValueGateway(started.succeed(()).unit *> release.await.as("value"))
-                        .withConfig(_.withMaxConcurrentRequests(1))
-                        .interpreter
-          running  <- runtime.execute("{ localValue }").fork
-          _        <- started.await
-          checking <- runtime.check("{ localValue }").fork
-          _        <- TestClock.adjust(Duration.Zero)
-          exit     <- checking.interrupt
-          _        <- release.succeed(())
-          _        <- running.join
-        } yield assertTrue(
-          exit.isInterrupted
-        )
-      },
-      test("local calls share only the gateway request budget") {
+    suite("concurrent execution")(
+      test("runs concurrent local requests") {
         val concurrency = 65
         for {
           started <- Ref.make(0)
           release <- Promise.make[Nothing, Unit]
           runtime <-
-            localValueGateway(started.update(_ + 1) *> release.await.as("ok"))
-              .withConfig(_.withMaxConcurrentRequests(concurrency))
-              .interpreter
+            localValueGateway(started.update(_ + 1) *> release.await.as("ok")).interpreter
           fibers  <- ZIO.foreach(1 to concurrency)(_ => runtime.execute("{ localValue }").fork)
           _       <- started.get.repeatUntil(_ == concurrency)
           _       <- release.succeed(())
@@ -472,9 +360,6 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
                                ),
                                Subgraph.graphql("remote", remote.endpoint, valueSchema)
                              )
-                             .withConfig(
-                               _.withMaxConcurrentRequests(2)
-                             )
                              .interpreter
           fiber         <- runtime.execute("{ localValue value }").fork
           _             <- localStarted.await.zipPar(remoteStarted.await)
@@ -485,51 +370,40 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
           field(result.data, "value").contains(StringValue("ok"))
         )
       },
-      test("holds one source permit across retry attempts") {
+      test("runs independent calls while another call retries") {
         val config = RemoteGraphQLConfig.default.withExecution(
           _.withRetries(1, Duration.Zero)
-            .withMaxConcurrentCalls(1)
             .withInFlightQueryDeduplication(false)
         )
         for {
-          recorded       <- recordEvents
-          (events, hooks) = recorded
-          calls          <- Ref.make(0)
-          retryStarted   <- Promise.make[Nothing, Unit]
-          releaseRetry   <- Promise.make[Nothing, Unit]
-          remote         <- endpoint { _ =>
-                              calls.updateAndGet(_ + 1).flatMap {
-                                case 1 => ZIO.succeed(Response.status(Status.ServiceUnavailable))
-                                case 2 =>
-                                  retryStarted.succeed(()).unit *> releaseRetry.await.as(graphQLResponse(okResponse))
-                                case _ => ZIO.succeed(graphQLResponse(okResponse))
-                              }
+          calls        <- Ref.make(0)
+          retryStarted <- Promise.make[Nothing, Unit]
+          releaseRetry <- Promise.make[Nothing, Unit]
+          remote       <- endpoint { _ =>
+                            calls.updateAndGet(_ + 1).flatMap {
+                              case 1 => ZIO.succeed(Response.status(Status.ServiceUnavailable))
+                              case 2 =>
+                                retryStarted.succeed(()).unit *> releaseRetry.await.as(graphQLResponse(okResponse))
+                              case _ => ZIO.succeed(graphQLResponse(okResponse))
                             }
-          runtime        <- remoteGateway(remote, config = config)
-                              .withConfig(_.withMaxConcurrentRequests(2))
-                              .withPhaseHooks(hooks)
-                              .interpreter
-          first          <- runtime.executeRequest(request).fork
-          _              <- retryStarted.await
-          second         <- runtime.executeRequest(request).fork
-          _              <- events.get.repeatUntil(
-                              _.count(_.isInstanceOf[PhaseHooks.Event.SubgraphCall]) == 2
-                            )
-          _              <- TestClock.adjust(Duration.Zero)
-          before         <- calls.get
-          _              <- releaseRetry.succeed(())
-          firstResult    <- first.join
-          secondResult   <- second.join
-          total          <- calls.get
+                          }
+          runtime      <- remoteGateway(remote, config = config).interpreter
+          first        <- runtime.executeRequest(request).fork
+          _            <- retryStarted.await
+          second       <- runtime.executeRequest(request).fork
+          secondResult <- second.join
+          before       <- calls.get
+          _            <- releaseRetry.succeed(())
+          firstResult  <- first.join
+          total        <- calls.get
         } yield assertTrue(
-          before == 2,
+          before == 3,
           firstResult.errors.isEmpty,
           secondResult.errors.isEmpty,
           total == 3
         )
       },
-      test("deduplicates identical queries before source admission") {
-        val config = RemoteGraphQLConfig.default.withExecution(_.withMaxConcurrentCalls(1))
+      test("deduplicates identical queries") {
         for {
           calls     <- Ref.make(0)
           started   <- Promise.make[Nothing, Unit]
@@ -539,8 +413,7 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
                            started.succeed(()).unit *>
                            release.await.as(graphQLResponse(okResponse))
                        )
-          runtime   <- (remoteGateway(remote, config = config)
-                         .withConfig(_.withMaxConcurrentRequests(32)) @@ GatewayMetrics.hooks).interpreter
+          runtime   <- (remoteGateway(remote) @@ GatewayMetrics.hooks).interpreter
           fibers    <- ZIO.foreach(1 to 20)(_ => runtime.executeRequest(request).fork)
           _         <- started.await
           _         <- TestClock.adjust(Duration.Zero)
@@ -554,62 +427,37 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
           responses.forall(_.errors.isEmpty)
         )
       },
-      test("bounds distinct deduplication identities before source admission") {
-        val config       = RemoteGraphQLConfig.default.withExecution(_.withMaxConcurrentCalls(1))
+      test("runs distinct deduplication identities concurrently") {
         val operations   = Some("query First { value } query Second { value }")
         val firstRequest = GraphQLRequest(query = operations, operationName = Some("First"))
         val nextRequest  = GraphQLRequest(query = operations, operationName = Some("Second"))
         for {
-          recorded       <- recordEvents
-          (events, hooks) = recorded
-          calls          <- Ref.make(0)
-          firstStarted   <- Promise.make[Nothing, Unit]
-          nextStarted    <- Promise.make[Nothing, Unit]
-          releaseFirst   <- Promise.make[Nothing, Unit]
-          remote         <- endpoint(_ =>
-                              calls.updateAndGet(_ + 1).flatMap {
-                                case 1 =>
-                                  firstStarted.succeed(()).unit *> releaseFirst.await.as(graphQLResponse(okResponse))
-                                case _ => nextStarted.succeed(()).as(graphQLResponse(okResponse))
-                              }
-                            )
-          runtime        <- remoteGateway(remote, config = config)
-                              .withConfig(_.withMaxConcurrentRequests(2))
-                              .withPhaseHooks(hooks)
-                              .interpreter
-          first          <- runtime.executeRequest(firstRequest).fork
-          _              <- firstStarted.await
-          second         <- runtime.executeRequest(nextRequest).fork
-          _              <- events.get.repeatUntil(_.count(_ == PhaseHooks.Event.Routing) == 2)
-          _              <- TestClock.adjust(Duration.Zero)
-          before         <- calls.get
-          _              <- releaseFirst.succeed(())
-          _              <- nextStarted.await
-          responses      <- first.join.zip(second.join)
-          total          <- calls.get
+          calls        <- Ref.make(0)
+          firstStarted <- Promise.make[Nothing, Unit]
+          nextStarted  <- Promise.make[Nothing, Unit]
+          releaseFirst <- Promise.make[Nothing, Unit]
+          remote       <- endpoint(_ =>
+                            calls.updateAndGet(_ + 1).flatMap {
+                              case 1 =>
+                                firstStarted.succeed(()).unit *> releaseFirst.await.as(graphQLResponse(okResponse))
+                              case _ => nextStarted.succeed(()).as(graphQLResponse(okResponse))
+                            }
+                          )
+          runtime      <- remoteGateway(remote).interpreter
+          first        <- runtime.executeRequest(firstRequest).fork
+          _            <- firstStarted.await
+          second       <- runtime.executeRequest(nextRequest).fork
+          _            <- nextStarted.await
+          secondResult <- second.join
+          before       <- calls.get
+          _            <- releaseFirst.succeed(())
+          firstResult  <- first.join
+          total        <- calls.get
         } yield assertTrue(
-          before == 1,
-          responses._1.errors.isEmpty,
-          responses._2.errors.isEmpty,
+          before == 2,
+          firstResult.errors.isEmpty,
+          secondResult.errors.isEmpty,
           total == 2
-        )
-      },
-      test("releases a source permit when the current call is interrupted") {
-        for {
-          gate          <- AdmissionGate.make(1, PhaseHooks.AdmissionKind.Request, PhaseHooks.empty)
-          firstStarted  <- Promise.make[Nothing, Unit]
-          secondStarted <- Promise.make[Nothing, Unit]
-          first         <- gate.withPermit(firstStarted.succeed(()).unit *> ZIO.never).fork
-          _             <- firstStarted.await
-          second        <- gate.withPermit(secondStarted.succeed(()).unit).fork
-          _             <- TestClock.adjust(Duration.Zero)
-          blocked       <- secondStarted.isDone
-          firstExit     <- first.interrupt
-          _             <- secondStarted.await
-          _             <- second.join
-        } yield assertTrue(
-          !blocked,
-          firstExit.isInterrupted
         )
       }
     )

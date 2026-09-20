@@ -24,7 +24,6 @@ final case class PhaseHooks[-R] private (
   retry: PhaseHandler[R, Event.Retry, Nothing, Result] = PhaseHandler.empty[Event.Retry],
   completion: PhaseHandler[R, Event.Completion.type, Nothing, Result] = PhaseHandler.empty[Event.Completion.type],
   cacheAccess: PhaseHandler[R, Event.CacheAccess, Nothing, Result] = PhaseHandler.empty[Event.CacheAccess],
-  admission: PhaseHandler[R, Event.Admission, Nothing, Result] = PhaseHandler.empty[Event.Admission],
   overrideLabels: PhaseHandler[R, Event.OverrideLabels, Throwable, Any] = PhaseHandler.empty[Event.OverrideLabels],
   outboundHeaders: PhaseHandler[R, Event.OutboundHeaders, Nothing, Any] = PhaseHandler.empty[Event.OutboundHeaders],
   attemptHeaders: PhaseHandler[R, Event.AttemptHeaders, Nothing, Any] = PhaseHandler.empty[Event.AttemptHeaders],
@@ -44,7 +43,6 @@ final case class PhaseHooks[-R] private (
       self.retry.enabled ||
       self.completion.enabled ||
       self.cacheAccess.enabled ||
-      self.admission.enabled ||
       self.overrideLabels.enabled ||
       self.outboundHeaders.enabled ||
       self.attemptHeaders.enabled ||
@@ -64,7 +62,6 @@ final case class PhaseHooks[-R] private (
       retry = self.retry ++ that.retry,
       completion = self.completion ++ that.completion,
       cacheAccess = self.cacheAccess ++ that.cacheAccess,
-      admission = self.admission ++ that.admission,
       overrideLabels = self.overrideLabels ++ that.overrideLabels,
       outboundHeaders = self.outboundHeaders ++ that.outboundHeaders,
       attemptHeaders = self.attemptHeaders ++ that.attemptHeaders,
@@ -101,7 +98,7 @@ object PhaseHooks {
 
   /**
    * Brackets opening the source of one subscription: the subscribe call to the owning subgraph and the upstream
-   * connection it needs. Runs once per subscription, inside its admission permit, and handler work counts against
+   * connection it needs. Runs once per subscription, and handler work counts against
    * [[GatewaySubscriptionConfig]]`.setupTimeout`. The outgoing [[PhaseHooks.Result]] says whether the source
    * opened.
    */
@@ -185,14 +182,6 @@ object PhaseHooks {
     new PhaseHooks[R](cacheAccess = handler)
 
   /**
-   * Brackets work running under an admission permit: requests, subgraph calls, subscription setups, and subscription
-   * events, told apart by the event's kind. The permit is already held when the handler runs, so it measures admitted
-   * work and not the time spent queueing for a permit.
-   */
-  def admission[R](handler: PhaseHandler[R, Event.Admission, Nothing, Result]): PhaseHooks[R] =
-    new PhaseHooks[R](admission = handler)
-
-  /**
    * Brackets preparation of an incoming request: parsing, validation, policy checks, and planning, including the
    * [[cacheAccess]] lookup that may serve it. Preparation runs alongside [[request]] rather than inside it, so this
    * phase is a sibling of that one. The outgoing [[PhaseHooks.Result]] says whether preparation succeeded.
@@ -201,7 +190,7 @@ object PhaseHooks {
     new PhaseHooks[R](routing = handler)
 
   /**
-   * Brackets one logical call to a subgraph, remote or local, enclosing deduplication, admission, and every
+   * Brackets one logical call to a subgraph, remote or local, enclosing deduplication and every
    * [[attempt]] and [[retry]] the call makes. It fires per logical call even when deduplication serves the response
    * from a call another request is already making, so it does not count transport round trips. Opening a subscription
    * does not go through it. The event carries the subgraph name and the operation type.
@@ -275,17 +264,6 @@ object PhaseHooks {
     case object Wait extends CacheResult { val label = "wait" }
   }
 
-  sealed trait AdmissionKind extends Product with Serializable {
-    def label: String
-  }
-
-  object AdmissionKind {
-    case object Request           extends AdmissionKind { val label = "request"            }
-    case object Subgraph          extends AdmissionKind { val label = "subgraph"           }
-    case object SubscriptionSetup extends AdmissionKind { val label = "subscription_setup" }
-    case object SubscriptionEvent extends AdmissionKind { val label = "subscription_event" }
-  }
-
   final case class Result(
     outcome: Outcome,
     operationType: Option[OperationType] = None,
@@ -335,7 +313,6 @@ object PhaseHooks {
     final case class Retry(subgraph: String, attempt: Int)                        extends Event
     case object Completion                                                        extends Event
     final case class CacheAccess(result: CacheResult)                             extends Event
-    final case class Admission(kind: AdmissionKind)                               extends Event
 
     /**
      * The custom progressive `@override` labels the selected operation reached, and the subset a handler has

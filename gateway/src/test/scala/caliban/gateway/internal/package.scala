@@ -19,7 +19,6 @@ package object internal {
       config,
       responseStructureLimits,
       None,
-      None,
       PhaseHooks.empty,
       remoteErrorMessages
     )

@@ -14,12 +14,10 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
   private def makeControl(
     scope: Scope.Closeable,
     requestTimeout: Duration = 1.second,
-    drainTimeout: Duration = 1.second,
-    requestLimit: Int = 1
+    drainTimeout: Duration = 1.second
   ): UIO[GatewayExecutionControl[Any]] =
     scope.extend(
       GatewayExecutionControl.make(
-        requestLimit,
         GatewaySubscriptionConfig(),
         PhaseHooks.empty,
         requestTimeout,
@@ -104,27 +102,27 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
         exit.isInterrupted
       )
     },
-    test("includes request admission waits in the deadline") {
+    test("allows a request to finish while another request is still running") {
       for {
         scope        <- Scope.make
         control      <- makeControl(scope)
         started      <- Promise.make[Nothing, Unit]
         release      <- Promise.make[Nothing, Unit]
         first        <- control
-                          .runRequest(started.succeed(()).unit *> ZIO.uninterruptible(release.await).as("first"))(
+                          .runRequest(started.succeed(()).unit *> release.await.as("first"))(
                             ZIO.succeed("timeout")
                           )(ZIO.interrupt)
                           .fork
         _            <- started.await
-        second       <- control.runRequest(ZIO.succeed("second"))(ZIO.succeed("timeout"))(ZIO.interrupt).fork
-        _            <- TestClock.adjust(1.second)
-        secondResult <- second.join
+        secondResult <- control.runRequest(ZIO.succeed("second"))(ZIO.succeed("timeout"))(ZIO.interrupt)
+        pending      <- first.poll
         _            <- release.succeed(())
         firstResult  <- first.join
         _            <- scope.close(Exit.unit)
       } yield assertTrue(
-        secondResult == "timeout",
-        firstResult == "timeout"
+        secondResult == "second",
+        pending.isEmpty,
+        firstResult == "first"
       )
     },
     test("waits for timed-out uninterruptible completion and handoff work to exit") {

@@ -3,7 +3,7 @@ package caliban.gateway.internal.execution
 import caliban.ResponseValue.ObjectValue
 import caliban.Value.NullValue
 import caliban.gateway.PhaseHooks.{ Event, Outcome, Result }
-import caliban.gateway.internal.{ AdmissionGate, GatewayHttpClient, SubscriptionTermination }
+import caliban.gateway.internal.{ GatewayHttpClient, SubscriptionTermination }
 import caliban.gateway.{ PhaseHooks, RemoteGraphQLConfig }
 import caliban.interop.jsoniter.BoundedOutputStream
 import caliban.parsing.adt.OperationType
@@ -23,7 +23,6 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
   config: RemoteGraphQLConfig[R],
   responseStructureLimits: RemoteSubgraphExecutor.ResponseStructureLimits,
   deduplicator: Option[RemoteSubgraphExecutor.QueryDeduplicator],
-  admission: Option[AdmissionGate[R]],
   hooks: PhaseHooks[R],
   remoteErrorMessages: Boolean = false,
   fixedHeaders: Option[List[Header]] = None
@@ -42,14 +41,13 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
         headers   <- resolveHeaders
         replaySafe = operationType == OperationType.Query
         rawCall    = executeAttempts(body, headers, replaySafe, attempt = 0)
-        admitted   = admission.fold(rawCall)(_.admit(rawCall))
         response  <- if (replaySafe)
-                       deduplicator.fold(admitted)(
+                       deduplicator.fold(rawCall)(
                          _.execute(body, headers)(
-                           admitted.timeoutFail(SubgraphExecutor.TimeoutFailure)(execution.timeout)
+                           rawCall.timeoutFail(SubgraphExecutor.TimeoutFailure)(execution.timeout)
                          )
                        )
-                     else admitted
+                     else rawCall
       } yield response
 
     logicalCall.timeoutFail(SubgraphExecutor.TimeoutFailure)(execution.timeout)
@@ -60,8 +58,8 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
 
   override def subscribe(
     request: GraphQLRequest
-  )(implicit trace: Trace): ZIO[R with Scope, Throwable, ZStream[Any, Throwable, GraphQLResponse[CalibanError]]] = {
-    val open = for {
+  )(implicit trace: Trace): ZIO[R with Scope, Throwable, ZStream[Any, Throwable, GraphQLResponse[CalibanError]]] =
+    for {
       values <- resolveHeaders.mapError(_ => SubscriptionTermination.Source)
       traced <- if (!hooks.attemptHeaders.enabled) Exit.succeed(values)
                 else
@@ -71,8 +69,6 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
       body   <- encode(request.copy(extensions = None)).mapError(_ => SubscriptionTermination.Source)
       stream <- subscription.open(traced, request, body)
     } yield stream
-    admission.fold(open)(_.admit(open))
-  }
 
   private val execution        = config.execution
   private val staticHeaders    = sanitizeHeaders(execution.headers)
@@ -114,7 +110,6 @@ private[gateway] final class RemoteSubgraphExecutor[-R](
       config,
       responseStructureLimits,
       deduplicator,
-      admission,
       hooks,
       remoteErrorMessages,
       Some(headers)
@@ -295,34 +290,26 @@ private[gateway] object RemoteSubgraphExecutor {
     http: GatewayHttpClient,
     config: RemoteGraphQLConfig[R],
     hooks: PhaseHooks[R],
-    remoteErrorMessages: Boolean = false,
-    admission: Option[AdmissionGate[R]] = None
+    remoteErrorMessages: Boolean = false
   )(implicit trace: Trace): ZIO[Scope, Nothing, RemoteSubgraphExecutor[R]] =
     Scope.make.flatMap { deduplicationScope =>
       val deduplicator =
         if (config.execution.inFlightQueryDeduplication)
-          QueryDeduplicator.make(deduplicationScope, config.execution.maxConcurrentCalls).map(Some(_))
+          QueryDeduplicator.make(deduplicationScope).map(Some(_))
         else ZIO.none
       ZIO.addFinalizer(deduplicationScope.close(Exit.unit)) *>
-        deduplicator
-          .zip(
-            admission.fold(
-              AdmissionGate.make(config.execution.maxConcurrentCalls, PhaseHooks.AdmissionKind.Subgraph, hooks)
-            )(ZIO.succeed(_))
+        deduplicator.map { deduplicator =>
+          new RemoteSubgraphExecutor(
+            name,
+            endpoint,
+            http,
+            config,
+            ResponseStructureLimits.default,
+            deduplicator,
+            hooks,
+            remoteErrorMessages
           )
-          .map { case (deduplicator, admission) =>
-            new RemoteSubgraphExecutor(
-              name,
-              endpoint,
-              http,
-              config,
-              ResponseStructureLimits.default,
-              deduplicator,
-              Some(admission),
-              hooks,
-              remoteErrorMessages
-            )
-          }
+        }
     }
 
   final case class ResponseStructureLimits(maxResponseDepth: Int, maxResponseTokens: Int)
@@ -358,45 +345,39 @@ private[gateway] object RemoteSubgraphExecutor {
       }
   }
 
-  private[internal] final class QueryDeduplicator private (scope: Scope, state: Ref[QueryDeduplicator.State]) {
+  private[internal] final class QueryDeduplicator private (
+    scope: Scope,
+    calls: Ref[Map[QueryDeduplicator.Key, QueryDeduplicator.CallPromise]]
+  ) {
     import QueryDeduplicator._
 
     def execute[R](body: Array[Byte], headers: List[Header])(
       call: => ZIO[R, SubgraphExecutor.Failure, GraphQLResponse[CalibanError]]
-    )(implicit trace: Trace): ZIO[R, SubgraphExecutor.Failure, GraphQLResponse[CalibanError]] =
-      ZIO.uninterruptible(loop(Key(body, headers), call))
-
-    private def loop[R](key: Key, call: => ZIO[R, SubgraphExecutor.Failure, GraphQLResponse[CalibanError]])(implicit
-      trace: Trace
-    ): ZIO[R, SubgraphExecutor.Failure, GraphQLResponse[CalibanError]] =
-      state.get.flatMap { current =>
-        current.entries.get(key) match {
+    )(implicit trace: Trace): ZIO[R, SubgraphExecutor.Failure, GraphQLResponse[CalibanError]] = ZIO.uninterruptible {
+      val key = Key(body, headers)
+      calls.get.flatMap { current =>
+        current.get(key) match {
           case Some(existing) =>
             await(existing).interruptible
           case None           =>
             Promise.make[Nothing, CallExit].flatMap { candidate =>
-              decide(key, candidate).flatMap {
-                case Decision.Start          =>
+              register(key, candidate).flatMap {
+                case None           =>
                   // Shared work belongs to the executor scope, so one waiter cannot cancel it for the others.
                   complete(key, candidate, call).interruptible.forkIn(scope) *> await(candidate).interruptible
-                case Decision.Join(existing) =>
+                case Some(existing) =>
                   await(existing).interruptible
-                case Decision.Wait(signal)   =>
-                  signal.await.interruptible *> loop(key, call)
               }
             }
         }
       }
+    }
 
-    private def decide(key: Key, candidate: CallPromise): UIO[Decision] =
-      state.modify { current =>
-        current.entries.get(key) match {
-          case Some(existing)                               =>
-            Decision.Join(existing) -> current
-          case None if current.entries.size < current.limit =>
-            Decision.Start -> current.copy(entries = current.entries.updated(key, candidate))
-          case None                                         =>
-            Decision.Wait(current.space) -> current
+    private def register(key: Key, candidate: CallPromise): UIO[Option[CallPromise]] =
+      calls.modify { current =>
+        current.get(key) match {
+          case existing @ Some(_) => existing -> current
+          case None               => None     -> current.updated(key, candidate)
         }
       }
 
@@ -407,12 +388,7 @@ private[gateway] object RemoteSubgraphExecutor {
     )(implicit trace: Trace): URIO[R, Unit] =
       ZIO.uninterruptibleMask { restore =>
         restore(call).exit.flatMap { exit =>
-          Promise.make[Nothing, Unit].flatMap { nextSpace =>
-            state.modify { current =>
-              current.space -> current.copy(entries = current.entries - key, space = nextSpace)
-            }.flatMap(_.succeed(())) *>
-              promise.succeed(exit).unit
-          }
+          calls.update(_ - key) *> promise.succeed(exit).unit
         }
       }
 
@@ -423,11 +399,8 @@ private[gateway] object RemoteSubgraphExecutor {
   }
 
   private object QueryDeduplicator {
-    def make(scope: Scope, limit: Int)(implicit trace: Trace): UIO[QueryDeduplicator] =
-      for {
-        space <- Promise.make[Nothing, Unit]
-        state <- Ref.make(State(Map.empty, limit, space))
-      } yield new QueryDeduplicator(scope, state)
+    def make(scope: Scope)(implicit trace: Trace): UIO[QueryDeduplicator] =
+      Ref.make(Map.empty[Key, CallPromise]).map(new QueryDeduplicator(scope, _))
 
     final case class Key(body: RequestBody, headers: Vector[(String, String)])
 
@@ -442,14 +415,6 @@ private[gateway] object RemoteSubgraphExecutor {
     type CallExit    = Exit[SubgraphExecutor.Failure, GraphQLResponse[CalibanError]]
     type CallPromise = Promise[Nothing, CallExit]
 
-    sealed trait Decision
-    object Decision {
-      final case class Join(existing: CallPromise)          extends Decision
-      final case class Wait(signal: Promise[Nothing, Unit]) extends Decision
-      case object Start                                     extends Decision
-    }
-
-    final case class State(entries: Map[Key, CallPromise], limit: Int, space: Promise[Nothing, Unit])
   }
 
 }

@@ -2,7 +2,6 @@ package caliban.gateway
 
 import caliban.{ GraphQLRequest, IncomingRequestHeaders, ResponseValue }
 import caliban.gateway.GatewayTestSupport._
-import caliban.gateway.internal.AdmissionGate
 import caliban.gateway.internal.execution.RemoteSubgraphExecutor
 import caliban.gateway.internal.GatewayHttpClient
 import caliban.gateway.internal.execution.SubgraphExecutor._
@@ -313,8 +312,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
       val secondPolicy = RemoteGraphQLConfig.default
         .withExecution(_.withMaxResponseBytes(0))
         .withExecution(
-          _.withMaxConcurrentCalls(0)
-            .withHeaders(Header.Custom("Content-Type", "text/plain"))
+          _.withHeaders(Header.Custom("Content-Type", "text/plain"))
             .forwardIncomingHeaders("Accept")
         )
 
@@ -332,7 +330,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
       } yield assertTrue(
         sent.isEmpty,
         errors.count(_.startsWith("[first]")) == 5,
-        errors.count(_.startsWith("[second]")) == 4,
+        errors.count(_.startsWith("[second]")) == 3,
         errors.exists(_.contains("timeout must be finite and positive")),
         errors.exists(_.contains("retry backoff must be finite and non-negative")),
         errors.exists(_.contains("header 'Content-Type' is owned"))
@@ -535,34 +533,6 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
         responses <- ZIO.foreach(fibers)(_.join)
         calls     <- remote.calls.get
       } yield assertTrue(started.nonEmpty, calls == 2, responses.forall(_.errors.isEmpty))
-    },
-    test("times out a deduplicated query while it waits for source admission") {
-      val config = RemoteGraphQLConfig.default.withExecution(_.withTimeout(100.millis))
-
-      for {
-        http           <- GatewayHttpClient.make
-        calls          <- Ref.make(0)
-        remote         <- endpoint(_ => calls.update(_ + 1).as(Response.json(okResponse)))
-        gate           <- AdmissionGate.make(1, PhaseHooks.AdmissionKind.Subgraph, PhaseHooks.empty)
-        blockerStarted <- Promise.make[Nothing, Unit]
-        releaseBlocker <- Promise.make[Nothing, Unit]
-        blocker        <- gate.withPermit(blockerStarted.succeed(()).unit *> releaseBlocker.await).fork
-        _              <- blockerStarted.await
-        source         <- RemoteSubgraphExecutor
-                            .make("remote", remote, http, config, PhaseHooks.empty, admission = Some(gate))
-        first          <- Live.live(source.execute(request, OperationType.Query).either)
-        _              <- releaseBlocker.succeed(())
-        _              <- blocker.join
-        _              <- Live.live(ZIO.sleep(150.millis))
-        callsAfterWait <- calls.get
-        second         <- source.execute(request, OperationType.Query).either
-        totalCalls     <- calls.get
-      } yield assertTrue(
-        first == Left(TimeoutFailure),
-        callsAfterWait == 0,
-        second.isRight,
-        totalCalls == 1
-      )
     },
     test("shares failures and removes the in-flight entry before a retry") {
       val config = RemoteGraphQLConfig.default

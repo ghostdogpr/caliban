@@ -531,8 +531,7 @@ private[gateway] object GatewayTestSupport {
       PhaseHooks.attempt(recorder.handler) ++
       PhaseHooks.retry(recorder.handler) ++
       PhaseHooks.completion(recorder.handler) ++
-      PhaseHooks.cacheAccess(recorder.handler) ++
-      PhaseHooks.admission(recorder.handler)
+      PhaseHooks.cacheAccess(recorder.handler)
 
   /**
    * Records every lifecycle event the gateway reaches, in order.

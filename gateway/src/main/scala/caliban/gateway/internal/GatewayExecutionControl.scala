@@ -1,11 +1,10 @@
 package caliban.gateway.internal
 
-import caliban.gateway.PhaseHooks.{ AdmissionKind, Event, Result }
+import caliban.gateway.PhaseHooks.{ Event, Result }
 import caliban.gateway.{ GatewaySubscriptionConfig, PhaseHooks }
 import zio.{ Clock, Duration, Exit, Promise, Ref, Scope, Trace, UIO, URIO, ZIO }
 
 private[gateway] final class GatewayExecutionControl[-R] private (
-  admission: AdmissionGate[R],
   hooks: PhaseHooks[R],
   val subscriptions: SubscriptionControl[R],
   requestTimeout: Duration,
@@ -22,7 +21,7 @@ private[gateway] final class GatewayExecutionControl[-R] private (
     onRejected: => ZIO[R0, E, A]
   )(implicit trace: Trace): ZIO[R0, E, A] =
     withLease(reservation)(onRejected) { lease =>
-      run(lease, admission.withPermit(effect)).flatMap(_.fold(onTimeout)(ZIO.succeed(_)))
+      run(lease, effect).flatMap(_.fold(onTimeout)(ZIO.succeed(_)))
     }
 
   def runObservedRequest[R1 <: R, B, A](event: Event.Request, reservation: Option[Lease] = None)(
@@ -39,20 +38,12 @@ private[gateway] final class GatewayExecutionControl[-R] private (
     def observe(effect: URIO[R1, A]): URIO[R1, A] = hooks.request.run(event)(effect)(result)
     withLease(reservation)(observe(onRejected)) { lease =>
       // Classify the resolved operation before opening finite-request metrics/spans, while one
-      // admission permit, deadline, and drain lease cover preparation and execution together.
-      ZIO.scoped[R1] {
-        run(lease, admission.acquireScoped).flatMap {
-          case None    => observe(onTimeout)
-          case Some(_) =>
-            run(lease, prepare).flatMap {
-              case None           => observe(onTimeout)
-              case Some(prepared) =>
-                val finite   = isFinite(prepared)
-                val work     = if (finite) admission.observe(execute(prepared)) else execute(prepared)
-                val response = run(lease, work).flatMap(_.fold(onTimeout)(ZIO.succeed(_)))
-                if (finite) observe(response) else response
-            }
-        }
+      // deadline and drain lease cover preparation and execution together.
+      run(lease, prepare).flatMap {
+        case None           => observe(onTimeout)
+        case Some(prepared) =>
+          val response = run(lease, execute(prepared)).flatMap(_.fold(onTimeout)(ZIO.succeed(_)))
+          if (isFinite(prepared)) observe(response) else response
       }
     }
   }
@@ -160,21 +151,18 @@ private[gateway] final class GatewayExecutionControl[-R] private (
 
 private[gateway] object GatewayExecutionControl {
   def make[R](
-    requestLimit: Int,
     subscriptionConfig: GatewaySubscriptionConfig,
     hooks: PhaseHooks[R],
     requestTimeout: Duration,
     drainTimeout: Duration
   )(implicit trace: Trace): ZIO[Scope, Nothing, GatewayExecutionControl[R]] =
     for {
-      admission     <- AdmissionGate.make(requestLimit, AdmissionKind.Request, hooks)
-      subscriptions <- SubscriptionControl.make(subscriptionConfig, admission, hooks)
+      subscriptions <- SubscriptionControl.make(subscriptionConfig, hooks)
       state         <- Ref.make(State(Set.empty, None))
       drained       <- Promise.make[Nothing, Unit]
       forceStop     <- Promise.make[Nothing, Unit]
       control        =
         new GatewayExecutionControl(
-          admission,
           hooks,
           subscriptions,
           requestTimeout,

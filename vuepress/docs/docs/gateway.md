@@ -102,7 +102,7 @@ The old interpreter drains for the duration set by `GatewayConfig.withDrainTimeo
 
 Retirement has no minimum delay, so an idle generation closes immediately. A stuck request is the expensive case. It can delay the next schema check by the full drain timeout, 30 seconds by default, plus the polling delay, and uninterruptible work can postpone that check indefinitely. The gateway logs a warning when retirement runs past the drain timeout. Throughout, the active generation keeps serving.
 
-Concurrency limits apply per interpreter, so during an overlap total request and subgraph concurrency can reach twice the configured limits, and each generation carries its own operation cache. When the drain timeout expires the gateway requests interruption. Work that refuses it holds the old generation and keeps refreshes paused, though the active generation still serves.
+Each generation carries its own operation cache. When the drain timeout expires the gateway requests interruption. Work that refuses it holds the old generation and keeps refreshes paused, though the active generation still serves.
 
 Closing the owning scope stops admission and publication, cancels refresh work, and closes every owned scope. Active and retiring generations then drain together, without resetting the old generation's deadline, and closure waits for any uninterruptible work to finish.
 
@@ -314,7 +314,7 @@ Prefer a batch lookup wherever the subgraph supports one. It collapses several o
 
 ## Configuring remote services
 
-Use `RemoteGraphQLConfig` to set timeouts, retries, concurrency, headers, or body-size limits for a remote service.
+Use `RemoteGraphQLConfig` to set timeouts, retries, headers, or body-size limits for a remote service.
 
 ```scala
 import caliban.gateway.RemoteGraphQLConfig
@@ -324,7 +324,6 @@ import zio.http._
 val remoteConfig = RemoteGraphQLConfig.default
   .withExecution(
     _.withTimeout(10.seconds)
-      .withMaxConcurrentCalls(64)
       .withRetries(2, 100.millis)
   )
 
@@ -412,20 +411,18 @@ Configure limits shared by the whole gateway with `withConfig`:
 val gateway = Gateway
   .compose(products, reviews)
   .withConfig(
-    _.withMaxConcurrentRequests(256)
-      .withRequestTimeout(10.seconds)
+    _.withRequestTimeout(10.seconds)
       .withDrainTimeout(20.seconds)
   )
 ```
 
 The main settings are:
 
-- `withMaxConcurrentRequests` for how many requests the gateway handles at once
 - `withRequestTimeout` for the maximum duration of a client request
 - `withDrainTimeout` for the time allowed to finish requests during shutdown
 - `withMaxOperationCost` for rejecting operations whose estimated cost exceeds a positive limit
 
-Local Caliban subgraphs run directly within the request budget. Remote subgraphs also have their own concurrency limits.
+Local Caliban subgraphs run directly within the request budget. Remote subgraphs also have their own call timeouts.
 
 ### Demand control
 
@@ -600,7 +597,7 @@ import caliban.gateway.{ Gateway, GatewayMetrics }
 val gateway = Gateway.compose(products, reviews) @@ GatewayMetrics.hooks
 ```
 
-The built-in metrics report requests, routing, subgraph calls, retries, admission counts, operation-cache activity, and subscriptions.
+The built-in metrics report requests, routing, subgraph calls, retries, operation-cache activity, and subscriptions.
 
 Add OpenTelemetry tracing with the optional tracing module:
 

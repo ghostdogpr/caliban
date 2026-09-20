@@ -90,7 +90,6 @@ object SubscriptionSpec extends ZIOSpecDefault {
             closing    <- Promise.make[Nothing, Unit]
             release    <- Promise.make[Nothing, Unit]
             work       <- GatewayExecutionControl.make(
-                            1,
                             GatewaySubscriptionConfig(maxActive = 1),
                             PhaseHooks.empty,
                             30.seconds,
@@ -130,7 +129,7 @@ object SubscriptionSpec extends ZIOSpecDefault {
       for {
         recorded     <- recordEvents
         (seen, hooks) = recorded
-        work         <- GatewayExecutionControl.make(1, GatewaySubscriptionConfig(), hooks, 30.seconds, 1.second)
+        work         <- GatewayExecutionControl.make(GatewaySubscriptionConfig(), hooks, 30.seconds, 1.second)
         _            <- ZIO.foreachDiscard(sources)(open => work.subscriptions.stream(open)(ZIO.succeed(_)).runDrain.exit)
         observed     <- seen.get
       } yield assertTrue(
@@ -589,7 +588,7 @@ object SubscriptionSpec extends ZIOSpecDefault {
         events.forall(_.errors.isEmpty)
       )
     },
-    test("idle subscription holds one slot and no finite permits; cancellation awaits source cleanup") {
+    test("idle subscription holds one slot without blocking queries; cancellation awaits source cleanup") {
       for {
         opened   <- Promise.make[Nothing, Unit]
         closing  <- Promise.make[Nothing, Unit]
@@ -600,7 +599,7 @@ object SubscriptionSpec extends ZIOSpecDefault {
           ) ++ ZStream.never)
         runtime  <-
           subscriptionGateway(source)
-            .withConfig(_.withMaxConcurrentRequests(1).withSubscriptions(GatewaySubscriptionConfig(maxActive = 1)))
+            .withConfig(_.withSubscriptions(GatewaySubscriptionConfig(maxActive = 1)))
             .interpreter
         running  <- runtime.executeStream(request).runDrain.forkScoped
         _        <- opened.await
