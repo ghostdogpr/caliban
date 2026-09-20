@@ -1,4 +1,4 @@
-package caliban.gateway.internal.composition
+package caliban.gateway.internal.acquisition
 
 import caliban.{ InputValue, ResponseValue }
 import caliban.gateway.{ traverseEither, RemoteGraphQLConfig, SubgraphAcquisitionError }

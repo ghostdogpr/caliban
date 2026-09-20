@@ -1,4 +1,4 @@
-package caliban.gateway.internal.composition
+package caliban.gateway.internal.acquisition
 
 import caliban.ResponseValue
 import caliban.gateway.{ RemoteGraphQLConfig, ServiceField, SubgraphAcquisitionError }
@@ -13,7 +13,7 @@ import com.github.plokhotnyuk.jsoniter_scala.core.readFromArray
 import zio.{ IO, Trace, ZIO }
 import zio.http.URL
 
-private[composition] object FederationClient {
+private[acquisition] object FederationClient {
 
   def fetch(
     endpoint: URL,

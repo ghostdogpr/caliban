@@ -1,8 +1,8 @@
-package caliban.gateway.internal.composition
+package caliban.gateway.internal.acquisition
 
 import caliban.gateway.SupergraphAcquisitionError._
 import caliban.gateway.internal.GatewayHttpClient
-import caliban.gateway.internal.composition.ApolloUplinkClient.UplinkResponse
+import caliban.gateway.internal.acquisition.ApolloUplinkClient.UplinkResponse
 import caliban.gateway.{ RemoteGraphQLConfig, Supergraph, SupergraphAcquisitionError, SupergraphUplinkConfig }
 import caliban.parsing.Parser
 import caliban.parsing.adt.Document

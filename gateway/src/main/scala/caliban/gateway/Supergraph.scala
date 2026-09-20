@@ -2,7 +2,8 @@ package caliban.gateway
 
 import caliban.gateway.GatewayBuildError.{ SupergraphAcquisitionFailed, SupergraphDecompositionFailed }
 import caliban.gateway.internal.SchemaFingerprint
-import caliban.gateway.internal.composition.{ SupergraphAcquisition, SupergraphDecomposition }
+import caliban.gateway.internal.acquisition.SupergraphAcquisition
+import caliban.gateway.internal.composition.SupergraphDecomposition
 import caliban.parsing.adt.Document
 import zio.{ IO, Trace, ZIO }
 import zio.http._

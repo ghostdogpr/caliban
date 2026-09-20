@@ -2,7 +2,7 @@ package caliban.gateway
 
 import caliban.GraphQL
 import caliban.gateway.internal.GatewayHttpClient
-import caliban.gateway.internal.composition.RemoteSchemaAcquisition
+import caliban.gateway.internal.acquisition.RemoteSchemaAcquisition
 import caliban.gateway.internal.execution.{ LocalSubgraphExecutor, RemoteSubgraphExecutor, SubgraphExecutor }
 import caliban.parsing.adt.Document
 import zio.{ IO, Scope, Trace, ZIO }

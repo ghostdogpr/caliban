@@ -3,6 +3,7 @@ package caliban.gateway
 import caliban.gateway.Gateway.Origin
 import caliban.gateway.GatewayBuildError._
 import caliban.gateway.internal._
+import caliban.gateway.internal.acquisition.{ RemoteSchemaAcquisition, SupergraphAcquisition }
 import caliban.gateway.internal.composition._
 import caliban.gateway.internal.execution._
 import caliban.gateway.internal.planning.{ CandidateSearch, OperationPlanner }

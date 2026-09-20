@@ -1,4 +1,4 @@
-package caliban.gateway.internal.composition
+package caliban.gateway.internal.acquisition
 
 import caliban.gateway.TypenameField
 import caliban.{ GraphQLRequest, InputValue, ResponseValue }

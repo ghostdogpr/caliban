@@ -4,7 +4,7 @@ import caliban.Value.{ NullValue, StringValue }
 import caliban.gateway.GatewayTestSupport._
 import caliban.gateway.internal.GatewayHttpClient
 import caliban.gateway.SupergraphAcquisitionError._
-import caliban.gateway.internal.composition.SupergraphAcquisition
+import caliban.gateway.internal.acquisition.SupergraphAcquisition
 import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse }
 import com.github.plokhotnyuk.jsoniter_scala.core.{ readFromArray, writeToString }
 import zio.Config.Secret

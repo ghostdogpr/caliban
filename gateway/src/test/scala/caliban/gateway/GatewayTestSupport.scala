@@ -4,7 +4,7 @@ import caliban.ResponseValue
 import caliban.ResponseValue.ObjectValue
 import caliban.execution.RequestPreparation
 import caliban.gateway.internal.GatewayHttpClient
-import caliban.gateway.internal.composition.{ IntrospectionClient, SupergraphAcquisition }
+import caliban.gateway.internal.acquisition.{ IntrospectionClient, SupergraphAcquisition }
 import caliban.introspection.Introspector
 import caliban.parsing.Parser
 import caliban.parsing.adt.Document

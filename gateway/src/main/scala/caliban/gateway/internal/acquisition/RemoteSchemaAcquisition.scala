@@ -1,4 +1,4 @@
-package caliban.gateway.internal.composition
+package caliban.gateway.internal.acquisition
 
 import caliban.{ CalibanError, GraphQLRequest }
 import caliban.ResponseValue.{ ListValue, ObjectValue }
@@ -31,7 +31,7 @@ private[gateway] object RemoteSchemaAcquisition {
         acquisition.timeoutFail(TimedOut(config.timeout))(config.timeout)
     }
 
-  private[composition] def fetchBytes(
+  private[acquisition] def fetchBytes(
     endpoint: URL,
     query: String,
     operationName: String,
@@ -62,7 +62,7 @@ private[gateway] object RemoteSchemaAcquisition {
   /**
    * Returns None for malformed errors, or Some(Nil) when the response has no errors.
    */
-  private[composition] def responseErrors(value: ObjectValue): Option[List[CalibanError]] =
+  private[acquisition] def responseErrors(value: ObjectValue): Option[List[CalibanError]] =
     value.getOrNull("errors") match {
       case null | NullValue => Some(Nil)
       case ListValue(items) =>
@@ -72,7 +72,7 @@ private[gateway] object RemoteSchemaAcquisition {
     }
 
   // Bound parser recursion in schema text embedded inside JSON strings. Syntax validation stays with Parser.
-  private[composition] def withinGraphQLDepth(value: String, maxDepth: Int): Boolean = {
+  private[acquisition] def withinGraphQLDepth(value: String, maxDepth: Int): Boolean = {
     var index           = 0
     var depth           = 0
     var stringDelimiter = ""
@@ -103,7 +103,7 @@ private[gateway] object RemoteSchemaAcquisition {
     depth <= maxDepth
   }
 
-  private[composition] def isHtml(contentType: Option[String]): Boolean =
+  private[acquisition] def isHtml(contentType: Option[String]): Boolean =
     RemoteTransport.mediaType(contentType).exists(_.startsWith("text/html"))
 
   private def isJsonResponse(reply: GatewayHttpClient.Reply): Boolean = {
