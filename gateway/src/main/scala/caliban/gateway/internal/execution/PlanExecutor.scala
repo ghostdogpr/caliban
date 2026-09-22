@@ -32,10 +32,9 @@ private[gateway] final class PlanExecutor[-R](
   subgraphExecutors: Map[String, SubgraphExecutor[R]],
   hooks: PhaseHooks[R]
 ) {
-  def execute(prepared: PreparedPlan.Request, execution: ExecutionRequest, resolvedRequest: GraphQLRequest)(implicit
+  def execute(plan: OperationPlan, execution: ExecutionRequest, resolvedRequest: GraphQLRequest)(implicit
     trace: Trace
-  ): URIO[R, GraphQLResponse[CalibanError]] = {
-    val plan = prepared.plan
+  ): URIO[R, GraphQLResponse[CalibanError]] =
     plan.passthroughSubgraph match {
       case Some(subgraphName) =>
         val executor = subgraphExecutors(subgraphName)
@@ -45,7 +44,7 @@ private[gateway] final class PlanExecutor[-R](
             hooks.observeCompletion(
               ZIO.succeed(
                 completePassthrough(
-                  prepared.completion,
+                  plan.completion,
                   plan.fields,
                   response,
                   executor.errorPolicy.passthrough(plan.fields, response.errors)
@@ -53,23 +52,22 @@ private[gateway] final class PlanExecutor[-R](
               )
             )
           )
-          .catchAll(_ => hooks.observeCompletion(ZIO.succeed(passthroughFailure(prepared))))
+          .catchAll(_ => hooks.observeCompletion(ZIO.succeed(passthroughFailure(plan))))
       case None               =>
         val introspectionFields = plan.introspectionFields
         if (introspectionFields.isEmpty)
-          executeRemote(prepared, execution, resolvedRequest)
-            .flatMap(remote => hooks.observeCompletion(ZIO.succeed(assemble(prepared, remote, NoLocalResponse))))
+          executeRemote(plan, execution, resolvedRequest)
+            .flatMap(remote => hooks.observeCompletion(ZIO.succeed(assemble(plan, remote, NoLocalResponse))))
         else
-          executeRemote(prepared, execution, resolvedRequest)
+          executeRemote(plan, execution, resolvedRequest)
             .zipPar(executeIntrospection(execution, introspectionFields))
-            .flatMap { case (remote, local) => hooks.observeCompletion(ZIO.succeed(assemble(prepared, remote, local))) }
+            .flatMap { case (remote, local) => hooks.observeCompletion(ZIO.succeed(assemble(plan, remote, local))) }
     }
-  }
 
   def forSubscription(
-    prepared: PreparedPlan.Subscription
+    plan: OperationPlan
   )(implicit trace: Trace): ZIO[R, SubgraphExecutor.Failure, PlanExecutor[R]] = {
-    val used = prepared.plan.roots.map(_.source).toSet ++ prepared.plan.entities.map(_.source)
+    val used = plan.roots.map(_.source).toSet ++ plan.entities.map(_.source)
     ZIO
       .foreach(subgraphExecutors) { case (name, executor) =>
         (if (used(name)) executor.forSubscription else ZIO.succeed(executor)).map(name -> _)
@@ -77,10 +75,10 @@ private[gateway] final class PlanExecutor[-R](
       .map(new PlanExecutor(graph, _, hooks))
   }
 
-  def subscribe(prepared: PreparedPlan.Subscription, execution: ExecutionRequest, resolvedRequest: GraphQLRequest)(
-    implicit trace: Trace
+  def subscribe(plan: OperationPlan, execution: ExecutionRequest, resolvedRequest: GraphQLRequest)(implicit
+    trace: Trace
   ): ZIO[R with Scope, Throwable, ZStream[Any, Throwable, GraphQLResponse[CalibanError]]] = {
-    val fetch    = prepared.source
+    val fetch    = plan.roots.head
     val executor = subgraphExecutors(fetch.source)
 
     def open(
@@ -99,31 +97,31 @@ private[gateway] final class PlanExecutor[-R](
           case error                                                                               => error
         })
 
-    if (prepared.plan.passthroughSubgraph.nonEmpty)
+    if (plan.passthroughSubgraph.nonEmpty)
       open(
         resolvedRequest,
-        response => response.copy(errors = executor.errorPolicy.passthrough(prepared.plan.fields, response.errors))
+        response => response.copy(errors = executor.errorPolicy.passthrough(plan.fields, response.errors))
       )
     else {
-      val root     = prepareRoot(fetch, OperationType.Subscription, execution.operationName, prepared.cache)
+      val root     = prepareRoot(fetch, OperationType.Subscription, execution.operationName, plan.executionCache)
       val outgoing = GraphQLRequest(query = Some(root.query), operationName = execution.operationName)
       open(outgoing, response => restoreRoot(fetch, root, executor.errorPolicy, response).response)
     }
   }
 
   def executeEvent(
-    prepared: PreparedPlan.Subscription,
+    plan: OperationPlan,
     request: GraphQLRequest,
     response: GraphQLResponse[CalibanError]
   )(implicit trace: Trace): URIO[R, GraphQLResponse[CalibanError]] =
     if (response.data == NullValue) ZIO.succeed(response.copy(extensions = None))
     else
       executeEntityFetches(
-        prepared.plan.entities,
-        RootResult(prepared.source, response.copy(extensions = None)) :: Nil,
+        plan.entities,
+        RootResult(plan.roots.head, response.copy(extensions = None)) :: Nil,
         request,
-        prepared.cache
-      ).map(assemble(prepared, _, NoLocalResponse))
+        plan.executionCache
+      ).map(assemble(plan, _, NoLocalResponse))
 
   private lazy val introspection: RootSchema[Any] = Introspector.introspect[Any](graph.rootType)
   private val entityExecutor                      = new EntityExecutor[R](graph, subgraphExecutors)
@@ -146,16 +144,14 @@ private[gateway] final class PlanExecutor[-R](
     }
 
   private def executeRemote(
-    prepared: PreparedPlan.Request,
+    plan: OperationPlan,
     execution: ExecutionRequest,
     resolvedRequest: GraphQLRequest
-  )(implicit trace: Trace): URIO[R, RemoteExecution] = {
-    val plan = prepared.plan
-    if (plan.operation == OperationType.Mutation) executeMutations(prepared, plan.roots, execution, resolvedRequest)
+  )(implicit trace: Trace): URIO[R, RemoteExecution] =
+    if (plan.operation == OperationType.Mutation) executeMutations(plan, plan.roots, execution, resolvedRequest)
     else
-      executeRoots(plan.roots, execution, resolvedRequest, prepared.cache)
-        .flatMap(executeEntityFetches(plan.entities, _, resolvedRequest, prepared.cache))
-  }
+      executeRoots(plan.roots, execution, resolvedRequest, plan.executionCache)
+        .flatMap(executeEntityFetches(plan.entities, _, resolvedRequest, plan.executionCache))
 
   /**
    * Finish each root's dependent entity fetches and response completion before starting the next mutation root:
@@ -163,34 +159,33 @@ private[gateway] final class PlanExecutor[-R](
    * A non-null failure that bubbles to the response root stops the remaining mutation roots.
    */
   private def executeMutations(
-    prepared: PreparedPlan,
+    plan: OperationPlan,
     pending: List[RootFetch],
     execution: ExecutionRequest,
     resolvedRequest: GraphQLRequest
-  )(implicit trace: Trace): URIO[R, RemoteExecution.Completed] = {
-    val plan = prepared.plan
+  )(implicit trace: Trace): URIO[R, RemoteExecution.Completed] =
     pending match {
       case Nil           => ZIO.succeed(RemoteExecution.Completed(Nil, Nil, Nil, aborted = false))
       case fetch :: tail =>
-        executeRoot(fetch, execution, resolvedRequest, prepared.cache).flatMap { root =>
+        executeRoot(fetch, execution, resolvedRequest, plan.executionCache).flatMap { root =>
           val rootData = mutationRootData(fetch, root.response.data)
           val entities = plan.entities.filter(_.root == fetch.id)
           executeEntityFetches(
             entities,
             root.copy(response = root.response.copy(data = rootData)) :: Nil,
             resolvedRequest,
-            prepared.cache
+            plan.executionCache
           ).flatMap { remote =>
             val updated       = remote.roots.head
             val errors        = updated.response.errors ::: remote.entityResults.flatMap(_.errors)
-            val completed     = prepared.completion.complete(fetch.client, updated.response.data, errors)
+            val completed     = plan.completion.complete(fetch.client, updated.response.data, errors)
             val completedRoot = updated.copy(response = updated.response.copy(data = completed.toResponseValue))
             if (completed.bubblesNull)
               ZIO.succeed(
                 RemoteExecution.Completed(completedRoot :: Nil, remote.entityResults, completed.errors, aborted = true)
               )
             else
-              executeMutations(prepared, tail, execution, resolvedRequest).map(next =>
+              executeMutations(plan, tail, execution, resolvedRequest).map(next =>
                 RemoteExecution.Completed(
                   completedRoot :: next.roots,
                   remote.entityResults ::: next.entityResults,
@@ -201,7 +196,6 @@ private[gateway] final class PlanExecutor[-R](
           }
         }
     }
-  }
 
   private def mutationRootData(fetch: RootFetch, data: ResponseValue): ResponseValue =
     data match {
@@ -381,11 +375,10 @@ private[gateway] final class PlanExecutor[-R](
     Executor.executeRequest(execution.copy(field = execution.field.copy(fields = fields)), introspection.query.plan)
 
   private def assemble(
-    prepared: PreparedPlan,
+    plan: OperationPlan,
     remote: RemoteExecution,
     local: GraphQLResponse[CalibanError]
   ): GraphQLResponse[CalibanError] = {
-    val plan        = prepared.plan
     val roots       = remote.roots
     val localValues = responseFields(local).toMap
     val rootValues  =
@@ -405,7 +398,7 @@ private[gateway] final class PlanExecutor[-R](
     val errors      = local.errors ::: roots.flatMap(_.response.errors) ::: remote.entityResults.flatMap(_.errors)
     remote match {
       case RemoteExecution.Fetched(_, _)                           =>
-        val completed = prepared.completion.complete(plan.fields, data, errors)
+        val completed = plan.completion.complete(plan.fields, data, errors)
         GraphQLResponse(completed.toResponseValue, errors ::: completed.errors)
       case RemoteExecution.Completed(_, _, completionErrors, true) =>
         GraphQLResponse(NullValue, errors ::: completionErrors)
@@ -433,11 +426,10 @@ private[gateway] final class PlanExecutor[-R](
   private def rootFailure(fetch: RootFetch): GraphQLResponse[CalibanError] =
     GraphQLResponse(RemoteError.nullObject(fetch.client), RemoteError.forFields(fetch.client))
 
-  private def passthroughFailure(prepared: PreparedPlan): GraphQLResponse[CalibanError] = {
-    val plan   = prepared.plan
+  private def passthroughFailure(plan: OperationPlan): GraphQLResponse[CalibanError] = {
     val data   = RemoteError.nullObject(plan.fields)
     val errors = RemoteError.forFields(plan.fields)
-    completePassthrough(prepared.completion, plan.fields, GraphQLResponse(data, errors), errors)
+    completePassthrough(plan.completion, plan.fields, GraphQLResponse(data, errors), errors)
   }
 }
 
@@ -467,14 +459,14 @@ private[gateway] object PlanExecutor {
   }
 }
 
-private[execution] final class PlanExecutionCache {
+private[gateway] final class PlanExecutionCache {
   def root(id: FetchId)(prepare: => PlanExecutor.PreparedRoot): PlanExecutor.PreparedRoot =
     memoize(roots, id)(prepare)
 
-  def lookup(id: FetchId)(prepare: => EntityLookup.PreparedLookup): EntityLookup.PreparedLookup =
+  private[execution] def lookup(id: FetchId)(prepare: => EntityLookup.PreparedLookup): EntityLookup.PreparedLookup =
     memoize(lookups, id)(prepare)
 
-  def groupKey(fetch: EntityFetch): EntityGroupKey =
+  private[execution] def groupKey(fetch: EntityFetch): EntityGroupKey =
     memoize(groupKeys, fetch.id)(entityGroupKey(fetch))
 
   private val roots     = new ConcurrentHashMap[FetchId, PlanExecutor.PreparedRoot]
@@ -493,26 +485,5 @@ private[execution] final class PlanExecutionCache {
       cache.put(id, created)
       created
     }
-  }
-}
-
-/**
- * Execution-only memoization, reused with the cached plan and replaced when variables are bound.
- */
-private[gateway] sealed abstract class PreparedPlan(val plan: OperationPlan) {
-  lazy val cache: PlanExecutionCache                         = new PlanExecutionCache
-  lazy val completion: ResponseCompletion                    = ResponseCompletion.forPlan(plan)
-  def hasVariableReferences: Boolean                         = plan.hasVariableReferences
-  def bind(variables: Map[String, InputValue]): PreparedPlan = PreparedPlan(plan.bind(variables))
-}
-
-private[gateway] object PreparedPlan {
-  def apply(plan: OperationPlan): PreparedPlan =
-    if (plan.operation == OperationType.Subscription) new Subscription(plan) else new Request(plan)
-
-  final class Request private[PreparedPlan] (plan: OperationPlan) extends PreparedPlan(plan)
-
-  final class Subscription private[PreparedPlan] (plan: OperationPlan) extends PreparedPlan(plan) {
-    val source: RootFetch = plan.roots.head
   }
 }

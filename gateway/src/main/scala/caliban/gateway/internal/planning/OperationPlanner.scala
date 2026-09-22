@@ -70,8 +70,7 @@ private[gateway] final class OperationPlanner(
                               )
         best               <- planRoots(subgraphFields, execution.operationType)
         typenameSelections  = collectTypenameSelections(best.rootCandidates, best.entities)
-        passthroughSubgraph =
-          findPassthroughSubgraph(best.roots, best.entities, typenameSelections, localFields)
+        passthroughSubgraph = findPassthroughSubgraph(best.roots, best.entities, typenameSelections, localFields)
         _                  <- Either.cond(
                                 passthroughSubgraph.nonEmpty ||
                                   !document.hasDirective(execution.operationName)(isCustomDirective),
@@ -92,10 +91,9 @@ private[gateway] final class OperationPlanner(
       )
     }
 
-  private def planRoots(
-    fields: List[Field],
-    operationType: OperationType
-  )(implicit search: CandidateSearch): Either[PlanningFailure, PlanCandidate] =
+  private def planRoots(fields: List[Field], operationType: OperationType)(implicit
+    search: CandidateSearch
+  ): Either[PlanningFailure, PlanCandidate] =
     search
       .fold(fields, List(List.empty[RootCandidate])) { (accumulated, field) =>
         planRootOptions(field, operationType).flatMap { options =>
@@ -116,10 +114,9 @@ private[gateway] final class OperationPlanner(
           .map(_.minBy(planCost))
       )
 
-  private def planRootOptions(
-    field: Field,
-    operationType: OperationType
-  )(implicit search: CandidateSearch): Either[PlanningFailure, List[List[RootCandidate]]] = {
+  private def planRootOptions(field: Field, operationType: OperationType)(implicit
+    search: CandidateSearch
+  ): Either[PlanningFailure, List[List[RootCandidate]]] = {
     val subgraphs = graph.rootFieldSources(operationType, field.name)
     for {
       _       <-

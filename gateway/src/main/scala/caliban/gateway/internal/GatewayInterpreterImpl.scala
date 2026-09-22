@@ -6,7 +6,7 @@ import caliban.Value.NullValue
 import caliban.execution.{ ExecutionRequest, Executor }
 import caliban.gateway.PhaseHooks.{ Event, Outcome, Result }
 import caliban.gateway.internal.GatewayInterpreterImpl._
-import caliban.gateway.internal.execution.{ PlanExecutor, PreparedPlan }
+import caliban.gateway.internal.execution.PlanExecutor
 import caliban.gateway.{ GatewayInterpreter, OperationEvent, PhaseHooks }
 import caliban.parsing.adt.{ Document, OperationType }
 import caliban._
@@ -35,13 +35,13 @@ private[gateway] final class GatewayInterpreterImpl[-R](
   def release(implicit trace: Trace): UIO[Unit] = reservation.fold[UIO[Unit]](ZIO.unit)(control.release(_))
 
   def explain(request: GraphQLRequest)(implicit trace: Trace): ZIO[R, CalibanError, String] =
-    runRequest(operations.prepare(request).map(_.plan.plan.render))
+    runRequest(operations.prepare(request).map(_.plan.render))
 
   def executeRequest(request: GraphQLRequest)(implicit trace: Trace): URIO[R, GraphQLResponse[CalibanError]] =
     if (hooks.enabled) executeObservedRequest(request)
     else
       control.runRequest(
-        operations.prepare(request).foldZIO(failPreparation, executePrepared),
+        operations.prepare(request).foldZIO(failPreparation, executeOperation),
         reservation
       )(GraphQLResponseContext.markServerError(ServerFailure.TimedOut).as(requestTimeoutResponse))(shutdownResponse)
 
@@ -68,21 +68,21 @@ private[gateway] final class GatewayInterpreterImpl[-R](
 
     val execution = control
       .runObservedRequest(Event.Execution(request.operationName), reservation)(preparation)(
-        _.fold(_ => true, _.plan.plan.operation != OperationType.Subscription)
+        _.fold(_ => true, _.plan.operation != OperationType.Subscription)
       )(
         _.fold[URIO[R, RequestResult]](
           error =>
             hooks
               .observeCompletion(failPreparation(error))
               .map(RequestResult.NotExecuted(_, preparationOutcome(error))),
-          prepared =>
-            executePrepared(prepared).map { response =>
+          operation =>
+            executeOperation(operation).map { response =>
               RequestResult.Executed(
                 response,
                 Outcome.fromResponse(response),
-                prepared.plan.plan.operation,
-                prepared.document,
-                prepared.executionRequest
+                operation.plan.operation,
+                operation.document,
+                operation.executionRequest
               )
             }
         )
@@ -114,14 +114,14 @@ private[gateway] final class GatewayInterpreterImpl[-R](
        GraphQLResponseContext.markServerError(ServerFailure.Internal)
      else GraphQLResponseContext.markRequestError(error)) *> Executor.fail(error)
 
-  private def executePrepared(prepared: OperationPreparation.Prepared)(implicit
+  private def executeOperation(operation: OperationPreparation.ExecutableOperation)(implicit
     trace: Trace
   ): URIO[R, GraphQLResponse[CalibanError]] =
-    GraphQLResponseContext.markExecuted *> (prepared.plan match {
-      case subscription: PreparedPlan.Subscription =>
+    GraphQLResponseContext.markExecuted *> (operation.plan.operation match {
+      case OperationType.Subscription =>
         (for {
           frozen  <- executor
-                       .forSubscription(subscription)
+                       .forSubscription(operation.plan)
                        .mapError(_ => CalibanError.ExecutionError("Subscription headers could not be prepared."))
           env     <- ZIO.environment[R]
           headers <- IncomingRequestHeaders.get
@@ -131,16 +131,16 @@ private[gateway] final class GatewayInterpreterImpl[-R](
               .locallyScoped(headers)
               .as(
                 control.subscriptions
-                  .stream(frozen.subscribe(subscription, prepared.executionRequest, prepared.request))(response =>
-                    frozen.executeEvent(subscription, prepared.request, response)
+                  .stream(frozen.subscribe(operation.plan, operation.executionRequest, operation.request))(response =>
+                    frozen.executeEvent(operation.plan, operation.request, response)
                   )
                   .provideEnvironment(env)
               )
           )
           GraphQLResponse(StreamValue(events.map(_.toResponseValue)), Nil)
         }).catchAll(failPreparation)
-      case request: PreparedPlan.Request           =>
-        executor.execute(request, prepared.executionRequest, prepared.request)
+      case _                          =>
+        executor.execute(operation.plan, operation.executionRequest, operation.request)
     })
 
   private def preparationOutcome(error: CalibanError): Outcome =

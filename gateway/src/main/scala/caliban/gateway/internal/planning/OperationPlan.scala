@@ -3,6 +3,7 @@ package caliban.gateway.internal.planning
 import caliban.{ Hash, InputValue }
 import caliban.execution.{ isIntrospectionField, Field, Fragment }
 import caliban.gateway.internal.composition.ComposedGraph
+import caliban.gateway.internal.execution.{ PlanExecutionCache, ResponseCompletion }
 import caliban.gateway.internal.planning.OperationPlan._
 import caliban.parsing.adt.{ Directive, OperationType, Selection }
 import caliban.rendering.DocumentRenderer
@@ -33,7 +34,11 @@ private[gateway] final case class OperationPlan(
 
   lazy val hasVariableReferences: Boolean = PlanVariables.hasReferences(this)
 
-  private[internal] def bind(variables: Map[String, InputValue]): OperationPlan =
+  // Cached plans share these artifacts; binding variables creates a plan with fresh caches.
+  lazy val executionCache: PlanExecutionCache = new PlanExecutionCache
+  lazy val completion: ResponseCompletion     = ResponseCompletion.forPlan(this)
+
+  def bind(variables: Map[String, InputValue]): OperationPlan =
     PlanVariables.bind(this, variables)
 }
 
