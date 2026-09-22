@@ -2,6 +2,8 @@
 
 **Federation** is an optional module which can be included in your configuration to enroll with a federated schema.
 
+To combine Federation subgraphs into one API, see [Caliban Gateway](gateway/subgraphs.md#federation-subgraphs).
+
 ## Dependencies
 
 `caliban-federation` only depends on `caliban-core` and is very unobtrusive.

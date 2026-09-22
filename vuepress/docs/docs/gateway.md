@@ -1,16 +1,10 @@
-# Gateway
+# Getting Started
 
-Caliban Gateway gives clients one GraphQL endpoint backed by multiple GraphQL services. A gateway can combine:
+Caliban Gateway gives clients one GraphQL endpoint backed by multiple services. It can combine ordinary GraphQL services, Apollo Federation subgraphs, and in-process Caliban APIs.
 
-- ordinary GraphQL services
-- Apollo Federation subgraphs
-- in-process Caliban APIs
+It is an alternative to [Apollo Router](https://www.apollographql.com/docs/graphos/routing/get-started), [Hive Router](https://the-guild.dev/graphql/hive/router), and [Cosmo Router](https://wundergraph.com/blog/an-intro-to-cosmo-router), with configuration and customization in Scala.
 
-Define the subgraphs, pass them to `Gateway.compose`, and serve the combined API with `QuickAdapter`.
-
-::: tip
-If all your services use Apollo Federation, start with [Federation subgraphs](#federation-subgraphs). For ordinary GraphQL services, start with [Ordinary GraphQL services](#ordinary-graphql-services). Add a lookup only when one query needs fields for the same object from more than one service.
-:::
+Define your subgraphs with `Gateway.compose`, or load an existing supergraph with `Gateway.fromSupergraph`. Serve the combined API with `QuickAdapter`.
 
 ## Installation
 
@@ -23,15 +17,24 @@ libraryDependencies ++= Seq(
 )
 ```
 
-For OpenTelemetry tracing, also add:
-
-```scala
-libraryDependencies += "com.github.ghostdogpr" %% "caliban-gateway-tracing" % "3.1.5"
-```
-
 ## Your first gateway
 
-The following application combines two remote GraphQL services and exposes the result at `/graphql`:
+This example combines the products and reviews services from the Caliban repository. Clone the repository, then start each service in a separate terminal from its root directory:
+
+```sh
+git clone --branch series/3.x https://github.com/ghostdogpr/caliban.git
+cd caliban
+```
+
+```sh
+sbt "gatewayExamples/runMain example.gateway.ProductsApi"
+```
+
+```sh
+sbt "gatewayExamples/runMain example.gateway.ReviewsApi"
+```
+
+The services listen on ports 8081 and 8082. In your own sbt project, add the dependencies above and save the following as `src/main/scala/Main.scala`:
 
 ```scala
 import caliban.QuickAdapter
@@ -42,12 +45,12 @@ import zio.http._
 object Main extends ZIOAppDefault {
   private val products = Subgraph.graphql(
     "products",
-    url"http://products:8080/graphql"
+    url"http://localhost:8081/graphql"
   )
 
   private val reviews = Subgraph.graphql(
     "reviews",
-    url"http://reviews:8080/graphql"
+    url"http://localhost:8082/graphql"
   )
 
   private val gateway = Gateway.compose(products, reviews)
@@ -66,683 +69,52 @@ object Main extends ZIOAppDefault {
 
 At startup, the gateway loads and combines both schemas. If composition fails, the application exits and identifies the subgraph or schema that caused the error.
 
-## Hot reload
+## Run and query the gateway
 
-Use `gateway.reloadable` instead of `gateway.interpreter` to refresh acquired remote schemas without replacing your HTTP adapter:
+With both services running, start your gateway from your own project's directory:
 
-```scala
-import zio._
-
-val reloadableGateway = gateway.withConfig(
-  _.withReloadPollInterval(30.seconds)
-    .withReloadJitter(0.2)
-)
-
-for {
-  interpreter <- reloadableGateway.reloadable
-  _           <- QuickAdapter(interpreter).runServer(4000, "/graphql")
-} yield ()
+```sh
+sbt "runMain Main"
 ```
 
-Startup still requires a valid initial interpreter, and at least one subgraph must acquire its schema remotely. From then on the gateway polls ordinary acquired schemas through introspection and Federation schemas through `_service`. Pinned SDL, parsed documents, local graphs, endpoints, and configuration stay fixed. A gateway built with `Gateway.fromSupergraph` reloads only from a file, HTTP, or registry source, and Apollo Uplink requires a poll interval of at least ten seconds, jitter included.
+Open `http://localhost:4000/graphiql`, or send a query from another terminal:
 
-Each refresh collects every acquired schema under the acquisition timeout and body-size limit you configured for that subgraph. One acquisition HTTP client serves the whole lifetime of the reloadable interpreter, while each interpreter generation gets its own execution client. A failed collection leaves the current generation in place.
-
-The gateway then compares the parsed schemas against the active snapshot. That comparison ignores whitespace, comments, source locations, and the order of definitions, fields, arguments, enum values, union members, and implemented interfaces. It keeps descriptions, directive application order, and input list-value order. Only the fingerprint is canonicalized, never the documents used for composition. Unchanged schemas keep the interpreter and its warm operation cache.
-
-When a schema does change, the gateway builds a candidate from the documents it already collected and runs the usual build validation on it. There is no separate breaking-change check.
-
-A request first reserves a lease on the active generation. If publication has already retired that generation, the gateway selects again before any request work runs, so a request never lands on a generation that has stopped accepting work. Once a lease is granted the operation always finishes on the generation that admitted it, and the gateway never retries resolution or execution against a replacement. It re-checks for shutdown after reserving the lease, and releases the lease unexecuted if admission closed in the meantime.
-
-Polling defaults to 30 seconds with up to 20% jitter in either direction, measured from the end of the previous refresh and any retirement work it waited on. Cycles never overlap, so the interval is not a promise that schemas are at most 30 seconds old. When acquisition or construction fails, the active interpreter keeps serving and the gateway tries again on the next cycle.
-
-### Draining and resource limits
-
-The old interpreter drains for the duration set by `GatewayConfig.withDrainTimeout`. At most two generations exist at once: active and candidate during construction, active and retiring after publication. The next refresh waits for retirement to finish.
-
-Retirement has no minimum delay, so an idle generation closes immediately. A stuck request is the expensive case. It can delay the next schema check by the full drain timeout, 30 seconds by default, plus the polling delay, and uninterruptible work can postpone that check indefinitely. The gateway logs a warning when retirement runs past the drain timeout. Throughout, the active generation keeps serving.
-
-Each generation carries its own operation cache. When the drain timeout expires the gateway requests interruption. Work that refuses it holds the old generation and keeps refreshes paused, though the active generation still serves.
-
-Closing the owning scope stops admission and publication, cancels refresh work, and closes every owned scope. Active and retiring generations then drain together, without resetting the old generation's deadline, and closure waits for any uninterruptible work to finish.
-
-### Monitoring reloads
-
-`interpreter.lastReloadFailure` returns a `UIO[Option[String]]` holding a bounded summary of the latest failed refresh. Any successful check clears it, including one that finds no schema change. The summary never carries raw schemas, remote messages, response bodies, or exception causes.
-
-Report reload health separately from serving readiness. A failed refresh does not evict a generation that can still serve requests.
-
-The gateway logs activation, failure, recovery, and overdue retirement, and suppresses repeats of the same failure. Hot reload adds no administrative HTTP endpoints, manual refresh, metrics, or tracing interfaces.
-
-## Adding subgraphs
-
-Give every subgraph a unique name such as `products` or `reviews`. Caliban uses it in error messages and monitoring data.
-
-Choose `Subgraph.graphql` for ordinary GraphQL composition or `Subgraph.federation` for Federation composition. Both accept a remote URL or a local Caliban `GraphQL` API.
-
-### Ordinary GraphQL services
-
-Use `Subgraph.graphql` for a regular GraphQL endpoint:
-
-```scala
-val catalog = Subgraph.graphql(
-  "catalog",
-  url"http://catalog:8080/graphql"
-)
+```sh
+curl http://localhost:4000/graphql \
+  -H 'Content-Type: application/json' \
+  --data '{"query":"{ product(id: \"caliban\") { name } latestReviews { body } }"}'
 ```
 
-By default, the gateway acquires the schema through introspection. You can instead provide SDL directly:
-
-```scala
-val catalog = Subgraph.graphql(
-  "catalog",
-  url"http://catalog:8080/graphql",
-  """
-    type Query {
-      product(id: ID!): Product
-    }
-
-    type Product {
-      id: ID!
-      name: String!
-    }
-  """
-)
-```
-
-Omit the SDL and the gateway loads it from the service at startup. Pin it when introspection is disabled or unavailable. The endpoint still has to be reachable to execute requests, and the pinned SDL has to be kept in step with what is deployed.
-
-### Federation subgraphs
-
-Use `Subgraph.federation` for an Apollo Federation subgraph:
-
-```scala
-val products = Subgraph.federation(
-  "products",
-  url"http://products:8080/graphql"
-)
-
-val reviews = Subgraph.federation(
-  "reviews",
-  url"http://reviews:8080/graphql"
-)
-
-val gateway = Gateway.compose(products, reviews)
-```
-
-The gateway acquires each Federation schema through `_service`. To pin a Federation schema, pass its SDL as the third argument to `Subgraph.federation`.
-
-The gateway reads entity information from the Federation schemas. You do not need to add the `Lookup` configuration described in the next section.
-
-### Supergraphs
-
-apollo-router and hive-router consume a single supergraph document. Every constituent subgraph is merged into one schema and annotated with routing directives. It can come from a local file, an HTTP URL, or a schema registry. If you are moving from one of those routers, `Gateway.fromSupergraph` takes the same document.
-
-```scala
-import zio.Config.Secret
-import zio.http._
-import caliban.gateway.{ Gateway, Supergraph }
-
-// From a file
-val file = Supergraph.file(java.nio.file.Paths.get("supergraph.graphql"))
-
-// From an HTTP URL
-val http = Supergraph.http(url"https://example.com/supergraph.graphql")
-
-// From a raw SDL string; `Supergraph.parsed` takes an already parsed Caliban document
-val sdl = Supergraph.sdl("<a raw supergraph sdl string>")
-
-// From the Apollo schema registry
-val apollo = Supergraph.uplink("my-graph@production", Secret("service:my-apikey"))
-
-// From the Hive CDN
-val hive = Supergraph.hive("my-target-id", Secret("my-cdn-key"))
-
-val gateway = Gateway.fromSupergraph(apollo)
-```
-
-### Progressive field overrides
-
-Federation 2.7 and later can move a field between subgraphs gradually. Add a percentage label to `@override` to let the gateway select the overriding subgraph for that share of requests:
-
-```graphql
-type Product {
-  inStock: Boolean @override(from: "inventory", label: "percent(10)")
-}
-```
-
-The gateway resolves `percent(x)` labels itself: one random decision per label per request, for any percentage between 0 and 100. Nothing is sticky across requests, and fields sharing a label share the decision.
-
-For custom labels, use an [override-label hook](#progressive-override-labels).
-
-### In-process Caliban APIs
-
-Pass a Caliban API to `Subgraph.graphql` to execute it in process:
-
-```scala
-import caliban._
-import caliban.gateway.Subgraph
-import caliban.schema.GenericSchema
-
-object LocalApi extends GenericSchema[Any] {
-  import auto._
-
-  final case class Query(gatewayVersion: String)
-
-  val api = graphQL(RootResolver(Query("v1")))
-}
-
-val local = Subgraph.graphql("gateway", LocalApi.api)
-```
-
-For a local Federation API, use `Subgraph.federation` with an API already configured through Caliban's Federation support:
-
-```scala
-import caliban.federation.v2_6.federated
-
-val federatedApi = LocalApi.api @@ federated
-val localFederation = Subgraph.federation("gateway", federatedApi)
-```
-
-The constructor selects composition semantics. It does not add Federation entity resolvers to the API or infer the mode from schema directives. You can mix local and remote subgraphs in one `Gateway.compose` call.
-
-## Connecting objects across ordinary services
-
-Federation schemas already explain how to fetch an entity from another service. With ordinary GraphQL services, you provide that information using a `Lookup`.
-
-Suppose the catalog service returns a `Product`, while the reviews service adds `reviews` to `Product` and exposes this batch field:
-
-```graphql
-type Query {
-  productsByIds(ids: [ID!]!): [Product!]!
-}
-
-type Product {
-  id: ID!
-  reviews: [Review!]!
-}
-```
-
-Describe how the reviews service fetches products:
-
-```scala
-import caliban.gateway.Lookup
-import zio.http._
-
-val reviews = Subgraph
-  .graphql("reviews", url"http://reviews:8080/graphql", reviewsSdl)
-  .withLookup(
-    Lookup.list(
-      "Product",
-      List("id"),
-      "productsByIds",
-      Map("id" -> "id"),
-      "ids" -> Lookup.Argument.batch(Lookup.Argument.key("id"))
-    )
-  )
-```
-
-Use `Lookup.single` when the subgraph fetches one object at a time. Use `Lookup.list` when it accepts several keys in one request:
-
-- The correlation map uses key fields to match returned objects. Results must be non-null. The gateway omits missing objects.
-- `Argument.key("id")` reads the `id` from the object that the gateway is fetching.
-- `Argument.obj(...)` builds an input object for the subgraph.
-- `Argument.batch(...)` builds one argument value for each requested object.
-
-Prefer a batch lookup wherever the subgraph supports one. It collapses several objects into a single subgraph request.
-
-## Configuring remote services
-
-Use `RemoteGraphQLConfig` to set timeouts, retries, headers, or body-size limits for a remote service.
-
-```scala
-import caliban.gateway.RemoteGraphQLConfig
-import zio._
-import zio.http._
-
-val remoteConfig = RemoteGraphQLConfig.default
-  .withExecution(
-    _.withTimeout(10.seconds)
-      .withRetries(2, 100.millis)
-  )
-
-val products = Subgraph.graphql(
-  "products",
-  url"http://products:8080/graphql",
-  remoteConfig
-)
-```
-
-The configuration applies to that subgraph alone, so each remote service can run on different settings.
-
-Retries are off by default. Once you enable them, the gateway repeats only requests that are safe to repeat.
-
-Concurrent identical remote queries share one in-flight call by default. Sharing requires a matching request body and matching outbound headers wherever those affect request semantics, and mutations never share a call. Turn it off for a subgraph with `.withExecution(_.withInFlightQueryDeduplication(false))`.
-
-If loading the schema at startup requires authentication, configure its headers separately:
-
-```scala
-val remoteConfig = RemoteGraphQLConfig.default.withAcquisition(
-  _.withTimeout(5.seconds)
-    .withHeaders(Header.Custom("X-Schema-Token", "schema-secret"))
-)
-```
-
-The gateway sends acquisition headers on the initial schema load and on every refresh. It sends the execution headers covered next with remote queries, mutations, and subscription setup.
-
-### Authentication and request headers
-
-To send the same credentials with every request to a service:
-
-```scala
-val config = RemoteGraphQLConfig.default.withExecution(
-  _.withHeaders(Header.Authorization.Bearer("service-token"))
-)
-```
-
-If the token must be loaded or refreshed dynamically, use `withExecutionHeadersZIO`:
-
-```scala
-val loadToken: Task[String] = ???
-
-val config = RemoteGraphQLConfig.default.withExecutionHeadersZIO(
-  loadToken.map(token => List(Header.Authorization.Bearer(token)))
-)
-```
-
-Forward selected client headers by name:
-
-```scala
-val config = RemoteGraphQLConfig.default.withExecution(
-  _.forwardIncomingHeaders("Authorization", "X-Request-ID")
-)
-```
-
-Matching ignores header-name case. Prefer an explicit allowlist. `forwardAllIncomingHeaders` is safe only when every header a client can send is safe to hand a subgraph.
-
-`QuickAdapter` handles forwarded headers automatically. If you build your own HTTP integration, pass the incoming headers with `interpreter.executeRequest(request, headers)`.
-
-## Shaping the public schema
-
-Transform a subgraph before composition when its source names should not appear in the public schema:
-
-```scala
-import caliban.gateway.SchemaTransformation
-import zio.http._
-
-val reviews = Subgraph
-  .graphql("reviews", url"http://reviews:8080/graphql", reviewsSdl)
-  .transform(
-    SchemaTransformation.renameField("Product", "reviews", "customerReviews"),
-    SchemaTransformation.hideField("Product", "internalScore")
-  )
-```
-
-Clients see the new names. The remote service still receives the original ones.
-
-You can rename types, fields, and arguments, and hide types, fields, optional arguments, and optional input fields. Enum values and input-field names stay as they are. Invalid or conflicting changes fail at startup.
-
-## Gateway limits and shutdown
-
-Configure limits shared by the whole gateway with `withConfig`:
-
-```scala
-val gateway = Gateway
-  .compose(products, reviews)
-  .withConfig(
-    _.withRequestTimeout(10.seconds)
-      .withDrainTimeout(20.seconds)
-  )
-```
-
-The main settings are:
-
-- `withRequestTimeout` for the maximum duration of a client request
-- `withDrainTimeout` for the time allowed to finish requests during shutdown
-- `withMaxOperationCost` for rejecting operations whose estimated cost exceeds a positive limit
-
-Local Caliban subgraphs run directly within the request budget. Remote subgraphs also have their own call timeouts.
-
-### Demand control
-
-`withMaxOperationCost` enables static demand control. The gateway estimates the planned subgraph requests after binding request variables and rejects an operation before contacting any subgraph when its cost exceeds the limit:
-
-```scala
-val gateway = Gateway
-  .compose(products, reviews)
-  .withConfig(_.withMaxOperationCost(1000))
-```
-
-Federation 2.9 `@cost` and `@listSize` directives customize the estimate. The gateway also accepts the directives through a direct `https://specs.apollo.dev/cost/v0.1` link, including imported aliases. `@listSize` supports `assumedSize`, `slicingArguments` paths that reference an `Int`, a list, or a nested input value, `sizedFields`, and `requireOneSlicingArgument`.
-
-The estimate follows the query plan, so it counts the fields the gateway injects for entity keys and requirements. Each planned mutation root fetch carries a base cost of 10. A list with no `@listSize` is not multiplied at all. Federation transport directives, `@cost` and `@listSize` among them, stay hidden from the public API schema.
-
-QuickAdapter has separate HTTP body limits:
-
-```scala
-QuickAdapter(interpreter)
-  .withMaxRequestBodyBytes(2 * 1024 * 1024)
-  .withMaxUploadBodyBytes(32 * 1024 * 1024)
-  .withMaxResponseBodyBytes(16 * 1024 * 1024)
-  .runServer(4000, "/graphql")
-```
-
-## Hooks
-
-Use `PhaseHooks` to resolve documents, authorize operations, select progressive overrides, adjust outbound headers, and observe execution. Attach hooks with `gateway.withPhaseHooks(hooks)` or `gateway @@ hooks`. Calls accumulate rather than replace existing hooks. Combine bundles with `++`.
-
-A `PhaseHandler` has an incoming side and an optional outgoing side. Incoming handlers run in registration order; outgoing handlers run in reverse order. Use `PhaseHandler.incoming` to transform an event, `incomingDiscard` for a check or side effect, or `outgoing` to observe its result. `PhaseHandler.scoped` keeps resources alive until that handler’s outgoing callback finishes.
-
-Hooks are listed in entry order for a query or mutation. `operation` wraps both `preparation` and `execution`.
-
-| Hook | What it covers |
-| --- | --- |
-| `operation` | The whole request, from preparation to response assembly, including failures. |
-| `preparation` | All work before execution, including document resolution, parsing, validation, authorization, and planning. |
-| `resolution` | Supplies query text, for example from a persisted document ID. Runs before parsing, even on cache hits. |
-| `overrideLabels` | Selects active custom `@override` labels before plan lookup. |
-| `cacheAccess` | Cache lookup and preparation on a miss. Skipped when caching is disabled. |
-| `authorization` | Allows or rejects a validated operation before execution, even on cache hits. |
-| `execution` | Runs the query or mutation plan and assembles the response. |
-| `subgraphCall` | One local or remote call, including deduplication and retries. Can change remote headers. |
-| `attempt` | One remote request and response. Can change headers. Repeats for each retry. |
-| `completion` | Builds the client response from subgraph results or gateway errors. |
-
-Outgoing callbacks run as each phase finishes. Subgraph calls may run in parallel. Failure paths skip later work and may reach `completion` directly.
-
-Subscriptions use a separate lifecycle: `subscriptionAdmission`, `subscriptionSetup`, `subscriptionEvent`, and `subscriptionTerminated`. The termination event carries the reason, including `SUBSCRIPTION_OVERFLOW`. Opening a remote subscription also runs `subgraphCall` and `attempt`. Processing events may make further subgraph calls. Successful subscriptions skip `execution`.
-
-Resolution, authorization, and override-label handlers can fail. The other phases have no typed failure channel. Hook work runs inside the deadline of its enclosing phase. Resolution and authorization also run for `explain(request)`; `check(query)` validates literal text without them.
-
-### Persisted and trusted documents
-
-Clients usually send the full GraphQL query with each request. With persisted documents, they send an ID and the server looks up the query text. Trusted documents restrict clients to queries that your application has registered.
-
-`PhaseHooks.resolution` handles this lookup before parsing, validation, and cache lookup. Use `PhaseHooks.trustedDocuments` for an in-memory registry:
-
-```scala
-import caliban.Value.StringValue
-import caliban.gateway.{ Gateway, PhaseHooks }
-
-val documents = Map(
-  "product-v1" -> "query Product($id: ID!) { product(id: $id) { name } }"
-)
-
-val documentsHook = PhaseHooks.trustedDocuments(documents) { request =>
-  request.extensions.flatMap(_.get("documentId")).collect {
-    case StringValue(id) => id
-  }
-}
-
-val gateway = Gateway
-  .compose(products, reviews)
-  .withPhaseHooks(documentsHook)
-```
-
-The client can now omit `query`:
+The response combines data from both services:
 
 ```json
 {
-  "extensions": { "documentId": "product-v1" },
-  "operationName": "Product",
-  "variables": { "id": "p1" }
+  "data": {
+    "product": { "name": "Caliban" },
+    "latestReviews": [
+      { "body": "Composable and type-safe" },
+      { "body": "Structured concurrency all the way down" }
+    ]
+  }
 }
 ```
 
-The helper looks `product-v1` up in the registry and keeps the request's operation name, variables, and extensions. It ignores any query text the client sends and never registers new documents. A missing, malformed, or empty ID comes back as `TRUSTED_DOCUMENT_ID_INVALID` in `extensions.code`, an unknown one as `TRUSTED_DOCUMENT_NOT_FOUND`. Registration is not authorization. For that, add an [authorization hook](#authorizing-operations).
+These root fields are independent, so they need no lookup configuration. To fetch reviews inside `product { ... }`, see [Connecting objects across ordinary services](gateway/planning.md#connecting-objects-across-ordinary-services).
 
-For a database or another lookup, use `PhaseHooks.resolution(resolve)`, where `resolve` has the type `GraphQLRequest => ZIO[R, Throwable, String]`. Attach it with `withPhaseHooks` or `@@`. The function replaces only query text and runs on every request before cache lookup, including cache hits. Pass `cacheable = false` to disable prepared-document and plan reuse. Validation still applies. Resolution runs for `executeRequest`, `executeStream`, and `explain(request)`, but not for `check(query)`.
+For a complete project, see the repository's [gateway examples](https://github.com/ghostdogpr/caliban/tree/series/3.x/gateway-examples). They cover local, ordinary remote, mixed-subgraph, and Federation gateways.
 
-For more control, use `PhaseHooks(resolution = handler)` with a `PhaseHandler` over `PhaseHooks.Event.Resolution`. The returned event supplies the request and cache choice used by preparation. Multiple resolution handlers compose with `++`: each receives the previous handler’s event, and outgoing callbacks run in reverse order. The query-text helper preserves any earlier decision to disable caching.
+## Interpreter lifetime
 
-Custom validations set through `Configurator.setValidations` form part of the preparation cache key, and that key compares function identity. Reuse the same validation instances across requests, from a single `ExecutionConfiguration` for example. Rebuilding the list around those same functions is fine. A fresh lambda per request is not: it causes cache misses and evictions. The cache stays bounded by weight either way.
+Build `gateway.interpreter` once at application startup and share it across requests. It acquires resources in the surrounding ZIO `Scope`. Keep that scope open while the HTTP server runs, as the `ZIOAppDefault` example does. Closing it shuts down the gateway and drains active requests.
 
-To return a safe message and `extensions.code`, fail a custom resolver with `ZIO.fail(PhaseHooks.Rejection(message, code))`. `QuickAdapter` returns these rejections with HTTP 200. The gateway hides unexpected failures.
+Use [`.reloadable`](gateway/configuration.md#hot-reload) when schemas must refresh without restarting the server.
 
-### Progressive override labels
+A gateway interpreter works with the existing [HTTP adapters](adapters.md). Use `QuickAdapter(interpreter).routes(...)` or `.handlers` to add it to an existing zio-http server.
 
-For a custom label, attach an override-label hook:
+## Next steps
 
-```scala
-import caliban.GraphQLRequest
-import caliban.gateway.{ Gateway, PhaseHandler, PhaseHooks }
-import caliban.gateway.PhaseHooks.Event
-import zio.Task
-
-def activeLabels(request: GraphQLRequest): Task[Set[String]] = ???
-
-val progressiveOverrides = PhaseHooks.overrideLabels(
-  PhaseHandler.incoming[Any, Event.OverrideLabels, Throwable] { event =>
-    activeLabels(event.request).map(labels => event.activate(labels intersect event.reached))
-  }
-)
-
-val gateway = Gateway.compose(products, reviews) @@ progressiveOverrides
-```
-
-The event carries the request and, in `reached`, the custom labels the selected operation actually touched. Pass `activate` the subset that should use the overriding subgraph. Anything you activate that the operation did not reach is ignored. Labels nobody activates fall back to the original subgraph, which is also what happens when you attach no hook at all. `activate` accumulates rather than replaces, so several hooks can each contribute without clearing one another.
-
-The gateway calls the hook once per relevant request, before it checks the operation cache, and skips it entirely for percentage-only operations or ones that reach no custom labels. Each combination of active labels gets its own cached plan, so keep the lookup cheap and the number of combinations it can return small. A failing hook produces an internal execution error without contacting a subgraph.
-
-### Authorizing operations
-
-Use `PhaseHooks.fromClaims` to enforce `@authenticated` and `@requiresScopes` before an operation runs. Your authentication layer must verify the JWT first. This helper only maps trusted claims to scopes.
-
-```scala
-import caliban.GraphQLRequest
-import caliban.gateway.{ Gateway, GatewayInterpreter, PhaseHooks }
-import zio.{ Task, ZIO, ZLayer }
-
-final case class VerifiedClaims(scope: String)
-trait RequestClaims {
-  def current: Task[Option[VerifiedClaims]]
-}
-
-val authorization = PhaseHooks.fromClaims(
-  ZIO.serviceWithZIO[RequestClaims](_.current)
-) { claims =>
-  claims.scope.split(" ").filter(_.nonEmpty).toSet
-}
-
-val secured = Gateway
-  .compose(products, reviews)
-  .withPhaseHooks(authorization)
-
-// Build secured.interpreter once; supply verified claims for each request:
-def execute(
-  interpreter: GatewayInterpreter[RequestClaims],
-  request: GraphQLRequest,
-  verified: Option[VerifiedClaims]
-) = interpreter.executeRequest(request).provideLayer(
-  ZLayer.succeed(new RequestClaims {
-    def current: Task[Option[VerifiedClaims]] = ZIO.succeed(verified)
-  })
-)
-```
-
-`None` means anonymous. `Some` means authenticated, even when the claim has no scopes. The hook reads claims once per protected execution, including cache hits. Public operations skip the lookup. In `[["read", "tenant"], ["admin"]]`, a user needs both `read` and `tenant`, or needs `admin`. An empty `[]` or `[[]]` requires authentication but no scopes.
-
-The gateway records `@policy` as a deny-only guard, including aliased and namespace-qualified applications. Composition and reload still succeed. Before contacting a subgraph, the gateway rejects an operation that selects a guarded coordinate or depends on one through a lookup or `@requires`. An authorization hook cannot override this rejection. Unrelated operations remain available. The same checks apply to `explain(request)`.
-
-The helper checks every protected field that the operation could select, including fields on possible interface implementations. If any check fails, it rejects the whole operation. Denials and claim failures return generic messages.
-
-Schemas with `@authenticated` or `@requiresScopes` require an incoming `authorization` handler at startup. An outgoing-only observer does not satisfy this requirement. A schema that contains only `@policy` needs no authorization hook.
-
-For custom checks, use `PhaseHooks.authorization(operation => ...)`, returning `ZIO.unit` to allow the operation or failing with `PhaseHooks.Denial()` to deny it. Supply a custom denial reason only if it is safe to return to clients. The operation includes the resolved request, parsed document, validated execution request, and `securityRequirements` identifying protected types and fields.
-
-Authorization runs after validation, variable coercion, cost checks, and planning, including on cache hits and for `explain(request)`. It does not run for `check(query)`. Combine checks with `++`; every check must succeed, and a denial prevents later checks and subgraph execution. Use `PhaseHooks(authorization = handler)` to attach a full `PhaseHandler` over `PhaseHooks.Event.Authorization`. Unexpected failures and defects are masked, including thrown denials.
-
-### Subgraph request headers
-
-Use remote-service configuration for [static credentials, token loading, and forwarding client headers](#authentication-and-request-headers). Use `subgraphCall` to adjust the resulting headers across subgraphs:
-
-```scala
-import caliban.gateway.{ Gateway, PhaseHandler, PhaseHooks }
-import caliban.gateway.PhaseHooks.Event
-import zio.ZIO
-import zio.http.Header
-
-val headers = PhaseHooks.subgraphCall(
-  PhaseHandler.incoming[Any, Event.SubgraphCall, Nothing] { event =>
-    ZIO.succeed(event.copy(headers = Header.Custom("X-Gateway", "caliban") :: event.headers))
-  }
-)
-
-val gateway = Gateway.compose(products, reviews) @@ headers
-```
-
-The headers returned by `subgraphCall` participate in query deduplication and stay the same across retries. Local calls ignore header changes.
-
-Use `attempt` for headers that change per attempt, such as trace context. Return `event.copy(headers = ...)` from its incoming handler. These changes happen after deduplication and do not affect whether calls are shared.
-
-Subscriptions capture configured and effectful headers once. Both hooks run when opening the connection, which keeps those headers for its lifetime. Later enrichment calls run `subgraphCall` separately and can adjust the captured headers.
-
-### Metrics and tracing
-
-Metrics are opt-in:
-
-```scala
-import caliban.gateway.{ Gateway, GatewayMetrics }
-
-val gateway = Gateway.compose(products, reviews) @@ GatewayMetrics.hooks
-```
-
-The built-in metrics report requests, preparation, subgraph calls, retries, operation-cache activity, and subscriptions. Retries are counted from attempt numbers; subscription overflows are counted on termination.
-
-Add OpenTelemetry tracing with the optional tracing module:
-
-```scala
-import caliban.gateway.GatewayMetrics
-import caliban.gateway.tracing.GatewayTracing
-
-val gateway = Gateway.compose(products, reviews) @@
-  (GatewayMetrics.hooks ++ GatewayTracing.hooks)
-```
-
-The tracing hooks create spans for gateway requests and remote calls. `QuickAdapter` propagates incoming trace headers.
-The request span covers the whole request, so planning, the operation cache, and remote calls are nested inside it. A
-subscription request gets one too, covering its setup. The subscription spans report the subscription itself.
-
-Combine these bundles with your own hooks using `++` or additional `withPhaseHooks` calls.
-
-## Introspection and remote errors
-
-The gateway exposes the composed schema through normal GraphQL introspection. To disable client introspection at the QuickAdapter boundary:
-
-```scala
-import caliban.Configurator.ExecutionConfiguration
-
-QuickAdapter(interpreter)
-  .configure(ExecutionConfiguration(enableIntrospection = false))
-  .runServer(4000, "/graphql")
-```
-
-The setting controls client access to the combined schema only. Remote schema loading at startup is unaffected.
-
-The gateway hides remote GraphQL error messages by default. Enable them only when every upstream message is safe for clients:
-
-```scala
-val gateway = Gateway.compose(products, reviews)
-  .withConfig(_.withRemoteErrorMessages(true))
-```
-
-Only the `code` extension is passed through, regardless of the message setting.
-
-## Inspecting and operating the gateway
-
-### Explain a query plan
-
-Use `explain` to see which subgraphs a query will call without executing it:
-
-```scala
-val plan = interpreter.explain("""
-  query {
-    product(id: "p1") {
-      name
-      customerReviews { body }
-    }
-  }
-""")
-```
-
-A plan for this query could look like:
-
-```text
-query
-fetch products at $.product fields [name, id (key)]
-fetch reviews after products at $.product via Product(id) fields [customerReviews.body]
-```
-
-Each `fetch` shows the subgraph name. Here, `products` and `reviews` are the names passed to `Subgraph.graphql`. `$` is the root of the client response, so `$.product` refers to the `product` field at the root. The `(key)` marker identifies a field used as a key for a later lookup. The gateway may reuse a client selection or add the field itself. `after products` means that the fetch depends on the result from `products`.
-
-Use the plan to test a new lookup or find why the gateway sends a field to a specific service.
-
-## Subscriptions
-
-The gateway supports subscriptions from local Caliban schemas and remote GraphQL services. A subscription can include fields fetched from other subgraphs. Each subscription root field must have one owner. Events arrive in source order.
-
-### Transports
-
-Use the existing Quick or Tapir adapters. Clients can use `graphql-transport-ws`, legacy WebSocket, or SSE with `Accept: text/event-stream`. Use POST for SSE. JSON and multipart HTTP responses cannot carry subscriptions.
-
-Remote subgraphs use `graphql-transport-ws` by default. They use the configured HTTP endpoint with the `ws` or `wss` scheme. Set `RemoteSubscriptionConfig.endpoint` to use a different subscription URL. To use SSE, configure the transport:
-
-```scala
-import caliban.gateway.{ RemoteGraphQLConfig, RemoteSubscriptionConfig }
-
-val config = RemoteGraphQLConfig.default.withSubscription(
-  RemoteSubscriptionConfig(transport = RemoteSubscriptionConfig.Sse())
-)
-```
-
-Pass this config when you add the remote subgraph. `Sse(useGet = true)` selects GET instead of POST. For WebSocket authentication, use `connectionInit` to supply a static initialization payload. The usual remote header settings also apply.
-
-Each remote subscription opens one upstream connection. `RemoteSubscriptionConfig.connectionTimeout` limits acknowledgement, pong responses, and writes to 30 seconds by default. `keepAliveInterval` sets the delay before each ping and defaults to 15 seconds. The gateway waits for the pong before starting the next delay. The gateway does not support upstream legacy WebSocket. It also does not support `@defer` or `@stream` within subscriptions. Configure downstream keepalives through the adapter.
-
-### Consuming from Scala
-
-```scala
-import caliban.GraphQLRequest
-
-val events = interpreter.executeStream(
-  GraphQLRequest(query = Some("subscription { productChanged { name } }"))
-)
-```
-
-Every consumption of the stream starts a new subscription, and cancelling one releases its resources. Authenticate at the point of consumption rather than at construction, and supply scoped dependencies on the stream with `provideLayer`. Interpreter middleware covers setup only, so `interpreter.mapError` does not touch errors from individual events. Transform those with `events.map`.
-
-### Limits and reconnecting
-
-Configure limits with `GatewaySubscriptionConfig`:
-
-```scala
-import caliban.gateway.GatewaySubscriptionConfig
-import zio._
-
-val bounded = gateway.withConfig(_.withSubscriptions(
-  GatewaySubscriptionConfig(maxActive = 256, bufferSize = 16)
-))
-```
-
-The defaults allow 1,024 active subscriptions and 32 buffered events per subscription. Setup and event-processing timeouts default to 30 seconds. The gateway sets no subscription lifetime or event-size limit. `RemoteGraphQLConfig.Execution.maxResponseBytes` still limits remote messages. The ordinary request timeout does not end subscriptions.
-
-- When the gateway reaches capacity, it rejects new subscriptions. A buffer overflow terminates the affected subscription with `SUBSCRIPTION_OVERFLOW` instead of dropping events.
-- Remote messages exceeding `maxResponseBytes` terminate the subscription with `SUBSCRIPTION_EVENT_TOO_LARGE`.
-- A schema reload ends existing subscriptions with the retryable `SUBSCRIPTION_SCHEMA_RELOAD` error. Clients must resubscribe. A failed reload leaves subscriptions running.
-- The gateway does not reconnect upstream or replay events. Clients must handle terminal errors and reconnect. They may lose events while disconnected.
-
-### Authentication and monitoring
-
-Authenticate during setup. The gateway evaluates authorization once and captures forwarded headers for the subscription's lifetime. The WebSocket or authentication layer handles credential expiry and revocation. The gateway does not evaluate policies again for each event.
-
-Remote error messages follow the gateway's `withRemoteErrorMessages` setting. The gateway retains only the `code` extension. Local sources keep Caliban's behavior. A field resolver failure can produce null without an error entry in that event.
-
-The metrics and tracing hooks include subscription observations. Shutdown waits for resource cleanup, including uninterruptible finalizers.
-
-Setup and event spans inherit the incoming `traceparent` or ambient trace context. Without that context, they are independent roots. The gateway does not add a subscription correlation ID.
-
-## Current protocol support
-
-The gateway supports queries, mutations, and subscriptions. It does not support `@defer` or `@stream` incremental responses from subgraphs.
-
-The repository's [`gateway-examples`](https://github.com/ghostdogpr/caliban/tree/series/3.x/gateway-examples) project contains runnable examples for local, ordinary remote, mixed-subgraph, and Federation gateways.
+- [Add subgraphs](gateway/subgraphs.md) from remote services, local Caliban APIs, or a supergraph.
+- [Connect objects across services](gateway/planning.md#connecting-objects-across-ordinary-services) when one query needs fields from several services for the same object.
+- [Add subscriptions](gateway/subscriptions.md) from local or remote sources.
+- [Attach hooks](gateway/hooks.md) for document resolution, authorization, headers, metrics, and tracing.
+- [Configure the gateway](gateway/configuration.md) for authentication, timeouts, retries, limits, and schema reloads.

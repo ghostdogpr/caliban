@@ -63,9 +63,21 @@ module.exports = {
               'optimization',
               'interop',
               'federation',
-              'gateway',
               'relay-connections',
               'schema-reporting',
+            ]
+          },
+          {
+            title: 'Caliban Gateway',
+            collapsable: true,
+            sidebarDepth: 2,
+            children: [
+              'gateway',
+              'gateway/subgraphs',
+              'gateway/planning',
+              'gateway/subscriptions',
+              'gateway/hooks',
+              'gateway/configuration',
             ]
           },
           {
