@@ -47,7 +47,7 @@ private[gateway] final class SchemaMapping private (
 
   def transform(document: Document): Document =
     if (nonEmpty) {
-      val names            = SchemaComposer.federationDirectiveNames(document)
+      val names            = FederationCompilation.federationDirectiveNames(document)
       val contexts         = document.typeDefinitions.flatMap { tpe =>
         tpe.directives.filter(directive => names.context.contains(directive.name)).flatMap { directive =>
           directive.arguments.get("name").collect { case StringValue(name) => ContextName(name) }.toList.flatMap {
@@ -301,7 +301,7 @@ private[gateway] final class SchemaMapping private (
     directive.arguments
       .get("field")
       .collect { case StringValue(value) => value }
-      .flatMap(SchemaComposer.parseContextSelection)
+      .flatMap(ContextCompilation.parseSelection)
       .fold(directive) { case (name, selections) =>
         val rewritten = directiveContext.contextTypes.getOrElse(name, Nil).map { parent =>
           parent -> selections.map(transformFieldSetSelection(parent, _))
@@ -435,7 +435,11 @@ private[gateway] object SchemaMapping {
       rootType.queryType.name.toSet ++ rootType.mutationType.flatMap(_.name).toSet ++
         rootType.subscriptionType.flatMap(_.name).toSet
     val context        =
-      ValidationContext(rootType.types, operationRoots, SchemaComposer.federationTransportTypes(document, federation))
+      ValidationContext(
+        rootType.types,
+        operationRoots,
+        FederationCompilation.federationTransportTypes(document, federation)
+      )
     val changes        = transformations.map(normalize)
     val mappings       = changes.foldLeft(Mappings())(_.add(_))
     val renames        = changes.collect { case Change(coordinate, Some(renamed)) => coordinate -> renamed }
@@ -539,7 +543,7 @@ private[gateway] object SchemaMapping {
   }
 
   private final case class DirectiveContext(
-    names: SchemaComposer.FederationDirectiveNames,
+    names: FederationCompilation.FederationDirectiveNames,
     contextTypes: Map[ContextName, List[String]]
   )
 

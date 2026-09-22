@@ -4,7 +4,7 @@ import caliban.gateway.GatewayConfigValidation._
 import zio._
 
 /**
- * Operation-preparation, planning, admission, lifecycle, and remote-error disclosure configuration for one built gateway interpreter.
+ * Configuration for operation preparation, planning, request lifetimes, subscriptions, and remote error disclosure.
  */
 final class GatewayConfig private (
   val maxOperationCacheWeight: Long,

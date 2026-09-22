@@ -489,7 +489,7 @@ The client can now omit `query`:
 }
 ```
 
-The helper looks `product-v1` up in the registry and keeps the request's operation name, variables, and extensions. It ignores any query text the client sends and never registers new documents. A missing, malformed, or empty ID comes back as `TRUSTED_DOCUMENT_ID_INVALID` in `extensions.code`, an unknown one as `TRUSTED_DOCUMENT_NOT_FOUND`. Registration is not authorization. For that, add an [operation policy](#authorizing-operations).
+The helper looks `product-v1` up in the registry and keeps the request's operation name, variables, and extensions. It ignores any query text the client sends and never registers new documents. A missing, malformed, or empty ID comes back as `TRUSTED_DOCUMENT_ID_INVALID` in `extensions.code`, an unknown one as `TRUSTED_DOCUMENT_NOT_FOUND`. Registration is not authorization. For that, add an [authorization hook](#authorizing-operations).
 
 For a database or another lookup, use `PhaseHooks.resolution(resolve)`, where `resolve` has the type `GraphQLRequest => ZIO[R, Throwable, String]`. Attach it with `withPhaseHooks` or `@@`. The function replaces only query text and runs on every request before cache lookup, including cache hits. Pass `cacheable = false` to disable prepared-document and plan reuse. Validation still applies. Resolution runs for `executeRequest`, `executeStream`, and `explain(request)`, but not for `check(query)`.
 
@@ -566,7 +566,7 @@ The gateway records `@policy` as a deny-only guard, including aliased and namesp
 
 The helper checks every protected field that the operation could select, including fields on possible interface implementations. If any check fails, it rejects the whole operation. Denials and claim failures return generic messages.
 
-Schemas with `@authenticated` or `@requiresScopes` require an enabled `authorization` hook at startup. Other hooks do not satisfy this requirement. A schema that contains only `@policy` needs no authorization hook.
+Schemas with `@authenticated` or `@requiresScopes` require an incoming `authorization` handler at startup. An outgoing-only observer does not satisfy this requirement. A schema that contains only `@policy` needs no authorization hook.
 
 For custom checks, use `PhaseHooks.authorization(operation => ...)`, returning `ZIO.unit` to allow the operation or failing with `PhaseHooks.Denial()` to deny it. Supply a custom denial reason only if it is safe to return to clients. The operation includes the resolved request, parsed document, validated execution request, and `securityRequirements` identifying protected types and fields.
 

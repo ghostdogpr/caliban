@@ -177,7 +177,7 @@ private[gateway] object GatewayInterpreterImpl {
     final case class Executed(
       response: GraphQLResponse[CalibanError],
       outcome: Outcome,
-      operation: OperationType,
+      operationType: OperationType,
       document: Document,
       executionRequest: ExecutionRequest
     ) extends RequestResult

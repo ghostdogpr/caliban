@@ -5,7 +5,7 @@ import zio.stm.{ STM, TQueue, TRef }
 import zio.stream.ZStream
 
 /**
- * Admission never blocks the source reader. Completion and dequeue are one transaction,
+ * Enqueuing an event never blocks the source reader. Completion and dequeue are one transaction,
  * so a racing completion cannot steal an event from a losing queue.take fiber.
  */
 private[gateway] final class SubscriptionBuffer[A] private (queue: TQueue[A], ended: TRef[Boolean]) {

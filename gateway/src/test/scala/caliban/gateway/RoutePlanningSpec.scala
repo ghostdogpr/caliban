@@ -473,7 +473,7 @@ object RoutePlanningSpec extends ZIOSpecDefault {
         replicaSent.isEmpty
       )
     },
-    test("plans invariant nested alternatives once within the candidate budget") {
+    test("plans invariant nested alternatives once within each request's candidate budget") {
       val productsSchema =
         s"""
            |${federationSchemaPreamble("@key", "@external")}
@@ -504,8 +504,15 @@ object RoutePlanningSpec extends ZIOSpecDefault {
         )
         .withConfig(_.withMaxPlanningCandidates(128))
         .interpreter
-        .flatMap(_.explain("{ product { one { value } two { value } three { value } } }").exit)
-        .map(exit => assertTrue(exit.isSuccess))
+        .flatMap { runtime =>
+          def plan(index: Int) =
+            runtime.explain(s"query Request$index { product { one { value } two { value } three { value } } }").exit
+
+          for {
+            sequential <- ZIO.foreach(1 to 16)(plan)
+            concurrent <- ZIO.foreachPar(17 to 32)(plan)
+          } yield assertTrue(sequential.forall(_.isSuccess), concurrent.forall(_.isSuccess))
+        }
     },
     test("fails rather than dropping a fragment for an unresolved concrete type") {
       val rootsSchema   =

@@ -25,7 +25,7 @@ import java.util.concurrent.ConcurrentHashMap
 import scala.collection.mutable
 
 /**
- * Runs a prepared fetch graph; request admission and preparation stay in the interpreter.
+ * Runs a fetch graph; request lifetimes and preparation stay in the interpreter.
  */
 private[gateway] final class PlanExecutor[-R](
   graph: ComposedGraph,

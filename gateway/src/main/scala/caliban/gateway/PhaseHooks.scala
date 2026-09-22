@@ -153,7 +153,8 @@ object PhaseHooks {
    * execution. Every handler must succeed. A failure stops authorization and prevents execution.
    *
    * Fail with [[Denial]] to return a public reason. The gateway masks unexpected failures and defects.
-   * Use `PhaseHooks(authorization = handler)` to attach a full [[PhaseHandler]].
+   * Use `PhaseHooks(authorization = handler)` to attach a full [[PhaseHandler]]. Protected schemas require an incoming
+   * authorization handler; an outgoing-only observer does not satisfy that requirement.
    */
   def authorization[R](authorize: Event.Authorization => ZIO[R, Throwable, Unit]): PhaseHooks[R] =
     new PhaseHooks[R](authorization = PhaseHandler.incomingDiscard(authorize))
@@ -288,9 +289,7 @@ object PhaseHooks {
    * A public rejection from `authorization`. Fail with `ZIO.fail` to expose `reason`.
    * The gateway masks thrown exceptions and failures accompanied by defects.
    */
-  final case class Denial(reason: String = "Operation rejected by gateway policy.")
-      extends Exception(reason)
-      with NoStackTrace
+  final case class Denial(reason: String = "Operation denied.") extends Exception(reason) with NoStackTrace
 
   /**
    * Security directives that apply to a type or field selected by the operation.

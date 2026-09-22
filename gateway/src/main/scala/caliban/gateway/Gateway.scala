@@ -31,7 +31,7 @@ final class Gateway[-R] private[gateway] (
 
   /**
    * Builds a stable interpreter that polls acquired remote schemas and replaces changed generations.
-   * Pinned schemas and local graphs remain fixed. Admission limits apply separately to each generation.
+   * Pinned schemas and local graphs remain fixed. Configured limits apply separately to each generation.
    */
   def reloadable(implicit trace: Trace): ZIO[Scope, GatewayBuildError, ReloadableGatewayInterpreter[R]] =
     validate(config.diagnostics ::: reloadDiagnostics) *>
@@ -58,7 +58,7 @@ final class Gateway[-R] private[gateway] (
       )
 
   /**
-   * Transforms the finite operation and admission limits used by each built interpreter.
+   * Updates the configuration used by each built interpreter.
    */
   def withConfig(configure: GatewayConfig => GatewayConfig): Gateway[R] =
     new Gateway(origin, configure(config), hooks)
@@ -134,7 +134,7 @@ final class Gateway[-R] private[gateway] (
       graph       <- ZIO.fromEither(SchemaComposer.compose(executables.map(value => value.subgraph -> value.document)))
       _           <- ZIO
                        .fail(GatewayBuildError.InvalidConfiguration(graph.securityDiagnostics))
-                       .when(!hooks.authorization.enabled && graph.hasSecurityRequirements)
+                       .when(!hooks.authorization.hasIncoming && graph.hasSecurityRequirements)
       control     <- GatewayExecutionControl.make(
                        config.subscriptions,
                        hooks,

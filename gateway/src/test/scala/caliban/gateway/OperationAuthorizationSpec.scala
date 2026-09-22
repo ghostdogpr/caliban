@@ -119,7 +119,7 @@ object OperationAuthorizationSpec extends ZIOSpecDefault {
       } yield assertTrue(
         invalid.errors.nonEmpty,
         malformed.errors.nonEmpty,
-        rejected.errors.map(_.msg) == List("Operation rejected by gateway policy."),
+        rejected.errors.map(_.msg) == List("Operation denied."),
         runs == 1,
         sent.isEmpty
       )
@@ -150,7 +150,7 @@ object OperationAuthorizationSpec extends ZIOSpecDefault {
       } yield assertTrue(
         initial.errors.isEmpty,
         cached.errors.isEmpty,
-        denied.errors.map(_.msg) == List("Operation rejected by gateway policy."),
+        denied.errors.map(_.msg) == List("Operation denied."),
         observed == List("first", "second", "last", "first", "second", "last", "first", "second"),
         cachedEvents.count(_ == PhaseHooks.Event.CacheAccess(PhaseHooks.CacheResult.Hit)) == 2,
         sent.size == 2
@@ -221,8 +221,19 @@ object OperationAuthorizationSpec extends ZIOSpecDefault {
       } yield assertTrue(
         resolverResult.errors.map(_.msg) == List("Operation resolution failed."),
         policyResult.errors.map(_.msg) == List("Operation authorization failed."),
+        resolverResult.errors.collect { case error: CalibanError.ExecutionError =>
+          error.copy(msg = "Changed diagnostic text.")
+        }.forall(error => OperationPreparation.isInternalFailure(error)),
+        !OperationPreparation.isInternalFailure(
+          CalibanError.ExecutionError(
+            "Operation resolution failed.",
+            innerThrowable = Some(new RuntimeException("other"))
+          )
+        ),
         resolverCause.exists(_.getMessage == secretResolver),
         policyCause.exists(_.getMessage == secretPolicy),
+        resolverCause.exists(_.getCause.getMessage == secretResolver),
+        policyCause.exists(_.getCause.getMessage == secretPolicy),
         !messages.exists(_.contains(secretResolver)),
         !messages.exists(_.contains(secretPolicy)),
         sent.isEmpty

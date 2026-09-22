@@ -193,7 +193,7 @@ object SecurityPolicySpec extends ZIOSpecDefault {
                      claims.locally(scope.map(Claims(_)))(runtime.execute(query)).map { result =>
                        assertTrue(
                          result.errors.map(_.msg) == (if (allowed) Nil
-                                                      else List("Operation rejected by gateway policy."))
+                                                      else List("Operation denied."))
                        )
                      }
                    }
@@ -223,7 +223,7 @@ object SecurityPolicySpec extends ZIOSpecDefault {
         sent     <- remote.requests.get
       } yield assertTrue(
         allowed.errors.isEmpty,
-        rejected.errors.map(_.msg) == List("Operation rejected by gateway policy."),
+        rejected.errors.map(_.msg) == List("Operation denied."),
         reads == 2,
         sent.size == 1
       )
@@ -284,17 +284,21 @@ object SecurityPolicySpec extends ZIOSpecDefault {
         allowed      <- claims.locally(Some(Claims("read:private")))(runtime.execute(query))
         sent         <- remote.requests.get
       } yield assertTrue(
-        rejected.errors.map(_.msg) == List("Operation rejected by gateway policy."),
-        publicResult.errors.map(_.msg) == List("Operation rejected by gateway policy."),
+        rejected.errors.map(_.msg) == List("Operation denied."),
+        publicResult.errors.map(_.msg) == List("Operation denied."),
         allowed.errors.isEmpty,
         sent.size == 1
       )
     },
-    test("requires enabled authorization for aliased and namespace-qualified Federation security directives") {
-      val hooks = List(
+    test("requires incoming authorization for aliased and namespace-qualified Federation security directives") {
+      val observer = PhaseHandler.outgoing[Any, PhaseHooks.Event.Authorization, Any]((_, _) => ZIO.unit)
+      val hooks    = List(
         PhaseHooks.empty,
         PhaseHooks.resolution[Any](request => ZIO.succeed(request.query.getOrElse(""))),
-        PhaseHooks(authorization = PhaseHandler.empty[PhaseHooks.Event.Authorization])
+        PhaseHooks(authorization = PhaseHandler.empty[PhaseHooks.Event.Authorization]),
+        PhaseHooks(authorization = observer),
+        PhaseHooks(authorization = PhaseHandler.scoped(observer)),
+        PhaseHooks(authorization = observer ++ observer)
       )
       for {
         remote      <- stub("""{"data":{"node":null}}""")
@@ -311,6 +315,29 @@ object SecurityPolicySpec extends ZIOSpecDefault {
         diagnostics.forall(_.exists(message => message.startsWith("[secure]") && message.contains("@requiresScopes"))),
         sent.isEmpty
       )
+    },
+    test("accepts incoming authorization in composed, scoped, and incoming-outgoing handlers") {
+      val observer = PhaseHandler.outgoing[Any, PhaseHooks.Event.Authorization, Any]((_, _) => ZIO.unit)
+      val decision = PhaseHandler.incomingDiscard[Any, PhaseHooks.Event.Authorization, Nothing](_ => ZIO.unit)
+      val hooks    = List(
+        PhaseHooks(authorization = observer ++ decision),
+        PhaseHooks(authorization = decision ++ observer),
+        PhaseHooks(authorization = PhaseHandler.scoped(decision)),
+        PhaseHooks(authorization =
+          PhaseHandler[Any, PhaseHooks.Event.Authorization, Nothing, Unit, Any](event => ZIO.succeed((event, ())))(
+            (_, _, _) => ZIO.unit
+          )
+        )
+      )
+      ZIO
+        .foreach(hooks) { hook =>
+          Gateway
+            .compose(Subgraph.federation("secure", unreachableEndpoint, securitySchema))
+            .withPhaseHooks(hook)
+            .interpreter
+            .exit
+        }
+        .map(results => assertTrue(results.forall(_.isSuccess)))
     },
     test("rejects policy selections at execution even with an allowing policy, but serves public selections") {
       val expressions                = List("[]", "[[]]", "[[\"owner\"]]")
@@ -564,9 +591,9 @@ object SecurityPolicySpec extends ZIOSpecDefault {
         first          = seen.headOption.getOrElse(Nil)
         second         = seen.drop(1).headOption.getOrElse(Nil)
       } yield assertTrue(
-        included.errors.map(_.msg) == List("Operation rejected by gateway policy."),
-        skipped.errors.map(_.msg) == List("Operation rejected by gateway policy."),
-        introspection.errors.map(_.msg) == List("Operation rejected by gateway policy."),
+        included.errors.map(_.msg) == List("Operation denied."),
+        skipped.errors.map(_.msg) == List("Operation denied."),
+        introspection.errors.map(_.msg) == List("Operation denied."),
         first.contains(
           SecurityRequirement("Query", None, List(Authenticated))
         ),

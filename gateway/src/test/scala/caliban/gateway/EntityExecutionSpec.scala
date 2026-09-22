@@ -192,6 +192,17 @@ object EntityExecutionSpec extends ZIOSpecDefault {
           onlyNested(product, "reviews").exists(_.contains("body" -> StringValue("Solid")))
         )
       },
+      test("rejects Federation entity transport registered as ordinary GraphQL") {
+        for {
+          local  <- compositionDiagnostics(Gateway.compose(Subgraph.graphql("pricing", PricingApi.api)))
+          remote <- compositionDiagnostics(
+                      Gateway.compose(Subgraph.graphql("products", unreachableEndpoint, productsFederationSchema))
+                    )
+        } yield assertTrue(
+          local.exists(message => message.startsWith("[pricing]") && message.contains("Subgraph.federation")),
+          remote.exists(message => message.startsWith("[products]") && message.contains("Subgraph.federation"))
+        )
+      },
       test("preserves local entity failures while retaining independent remote data") {
         val pricing = new Pricing {
           def currency: UIO[String]       = ZIO.succeed("USD")

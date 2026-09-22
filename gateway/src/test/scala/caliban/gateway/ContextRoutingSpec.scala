@@ -118,6 +118,41 @@ object ContextRoutingSpec extends ZIOSpecDefault {
         sent.lastOption.flatMap(_.query).exists(_.contains("amount(currency:\"USD\")"))
       )
     },
+    test("preserves unconditioned context arguments alongside type-conditioned arguments") {
+      val schema =
+        s"""
+           |${preamble("@key", "@context", "@fromContext")}
+           |type Query { user: User }
+           |type User @key(fields: "id") @context(name: "userContext") {
+           |  id: ID!
+           |  currency: String!
+           |  region: String!
+           |  amount(
+           |    currency: String @fromContext(field: "$$userContext { currency }")
+           |    region: String @fromContext(field: "$$userContext ... on User { region }")
+           |  ): Int!
+           |}
+           |""".stripMargin
+
+      for {
+        remote   <- stubByRequest(request =>
+                      if (request.query.exists(_.contains("_entities")))
+                        """{"data":{"_entities":[{"amount":42}]}}"""
+                      else
+                        """{"data":{"user":{"_caliban_gateway_requirement_currency":"USD","_caliban_gateway_requirement_region_User":"US","_caliban_gateway_context_typename":"User","_caliban_gateway_key":"u1","_caliban_gateway_typename":"User"}}}"""
+                    )
+        runtime  <- Gateway.compose(Subgraph.federation("users", remote.endpoint, schema)).interpreter
+        response <- runtime.execute("{ user { amount } }")
+        sent     <- remote.requests.get
+      } yield assertTrue(
+        response.errors.isEmpty,
+        field(response.data, "user").flatMap(field(_, "amount")).contains(IntNumber(42)),
+        sent.size == 2,
+        sent.lastOption
+          .flatMap(_.query)
+          .exists(query => query.contains("currency:\"USD\"") && query.contains("region:\"US\""))
+      )
+    },
     test("fetches sibling root context selections before an entity field") {
       val schema =
         s"""

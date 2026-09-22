@@ -38,6 +38,15 @@ sealed abstract class PhaseHandler[-R, Event, +Err, -Res] { self =>
    */
   def enabled: Boolean
 
+  private[gateway] final def hasIncoming: Boolean =
+    this match {
+      case PhaseHandler.Incoming(_)            => true
+      case PhaseHandler.IncomingOutgoing(_, _) => true
+      case PhaseHandler.Scoped(handler)        => handler.hasIncoming
+      case PhaseHandler.Combined(handlers)     => handlers.exists(_.hasIncoming)
+      case _                                   => false
+    }
+
   /**
    * Runs the phase handler, if enabled. It receives the initial event, an effect to wrap and a conversion function
    * to convert the result of the wrapped effect into this handler's result type.

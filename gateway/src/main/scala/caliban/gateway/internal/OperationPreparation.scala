@@ -14,6 +14,8 @@ import caliban.validation.Validator
 import caliban._
 import zio.{ Cause, Exit, IO, Random, Trace, UIO, ZIO }
 
+import scala.util.control.NoStackTrace
+
 private[gateway] final class OperationPreparation[-R] private (
   rootType: RootType,
   planner: OperationPlanner,
@@ -310,10 +312,11 @@ private[gateway] object OperationPreparation {
 
   def isInternalFailure(error: CalibanError): Boolean =
     error match {
-      case CalibanError.ExecutionError(message, _, _, Some(_), _) =>
-        message == ResolutionFailure || message == AuthorizationFailure || message == OverrideLabelResolutionFailure
-      case _                                                      => false
+      case CalibanError.ExecutionError(_, _, _, Some(_: HookFailure), _) => true
+      case _                                                             => false
     }
+
+  private final class HookFailure(cause: Throwable) extends Exception(cause.getMessage, cause) with NoStackTrace
 
   private val ResolutionFailure              = "Operation resolution failed."
   private val AuthorizationFailure           = "Operation authorization failed."
@@ -332,7 +335,8 @@ private[gateway] object OperationPreparation {
             case failure :: Nil if cause.defects.isEmpty && rejection.isDefinedAt(failure) =>
               Cause.fail(rejection(failure))
             case _                                                                         =>
-              Cause.fail(CalibanError.ExecutionError(failureMessage, innerThrowable = Some(cause.squash)))
+              Cause
+                .fail(CalibanError.ExecutionError(failureMessage, innerThrowable = Some(new HookFailure(cause.squash))))
           }
         )(fiberId => Cause.interrupt(fiberId))
       )
