@@ -68,7 +68,7 @@ private[gateway] final class GatewayInterpreterImpl[-R](
 
     val execution = control
       .runObservedRequest(Event.Execution(request.operationName), reservation)(preparation)(
-        _.fold(_ => true, _.plan.operation != OperationType.Subscription)
+        _.fold(_ => true, _.plan.operationType != OperationType.Subscription)
       )(
         _.fold[URIO[R, RequestResult]](
           error =>
@@ -80,7 +80,7 @@ private[gateway] final class GatewayInterpreterImpl[-R](
               RequestResult.Executed(
                 response,
                 Outcome.fromResponse(response),
-                operation.plan.operation,
+                operation.plan.operationType,
                 operation.document,
                 operation.executionRequest
               )
@@ -117,7 +117,7 @@ private[gateway] final class GatewayInterpreterImpl[-R](
   private def executeOperation(operation: OperationPreparation.ExecutableOperation)(implicit
     trace: Trace
   ): URIO[R, GraphQLResponse[CalibanError]] =
-    GraphQLResponseContext.markExecuted *> (operation.plan.operation match {
+    GraphQLResponseContext.markExecuted *> (operation.plan.operationType match {
       case OperationType.Subscription =>
         (for {
           frozen  <- executor

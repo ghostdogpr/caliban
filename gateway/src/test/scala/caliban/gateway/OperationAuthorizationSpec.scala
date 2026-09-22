@@ -174,7 +174,7 @@ object OperationAuthorizationSpec extends ZIOSpecDefault {
       } yield assertTrue(
         results.head.errors.map(_.msg) == List("Safe reason."),
         results.head.errors.forall(_.isInstanceOf[CalibanError.ValidationError]),
-        results.tail.forall(_.errors.map(_.msg) == List("Operation policy failed.")),
+        results.tail.forall(_.errors.map(_.msg) == List("Operation authorization failed.")),
         results.tail.forall(_.errors.forall(error => OperationPreparation.isInternalFailure(error))),
         sent.isEmpty
       )
@@ -220,7 +220,7 @@ object OperationAuthorizationSpec extends ZIOSpecDefault {
         policyCause      = executionCause(policyResult)
       } yield assertTrue(
         resolverResult.errors.map(_.msg) == List("Operation resolution failed."),
-        policyResult.errors.map(_.msg) == List("Operation policy failed."),
+        policyResult.errors.map(_.msg) == List("Operation authorization failed."),
         resolverCause.exists(_.getMessage == secretResolver),
         policyCause.exists(_.getMessage == secretPolicy),
         !messages.exists(_.contains(secretResolver)),

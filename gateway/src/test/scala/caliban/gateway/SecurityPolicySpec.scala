@@ -252,7 +252,7 @@ object SecurityPolicySpec extends ZIOSpecDefault {
       } yield assertTrue(
         publicResult.errors.isEmpty,
         introspection.errors.isEmpty,
-        protectedResult.errors.map(_.msg) == List("Operation policy failed."),
+        protectedResult.errors.map(_.msg) == List("Operation authorization failed."),
         reads == 1,
         sent.size == 1
       )
@@ -267,7 +267,7 @@ object SecurityPolicySpec extends ZIOSpecDefault {
                      .interpreter
         result  <- runtime.execute("{ login }")
         sent    <- remote.requests.get
-      } yield assertTrue(result.errors.map(_.msg) == List("Operation policy failed."), sent.isEmpty)
+      } yield assertTrue(result.errors.map(_.msg) == List("Operation authorization failed."), sent.isEmpty)
     },
     test("conservatively enforces protected runtime branches before contacting a source") {
       val query = "{ node { value } }"

@@ -41,7 +41,7 @@ private[gateway] final class OperationCost(
         error.toLeft {
           val multipliers = if (hasListSizes) representationMultipliers(plan) else NoMultipliers
           val rootCost    = plan.roots.foldLeft(BigInt(0)) { (total, fetch) =>
-            total + operationBase(plan.operation) + fieldsCost(fetch.selections, fetch.source)
+            total + operationBase(plan.operationType) + fieldsCost(fetch.selections, fetch.source)
           }
           val entityCost  = plan.entities
             .groupBy(fetch => fetch.root -> fetch.mergePath)

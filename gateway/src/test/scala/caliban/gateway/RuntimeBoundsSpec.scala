@@ -2,6 +2,7 @@ package caliban.gateway
 
 import caliban.ResponseValue.ObjectValue
 import caliban.Value.{ BooleanValue, NullValue, StringValue }
+import caliban.execution.ExecutionRequest
 import caliban.gateway.GatewayTestSupport._
 import caliban.gateway.internal.OperationCache.Weighted
 import caliban.gateway.internal._
@@ -145,27 +146,35 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
       }
     ),
     suite("operation preparation")(
-      test("caches prepared plans independently of policy evaluation") {
+      test("reuses variable-free operations independently of other operations and authorization") {
+        val multipleOperations = request.copy(query =
+          Some(
+            "query Value { value } query Other($include: Boolean!) { value @include(if: $include) }"
+          )
+        )
         for {
           recorded       <- recordEvents
           (events, hooks) = recorded
-          policyCalls    <- Ref.make(0)
+          executions     <- Ref.make(Vector.empty[ExecutionRequest])
           stableRemote   <- stub(okResponse)
           stable         <-
             Gateway
               .compose(Subgraph.graphql("stable", stableRemote.endpoint, valueSchema))
               .withPhaseHooks(
-                PhaseHooks.authorization[Any](_ => policyCalls.update(_ + 1).unit)
+                PhaseHooks.authorization[Any](operation => executions.update(_ :+ operation.executionRequest))
               )
               .withPhaseHooks(hooks)
               .interpreter
-          _              <- stable.executeRequest(request)
-          _              <- stable.executeRequest(request)
-          policyRuns     <- policyCalls.get
+          first          <- stable.executeRequest(multipleOperations)
+          second         <- stable.executeRequest(multipleOperations)
+          authorized     <- executions.get
           observed       <- events.get
         } yield assertTrue(
+          first.errors.isEmpty,
+          second.errors.isEmpty,
           observed.count(_ == PhaseHooks.Event.CacheAccess(PhaseHooks.CacheResult.Hit)) == 1,
-          policyRuns == 2
+          authorized.size == 2,
+          authorized.head eq authorized.last
         )
       },
       test("caches custom validations and isolates different validation lists and gateway instances") {

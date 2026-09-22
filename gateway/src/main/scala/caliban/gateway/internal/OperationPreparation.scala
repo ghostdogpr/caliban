@@ -32,14 +32,12 @@ private[gateway] final class OperationPreparation[-R] private (
 
   def prepare(request: GraphQLRequest)(implicit trace: Trace): ZIO[R, CalibanError, ExecutableOperation] =
     for {
-      resolved   <- resolveRequest(request)
-      query       = resolved.request.query.getOrElse("")
-      config     <- Configurator.ref.get
-      preparation = PreparationConfig.from(config)
-      operation  <- if (resolved.cacheable) withCache(resolved.request, query, preparation)
-                    else withoutCache(resolved.request, query)
-      _          <- enforceCost(operation)
-      _          <- authorize(operation)
+      resolved  <- resolveRequest(request)
+      query      = resolved.request.query.getOrElse("")
+      operation <- if (resolved.cacheable) withCache(resolved.request, query)
+                   else withoutCache(resolved.request, query)
+      _         <- enforceCost(operation)
+      _         <- authorize(operation)
     } yield operation
 
   private def resolveRequest(
@@ -68,7 +66,7 @@ private[gateway] final class OperationPreparation[-R] private (
           .run(Event.Authorization(operation.request, operation.document, operation.executionRequest, requirements))(
             ZIO.unit
           )(_ => ()),
-        PolicyFailure,
+        AuthorizationFailure,
         rejection = { case PhaseHooks.Denial(reason) => CalibanError.ValidationError(reason, "") }
       )
   }
@@ -89,9 +87,10 @@ private[gateway] final class OperationPreparation[-R] private (
 
   private def withCache(
     request: GraphQLRequest,
-    query: String,
-    preparation: PreparationConfig
-  )(implicit trace: Trace): ZIO[R, CalibanError, ExecutableOperation] = {
+    query: String
+  )(implicit trace: Trace): ZIO[R, CalibanError, ExecutableOperation] = Configurator.ref.get.flatMap { config =>
+    val preparation = PreparationConfig.from(config)
+
     def lookup(parse: => IO[CalibanError, Document], activeOverrides: Set[OverrideLabel]) =
       cache
         .getOrCompute(
@@ -116,25 +115,30 @@ private[gateway] final class OperationPreparation[-R] private (
     activeOverrides: Set[OverrideLabel]
   )(implicit trace: Trace): IO[CalibanError, Weighted[CachedOperation]] =
     for {
-      _        <- RequestPreparation.checkIntrospection(document, request.operationName)
-      _        <- Validator.validate(document, rootType).unless(preparation.skipValidation)
-      variables = symbolicVariables(document)
-      planned  <- if (hasVariableCondition(document, request.operationName)) ZIO.none
-                  else
-                    for {
-                      execution <-
-                        RequestPreparation.prepareParsed(request, document, variables, rootType, skipValidation = true)
-                      plan      <- buildPlan(document, execution, activeOverrides)
-                    } yield Some((execution, plan))
-    } yield {
-      val cached = planned match {
-        case None                    => CachedOperation.DocumentOnly(document)
-        case Some((execution, plan)) =>
-          if (variables.isEmpty && !plan.hasVariableReferences) CachedOperation.Ready(document, execution, plan)
-          else CachedOperation.Planned(document, plan)
-      }
-      Weighted(cached, cacheWeight(request.query.getOrElse(""), planned.map(_._2), request.operationName))
-    }
+      _      <- RequestPreparation.checkIntrospection(document, request.operationName)
+      _      <- Validator.validate(document, rootType).unless(preparation.skipValidation)
+      cached <- if (hasVariableInclusionDirective(document, request.operationName))
+                  ZIO.succeed(
+                    Weighted(
+                      CachedOperation.DocumentOnly(document),
+                      cacheWeight(request.query.getOrElse(""), None, request.operationName)
+                    )
+                  )
+                else {
+                  val variables = symbolicVariables(document, request.operationName)
+                  for {
+                    execution <-
+                      RequestPreparation.prepareParsed(request, document, variables, rootType, skipValidation = true)
+                    plan      <- buildPlan(document, execution, activeOverrides)
+                  } yield {
+                    val cached: CachedOperation =
+                      if (variables.isEmpty && !plan.hasVariableReferences)
+                        CachedOperation.Ready(document, execution, plan)
+                      else CachedOperation.Planned(document, plan)
+                    Weighted(cached, cacheWeight(request.query.getOrElse(""), Some(plan), request.operationName))
+                  }
+                }
+    } yield cached
 
   private def withoutCache(
     request: GraphQLRequest,
@@ -157,7 +161,7 @@ private[gateway] final class OperationPreparation[-R] private (
         Exit.succeed(ExecutableOperation(request, document, execution, plan))
       case CachedOperation.Planned(document, plan)          =>
         buildOperation(request, document, VariableValidation) { (variables, _) =>
-          Exit.succeed(if (plan.hasVariableReferences) plan.bind(variables) else plan)
+          Exit.succeed(plan.bind(variables))
         }
       case CachedOperation.DocumentOnly(document)           =>
         buildOperation(request, document, VariableValidation) { (_, execution) =>
@@ -252,20 +256,22 @@ private[gateway] final class OperationPreparation[-R] private (
     query.length.toLong * 2L + operationName.fold(0)(_.length).toLong + planWeight + 1L
   }
 
-  private def symbolicVariables(document: Document): Map[String, InputValue] =
-    document.operationDefinitions.iterator
+  private def symbolicVariables(document: Document, operationName: Option[String]): Map[String, InputValue] =
+    document
+      .operationDefinition(operationName)
+      .iterator
       .flatMap(_.variableDefinitions.iterator)
       .map(definition => definition.name -> VariableValue(definition.name))
       .toMap
 
-  private def hasVariableCondition(document: Document, operationName: Option[String]): Boolean = {
-    def isVariableCondition(directive: Directive): Boolean =
+  private def hasVariableInclusionDirective(document: Document, operationName: Option[String]): Boolean = {
+    def isVariableInclusionDirective(directive: Directive): Boolean =
       isInclusionDirective(directive) && directive.arguments.values.exists {
         case _: VariableValue => true
         case _                => false
       }
 
-    document.hasDirective(operationName)(isVariableCondition)
+    document.hasDirective(operationName)(isVariableInclusionDirective)
   }
 }
 
@@ -305,12 +311,12 @@ private[gateway] object OperationPreparation {
   def isInternalFailure(error: CalibanError): Boolean =
     error match {
       case CalibanError.ExecutionError(message, _, _, Some(_), _) =>
-        message == ResolutionFailure || message == PolicyFailure || message == OverrideLabelResolutionFailure
+        message == ResolutionFailure || message == AuthorizationFailure || message == OverrideLabelResolutionFailure
       case _                                                      => false
     }
 
   private val ResolutionFailure              = "Operation resolution failed."
-  private val PolicyFailure                  = "Operation policy failed."
+  private val AuthorizationFailure           = "Operation authorization failed."
   private val OverrideLabelResolutionFailure = "Progressive override label resolution failed."
 
   private def runHook[R, A](

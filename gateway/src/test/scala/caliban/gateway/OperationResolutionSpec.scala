@@ -235,7 +235,7 @@ object OperationResolutionSpec extends ZIOSpecDefault {
         result  <- runtime.executeRequest(request.copy(query = Some(query)))
         sent    <- remote.requests.get
       } yield assertTrue(
-        result.errors.map(_.msg) == List("Operation policy failed."),
+        result.errors.map(_.msg) == List("Operation authorization failed."),
         result.errors.forall(error => OperationPreparation.isInternalFailure(error)),
         result.errors.forall(code(_).isEmpty),
         sent.isEmpty

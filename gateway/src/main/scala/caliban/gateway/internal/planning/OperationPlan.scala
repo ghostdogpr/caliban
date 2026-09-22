@@ -18,7 +18,7 @@ import scala.collection.immutable.ListMap
  * Fetch dependencies identify prerequisites; merge paths use response names and omit list indices.
  */
 private[gateway] final case class OperationPlan(
-  operation: OperationType,
+  operationType: OperationType,
   rootName: String,
   fields: List[Field],
   localFields: List[Field],
@@ -34,12 +34,12 @@ private[gateway] final case class OperationPlan(
 
   lazy val hasVariableReferences: Boolean = PlanVariables.hasReferences(this)
 
-  // Cached plans share these artifacts; binding variables creates a plan with fresh caches.
+  // Cached plans share these artifacts; replacing variable references creates a plan with fresh caches.
   lazy val executionCache: PlanExecutionCache = new PlanExecutionCache
   lazy val completion: ResponseCompletion     = ResponseCompletion.forPlan(this)
 
   def bind(variables: Map[String, InputValue]): OperationPlan =
-    PlanVariables.bind(this, variables)
+    if (hasVariableReferences) PlanVariables.bind(this, variables) else this
 }
 
 private[gateway] object OperationPlan {
@@ -302,7 +302,7 @@ private[gateway] object OperationPlan {
   }
 
   private def render(plan: OperationPlan): String = {
-    val header      = plan.operation.toString.toLowerCase
+    val header      = plan.operationType.toString.toLowerCase
     val rootLines   = plan.roots.flatMap { fetch =>
       fetch.client.zip(fetch.downstream).map { case (client, downstream) =>
         val keySelections = plan.entities

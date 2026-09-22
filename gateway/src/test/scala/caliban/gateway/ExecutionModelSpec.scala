@@ -242,6 +242,7 @@ object ExecutionModelSpec extends ZIOSpecDefault {
         completion eq plan.completion,
         plan.executionCache ne bound.executionCache,
         plan.completion ne bound.completion,
+        bound.bind(Map("id" -> StringValue("p2"))) eq bound,
         cachedRoot eq originalRoot,
         cache.root(fetch.id)(boundRoot) eq originalRoot,
         bound.executionCache.root(fetch.id)(boundRoot) eq boundRoot,

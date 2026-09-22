@@ -39,7 +39,7 @@ private[gateway] final class PlanExecutor[-R](
       case Some(subgraphName) =>
         val executor = subgraphExecutors(subgraphName)
         executor
-          .execute(resolvedRequest, plan.operation)
+          .execute(resolvedRequest, plan.operationType)
           .flatMap(response =>
             hooks.observeCompletion(
               ZIO.succeed(
@@ -148,7 +148,7 @@ private[gateway] final class PlanExecutor[-R](
     execution: ExecutionRequest,
     resolvedRequest: GraphQLRequest
   )(implicit trace: Trace): URIO[R, RemoteExecution] =
-    if (plan.operation == OperationType.Mutation) executeMutations(plan, plan.roots, execution, resolvedRequest)
+    if (plan.operationType == OperationType.Mutation) executeMutations(plan, plan.roots, execution, resolvedRequest)
     else
       executeRoots(plan.roots, execution, resolvedRequest, plan.executionCache)
         .flatMap(executeEntityFetches(plan.entities, _, resolvedRequest, plan.executionCache))
