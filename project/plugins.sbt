@@ -10,7 +10,7 @@ addSbtPlugin("pl.project13.scala" % "sbt-jmh"                       % "0.4.8")
 addSbtPlugin("com.thesamet"       % "sbt-protoc"                    % "1.0.8")
 addSbtPlugin("com.eed3si9n"       % "sbt-buildinfo"                 % "0.13.2")
 addSbtPlugin("org.scalameta"      % "sbt-mdoc"                      % "2.9.2")
-addSbtPlugin("com.typesafe"       % "sbt-mima-plugin"               % "1.2.0")
+addSbtPlugin("com.typesafe"       % "sbt-mima-plugin"               % "1.2.1")
 addSbtPlugin("com.eed3si9n"       % "sbt-assembly"                  % "2.5.0")
 
 addSbtPlugin("org.jetbrains.scala" % "sbt-ide-settings" % "1.1.4")
