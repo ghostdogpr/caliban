@@ -18,7 +18,7 @@ val circeVersion              = "0.14.16"
 val fs2Version                = "3.14.0"
 val http4sVersion             = "0.23.37"
 val javaTimeVersion           = "2.7.0"
-val jsoniterVersion           = "2.40.1"
+val jsoniterVersion           = "2.41.0"
 val laminextVersion           = "0.17.0"
 val magnoliaScala2Version     = "1.1.14"
 val magnoliaScala3Version     = "1.3.23"
@@ -35,7 +35,7 @@ val zioInteropReactiveVersion = "2.0.2"
 val zioConfigVersion          = "4.0.8"
 val zqueryVersion             = "0.7.8"
 val zioJsonVersion            = "1.0.0"
-val zioHttpVersion            = "3.11.4"
+val zioHttpVersion            = "3.11.6"
 val zioOpenTelemetryVersion   = "3.1.19"
 
 Global / onChangedBuildSource := ReloadOnSourceChanges
@@ -259,7 +259,7 @@ lazy val codegen = project
   .settings(
     libraryDependencies ++= Seq(
       "org.scalameta"   % "scalafmt-interfaces" % scalafmtVersion,
-      "io.get-coursier" % "interface"           % "1.0.28",
+      "io.get-coursier" % "interface"           % "1.0.29",
       "dev.zio"        %% "zio-test"            % zioVersion % Test,
       "dev.zio"        %% "zio-test-sbt"        % zioVersion % Test
     ),
@@ -317,7 +317,7 @@ lazy val tracing = project
       "dev.zio"         %% "zio-opentelemetry"         % zioOpenTelemetryVersion,
       "dev.zio"         %% "zio-test"                  % zioVersion % Test,
       "dev.zio"         %% "zio-test-sbt"              % zioVersion % Test,
-      "io.opentelemetry" % "opentelemetry-sdk-testing" % "1.65.0"   % Test
+      "io.opentelemetry" % "opentelemetry-sdk-testing" % "1.66.0"   % Test
     )
   )
   .dependsOn(core)
