@@ -6,7 +6,7 @@ import caliban.Value.StringValue
 import caliban.gateway.GatewayTestSupport._
 import zio.Config.Secret
 import zio._
-import zio.http.{ Body, Header, Headers, MediaType, Response, Server, Status, URL }
+import zio.http._
 import zio.test._
 
 import java.nio.charset.StandardCharsets
@@ -451,6 +451,17 @@ object SupergraphGatewaySpec extends ZIOSpecDefault {
       for {
         rejected <- Gateway.fromSupergraph(Supergraph.uplink(blank)).reloadableEvery(uplinkPollInterval).exit
       } yield assertTrue(buildDiagnostics(rejected) == List("Supergraph uplink apikey must not be empty."))
+    },
+    test("validates supergraph source configuration when building a fixed interpreter") {
+      val noEndpoints = SupergraphUplinkConfig(graphRef, Secret("key")).withEndpoints()
+      val unbounded   = RemoteGraphQLConfig.Acquisition.default.withTimeout(Duration.Infinity)
+      for {
+        uplink <- Gateway.fromSupergraph(Supergraph.uplink(noEndpoints)).interpreter.exit
+        http   <- Gateway.fromSupergraph(Supergraph.http(url"http://localhost/supergraph", unbounded)).interpreter.exit
+      } yield assertTrue(
+        buildDiagnostics(uplink) == List("Supergraph uplink must have at least one endpoint."),
+        buildDiagnostics(http) == List("Schema acquisition timeout must be finite and positive.")
+      )
     }
   )
 }

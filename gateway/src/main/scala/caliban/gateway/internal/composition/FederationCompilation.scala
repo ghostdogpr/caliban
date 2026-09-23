@@ -80,7 +80,6 @@ private[composition] object FederationCompilation {
       unavailableAuthenticated.map(_ -> "@authenticated").toMap ++
         unavailableRequiresScopes.map(_ -> "@requiresScopes").toMap ++
         unavailablePolicy.map(_ -> "@policy").toMap
-    // A bare security name that no @link resolves and no definition declares would otherwise be ignored.
     val recognizedSecurity                          = authenticated ++ requiresScopes ++ policy ++ unavailableSecurity.keySet
     val definedDirectives                           = document.directiveDefinitions.iterator.map(_.name).toSet
     val unimportedSecurity                          =

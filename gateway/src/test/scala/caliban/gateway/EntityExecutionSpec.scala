@@ -41,6 +41,42 @@ object EntityExecutionSpec extends ZIOSpecDefault {
   private val pricingDownExtensions =
     ResponseObjectValue(List("code" -> StringValue("PRICING_DOWN"), "debug" -> StringValue("local detail")))
 
+  private object StockApi extends GenericSchema[Any] {
+    import auto._
+
+    final case class ProductArgs(id: Long)
+    final case class Product(id: Long, stock: Int)
+    final case class Query(warehouse: String)
+
+    implicit val productArgsSchema: Schema[Any, ProductArgs] = Schema.gen
+    implicit val productArgsBuilder: ArgBuilder[ProductArgs] = ArgBuilder.gen
+    implicit val productSchema: Schema[Any, Product]         =
+      obj("Product", directives = List(GQLKey("id").directive))(implicit attributes =>
+        List(
+          field("id")(_.id),
+          field("stock")(_.stock)
+        )
+      )
+
+    val api = graphQL(RootResolver(Query("main"))) @@ federated(
+      EntityResolver.from[ProductArgs](args => ZQuery.succeed(Some(Product(args.id, 7))))
+    )
+  }
+
+  private val longKeyProductsSchema =
+    s"""
+       |schema @link(url: "https://specs.apollo.dev/federation/v2.3", import: ["@key"]) { query: Query }
+       |$federationDirectives
+       |scalar Long
+       |union _Entity = Product
+       |type Query {
+       |  product: Product
+       |  _entities(representations: [_Any!]!): [_Entity]!
+       |  _service: _Service!
+       |}
+       |type Product @key(fields: "id") { id: Long! name: String! }
+       |""".stripMargin
+
   private trait Pricing {
     def currency: UIO[String]
     def price(id: String): UIO[Int]
@@ -190,6 +226,26 @@ object EntityExecutionSpec extends ZIOSpecDefault {
           product.flatMap(field(_, "name")).contains(StringValue("Table")),
           product.flatMap(field(_, "price")).contains(IntNumber(125)),
           onlyNested(product, "reviews").exists(_.contains("body" -> StringValue("Solid")))
+        )
+      },
+      test("correlates entity keys that local and remote subgraphs encode as different number types") {
+        val productsResponse =
+          """{"data":{"product":{"name":"Table","_caliban_gateway_key":1,"_caliban_gateway_typename":"Product"}}}"""
+
+        for {
+          products <- stub(productsResponse)
+          runtime  <- Gateway
+                        .compose(
+                          Subgraph.federation("products", products.endpoint, longKeyProductsSchema),
+                          Subgraph.federation("stock", StockApi.api)
+                        )
+                        .interpreter
+          response <- runtime.execute("{ product { name stock } }")
+          product   = field(response.data, "product")
+        } yield assertTrue(
+          response.errors.isEmpty,
+          product.flatMap(field(_, "name")).contains(StringValue("Table")),
+          product.flatMap(field(_, "stock")).contains(IntNumber(7))
         )
       },
       test("rejects Federation entity transport registered as ordinary GraphQL") {

@@ -81,6 +81,7 @@ object QuickAdapterSpec extends ZIOSpecDefault {
         mixedWildcard <- send(Some("text/plain, */*"))
         explicitJson  <- send(Some("application/json, text/plain, */*"))
         eventStream   <- send(Some("text/event-stream, */*"))
+        apolloDefer   <- send(Some("multipart/mixed;deferSpec=20220824, application/json"))
       } yield assertTrue(
         absent.code == wildcard.code,
         absent.contentType == wildcard.contentType,
@@ -89,7 +90,8 @@ object QuickAdapterSpec extends ZIOSpecDefault {
         wildcard.body.contains("\"data\""),
         mixedWildcard.contentType.contains("application/json"),
         explicitJson.contentType.contains("application/json"),
-        eventStream.contentType.contains("text/event-stream")
+        eventStream.contentType.contains("text/event-stream"),
+        apolloDefer.contentType.contains("application/json")
       )
     },
     test("accepts the legacy application/graphql+json POST media type") {

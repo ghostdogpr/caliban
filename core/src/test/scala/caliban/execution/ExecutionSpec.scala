@@ -454,6 +454,30 @@ object ExecutionSpec extends ZIOSpecDefault {
           variable.data.toString == """{"test":"456"}"""
         )
       },
+      test("accepts integer literals and variables for Int-backed ID fields") {
+        final case class IntId(value: Int)
+        implicit val idSchema: Schema[Any, IntId]    =
+          Schema.scalarSchema("ID", None, None, None, id => IntValue(id.value))
+        implicit val idArgBuilder: ArgBuilder[IntId] = ArgBuilder.int.map(IntId.apply)
+        case class IdArgs(id: IntId)
+        case class Queries(test: IdArgs => IntId)
+        val interpreter                              = graphQL(RootResolver(Queries(_.id))).interpreter
+        val variable                                 = GraphQLRequest(
+          query = Some("query Id($id: ID!) { test(id: $id) }"),
+          variables = Some(Map("id" -> IntValue(456)))
+        )
+
+        for {
+          api      <- interpreter
+          literal  <- api.execute("{ test(id: 123) }")
+          variable <- api.executeRequest(variable)
+        } yield assertTrue(
+          literal.errors.isEmpty,
+          variable.errors.isEmpty,
+          literal.data.toString == """{"test":123}""",
+          variable.data.toString == """{"test":456}"""
+        )
+      },
       test("coerces a single integer literal for a list of String-backed IDs") {
         final case class StringId(value: String)
         implicit val idSchema: Schema[Any, StringId]    =

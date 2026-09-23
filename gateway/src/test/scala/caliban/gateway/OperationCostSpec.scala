@@ -97,6 +97,35 @@ object OperationCostSpec extends ZIOSpecDefault {
         weights.lookups <= count(request.field.fields) * names.size * 2
       )
     },
+    test("does not multiply cost work across nested conditional selections") {
+      val names                           = List("A", "B", "C", "D")
+      val schema                          =
+        "type Query { node: Node } interface Node { child: Node value: String } " +
+          "interface Entity { child: Node value: String } " +
+          names.map(name => s"type $name implements Node & Entity { child: Node value: String }").mkString(" ")
+      def selection(depth: Int): String   =
+        if (depth == 0) "value" else s"... on Entity { child { ${selection(depth - 1)} } }"
+      val query                           = s"{ node { ${selection(8)} } }"
+      def count(fields: List[Field]): Int = fields.map(field => 1 + count(field.fields)).sum
+      for {
+        document  <- ZIO.fromEither(Parser.parseQuery(schema))
+        root      <- ZIO.fromEither(RemoteSchema.toRootType(document))
+        operation <- RequestPreparation.parse(query)
+        request   <-
+          RequestPreparation.prepareParsed(GraphQLRequest(query = Some(query)), operation, Map.empty, root, false)
+        weights    = new CountingCosts(names.zipWithIndex.map { case (name, index) =>
+                       TypeField(name, "value") -> (index + 1L)
+                     }.toMap)
+        metadata   = ComposedGraph.CostMetadata(Map.empty, weights, Map.empty, Map.empty, Map.empty)
+        costs      = new OperationCost(root.types, Map("Node" -> names.toSet, "Entity" -> names.toSet), metadata)
+        plan       = OperationPlan(OperationType.Query, "Query", request.field.fields, Nil, Nil, Nil, Nil, Some("nodes"))
+        estimated  = costs.estimate(request, plan)
+      } yield assertTrue(
+        estimated.isRight,
+        weights.lookups > 0,
+        weights.lookups <= count(request.field.fields) * names.size * 2
+      )
+    },
     test("retains runtime conditions and aliases when overlapping fields have different children") {
       val schema  = """
                      |type Query { node: Node }

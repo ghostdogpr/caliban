@@ -7,7 +7,7 @@ import zio.Config.Secret
  * Describes the Apollo GraphOS Uplink a supergraph is polled from.
  *
  * The uplink answers each poll with a `minDelaySeconds` the client is asked to wait. It is selected
- * and deliberately ignored: [[Gateway.reloadable]] enforces Apollo's published ten-second floor
+ * and deliberately ignored: [[Gateway#reloadable]] enforces Apollo's published ten-second floor
  * statically instead, against the fastest jittered interval [[GatewayConfig]] permits, so nothing here
  * throttles a poll dynamically.
  */

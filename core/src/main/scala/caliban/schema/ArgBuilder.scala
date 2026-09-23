@@ -113,6 +113,8 @@ trait ArgBuilderInstances extends ArgBuilderDerivation {
     case IntValue.IntNumber(value)                        => Right(value)
     case IntValue.LongNumber(value) if value.isValidInt   => Right(value.toInt)
     case IntValue.BigIntNumber(value) if value.isValidInt => Right(value.toInt)
+    case StringValue(value)                               =>
+      Try(value.toInt).fold(_ => Left(InvalidInputArgument("Int", value)), Right(_))
     case other                                            => Left(InvalidInputArgument("Int", other))
   }
   implicit lazy val long: ArgBuilder[Long]             = {
@@ -124,8 +126,9 @@ trait ArgBuilderInstances extends ArgBuilderDerivation {
     case other                                             => Left(InvalidInputArgument("Long", other))
   }
   implicit lazy val bigInt: ArgBuilder[BigInt]         = {
-    case value: IntValue => Right(value.toBigInt)
-    case other           => Left(InvalidInputArgument("BigInt", other))
+    case value: IntValue    => Right(value.toBigInt)
+    case StringValue(value) => Try(BigInt(value)).fold(_ => Left(InvalidInputArgument("BigInt", value)), Right(_))
+    case other              => Left(InvalidInputArgument("BigInt", other))
   }
   implicit lazy val float: ArgBuilder[Float]           = {
     case value: IntValue   => Right(value.toBigInt.toFloat)

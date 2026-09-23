@@ -9,7 +9,7 @@ import caliban.InputValue.{ ListValue => InputListValue, ObjectValue => InputObj
 import caliban.parsing.adt.OperationType
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Scala3Annotations.threadUnsafe
-import caliban.Value.{ NullValue, StringValue }
+import caliban.Value.{ EnumValue, FloatValue, IntValue, NullValue, StringValue }
 import zio.{ Trace, URIO, ZIO }
 
 import scala.collection.mutable
@@ -484,7 +484,7 @@ private[gateway] object EntityExecutor {
     while (remaining ne Nil) {
       val head = remaining.head
       hash = hash * 31 + head._1.hashCode
-      hash = hash * 31 + head._2.hashCode
+      hash = hash * 31 + comparableValue(head._2).hashCode
       remaining = remaining.tail
     }
     hash
@@ -496,12 +496,27 @@ private[gateway] object EntityExecutor {
     while ((remainingLeft ne Nil) && (remainingRight ne Nil)) {
       val leftHead  = remainingLeft.head
       val rightHead = remainingRight.head
-      if (leftHead._1 != rightHead._1 || leftHead._2 != rightHead._2) return false
+      if (
+        leftHead._1 != rightHead._1 ||
+        (leftHead._2 != rightHead._2 && comparableValue(leftHead._2) != comparableValue(rightHead._2))
+      ) return false
       remainingLeft = remainingLeft.tail
       remainingRight = remainingRight.tail
     }
     (remainingLeft eq Nil) && (remainingRight eq Nil)
   }
+
+  // Local and remote subgraphs can encode the same key as Long vs Int or enum vs string.
+  private def comparableValue(value: InputValue): InputValue =
+    value match {
+      case int: IntValue            => IntValue(int.toBigInt)
+      case float: FloatValue        => FloatValue(float.toBigDecimal)
+      case EnumValue(name)          => StringValue(name)
+      case InputListValue(values)   => InputListValue(values.map(comparableValue))
+      case InputObjectValue(fields) =>
+        InputObjectValue(fields.map { case (name, nested) => name -> comparableValue(nested) })
+      case other                    => other
+    }
 
   private def selectedInput(
     selection: RequiredSelection,

@@ -112,6 +112,13 @@ object Supergraph {
         case _: Source.Sdl | _: Source.Parsed                   => false
         case _: Source.File | _: Source.Http | _: Source.Uplink => true
       }
+
+    def diagnostics: List[String] =
+      this match {
+        case Source.Http(_, acquisition) => acquisition.diagnostics
+        case Source.Uplink(uplinkConfig) => uplinkConfig.diagnostics
+        case _                           => Nil
+      }
   }
 
   private[gateway] object Source {

@@ -79,7 +79,7 @@ The helper uses the registered query and ignores client-supplied query text. It 
 
 For a database lookup, use `PhaseHooks.resolution(resolve)`, where `resolve` is a `GraphQLRequest => ZIO[R, Throwable, String]`. It replaces query text before [cache lookup](planning.md#operation-cache), even on cache hits. Pass `cacheable = false` when the result must not reuse a cached operation. Validation still applies. To change other request fields, use `PhaseHooks.resolutionHandler(handler)` with a handler over `PhaseHooks.Event.Resolution`.
 
-To return a safe message and `extensions.code`, fail a custom resolver with `ZIO.fail(PhaseHooks.Rejection(message, code))`. `QuickAdapter` returns these rejections with HTTP 200. The gateway hides unexpected failures.
+To return a safe message and `extensions.code`, fail a custom resolver with `ZIO.fail(PhaseHooks.Rejection(message, code))`. `QuickAdapter` returns these rejections as request errors: HTTP 200 for `application/json` clients, or 400 when the client accepts `application/graphql-response+json`. The gateway hides unexpected failures.
 
 ## Progressive override labels
 
@@ -251,7 +251,7 @@ val application = serve.provide(
 
 Run `application` from your `ZIOAppDefault.run`. Configure Prometheus to scrape `/metrics` on port 4000. The publisher refreshes its snapshot every five seconds. See [ZIO's Prometheus guide](https://zio.dev/zio-metrics-connectors/metrics/prometheus-client/) for exporter details.
 
-`caliban_gateway_requests_total` and `caliban_gateway_request_duration_seconds` cover execution only, excluding preparation and requests rejected before execution. Track preparation separately with `caliban_gateway_preparation_duration_seconds`. Use `caliban_gateway_subgraph_call_duration_seconds` to find slow services and `caliban_gateway_operation_cache_total` to track cache hits and misses.
+`caliban_gateway_requests_total` and `caliban_gateway_request_duration_seconds` cover queries and mutations from execution onward. They also count error responses for preparation failures, timeouts, and shutdown rejections, but the duration excludes preparation time. Track preparation separately with `caliban_gateway_preparation_duration_seconds`. Use `caliban_gateway_subgraph_call_duration_seconds` to find slow services and `caliban_gateway_operation_cache_total` to track cache hits and misses.
 
 ### Exporting traces
 

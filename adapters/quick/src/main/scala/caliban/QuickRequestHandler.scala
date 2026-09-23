@@ -152,8 +152,7 @@ final private class QuickRequestHandler[R](
         mt.subType.equalsIgnoreCase("graphql") &&
         mt.mainType.equalsIgnoreCase("application")
       }
-      // `fetch` labels a body without a declared content type as text/plain, which the GraphQL over HTTP spec rejects.
-      // Other media types, such as the form encoding `curl -d` uses, are decoded as JSON.
+      // `fetch` sends text/plain when no content type is set, which the GraphQL over HTTP spec rejects.
       val isPlainText      = mediaType.exists(MediaType.text.plain.matches(_, ignoreParameters = true))
 
       if (isApplicationGql) decodeApplicationGql()
@@ -360,7 +359,6 @@ final private class QuickRequestHandler[R](
       body.contentType.fold(bounded)(bounded.contentType)
     }
 
-  // Without an acceptable media type, the GraphQL over HTTP spec allows ignoring Accept and responding with JSON.
   private def responseEncoding(request: Request): ResponseEncoding =
     request.headers.get(Header.Accept.name) match {
       case None        => ResponseEncoding.Json
@@ -439,10 +437,12 @@ object QuickRequestHandler {
       else
         supported.zipWithIndex.flatMap { case (candidate, position) =>
           bestMatch(candidate.mediaType, ranges).flatMap { range =>
-            val quality        = range.value.qFactor.getOrElse(1d)
-            val matchesAnyType = range.specificity == 0
-            val preference     = if (matchesAnyType && candidate.value == Json) -1 else position
-            if (quality > 0d && quality <= 1d) Some(Negotiated(candidate.value, quality, range.specificity, preference))
+            val quality         = range.value.qFactor.getOrElse(1d)
+            val matchesAnyType  = range.specificity == 0
+            val preference      = if (matchesAnyType && candidate.value == Json) -1 else position
+            // Parameters pick the matching range but must not rank encodings against each other.
+            val typeSpecificity = range.specificity / 100
+            if (quality > 0d && quality <= 1d) Some(Negotiated(candidate.value, quality, typeSpecificity, preference))
             else None
           }
         }.reduceOption((current, candidate) => if (candidate.isPreferredOver(current)) candidate else current)

@@ -78,9 +78,9 @@ final class Gateway[-R] private[gateway] (
 
   private[gateway] def build(implicit trace: Trace): ZIO[Scope, GatewayBuildError, GatewayInterpreterImpl[R]] = {
     val originDiagnostics = origin match {
-      case Origin.Composed(subgraphs) => Gateway.nameDiagnostics(subgraphs)
+      case Origin.Composed(subgraphs)        => Gateway.nameDiagnostics(subgraphs)
       // Subgraph names come from the supergraph's graph registry, which the decomposition validates.
-      case Origin.FromSupergraph(_)   => Nil
+      case Origin.FromSupergraph(supergraph) => supergraph.source.diagnostics
     }
 
     validate(config.diagnostics ::: originDiagnostics) *>
@@ -91,18 +91,19 @@ final class Gateway[-R] private[gateway] (
     origin match {
       case Origin.FromSupergraph(supergraph) =>
         val uplink = supergraph.source match {
-          case Supergraph.Source.Uplink(uplinkConfig) =>
+          case Supergraph.Source.Uplink(_) =>
             // Uplink asks clients not to poll faster than the `minDelaySeconds` it answers with, and
             // Apollo's published floor is ten seconds. Jitter is what reaches the wire, so the fastest
             // poll the configuration permits is what has to clear the floor.
-            uplinkConfig.diagnostics ::: check(
+            check(
               config.minimumReloadPollInterval >= Gateway.UplinkMinPollInterval,
               "Supergraph uplink polling requires a reload poll interval of at least ten seconds."
             )
-          case _                                      => Nil
+          case _                           => Nil
         }
 
-        check(supergraph.source.refreshable, "Gateway reload from supergraph requires a remote source.") ::: uplink
+        check(supergraph.source.refreshable, "Gateway reload from supergraph requires a remote source.") :::
+          supergraph.source.diagnostics ::: uplink
       case Origin.Composed(subgraphs)        =>
         val acquired = subgraphs.exists(_.source match {
           case Source.Remote(_, SchemaInput.Acquired, _, _) => true

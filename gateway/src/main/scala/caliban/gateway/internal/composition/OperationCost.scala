@@ -75,7 +75,10 @@ private[gateway] final class OperationCost(
     if (operation == OperationType.Mutation) BigInt(10) else BigInt(0)
 
   private def fieldsCost(fields: List[Field], source: String): BigInt =
-    conditionalCost(fields, (field: Field) => field._condition)((field, _) => fieldCost(field, source))
+    runtimeBranchCost(fields.map(field => field._condition -> fieldCost(field, source)))
+
+  private def runtimeBranchCost(costs: List[(Option[Set[String]], BigInt)]): BigInt =
+    conditionalCost(costs, (entry: (Option[Set[String]], BigInt)) => entry._1)((entry, _) => entry._2)
 
   private def entityFetchCost(
     fetch: EntityFetch,
@@ -118,16 +121,15 @@ private[gateway] final class OperationCost(
   }
 
   private def fieldCost(field: Field, source: String): BigInt = {
-    val nested      = fieldsCost(field.fields, source)
-    val definitions = fieldListSizes(field, source)
+    val nested    = fieldsCost(field.fields, source)
+    val listSizes = fieldListSizes(field, source).map { listSize =>
+      val size = resolvedListSize(field, listSize)
+      if (listSize.sizedFields.isEmpty) Left(size)
+      else Right(sizedFieldsCost(field.fields, source, listSize.sizedFields.map(SizedPath(_, size))))
+    }
     maximumFieldCost(field) { own =>
-      def listSizeCost(listSize: ComposedGraph.ListSize): BigInt = {
-        val size = resolvedListSize(field, listSize)
-        if (listSize.sizedFields.isEmpty) own.total(size, nested)
-        else own.totalOnce(sizedFieldsCost(field.fields, source, listSize.sizedFields.map(SizedPath(_, size))))
-      }
-      if (definitions.isEmpty) own.totalOnce(nested)
-      else definitions.map(listSizeCost).max
+      if (listSizes.isEmpty) own.totalOnce(nested)
+      else listSizes.map(_.fold(own.total(_, nested), own.totalOnce)).max
     }
   }
 
@@ -151,19 +153,21 @@ private[gateway] final class OperationCost(
   }
 
   private def sizedFieldsCost(fields: List[Field], source: String, paths: List[SizedPath]): BigInt =
-    conditionalCost(fields, (field: Field) => field._condition) { (field, _) =>
-      val matching = matchingSizedPaths(field.name, paths)
-      if (matching.isEmpty) fieldCost(field, source)
-      else {
-        val definitions            = fieldListSizes(field, source)
-        val local                  = declaredSizedPaths(field, definitions)
-        val (activated, remaining) = matching.partition(_.path.isEmpty)
-        val nested                 = sizedFieldsCost(field.fields, source, preferSizedPaths(local, remaining))
-        val size                   =
-          activated.map(_.size).reduceOption(_ max _).orElse(resolvedDirectListSize(field, definitions))
-        maximumFieldCost(field)(own => size.fold(own.totalOnce(nested))(own.total(_, nested)))
-      }
+    runtimeBranchCost(fields.map(field => field._condition -> sizedFieldCost(field, source, paths)))
+
+  private def sizedFieldCost(field: Field, source: String, paths: List[SizedPath]): BigInt = {
+    val matching = matchingSizedPaths(field.name, paths)
+    if (matching.isEmpty) fieldCost(field, source)
+    else {
+      val definitions            = fieldListSizes(field, source)
+      val local                  = declaredSizedPaths(field, definitions)
+      val (activated, remaining) = matching.partition(_.path.isEmpty)
+      val nested                 = sizedFieldsCost(field.fields, source, preferSizedPaths(local, remaining))
+      val size                   =
+        activated.map(_.size).reduceOption(_ max _).orElse(resolvedDirectListSize(field, definitions))
+      maximumFieldCost(field)(own => size.fold(own.totalOnce(nested))(own.total(_, nested)))
     }
+  }
 
   // A nearer @listSize replaces an inherited size for the same path.
   private def preferSizedPaths(primary: List[SizedPath], fallback: List[SizedPath]): List[SizedPath] = {
