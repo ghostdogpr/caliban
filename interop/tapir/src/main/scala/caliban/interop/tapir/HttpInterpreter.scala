@@ -19,7 +19,7 @@ sealed trait HttpInterpreter[-R, E] { self =>
     PublicEndpoint[(GraphQLRequest, ServerRequest), TapirResponse, CalibanResponse[streams.BinaryStream], S]
   ]
 
-  private[tapir] def executeRequest[BS](
+  protected[tapir] def executeRequest[BS](
     graphQLRequest: GraphQLRequest,
     serverRequest: ServerRequest
   )(implicit streamConstructor: StreamConstructor[BS]): ZIO[R, TapirResponse, CalibanResponse[BS]]
