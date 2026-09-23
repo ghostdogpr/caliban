@@ -11,11 +11,11 @@ import zio.Config.Secret
  * statically instead, against the fastest jittered interval [[GatewayConfig]] permits, so nothing here
  * throttles a poll dynamically.
  */
-final case class SupergraphUplinkConfig private (
-  graphRef: String,
-  apiKey: Secret,
-  endpoints: List[URL],
-  acquisition: RemoteGraphQLConfig.Acquisition
+final class SupergraphUplinkConfig private (
+  val graphRef: String,
+  val apiKey: Secret,
+  val endpoints: List[URL],
+  val acquisition: RemoteGraphQLConfig.Acquisition
 ) {
 
   /**
@@ -27,12 +27,19 @@ final case class SupergraphUplinkConfig private (
   def withAcquisition(acquisition: RemoteGraphQLConfig.Acquisition): SupergraphUplinkConfig =
     copy(acquisition = acquisition)
 
+  override def toString: String = s"SupergraphUplinkConfig($graphRef, $apiKey, $endpoints)"
+
   private[gateway] def diagnostics: List[String] =
     acquisition.diagnostics :::
       check(graphRef.nonEmpty, "Supergraph uplink graph ref must not be empty.") :::
       check(apiKey.value.nonEmpty, "Supergraph uplink apikey must not be empty.") :::
       check(endpoints.nonEmpty, "Supergraph uplink must have at least one endpoint.")
 
+  private def copy(
+    endpoints: List[URL] = endpoints,
+    acquisition: RemoteGraphQLConfig.Acquisition = acquisition
+  ): SupergraphUplinkConfig =
+    new SupergraphUplinkConfig(graphRef, apiKey, endpoints, acquisition)
 }
 
 object SupergraphUplinkConfig {
@@ -42,5 +49,5 @@ object SupergraphUplinkConfig {
   )
 
   def apply(graphRef: String, apiKey: Secret): SupergraphUplinkConfig =
-    SupergraphUplinkConfig(graphRef, apiKey, DefaultEndpoints, RemoteGraphQLConfig.Acquisition.default)
+    new SupergraphUplinkConfig(graphRef, apiKey, DefaultEndpoints, RemoteGraphQLConfig.Acquisition.default)
 }

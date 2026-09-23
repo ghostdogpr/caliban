@@ -13,10 +13,14 @@ final class RemoteGraphQLConfig[-R] private (
   val acquisition: Acquisition,
   val execution: Execution,
   val effectfulHeaders: ZIO[R, Throwable, List[Header]],
-  val subscription: RemoteSubscriptionConfig = RemoteSubscriptionConfig()
+  val subscription: RemoteSubscriptionConfig = RemoteSubscriptionConfig.default
 ) {
-  def withSubscription(value: RemoteSubscriptionConfig): RemoteGraphQLConfig[R] =
-    new RemoteGraphQLConfig(acquisition, execution, effectfulHeaders, value)
+
+  /**
+   * Transforms the upstream subscription configuration.
+   */
+  def withSubscription(configure: RemoteSubscriptionConfig => RemoteSubscriptionConfig): RemoteGraphQLConfig[R] =
+    new RemoteGraphQLConfig(acquisition, execution, effectfulHeaders, configure(subscription))
 
   /**
    * Transforms the stored schema-acquisition configuration.
@@ -285,14 +289,47 @@ object RemoteGraphQLConfig {
 /**
  * One upstream connection per subscription. No replay, automatic reconnect, or pooling.
  */
-final case class RemoteSubscriptionConfig(
-  transport: RemoteSubscriptionConfig.Transport = RemoteSubscriptionConfig.WebSocket,
-  endpoint: Option[URL] = None,
-  connectionInit: Option[InputValue] = None,
-  connectionTimeout: Duration = Duration.fromSeconds(30),
-  keepAliveInterval: Duration = Duration.fromSeconds(15),
-  bufferSize: Int = 32
+final class RemoteSubscriptionConfig private (
+  val transport: RemoteSubscriptionConfig.Transport,
+  val endpoint: Option[URL],
+  val connectionInit: Option[InputValue],
+  val connectionTimeout: Duration,
+  val keepAliveInterval: Duration,
+  val bufferSize: Int
 ) {
+
+  /**
+   * Selects the upstream subscription transport: [[RemoteSubscriptionConfig.WebSocket]] or
+   * [[RemoteSubscriptionConfig.Sse]].
+   */
+  def withTransport(value: RemoteSubscriptionConfig.Transport): RemoteSubscriptionConfig = copy(transport = value)
+
+  /**
+   * Sets the subscription URL. By default, subscriptions use the subgraph's HTTP endpoint, with the `ws` or `wss`
+   * scheme for WebSocket.
+   */
+  def withEndpoint(value: URL): RemoteSubscriptionConfig = copy(endpoint = Some(value))
+
+  /**
+   * Sets a static `connection_init` payload for WebSocket connections.
+   */
+  def withConnectionInit(value: InputValue): RemoteSubscriptionConfig = copy(connectionInit = Some(value))
+
+  /**
+   * Sets the time allowed for WebSocket acknowledgements, pong replies, and writes.
+   */
+  def withConnectionTimeout(value: Duration): RemoteSubscriptionConfig = copy(connectionTimeout = value)
+
+  /**
+   * Sets the interval between WebSocket pings.
+   */
+  def withKeepAliveInterval(value: Duration): RemoteSubscriptionConfig = copy(keepAliveInterval = value)
+
+  /**
+   * Sets the number of upstream messages buffered per subscription.
+   */
+  def withBufferSize(value: Int): RemoteSubscriptionConfig = copy(bufferSize = value)
+
   private[gateway] def diagnostics: List[String] =
     positive(bufferSize, "Remote subscription bufferSize must be positive.") :::
       endpoint.toList.flatMap { url =>
@@ -305,9 +342,33 @@ final case class RemoteSubscriptionConfig(
       List(connectionTimeout, keepAliveInterval).flatMap(
         finitePositive(_, "Remote subscription timeouts and keepalive interval must be finite and positive.")
       )
+
+  private def copy(
+    transport: RemoteSubscriptionConfig.Transport = transport,
+    endpoint: Option[URL] = endpoint,
+    connectionInit: Option[InputValue] = connectionInit,
+    connectionTimeout: Duration = connectionTimeout,
+    keepAliveInterval: Duration = keepAliveInterval,
+    bufferSize: Int = bufferSize
+  ): RemoteSubscriptionConfig =
+    new RemoteSubscriptionConfig(transport, endpoint, connectionInit, connectionTimeout, keepAliveInterval, bufferSize)
 }
 
 object RemoteSubscriptionConfig {
+
+  /**
+   * WebSocket on the subgraph endpoint, a 30-second connection timeout, 15-second pings, and 32 buffered messages.
+   */
+  val default: RemoteSubscriptionConfig =
+    new RemoteSubscriptionConfig(
+      transport = WebSocket,
+      endpoint = None,
+      connectionInit = None,
+      connectionTimeout = Duration.fromSeconds(30),
+      keepAliveInterval = Duration.fromSeconds(15),
+      bufferSize = 32
+    )
+
   sealed trait Transport
   case object WebSocket                         extends Transport
   final case class Sse(useGet: Boolean = false) extends Transport

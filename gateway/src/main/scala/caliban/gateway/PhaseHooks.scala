@@ -11,27 +11,28 @@ import zio.{ Cause, Exit, Trace, ZIO }
 import scala.util.control.NoStackTrace
 
 /**
- * Gateway handlers grouped by phase. Use named arguments to attach full [[PhaseHandler]] values,
- * or the companion helpers for individual phases. Combine bundles with `++`.
+ * Gateway handlers grouped by phase. Use the companion helpers to attach a handler to one phase, and combine
+ * bundles with `++`.
  */
-final case class PhaseHooks[-R](
-  operation: PhaseHandler[R, Event.Operation, Nothing, OperationEvent] = PhaseHandler.empty[Event.Operation],
-  preparation: PhaseHandler[R, Event.Preparation.type, Nothing, Result] = PhaseHandler.empty[Event.Preparation.type],
-  resolution: PhaseHandler[R, Event.Resolution, Throwable, Any] = PhaseHandler.empty[Event.Resolution],
-  overrideLabels: PhaseHandler[R, Event.OverrideLabels, Throwable, Any] = PhaseHandler.empty[Event.OverrideLabels],
-  cacheAccess: PhaseHandler[R, Event.CacheAccess, Nothing, Result] = PhaseHandler.empty[Event.CacheAccess],
-  authorization: PhaseHandler[R, Event.Authorization, Throwable, Any] = PhaseHandler.empty[Event.Authorization],
-  execution: PhaseHandler[R, Event.Execution, Nothing, Result] = PhaseHandler.empty[Event.Execution],
-  subgraphCall: PhaseHandler[R, Event.SubgraphCall, Nothing, Result] = PhaseHandler.empty[Event.SubgraphCall],
-  attempt: PhaseHandler[R, Event.Attempt, Nothing, Result] = PhaseHandler.empty[Event.Attempt],
-  completion: PhaseHandler[R, Event.Completion.type, Nothing, Result] = PhaseHandler.empty[Event.Completion.type],
-  subscriptionAdmission: PhaseHandler[R, Event.SubscriptionAdmission, Nothing, Result] =
+final class PhaseHooks[-R] private (
+  val operation: PhaseHandler[R, Event.Operation, Nothing, OperationEvent] = PhaseHandler.empty[Event.Operation],
+  val preparation: PhaseHandler[R, Event.Preparation.type, Nothing, Result] =
+    PhaseHandler.empty[Event.Preparation.type],
+  val resolution: PhaseHandler[R, Event.Resolution, Throwable, Any] = PhaseHandler.empty[Event.Resolution],
+  val overrideLabels: PhaseHandler[R, Event.OverrideLabels, Throwable, Any] = PhaseHandler.empty[Event.OverrideLabels],
+  val cacheAccess: PhaseHandler[R, Event.CacheAccess, Nothing, Result] = PhaseHandler.empty[Event.CacheAccess],
+  val authorization: PhaseHandler[R, Event.Authorization, Throwable, Any] = PhaseHandler.empty[Event.Authorization],
+  val execution: PhaseHandler[R, Event.Execution, Nothing, Result] = PhaseHandler.empty[Event.Execution],
+  val subgraphCall: PhaseHandler[R, Event.SubgraphCall, Nothing, Result] = PhaseHandler.empty[Event.SubgraphCall],
+  val attempt: PhaseHandler[R, Event.Attempt, Nothing, Result] = PhaseHandler.empty[Event.Attempt],
+  val completion: PhaseHandler[R, Event.Completion.type, Nothing, Result] = PhaseHandler.empty[Event.Completion.type],
+  val subscriptionAdmission: PhaseHandler[R, Event.SubscriptionAdmission, Nothing, Result] =
     PhaseHandler.empty[Event.SubscriptionAdmission],
-  subscriptionSetup: PhaseHandler[R, Event.SubscriptionSetup.type, Nothing, Result] =
+  val subscriptionSetup: PhaseHandler[R, Event.SubscriptionSetup.type, Nothing, Result] =
     PhaseHandler.empty[Event.SubscriptionSetup.type],
-  subscriptionEvent: PhaseHandler[R, Event.SubscriptionEvent.type, Nothing, Result] =
+  val subscriptionEvent: PhaseHandler[R, Event.SubscriptionEvent.type, Nothing, Result] =
     PhaseHandler.empty[Event.SubscriptionEvent.type],
-  subscriptionTerminated: PhaseHandler[R, Event.SubscriptionTerminated, Nothing, Result] =
+  val subscriptionTerminated: PhaseHandler[R, Event.SubscriptionTerminated, Nothing, Result] =
     PhaseHandler.empty[Event.SubscriptionTerminated]
 ) { self =>
   val enabled: Boolean =
@@ -51,7 +52,7 @@ final case class PhaseHooks[-R](
       self.subscriptionTerminated.enabled
 
   def ++[R1 <: R](that: PhaseHooks[R1]): PhaseHooks[R1] =
-    copy(
+    new PhaseHooks[R1](
       operation = self.operation ++ that.operation,
       preparation = self.preparation ++ that.preparation,
       resolution = self.resolution ++ that.resolution,
@@ -120,7 +121,7 @@ object PhaseHooks {
    *
    * Runs for execution and `explain(request)`, but not `check(query)`. Fail with [[Rejection]] to return a public
    * message and error code. The gateway masks unexpected failures and defects.
-   * Use `PhaseHooks(resolution = handler)` to change other request fields or make caching decisions per request.
+   * Use [[resolutionHandler]] to change other request fields or make caching decisions per request.
    */
   def resolution[R](
     resolve: GraphQLRequest => ZIO[R, Throwable, String],
@@ -131,6 +132,13 @@ object PhaseHooks {
         event.copy(request = event.request.copy(query = Some(query)), cacheable = event.cacheable && cacheable)
       )
     })
+
+  /**
+   * Attaches a full resolution [[PhaseHandler]]. The incoming side can change any request field and the `cacheable`
+   * flag. See [[resolution]] for when this phase runs and how failures are exposed.
+   */
+  def resolutionHandler[R](handler: PhaseHandler[R, Event.Resolution, Throwable, Any]): PhaseHooks[R] =
+    new PhaseHooks[R](resolution = handler)
 
   /**
    * Selects active custom `@override` labels before plan lookup, when the operation uses those labels.
@@ -153,11 +161,18 @@ object PhaseHooks {
    * execution. Every handler must succeed. A failure stops authorization and prevents execution.
    *
    * Fail with [[Denial]] to return a public reason. The gateway masks unexpected failures and defects.
-   * Use `PhaseHooks(authorization = handler)` to attach a full [[PhaseHandler]]. Protected schemas require an incoming
+   * Use [[authorizationHandler]] to attach a full [[PhaseHandler]]. Protected schemas require an incoming
    * authorization handler; an outgoing-only observer does not satisfy that requirement.
    */
   def authorization[R](authorize: Event.Authorization => ZIO[R, Throwable, Unit]): PhaseHooks[R] =
     new PhaseHooks[R](authorization = PhaseHandler.incomingDiscard(authorize))
+
+  /**
+   * Attaches a full authorization [[PhaseHandler]]. See [[authorization]] for when this phase runs and how failures
+   * are exposed.
+   */
+  def authorizationHandler[R](handler: PhaseHandler[R, Event.Authorization, Throwable, Any]): PhaseHooks[R] =
+    new PhaseHooks[R](authorization = handler)
 
   /**
    * Wraps query or mutation execution and response assembly after [[preparation]].
@@ -184,6 +199,9 @@ object PhaseHooks {
    * Wraps one remote request and response decoding, or opening a remote subscription.
    * Runs after query deduplication. Attempt number zero is the first request. Higher numbers are retries.
    * The returned event supplies the headers to send. Other event fields describe the attempt.
+   * Identical concurrent queries share one attempt, so every caller gets the response to the first caller's headers.
+   * Put credentials and other per-caller headers in [[subgraphCall]] or `RemoteGraphQLConfig#withExecutionHeadersZIO`,
+   * which are part of the deduplication key.
    *
    * The result includes the HTTP status code and response size when available for queries and mutations.
    * Opening a subscription uses attempt zero, and its headers remain fixed for the stream's lifetime.

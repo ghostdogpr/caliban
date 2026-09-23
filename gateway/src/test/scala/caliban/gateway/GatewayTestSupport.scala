@@ -388,7 +388,7 @@ private[gateway] object GatewayTestSupport {
     events.map(event => s"""event: next\ndata: {"data":{"event":$event}}\n\n""").mkString + "event: complete\n\n"
 
   val sseConfig: RemoteGraphQLConfig[Any] =
-    RemoteGraphQLConfig.default.withSubscription(RemoteSubscriptionConfig(transport = RemoteSubscriptionConfig.Sse()))
+    RemoteGraphQLConfig.default.withSubscription(_.withTransport(RemoteSubscriptionConfig.Sse()))
 
   val subscriptionSchema = "type Query { value: String } type Subscription { event: Int }"
 

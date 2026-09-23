@@ -166,11 +166,15 @@ object SupergraphUplinkSpec extends ZIOSpecDefault {
         assertTrue(Supergraph.Source.Uplink(SupergraphUplinkConfig(graphRef, apiKey)).refreshable)
       },
       test("Supergraph.uplink describes an uplink source") {
-        val fromParts  = Supergraph.uplink(graphRef, apiKey)
-        val fromConfig = Supergraph.uplink(SupergraphUplinkConfig(graphRef, apiKey))
+        val fromParts                           = Supergraph.uplink(graphRef, apiKey)
+        val fromConfig                          = Supergraph.uplink(SupergraphUplinkConfig(graphRef, apiKey))
+        def uplink(supergraph: Supergraph[Any]) = supergraph.source match {
+          case Supergraph.Source.Uplink(config) => Some((config.graphRef, config.apiKey, config.endpoints))
+          case _                                => None
+        }
         assertTrue(
-          fromParts.source == Supergraph.Source.Uplink(SupergraphUplinkConfig(graphRef, apiKey)),
-          fromConfig.source == fromParts.source
+          uplink(fromParts) == Some((graphRef, apiKey, SupergraphUplinkConfig.DefaultEndpoints)),
+          uplink(fromConfig) == uplink(fromParts)
         )
       }
     ),

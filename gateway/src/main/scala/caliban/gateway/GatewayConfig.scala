@@ -19,7 +19,12 @@ final class GatewayConfig private (
   val remoteErrorMessages: Boolean,
   val subscriptions: GatewaySubscriptionConfig
 ) {
-  def withSubscriptions(value: GatewaySubscriptionConfig): GatewayConfig = copy(subscriptions = value)
+
+  /**
+   * Transforms the subscription limits and timeouts.
+   */
+  def withSubscriptions(configure: GatewaySubscriptionConfig => GatewaySubscriptionConfig): GatewayConfig =
+    copy(subscriptions = configure(subscriptions))
 
   /**
    * Sets the maximum total estimated weight of cached prepared operations and plans.
@@ -159,24 +164,67 @@ object GatewayConfig {
       reloadPollInterval = Duration.fromSeconds(30),
       reloadJitter = 0.2,
       remoteErrorMessages = false,
-      subscriptions = GatewaySubscriptionConfig()
+      subscriptions = GatewaySubscriptionConfig.default
     )
 }
 
 /**
  * Bounds active subscriptions and bursts. Overflow sheds the subscription; events are never silently dropped.
  */
-final case class GatewaySubscriptionConfig(
-  maxActive: Int = 1024,
-  bufferSize: Int = 32,
-  setupTimeout: Duration = Duration.fromSeconds(30),
-  eventTimeout: Duration = Duration.fromSeconds(30)
+final class GatewaySubscriptionConfig private (
+  val maxActive: Int,
+  val bufferSize: Int,
+  val setupTimeout: Duration,
+  val eventTimeout: Duration
 ) {
+
+  /**
+   * Sets the maximum number of active subscriptions. New subscriptions are rejected at capacity.
+   */
+  def withMaxActive(value: Int): GatewaySubscriptionConfig = copy(maxActive = value)
+
+  /**
+   * Sets the number of events buffered per subscription. An overflow terminates the subscription.
+   */
+  def withBufferSize(value: Int): GatewaySubscriptionConfig = copy(bufferSize = value)
+
+  /**
+   * Sets the time allowed to open a subscription source, including hook work.
+   */
+  def withSetupTimeout(value: Duration): GatewaySubscriptionConfig = copy(setupTimeout = value)
+
+  /**
+   * Sets the time allowed to process one source event, regardless of the wait between events.
+   */
+  def withEventTimeout(value: Duration): GatewaySubscriptionConfig = copy(eventTimeout = value)
+
   private[gateway] def diagnostics: List[String] =
     positive(maxActive, "Subscription maxActive must be positive.") :::
       positive(bufferSize, "Subscription bufferSize must be positive.") :::
       finitePositive(setupTimeout, "Subscription setupTimeout must be finite and positive.") :::
       finitePositive(eventTimeout, "Subscription eventTimeout must be finite and positive.")
+
+  private def copy(
+    maxActive: Int = maxActive,
+    bufferSize: Int = bufferSize,
+    setupTimeout: Duration = setupTimeout,
+    eventTimeout: Duration = eventTimeout
+  ): GatewaySubscriptionConfig =
+    new GatewaySubscriptionConfig(maxActive, bufferSize, setupTimeout, eventTimeout)
+}
+
+object GatewaySubscriptionConfig {
+
+  /**
+   * 1,024 active subscriptions, 32 buffered events each, and 30-second setup and event timeouts.
+   */
+  val default: GatewaySubscriptionConfig =
+    new GatewaySubscriptionConfig(
+      maxActive = 1024,
+      bufferSize = 32,
+      setupTimeout = Duration.fromSeconds(30),
+      eventTimeout = Duration.fromSeconds(30)
+    )
 }
 
 private[gateway] object GatewayConfigValidation {

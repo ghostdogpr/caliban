@@ -105,7 +105,28 @@ object QuickAdapterSpec extends ZIOSpecDefault {
                     )
       } yield assertTrue(response.is200, response.body.contains("\"data\""))
     },
-    test("accepts UTF-8 charset parameters without ignoring other media constraints") {
+    test("rejects text/plain and decodes other request media types as JSON") {
+      val body = """{"query":"{ characters { name } }"}"""
+
+      def send(contentType: String) =
+        execute(
+          basicRequest
+            .post(uri"http://localhost:8090/api/graphql")
+            .contentType(contentType)
+            .body(body)
+            .response(asStringAlways)
+        )
+
+      for {
+        text <- send("text/plain;charset=UTF-8")
+        form <- send("application/x-www-form-urlencoded")
+      } yield assertTrue(
+        text.code.code == 415,
+        form.is200,
+        form.body.contains("\"data\"")
+      )
+    },
+    test("accepts UTF-8 charset parameters and falls back to JSON for other media constraints") {
       val endpoint = uri"http://localhost:8090/api/graphql"
       val body     = """{"query":"{ characters { name } }"}"""
 
@@ -129,8 +150,10 @@ object QuickAdapterSpec extends ZIOSpecDefault {
         alias.is200,
         utf8.contentType.contains("application/json"),
         alias.contentType.contains("application/json"),
-        latin1.code.code == 406,
-        profile.code.code == 406
+        latin1.is200,
+        profile.is200,
+        latin1.contentType.contains("application/json"),
+        profile.contentType.contains("application/json")
       )
     },
     test("accepts a known-length JSON body within the configured limit") {
@@ -147,7 +170,7 @@ object QuickAdapterSpec extends ZIOSpecDefault {
                     )
       } yield assertTrue(response.is200, response.body.contains("\"data\""))
     },
-    test("returns 406 for an upload route with an unacceptable response type") {
+    test("responds with JSON for an upload route with an unacceptable response type") {
       for {
         response <- execute(
                       basicRequest
@@ -156,7 +179,7 @@ object QuickAdapterSpec extends ZIOSpecDefault {
                         .multipartBody(uploadParts("content".getBytes))
                         .response(asStringAlways)
                     )
-      } yield assertTrue(response.code.code == 406)
+      } yield assertTrue(response.is200, response.contentType.contains("application/json"))
     },
     test("does not apply the one-megabyte JSON default to uploads") {
       val largeFile = Array.fill[Byte](1024 * 1024 + 1)('x'.toByte)

@@ -79,23 +79,19 @@ final private class QuickRequestHandler[R](
     trace: Trace
   ): URIO[R, Response] =
     if (request.method != Method.GET && request.method != Method.POST) ZIO.succeed(MethodNotAllowedResponse)
-    else
-      responseEncoding(request) match {
-        case None                                       => ZIO.succeed(NotAcceptableResponse)
-        case Some(encoding) if isUploadRequest(request) => handleUploadRequest(request, encoding)
-        case Some(encoding)                             =>
-          ZIO.suspendSucceed {
-            transformHttpRequest(request)
-              .flatMap(req => executeRequest(request, req, encoding))
-              .foldZIO(Exit.succeed, Exit.succeed)
-          }
-      }
+    else {
+      val encoding = responseEncoding(request)
+      if (isUploadRequest(request)) handleUploadRequest(request, encoding)
+      else
+        ZIO.suspendSucceed {
+          transformHttpRequest(request)
+            .flatMap(req => executeRequest(request, req, encoding))
+            .foldZIO(Exit.succeed, Exit.succeed)
+        }
+    }
 
   def handleUploadRequest(request: Request)(implicit trace: Trace): URIO[R, Response] =
-    responseEncoding(request) match {
-      case None           => ZIO.succeed(NotAcceptableResponse)
-      case Some(encoding) => handleUploadRequest(request, encoding)
-    }
+    handleUploadRequest(request, responseEncoding(request))
 
   private def handleUploadRequest(request: Request, encoding: ResponseEncoding)(implicit
     trace: Trace
@@ -151,20 +147,18 @@ final private class QuickRequestHandler[R](
             catch { case NonFatal(_) => Exit.fail(BodyDecodeErrorResponse) }
         )
 
-      val isApplicationGql =
-        httpReq.body.mediaType.exists { mt =>
-          mt.subType.equalsIgnoreCase("graphql") &&
-          mt.mainType.equalsIgnoreCase("application")
-        }
-      val isJson           =
-        httpReq.body.mediaType.forall { mt =>
-          MediaType.application.json.matches(mt, ignoreParameters = true) ||
-          (mt.mainType.equalsIgnoreCase("application") && mt.subType.equalsIgnoreCase("graphql+json"))
-        }
+      val mediaType        = httpReq.body.mediaType
+      val isApplicationGql = mediaType.exists { mt =>
+        mt.subType.equalsIgnoreCase("graphql") &&
+        mt.mainType.equalsIgnoreCase("application")
+      }
+      // `fetch` labels a body without a declared content type as text/plain, which the GraphQL over HTTP spec rejects.
+      // Other media types, such as the form encoding `curl -d` uses, are decoded as JSON.
+      val isPlainText      = mediaType.exists(MediaType.text.plain.matches(_, ignoreParameters = true))
 
       if (isApplicationGql) decodeApplicationGql()
-      else if (isJson) decodeJson()
-      else Exit.fail(UnsupportedMediaTypeResponse)
+      else if (isPlainText) Exit.fail(UnsupportedMediaTypeResponse)
+      else decodeJson()
     }
 
     val queryParams = httpReq.url.queryParams
@@ -366,13 +360,19 @@ final private class QuickRequestHandler[R](
       body.contentType.fold(bounded)(bounded.contentType)
     }
 
-  private def responseEncoding(request: Request): Option[ResponseEncoding] =
+  // Without an acceptable media type, the GraphQL over HTTP spec allows ignoring Accept and responding with JSON.
+  private def responseEncoding(request: Request): ResponseEncoding =
     request.headers.get(Header.Accept.name) match {
-      case None        => JsonEncoding
+      case None        => ResponseEncoding.Json
       case Some(value) =>
         val accept = value.trim
-        if (accept == "*/*" || accept.equalsIgnoreCase("application/json")) JsonEncoding
-        else Header.Accept.parse(value).toOption.flatMap(header => ResponseEncoding.negotiate(header.mimeTypes.toList))
+        if (accept == "*/*" || accept.equalsIgnoreCase("application/json")) ResponseEncoding.Json
+        else
+          Header.Accept
+            .parse(value)
+            .toOption
+            .flatMap(header => ResponseEncoding.negotiate(header.mimeTypes.toList))
+            .getOrElse(ResponseEncoding.Json)
     }
 
   private def webSocketChannelListener(protocol: Protocol)(ch: WebSocketChannel)(implicit trace: Trace): RIO[R, Unit] =
@@ -514,8 +514,6 @@ object QuickRequestHandler {
   private val MethodNotAllowedResponse =
     errorResponse(Status.MethodNotAllowed, "Method not allowed.").addHeader(Header.Custom("Allow", "GET, POST"))
 
-  private val JsonEncoding: Option[ResponseEncoding] = Some(ResponseEncoding.Json)
-
   private final val ResponseLimitMessage = "Encoded GraphQL response exceeds the configured limit."
 
   private lazy val responseLimitErrorBytes: Array[Byte] =
@@ -545,9 +543,6 @@ object QuickRequestHandler {
 
   private val RequestEntityTooLargeResponse =
     errorResponse(Status.RequestEntityTooLarge, "GraphQL request body exceeds the configured limit.")
-
-  private val NotAcceptableResponse =
-    errorResponse(Status.NotAcceptable, "No acceptable GraphQL response encoding.")
 
   private val UnsupportedMediaTypeResponse =
     errorResponse(Status.UnsupportedMediaType, "Unsupported GraphQL request media type.")

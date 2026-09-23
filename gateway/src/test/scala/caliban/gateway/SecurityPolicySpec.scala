@@ -295,10 +295,10 @@ object SecurityPolicySpec extends ZIOSpecDefault {
       val hooks    = List(
         PhaseHooks.empty,
         PhaseHooks.resolution[Any](request => ZIO.succeed(request.query.getOrElse(""))),
-        PhaseHooks(authorization = PhaseHandler.empty[PhaseHooks.Event.Authorization]),
-        PhaseHooks(authorization = observer),
-        PhaseHooks(authorization = PhaseHandler.scoped(observer)),
-        PhaseHooks(authorization = observer ++ observer)
+        PhaseHooks.authorizationHandler(PhaseHandler.empty[PhaseHooks.Event.Authorization]),
+        PhaseHooks.authorizationHandler(observer),
+        PhaseHooks.authorizationHandler(PhaseHandler.scoped(observer)),
+        PhaseHooks.authorizationHandler(observer ++ observer)
       )
       for {
         remote      <- stub("""{"data":{"node":null}}""")
@@ -320,10 +320,10 @@ object SecurityPolicySpec extends ZIOSpecDefault {
       val observer = PhaseHandler.outgoing[Any, PhaseHooks.Event.Authorization, Any]((_, _) => ZIO.unit)
       val decision = PhaseHandler.incomingDiscard[Any, PhaseHooks.Event.Authorization, Nothing](_ => ZIO.unit)
       val hooks    = List(
-        PhaseHooks(authorization = observer ++ decision),
-        PhaseHooks(authorization = decision ++ observer),
-        PhaseHooks(authorization = PhaseHandler.scoped(decision)),
-        PhaseHooks(authorization =
+        PhaseHooks.authorizationHandler(observer ++ decision),
+        PhaseHooks.authorizationHandler(decision ++ observer),
+        PhaseHooks.authorizationHandler(PhaseHandler.scoped(decision)),
+        PhaseHooks.authorizationHandler(
           PhaseHandler[Any, PhaseHooks.Event.Authorization, Nothing, Unit, Any](event => ZIO.succeed((event, ())))(
             (_, _, _) => ZIO.unit
           )
@@ -866,6 +866,50 @@ object SecurityPolicySpec extends ZIOSpecDefault {
         response.errors.isEmpty,
         field(response.data, "value").contains(StringValue("ok")),
         sent.size == 1
+      )
+    },
+    test("rejects undefined security directives that are not imported") {
+      val bareDirectives =
+        """type Query {
+          |  a: String @authenticated
+          |  b: String @requiresScopes(scopes: [["read"]])
+          |  c: String @policy(policies: [["owner"]])
+          |}
+          |""".stripMargin
+      val schemas        = List(
+        "unlinked" ->
+          s"""extend schema @link(url: "https://specs.apollo.dev/federation/v2.8", import: ["@key"])
+             |$linkDefinitions
+             |$bareDirectives""".stripMargin,
+        "aliased"  ->
+          s"""extend schema @link(
+             |  url: "https://specs.apollo.dev/federation/v2.8"
+             |  import: [{ name: "@authenticated", as: "@auth" }, { name: "@requiresScopes", as: "@scoped" }, { name: "@policy", as: "@guarded" }]
+             |)
+             |$linkDefinitions
+             |$bareDirectives""".stripMargin,
+        "fed-one"  -> bareDirectives
+      )
+
+      for {
+        remote   <- stub(okResponse)
+        rejected <- ZIO.foreach(schemas) { case (name, schema) =>
+                      compositionDiagnostics(Gateway.compose(Subgraph.federation(name, remote.endpoint, schema)))
+                        .map(name -> _)
+                    }
+        ordinary <-
+          compositionDiagnostics(Gateway.compose(Subgraph.graphql("ordinary", remote.endpoint, bareDirectives)))
+        sent     <- remote.requests.get
+      } yield assertTrue(
+        rejected.forall { case (name, diagnostics) =>
+          List("@authenticated", "@requiresScopes", "@policy").forall(directive =>
+            diagnostics.exists(message =>
+              message.startsWith(s"[$name]") && message.contains(directive) && message.contains("not imported")
+            )
+          )
+        },
+        !ordinary.exists(_.contains("not imported")),
+        sent.isEmpty
       )
     },
     test("rejects security directives unavailable in the linked feature version") {

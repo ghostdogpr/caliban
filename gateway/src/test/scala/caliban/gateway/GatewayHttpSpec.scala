@@ -372,7 +372,7 @@ object GatewayHttpSpec extends ZIOSpecDefault {
           sent.isEmpty
         )
       },
-      test("rejects unsupported methods, media types, and response encodings") {
+      test("rejects unsupported methods and media types, and falls back to JSON for unsupported response encodings") {
         for {
           source          <- stub(greetingResponse)
           runtime         <- serviceGateway(source.endpoint).interpreter
@@ -432,7 +432,8 @@ object GatewayHttpSpec extends ZIOSpecDefault {
         } yield assertTrue(
           method.response.status == Status.NotFound,
           contentType.response.status == Status.UnsupportedMediaType,
-          accept.response.status == Status.NotAcceptable,
+          accept.response.status == Status.Ok,
+          accept.response.headers.get(Header.ContentType).exists(_.mediaType.fullType == "application/json"),
           fallback.response.headers.get(Header.ContentType).exists(_.mediaType.fullType == "application/json"),
           multipart.response.headers.get(Header.ContentType).exists(_.mediaType.fullType == "multipart/mixed"),
           multipart.body.contains("\"greeting\":\"hello\""),
@@ -442,7 +443,7 @@ object GatewayHttpSpec extends ZIOSpecDefault {
           quoted.body.contains("\"greeting\":\"hello\""),
           multipartRange.response.headers.get(Header.ContentType).exists(_.mediaType.fullType == "multipart/mixed"),
           multipartRange.body.contains("\"greeting\":\"hello\""),
-          invalidBoundary.response.status == Status.NotAcceptable,
+          invalidBoundary.response.headers.get(Header.ContentType).exists(_.mediaType.fullType == "application/json"),
           wildcard.response.headers
             .get(Header.ContentType)
             .exists(_.mediaType.fullType == "application/graphql-response+json"),

@@ -91,7 +91,7 @@ object SubscriptionSpec extends ZIOSpecDefault {
             closing    <- Promise.make[Nothing, Unit]
             release    <- Promise.make[Nothing, Unit]
             work       <- GatewayExecutionControl.make(
-                            GatewaySubscriptionConfig(maxActive = 1),
+                            GatewaySubscriptionConfig.default.withMaxActive(1),
                             PhaseHooks.empty,
                             30.seconds,
                             1.second
@@ -130,7 +130,7 @@ object SubscriptionSpec extends ZIOSpecDefault {
       for {
         recorded     <- recordEvents
         (seen, hooks) = recorded
-        work         <- GatewayExecutionControl.make(GatewaySubscriptionConfig(), hooks, 30.seconds, 1.second)
+        work         <- GatewayExecutionControl.make(GatewaySubscriptionConfig.default, hooks, 30.seconds, 1.second)
         _            <- ZIO.foreachDiscard(sources)(open => work.subscriptions.stream(open)(ZIO.succeed(_)).runDrain.exit)
         observed     <- seen.get
       } yield assertTrue(
@@ -279,7 +279,7 @@ object SubscriptionSpec extends ZIOSpecDefault {
                               }
                           }
                         )
-        config        = RemoteGraphQLConfig.default.withSubscription(RemoteSubscriptionConfig(bufferSize = 1))
+        config        = RemoteGraphQLConfig.default.withSubscription(_.withBufferSize(1))
         runtime      <- remoteGateway(endpoint, subscriptionSchema, config)
                           .withPhaseHooks(
                             hooks ++ PhaseHooks.subscriptionSetup(PhaseHandler.outgoing((_, _) => release.await))
@@ -319,7 +319,7 @@ object SubscriptionSpec extends ZIOSpecDefault {
                       }
                     )
         config    = RemoteGraphQLConfig.default.withSubscription(
-                      RemoteSubscriptionConfig(keepAliveInterval = 60.seconds, connectionTimeout = 1.second)
+                      _.withKeepAliveInterval(60.seconds).withConnectionTimeout(1.second)
                     )
         runtime  <- remoteGateway(endpoint, subscriptionSchema, config).interpreter
         running  <- runtime.executeStream(request).tap(_ => first.succeed(())).runDrain.forkScoped
@@ -388,7 +388,7 @@ object SubscriptionSpec extends ZIOSpecDefault {
                       sent.set(req.url.queryParams.getAll("query").headOption).as(sseResponse(body))
                     )
         config    = RemoteGraphQLConfig.default.withSubscription(
-                      RemoteSubscriptionConfig(transport = RemoteSubscriptionConfig.Sse(useGet = true))
+                      _.withTransport(RemoteSubscriptionConfig.Sse(useGet = true))
                     )
         runtime  <- remoteGateway(endpoint, subscriptionSchema, config).interpreter
         events   <- runtime.executeStream(request).runCollect
@@ -402,7 +402,7 @@ object SubscriptionSpec extends ZIOSpecDefault {
       val values = (1 to 100).toList
       for {
         runtime <- subscriptionGateway(ZStream.fromIterable(values))
-                     .withConfig(_.withSubscriptions(GatewaySubscriptionConfig(bufferSize = 128)))
+                     .withConfig(_.withSubscriptions(_.withBufferSize(128)))
                      .interpreter
         events  <- runtime.executeStream(request).runCollect
       } yield assertTrue(events.map(_.data.toString).toList == values.map(i => s"""{"event":$i}"""))
@@ -537,7 +537,7 @@ object SubscriptionSpec extends ZIOSpecDefault {
                           PhaseHandler.incomingDiscard(_ => processing.succeed(()).unit *> ZIO.never)
                         )
         runtime      <- subscriptionGateway(ZStream.fromQueue(queue))
-                          .withConfig(_.withSubscriptions(GatewaySubscriptionConfig(bufferSize = 1)))
+                          .withConfig(_.withSubscriptions(_.withBufferSize(1)))
                           .withPhaseHooks(hooks ++ stalled ++ GatewayMetrics.hooks)
                           .interpreter
         before       <- Metric.counter("caliban_gateway_subscription_overflows_total").value.map(_.count)
@@ -615,7 +615,7 @@ object SubscriptionSpec extends ZIOSpecDefault {
           ) ++ ZStream.never)
         runtime  <-
           subscriptionGateway(source)
-            .withConfig(_.withSubscriptions(GatewaySubscriptionConfig(maxActive = 1)))
+            .withConfig(_.withSubscriptions(_.withMaxActive(1)))
             .interpreter
         running  <- runtime.executeStream(request).runDrain.forkScoped
         _        <- opened.await
@@ -718,7 +718,7 @@ object SubscriptionSpec extends ZIOSpecDefault {
                           )
                         )
                       )
-                      .withSubscription(RemoteSubscriptionConfig())
+                      .withSubscription(_ => RemoteSubscriptionConfig.default)
         runtime  <- remoteGateway(endpoint, subscriptionSchema, config).interpreter
         exit     <- runtime.executeStream(request).runDrain.exit
         error     = exit.causeOption.flatMap(_.failureOption).collect { case e: CalibanError.ExecutionError => e }
@@ -738,7 +738,7 @@ object SubscriptionSpec extends ZIOSpecDefault {
                       QuickAdapter(source).routes(s"/$path", webSocketPath = Some(s"/$path/ws"))
                     )
         config    = RemoteGraphQLConfig.default.withSubscription(
-                      RemoteSubscriptionConfig(endpoint = Some(endpoint.addPath("ws")))
+                      _.withEndpoint(endpoint.addPath("ws"))
                     )
         runtime  <- remoteGateway(endpoint, api.render, config).interpreter
         events   <- runtime.executeStream(request).runCollect

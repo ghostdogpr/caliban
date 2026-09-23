@@ -77,7 +77,7 @@ The client can now omit `query`:
 
 The helper uses the registered query and ignores client-supplied query text. It preserves the operation name, variables, and extensions, and never registers new documents. Invalid IDs return `TRUSTED_DOCUMENT_ID_INVALID` in `extensions.code`. Unknown IDs return `TRUSTED_DOCUMENT_NOT_FOUND`. Add an [authorization hook](#authorizing-operations) to control who can execute a registered query.
 
-For a database lookup, use `PhaseHooks.resolution(resolve)`, where `resolve` is a `GraphQLRequest => ZIO[R, Throwable, String]`. It replaces query text before [cache lookup](planning.md#operation-cache), even on cache hits. Pass `cacheable = false` when the result must not reuse a cached operation. Validation still applies. To change other request fields, use `PhaseHooks(resolution = handler)` with a handler over `PhaseHooks.Event.Resolution`.
+For a database lookup, use `PhaseHooks.resolution(resolve)`, where `resolve` is a `GraphQLRequest => ZIO[R, Throwable, String]`. It replaces query text before [cache lookup](planning.md#operation-cache), even on cache hits. Pass `cacheable = false` when the result must not reuse a cached operation. Validation still applies. To change other request fields, use `PhaseHooks.resolutionHandler(handler)` with a handler over `PhaseHooks.Event.Resolution`.
 
 To return a safe message and `extensions.code`, fail a custom resolver with `ZIO.fail(PhaseHooks.Rejection(message, code))`. `QuickAdapter` returns these rejections with HTTP 200. The gateway hides unexpected failures.
 
@@ -196,7 +196,7 @@ val gateway = Gateway.compose(products, reviews) @@ headers
 
 The headers returned by `subgraphCall` participate in query deduplication and stay the same across retries. Local calls ignore header changes.
 
-Use `attempt` for headers that change per attempt, such as trace context. Return `event.copy(headers = ...)` from its incoming handler. These changes happen after deduplication and do not affect whether calls are shared.
+Use `attempt` for headers that change per attempt, such as trace context. Return `event.copy(headers = ...)` from its incoming handler. These changes happen after deduplication and do not affect whether calls are shared. Callers that share a call all receive the response to the first caller's attempt headers, so never add credentials or other per-caller headers in `attempt`. Put them in `subgraphCall` or `withExecutionHeadersZIO`.
 
 Subscriptions capture configured and effectful headers once. Both hooks run when opening the connection, which keeps those headers for its lifetime. Later enrichment calls run `subgraphCall` separately and can adjust the captured headers.
 

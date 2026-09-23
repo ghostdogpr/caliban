@@ -18,7 +18,7 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
   ): UIO[GatewayExecutionControl[Any]] =
     scope.extend(
       GatewayExecutionControl.make(
-        GatewaySubscriptionConfig(),
+        GatewaySubscriptionConfig.default,
         PhaseHooks.empty,
         requestTimeout,
         drainTimeout

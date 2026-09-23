@@ -185,6 +185,7 @@ private[gateway] object SchemaComposer {
 
   private def unsupportedDirectiveDiagnostics(
     names: FederationDirectiveNames,
+    federation: Boolean,
     application: TypeSystemDirectiveApplication,
     directive: Directive
   ): List[String] = {
@@ -197,6 +198,11 @@ private[gateway] object SchemaComposer {
       names.unavailableSecurity
         .get(directive.name)
         .map(name => s"Federation $name is not available in the linked feature version at '$coordinate'."),
+      Some(directive.name)
+        .filter(name => federation && names.unimportedSecurity(name))
+        .map(name =>
+          s"Federation @$name at '$coordinate' is not imported through a supported @link, so it would not be enforced."
+        ),
       names.unavailableCost
         .get(directive.name)
         .map(name => s"Federation $name requires Federation v2.9 or cost spec v0.1 at '$coordinate'."),
@@ -772,7 +778,12 @@ private[gateway] final class SchemaComposer private (subgraphs: List[SchemaCompo
     for {
       application <- metadata.directiveApplications
       directive   <- application.directives
-      diagnostic  <- unsupportedDirectiveDiagnostics(metadata.directiveNames, application, directive)
+      diagnostic  <- unsupportedDirectiveDiagnostics(
+                       metadata.directiveNames,
+                       metadata.subgraph.federation,
+                       application,
+                       directive
+                     )
     } yield s"[${metadata.subgraph.name}] $diagnostic"
 
   private def progressiveOverrideSourceDiagnostics: List[String] =

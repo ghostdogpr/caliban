@@ -19,17 +19,17 @@ QuickAdapter(interpreter).runServer(
 
 Clients connect to `ws://localhost:4000/ws/graphql`. SSE uses the HTTP `/graphql` route and needs no separate WebSocket route.
 
-Remote subgraphs use `graphql-transport-ws` by default. They use the configured HTTP endpoint with the `ws` or `wss` scheme. Set `RemoteSubscriptionConfig.endpoint` to use a different subscription URL. To use SSE, configure the transport:
+Remote subgraphs use `graphql-transport-ws` by default. They use the configured HTTP endpoint with the `ws` or `wss` scheme. Use `withEndpoint` on `RemoteSubscriptionConfig` to set a different subscription URL. To use SSE, configure the transport:
 
 ```scala
 import caliban.gateway.{ RemoteGraphQLConfig, RemoteSubscriptionConfig }
 
 val config = RemoteGraphQLConfig.default.withSubscription(
-  RemoteSubscriptionConfig(transport = RemoteSubscriptionConfig.Sse())
+  _.withTransport(RemoteSubscriptionConfig.Sse())
 )
 ```
 
-Pass this config when you add the remote subgraph. `Sse(useGet = true)` selects GET instead of POST. For WebSocket authentication, use `connectionInit` to supply a static initialization payload. The usual remote header settings also apply.
+Pass this config when you add the remote subgraph. `Sse(useGet = true)` selects GET instead of POST. For WebSocket authentication, use `withConnectionInit` to supply a static initialization payload. The usual remote header settings also apply.
 
 Each remote subscription opens one connection. WebSocket acknowledgements, pong replies, and writes have a 30-second `connectionTimeout`. Pings use a 15-second `keepAliveInterval`. Configure client-facing keepalives through the adapter. Upstream legacy WebSocket and incremental `@defer` or `@stream` responses are unsupported.
 
@@ -50,12 +50,7 @@ Each consumption starts a new subscription. Cancelling it releases the connectio
 Configure limits with `GatewaySubscriptionConfig`:
 
 ```scala
-import caliban.gateway.GatewaySubscriptionConfig
-import zio._
-
-val bounded = gateway.withConfig(_.withSubscriptions(
-  GatewaySubscriptionConfig(maxActive = 256, bufferSize = 16)
-))
+val bounded = gateway.withConfig(_.withSubscriptions(_.withMaxActive(256).withBufferSize(16)))
 ```
 
 Defaults are 1,024 active subscriptions and 32 buffered events each. `setupTimeout` allows 30 seconds to open a subscription. `eventTimeout` allows 30 seconds to process each event, regardless of the wait between events. Subscriptions have no lifetime limit. Remote messages are bounded by `RemoteGraphQLConfig.Execution.maxResponseBytes`. The ordinary request timeout does not end subscriptions.

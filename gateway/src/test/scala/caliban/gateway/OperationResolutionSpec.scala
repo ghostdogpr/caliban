@@ -35,7 +35,7 @@ object OperationResolutionSpec extends ZIOSpecDefault {
         seen     <- Ref.make(List.empty[String])
         handler   =
           (name: String, query: String) =>
-            PhaseHooks(resolution = PhaseHandler[Any, PhaseHooks.Event.Resolution, Throwable, Unit, Any] { event =>
+            PhaseHooks.resolutionHandler(PhaseHandler[Any, PhaseHooks.Event.Resolution, Throwable, Unit, Any] { event =>
               seen
                 .update(_ :+ s"$name-in:${event.request.query.getOrElse("")}")
                 .as(

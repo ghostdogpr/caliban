@@ -24,6 +24,7 @@ private[composition] object FederationCompilation {
     requiresScopes: Set[String],
     policy: Set[String],
     unavailableSecurity: Map[String, String],
+    unimportedSecurity: Set[String],
     unavailableCost: Map[String, String],
     cost: Set[String],
     listSize: Set[String],
@@ -79,6 +80,11 @@ private[composition] object FederationCompilation {
       unavailableAuthenticated.map(_ -> "@authenticated").toMap ++
         unavailableRequiresScopes.map(_ -> "@requiresScopes").toMap ++
         unavailablePolicy.map(_ -> "@policy").toMap
+    // A bare security name that no @link resolves and no definition declares would otherwise be ignored.
+    val recognizedSecurity                          = authenticated ++ requiresScopes ++ policy ++ unavailableSecurity.keySet
+    val definedDirectives                           = document.directiveDefinitions.iterator.map(_.name).toSet
+    val unimportedSecurity                          =
+      Set("authenticated", "requiresScopes", "policy").diff(recognizedSecurity).diff(definedDirectives)
     val unavailableCost                             =
       unavailableCostNames.map(_ -> "@cost").toMap ++ unavailableListSizeNames.map(_ -> "@listSize").toMap
     val context                                     = federationNames("context")
@@ -110,6 +116,7 @@ private[composition] object FederationCompilation {
       requiresScopes = requiresScopes,
       policy = policy,
       unavailableSecurity = unavailableSecurity,
+      unimportedSecurity = unimportedSecurity,
       unavailableCost = unavailableCost,
       cost = cost,
       listSize = listSize,
