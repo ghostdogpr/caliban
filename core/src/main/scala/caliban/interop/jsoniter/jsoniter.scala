@@ -123,7 +123,7 @@ private[caliban] object ValueJsoniter {
         StringValue(in.readString(null))
       case x if x == '-' || (x >= '0' && x <= '9') =>
         in.rollbackToken()
-        numberParser(in)
+        parseNumber(in)
       case 'n'                                     =>
         in.readNullOrError(NullValue, "unexpected JSON value")
       case 'f' | 't'                               =>
@@ -169,7 +169,7 @@ private[caliban] object ValueJsoniter {
         StringValue(in.readString(null))
       case x if x == '-' || (x >= '0' && x <= '9') =>
         in.rollbackToken()
-        numberParser(in)
+        parseNumber(in)
       case 'n'                                     =>
         in.readNullOrError(NullValue, "unexpected JSON value")
       case 'f' | 't'                               =>
@@ -203,32 +203,19 @@ private[caliban] object ValueJsoniter {
         in.decodeError(s"unexpected token $c")
     }
 
-  private val numberParser: JsonReader => Value = in => {
-    in.setMark()
-    var digits = 0
-    var b      = in.nextByte()
-    if (b == '-') b = in.nextByte()
-    try
-      while (b >= '0' && b <= '9') {
-        digits += 1
-        b = in.nextByte()
-      }
-    catch {
-      case _: JsonReaderException => // ignore the end of input error for now
+  private def parseNumber(in: JsonReader): Value =
+    in.readNumber(null) match {
+      case l: java.lang.Long        =>
+        val asLong = l.longValue()
+        val asInt  = asLong.toInt
+        // Check if the number can fit in an Int (most common case)
+        if (asInt.toLong == asLong) Value.IntValue.IntNumber(asInt)
+        else Value.IntValue.LongNumber(asLong)
+      case bd: java.math.BigDecimal =>
+        Value.FloatValue.BigDecimalNumber(bd)
+      case bi: java.math.BigInteger =>
+        Value.IntValue.BigIntNumber(bi)
     }
-    in.rollbackToMark()
-
-    if ((b | 0x20) != 'e' && b != '.') {
-      if (digits < 19) {
-        if (digits < 10) Value.IntValue.IntNumber(in.readInt())
-        else Value.IntValue.LongNumber(in.readLong())
-      } else {
-        val x = in.readBigInt(null)
-        if (x.bitLength < 64) Value.IntValue.LongNumber(x.longValue)
-        else Value.IntValue.BigIntNumber(x.bigInteger)
-      }
-    } else Value.FloatValue.BigDecimalNumber(in.readBigDecimal(null).bigDecimal)
-  }
 
   val inputValueCodec: JsonValueCodec[InputValue] = new JsonValueCodec[InputValue] {
     override def decodeValue(in: JsonReader, default: InputValue): InputValue =
