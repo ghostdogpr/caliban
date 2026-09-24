@@ -152,8 +152,11 @@ QuickAdapter has separate limits for client requests and responses:
 
 ```scala
 QuickAdapter(interpreter)
-  .withMaxRequestBodyBytes(2 * 1024 * 1024)
-  .withMaxResponseBodyBytes(16 * 1024 * 1024)
+  .configureHttp(
+    HttpConfig.default
+      .withMaxRequestBodyBytes(2 * 1024 * 1024)
+      .withMaxResponseBodyBytes(16 * 1024 * 1024)
+  )
   .runServer(4000, "/graphql")
 ```
 

@@ -575,7 +575,7 @@ private[gateway] object GatewayTestSupport {
   def validateRequest(schema: String, request: GraphQLRequest): IO[CalibanError, Unit] =
     for {
       schemaDocument <- ZIO.fromEither(Parser.parseQuery(schema))
-      rootType       <- ZIO.fromEither(RemoteSchema.toRootType(schemaDocument))
+      rootType       <- ZIO.fromEither(RemoteSchema.normalize(schemaDocument).map(_.rootType))
       validationRoot  = Introspector.withIntrospection(rootType)
       document       <- RequestPreparation.parse(request.query.getOrElse(""))
       variables      <- RequestPreparation.coerceVariables(document, request, validationRoot)

@@ -41,67 +41,59 @@ object RemoteSchema {
     )
   }
 
-  private[caliban] def toRootType(
-    document: Document,
-    promoteOrphans: Boolean = false
-  ): Either[ValidationError, RootType] =
-    normalize(document, promoteOrphans).map(_.rootType)
-
   private[caliban] def normalize(
     document: Document,
-    promoteOrphans: Boolean = false
+    extensionsCanDefineTypes: Boolean = false
   ): Either[ValidationError, Normalized] =
     for {
-      normalized <- normalizeExtensions(document, promoteOrphans)
+      normalized <- normalizeExtensions(document, extensionsCanDefineTypes)
       roots       = rootNames(normalized)
-      queryName  <- roots.query.toRight(
-                      ValidationError(
-                        "The query root operation is missing.",
-                        "The query root operation type must be provided and must be an Object type."
-                      )
-                    )
+      queryName  <- roots.query.toRight(SchemaValidator.missingQueryRoot)
       _          <- SchemaValidator.validateDocument(normalized, roots.query, roots.mutation, roots.subscription)
       rootType   <- buildRootType(normalized, roots, queryName)
       _          <- SchemaValidator.validateRootType(rootType)
     } yield Normalized(rootType, normalized)
 
-  private def normalizeExtensions(document: Document, promoteOrphans: Boolean): Either[ValidationError, Document] = {
-    val promoted       = if (promoteOrphans) promoteOrphanExtensions(document) else document
-    val knownTypes     = promoted.typeDefinitions.iterator.map(_.name).toSet
-    val typeExtensions = promoted.typeExtensions.collect { case extension: TypeExtension => extension }
+  private def normalizeExtensions(
+    document: Document,
+    extensionsCanDefineTypes: Boolean
+  ): Either[ValidationError, Document] = {
+    val defined        = if (extensionsCanDefineTypes) defineMissingTypes(document) else document
+    val knownTypes     = defined.typeDefinitions.iterator.map(_.name).toSet
+    val typeExtensions = defined.typeExtensions.collect { case extension: TypeExtension => extension }
       .groupBy(extensionName)
 
     typeExtensions.keys.find(!knownTypes.contains(_)) match {
       case Some(name) => Left(ValidationError(s"Schema extends undefined type '$name'.", ""))
       case None       =>
         for {
-          types            <- validateAll(promoted.typeDefinitions)(definition =>
+          types            <- validateAll(defined.typeDefinitions)(definition =>
                                 mergeExtensions(definition, typeExtensions.getOrElse(definition.name, Nil))
                               )
-          schemaDefinition <- mergeSchemaDeclarations(promoted)
+          schemaDefinition <- mergeSchemaDeclarations(defined)
         } yield {
-          val retained = promoted.definitions.filter {
+          val retained = defined.definitions.filter {
             case _: TypeDefinition | _: TypeExtension | _: SchemaDefinition | _: SchemaExtension => false
             case _                                                                               => true
           }
-          Document(schemaDefinition.toList ::: types ::: retained, promoted.sourceMapper)
+          Document(schemaDefinition.toList ::: types ::: retained, defined.sourceMapper)
         }
     }
   }
 
-  private def promoteOrphanExtensions(document: Document): Document = {
+  private def defineMissingTypes(document: Document): Document = {
     val definedNames     = document.typeDefinitions.iterator.map(_.name).toSet
     val (_, definitions) =
       document.definitions.foldLeft((definedNames, List.empty[Definition])) {
         case ((names, definitions), extension: TypeExtension) if !names.contains(extensionName(extension)) =>
-          (names + extensionName(extension), promotedDefinition(extension) :: definitions)
+          (names + extensionName(extension), asDefinition(extension) :: definitions)
         case ((names, definitions), definition)                                                            =>
           (names, definition :: definitions)
       }
     Document(definitions.reverse, document.sourceMapper)
   }
 
-  private def promotedDefinition(extension: TypeExtension): TypeDefinition =
+  private def asDefinition(extension: TypeExtension): TypeDefinition =
     extension match {
       case ScalarTypeExtension(name, directives)                     => ScalarTypeDefinition(None, name, directives)
       case ObjectTypeExtension(name, interfaces, directives, fields) =>

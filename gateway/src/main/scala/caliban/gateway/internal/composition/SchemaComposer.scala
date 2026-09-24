@@ -45,7 +45,10 @@ private[gateway] object SchemaComposer {
     val rootDocument = if (federation && !hasQueryRoot(document)) addFederationQueryRoot(document) else document
     for {
       normalized    <-
-        RemoteSchema.normalize(rootDocument, promoteOrphans = federation).left.map(SchemaValidationFailed(_))
+        RemoteSchema
+          .normalize(rootDocument, extensionsCanDefineTypes = federation)
+          .left
+          .map(SchemaValidationFailed(_))
       _             <- Either.cond(
                          federation || !normalized.rootType.queryType.allFields.exists(isEntityLookup),
                          (),
@@ -63,7 +66,7 @@ private[gateway] object SchemaComposer {
       extensionTypes = federation1ExtensionTypes(document).map(mapping.clientType)
       transformed   <- if (mapping.nonEmpty)
                          RemoteSchema
-                           .normalize(mapping.transform(normalized.document), promoteOrphans = federation)
+                           .normalize(mapping.transform(normalized.document), extensionsCanDefineTypes = federation)
                            .left
                            .map(SchemaValidationFailed(_))
                        else Right(normalized)

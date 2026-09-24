@@ -24,9 +24,7 @@ final private class QuickRequestHandler[R](
   interpreter: GraphQLInterpreter[R, Any],
   wsConfig: quick.WebSocketConfig[R],
   sseConfig: quick.SseConfig,
-  maxRequestBodyBytes: Int,
-  maxUploadBodyBytes: Int,
-  maxResponseBodyBytes: Int
+  httpConfig: quick.HttpConfig
 ) {
   import QuickRequestHandler._
   import ValueJsoniter.stringListCodec
@@ -35,18 +33,9 @@ final private class QuickRequestHandler[R](
     interpreter: GraphQLInterpreter[R1, Any] = this.interpreter,
     wsConfig: quick.WebSocketConfig[R1] = this.wsConfig,
     sseConfig: quick.SseConfig = this.sseConfig,
-    maxRequestBodyBytes: Int = this.maxRequestBodyBytes,
-    maxUploadBodyBytes: Int = this.maxUploadBodyBytes,
-    maxResponseBodyBytes: Int = this.maxResponseBodyBytes
+    httpConfig: quick.HttpConfig = this.httpConfig
   ): QuickRequestHandler[R1] =
-    new QuickRequestHandler(
-      interpreter,
-      wsConfig,
-      sseConfig,
-      maxRequestBodyBytes,
-      maxUploadBodyBytes,
-      maxResponseBodyBytes
-    )
+    new QuickRequestHandler(interpreter, wsConfig, sseConfig, httpConfig)
 
   def configure(config: ExecutionConfiguration)(implicit trace: Trace): QuickRequestHandler[R] =
     copy(
@@ -66,14 +55,8 @@ final private class QuickRequestHandler[R](
   def configureSse(config: quick.SseConfig): QuickRequestHandler[R] =
     copy(sseConfig = config)
 
-  def withMaxRequestBodyBytes(value: Int): QuickRequestHandler[R] =
-    copy(maxRequestBodyBytes = value)
-
-  def withMaxUploadBodyBytes(value: Int): QuickRequestHandler[R] =
-    copy(maxUploadBodyBytes = value)
-
-  def withMaxResponseBodyBytes(value: Int): QuickRequestHandler[R] =
-    copy(maxResponseBodyBytes = value)
+  def configureHttp(config: quick.HttpConfig): QuickRequestHandler[R] =
+    copy(httpConfig = config)
 
   def handleHttpRequest(request: Request)(implicit
     trace: Trace
@@ -137,10 +120,10 @@ final private class QuickRequestHandler[R](
     def decodeBody(body: Body) = {
 
       def decodeApplicationGql() =
-        readBody(body, maxRequestBodyBytes).map(bytes => GraphQLRequest(Some(new String(bytes, UTF_8))))
+        readBody(body, httpConfig.maxRequestBodyBytes).map(bytes => GraphQLRequest(Some(new String(bytes, UTF_8))))
 
       def decodeJson(): ZIO[Any, Response, GraphQLRequest] =
-        readBody(body, maxRequestBodyBytes).foldZIO(
+        readBody(body, httpConfig.maxRequestBodyBytes).foldZIO(
           Exit.fail,
           arr =>
             try checkNonEmptyRequest(readFromArray[GraphQLRequest](arr, readerConfig))
@@ -188,7 +171,7 @@ final private class QuickRequestHandler[R](
     def parsePath(path: String): List[PathValue] = path.split('.').toList.map(PathValue.parse)
 
     for {
-      body       <- boundedBody(request.body, maxUploadBodyBytes)
+      body       <- boundedBody(request.body, httpConfig.maxUploadBodyBytes)
       partsMap   <- body.asMultipartForm.mapBoth(_ => Response.internalServerError, _.map)
       gqlReq     <- extractField[GraphQLRequest](partsMap, "operations")
       rawMap     <- extractField[Map[String, List[String]]](partsMap, "map")
@@ -279,7 +262,7 @@ final private class QuickRequestHandler[R](
           excludeCacheDirective = cacheDirective.isDefined
         )
         try {
-          val bytes = GraphQLResponseJsoniter.writeToArray(resp, maxResponseBodyBytes, codec)
+          val bytes = GraphQLResponseJsoniter.writeToArray(resp, httpConfig.maxResponseBodyBytes, codec)
           Response(
             status = responseStatus(requestErrorsAreBadRequests = isGraphQLJson),
             headers = responseHeaders(contentType, cacheDirective) ++ allowPost(mutationOnGet),
@@ -329,7 +312,7 @@ final private class QuickRequestHandler[R](
     cause.defects.contains(BoundedOutputStream.LimitExceeded)
 
   private def encodeResponseValue(value: ResponseValue): Array[Byte] =
-    GraphQLResponseJsoniter.writeToArray(value, maxResponseBodyBytes, ValueJsoniter.responseValueCodec)
+    GraphQLResponseJsoniter.writeToArray(value, httpConfig.maxResponseBodyBytes, ValueJsoniter.responseValueCodec)
 
   private def isFtv1Request(req: Request) =
     req.headers.get(GraphQLRequest.`apollo-federation-include-trace`) match {

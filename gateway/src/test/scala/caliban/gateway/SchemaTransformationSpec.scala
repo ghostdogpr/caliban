@@ -70,7 +70,7 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
   private def transformedContextSelectors(schema: String, transformations: List[SchemaTransformation]) =
     for {
       document   <- ZIO.fromEither(Parser.parseQuery(schema))
-      normalized <- ZIO.fromEither(RemoteSchema.normalize(document, promoteOrphans = true))
+      normalized <- ZIO.fromEither(RemoteSchema.normalize(document, extensionsCanDefineTypes = true))
       mapping    <- ZIO.fromEither(
                       SchemaMapping.compile(
                         "contexts",
@@ -374,7 +374,7 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
 
       for {
         document   <- ZIO.fromEither(Parser.parseQuery(schema))
-        rootType   <- ZIO.fromEither(RemoteSchema.toRootType(document))
+        rootType   <- ZIO.fromEither(RemoteSchema.normalize(document).map(_.rootType))
         mapping    <- ZIO.fromEither(
                         SchemaMapping.compile(
                           "products",
@@ -553,7 +553,7 @@ object SchemaTransformationSpec extends ZIOSpecDefault {
       val json   = InputObjectValue(Map("__typename" -> StringValue("Item"), "key" -> StringValue("unchanged")))
       for {
         document <- ZIO.fromEither(Parser.parseQuery(schema))
-        rootType <- ZIO.fromEither(RemoteSchema.toRootType(document))
+        rootType <- ZIO.fromEither(RemoteSchema.normalize(document).map(_.rootType))
         mapping  <- ZIO.fromEither(
                       SchemaMapping.compile(
                         "products",

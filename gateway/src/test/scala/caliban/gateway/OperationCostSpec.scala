@@ -80,7 +80,7 @@ object OperationCostSpec extends ZIOSpecDefault {
       def count(fields: List[Field]): Int = fields.map(field => 1 + count(field.fields)).sum
       for {
         document  <- ZIO.fromEither(Parser.parseQuery(schema))
-        root      <- ZIO.fromEither(RemoteSchema.toRootType(document))
+        root      <- ZIO.fromEither(RemoteSchema.normalize(document).map(_.rootType))
         operation <- RequestPreparation.parse(query)
         request   <-
           RequestPreparation.prepareParsed(GraphQLRequest(query = Some(query)), operation, Map.empty, root, false)
@@ -109,7 +109,7 @@ object OperationCostSpec extends ZIOSpecDefault {
       def count(fields: List[Field]): Int = fields.map(field => 1 + count(field.fields)).sum
       for {
         document  <- ZIO.fromEither(Parser.parseQuery(schema))
-        root      <- ZIO.fromEither(RemoteSchema.toRootType(document))
+        root      <- ZIO.fromEither(RemoteSchema.normalize(document).map(_.rootType))
         operation <- RequestPreparation.parse(query)
         request   <-
           RequestPreparation.prepareParsed(GraphQLRequest(query = Some(query)), operation, Map.empty, root, false)
@@ -140,7 +140,7 @@ object OperationCostSpec extends ZIOSpecDefault {
       )
       for {
         document <- ZIO.fromEither(Parser.parseQuery(schema))
-        root     <- ZIO.fromEither(RemoteSchema.toRootType(document))
+        root     <- ZIO.fromEither(RemoteSchema.normalize(document).map(_.rootType))
         metadata  = ComposedGraph.CostMetadata(
                       Map.empty,
                       Map(TypeField("Child", "cheap") -> 1L, TypeField("Child", "expensive") -> 100L),

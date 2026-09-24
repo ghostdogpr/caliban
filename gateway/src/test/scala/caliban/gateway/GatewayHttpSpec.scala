@@ -232,7 +232,7 @@ object GatewayHttpSpec extends ZIOSpecDefault {
           source   <- stub(greetingResponse)
           runtime  <- serviceGateway(source.endpoint).interpreter
           response <- QuickAdapter(runtime)
-                        .withMaxResponseBodyBytes(16)
+                        .configureHttp(quick.HttpConfig.default.withMaxResponseBodyBytes(16))
                         .handlers
                         .api
                         .runZIO(post(URL.empty, greetingQuery))

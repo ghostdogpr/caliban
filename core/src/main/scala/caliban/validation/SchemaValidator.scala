@@ -19,12 +19,21 @@ private[caliban] object SchemaValidator {
    * Verifies that the given schema is valid. Fails with a [[caliban.CalibanError.ValidationError]] otherwise.
    */
   def validateSchema[R](schema: RootSchemaBuilder[R]): Either[ValidationError, RootSchema[R]] =
-    validateSchema(
-      schema.types.sorted,
-      schema.query.map(_.opType),
-      schema.mutation.map(_.opType),
-      schema.subscription.map(_.opType)
-    ).map(_ => RootSchema(schema.query.get, schema.mutation, schema.subscription))
+    for {
+      _     <- validateSchema(
+                 schema.types.sorted,
+                 schema.query.map(_.opType),
+                 schema.mutation.map(_.opType),
+                 schema.subscription.map(_.opType)
+               )
+      query <- schema.query.toRight(missingQueryRoot)
+    } yield RootSchema(query, schema.mutation, schema.subscription)
+
+  private[caliban] val missingQueryRoot: ValidationError =
+    ValidationError(
+      "The query root operation is missing.",
+      "The query root operation type must be provided and must be an Object type."
+    )
 
   private[caliban] def validateDocument(
     document: Document,
@@ -223,16 +232,11 @@ private[caliban] object SchemaValidator {
     }
 
     def noDuplicatedOneOfOrigin(inputValues: List[__InputValue]): Either[ValidationError, Unit] = {
-      val resolveOrigin  = (i: __InputValue) => i._parentType.flatMap(_.origin).get
-      val messageBuilder = (i: __InputValue) =>
-        s"$inputObjectContext is extended by a case class with multiple arguments: ${resolveOrigin(i)}"
+      val origins        = inputValues.flatMap(_._parentType.flatMap(_.origin))
+      val messageBuilder = (origin: String) =>
+        s"$inputObjectContext is extended by a case class with multiple arguments: $origin"
       val explanatory    = "All case classes used as arguments to OneOf Input Objects must have exactly one field"
-      noDuplicateName[__InputValue](
-        inputValues.filter(_._parentType.flatMap(_.origin).isDefined),
-        resolveOrigin,
-        messageBuilder,
-        explanatory
-      )
+      noDuplicateName[String](origins, identity, messageBuilder, explanatory)
     }
 
     def validateFields(fields: List[__InputValue]): Either[ValidationError, Unit] =
@@ -516,11 +520,7 @@ private[caliban] object SchemaValidator {
 
   private def validateRootQueryType(query: Option[__Type]): Either[ValidationError, Unit] =
     query match {
-      case None        =>
-        failValidation(
-          "The query root operation is missing.",
-          "The query root operation type must be provided and must be an Object type."
-        )
+      case None        => Left(missingQueryRoot)
       case Some(query) =>
         if (query.kind == __TypeKind.OBJECT)
           unit

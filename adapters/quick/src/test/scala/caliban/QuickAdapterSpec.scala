@@ -26,8 +26,8 @@ object QuickAdapterSpec extends ZIOSpecDefault {
     for {
       routes  <- TestApi.api.interpreter.map { interpreter =>
                    val default       = QuickAdapter(interpreter).configureSse(SseConfig(Some(1.second)))
-                   val existing      = default.withMaxRequestBodyBytes(Int.MaxValue - 2)
-                   val smallResponse = default.withMaxResponseBodyBytes(64)
+                   val existing      = default.configureHttp(HttpConfig.default.withMaxRequestBodyBytes(Int.MaxValue - 2))
+                   val smallResponse = default.configureHttp(HttpConfig.default.withMaxResponseBodyBytes(64))
 
                    (existing.routes(
                      "/api/graphql",
