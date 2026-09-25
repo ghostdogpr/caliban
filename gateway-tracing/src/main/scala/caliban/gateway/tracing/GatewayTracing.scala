@@ -22,11 +22,12 @@ object GatewayTracing {
   private val propagation = TraceContextPropagator.default
 
   /**
-   * The spans this integration records, as phase hooks.
+   * Phase hooks that record a span for each phase of a gateway operation.
    *
-   * The request-level SERVER span hangs off `operation`, the outermost phase, so preparation and the operation cache
-   * fall inside it rather than beside it. Some hooks carry no span of their own and are left untouched: the execution
-   * phase itself, cache access, subscription admission, termination, and override labels.
+   * Each operation gets a `caliban.gateway.request` span, which continues the client's trace when the request carries
+   * a `traceparent` header. Preparation, completion, each subgraph call and each HTTP attempt get a child span, and
+   * subgraph requests carry the trace context in their headers. Subscriptions get a span for their setup and for each
+   * event.
    */
   val hooks: PhaseHooks[Tracing] =
     PhaseHooks.operation(
@@ -82,7 +83,9 @@ object GatewayTracing {
       ) ++
       PhaseHooks.completion(spanning(contextual = false, "caliban.gateway.completion", SpanKind.INTERNAL))
 
-  /** Opens a span around one phase whose outgoing value is already a [[PhaseHooks.Result]]. */
+  /**
+   * Opens a span around one phase whose outgoing value is already a [[PhaseHooks.Result]].
+   */
   private def spanning[Ev <: Event](
     contextual: Boolean,
     name: String,

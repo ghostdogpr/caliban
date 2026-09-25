@@ -5,12 +5,11 @@ import caliban.{ GraphQLRequest, InputValue, ResponseValue }
 import caliban.gateway.{ SupergraphAcquisitionError, SupergraphUplinkConfig }
 import caliban.gateway.SupergraphAcquisitionError._
 import caliban.gateway.internal.GatewayHttpClient
-import caliban.gateway.internal.execution.RemoteTransport
 import caliban.gateway.SupergraphAcquisitionError.InvalidUplinkResponse._
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ FloatValue, IntValue, NullValue, StringValue }
 
-import com.github.plokhotnyuk.jsoniter_scala.core.{ readFromArray, writeToArray }
+import com.github.plokhotnyuk.jsoniter_scala.core.readFromArray
 import zio.{ IO, Trace, ZIO }
 import zio.http.URL
 
@@ -22,27 +21,20 @@ private[gateway] object ApolloUplinkClient {
     ifAfterId: Option[String],
     http: GatewayHttpClient
   )(implicit trace: Trace): IO[SupergraphAcquisitionError, UplinkResponse] = {
-    val acquisition = config.acquisition
-    val body        = writeToArray(request(config.apiKey.stringValue, config.graphRef, ifAfterId))
+    val request = uplinkRequest(config.apiKey.stringValue, config.graphRef, ifAfterId)
 
-    http
-      .post(endpoint, body, acquisition.headers, acquisition.maxResponseBytes)
-      .mapError[SupergraphAcquisitionError](RequestFailed(_))
-      .flatMap { reply =>
-        if (reply.body.limitExceeded) ZIO.fail(ResponseTooLarge(acquisition.maxResponseBytes))
-        else if (!reply.status.isSuccess || RemoteSchemaAcquisition.isHtml(reply.contentType))
-          ZIO.fail(UnexpectedResponse(reply.status, reply.contentType))
-        else if (
-          RemoteTransport.validateJsonStructure(reply.body.bytes, acquisition.maxParsingDepth, Int.MaxValue).isLeft
-        )
-          ZIO.fail(ParsingDepthExceeded(acquisition.maxParsingDepth))
-        else
-          // Remote error text must not reach diagnostics, including JSON decoding exceptions.
-          ZIO
-            .attempt(readFromArray[ResponseValue](reply.body.bytes))
-            .mapError(_ => InvalidUplinkResponse.DecodingFailed)
-            .flatMap(response => ZIO.fromEither(decode(response)))
-            .mapError(InvalidUplinkResponse(_))
+    // Any non-success status is an unexpected response, so that the loader fails over to the next endpoint.
+    RemoteSchemaAcquisition
+      .fetchBytes(endpoint, request, config.acquisition, http, UplinkFailures)(reply =>
+        reply.status.isSuccess && !RemoteSchemaAcquisition.isHtml(reply.contentType)
+      )
+      .flatMap { bytes =>
+        // Remote error text must not reach diagnostics, including JSON decoding exceptions.
+        ZIO
+          .attempt(readFromArray[ResponseValue](bytes))
+          .mapError(_ => InvalidUplinkResponse.DecodingFailed)
+          .flatMap(response => ZIO.fromEither(decode(response)))
+          .mapError(InvalidUplinkResponse(_))
       }
   }
 
@@ -53,7 +45,14 @@ private[gateway] object ApolloUplinkClient {
     final case class Failure(code: String, message: String)                                      extends UplinkResponse
   }
 
-  private def request(apiKey: String, ref: String, ifAfterId: Option[String]): GraphQLRequest =
+  private val UplinkFailures = RemoteSchemaAcquisition.Failures[SupergraphAcquisitionError](
+    RequestFailed(_),
+    ResponseTooLarge(_),
+    UnexpectedResponse(_, _),
+    ParsingDepthExceeded(_)
+  )
+
+  private def uplinkRequest(apiKey: String, ref: String, ifAfterId: Option[String]): GraphQLRequest =
     GraphQLRequest(
       query = Some(Query),
       operationName = Some(OperationName),

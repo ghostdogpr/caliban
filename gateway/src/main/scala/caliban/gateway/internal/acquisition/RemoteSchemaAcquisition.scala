@@ -12,7 +12,7 @@ import caliban.parsing.adt.Document
 import caliban.parsing.Parser
 import com.github.plokhotnyuk.jsoniter_scala.core.writeToArray
 import zio.{ IO, Trace, ZIO }
-import zio.http.URL
+import zio.http.{ Status, URL }
 
 private[gateway] object RemoteSchemaAcquisition {
 
@@ -37,27 +37,51 @@ private[gateway] object RemoteSchemaAcquisition {
     operationName: String,
     config: RemoteGraphQLConfig.Acquisition,
     http: GatewayHttpClient
-  )(implicit trace: Trace): IO[SubgraphAcquisitionError, Array[Byte]] = {
-    val request = GraphQLRequest(query = Some(query), operationName = Some(operationName))
+  )(implicit trace: Trace): IO[SubgraphAcquisitionError, Array[Byte]] =
+    fetchBytes(
+      endpoint,
+      GraphQLRequest(query = Some(query), operationName = Some(operationName)),
+      config,
+      http,
+      SubgraphFailures
+    )(reply => !reply.status.isRedirection && isJsonResponse(reply))
 
+  /**
+   * Posts `request` and returns the response body when `accepts` the reply and it fits the size and depth limits.
+   */
+  private[acquisition] def fetchBytes[E](
+    endpoint: URL,
+    request: GraphQLRequest,
+    config: RemoteGraphQLConfig.Acquisition,
+    http: GatewayHttpClient,
+    failures: Failures[E]
+  )(accepts: GatewayHttpClient.Reply => Boolean)(implicit trace: Trace): IO[E, Array[Byte]] =
     http
       .post(endpoint, writeToArray(request), config.headers, config.maxResponseBytes)
-      .mapError[SubgraphAcquisitionError](RequestFailed(_))
-      .flatMap(validateResponse(_, config))
-  }
+      .mapError(failures.requestFailed)
+      .flatMap { reply =>
+        if (reply.body.limitExceeded)
+          ZIO.fail(failures.responseTooLarge(config.maxResponseBytes))
+        else if (!accepts(reply))
+          ZIO.fail(failures.unexpectedResponse(reply.status, reply.contentType))
+        else if (RemoteTransport.validateJsonStructure(reply.body.bytes, config.maxParsingDepth, Int.MaxValue).isLeft)
+          ZIO.fail(failures.parsingDepthExceeded(config.maxParsingDepth))
+        else ZIO.succeed(reply.body.bytes)
+      }
 
-  private def validateResponse(reply: GatewayHttpClient.Reply, config: RemoteGraphQLConfig.Acquisition)(implicit
-    trace: Trace
-  ): IO[SubgraphAcquisitionError, Array[Byte]] =
-    if (reply.body.limitExceeded)
-      ZIO.fail(ResponseTooLarge(config.maxResponseBytes))
-    else if (reply.status.isRedirection || !isJsonResponse(reply))
-      ZIO.fail(UnexpectedResponse(reply.status, reply.contentType))
-    else
-      ZIO
-        .fromEither(RemoteTransport.validateJsonStructure(reply.body.bytes, config.maxParsingDepth, Int.MaxValue))
-        .mapError(_ => ParsingDepthExceeded(config.maxParsingDepth))
-        .as(reply.body.bytes)
+  private[acquisition] final case class Failures[+E](
+    requestFailed: Throwable => E,
+    responseTooLarge: Int => E,
+    unexpectedResponse: (Status, Option[String]) => E,
+    parsingDepthExceeded: Int => E
+  )
+
+  private val SubgraphFailures = Failures[SubgraphAcquisitionError](
+    RequestFailed(_),
+    ResponseTooLarge(_),
+    UnexpectedResponse(_, _),
+    ParsingDepthExceeded(_)
+  )
 
   /**
    * Returns None for malformed errors, or Some(Nil) when the response has no errors.
