@@ -1,7 +1,6 @@
 package caliban.gateway.internal.composition
 
-import caliban.gateway.{ check, fieldDiagnosticPrefix, formatSources, isRequiredInput }
-import caliban.gateway.internal.composition.ComposedGraph.TypeField
+import caliban.gateway._
 import caliban.gateway.internal.composition.TypeComposition._
 import caliban.introspection.adt._
 import caliban.parsing.adt.{ Directive, OperationType }
@@ -13,7 +12,6 @@ import scala.collection.compat._
  */
 private[composition] final class TypeComposition(
   types: List[SubgraphType],
-  enumUsages: Map[String, EnumUsage],
   directives: DirectiveComposition.ComposedDirectives
 ) {
   lazy val diagnostics: List[String] =
@@ -33,6 +31,17 @@ private[composition] final class TypeComposition(
 
   private lazy val typesByName = types.groupBy(_.name)
 
+  private lazy val enumUsages: Map[String, EnumUsage] = {
+    val allTypes = types.map(_.tpe)
+    val inputs   = allTypes.iterator.flatMap { tpe =>
+      tpe.allInputFields.iterator.flatMap(_._type.innerType.name) ++
+        tpe.allFields.iterator.flatMap(_.allArgs.iterator.flatMap(_._type.innerType.name))
+    }.toSet
+    val outputs  = allTypes.iterator.flatMap(_.allFields.iterator.flatMap(_._type.innerType.name)).toSet
+
+    (inputs ++ outputs).iterator.map(name => name -> EnumUsage(inputs.contains(name), outputs.contains(name))).toMap
+  }
+
   private def enumUsage(name: String): EnumUsage = enumUsages.getOrElse(name, EnumUsage.empty)
 
   private def fieldsByName(entries: List[SubgraphType]): Map[String, List[(SubgraphType, __Field)]] =
@@ -45,9 +54,6 @@ private[composition] final class TypeComposition(
       entry.inaccessibleArguments.collect { case (`fieldName`, argument) => argument }
     }.toSet
 
-  private def includeDeprecated[A](values: List[A], include: Option[Boolean])(isDeprecated: A => Boolean): List[A] =
-    if (include.getOrElse(false)) values else values.filterNot(isDeprecated)
-
   private def objectDiagnostics(name: String, entries: List[SubgraphType]): List[String] =
     fieldsByName(entries).toList.flatMap { case (fieldName, values) =>
       val declarations       = values.map { case (entry, field) =>
@@ -58,7 +64,7 @@ private[composition] final class TypeComposition(
         )
       }
       val operation          = entries.headOption.flatMap(_.operation)
-      val fieldPath          = operation.fold(s"$name.$fieldName")(value => s"${value.toString.toLowerCase}.$fieldName")
+      val fieldPath          = fieldCoordinate(operation, name, fieldName)
       val ownedSources       = effectiveFieldSources(fieldName, values.map(_._1)).map(_.source).toSet
       val owned              = values.map(_._1).filter(entry => ownedSources.contains(entry.source))
       val shareable          = owned.nonEmpty && owned.forall { entry =>
@@ -277,15 +283,13 @@ private[composition] final class TypeComposition(
       entries.map(_.tpe.allInputFields.map(_.name).toSet).reduceOption(_ intersect _).getOrElse(Set.empty)
     val fields      = commonNames.diff(hiddenNames).toList.sorted.flatMap { name =>
       // A common field must exist in the first declaration.
-      base.allInputFields
-        .find(_.name == name)
-        .map { field =>
-          val sanitized = field.copy(
-            `type` = () => rewrite(field._type),
-            directives = filterHiddenDirectives(field.directives, hidden)
-          )
-          directives.attachInputField(entries.head.name, sanitized)
-        }
+      inputFieldDefinition(base, name).map { field =>
+        val sanitized = field.copy(
+          `type` = () => rewrite(field._type),
+          directives = filterHiddenDirectives(field.directives, hidden)
+        )
+        directives.attachInputField(entries.head.name, sanitized)
+      }
     }
     directives
       .attachType(sanitizeType(base, rewrite, hidden), entries.head.name)
@@ -355,27 +359,8 @@ private[composition] object TypeComposition {
     val empty: EnumUsage = EnumUsage(input = false, output = false)
   }
 
-  final case class SubgraphOverride(from: String, by: String, progressive: Option[ComposedGraph.ProgressiveOverride])
-
   def effectiveFieldSources(field: String, entries: List[SubgraphType]): List[SubgraphType] =
     fieldSources(field, entries)(_ => true)
-
-  def interfaceOverrideTargets(entries: List[SubgraphType]): Map[TypeField, List[SubgraphOverride]] =
-    entries.iterator
-      .filter(_.tpe.kind == __TypeKind.OBJECT)
-      .flatMap { entry =>
-        entry.tpe.interfaces().getOrElse(Nil).iterator.flatMap(_.name).flatMap { interfaceName =>
-          entry.overrideFields.iterator.map { case (field, overrideDirective) =>
-            TypeField(interfaceName, field) -> SubgraphOverride(
-              overrideDirective.from,
-              entry.source,
-              overrideDirective.progressive
-            )
-          }
-        }
-      }
-      .toList
-      .groupMap(_._1)(_._2)
 
   def filterHiddenDirectives(
     directives: Option[List[Directive]],
@@ -385,10 +370,10 @@ private[composition] object TypeComposition {
     else directives.map(_.filterNot(directive => hiddenDirectives.contains(directive.name))).filter(_.nonEmpty)
 
   def rewriteType(tpe: __Type, types: => Map[String, __Type]): __Type =
-    tpe.ofType match {
-      case Some(ofType) => tpe.copy(ofType = Some(rewriteType(ofType, types)))
-      case None         => tpe.name.flatMap(types.get).getOrElse(tpe)
-    }
+    tpe.mapInnerType(named => named.name.flatMap(types.get).getOrElse(named))
+
+  def includeDeprecated[A](values: List[A], include: Option[Boolean])(isDeprecated: A => Boolean): List[A] =
+    if (include.getOrElse(false)) values else values.filterNot(isDeprecated)
 
   private final case class FieldDeclaration(source: String, field: __Field, contextualArguments: Set[String])
 

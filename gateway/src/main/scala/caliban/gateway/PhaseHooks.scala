@@ -35,7 +35,7 @@ final class PhaseHooks[-R] private (
   val subscriptionTerminated: PhaseHandler[R, Event.SubscriptionTerminated, Nothing, Result] =
     PhaseHandler.empty[Event.SubscriptionTerminated]
 ) { self =>
-  val enabled: Boolean =
+  private[gateway] val enabled: Boolean =
     self.operation.enabled ||
       self.preparation.enabled ||
       self.resolution.enabled ||
@@ -51,6 +51,9 @@ final class PhaseHooks[-R] private (
       self.subscriptionEvent.enabled ||
       self.subscriptionTerminated.enabled
 
+  /**
+   * Combines two bundles phase by phase. For each phase, this bundle's handler runs its incoming side first.
+   */
   def ++[R1 <: R](that: PhaseHooks[R1]): PhaseHooks[R1] =
     new PhaseHooks[R1](
       operation = self.operation ++ that.operation,
@@ -315,6 +318,9 @@ object PhaseHooks {
    */
   final case class SecurityRequirement(typeName: String, fieldName: Option[String], directives: List[SecurityDirective])
 
+  /**
+   * A security directive from the composed schema.
+   */
   sealed trait SecurityDirective
 
   object SecurityDirective {
@@ -331,6 +337,9 @@ object PhaseHooks {
     final case class RequiresScopes(scopes: List[List[String]]) extends SecurityDirective
   }
 
+  /**
+   * How a phase ended, as reported in a [[Result]]. `label` is a stable snake_case name for metric labels.
+   */
   sealed trait Outcome extends Product with Serializable {
     def label: String
   }
@@ -350,6 +359,10 @@ object PhaseHooks {
       if (response.errors.isEmpty) Success else GraphQLError
   }
 
+  /**
+   * How the prepared-operation cache answered a lookup: already prepared, prepared by this request, or prepared by
+   * another request this one waits for. `label` is a stable name for metric labels.
+   */
   sealed trait CacheResult extends Product with Serializable {
     def label: String
   }
@@ -360,6 +373,10 @@ object PhaseHooks {
     case object Wait extends CacheResult { val label = "wait" }
   }
 
+  /**
+   * What an outgoing callback learns about a finished phase. `statusCode` and `responseBytes` are set only for
+   * remote attempts that received an HTTP response.
+   */
   final case class Result(
     outcome: Outcome,
     operationType: Option[OperationType] = None,
@@ -388,6 +405,9 @@ object PhaseHooks {
       Result(if (cause.isInterrupted) Outcome.Cancelled else Outcome.InternalError)
   }
 
+  /**
+   * The value a phase handler receives on its incoming side. Each phase has its own event type.
+   */
   sealed trait Event extends Product with Serializable
 
   object Event {
@@ -405,6 +425,10 @@ object PhaseHooks {
       reached: Set[String],
       active: Set[String] = Set.empty
     ) extends Event {
+
+      /**
+       * Adds `labels` to the active set, keeping labels activated by earlier handlers.
+       */
       def activate(labels: Set[String]): OverrideLabels = copy(active = active ++ labels)
     }
     final case class CacheAccess(result: CacheResult)                            extends Event

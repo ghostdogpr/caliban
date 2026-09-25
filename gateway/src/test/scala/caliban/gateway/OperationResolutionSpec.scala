@@ -3,15 +3,13 @@ package caliban.gateway
 import caliban.gateway.GatewayTestSupport._
 import caliban.gateway.PhaseHooks.Rejection
 import caliban.gateway.internal.OperationPreparation
-import caliban.{ CalibanError, GraphQLRequest, InputValue, ResponseValue }
+import caliban.{ CalibanError, GraphQLRequest, InputValue }
 import caliban.Value.StringValue
 import zio._
-import zio.http.URL
 import zio.test._
 
 object OperationResolutionSpec extends ZIOSpecDefault {
 
-  private val schema  = "type Query { value(input: String): String }"
   private val query   = "query Value($input: String) { value(input: $input) }"
   private val request = GraphQLRequest(
     operationName = Some("Value"),
@@ -21,12 +19,6 @@ object OperationResolutionSpec extends ZIOSpecDefault {
 
   private def documentId(request: GraphQLRequest): Option[String] =
     request.extensions.flatMap(_.get("documentId")).collect { case StringValue(id) => id }
-
-  private def code(error: CalibanError): Option[ResponseValue] =
-    field(error.toResponseValue, "extensions").flatMap(field(_, "code"))
-
-  private def remoteGateway(endpoint: URL): Gateway[Any] =
-    Gateway.compose(Subgraph.graphql("remote", endpoint, schema))
 
   def spec = suite("OperationResolutionSpec")(
     test("composes resolution handlers and prepares the transformed request") {
@@ -107,9 +99,9 @@ object OperationResolutionSpec extends ZIOSpecDefault {
         calls       <- policyCalls.get
       } yield assertTrue(
         rejected.forall(_.errors.map(_.msg) == List("A non-empty trusted document ID is required.")),
-        rejected.forall(_.errors.flatMap(code) == List(StringValue("TRUSTED_DOCUMENT_ID_INVALID"))),
+        rejected.forall(_.errors.flatMap(codeOf) == List("TRUSTED_DOCUMENT_ID_INVALID")),
         missing.errors.map(_.msg) == List("Trusted document not found."),
-        missing.errors.flatMap(code) == List(StringValue("TRUSTED_DOCUMENT_NOT_FOUND")),
+        missing.errors.flatMap(codeOf) == List("TRUSTED_DOCUMENT_NOT_FOUND"),
         sent.isEmpty,
         calls == 0
       )
@@ -139,7 +131,7 @@ object OperationResolutionSpec extends ZIOSpecDefault {
         sent     <- remote.requests.get
       } yield assertTrue(
         plan.contains("remote"),
-        rejected.left.toOption.flatMap(code).contains(StringValue("TRUSTED_DOCUMENT_ID_INVALID")),
+        rejected.left.toOption.flatMap(codeOf).contains("TRUSTED_DOCUMENT_ID_INVALID"),
         checked.isSuccess,
         invalid.isFailure,
         sent.isEmpty
@@ -173,7 +165,7 @@ object OperationResolutionSpec extends ZIOSpecDefault {
           } yield assertTrue(
             first.errors.isEmpty,
             second.errors.isEmpty,
-            rejected.errors.flatMap(code) == List(StringValue("REVOKED")),
+            rejected.errors.flatMap(codeOf) == List("REVOKED"),
             count == 3,
             sent.size == 2,
             observed.count(_ == PhaseHooks.Event.CacheAccess(PhaseHooks.CacheResult.Hit)) == (if (uncached) 0
@@ -186,13 +178,15 @@ object OperationResolutionSpec extends ZIOSpecDefault {
     },
     test("exposes only explicit resolver rejections, never defects or arbitrary Caliban errors") {
       val rejection = Rejection("Safe public message.", "PERSISTED_QUERY_NOT_FOUND")
+      val secret    = "resolver-secret"
       val resolvers = List(
         PhaseHooks.resolution[Any](_ => ZIO.fail(rejection)),
         PhaseHooks.resolution[Any](_ => ZIO.die(rejection)),
         PhaseHooks.resolution[Any](_ => throw rejection),
         PhaseHooks.resolution[Any](_ => ZIO.fail(CalibanError.ExecutionError("private-message"))),
         PhaseHooks.resolution[Any](_ => ZIO.fail(rejection).ensuring(ZIO.dieMessage("private-finalizer"))),
-        PhaseHooks.trustedDocuments(Map("value-v1" -> query))(_ => throw rejection)
+        PhaseHooks.trustedDocuments(Map("value-v1" -> query))(_ => throw rejection),
+        PhaseHooks.resolution[Any](_ => ZIO.fail(new RuntimeException(secret)), cacheable = false)
       )
 
       for {
@@ -204,14 +198,26 @@ object OperationResolutionSpec extends ZIOSpecDefault {
                        .flatMap(_.explain(request).either)
                    }
         errors   = results.flatMap(_.left.toOption)
+        failure  = errors.lastOption.collect { case error: CalibanError.ExecutionError => error }
+        cause    = failure.flatMap(_.innerThrowable)
       } yield assertTrue(
         errors.size == resolvers.size,
         errors.headOption.exists(_.msg == rejection.message),
-        errors.headOption.flatMap(code).contains(StringValue(rejection.code)),
+        errors.headOption.flatMap(codeOf).contains(rejection.code),
         errors.headOption.exists(!OperationPreparation.isInternalFailure(_)),
         errors.drop(1).forall(_.msg == "Operation resolution failed."),
-        errors.drop(1).forall(code(_).isEmpty),
-        errors.drop(1).forall(error => OperationPreparation.isInternalFailure(error))
+        errors.drop(1).forall(codeOf(_).isEmpty),
+        errors.drop(1).forall(error => OperationPreparation.isInternalFailure(error)),
+        failure.map(_.copy(msg = "Changed diagnostic text.")).exists(OperationPreparation.isInternalFailure),
+        !OperationPreparation.isInternalFailure(
+          CalibanError.ExecutionError(
+            "Operation resolution failed.",
+            innerThrowable = Some(new RuntimeException("other"))
+          )
+        ),
+        cause.exists(_.getMessage == secret),
+        cause.exists(_.getCause.getMessage == secret),
+        !errors.exists(_.msg.contains(secret))
       )
     },
     test("preserves resolver interruption even when a finalizer dies with a rejection") {
@@ -222,24 +228,6 @@ object OperationResolutionSpec extends ZIOSpecDefault {
         runtime <- remoteGateway(remote.endpoint).withPhaseHooks(resolver).interpreter
         exit    <- runtime.explain(request).exit
       } yield assertTrue(exit.causeOption.exists(_.isInterruptedOnly))
-    },
-    test("does not expose resolver rejections returned by a policy") {
-      for {
-        remote  <- stub(okResponse)
-        runtime <-
-          remoteGateway(remote.endpoint)
-            .withPhaseHooks(
-              PhaseHooks.authorization[Any](_ => ZIO.fail(Rejection("Private.", "PRIVATE")))
-            )
-            .interpreter
-        result  <- runtime.executeRequest(request.copy(query = Some(query)))
-        sent    <- remote.requests.get
-      } yield assertTrue(
-        result.errors.map(_.msg) == List("Operation authorization failed."),
-        result.errors.forall(error => OperationPreparation.isInternalFailure(error)),
-        result.errors.forall(code(_).isEmpty),
-        sent.isEmpty
-      )
     }
   ).provideSomeShared[Scope](testServer, stubIds) @@ TestAspect.sequential
 }

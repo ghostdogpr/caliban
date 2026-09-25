@@ -1,25 +1,16 @@
 package caliban.gateway
 
 import caliban.Value.IntValue.IntNumber
+import caliban.Value.StringValue
 import caliban.gateway.GatewayTestSupport._
 import zio.{ Scope, ZIO }
 import zio.test._
 
 object ContextRoutingSpec extends ZIOSpecDefault {
 
-  private val contextDirectives =
-    """
-      |directive @context(name: String!) repeatable on OBJECT | INTERFACE | UNION
-      |directive @fromContext(field: String!) on ARGUMENT_DEFINITION
-      |""".stripMargin
-
-  private def preamble(imports: String*): String =
-    federationSchemaPreamble(imports: _*)
-      .replace("federation/v2.3", "federation/v2.8") + contextDirectives
-
   private val userContextSchema =
     s"""
-       |${preamble("@key", "@context", "@fromContext")}
+       |${contextSchemaPreamble("v2.8", "@key", "@context", "@fromContext")}
        |type Query { user: User }
        |type User @key(fields: "id") @context(name: "userContext") {
        |  id: ID!
@@ -32,7 +23,7 @@ object ContextRoutingSpec extends ZIOSpecDefault {
     test("injects per-entity context arguments into downstream fetches") {
       val usersSchema        =
         s"""
-           |${preamble("@key", "@shareable")}
+           |${contextSchemaPreamble("v2.8", "@key", "@shareable")}
            |type Query { users: [User!]! }
            |type User @key(fields: "id") {
            |  id: ID!
@@ -41,7 +32,7 @@ object ContextRoutingSpec extends ZIOSpecDefault {
            |""".stripMargin
       val transactionsSchema =
         s"""
-           |${preamble("@key", "@external", "@context", "@fromContext")}
+           |${contextSchemaPreamble("v2.8", "@key", "@external", "@context", "@fromContext")}
            |type User @key(fields: "id") @context(name: "userContext") {
            |  id: ID! @external
            |  currency: String! @external
@@ -100,28 +91,10 @@ object ContextRoutingSpec extends ZIOSpecDefault {
         amount.exists(value => listValues(field(value, "args")).isEmpty)
       )
     },
-    test("splits a same-subgraph context field into an entity fetch") {
-      for {
-        remote   <- stubByRequest(request =>
-                      if (request.query.exists(_.contains("_entities")))
-                        """{"data":{"_entities":[{"amount":42}]}}"""
-                      else
-                        """{"data":{"user":{"_caliban_gateway_requirement_currency":"USD","_caliban_gateway_key":"u1","_caliban_gateway_typename":"User"}}}"""
-                    )
-        runtime  <- Gateway.compose(Subgraph.federation("users", remote.endpoint, userContextSchema)).interpreter
-        response <- runtime.execute("{ user { amount } }")
-        sent     <- remote.requests.get
-      } yield assertTrue(
-        response.errors.isEmpty,
-        field(response.data, "user").flatMap(field(_, "amount")).contains(IntNumber(42)),
-        sent.size == 2,
-        sent.lastOption.flatMap(_.query).exists(_.contains("amount(currency:\"USD\")"))
-      )
-    },
     test("preserves unconditioned context arguments alongside type-conditioned arguments") {
       val schema =
         s"""
-           |${preamble("@key", "@context", "@fromContext")}
+           |${contextSchemaPreamble("v2.8", "@key", "@context", "@fromContext")}
            |type Query { user: User }
            |type User @key(fields: "id") @context(name: "userContext") {
            |  id: ID!
@@ -153,10 +126,52 @@ object ContextRoutingSpec extends ZIOSpecDefault {
           .exists(query => query.contains("currency:\"USD\"") && query.contains("region:\"US\""))
       )
     },
+    test("keeps an unconditioned context selection apart from a type-conditioned one on the same field") {
+      val schema =
+        s"""
+           |${contextSchemaPreamble("v2.8", "@key", "@context", "@fromContext")}
+           |type Query { nodes: [Node!]! }
+           |interface Node @context(name: "nodeContext") { label: String! child: Child! }
+           |type A implements Node { label: String! child: Child! }
+           |type B implements Node { label: String! child: Child! }
+           |type Child @key(fields: "id") {
+           |  id: ID!
+           |  result(
+           |    conditioned: String @fromContext(field: "$$nodeContext ... on A { label } ... on B { label }")
+           |    unconditioned: String @fromContext(field: "$$nodeContext { label }")
+           |  ): String
+           |}
+           |""".stripMargin
+
+      for {
+        remote   <-
+          stubByRequest { request =>
+            val query = request.query.getOrElse("")
+            if (query.contains("_entities")) {
+              val result = if (query.contains("unconditioned:\"b\"")) "b" else "a"
+              s"""{"data":{"_entities":[{"result":"$result"}]}}"""
+            } else
+              """{"data":{"nodes":[{"_caliban_gateway_context_typename":"A","_caliban_gateway_runtime_typename":"A","_caliban_gateway_requirement_label_A":"a","_caliban_gateway_requirement_label":"a","child":{"_caliban_gateway_key":"c1","_caliban_gateway_typename":"Child"}},{"_caliban_gateway_context_typename":"B","_caliban_gateway_runtime_typename":"B","_caliban_gateway_requirement_label_B":"b","_caliban_gateway_requirement_label":"b","child":{"_caliban_gateway_key":"c2","_caliban_gateway_typename":"Child"}}]}}"""
+          }
+        runtime  <- Gateway.compose(Subgraph.federation("contexts", remote.endpoint, schema)).interpreter
+        response <- runtime.execute("{ nodes { child { result } } }")
+        sent     <- remote.requests.get
+        entities  = sent.flatMap(_.query).filter(_.contains("_entities"))
+        results   =
+          listValues(field(response.data, "nodes")).flatMap(node => field(node, "child").flatMap(field(_, "result")))
+      } yield assertTrue(
+        response.errors.isEmpty,
+        results == List(StringValue("a"), StringValue("b")),
+        entities.exists(query =>
+          query
+            .contains("unconditioned:\"b\"") && query.replace("unconditioned:\"b\"", "").contains("conditioned:\"b\"")
+        )
+      )
+    },
     test("fetches sibling root context selections before an entity field") {
       val schema =
         s"""
-           |${preamble("@key", "@context", "@fromContext")}
+           |${contextSchemaPreamble("v2.8", "@key", "@context", "@fromContext")}
            |type Query @context(name: "topLevelQuery") {
            |  me: User!
            |  product: Product
@@ -194,7 +209,7 @@ object ContextRoutingSpec extends ZIOSpecDefault {
     test("plans an injected root __typename context selection") {
       val schema =
         s"""
-           |${preamble("@key", "@context", "@fromContext")}
+           |${contextSchemaPreamble("v2.8", "@key", "@context", "@fromContext")}
            |type Query @context(name: "topLevelQuery") {
            |  product: Product
            |}
@@ -210,10 +225,10 @@ object ContextRoutingSpec extends ZIOSpecDefault {
         plan    <- runtime.explain("{ product { label } }").exit
       } yield assertTrue(plan.isSuccess)
     },
-    test("preserves list wrappers in nested context selections") {
+    test("accepts a list-typed context argument selected through a list field") {
       val schema =
         s"""
-           |${preamble("@key", "@context", "@fromContext")}
+           |${contextSchemaPreamble("v2.8", "@key", "@context", "@fromContext")}
            |type Query { user: User }
            |type User @context(name: "userContext") {
            |  groups: [Group!]!
@@ -235,7 +250,7 @@ object ContextRoutingSpec extends ZIOSpecDefault {
     test("waits for an entity fetch that produces a context value") {
       val pricingSchema  =
         s"""
-           |${preamble("@key", "@external", "@context", "@fromContext")}
+           |${contextSchemaPreamble("v2.8", "@key", "@external", "@context", "@fromContext")}
            |type Query { product: Product }
            |type Product @key(fields: "id") @context(name: "productContext") {
            |  id: ID!
@@ -245,7 +260,7 @@ object ContextRoutingSpec extends ZIOSpecDefault {
            |""".stripMargin
       val productsSchema =
         s"""
-           |${preamble("@key")}
+           |${contextSchemaPreamble("v2.8", "@key")}
            |type Query { noop: Boolean }
            |type Product @key(fields: "id") {
            |  id: ID!
@@ -281,7 +296,7 @@ object ContextRoutingSpec extends ZIOSpecDefault {
     test("preserves custom-scalar values at direct and nested selector leaves") {
       val schema =
         s"""
-           |${preamble("@key", "@context", "@fromContext")}
+           |${contextSchemaPreamble("v2.8", "@key", "@context", "@fromContext")}
            |scalar JSON
            |type Query { user: User }
            |type User @context(name: "userContext") {
@@ -319,7 +334,7 @@ object ContextRoutingSpec extends ZIOSpecDefault {
     test("rejects a required non-contextual argument in another subgraph") {
       val contextual =
         s"""
-           |${preamble("@key", "@shareable", "@context", "@fromContext")}
+           |${contextSchemaPreamble("v2.8", "@key", "@shareable", "@context", "@fromContext")}
            |type Query { product: Product }
            |type Product @key(fields: "id") @context(name: "productContext") {
            |  id: ID!
@@ -329,7 +344,7 @@ object ContextRoutingSpec extends ZIOSpecDefault {
            |""".stripMargin
       val required   =
         s"""
-           |${preamble("@key", "@shareable")}
+           |${contextSchemaPreamble("v2.8", "@key", "@shareable")}
            |type Query { product: Product }
            |type Product @key(fields: "id") {
            |  id: ID!
@@ -344,31 +359,10 @@ object ContextRoutingSpec extends ZIOSpecDefault {
         )
       ).map(diagnostics => assertTrue(diagnostics.exists(_.contains("must be nullable or define a default value"))))
     },
-    test("ignores non-contextual inaccessible arguments during compatibility checks") {
-      val withoutArgument =
-        s"""
-           |${preamble("@shareable", "@inaccessible")}
-           |type Query { search: String @shareable }
-           |""".stripMargin
-      val hiddenArgument  =
-        s"""
-           |${preamble("@shareable", "@inaccessible")}
-           |type Query { search(tenant: String @inaccessible): String @shareable }
-           |""".stripMargin
-
-      Gateway
-        .compose(
-          Subgraph.federation("without", unreachableEndpoint, withoutArgument),
-          Subgraph.federation("hidden", unreachableEndpoint, hiddenArgument)
-        )
-        .interpreter
-        .exit
-        .map(exit => assertTrue(exit.isSuccess))
-    },
     test("rejects contexts on mutation and subscription root types") {
       def schema(operation: String): String =
         s"""
-           |${preamble("@context")}
+           |${contextSchemaPreamble("v2.8", "@context")}
            |type Query { noop: Boolean }
            |type $operation @context(name: "rootContext") { value: String }
            |""".stripMargin
@@ -390,7 +384,7 @@ object ContextRoutingSpec extends ZIOSpecDefault {
       val blockString = "\"\"\""
       val schema      =
         s"""
-           |${preamble("@key", "@context", "@fromContext")}
+           |${contextSchemaPreamble("v2.8", "@key", "@context", "@fromContext")}
            |type Query { foo: Foo bar: Bar }
            |type Foo @context(name: "sharedContext") {
            |  value: String!
@@ -416,10 +410,46 @@ object ContextRoutingSpec extends ZIOSpecDefault {
         .exit
         .map(exit => assertTrue(exit.isSuccess))
     },
+    test("recognizes aliased progressive overrides and contexts during composition") {
+      val schema =
+        s"""
+           |extend schema @link(
+           |  url: "https://specs.apollo.dev/federation/v2.8"
+           |  as: "fed"
+           |  import: [
+           |    { name: "@override", as: "@replace" }
+           |    { name: "@fromContext", as: "@inject" }
+           |  ]
+           |)
+           |directive @link(url: String!, as: String, import: [link__Import]) repeatable on SCHEMA
+           |scalar link__Import
+           |directive @replace(from: String!, label: String) on FIELD_DEFINITION
+           |directive @fed__context(name: String!) repeatable on OBJECT | INTERFACE | UNION
+           |directive @inject(field: String!) on ARGUMENT_DEFINITION
+           |type Query @fed__context(name: "tenant") {
+           |  value(input: String @inject(field: "$$tenant { id }")): String
+           |  migrated: String @replace(from: "legacy", label: "percent(10)")
+           |}
+           |""".stripMargin
+
+      compositionDiagnostics(Gateway.compose(Subgraph.federation("unsupported", unreachableEndpoint, schema))).map {
+        diagnostics =>
+          assertTrue(
+            !diagnostics.exists(message => message.startsWith("[unsupported]") && message.contains("@override")),
+            !diagnostics.exists(message => message.startsWith("[unsupported]") && message.contains("@context")),
+            !diagnostics.exists(message =>
+              message.startsWith("[unsupported]") && message.contains("@fromContext is not supported")
+            ),
+            diagnostics.exists(message =>
+              message.startsWith("[unsupported]") && message.contains("Invalid Federation @fromContext")
+            )
+          )
+      }
+    },
     test("validates the context feature version, names, selectors, and argument nullability") {
       val abstractCondition =
         s"""
-           |${preamble("@key", "@context", "@fromContext")}
+           |${contextSchemaPreamble("v2.8", "@key", "@context", "@fromContext")}
            |type Query { child: Child }
            |interface Node @context(name: "nodeContext") { value: String! }
            |type User implements Node { value: String! }
@@ -430,7 +460,7 @@ object ContextRoutingSpec extends ZIOSpecDefault {
            |""".stripMargin
       val unusedCondition   =
         s"""
-           |${preamble("@key", "@context", "@fromContext")}
+           |${contextSchemaPreamble("v2.8", "@key", "@context", "@fromContext")}
            |type Query { foo: Foo }
            |type Foo @context(name: "fooContext") { value: String! child: Child! }
            |type Bar { other: String! }
@@ -441,7 +471,7 @@ object ContextRoutingSpec extends ZIOSpecDefault {
            |""".stripMargin
       val nestedCondition   =
         s"""
-           |${preamble("@key", "@context", "@fromContext")}
+           |${contextSchemaPreamble("v2.8", "@key", "@context", "@fromContext")}
            |type Query { holder: Holder }
            |type Holder @context(name: "holderContext") { node: Node! child: Child! }
            |interface Node { id: ID! }

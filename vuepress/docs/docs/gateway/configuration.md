@@ -152,8 +152,11 @@ QuickAdapter has separate limits for client requests and responses:
 
 ```scala
 QuickAdapter(interpreter)
-  .withMaxRequestBodyBytes(2 * 1024 * 1024)
-  .withMaxResponseBodyBytes(16 * 1024 * 1024)
+  .configureHttp(
+    HttpConfig.default
+      .withMaxRequestBodyBytes(2 * 1024 * 1024)
+      .withMaxResponseBodyBytes(16 * 1024 * 1024)
+  )
   .runServer(4000, "/graphql")
 ```
 
@@ -182,7 +185,7 @@ A gateway built [from a supergraph](subgraphs.md#supergraphs) can reload a file,
 
 Each refresh loads schemas under the configured acquisition timeout and response-size limit. If acquisition or composition fails, the current schema keeps serving and the gateway tries again on the next cycle. The gateway does not check for breaking changes during reload. Validate compatibility with your clients before publishing schema changes.
 
-Unchanged schemas keep the current interpreter and operation cache. Formatting and declaration-order changes alone do not trigger replacement.
+Unchanged schemas keep the current interpreter and operation cache. Formatting changes and the order of type definitions do not trigger replacement. Other reordering, such as reordering fields, does.
 
 New requests use the new schema after a successful replacement. Requests already running finish against their original schema. The gateway does not replay them on the new one. Existing subscriptions end with `SUBSCRIPTION_SCHEMA_RELOAD`. Clients must resubscribe.
 
@@ -190,7 +193,7 @@ Polling starts 30 seconds after the previous cycle finishes by default, with up 
 
 ### Draining
 
-After replacement, the old interpreter has `withDrainTimeout` to finish requests, 30 seconds by default. The gateway then interrupts remaining work. New requests continue on the new schema while the old interpreter drains.
+After replacement, the old interpreter has `withDrainTimeout` to finish requests, 30 seconds by default. The gateway then interrupts remaining work. New requests continue on the new schema while the old interpreter drains. Keep the drain timeout at least as long as the request timeout so that accepted requests finish or time out before the gateway interrupts them.
 
 The next refresh waits for draining to finish. Uninterruptible work can delay refreshes and shutdown beyond the drain timeout. The gateway logs a warning when draining exceeds that timeout.
 

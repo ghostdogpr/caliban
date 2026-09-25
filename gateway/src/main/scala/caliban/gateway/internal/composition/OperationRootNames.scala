@@ -3,16 +3,14 @@ package caliban.gateway.internal.composition
 import caliban.schema.RootType
 
 private[gateway] final case class OperationRootNames private (entries: List[(String, String)]) {
-  private val composedBySource = entries.groupBy(_._2).map { case (source, values) => source -> values.map(_._1) }
+  private val composedBySource = entries.map(_.swap).toMap
   private val sourceByComposed = entries.toMap
 
-  val sourceNames: Set[String] = entries.iterator.map(_._2).toSet
+  val sourceNames: Set[String] = composedBySource.keySet
 
   def source(composed: String): Option[String] = sourceByComposed.get(composed)
 
-  def composed(source: String): String = composedAll(source).headOption.getOrElse(source)
-
-  def composedAll(source: String): List[String] = composedBySource.getOrElse(source, Nil)
+  def composed(source: String): String = composedBySource.getOrElse(source, source)
 
   def mapSource(f: String => String): OperationRootNames = OperationRootNames(entries.map { case (operation, source) =>
     operation -> f(source)

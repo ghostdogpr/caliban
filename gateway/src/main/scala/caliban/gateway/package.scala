@@ -3,7 +3,7 @@ package caliban
 import caliban.execution.Field
 import caliban.ResponseValue.ObjectValue
 import caliban.Value.StringValue
-import caliban.introspection.adt.{ __InputValue, __Type, __TypeKind }
+import caliban.introspection.adt._
 import caliban.parsing.Parser
 import caliban.parsing.adt.{ Directive, OperationType, Selection }
 
@@ -22,15 +22,60 @@ package object gateway {
   private[gateway] final val RequiresScopesIdentity = "https://specs.apollo.dev/requiresScopes"
   private[gateway] final val PolicyIdentity         = "https://specs.apollo.dev/policy"
   private[gateway] final val CostIdentity           = "https://specs.apollo.dev/cost"
+  private[gateway] final val JoinIdentity           = "https://specs.apollo.dev/join"
+  private[gateway] final val ContextIdentity        = "https://specs.apollo.dev/context"
+  private[gateway] final val InaccessibleIdentity   = "https://specs.apollo.dev/inaccessible"
+  private[gateway] final val TagIdentity            = "https://specs.apollo.dev/tag"
+
+  private[gateway] val FederationDirectives = List(
+    "key",
+    "shareable",
+    "external",
+    "requires",
+    "provides",
+    "tag",
+    "override",
+    "inaccessible",
+    "interfaceObject",
+    "authenticated",
+    "requiresScopes",
+    "policy",
+    "context",
+    "fromContext",
+    "cost",
+    "listSize"
+  )
 
   private[gateway] def isInclusionDirective(directive: Directive): Boolean =
     directive.name == "skip" || directive.name == "include"
+
+  private[gateway] def hasDirective(directives: List[Directive], names: Set[String]): Boolean =
+    directives.exists(directive => names.contains(directive.name))
+
+  private[gateway] def hasDirective(directives: Option[List[Directive]], names: Set[String]): Boolean =
+    directives.exists(hasDirective(_, names))
 
   private[gateway] def isAbstractType(tpe: __Type): Boolean =
     tpe.kind == __TypeKind.INTERFACE || tpe.kind == __TypeKind.UNION
 
   private[gateway] def isCompositeType(tpe: __Type): Boolean =
     tpe.kind == __TypeKind.OBJECT || isAbstractType(tpe)
+
+  private[gateway] def fieldDefinition(tpe: __Type, name: String): Option[__Field] =
+    Option(tpe.getFieldOrNull(name))
+
+  private[gateway] def inputFieldDefinition(tpe: __Type, name: String): Option[__InputValue] =
+    Option(tpe.getInputFieldOrNull(name))
+
+  private[gateway] def typesOverlap(
+    possibleTypesByName: Map[String, Set[String]],
+    selectedType: String,
+    candidateType: String,
+    selection: Option[Set[String]]
+  ): Boolean =
+    selection
+      .getOrElse(possibleTypesByName.getOrElse(selectedType, Set.empty))
+      .exists(possibleTypesByName.getOrElse(candidateType, Set.empty))
 
   private[gateway] def nullableType(tpe: __Type): __Type =
     if (tpe.kind == __TypeKind.NON_NULL) tpe.ofType.map(nullableType).getOrElse(tpe) else tpe
@@ -76,6 +121,9 @@ package object gateway {
     if (errors.nonEmpty) Left(errors) else Right(results.collect { case Right(value) => value })
   }
 
+  private[gateway] def stringArgument(arguments: Map[String, InputValue], name: String): Option[String] =
+    arguments.get(name).collect { case StringValue(value) => value }
+
   private[gateway] def stringValues(values: List[InputValue]): Option[List[String]] =
     traverseOption(values) {
       case StringValue(value) => Some(value)
@@ -88,12 +136,15 @@ package object gateway {
   private[gateway] def formatSources(sources: Iterable[String]): String =
     sources.toList.distinct.sorted.map(source => s"'$source'").mkString(", ")
 
+  private[gateway] def fieldCoordinate(operation: Option[OperationType], typeName: String, fieldName: String): String =
+    operation.fold(s"$typeName.$fieldName")(value => s"${value.toString.toLowerCase}.$fieldName")
+
   private[gateway] def fieldDiagnosticPrefix(
     operation: Option[OperationType],
     typeName: String,
     fieldName: String
   ): String =
-    operation.fold(s"[type $typeName.$fieldName]")(value => s"[${value.toString.toLowerCase}.$fieldName]")
+    s"[${operation.fold("type ")(_ => "")}${fieldCoordinate(operation, typeName, fieldName)}]"
 
   private[gateway] def parseFieldSet(value: String): Option[List[Selection]] =
     parseSelectionSet(s"{ $value }")

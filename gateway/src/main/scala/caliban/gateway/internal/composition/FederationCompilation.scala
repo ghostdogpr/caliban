@@ -1,9 +1,10 @@
 package caliban.gateway.internal.composition
 
 import caliban.gateway._
+import caliban.gateway.internal.composition.ComposedGraph.KeyField
 import caliban.gateway.internal.composition.DirectiveComposition._
 import caliban.introspection.adt._
-import caliban.parsing.adt.{ Directive, Document }
+import caliban.parsing.adt.{ Directive, Document, Selection }
 import caliban.parsing.adt.Definition.TypeSystemDefinition._
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
 
@@ -23,6 +24,7 @@ private[composition] object FederationCompilation {
     authenticated: Set[String],
     requiresScopes: Set[String],
     policy: Set[String],
+    security: Map[String, String],
     unavailableSecurity: Map[String, String],
     unimportedSecurity: Set[String],
     unavailableCost: Map[String, String],
@@ -51,13 +53,19 @@ private[composition] object FederationCompilation {
 
     def federation1Names(name: String): Set[String] = if (federation.isEmpty) Set(name) else federationNames(name)
 
-    def specNames(name: String, identity: String, federationVersion: FeatureVersion): (Set[String], Set[String]) = {
-      val (available, unavailable) = (federation ::: links.filter(_.identity == identity)).partition { feature =>
+    def specNames(
+      name: String,
+      identity: String,
+      federationVersion: FeatureVersion
+    ): (Map[String, String], Map[String, String]) = {
+      val (available, unavailable)                    = (federation ::: links.filter(_.identity == identity)).partition { feature =>
         if (feature.identity == FederationIdentity)
           feature.version.atLeast(federationVersion.major, federationVersion.minor)
         else feature.version == FeatureVersion(0, 1)
       }
-      available.flatMap(_.directiveNames(name)).toSet -> unavailable.flatMap(_.directiveNames(name)).toSet
+      def displayNames(features: List[LinkedFeature]) =
+        features.flatMap(_.directiveNames(name)).map(_ -> s"@$name").toMap
+      displayNames(available) -> displayNames(unavailable)
     }
 
     val keyNames                                    = federation1Names("key")
@@ -76,23 +84,20 @@ private[composition] object FederationCompilation {
     val (policy, unavailablePolicy)                 = specNames("policy", PolicyIdentity, FeatureVersion(2, 6))
     val (cost, unavailableCostNames)                = specNames("cost", CostIdentity, FeatureVersion(2, 9))
     val (listSize, unavailableListSizeNames)        = specNames("listSize", CostIdentity, FeatureVersion(2, 9))
-    val unavailableSecurity                         =
-      unavailableAuthenticated.map(_ -> "@authenticated").toMap ++
-        unavailableRequiresScopes.map(_ -> "@requiresScopes").toMap ++
-        unavailablePolicy.map(_ -> "@policy").toMap
-    val recognizedSecurity                          = authenticated ++ requiresScopes ++ policy ++ unavailableSecurity.keySet
+    val security                                    = authenticated ++ requiresScopes ++ policy
+    val unavailableSecurity                         = unavailableAuthenticated ++ unavailableRequiresScopes ++ unavailablePolicy
+    val recognizedSecurity                          = security.keySet ++ unavailableSecurity.keySet
     val definedDirectives                           = document.directiveDefinitions.iterator.map(_.name).toSet
     val unimportedSecurity                          =
       Set("authenticated", "requiresScopes", "policy").diff(recognizedSecurity).diff(definedDirectives)
-    val unavailableCost                             =
-      unavailableCostNames.map(_ -> "@cost").toMap ++ unavailableListSizeNames.map(_ -> "@listSize").toMap
+    val unavailableCost                             = unavailableCostNames ++ unavailableListSizeNames
     val context                                     = federationNames("context")
     val fromContext                                 = federationNames("fromContext")
     val hidden                                      =
       Set("link") ++ keyNames ++ externalNames ++ extendsNames ++ shareableNames ++ inaccessibleNames ++
         overrideNames ++ requiresNames ++ providesNames ++ interfaceObjectNames ++ federationNames("tag") ++
-        federationNames("composeDirective") ++ authenticated ++ requiresScopes ++ policy ++
-        unavailableSecurity.keySet ++ unavailableCost.keySet ++ cost ++ listSize ++ context ++ fromContext ++
+        federationNames("composeDirective") ++ recognizedSecurity ++ unavailableCost.keySet ++ cost.keySet ++
+        listSize.keySet ++ context ++ fromContext ++
         document.directiveDefinitions.iterator.map(_.name).filter(isNamespaced)
     val hiddenTypes                                 =
       document.typeDefinitions.iterator.map(_.name).filter(isNamespaced).toSet ++
@@ -111,14 +116,15 @@ private[composition] object FederationCompilation {
       requires = requiresNames,
       provides = providesNames,
       interfaceObject = interfaceObjectNames,
-      authenticated = authenticated,
-      requiresScopes = requiresScopes,
-      policy = policy,
+      authenticated = authenticated.keySet,
+      requiresScopes = requiresScopes.keySet,
+      policy = policy.keySet,
+      security = security,
       unavailableSecurity = unavailableSecurity,
       unimportedSecurity = unimportedSecurity,
       unavailableCost = unavailableCost,
-      cost = cost,
-      listSize = listSize,
+      cost = cost.keySet,
+      listSize = listSize.keySet,
       context = context,
       fromContext = fromContext,
       supportsContexts = federation.exists(_.version.atLeast(2, 8)),
@@ -128,8 +134,12 @@ private[composition] object FederationCompilation {
     )
   }
 
-  def federationTransportTypes(document: Document, federation: Boolean): Set[String] =
-    if (federation) federationDirectiveNames(document).hiddenTypes else Set.empty
+  def plainFieldSet(selections: List[Selection]): Option[List[KeyField]] =
+    traverseOption(selections) {
+      case Selection.Field(None, name, arguments, directives, children, _) if arguments.isEmpty && directives.isEmpty =>
+        plainFieldSet(children).map(KeyField(name, _))
+      case _                                                                                                          => None
+    }
 
   private val LinkedSpecIdentities = Set(AuthenticatedIdentity, RequiresScopesIdentity, PolicyIdentity, CostIdentity)
 
@@ -167,9 +177,6 @@ private[composition] object FederationCompilation {
     val contextTypes: List[TypeDefinition] = objectLikeTypes ::: unions
 
     def directiveApplications(composedName: String => String): List[TypeSystemDirectiveApplication] = {
-      def application(coordinate: Coordinate, directives: List[Directive]) =
-        TypeSystemDirectiveApplication(coordinate, directives)
-
       // Preserve the diagnostic/application order used by composition.
       val types        = document.typeDefinitions.collect { case value: ScalarTypeDefinition => value } :::
         contextTypes :::
@@ -183,27 +190,36 @@ private[composition] object FederationCompilation {
               if (value.isInstanceOf[ObjectTypeDefinition]) __DirectiveLocation.OBJECT
               else __DirectiveLocation.INTERFACE
             location -> value.fields.flatMap { field =>
-              application(FieldCoordinate(name, field.name), field.directives) :: field.args.map(argument =>
-                application(ArgumentCoordinate(name, field.name, argument.name), argument.directives)
+              TypeSystemDirectiveApplication(FieldCoordinate(name, field.name), field.directives) :: field.args.map(
+                argument =>
+                  TypeSystemDirectiveApplication(
+                    ArgumentCoordinate(name, field.name, argument.name),
+                    argument.directives
+                  )
               )
             }
           case value: EnumTypeDefinition        =>
             __DirectiveLocation.ENUM -> value.enumValuesDefinition.map(value =>
-              application(EnumValueCoordinate(name, value.enumValue), value.directives)
+              TypeSystemDirectiveApplication(EnumValueCoordinate(name, value.enumValue), value.directives)
             )
           case value: InputObjectTypeDefinition =>
             __DirectiveLocation.INPUT_OBJECT -> value.fields.map(field =>
-              application(InputFieldCoordinate(name, field.name), field.directives)
+              TypeSystemDirectiveApplication(InputFieldCoordinate(name, field.name), field.directives)
             )
           case _: ScalarTypeDefinition          => __DirectiveLocation.SCALAR -> Nil
           case _: UnionTypeDefinition           => __DirectiveLocation.UNION  -> Nil
         }
-        application(TypeCoordinate(name, location), tpe.directives) :: children
+        TypeSystemDirectiveApplication(TypeCoordinate(name, location), tpe.directives) :: children
       }
-      document.schemaDefinition.toList.map(value => application(SchemaCoordinate, value.directives)) :::
+      document.schemaDefinition.toList.map(value =>
+        TypeSystemDirectiveApplication(SchemaCoordinate, value.directives)
+      ) :::
         applications ::: document.directiveDefinitions.flatMap(definition =>
           definition.args.map(argument =>
-            application(DirectiveArgumentCoordinate(definition.name, argument.name), argument.directives)
+            TypeSystemDirectiveApplication(
+              DirectiveArgumentCoordinate(definition.name, argument.name),
+              argument.directives
+            )
           )
         )
     }

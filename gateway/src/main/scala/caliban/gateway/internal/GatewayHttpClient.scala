@@ -1,7 +1,7 @@
 package caliban.gateway.internal
 
 import caliban.gateway.RemoteGraphQLConfig
-import caliban.gateway.internal.execution.RemoteTransport.BoundedBody
+import caliban.gateway.internal.RemoteTransport.{ BoundedBody, GraphQLResponseJson, Json }
 import zio.{ durationInt, Scope, Task, Trace, ZIO, ZLayer }
 import zio.http._
 import zio.http.netty.NettyConfig
@@ -59,22 +59,24 @@ private[gateway] object GatewayHttpClient {
 
   private val jsonHeaders = Headers(
     jsonContentType,
-    Header.Custom("Accept", "application/graphql-response+json, application/json;q=0.9")
+    Header.Custom("Accept", s"$GraphQLResponseJson, $Json;q=0.9")
   )
 
   private def withHeaders(request: Request, headers: List[Header]): Request =
     if (headers.isEmpty) request else request.addHeaders(joinDuplicates(headers))
 
+  // The zio-http client keeps only the last line of a repeated request header name.
   private def joinDuplicates(headers: List[Header]): Headers =
     headers match {
       case Nil | _ :: Nil => Headers.fromIterable(headers)
       case _              =>
         val joined = new java.util.LinkedHashMap[String, (String, java.lang.StringBuilder)]
         headers.foreach { header =>
-          val name  = RemoteGraphQLConfig.headerName(header)
-          val known = joined.get(header.headerName)
-          if (known eq null) joined.put(header.headerName, (name, new java.lang.StringBuilder(header.renderedValue)))
-          else known._2.append(", ").append(header.renderedValue)
+          val key   = RemoteGraphQLConfig.lowercaseHeaderName(header.headerName)
+          val known = joined.get(key)
+          if (known eq null)
+            joined.put(key, (RemoteGraphQLConfig.headerName(header), new java.lang.StringBuilder(header.renderedValue)))
+          else known._2.append(if (key == "cookie") "; " else ", ").append(header.renderedValue)
         }
         val result = List.newBuilder[Header]
         joined.values.forEach { case (name, value) => result += Header.Custom(name, value.toString) }

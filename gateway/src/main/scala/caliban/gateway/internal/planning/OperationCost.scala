@@ -1,10 +1,9 @@
-package caliban.gateway.internal.composition
+package caliban.gateway.internal.planning
 
 import caliban.InputValue
 import caliban.execution.{ ExecutionRequest, Field }
 import caliban.gateway._
 import caliban.gateway.internal.composition.ComposedGraph._
-import caliban.gateway.internal.planning.OperationPlan
 import caliban.gateway.internal.planning.OperationPlan.EntityFetch
 import caliban.introspection.adt._
 import caliban.parsing.adt.OperationType
@@ -19,7 +18,7 @@ import scala.collection.mutable
 private[gateway] final class OperationCost(
   types: Map[String, __Type],
   possibleTypesByName: Map[String, Set[String]],
-  costMetadata: ComposedGraph.CostMetadata
+  costMetadata: CostMetadata
 ) {
   import OperationCost._
 
@@ -85,7 +84,7 @@ private[gateway] final class OperationCost(
     multipliers: FetchMultipliers,
     runtimeType: Option[String]
   ): BigInt = {
-    val entity     = outputNamedTypeCost(fetch.entityType).max(BigInt(0))
+    val entity     = types.get(fetch.entityType).fold(BigInt(1))(outputTypeCost).max(BigInt(0))
     val fields     =
       runtimeType.fold(fetch.fields)(runtime => fetch.fields.filter(_._condition.forall(_.contains(runtime))))
     val selections = multipliers.sizedFields.get(fetch.mergePath) match {
@@ -96,10 +95,10 @@ private[gateway] final class OperationCost(
   }
 
   private def entityFetchesCost(fetches: List[EntityFetch], multipliers: FetchMultipliers): BigInt =
-    conditionalCost(fetches, entityFetchConditions)(entityFetchCost(_, multipliers, _))
-
-  private def entityFetchConditions(fetch: EntityFetch): Option[Set[String]] =
-    Some(fetch.fields.flatMap(_._condition.toList.flatten).toSet).filter(_.nonEmpty)
+    conditionalCost(
+      fetches,
+      (fetch: EntityFetch) => Some(fetch.fields.flatMap(_._condition.toList.flatten).toSet).filter(_.nonEmpty)
+    )(entityFetchCost(_, multipliers, _))
 
   private def conditionalCost[A](values: List[A], conditions: A => Option[Set[String]])(
     cost: (A, Option[String]) => BigInt
@@ -135,14 +134,18 @@ private[gateway] final class OperationCost(
 
   private def maximumFieldCost(field: Field)(cost: FieldCostParts => BigInt): BigInt = {
     val parent       = innerParentTypeName(field)
-    def declaredCost = cost(fieldOwnCost(parent, field, field.fieldType, argumentDefinitions(field)))
+    def declaredCost = {
+      val arguments =
+        field.parentType.flatMap(tpe => fieldDefinition(tpe.innerType, field.name)).toList.flatMap(_.allArgs)
+      cost(fieldOwnCost(parent, field, field.fieldType, arguments))
+    }
     field.parentType match {
       case Some(tpe) if isAbstractType(tpe.innerType) =>
         possibleTypesByName
           .getOrElse(parent, Set.empty)
           .iterator
           .flatMap { name =>
-            types.get(name).flatMap(tpe => Option(tpe.getFieldOrNull(field.name))).map { definition =>
+            types.get(name).flatMap(fieldDefinition(_, field.name)).map { definition =>
               cost(fieldOwnCost(name, field, definition._type, definition.allArgs))
             }
           }
@@ -182,17 +185,17 @@ private[gateway] final class OperationCost(
       .map { case (path, entries) => SizedPath(path, entries.map(_.size).max) }
       .toList
 
-  private def fieldListSizes(field: Field, source: String): List[ComposedGraph.ListSize] =
+  private def fieldListSizes(field: Field, source: String): List[ListSize] =
     if (costMetadata.listSizes.isEmpty) Nil
     else {
       val parent   = innerParentTypeName(field)
-      val direct   = costMetadata.listSizes.get(ComposedGraph.SourceField(source, parent, field.name)).toList
+      val direct   = costMetadata.listSizes.get(SourceField(source, parent, field.name)).toList
       val concrete = field.parentType match {
         case Some(tpe) if isAbstractType(tpe.innerType) =>
           possibleTypesByName
             .getOrElse(parent, Set.empty)
             .toList
-            .flatMap(name => costMetadata.listSizes.get(ComposedGraph.SourceField(source, name, field.name)))
+            .flatMap(name => costMetadata.listSizes.get(SourceField(source, name, field.name)))
         case _                                          => Nil
       }
       (direct ::: concrete).distinct
@@ -239,7 +242,7 @@ private[gateway] final class OperationCost(
   private def matchingSizedPaths(name: String, paths: List[SizedPath]): List[SizedPath] =
     paths.filter(_.path.headOption.contains(name)).map(value => SizedPath(value.path.drop(1), value.size))
 
-  private def declaredSizedPaths(field: Field, definitions: List[ComposedGraph.ListSize]): List[SizedPath] =
+  private def declaredSizedPaths(field: Field, definitions: List[ListSize]): List[SizedPath] =
     definitions.flatMap { definition =>
       val size = resolvedListSize(field, definition)
       definition.sizedFields.map(SizedPath(_, size))
@@ -261,20 +264,20 @@ private[gateway] final class OperationCost(
   private def firstError(errors: Iterator[Option[String]]): Option[String] =
     errors.collectFirst { case Some(error) => error }
 
-  private def resolvedListSize(field: Field, listSize: ComposedGraph.ListSize): BigInt =
+  private def resolvedListSize(field: Field, listSize: ListSize): BigInt =
     listSize.slicingArguments
       .flatMap(argument => slicingValue(field, argument))
       .reduceOption(_ max _)
       .orElse(listSize.assumedSize.map(value => BigInt(value).max(BigInt(0))))
       .getOrElse(BigInt(1))
 
-  private def resolvedDirectListSize(field: Field, definitions: List[ComposedGraph.ListSize]): Option[BigInt] =
+  private def resolvedDirectListSize(field: Field, definitions: List[ListSize]): Option[BigInt] =
     definitions
       .filter(_.sizedFields.isEmpty)
       .map(resolvedListSize(field, _))
       .reduceOption(_ max _)
 
-  private def slicingValue(field: Field, argument: ComposedGraph.SlicingArgument): Option[BigInt] = {
+  private def slicingValue(field: Field, argument: SlicingArgument): Option[BigInt] = {
     val path = argument.path
 
     def nested(value: InputValue, remaining: Vector[String]): Option[InputValue] =
@@ -299,16 +302,13 @@ private[gateway] final class OperationCost(
       }
   }
 
-  private def argumentDefinitions(field: Field): List[__InputValue] =
-    field.parentType.flatMap(tpe => Option(tpe.innerType.getFieldOrNull(field.name))).toList.flatMap(_.allArgs)
-
   private def fieldOwnCost(
     parent: String,
     field: Field,
     fieldType: __Type,
     definitions: List[__InputValue]
   ): FieldCostParts = {
-    val oneTime = costMetadata.fields.get(ComposedGraph.TypeField(parent, field.name)).fold(BigInt(0))(BigInt(_)) +
+    val oneTime = costMetadata.fields.get(TypeField(parent, field.name)).fold(BigInt(0))(BigInt(_)) +
       argumentCost(parent, field, definitions)
     FieldCostParts(oneTime.max(BigInt(0)), outputTypeCost(fieldType).max(BigInt(0)))
   }
@@ -318,8 +318,8 @@ private[gateway] final class OperationCost(
       field.arguments.get(argument.name).orElse(argument.parsedDefaultValue) match {
         case Some(value) =>
           val base = costMetadata.arguments
-            .get(ComposedGraph.FieldArgument(parent, field.name, argument.name))
-            .fold(inputTypeCost(argument._type))(BigInt(_))
+            .get(FieldArgument(parent, field.name, argument.name))
+            .fold(namedTypeCost(argument._type.innerType))(BigInt(_))
           total + base + inputFieldCost(value, argument._type)
         case None        => total
       }
@@ -342,26 +342,17 @@ private[gateway] final class OperationCost(
               values
                 .get(field.name)
                 .orElse(field.parsedDefaultValue)
-                .fold(total)(nested => total + inputValueCost(tpe, field, nested))
+                .fold(total) { nested =>
+                  val base = costMetadata.inputFields
+                    .get(TypeField(tpe.name.getOrElse(""), field.name))
+                    .fold(namedTypeCost(field._type.innerType))(BigInt(_))
+                  total + base + inputFieldCost(nested, field._type)
+                }
             }
           case _                              => BigInt(0)
         }
       case _                       => BigInt(0)
     }
-
-  private def inputValueCost(parent: __Type, field: __InputValue, value: InputValue): BigInt = {
-    val parentName = parent.name.getOrElse("")
-    val base       =
-      costMetadata.inputFields
-        .get(ComposedGraph.TypeField(parentName, field.name))
-        .fold(inputTypeCost(field._type))(BigInt(_))
-    base + inputFieldCost(value, field._type)
-  }
-
-  private def inputTypeCost(tpe: __Type): BigInt = {
-    val inner = tpe.innerType
-    costMetadata.types.get(inner.name.getOrElse("")).fold(defaultTypeCost(inner))(BigInt(_))
-  }
 
   private def outputTypeCost(tpe: __Type): BigInt = {
     val inner = tpe.innerType
@@ -371,18 +362,18 @@ private[gateway] final class OperationCost(
         .map(name => costMetadata.types.get(name).fold(BigInt(1))(BigInt(_)))
         .reduceOption(_ max _)
         .getOrElse(BigInt(1))
-    } else
-      costMetadata.types.get(inner.name.getOrElse("")).fold(defaultTypeCost(inner))(BigInt(_))
+    } else namedTypeCost(inner)
   }
 
-  private def outputNamedTypeCost(name: String): BigInt =
-    types.get(name).fold(BigInt(1))(outputTypeCost)
-
-  private def defaultTypeCost(tpe: __Type): BigInt =
-    tpe.kind match {
-      case __TypeKind.SCALAR | __TypeKind.ENUM => BigInt(0)
-      case _                                   => BigInt(1)
-    }
+  private def namedTypeCost(tpe: __Type): BigInt =
+    costMetadata.types
+      .get(tpe.name.getOrElse(""))
+      .fold {
+        tpe.kind match {
+          case __TypeKind.SCALAR | __TypeKind.ENUM => BigInt(0)
+          case _                                   => BigInt(1)
+        }
+      }(BigInt(_))
 
   private def bounded(value: BigInt): Long =
     if (value > BigInt(Long.MaxValue)) Long.MaxValue

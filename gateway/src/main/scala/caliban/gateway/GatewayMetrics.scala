@@ -57,6 +57,10 @@ object GatewayMetrics {
 
   private val noLabels: Result => Set[MetricLabel] = _ => Set.empty
 
+  /**
+   * Records request, preparation, subgraph call, retry, cache, and subscription metrics under the
+   * `caliban_gateway_` prefix. Labels hold outcomes, operation types, subgraph names, and termination reasons only.
+   */
   val hooks: PhaseHooks[Any] =
     PhaseHooks.subscriptionAdmission(
       PhaseHandler.incomingDiscard { event =>

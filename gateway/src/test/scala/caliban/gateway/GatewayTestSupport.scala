@@ -5,14 +5,16 @@ import caliban.ResponseValue.ObjectValue
 import caliban.execution.RequestPreparation
 import caliban.gateway.internal.GatewayHttpClient
 import caliban.gateway.internal.acquisition.{ IntrospectionClient, SupergraphAcquisition }
+import caliban.gateway.internal.composition.{ ComposedGraph, SchemaComposer }
 import caliban.introspection.Introspector
 import caliban.parsing.Parser
 import caliban.parsing.adt.Document
 import caliban.schema.{ GenericSchema, Schema }
 import caliban.tools.RemoteSchema
 import caliban.validation.Validator
-import caliban.{ graphQL, CalibanError, GraphQL, GraphQLRequest, GraphQLResponse, RootResolver, Value }
+import caliban.{ graphQL, CalibanError, GraphQL, GraphQLRequest, GraphQLResponse, InputValue, RootResolver, Value }
 import com.github.plokhotnyuk.jsoniter_scala.core.{ readFromArray, writeToString }
+import zio.Config.Secret
 import zio._
 import zio.http._
 import zio.http.netty.NettyConfig
@@ -21,6 +23,7 @@ import zio.stream.ZStream
 import zio.test.TestClock
 
 import java.nio.charset.StandardCharsets
+import java.nio.file.{ Files, Path }
 
 private[gateway] object GatewayTestSupport {
 
@@ -57,6 +60,32 @@ private[gateway] object GatewayTestSupport {
     combined: Ref[Vector[GraphQLRequest]]
   )
 
+  val valueInputSchema = "type Query { value(input: String): String }"
+
+  def remoteGateway[R](
+    endpoint: URL,
+    schema: String = valueInputSchema,
+    config: RemoteGraphQLConfig[R] = RemoteGraphQLConfig.default,
+    name: String = "remote"
+  ): Gateway[R] =
+    Gateway.compose(Subgraph.graphql(name, endpoint, schema, config))
+
+  def graphQLResponse(
+    body: String,
+    status: Status = Status.Ok,
+    mediaType: String = "application/graphql-response+json"
+  ): Response =
+    Response(status, Headers(Header.Custom("Content-Type", mediaType)), Body.fromString(body))
+
+  def codeOf(error: CalibanError): Option[String] = {
+    val extensions = error match {
+      case value: CalibanError.ValidationError => value.extensions
+      case value: CalibanError.ExecutionError  => value.extensions
+      case _                                   => None
+    }
+    extensions.flatMap(_.fields.collectFirst { case ("code", Value.StringValue(code)) => code })
+  }
+
   val okResponse               = """{"data":{"value":"ok"}}"""
   val invalidResponse          = """{"unexpected":true}"""
   val unreachableEndpoint: URL = url"http://127.0.0.1:1/graphql"
@@ -76,12 +105,43 @@ private[gateway] object GatewayTestSupport {
       |type Query @join__type(graph: A) { hello: String }
       |""".stripMargin
 
+  val changedSupergraphSdl: String = minimalSupergraphSdl.replace("hello: String", "hello: String goodbye: String")
+
+  def temporaryFile(contents: String): ZIO[Scope, Nothing, Path] =
+    ZIO
+      .acquireRelease(ZIO.attempt {
+        val path = Files.createTempFile("supergraph", ".graphql")
+        Files.write(path, contents.getBytes(StandardCharsets.UTF_8))
+        path
+      })(path => ZIO.attempt(Files.deleteIfExists(path)).ignore)
+      .orDie
+
+  def parseSdl(sdl: String): UIO[Document] =
+    ZIO.fromEither(Parser.parseQuery(sdl)).orDie
+
+  def composeDocuments(
+    subgraphs: List[(String, Document)],
+    federation: Boolean = true,
+    transformations: Map[String, List[SchemaTransformation]] = Map.empty
+  ): Either[List[String], ComposedGraph] =
+    SchemaComposer
+      .compose(subgraphs.map { case (name, document) =>
+        val subgraph =
+          if (federation) Subgraph.federation(name, unreachableEndpoint, document)
+          else Subgraph.graphql(name, unreachableEndpoint, document)
+        subgraph.transform(transformations.getOrElse(name, Nil): _*) -> document
+      })
+      .left
+      .map(_.diagnostics)
+
   def queryFields(document: Document): List[String] =
     document.objectTypeDefinitions.filter(_.name == "Query").flatMap(_.fields.map(_.name))
 
   val httpClient: ZLayer[Any, Throwable, GatewayHttpClient] = ZLayer.scoped(GatewayHttpClient.make)
 
-  def acquisitionLoader(source: Supergraph.Source): URIO[GatewayHttpClient, SupergraphAcquisition.Loader] =
+  def acquisitionLoader(
+    source: Supergraph.Source
+  ): URIO[GatewayHttpClient, IO[SupergraphAcquisitionError, Document]] =
     ZIO.serviceWithZIO[GatewayHttpClient](client => SupergraphAcquisition.make(source, client))
 
   /** Fails with the acquisition error, or dies describing what happened instead. */
@@ -123,6 +183,15 @@ private[gateway] object GatewayTestSupport {
   // -----------------------------------------------------------------------------------------------
   // Apollo uplink protocol bodies, shared by the loader spec and the gateway spec
   // -----------------------------------------------------------------------------------------------
+
+  val graphRef = "caliban-gateway@production"
+  val apiKey   = Secret("service:caliban-gateway:s3cr3t-uplink-key")
+
+  /** The `ifAfterId` variable of the nth request, or `None` when it was absent or JSON null. */
+  def uplinkCursor(requests: Ref[Vector[GraphQLRequest]], index: Int): UIO[Option[String]] =
+    requests.get.map(
+      _.lift(index).flatMap(_.variables).flatMap(_.get("ifAfterId")).collect { case Value.StringValue(value) => value }
+    )
 
   private def routerConfig(fields: (String, ResponseValue)*): String =
     writeToString(GraphQLResponse[Any](ObjectValue(List("routerConfig" -> ObjectValue(fields.toList))), Nil))
@@ -168,16 +237,48 @@ private[gateway] object GatewayTestSupport {
        |""".stripMargin
 
   def federationSchemaPreamble(imports: String*): String =
-    federationSchemaPreamble("extend schema", "", imports)
+    federationSchemaPreambleAt("v2.3", imports: _*)
+
+  def federationSchemaPreambleAt(version: String, imports: String*): String =
+    federationSchemaPreamble(version, "extend schema", "", imports)
 
   def federationSchemaPreambleWithQueryRoot(imports: String*): String =
-    federationSchemaPreamble("schema", " { query: Query }", imports)
+    federationSchemaPreambleWithQueryRootAt("v2.3", imports: _*)
 
-  private def federationSchemaPreamble(declaration: String, root: String, imports: Seq[String]): String = {
+  def federationSchemaPreambleWithQueryRootAt(version: String, imports: String*): String =
+    federationSchemaPreamble(version, "schema", " { query: Query }", imports)
+
+  private def federationSchemaPreamble(
+    version: String,
+    declaration: String,
+    root: String,
+    imports: Seq[String]
+  ): String = {
     val renderedImports = imports.map(value => "\"" + value + "\"").mkString(", ")
-    s"""$declaration @link(url: "https://specs.apollo.dev/federation/v2.3", import: [$renderedImports])$root
+    s"""$declaration @link(url: "https://specs.apollo.dev/federation/$version", import: [$renderedImports])$root
        |$authoredFederationDirectives""".stripMargin
   }
+
+  def contextSchemaPreamble(version: String, imports: String*): String =
+    federationSchemaPreambleAt(version, imports: _*) +
+      """directive @context(name: String!) repeatable on OBJECT | INTERFACE | UNION
+        |directive @fromContext(field: String!) on ARGUMENT_DEFINITION
+        |""".stripMargin
+
+  def progressiveSchema(body: String, imports: String*): String =
+    federationSchemaPreambleWithQueryRootAt("v2.7", ("@override" +: imports): _*)
+      .replace("directive @override(from: String!)", "directive @override(from: String!, label: String)") + body
+
+  def progressiveGateway(
+    original: Stub,
+    originalSchema: String,
+    replacement: Stub,
+    replacementSchema: String
+  ): Gateway[Any] =
+    Gateway.compose(
+      Subgraph.federation("original", original.endpoint, originalSchema),
+      Subgraph.federation("replacement", replacement.endpoint, replacementSchema)
+    )
 
   val federationDirectives =
     s"""$baseFederationDirectives
@@ -426,6 +527,15 @@ private[gateway] object GatewayTestSupport {
       case _                   => None
     }
 
+  def representations(request: GraphQLRequest): List[InputValue] =
+    request.variables.flatMap(_.get("representations")).toList.flatMap {
+      case InputValue.ListValue(values) => values
+      case _                            => Nil
+    }
+
+  def representation(typename: String, fields: (String, InputValue)*): InputValue =
+    InputValue.ObjectValue((("__typename" -> Value.StringValue(typename)) +: fields).toMap)
+
   def executionErrors(errors: List[CalibanError]): List[CalibanError.ExecutionError] =
     errors.collect { case error: CalibanError.ExecutionError => error }
 
@@ -481,8 +591,8 @@ private[gateway] object GatewayTestSupport {
   def localGateway(effect: UIO[String]): Gateway[Any] =
     Gateway.compose(Subgraph.graphql("local", localGraph(effect)))
 
-  def localValueGateway(effect: UIO[String]): Gateway[Any] =
-    Gateway.compose(Subgraph.graphql("local", localValueGraph(effect)))
+  def subscriptionGateway(events: ZStream[Any, Throwable, Int]): Gateway[Any] =
+    Gateway.compose(Subgraph.graphql("local", subscriptionGraph(events)))
 
   def localValueGraph(effect: UIO[String]) = {
     object LocalApi extends GenericSchema[Any] {
@@ -575,7 +685,7 @@ private[gateway] object GatewayTestSupport {
   def validateRequest(schema: String, request: GraphQLRequest): IO[CalibanError, Unit] =
     for {
       schemaDocument <- ZIO.fromEither(Parser.parseQuery(schema))
-      rootType       <- ZIO.fromEither(RemoteSchema.toRootType(schemaDocument))
+      rootType       <- ZIO.fromEither(RemoteSchema.normalize(schemaDocument).map(_.rootType))
       validationRoot  = Introspector.withIntrospection(rootType)
       document       <- RequestPreparation.parse(request.query.getOrElse(""))
       variables      <- RequestPreparation.coerceVariables(document, request, validationRoot)

@@ -13,30 +13,31 @@ final class RemoteGraphQLConfig[-R] private (
   val acquisition: Acquisition,
   val execution: Execution,
   val effectfulHeaders: ZIO[R, Throwable, List[Header]],
-  val subscription: RemoteSubscriptionConfig = RemoteSubscriptionConfig.default
+  val subscription: RemoteSubscriptionConfig
 ) {
 
   /**
    * Transforms the upstream subscription configuration.
    */
   def withSubscription(configure: RemoteSubscriptionConfig => RemoteSubscriptionConfig): RemoteGraphQLConfig[R] =
-    new RemoteGraphQLConfig(acquisition, execution, effectfulHeaders, configure(subscription))
+    copy(subscription = configure(subscription))
 
   /**
    * Transforms the stored schema-acquisition configuration.
    */
   def withAcquisition(configure: Acquisition => Acquisition): RemoteGraphQLConfig[R] =
-    new RemoteGraphQLConfig(configure(acquisition), execution, effectfulHeaders, subscription)
+    copy(acquisition = configure(acquisition))
 
   /**
    * Transforms the stored request-execution configuration.
    */
   def withExecution(configure: Execution => Execution): RemoteGraphQLConfig[R] =
-    new RemoteGraphQLConfig(acquisition, configure(execution), effectfulHeaders, subscription)
+    copy(execution = configure(execution))
 
   /**
    * Adds effectful request-execution headers and their environment requirement. These headers are not used for
-   * schema acquisition. Repeated header names are joined into one comma-separated outbound value.
+   * schema acquisition. Repeated header names are joined into one comma-separated outbound value, or
+   * semicolon-separated for `Cookie`.
    */
   def withExecutionHeadersZIO[R1 <: R](value: ZIO[R1, Throwable, List[Header]]): RemoteGraphQLConfig[R1] =
     new RemoteGraphQLConfig(acquisition, execution, effectfulHeaders.zipWith(value)(_ ::: _), subscription)
@@ -44,6 +45,12 @@ final class RemoteGraphQLConfig[-R] private (
   private[gateway] def diagnostics(includeAcquisition: Boolean): List[String] =
     execution.diagnostics ::: (if (includeAcquisition) acquisition.diagnostics else Nil) ::: subscription.diagnostics
 
+  private def copy(
+    acquisition: Acquisition = acquisition,
+    execution: Execution = execution,
+    subscription: RemoteSubscriptionConfig = subscription
+  ): RemoteGraphQLConfig[R] =
+    new RemoteGraphQLConfig(acquisition, execution, effectfulHeaders, subscription)
 }
 
 object RemoteGraphQLConfig {
@@ -63,19 +70,19 @@ object RemoteGraphQLConfig {
      * Sets the maximum duration of schema acquisition.
      */
     def withTimeout(value: Duration): Acquisition =
-      new Acquisition(value, maxResponseBytes, maxParsingDepth, maxRedirects, headers)
+      copy(timeout = value)
 
     /**
      * Sets the maximum schema response body size.
      */
     def withMaxResponseBytes(value: Int): Acquisition =
-      new Acquisition(timeout, value, maxParsingDepth, maxRedirects, headers)
+      copy(maxResponseBytes = value)
 
     /**
      * Sets the maximum JSON and embedded GraphQL nesting depth parsed during schema acquisition.
      */
     def withMaxParsingDepth(value: Int): Acquisition =
-      new Acquisition(timeout, maxResponseBytes, value, maxRedirects, headers)
+      copy(maxParsingDepth = value)
 
     /**
      * Sets how many redirects schema acquisition follows. Zero, the default, refuses them outright.
@@ -83,14 +90,14 @@ object RemoteGraphQLConfig {
      * reaches the host a redirect points at.
      */
     def withMaxRedirects(value: Int): Acquisition =
-      new Acquisition(timeout, maxResponseBytes, maxParsingDepth, value, headers)
+      copy(maxRedirects = value)
 
     /**
      * Sets static headers sent only during schema acquisition. Repeated header names are joined into one comma-separated
-     * outbound value.
+     * outbound value, or semicolon-separated for `Cookie`.
      */
     def withHeaders(values: Header*): Acquisition =
-      new Acquisition(timeout, maxResponseBytes, maxParsingDepth, maxRedirects, values.toList)
+      copy(headers = values.toList)
 
     private[gateway] def diagnostics: List[String] = {
       val protectedHeaders = protocolHeaderDiagnostics("Schema acquisition", headers)
@@ -101,6 +108,15 @@ object RemoteGraphQLConfig {
 
       timeoutError ::: responseError ::: parsingError ::: redirectsError ::: protectedHeaders
     }
+
+    private def copy(
+      timeout: Duration = timeout,
+      maxResponseBytes: Int = maxResponseBytes,
+      maxParsingDepth: Int = maxParsingDepth,
+      maxRedirects: Int = maxRedirects,
+      headers: List[Header] = headers
+    ): Acquisition =
+      new Acquisition(timeout, maxResponseBytes, maxParsingDepth, maxRedirects, headers)
   }
 
   object Acquisition {
@@ -167,7 +183,8 @@ object RemoteGraphQLConfig {
       copy(inFlightQueryDeduplication = value)
 
     /**
-     * Sets static outbound headers. Repeated header names are joined into one comma-separated outbound value.
+     * Sets static outbound headers. Repeated header names are joined into one comma-separated outbound value, or
+     * semicolon-separated for `Cookie`.
      */
     def withHeaders(values: Header*): Execution =
       copy(headers = values.toList)
@@ -249,7 +266,7 @@ object RemoteGraphQLConfig {
    * The default finite remote GraphQL configuration.
    */
   val default: RemoteGraphQLConfig[Any] =
-    new RemoteGraphQLConfig(Acquisition.default, Execution.default, ZIO.succeed(Nil))
+    new RemoteGraphQLConfig(Acquisition.default, Execution.default, ZIO.succeed(Nil), RemoteSubscriptionConfig.default)
 
   private[gateway] def lowercaseHeaderName(name: String): String =
     name.toLowerCase(java.util.Locale.ROOT)
@@ -294,8 +311,7 @@ final class RemoteSubscriptionConfig private (
   val endpoint: Option[URL],
   val connectionInit: Option[InputValue],
   val connectionTimeout: Duration,
-  val keepAliveInterval: Duration,
-  val bufferSize: Int
+  val keepAliveInterval: Duration
 ) {
 
   /**
@@ -325,20 +341,14 @@ final class RemoteSubscriptionConfig private (
    */
   def withKeepAliveInterval(value: Duration): RemoteSubscriptionConfig = copy(keepAliveInterval = value)
 
-  /**
-   * Sets the number of upstream messages buffered per subscription.
-   */
-  def withBufferSize(value: Int): RemoteSubscriptionConfig = copy(bufferSize = value)
-
   private[gateway] def diagnostics: List[String] =
-    positive(bufferSize, "Remote subscription bufferSize must be positive.") :::
-      endpoint.toList.flatMap { url =>
-        val allowed: Set[Scheme] = transport match {
-          case RemoteSubscriptionConfig.WebSocket => Set(Scheme.HTTP, Scheme.HTTPS, Scheme.WS, Scheme.WSS)
-          case _: RemoteSubscriptionConfig.Sse    => Set(Scheme.HTTP, Scheme.HTTPS)
-        }
-        check(url.scheme.exists(allowed), "Remote subscription endpoint has an unsupported URI scheme.")
-      } :::
+    endpoint.toList.flatMap { url =>
+      val allowed: Set[Scheme] = transport match {
+        case RemoteSubscriptionConfig.WebSocket => Set(Scheme.HTTP, Scheme.HTTPS, Scheme.WS, Scheme.WSS)
+        case _: RemoteSubscriptionConfig.Sse    => Set(Scheme.HTTP, Scheme.HTTPS)
+      }
+      check(url.scheme.exists(allowed), "Remote subscription endpoint has an unsupported URI scheme.")
+    } :::
       List(connectionTimeout, keepAliveInterval).flatMap(
         finitePositive(_, "Remote subscription timeouts and keepalive interval must be finite and positive.")
       )
@@ -348,16 +358,15 @@ final class RemoteSubscriptionConfig private (
     endpoint: Option[URL] = endpoint,
     connectionInit: Option[InputValue] = connectionInit,
     connectionTimeout: Duration = connectionTimeout,
-    keepAliveInterval: Duration = keepAliveInterval,
-    bufferSize: Int = bufferSize
+    keepAliveInterval: Duration = keepAliveInterval
   ): RemoteSubscriptionConfig =
-    new RemoteSubscriptionConfig(transport, endpoint, connectionInit, connectionTimeout, keepAliveInterval, bufferSize)
+    new RemoteSubscriptionConfig(transport, endpoint, connectionInit, connectionTimeout, keepAliveInterval)
 }
 
 object RemoteSubscriptionConfig {
 
   /**
-   * WebSocket on the subgraph endpoint, a 30-second connection timeout, 15-second pings, and 32 buffered messages.
+   * WebSocket on the subgraph endpoint, a 30-second connection timeout, and 15-second pings.
    */
   val default: RemoteSubscriptionConfig =
     new RemoteSubscriptionConfig(
@@ -365,10 +374,14 @@ object RemoteSubscriptionConfig {
       endpoint = None,
       connectionInit = None,
       connectionTimeout = Duration.fromSeconds(30),
-      keepAliveInterval = Duration.fromSeconds(15),
-      bufferSize = 32
+      keepAliveInterval = Duration.fromSeconds(15)
     )
 
+  /**
+   * The protocol used to open upstream subscriptions: `graphql-transport-ws` over WebSocket, or GraphQL over
+   * Server-Sent Events, sent as a POST with a JSON body or, with `useGet`, as a GET with the operation in the query
+   * string.
+   */
   sealed trait Transport
   case object WebSocket                         extends Transport
   final case class Sse(useGet: Boolean = false) extends Transport

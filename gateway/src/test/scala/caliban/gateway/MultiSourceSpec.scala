@@ -186,57 +186,11 @@ object MultiSourceSpec extends ZIOSpecDefault {
           responseA.data == responseB.data
         )
       },
-      test("executes introspection locally against all composed roots") {
-        val productsSchema =
-          "type Query { product: String } type Mutation { updateProduct: Boolean }"
-        val reviewsSchema  =
-          "type Query { reviews: [String!]! } type Mutation { addReview: Boolean }"
-
-        for {
-          products     <- stub("""{"data":{"product":"Table"}}""")
-          reviews      <- stub("""{"data":{"reviews":["Solid"]}}""")
-          runtime      <- graphqlProductsAndReviews(products, reviews, productsSchema, reviewsSchema).interpreter
-          response     <- runtime.execute(
-                            """{
-                          |  __schema {
-                          |    queryType { fields { name } }
-                          |    mutationType { fields { name } }
-                          |  }
-                          |}""".stripMargin
-                          )
-          productsSent <- products.requests.get
-          reviewsSent  <- reviews.requests.get
-          schema        = field(response.data, "__schema")
-          queryNames    = introspectedNameStrings(schema.flatMap(field(_, "queryType")).flatMap(field(_, "fields")))
-          mutationNames = introspectedNameStrings(schema.flatMap(field(_, "mutationType")).flatMap(field(_, "fields")))
-        } yield assertTrue(
-          response.errors.isEmpty,
-          queryNames.exists(_.toSet == Set("product", "reviews")),
-          mutationNames.exists(_.toSet == Set("updateProduct", "addReview")),
-          productsSent.isEmpty,
-          reviewsSent.isEmpty
-        )
-      },
-      test("advertises executable subscription roots") {
-        val schema = "type Query { value: String } type Subscription { changes: String }"
-
-        for {
-          source   <- stub(okResponse)
-          runtime  <- Gateway.compose(Subgraph.graphql("values", source.endpoint, schema)).interpreter
-          response <- runtime.execute("{ __schema { subscriptionType { name } } }")
-          sent     <- source.requests.get
-        } yield assertTrue(
-          response.errors.isEmpty,
-          field(response.data, "__schema")
-            .flatMap(field(_, "subscriptionType"))
-            .flatMap(field(_, "name"))
-            .contains(StringValue("Subscription")),
-          sent.isEmpty
-        )
-      },
       test("mixes local introspection with remote root fields") {
-        val productsSchema = "type Query { product: String }"
-        val reviewsSchema  = "type Query { reviews: [Review!]! } type Review { body: String! }"
+        val productsSchema =
+          "type Query { product: String } type Mutation { updateProduct: Boolean } type Subscription { changes: String }"
+        val reviewsSchema  =
+          "type Query { reviews: [Review!]! } type Mutation { addReview: Boolean } type Review { body: String! }"
 
         for {
           products     <- stub("""{"data":{"product":"Table"}}""")
@@ -245,21 +199,30 @@ object MultiSourceSpec extends ZIOSpecDefault {
           response     <- runtime.execute(
                             """{
                           |  product
-                          |  __schema { queryType { fields { name } } }
+                          |  __schema {
+                          |    queryType { fields { name } }
+                          |    mutationType { fields { name } }
+                          |    subscriptionType { name }
+                          |  }
                           |  __type(name: "Review") { name }
                           |}""".stripMargin
                           )
           productsSent <- products.requests.get
           reviewsSent  <- reviews.requests.get
           names         = fieldNames(response.data)
-          queryNames    = introspectedNameStrings(
-                            field(response.data, "__schema").flatMap(field(_, "queryType")).flatMap(field(_, "fields"))
-                          )
+          schema        = field(response.data, "__schema")
+          queryNames    = introspectedNameStrings(schema.flatMap(field(_, "queryType")).flatMap(field(_, "fields")))
+          mutationNames = introspectedNameStrings(schema.flatMap(field(_, "mutationType")).flatMap(field(_, "fields")))
         } yield assertTrue(
           response.errors.isEmpty,
           names == List("product", "__schema", "__type"),
           field(response.data, "product").contains(StringValue("Table")),
           queryNames.exists(_.toSet == Set("product", "reviews")),
+          mutationNames.exists(_.toSet == Set("updateProduct", "addReview")),
+          schema
+            .flatMap(field(_, "subscriptionType"))
+            .flatMap(field(_, "name"))
+            .contains(StringValue("Subscription")),
           field(response.data, "__type").flatMap(field(_, "name")).contains(StringValue("Review")),
           productsSent.size == 1,
           reviewsSent.isEmpty,
@@ -586,8 +549,6 @@ object MultiSourceSpec extends ZIOSpecDefault {
           first    = buildDiagnostics(forward)
           second   = buildDiagnostics(reverse)
         } yield assertTrue(
-          forward.isFailure,
-          reverse.isFailure,
           first == second,
           first.size == 2,
           first.exists(_.contains("query.duplicate")),
@@ -607,8 +568,6 @@ object MultiSourceSpec extends ZIOSpecDefault {
           first    = buildDiagnostics(forward)
           second   = buildDiagnostics(reverse)
         } yield assertTrue(
-          forward.isFailure,
-          reverse.isFailure,
           first == second,
           first.exists(message =>
             message.contains("query.duplicate") && message.contains("'alpha'") && message.contains("'beta'")

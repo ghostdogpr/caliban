@@ -3,10 +3,11 @@ package caliban.gateway.internal.composition
 import caliban.InputValue
 import caliban.gateway._
 import caliban.gateway.internal.composition.ComposedGraph._
-import caliban.gateway.internal.composition.FederationCompilation.FederationDirectiveNames
+import caliban.gateway.internal.composition.DirectiveComposition._
+import caliban.gateway.internal.composition.FederationCompilation._
 import caliban.gateway.internal.composition.SchemaComposer.PreparedSubgraph
 import caliban.introspection.adt._
-import caliban.parsing.adt.{ Directive, Selection }
+import caliban.parsing.adt.Directive
 import caliban.Value.{ BooleanValue, IntValue, StringValue }
 
 import scala.collection.compat._
@@ -17,12 +18,30 @@ private[composition] final class CostCompilation private (
 ) {
   import CostCompilation._
 
-  def compile: Either[List[String], CostMetadata] = {
-    val types     = subgraph.rootType.types.toList.sortBy(_._1).map { case (sourceName, tpe) =>
-      subgraph.rootNames.composed(sourceName) -> tpe
+  private val types = subgraph.rootType.types.map { case (sourceName, tpe) =>
+    subgraph.rootNames.composed(sourceName) -> tpe
+  }
+
+  def compile(applications: List[TypeSystemDirectiveApplication]): Either[List[String], CostMetadata] = {
+    val costs     = applications.flatMap { application =>
+      application.directives
+        .filter(directive => names.cost.contains(directive.name))
+        .map(cost(application.coordinate, _))
     }
-    val costs     = types.flatMap { case (typeName, tpe) => typeCosts(typeName, tpe) }
-    val listSizes = types.flatMap { case (typeName, tpe) => typeListSizes(typeName, tpe) }
+    val listSizes = applications.flatMap { application =>
+      application.directives.filter(directive => names.listSize.contains(directive.name)).flatMap { directive =>
+        application.coordinate match {
+          case FieldCoordinate(typeName, fieldName) =>
+            types.get(typeName).flatMap(fieldDefinition(_, fieldName)).map(listSize(directive, typeName, _))
+          case coordinate                           =>
+            Some(
+              Left(
+                s"[${subgraph.name}] Invalid Federation @listSize application at '${coordinate.display}': @listSize is only supported on fields."
+              )
+            )
+        }
+      }
+    }
 
     (validateAll(costs), validateAll(listSizes)) match {
       case (Right(entries), Right(sizes)) =>
@@ -43,70 +62,33 @@ private[composition] final class CostCompilation private (
     }
   }
 
-  private def typeCosts(typeName: String, tpe: __Type): List[Either[String, CostEntry]] = {
-    val supportedType   = tpe.kind == __TypeKind.OBJECT || tpe.kind == __TypeKind.SCALAR || tpe.kind == __TypeKind.ENUM
-    val typeCost        = costApplications(
-      tpe.directives,
-      typeName,
-      TypeCost(typeName, _),
-      if (supportedType) None else Some("@cost is not supported at this type location.")
-    )
-    val fieldCosts      = tpe.allFields.flatMap { field =>
-      costApplications(
-        field.directives,
-        s"$typeName.${field.name}",
-        FieldCost(typeName, field.name, _),
-        if (tpe.kind == __TypeKind.INTERFACE) Some("@cost cannot be applied to an interface field.") else None
-      ) ::: field.allArgs.flatMap(argument =>
-        costApplications(
-          argument.directives,
-          s"$typeName.${field.name}(${argument.name}:)",
-          ArgumentCost(typeName, field.name, argument.name, _)
-        )
-      )
+  private def cost(coordinate: Coordinate, directive: Directive): Either[String, CostEntry] = {
+    val entry: Either[String, Long => CostEntry] = coordinate match {
+      case TypeCoordinate(typeName, location)
+          if location == __DirectiveLocation.OBJECT || location == __DirectiveLocation.SCALAR ||
+            location == __DirectiveLocation.ENUM =>
+        Right(TypeCost(typeName, _))
+      case FieldCoordinate(typeName, _) if types.get(typeName).exists(_.kind == __TypeKind.INTERFACE) =>
+        Left("@cost cannot be applied to an interface field.")
+      case FieldCoordinate(typeName, fieldName)                                                       =>
+        Right(FieldCost(typeName, fieldName, _))
+      case ArgumentCoordinate(typeName, fieldName, argumentName)                                      =>
+        Right(ArgumentCost(typeName, fieldName, argumentName, _))
+      case InputFieldCoordinate(typeName, fieldName)                                                  =>
+        Right(InputFieldCost(typeName, fieldName, _))
+      case _: TypeCoordinate                                                                          =>
+        Left("@cost is not supported at this type location.")
+      case _                                                                                          =>
+        Left("@cost is not supported at this location.")
     }
-    val inputFieldCosts = tpe.allInputFields.flatMap(field =>
-      costApplications(field.directives, s"$typeName.${field.name}", InputFieldCost(typeName, field.name, _))
-    )
-    typeCost ::: fieldCosts ::: inputFieldCosts
-  }
-
-  private def costApplications(
-    directives: Option[List[Directive]],
-    coordinate: String,
-    entry: Long => CostEntry,
-    locationError: Option[String] = None
-  ): List[Either[String, CostEntry]] =
-    directives.getOrElse(Nil).filter(directive => names.cost.contains(directive.name)).map { directive =>
-      val prefix = s"[${subgraph.name}] Invalid Federation @cost application at '$coordinate'"
-      (locationError, directive.arguments.get("weight")) match {
-        case (Some(error), _)                                 => Left(s"$prefix: $error")
-        case _ if directive.arguments.keySet != Set("weight") =>
-          Left(s"$prefix: exactly one 'weight' argument is required.")
-        case (_, Some(weight: IntValue))                      => Right(entry(weight.toBigInt.longValue))
-        case _                                                => Left(s"$prefix: the 'weight' argument must be an integer.")
-      }
+    val prefix                                   = s"[${subgraph.name}] Invalid Federation @cost application at '${coordinate.display}'"
+    (entry, directive.arguments.get("weight")) match {
+      case (Left(error), _)                                 => Left(s"$prefix: $error")
+      case _ if directive.arguments.keySet != Set("weight") =>
+        Left(s"$prefix: exactly one 'weight' argument is required.")
+      case (Right(entry), Some(weight: IntValue))           => Right(entry(weight.toBigInt.longValue))
+      case _                                                => Left(s"$prefix: the 'weight' argument must be an integer.")
     }
-
-  private def typeListSizes(typeName: String, tpe: __Type): List[Either[String, (SourceField, ListSize)]] = {
-    def listSizeDirectives(directives: Option[List[Directive]]): List[Directive] =
-      directives.getOrElse(Nil).filter(directive => names.listSize.contains(directive.name))
-
-    val fieldListSizes =
-      tpe.allFields.flatMap(field => listSizeDirectives(field.directives).map(listSize(_, typeName, field)))
-    val misplaced      =
-      listSizeDirectives(tpe.directives).map(_ => typeName) :::
-        tpe.allFields.flatMap(field =>
-          field.allArgs.flatMap(argument =>
-            listSizeDirectives(argument.directives).map(_ => s"$typeName.${field.name}(${argument.name}:)")
-          )
-        ) :::
-        tpe.allInputFields.flatMap(field => listSizeDirectives(field.directives).map(_ => s"$typeName.${field.name}"))
-    fieldListSizes ::: misplaced.map(coordinate =>
-      Left(
-        s"[${subgraph.name}] Invalid Federation @listSize application at '$coordinate': @listSize is only supported on fields."
-      )
-    )
   }
 
   private def listSize(
@@ -166,14 +148,14 @@ private[composition] final class CostCompilation private (
       path.tail.foldLeft(Option(argument._type)) { (current, name) =>
         current.map(nullableType).flatMap { tpe =>
           if (tpe.kind == __TypeKind.LIST) None
-          else resolvedType(tpe).allInputFields.find(_.name == name).map(_._type)
+          else inputFieldDefinition(resolvedType(tpe), name).map(_._type)
         }
       }
     }
 
   private def sizedPathType(field: __Field, path: Vector[String]): Option[__Type] =
     path.foldLeft(Option(field._type)) { (current, name) =>
-      current.flatMap(tpe => Option(resolvedType(tpe).getFieldOrNull(name)).map(_._type))
+      current.flatMap(tpe => fieldDefinition(resolvedType(tpe), name).map(_._type))
     }
 
   private def resolvedType(tpe: __Type): __Type = {
@@ -184,8 +166,12 @@ private[composition] final class CostCompilation private (
 
 private[composition] object CostCompilation {
 
-  def compile(subgraph: PreparedSubgraph, names: FederationDirectiveNames): Either[List[String], CostMetadata] =
-    new CostCompilation(subgraph, names).compile
+  def compile(
+    subgraph: PreparedSubgraph,
+    names: FederationDirectiveNames,
+    applications: List[TypeSystemDirectiveApplication]
+  ): Either[List[String], CostMetadata] =
+    new CostCompilation(subgraph, names).compile(applications)
 
   def merge(values: List[CostMetadata]): CostMetadata =
     CostMetadata(
@@ -241,24 +227,18 @@ private[composition] object CostCompilation {
     val invalidPath = s"sized field '$value' is not a valid field path."
     for {
       parsed <- parseFieldSet(value).toRight(invalidPath)
-      paths  <- selectionPaths(parsed, Vector.empty).toRight(invalidPath)
-      _      <- Either.cond(hasNoSiblingLeaves(parsed), (), s"sized field '$value' must not select sibling leaf fields.")
-    } yield paths
+      fields <- plainFieldSet(parsed).toRight(invalidPath)
+      _      <- Either.cond(hasNoSiblingLeaves(fields), (), s"sized field '$value' must not select sibling leaf fields.")
+    } yield fieldPaths(fields, Vector.empty)
   }
 
-  private def selectionPaths(selections: List[Selection], prefix: Vector[String]): Option[List[Vector[String]]] =
-    traverseOption(selections) {
-      case Selection.Field(None, name, arguments, directives, children, _) if arguments.isEmpty && directives.isEmpty =>
-        if (children.isEmpty) Some(List(prefix :+ name)) else selectionPaths(children, prefix :+ name)
-      case _                                                                                                          => None
-    }.map(_.flatten)
-
-  private def hasNoSiblingLeaves(selections: List[Selection]): Boolean =
-    selections.count {
-      case Selection.Field(_, _, _, _, children, _) => children.isEmpty
-      case _                                        => false
-    } <= 1 && selections.forall {
-      case Selection.Field(_, _, _, _, children, _) => children.isEmpty || hasNoSiblingLeaves(children)
-      case _                                        => true
+  private def fieldPaths(fields: List[KeyField], prefix: Vector[String]): List[Vector[String]] =
+    fields.flatMap { field =>
+      if (field.children.isEmpty) List(prefix :+ field.name) else fieldPaths(field.children, prefix :+ field.name)
     }
+
+  private def hasNoSiblingLeaves(fields: List[KeyField]): Boolean =
+    fields.count(_.children.isEmpty) <= 1 && fields.forall(field =>
+      field.children.isEmpty || hasNoSiblingLeaves(field.children)
+    )
 }

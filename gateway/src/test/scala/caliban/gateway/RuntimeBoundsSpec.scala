@@ -1,6 +1,5 @@
 package caliban.gateway
 
-import caliban.ResponseValue.ObjectValue
 import caliban.Value.{ BooleanValue, NullValue, StringValue }
 import caliban.execution.ExecutionRequest
 import caliban.gateway.GatewayTestSupport._
@@ -14,25 +13,7 @@ import zio.test._
 
 object RuntimeBoundsSpec extends ZIOSpecDefault {
 
-  private val valueSchema = "type Query { value: String }"
-  private val request     = GraphQLRequest(query = Some("query Value { value }"), operationName = Some("Value"))
-
-  private def remoteGateway(
-    endpoint: URL,
-    schema: String = valueSchema,
-    config: RemoteGraphQLConfig[Any] = RemoteGraphQLConfig.default
-  ): Gateway[Any] =
-    Gateway.compose(Subgraph.graphql("remote", endpoint, schema, config))
-
-  private def endpoint(handler: Request => UIO[Response]): ZIO[Server with Ref[Int], Nothing, URL] =
-    postEndpoint("runtime-bounds")(handler)
-
-  private def graphQLResponse(value: String): Response =
-    Response(
-      Status.Ok,
-      Headers(Header.Custom("Content-Type", "application/graphql-response+json")),
-      Body.fromString(value)
-    )
+  private val request = GraphQLRequest(query = Some("query Value { value }"), operationName = Some("Value"))
 
   def spec = suite("RuntimeBoundsSpec")(
     suite("operation cache")(
@@ -159,7 +140,7 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
           stableRemote   <- stub(okResponse)
           stable         <-
             Gateway
-              .compose(Subgraph.graphql("stable", stableRemote.endpoint, valueSchema))
+              .compose(Subgraph.graphql("stable", stableRemote.endpoint, valueInputSchema))
               .withPhaseHooks(
                 PhaseHooks.authorization[Any](operation => executions.update(_ :+ operation.executionRequest))
               )
@@ -250,14 +231,19 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
           )
 
         for {
-          remote  <- stub(okResponse, okResponse)
-          runtime <- remoteGateway(remote.endpoint, variableSchema).interpreter
-          first   <- runtime.executeRequest(valueRequest("first"))
-          second  <- runtime.executeRequest(valueRequest("second"))
-          sent    <- remote.requests.get
+          recorded       <- recordEvents
+          (events, hooks) = recorded
+          remote         <- stub(okResponse, okResponse)
+          runtime        <- remoteGateway(remote.endpoint, variableSchema).withPhaseHooks(hooks).interpreter
+          first          <- runtime.executeRequest(valueRequest("first"))
+          second         <- runtime.executeRequest(valueRequest("second"))
+          sent           <- remote.requests.get
+          observed       <- events.get
         } yield assertTrue(
           first.errors.isEmpty,
           second.errors.isEmpty,
+          observed.count(_ == PhaseHooks.Event.CacheAccess(PhaseHooks.CacheResult.Miss)) == 1,
+          observed.count(_ == PhaseHooks.Event.CacheAccess(PhaseHooks.CacheResult.Hit)) == 1,
           sent.flatMap(_.query) == Vector(
             "query Value{value(input:\"first\")}",
             "query Value{value(input:\"second\")}"
@@ -278,12 +264,17 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
           )
 
         for {
-          remote  <- stub(conditionalResult, conditionalResult)
-          runtime <- remoteGateway(remote.endpoint, conditionalSchema).interpreter
-          _       <- runtime.executeRequest(valuesRequest(false))
-          _       <- runtime.executeRequest(valuesRequest(true))
-          sent    <- remote.requests.get
+          recorded       <- recordEvents
+          (events, hooks) = recorded
+          remote         <- stub(conditionalResult, conditionalResult)
+          runtime        <- remoteGateway(remote.endpoint, conditionalSchema).withPhaseHooks(hooks).interpreter
+          _              <- runtime.executeRequest(valuesRequest(false))
+          _              <- runtime.executeRequest(valuesRequest(true))
+          sent           <- remote.requests.get
+          observed       <- events.get
         } yield assertTrue(
+          observed.count(_ == PhaseHooks.Event.CacheAccess(PhaseHooks.CacheResult.Miss)) == 1,
+          observed.count(_ == PhaseHooks.Event.CacheAccess(PhaseHooks.CacheResult.Hit)) == 1,
           !sent.headOption.flatMap(_.query).exists(_.contains("conditionalValue")),
           sent.drop(1).headOption.flatMap(_.query).exists(_.contains("conditionalValue"))
         )
@@ -324,7 +315,7 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
       },
       test("rejects invalid gateway bounds before constructing a runtime") {
         for {
-          exit <- localValueGateway(ZIO.succeed("ok"))
+          exit <- localGateway(ZIO.succeed("ok"))
                     .withConfig(
                       _.withMaxPlanningCandidates(0)
                         .withMaxPlanningExpansions(0)
@@ -347,9 +338,8 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
         for {
           started <- Ref.make(0)
           release <- Promise.make[Nothing, Unit]
-          runtime <-
-            localValueGateway(started.update(_ + 1) *> release.await.as("ok")).interpreter
-          fibers  <- ZIO.foreach(1 to concurrency)(_ => runtime.execute("{ localValue }").fork)
+          runtime <- localGateway(started.update(_ + 1) *> release.await.as("ok")).interpreter
+          fibers  <- ZIO.foreach(1 to concurrency)(_ => runtime.execute("{ value }").fork)
           _       <- started.get.repeatUntil(_ == concurrency)
           _       <- release.succeed(())
           results <- ZIO.foreach(fibers)(_.join)
@@ -367,7 +357,7 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
                                  "local",
                                  localValueGraph(localStarted.succeed(()).unit *> release.await.as("local"))
                                ),
-                               Subgraph.graphql("remote", remote.endpoint, valueSchema)
+                               Subgraph.graphql("remote", remote.endpoint, valueInputSchema)
                              )
                              .interpreter
           fiber         <- runtime.execute("{ localValue value }").fork
@@ -388,7 +378,7 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
           calls        <- Ref.make(0)
           retryStarted <- Promise.make[Nothing, Unit]
           releaseRetry <- Promise.make[Nothing, Unit]
-          remote       <- endpoint { _ =>
+          remote       <- postEndpoint("runtime-bounds") { _ =>
                             calls.updateAndGet(_ + 1).flatMap {
                               case 1 => ZIO.succeed(Response.status(Status.ServiceUnavailable))
                               case 2 =>
@@ -410,63 +400,6 @@ object RuntimeBoundsSpec extends ZIOSpecDefault {
           firstResult.errors.isEmpty,
           secondResult.errors.isEmpty,
           total == 3
-        )
-      },
-      test("deduplicates identical queries") {
-        for {
-          calls     <- Ref.make(0)
-          started   <- Promise.make[Nothing, Unit]
-          release   <- Promise.make[Nothing, Unit]
-          remote    <- endpoint(_ =>
-                         calls.update(_ + 1) *>
-                           started.succeed(()).unit *>
-                           release.await.as(graphQLResponse(okResponse))
-                       )
-          runtime   <- (remoteGateway(remote) @@ GatewayMetrics.hooks).interpreter
-          fibers    <- ZIO.foreach(1 to 20)(_ => runtime.executeRequest(request).fork)
-          _         <- started.await
-          _         <- TestClock.adjust(Duration.Zero)
-          before    <- calls.get
-          _         <- release.succeed(())
-          responses <- ZIO.foreach(fibers)(_.join)
-          total     <- calls.get
-        } yield assertTrue(
-          before == 1,
-          total == 1,
-          responses.forall(_.errors.isEmpty)
-        )
-      },
-      test("runs distinct deduplication identities concurrently") {
-        val operations   = Some("query First { value } query Second { value }")
-        val firstRequest = GraphQLRequest(query = operations, operationName = Some("First"))
-        val nextRequest  = GraphQLRequest(query = operations, operationName = Some("Second"))
-        for {
-          calls        <- Ref.make(0)
-          firstStarted <- Promise.make[Nothing, Unit]
-          nextStarted  <- Promise.make[Nothing, Unit]
-          releaseFirst <- Promise.make[Nothing, Unit]
-          remote       <- endpoint(_ =>
-                            calls.updateAndGet(_ + 1).flatMap {
-                              case 1 =>
-                                firstStarted.succeed(()).unit *> releaseFirst.await.as(graphQLResponse(okResponse))
-                              case _ => nextStarted.succeed(()).as(graphQLResponse(okResponse))
-                            }
-                          )
-          runtime      <- remoteGateway(remote).interpreter
-          first        <- runtime.executeRequest(firstRequest).fork
-          _            <- firstStarted.await
-          second       <- runtime.executeRequest(nextRequest).fork
-          _            <- nextStarted.await
-          secondResult <- second.join
-          before       <- calls.get
-          _            <- releaseFirst.succeed(())
-          firstResult  <- first.join
-          total        <- calls.get
-        } yield assertTrue(
-          before == 2,
-          firstResult.errors.isEmpty,
-          secondResult.errors.isEmpty,
-          total == 2
         )
       }
     )

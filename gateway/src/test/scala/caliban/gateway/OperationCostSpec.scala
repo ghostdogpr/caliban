@@ -1,14 +1,13 @@
 package caliban.gateway
 
-import caliban.Value.StringValue
 import caliban.Value.IntValue.IntNumber
 import caliban.{ CalibanError, GraphQLRequest, InputValue }
 import caliban.gateway.GatewayTestSupport._
-import caliban.execution.{ Field, RequestPreparation }
-import caliban.gateway.internal.composition.{ ComposedGraph, OperationCost }
+import caliban.execution.{ ExecutionRequest, Field, RequestPreparation }
+import caliban.gateway.internal.composition.ComposedGraph
 import caliban.gateway.internal.composition.ComposedGraph.TypeField
-import caliban.gateway.internal.planning.OperationPlan
-import caliban.parsing.Parser
+import caliban.gateway.internal.planning.{ OperationCost, OperationPlan }
+import caliban.schema.RootType
 import caliban.parsing.adt.OperationType
 import caliban.tools.RemoteSchema
 import zio._
@@ -56,14 +55,24 @@ object OperationCostSpec extends ZIOSpecDefault {
   private val query    = "{ book { title address { zipCode } } }"
   private val response = """{"data":{"book":{"title":"Caliban","address":{"zipCode":1}}}}"""
 
-  private def code(error: CalibanError): Option[String] = {
-    val extensions = error match {
-      case value: CalibanError.ValidationError => value.extensions
-      case value: CalibanError.ExecutionError  => value.extensions
-      case _                                   => None
-    }
-    extensions.flatMap(_.fields.collectFirst { case ("code", StringValue(code)) => code })
-  }
+  private def rootType(schema: String): IO[CalibanError, RootType] =
+    parseSdl(schema).flatMap(document => ZIO.fromEither(RemoteSchema.normalize(document).map(_.rootType)))
+
+  private def prepare(root: RootType, query: String): IO[CalibanError, (ExecutionRequest, OperationPlan)] =
+    for {
+      operation <- RequestPreparation.parse(query)
+      request   <-
+        RequestPreparation.prepareParsed(GraphQLRequest(query = Some(query)), operation, Map.empty, root, false)
+    } yield request -> OperationPlan(
+      OperationType.Query,
+      "Query",
+      request.field.fields,
+      Nil,
+      Nil,
+      Nil,
+      Nil,
+      Some("nodes")
+    )
 
   private def costLimitedGateway(maxCost: Long)(first: Subgraph[Any], rest: Subgraph[Any]*): Gateway[Any] =
     Gateway.compose(first, rest: _*).withConfig(_.withMaxOperationCost(maxCost))
@@ -79,18 +88,15 @@ object OperationCostSpec extends ZIOSpecDefault {
       val query                           = s"{ node { ${selection(6)} } }"
       def count(fields: List[Field]): Int = fields.map(field => 1 + count(field.fields)).sum
       for {
-        document  <- ZIO.fromEither(Parser.parseQuery(schema))
-        root      <- ZIO.fromEither(RemoteSchema.toRootType(document))
-        operation <- RequestPreparation.parse(query)
-        request   <-
-          RequestPreparation.prepareParsed(GraphQLRequest(query = Some(query)), operation, Map.empty, root, false)
-        weights    = new CountingCosts(names.zipWithIndex.map { case (name, index) =>
-                       TypeField(name, "value") -> (index + 1L)
-                     }.toMap)
-        metadata   = ComposedGraph.CostMetadata(Map.empty, weights, Map.empty, Map.empty, Map.empty)
-        costs      = new OperationCost(root.types, Map("Node" -> names.toSet), metadata)
-        plan       = OperationPlan(OperationType.Query, "Query", request.field.fields, Nil, Nil, Nil, Nil, Some("nodes"))
-        estimated  = costs.estimate(request, plan)
+        root           <- rootType(schema)
+        prepared       <- prepare(root, query)
+        (request, plan) = prepared
+        weights         = new CountingCosts(names.zipWithIndex.map { case (name, index) =>
+                            TypeField(name, "value") -> (index + 1L)
+                          }.toMap)
+        metadata        = ComposedGraph.CostMetadata(Map.empty, weights, Map.empty, Map.empty, Map.empty)
+        costs           = new OperationCost(root.types, Map("Node" -> names.toSet), metadata)
+        estimated       = costs.estimate(request, plan)
       } yield assertTrue(
         estimated == Right(35L),
         weights.lookups > 0,
@@ -108,18 +114,15 @@ object OperationCostSpec extends ZIOSpecDefault {
       val query                           = s"{ node { ${selection(8)} } }"
       def count(fields: List[Field]): Int = fields.map(field => 1 + count(field.fields)).sum
       for {
-        document  <- ZIO.fromEither(Parser.parseQuery(schema))
-        root      <- ZIO.fromEither(RemoteSchema.toRootType(document))
-        operation <- RequestPreparation.parse(query)
-        request   <-
-          RequestPreparation.prepareParsed(GraphQLRequest(query = Some(query)), operation, Map.empty, root, false)
-        weights    = new CountingCosts(names.zipWithIndex.map { case (name, index) =>
-                       TypeField(name, "value") -> (index + 1L)
-                     }.toMap)
-        metadata   = ComposedGraph.CostMetadata(Map.empty, weights, Map.empty, Map.empty, Map.empty)
-        costs      = new OperationCost(root.types, Map("Node" -> names.toSet, "Entity" -> names.toSet), metadata)
-        plan       = OperationPlan(OperationType.Query, "Query", request.field.fields, Nil, Nil, Nil, Nil, Some("nodes"))
-        estimated  = costs.estimate(request, plan)
+        root           <- rootType(schema)
+        prepared       <- prepare(root, query)
+        (request, plan) = prepared
+        weights         = new CountingCosts(names.zipWithIndex.map { case (name, index) =>
+                            TypeField(name, "value") -> (index + 1L)
+                          }.toMap)
+        metadata        = ComposedGraph.CostMetadata(Map.empty, weights, Map.empty, Map.empty, Map.empty)
+        costs           = new OperationCost(root.types, Map("Node" -> names.toSet, "Entity" -> names.toSet), metadata)
+        estimated       = costs.estimate(request, plan)
       } yield assertTrue(
         estimated.isRight,
         weights.lookups > 0,
@@ -139,38 +142,20 @@ object OperationCostSpec extends ZIOSpecDefault {
         "{ node { a: child { cheap } b: child { cheap } ... on A { a: child { expensive } } } }"     -> 105L
       )
       for {
-        document <- ZIO.fromEither(Parser.parseQuery(schema))
-        root     <- ZIO.fromEither(RemoteSchema.toRootType(document))
-        metadata  = ComposedGraph.CostMetadata(
-                      Map.empty,
-                      Map(TypeField("Child", "cheap") -> 1L, TypeField("Child", "expensive") -> 100L),
-                      Map.empty,
-                      Map.empty,
-                      Map.empty
-                    )
-        costs     = new OperationCost(root.types, Map("Node" -> Set("A", "B")), metadata)
-        results  <- ZIO.foreach(queries) { case (query, expected) =>
-                      for {
-                        operation <- RequestPreparation.parse(query)
-                        request   <- RequestPreparation.prepareParsed(
-                                       GraphQLRequest(query = Some(query)),
-                                       operation,
-                                       Map.empty,
-                                       root,
-                                       false
-                                     )
-                        plan       = OperationPlan(
-                                       OperationType.Query,
-                                       "Query",
-                                       request.field.fields,
-                                       Nil,
-                                       Nil,
-                                       Nil,
-                                       Nil,
-                                       Some("nodes")
-                                     )
-                      } yield assertTrue(costs.estimate(request, plan) == Right(expected))
-                    }
+        root    <- rootType(schema)
+        metadata = ComposedGraph.CostMetadata(
+                     Map.empty,
+                     Map(TypeField("Child", "cheap") -> 1L, TypeField("Child", "expensive") -> 100L),
+                     Map.empty,
+                     Map.empty,
+                     Map.empty
+                   )
+        costs    = new OperationCost(root.types, Map("Node" -> Set("A", "B")), metadata)
+        results <- ZIO.foreach(queries) { case (query, expected) =>
+                     prepare(root, query).map { case (request, plan) =>
+                       assertTrue(costs.estimate(request, plan) == Right(expected))
+                     }
+                   }
       } yield results.reduce(_ && _)
     },
     test("charges omitted input-field defaults in literals and variables") {
@@ -262,25 +247,20 @@ object OperationCostSpec extends ZIOSpecDefault {
         sent.size == 2
       )
     },
-    test("enforces type cost before contacting a subgraph") {
+    test("enforces type cost before contacting a subgraph and accepts an operation at the configured maximum") {
       for {
-        remote  <- stub(response)
-        runtime <- costLimitedGateway(5)(Subgraph.federation("books", remote.endpoint, schema())).interpreter
-        result  <- runtime.execute(query)
-        sent    <- remote.requests.get
+        remote          <- stub(response)
+        rejectedRuntime <- costLimitedGateway(5)(Subgraph.federation("books", remote.endpoint, schema())).interpreter
+        rejected        <- rejectedRuntime.execute(query)
+        acceptedRuntime <- costLimitedGateway(6)(Subgraph.federation("books", remote.endpoint, schema())).interpreter
+        accepted        <- acceptedRuntime.execute(query)
+        sent            <- remote.requests.get
       } yield assertTrue(
-        result.errors.map(_.msg) == List("Operation cost 6 exceeds the configured maximum of 5."),
-        result.errors.flatMap(code) == List("COST_ESTIMATED_TOO_EXPENSIVE"),
-        sent.isEmpty
+        rejected.errors.map(_.msg) == List("Operation cost 6 exceeds the configured maximum of 5."),
+        rejected.errors.flatMap(codeOf) == List("COST_ESTIMATED_TOO_EXPENSIVE"),
+        accepted.errors.isEmpty,
+        sent.size == 1
       )
-    },
-    test("accepts an operation at the configured maximum") {
-      for {
-        remote  <- stub(response)
-        runtime <- costLimitedGateway(6)(Subgraph.federation("books", remote.endpoint, schema())).interpreter
-        result  <- runtime.execute(query)
-        sent    <- remote.requests.get
-      } yield assertTrue(result.errors.isEmpty, sent.size == 1)
     },
     test("adds field cost to return-type cost") {
       for {
@@ -291,7 +271,7 @@ object OperationCostSpec extends ZIOSpecDefault {
         result  <- runtime.execute(query)
         sent    <- remote.requests.get
       } yield assertTrue(
-        result.errors.flatMap(code) == List("COST_ESTIMATED_TOO_EXPENSIVE"),
+        result.errors.flatMap(codeOf) == List("COST_ESTIMATED_TOO_EXPENSIVE"),
         sent.isEmpty
       )
     },
@@ -343,7 +323,7 @@ object OperationCostSpec extends ZIOSpecDefault {
         result  <- runtime.execute(query)
         sent    <- remote.requests.get
       } yield assertTrue(
-        result.errors.flatMap(code) == List("COST_ESTIMATED_TOO_EXPENSIVE"),
+        result.errors.flatMap(codeOf) == List("COST_ESTIMATED_TOO_EXPENSIVE"),
         sent.isEmpty
       )
     },
@@ -361,7 +341,7 @@ object OperationCostSpec extends ZIOSpecDefault {
         result  <- runtime.execute("{ search(filter: { term: \"caliban\" }) }")
         sent    <- remote.requests.get
       } yield assertTrue(
-        result.errors.flatMap(code) == List("COST_ESTIMATED_TOO_EXPENSIVE"),
+        result.errors.flatMap(codeOf) == List("COST_ESTIMATED_TOO_EXPENSIVE"),
         sent.isEmpty
       )
     },
@@ -381,7 +361,7 @@ object OperationCostSpec extends ZIOSpecDefault {
         result  <- runtime.execute("{ books { author { name } } }")
         sent    <- remote.requests.get
       } yield assertTrue(
-        result.errors.flatMap(code) == List("COST_ESTIMATED_TOO_EXPENSIVE"),
+        result.errors.flatMap(codeOf) == List("COST_ESTIMATED_TOO_EXPENSIVE"),
         sent.isEmpty
       )
     },
@@ -406,7 +386,7 @@ object OperationCostSpec extends ZIOSpecDefault {
         accepted        <- acceptedRuntime.execute("{ items(limit: 3) { name } }")
         sent            <- remote.requests.get
       } yield assertTrue(
-        rejected.errors.flatMap(code) == List("COST_ESTIMATED_TOO_EXPENSIVE"),
+        rejected.errors.flatMap(codeOf) == List("COST_ESTIMATED_TOO_EXPENSIVE"),
         accepted.errors.isEmpty,
         sent.size == 1
       )
@@ -430,8 +410,8 @@ object OperationCostSpec extends ZIOSpecDefault {
         argument <- runtime.execute("{ search }")
         sent     <- remote.requests.get
       } yield assertTrue(
-        list.errors.flatMap(code) == List("COST_ESTIMATED_TOO_EXPENSIVE"),
-        argument.errors.flatMap(code) == List("COST_ESTIMATED_TOO_EXPENSIVE"),
+        list.errors.flatMap(codeOf) == List("COST_ESTIMATED_TOO_EXPENSIVE"),
+        argument.errors.flatMap(codeOf) == List("COST_ESTIMATED_TOO_EXPENSIVE"),
         sent.isEmpty
       )
     },
@@ -454,7 +434,7 @@ object OperationCostSpec extends ZIOSpecDefault {
         accepted <- runtime.execute("{ books(first: -10) { title } }")
         sent     <- remote.requests.get
       } yield assertTrue(
-        rejected.errors.flatMap(code) == List("COST_ESTIMATED_TOO_EXPENSIVE"),
+        rejected.errors.flatMap(codeOf) == List("COST_ESTIMATED_TOO_EXPENSIVE"),
         accepted.errors.isEmpty,
         sent.size == 1
       )
@@ -492,8 +472,8 @@ object OperationCostSpec extends ZIOSpecDefault {
         singleton <- runtime.execute("{ byIds(ids: \"a\") { title } }")
         sent      <- remote.requests.get
       } yield assertTrue(
-        nested.errors.flatMap(code) == List("COST_ESTIMATED_TOO_EXPENSIVE"),
-        list.errors.flatMap(code) == List("COST_ESTIMATED_TOO_EXPENSIVE"),
+        nested.errors.flatMap(codeOf) == List("COST_ESTIMATED_TOO_EXPENSIVE"),
+        list.errors.flatMap(codeOf) == List("COST_ESTIMATED_TOO_EXPENSIVE"),
         singleton.errors.isEmpty,
         sent.size == 1
       )
@@ -518,8 +498,8 @@ object OperationCostSpec extends ZIOSpecDefault {
       } yield assertTrue(
         missing.errors.map(_.msg) == List("Exactly one slicing argument must be supplied for field 'Query.books'."),
         duplicate.errors.map(_.msg) == List("Exactly one slicing argument must be supplied for field 'Query.books'."),
-        missing.errors.flatMap(code) == List("COST_QUERY_PARSE_FAILURE"),
-        duplicate.errors.flatMap(code) == List("COST_QUERY_PARSE_FAILURE"),
+        missing.errors.flatMap(codeOf) == List("COST_QUERY_PARSE_FAILURE"),
+        duplicate.errors.flatMap(codeOf) == List("COST_QUERY_PARSE_FAILURE"),
         sent.isEmpty
       )
     },
@@ -542,7 +522,7 @@ object OperationCostSpec extends ZIOSpecDefault {
         result  <- runtime.execute("{ books(first: 3) { results { page { title } } recent { title } } }")
         sent    <- remote.requests.get
       } yield assertTrue(
-        result.errors.flatMap(code) == List("COST_ESTIMATED_TOO_EXPENSIVE"),
+        result.errors.flatMap(codeOf) == List("COST_ESTIMATED_TOO_EXPENSIVE"),
         sent.isEmpty
       )
     },
@@ -565,7 +545,7 @@ object OperationCostSpec extends ZIOSpecDefault {
         result  <- runtime.execute("{ container { items { parts { value } } } }")
         sent    <- remote.requests.get
       } yield assertTrue(
-        result.errors.flatMap(code) == List("COST_ESTIMATED_TOO_EXPENSIVE"),
+        result.errors.flatMap(codeOf) == List("COST_ESTIMATED_TOO_EXPENSIVE"),
         sent.isEmpty
       )
     },
@@ -592,7 +572,7 @@ object OperationCostSpec extends ZIOSpecDefault {
         result  <- runtime.execute("{ container { holder(filter: \"all\") { page { title } } } }")
         sent    <- remote.requests.get
       } yield assertTrue(
-        result.errors.flatMap(code) == List("COST_ESTIMATED_TOO_EXPENSIVE"),
+        result.errors.flatMap(codeOf) == List("COST_ESTIMATED_TOO_EXPENSIVE"),
         sent.isEmpty
       )
     },
@@ -619,7 +599,7 @@ object OperationCostSpec extends ZIOSpecDefault {
         accepted        <- acceptedRuntime.execute("{ container { results { page { title } } } }")
         sent            <- remote.requests.get
       } yield assertTrue(
-        rejected.errors.flatMap(code) == List("COST_ESTIMATED_TOO_EXPENSIVE"),
+        rejected.errors.flatMap(codeOf) == List("COST_ESTIMATED_TOO_EXPENSIVE"),
         accepted.errors.isEmpty,
         sent.size == 1
       )
@@ -647,7 +627,7 @@ object OperationCostSpec extends ZIOSpecDefault {
         accepted        <- acceptedRuntime.execute(query)
         sent            <- remote.requests.get
       } yield assertTrue(
-        rejected.errors.flatMap(code) == List("COST_ESTIMATED_TOO_EXPENSIVE"),
+        rejected.errors.flatMap(codeOf) == List("COST_ESTIMATED_TOO_EXPENSIVE"),
         accepted.errors.isEmpty,
         sent.size == 1
       )
@@ -692,7 +672,7 @@ object OperationCostSpec extends ZIOSpecDefault {
         result  <- runtime.execute("{ expensive }")
         sent    <- remote.requests.get
       } yield assertTrue(
-        result.errors.flatMap(code) == List("COST_ESTIMATED_TOO_EXPENSIVE"),
+        result.errors.flatMap(codeOf) == List("COST_ESTIMATED_TOO_EXPENSIVE"),
         sent.isEmpty
       )
     },
@@ -718,7 +698,7 @@ object OperationCostSpec extends ZIOSpecDefault {
                            .flatMap(_.execute("{ __schema { directives { name } } }"))
         directives     = introspectedNameStrings(field(introspection.data, "__schema").flatMap(field(_, "directives")))
       } yield assertTrue(
-        rejected.errors.flatMap(code) == List("COST_ESTIMATED_TOO_EXPENSIVE"),
+        rejected.errors.flatMap(codeOf) == List("COST_ESTIMATED_TOO_EXPENSIVE"),
         introspection.errors.isEmpty,
         directives.exists(!_.contains("pageSize"))
       )
@@ -778,6 +758,28 @@ object OperationCostSpec extends ZIOSpecDefault {
         linkErrors.exists(_.contains("@cost requires Federation v2.9 or cost spec v0.1"))
       )
     },
+    test("rejects cost directives at unsupported locations") {
+      val schema =
+        s"""
+           |schema @link(url: "https://specs.apollo.dev/federation/v2.9", import: ["@cost", "@listSize"]) { query: Query }
+           |${directives.replace(costDefinition, costDefinition + " | ENUM_VALUE | INTERFACE")}
+           |${listSizeDefinition.replace("on FIELD_DEFINITION", "on FIELD_DEFINITION | ARGUMENT_DEFINITION")}
+           |type Query { node: Node status(limit: Int @listSize(assumedSize: 1)): Status }
+           |interface Node { id: ID @cost(weight: 1) }
+           |type Item implements Node { id: ID }
+           |enum Status { ACTIVE @cost(weight: 2) }
+           |""".stripMargin
+      compositionDiagnostics(Gateway.compose(Subgraph.federation("locations", unreachableEndpoint, schema))).map {
+        diagnostics =>
+          assertTrue(
+            diagnostics == List(
+              "[locations] Invalid Federation @cost application at 'Node.id': @cost cannot be applied to an interface field.",
+              "[locations] Invalid Federation @cost application at 'Status.ACTIVE': @cost is not supported at this location.",
+              "[locations] Invalid Federation @listSize application at 'Query.status(limit:)': @listSize is only supported on fields."
+            )
+          )
+      }
+    },
     test("counts injected key selections once across planned federation requests") {
       val products =
         s"""
@@ -809,7 +811,7 @@ object OperationCostSpec extends ZIOSpecDefault {
           stub(productRootResponse)
         reviewsRemote  <-
           stub(
-            """{"data":{"_entities":[{"expensive":"yes","_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product"}]}}"""
+            """{"data":{"_entities":[{"expensive":"yes"}]}}"""
           )
         rejected       <- costLimitedGateway(10)(
                             Subgraph.federation("products", productsRemote.endpoint, products),
@@ -824,7 +826,7 @@ object OperationCostSpec extends ZIOSpecDefault {
         acceptedResult <- accepted.execute("{ product { expensive } }")
         sent           <- productsRemote.requests.get.zip(reviewsRemote.requests.get)
       } yield assertTrue(
-        rejectedResult.errors.flatMap(code) == List("COST_ESTIMATED_TOO_EXPENSIVE"),
+        rejectedResult.errors.flatMap(codeOf) == List("COST_ESTIMATED_TOO_EXPENSIVE"),
         rejectedSent._1.isEmpty,
         rejectedSent._2.isEmpty,
         acceptedResult.errors.isEmpty,
@@ -868,7 +870,7 @@ object OperationCostSpec extends ZIOSpecDefault {
         result         <- runtime.execute("{ products { reviews { body } } }")
         sent           <- productsRemote.requests.get.zip(reviewsRemote.requests.get)
       } yield assertTrue(
-        result.errors.flatMap(code) == List("COST_ESTIMATED_TOO_EXPENSIVE"),
+        result.errors.flatMap(codeOf) == List("COST_ESTIMATED_TOO_EXPENSIVE"),
         sent._1.isEmpty,
         sent._2.isEmpty
       )
@@ -910,7 +912,7 @@ object OperationCostSpec extends ZIOSpecDefault {
         result        <- runtime.execute("{ cursor { page { title } } }")
         sent          <- cursorsRemote.requests.get.zip(booksRemote.requests.get)
       } yield assertTrue(
-        result.errors.flatMap(code) == List("COST_ESTIMATED_TOO_EXPENSIVE"),
+        result.errors.flatMap(codeOf) == List("COST_ESTIMATED_TOO_EXPENSIVE"),
         sent._1.isEmpty,
         sent._2.isEmpty
       )
@@ -963,7 +965,7 @@ object OperationCostSpec extends ZIOSpecDefault {
           )
         productsRemote  <-
           stub(
-            """{"data":{"_entities":[{"productInfo":"details","_caliban_gateway_entity_key":"p1","_caliban_gateway_entity_typename":"Product"}]}}"""
+            """{"data":{"_entities":[{"productInfo":"details"}]}}"""
           )
         usersRemote     <- stub("""{"data":{"_entities":[]}}""")
         gateway          = Gateway.compose(
@@ -977,7 +979,7 @@ object OperationCostSpec extends ZIOSpecDefault {
         accepted        <- acceptedRuntime.execute(query)
         sent            <- nodesRemote.requests.get.zip(productsRemote.requests.get).zip(usersRemote.requests.get)
       } yield assertTrue(
-        rejected.errors.flatMap(code) == List("COST_ESTIMATED_TOO_EXPENSIVE"),
+        rejected.errors.flatMap(codeOf) == List("COST_ESTIMATED_TOO_EXPENSIVE"),
         accepted.errors.isEmpty,
         sent._1.size == 1,
         sent._2.size == 1,
@@ -1001,7 +1003,7 @@ object OperationCostSpec extends ZIOSpecDefault {
         result  <- runtime.execute("{ value }")
         sent    <- first.requests.get.zip(second.requests.get)
       } yield assertTrue(
-        result.errors.flatMap(code) == List("COST_ESTIMATED_TOO_EXPENSIVE"),
+        result.errors.flatMap(codeOf) == List("COST_ESTIMATED_TOO_EXPENSIVE"),
         sent._1.isEmpty,
         sent._2.isEmpty
       )
@@ -1019,14 +1021,14 @@ object OperationCostSpec extends ZIOSpecDefault {
         result  <- runtime.execute("mutation { update }")
         sent    <- remote.requests.get
       } yield assertTrue(
-        result.errors.flatMap(code) == List("COST_ESTIMATED_TOO_EXPENSIVE"),
+        result.errors.flatMap(codeOf) == List("COST_ESTIMATED_TOO_EXPENSIVE"),
         sent.isEmpty
       )
     },
     test("rejects a non-positive operation cost limit at build time") {
       for {
         diagnostics <- compositionDiagnostics(
-                         localValueGateway(ZIO.succeed("ok")).withConfig(_.withMaxOperationCost(0))
+                         localGateway(ZIO.succeed("ok")).withConfig(_.withMaxOperationCost(0))
                        )
       } yield assertTrue(
         diagnostics == List("Gateway maxOperationCost must be positive.")

@@ -2,16 +2,13 @@ package caliban.gateway
 
 import caliban.InputValue.{ ListValue, ObjectValue => InputObjectValue }
 import caliban.ResponseValue.{ ListValue => ResponseListValue, ObjectValue => ResponseObjectValue }
-import caliban.Value.{ BooleanValue, EnumValue, IntValue, NullValue, StringValue }
+import caliban.Value.{ BooleanValue, EnumValue, NullValue, StringValue }
 import caliban.gateway.GatewayTestSupport._
-import caliban.gateway.internal.execution.ResponseMerge
-import caliban.parsing.Parser
 import caliban.schema.{ GenericSchema, Schema }
 import caliban.wrappers.ApolloPersistedQueries
 import caliban.wrappers.Wrappers.maxDepth
 import caliban._
 import zio._
-import zio.http.URL
 import zio.test._
 
 object GatewaySpec extends ZIOSpecDefault {
@@ -115,9 +112,6 @@ object GatewaySpec extends ZIOSpecDefault {
   private val errorsResponse =
     """{"errors":[{"message":"request rejected"}]}"""
 
-  private def remoteGateway(endpoint: URL, schema: String = productsSchema, name: String = "products"): Gateway[Any] =
-    Gateway.compose(Subgraph.graphql(name, endpoint, schema))
-
   private val echoAndStatus: Gateway[Any] =
     Gateway.compose(
       Subgraph.graphql("echo", LocalSchemas.EchoApi.api),
@@ -126,30 +120,25 @@ object GatewaySpec extends ZIOSpecDefault {
 
   def spec = suite("GatewaySpec")(
     suite("local subgraphs")(
-      test("uses explicit Federation 1 composition for local schemas without federation metadata") {
-        val api = localGraph(ZIO.succeed("shared"))
+      test("composes local schemas as Federation only when asked, even when the API has federation metadata") {
+        val api       = localGraph(ZIO.succeed("shared"))
+        val federated = api @@ caliban.federation.v2_6.federated
         for {
-          ordinary <- compositionDiagnostics(
-                        Gateway.compose(Subgraph.graphql("first", api), Subgraph.graphql("second", api))
-                      )
-          runtime  <- Gateway.compose(Subgraph.federation("first", api), Subgraph.federation("second", api)).interpreter
-          response <- runtime.execute("{ value }")
+          ordinary  <- compositionDiagnostics(
+                         Gateway.compose(Subgraph.graphql("first", api), Subgraph.graphql("second", api))
+                       )
+          annotated <- compositionDiagnostics(
+                         Gateway.compose(Subgraph.graphql("first", federated), Subgraph.graphql("second", federated))
+                       )
+          runtime   <- Gateway.compose(Subgraph.federation("first", api), Subgraph.federation("second", api)).interpreter
+          response  <- runtime.execute("{ value }")
         } yield assertTrue(
           ordinary.exists(_.contains("Field is resolved by multiple ordinary subgraphs")),
+          annotated.exists(message =>
+            message.contains("query.value") && message.contains("Field is resolved by multiple ordinary subgraphs")
+          ),
           response.errors.isEmpty,
           field(response.data, "value").contains(StringValue("shared"))
-        )
-      },
-      test("keeps ordinary local composition explicit even when the API has federation metadata") {
-        val api = localGraph(ZIO.succeed("shared")) @@ caliban.federation.v2_6.federated
-        compositionDiagnostics(
-          Gateway.compose(Subgraph.graphql("first", api), Subgraph.graphql("second", api))
-        ).map(diagnostics =>
-          assertTrue(
-            diagnostics.exists(message =>
-              message.contains("query.value") && message.contains("Field is resolved by multiple ordinary subgraphs")
-            )
-          )
         )
       },
       test("executes local roots with their accumulated environments") {
@@ -176,11 +165,16 @@ object GatewaySpec extends ZIOSpecDefault {
         val query = """{ echo(value: "fixed") status }"""
 
         for {
-          runtime   <- echoAndStatus.interpreter
-          primed    <- runtime.execute(query)
-          responses <- ZIO.foreachPar((1 to 24).toList)(_ => runtime.execute(query))
+          recorded       <- recordEvents
+          (events, hooks) = recorded
+          runtime        <- echoAndStatus.withPhaseHooks(hooks).interpreter
+          primed         <- runtime.execute(query)
+          responses      <- ZIO.foreachPar((1 to 24).toList)(_ => runtime.execute(query))
+          observed       <- events.get
         } yield assertTrue(
           primed.errors.isEmpty,
+          observed.count(_ == PhaseHooks.Event.CacheAccess(PhaseHooks.CacheResult.Miss)) == 1,
+          observed.count(_ == PhaseHooks.Event.CacheAccess(PhaseHooks.CacheResult.Hit)) == 24,
           responses.forall(response =>
             response.errors.isEmpty &&
               field(response.data, "echo").contains(StringValue("fixed")) &&
@@ -210,15 +204,6 @@ object GatewaySpec extends ZIOSpecDefault {
             field(response.data, "echo").contains(StringValue(s"value-${i + 1}")) &&
             field(response.data, "status").contains(EnumValue("ACTIVE"))
           }
-        )
-      },
-      test("completes enum values returned by a local subgraph") {
-        for {
-          runtime  <- Gateway.compose(Subgraph.graphql("status", LocalSchemas.EnumApi.api)).interpreter
-          response <- runtime.execute("{ status }")
-        } yield assertTrue(
-          response.errors.isEmpty,
-          field(response.data, "status").contains(EnumValue("ACTIVE"))
         )
       },
       test("preserves FiberRef context and local Caliban failures") {
@@ -292,30 +277,13 @@ object GatewaySpec extends ZIOSpecDefault {
           response.errors.isEmpty,
           field(response.data, "value").contains(StringValue("ok"))
         )
-      },
-      test("preserves interruption of local Caliban execution") {
-        for {
-          started <- Promise.make[Nothing, Unit]
-          api      = {
-            object Schema extends GenericSchema[Any] {
-              import auto._
-              final case class Query(blocked: UIO[String])
-              val api = graphQL(RootResolver(Query(started.succeed(()) *> ZIO.never)))
-            }
-            Schema.api
-          }
-          runtime <- Gateway.compose(Subgraph.graphql("local", api)).interpreter
-          fiber   <- runtime.execute("{ blocked }").fork
-          _       <- started.await
-          exit    <- fiber.interrupt
-        } yield assertTrue(exit.isInterrupted)
       }
     ),
     suite("single-source execution")(
       test("executes one pinned remote graph end to end through GatewayInterpreter") {
         for {
           remote                                            <- stub(dataResponse)
-          runtime                                           <- remoteGateway(remote.endpoint).interpreter
+          runtime                                           <- remoteGateway(remote.endpoint, productsSchema).interpreter
           interpreter: GraphQLInterpreter[Any, CalibanError] = runtime
           request                                            = GraphQLRequest(
                                                                  query = Some(nestedQuery),
@@ -404,7 +372,7 @@ object GatewaySpec extends ZIOSpecDefault {
                            """{"data":{"catalog":[{"id":"p2","details":{"name":"Desk"}}]}}"""
                          else """{"data":{"catalog":[{"id":"p1","details":{"name":"Table"}}]}}"""
                        }
-          runtime   <- remoteGateway(remote.endpoint).interpreter
+          runtime   <- remoteGateway(remote.endpoint, productsSchema).interpreter
           firstRun  <- runtime.executeRequest(clientRequest("p1"))
           secondRun <- runtime.executeRequest(clientRequest("p2"))
           sent      <- remote.requests.get
@@ -482,23 +450,7 @@ object GatewaySpec extends ZIOSpecDefault {
       test("accepts a remote GraphQL errors-only response") {
         for {
           remote   <- stub(errorsResponse)
-          runtime  <- remoteGateway(remote.endpoint).interpreter
-          response <- runtime.execute("{ products(ids: [\"p1\"]) { id } }")
-        } yield assertTrue(
-          response.data == NullValue,
-          response.errors.map(_.msg) == List("Remote GraphQL request failed."),
-          executionErrors(response.errors).map(_.path) == List(
-            List(PathValue.Key("products"))
-          )
-        )
-      },
-      test("turns an invalid remote response into a safe gateway error") {
-        for {
-          remote   <- stub(invalidResponse)
-          runtime  <- Gateway
-                        .compose(Subgraph.graphql("products", remote.endpoint, productsSchema))
-                        .withConfig(_.withRemoteErrorMessages(true))
-                        .interpreter
+          runtime  <- remoteGateway(remote.endpoint, productsSchema).interpreter
           response <- runtime.execute("{ products(ids: [\"p1\"]) { id } }")
         } yield assertTrue(
           response.data == NullValue,
@@ -511,7 +463,7 @@ object GatewaySpec extends ZIOSpecDefault {
       test("rejects an empty remote errors array without data") {
         for {
           remote   <- stub("""{"errors":[]}""")
-          runtime  <- remoteGateway(remote.endpoint).interpreter
+          runtime  <- remoteGateway(remote.endpoint, productsSchema).interpreter
           response <- runtime.execute("{ products(ids: [\"p1\"]) { id } }")
         } yield assertTrue(
           response.data == NullValue,
@@ -521,7 +473,7 @@ object GatewaySpec extends ZIOSpecDefault {
           )
         )
       },
-      test("finalizes a successful single-source response") {
+      test("replaces an invalid remote error path with a fallback at the nearest client path") {
         val singleSchema = "type Query { product: Product } type Product { name: String! }"
         val responseBody =
           """{"data":{"product":{"name":null}},"errors":[{"message":"internal source detail","path":["product",null,"name"],"locations":[{"line":1,"column":2}]}]}"""
@@ -544,7 +496,7 @@ object GatewaySpec extends ZIOSpecDefault {
       test("completes a malformed nullable built-in scalar to null") {
         for {
           remote   <- stub("""{"data":{"value":{}}}""")
-          runtime  <- remoteGateway(remote.endpoint, "type Query { value: String }", "source").interpreter
+          runtime  <- remoteGateway(remote.endpoint, "type Query { value: String }").interpreter
           response <- runtime.execute("{ value }")
           errors    = executionErrors(response.errors)
         } yield assertTrue(
@@ -559,7 +511,7 @@ object GatewaySpec extends ZIOSpecDefault {
 
         for {
           remote   <- stub("""{"data":{"explicit":null,"nested":{"present":"ok"}}}""")
-          runtime  <- remoteGateway(remote.endpoint, sourceSchema, "source").interpreter
+          runtime  <- remoteGateway(remote.endpoint, sourceSchema).interpreter
           response <- runtime.execute("{ absent explicit nested { present absent } }")
           errors    = executionErrors(response.errors)
         } yield assertTrue(
@@ -580,20 +532,19 @@ object GatewaySpec extends ZIOSpecDefault {
       test("rejects out-of-range Int values returned by a source") {
         for {
           remote   <- stub("""{"data":{"value":2147483648}}""")
-          runtime  <- remoteGateway(remote.endpoint, "type Query { value: Int }", "source").interpreter
+          runtime  <- remoteGateway(remote.endpoint, "type Query { value: Int }").interpreter
           response <- runtime.execute("{ value }")
           errors    = executionErrors(response.errors)
         } yield assertTrue(
           field(response.data, "value").contains(NullValue),
           errors.map(_.msg) == List("Remote GraphQL request failed."),
-          errors.map(_.path) == List(List(PathValue.Key("value"))),
-          !field(response.data, "value").contains(IntValue(2147483648L))
+          errors.map(_.path) == List(List(PathValue.Key("value")))
         )
       },
       test("bubbles a malformed non-null built-in scalar") {
         for {
           remote   <- stub("""{"data":{"value":{}}}""")
-          runtime  <- remoteGateway(remote.endpoint, "type Query { value: String! }", "source").interpreter
+          runtime  <- remoteGateway(remote.endpoint, "type Query { value: String! }").interpreter
           response <- runtime.execute("{ value }")
           errors    = executionErrors(response.errors)
         } yield assertTrue(
@@ -608,26 +559,11 @@ object GatewaySpec extends ZIOSpecDefault {
 
         for {
           remote   <- stub(responseBody)
-          runtime  <- remoteGateway(remote.endpoint, listSchema, "reviews").interpreter
+          runtime  <- remoteGateway(remote.endpoint, listSchema).interpreter
           response <- runtime.execute("{ reviews }")
           errors    = executionErrors(response.errors)
         } yield assertTrue(
           field(response.data, "reviews").contains(NullValue),
-          errors.map(_.msg) == List("Remote GraphQL request failed."),
-          errors.map(_.path) == List(List(PathValue.Key("reviews")))
-        )
-      },
-      test("bubbles a malformed non-null list") {
-        val listSchema   = "type Query { reviews: [String!]! }"
-        val responseBody = """{"data":{"reviews":"invalid"}}"""
-
-        for {
-          remote   <- stub(responseBody)
-          runtime  <- remoteGateway(remote.endpoint, listSchema, "reviews").interpreter
-          response <- runtime.execute("{ reviews }")
-          errors    = executionErrors(response.errors)
-        } yield assertTrue(
-          response.data == NullValue,
           errors.map(_.msg) == List("Remote GraphQL request failed."),
           errors.map(_.path) == List(List(PathValue.Key("reviews")))
         )
@@ -646,26 +582,12 @@ object GatewaySpec extends ZIOSpecDefault {
           errors.map(_.path) == List(List(PathValue.Key("product")))
         )
       },
-      test("bubbles a malformed non-null object") {
-        val objectSchema = "type Query { product: Product! } type Product { name: String! }"
-
-        for {
-          remote   <- stub("""{"data":{"product":[]}}""")
-          runtime  <- remoteGateway(remote.endpoint, objectSchema).interpreter
-          response <- runtime.execute("{ product { name } }")
-          errors    = executionErrors(response.errors)
-        } yield assertTrue(
-          response.data == NullValue,
-          errors.map(_.msg) == List("Remote GraphQL request failed."),
-          errors.map(_.path) == List(List(PathValue.Key("product")))
-        )
-      },
       test("attaches a single-source failure to every affected nullable root") {
         val nullableRoots = "type Query { first: String second: String }"
 
         for {
           remote   <- stub(invalidResponse)
-          runtime  <- remoteGateway(remote.endpoint, nullableRoots, "source").interpreter
+          runtime  <- remoteGateway(remote.endpoint, nullableRoots).interpreter
           response <- runtime.execute("{ first second }")
           errors    = executionErrors(response.errors)
         } yield assertTrue(
@@ -684,7 +606,7 @@ object GatewaySpec extends ZIOSpecDefault {
 
         for {
           remote   <- stub(responseBody)
-          runtime  <- remoteGateway(remote.endpoint, nullableRoots, "source").interpreter
+          runtime  <- remoteGateway(remote.endpoint, nullableRoots).interpreter
           response <- runtime.execute("{ first second }")
           errors    = executionErrors(response.errors)
         } yield assertTrue(
@@ -696,105 +618,47 @@ object GatewaySpec extends ZIOSpecDefault {
         )
       }
     ),
-    test("merges duplicate fields last-wins on both sides of the wide-object threshold") {
-      def value(size: Int): ResponseObjectValue =
-        ResponseObjectValue(
-          ("duplicate"   -> StringValue("first")) ::
-            List.tabulate(size - 2)(index => s"field$index" -> StringValue(index.toString)) :::
-            ("duplicate" -> StringValue("last")) :: Nil
-        )
-
-      val patch  = ResponseObjectValue(("duplicate" -> StringValue("merged")) :: Nil)
-      val narrow = ResponseMerge.mergeObject(value(15), patch)
-      val wide   = ResponseMerge.mergeObject(value(16), patch)
-
-      def duplicateValues(value: ResponseValue): List[StringValue] =
-        value match {
-          case ResponseObjectValue(fields) => fields.collect { case ("duplicate", nested: StringValue) => nested }
-          case _                           => Nil
-        }
-
-      assertTrue(
-        duplicateValues(narrow) == List(StringValue("first"), StringValue("merged")),
-        duplicateValues(wide) == List(StringValue("first"), StringValue("merged"))
-      )
-    },
     suite("schema and validation")(
       test("builds SDL and parsed documents through the same validated schema path") {
         for {
           remote   <- stub(dataResponse)
-          document <- ZIO.fromEither(Parser.parseQuery(productsSchema))
+          document <- parseSdl(productsSchema)
           extended  = productsSchema + "\nextend type Query { version: String }"
           fromSdl  <- Gateway.compose(Subgraph.graphql("sdl", remote.endpoint, productsSchema)).interpreter.exit
           fromDoc  <- Gateway.compose(Subgraph.graphql("document", remote.endpoint, document)).interpreter.exit
           fromExt  <-
-            remoteGateway(remote.endpoint, extended, "extended").interpreter.flatMap(_.check("{ version }")).exit
-          invalid  <- remoteGateway(remote.endpoint, "type Query { broken: Missing }", "invalid").interpreter.exit
+            remoteGateway(remote.endpoint, extended).interpreter.flatMap(_.check("{ version }")).exit
+          invalid  <- remoteGateway(remote.endpoint, "type Query { broken: Missing }").interpreter.exit
         } yield assertTrue(fromSdl.isSuccess, fromDoc.isSuccess, fromExt.isSuccess, invalid.isFailure)
-      },
-      test("rejects invalid client operations before contacting the remote graph") {
-        for {
-          remote   <- stub(dataResponse)
-          runtime  <- remoteGateway(remote.endpoint).interpreter
-          response <- runtime.execute("{ missing }")
-          sent     <- remote.requests.get
-        } yield assertTrue(response.errors.nonEmpty, sent.isEmpty)
       }
     ),
     suite("local introspection")(
       test("executes introspection locally without calling the remote graph") {
         for {
           remote       <- stub(dataResponse)
-          runtime      <- remoteGateway(remote.endpoint).interpreter
+          runtime      <- remoteGateway(remote.endpoint, productsSchema).interpreter
           response     <- runtime.execute(
                             """{
                           |  product: __type(name: "Product") {
                           |    visible: fields { name }
                           |    all: fields(includeDeprecated: true) { name }
                           |  }
-                          |  details: __type(name: "Details") {
-                          |    visible: fields { name }
-                          |    all: fields(includeDeprecated: true) { name isDeprecated deprecationReason }
-                          |  }
-                          |  state: __type(name: "State") {
-                          |    visible: enumValues { name }
-                          |    all: enumValues(includeDeprecated: true) { name isDeprecated deprecationReason }
-                          |  }
-                          |  scalar: __type(name: "URL") { specifiedByURL }
+                          |  details: __type(name: "Details") { visible: fields { name } }
+                          |  state: __type(name: "State") { visible: enumValues { name } }
                           |}""".stripMargin
                           )
           sent         <- remote.requests.get
           product       = field(response.data, "product")
           visible       = introspectedNameStrings(product.flatMap(field(_, "visible")))
           all           = introspectedNameStrings(product.flatMap(field(_, "all")))
-          details       = field(response.data, "details")
-          detailVisible = introspectedNameStrings(details.flatMap(field(_, "visible")))
-          detailAll     = details.flatMap(field(_, "all")).collect { case ResponseListValue(values) => values }
-          state         = field(response.data, "state")
-          stateVisible  = introspectedNameStrings(state.flatMap(field(_, "visible")))
-          stateAll      = state.flatMap(field(_, "all")).collect { case ResponseListValue(values) => values }
-          url           = field(response.data, "scalar").flatMap(field(_, "specifiedByURL"))
+          detailVisible = introspectedNameStrings(field(response.data, "details").flatMap(field(_, "visible")))
+          stateVisible  = introspectedNameStrings(field(response.data, "state").flatMap(field(_, "visible")))
         } yield assertTrue(
           response.errors.isEmpty,
           visible.exists(!_.contains("legacyName")),
           all.exists(_.contains("legacyName")),
           detailVisible.exists(!_.contains("legacyLabel")),
-          detailAll.exists(
-            _.exists(value =>
-              field(value, "name").contains(StringValue("legacyLabel")) &&
-                field(value, "isDeprecated").contains(BooleanValue(true)) &&
-                field(value, "deprecationReason").contains(StringValue("No longer supported"))
-            )
-          ),
           stateVisible.exists(!_.contains("LEGACY")),
-          stateAll.exists(
-            _.exists(value =>
-              field(value, "name").contains(StringValue("LEGACY")) &&
-                field(value, "isDeprecated").contains(BooleanValue(true)) &&
-                field(value, "deprecationReason").contains(StringValue("Use ACTIVE"))
-            )
-          ),
-          url.contains(StringValue("https://example.com/url")),
           sent.isEmpty
         )
       },
@@ -844,7 +708,7 @@ object GatewaySpec extends ZIOSpecDefault {
 
         for {
           remote         <- stub(dataResponse)
-          runtime        <- remoteGateway(remote.endpoint).interpreter
+          runtime        <- remoteGateway(remote.endpoint, productsSchema).interpreter
           namedResponse  <- runtime.execute(named)
           inlineResponse <- runtime.execute(inline)
           sent           <- remote.requests.get

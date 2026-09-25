@@ -2,7 +2,8 @@ package caliban.execution
 
 import caliban.CalibanError.ValidationError
 import caliban.Configurator.ExecutionConfiguration
-import caliban.parsing.adt.{ Document, OperationType, Selection }
+import caliban.introspection.Introspector
+import caliban.parsing.adt.{ Document, OperationType }
 import caliban.parsing.{ Parser, VariablesCoercer }
 import caliban.schema.RootType
 import caliban.validation.Validator
@@ -10,7 +11,7 @@ import caliban.{ CalibanError, Configurator, GraphQLRequest, HttpUtils, InputVal
 import zio.{ Exit, IO, Trace }
 
 /**
- * The shared Caliban operation front-end used by interpreters that execute an already validated request themselves.
+ * Parsing, variable coercion and validation steps shared by interpreters that execute a validated request themselves.
  */
 private[caliban] object RequestPreparation {
 
@@ -72,17 +73,7 @@ private[caliban] object RequestPreparation {
     document: Document,
     operationName: Option[String]
   ): Boolean =
-    !config.enableIntrospection && hasIntrospection(document, operationName)
-
-  private def hasIntrospection(document: Document, operationName: Option[String]): Boolean =
-    document
-      .operationDefinition(operationName)
-      .exists(operation =>
-        operation.operationType == OperationType.Query && document.existsSelection(operationName) {
-          case Selection.Field(_, "__schema" | "__type", _, _, _, _) => true
-          case _                                                     => false
-        }
-      )
+    !config.enableIntrospection && Introspector.hasIntrospection(document, operationName)
 
   private def checkHttpMethod(
     config: ExecutionConfiguration,

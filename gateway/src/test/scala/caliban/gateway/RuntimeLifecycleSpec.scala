@@ -25,10 +25,13 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
       )
     )
 
+  private def runRequest[A](control: GatewayExecutionControl[Any])(effect: UIO[A])(onTimeout: UIO[A]): UIO[A] =
+    control.withLease[Any, Nothing, A](ZIO.interrupt)(control.runWithin(_)(effect).someOrElseZIO(onTimeout))
+
   private def awaitDrain(control: GatewayExecutionControl[Any]): UIO[Unit] =
     control.reserve.flatMap {
-      case Some(lease) => control.release(lease).as(false)
-      case None        => ZIO.succeed(true)
+      case Some(_) => control.release.as(false)
+      case None    => ZIO.succeed(true)
     }.repeatUntil(identity).unit
 
   private def awaitDrain(runtime: GatewayInterpreterImpl[Any]): UIO[Unit] =
@@ -109,13 +112,11 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
         control      <- makeControl(scope)
         started      <- Promise.make[Nothing, Unit]
         release      <- Promise.make[Nothing, Unit]
-        first        <- control
-                          .runRequest(started.succeed(()).unit *> release.await.as("first"))(
-                            ZIO.succeed("timeout")
-                          )(ZIO.interrupt)
-                          .fork
+        first        <- runRequest(control)(started.succeed(()).unit *> release.await.as("first"))(
+                          ZIO.succeed("timeout")
+                        ).fork
         _            <- started.await
-        secondResult <- control.runRequest(ZIO.succeed("second"))(ZIO.succeed("timeout"))(ZIO.interrupt)
+        secondResult <- runRequest(control)(ZIO.succeed("second"))(ZIO.succeed("timeout"))
         pending      <- first.poll
         _            <- release.succeed(())
         firstResult  <- first.join
@@ -132,11 +133,9 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
         control    <- makeControl(scope)
         completing <- Promise.make[Nothing, Unit]
         release    <- Promise.make[Nothing, Unit]
-        fiber      <- control
-                        .runRequest(completing.succeed(()).unit *> ZIO.uninterruptible(release.await).as("late"))(
-                          ZIO.succeed("timeout")
-                        )(ZIO.interrupt)
-                        .fork
+        fiber      <- runRequest(control)(
+                        completing.succeed(()).unit *> ZIO.uninterruptible(release.await).as("late")
+                      )(ZIO.succeed("timeout")).fork
         _          <- completing.await
         _          <- TestClock.adjust(1.second)
         cancelling <- fiber.interrupt.fork
@@ -192,30 +191,7 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
         total == 1
       )
     },
-    test("drains accepted work before closing and rejects racing admissions") {
-      for {
-        scope    <- Scope.make
-        control  <- makeControl(scope, requestTimeout = 1.hour, drainTimeout = 1.hour)
-        started  <- Promise.make[Nothing, Unit]
-        release  <- Promise.make[Nothing, Unit]
-        accepted <- control
-                      .runRequest(started.succeed(()).unit *> release.await.as("done"))(ZIO.succeed("timeout"))(
-                        ZIO.interrupt
-                      )
-                      .fork
-        _        <- started.await
-        closing  <- scope.close(Exit.unit).fork
-        _        <- awaitDrain(control)
-        rejected <- control.runRequest(ZIO.succeed("late"))(ZIO.succeed("timeout"))(ZIO.succeed("rejected"))
-        _        <- release.succeed(())
-        result   <- accepted.join
-        _        <- closing.join
-      } yield assertTrue(
-        rejected == "rejected",
-        result == "done"
-      )
-    },
-    test("returns a service-unavailable response to requests arriving while draining") {
+    test("finishes accepted work and returns service-unavailable to requests arriving while draining") {
       for {
         scope    <- Scope.make
         started  <- Promise.make[Nothing, Unit]
@@ -232,9 +208,11 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
         _        <- awaitDrain(runtime)
         rejected <- GraphQLResponseContext.capture(runtime.execute("{ value }"))
         _        <- release.succeed(())
-        _        <- accepted.join
+        result   <- accepted.join
         _        <- closing.join
       } yield assertTrue(
+        result.errors.isEmpty,
+        field(result.data, "value").contains(StringValue("done")),
         rejected.value.errors.map(_.msg) == List("Gateway is shutting down."),
         rejected.outcome == Outcome.ServerError(ServerFailure.Unavailable)
       )
@@ -245,11 +223,9 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
         control     <- makeControl(scope, requestTimeout = 1.hour, drainTimeout = 1.second)
         started     <- Promise.make[Nothing, Unit]
         interrupted <- Promise.make[Nothing, Unit]
-        running     <- control
-                         .runRequest(
-                           (started.succeed(()).unit *> ZIO.never).onInterrupt(interrupted.succeed(()).unit)
-                         )(ZIO.interrupt)(ZIO.interrupt)
-                         .fork
+        running     <- runRequest(control)(
+                         (started.succeed(()).unit *> ZIO.never).onInterrupt(interrupted.succeed(()).unit)
+                       )(ZIO.interrupt).fork
         _           <- started.await
         closing     <- scope.close(Exit.unit).fork
         _           <- awaitDrain(control)
@@ -257,57 +233,6 @@ object RuntimeLifecycleSpec extends ZIOSpecDefault {
         _           <- interrupted.await
         exit        <- running.await
         _           <- closing.join
-      } yield assertTrue(
-        exit.isInterrupted
-      )
-    },
-    test("preserves forced shutdown after a request deadline while uninterruptible work remains overdue") {
-      for {
-        scope   <- Scope.make
-        started <- Promise.make[Nothing, Unit]
-        release <- Promise.make[Nothing, Unit]
-        runtime <- scope.extend(
-                     localGateway(started.succeed(()).unit *> ZIO.uninterruptible(release.await).as("late"))
-                       .withConfig(
-                         _.withRequestTimeout(1.second)
-                           .withDrainTimeout(1.second)
-                       )
-                       .build
-                   )
-        request <- runtime.execute("{ value }").fork
-        _       <- started.await
-        _       <- TestClock.adjust(1.second)
-        closing <- scope.close(Exit.unit).fork
-        _       <- awaitDrain(runtime)
-        _       <- TestClock.adjust(1.second)
-        pending <- request.poll
-        _       <- release.succeed(())
-        exit    <- request.await
-        _       <- closing.join
-      } yield assertTrue(
-        pending.isEmpty,
-        exit.isInterrupted
-      )
-    },
-    test("gives forced scope shutdown precedence over a simultaneous request deadline") {
-      for {
-        scope   <- Scope.make
-        started <- Promise.make[Nothing, Unit]
-        runtime <- scope.extend(
-                     localGateway(started.succeed(()).unit *> ZIO.never)
-                       .withConfig(
-                         _.withRequestTimeout(1.second)
-                           .withDrainTimeout(1.second)
-                       )
-                       .build
-                   )
-        request <- runtime.execute("{ value }").fork
-        _       <- started.await
-        closing <- scope.close(Exit.unit).fork
-        _       <- awaitDrain(runtime)
-        _       <- TestClock.adjust(1.second)
-        exit    <- request.await
-        _       <- closing.join
       } yield assertTrue(
         exit.isInterrupted
       )

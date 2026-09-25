@@ -1,11 +1,10 @@
 package caliban.gateway
 
-import caliban.{ GraphQLRequest, IncomingRequestHeaders, ResponseValue }
+import caliban.{ GraphQLRequest, IncomingRequestHeaders }
 import caliban.gateway.GatewayTestSupport._
 import caliban.gateway.internal.execution.RemoteSubgraphExecutor
 import caliban.gateway.internal.GatewayHttpClient
 import caliban.gateway.internal.execution.SubgraphExecutor._
-import caliban.gateway.internal.unmanagedRemoteSubgraphExecutor
 import caliban.parsing.adt.OperationType
 import caliban.ResponseValue.ObjectValue
 import caliban.Value.StringValue
@@ -21,7 +20,6 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
     def values: UIO[List[Header]]
   }
 
-  private val schema      = "type Query { value(input: String): String }"
   private val request     = GraphQLRequest(query = Some("query Value { value }"), operationName = Some("Value"))
   private val unavailable = Response(
     Status.ServiceUnavailable,
@@ -29,30 +27,39 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
     Body.fromString("unavailable")
   )
 
-  private def call(endpoint: URL, http: GatewayHttpClient) =
-    unmanagedRemoteSubgraphExecutor(endpoint, http).execute(request, OperationType.Query).either
+  private def unmanagedRemoteSubgraphExecutor[R](
+    endpoint: URL,
+    http: GatewayHttpClient,
+    config: RemoteGraphQLConfig[R] = RemoteGraphQLConfig.default,
+    maxResponseDepth: Int = RemoteSubgraphExecutor.DefaultMaxResponseDepth,
+    remoteErrorMessages: Boolean = false
+  ): RemoteSubgraphExecutor[R] =
+    new RemoteSubgraphExecutor(
+      "remote",
+      endpoint,
+      http,
+      config,
+      maxResponseDepth,
+      None,
+      PhaseHooks.empty,
+      remoteErrorMessages
+    )
 
   private def call[R](
     endpoint: URL,
     http: GatewayHttpClient,
-    config: RemoteGraphQLConfig[R],
-    limits: RemoteSubgraphExecutor.ResponseStructureLimits = RemoteSubgraphExecutor.ResponseStructureLimits.default,
+    config: RemoteGraphQLConfig[R] = RemoteGraphQLConfig.default,
+    maxResponseDepth: Int = RemoteSubgraphExecutor.DefaultMaxResponseDepth,
     value: GraphQLRequest = request,
     operation: OperationType = OperationType.Query,
     remoteErrorMessages: Boolean = false
   ) =
-    unmanagedRemoteSubgraphExecutor(endpoint, http, config, limits, remoteErrorMessages)
+    unmanagedRemoteSubgraphExecutor(endpoint, http, config, maxResponseDepth, remoteErrorMessages)
       .execute(value, operation)
       .either
 
-  private def remoteGateway[R](endpoint: URL, config: RemoteGraphQLConfig[R]): Gateway[R] =
-    Gateway.compose(Subgraph.graphql("remote", endpoint, schema, config))
-
-  private def endpoint(handler: Request => UIO[Response]): ZIO[Server with Ref[Int], Nothing, URL] =
-    postEndpoint("graphql-http")(handler)
-
   private def fixed(status: Status, mediaType: Option[String], body: String): ZIO[Server with Ref[Int], Nothing, URL] =
-    endpoint { _ =>
+    postEndpoint("graphql-http") { _ =>
       val headers = mediaType.fold(Headers.empty)(value => Headers(Header.Custom("Content-Type", value)))
       ZIO.succeed(Response(status, headers, Body.fromString(body)))
     }
@@ -69,7 +76,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
       calls   <- Ref.make(0)
       started <- Promise.make[Nothing, Unit]
       release <- Promise.make[Nothing, Unit]
-      uri     <- endpoint { _ =>
+      uri     <- postEndpoint("graphql-http") { _ =>
                    calls.updateAndGet(_ + 1).flatMap { count =>
                      ZIO.when(count == expectedCalls)(started.succeed(()).unit) *>
                        release.await.as(Response.json(okResponse))
@@ -101,11 +108,20 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
                                  Some("application/graphql-response+json"),
                                  """{"data":{"value":"ok"},"hasNext":true}"""
                                )
+        malformedEntries    <- fixed(
+                                 Status.Ok,
+                                 Some("application/graphql-response+json"),
+                                 """{"data":{"value":"ok"},"errors":[{"message":"warning","path":["value",1.5]},{"path":["value"]}]}"""
+                               )
+        emptyErrors         <- fixed(Status.Ok, Some("application/graphql-response+json"), """{"errors":[]}""")
+        emptyErrorsWithData <-
+          fixed(Status.Ok, Some("application/graphql-response+json"), """{"data":{"value":"ok"},"errors":[]}""")
+        unexpected          <- fixed(Status.Ok, Some("application/graphql-response+json"), invalidResponse)
         empty               <- fixed(Status.Ok, Some("application/graphql-response+json"), "")
         unsupported         <- fixed(Status.Ok, Some("text/plain"), okResponse)
         redirectCalls       <- Ref.make(0)
-        redirectTarget      <- endpoint(_ => redirectCalls.update(_ + 1).as(Response.json(okResponse)))
-        redirect            <- endpoint(_ =>
+        redirectTarget      <- postEndpoint("graphql-http")(_ => redirectCalls.update(_ + 1).as(Response.json(okResponse)))
+        redirect            <- postEndpoint("graphql-http")(_ =>
                                  ZIO.succeed(
                                    Response(
                                      Status.TemporaryRedirect,
@@ -121,6 +137,10 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
         untypedStatusResult <- call(untypedFailure, http)
         malformedResult     <- call(malformed, http)
         metadataResult      <- call(malformedMetadata, http)
+        entriesResult       <- call(malformedEntries, http, remoteErrorMessages = true)
+        emptyErrorsResult   <- call(emptyErrors, http)
+        withDataResult      <- call(emptyErrorsWithData, http)
+        unexpectedResult    <- call(unexpected, http)
         incrementalResult   <- call(incremental, http)
         emptyResult         <- call(empty, http)
         unsupportedResult   <- call(unsupported, http)
@@ -138,6 +158,14 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
         untypedStatusResult == Left(HttpFailure(503)),
         malformedResult == Left(InvalidResponse),
         metadataPreserved,
+        entriesResult.exists(response =>
+          response.data == ObjectValue(List("value" -> StringValue("ok"))) && response.errors.size == 2
+        ),
+        emptyErrorsResult == Left(InvalidResponse),
+        withDataResult.exists(response =>
+          response.data == ObjectValue(List("value" -> StringValue("ok"))) && response.errors.isEmpty
+        ),
+        unexpectedResult == Left(InvalidResponse),
         incrementalResult == Left(InvalidResponse),
         emptyResult == Left(InvalidResponse),
         unsupportedResult == Left(UnsupportedMediaType),
@@ -145,21 +173,18 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
         followed == 0
       )
     },
-    test("enforces request, response byte, nesting, and structure limits") {
-      val config     = RemoteGraphQLConfig.default.withExecution(
+    test("enforces request, response byte, and nesting limits") {
+      val config   = RemoteGraphQLConfig.default.withExecution(
         _.withTimeout(5.seconds)
           .withMaxRequestBytes(96)
           .withMaxResponseBytes(512)
       )
-      val structural = RemoteSubgraphExecutor.ResponseStructureLimits(
-        maxResponseDepth = 5,
-        maxResponseTokens = 12
-      )
+      val maxDepth = 5
 
       for {
         http            <- GatewayHttpClient.make
         requestCalls    <- Ref.make(0)
-        requestEndpoint <- endpoint(_ =>
+        requestEndpoint <- postEndpoint("graphql-http")(_ =>
                              requestCalls
                                .update(_ + 1)
                                .as(Response.json(okResponse))
@@ -174,29 +199,22 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
                              Some("application/graphql-response+json"),
                              """{"data":{"value":[[[[["x"]]]]]}}"""
                            )
-        structuredBody  <- fixed(
-                             Status.Ok,
-                             Some("application/graphql-response+json"),
-                             """{"data":{"value":[0,1,2,3,4,5,6,7,8,9,10,11]}}"""
-                           )
         largeRequest     = request.copy(variables = Some(Map("secret" -> StringValue("x" * 200))))
-        requestResult   <- call(requestEndpoint, http, config, structural, largeRequest)
-        responseResult  <- call(oversizedBody, http, config, structural)
-        nestingResult   <- call(nestedBody, http, config, structural)
-        structureResult <- call(structuredBody, http, config, structural)
+        requestResult   <- call(requestEndpoint, http, config, maxDepth, largeRequest)
+        responseResult  <- call(oversizedBody, http, config, maxDepth)
+        nestingResult   <- call(nestedBody, http, config, maxDepth)
         calls           <- requestCalls.get
       } yield assertTrue(
         requestResult == Left(RequestTooLarge),
         responseResult == Left(ResponseTooLarge),
         nestingResult == Left(ResponseNestingTooDeep),
-        structureResult == Left(ResponseStructureTooLarge),
         calls == 0
       )
     },
     test("drops request extensions and masks protocol details through GatewayInterpreter") {
       for {
         captured <- Promise.make[Nothing, (GraphQLRequest, Headers)]
-        remote   <- endpoint { incoming =>
+        remote   <- postEndpoint("graphql-http") { incoming =>
                       for {
                         bytes  <- incoming.body.asArray.orDie
                         decoded = readFromArray[GraphQLRequest](bytes)
@@ -210,7 +228,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
                         Body.fromString("source-secret-body")
                       )
                     }
-        runtime  <- remoteGateway(remote, RemoteGraphQLConfig.default).interpreter
+        runtime  <- remoteGateway(remote).interpreter
         outbound  = GraphQLRequest(
                       query = Some("query Value($input: String) { value(input: $input) }"),
                       operationName = Some("Value"),
@@ -321,7 +339,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
         exit   <- Gateway
                     .compose(
                       Subgraph.graphql("first", remote.endpoint, firstPolicy),
-                      Subgraph.graphql("second", remote.endpoint, schema, secondPolicy)
+                      Subgraph.graphql("second", remote.endpoint, valueInputSchema, secondPolicy)
                     )
                     .interpreter
                     .exit
@@ -355,7 +373,9 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
               Header.Custom("X-Effect", "effect"),
               Header.Custom("X-Precedence", "effect"),
               Header.Custom("X-Multi", "first"),
-              Header.Custom("X-Multi", "second"),
+              Header.Custom("x-multi", "second"),
+              Header.Custom("Cookie", "a=1"),
+              Header.Custom("Cookie", "b=2"),
               Header.Custom("Accept", "text/plain")
             )
           )
@@ -363,7 +383,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
 
       for {
         remote   <- stub(okResponse)
-        runtime  <- remoteGateway(remote.endpoint, policy).interpreter
+        runtime  <- remoteGateway(remote.endpoint, config = policy).interpreter
         response <- runtime
                       .executeRequest(
                         request,
@@ -385,6 +405,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
         headers.flatMap(_.get("X-Effect")).contains("effect"),
         headers.flatMap(_.get("X-Precedence")).contains("effect"),
         multi == List("first, second"),
+        headers.fold(List.empty[String])(renderedHeaderValues(_, "Cookie")) == List("a=1; b=2"),
         headers.flatMap(_.get("X-Ignored")).isEmpty,
         headers.flatMap(_.get("Content-Type")).exists(_.startsWith("application/json")),
         headers.flatMap(_.get("Accept")).exists(_.contains("application/graphql-response+json"))
@@ -400,7 +421,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
 
       for {
         remote  <- stub(okResponse)
-        runtime <- remoteGateway(remote.endpoint, config).interpreter
+        runtime <- remoteGateway(remote.endpoint, config = config).interpreter
         _       <- runtime.executeRequest(
                      request,
                      List(
@@ -433,7 +454,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
 
       for {
         remote  <- stub(okResponse)
-        runtime <- remoteGateway(remote.endpoint, config).interpreter
+        runtime <- remoteGateway(remote.endpoint, config = config).interpreter
         _       <- runtime.executeRequest(
                      request,
                      List(
@@ -464,7 +485,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
 
       for {
         remote   <- stub(okResponse)
-        runtime  <- remoteGateway(remote.endpoint, config).interpreter
+        runtime  <- remoteGateway(remote.endpoint, config = config).interpreter
         response <- runtime.executeRequest(request)
         sent     <- remote.requests.get
         rendered  = response.errors.map(_.msg).mkString(" ")
@@ -503,7 +524,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
         config        =
           RemoteGraphQLConfig.default.withExecutionHeadersZIO(headersAfterEveryCaller(callers, headerRuns, ready))
         remote       <- blockedEndpoint(expectedCalls = 1)
-        runtime      <- remoteGateway(remote.uri, config).interpreter
+        runtime      <- remoteGateway(remote.uri, config = config).interpreter
         fibers       <- ZIO.foreach(1 to callers)(_ => runtime.executeRequest(request).fork)
         _            <- remote.started.await
         _            <- Live.live(ZIO.sleep(250.millis))
@@ -521,12 +542,25 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
         )
       )
     },
+    test("does not deduplicate concurrent different remote queries") {
+      val requests = List("a", "b").map(input => GraphQLRequest(query = Some(s"""{ value(input: "$input") }""")))
+
+      for {
+        remote    <- blockedEndpoint(expectedCalls = 2)
+        runtime   <- remoteGateway(remote.uri).interpreter
+        fibers    <- ZIO.foreach(requests)(runtime.executeRequest(_).fork)
+        started   <- Live.live(remote.started.await.timeout(2.seconds))
+        _         <- remote.release.succeed(())
+        responses <- ZIO.foreach(fibers)(_.join)
+        calls     <- remote.calls.get
+      } yield assertTrue(started.nonEmpty, calls == 2, responses.forall(_.errors.isEmpty))
+    },
     test("allows disabling deduplication for concurrent identical remote queries") {
       val config = RemoteGraphQLConfig.default.withExecution(_.withInFlightQueryDeduplication(false))
 
       for {
         remote    <- blockedEndpoint(expectedCalls = 2)
-        runtime   <- remoteGateway(remote.uri, config).interpreter
+        runtime   <- remoteGateway(remote.uri, config = config).interpreter
         fibers    <- ZIO.foreach(1 to 2)(_ => runtime.executeRequest(request).fork)
         started   <- Live.live(remote.started.await.timeout(2.seconds))
         _         <- remote.release.succeed(())
@@ -542,7 +576,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
         calls      <- Ref.make(0)
         started    <- Promise.make[Nothing, Unit]
         release    <- Promise.make[Nothing, Unit]
-        remote     <- endpoint { _ =>
+        remote     <- postEndpoint("graphql-http") { _ =>
                         calls.updateAndGet(_ + 1).flatMap {
                           case 1 => started.succeed(()).unit *> release.await.as(unavailable)
                           case _ => ZIO.succeed(Response.json(okResponse))
@@ -576,7 +610,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
         calls        <- Ref.make(0)
         firstStarted <- Promise.make[Nothing, Unit]
         releaseFirst <- Promise.make[Nothing, Unit]
-        remote       <- endpoint { _ =>
+        remote       <- postEndpoint("graphql-http") { _ =>
                           calls.updateAndGet(_ + 1).flatMap {
                             case 1 => firstStarted.succeed(()).unit *> releaseFirst.await.as(unavailable)
                             case _ => ZIO.succeed(Response.json(okResponse))
@@ -751,7 +785,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
         http             <- GatewayHttpClient.make
         queryCalls       <- Ref.make(0)
         headerCalls      <- Ref.make(0)
-        queryEndpoint    <- endpoint { _ =>
+        queryEndpoint    <- postEndpoint("graphql-http") { _ =>
                               queryCalls.updateAndGet(_ + 1).map { attempt =>
                                 if (attempt < 3) unavailable else Response.json(okResponse)
                               }
@@ -763,7 +797,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
         queryAttempts    <- queryCalls.get
         policyRuns       <- headerCalls.get
         mutationCalls    <- Ref.make(0)
-        mutationEndpoint <- endpoint(_ => mutationCalls.update(_ + 1).as(unavailable))
+        mutationEndpoint <- postEndpoint("graphql-http")(_ => mutationCalls.update(_ + 1).as(unavailable))
         mutationRequest   = GraphQLRequest(query = Some("mutation Update { value }"), operationName = Some("Update"))
         mutationResult   <- call(
                               mutationEndpoint,
@@ -774,7 +808,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
                             )
         mutationAttempts <- mutationCalls.get
         rejectedCalls    <- Ref.make(0)
-        rejectedEndpoint <- endpoint(_ =>
+        rejectedEndpoint <- postEndpoint("graphql-http")(_ =>
                               rejectedCalls
                                 .update(_ + 1)
                                 .as(
@@ -788,7 +822,7 @@ object GraphQLHttpSpec extends ZIOSpecDefault {
         rejectedResult   <- call(rejectedEndpoint, http, policy)
         rejectedAttempts <- rejectedCalls.get
         envelopeCalls    <- Ref.make(0)
-        envelopeEndpoint <- endpoint(_ =>
+        envelopeEndpoint <- postEndpoint("graphql-http")(_ =>
                               envelopeCalls
                                 .update(_ + 1)
                                 .as(

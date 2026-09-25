@@ -97,10 +97,13 @@ case class Field(
   }
 
   /**
-   * Mutable maps resize when their entries exceed `capacity * loadFactor`. Accounting for the default `0.75d` load
-   * factor avoids resizing the collection while fields are merged.
+   * The behaviour of mutable Maps (both Java and Scala) is to resize once the number of entries exceeds
+   * the capacity * loadFactor (default of 0.75d) threshold in order to prevent hash collisions.
    *
-   * This is equivalent to `java.util.HashMap.calculateHashMapCapacity`, available on JDK 19 and newer.
+   * This method is a helper method to estimate the initial map size depending on the number of elements the Map is
+   * expected to hold
+   *
+   * NOTE: This method is the same as java.util.HashMap.calculateHashMapCapacity on JDK19+
    */
   private def calculateMapCapacity(nMappings: Int): Int =
     Math.ceil(nMappings / 0.75d).toInt
@@ -337,28 +340,31 @@ object Field {
       }
   }
 
+  // Returns the same instance when nothing needs coercion, so that unchanged arguments are not copied.
   private def coerceArgument(value: InputValue, expected: __Type): InputValue =
     expected.kind match {
       case __TypeKind.NON_NULL                               =>
-        expected.ofType match {
-          case Some(ofType) => coerceArgument(value, ofType)
-          case None         => value
-        }
+        expected.ofType.fold(value)(coerceArgument(value, _))
       case __TypeKind.LIST                                   =>
-        value match {
-          case InputValue.ListValue(values) if expected.ofType.isDefined =>
-            val element = expected.ofType.get
-            InputValue.ListValue(values.map(coerceArgument(_, element)))
-          case single if expected.ofType.isDefined                       => coerceArgument(single, expected.ofType.get)
-          case _                                                         => value
+        expected.ofType.fold(value) { element =>
+          value match {
+            case InputValue.ListValue(values) =>
+              if (values.exists(v => coerceArgument(v, element) ne v))
+                InputValue.ListValue(values.map(coerceArgument(_, element)))
+              else value
+            case single                       => coerceArgument(single, element)
+          }
         }
       case __TypeKind.INPUT_OBJECT                           =>
         value match {
           case InputValue.ObjectValue(fields) =>
-            InputValue.ObjectValue(fields.map { case (name, nested) =>
+            def coerceField(name: String, nested: InputValue): InputValue = {
               val field = expected.getInputFieldOrNull(name)
-              name -> (if (field eq null) nested else coerceArgument(nested, field._type))
-            })
+              if (field eq null) nested else coerceArgument(nested, field._type)
+            }
+            if (fields.exists { case (name, nested) => coerceField(name, nested) ne nested })
+              InputValue.ObjectValue(fields.map { case (name, nested) => name -> coerceField(name, nested) })
+            else value
           case other                          => other
         }
       case __TypeKind.SCALAR if expected.name.contains("ID") =>

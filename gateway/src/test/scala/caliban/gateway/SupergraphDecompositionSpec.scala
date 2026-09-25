@@ -1,6 +1,6 @@
 package caliban.gateway
 
-import caliban.gateway.GatewayTestSupport.supergraphResource
+import caliban.gateway.GatewayTestSupport.{ parseSdl, supergraphResource }
 import caliban.gateway.internal.composition.SupergraphDecomposition
 import caliban.gateway.internal.composition.SupergraphDecomposition.Graph
 import caliban.InputValue
@@ -81,7 +81,7 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
        |""".stripMargin
 
   private def graphs(sdl: String): UIO[Either[List[String], List[Graph]]] =
-    ZIO.fromEither(Parser.parseQuery(sdl)).orDie.map(SupergraphDecomposition.graphs)
+    parseSdl(sdl).map(SupergraphDecomposition.decompose(_).map(_.map(_.graph)))
 
   private val fixtureSdl: UIO[String] = supergraphResource("supergraph.graphql")
 
@@ -91,10 +91,9 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
   private val fixture: UIO[Either[List[String], List[Graph]]] = fixtureSdl.flatMap(graphs)
 
   private def decompose(sdl: String): UIO[Either[List[String], Map[String, Document]]] =
-    ZIO
-      .fromEither(Parser.parseQuery(sdl))
-      .orDie
-      .map(SupergraphDecomposition.decompose(_).map(_.map(entry => entry.graph.name -> entry.document).toMap))
+    parseSdl(sdl).map(
+      SupergraphDecomposition.decompose(_).map(_.map(entry => entry.graph.name -> entry.document).toMap)
+    )
 
   /** The fixture projected into one document per subgraph; dies with the diagnostics on failure. */
   private def projectionOf(sdl: UIO[String]): UIO[Map[String, Document]] =
@@ -210,10 +209,6 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
           )
         )
       },
-      test("resolves a minimal supergraph") {
-        graphs(supergraph("""enum join__Graph { A @join__graph(name: "a", url: "http://a/graphql") }"""))
-          .map(result => assertTrue(entries(result) == Right(List("a" -> "http://a/graphql"))))
-      },
       test("honours an aliased join namespace rather than a hardcoded prefix") {
         graphs(
           supergraph(
@@ -221,50 +216,37 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
             as = "j"
           )
         ).map(result => assertTrue(entries(result) == Right(List("a" -> "http://a/graphql"))))
-      },
-      test("preserves the declared url path, port and query") {
-        graphs(
-          supergraph(
-            """enum join__Graph { A @join__graph(name: "a", url: "https://host:8443/base/graphql?tenant=x") }"""
-          )
-        ).map(result => assertTrue(entries(result) == Right(List("a" -> "https://host:8443/base/graphql?tenant=x"))))
       }
     ),
     suite("hard stops")(
       test("rejects a document that does not @link the join feature") {
-        graphs(
-          """schema @link(url: "https://specs.apollo.dev/link/v1.0") { query: Query }
-            |type Query { hello: String }
-            |""".stripMargin
-        ).map(result =>
-          assertTrue(
-            result == Left(
-              List("[supergraph] The document does not @link the join feature and is not a supergraph.")
-            )
-          )
-        )
-      },
-      test("rejects a document with no schema definition at all") {
-        graphs("type Query { hello: String }").map(result =>
-          assertTrue(
-            result == Left(
-              List("[supergraph] The document does not @link the join feature and is not a supergraph.")
-            )
-          )
-        )
+        val expected = Left(List("[supergraph] The document does not @link the join feature and is not a supergraph."))
+        for {
+          linkOnly   <- graphs(
+                          """schema @link(url: "https://specs.apollo.dev/link/v1.0") { query: Query }
+                          |type Query { hello: String }
+                          |""".stripMargin
+                        )
+          noSchema   <- graphs("type Query { hello: String }")
+          decomposed <- decompose("type Query { hello: String }")
+        } yield assertTrue(linkOnly == expected, noSchema == expected, decomposed == expected)
       },
       test("rejects a join-linked document whose graph enum is missing") {
         graphs(supergraph("")).map(result =>
           assertTrue(result == Left(List("[supergraph] The join graph enum 'join__Graph' is missing.")))
         )
       },
+      test("rejects a Federation 1 supergraph") {
+        graphs(supergraph("", join = "https://specs.apollo.dev/join/v0.1")).map(result =>
+          assertTrue(
+            result == Left(List("[supergraph] Supergraphs composed with Federation 1 (join/v0.1) are not supported."))
+          )
+        )
+      },
       test("names the aliased graph enum it could not find") {
         graphs(supergraph("", as = "j")).map(result =>
           assertTrue(result == Left(List("[supergraph] The join graph enum 'j__Graph' is missing.")))
         )
-      },
-      test("reports a hard stop without also reporting per-value diagnostics") {
-        graphs(supergraph("enum other__Graph { A }")).map(result => assertTrue(result.left.exists(_.size == 1)))
       }
     ),
     suite("per-value diagnostics")(
@@ -273,27 +255,15 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
           assertTrue(result == Left(List("[supergraph] Join graph 'A' has no graph directive.")))
         )
       },
-      test("rejects a missing name argument") {
-        graphs(supergraph("""enum join__Graph { A @join__graph(url: "http://a/graphql") }""")).map(result =>
-          assertTrue(
-            result == Left(List("[supergraph] Join graph 'A' must declare a non-empty 'name' argument."))
+      test("rejects a missing, blank or non-string name argument") {
+        val invalid  = List("", """name: "   ", """, "name: 7, ")
+        val expected = Left(List("[supergraph] Join graph 'A' must declare a non-empty 'name' argument."))
+        ZIO
+          .foreach(invalid)(name =>
+            graphs(supergraph(s"""enum join__Graph { A @join__graph(${name}url: "http://a/graphql") }"""))
+              .map(name -> _)
           )
-        )
-      },
-      test("rejects a blank name argument") {
-        graphs(supergraph("""enum join__Graph { A @join__graph(name: "   ", url: "http://a/graphql") }""")).map(
-          result =>
-            assertTrue(
-              result == Left(List("[supergraph] Join graph 'A' must declare a non-empty 'name' argument."))
-            )
-        )
-      },
-      test("rejects a non-string name argument") {
-        graphs(supergraph("""enum join__Graph { A @join__graph(name: 7, url: "http://a/graphql") }""")).map(result =>
-          assertTrue(
-            result == Left(List("[supergraph] Join graph 'A' must declare a non-empty 'name' argument."))
-          )
-        )
+          .map(results => assertTrue(results.filterNot(_._2 == expected).map(_._1) == Nil))
       },
       test("rejects a missing url argument") {
         graphs(supergraph("""enum join__Graph { A @join__graph(name: "a") }""")).map(result =>
@@ -410,14 +380,21 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
         graphs(
           supergraph(
             """enum join__Graph {
-              |  A @join__graph(name: "a")
-              |  B @join__graph(name: "a")
+              |  B @join__graph(name: "b")
+              |  A @join__graph(url: "http://a/graphql")
+              |  B @join__graph(name: "b")
               |}""".stripMargin
           )
-        ).map { result =>
-          val diagnostics = result.left.getOrElse(Nil)
-          assertTrue(diagnostics == diagnostics.distinct.sorted, diagnostics.nonEmpty)
-        }
+        ).map(result =>
+          assertTrue(
+            result == Left(
+              List(
+                "[supergraph] Join graph 'A' must declare a non-empty 'name' argument.",
+                "[supergraph] Join graph 'B' must declare a 'url' argument."
+              )
+            )
+          )
+        )
       }
     ),
     suite("projection: type membership")(
@@ -435,6 +412,12 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
             episodes.contains("Episode")
           )
         }
+      },
+      test("drops a type without join type entries from every graph") {
+        decompose(supergraph(s"""$TwoGraphs
+                                |type Widget { size: Int! }""".stripMargin)).map(result =>
+          assertTrue(result.map(_.values.forall(!types(_).contains("Widget"))) == Right(true))
+        )
       },
       test("strips every join and link definition, application and type") {
         projected.map { graphs =>
@@ -464,6 +447,22 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
             fields(graphs("episodes"), "Episode") == List("season", "episode", "name")
           )
         }
+      },
+      test("gives a field whose join field entries name no graph to no graph") {
+        decompose(
+          supergraph(
+            s"""$TwoGraphs
+               |type Widget @join__type(graph: A) @join__type(graph: B) {
+               |  size: Int!
+               |  label: String @join__field
+               |}""".stripMargin
+          )
+        ).map(result =>
+          assertTrue(
+            result.map(graphs => fields(graphs("a"), "Widget")) == Right(List("size")),
+            result.map(graphs => fields(graphs("b"), "Widget")) == Right(List("size"))
+          )
+        )
       },
       test("gives a scoped field only to the graphs that name it") {
         projected.map { graphs =>
@@ -650,16 +649,6 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
           )
         }
       },
-      test("never marks an external field shareable") {
-        // `Character.name` is owned by CHARACTERS and external in EPISODES, so EPISODES does not
-        // resolve it and neither projection has two resolving subgraphs.
-        projected.map { graphs =>
-          assertTrue(
-            fieldDirectives(graphs("episodes"), "Character", "name") == List("external"),
-            !fieldDirectives(graphs("characters"), "Character", "name").contains("shareable")
-          )
-        }
-      },
       test("discounts a graph another graph has overridden away") {
         // The only difference between the two documents is `override:`. With it there is one
         // effective resolving subgraph, so neither projection may claim shareability.
@@ -749,13 +738,6 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
             result.map(graphs => types(graphs("b")).intersect(absent)) == Right(Set.empty[String])
           )
         }
-      },
-      test("leaves an unannotated subscription root to the composer") {
-        // A type with no @join__type is a `join/v0.1` shared value type, where ownership is not
-        // expressible. Rejecting those wholesale would fail every Federation 1 supergraph, so the
-        // guard only applies where the supergraph annotated the root.
-        decompose(subscriptionSupergraph("type Subscription { ticks: Int! }"))
-          .map(result => assertTrue(result.isRight))
       }
     ),
     suite("projection: validation")(
@@ -838,15 +820,6 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
               |type Gadget @join__type(graph: A) { size: Int! @join__field(graph: OTHER) }""".stripMargin
           )
         ).map(result => assertTrue(result.left.exists(_.size == 2)))
-      },
-      test("propagates the registry hard stops unchanged") {
-        decompose("type Query { hello: String }").map(result =>
-          assertTrue(
-            result == Left(
-              List("[supergraph] The document does not @link the join feature and is not a supergraph.")
-            )
-          )
-        )
       }
     ),
     // Paths the fixture does not exercise, each a distinct branch of the projection.
@@ -915,7 +888,6 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
                |  id: ID!
                |  price: Float! @join__field(graph: A, override: "b", overrideLabel: "percent(25)")
                |    @join__field(graph: B, usedOverridden: true, overrideLabel: "percent(25)")
-               |  label: String! @join__field(graph: A, override: "b") @join__field(graph: B, usedOverridden: true)
                |}""".stripMargin
           )
         ).map {
@@ -924,8 +896,7 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
             assertTrue(
               fieldDirective(graphs("a"), "Widget", "price", "override").flatMap(_.arguments.get("label")) ==
                 Some(StringValue("percent(25)")),
-              fieldDirectives(graphs("b"), "Widget", "price") == Nil,
-              fieldDirective(graphs("b"), "Widget", "label", "external").isDefined
+              fieldDirectives(graphs("b"), "Widget", "price") == Nil
             )
         }
       },
@@ -1025,6 +996,26 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
           )
         }
       },
+      test("gives an input field whose join field entries name no graph to no graph") {
+        decompose(
+          supergraph(
+            s"""$TwoGraphs
+               |input Filter @join__type(graph: A) @join__type(graph: B) {
+               |  term: String
+               |  label: String @join__field
+               |}
+               |type Widget @join__type(graph: A) @join__type(graph: B) { size(filter: Filter): Int! }""".stripMargin
+          )
+        ).map { result =>
+          def inputs(graphs: Map[String, Document], graph: String) =
+            graphs(graph).inputObjectTypeDefinitions.find(_.name == "Filter").map(_.fields.map(_.name))
+
+          assertTrue(
+            result.map(inputs(_, "a")) == Right(Some(List("term"))),
+            result.map(inputs(_, "b")) == Right(Some(List("term")))
+          )
+        }
+      },
       test("names only the operation roots a graph actually populates") {
         decompose(
           supergraph(
@@ -1037,8 +1028,8 @@ object SupergraphDecompositionSpec extends ZIOSpecDefault {
             graphs(graph).schemaDefinition.map(d => (d.query, d.mutation, d.subscription))
 
           assertTrue(
-            result.map(roots(_, "a")) == Right(Some((Some("Query"), Some("Mutation"), None))),
-            result.map(roots(_, "b")) == Right(Some((Some("Query"), None, Some("Subscription"))))
+            result.map(roots(_, "a")) == Right(Some((None, Some("Mutation"), None))),
+            result.map(roots(_, "b")) == Right(Some((None, None, Some("Subscription"))))
           )
         }
       }

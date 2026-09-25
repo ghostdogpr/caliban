@@ -6,7 +6,7 @@ import caliban.gateway._
 import caliban.gateway.internal.composition.DirectiveComposition.LinkedFeature
 import caliban.parsing.adt.Definition
 import caliban.parsing.adt.Definition.TypeSystemDefinition.TypeDefinition._
-import caliban.parsing.adt.Definition.TypeSystemDefinition.{ DirectiveDefinition, SchemaDefinition, TypeDefinition }
+import caliban.parsing.adt.Definition.TypeSystemDefinition._
 import caliban.parsing.adt.Type.NamedType
 import caliban.parsing.adt.{ Directive, Document, Type }
 import caliban.parsing.{ Parser, SourceMapper }
@@ -37,9 +37,6 @@ private[gateway] object SupergraphDecomposition {
                     else Right(ctx.registry.map(graph => Projected(graph, project(document, graph.key, ctx))))
     } yield projected
 
-  def graphs(document: Document): Either[List[String], List[Graph]] =
-    joinFeature(DirectiveComposition.linkedFeatures(document)).left.map(List(_)).flatMap(graphs(document, _))
-
   private def graphs(document: Document, feature: LinkedFeature): Either[List[String], List[Graph]] =
     for {
       enumType   <- graphEnum(document, feature).left.map(List(_))
@@ -61,6 +58,10 @@ private[gateway] object SupergraphDecomposition {
     features
       .find(_.identity == JoinIdentity)
       .toRight("[supergraph] The document does not @link the join feature and is not a supergraph.")
+      .filterOrElse(
+        _.version.atLeast(0, 2),
+        "[supergraph] Supergraphs composed with Federation 1 (join/v0.1) are not supported."
+      )
 
   private def graphEnum(document: Document, feature: LinkedFeature): Either[String, EnumTypeDefinition] = {
     val name = s"${feature.namespace}__Graph"
@@ -76,13 +77,13 @@ private[gateway] object SupergraphDecomposition {
       case Some(directive) =>
         val prefix = s"[supergraph] Join graph '${value.enumValue}'"
 
-        val name = string(directive, "name")
+        val name = stringArgument(directive.arguments, "name")
           .filter(_.trim.nonEmpty)
           .toRight(List(s"$prefix must declare a non-empty 'name' argument."))
 
         // Parsing alone is not validation: "foo" decodes into a relative URL. Require an absolute
         // http(s) endpoint rather than let an unusable URL fail later at request time.
-        val url = string(directive, "url") match {
+        val url = stringArgument(directive.arguments, "url") match {
           case None        => Left(List(s"$prefix must declare a 'url' argument."))
           case Some(value) =>
             URL
@@ -142,9 +143,6 @@ private[gateway] object SupergraphDecomposition {
       directive = feature.directiveNames("directive")
     )
 
-  private def string(directive: Directive, name: String): Option[String] =
-    directive.arguments.get(name).collect { case StringValue(value) => value }
-
   private def boolean(directive: Directive, name: String, default: Boolean): Boolean =
     directive.arguments.get(name).collect { case BooleanValue(value) => value }.getOrElse(default)
 
@@ -165,17 +163,26 @@ private[gateway] object SupergraphDecomposition {
         if (local.nonEmpty && ctx.graphNames.contains(graph)) Some(graph -> local) else None
     }
 
-  private def contextArguments(directive: Directive): Option[List[ContextArgument]] =
-    directive.arguments.get("contextArguments").collect { case InputValue.ListValue(values) =>
-      values.collect { case InputValue.ObjectValue(fields) =>
-        for {
-          name        <- fields.get("name").collect { case StringValue(value) => value }
-          contextType <- fields.get("type").collect { case StringValue(value) => value }
-          context     <- fields.get("context").collect { case StringValue(value) => value }
-          selection   <- fields.get("selection").collect { case StringValue(value) => value }
-        } yield ContextArgument(name, contextType, context, selection)
-      }.flatten
+  private def contextArguments(directive: Directive): List[JoinContextArgument] =
+    directive.arguments.get("contextArguments").toList.flatMap {
+      case InputValue.ListValue(values) =>
+        values.flatMap {
+          case InputValue.ObjectValue(fields) =>
+            for {
+              name        <- stringArgument(fields, "name")
+              contextType <- stringArgument(fields, "type")
+              context     <- stringArgument(fields, "context")
+              selection   <- stringArgument(fields, "selection")
+            } yield JoinContextArgument(name, contextType, context, selection)
+          case _                              => None
+        }
+      case _                            => Nil
     }
+
+  private def declaredContextNames(directives: List[Directive], ctx: ProjectionContext): List[String] =
+    directives
+      .filter(directive => ctx.contextNames.contains(directive.name))
+      .flatMap(directive => stringArgument(directive.arguments, "name"))
 
   /**
    * Decodes one `@join__field` application. Total: unreadable arguments read as absent.
@@ -183,12 +190,12 @@ private[gateway] object SupergraphDecomposition {
   private def joinField(directive: Directive): JoinField =
     JoinField(
       graph = graphArgument(directive),
-      requires = string(directive, "requires"),
-      provides = string(directive, "provides"),
-      fieldType = string(directive, "type"),
+      requires = stringArgument(directive.arguments, "requires"),
+      provides = stringArgument(directive.arguments, "provides"),
+      fieldType = stringArgument(directive.arguments, "type"),
       external = boolean(directive, "external", default = false),
-      overrideFrom = string(directive, "override"),
-      overrideLabel = string(directive, "overrideLabel"),
+      overrideFrom = stringArgument(directive.arguments, "override"),
+      overrideLabel = stringArgument(directive.arguments, "overrideLabel"),
       contextArguments = contextArguments(directive),
       usedOverridden = boolean(directive, "usedOverridden", default = false)
     )
@@ -200,7 +207,7 @@ private[gateway] object SupergraphDecomposition {
     graphArgument(directive).map { graph =>
       JoinType(
         graph = graph,
-        key = string(directive, "key"),
+        key = stringArgument(directive.arguments, "key"),
         resolvable = boolean(directive, "resolvable", default = true),
         isInterfaceObject = boolean(directive, "isInterfaceObject", default = false)
       )
@@ -213,19 +220,15 @@ private[gateway] object SupergraphDecomposition {
     field.directives.filter(directive => names.field.contains(directive.name)).map(joinField)
 
   /**
-   * Graph keys a type belongs to. A type with no `@join__type` at all is a shared value type.
+   * Graph keys a type belongs to.
    */
   private def typeGraphs(directives: List[Directive], ctx: ProjectionContext): List[String] =
-    joinTypes(directives, ctx.names) match {
-      case Nil     => ctx.keys
-      case entries => entries.flatMap(joinType).map(_.graph).distinct
-    }
+    joinTypes(directives, ctx.names).flatMap(joinType).map(_.graph).distinct
 
   /**
    * Graph keys that resolve `field`, with each graph's metadata when it declared any.
    *
-   * A field with no `@join__field` belongs to every member graph. A field whose declarations name
-   * no graph is a value-type field, also resolved by every member. Otherwise only the named graphs
+   * A field with no `@join__field` belongs to every member graph. Otherwise only the named graphs
    * resolve it.
    */
   private def fieldGraphs(
@@ -236,11 +239,7 @@ private[gateway] object SupergraphDecomposition {
     val entries = joinFields(field, names)
 
     if (entries.isEmpty) members.map(_ -> None).toMap
-    else {
-      val scoped = entries.flatMap(entry => entry.graph.map(_ -> Some(entry))).toMap
-      if (scoped.isEmpty) members.map(_ -> entries.headOption).toMap
-      else scoped
-    }
+    else entries.flatMap(entry => entry.graph.map(_ -> Some(entry))).toMap
   }
 
   private def parseFieldType(value: String): Either[String, Type] =
@@ -267,11 +266,7 @@ private[gateway] object SupergraphDecomposition {
    * Every `@context` name the supergraph declares, still namespaced as the composer wrote it.
    */
   private def declaredContexts(document: Document, ctx: ProjectionContext): Set[String] =
-    document.typeDefinitions
-      .flatMap(_.directives)
-      .filter(directive => ctx.contextNames.contains(directive.name))
-      .flatMap(string(_, "name"))
-      .toSet
+    document.typeDefinitions.flatMap(definition => declaredContextNames(definition.directives, ctx)).toSet
 
   private def extensionDiagnostics(document: Document): List[String] =
     check(
@@ -295,9 +290,7 @@ private[gateway] object SupergraphDecomposition {
     // Unrecognized namespaces are checked only when a field references them, allowing unused
     // declarations from composers with a different naming convention.
     val declared = typeGraphs(definition.directives, ctx)
-    val contexts = definition.directives
-      .filter(directive => ctx.contextNames.contains(directive.name))
-      .flatMap(string(_, "name"))
+    val contexts = declaredContextNames(definition.directives, ctx)
       .flatMap(name => contextOwner(name, ctx).map(owner => name -> owner._1))
       .collect {
         case (name, graph) if !declared.contains(ctx.keyByName.getOrElse(graph, graph)) =>
@@ -315,14 +308,10 @@ private[gateway] object SupergraphDecomposition {
   ): List[String] = {
     val members          = typeGraphs(definition.directives, ctx)
     val fields           = definition match {
-      case value: ObjectTypeDefinition    => value.fields
-      case value: InterfaceTypeDefinition => value.fields
-      case _                              => Nil
+      case value: AggregationTypeDefinition => value.fields
+      case _                                => Nil
     }
-    // Only Federation 2 annotates every type, so an unannotated root is a `join/v0.1` shared value
-    // type: left to the composer rather than rejected wholesale here.
-    val subscriptionRoot = ctx.subscriptionRoot.contains(definition.name) &&
-      joinTypes(definition.directives, ctx.names).nonEmpty
+    val subscriptionRoot = ctx.subscriptionRoot.contains(definition.name)
 
     fields.flatMap { field =>
       val fieldName  = s"${definition.name}.${field.name}"
@@ -342,7 +331,7 @@ private[gateway] object SupergraphDecomposition {
         .map(value => s"[supergraph] Field '$fieldName' declares the unparseable type '$value'.")
       // Context arguments exist only in join metadata; invalid types cannot fall back to the field.
       val contextual = entries.flatMap { value =>
-        value.contextArguments.toList.flatten.map(value.graph.flatMap(ctx.nameByKey.get) -> _)
+        value.contextArguments.map(value.graph.flatMap(ctx.nameByKey.get) -> _)
       }
       val argTypes   = contextual.flatMap { case (_, argument) => parseFieldType(argument.contextType).left.toOption }
         .map(value => s"[supergraph] Field '$fieldName' declares the unparseable context argument type '$value'.")
@@ -437,8 +426,7 @@ private[gateway] object SupergraphDecomposition {
    * GraphQL forbids empty composite types. Malformed input can still leave dangling references.
    */
   private def isEmpty(definition: TypeDefinition): Boolean = definition match {
-    case value: ObjectTypeDefinition      => value.fields.isEmpty
-    case value: InterfaceTypeDefinition   => value.fields.isEmpty
+    case value: AggregationTypeDefinition => value.fields.isEmpty
     case value: UnionTypeDefinition       => value.memberTypes.isEmpty
     case value: EnumTypeDefinition        => value.enumValuesDefinition.isEmpty
     case value: InputObjectTypeDefinition => value.fields.isEmpty
@@ -466,10 +454,8 @@ private[gateway] object SupergraphDecomposition {
    */
   private def contextDeclarations(directives: List[Directive], key: String, ctx: ProjectionContext): List[Directive] =
     ctx.nameByKey.get(key).toList.flatMap { graph =>
-      directives.filter(directive => ctx.contextNames.contains(directive.name)).flatMap { directive =>
-        string(directive, "name").flatMap(contextOwner(_, ctx)).collect { case (`graph`, local) =>
-          Directive("context", Map[String, InputValue]("name" -> StringValue(local)))
-        }
+      declaredContextNames(directives, ctx).flatMap(contextOwner(_, ctx)).collect { case (`graph`, local) =>
+        Directive("context", Map[String, InputValue]("name" -> StringValue(local)))
       }
     }
 
@@ -484,7 +470,7 @@ private[gateway] object SupergraphDecomposition {
     ctx: ProjectionContext
   ): List[InputValueDefinition] =
     ctx.nameByKey.get(key).toList.flatMap { graph =>
-      entry.toList.flatMap(_.contextArguments.toList.flatten).flatMap { argument =>
+      entry.toList.flatMap(_.contextArguments).flatMap { argument =>
         contextOwner(argument.context, ctx).collect { case (`graph`, local) =>
           InputValueDefinition(
             description = None,
@@ -518,7 +504,8 @@ private[gateway] object SupergraphDecomposition {
         .collect { case InputValue.ObjectValue(fields) => fields }
         .getOrElse(Map.empty[String, InputValue])
 
-      if (graphs.contains(key)) string(directive, "name").map(name => Directive(name.stripPrefix("@"), args)).toList
+      if (graphs.contains(key))
+        stringArgument(directive.arguments, "name").map(name => Directive(name.stripPrefix("@"), args)).toList
       else Nil
     }
 
@@ -609,7 +596,10 @@ private[gateway] object SupergraphDecomposition {
     val entries = directives.filter(directive => ctx.names.implements.contains(directive.name))
     if (entries.isEmpty) implements
     else {
-      val allowed = entries.filter(graphArgument(_).contains(key)).flatMap(string(_, "interface")).toSet
+      val allowed = entries
+        .filter(graphArgument(_).contains(key))
+        .flatMap(entry => stringArgument(entry.arguments, "interface"))
+        .toSet
       implements.filter(value => allowed.contains(value.name))
     }
   }
@@ -623,7 +613,8 @@ private[gateway] object SupergraphDecomposition {
     val entries = directives.filter(directive => ctx.names.unionMember.contains(directive.name))
     if (entries.isEmpty) memberTypes
     else {
-      val allowed = entries.filter(graphArgument(_).contains(key)).flatMap(string(_, "member")).toSet
+      val allowed =
+        entries.filter(graphArgument(_).contains(key)).flatMap(entry => stringArgument(entry.arguments, "member")).toSet
       memberTypes.filter(allowed.contains)
     }
   }
@@ -649,11 +640,8 @@ private[gateway] object SupergraphDecomposition {
     ctx: ProjectionContext
   ): List[InputValueDefinition] =
     fields.flatMap { field =>
-      val graphs   = field.directives.iterator
-        .filter(directive => ctx.names.field.contains(directive.name))
-        .flatMap(graphArgument)
-        .toSet
-      val included = graphs.isEmpty || graphs.contains(key)
+      val entries  = field.directives.filter(directive => ctx.names.field.contains(directive.name))
+      val included = entries.isEmpty || entries.exists(graphArgument(_).contains(key))
 
       if (included) Some(field.copy(directives = projectDirectives(field.directives, ctx))) else None
     }
@@ -696,7 +684,6 @@ private[gateway] object SupergraphDecomposition {
     contextNames: Set[String],
     projectedFeatures: List[LinkedFeature]
   ) {
-    val keys: List[String]             = registry.map(_.key)
     val keyByName: Map[String, String] = registry.map(graph => graph.name -> graph.key).toMap
     val nameByKey: Map[String, String] = registry.map(graph => graph.key -> graph.name).toMap
     val graphNames: Set[String]        = keyByName.keySet
@@ -736,7 +723,7 @@ private[gateway] object SupergraphDecomposition {
     external: Boolean,
     overrideFrom: Option[String],
     overrideLabel: Option[String],
-    contextArguments: Option[List[ContextArgument]],
+    contextArguments: List[JoinContextArgument],
     usedOverridden: Boolean
   )
 
@@ -749,43 +736,22 @@ private[gateway] object SupergraphDecomposition {
     directive: Set[String]
   )
 
-  private final case class ContextArgument(name: String, contextType: String, context: String, selection: String)
-
-  private val JoinIdentity      = "https://specs.apollo.dev/join"
-  private val ContextIdentity   = "https://specs.apollo.dev/context"
-  private val FederationImports = List(
-    "@key",
-    "@shareable",
-    "@external",
-    "@requires",
-    "@provides",
-    "@tag",
-    "@override",
-    "@inaccessible",
-    "@interfaceObject",
-    "@authenticated",
-    "@requiresScopes",
-    "@policy",
-    "@context",
-    "@fromContext",
-    "@cost",
-    "@listSize"
-  )
+  private final case class JoinContextArgument(name: String, contextType: String, context: String, selection: String)
 
   private val ProjectedFeatures = Map(
-    FederationIdentity                      -> FederationImports.map(_.stripPrefix("@")).toSet.diff(Set("context", "fromContext")),
-    "https://specs.apollo.dev/inaccessible" -> Set("inaccessible"),
-    "https://specs.apollo.dev/tag"          -> Set("tag"),
-    AuthenticatedIdentity                   -> Set("authenticated"),
-    RequiresScopesIdentity                  -> Set("requiresScopes"),
-    PolicyIdentity                          -> Set("policy"),
-    CostIdentity                            -> Set("cost", "listSize")
+    FederationIdentity     -> FederationDirectives.toSet.diff(Set("context", "fromContext")),
+    InaccessibleIdentity   -> Set("inaccessible"),
+    TagIdentity            -> Set("tag"),
+    AuthenticatedIdentity  -> Set("authenticated"),
+    RequiresScopesIdentity -> Set("requiresScopes"),
+    PolicyIdentity         -> Set("policy"),
+    CostIdentity           -> Set("cost", "listSize")
   )
   private val FederationLink    = Directive(
     "link",
     Map[String, InputValue](
       "url"    -> StringValue(s"$FederationIdentity/v2.9"),
-      "import" -> InputValue.ListValue(FederationImports.map(StringValue(_)))
+      "import" -> InputValue.ListValue(FederationDirectives.map(name => StringValue(s"@$name")))
     )
   )
 }

@@ -19,8 +19,10 @@ object PhaseHooksSpec extends ZIOSpecDefault {
     test("idle subscriptions use dedicated lifetime and admission metrics") {
       for {
         opened           <- Promise.make[Nothing, Unit]
-        source            = subscriptionGraph(ZStream.fromZIO(opened.succeed(())) *> ZStream.never)
-        runtime          <- (Gateway.compose(Subgraph.graphql("local", source)) @@ GatewayMetrics.hooks).interpreter
+        runtime          <-
+          (subscriptionGateway(
+            ZStream.fromZIO(opened.succeed(())) *> ZStream.never
+          ) @@ GatewayMetrics.hooks).interpreter
         requestsBefore   <- counter("caliban_gateway_requests_total", "outcome", "success")
         admittedBefore   <- counter("caliban_gateway_subscription_admission_total", "result", "accepted")
         terminatedBefore <- counter("caliban_gateway_subscription_terminations_total", "reason", "cancelled")
@@ -44,9 +46,8 @@ object PhaseHooksSpec extends ZIOSpecDefault {
       )
     },
     test("subscription event counts come from duration metrics") {
-      val source = subscriptionGraph(ZStream(1, 2))
       for {
-        runtime      <- (Gateway.compose(Subgraph.graphql("local", source)) @@ GatewayMetrics.hooks).interpreter
+        runtime      <- (subscriptionGateway(ZStream(1, 2)) @@ GatewayMetrics.hooks).interpreter
         eventsBefore <- histogram("caliban_gateway_subscription_event_duration_seconds", "outcome" -> "success")
         events       <- runtime.executeStream(GraphQLRequest(query = Some("subscription { event }"))).runCollect
         eventsAfter  <- histogram("caliban_gateway_subscription_event_duration_seconds", "outcome" -> "success")
@@ -175,10 +176,12 @@ object PhaseHooksSpec extends ZIOSpecDefault {
         )
       )
     } @@ TestAspect.timeout(Duration.fromSeconds(10)),
-    test("classifies intentional resolver rejections as request errors, not internal failures") {
+    test("classifies intentional resolver rejections as request errors and observes them without a document") {
       for {
         recorded           <- recordEventsAndResults
         (_, results, hooks) = recorded
+        observed           <- Ref.make(Vector.empty[OperationEvent])
+        order              <- Ref.make(Vector.empty[String])
         remote             <- stub(okResponse)
         runtime            <-
           (Gateway
@@ -186,7 +189,8 @@ object PhaseHooksSpec extends ZIOSpecDefault {
             .withPhaseHooks(
               PhaseHooks.resolution[Any](_ => ZIO.fail(PhaseHooks.Rejection("Not found.", "PERSISTED_QUERY_NOT_FOUND")))
             )
-            .withPhaseHooks(hooks) @@ GatewayMetrics.hooks).interpreter
+            .withPhaseHooks(hooks)
+            .withPhaseHooks(observing(observed, order)) @@ GatewayMetrics.hooks).interpreter
         before             <- histogram(
                                 "caliban_gateway_request_duration_seconds",
                                 "outcome"        -> "request_error",
@@ -199,6 +203,8 @@ object PhaseHooksSpec extends ZIOSpecDefault {
                                 "operation_type" -> "unknown"
                               )
         completed          <- results.get
+        events             <- observed.get
+        sequence           <- order.get
         sent               <- remote.requests.get
         preparation         = completed.collect { case (Event.Preparation, result) => result.outcome }
       } yield assertTrue(
@@ -207,19 +213,25 @@ object PhaseHooksSpec extends ZIOSpecDefault {
         completed.lastOption.exists(_._2.outcome == PhaseHooks.Outcome.RequestError),
         !completed.exists(_._2.outcome == PhaseHooks.Outcome.InternalError),
         after == before + 1L,
+        events.map(_.outcome) == Vector(PhaseHooks.Outcome.RequestError),
+        events.flatMap(_.errors.map(_.msg)) == Vector("Not found."),
+        events.forall(event => event.document.isEmpty && event.executionRequest.isEmpty && event.operationType.isEmpty),
+        sequence == Vector("direct-in", "direct-out"),
         sent.isEmpty
       )
     },
-    test("counts execution hook work toward the runtime deadline") {
+    test("counts execution hook work toward the runtime deadline and observes the timeout without a document") {
       for {
         entered                 <- Promise.make[Nothing, Unit]
         recorded                <- recordEventsAndResults
         (events, results, hooks) = recorded
+        operations              <- Ref.make(Vector.empty[OperationEvent])
+        order                   <- Ref.make(Vector.empty[String])
         remote                  <- stub(okResponse)
         runtime                 <- Gateway
                                      .compose(Subgraph.graphql("products", remote.endpoint, schema))
                                      .withConfig(_.withRequestTimeout(Duration.fromSeconds(1)))
-                                     .withPhaseHooks(delaying(entered) ++ hooks)
+                                     .withPhaseHooks(delaying(entered) ++ hooks ++ observing(operations, order))
                                      .interpreter
         fiber                   <- runtime.execute("{ value }").fork
         _                       <- entered.await
@@ -228,11 +240,17 @@ object PhaseHooksSpec extends ZIOSpecDefault {
         sent                    <- remote.requests.get
         observed                <- events.get
         completed               <- results.get
+        observations            <- operations.get
+        sequence                <- order.get
       } yield assertTrue(
         response.errors.map(_.msg) == List("Gateway request timed out."),
         sent.isEmpty,
         observed.lastOption.contains(Event.Completion),
-        completed.lastOption.exists(_._2.outcome == PhaseHooks.Outcome.Timeout)
+        completed.lastOption.exists(_._2.outcome == PhaseHooks.Outcome.Timeout),
+        observations.map(_.outcome) == Vector(PhaseHooks.Outcome.Timeout),
+        observations.forall(event => event.document.isEmpty && event.executionRequest.isEmpty),
+        observations.forall(_.operationType.isEmpty),
+        sequence == Vector("direct-in", "direct-out")
       )
     },
     test("records cache outcomes through the metrics hooks") {
@@ -310,33 +328,6 @@ object PhaseHooksSpec extends ZIOSpecDefault {
         sequence == Vector("scoped-in", "direct-in", "direct-out", "scoped-out", "scope-closed")
       )
     },
-    test("observes a timed-out request without a document") {
-      for {
-        entered  <- Promise.make[Nothing, Unit]
-        observed <- Ref.make(Vector.empty[OperationEvent])
-        order    <- Ref.make(Vector.empty[String])
-        remote   <- stub(okResponse)
-        runtime  <- Gateway
-                      .compose(Subgraph.graphql("products", remote.endpoint, schema))
-                      .withConfig(_.withRequestTimeout(Duration.fromSeconds(1)))
-                      .withPhaseHooks(delaying(entered) ++ observing(observed, order))
-                      .interpreter
-        fiber    <- runtime.execute("{ value }").fork
-        _        <- entered.await
-        _        <- TestClock.adjust(Duration.fromSeconds(2))
-        response <- fiber.join
-        events   <- observed.get
-        sequence <- order.get
-        sent     <- remote.requests.get
-      } yield assertTrue(
-        response.errors.map(_.msg) == List("Gateway request timed out."),
-        events.map(_.outcome) == Vector(PhaseHooks.Outcome.Timeout),
-        events.forall(event => event.document.isEmpty && event.executionRequest.isEmpty),
-        events.forall(_.operationType.isEmpty),
-        sequence == Vector("direct-in", "direct-out"),
-        sent.isEmpty
-      )
-    },
     test("observes an interrupted request as cancelled") {
       for {
         started  <- Promise.make[Nothing, Unit]
@@ -354,32 +345,6 @@ object PhaseHooksSpec extends ZIOSpecDefault {
         events.map(_.outcome) == Vector(PhaseHooks.Outcome.Cancelled),
         events.forall(_.document.isEmpty),
         sequence == Vector("direct-in", "direct-out")
-      )
-    },
-    test("observes a failed preparation with the optional fields empty") {
-      for {
-        observed <- Ref.make(Vector.empty[OperationEvent])
-        order    <- Ref.make(Vector.empty[String])
-        remote   <- stub(okResponse)
-        runtime  <-
-          Gateway
-            .compose(Subgraph.graphql("remote", remote.endpoint, schema))
-            .withPhaseHooks(
-              PhaseHooks.resolution[Any](_ => ZIO.fail(PhaseHooks.Rejection("Not found.", "PERSISTED_QUERY_NOT_FOUND")))
-            )
-            .withPhaseHooks(observing(observed, order))
-            .interpreter
-        response <- runtime.executeRequest(GraphQLRequest())
-        events   <- observed.get
-        sequence <- order.get
-        sent     <- remote.requests.get
-      } yield assertTrue(
-        response.errors.map(_.msg) == List("Not found."),
-        events.map(_.outcome) == Vector(PhaseHooks.Outcome.RequestError),
-        events.flatMap(_.errors.map(_.msg)) == Vector("Not found."),
-        events.forall(event => event.document.isEmpty && event.executionRequest.isEmpty && event.operationType.isEmpty),
-        sequence == Vector("direct-in", "direct-out"),
-        sent.isEmpty
       )
     },
     test("executes the outgoing phase on interrupt of effect") {

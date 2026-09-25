@@ -332,7 +332,7 @@ object LookupSpec extends ZIOSpecDefault {
         !sent.headOption.flatMap(_.query).exists(_.contains("Market"))
       )
     },
-    test("allows keyed omissions") {
+    test("does not report omitted results for by-key lookups") {
       val shortResponse =
         """{"data":{"_caliban_gateway_lookup":[{"_caliban_gateway_lookup_key":"p1","_caliban_gateway_lookup_key_2":"us","reviews":[{"body":"Table review"}]}]}}"""
 
@@ -347,6 +347,31 @@ object LookupSpec extends ZIOSpecDefault {
         values.lift(1).contains(NullValue),
         response.errors.map(_.msg) == List("Cannot return null for non-nullable field Product.reviews."),
         !response.errors.exists(_.msg.contains("omitted a result"))
+      )
+    },
+    test("reports duplicate and unexpected by-key lookup results while keeping the matched entity") {
+      val reviewsResponse =
+        """{"data":{"_caliban_gateway_lookup":[{"_caliban_gateway_lookup_key":"p1","_caliban_gateway_lookup_key_2":"us","reviews":[{"body":"Table review"}]},{"_caliban_gateway_lookup_key":"p1","_caliban_gateway_lookup_key_2":"us","reviews":[{"body":"Duplicate review"}]},{"_caliban_gateway_lookup_key":"p9","_caliban_gateway_lookup_key_2":"us","reviews":[{"body":"Stray review"}]},null]}}"""
+
+      for {
+        products <-
+          stub(
+            """{"data":{"products":[{"name":"Table","_caliban_gateway_key":"p1","_caliban_gateway_key_2":"us"}]}}"""
+          )
+        reviews  <- stub(reviewsResponse)
+        runtime  <- lookupGateway(products, reviews, keyedLookup).interpreter
+        response <- runtime.execute("{ products { name reviews { body } } }")
+        errors    = executionErrors(response.errors)
+        values    = listValues(field(response.data, "products"))
+      } yield assertTrue(
+        values.flatMap(field(_, "name")) == List(StringValue("Table")),
+        values.flatMap(reviewBody) == List(StringValue("Table review")),
+        errors.map(_.msg) == List(
+          "Entity lookup response contained a duplicate result for 'Product(id, region)'.",
+          "Entity lookup response contained an unexpected result for 'Product(id, region)'.",
+          "Entity lookup response contained an unexpected result for 'Product(id, region)'."
+        ),
+        errors.forall(_.path == List(PathValue.Key("products")))
       )
     },
     test("relocates ordinary lookup failures without losing independent data") {

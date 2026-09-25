@@ -61,7 +61,7 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
       val result = Try {
         Parser
           .parseQuery("schema { query: String } type Foo { id: ID }")
-          .flatMap(RemoteSchema.toRootType(_))
+          .flatMap(RemoteSchema.normalize(_).map(_.rootType))
       }
 
       assertTrue(result.isSuccess, result.toOption.exists(_.isLeft))
@@ -194,7 +194,7 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
 
       for {
         document <- ZIO.fromEither(Parser.parseQuery(schema))
-        rootType <- ZIO.fromEither(RemoteSchema.toRootType(document))
+        rootType <- ZIO.fromEither(RemoteSchema.normalize(document).map(_.rootType))
         product   = rootType.types
                       .get("Node")
                       .flatMap(_.possibleTypes)
@@ -231,7 +231,7 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
 
       for {
         document <- ZIO.fromEither(Parser.parseQuery(schema))
-        rootType <- ZIO.fromEither(RemoteSchema.toRootType(document))
+        rootType <- ZIO.fromEither(RemoteSchema.normalize(document).map(_.rootType))
         fields    = rootType.queryType.fields(__DeprecatedArgs()).toList.flatten.map(_.name)
       } yield assertTrue(
         rootType.queryType.name.contains("Query"),
@@ -251,7 +251,7 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
 
       for {
         document <- ZIO.fromEither(Parser.parseQuery(schema))
-        rootType <- ZIO.fromEither(RemoteSchema.toRootType(document))
+        rootType <- ZIO.fromEither(RemoteSchema.normalize(document).map(_.rootType))
       } yield assertTrue(
         rootType.queryType.name.contains("Query"),
         rootType.mutationType.flatMap(_.name).contains("Mutation"),
@@ -269,7 +269,7 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
 
       for {
         document <- ZIO.fromEither(Parser.parseQuery(schema))
-        result    = RemoteSchema.toRootType(document)
+        result    = RemoteSchema.normalize(document).map(_.rootType)
       } yield assertTrue(
         result.left.exists(_.msg == "Conflicting query root types are declared: 'Query', 'RootQuery'.")
       )
@@ -284,7 +284,7 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
 
       for {
         document <- ZIO.fromEither(Parser.parseQuery(schema))
-        result    = RemoteSchema.toRootType(document)
+        result    = RemoteSchema.normalize(document).map(_.rootType)
       } yield assertTrue(result.left.exists(_.msg == "The query root operation is missing."))
     },
     test("reports a missing query root before other document errors") {
@@ -298,7 +298,7 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
 
       for {
         document <- ZIO.fromEither(Parser.parseQuery(schema))
-        result    = RemoteSchema.toRootType(document)
+        result    = RemoteSchema.normalize(document).map(_.rootType)
       } yield assertTrue(result.left.exists(_.msg == "The query root operation is missing."))
     },
     test("preserves and validates OneOf input objects") {
@@ -316,9 +316,9 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
       for {
         validDocument   <- ZIO.fromEither(Parser.parseQuery(validSchema))
         invalidDocument <- ZIO.fromEither(Parser.parseQuery(invalidSchema))
-        rootType        <- ZIO.fromEither(RemoteSchema.toRootType(validDocument))
+        rootType        <- ZIO.fromEither(RemoteSchema.normalize(validDocument).map(_.rootType))
         oneOf            = rootType.additionalTypes.find(_.name.contains("Choice")).flatMap(_.isOneOf)
-        invalid          = RemoteSchema.toRootType(invalidDocument)
+        invalid          = RemoteSchema.normalize(invalidDocument).map(_.rootType)
       } yield assertTrue(oneOf.contains(true), invalid.isLeft)
     },
     test("rejects multiple schema definitions") {
@@ -331,7 +331,7 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
 
       for {
         document <- ZIO.fromEither(Parser.parseQuery(schema))
-        result    = RemoteSchema.toRootType(document)
+        result    = RemoteSchema.normalize(document).map(_.rootType)
       } yield assertTrue(result.left.exists(_.msg == "Schema is defined multiple times."))
     },
     test("rejects a type shared by multiple root operations") {
@@ -343,7 +343,7 @@ object RemoteSchemaSpec extends ZIOSpecDefault {
 
       for {
         document <- ZIO.fromEither(Parser.parseQuery(schema))
-        result    = RemoteSchema.toRootType(document)
+        result    = RemoteSchema.normalize(document).map(_.rootType)
       } yield assertTrue(result.left.exists(_.msg == "Root operation type 'Root' is used more than once."))
     }
   )

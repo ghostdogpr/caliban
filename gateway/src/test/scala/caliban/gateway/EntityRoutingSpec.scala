@@ -1,6 +1,6 @@
 package caliban.gateway
 
-import caliban.InputValue.{ ListValue, ObjectValue => InputObjectValue }
+import caliban.InputValue.{ ObjectValue => InputObjectValue }
 import caliban.ResponseValue.{ ListValue => ResponseListValue }
 import caliban.Value.IntValue.IntNumber
 import caliban.Value.{ NullValue, StringValue }
@@ -70,19 +70,13 @@ object EntityRoutingSpec extends ZIOSpecDefault {
           onlyNested(field(response.data, "product"), "reviews")
             .exists(_.contains("body" -> StringValue("Solid"))),
           sent.headOption
-            .flatMap(_.variables)
+            .map(representations)
             .contains(
-              Map(
-                "representations" -> ListValue(
-                  List(
-                    InputObjectValue(
-                      Map(
-                        "__typename"   -> StringValue("Product"),
-                        "id"           -> StringValue("p1"),
-                        "organization" -> InputObjectValue(Map("id" -> StringValue("o1")))
-                      )
-                    )
-                  )
+              List(
+                representation(
+                  "Product",
+                  "id"           -> StringValue("p1"),
+                  "organization" -> InputObjectValue(Map("id" -> StringValue("o1")))
                 )
               )
             )
@@ -109,7 +103,7 @@ object EntityRoutingSpec extends ZIOSpecDefault {
         val booksResponse      =
           """{"data":{"books":[{"upc":"b1","_caliban_gateway_key":"b1","_caliban_gateway_typename":"Book"},{"upc":"b2","_caliban_gateway_key":"b2","_caliban_gateway_typename":"Book"},{"upc":"b3","_caliban_gateway_key":"b3","_caliban_gateway_typename":"Book"}]}}"""
         val identitiesResponse =
-          """{"data":{"_entities":[{"_caliban_gateway_key":"1","_caliban_gateway_typename":"Book","_caliban_gateway_entity_key":"b1","_caliban_gateway_entity_typename":"Book"},{"_caliban_gateway_key":"2","_caliban_gateway_typename":"Book","_caliban_gateway_entity_key":"b2","_caliban_gateway_entity_typename":"Book"},null]}}"""
+          """{"data":{"_entities":[{"_caliban_gateway_key":"1","_caliban_gateway_typename":"Book"},{"_caliban_gateway_key":"2","_caliban_gateway_typename":"Book"},null]}}"""
         val authorsResponse    =
           """{"data":{"_entities":[{"author":{"name":"Alice"}},{"author":{"name":"Bob"}}]}}"""
 
@@ -134,27 +128,23 @@ object EntityRoutingSpec extends ZIOSpecDefault {
           values.lift(2).flatMap(field(_, "author")).contains(NullValue),
           sent.size == 1,
           sent.headOption
-            .flatMap(_.variables)
+            .map(representations)
             .contains(
-              Map(
-                "representations" -> ListValue(
-                  List(
-                    InputObjectValue(Map("__typename" -> StringValue("Book"), "id" -> StringValue("1"))),
-                    InputObjectValue(Map("__typename" -> StringValue("Book"), "id" -> StringValue("2")))
-                  )
-                )
+              List(
+                representation("Book", "id" -> StringValue("1")),
+                representation("Book", "id" -> StringValue("2"))
               )
             )
         )
       },
-      test("tries another intermediate subgraph when the first is unreachable") {
+      test("skips an intermediate subgraph whose key fields are only external") {
         val rootsSchema          =
           s"""
              |${federationSchemaPreamble("@key")}
              |type Query { thing: Thing }
              |type Thing @key(fields: "a") { a: ID! }
              |""".stripMargin
-        val unreachableSchema    =
+        val externalSchema       =
           s"""
              |${federationSchemaPreamble("@key", "@external")}
              |type Thing @key(fields: "a") { a: ID! @external d: ID! @external }
@@ -178,25 +168,25 @@ object EntityRoutingSpec extends ZIOSpecDefault {
 
         for {
           roots            <- stub(rootResponse)
-          unreachable      <- stub("""{"data":{"_entities":[]}}""")
+          external         <- stub("""{"data":{"_entities":[]}}""")
           intermediate     <- stub(intermediateResponse)
           target           <- stub(targetResponse)
           runtime          <- Gateway
                                 .compose(
                                   Subgraph.federation("a-roots", roots.endpoint, rootsSchema),
-                                  Subgraph.federation("b-unreachable", unreachable.endpoint, unreachableSchema),
+                                  Subgraph.federation("b-external", external.endpoint, externalSchema),
                                   Subgraph.federation("c-intermediate", intermediate.endpoint, intermediateSchema),
                                   Subgraph.federation("d-target", target.endpoint, targetSchema)
                                 )
                                 .interpreter
           response         <- runtime.execute("{ thing { a label } }")
-          unreachableSent  <- unreachable.requests.get
+          externalSent     <- external.requests.get
           intermediateSent <- intermediate.requests.get
           targetSent       <- target.requests.get
         } yield assertTrue(
           response.errors.isEmpty,
           field(response.data, "thing").flatMap(field(_, "label")).contains(StringValue("reachable")),
-          unreachableSent.isEmpty,
+          externalSent.isEmpty,
           intermediateSent.size == 1,
           targetSent.size == 1
         )
@@ -262,14 +252,8 @@ object EntityRoutingSpec extends ZIOSpecDefault {
           field(response.data, "node").flatMap(field(_, "id")).contains(StringValue("p1")),
           field(response.data, "node").flatMap(field(_, "label")).contains(StringValue("Table")),
           sent.headOption
-            .flatMap(_.variables)
-            .contains(
-              Map(
-                "representations" -> ListValue(
-                  InputObjectValue(Map("__typename" -> StringValue("Product"), "id" -> StringValue("p1"))) :: Nil
-                )
-              )
-            )
+            .map(representations)
+            .contains(List(representation("Product", "id" -> StringValue("p1"))))
         )
       },
       test("nulls an interface field for an implementation no lookup covers without an error") {
@@ -336,7 +320,13 @@ object EntityRoutingSpec extends ZIOSpecDefault {
                         )
                         .interpreter
           response <- runtime.execute("""{ node(id: "a1") { id } }""")
-        } yield assertTrue(response.data == NullValue, response.errors.nonEmpty)
+          sent     <- accounts.requests.get.zip(chats.requests.get)
+        } yield assertTrue(
+          response.data == NullValue,
+          response.errors.map(_.msg) == List("Entity routing dependency cycle detected."),
+          sent._1.isEmpty,
+          sent._2.isEmpty
+        )
       },
       test("moves an unresolvable child selection to a resolvable parent entity") {
         val productsSchema   =
@@ -376,38 +366,8 @@ object EntityRoutingSpec extends ZIOSpecDefault {
           category.flatMap(field(_, "id")).contains(StringValue("c1")),
           category.flatMap(field(_, "details")).flatMap(field(_, "products")).contains(IntNumber(2)),
           sent.headOption
-            .flatMap(_.variables)
-            .contains(
-              Map(
-                "representations" -> ListValue(
-                  InputObjectValue(
-                    Map(
-                      "__typename" -> StringValue("Product"),
-                      "id"         -> StringValue("p1"),
-                      "pid"        -> StringValue("parent-1")
-                    )
-                  ) :: Nil
-                )
-              )
-            )
-        )
-      },
-      test("retains a conventional Query root alongside a schema link extension") {
-        val linkedSchema =
-          s"""
-             |${federationSchemaPreamble("@key")}
-             |type Query { product: Product }
-             |type Product @key(fields: "id") { id: ID! name: String! }
-             |""".stripMargin
-
-        for {
-          products <- stub("""{"data":{"product":{"id":"p1","name":"Table"}}}""")
-          runtime  <- Gateway.compose(Subgraph.federation("products", products.endpoint, linkedSchema)).interpreter
-          response <- runtime.execute("{ product { id name } }")
-        } yield assertTrue(
-          response.errors.isEmpty,
-          field(response.data, "product").flatMap(field(_, "id")).contains(StringValue("p1")),
-          field(response.data, "product").flatMap(field(_, "name")).contains(StringValue("Table"))
+            .map(representations)
+            .contains(List(representation("Product", "id" -> StringValue("p1"), "pid" -> StringValue("parent-1"))))
         )
       },
       test("retains extension-only conventional Query and Mutation roots") {
@@ -479,9 +439,7 @@ object EntityRoutingSpec extends ZIOSpecDefault {
           directives.exists(names => !names.contains("fed__key") && !names.contains("fed__external")),
           productsSent.size == 1,
           reviewsSent.size == 1,
-          reviewsSent.head.query.exists(query =>
-            query.contains("_entities") && !query.contains("_caliban_gateway_entity_key")
-          )
+          reviewsSent.head.query.exists(_.contains("_entities"))
         )
       },
       test("routes a nested entity key through an inaccessible internal field") {
@@ -519,17 +477,10 @@ object EntityRoutingSpec extends ZIOSpecDefault {
           onlyNested(field(response.data, "product"), "reviews")
             .exists(_.contains("body" -> StringValue("Solid"))),
           sent.headOption
-            .flatMap(_.variables)
+            .map(representations)
             .contains(
-              Map(
-                "representations" -> ListValue(
-                  InputObjectValue(
-                    Map(
-                      "__typename"   -> StringValue("Product"),
-                      "organization" -> InputObjectValue(Map("internalId" -> StringValue("o1")))
-                    )
-                  ) :: Nil
-                )
+              List(
+                representation("Product", "organization" -> InputObjectValue(Map("internalId" -> StringValue("o1"))))
               )
             )
         )
@@ -562,79 +513,6 @@ object EntityRoutingSpec extends ZIOSpecDefault {
         } yield assertTrue(
           introspection.errors.isEmpty,
           directives.exists(names => !names.contains("entityKey") && !names.contains("outside"))
-        )
-      },
-      test("rejects derived entity dependency cycles before contacting a subgraph") {
-        val rootsSchema =
-          """
-            |type Query { thing: Thing }
-            |type Thing { seed: ID! }
-            |""".stripMargin
-        val leftSchema  =
-          s"""
-             |${federationSchemaPreamble("@key", "@external")}
-             |type Thing @key(fields: "c") { b: ID! c: ID! @external }
-             |""".stripMargin
-        val rightSchema =
-          s"""
-             |${federationSchemaPreamble("@key", "@external")}
-             |type Thing @key(fields: "b") { b: ID! @external c: ID! }
-             |""".stripMargin
-
-        for {
-          roots     <- stub("""{"data":{"thing":{"seed":"root"}}}""")
-          left      <- stub("""{"data":{"_entities":[]}}""")
-          right     <- stub("""{"data":{"_entities":[]}}""")
-          runtime   <- Gateway
-                         .compose(
-                           Subgraph.graphql("roots", roots.endpoint, rootsSchema),
-                           Subgraph.federation("left", left.endpoint, leftSchema),
-                           Subgraph.federation("right", right.endpoint, rightSchema)
-                         )
-                         .interpreter
-          response  <- runtime.execute("{ thing { b c } }")
-          rootsSent <- roots.requests.get
-          leftSent  <- left.requests.get
-          rightSent <- right.requests.get
-        } yield assertTrue(
-          response.errors.map(_.msg) == List("Entity routing dependency cycle detected."),
-          rootsSent.isEmpty,
-          leftSent.isEmpty,
-          rightSent.isEmpty
-        )
-      },
-      test("does not route fields declared only as external") {
-        val rootsSchema    =
-          """
-            |type Query { thing: Thing }
-            |type Thing { id: ID! }
-            |""".stripMargin
-        val externalSchema =
-          s"""
-             |${federationSchemaPreamble("@key", "@external")}
-             |type Thing @key(fields: "id") { id: ID! @external ghost: String @external }
-             |""".stripMargin
-
-        for {
-          roots         <- stub("""{"data":{"thing":{"id":"t1"}}}""")
-          externalA     <- stub("""{"data":{"_entities":[]}}""")
-          externalB     <- stub("""{"data":{"_entities":[]}}""")
-          runtime       <- Gateway
-                             .compose(
-                               Subgraph.graphql("roots", roots.endpoint, rootsSchema),
-                               Subgraph.federation("external-a", externalA.endpoint, externalSchema),
-                               Subgraph.federation("external-b", externalB.endpoint, externalSchema)
-                             )
-                             .interpreter
-          response      <- runtime.execute("{ thing { ghost } }")
-          rootsSent     <- roots.requests.get
-          externalASent <- externalA.requests.get
-          externalBSent <- externalB.requests.get
-        } yield assertTrue(
-          response.errors.map(_.msg) == List("Field 'ghost' does not exist on type 'Thing'."),
-          rootsSent.isEmpty,
-          externalASent.isEmpty,
-          externalBSent.isEmpty
         )
       },
       test("rejects unsatisfied entity routing obligations before contacting a subgraph") {

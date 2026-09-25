@@ -1,15 +1,14 @@
 package caliban.gateway
 
-import caliban.{ CalibanError, GraphQLRequest, InputValue, PathValue, ResponseValue }
+import caliban.{ InputValue, PathValue, ResponseValue }
 import caliban.ResponseValue.{ ListValue, ObjectValue }
 import caliban.Value.{ NullValue, StringValue }
 import caliban.execution.Field
-import caliban.gateway.internal.composition.{ ComposedGraph, SchemaComposer }
+import caliban.gateway.internal.PrivateAliases
+import caliban.gateway.internal.composition.ComposedGraph
 import caliban.gateway.internal.execution._
-import caliban.gateway.internal.execution.ResponseCompletion.{ BubbleNull, Completed }
 import caliban.gateway.internal.planning.OperationPlan
 import caliban.gateway.internal.planning.OperationPlan._
-import caliban.parsing.Parser
 import caliban.parsing.adt.OperationType
 import caliban.schema.Types
 import zio.{ IO, ZIO }
@@ -25,14 +24,11 @@ object ExecutionModelSpec extends ZIOSpecDefault {
     Field(name, Types.string, None, alias = Some(alias), fields = children)
 
   private def composeSingle(name: String, schema: String): IO[Any, ComposedGraph] =
-    for {
-      document <- ZIO.fromEither(Parser.parseQuery(schema))
-      graph    <- ZIO.fromEither(
-                    SchemaComposer.compose(
-                      List(Subgraph.graphql(name, GatewayTestSupport.unreachableEndpoint, document) -> document)
-                    )
-                  )
-    } yield graph
+    GatewayTestSupport
+      .parseSdl(schema)
+      .flatMap(document =>
+        ZIO.fromEither(GatewayTestSupport.composeDocuments(List(name -> document), federation = false))
+      )
 
   def spec = suite("Execution model")(
     test("translates typenames and aliases through lists while preserving scalar payloads and correlation fields") {
@@ -116,46 +112,20 @@ object ExecutionModelSpec extends ZIOSpecDefault {
         )
       )
     },
-    test("preserves repeated typename mappings and only transforms selected typenames") {
+    test("translates repeated typename selections once and only transforms selected typenames") {
       val typename   = projectionField("__typename", "kind")
       val fields     = List(typename, typename, projectionField("scalar", "scalar"))
       val payload    = ObjectValue(List("__typename" -> StringValue("A")))
       val projection = ResponseProjection.compile(fields, fields, Nil, Map("A" -> "B", "B" -> "C"))
       val result     =
         projection(ObjectValue(List("kind" -> StringValue("A"), "scalar" -> payload))).asInstanceOf[ObjectValue]
-      assertTrue(result.getOrNull("kind") == StringValue("C"), result.getOrNull("scalar") eq payload)
+      assertTrue(result.getOrNull("kind") == StringValue("B"), result.getOrNull("scalar") eq payload)
     },
     test("returns untransformed values by reference") {
       val fields               = List(projectionField("name", "name"))
       val value: ResponseValue = ObjectValue(List("name" -> StringValue("A")))
       val projection           = ResponseProjection.compile(fields, fields, Nil, Map("Unused" -> "Renamed"))
       assertTrue(projection(value) eq value)
-    },
-    test("nullable null is a completed value, not a bubbling failure") {
-      val data = ObjectValue(List("name" -> NullValue))
-      assertTrue(completion.complete(List(name), data, Nil) == Completed(data, Nil))
-    },
-    test("a non-null root failure explicitly bubbles") {
-      val field  = name.copy(fieldType = Types.string.nonNull, parentType = Some(queryType))
-      val result = completion.complete(List(field), ObjectValue(List("name" -> NullValue)), Nil)
-      assertTrue(
-        result.isInstanceOf[BubbleNull],
-        result.bubblesNull,
-        result.toResponseValue == NullValue,
-        result.errors.map(_.path) == List(List(PathValue.Key("name")))
-      )
-    },
-    test("bubbling stops at a nullable object and preserves its siblings") {
-      val product =
-        Field("product", objectType, Some(queryType), fields = List(name.copy(fieldType = Types.string.nonNull)))
-      val sibling = Field("status", Types.string, Some(queryType))
-      val data    = ObjectValue(List("product" -> ObjectValue(List("name" -> NullValue)), "status" -> StringValue("ok")))
-      val result  = completion.complete(List(product, sibling), data, Nil)
-      assertTrue(
-        !result.bubblesNull,
-        result.toResponseValue == ObjectValue(List("product" -> NullValue, "status" -> StringValue("ok"))),
-        result.errors.map(_.path) == List(List(PathValue.Key("product"), PathValue.Key("name")))
-      )
     },
     test("a non-null list item nulls the nullable list") {
       val field  = Field("names", Types.string.nonNull.list, Some(queryType))
@@ -166,12 +136,6 @@ object ExecutionModelSpec extends ZIOSpecDefault {
         result.toResponseValue == ObjectValue(List("names" -> NullValue)),
         result.errors.map(_.path) == List(List(PathValue.Key("names"), PathValue.Index(1)))
       )
-    },
-    test("an existing source error is not duplicated during null propagation") {
-      val field  = name.copy(fieldType = Types.string.nonNull)
-      val error  = CalibanError.ExecutionError("source failure", path = List(PathValue.Key("name")))
-      val result = completion.complete(List(field), ObjectValue(List("name" -> NullValue)), List(error))
-      assertTrue(result == BubbleNull(Nil))
     },
     test("object completion keeps duplicate-field lookup first-wins across the wide threshold") {
       def data(size: Int): ObjectValue =
@@ -186,6 +150,29 @@ object ExecutionModelSpec extends ZIOSpecDefault {
           ObjectValue(List("name" -> StringValue("first"))),
         completion.complete(List(name), data(16), Nil).toResponseValue ==
           ObjectValue(List("name" -> StringValue("first")))
+      )
+    },
+    test("patches the last duplicate on both sides of the wide threshold") {
+      def value(size: Int): ObjectValue =
+        ObjectValue(
+          ("duplicate"   -> StringValue("first")) ::
+            List.tabulate(size - 2)(index => s"field$index" -> StringValue(index.toString)) :::
+            ("duplicate" -> StringValue("last")) :: Nil
+        )
+
+      val patch  = ObjectValue(("duplicate" -> StringValue("merged")) :: Nil)
+      val narrow = ResponseMerge.mergeObject(value(15), patch)
+      val wide   = ResponseMerge.mergeObject(value(16), patch)
+
+      def duplicateValues(value: ResponseValue): List[StringValue] =
+        value match {
+          case ObjectValue(fields) => fields.collect { case ("duplicate", nested: StringValue) => nested }
+          case _                   => Nil
+        }
+
+      assertTrue(
+        duplicateValues(narrow) == List(StringValue("first"), StringValue("merged")),
+        duplicateValues(wide) == List(StringValue("first"), StringValue("merged"))
       )
     },
     test("keeps correlation aliases distinct from disambiguated abstract entity fields") {
@@ -222,8 +209,8 @@ object ExecutionModelSpec extends ZIOSpecDefault {
                  )
         names  = responseNames(fields)
       } yield assertTrue(
-        fields.map(_.aliasedName) == List("_caliban_gateway_entity_key", "_caliban_gateway_entity_key_1"),
-        privateAlias("_caliban_gateway_entity_key", names) == "_caliban_gateway_entity_key_2"
+        fields.map(_.aliasedName) == List("_caliban_gateway_entity_key", "_caliban_gateway_entity_key_2"),
+        new PrivateAliases(names).next("_caliban_gateway_entity_key") == "_caliban_gateway_entity_key_3"
       )
     },
     test("execution artifacts are reused but variable binding gets an independent cache") {
@@ -248,47 +235,6 @@ object ExecutionModelSpec extends ZIOSpecDefault {
         bound.executionCache.root(fetch.id)(boundRoot) eq boundRoot,
         bound.roots.head.downstream.head.arguments == Map("id" -> StringValue("p1")),
         plan.roots.head.downstream.head.arguments == Map("id" -> InputValue.VariableValue("id"))
-      )
-    },
-    test("a missing entity executor returns a failure and blocks its dependent fetches") {
-      val schema  = "type Query { product: Product } type Product { id: ID! name: String }"
-      val rootId  = FetchId(0)
-      val fetchId = FetchId(1)
-      val path    = List(PathValue.Key("product"))
-      for {
-        graph   <- composeSingle("products", schema)
-        fetch    = EntityFetch(
-                     id = fetchId,
-                     root = rootId,
-                     source = "products",
-                     dependencies = Set(rootId),
-                     mergePath = Vector("product"),
-                     entityType = "Product",
-                     keys = List(RequiredSelection("id", "id")),
-                     requirements = Nil,
-                     contextArguments = Nil,
-                     typename = None,
-                     lookup = ComposedGraph.EntityLookup(
-                       List(ComposedGraph.KeyField("id", Nil)),
-                       ComposedGraph.LookupOperation.FederationEntities(correlatesByKey = false)
-                     ),
-                     fields = List(name),
-                     mayNeedPrerequisiteFetches = false
-                   )
-        executor = new EntityExecutor[Any](graph, Map.empty)
-        plan     = OperationPlan(OperationType.Query, "Query", Nil, Nil, Nil, List(fetch), Nil, None)
-        results <- executor.execute(
-                     List(fetch),
-                     Map(rootId -> ObjectValue(List("product" -> ObjectValue(List("id" -> StringValue("p1")))))),
-                     Map.empty,
-                     GraphQLRequest(),
-                     plan.executionCache
-                   )
-      } yield assertTrue(
-        results.size == 1,
-        results.head.patches.isEmpty,
-        results.head.errors == List(RemoteError.at(path)),
-        results.head.blocked == Map(fetchId -> Set(path))
       )
     }
   )

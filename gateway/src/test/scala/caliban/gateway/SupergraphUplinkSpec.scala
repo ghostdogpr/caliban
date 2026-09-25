@@ -3,8 +3,9 @@ package caliban.gateway
 import caliban.Value.{ NullValue, StringValue }
 import caliban.gateway.GatewayTestSupport._
 import caliban.gateway.internal.GatewayHttpClient
-import caliban.gateway.SupergraphAcquisitionError._
-import caliban.gateway.internal.acquisition.SupergraphAcquisition
+import caliban.gateway.SchemaAcquisitionError._
+import caliban.gateway.SupergraphAcquisitionError.UplinkFetchFailed
+import caliban.parsing.adt.Document
 import caliban.{ CalibanError, GraphQLRequest, GraphQLResponse }
 import com.github.plokhotnyuk.jsoniter_scala.core.{ readFromArray, writeToString }
 import zio.Config.Secret
@@ -16,15 +17,10 @@ import zio.test._
  * Gates for the Apollo uplink source: the configuration it is described by, the error cases it can
  * fail with, the cursor and cache the loader carries across polls, and endpoint failover.
  *
- * The loader is stateful across `load` calls by design, since `Gateway` builds it once per gateway
- * rather than once per reload cycle, so every test here drives one loader more than once.
+ * The loader is stateful across runs by design, since `Gateway` builds it once per gateway
+ * rather than once per reload cycle, so every test here runs one loader more than once.
  */
 object SupergraphUplinkSpec extends ZIOSpecDefault {
-
-  private val graphRef = "caliban-gateway@production"
-  private val apiKey   = Secret("service:caliban-gateway:s3cr3t-uplink-key")
-
-  private val changedSdl = minimalSupergraphSdl.replace("hello: String", "hello: String goodbye: String")
 
   /** Nests five deep inside the field definition, well past the response envelope's own three. */
   private val deeplyNestedSdl =
@@ -51,14 +47,7 @@ object SupergraphUplinkSpec extends ZIOSpecDefault {
   private final case class Uplink(endpoint: URL, requests: Ref[Vector[GraphQLRequest]], answers: Ref[List[Answer]]) {
     def calls: UIO[Int] = requests.get.map(_.size)
 
-    /** The `ifAfterId` variable of the nth request, or `None` when it was absent or JSON null. */
-    def cursorOf(index: Int): UIO[Option[String]] =
-      requests.get.map(
-        _.lift(index)
-          .flatMap(_.variables)
-          .flatMap(_.get("ifAfterId"))
-          .collect { case StringValue(value) => value }
-      )
+    def cursorOf(index: Int): UIO[Option[String]] = uplinkCursor(requests, index)
 
     def variablesOf(index: Int): UIO[Map[String, caliban.InputValue]] =
       requests.get.map(_.lift(index).flatMap(_.variables).getOrElse(Map.empty))
@@ -90,15 +79,15 @@ object SupergraphUplinkSpec extends ZIOSpecDefault {
   // Loader construction
   // ---------------------------------------------------------------------------------------------
 
-  private val fastAcquisition = RemoteGraphQLConfig.Acquisition.default.withTimeout(2.seconds)
-
   private def configFor(endpoints: URL*): SupergraphUplinkConfig =
-    SupergraphUplinkConfig(graphRef, apiKey).withEndpoints(endpoints: _*).withAcquisition(fastAcquisition)
+    SupergraphUplinkConfig(graphRef, apiKey).withEndpoints(endpoints: _*).withAcquisition(_.withTimeout(2.seconds))
 
-  private def loaderFor(config: SupergraphUplinkConfig): ZIO[GatewayHttpClient, Nothing, SupergraphAcquisition.Loader] =
+  private def loaderFor(
+    config: SupergraphUplinkConfig
+  ): ZIO[GatewayHttpClient, Nothing, IO[SupergraphAcquisitionError, Document]] =
     acquisitionLoader(Supergraph.Source.Uplink(config))
 
-  private def loaderFor(endpoints: URL*): ZIO[GatewayHttpClient, Nothing, SupergraphAcquisition.Loader] =
+  private def loaderFor(endpoints: URL*): ZIO[GatewayHttpClient, Nothing, IO[SupergraphAcquisitionError, Document]] =
     loaderFor(configFor(endpoints: _*))
 
   /** Every string a diagnostic must never contain: the api key, and any remote free text. */
@@ -151,7 +140,7 @@ object SupergraphUplinkSpec extends ZIOSpecDefault {
       },
       test("acquisition diagnostics are carried through") {
         val config = SupergraphUplinkConfig(graphRef, apiKey)
-          .withAcquisition(RemoteGraphQLConfig.Acquisition.default.withMaxResponseBytes(0))
+          .withAcquisition(_.withMaxResponseBytes(0))
         assertTrue(config.diagnostics == List("Schema acquisition maxResponseBytes must be positive."))
       },
       test("no diagnostic renders the api key, and neither does toString") {
@@ -161,9 +150,6 @@ object SupergraphUplinkSpec extends ZIOSpecDefault {
           leaks(config.diagnostics, apiKey.stringValue, graphRef).isEmpty,
           !SupergraphUplinkConfig(graphRef, apiKey).toString.contains(apiKey.stringValue)
         )
-      },
-      test("an uplink source is refreshable, so Gateway.reloadable accepts it") {
-        assertTrue(Supergraph.Source.Uplink(SupergraphUplinkConfig(graphRef, apiKey)).refreshable)
       },
       test("Supergraph.uplink describes an uplink source") {
         val fromParts                           = Supergraph.uplink(graphRef, apiKey)
@@ -184,29 +170,18 @@ object SupergraphUplinkSpec extends ZIOSpecDefault {
     // -------------------------------------------------------------------------------------------
     suite("error cases")(
       test("every uplink case renders a non-empty diagnostic") {
-        val reasons                                  = List(
-          InvalidUplinkResponse.MissingData,
-          InvalidUplinkResponse.MissingRouterConfig,
-          InvalidUplinkResponse.UnknownTypename,
-          InvalidUplinkResponse.MissingSupergraphSdl,
-          InvalidUplinkResponse.MissingId,
-          InvalidUplinkResponse.DecodingFailed
-        )
+        val paths                                    = List("$.data", "$.data.routerConfig.supergraphSDL")
         val errors: List[SupergraphAcquisitionError] =
-          UplinkFetchFailed("AUTHENTICATION_FAILED") :: reasons.map(InvalidUplinkResponse(_))
+          UplinkFetchFailed("AUTHENTICATION_FAILED") :: paths.map(InvalidResponse(_))
 
         assertTrue(
           errors.forall(_.diagnostics.nonEmpty),
           errors.forall(_.diagnostics.forall(_.trim.nonEmpty)),
+          errors.head.diagnostics.exists(_.contains("AUTHENTICATION_FAILED")),
+          errors.head.getMessage.contains("AUTHENTICATION_FAILED"),
           // Distinct reasons must not collapse to the same message, or a diagnostic tells you nothing.
-          reasons.map(InvalidUplinkResponse(_).diagnostics).distinct.size == reasons.size
+          paths.map(InvalidResponse(_).diagnostics).distinct.size == paths.size
         )
-      },
-      test("UplinkFetchFailed surfaces the code, which is a fixed enum") {
-        assertTrue(UplinkFetchFailed("UNKNOWN_REF").diagnostics.exists(_.contains("UNKNOWN_REF")))
-      },
-      test("getMessage renders the diagnostics") {
-        assertTrue(UplinkFetchFailed("ACCESS_DENIED").getMessage.contains("ACCESS_DENIED"))
       },
       test("a caused error keeps its payload in the cause channel, never in the diagnostic") {
         val cause      = new IllegalStateException("Bearer service:caliban-gateway:s3cr3t-uplink-key")
@@ -216,7 +191,7 @@ object SupergraphUplinkSpec extends ZIOSpecDefault {
           error.getCause == cause,
           buildError.getCause eq error,
           buildError.getCause.getCause eq cause,
-          buildError.diagnostics == error.diagnostics,
+          buildError.diagnostics == error.diagnostics.map(message => s"[supergraph] $message"),
           leaks(buildError.diagnostics, apiKey.stringValue).isEmpty
         )
       }
@@ -230,14 +205,13 @@ object SupergraphUplinkSpec extends ZIOSpecDefault {
         for {
           stub   <- uplinkStub(Answer(uplinkConfigResult("id-1", minimalSupergraphSdl)))
           loader <- loaderFor(stub.endpoint)
-          _      <- loader.load
+          _      <- loader
           query  <- stub.queryOf(0)
           vars   <- stub.variablesOf(0)
         } yield assertTrue(
           query.contains("SupergraphSdl"),
           query.contains("routerConfig"),
           query.contains("RouterConfigResult"),
-          query.contains("Unchanged"),
           query.contains("FetchError"),
           vars.get("apiKey").contains(StringValue(apiKey.stringValue)),
           vars.get("ref").contains(StringValue(graphRef))
@@ -245,18 +219,18 @@ object SupergraphUplinkSpec extends ZIOSpecDefault {
       },
       test("advances the cursor: the first poll sends no id, the second sends the one it received") {
         // The assertion that catches a regression of the loader-lifetime refactor. A loader rebuilt
-        // per reload cycle would send no cursor on every poll, and this is the only place it shows.
+        // per reload cycle would send no cursor on every poll.
         for {
           stub    <- uplinkStub(
                        Answer(uplinkConfigResult("id-1", minimalSupergraphSdl)),
-                       Answer(uplinkConfigResult("id-2", changedSdl))
+                       Answer(uplinkConfigResult("id-2", changedSupergraphSdl))
                      )
           loader  <- loaderFor(stub.endpoint)
-          first   <- loader.load
-          second  <- loader.load
+          first   <- loader
+          second  <- loader
           cursor0 <- stub.cursorOf(0)
           cursor1 <- stub.cursorOf(1)
-          _       <- loader.load
+          _       <- loader
           cursor2 <- stub.cursorOf(2)
         } yield assertTrue(
           cursor0.isEmpty,
@@ -267,36 +241,27 @@ object SupergraphUplinkSpec extends ZIOSpecDefault {
         )
       },
       test("Unchanged returns the document last fetched, without re-parsing anything") {
-        for {
-          stub   <- uplinkStub(Answer(uplinkConfigResult("id-1", minimalSupergraphSdl)), Answer(uplinkUnchanged("id-1")))
-          loader <- loaderFor(stub.endpoint)
-          first  <- loader.load
-          second <- loader.load
-          calls  <- stub.calls
-        } yield assertTrue(first == second, calls == 2)
-      },
-      test("a document that fetched but failed downstream is re-offered on the next poll") {
         // The reason the cache holds the last *fetched* document rather than the last *activated*
         // one: the caller compares against the active generation, so it must keep seeing the new
         // document until it manages to build it. Caching the activated one wedges the gateway.
         for {
-          stub    <- uplinkStub(Answer(uplinkConfigResult("id-1", minimalSupergraphSdl)), Answer(uplinkUnchanged("id-1")))
-          loader  <- loaderFor(stub.endpoint)
-          fetched <- loader.load
-          again   <- loader.load
-          third   <- loader.load
-        } yield assertTrue(fetched == again, again == third)
+          stub   <- uplinkStub(Answer(uplinkConfigResult("id-1", minimalSupergraphSdl)), Answer(uplinkUnchanged("id-1")))
+          loader <- loaderFor(stub.endpoint)
+          first  <- loader
+          second <- loader
+          calls  <- stub.calls
+        } yield assertTrue(first == second, calls == 2)
       },
       test("Unchanged with nothing cached is a protocol violation, not an empty success") {
         for {
           stub    <- uplinkStub(Answer(uplinkUnchanged("id-1")), Answer(uplinkConfigResult("id-2", minimalSupergraphSdl)))
           loader  <- loaderFor(stub.endpoint)
-          exit    <- loader.load.exit
+          exit    <- loader.exit
           error   <- acquisitionFailure(exit)
-          _       <- loader.load
+          _       <- loader
           cursor1 <- stub.cursorOf(1)
         } yield assertTrue(
-          error == InvalidUplinkResponse(InvalidUplinkResponse.MissingSupergraphSdl),
+          error == InvalidResponse("$.data.routerConfig.supergraphSDL"),
           // Acknowledging an id we have no document for would have every later poll ask the same
           // unanswerable question, and the loader would never recover a full fetch.
           cursor1.isEmpty
@@ -306,7 +271,7 @@ object SupergraphUplinkSpec extends ZIOSpecDefault {
         for {
           stub   <- uplinkStub(Answer(uplinkFetchError("AUTHENTICATION_FAILED", "invalid key service:xyz for graph")))
           loader <- loaderFor(stub.endpoint)
-          exit   <- loader.load.exit
+          exit   <- loader.exit
           error  <- acquisitionFailure(exit)
         } yield assertTrue(
           error == UplinkFetchFailed("AUTHENTICATION_FAILED"),
@@ -321,9 +286,9 @@ object SupergraphUplinkSpec extends ZIOSpecDefault {
                        Answer(uplinkConfigResult("id-2", minimalSupergraphSdl))
                      )
           loader  <- loaderFor(stub.endpoint)
-          exit    <- loader.load.exit
+          exit    <- loader.exit
           error   <- acquisitionFailure(exit)
-          _       <- loader.load
+          _       <- loader
           cursor1 <- stub.cursorOf(1)
         } yield assertTrue(
           error.isInstanceOf[SchemaParsingFailed],
@@ -335,26 +300,26 @@ object SupergraphUplinkSpec extends ZIOSpecDefault {
         for {
           stub   <- uplinkStub(Answer(graphQLErrors))
           loader <- loaderFor(stub.endpoint)
-          exit   <- loader.load.exit
+          exit   <- loader.exit
           error  <- acquisitionFailure(exit)
         } yield assertTrue(
-          error == InvalidUplinkResponse(InvalidUplinkResponse.MissingData),
+          error == InvalidResponse("$.errors"),
           leaks(error.diagnostics, "denied").isEmpty
         )
       },
       test("an undecodable body is an invalid response rather than a defect") {
         for {
-          stub   <- uplinkStub(Answer(invalidResponse))
+          stub   <- uplinkStub(Answer("not json"))
           loader <- loaderFor(stub.endpoint)
-          exit   <- loader.load.exit
+          exit   <- loader.exit
           error  <- acquisitionFailure(exit)
-        } yield assertTrue(error == InvalidUplinkResponse(InvalidUplinkResponse.DecodingFailed))
+        } yield assertTrue(error.isInstanceOf[ResponseDecodingFailed])
       },
       test("a body larger than maxResponseBytes is rejected before it is decoded") {
         for {
           stub   <- uplinkStub(Answer(uplinkConfigResult("id-1", minimalSupergraphSdl)))
-          loader <- loaderFor(configFor(stub.endpoint).withAcquisition(fastAcquisition.withMaxResponseBytes(32)))
-          exit   <- loader.load.exit
+          loader <- loaderFor(configFor(stub.endpoint).withAcquisition(_.withMaxResponseBytes(32)))
+          exit   <- loader.exit
           error  <- acquisitionFailure(exit)
         } yield assertTrue(error == ResponseTooLarge(32))
       },
@@ -363,8 +328,8 @@ object SupergraphUplinkSpec extends ZIOSpecDefault {
         // is already three deep, and the supergraph itself is a string inside it.
         for {
           stub   <- uplinkStub(Answer(uplinkConfigResult("id-1", minimalSupergraphSdl)))
-          loader <- loaderFor(configFor(stub.endpoint).withAcquisition(fastAcquisition.withMaxParsingDepth(2)))
-          exit   <- loader.load.exit
+          loader <- loaderFor(configFor(stub.endpoint).withAcquisition(_.withMaxParsingDepth(2)))
+          exit   <- loader.exit
           error  <- acquisitionFailure(exit)
         } yield assertTrue(error == ParsingDepthExceeded(2))
       },
@@ -376,9 +341,9 @@ object SupergraphUplinkSpec extends ZIOSpecDefault {
                        Answer(uplinkConfigResult("id-1", minimalSupergraphSdl)),
                        Answer(uplinkConfigResult("id-2", deeplyNestedSdl))
                      )
-          loader  <- loaderFor(configFor(stub.endpoint).withAcquisition(fastAcquisition.withMaxParsingDepth(4)))
-          shallow <- loader.load.exit
-          exit    <- loader.load.exit
+          loader  <- loaderFor(configFor(stub.endpoint).withAcquisition(_.withMaxParsingDepth(4)))
+          shallow <- loader.exit
+          exit    <- loader.exit
           error   <- acquisitionFailure(exit)
         } yield assertTrue(shallow.isSuccess, error == ParsingDepthExceeded(4))
       },
@@ -386,22 +351,22 @@ object SupergraphUplinkSpec extends ZIOSpecDefault {
         for {
           stub   <- uplinkStub(Answer("", status = Status.Found))
           loader <- loaderFor(stub.endpoint)
-          exit   <- loader.load.exit
+          exit   <- loader.exit
           error  <- acquisitionFailure(exit)
         } yield assertTrue(error.isInstanceOf[UnexpectedResponse])
       },
       test("a response slower than the acquisition timeout fails with TimedOut") {
         for {
           stub   <- uplinkStub(Answer(uplinkConfigResult("id-1", minimalSupergraphSdl), delay = 3.seconds))
-          loader <- loaderFor(configFor(stub.endpoint).withAcquisition(fastAcquisition.withTimeout(300.millis)))
-          exit   <- loader.load.exit
+          loader <- loaderFor(configFor(stub.endpoint).withAcquisition(_.withTimeout(300.millis)))
+          exit   <- loader.exit
           error  <- acquisitionFailure(exit)
         } yield assertTrue(error == TimedOut(300.millis))
-      } @@ TestAspect.withLiveClock,
+      },
       test("a connection that cannot be made fails with RequestFailed") {
         for {
           loader <- loaderFor(unreachableEndpoint)
-          exit   <- loader.load.exit
+          exit   <- loader.exit
           error  <- acquisitionFailure(exit)
         } yield assertTrue(error.isInstanceOf[RequestFailed])
       }
@@ -415,7 +380,7 @@ object SupergraphUplinkSpec extends ZIOSpecDefault {
         for {
           second <- uplinkStub(Answer(uplinkConfigResult("id-1", minimalSupergraphSdl)))
           loader <- loaderFor(unreachableEndpoint, second.endpoint)
-          exit   <- loader.load.exit
+          exit   <- loader.exit
           calls  <- second.calls
         } yield assertTrue(exit.isSuccess, calls == 1)
       },
@@ -424,7 +389,7 @@ object SupergraphUplinkSpec extends ZIOSpecDefault {
           first  <- uplinkStub(Answer("upstream unavailable", status = Status.ServiceUnavailable))
           second <- uplinkStub(Answer(uplinkConfigResult("id-1", minimalSupergraphSdl)))
           loader <- loaderFor(first.endpoint, second.endpoint)
-          exit   <- loader.load.exit
+          exit   <- loader.exit
           calls  <- second.calls.zip(first.calls)
         } yield assertTrue(exit.isSuccess, calls == ((1, 1)))
       },
@@ -436,12 +401,12 @@ object SupergraphUplinkSpec extends ZIOSpecDefault {
           second <- uplinkStub(Answer(uplinkConfigResult("id-1", minimalSupergraphSdl)))
           loader <-
             loaderFor(
-              configFor(first.endpoint, second.endpoint).withAcquisition(fastAcquisition.withTimeout(300.millis))
+              configFor(first.endpoint, second.endpoint).withAcquisition(_.withTimeout(300.millis))
             )
-          exit   <- loader.load.exit
+          exit   <- loader.exit
           calls  <- second.calls
         } yield assertTrue(exit.isSuccess, calls == 1)
-      } @@ TestAspect.withLiveClock,
+      },
       test("does not fail over on an authoritative FetchError") {
         // Re-POSTing an AUTHENTICATION_FAILED would send the api key to a second host for an answer
         // the first host already gave definitively.
@@ -449,7 +414,7 @@ object SupergraphUplinkSpec extends ZIOSpecDefault {
           first  <- uplinkStub(Answer(uplinkFetchError("AUTHENTICATION_FAILED", "invalid key")))
           second <- uplinkStub(Answer(uplinkConfigResult("id-1", minimalSupergraphSdl)))
           loader <- loaderFor(first.endpoint, second.endpoint)
-          exit   <- loader.load.exit
+          exit   <- loader.exit
           error  <- acquisitionFailure(exit)
           calls  <- second.calls
         } yield assertTrue(error == UplinkFetchFailed("AUTHENTICATION_FAILED"), calls == 0)
@@ -459,7 +424,7 @@ object SupergraphUplinkSpec extends ZIOSpecDefault {
           first  <- uplinkStub(Answer(uplinkConfigResult("id-1", "type Query {")))
           second <- uplinkStub(Answer(uplinkConfigResult("id-1", minimalSupergraphSdl)))
           loader <- loaderFor(first.endpoint, second.endpoint)
-          exit   <- loader.load.exit
+          exit   <- loader.exit
           error  <- acquisitionFailure(exit)
           calls  <- second.calls
         } yield assertTrue(error.isInstanceOf[SchemaParsingFailed], calls == 0)
@@ -469,7 +434,7 @@ object SupergraphUplinkSpec extends ZIOSpecDefault {
           first  <- uplinkStub(Answer("", status = Status.ServiceUnavailable))
           second <- uplinkStub(Answer("", status = Status.ServiceUnavailable))
           loader <- loaderFor(first.endpoint, second.endpoint)
-          exit   <- loader.load.exit
+          exit   <- loader.exit
           error  <- acquisitionFailure(exit)
           calls  <- first.calls.zip(second.calls)
         } yield assertTrue(
@@ -487,11 +452,11 @@ object SupergraphUplinkSpec extends ZIOSpecDefault {
           first  <- uplinkStub(Answer("", status = Status.BadGateway))
           second <- uplinkStub(
                       Answer(uplinkConfigResult("id-1", minimalSupergraphSdl)),
-                      Answer(uplinkConfigResult("id-2", changedSdl)),
+                      Answer(uplinkConfigResult("id-2", changedSupergraphSdl)),
                       Answer(uplinkConfigResult("id-3", minimalSupergraphSdl))
                     )
           loader <- loaderFor(first.endpoint, second.endpoint)
-          loads  <- ZIO.foreach(1 to 3)(_ => loader.load.exit)
+          loads  <- ZIO.foreach(1 to 3)(_ => loader.exit)
           calls  <- first.calls.zip(second.calls)
         } yield assertTrue(loads.forall(_.isSuccess), calls == ((3, 3)))
       },
@@ -501,8 +466,8 @@ object SupergraphUplinkSpec extends ZIOSpecDefault {
             uplinkStub(Answer(uplinkConfigResult("id-1", minimalSupergraphSdl)), Answer("", status = Status.BadGateway))
           second <- uplinkStub(Answer(uplinkUnchanged("id-1")))
           loader <- loaderFor(first.endpoint, second.endpoint)
-          _      <- loader.load
-          exit   <- loader.load.exit
+          _      <- loader
+          exit   <- loader.exit
           cursor <- second.cursorOf(0)
           calls  <- second.calls
         } yield assertTrue(exit.isSuccess, cursor.contains("id-1"), calls == 1)

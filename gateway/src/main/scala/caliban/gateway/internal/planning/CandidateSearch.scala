@@ -85,12 +85,7 @@ private[gateway] final class CandidateSearch(limits: Limits) {
     else checkTimeout
 
   private def recordCandidates(count: Long): Either[PlanningFailure, Unit] =
-    if (count <= 1) checkTimeout
-    else
-      checkCapacity(count).flatMap { _ =>
-        candidateCount += count
-        checkTimeout
-      }
+    checkCapacity(count).map(_ => candidateCount += count)
 
   private def recordExpansion: Either[PlanningFailure, Unit] =
     if (expansionCount >= limits.maxExpansions)
